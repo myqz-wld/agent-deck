@@ -25,6 +25,7 @@ import type {
   CodexSessionHandle,
   InternalSession,
 } from './types';
+import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths, toCodexAppServerInput } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
@@ -41,6 +42,7 @@ import {
 // 3 子段 fn(详 create-session/_deps.ts 顶部 jsdoc 拆分说明)。
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
+import { createCodexForkedSession } from './fork-session/create-forked-session';
 import { CodexAppServerClient } from '../app-server/client';
 import {
   buildCodexUsageSnapshot,
@@ -359,6 +361,44 @@ export class CodexSdkBridge {
       emit: this.opts.emit,
       // arrow 闭包 facade `this`,运行时晚解析 → this.ensureCodex 一定已绑定
       ensureCodex: (sid, token, extra) => this.ensureCodex(sid, token, extra),
+    });
+  }
+
+  validateForkSession(source: ForkSessionSource): void {
+    const sourceClient = this.codexBySession.get(source.applicationSessionId);
+    const sourceInternal = this.sessions.get(source.applicationSessionId);
+    if (
+      !sourceClient ||
+      !sourceClient.isProcessAlive ||
+      !sourceInternal ||
+      sourceInternal.threadId !== source.nativeSessionId
+    ) {
+      throw new Error(
+        'Codex native fork requires caller-owned live app-server state matching the caller native thread. Retry while the caller turn is active or use contextMode "fresh".',
+      );
+    }
+  }
+
+  createForkedSession(
+    source: ForkSessionSource,
+    target: CreateSessionOpts,
+  ): Promise<ForkedSessionHandle> {
+    return createCodexForkedSession(source, target, {
+      sessions: this.sessions,
+      codexBySession: this.codexBySession,
+      threadLoop: this.threadLoop,
+      emit: this.opts.emit,
+      ensureCodex: (sid, token, extra) => this.ensureCodex(sid, token, extra),
+      lifecycle: {
+        allocateToken: (sid) => mcpSessionTokenMap.allocate(sid),
+        resolveToken: (token) => mcpSessionTokenMap.get(token),
+        releaseToken: (sid) => mcpSessionTokenMap.release(sid),
+        claimSession: (sid) => sessionManager.claimAsSdk(sid),
+        releaseClaim: (sid) => sessionManager.releaseSdkClaim(sid),
+        hasClaim: (sid) => sessionManager.hasSdkClaim(sid),
+        renameSession: (from, to) => sessionManager.renameSdkSession(from, to),
+        deleteSession: (sid) => sessionManager.delete(sid),
+      },
     });
   }
 

@@ -1,4 +1,11 @@
-import type { AgentAdapter, AdapterContext, CodexCreateOpts } from '../types';
+import type {
+  AgentAdapter,
+  AdapterContext,
+  CodexCreateOpts,
+  CreateSessionOptions,
+  ForkedSessionHandle,
+  ForkSessionSource,
+} from '../types';
 import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
@@ -34,6 +41,7 @@ class CodexCliAdapter implements AgentAdapter {
   displayName = 'Codex CLI';
   capabilities = {
     canCreateSession: true,
+    canForkSession: true,
     canInterrupt: true,
     canSendMessage: true,
     canSteerTurn: true,
@@ -111,6 +119,44 @@ class CodexCliAdapter implements AgentAdapter {
       awaitCanonicalId: opts.awaitCanonicalId,
     });
     return handle.sessionId;
+  }
+
+  async validateForkSession(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<void> {
+    if (target.agentId !== ADAPTER_ID) {
+      throw new Error(`Codex native fork received target adapter ${target.agentId}.`);
+    }
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    this.bridge.validateForkSession(source);
+  }
+
+  async createForkedSession(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<ForkedSessionHandle> {
+    if (target.agentId !== ADAPTER_ID) {
+      throw new Error(`Codex native fork received target adapter ${target.agentId}.`);
+    }
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    return this.bridge.createForkedSession(source, {
+      cwd: target.cwd,
+      prompt: target.prompt,
+      codexSandbox: target.codexSandbox,
+      attachments: target.attachments,
+      model: target.model,
+      modelReasoningEffort: target.modelReasoningEffort,
+      developerInstructions: target.developerInstructions,
+      codexConfigOverrides: target.codexConfigOverrides,
+      extraAllowWrite: target.extraAllowWrite,
+      approvalPolicy: target.approvalPolicy,
+      networkAccessEnabled: target.networkAccessEnabled,
+      additionalDirectories: target.additionalDirectories,
+      envOverrideExtra: target.envOverrideExtra,
+      handOff: target.handOff,
+      awaitCanonicalId: true,
+    });
   }
 
   async interruptSession(sessionId: string): Promise<void> {

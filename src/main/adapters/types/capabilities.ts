@@ -5,6 +5,8 @@
 
 export interface AdapterCapabilities {
   canCreateSession: boolean;
+  /** Supports native same-adapter conversation forks through createForkedSession. */
+  canForkSession: boolean;
   canInterrupt: boolean;
   canSendMessage: boolean;
   canSteerTurn?: boolean;

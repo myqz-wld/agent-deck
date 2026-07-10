@@ -2,6 +2,9 @@ import type {
   AgentAdapter,
   AdapterContext,
   ClaudeCreateOpts,
+  CreateSessionOptions,
+  ForkedSessionHandle,
+  ForkSessionSource,
   PermissionMode,
 } from '../types';
 import type {
@@ -16,6 +19,10 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import { ClaudeSdkBridge } from '../claude-code/sdk-bridge';
+import {
+  createClaudeFamilyForkedSession,
+  getClaudeConfigRoot,
+} from '../claude-code/fork-session';
 import { settingsStore } from '@main/store/settings-store';
 import {
   getDeepseekDefaultModel,
@@ -28,6 +35,9 @@ import {
   summariseSessionForHandOff,
 } from '@main/session/summarizer/llm-runners';
 import { unsupportedUsageSnapshot } from '../provider-usage';
+import { sessionManager } from '@main/session/manager';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { normalize, resolve } from 'node:path';
 
 const ADAPTER_ID = 'deepseek-claude-code';
 
@@ -62,11 +72,54 @@ export function rewriteDeepseekEvent(event: AgentEvent): AgentEvent {
   return { ...event, agentId: ADAPTER_ID, payload };
 }
 
+function comparableConfigRoot(configRoot: string): string {
+  const absolute = resolve(configRoot);
+  try {
+    return normalize(realpathSync(absolute)).normalize('NFC');
+  } catch {
+    return normalize(absolute).normalize('NFC');
+  }
+}
+
+function readDeepseekConfigRootOverride(settingsPath: string): string | undefined {
+  if (!existsSync(settingsPath)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const env = (parsed as { env?: unknown }).env;
+    if (!env || typeof env !== 'object' || Array.isArray(env)) return undefined;
+    const value = (env as Record<string, unknown>).CLAUDE_CONFIG_DIR;
+    return typeof value === 'string' ? value : undefined;
+  } catch (error) {
+    throw new Error(
+      `Failed to read Deepseek config ${settingsPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+/** Read-only native-fork preflight. It never creates settings or mutates process.env. */
+export function assertDeepseekForkTranscriptRootCompatible(
+  settingsPath = getDeepseekSettingsPath(),
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): void {
+  const mainProcessRoot = getClaudeConfigRoot(env);
+  const deepseekRoot = readDeepseekConfigRootOverride(settingsPath) ?? mainProcessRoot;
+  if (comparableConfigRoot(deepseekRoot) === comparableConfigRoot(mainProcessRoot)) return;
+  throw new Error(
+    'Deepseek native fork cannot safely locate the source transcript because its effective ' +
+      `CLAUDE_CONFIG_DIR (${deepseekRoot}) differs from the main-process Claude transcript root ` +
+      `(${mainProcessRoot}). Use the main transcript root or use contextMode "fresh".`,
+  );
+}
+
 class DeepseekClaudeCodeAdapter implements AgentAdapter {
   id = ADAPTER_ID;
   displayName = 'Deepseek (Claude Code)';
   capabilities = {
     canCreateSession: true,
+    canForkSession: true,
     canInterrupt: true,
     canSendMessage: true,
     canInstallHooks: false,
@@ -114,6 +167,35 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
       awaitCanonicalId: opts.awaitCanonicalId,
     });
     return handle.sessionId;
+  }
+
+  async validateForkSession(
+    _source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<void> {
+    if (target.agentId !== ADAPTER_ID) {
+      throw new Error(`Deepseek native fork requires target adapter "${ADAPTER_ID}".`);
+    }
+    if (!this.bridge) throw new Error('adapter not initialized');
+    assertDeepseekForkTranscriptRootCompatible();
+  }
+
+  async createForkedSession(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<ForkedSessionHandle> {
+    if (target.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error(`Deepseek native fork requires initialized target adapter "${ADAPTER_ID}".`);
+    }
+    const bridge = this.bridge;
+    return createClaudeFamilyForkedSession({
+      source,
+      providerName: 'Deepseek',
+      createChild: (forkedNativeSessionId) =>
+        this.createSession({ ...target, resume: forkedNativeSessionId }),
+      closeChild: (sessionId) => bridge.closeSession(sessionId),
+      deleteChild: (sessionId) => sessionManager.delete(sessionId),
+    });
   }
 
   async interruptSession(sessionId: string): Promise<void> {

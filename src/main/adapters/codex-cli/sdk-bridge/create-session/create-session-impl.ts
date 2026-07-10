@@ -62,6 +62,7 @@ import { runCreateSessionResumePath } from './create-session-resume';
 import { runCreateSessionNewPath } from './create-session-new';
 import { readTopLevelModelReasoningEffortFromCodexConfig } from '@main/codex-config/toml-writer';
 import { resolveCodexReasoningEffort } from './reasoning-effort-resolve';
+import { combineCodexDeveloperInstructions } from '../fork-session/target-runtime';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -125,7 +126,7 @@ export async function createSessionImpl(
       sessionModelReasoningEffort === opts.modelReasoningEffort
         ? opts
         : { ...opts, modelReasoningEffort: sessionModelReasoningEffort };
-    const developerInstructions = combineDeveloperInstructions(
+    const developerInstructions = combineCodexDeveloperInstructions(
       getAgentDeckCodexDeveloperInstructions(),
       opts.developerInstructions,
     );
@@ -244,11 +245,4 @@ export async function createSessionImpl(
     });
     throw err;
   }
-}
-
-function combineDeveloperInstructions(
-  ...parts: Array<string | undefined>
-): string | undefined {
-  const filtered = parts.map((p) => p?.trim()).filter((p): p is string => !!p);
-  return filtered.length > 0 ? filtered.join('\n\n---\n\n') : undefined;
 }

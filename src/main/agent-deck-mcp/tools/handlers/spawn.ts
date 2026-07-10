@@ -1,27 +1,11 @@
-/**
- * spawn_session handler —— 7 大 handler 中最重的一个：
- * - 防御链：external caller deny + sessionRepo caller 反查 + spawn-guards 3 条规则 +
- *   adapter capabilities 校验 + agent config resolve
- * - 持久化链：setSpawnLink + recordCreatedPermissionMode + setTitle +
- *   teamRepo.ensureByName/addMember(lead+teammate) + messageRepo.insert (placeholder)
- * - permission/sandbox 默认值：caller 显式 > same-adapter lead 继承 > target adapter 默认
- * - team-cohesion-fix-20260513 Phase B5/B7：spawn 路径与 reply chain 贯通的 placeholder + wire prefix
- *
- * 拆分历史：从 src/main/agent-deck-mcp/tools.ts 432-668 抽出（CHANGELOG_81 / plan
- * deep-review-and-split-20260513 H2 Step 2.1）。
- *
- * 顺手修 MED-1 (fan-out race)：setSpawnLink 提到 try 块内 createSession 之后（旧实现
- * 在 finally release 之后才 setSpawnLink，期间 applySpawnGuards 调用 listChildren 看不到
- * 新 sid + inFlightChildren 已 -1，effective parallel 能突破 maxFanOut + 1）。
- */
+/** spawn_session orchestration: preflight, guards, provider creation, links, teams, and anchor. */
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { adapterRegistry } from '@main/adapters/registry';
-import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import { eventBus } from '@main/event-bus';
-import { omitUndefined } from '@main/utils/optional-fields';
+import type { ForkedSessionHandle, ForkSessionSource } from '@main/adapters/types';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
@@ -43,6 +27,11 @@ import { resolveSpawnAgent } from './spawn-agent-resolver';
 import { defaultPermissionModeForTargetAdapter } from './spawn-defaults';
 import { finalizeSpawnLimits } from './spawn-limits';
 import { buildSpawnPromptContext } from './spawn-prompt';
+import { validateSpawnForkPreflight } from './spawn-fork-preflight';
+import {
+  buildSpawnTargetOptions,
+  setSpawnTargetPrompt,
+} from './spawn-target-options';
 import {
   cleanupEmptySpawnTeam,
   completeSpawnTeamMembership,
@@ -60,6 +49,13 @@ export const spawnSessionHandler = withMcpGuard(
     opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' },
   ) => {
     const { caller } = ctx;
+    const contextMode = args.contextMode ?? 'fresh';
+    if (opts?.handOffMode && contextMode === 'fork') {
+      return err(
+        'hand_off_session always starts a fresh successor and cannot request contextMode "fork".',
+        'Remove contextMode from the internal hand-off request, or call spawn_session directly for a parallel native fork.',
+      );
+    }
 
     const adapter = adapterRegistry.get(args.adapter);
     if (!adapter || !adapter.createSession) {
@@ -166,6 +162,34 @@ export const spawnSessionHandler = withMcpGuard(
           ? (leadRecord?.extraAllowWrite ?? undefined)
           : undefined;
 
+    // Build once before fork preflight. The provisional prompt is replaced in-place after the
+    // normal team/reply context is assembled, preserving fresh dispatch field order and values.
+    const targetOptions = buildSpawnTargetOptions({
+      args,
+      prompt: promptToUse,
+      effectivePermissionMode,
+      effectiveCodexSandbox,
+      effectiveClaudeCodeSandbox,
+      effectiveExtraAllowWrite,
+      modelOptions: resolvedModelOptions.options,
+      developerInstructions: developerInstructionsFromAgent,
+      codexConfigOverrides: codexConfigOverridesFromAgent,
+      claudeAgentName: claudeAgentNameFromAgent,
+      claudeAgents: claudeAgentsFromAgent,
+    });
+
+    let forkSource: ForkSessionSource | null = null;
+    if (contextMode === 'fork') {
+      const preflight = await validateSpawnForkPreflight({
+        callerSessionId: caller.callerSessionId,
+        caller: leadRecord,
+        adapter,
+        target: targetOptions,
+      });
+      if (!preflight.ok) return preflight.result;
+      forkSource = preflight.source;
+    }
+
     // 完整防递归 3 条规则（ADR §6 / REVIEW_28 移除 §6.2 cwd cycle 后）：depth 上限 /
     // fan-out / spawn-rate（顺序：不消耗资源的检查前置，详 spawn-guards.ts 头注释）。
     // 任一 deny 立即返回；通过 → 拿到 fanOutSlot，必须在 createSession 完成后（无论成功
@@ -243,6 +267,7 @@ export const spawnSessionHandler = withMcpGuard(
       teamIdEarly,
       handOffMode: opts?.handOffMode,
     });
+    setSpawnTargetPrompt(targetOptions, promptForSpawn);
 
     // 实际 spawn
     // REVIEW_32 follow-up MED-1 (fan-out race) 修法：把 setSpawnLink 提到 try 块内 createSession
@@ -251,52 +276,14 @@ export const spawnSessionHandler = withMcpGuard(
     // listChildren=oldCount（新 sid 未 setSpawnLink）→ effective 比真实少 1，能突破 maxFanOut + 1。
     // 新版 setSpawnLink 在 release 之前做完，关闭 race window。
     let sid: string;
+    let forkHandle: ForkedSessionHandle | null = null;
     try {
-      // p4-d2-impl Step 2.1：用 buildCreateSessionOptions builder helper 按 args.adapter narrow
-      // 到对应 union arm（filter 掉不属本 adapter 的字段，TS 编译期阻止字段误传）。原 inline
-      // omitUndefined + spread+ternary 模式（Step 2.2）作为 raw 输入塞 builder。
-      sid = await adapter.createSession(
-        buildCreateSessionOptions(args.adapter, {
-          cwd: args.cwd,
-          prompt: promptForSpawn, // wire 形式（spawn 路径下若有 teamName 则含 [msg <id>] prefix）
-          // 使用 effective 字段（caller 显式 > same-adapter lead 继承 > target adapter 默认）
-          // REVIEW_37 P1-Phase2 (claude F4 LOW)：omitUndefined 收口 4 个简单 spread+ternary。
-          // 仅 extraAllowWrite（length > 0 语义）+ model（falsy 语义）保留 inline ternary。
-          ...omitUndefined({
-            permissionMode: effectivePermissionMode,
-            codexSandbox: effectiveCodexSandbox,
-            claudeCodeSandbox: effectiveClaudeCodeSandbox,
-            teamName: args.teamName,
-            model: resolvedModelOptions.options.model,
-            modelReasoningEffort: resolvedModelOptions.options.modelReasoningEffort,
-            claudeCodeEffortLevel: resolvedModelOptions.options.claudeCodeEffortLevel,
-            developerInstructions: developerInstructionsFromAgent,
-            codexConfigOverrides: codexConfigOverridesFromAgent,
-            claudeAgentName: claudeAgentNameFromAgent,
-            claudeAgents: claudeAgentsFromAgent,
-            // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（信号源）：透传
-            // args.agentName → options-builder narrowToCodexOpts 按 reviewer-* 路径触发 codex
-            // reviewer teammate runtime default spread（approvalPolicy / networkAccessEnabled /
-            // additionalDirectories）。codexSandbox 已按普通 spawn 规则在 effectiveCodexSandbox
-            // 里完成 caller 显式 / same-adapter 继承 / target default 选择。
-            //
-            // 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉
-            // （narrowToClaudeOpts 不引用 agentName 字段）。
-            agentName: args.agentName,
-            // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2: hand_off_session
-            // handler 装配的 HandOffMetadata 透传给 builder → adapter narrow → bridge
-            // createSession → first user message emit spread 进 events.payload。
-            handOff: args.handOff,
-            awaitCanonicalId: true,
-          }),
-          // REVIEW_36 R2 HIGH-B + MED-C：透传 extra writable roots（caller 显式或 same-adapter
-          // 从 lead 继承）—
-          // 留 inline 因要 length > 0 检查（空数组也跳过，omitUndefined 不处理 empty array）
-          ...(effectiveExtraAllowWrite !== undefined && effectiveExtraAllowWrite.length > 0
-            ? { extraAllowWrite: effectiveExtraAllowWrite }
-            : {}),
-        }),
-      );
+      if (contextMode === 'fork' && forkSource) {
+        forkHandle = await adapter.createForkedSession!(forkSource, targetOptions);
+        sid = forkHandle.sessionId;
+      } else {
+        sid = await adapter.createSession(targetOptions);
+      }
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
       // setSpawnLink 在 release 之前完成，关闭 fan-out race window（详上方 MED-1 注释）。
       //
@@ -365,7 +352,9 @@ export const spawnSessionHandler = withMcpGuard(
       });
       return err(
         e instanceof Error ? e.message : String(e),
-        `No session was created. Retry once with an exact catalog/provider model and a thinking value supported by ${args.adapter}, or omit model/thinking. If it still fails, verify adapter authentication and inspect Agent Deck logs.`,
+        contextMode === 'fork'
+          ? `No forked session was registered. Fix the ${args.adapter} native-fork condition in the error, or retry with contextMode "fresh". If it still fails, inspect Agent Deck logs.`
+          : `No session was created. Retry once with an exact catalog/provider model and a thinking value supported by ${args.adapter}, or omit model/thinking. If it still fails, verify adapter authentication and inspect Agent Deck logs.`,
       );
     } finally {
       // catch 路径已 release；finally 兜底 idempotent 二次 release（内部 dedupe）
@@ -419,7 +408,16 @@ export const spawnSessionHandler = withMcpGuard(
       teammateDisplayName,
       batonRole: opts?.batonRole,
     });
-    if (!teamMembership.ok) return teamMembership.result;
+    if (!teamMembership.ok) {
+      if (forkHandle) {
+        try {
+          await forkHandle.discard();
+        } catch (error) {
+          logger.warn(`[mcp spawn_session] native fork discard after team failure failed for ${sid}:`, error);
+        }
+      }
+      return teamMembership.result;
+    }
     const teamId = teamMembership.teamId;
 
     // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 send_message 贯通的方案 A 实现 ——
@@ -486,6 +484,12 @@ export const spawnSessionHandler = withMcpGuard(
       sentAt: Date.now(),
       // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 作为 teammate first reply anchor
       spawnPromptMessageId,
+      ...(contextMode === 'fork'
+        ? {
+            contextMode: 'fork' as const,
+            forkedFromSessionId: caller.callerSessionId,
+          }
+        : {}),
     } satisfies SpawnSessionResult);
   },
 );

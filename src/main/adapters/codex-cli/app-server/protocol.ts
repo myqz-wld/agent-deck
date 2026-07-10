@@ -6,7 +6,39 @@ export type JsonObject = { [key: string]: JsonValue | undefined };
 
 export type CodexAppServerUserInput =
   | { type: 'text'; text: string; text_elements: JsonValue[] }
-  | { type: 'localImage'; path: string; detail?: string };
+  | { type: 'image'; url: string; detail?: string }
+  | { type: 'localImage'; path: string; detail?: string }
+  | { type: 'skill'; name: string; path: string }
+  | { type: 'mention'; name: string; path: string };
+
+export interface CodexAppServerThreadTurn {
+  id: string;
+  status: 'completed' | 'interrupted' | 'failed' | 'inProgress';
+  items: CodexAppServerThreadItem[];
+}
+
+export interface CodexAppServerThreadItem {
+  type: string;
+  id?: string;
+  clientId?: string | null;
+  content?: unknown;
+  [key: string]: unknown;
+}
+
+export interface CodexAppServerThreadInfo {
+  id: string;
+  forkedFromId?: string | null;
+  turns: CodexAppServerThreadTurn[];
+  [key: string]: unknown;
+}
+
+export interface CodexAppServerThreadReadResult {
+  thread: CodexAppServerThreadInfo;
+}
+
+export interface CodexAppServerThreadCreateResult {
+  thread: CodexAppServerThreadInfo;
+}
 
 export type CodexAppServerNotification = { method: string; params?: unknown };
 

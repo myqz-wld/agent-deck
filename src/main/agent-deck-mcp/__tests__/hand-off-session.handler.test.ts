@@ -124,6 +124,7 @@ describe('handOffSessionHandler', () => {
       prompt: args.prompt,
       handOff: { mode: 'session', fromCallerSid: 'caller-sid' },
     });
+    expect(seen.args).not.toHaveProperty('contextMode');
     expect(closeSession).toHaveBeenCalledWith('caller-sid');
 
     const data = parseResult(result);

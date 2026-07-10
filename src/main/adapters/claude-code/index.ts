@@ -2,6 +2,9 @@ import type {
   AgentAdapter,
   AdapterContext,
   ClaudeCreateOpts,
+  CreateSessionOptions,
+  ForkedSessionHandle,
+  ForkSessionSource,
   PermissionMode,
 } from '../types';
 import type {
@@ -15,9 +18,11 @@ import type {
   ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
+import { sessionManager } from '@main/session/manager';
 import { buildHookRoutes } from './hook-routes';
 import { HookInstaller } from './hook-installer';
 import { ClaudeSdkBridge } from './sdk-bridge';
+import { createClaudeFamilyForkedSession } from './fork-session';
 import { settingsStore } from '@main/store/settings-store';
 import {
   summariseViaLlm,
@@ -31,6 +36,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
   displayName = 'Claude Code';
   capabilities = {
     canCreateSession: true,
+    canForkSession: true,
     canInterrupt: true,
     canSendMessage: true,
     canInstallHooks: true,
@@ -94,6 +100,34 @@ class ClaudeCodeAdapter implements AgentAdapter {
       awaitCanonicalId: opts.awaitCanonicalId,
     });
     return handle.sessionId;
+  }
+
+  async validateForkSession(
+    _source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<void> {
+    if (target.agentId !== ADAPTER_ID) {
+      throw new Error(`Claude native fork requires target adapter "${ADAPTER_ID}".`);
+    }
+    if (!this.bridge) throw new Error('adapter not initialized');
+  }
+
+  async createForkedSession(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<ForkedSessionHandle> {
+    if (target.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error(`Claude native fork requires initialized target adapter "${ADAPTER_ID}".`);
+    }
+    const bridge = this.bridge;
+    return createClaudeFamilyForkedSession({
+      source,
+      providerName: 'Claude',
+      createChild: (forkedNativeSessionId) =>
+        this.createSession({ ...target, resume: forkedNativeSessionId }),
+      closeChild: (sessionId) => bridge.closeSession(sessionId),
+      deleteChild: (sessionId) => sessionManager.delete(sessionId),
+    });
   }
 
   async interruptSession(sessionId: string): Promise<void> {

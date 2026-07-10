@@ -20,6 +20,19 @@ export function buildThreadResumeParams(
   };
 }
 
+export function buildThreadForkParams(
+  threadId: string,
+  lastTurnId: string,
+  options: CodexThreadOptions,
+  baseConfig: CodexConfigObject | null,
+): JsonObject {
+  return {
+    threadId,
+    lastTurnId,
+    ...buildThreadCommonParams(options, baseConfig),
+  };
+}
+
 function buildThreadCommonParams(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
@@ -39,6 +52,7 @@ function buildThreadCommonParams(
 export const __testables = {
   buildThreadStartParams,
   buildThreadResumeParams,
+  buildThreadForkParams,
   buildTurnStartParams,
   buildThreadConfig,
 };

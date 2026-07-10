@@ -24,6 +24,7 @@ import type {
 import type { AdapterContext, PermissionMode } from './adapter-context';
 import type { AdapterCapabilities } from './capabilities';
 import type { CreateSessionOptions } from './create-session-opts';
+import type { ForkedSessionHandle, ForkSessionSource } from './fork-session';
 
 export interface AgentAdapter {
   id: string;
@@ -34,6 +35,16 @@ export interface AgentAdapter {
   shutdown(): Promise<void>;
 
   createSession?(opts: CreateSessionOptions): Promise<string>;
+  /** Read-only provider eligibility checks that must run before spawn capacity is reserved. */
+  validateForkSession?(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<void>;
+  /** Create a provider-native child without exposing native ids through ordinary create options. */
+  createForkedSession?(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<ForkedSessionHandle>;
   interruptSession?(sessionId: string): Promise<void>;
   /**
    * 由 SessionManager.delete 调用：abort SDK 侧 live query/turn + 清 pending Maps + 移除 internal session 记录。
