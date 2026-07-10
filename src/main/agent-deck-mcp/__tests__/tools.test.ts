@@ -742,7 +742,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'sonnet',
       'opus',
       'fable',
-      'fable-5',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
@@ -751,10 +750,11 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'v4-flash',
       'v4-pro',
     ]);
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('fable-5');
     expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.6');
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('claude-opus-4-8').success).toBe(true);
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('').success).toBe(false);
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('fable-5');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('fable-5');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-sol');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-terra');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-luna');
@@ -1006,14 +1006,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'claude model task',
-      model: 'fable-5',
+      model: 'fable',
       thinking: 'max',
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].model).toBe('fable-5');
+    expect(createSessionCalls[0].model).toBe('fable');
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('max');
     expect(createSessionCalls[0].modelReasoningEffort).toBeUndefined();
   });
