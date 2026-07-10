@@ -3,6 +3,23 @@ import { describe, expect, it } from 'vitest';
 import { CodexAppServerClient, __testables } from './client';
 
 describe('Codex app-server thread params', () => {
+  it('opts new threads into raw response notifications for complete collaboration activity', () => {
+    const options = {
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write' as const,
+      approvalPolicy: 'never' as const,
+      skipGitRepoCheck: true,
+    };
+
+    expect(__testables.buildThreadStartParams(options, null)).toMatchObject({
+      experimentalRawEvents: true,
+    });
+    expect(__testables.buildThreadResumeParams('thread-1', options, null))
+      .not.toHaveProperty('experimentalRawEvents');
+    expect(__testables.buildThreadForkParams('source-1', 'turn-1', options, null))
+      .not.toHaveProperty('experimentalRawEvents');
+  });
+
   it('passes developerInstructions to thread/start and thread/resume only at thread scope', () => {
     const options = {
       workingDirectory: '/repo',
