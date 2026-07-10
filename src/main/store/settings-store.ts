@@ -232,6 +232,17 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
         );
       }
     }
+    // Codex summary / hand-off settings intentionally omit the model-specific `max` choice.
+    // Preserve Claude-family max, but normalize an older Codex selection to xhigh so the hidden
+    // value cannot keep running while DeckSelect visually falls back to its first option.
+    if (persistedRaw['summaryProvider'] === 'codex' && persistedRaw['summaryReasoning'] === 'max') {
+      store.set('summaryReasoning', 'xhigh');
+      logger.info('[settings] migrated Codex summaryReasoning max → xhigh');
+    }
+    if (persistedRaw['handOffProvider'] === 'codex' && persistedRaw['handOffReasoning'] === 'max') {
+      store.set('handOffReasoning', 'xhigh');
+      logger.info('[settings] migrated Codex handOffReasoning max → xhigh');
+    }
     for (const key of REMOVED_KEYS) {
       if (key in persistedRaw) {
         looseDelete.delete(key);

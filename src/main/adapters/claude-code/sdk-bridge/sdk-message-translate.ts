@@ -31,6 +31,11 @@ import {
   completeLiveTokenEstimate,
   handleStreamEventForLiveRate,
 } from './live-token-rate';
+import {
+  accumulateThinkingTokenEstimate,
+  emitThinkingUsageCorrection,
+  resetTurnUsageAccounting,
+} from './thinking-token-usage';
 import type { InternalSession } from './types';
 import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
 
@@ -186,7 +191,9 @@ function emitResultUsageCorrection(
       const finalUsage = {
         input: u.input_tokens ?? 0,
         output: u.output_tokens ?? 0,
-        reasoning: reasoningTokensFromOutputDetails(u.output_tokens_details),
+        // Reasoning is reconciled separately so non-empty modelUsage cannot hide an aggregate
+        // authoritative detail and SDK estimates never get added to an exact value.
+        reasoning: 0,
         cacheRead: u.cache_read_input_tokens ?? 0,
         cacheCreation: u.cache_creation_input_tokens ?? 0,
       };
@@ -205,8 +212,6 @@ function emitResultUsageCorrection(
     }
   } catch {
     // token usage 是旁路统计，result correction 失败不应影响 finished / UI 主流程。
-  } finally {
-    internal.turnUsageByBucket.clear();
   }
 }
 
@@ -460,15 +465,35 @@ export function translateSdkMessage(
     // result frame 翻译）。
     if (internal.expectedClose) {
       clearLiveTokenEstimate(internal, sessionId, ts);
+      resetTurnUsageAccounting(internal);
       return;
     }
     completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
-    emitResultUsageCorrection(e, internal, resolveClaudeFallbackModel(internal, sessionId), r);
+    const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
+    try {
+      emitResultUsageCorrection(e, internal, fallbackModel, r);
+      emitThinkingUsageCorrection(e, internal, fallbackModel, r);
+    } catch {
+      // Usage telemetry must never interrupt result/finished translation.
+    } finally {
+      resetTurnUsageAccounting(internal);
+    }
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
     }
     e('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
+  } else if (msg.type === 'system' && msg.subtype === 'thinking_tokens') {
+    // The SDK marks these values as approximate. Keep them turn-local and flush one correction at
+    // result; persisting every stream delta would create synchronous DB/IPC churn and could not be
+    // undone if an authoritative result detail arrives later.
+    accumulateThinkingTokenEstimate(
+      internal,
+      hasExplicitModel(internal.runtimeModel)
+        ? internal.runtimeModel
+        : resolveClaudeFallbackModel(internal, sessionId),
+      msg,
+    );
   } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const metadata = (msg as {
       compact_metadata?: {

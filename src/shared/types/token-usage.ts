@@ -16,8 +16,8 @@
  *   codex 无 → null
  * - model：原始 model id（claude BetaMessage.model / result.modelUsage key / codex 取 sessions.model）；
  *   归一在写库时算
- * - 指标：cache_* / reasoning 缺省填 0（codex 无 cache_creation；claude 仅在
- *   usage.output_tokens_details.thinking_tokens 存在时返回 reasoning）
+ * - 指标：cache_* / reasoning 缺省填 0（codex 无 cache_creation；Claude 优先使用
+ *   result output details，当 CLI 不提供权威拆分时使用 SDK thinking-token estimate）
  */
 export interface TokenUsagePayload {
   messageId: string | null;
