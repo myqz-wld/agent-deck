@@ -169,18 +169,7 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
     }
     case 'Task':
     case 'Agent': {
-      // Claude Agent SDK 的 Task 工具：spawn 一个 subagent 干活。
-      // 'Agent' 是新版 SDK 的别名（input shape 完全一致：{subagent_type, prompt, description}），
-      // 实证 jsonl tool_use 名字混着出现，统一处理。
-      // toolInput.subagent_type 是 subagent 名（如 'agent-deck:reviewer-claude' / 'general-purpose'），
-      // toolInput.prompt 是给 subagent 的指令文本（可能很长 → 单行摘要截断 60 字够了，
-      // 完整 prompt 由 ToolStartRow 「展开 prompt」按钮显示）。
-      const sub = typeof o.subagent_type === 'string' ? o.subagent_type : '';
-      const prm = typeof o.prompt === 'string' ? o.prompt.replace(/\s+/g, ' ').trim() : '';
-      if (!sub && !prm) return null;
-      const prmShort = prm.length > 60 ? prm.slice(0, 60) + '…' : prm;
-      if (sub && prm) return `${sub} · ${prmShort}`;
-      return sub || prmShort;
+      return describeAgentToolInput(o);
     }
     case 'TeamCreate': {
       // Agent Teams CLI builtin：{ team_name, description }
@@ -247,4 +236,75 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       return null;
     }
   }
+}
+
+export function describeAgentToolInput(
+  input: Record<string, unknown>,
+  textLimit = 60,
+): string | null {
+  const subagentType = typeof input.subagent_type === 'string' ? input.subagent_type : '';
+  const collabTool = typeof input.collab_tool === 'string' ? input.collab_tool : '';
+  const taskName = typeof input.task_name === 'string' ? input.task_name : '';
+  const agentType = typeof input.agent_type === 'string' ? input.agent_type : '';
+  const target =
+    typeof input.target === 'string'
+      ? input.target
+      : typeof input.id === 'string'
+        ? input.id
+        : '';
+  const model = typeof input.model === 'string' ? input.model : '';
+  const effort =
+    typeof input.reasoning_effort === 'string'
+      ? input.reasoning_effort
+      : typeof input.model_reasoning_effort === 'string'
+        ? input.model_reasoning_effort
+        : '';
+  const timeoutMs =
+    typeof input.timeout_ms === 'number' && Number.isFinite(input.timeout_ms)
+      ? input.timeout_ms
+      : null;
+  const receiverCount = Array.isArray(input.receiver_thread_ids)
+    ? input.receiver_thread_ids.filter((value) => typeof value === 'string').length
+    : 0;
+  const rawTargetCount = Array.isArray(input.targets)
+    ? input.targets.filter((value) => typeof value === 'string').length
+    : 0;
+  const forkTurns = typeof input.fork_turns === 'string' ? input.fork_turns : '';
+  const forkContext = typeof input.fork_context === 'boolean' ? input.fork_context : null;
+  const serviceTier = typeof input.service_tier === 'string' ? input.service_tier : '';
+  const pathPrefix = typeof input.path_prefix === 'string' ? input.path_prefix : '';
+  const description =
+    typeof input.description === 'string'
+      ? input.description.replace(/\s+/g, ' ').trim()
+      : typeof input.prompt === 'string'
+        ? input.prompt.replace(/\s+/g, ' ').trim()
+        : '';
+  const runtime = [
+    collabTool,
+    subagentType || taskName || agentType,
+    target ? `→ ${target}` : '',
+    model && effort ? `${model}/${effort}` : model || effort,
+    forkTurns
+      ? `fork_turns=${forkTurns}`
+      : forkContext === null
+        ? ''
+        : forkContext
+          ? '继承上下文'
+          : '不继承上下文',
+    serviceTier ? `service_tier=${serviceTier}` : '',
+    pathPrefix ? `范围 ${pathPrefix}` : '',
+    input.interrupt === true ? '先中断' : '',
+    timeoutMs === null ? '' : `超时 ${formatDurationMs(timeoutMs)}`,
+    receiverCount || rawTargetCount ? `${receiverCount || rawTargetCount} 个目标` : '',
+  ].filter(Boolean);
+  if (runtime.length === 0 && !description) return null;
+  const shortDescription =
+    description.length > textLimit ? description.slice(0, textLimit) + '…' : description;
+  return [...runtime, shortDescription].filter(Boolean).join(' · ');
+}
+
+function formatDurationMs(milliseconds: number): string {
+  return milliseconds >= 1000 && milliseconds % 1000 === 0
+    ? `${milliseconds / 1000} 秒`
+    : `${milliseconds} 毫秒`;
 }

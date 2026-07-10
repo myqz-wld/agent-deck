@@ -9,6 +9,12 @@ import {
   isEffectiveCodexFileChange,
   isIncompleteCodexFileChangeStatus,
 } from '@shared/codex-file-change';
+import {
+  collabAgentErrorMessage,
+  collabAgentToolInput,
+  collabAgentToolResult,
+  translateRawCollabResponseItem,
+} from './translate-collab';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server-translate');
@@ -19,10 +25,11 @@ type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 
 export interface CodexAppServerTranslateState {
   reasoningSummaryByItemId: Map<string, string[]>;
+  rawCollabCallsById: Map<string, Record<string, unknown>>;
 }
 
 export function createCodexAppServerTranslateState(): CodexAppServerTranslateState {
-  return { reasoningSummaryByItemId: new Map() };
+  return { reasoningSummaryByItemId: new Map(), rawCollabCallsById: new Map() };
 }
 
 export function translateCodexAppServerNotification(
@@ -78,9 +85,13 @@ export function translateCodexAppServerNotification(
       return;
     }
 
+    case 'rawResponseItem/completed': {
+      translateRawCollabResponseItem(notification.params, emit, opts?.state?.rawCollabCallsById);
+      return;
+    }
+
     case 'item/mcpToolCall/progress':
     case 'serverRequest/resolved':
-    case 'rawResponseItem/completed':
     case 'warning':
     case 'guardianWarning':
     case 'configWarning':
@@ -327,10 +338,11 @@ function translateItemCompleted(
       emit('tool-use-end', {
         toolUseId: item.id,
         toolName: 'Agent',
-        toolResult: item.result ?? item.output ?? item.content ?? item.contentItems ?? '',
+        toolInput: collabAgentToolInput(item),
+        toolResult: collabAgentToolResult(item),
         status: item.status,
         error:
-          itemErrorMessage(item) ??
+          collabAgentErrorMessage(item) ??
           (item.success === false ? 'Collab agent tool call failed' : undefined),
       });
       return;
@@ -452,27 +464,6 @@ function dynamicToolSkillName(item: AnyRecord): string | null {
   return toolName && !GENERIC_SKILL_TOOL_NAMES.has(toolName.toLowerCase()) ? toolName : null;
 }
 
-function collabAgentToolInput(item: AnyRecord): Record<string, string> {
-  const prompt =
-    stringField(item.prompt) ||
-    stringField(item.instructions) ||
-    stringField(item.input) ||
-    stringField(item.task);
-  const description =
-    stringField(item.description) || stringField(item.title) || stringField(item.summary);
-  return {
-    subagent_type:
-      stringField(item.subagent_type) ||
-      stringField(item.subagentType) ||
-      stringField(item.agentName) ||
-      stringField(item.agent) ||
-      stringField(item.name) ||
-      'codex-collab-agent',
-    ...(prompt ? { prompt } : {}),
-    ...(description ? { description } : {}),
-  };
-}
-
 function itemText(item: AnyRecord): string {
   const parts = [
     stringField(item.text),
@@ -482,11 +473,6 @@ function itemText(item: AnyRecord): string {
     ...stringArray(item.content),
   ].filter(Boolean);
   return parts.join('\n\n').trim();
-}
-
-function itemErrorMessage(item: AnyRecord): string | undefined {
-  const err = asRecord(item.error);
-  return stringField(err?.message) || stringField(item.errorMessage) || undefined;
 }
 
 function codexFileChangeKind(value: unknown): string | undefined {

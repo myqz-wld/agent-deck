@@ -84,6 +84,62 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
     case 'Grep':
     case 'Glob':
       return typeof o.pattern === 'string' ? truncate(o.pattern, 120) : null;
+    case 'Task':
+    case 'Agent': {
+      const collabTool = typeof o.collab_tool === 'string' ? o.collab_tool : '';
+      const agent =
+        typeof o.subagent_type === 'string'
+          ? o.subagent_type
+          : typeof o.task_name === 'string'
+            ? o.task_name
+            : typeof o.agent_type === 'string'
+              ? o.agent_type
+              : '';
+      const targetValue =
+        typeof o.target === 'string' ? o.target : typeof o.id === 'string' ? o.id : '';
+      const target = targetValue ? `→ ${targetValue}` : '';
+      const model = typeof o.model === 'string' ? o.model : '';
+      const effort =
+        typeof o.reasoning_effort === 'string'
+          ? o.reasoning_effort
+          : typeof o.model_reasoning_effort === 'string'
+            ? o.model_reasoning_effort
+            : '';
+      const timeout =
+        typeof o.timeout_ms === 'number' && Number.isFinite(o.timeout_ms)
+          ? `超时 ${formatDurationMs(o.timeout_ms)}`
+          : '';
+      const forkTurns = typeof o.fork_turns === 'string' ? o.fork_turns : '';
+      const forkContext = typeof o.fork_context === 'boolean' ? o.fork_context : null;
+      const receiverTargetCount = Array.isArray(o.receiver_thread_ids)
+        ? o.receiver_thread_ids.filter((value) => typeof value === 'string').length
+        : 0;
+      const rawTargetCount = Array.isArray(o.targets)
+        ? o.targets.filter((value) => typeof value === 'string').length
+        : 0;
+      const targetCount = receiverTargetCount || rawTargetCount;
+      const detail = [
+        collabTool,
+        agent,
+        target,
+        model && effort ? `${model}/${effort}` : model || effort,
+        forkTurns
+          ? `fork_turns=${forkTurns}`
+          : forkContext === null
+            ? ''
+            : forkContext
+              ? '继承上下文'
+              : '不继承上下文',
+        typeof o.service_tier === 'string' ? `service_tier=${o.service_tier}` : '',
+        typeof o.path_prefix === 'string' ? `范围 ${o.path_prefix}` : '',
+        o.interrupt === true ? '先中断' : '',
+        timeout,
+        targetCount > 0 ? `${targetCount} 个目标` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return detail ? truncate(detail, 200) : null;
+    }
     default:
       return null;
   }
@@ -91,6 +147,12 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+function formatDurationMs(milliseconds: number): string {
+  return milliseconds >= 1000 && milliseconds % 1000 === 0
+    ? `${milliseconds / 1000} 秒`
+    : `${milliseconds} 毫秒`;
 }
 
 /**

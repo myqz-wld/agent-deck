@@ -4,6 +4,7 @@ import { isImageTool } from '@shared/mcp-tools';
 import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { toolIcon } from './activity-feed/tool-icons';
+import { describeAgentToolInput } from './activity-feed/describe';
 import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
 
@@ -358,14 +359,7 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
     }
     case 'Task':
     case 'Agent': {
-      // Phase 5 Step 5.3（plan §决策 4 L2）：spawn subagent 时显示 subagent_type 让用户知道
-      // 是 explore / general-purpose / agent-deck:reviewer-claude 等谁在干活
-      const sub = typeof o.subagent_type === 'string' ? o.subagent_type : '';
-      const desc = typeof o.description === 'string' ? o.description.replace(/\s+/g, ' ').trim() : '';
-      if (!sub && !desc) return null;
-      const descShort = desc.length > 40 ? desc.slice(0, 40) + '…' : desc;
-      if (sub && desc) return `${sub} · ${descShort}`;
-      return sub || descShort;
+      return describeAgentToolInput(o, 40);
     }
     case 'Skill': {
       // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }

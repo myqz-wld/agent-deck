@@ -358,6 +358,7 @@ describe('translateCodexAppServerNotification', () => {
         payload: {
           toolUseId: 'agent-1',
           toolName: 'Agent',
+          toolInput: { subagent_type: 'reviewer-codex', prompt: 'review this patch' },
           toolResult: 'no blockers',
           status: 'completed',
           error: undefined,
@@ -365,6 +366,7 @@ describe('translateCodexAppServerNotification', () => {
       },
     ]);
   });
+
 
   it('marks command output deltas so downstream event stores append output and preserve command input', () => {
     const { emit, events } = collect();

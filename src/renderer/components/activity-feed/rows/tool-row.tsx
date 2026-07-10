@@ -81,15 +81,80 @@ export function ToolStartRow({
     );
   }
 
-  // Task / Agent：spawn subagent。当前会话起 reviewer slots / general-purpose 等都走这条。
-  // 'Agent' 是新版 SDK 的 Task 别名（input shape 完全一致），统一处理。
+  // Task / Agent：spawn subagent 或执行 Codex collaboration 操作。
   // 单行摘要靠 describe.ts 的 Task case；prompt 全文较长（典型 review prompt 含 scope+focus+skip 上百行）
   // → 默认折叠，点「展开 prompt」才显示。subagent 的返回值由后续 ToolEndRow 的 ▸/▾ 展开。
   if (tool === 'Task' || tool === 'Agent') {
-    const taskInput = (p.toolInput ?? {}) as { subagent_type?: unknown; prompt?: unknown; description?: unknown };
+    const taskInput = (p.toolInput ?? {}) as {
+      subagent_type?: unknown;
+      prompt?: unknown;
+      description?: unknown;
+      collab_tool?: unknown;
+      model?: unknown;
+      reasoning_effort?: unknown;
+      model_reasoning_effort?: unknown;
+      receiver_thread_ids?: unknown;
+      task_name?: unknown;
+      agent_type?: unknown;
+      target?: unknown;
+      id?: unknown;
+      targets?: unknown;
+      timeout_ms?: unknown;
+      fork_turns?: unknown;
+      fork_context?: unknown;
+      service_tier?: unknown;
+      path_prefix?: unknown;
+      interrupt?: unknown;
+    };
     const subType = typeof taskInput.subagent_type === 'string' ? taskInput.subagent_type : '';
     const taskPrompt = typeof taskInput.prompt === 'string' ? taskInput.prompt : '';
     const taskDesc = typeof taskInput.description === 'string' ? taskInput.description : '';
+    const collabTool = typeof taskInput.collab_tool === 'string' ? taskInput.collab_tool : '';
+    const model = typeof taskInput.model === 'string' ? taskInput.model : '';
+    const reasoningEffort =
+      typeof taskInput.reasoning_effort === 'string'
+        ? taskInput.reasoning_effort
+        : typeof taskInput.model_reasoning_effort === 'string'
+          ? taskInput.model_reasoning_effort
+          : '';
+    const receiverThreadIds = Array.isArray(taskInput.receiver_thread_ids)
+      ? taskInput.receiver_thread_ids.filter((value): value is string => typeof value === 'string')
+      : [];
+    const taskName = typeof taskInput.task_name === 'string' ? taskInput.task_name : '';
+    const agentType = typeof taskInput.agent_type === 'string' ? taskInput.agent_type : '';
+    const target =
+      typeof taskInput.target === 'string'
+        ? taskInput.target
+        : typeof taskInput.id === 'string'
+          ? taskInput.id
+          : '';
+    const rawTargets = Array.isArray(taskInput.targets)
+      ? taskInput.targets.filter((value): value is string => typeof value === 'string')
+      : [];
+    const timeoutMs =
+      typeof taskInput.timeout_ms === 'number' && Number.isFinite(taskInput.timeout_ms)
+        ? taskInput.timeout_ms
+        : null;
+    const timeoutText =
+      timeoutMs === null
+        ? ''
+        : timeoutMs >= 1000 && timeoutMs % 1000 === 0
+          ? `${timeoutMs / 1000} 秒`
+          : `${timeoutMs} 毫秒`;
+    const forkTurns = typeof taskInput.fork_turns === 'string' ? taskInput.fork_turns : '';
+    const forkContext = typeof taskInput.fork_context === 'boolean' ? taskInput.fork_context : null;
+    const forkText = forkTurns
+      ? `fork_turns=${forkTurns}`
+      : forkContext === null
+        ? ''
+        : forkContext
+          ? '继承上下文'
+          : '不继承上下文';
+    const serviceTier = typeof taskInput.service_tier === 'string' ? taskInput.service_tier : '';
+    const pathPrefix = typeof taskInput.path_prefix === 'string' ? taskInput.path_prefix : '';
+    const interruptsTarget = taskInput.interrupt === true;
+    const targetCount = receiverThreadIds.length || rawTargets.length;
+    const targetIds = receiverThreadIds.length > 0 ? receiverThreadIds : rawTargets;
     const promptShort = taskPrompt.replace(/\s+/g, ' ').trim().slice(0, 80) + (taskPrompt.length > 80 ? '…' : '');
     const canExpand = taskPrompt.length > 0;
     return (
@@ -111,6 +176,83 @@ export function ToolStartRow({
               title={`subagent_type: ${subType}`}
             >
               → {subType}
+            </span>
+          )}
+          {(taskName || agentType) && (
+            <span
+              className="min-w-0 truncate rounded bg-status-working/20 px-1 py-0.5 font-mono text-[9px] text-status-working"
+              title={taskName ? `task_name: ${taskName}` : `agent_type: ${agentType}`}
+            >
+              {taskName ? `任务 ${taskName}` : `类型 ${agentType}`}
+            </span>
+          )}
+          {target && (
+            <span
+              className="min-w-0 truncate rounded bg-status-working/20 px-1 py-0.5 font-mono text-[9px] text-status-working"
+              title={`target/id: ${target}`}
+            >
+              → {target}
+            </span>
+          )}
+          {collabTool && (
+            <span
+              className="rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={`collab_tool: ${collabTool}`}
+            >
+              {collabTool}
+            </span>
+          )}
+          {(model || reasoningEffort) && (
+            <span
+              className="min-w-0 truncate rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={`model: ${model || 'default'}; reasoning_effort: ${reasoningEffort || 'default'}`}
+            >
+              {model || '默认模型'}{reasoningEffort ? ` · ${reasoningEffort}` : ''}
+            </span>
+          )}
+          {targetCount > 0 && (
+            <span
+              className="rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={`targets: ${targetIds.join(', ')}`}
+            >
+              {targetCount} 个目标
+            </span>
+          )}
+          {forkText && (
+            <span
+              className="rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={forkTurns ? `fork_turns: ${forkTurns}` : `fork_context: ${forkContext}`}
+            >
+              {forkText}
+            </span>
+          )}
+          {serviceTier && (
+            <span
+              className="rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={`service_tier: ${serviceTier}`}
+            >
+              service_tier={serviceTier}
+            </span>
+          )}
+          {pathPrefix && (
+            <span
+              className="min-w-0 truncate rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={`path_prefix: ${pathPrefix}`}
+            >
+              范围 {pathPrefix}
+            </span>
+          )}
+          {interruptsTarget && (
+            <span className="rounded bg-white/8 px-1 py-0.5 text-[9px] text-deck-muted" title="interrupt: true">
+              先中断
+            </span>
+          )}
+          {timeoutText && (
+            <span
+              className="rounded bg-white/8 px-1 py-0.5 font-mono text-[9px] text-deck-muted"
+              title={`timeout_ms: ${timeoutMs}`}
+            >
+              超时 {timeoutText}
             </span>
           )}
           {canExpand && (
@@ -224,7 +366,7 @@ export function ToolEndRow({
   const imageRead = useMemo(() => parseImageReadResult(result), [result]);
   const hasContent = text && text.trim().length > 0;
   const statusText = toolStatusText(p.status);
-  const inputForDisplay = startPayload.toolInput ?? p.toolInput;
+  const inputForDisplay = mergeToolInputs(startPayload.toolInput, p.toolInput);
   // 借 start 事件的 toolInput 拼 detail —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」。
   // imageRead 自己带 [provider · model] 后缀就不再叠 detail，避免一行三段信息太挤。
   const detail = useMemo(
@@ -314,6 +456,24 @@ function ToolInputBlock({ input, open }: { input: unknown; open: boolean }): JSX
       {formatToolInput(input)}
     </pre>
   );
+}
+
+function mergeToolInputs(startInput: unknown, endInput: unknown): unknown {
+  const start = objectRecord(startInput);
+  const end = objectRecord(endInput);
+  if (!start || !end) return endInput ?? startInput;
+  const merged: Record<string, unknown> = { ...start };
+  for (const [key, value] of Object.entries(end)) {
+    if (value !== null && value !== undefined) merged[key] = value;
+    else if (!(key in merged)) merged[key] = value;
+  }
+  return merged;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function isNestedInteractiveTarget(target: EventTarget): boolean {
