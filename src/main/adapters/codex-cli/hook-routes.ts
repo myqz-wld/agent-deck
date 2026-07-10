@@ -1,5 +1,6 @@
 import type { RouteOptions } from 'fastify';
 import type { AgentEvent } from '@shared/types';
+import log from '@main/utils/logger';
 import {
   translateCodexPermissionRequest,
   translateCodexPostCompact,
@@ -8,10 +9,17 @@ import {
   translateCodexSessionStart,
   translateCodexStop,
 } from './hook-translate';
+import {
+  codexDesktopEphemeralFilter,
+  type CodexDesktopEphemeralFilterLike,
+  type CodexHookIdentity,
+} from './desktop-ephemeral-filter';
 
-interface BaseBody {
-  session_id: string;
+const logger = log.scope('codex-hook-routes');
+
+interface BaseBody extends CodexHookIdentity {
   cwd?: string;
+  hook_event_name?: string;
 }
 
 function firstHeaderValue(value: string | string[] | undefined): string {
@@ -38,6 +46,7 @@ function makeRoute(
   url: string,
   handler: (body: BaseBody) => AgentEvent | AgentEvent[],
   emit: (e: AgentEvent, hookOrigin: 'sdk' | 'cli') => void,
+  desktopEphemeralFilter: CodexDesktopEphemeralFilterLike,
 ): RouteOptions {
   return {
     method: 'POST',
@@ -52,6 +61,25 @@ function makeRoute(
         const originRaw = firstHeaderValue(request.headers['x-agent-deck-origin']);
         const hookOrigin: 'sdk' | 'cli' = originRaw === 'sdk' ? 'sdk' : 'cli';
         const externalProcessPid = parsePidHeader(request.headers['x-agent-deck-parent-pid']);
+        let ignoreDesktopEphemeral = false;
+        try {
+          ignoreDesktopEphemeral = await desktopEphemeralFilter.shouldIgnore(
+            body,
+            hookOrigin,
+            externalProcessPid,
+          );
+        } catch {
+          // Process identity is an optional noise filter. Any lookup failure must preserve hooks.
+        }
+        if (ignoreDesktopEphemeral) {
+          if (body.hook_event_name === 'SessionStart') {
+            logger.info(
+              `[codex-hook] ignored Desktop ephemeral session sid=${body.session_id} pid=${externalProcessPid}`,
+            );
+          }
+          reply.code(200).send({ ok: true, ignored: true });
+          return;
+        }
         const out = handler(body);
         if (Array.isArray(out)) {
           for (const ev of out) emit(attachExternalProcessPid(ev, externalProcessPid), hookOrigin);
@@ -66,20 +94,26 @@ function makeRoute(
   };
 }
 
-export function buildCodexHookRoutes(emit: (e: AgentEvent) => void): RouteOptions[] {
+export function buildCodexHookRoutes(
+  emit: (e: AgentEvent) => void,
+  desktopEphemeralFilter: CodexDesktopEphemeralFilterLike = codexDesktopEphemeralFilter,
+): RouteOptions[] {
   const taggedEmit = (ev: AgentEvent, hookOrigin: 'sdk' | 'cli'): void => {
     emit({ ...ev, source: 'hook', hookOrigin });
   };
+  const route = (
+    url: string,
+    handler: (body: BaseBody) => AgentEvent | AgentEvent[],
+  ): RouteOptions => makeRoute(url, handler, taggedEmit, desktopEphemeralFilter);
   return [
-    makeRoute('/hook/codex/sessionstart', (b) => translateCodexSessionStart(b as never), taggedEmit),
-    makeRoute('/hook/codex/pretooluse', (b) => translateCodexPreToolUse(b as never), taggedEmit),
-    makeRoute(
+    route('/hook/codex/sessionstart', (b) => translateCodexSessionStart(b as never)),
+    route('/hook/codex/pretooluse', (b) => translateCodexPreToolUse(b as never)),
+    route(
       '/hook/codex/permissionrequest',
       (b) => translateCodexPermissionRequest(b as never),
-      taggedEmit,
     ),
-    makeRoute('/hook/codex/posttooluse', (b) => translateCodexPostToolUse(b as never), taggedEmit),
-    makeRoute('/hook/codex/postcompact', (b) => translateCodexPostCompact(b as never), taggedEmit),
-    makeRoute('/hook/codex/stop', (b) => translateCodexStop(b as never), taggedEmit),
+    route('/hook/codex/posttooluse', (b) => translateCodexPostToolUse(b as never)),
+    route('/hook/codex/postcompact', (b) => translateCodexPostCompact(b as never)),
+    route('/hook/codex/stop', (b) => translateCodexStop(b as never)),
   ];
 }
