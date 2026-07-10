@@ -119,6 +119,32 @@ describe('rewriteDeepseekEvent', () => {
     });
   });
 
+  it('rewrites a reasoning-only result correction to the configured Deepseek model', () => {
+    const event = {
+      sessionId: 's1',
+      agentId: 'claude-code',
+      kind: 'token-usage',
+      ts: 1,
+      payload: {
+        messageId: 'result:r1:sonnet-4.6:reasoning',
+        model: 'sonnet-4.6',
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 18,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+      },
+    } satisfies AgentEvent;
+
+    expect(rewriteDeepseekEvent(event)).toMatchObject({
+      agentId: 'deepseek-claude-code',
+      payload: {
+        model: 'deepseek-v4-pro[1m]',
+        reasoningTokens: 18,
+      },
+    });
+  });
+
   it('keeps native Deepseek model ids unchanged', () => {
     const event = {
       sessionId: 's1',

@@ -24,6 +24,7 @@ import { AGENT_ID } from './constants';
 import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
 import { clearLiveTokenEstimate } from './live-token-rate';
 import { translateSdkMessage } from './sdk-message-translate';
+import { resetTurnUsageAccounting } from './thinking-token-usage';
 import type { UploadedAttachmentRef } from '@shared/types';
 import log from '@main/utils/logger';
 
@@ -483,6 +484,7 @@ export class StreamProcessor {
         // 没回的 intent)。internal 整体被 sessions.delete 后会 GC 掉,显式 clear 与 toolUseNames /
         // pendingPermissions 等同款保险,不依赖 GC 时机。intent 是纯数据没 resolver,不需要 reject。
         internal.pendingFileChangeIntents.clear();
+        resetTurnUsageAccounting(internal);
         clearLiveTokenEstimate(internal, sid);
         this.ctx.emit({
           sessionId: sid,

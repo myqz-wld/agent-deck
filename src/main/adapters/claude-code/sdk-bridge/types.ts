@@ -212,6 +212,14 @@ export interface InternalSession {
     string,
     { input: number; output: number; reasoning: number; cacheRead: number; cacheCreation: number }
   >;
+  /**
+   * 当前 turn 的 Claude SDK `system/thinking_tokens` 估算增量，按实际 stream model
+   * bucket 累加。只在 result 时与权威 usage / 已落库 assistant usage 补差后一次性 emit，
+   * 避免每个 thinking delta 都触发同步 SQLite 写和 renderer IPC。
+   */
+  estimatedReasoningByBucket: Map<string, number>;
+  /** 当前 turn 已见 thinking-token SDK uuid，用于防 stream replay 重复累加。 */
+  seenThinkingTokenMessageIds: Set<string>;
   /** 生成中 tok/s 估算展示态。display-only；turn result / session 结束时清理。 */
   liveTokenEstimate?: LiveTokenEstimateState;
   /**
@@ -316,6 +324,8 @@ export function makeInternalSession(opts: {
     pendingFileChangeIntents: new Map(),
     seenUsageMessageIds: new Map(),
     turnUsageByBucket: new Map(),
+    estimatedReasoningByBucket: new Map(),
+    seenThinkingTokenMessageIds: new Set(),
     liveTokenEstimate: undefined,
     streamDrained,
     resolveStreamDrained,

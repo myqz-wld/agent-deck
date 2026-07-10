@@ -460,6 +460,14 @@ describe('translateSdkMessage token-usage 采集', () => {
       model: 'claude-default',
       inputTokens: 100,
       outputTokens: 70,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    });
+    expect(tokenEvents(events)[1].payload).toEqual({
+      messageId: 'result:result-thinking:claude-default:reasoning',
+      model: 'claude-default',
+      inputTokens: 0,
+      outputTokens: 0,
       reasoningTokens: 18,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,

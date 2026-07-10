@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-10 | `CHANGELOG_354_thinking-options-and-claude-usage.md` | Refine thinking options and collect Claude reasoning usage |
 | 2026-07-09 | `CHANGELOG_353_spawn-session-native-fork.md` | Add provider-native parallel session forks |
 | 2026-07-09 | `CHANGELOG_352_remove-fable-5-suggestion.md` | Remove redundant fable-5 suggestion |
 | 2026-07-09 | `CHANGELOG_351_mcp-prompt-contracts.md` | Make MCP contracts explicit and self-correcting |

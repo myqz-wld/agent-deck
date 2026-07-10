@@ -80,7 +80,6 @@ describe('SummarySection provider-specific thinking levels', () => {
       'MEDIUM',
       'HIGH',
       'XHIGH',
-      'MAX',
       'ULTRA',
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'MINIMAL' }));
@@ -148,5 +147,33 @@ describe('SummarySection provider-specific thinking levels', () => {
       summaryProvider: 'deepseek',
       summaryReasoning: 'xhigh',
     });
+  });
+
+  it('coerces Claude MAX to XHIGH when switching the settings row to Codex', async () => {
+    const onPatch = vi.fn();
+    render(
+      <SettingsHarness
+        initial={{
+          ...DEFAULT_SETTINGS,
+          summaryProvider: 'claude',
+          summaryReasoning: 'max',
+        }}
+        onPatch={onPatch}
+      />,
+    );
+    openSection();
+
+    fireEvent.click(rowButtons('周期性总结')[0]!);
+    fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
+
+    await waitFor(() => {
+      expect(rowButtons('周期性总结')[1]?.textContent).toContain('XHIGH');
+    });
+    expect(onPatch).toHaveBeenCalledWith({
+      summaryProvider: 'codex',
+      summaryReasoning: 'xhigh',
+    });
+    fireEvent.click(rowButtons('周期性总结')[1]!);
+    expect(visibleOptionLabels()).not.toContain('MAX');
   });
 });
