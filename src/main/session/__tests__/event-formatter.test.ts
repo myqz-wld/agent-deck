@@ -78,4 +78,28 @@ describe('formatEventsForPrompt — 排序契约', () => {
     const out = formatEventsForPrompt(noId);
     expect(out.indexOf('a')).toBeLessThan(out.indexOf('b'));
   });
+
+  it('周期总结和 hand-off 输入保留 Codex 协作 Agent 的安全参数', () => {
+    const event: AgentEvent = {
+      sessionId: 's1',
+      agentId: 'codex-cli',
+      kind: 'tool-use-start',
+      payload: {
+        toolName: 'Agent',
+        toolInput: {
+          collab_tool: 'wait_agent',
+          target: '/root/reviewer',
+          model: 'gpt-5.6-codex',
+          reasoning_effort: 'xhigh',
+          timeout_ms: 30000,
+        },
+      },
+      ts: 1000,
+      source: 'sdk',
+    };
+
+    expect(formatEventsForPrompt([event])).toContain(
+      'Agent · wait_agent · → /root/reviewer · gpt-5.6-codex/xhigh · 超时 30 秒',
+    );
+  });
 });

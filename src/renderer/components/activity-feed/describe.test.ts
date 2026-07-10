@@ -48,6 +48,23 @@ suite('activity-feed describe user-facing fallbacks', () => {
       '✓ 任务完成 · 修复登录',
     );
   });
+
+  it('Codex 协作 Agent 摘要包含操作、目标、模型、思考程度和超时', () => {
+    expect(
+      describeActivity(
+        ev('tool-use-start', {
+          toolName: 'Agent',
+          toolInput: {
+            collab_tool: 'wait_agent',
+            target: '/root/reviewer',
+            model: 'gpt-5.6-codex',
+            reasoning_effort: 'xhigh',
+            timeout_ms: 30000,
+          },
+        }),
+      ),
+    ).toContain('wait_agent · → /root/reviewer · gpt-5.6-codex/xhigh · 超时 30 秒');
+  });
 });
 
 suite('SessionCard formatEventLine', () => {
@@ -69,5 +86,22 @@ suite('SessionCard formatEventLine', () => {
 
   it('message text 为结构对象时跳过，避免 React 渲染对象', () => {
     expect(formatEventLine(ev('message', { text: { type: 'internal' } }))).toBeNull();
+  });
+
+  it('Agent live activity 不再显示虚构的 codex-collab-agent 占位', () => {
+    expect(
+      formatEventLine(
+        ev('tool-use-start', {
+          toolName: 'Agent',
+          toolInput: {
+            collab_tool: 'spawn_agent',
+            task_name: 'audit_adapter',
+            fork_turns: 'all',
+            model: 'gpt-5.6-codex',
+            reasoning_effort: 'high',
+          },
+        }),
+      ),
+    ).toBe('🤖 Agent · spawn_agent · audit_adapter · gpt-5.6-codex/high · fork_turns=all');
   });
 });

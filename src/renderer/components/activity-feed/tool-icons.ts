@@ -20,7 +20,7 @@
  *  - ✅ 已被「一轮完成」状态用 → TodoWrite 不能用 ✅，改 📌
  *  - 📝 已被 file-changed 用 → 不复用
  *  - 📋 ExitPlanMode 已用，EnterPlanMode 配对，复用 OK
- *  - 🤖 Task 已用，Agent 是 Task 的别名（新版 Claude Code SDK），复用 OK
+ *  - 🤖 Task 已用，Agent 覆盖 Claude subagent 与 Codex collaboration，复用 OK
  *  - mcp__agent-deck__task_create 与 CLI builtin TaskCreate 同 ➕（语义对齐）
  */
 const ICON_MAP: Record<string, string> = {
@@ -43,7 +43,7 @@ const ICON_MAP: Record<string, string> = {
   // Plan 模式（成对）
   ExitPlanMode: '📋',
   EnterPlanMode: '📋',
-  // Subagent（Task = 老名，Agent = 新名，同义）
+  // Subagent / collaboration
   Task: '🤖',
   Agent: '🤖',
   // Claude Code Skill
