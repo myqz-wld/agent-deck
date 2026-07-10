@@ -6,7 +6,12 @@ export function buildThreadStartParams(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
-  return buildThreadCommonParams(options, baseConfig);
+  return {
+    ...buildThreadCommonParams(options, baseConfig),
+    // Codex app-server filters RawResponseItem events unless each new thread opts in.
+    // Those events are the only complete source for MultiAgentV2 collaboration calls.
+    experimentalRawEvents: true,
+  };
 }
 
 export function buildThreadResumeParams(
