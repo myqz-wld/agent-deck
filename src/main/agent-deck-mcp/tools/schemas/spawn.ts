@@ -7,7 +7,6 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'sonnet',
   'opus',
   'fable',
-  'fable-5',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
@@ -74,7 +73,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(256)
     .optional()
     .describe(
-      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable, fable-5; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Deepseek — v4-flash, v4-pro. Suggestions are not an allowlist: any non-empty provider model id is passed to the target SDK/provider for validation. Deepseek aliases map to deepseek-v4-flash and deepseek-v4-pro[1m]. Precedence: explicit model > resolved agent model > provider default. This override does not change existing sessions or global defaults.',
+      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Deepseek — v4-flash, v4-pro. Suggestions are not an allowlist: any non-empty provider model id is passed to the target SDK/provider for validation. Deepseek aliases map to deepseek-v4-flash and deepseek-v4-pro[1m]. Precedence: explicit model > resolved agent model > provider default. This override does not change existing sessions or global defaults.',
     ),
   thinking: z
     .enum(SPAWN_SESSION_THINKING_VALUES)
