@@ -990,24 +990,27 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     });
   });
 
-  it('passes codex model and thinking to createSession', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
-    const r = await tools.get('spawn_session').handler({
-      adapter: 'codex-cli',
-      cwd: '/repo',
-      prompt: 'codex model task',
-      model: 'gpt-5.6-sol',
-      thinking: 'ultra',
-      callerSessionId: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].model).toBe('gpt-5.6-sol');
-    expect(createSessionCalls[0].modelReasoningEffort).toBe('ultra');
-    expect(createSessionCalls[0].claudeCodeEffortLevel).toBeUndefined();
-  });
+  it.each(['max', 'ultra'] as const)(
+    'passes codex model and %s thinking to createSession',
+    async (thinking) => {
+      const tools = await getTools({ transport: 'http' });
+      seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
+      const r = await tools.get('spawn_session').handler({
+        adapter: 'codex-cli',
+        cwd: '/repo',
+        prompt: 'codex model task',
+        model: 'gpt-5.6-sol',
+        thinking,
+        callerSessionId: 'lead',
+      }, {});
+      const parsed = parseResult(r);
+      expect(parsed.isError).toBeFalsy();
+      expect(createSessionCalls).toHaveLength(1);
+      expect(createSessionCalls[0].model).toBe('gpt-5.6-sol');
+      expect(createSessionCalls[0].modelReasoningEffort).toBe(thinking);
+      expect(createSessionCalls[0].claudeCodeEffortLevel).toBeUndefined();
+    },
+  );
 
   it('passes claude-family thinking as sanitized Claude Code effort level', async () => {
     const tools = await getTools({ transport: 'http' });

@@ -98,8 +98,7 @@ export interface AppSettings {
    * 周期性 summarize 的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
    * provider 对应档位：
-   * - Codex 设置 UI：`minimal | low | medium | high | xhigh | ultra`（`max` 是部分模型
-   *   才支持的能力，不在这个通用下拉框暴露）
+   * - Codex：`minimal | low | medium | high | xhigh | max | ultra`
    * - Claude / Deepseek（Claude Code SDK effort）：`low | medium | high | xhigh | max`
    *   （具体模型支持子集由 Claude Code 校准）
    *
@@ -139,9 +138,8 @@ export interface AppSettings {
   /**
    * Hand-off 接力简报的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
-   * provider 对应档位同 summaryReasoning：Codex 设置 UI 提供
-   * `minimal | low | medium | high | xhigh | ultra`，Claude / Deepseek 提供
-   * `low | medium | high | xhigh | max`。
+   * provider 对应档位同 summaryReasoning：Codex 支持完整 7 档，Claude / Deepseek
+   * 支持 `low | medium | high | xhigh | max`。
    *
    * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 4 节结构化输出
    *   对模型理解力要求高,medium 是 spike 实测下的最佳折中(high 太慢、low 输出结构常常错位)

@@ -80,6 +80,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       'MEDIUM',
       'HIGH',
       'XHIGH',
+      'MAX',
       'ULTRA',
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'MINIMAL' }));
@@ -149,7 +150,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     });
   });
 
-  it('coerces Claude MAX to XHIGH when switching the settings row to Codex', async () => {
+  it('preserves Claude MAX when switching the settings row to Codex', async () => {
     const onPatch = vi.fn();
     render(
       <SettingsHarness
@@ -167,13 +168,36 @@ describe('SummarySection provider-specific thinking levels', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
 
     await waitFor(() => {
-      expect(rowButtons('周期性总结')[1]?.textContent).toContain('XHIGH');
+      expect(rowButtons('周期性总结')[1]?.textContent).toContain('MAX');
     });
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'codex',
-      summaryReasoning: 'xhigh',
+      summaryReasoning: 'max',
     });
     fireEvent.click(rowButtons('周期性总结')[1]!);
-    expect(visibleOptionLabels()).not.toContain('MAX');
+    expect(visibleOptionLabels()).toContain('MAX');
+  });
+
+  it('allows MAX for Codex Hand-off brief generation', async () => {
+    const onPatch = vi.fn();
+    render(
+      <SettingsHarness
+        initial={{
+          ...DEFAULT_SETTINGS,
+          handOffProvider: 'codex',
+          handOffReasoning: 'xhigh',
+        }}
+        onPatch={onPatch}
+      />,
+    );
+    openSection();
+
+    fireEvent.click(rowButtons('Hand-off 简报')[1]!);
+    fireEvent.click(screen.getByRole('option', { name: 'MAX' }));
+
+    await waitFor(() => {
+      expect(rowButtons('Hand-off 简报')[1]?.textContent).toContain('MAX');
+    });
+    expect(onPatch).toHaveBeenCalledWith({ handOffReasoning: 'max' });
   });
 });

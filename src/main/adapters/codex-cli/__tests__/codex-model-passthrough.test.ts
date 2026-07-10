@@ -193,6 +193,38 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
   });
 });
 
+describe('Codex summary runner reasoning settings', () => {
+  it('passes summaryReasoning=max to the periodic summary oneshot', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('summaryReasoning');
+    settingsStore.set('summaryReasoning', 'max');
+    try {
+      const { summariseCodexSessionViaOneshot } = await import('../summarizer-runner');
+      await summariseCodexSessionViaOneshot('/tmp', [], () => 'activity');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].modelReasoningEffort).toBe('max');
+    } finally {
+      settingsStore.set('summaryReasoning', previous);
+    }
+  });
+
+  it('passes handOffReasoning=max to the Hand-off brief oneshot', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('handOffReasoning');
+    settingsStore.set('handOffReasoning', 'max');
+    try {
+      const { summariseCodexSessionForHandOff } = await import('../handoff-runner');
+      await summariseCodexSessionForHandOff('/tmp', [], () => 'activity');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].modelReasoningEffort).toBe('max');
+    } finally {
+      settingsStore.set('handOffReasoning', previous);
+    }
+  });
+});
+
 describe('runCodexOneshot timeout abort (REVIEW_82 MED — codex 子进程取消 parity)', () => {
   it('成功路径：thread.run 收到 AbortSignal（未 abort）', async () => {
     const { runCodexOneshot } = await import('@main/session/oneshot-llm');

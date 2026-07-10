@@ -1,65 +1,81 @@
 {
-  "root": "/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/feat__spawn-session-native-fork-20260709",
-  "scanned_at": "2026-07-10T05:49:38Z",
-  "expires_at": "2026-07-17T05:49:38Z",
-  "scan_reason": "Approved spawn_session native-fork implementation",
-  "git_head": "c509d95b14c93d484100df269a6c829927dec373",
+  "root": "/Users/wanglidong/Repository/agent-deck",
+  "scanned_at": "2026-07-10T15:33:24Z",
+  "expires_at": "2026-07-17T15:33:24Z",
+  "scan_reason": "User-approved restoration of Codex max thinking across settings, spawn regression coverage, and Hand-off brief generation",
+  "git_head": "74f98c9096878e6e9f9a358177897e484d67d16c",
   "assets": [
     {
       "path": "src/main/agent-deck-mcp/tools/schemas/spawn.ts",
       "type": "mcp-tool-schema",
-      "scope": "confirmed",
-      "reason": "Add the approved contextMode input and fork-only result contract.",
+      "scope": "counterpart-check-only",
+      "reason": "Confirm spawn_session already exposes and documents Codex max without changing its contract.",
       "exists": true,
       "hash": "7eb9a0bfea2816d215bc317093a0a379c8adb88185cc72ab217acc923c8a5f17"
     },
     {
       "path": "src/main/agent-deck-mcp/tools/index.ts",
       "type": "mcp-tool-description",
-      "scope": "confirmed",
-      "reason": "Explain fresh versus native-fork behavior and correction hints.",
+      "scope": "counterpart-check-only",
+      "reason": "Confirm the spawn_session tool description delegates exact thinking values to the field schema.",
       "exists": true,
       "hash": "138bacd3540ce26bc2acc9b5e1bf1383031f16e9a56564d1b6e7cb7ce1f4c0a7"
     },
     {
       "path": "resources/claude-config/CLAUDE.md",
-      "type": "runtime-prompt",
-      "scope": "confirmed",
-      "reason": "Add Claude-side native-fork usage guidance aligned with Codex.",
+      "type": "claude-runtime-prompt",
+      "scope": "counterpart-check-only",
+      "reason": "Confirm the paired Claude runtime prompt already lists Codex max consistently.",
       "exists": true,
       "hash": "0856e3e2a653b098b97297ed58be780debe0f896b6dc9ac4986fff6c4df9d839"
     },
     {
       "path": "resources/codex-config/CODEX_AGENTS.md",
-      "type": "runtime-prompt",
-      "scope": "confirmed",
-      "reason": "Add Codex-side native-fork usage guidance aligned with Claude.",
+      "type": "codex-runtime-prompt",
+      "scope": "counterpart-check-only",
+      "reason": "Confirm the Codex runtime prompt already lists max for spawn_session.",
       "exists": true,
       "hash": "17989415cc24385202c48cc4edb1ef472129d57daedbc30fcbcb834bfca3b34e"
     },
     {
       "path": "README.md",
-      "type": "documentation",
-      "scope": "confirmed",
-      "reason": "Document the user-visible spawn_session native-fork contract.",
+      "type": "repository-prompt-reference",
+      "scope": "counterpart-check-only",
+      "reason": "Confirm public summary, Hand-off brief, and spawn_session thinking ranges already include Codex max.",
       "exists": true,
       "hash": "6857da3242673dd546526452531694c5b36481be28a09af23316d491a3f41f29"
     },
     {
-      "path": "ref/changelogs/recent-3-days/CHANGELOG_353_spawn-session-native-fork.md",
-      "type": "documentation",
+      "path": "ref/changelogs/recent-3-days/INDEX.md",
+      "type": "prompt-record-index",
       "scope": "confirmed",
-      "reason": "Record the approved feature and validation evidence.",
+      "reason": "Add the new superseding Codex max-thinking changelog row.",
       "exists": true,
-      "hash": "29639540a65e7debfadafed82134f6cd1b09919d12e0daf560c9e0ce27fcbab2"
+      "hash": "ddd1c484bdaaceb28fa8c4a34fe11f7152a69a5d0e7acf362d86772dea803cf7"
     },
     {
-      "path": "src/main/adapters/codex-cli/sdk-bridge/fork-session/instruction-reset.ts",
-      "type": "prompt-template",
+      "path": "ref/changelogs/recent-3-days/CHANGELOG_356_codex-max-thinking.md",
+      "type": "prompt-record",
       "scope": "confirmed",
-      "reason": "Inject the approved inherited-instruction supersession, complete effective target instructions, and child delegation boundary.",
+      "reason": "Record the user-approved restoration and regression validation without rewriting historical records.",
       "exists": true,
-      "hash": "f66214be2e4502cd4b241e16689f06a4249eb4af150205cefba9aeeabf7a4739"
+      "hash": "b781db8fc4a7857a7eca35455bde09b2f26c5beca8b65312eb5b7a1aaf3c193c"
+    },
+    {
+      "path": "ref/changelogs/recent-3-days/CHANGELOG_354_thinking-options-and-claude-usage.md",
+      "type": "historical-prompt-record",
+      "scope": "counterpart-check-only",
+      "reason": "Preserve the historical MAX-removal decision and supersede it with a new changelog instead of rewriting history.",
+      "exists": true,
+      "hash": "bc0c96952c8e93a3b97a284332e52172baf14358bcbd52e2f1fe090704647896"
+    },
+    {
+      "path": "ref/reviews/recent-3-days/REVIEW_145_claude-reasoning-usage.md",
+      "type": "historical-prompt-record",
+      "scope": "counterpart-check-only",
+      "reason": "Preserve the review evidence for the superseded selector decision without editing the archived review.",
+      "exists": true,
+      "hash": "3adaa09581d99dec9fab9c3b88ee88b66b40ed3f1d553fd171cb5d51aab7ca44"
     }
   ]
 }
