@@ -91,6 +91,12 @@ Add an opt-in `spawn_session(contextMode: "fork")` path that creates a parallel 
 - `src/main/adapters/codex-cli/sdk-bridge/index.ts` remains an existing over-500-line state-owning facade. Substantive fork logic is split; its concrete revisit trigger is recorded in `CHANGELOG_353`.
 - The hosting Agent Deck application was not restarted, so interactive tool-schema rendering and live provider behavior require a deferred manual restart/check.
 
+## Archived Support
+
+- [Approved implementation plan](PLAN_2_spawn-session-native-fork/APPROVED_IMPLEMENTATION_PLAN.md)
+  preserves the complete task breakdown, test matrix, rollback design, exclusions, and approval
+  decisions that preceded this final summary.
+
 ## Final Status / Handoff
 
 Completed on branch `feat/spawn-session-native-fork-20260709` from baseline `c509d95b14c93d484100df269a6c829927dec373`. The next action is to commit the validated feature and fast-forward `main` only if its checkout is still clean at that baseline; otherwise retain this feature branch and report the divergence.
