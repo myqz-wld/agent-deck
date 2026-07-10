@@ -219,6 +219,28 @@ describe('present_plan handler', () => {
     expect(mocks.ingest).not.toHaveBeenCalled();
   });
 
+  it('returns exact recovery actions when the caller session is unavailable or closed', async () => {
+    const missing = await requestPlanReviewHandler(
+      { plan: 'Missing caller' },
+      makeCtx('missing-caller'),
+    );
+    expect(parseResult(missing)).toEqual({
+      error: 'caller session "missing-caller" not in sessions table — cannot display plan review',
+      hint: 'Retry once after session initialization completes. If it persists, stop; present_plan requires a live Agent Deck session.',
+    });
+
+    mocks.sessions.set('closed-caller', makeSession('closed-caller', { lifecycle: 'closed' }));
+    const closed = await requestPlanReviewHandler(
+      { plan: 'Closed caller' },
+      makeCtx('closed-caller'),
+    );
+    expect(parseResult(closed)).toEqual({
+      error: 'caller session "closed-caller" is closed',
+      hint: 'Do not retry. Ask the user to start a new Agent Deck session and present the plan there.',
+    });
+    expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
   it('cleans up the pending request if event ingest fails', async () => {
     mocks.sessions.set('codex-1', makeSession('codex-1'));
     mocks.ingest.mockImplementationOnce(() => {
@@ -231,7 +253,10 @@ describe('present_plan handler', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(parseResult(result)).toEqual({ error: 'ingest failed' });
+    expect(parseResult(result)).toEqual({
+      error: 'ingest failed',
+      hint: 'Retry present_plan once. If it fails again, stop and inspect Agent Deck main-process logs.',
+    });
     expect(planReviewService.listPending('codex-1')).toEqual([]);
   });
 });

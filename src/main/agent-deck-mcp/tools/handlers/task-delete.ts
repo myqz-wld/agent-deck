@@ -27,12 +27,17 @@ export const taskDeleteHandler = withMcpGuard(
     try {
       const callerSid = ctx.caller.callerSessionId;
       const target = taskRepo.get(args.taskId);
-      if (!target) return err(`task ${args.taskId} not found`);
+      if (!target) {
+        return err(
+          `task ${args.taskId} not found`,
+          'Call task_list with the appropriate teamIdFilter, or omit the filter for caller-visible scope, then retry with a returned task ID.',
+        );
+      }
       // v024 plan §D3 + Step C4:root check 传整个 task（按 teamId 判权限边界）
       if (!isCallerAuthorizedToWrite(callerSid, target)) {
         return err(
           `permission denied: caller "${callerSid}" cannot delete task ${args.taskId} (teamId=${target.teamId ?? 'personal'}, owner=${target.ownerSessionId})`,
-          'team-bound task 要求 caller 在该 team 是 active member;personal task 仅 owner 可删。',
+          'Use an active member session for a team task or the owner session for a personal task. Call task_list to inspect tasks visible to this caller.',
         );
       }
       // cascade=true 时 BFS 路径上每个 child 都要过写权限 — child teamId 不允许 caller 写时
@@ -87,7 +92,10 @@ export const taskDeleteHandler = withMcpGuard(
         deletedIds: deletedIds,
       } satisfies TaskDeleteResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'If the error identifies invalid input, correct it. For a transient storage error, retry once; if it repeats, stop and inspect Agent Deck main-process logs.',
+      );
     }
   },
 );

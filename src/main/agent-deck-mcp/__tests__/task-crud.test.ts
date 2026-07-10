@@ -197,7 +197,9 @@ describe('task_create — v024 D1+D2 personal default + D3 teamId 校验', () =>
     );
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/not an active member of teamId "team-A"/);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toMatch(/not an active member of teamId "team-A"/);
+    expect(payload.hint).toMatch(/Omit teamId.*personal task.*active team ID/);
     expect(mockTaskRepo.create).not.toHaveBeenCalled();
   });
 
@@ -235,6 +237,9 @@ describe('task_create — v024 D1+D2 personal default + D3 teamId 校验', () =>
     const result = await taskCreateHandler({ subject: 'X' }, makeCtx('sess-tempkey'));
 
     expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toContain('is not available in the session store');
+    expect(payload.hint).toMatch(/Retry once after session initialization completes/);
     expect(mockTaskRepo.create).not.toHaveBeenCalled();
   });
 
@@ -310,7 +315,9 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/permission denied/);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toMatch(/permission denied/);
+    expect(payload.hint).toMatch(/task_list.*active team member session.*owner session/);
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
@@ -345,6 +352,9 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     );
 
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(
+      /task_list.*active team member session.*owner session/,
+    );
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
@@ -361,6 +371,9 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     );
 
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(
+      /task_list.*active team member session.*owner session/,
+    );
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
@@ -401,6 +414,9 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     );
 
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(
+      /active team ID.*teamId=null.*task owner/,
+    );
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
 
@@ -439,6 +455,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0].text);
     expect(data.error).toMatch(/cannot convert team task .* to personal/);
+    expect(data.hint).toMatch(/Only ownerSessionId may set teamId=null/);
     // 关键：repo.update 根本没被调（攻击在权限层被挡）
     expect(mockTaskRepo.update).not.toHaveBeenCalled();
   });
@@ -482,6 +499,7 @@ describe('task_update — v024 D3 write permission (team-scoped)', () => {
       makeCtx('sess-caller'),
     );
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(/Call task_list/);
   });
 });
 
@@ -576,6 +594,9 @@ describe('task_delete — v024 D3 write permission + cascade predicate (HIGH-2)'
     const result = await taskDeleteHandler({ taskId: 't1' }, makeCtx('sess-caller'));
 
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(
+      /active member session.*owner session.*task_list/,
+    );
     expect(mockTaskRepo.delete).not.toHaveBeenCalled();
   });
 
@@ -631,7 +652,9 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
 
     const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/permission denied/);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toMatch(/permission denied/);
+    expect(payload.hint).toMatch(/task_list.*active team membership.*ownerSessionId/);
   });
 
   it('team task + caller 在 team active member → ALLOW（不论 owner）', async () => {
@@ -697,6 +720,7 @@ describe('task_get — v024 D8 team-scoped read（v023 cross-team 可读推翻�
     mockTaskRepo.get.mockReturnValue(null);
     const result = await taskGetHandler({ taskId: 'nope' }, makeCtx('sess-caller'));
     expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).hint).toMatch(/Call task_list/);
   });
 });
 
@@ -770,7 +794,9 @@ describe('task_list — v024 D5 三态分流', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content[0].text).error).toMatch(/not an active member of teamId/);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toMatch(/not an active member of teamId/);
+    expect(payload.hint).toMatch(/Omit teamIdFilter.*"null-personal".*Agent Deck UI/);
     expect(mockTaskRepo.list).not.toHaveBeenCalled();
   });
 
@@ -800,5 +826,70 @@ describe('task_list — v024 D5 三态分流', () => {
     );
     const r2 = await taskListHandler({ limit: 10 }, makeCtx('sess-caller'));
     expect(JSON.parse(r2.content[0].text).hasMore).toBe(false);
+  });
+});
+
+describe('task handler internal error guidance', () => {
+  const expectStorageFailure = (
+    result: { isError?: boolean; content: Array<{ text: string }> },
+    error: string,
+  ): void => {
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.error).toBe(error);
+    expect(payload.hint).toMatch(/transient storage error.*retry once.*main-process logs/);
+  };
+
+  it('task_create preserves the storage error and adds bounded retry guidance', async () => {
+    mockTaskRepo.create.mockImplementationOnce(() => {
+      throw new Error('task create storage failed');
+    });
+
+    const result = await taskCreateHandler({ subject: 'X' }, makeCtx('sess-caller'));
+
+    expectStorageFailure(result, 'task create storage failed');
+  });
+
+  it('task_get preserves the storage error and adds bounded retry guidance', async () => {
+    mockTaskRepo.get.mockImplementationOnce(() => {
+      throw new Error('task get storage failed');
+    });
+
+    const result = await taskGetHandler({ taskId: 't1' }, makeCtx('sess-caller'));
+
+    expectStorageFailure(result, 'task get storage failed');
+  });
+
+  it('task_update preserves the storage error and adds bounded retry guidance', async () => {
+    mockTaskRepo.get.mockImplementationOnce(() => {
+      throw new Error('task update storage failed');
+    });
+
+    const result = await taskUpdateHandler(
+      { taskId: 't1', status: 'active' },
+      makeCtx('sess-caller'),
+    );
+
+    expectStorageFailure(result, 'task update storage failed');
+  });
+
+  it('task_delete preserves the storage error and adds bounded retry guidance', async () => {
+    mockTaskRepo.get.mockImplementationOnce(() => {
+      throw new Error('task delete storage failed');
+    });
+
+    const result = await taskDeleteHandler({ taskId: 't1' }, makeCtx('sess-caller'));
+
+    expectStorageFailure(result, 'task delete storage failed');
+  });
+
+  it('task_list preserves the storage error and adds bounded retry guidance', async () => {
+    mockTaskRepo.list.mockImplementationOnce(() => {
+      throw new Error('task list storage failed');
+    });
+
+    const result = await taskListHandler({}, makeCtx('sess-caller'));
+
+    expectStorageFailure(result, 'task list storage failed');
   });
 });

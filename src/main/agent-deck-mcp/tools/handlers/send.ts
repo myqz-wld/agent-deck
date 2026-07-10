@@ -44,19 +44,22 @@ export const sendMessageHandler = withMcpGuard(
 
     const target = resolveSendTarget(args.sessionId);
     if (!target) {
-      return err(`session ${args.sessionId} not found`);
+      return err(
+        `session ${args.sessionId} not found`,
+        'Call list_sessions to get a live target session ID, then retry. If the target no longer exists, call spawn_session.',
+      );
     }
     const targetSessionId = target.id;
     if (target.lifecycle === 'closed') {
       return err(
         `session ${args.sessionId} is closed`,
-        'Closed sessions cannot receive new messages. Spawn a new session if you need to continue.',
+        'Call spawn_session to create a replacement, then send_message to the returned sessionId.',
       );
     }
     if (caller.callerSessionId === targetSessionId) {
       return err(
         'cannot send_message to self',
-        'A session cannot post a message to its own user turn via MCP.',
+        'Continue in the current session directly; do not call send_message for self-directed context.',
       );
     }
 
@@ -74,7 +77,7 @@ export const sendMessageHandler = withMcpGuard(
       if (!sharedTeams.includes(args.teamId)) {
         return err(
           `team-not-shared: teamId ${args.teamId} is not in the shared active set [${sharedTeams.join(', ')}]`,
-          'Pass a teamId you actually share with the target, or omit teamId to send a teamless DM (only when you share no active team).',
+          'Use a team ID from the shared active set shown in the error. If the set is empty, omit teamId for a teamless DM.',
         );
       }
       teamId = args.teamId;
@@ -82,8 +85,8 @@ export const sendMessageHandler = withMcpGuard(
       teamId = sharedTeams[0];
     } else if (sharedTeams.length >= 2) {
       return err(
-        'ambiguous-team',
-        `caller and target share ${sharedTeams.length} active teams [${sharedTeams.join(', ')}]; pass teamId to disambiguate.`,
+        `ambiguous-team: caller and target share ${sharedTeams.length} active teams [${sharedTeams.join(', ')}]`,
+        'Retry with teamId set to one of the listed IDs.',
       );
     } else {
       // sharedTeams.length === 0 且未显式传 teamId → teamless DM 分支。
@@ -95,19 +98,19 @@ export const sendMessageHandler = withMcpGuard(
       if (!callerSession) {
         return err(
           `caller session ${caller.callerSessionId.slice(0, 8)} not found`,
-          'The caller session must exist to send a teamless DM.',
+          'Retry once after session initialization completes. If it persists, stop and inspect Agent Deck main-process logs.',
         );
       }
       if (callerSession.archivedAt != null) {
         return err(
           `caller session ${caller.callerSessionId.slice(0, 8)} is archived`,
-          'Archived sessions cannot send messages. Unarchive it first.',
+          'Stop and ask the user to restore or replace this session in the Agent Deck UI.',
         );
       }
       if (target.archivedAt != null) {
         return err(
           `target session ${targetSessionId.slice(0, 8)} is archived`,
-          'Archived sessions cannot receive messages. Unarchive it first.',
+          'Ask the user to restore the target in the Agent Deck UI, or call spawn_session to create a replacement.',
         );
       }
       teamId = null;
@@ -126,13 +129,13 @@ export const sendMessageHandler = withMcpGuard(
       if (!original) {
         return err(
           `replyToMessageId ${args.replyToMessageId} not found`,
-          'replyToMessageId must point to an existing message. Use list_sessions to find live session ids; omit when starting a new topic.',
+          'Omit replyToMessageId to start a new thread, or use the messageId from the latest wire prefix.',
         );
       }
       if (original.teamId !== teamId) {
         return err(
           `cross-team reply not allowed: replyToMessageId ${args.replyToMessageId} belongs to team ${original.teamId ?? '(teamless)'}, not target team ${teamId ?? '(teamless)'}`,
-          'Reply chains are scoped per-team. Omit replyToMessageId when sending in a different team.',
+          "Use the original message's teamId when it is shared; otherwise omit replyToMessageId to start a new chain.",
         );
       }
       if (teamId === null) {
@@ -144,7 +147,7 @@ export const sendMessageHandler = withMcpGuard(
         if (!pairMatch) {
           return err(
             `teamless reply chain mismatch: replyToMessageId ${args.replyToMessageId} is between other sessions, not (${caller.callerSessionId.slice(0, 8)}, ${targetSessionId.slice(0, 8)})`,
-            'Teamless reply chains are scoped to the same session pair. Omit replyToMessageId to start a new topic.',
+            'Omit replyToMessageId to start a new thread with this target.',
           );
         }
       }
@@ -152,19 +155,25 @@ export const sendMessageHandler = withMcpGuard(
 
     // 入队（messageRateLimiter + repo.insert 100KB cap + self-message 防御都在内部）
     // plan team-cohesion-fix-20260513 Phase B Step B2：透传 replyToMessageId 建对话链
-    const result = enqueueAgentDeckMessage({
-      teamId,
-      fromSessionId: caller.callerSessionId,
-      toSessionId: targetSessionId,
-      body: args.text,
-      replyToMessageId: args.replyToMessageId ?? null,
-    });
+    let result: ReturnType<typeof enqueueAgentDeckMessage>;
+    try {
+      result = enqueueAgentDeckMessage({
+        teamId,
+        fromSessionId: caller.callerSessionId,
+        toSessionId: targetSessionId,
+        body: args.text,
+        replyToMessageId: args.replyToMessageId ?? null,
+      });
+    } catch (e) {
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'Correct any message invariant named in the error. For a transient storage error, retry once; if it repeats, stop and inspect Agent Deck main-process logs.',
+      );
+    }
     if (!result.ok) {
       return err(
         `${result.error} (retryAfterMs=${result.retryAfterMs})`,
-        teamId === null
-          ? 'Per-sender rate limit exceeded (teamless DM). Retry after the indicated delay or raise mcpMessageRatePerTeamPerMin in Settings.'
-          : 'Per-team rate limit exceeded. Retry after the indicated delay or raise mcpMessageRatePerTeamPerMin in Settings.',
+        `Wait at least ${result.retryAfterMs} ms, then retry once. To change the limit, ask the user to update mcpMessageRatePerTeamPerMin in Settings.`,
       );
     }
     return ok({

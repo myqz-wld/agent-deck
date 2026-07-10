@@ -36,7 +36,10 @@ export const appendIssueContextHandler = withMcpGuard(
       const callerSid = ctx.caller.callerSessionId;
       const issue = issueRepo.get(args.issueId);
       if (!issue) {
-        return err(`issue ${args.issueId} not found`);
+        return err(
+          `issue ${args.issueId} not found`,
+          'Verify issueId against the id returned by report_issue. If the issue was removed, call report_issue to create a new issue.',
+        );
       }
       // §D10 strict source-bound 校验：issue.sourceSessionId 必须等于 callerSid。
       // 跨 session / 跨 caller / hand_off 后丢 issueId 都走这条 reject 路径,详细 hint
@@ -44,7 +47,16 @@ export const appendIssueContextHandler = withMcpGuard(
       if (issue.sourceSessionId !== callerSid) {
         return err(
           `append rejected: issue.sourceSessionId=${issue.sourceSessionId ?? '<null>'}, caller=${callerSid}`,
-          'append_issue_context 仅支持同 session 补现场（agent 重启 / hand_off 后丢 issueId）。请用 report_issue 重新上报新 issue,UI 端人工 merge。',
+          'Only the source session can append context. Call report_issue from this session to create a new issue with the additional context; ask the user to merge it in the Agent Deck UI if needed.',
+        );
+      }
+      // 与 resolved-reject 对称：软删（用户已在 UI 隐藏）的 issue 也不接受 append。继续 append
+      // 只会写进一条用户已删除、列表默认不可见的 issue，语义矛盾。恢复后再 append 或 report_issue
+      // 重新上报。
+      if (issue.deletedAt !== null) {
+        return err(
+          `append rejected: issue ${args.issueId} is deleted`,
+          'Ask the user to restore this issue in the Agent Deck UI, then retry append_issue_context. If it should remain deleted, call report_issue to create a new issue.',
         );
       }
       // §D7 status='resolved' reject：issue 已经 resolved 状态机进入 GC 倒计时（§D13），
@@ -53,16 +65,7 @@ export const appendIssueContextHandler = withMcpGuard(
       if (issue.status === 'resolved') {
         return err(
           `append rejected: issue ${args.issueId} status='resolved'`,
-          'issue 已 resolved，新现场请 create 新 issue（resolved issue 不接受 append）。能走到这步说明你是该 issue 的源会话（已过 source-bound 校验），可先调 update_issue_status 把 status 改回 open/in-progress 再 append；或由 UI 端手工改回。',
-        );
-      }
-      // 与 resolved-reject 对称：软删（用户已在 UI 隐藏）的 issue 也不接受 append。继续 append
-      // 只会写进一条用户已删除、列表默认不可见的 issue，语义矛盾。恢复后再 append 或 report_issue
-      // 重新上报。
-      if (issue.deletedAt !== null) {
-        return err(
-          `append rejected: issue ${args.issueId} 已软删`,
-          'issue 已被用户删除（隐藏）。请用 report_issue 重新上报新 issue；或 UI 端先恢复该 issue 再 append。',
+          'Call update_issue_status with this issueId and status "open" or "in-progress", then retry append_issue_context. Otherwise call report_issue to create a new issue.',
         );
       }
       // §D16 append 子表 + §D17 logsRef merge（当 args.logsRef 非 null/undefined 时）。
@@ -75,7 +78,10 @@ export const appendIssueContextHandler = withMcpGuard(
       });
       if (!updated) {
         // 极少数 race case：repo.get(issueId) 之间 TOCTOU 被另一处 hardDelete 掉
-        return err(`issue ${args.issueId} disappeared during append (race with hardDelete)`);
+        return err(
+          `issue ${args.issueId} disappeared before context was appended`,
+          'Do not retry this issueId. Call report_issue to create a new issue if the context still needs to be recorded.',
+        );
       }
       eventBus.emit('issue-changed', {
         kind: 'appended',
@@ -86,7 +92,10 @@ export const appendIssueContextHandler = withMcpGuard(
       });
       return ok(updated satisfies AppendIssueContextResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'Do not retry automatically because the context may already have been appended. Check the issue in the Agent Deck UI, then retry only if the context is absent.',
+      );
     }
   },
 );

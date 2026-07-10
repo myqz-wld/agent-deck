@@ -33,12 +33,15 @@ export const shutdownSessionHandler = withMcpGuard(
     if (args.sessionId === ctx.caller.callerSessionId) {
       return err(
         'cannot shutdown self',
-        'Use the application UI / IPC to terminate your own session.',
+        'Do not retry. Ask the user to close this session in the Agent Deck UI, or use hand_off_session when transferring work.',
       );
     }
     const session = sessionRepo.get(args.sessionId);
     if (!session) {
-      return err(`session ${args.sessionId} not found`);
+      return err(
+        `session ${args.sessionId} not found`,
+        'Call list_sessions to get a live session ID, then retry.',
+      );
     }
     if (session.lifecycle === 'closed') {
       // 已 closed，幂等返回 success（与 IPC delete 同模式：noop）
@@ -49,7 +52,7 @@ export const shutdownSessionHandler = withMcpGuard(
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),
-        'sessionManager.close failed; check main process logs for adapter close errors.',
+        'Call get_session with this sessionId. If it is still active, retry once; if closing fails again, inspect Agent Deck main-process logs.',
       );
     }
     return ok({ sessionId: args.sessionId, lifecycle: 'closed', alreadyClosed: false } satisfies ShutdownSessionResult);

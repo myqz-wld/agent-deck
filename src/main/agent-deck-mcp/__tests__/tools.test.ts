@@ -106,6 +106,7 @@ vi.mock('@main/store/session-repo', () => ({
 }));
 
 const closeCalls: string[] = [];
+let closeThrow: Error | null = null;
 const recordPermCalls: Array<{ sid: string; mode: string | undefined }> = [];
 const notifyTeamCalls: string[] = [];
 // REVIEW_85 MED-B (reviewer-claude): 设 true 时 recordCreatedPermissionMode 抛错（验证 spawn
@@ -115,6 +116,7 @@ let recordPermThrow = false;
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
     close: async (id: string) => {
+      if (closeThrow) throw closeThrow;
       closeCalls.push(id);
       const r = sessionStore.get(id);
       if (r) sessionStore.set(id, { ...r, lifecycle: 'closed' });
@@ -163,6 +165,7 @@ vi.mock('@main/session/manager', () => ({
 }));
 
 let nextSpawnedSid = 'spawned-1';
+let createSessionThrow: Error | null = null;
 const sendMessageCalls: Array<{ sid: string; text: string }> = [];
 
 // D1 (CHANGELOG_76): spy createSession opts 让 test 能断言 prompt 是否被 body 前缀注入。
@@ -219,6 +222,7 @@ vi.mock('@main/adapters/registry', () => ({
           extraAllowWrite?: readonly string[];
           awaitCanonicalId?: boolean;
         }) => {
+          if (createSessionThrow) throw createSessionThrow;
           const sid = nextSpawnedSid;
           createSessionCalls.push({
             adapter: id,
@@ -413,6 +417,8 @@ const mockMessages = new Map<string, AgentDeckMessage>();
 const insertedMessages: Array<{ id: string; teamId: string | null; fromSessionId: string; toSessionId: string; body: string; replyToMessageId: string | null }> = [];
 const markedDelivered: string[] = [];
 let nextInsertId = 1;
+let enqueueMessageThrow: Error | null = null;
+let enqueueRateLimitRetryAfterMs: number | null = null;
 
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   agentDeckMessageRepo: {
@@ -464,7 +470,15 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
 
 vi.mock('@main/teams/universal-message-watcher', () => ({
   enqueueAgentDeckMessage: (input: { teamId: string | null; fromSessionId: string; toSessionId: string; body: string }) => {
+    if (enqueueMessageThrow) throw enqueueMessageThrow;
     enqueuedMessages.push(input);
+    if (enqueueRateLimitRetryAfterMs !== null) {
+      return {
+        ok: false as const,
+        error: 'message rate limit exceeded',
+        retryAfterMs: enqueueRateLimitRetryAfterMs,
+      };
+    }
     return {
       ok: true as const,
       message: {
@@ -542,6 +556,7 @@ beforeEach(async () => {
   listActiveAndDormantCalls.length = 0;
   addMemberCalls.length = 0;
   closeCalls.length = 0;
+  closeThrow = null;
   notifyTeamCalls.length = 0;
   recordPermCalls.length = 0;
   sendMessageCalls.length = 0;
@@ -564,7 +579,10 @@ beforeEach(async () => {
   insertedMessages.length = 0;
   markedDelivered.length = 0;
   nextInsertId = 1;
+  enqueueMessageThrow = null;
+  enqueueRateLimitRetryAfterMs = null;
   nextSpawnedSid = 'spawned-1';
+  createSessionThrow = null;
   // 重新 import 让 mock 生效
   if (!buildAgentDeckTools) {
     const mod = await import('../tools');
@@ -724,13 +742,27 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'sonnet',
       'opus',
       'fable',
+      'fable-5',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
       'gpt-5.5',
       'gpt-5.4',
       'v4-flash',
       'v4-pro',
     ]);
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.6');
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('claude-opus-4-8').success).toBe(true);
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('').success).toBe(false);
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('fable-5');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-sol');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-terra');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-luna');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('Suggestions are not an allowlist');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain(
+      'explicit model > resolved agent model > provider default',
+    );
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('spawned session only');
     expect(SPAWN_SESSION_SCHEMA.thinking.unwrap().options).toEqual([
       'minimal',
       'low',
@@ -740,6 +772,21 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'max',
       'ultra',
     ]);
+    expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
+      'explicit thinking > resolved agent effort > provider default',
+    );
+    expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
+      'Claude and Deepseek accept low, medium, high, xhigh, and max',
+    );
+  });
+
+  it('tool description points callers to the field schemas and self-correcting hint', async () => {
+    const tools = await getTools({ transport: 'http' });
+    const description = tools.get('spawn_session').description as string;
+    expect(description).toContain('Required fields: adapter, absolute cwd');
+    expect(description).toContain('target-session-only overrides');
+    expect(description).toContain('field schemas list maintained suggestions');
+    expect(description).toContain('follow hint exactly');
   });
 
   it('allows same cwd same adapter (deep-code-review SKILL 合法路径)', async () => {
@@ -940,14 +987,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'codex model task',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinking: 'ultra',
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].model).toBe('gpt-5.5');
+    expect(createSessionCalls[0].model).toBe('gpt-5.6-sol');
     expect(createSessionCalls[0].modelReasoningEffort).toBe('ultra');
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBeUndefined();
   });
@@ -959,14 +1006,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'claude model task',
-      model: 'opus',
+      model: 'fable-5',
       thinking: 'max',
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].model).toBe('opus');
+    expect(createSessionCalls[0].model).toBe('fable-5');
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('max');
     expect(createSessionCalls[0].modelReasoningEffort).toBeUndefined();
   });
@@ -1044,6 +1091,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       const parsed = parseResult(r);
       expect(parsed.isError).toBe(true);
       expect(parsed.data.error).toMatch(c.message);
+      expect(parsed.data.hint).toBe('Use one of: low, medium, high, xhigh, max.');
     }
     expect(createSessionCalls).toHaveLength(0);
   });
@@ -1319,7 +1367,32 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cannot create sessions/);
+    expect(parsed.data.hint).toContain('adapter value from the tool schema');
     getSpy.mockRestore();
+  });
+
+  it('preserves createSession errors and returns an actionable retry contract', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'codex-cli' });
+    createSessionThrow = new Error('provider rejected model gpt-unknown');
+
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'model retry task',
+      model: 'gpt-unknown',
+      thinking: 'ultra',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toBe('provider rejected model gpt-unknown');
+    expect(parsed.data.hint).toContain('No session was created');
+    expect(parsed.data.hint).toContain('thinking value supported by codex-cli');
+    expect(parsed.data.hint).toContain('omit model/thinking');
+    expect(parsed.data.hint).toContain('verify adapter authentication');
+    expect(sessionStore.has('spawned-1')).toBe(false);
   });
 
   it('agentName passes native Claude SDK agent config while wrapping only the caller task prompt', async () => {
@@ -1771,6 +1844,8 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/not found/);
+    expect(parsed.data.hint).toContain('Call list_sessions');
+    expect(parsed.data.hint).toContain('call spawn_session');
   });
 
   it('rejects closed target session', async () => {
@@ -1785,6 +1860,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/is closed/);
+    expect(parsed.data.hint).toContain('returned sessionId');
   });
 
   // plan teamless-dm-20260601 §不变量 7：原「share zero teams → no-shared-team reject」
@@ -1824,6 +1900,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/team-not-shared/);
+    expect(parsed.data.hint).toContain('shared active set shown in the error');
     expect(enqueuedMessages).toEqual([]); // 没有静默降级入队
   });
 
@@ -1841,6 +1918,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/archived/);
+    expect(parsed.data.hint).toContain('restore the target');
     expect(enqueuedMessages).toEqual([]);
   });
 
@@ -1856,6 +1934,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/archived/);
+    expect(parsed.data.hint).toContain('restore or replace this session');
     expect(enqueuedMessages).toEqual([]);
   });
 
@@ -1886,6 +1965,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/teamless reply chain mismatch/);
+    expect(parsed.data.hint).toContain('start a new thread with this target');
     expect(enqueuedMessages).toEqual([]);
   });
 
@@ -1946,6 +2026,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cross-team reply not allowed/);
+    expect(parsed.data.hint).toContain("original message's teamId");
   });
 
   it('rejects ambiguous-team when sharing >=2 teams without teamId', async () => {
@@ -1961,6 +2042,8 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/ambiguous-team/);
+    expect(parsed.data.error).toContain('team-X, team-Y');
+    expect(parsed.data.hint).toBe('Retry with teamId set to one of the listed IDs.');
   });
 
   // CHANGELOG_100 R2 fix (claude MED-1 + codex LOW-2 双方共识)：replyToMessageId 核心防御
@@ -1980,6 +2063,10 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/replyToMessageId .* not found/);
+    expect(parsed.data.hint).toBe(
+      'Omit replyToMessageId to start a new thread, or use the messageId from the latest wire prefix.',
+    );
+    expect(parsed.data.hint).not.toContain('list_sessions');
   });
 
   it('rejects cross-team reply (original.teamId !== resolved teamId)', async () => {
@@ -2008,6 +2095,7 @@ describe('agent-deck-mcp tools — send_message', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cross-team reply not allowed/);
+    expect(parsed.data.hint).toContain('omit replyToMessageId');
   });
 
   it('passes replyToMessageId through to enqueue when same-team original exists', async () => {
@@ -2045,6 +2133,45 @@ describe('agent-deck-mcp tools — send_message', () => {
       },
     ]);
   });
+
+  it('returns the exact rate-limit delay and user-controlled recovery action', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    setSharedTeams('lead', 'teammate', ['team-X']);
+    enqueueRateLimitRetryAfterMs = 1250;
+
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'retry later',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toContain('retryAfterMs=1250');
+    expect(parsed.data.hint).toContain('Wait at least 1250 ms, then retry once');
+    expect(parsed.data.hint).toContain('ask the user to update');
+  });
+
+  it('converts enqueue invariants and storage exceptions into self-correcting errors', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { agentId: 'claude-code' });
+    enqueueMessageThrow = new Error('message body invariant failed');
+
+    const r = await tools.get('send_message').handler({
+      sessionId: 'teammate',
+      text: 'invalid payload',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toBe('message body invariant failed');
+    expect(parsed.data.hint).toContain('Correct any message invariant named in the error');
+    expect(parsed.data.hint).toContain('retry once');
+  });
 });
 
 describe('agent-deck-mcp tools — shutdown_session', () => {
@@ -2058,6 +2185,7 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/cannot shutdown self/);
+    expect(parsed.data.hint).toContain('use hand_off_session');
   });
 
   it('rejects nonexistent target', async () => {
@@ -2070,6 +2198,7 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/not found/);
+    expect(parsed.data.hint).toContain('Call list_sessions');
   });
 
   it('idempotent on already-closed target', async () => {
@@ -2098,6 +2227,24 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.alreadyClosed).toBe(false);
     expect(closeCalls).toEqual(['teammate']);
+  });
+
+  it('preserves close errors and tells the caller how to verify before retrying', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { lifecycle: 'active' });
+    closeThrow = new Error('adapter close failed');
+
+    const r = await tools.get('shutdown_session').handler({
+      sessionId: 'teammate',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toBe('adapter close failed');
+    expect(parsed.data.hint).toContain('Call get_session with this sessionId');
+    expect(parsed.data.hint).toContain('retry once');
   });
 });
 

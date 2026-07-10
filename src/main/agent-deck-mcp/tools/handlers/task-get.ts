@@ -30,18 +30,26 @@ export const taskGetHandler = withMcpGuard(
   async (args: TaskGetArgs, ctx: HandlerContext) => {
     try {
       const t = taskRepo.get(args.taskId);
-      if (!t) return err(`task ${args.taskId} not found`);
+      if (!t) {
+        return err(
+          `task ${args.taskId} not found`,
+          'Call task_list with the appropriate teamIdFilter, or omit the filter for caller-visible scope, then retry with a returned task ID.',
+        );
+      }
       // v024 plan §D3 + D8 + Step C7:read 权限校验（与 write 对称）
       const callerSid = ctx.caller.callerSessionId;
       if (!isCallerAuthorizedToRead(callerSid, t)) {
         return err(
           `permission denied: caller "${callerSid}" cannot read task ${args.taskId} (teamId=${t.teamId ?? 'personal'}, owner=${t.ownerSessionId})`,
-          'team-bound task 要求 caller 在该 team 是 active member（agent_deck_team_members.left_at IS NULL AND agent_deck_teams.archived_at IS NULL 双条件,§不变量 13）;personal task 仅 owner 可读。',
+          'Call task_list to find tasks visible to this caller. Team tasks require active team membership; personal tasks require caller == ownerSessionId.',
         );
       }
       return ok(t satisfies TaskGetResult);
     } catch (e) {
-      return err(e instanceof Error ? e.message : String(e));
+      return err(
+        e instanceof Error ? e.message : String(e),
+        'If the error identifies invalid input, correct it. For a transient storage error, retry once; if it repeats, stop and inspect Agent Deck main-process logs.',
+      );
     }
   },
 );

@@ -65,13 +65,13 @@ export const spawnSessionHandler = withMcpGuard(
     if (!adapter || !adapter.createSession) {
       return err(
         `adapter "${args.adapter}" cannot create sessions`,
-        'Adapter not registered or createSession not implemented. Check list_sessions to see available adapters.',
+        'Choose an adapter value from the tool schema and ensure that adapter is enabled and available in Agent Deck, then retry.',
       );
     }
     if (!adapter.capabilities.canCreateSession) {
       return err(
         `adapter "${args.adapter}" does not support session creation`,
-        'Adapter has capabilities.canCreateSession=false (read-only adapter).',
+        'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, or codex-cli.',
       );
     }
 
@@ -365,7 +365,7 @@ export const spawnSessionHandler = withMcpGuard(
       });
       return err(
         e instanceof Error ? e.message : String(e),
-        'createSession failed; no session created. Check adapter logs for details.',
+        `No session was created. Retry once with an exact catalog/provider model and a thinking value supported by ${args.adapter}, or omit model/thinking. If it still fails, verify adapter authentication and inspect Agent Deck logs.`,
       );
     } finally {
       // catch 路径已 release；finally 兜底 idempotent 二次 release（内部 dedupe）
