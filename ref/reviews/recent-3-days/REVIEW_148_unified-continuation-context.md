@@ -344,4 +344,4 @@ explicit user acknowledgement deletes the record and re-enables preparation.
 ## Related Records
 
 - [CHANGELOG_358](../../changelogs/recent-3-days/CHANGELOG_358_unified-continuation-context.md)
-- Durable plan: `/tmp/agent-deck-unified-continuation-context-plan.md`
+- [Durable plan](../../plans/recent-3-days/PLAN_5_unified-continuation-context.md)

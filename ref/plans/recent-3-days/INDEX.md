@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-11 | `PLAN_5_unified-continuation-context.md` | completed | Unify provider-neutral continuation context | CHANGELOG_358 / REVIEW_148 |
 | 2026-07-11 | `PLAN_4_session-pinning-reviewer-model.md` | completed | Add persistent Live pins and Codex reviewer default | CHANGELOG_359 / REVIEW_149 |
 | 2026-07-10 | `PLAN_3_codex-collaboration-raw-events.md` | completed | Restore fresh Codex collaboration events | REVIEW_147 |
 | 2026-07-09 | `PLAN_2_spawn-session-native-fork.md` | completed | Add safe provider-native parallel forks | CHANGELOG_353 / REVIEW_144 |
