@@ -21,7 +21,7 @@ import type {
   HandOffMetadata,
   UploadedAttachmentRef,
 } from '@shared/types';
-import type { ClaudeCodeEffortLevel } from '@main/adapters/types';
+import type { ClaudeCodeEffortLevel, InitialSessionRegistration } from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
@@ -153,6 +153,7 @@ export interface CreateSessionOpts {
    * visible temporary app id immediately and rename it after the first SDK frame.
    */
   awaitCanonicalId?: boolean;
+  initialSessionRegistration?: InitialSessionRegistration;
   /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口)**:recover 路径传 cancelGuard
    * thunk,createSession 内部在 pre-registration await(loadSdk / buildMcpServersForSession)之后、

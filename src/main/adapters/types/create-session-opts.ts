@@ -16,6 +16,16 @@ import type { PermissionMode } from './adapter-context';
 export type ClaudeCodeEffortLevel = ClaudeThinkingLevel;
 export type CodexModelReasoningEffort = CodexThinkingLevel;
 
+/** Main-only registration metadata used to materialize an MCP spawn edge on the first SDK row. */
+export interface InitialSessionRegistration {
+  spawnLink: {
+    parentSessionId: string;
+    depth: number;
+  };
+  /** Called synchronously after the linked session-start has been durably ingested. */
+  onRegistered: (applicationSessionId: string) => void;
+}
+
 /**
  * 所有 2 adapter 共享的最小字段集（cwd / prompt）。各 adapter 专属 interface 内联其余
  * 字段保 jsdoc 集中（不抽 BaseCreateOpts，让每个 interface 自身可读完整字段集）。
@@ -120,6 +130,7 @@ export interface ClaudeCreateOpts {
    * true, the bridge waits for the first SDK session id and returns the canonical id.
    */
   awaitCanonicalId?: boolean;
+  initialSessionRegistration?: InitialSessionRegistration;
 }
 
 /**
@@ -249,6 +260,7 @@ export interface CodexCreateOpts {
    * true, the bridge waits for the first `thread.started` result and returns the canonical id.
    */
   awaitCanonicalId?: boolean;
+  initialSessionRegistration?: InitialSessionRegistration;
 }
 
 /**
@@ -321,4 +333,6 @@ export interface CreateSessionOptionsRaw {
    * field; handlers set it when they need a stable session id instead of the UI fast-temp id.
    */
   awaitCanonicalId?: boolean;
+  /** Internal MCP spawn plumbing; absent from renderer/CLI/MCP schemas. */
+  initialSessionRegistration?: InitialSessionRegistration;
 }

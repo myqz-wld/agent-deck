@@ -4,9 +4,9 @@
  * **滑动窗口 RateLimiter**：自管 timestamps Array，每次 tryConsume 同步过期裁剪 +
  * 上限校验（不 await，event-loop 单线程下无 race）。
  *
- * **InFlightChildrenCounter**：per-caller spawn-mutex 用，记录还在 await createSession
- * 的 child 数。同步 inc/dec/get（不 await）。与 sessionRepo.listChildren 反查的「DB
- * 已存在 active children」叠加 = 真实 fan-out（reserve + 已落地都计入）。
+ * **InFlightChildrenCounter**：per-caller spawn-mutex 用，记录尚未 materialize 为 linked
+ * active row 的 child 数。同步 inc/dec/get（不 await）。首个 SDK row 落库后立即 dec，
+ * 与 sessionRepo.listChildren 的 durable 计数做无重叠 ownership transfer。
  */
 
 export class RateLimiter {
@@ -70,8 +70,9 @@ export class RateLimiter {
 /**
  * Per-caller in-flight children counter（B'0 ADR §6.6 race protection）。
  *
- * spawn_session handler 同步段内 inc(callerSid) + check fan-out；await createSession
- * 后 dec。这样并发 N 个 spawn_session 不会全部穿透「DB 反查只看到 0 children」的窗口。
+ * spawn_session handler 同步段内 inc(callerSid) + check fan-out；linked SDK row materialize
+ * 后 dec，失败/finally 幂等兜底。这样并发 N 个 spawn_session 不会穿透 DB 空窗，也不会在
+ * canonical id 等待期把同一 child 同时算作 DB active + in-flight。
  *
  * 与 sessionRepo.listChildren(parentId, 'active').length 叠加：
  * - DB 已落地 active children: K

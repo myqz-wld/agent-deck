@@ -1,6 +1,7 @@
 import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { getDb } from '@main/store/db';
 import { sessionRepo } from '@main/store/session-repo';
 import { taskRepo } from '@main/store/task-repo';
 import log from '@main/utils/logger';
@@ -85,12 +86,12 @@ function failedTasks(reason: string): HandOffResourceTransferResult['tasks'] {
 function transferTeams(
   callerSessionId: string,
   newSessionId: string,
+  postCommitEvents: Array<() => void>,
 ): HandOffResourceTransferResult['teams'] {
   const transferred: HandOffResourceTransferResult['teams']['transferred'] = [];
   const skipped: HandOffResourceTransferResult['teams']['skipped'] = [];
   const failed: HandOffResourceTransferResult['teams']['failed'] = [];
   const rollback: Array<() => void> = [];
-  const postCommitEvents: Array<() => void> = [];
 
   let memberships: ReturnType<typeof agentDeckTeamRepo.findActiveMembershipsBySession>;
   let candidates: Array<{ teamId: string; role: 'lead' | 'teammate' }>;
@@ -231,16 +232,27 @@ function transferTeams(
     };
   }
 
-  for (const emitEvent of postCommitEvents) {
-    emitEvent();
-  }
-
   return {
     status: 'ok',
     transferred,
     skipped,
     failed,
   };
+}
+
+class ResourceTransferAborted extends Error {
+  constructor(readonly result: HandOffResourceTransferResult) {
+    super('handoff resource transfer rolled back');
+    this.name = 'ResourceTransferAborted';
+  }
+}
+
+function transferFailed(result: HandOffResourceTransferResult): boolean {
+  return (
+    result.tasks.status === 'failed' ||
+    result.teams.status === 'failed' ||
+    result.worktreeMarker.status === 'failed'
+  );
 }
 
 function transferTasks(
@@ -278,11 +290,11 @@ function rollbackTasks(
   }
 }
 
-export function transferHandOffResources(input: {
+function transferHandOffResourcesInTransaction(input: {
   callerSessionId: string;
   callerRow: SessionRecord;
   newSessionId: string;
-}): HandOffResourceTransferResult {
+}, postCommitEvents: Array<() => void>): HandOffResourceTransferResult {
   const marker = transferWorktreeMarker(input.callerRow, input.newSessionId);
   if (marker.status === 'failed') {
     return {
@@ -302,7 +314,7 @@ export function transferHandOffResources(input: {
     };
   }
 
-  const teams = transferTeams(input.callerSessionId, input.newSessionId);
+  const teams = transferTeams(input.callerSessionId, input.newSessionId, postCommitEvents);
   if (teams.status === 'failed') {
     const rolledBackTasks = rollbackTasks(
       tasks,
@@ -315,4 +327,32 @@ export function transferHandOffResources(input: {
   }
 
   return { tasks, teams, worktreeMarker: marker };
+}
+
+export function transferHandOffResources(input: {
+  callerSessionId: string;
+  callerRow: SessionRecord;
+  newSessionId: string;
+}): HandOffResourceTransferResult {
+  const postCommitEvents: Array<() => void> = [];
+  const tx = getDb().transaction(() => {
+    const result = transferHandOffResourcesInTransaction(input, postCommitEvents);
+    // A returned failure is still a transaction failure: throw a private sentinel so SQLite rolls
+    // back marker, task, and team writes even when one of the best-effort compensations also failed.
+    if (transferFailed(result)) throw new ResourceTransferAborted(result);
+    return result;
+  });
+
+  let result: HandOffResourceTransferResult;
+  try {
+    result = tx();
+  } catch (error) {
+    if (error instanceof ResourceTransferAborted) return error.result;
+    throw error;
+  }
+
+  // Renderer/team notifications must observe committed durable ownership, never an intermediate
+  // state that may still roll back because a later transfer step or COMMIT failed.
+  for (const emitEvent of postCommitEvents) emitEvent();
+  return result;
 }

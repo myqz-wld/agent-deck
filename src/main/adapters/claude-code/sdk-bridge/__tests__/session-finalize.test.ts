@@ -99,4 +99,32 @@ describe('claude finalizeSessionStart', () => {
     });
     expect(JSON.stringify(message.payload)).not.toContain('Agent Deck Continuation Context');
   });
+
+  it('emits a linked first session row before settling the spawn reservation', () => {
+    const emit = vi.fn();
+    const onRegistered = vi.fn(() => {
+      expect(emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'session-start',
+          payload: expect.objectContaining({
+            initialSpawnLink: { parentSessionId: 'lead', depth: 1 },
+          }),
+        }),
+      );
+    });
+    vi.mocked(sessionRepo.get).mockReturnValue(null);
+
+    finalizeSessionStart({
+      applicationSid: 'child',
+      cwd: '/repo',
+      claudeSandboxMode: 'off',
+      initialSessionRegistration: {
+        spawnLink: { parentSessionId: 'lead', depth: 1 },
+        onRegistered,
+      },
+      emit,
+    });
+
+    expect(onRegistered).toHaveBeenCalledWith('child');
+  });
 });

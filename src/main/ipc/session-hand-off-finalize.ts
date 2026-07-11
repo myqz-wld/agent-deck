@@ -14,11 +14,19 @@ export interface ArchiveSourceSessionDeps {
   }) => void;
 }
 
+export type ArchiveSourceSessionResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: string;
+      reasonKind: 'row-missing' | 'probe-throw' | 'archive-throw';
+    };
+
 /** Best-effort UI source archive with an actionable failure event and a fresh row probe. */
 export async function archiveSourceSessionWithEmit(
   sessionId: string,
   deps: ArchiveSourceSessionDeps,
-): Promise<void> {
+): Promise<ArchiveSourceSessionResult> {
   let row: unknown | null;
   try {
     row = deps.getSession(sessionId);
@@ -33,7 +41,7 @@ export async function archiveSourceSessionWithEmit(
       reason,
       reasonKind: 'probe-throw',
     });
-    return;
+    return { ok: false, reason, reasonKind: 'probe-throw' };
   }
   if (!row) {
     const reason = `cannot archive caller ${sessionId}: not in sessions table (createSession 期间被异常清理)`;
@@ -44,7 +52,7 @@ export async function archiveSourceSessionWithEmit(
       reason,
       reasonKind: 'row-missing',
     });
-    return;
+    return { ok: false, reason, reasonKind: 'row-missing' };
   }
   try {
     await deps.archive(sessionId);
@@ -68,5 +76,11 @@ export async function archiveSourceSessionWithEmit(
       reason,
       reasonKind: rowMissing ? 'row-missing' : 'archive-throw',
     });
+    return {
+      ok: false,
+      reason,
+      reasonKind: rowMissing ? 'row-missing' : 'archive-throw',
+    };
   }
+  return { ok: true };
 }

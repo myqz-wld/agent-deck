@@ -93,6 +93,7 @@ vi.mock('@main/session/manager', () => ({
     renameSdkSession: vi.fn(),
     updateCliSessionId: vi.fn(),
     unarchive: vi.fn(),
+    delete: vi.fn(async () => undefined),
   },
 }));
 
@@ -213,7 +214,8 @@ beforeEach(() => {
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.renameSdkSession).mockReset();
   vi.mocked(sessionManager.updateCliSessionId).mockReset();
-
+  vi.mocked(sessionManager.delete).mockReset();
+  vi.mocked(sessionManager.delete).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -227,6 +229,15 @@ function makeBridge(): CodexSdkBridge {
       emits.push(e);
     },
   });
+}
+
+function getInjectedMcpToken(): string {
+  const calls = appServerClientMock.CodexAppServerClient.mock.calls as unknown as Array<
+    [{ env?: Record<string, string> }]
+  >;
+  const token = calls.at(-1)?.[0].env?.AGENT_DECK_MCP_TOKEN;
+  if (!token) throw new Error('missing test MCP token');
+  return token;
 }
 
 function getInternalThreadId(bridge: CodexSdkBridge, sid: string): string | null | undefined {
@@ -416,6 +427,7 @@ describe('codex createSession new path latency', () => {
   it('awaitCanonicalId waits for thread.started and returns the post-rename real id', async () => {
     const pushThread = new PushThread();
     appServerClientMock.nextThread = pushThread;
+    const onRegistered = vi.fn();
 
     const bridge = makeBridge();
     const createPromise = bridge.createSession({
@@ -423,11 +435,20 @@ describe('codex createSession new path latency', () => {
       prompt: 'hi',
       codexSandbox: 'workspace-write',
       awaitCanonicalId: true,
+      initialSessionRegistration: {
+        spawnLink: { parentSessionId: 'lead-session', depth: 1 },
+        onRegistered,
+      },
     });
 
     await flushAsyncWork();
     expect(pushThread.runStreamed).toHaveBeenCalledTimes(1);
     expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+    const provisionalStart = emits.find((event) => event.kind === 'session-start');
+    expect(provisionalStart?.payload).toMatchObject({
+      initialSpawnLink: { parentSessionId: 'lead-session', depth: 1 },
+    });
+    expect(onRegistered).toHaveBeenCalledWith(provisionalStart?.sessionId);
 
     pushThread.push({ type: 'thread.started', thread_id: 'real-thread-1' });
     await flushAsyncWork();
@@ -536,6 +557,7 @@ describe('codex createSession new path latency', () => {
       ),
     ).toHaveLength(1);
     expect(emits.every((e) => e.sessionId === tempSid)).toBe(true);
+    expect(sessionManager.delete).not.toHaveBeenCalled();
   });
 
   it('temp 会话在 thread.started 前关闭后，迟到 real id 不 rename / 不复活 session', async () => {
@@ -577,12 +599,12 @@ describe('codex createSession new path latency', () => {
     appServerClientMock.nextThread = pushThread;
 
     const bridge = makeBridge();
-    const handle = await bridge.createSession({
+    await bridge.createSession({
       cwd: '/repo',
       prompt: 'hi',
       codexSandbox: 'workspace-write',
     });
-    const tempSid = handle.sessionId;
+    const token = getInjectedMcpToken();
 
     await vi.advanceTimersByTimeAsync(0);
     expect(pushThread.runStreamed).toHaveBeenCalledTimes(1);
@@ -612,7 +634,8 @@ describe('codex createSession new path latency', () => {
         (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
       ),
     ).toHaveLength(1);
-    expect(mcpSessionTokenMap.get(tempSid)).toBeNull();
+    expect(mcpSessionTokenMap.get(token)).toBeNull();
+    expect(sessionManager.delete).not.toHaveBeenCalled();
   });
 });
 
@@ -628,9 +651,10 @@ describe('codex createSession early-failure rollback (REVIEW_79 test gap)', () =
 
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/app-server client boom/);
+    const token = getInjectedMcpToken();
 
     // token allocate 发生在 validate phase（throw 前），rollback 必须 release
-    expect(mcpSessionTokenMap.get('sess-e1')).toBeNull();
+    expect(mcpSessionTokenMap.get(token)).toBeNull();
     // sessions Map 不残留（resume 路径 sessions.set 在 ensureCodex 之后，此处尚未 set，
     // rollback delete 仍 idempotent no-op 安全）
     const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
@@ -663,9 +687,10 @@ describe('codex createSession early-failure rollback (REVIEW_79 test gap)', () =
 
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/resumeThread param invalid/);
+    const token = getInjectedMcpToken();
 
     // rollback: token released + (resume 路径) releaseSdkClaim(opts.resume)
-    expect(mcpSessionTokenMap.get('sess-e2')).toBeNull();
+    expect(mcpSessionTokenMap.get(token)).toBeNull();
     expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('sess-e2');
   });
 });

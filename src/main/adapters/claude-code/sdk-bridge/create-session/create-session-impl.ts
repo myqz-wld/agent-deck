@@ -246,6 +246,7 @@ export async function createSessionImpl(
         attachments: opts.attachments,
         handOff: opts.handOff,
         continuationMetadata: initialTurn.metadata,
+        initialSessionRegistration: opts.initialSessionRegistration,
         emit: deps.emit,
       });
 
@@ -268,6 +269,7 @@ export async function createSessionImpl(
             attachments: opts.attachments,
             handOff: opts.handOff,
             continuationMetadata: initialTurn.metadata,
+            initialSessionRegistration: opts.initialSessionRegistration,
             skipSessionStartEmit: true,
             skipFirstUserEmit: true,
             emit: deps.emit,
@@ -334,6 +336,7 @@ export async function createSessionImpl(
         attachments: opts.attachments,
         handOff: opts.handOff,
         continuationMetadata: initialTurn.metadata,
+        initialSessionRegistration: opts.initialSessionRegistration,
         // REVIEW_58 HIGH ✅ 收口修法:recoverer.recoverAndSend 入口已 emit user message 时
         // 显式传 true,finalize 跳过重复 emit(详 createSession opts.skipFirstUserEmit jsdoc)。
         skipFirstUserEmit: opts.skipFirstUserEmit,

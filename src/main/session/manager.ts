@@ -27,7 +27,6 @@ import type { AgentEvent, SessionRecord } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { isDbClosed } from '@main/store/db';
-import { deriveTitle } from './manager-helpers';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 import {
   type IngestContext,
@@ -70,6 +69,10 @@ import {
   deleteImpl,
 } from './manager/lifecycle';
 import { renameSdkSessionImpl, updateCliSessionIdImpl } from './manager/rename';
+import {
+  buildInitialSessionRecord,
+  materializeInitialSpawnLink,
+} from './manager/session-registration';
 import {
   consumePendingSdkClaim as consumePendingSdkClaimImpl,
   expectPendingSdkSession,
@@ -204,6 +207,7 @@ class SessionManagerClass {
   ensure(sessionId: string, opts: UpsertOptions): SessionRecord {
     const existing = sessionRepo.get(sessionId);
     if (existing) {
+      const current = materializeInitialSpawnLink(sessionId, existing, opts);
       // 收到新事件 → 复活:closed 推回 active。
       // 注意:归档(archivedAt)与 lifecycle 正交,是用户的主动隐藏意图,
       // 不能因为后续事件流就自动 unarchive,否则用户刚归档的 active 会话
@@ -221,12 +225,12 @@ class SessionManagerClass {
       // lifecycle(auto-unarchive 是 unarchiveOnUserSend 的显式职责,不是被动事件流;
       // 原版漏此守卫致 closed+archived 会话被事件流偷改 lifecycle='active' — claude HIGH 同源子问题)。
       if (
-        existing.lifecycle === 'closed' &&
-        existing.archivedAt === null &&
+        current.lifecycle === 'closed' &&
+        current.archivedAt === null &&
         opts.reviveClosed === true
       ) {
         const revived: SessionRecord = {
-          ...existing,
+          ...current,
           lifecycle: 'active',
           endedAt: null,
         };
@@ -234,22 +238,9 @@ class SessionManagerClass {
         eventBus.emit('session-upserted', revived);
         return revived;
       }
-      return existing;
+      return current;
     }
-    const now = Date.now();
-    const rec: SessionRecord = {
-      id: sessionId,
-      agentId: opts.agentId,
-      cwd: opts.cwd ?? '',
-      title: opts.title ?? deriveTitle(opts.cwd ?? sessionId),
-      source: opts.source ?? 'cli',
-      lifecycle: 'active',
-      activity: 'idle',
-      startedAt: now,
-      lastEventAt: now,
-      endedAt: null,
-      archivedAt: null,
-    };
+    const rec = buildInitialSessionRecord(sessionId, opts, Date.now());
     sessionRepo.upsert(rec);
     eventBus.emit('session-upserted', rec);
     return rec;

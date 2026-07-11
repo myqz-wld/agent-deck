@@ -166,6 +166,7 @@ vi.mock('@main/session/manager', () => ({
 
 let nextSpawnedSid = 'spawned-1';
 let createSessionThrow: Error | null = null;
+let createSessionGate: Promise<void> | null = null;
 const sendMessageCalls: Array<{ sid: string; text: string }> = [];
 
 // D1 (CHANGELOG_76): spy createSession opts 让 test 能断言 prompt 是否被 body 前缀注入。
@@ -186,6 +187,7 @@ const createSessionCalls: Array<{
   claudeAgents?: unknown;
   extraAllowWrite?: readonly string[];
   awaitCanonicalId?: boolean;
+  initialSpawnLink?: { parentSessionId: string; depth: number };
 }> = [];
 
 vi.mock('@main/adapters/registry', () => ({
@@ -216,6 +218,10 @@ vi.mock('@main/adapters/registry', () => ({
           claudeAgents?: unknown;
           extraAllowWrite?: readonly string[];
           awaitCanonicalId?: boolean;
+          initialSessionRegistration?: {
+            spawnLink: { parentSessionId: string; depth: number };
+            onRegistered: (sessionId: string) => void;
+          };
         }) => {
           if (createSessionThrow) throw createSessionThrow;
           const sid = nextSpawnedSid;
@@ -236,6 +242,7 @@ vi.mock('@main/adapters/registry', () => ({
             claudeAgents: opts.claudeAgents,
             extraAllowWrite: opts.extraAllowWrite,
             awaitCanonicalId: opts.awaitCanonicalId,
+            initialSpawnLink: opts.initialSessionRegistration?.spawnLink,
           });
           sessionStore.set(sid, {
             id: sid,
@@ -249,9 +256,11 @@ vi.mock('@main/adapters/registry', () => ({
             lastEventAt: Date.now(),
             endedAt: null,
             archivedAt: null,
-            spawnedBy: null,
-            spawnDepth: 0,
+            spawnedBy: opts.initialSessionRegistration?.spawnLink.parentSessionId ?? null,
+            spawnDepth: opts.initialSessionRegistration?.spawnLink.depth ?? 0,
           });
+          opts.initialSessionRegistration?.onRegistered(sid);
+          if (createSessionGate) await createSessionGate;
           return sid;
         },
         sendMessage: async (sid: string, text: string) => {
@@ -577,6 +586,7 @@ beforeEach(async () => {
   enqueueRateLimitRetryAfterMs = null;
   nextSpawnedSid = 'spawned-1';
   createSessionThrow = null;
+  createSessionGate = null;
   // 重新 import 让 mock 生效
   if (!buildAgentDeckTools) {
     const mod = await import('../tools');
@@ -964,6 +974,15 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(spawned.data.sessionId).toBe('real-codex-after-thread-started');
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].awaitCanonicalId).toBe(true);
+    expect(createSessionCalls[0].initialSpawnLink).toEqual({
+      parentSessionId: 'lead',
+      depth: 1,
+    });
+    expect(sessionStore.get(spawned.data.sessionId)).toMatchObject({
+      spawnedBy: 'lead',
+      spawnDepth: 1,
+    });
+    expect(inFlightChildren.get('lead')).toBe(0);
     expect(sessionStore.has(spawned.data.sessionId)).toBe(true);
 
     const followUp = await tools.get('send_message').handler({
@@ -982,6 +1001,41 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       body: 'second-round prompt',
       replyToMessageId: null,
     });
+  });
+
+  it('materializes the spawn edge and releases fan-out reservation before canonical create settles', async () => {
+    seedSession('lead', { cwd: '/repo', agentId: 'codex-cli' });
+    let releaseCreate!: () => void;
+    createSessionGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const { spawnSessionHandler } = await import('../tools/handlers/spawn');
+
+    const pending = spawnSessionHandler(
+      {
+        adapter: 'codex-cli',
+        cwd: '/repo',
+        prompt: 'deferred canonical child',
+        callerSessionId: 'lead',
+      },
+      { caller: { callerSessionId: 'lead', transport: 'in-process' } },
+    );
+
+    await vi.waitFor(() => {
+      expect(sessionStore.get('spawned-1')).toMatchObject({
+        spawnedBy: 'lead',
+        spawnDepth: 1,
+      });
+    });
+    expect(inFlightChildren.get('lead')).toBe(0);
+    expect(setSpawnLinkCalls).toHaveLength(0);
+
+    releaseCreate();
+    const result = parseResult(await pending);
+    expect(result.isError).toBeFalsy();
+    expect(setSpawnLinkCalls).toEqual([
+      { id: 'spawned-1', parentId: 'lead', depth: 1 },
+    ]);
   });
 
   it.each(['max', 'ultra'] as const)(
@@ -1674,6 +1728,7 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
     // 关键断言 1: setSpawnLink 不被调用（hand-off 路径数据层不记 spawn-link）
     const spawnLinkForNew = setSpawnLinkCalls.find((c) => c.id === newSid);
     expect(spawnLinkForNew).toBeUndefined();
+    expect(createSessionCalls.at(-1)?.initialSpawnLink).toBeUndefined();
     // 关键断言 2: ok return.spawnDepth = 0（hand-off 路径下新 session 在 DB 表现为顶层，无 spawn 关系）
     expect(parsed.data.spawnDepth).toBe(0);
   });

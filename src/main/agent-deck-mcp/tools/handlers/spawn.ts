@@ -4,7 +4,6 @@ import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { adapterRegistry } from '@main/adapters/registry';
-import { eventBus } from '@main/event-bus';
 import type { ForkedSessionHandle, ForkSessionSource } from '@main/adapters/types';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
@@ -18,6 +17,7 @@ import {
 } from '../helpers';
 import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
+import { persistSpawnLinkFallback } from './spawn-link-registration';
 import {
   resolveSpawnModelOptions,
   type SpawnClaudeCodeEffortLevel,
@@ -30,6 +30,7 @@ import { buildSpawnPromptContext } from './spawn-prompt';
 import { validateSpawnForkPreflight } from './spawn-fork-preflight';
 import {
   buildSpawnTargetOptions,
+  setSpawnTargetInitialRegistration,
   setSpawnTargetPrompt,
 } from './spawn-target-options';
 import {
@@ -270,6 +271,17 @@ export const spawnSessionHandler = withMcpGuard(
       handOffMode: opts?.handOffMode,
     });
     setSpawnTargetPrompt(targetOptions, promptForSpawn);
+    if (shouldWriteNormalSpawnLink) {
+      setSpawnTargetInitialRegistration(targetOptions, {
+        spawnLink: {
+          parentSessionId: caller.callerSessionId,
+          depth: parentDepth + 1,
+        },
+        // session-start ingest is synchronous: once this callback runs, listChildren sees the
+        // durable row, so the in-flight reservation must be released to avoid double-counting it.
+        onRegistered: () => fanOutSlot.release(),
+      });
+    }
 
     // 实际 spawn
     // REVIEW_32 follow-up MED-1 (fan-out race) 修法：把 setSpawnLink 提到 try 块内 createSession
@@ -317,34 +329,11 @@ export const spawnSessionHandler = withMcpGuard(
       //   → 无影响
       // **[caller-scoped #1/4]** spawn-link 写入(grep anchor 详 L148-160 callerExists 定义)
       if (shouldWriteNormalSpawnLink) {
-        const newDepth = parentDepth + 1;
-        let spawnLinkWritten = false;
-        try {
-          sessionRepo.setSpawnLink(sid, caller.callerSessionId, newDepth);
-          spawnLinkWritten = true;
-        } catch (e) {
-          // 此时 createSession 已成功（SDK 子进程已起）。若让本抛错落到外层 catch，会
-          // return err 提示「createSession failed; no session created」误导 caller 重试 →
-          // 孤儿活会话 + 重复 spawn。降级处理：spawnedBy 留 NULL（fan-out 反查少计 1 个
-          // child + SessionList 树形分组缺这条边），远比孤儿会话 + 误导性错误轻 → 仅 warn
-          // 不阻塞 spawn 成功返回（与 recordCreatedPermissionMode REVIEW_85 MED-B 同款）。
-          // 注意仍在 finally release 之前完成（保 MED-1 fan-out race 修法的顺序保证）。
-          logger.warn(
-            `[mcp spawn_session] setSpawnLink(${sid}, ${caller.callerSessionId}, ${newDepth}) failed; spawnedBy left NULL:`,
-            e,
-          );
-        }
-        if (spawnLinkWritten) {
-          try {
-            const linked = sessionRepo.get(sid);
-            if (linked) eventBus.emit('session-upserted', linked);
-          } catch (e) {
-            logger.warn(
-              `[mcp spawn_session] session-upserted emit after setSpawnLink(${sid}) failed:`,
-              e,
-            );
-          }
-        }
+        persistSpawnLinkFallback({
+          sessionId: sid,
+          parentSessionId: caller.callerSessionId,
+          depth: parentDepth + 1,
+        });
       }
     } catch (e) {
       fanOutSlot.release();

@@ -16,7 +16,7 @@
  */
 
 import type { AgentEvent, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
-import type { ClaudeCodeEffortLevel } from '@main/adapters/types';
+import type { ClaudeCodeEffortLevel, InitialSessionRegistration } from '@main/adapters/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { eventBus } from '@main/event-bus';
@@ -101,6 +101,7 @@ export interface FinalizeSessionStartArgs {
    * After temp→real rename, finalize still persists metadata but must not emit a duplicate start.
    */
   skipSessionStartEmit?: boolean;
+  initialSessionRegistration?: InitialSessionRegistration;
   emit: (e: AgentEvent) => void;
 }
 
@@ -124,7 +125,23 @@ export interface FinalizeSessionStartArgs {
  * normal resume 走 ensure() revive 既有 row + caller 传 skipFirstUserEmit=true 防双气泡)。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, claudeCodeEffortLevel, extraAllowWrite, attachments, handOff, continuationMetadata, skipFirstUserEmit, skipSessionStartEmit, emit } = args;
+  const {
+    applicationSid,
+    cliSessionId,
+    cwd,
+    prompt,
+    claudeSandboxMode,
+    claudeModel,
+    claudeCodeEffortLevel,
+    extraAllowWrite,
+    attachments,
+    handOff,
+    continuationMetadata,
+    skipFirstUserEmit,
+    skipSessionStartEmit,
+    initialSessionRegistration,
+    emit,
+  } = args;
 
   // 1. 主动 emit session-start
   if (!skipSessionStartEmit) {
@@ -132,10 +149,17 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
       sessionId: applicationSid,
       agentId: AGENT_ID,
       kind: 'session-start',
-      payload: { cwd, source: 'sdk' },
+      payload: {
+        cwd,
+        source: 'sdk',
+        ...(initialSessionRegistration
+          ? { initialSpawnLink: initialSessionRegistration.spawnLink }
+          : {}),
+      },
       ts: Date.now(),
       source: 'sdk',
     });
+    initialSessionRegistration?.onRegistered(applicationSid);
   }
 
   // 1b. **plan reverse-rename-sid-stability-20260520 §A.4-pre S9**: 写 cli_session_id 列。

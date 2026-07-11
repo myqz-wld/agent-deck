@@ -26,9 +26,9 @@ export function getSpawnDepth(id: string): number {
 
 /**
  * UPDATE sessions SET spawned_by, spawn_depth WHERE id = ?。
- * MCP `spawn_session` handler 在 reserve 占位行 + createSession 后调，
- * 写入 spawn 链路关系。session 必须先存在（通常先 INSERT 占位行 / 由 createSession
- * adapter 写入），否则该调用 changes=0。
+ * MCP `spawn_session` 的首个 SDK registration 已在 INSERT 时携带 spawn link；本 setter 是
+ * canonical create 完成后的幂等防御，以及不支持初始 registration 的 fork/legacy adapter
+ * fallback。session 必须先存在，否则该调用 changes=0。
  *
  * **CHANGELOG_139 加 changes=0 console.warn 配套(reviewer-claude LOW-2 + reviewer-codex MED-1
  * 共识)**:旧版 SQL UPDATE 失败完全静默,任何 sid mismatch 类 bug(如 codex spawn 主路径

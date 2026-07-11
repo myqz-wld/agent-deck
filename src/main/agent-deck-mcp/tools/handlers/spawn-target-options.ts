@@ -51,3 +51,11 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
 export function setSpawnTargetPrompt(target: CreateSessionOptions, prompt: string): void {
   target.prompt = prompt;
 }
+
+/** Attach trusted main-only registration metadata after caller ownership is known. */
+export function setSpawnTargetInitialRegistration(
+  target: CreateSessionOptions,
+  registration: NonNullable<CreateSessionOptions['initialSessionRegistration']>,
+): void {
+  target.initialSessionRegistration = registration;
+}

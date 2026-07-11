@@ -170,12 +170,28 @@ function shouldReviveClosedSession(event: AgentEvent): boolean {
 /** 第 2 段：取/建 SessionRecord。closed→active 复活由 ensure 内部处理(仅 SDK user message
  * 用户 resume 才复活;SDK/hook 迟到尾包不复活 closed)。 */
 export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionRecord {
+  const registration =
+    event.source === 'sdk' && event.kind === 'session-start'
+      ? (event.payload as {
+          initialSpawnLink?: { parentSessionId?: unknown; depth?: unknown };
+        } | null | undefined)?.initialSpawnLink
+      : undefined;
+  const validRegistration =
+    registration &&
+    typeof registration.parentSessionId === 'string' &&
+    registration.parentSessionId.length > 0 &&
+    Number.isInteger(registration.depth) &&
+    Number(registration.depth) > 0
+      ? { parentSessionId: registration.parentSessionId, depth: Number(registration.depth) }
+      : null;
   return ctx.ensure(event.sessionId, {
     agentId: event.agentId,
     cwd: extractCwd(event),
     // SDK 通道发来的事件 → 应用内会话；hook 通道（含未标 source 的） → 外部 CLI 会话
     source: event.source === 'sdk' ? 'sdk' : 'cli',
     reviveClosed: shouldReviveClosedSession(event),
+    spawnedBy: validRegistration?.parentSessionId,
+    spawnDepth: validRegistration?.depth,
   });
 }
 

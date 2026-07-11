@@ -343,7 +343,7 @@ export async function prepareContinuationContextWithDependencies(
     if (uncoveredRevisionRange) {
       warnings.push({
         code: 'coverage-gap',
-        message: `Checkpoint coverage is incomplete from revision ${uncoveredRevisionRange.from} through ${uncoveredRevisionRange.to}.`,
+        message: `Checkpoint coverage stops at revision ${uncoveredRevisionRange.from}; source capture is revision ${uncoveredRevisionRange.to}.`,
       });
     }
     if (!fold.checkpoint && raw.length === 0) {
