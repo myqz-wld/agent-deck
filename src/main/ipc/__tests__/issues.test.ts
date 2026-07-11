@@ -13,7 +13,7 @@
  *   'undeleted' 边界
  *
  * **测试策略**：mock issueRepo / adapterRegistry / sessionManager / eventBus；调 named handler
- * （issuesUpdateHandler / issuesResolveInNewSessionHandler / 等）验业务逻辑（与 sessions-hand-off-helper
+ * （issuesUpdateHandler / issuesResolveInNewSessionHandler / 等）验业务逻辑（与 session-hand-off-finalize
  * 同款 named export 测试 pattern — 避免 mock electron ipcMain 复杂度）。
  */
 

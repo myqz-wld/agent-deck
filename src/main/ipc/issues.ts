@@ -17,11 +17,12 @@
  * 已在 Step 3.2.2 repo 层 test 覆盖 8 case + 本文件 Step 3.5.6 IPC test 覆盖第 9 case (zod reject)。
  *
  * **handler 函数全 named export 模式**: ipcMain.handle 注册时直接调 named handler,test 端 import
- * 同 handler 验业务（避免 mock electron ipcMain 复杂度;与 sessions-hand-off-helper.ts 同款 pattern）。
+ * 同 handler 验业务（避免 mock electron ipcMain 复杂度;与 session-hand-off-finalize.ts 同款 pattern）。
  */
 
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
+import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { z } from 'zod';
 import { adapterRegistry } from '@main/adapters/registry';
 import {
@@ -130,7 +131,7 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
     throw new IpcInputError('adapter', `adapter "${validAdapterId}" capabilities.canCreateSession=false`);
   }
   // §6 prompt 长度（zod 已 max 102400 守门）
-  if (input.prompt.length > 102_400) {
+  if (input.prompt.length > MAX_USER_MESSAGE_LENGTH) {
     throw new IpcInputError('prompt', `> 102400 chars (got ${input.prompt.length.toLocaleString()} chars)`);
   }
   // §5 cwd 长度（fallback 由调用方做完,这里只兜底 ≤4096）
@@ -182,7 +183,7 @@ export function _resetInFlightResolveForTesting(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Named handler exports (test 直接 import — 与 sessions-hand-off-helper pattern 一致)
+// Named handler exports (test 直接 import — 与 session-hand-off-finalize pattern 一致)
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function issuesListHandler(filters: unknown): IssueRecord[] {

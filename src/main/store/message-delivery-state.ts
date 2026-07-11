@@ -32,6 +32,7 @@
  */
 
 import type { AgentDeckMessage, AgentDeckMessageStatus } from '@shared/types';
+import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import log from '@main/utils/logger';
 
 const logger = log.scope('store-message-delivery');
@@ -56,10 +57,9 @@ export class MessageInvariantError extends Error {
  *
  * REVIEW_24 HIGH-2 follow-up：与 sdk-bridge MAX_MESSAGE_LENGTH（claude-code）/
  * codex-cli adapter / ipc/sessions.ts finalPrompt /
- * ipc/adapters.ts AdapterCreateSession + AdapterSendMessage 5 处 102_400 全局对齐。
- * 改这里必须同步那 4 处（grep `102_400` 确认）。
+ * Public/SDK user-message limits import one shared `MAX_USER_MESSAGE_LENGTH` SSOT.
  */
-export const MAX_BODY_LENGTH = 102_400;
+export const MAX_BODY_LENGTH = MAX_USER_MESSAGE_LENGTH;
 
 /**
  * 退避表（ADR §4.3 / reviewer HIGH-1 修法）：attempt_count → 距 last_attempt_at 至少 N ms 后才

@@ -1,9 +1,7 @@
 import { z } from 'zod';
+import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
-import {
-  SPAWN_SESSION_THINKING_VALUES,
-  type SpawnSessionResult,
-} from './spawn';
+import { SPAWN_SESSION_THINKING_VALUES } from './spawn';
 
 // Retired public tool schema. Keep this only so legacy internal handlers/tests and guard
 // keys type-check while buildAgentDeckTools no longer exposes archive_plan to SDK agents.
@@ -62,17 +60,17 @@ export const ARCHIVE_PLAN_SHAPE = {
 
 // =============== HAND_OFF_SESSION (session baton) ===============
 
-// hand_off_session starts a fresh successor SDK session, builds a compact context capsule from
-// the caller's latest checkpoint plus recent raw conversation, transfers session-owned resources,
-// and closes the caller only after mandatory transfer succeeds. The caller supplies the explicit
-// continuation instruction; Agent Deck keeps historical evidence in separate bounded sections.
+// hand_off_session starts a fresh successor SDK session with a provider-neutral Continuation
+// Context (会话续接上下文), transfers session-owned resources, and closes the caller only after
+// mandatory transfer succeeds. Only the explicit current instruction is persisted as the first
+// user message; checkpoint/history evidence is delivered through the private trusted turn.
 export const HAND_OFF_SESSION_SHAPE = {
   prompt: z
     .string()
     .min(1)
-    .max(100_000)
+    .max(MAX_USER_MESSAGE_LENGTH)
     .describe(
-      'Current continuation instruction for the fresh successor. Include the concrete next action and any durable plan or temporary context file paths it must read. Agent Deck automatically wraps this instruction with a versioned compact capsule containing the latest stored checkpoint and a bounded tail of recent raw user/assistant messages; historical sections are labeled as evidence and cannot override this final instruction. For unusually large artifacts, still write them under /tmp and reference the absolute path here.',
+      'Authoritative current instruction for the fresh successor. Include the concrete next action and any durable plan or temporary context file paths it must read. Agent Deck prepares a bounded Continuation Context (会话续接上下文) from validated checkpoints and retained user inputs, sends that evidence only through the private provider turn, and persists only this instruction. Historical evidence cannot override current system/project instructions. For unusually large artifacts, write them under /tmp and reference the absolute path here.',
     ),
   cwd: z
     .string()
@@ -141,12 +139,6 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(128)
     .optional()
     .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
-  parentSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe('Internal plumbing for spawn lineage during handoff; direct callers leave unset.'),
 };
 
 // enter_worktree / exit_worktree provide a plan-free git worktree lifecycle. The caller chooses
@@ -292,30 +284,43 @@ export interface ArchivePlanResult {
   teammatesShutdown: TeammatesShutdownInfo;
 }
 
-/**
- * hand_off_session ok return shape（hand-off-session.ts handler）。
- *
- * **extends SpawnSessionResult**：hand-off 内部调 spawnSessionHandler 拿到 spawn return
- * 字段后 spread 透传（caller 拿到 K2 metadata + spawn 字段都齐）。extends 让 satisfies
- * 校验时 TS 知道 spread 字段已 cover SpawnSessionResult 全部字段。
- */
-export interface HandOffSessionResult extends SpawnSessionResult {
-  /** Actual versioned compact capsule sent as the successor's first user message. */
-  initialPrompt: string;
-  /** Explicit continuation instruction supplied by the caller before capsule construction. */
-  continuationInstruction: string;
-  /** Capsule construction details for observability and degraded-context handling. */
-  compactContext: {
+/** Compact hand_off_session result. Provider prompt, spool ids, and runtime fingerprints are
+ * intentionally absent; callers receive only safe preparation/transfer observability. */
+export interface HandOffSessionResult {
+  sessionId: string;
+  adapter: 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+  cwd: string;
+  continuationContext: {
     version: number;
-    quality: 'full' | 'degraded';
-    summaryIncluded: boolean;
-    includedMessageCount: number;
-    omittedMessageCount: number;
-    sourceMaxEventId: number | null;
-    promptChars: number;
+    quality: 'full' | 'projected' | 'coverage-gap' | 'raw-only' | 'instruction-only';
+    sourceEventRevision: number;
+    rebuildAfterRevision: number;
+    checkpoint: {
+      id: number | null;
+      formatVersion: number;
+      throughRevision: number;
+      refreshed: boolean;
+    };
+    preparationHash: string;
+    tokenStats: {
+      rawRetentionCeiling: number;
+      targetPromptCapacity: number;
+      checkpointProjectionBudget: number;
+      generatorFoldInputBudget: number;
+      estimatedPrompt: number;
+      checkpoint: number;
+      rawTail: number;
+    };
+    includedUserMessages: number;
+    truncatedBoundaryMessages: number;
+    foldCalls: number;
+    repairCalls: number;
+    warningCodes: string[];
   };
-  /** caller close result after resource transfer. */
+  /** Source close result after successful creation and mandatory resource transfer. */
   callerClosed: 'ok' | 'failed';
+  /** A source-finalization warning never invalidates the already-transferred successor. */
+  warnings: Array<'source-finalization-failed'>;
   /** Resource transfer is mandatory; success returns details here, failure returns MCP error. */
   resourceTransfer: {
     tasks: { status: 'ok' | 'failed'; count: number; error?: string };

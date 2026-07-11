@@ -18,9 +18,8 @@
  * **4 个分支对应**（codex recoverer.ts outer + codex-jsonl-fallback inner）:
  * 1. `buildCodexCwdMissingErrorText` — cwd 不存在且 fallback 全 miss (emit error: true, throw 前)
  * 2. `buildCodexCwdFallbackInfoText` — cwd 不存在但 fallback 找到 (emit info,不带 error: true)
- * 3. `buildCodexJsonlMissingSummaryUsedText` — jsonl missing fallback + 历史成功注入 (plan
- *    resume-inject-raw-messages-20260601 §D8，对称 claude buildJsonlMissingSummaryUsedText)
- * 4. `buildCodexJsonlMissingSummarySkippedText` — jsonl missing fallback + 无历史可注 (used=false)
+ * 3. context restored — jsonl missing fallback + 续接上下文包含历史
+ * 4. instruction only — jsonl missing fallback + 无可信历史可保留
  *
  * **不变量**:
  * - 纯函数,无副作用,输入决定输出
@@ -72,35 +71,28 @@ export function buildCodexCwdFallbackInfoText(badCwd: string, fallbackCwd: strin
 }
 
 /**
- * 3. jsonl missing fallback + 历史成功注入：emit info，不带 error: true。
+ * 3. jsonl missing fallback + 续接上下文包含历史：emit info，不带 error: true。
  *
- * 用于 codex-jsonl-fallback.ts（summaryResult.used=true 分支）。
- *
- * **plan resume-inject-raw-messages-20260601 §D8（解开 REVIEW_60 F5）**：codex 端原本完全不注入
- * 历史（只 emit「请下条消息把背景给 Codex」），现已与 claude 对称走 injectResumeHistory 注入
- * 「总结段 + 最近原始对话消息段」。对称 claude `buildJsonlMissingSummaryUsedText`，文案告知用户
- * jsonl 已丢失但历史上下文已自动注入，Codex 应能续上前情；如答非所问请下条消息补充关键背景。
+ * 用于 codex-jsonl-fallback.ts 的非 instruction-only quality 分支。
  */
-export function buildCodexJsonlMissingSummaryUsedText(effectiveCwd: string): string {
+export function buildCodexJsonlMissingContextRestoredText(effectiveCwd: string): string {
   return (
     `⚠ 此会话的 Codex 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
-    `应用已自动注入历史上下文(自 DB events 表:LLM 摘要 + 最近原始对话),Codex 应能续上前情。\n` +
+    `应用已自动生成会话续接上下文(结构化检查点 + 保留的原始用户输入),Codex 应能续上前情。\n` +
     `如答非所问,请下条消息补充关键背景。`
   );
 }
 
 /**
- * 4. jsonl missing fallback + 历史注入跳过 / 失败：emit info，不带 error: true。
+ * 4. jsonl missing fallback + instruction-only degradation：emit info，不带 error: true。
  *
- * 用于 codex-jsonl-fallback.ts（summaryResult.used=false 分支：DB 没历史 / 总结失败 + raw 空 /
- * 预算边界）。对称 claude `buildJsonlMissingSummarySkippedText`，文案保留「请下条消息把背景给
- * Codex 一次」让用户手动补 context。
+ * DB 没有可验证检查点或可保留的原始历史时，文案保留「请下条消息把背景给 Codex 一次」。
  */
-export function buildCodexJsonlMissingSummarySkippedText(effectiveCwd: string): string {
+export function buildCodexJsonlMissingInstructionOnlyText(effectiveCwd: string): string {
   return (
     `⚠ 此会话的 Codex 内部对话历史(jsonl)已丢失: ${effectiveCwd}\n` +
     `典型原因: 用户清理 ~/.codex/sessions / 跨设备同步未带 jsonl / Codex 自身清理 / 应用重装。\n` +
-    `应用 DB 的 SessionDetail 历史完整保留(本面板看到的对话仍在),但 Codex 这条新启动的 thread ` +
-    `不知前情。如要继续之前话题,请在下条消息里把背景再告诉它一次。`
+    `应用 DB 的 SessionDetail 历史完整保留,但本次会话续接上下文只能保留当前指令。` +
+    `如要继续之前话题,请在下条消息里补充背景。`
   );
 }

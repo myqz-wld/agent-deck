@@ -8,15 +8,20 @@
  *
  * **本文件覆盖范围**：
  * - `RecovererCtx` — facade 注入的 ctx ref（recovering Map SHARED + emit thunk）
- * - thunk type signatures（CreateSessionThunk / SendMessageThunk / JsonlExistsThunk /
- *   JsonlMtimeMsThunk / CwdExistsThunk / SummariseFnThunk）+ ListEventsFnThunk
+ * - recovery lifecycle and provider-history probe thunk signatures
  *
  * **不变量保留**：所有原 inline jsdoc 字面 carry over（REVIEW_36 HIGH-1 sandbox 透传 /
  * REVIEW_58 HIGH skipFirstUserEmit / plan reverse-rename-sid-stability §A.4-pre S1 R6+R7 /
  * cross-adapter-parity §Phase A.6 等 jsdoc 不删不改）。
  */
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import type { SdkBridgeOptions, SdkSessionHandle } from '../types';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 /**
  * facade `recoverer.ts` SessionRecoverer ctor 注入的 ctx ref bundle。
@@ -44,6 +49,7 @@ export interface RecovererCtx {
 export type CreateSessionThunk = (opts: {
   cwd: string;
   prompt?: string;
+  trustedContinuation?: TrustedContinuationInitialTurn;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   resume?: string;
   teamName?: string;
@@ -126,6 +132,21 @@ export type CreateSessionThunk = (opts: {
   cancelCheck?: () => boolean;
 }) => Promise<SdkSessionHandle>;
 
+export type CaptureRecoveryContinuationThunk = (input: {
+  session: SessionRecord;
+  overrides?: RecoveryRuntimeOverrides;
+}) => CapturedRecoveryContinuation;
+
+export type PrepareRecoveryContinuationThunk = (input: {
+  capture: CapturedRecoveryContinuation;
+  continuationInstruction: string;
+  signal?: AbortSignal;
+}) => Promise<PreparedRecoveryContinuation>;
+
+export type CleanupRecoveryContinuationThunk = (
+  capture: CapturedRecoveryContinuation,
+) => void;
+
 /**
  * HIGH-1 修法：sendThunk 三参签名，attachments 透传到第二条等待者。
  *
@@ -160,51 +181,8 @@ export type JsonlMtimeMsThunk = (cwd: string, sessionId: string) => number | nul
  */
 export type CwdExistsThunk = (cwd: string) => boolean;
 
-/**
- * CHANGELOG_107: LLM 摘要 thunk(test seam)。签名与 `summariseSessionForHandOff` 1:1
- * 镜像(避免 facade ctor 写额外包装层),但通过 ctor 注入让单测不调真 LLM 撞 OAuth /
- * 计费 / DB 未 init。
- *
- * 触发场景:Step 2 起 `prependHistorySummary` helper 在 jsonl missing fallback /
- * cwdFellBack=true 路径起 fresh CLI 之前调本 thunk → 拿到摘要 prepend 到 user prompt
- * 前作为 fresh CLI 首条 prompt(让用户体感「Claude 还能续聊」)。
- *
- * 失败语义(与 `summariseSessionForHandOff` 一致):
- * - throw → helper 内部 try/catch 退到「emit 提示让用户自己补背景」原 CHANGELOG_106 路径
- * - return null → events 空 / 摘要为空,helper skip 不 prepend
- * - return string → 成功(限 4000 字符,helper 再做 MAX_MESSAGE_LENGTH 校验)
- */
-export type SummariseFnThunk = (
-  cwd: string,
-  events: AgentEvent[],
-) => Promise<string | null>;
-
-/**
- * **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
- * events 来源 thunk(test seam)。facade 内部转发给 protected
- * listEventsForSession 方法,默认走 `eventRepo.listForSession`。
- *
- * 让 jsonl-fallback helper (Step 3f 重构后 fallback 路径调本 thunk) 与 recoverer
- * 主路径共享同款 facade extend override 模式(避免 recoverer.ts 与 helper 双处
- * hardcode eventRepo 漂移)。
- */
-export type ListEventsFnThunk = (sessionId: string) => AgentEvent[];
-
-/**
- * **plan resume-inject-raw-messages-20260601 §D5 修法**:
- * message-only 来源 thunk(test seam)。facade 内部转发给 protected
- * listRecentMessagesForSession 方法,默认走 `eventRepo.listRecentMessages`。
- *
- * 让 jsonl-fallback helper(injectResumeHistory)拼「最近原始对话消息段」与 recoverer
- * 主路径共享同款 facade extend override 模式(避免双处 hardcode eventRepo 漂移)。
- * 第二参 limit = recentMessagesCount,第三参 beforeIdInclusive 由 injectResumeHistory 从
- * maxEventIdFn 拿到后传入(排除 entry emit 的当前消息)。
- */
-export type ListRecentMessagesFnThunk = (
-  sessionId: string,
-  limit: number,
-  beforeIdInclusive?: number,
-) => (AgentEvent & { id: number })[];
+/** Latest valid dialog time used to validate phantom-resume jsonl freshness. */
+export type LatestConversationMessageTsThunk = (sessionId: string) => number | null;
 
 /**
  * `findFallbackCwd` thunk — facade extend override 注入点。
@@ -243,13 +221,10 @@ export interface RecoverAndSendDeps {
   readonly jsonlExistsThunk: JsonlExistsThunk;
   readonly jsonlMtimeMsThunk: JsonlMtimeMsThunk;
   readonly cwdExistsThunk: CwdExistsThunk;
-  readonly summariseFn: SummariseFnThunk;
-  readonly listEventsFn: ListEventsFnThunk;
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D5**: message-only thunk，helper
-   * injectResumeHistory 拼「最近原始对话消息段」用（与 listEventsFn 全量数据源并列双数据源）。
-   */
-  readonly listMessagesFn: ListRecentMessagesFnThunk;
+  readonly latestConversationMessageTsThunk: LatestConversationMessageTsThunk;
+  readonly captureRecoveryContinuation: CaptureRecoveryContinuationThunk;
+  readonly prepareRecoveryContinuation: PrepareRecoveryContinuationThunk;
+  readonly cleanupRecoveryContinuation: CleanupRecoveryContinuationThunk;
   readonly findFallbackCwdThunk: FindFallbackCwdThunk;
   readonly emitFallbackMessageThunk: EmitFallbackMessageThunk;
   /**

@@ -1,13 +1,4 @@
 import { sessionManager } from '@main/session/manager';
-import { settingsStore } from '@main/store/settings-store';
-import { eventRepo } from '@main/store/event-repo';
-import { summariseSessionForHandOff } from '@main/session/summarizer';
-import {
-  buildAgentDeckMcpConfigForCodex,
-  mergeCodexConfig,
-  AGENT_DECK_MCP_TOKEN_ENV,
-} from '@main/codex-config/agent-deck-mcp-injector';
-import { getCodexSkillExtraRootsForSession } from '@main/codex-config/skills-installer';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
 //
@@ -19,7 +10,7 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 // R37 P2-E Step 3.4a：抽 input-pack.ts (packCodexInput + extractAttachmentPaths 模块级纯函数)。
 // R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
 // R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持 sandbox switch method)。
-import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
+import { AGENT_ID } from './constants';
 import type {
   CodexBridgeOptions,
   CodexSessionHandle,
@@ -27,12 +18,11 @@ import type {
 } from './types';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
-import { packCodexInput, extractAttachmentPaths, toCodexAppServerInput } from './input-pack';
+import { extractAttachmentPaths } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
-import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
-import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
+import type { ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import {
   SessionRecoverer,
@@ -45,41 +35,28 @@ import {
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
 import { createCodexForkedSession } from './fork-session/create-forked-session';
-import { CodexAppServerClient } from '../app-server/client';
+import type { CodexAppServerClient } from '../app-server/client';
 import {
-  buildCodexUsageSnapshot,
-  errorUsageSnapshot,
-  type CodexAccountRateLimitsResponseLike,
-} from '../../provider-usage';
-import {
-  invalidateCodexUsageSnapshotClient,
-  isExpectedCodexUsageUnavailable,
-  codexUsageUnavailableSnapshot,
-  readCodexUsageSnapshotInBackground,
-} from '../usage-snapshot';
+  ensureCodexClient,
+  getCodexUsageSnapshot,
+  invalidateCodexClientsForPathChange,
+  renameCodexClient,
+} from './client-registry';
+import { MessageController } from './message-controller';
 import log from '@main/utils/logger';
+import {
+  captureRecoveryContinuation,
+  cleanupRecoveryContinuation,
+  prepareRecoveryContinuation,
+  type CapturedRecoveryContinuation,
+  type PreparedRecoveryContinuation,
+  type RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery';
+import type { SessionRecord } from '@shared/types';
 
 const logger = log.scope('codex-bridge');
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
-
-/**
- * 把 process.env 转成 Record<string, string>（过滤 undefined 值），让 codex SDK
- * `new Codex({env})` 能拿到一个全 string 字段的 env 表（plan codex-handoff-team-alignment-20260518
- * P2 Step 2.5b helper）。
- *
- * 背景：Node.js `process.env` 类型是 `Record<string, string | undefined>`，TS 严格模式下
- * 不能直接 spread 到 `Record<string, string>`。codex SDK 0.120.0 type 注释明示「env 传值后
- * 子进程不再继承 process.env」，所以必须手工 spread + 过滤 undefined 拷贝出快照,再叠加
- * per-session AGENT_DECK_MCP_TOKEN（spike 2 §2 codex SDK 内部已用同款过滤逻辑 line 222-234）。
- */
-function snapshotProcessEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined) out[k] = v;
-  }
-  return out;
-}
 
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
@@ -109,7 +86,7 @@ export class CodexSdkBridge {
    * setCodexCliPath 路径变更时 clear 整 Map（已 spawn 的 codex 子进程不受影响 —
    * spike 2 §1 实证 envOverride 已 frozen 拷贝到子进程 env）。
    *
-   * `codex-instance-pool.ts` 仅服务 oneshot caller（summarizer-runner / handoff-runner），
+   * `codex-instance-pool.ts` 仅服务周期总结 oneshot caller，
    * 不需要 per-session token，沿用全局 process.env 路径，与本 Map 双轨独立维护（plan §M5）。
    */
   private codexBySession: Map<string, CodexAppServerClient> = new Map();
@@ -132,6 +109,7 @@ export class CodexSdkBridge {
    */
   private restartController: RestartController;
   private sessionModelController: SessionModelController;
+  private messageController: MessageController;
 
   /**
    * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
@@ -200,171 +178,49 @@ export class CodexSdkBridge {
     // symmetry-plan P2 HIGH-B：SessionRecoverer 装配（与 claude facade 同款 thunk 注入模式）。
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（与 claude HIGH-1 同款 — 避免 inflight 第二条等待者丢图）。
-    // **plan resume-inject-raw-messages-20260601 §D5/§D7/§D8（解开 REVIEW_60 F5）**：+3 thunk
-    // 让 codex 与 claude 对称走 injectResumeHistory 注入历史。
-    // - summariseFn: bind 本类 protected summariseForHandOff（默认 summariseSessionForHandOff
-    //   agentName='Agent'，复用 claude oneshot 本地 OAuth；§D8 不为 codex 写平行总结函数）
-    // - listEventsFn: bind protected listEventsForSession（eventRepo.listForSession 全量喂总结）
-    // - listMessagesFn: bind protected listRecentMessagesForSession（eventRepo.listRecentMessages
-    //   message-only 拼原始对话段）
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (threadId, startedAt) => this.codexResumeJsonlExists(threadId, startedAt),
       (cwd) => this.cwdExists(cwd),
-      (cwd, events) => this.summariseForHandOff(cwd, events),
-      (sid) => this.listEventsForSession(sid),
-      (sid, limit, beforeId) => this.listRecentMessagesForSession(sid, limit, beforeId),
+      (session, overrides) => this.captureRecoveryContext(session, overrides),
+      (capture, instruction) => this.prepareRecoveryContext(capture, instruction),
+      (capture) => this.cleanupRecoveryContext(capture),
     );
+    this.messageController = new MessageController({
+      sessions: this.sessions,
+      emit: opts.emit,
+      recoverAndSend: (sessionId, text, attachments) =>
+        this.recoverer.recoverAndSend(sessionId, text, attachments),
+      runTurnLoop: (session, sessionId) => this.threadLoop.runTurnLoop(session, sessionId),
+    });
   }
 
-  /**
-   * 设置面板「Codex 二进制路径」变更：清掉所有 Codex 实例，下次 createSession 重建。
-   *
-   * R37 P1 Step 1.2 (G)：删 `private codexCliPath` field — path 实际从 `settingsStore.get('codexCliPath')`
-   * 同步读（IPC settingsStore.set 是 setCodexCliPath 的前置步骤），不需要 instance field 镜像；
-   * setCodexCliPath 仅作 invalidation hook（清 codexBySession Map 让下次 ensureCodex 重建 + 调 pool
-   * invalidate 让两个 oneshot runner 也下次重建）。
-   *
-   * **plan codex-handoff-team-alignment-20260518 P2 Step 2.5e**：从清单 `this.codex = null`
-   * 改成清整 codexBySession Map（per-session 实例字段重组后所有 codex live session 各持一个）。
-   * 已 spawn 中的 codex 子进程不受影响（spike 2 §1 实证 envOverride 已 frozen 拷贝到子进程 env，
-   * Map 清空只让下次 ensureCodex 重建实例 — 已跑的子进程仍用旧二进制 + 旧 token）。
-   *
-   * 已存在的 Thread 实例继续用旧 codex 配置（codex 实例只在 spawn 子进程时被读到，旧 thread
-   * 下次 runStreamed 时会用旧 path；新建会话才用新 path）。可以接受：用户改 path 通常不需要
-   * 立即影响在跑的会话。
-   */
   setCodexCliPath(_path: string | null): void {
-    // 注意：不再持 instance field，path 实际从 settingsStore.get 读。本方法仅作 invalidation hook
-    for (const [sid, codex] of this.codexBySession.entries()) {
-      if (this.sessions.has(sid)) continue;
-      try {
-        codex.dispose();
-      } catch {
-        // ignore
-      }
-      this.codexBySession.delete(sid);
-    }
-    // R37 P1 Step 1.2 (G)：同步 invalidate oneshot pool，让 summarizer-runner / handoff-runner
-    // 下次 call 也用新 path 重建（修前 3 处独立 cache，path 改要等各自 path 比较 miss 才同步）
-    invalidateCodexInstance();
-    invalidateCodexUsageSnapshotClient();
+    invalidateCodexClientsForPathChange(this.codexBySession, this.sessions);
   }
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
-    const codex = [...this.codexBySession.values()]
-      .reverse()
-      .find((client) => client.isProcessAlive);
-    if (!codex) return readCodexUsageSnapshotInBackground();
-    try {
-      const response = await codex.request<CodexAccountRateLimitsResponseLike>(
-        'account/rateLimits/read',
-        undefined,
-      );
-      return buildCodexUsageSnapshot(response);
-    } catch (err) {
-      if (isExpectedCodexUsageUnavailable(err)) {
-        logger.debug('[codex-bridge] usage snapshot unavailable:', err);
-        return codexUsageUnavailableSnapshot();
-      }
-      logger.warn('[codex-bridge] usage snapshot failed:', err);
-      return errorUsageSnapshot('codex-cli', 'Codex', err);
-    }
+    return getCodexUsageSnapshot(this.codexBySession);
   }
 
-  /**
-   * 拿（或新建）指定 session 的 Codex SDK 实例（plan P2 Step 2.5b signature 改造）。
-   *
-   * 修前 `ensureCodex(): Promise<Codex>` 无参数 + 共享单实例。修后 `(sessionId, sessionToken)`
-   * 双参数 + per-session Map cache：命中 return；未命中 new Codex 时 envOverride 注入
-   * `{...process.env, AGENT_DECK_MCP_TOKEN: sessionToken}` — codex SDK type 注释明示
-   * 「When provided, the SDK will not inherit variables from process.env」，所以必须手工
-   * spread `process.env`（snapshotProcessEnv 过滤 undefined 值）让 codex CLI 子进程仍能拿到
-   * PATH / HOME 等基础 env，再加上 per-session token。
-   *
-   * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D1 ADR §(c) 升级**:
-   * 第 3 参数 `envOverrideExtra` 让 caller (createSession) 透传额外 env 字段(generic 透传
-   * 机制,目前无 hot caller — reviewer-claude wrapper 路径已改 cross-adapter native 删除;
-   * 字段保留供未来 caller 重用)。merge 顺序 = `snapshotProcessEnv()` > `AGENT_DECK_MCP_TOKEN`
-   * > `envOverrideExtra` —— extra 字段在最末，优先级最高（如 caller 真要覆盖某个全局 env
-   * 字段也允许）。
-   *
-   * Map 命中后**不**校验 token 一致性 — caller（createSession）保证 sessionId 内 token 不变
-   * （Step 2.5c sid 时序：allocate 一次后 token frozen 直到 close）。**Map 命中也不重新 merge
-   * envOverrideExtra**（同 token frozen 语义；envOverrideExtra 在 Codex 实例 lifetime 内
-   * frozen 拷贝到子进程 env，spike 2 §1 实证）。
-   */
   private async ensureCodex(
     sessionId: string,
     sessionToken: string,
     envOverrideExtra?: Readonly<Record<string, string>>,
   ): Promise<CodexAppServerClient> {
-    const cached = this.codexBySession.get(sessionId);
-    if (cached) return cached;
-    // 优先级：用户在设置面板填的 codexCliPath（可指向自装版本）> 打包后内置的 unpacked 二进制
-    // > SDK 自己 resolve（dev 模式正常，打包后会拼出 app.asar 内路径导致 spawn ENOTDIR，见
-    // resolveBundledCodexBinary 注释）
-    // R37 P1 Step 1.2 (G)：直接 settingsStore.get（删 private codexCliPath field）
-    const codexCliPath = settingsStore.get('codexCliPath');
-    const userCodexPath = codexCliPath && codexCliPath.trim();
-    // CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7：自动注入 agent-deck MCP server 配置
-    // 给 codex SDK，让 codex CLI 子进程 spawn 时通过 --config mcp_servers.agent-deck.url=...
-    // 连接到本应用 HookServer /mcp 路由（HTTP transport）。bearer token 走 env var
-    // 间接引用（AGENT_DECK_MCP_TOKEN 由本 ensureCodex 通过 envOverride 注入子进程,plan P2 Step 2.5b
-    // per-session 路径替代修前 main bootstrap 设全局 process.env 路径）。
-    // 不满足注入条件（设置 OFF / hookServer 未启 / token 未生成）→ 返回 null，
-    // codex 不挂 agent-deck server（其他用户手配 mcp_servers 段不受影响，走 ~/.codex/config.toml 持久化）
-    const settings = settingsStore.getAll();
-    const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, this.opts.hookServer ?? null);
-    const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
-    if (agentDeckMcpConfig) {
-      logger.info(`[codex-bridge] agent-deck MCP server config injected (HTTP transport, sid=${sessionId})`);
-    }
-    // codex SDK 0.120.0 type 注释:env 传值后子进程不再继承 process.env(spike 2 §2 line 222-234
-    // 实证 envOverride 优先 + 绕过 process.env fallback)。所以必须手工 spread process.env 过滤
-    // undefined 值,再叠加 per-session AGENT_DECK_MCP_TOKEN 让子进程拿到完整 env。
-    //
-    // plan §P3 Step 3.5 + §D1 ADR §(c) 升级: caller 透传的 envOverrideExtra（generic 透传机制,
-    // 目前无 hot caller）merge 到末尾，优先级最高（允许覆盖全局 env 字段）。
-    const envOverride: Record<string, string> = snapshotProcessEnv();
-    envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
-    if (envOverrideExtra) {
-      Object.assign(envOverride, envOverrideExtra);
-    }
-    // App-managed Codex app-server processes inherit user Codex hooks. Mark them as SDK-owned
-    // so hook callbacks do not create duplicate external sessions in the live list.
-    envOverride.AGENT_DECK_ORIGIN = 'sdk';
-    const codex = new CodexAppServerClient({
-      codexPathOverride: userCodexPath || null,
-      config: codexConfig,
-      env: envOverride,
-      skillExtraRoots: getCodexSkillExtraRootsForSession(),
+    return ensureCodexClient({
+      clients: this.codexBySession,
+      sessionId,
+      sessionToken,
+      hookServer: this.opts.hookServer,
+      envOverrideExtra,
     });
-    this.codexBySession.set(sessionId, codex);
-    return codex;
   }
 
-  /**
-   * 把指定 session 的 Codex 实例 Map key 从 oldId 改到 newId（plan P2 Step 2.5 Sub-step 2.5d
-   * 同款语义,plan §不变量 7 / Step 2.8 调用入口）。
-   *
-   * 调用契约：必须由 `sessionManager.renameSdkSession` 函数体统一调（Step 2.8 接入），不允许
-   * 散调（thread-loop / sdk-bridge recoverer 各自调会漏一处）。token map 同步 rename 由
-   * sessionManager 统一管，本 method 只动 codexBySession Map。
-   *
-   * 边角处理:
-   * - oldId 不在 Map(claude adapter / 已 release / never allocated)→ 静默 no-op
-   * - newId 已经在 Map(理论不应发生:rename 前 newId 是新 thread id 不可能 already-allocated)
-   *   → 仍 no-op,保留 newId 现 entry,不覆盖(防丢已 spawn 子进程引用)
-   */
   renameCodexInstance(oldId: string, newId: string): void {
-    const codex = this.codexBySession.get(oldId);
-    if (codex === undefined) return;
-    if (this.codexBySession.has(newId)) return;
-    this.codexBySession.delete(oldId);
-    this.codexBySession.set(newId, codex);
+    renameCodexClient(this.codexBySession, oldId, newId);
   }
 
   async createSession(opts: CreateSessionOpts): Promise<CodexSessionHandle> {
@@ -424,114 +280,15 @@ export class CodexSdkBridge {
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    // symmetry-plan P2 HIGH-B：sessions Map 缺该 sessionId → 走 recoverer 自愈（与 claude
-    // sdk-bridge/index.ts:332 同款）。修前直接 throw 让用户在 app 重启 / dev mode vite hot reload
-    // / main process crash 重生场景下不可恢复（必须新建会话丢上下文）。
-    //
-    // plan cross-adapter-parity-20260515 Phase B Step B.3:recoverAndSend signature 改
-    // Promise<string>(返 finalId)。本 caller(codex bridge sendMessage)**不消费**返回值 —
-    // 但 recoverAndSend 内部 inflight 等待者 path 通过 `await inflight` 拿同款 finalId 调
-    // sendThunk → bridge.sendMessage(finalId, ...) 不再撞 OLD sid not found(REVIEW_40 R2
-    // reviewer-codex MED parity 限制治法,plan §B 主体)。
-    if (!s) {
-      await this.recoverer.recoverAndSend(sessionId, text, attachments);
-      return;
-    }
-
-    // REVIEW_24 HIGH-2 follow-up：MAX_MESSAGE_LENGTH 算 text 字符（与 messageRepo cap
-    // 全局对齐）。attachments 总大小由 IPC 层独立 30MB 校验，sdk-bridge 这层只管 text。
-    const len = text.length;
-    if (len > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
-      );
-    }
-
-    if (!attachments?.length && s.currentTurn && s.currentTurnId) {
-      await this.steerActiveTurn(s, sessionId, text, s.currentTurnId);
-      return;
-    }
-
-    if (s.pendingMessages.length >= MAX_PENDING_MESSAGES) {
-      throw new Error(
-        `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条。请等当前 turn 跑完再继续发送。`,
-      );
-    }
-
-    s.pendingMessages.push(packCodexInput(text, attachments));
-    this.opts.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text,
-        role: 'user',
-        ...(attachments && attachments.length > 0 ? { attachments } : {}),
-        // plan handoff-render-and-image-batch-20260521 §不变量 5 严守 + R1 reviewer-claude
-        // INFO-1 修法:仅 createSession first user message 携带 handOff metadata,后续 sendMessage
-        // 轮(本 emit)不重复携带 — 防 events 表 hand-off baton 链识别误把后续轮次也计为新 baton
-        // 触发点;handler 契约语义「hand-off 仅 cold-start 一次」严守。
-      },
-      ts: Date.now(),
-      source: 'sdk',
-    });
-
-    // 触发 turn loop（如果当前没在跑就启）
-    if (!s.turnLoopRunning) {
-      void this.threadLoop.runTurnLoop(s, sessionId);
-    }
+    await this.messageController.sendMessage(sessionId, text, attachments);
   }
 
   async steerTurn(sessionId: string, text: string): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    if (!s) {
-      throw new Error('Codex 会话不在运行中，无法 mid-turn steer。');
-    }
-
-    const len = text.length;
-    if (len > MAX_MESSAGE_LENGTH) {
-      throw new Error(
-        `单条 steer ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简后再发送。`,
-      );
-    }
-
-    if (!s.currentTurn || !s.currentTurnId) {
-      throw new Error('Codex 当前没有可 steer 的 active turn。');
-    }
-
-    await this.steerActiveTurn(s, sessionId, text, s.currentTurnId);
-  }
-
-  private async steerActiveTurn(
-    s: InternalSession,
-    sessionId: string,
-    text: string,
-    expectedTurnId: string,
-  ): Promise<void> {
-    await s.thread.steer(toCodexAppServerInput(packCodexInput(text)), expectedTurnId);
-    this.opts.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text,
-        role: 'user',
-        steer: true,
-      },
-      ts: Date.now(),
-      source: 'sdk',
-    });
+    await this.messageController.steerTurn(sessionId, text);
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    if (!s?.currentTurn) return;
-    try {
-      s.currentTurn.abort();
-    } catch (err) {
-      logger.warn(`[codex-bridge] interrupt failed`, err);
-    }
+    await this.messageController.interrupt(sessionId);
   }
 
   /**
@@ -661,40 +418,24 @@ export class CodexSdkBridge {
     return defaultCwdExists(cwd);
   }
 
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D8 test seam**（同 cwdExists / codexResumeJsonlExists
-   * 模式）。codex jsonl-missing fallback 起 fresh thread 前生成 LLM 总结 prepend（解开 REVIEW_60 F5）。
-   *
-   * 复用 claude oneshot `summariseSessionForHandOff`（本地 OAuth，Claude 侧六节结构化检查点），传
-   * **agentName='Agent'**（§D8：让 codex 会话总结不自称「Claude 会话」，buildHandoffPrompt 按此分支
-   * intro + 主体 `${a}` 替换）。不为 codex 写平行总结函数 —— 解开「codex SDK 六节模板 reasoning
-   * effort 签名差异」的历史耦合。失败语义见 SummariseFnThunk type jsdoc。
-   *
-   * test 通过子类化 override 不调真 LLM（撞 OAuth / 计费 / DB 未 init）。
-   */
-  protected summariseForHandOff(cwd: string, events: AgentEvent[]): Promise<string | null> {
-    return summariseSessionForHandOff(cwd, events, 'Agent');
+  /** Test seam around the synchronous pre-emit TEMP-spool capture. */
+  protected captureRecoveryContext(
+    session: SessionRecord,
+    overrides?: RecoveryRuntimeOverrides,
+  ): CapturedRecoveryContinuation {
+    return captureRecoveryContinuation({ session, overrides });
   }
 
-  /**
-   * **plan resume-inject §D7 test seam**：全量 events 来源（喂 summariseForHandOff 出六节检查点）。
-   * 实际走 module-level `eventRepo.listForSession`（默认 limit=200，DESC；formatEventsForPrompt
-   * 内部自己 sort ASC + slice 取最新）。test 子类化 override 不依赖真 DB。
-   */
-  protected listEventsForSession(sessionId: string): AgentEvent[] {
-    return eventRepo.listForSession(sessionId);
+  /** Test seam around the shared provider-neutral recovery preparation. */
+  protected prepareRecoveryContext(
+    capture: CapturedRecoveryContinuation,
+    continuationInstruction: string,
+  ): Promise<PreparedRecoveryContinuation> {
+    return prepareRecoveryContinuation({ capture, continuationInstruction });
   }
 
-  /**
-   * **plan resume-inject §D5 test seam**：message-only 来源（拼「最近原始对话消息段」）。
-   * 实际走 module-level `eventRepo.listRecentMessages`（kind='message' + role∈{user,assistant} +
-   * error 非真）。test 子类化 override 不依赖真 DB。
-   */
-  protected listRecentMessagesForSession(
-    sessionId: string,
-    limit: number,
-    beforeIdInclusive?: number,
-  ): (AgentEvent & { id: number })[] {
-    return eventRepo.listRecentMessages(sessionId, limit, beforeIdInclusive);
+  /** Test seam around idempotent TEMP-spool cleanup. */
+  protected cleanupRecoveryContext(capture: CapturedRecoveryContinuation): void {
+    cleanupRecoveryContinuation(capture);
   }
 }

@@ -15,15 +15,10 @@
  * - 返 `{fellBack: boolean, finalSessionId: string}` discriminated union (caller 据 fellBack 判
  *   走 fallback 路径还是 fall-through 正常 resume)
  *
- * **codex 与 claude 对称（plan resume-inject-raw-messages-20260601 §D8 解开 REVIEW_60 F5）**:
- * - **历史注入对称**：调 shared `injectResumeHistory`（@main/session/resume-history）拼「总结段 +
- *   最近原始对话消息段 + 当前消息」。3 thunk（summariseFn / listEventsFn / listMessagesFn）+
- *   maxEventIdFn + prependCwd 经 Ctx/Opts 注入（recover-and-send-impl 在 entry emit user 前固化
- *   maxEventIdBefore 排除当前消息）。
- * - **emit text 双分支**（buildCodexJsonlMissingSummaryUsedText / SkippedText，对称 claude
- *   buildJsonlMissingSummaryUsed/SkippedText）：used=true 历史已注入 / used=false 退回纯当前消息。
- * - **original-over-length 阻塞态**（§D6 step0）：originalText > maxLength → throw 给 recoverer
- *   outer catch（不进 createSession，codex create-session-validate.ts 有 MAX throw 会阻塞 fresh thread）。
+ * Missing history is rebuilt by the shared immutable-spool continuation engine. The provider gets
+ * the full trusted context, while Agent Deck keeps the already-emitted authoritative user message.
+ * Instruction-only quality uses the explicit degraded-copy branch; all richer quality levels use
+ * the history-restored branch.
  *
  * **不变量**:
  * - createSession opts 字段照透传 (resume=sessionId / resumeMode='fresh-cli-reuse-app' /
@@ -35,20 +30,16 @@
  * recoverer.ts 中定义)。
  */
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
-import { settingsStore } from '@main/store/settings-store';
-import { injectResumeHistory } from '@main/session/resume-history';
+import type { CodexThinkingLevel } from '@shared/session-metadata';
 import { toCodexModelOverride } from '../sdk-model';
-import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
+import { AGENT_ID } from './constants';
 import {
-  buildCodexJsonlMissingSummaryUsedText,
-  buildCodexJsonlMissingSummarySkippedText,
+  buildCodexJsonlMissingContextRestoredText,
+  buildCodexJsonlMissingInstructionOnlyText,
 } from './codex-recoverer-messages';
 import type { CreateSessionThunk, JsonlExistsThunk } from './recoverer';
-import type {
-  SummariseFnThunk,
-  ListEventsFnThunk,
-  ListRecentMessagesFnThunk,
-} from './recoverer/_deps';
+import type { PrepareRecoveryContinuationThunk } from './recoverer/_deps';
+import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-jsonl-fallback');
@@ -57,19 +48,7 @@ export interface CodexJsonlFallbackCtx {
   jsonlExistsThunk: JsonlExistsThunk;
   createSession: CreateSessionThunk;
   emit: (event: AgentEvent) => void;
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D8**: LLM 总结 thunk(test seam)。caller bind
-   * `summariseSessionForHandOff(cwd, events, 'Agent')`(复用 claude oneshot 本地 OAuth)。
-   */
-  summariseFn: SummariseFnThunk;
-  /**
-   * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)，喂 summariseFn 出六节检查点。
-   */
-  listEventsFn: ListEventsFnThunk;
-  /**
-   * **plan resume-inject §D5**: message-only 来源 thunk(test seam)，拼「最近原始对话消息段」。
-   */
-  listMessagesFn: ListRecentMessagesFnThunk;
+  prepareRecovery: PrepareRecoveryContinuationThunk;
 }
 
 export interface CodexJsonlFallbackOpts {
@@ -81,29 +60,23 @@ export interface CodexJsonlFallbackOpts {
   startedAt: number;
   /** SDK chdir 目标 (cwdFellBack=true 时是 fallback cwd,否则原 rec.cwd) */
   cwd: string;
-  /**
-   * **plan resume-inject §D7**: injectResumeHistory 总结 cwd（传 rec.cwd 保留「原本哪个
-   * worktree」语义，与 claude prependCwd 对称；codex cwd fallback 时 cwd 是 fallback cwd 但
-   * 总结 prompt 标注用原 cwd 更有意义）。
-   */
-  prependCwd: string;
   /** recoverer 入参 text (本批 sendMessage 用户输入) */
   prompt: string;
-  /**
-   * **plan resume-inject §D4**: maxEventId thunk（caller 在 entry emit user **前**固化常量后
-   * 绑 `() => maxEventIdBefore`，injectResumeHistory 作 beforeIdInclusive 排除当前消息）。
-   */
-  maxEventIdFn: () => number | null;
+  /** Immutable source captured before the current user event. Null only when capture itself failed. */
+  capture: CapturedRecoveryContinuation | null;
+  captureError?: unknown;
   /** rec.codexSandbox ?? undefined (显式透传防静默降默认) */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** rec.model ?? undefined (Codex runtime v0.131.0+ per-thread override) */
   model?: string;
+  /** rec.thinking when it is a valid Codex reasoning level. */
+  modelReasoningEffort?: CodexThinkingLevel;
   /** rec.extraAllowWrite ?? undefined (parity 透传,codex runtime 不消费仅持久化) */
   extraAllowWrite?: readonly string[];
   /**
    * plan codex-recover-network-dirs-parity-20260602：rec.networkAccessEnabled ?? undefined。
    * **codex SDK runtime 真消费**（区别 extraAllowWrite）—— fresh thread 起动时透传让 reviewer-codex
-   * 保持网络访问。recover + restart 两路共用本 opts（restart-controller 也调本 helper）。
+   * 保持网络访问。
    */
   networkAccessEnabled?: boolean;
   /**
@@ -115,7 +88,7 @@ export interface CodexJsonlFallbackOpts {
   attachments?: UploadedAttachmentRef[];
   /**
    * **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法（对称 claude jsonl-fallback.ts）**：
-   * recover 路径在 `await injectResumeHistory`（summariseFn LLM oneshot 10-30s）期间用户若主动
+   * recover 路径在 continuation preparation await 期间用户若主动
    * close → closeImpl no-op adapter.closeSession + setLifecycle('closed') 但不 abort 在途 recovering
    * promise。await resolve 后 helper 若继续 createSession 起 fresh thread → 首条 SDK 事件过 ensure
    * （closed && archivedAt===null && source==='sdk'）→ 复活成 active，反转用户显式 close。
@@ -131,7 +104,7 @@ export interface CodexJsonlFallbackResult {
   /** fallback 路径下 = sessionId (applicationSid 不变);fall through 时不消费 */
   finalSessionId: string;
   /**
-   * **R2 HIGH 修法（对称 claude）**：recover 路径 await injectResumeHistory 后重读 lifecycle 发现
+   * **R2 HIGH 修法（对称 claude）**：recover 路径 await preparation 后重读 lifecycle 发现
    * 已 closed/missing（用户 await 窗口内主动 close）→ abort 不起 fresh thread。caller 必须在判
    * fellBack/fall-through **之前**先检查本字段：true → 直接 return finalSessionId 静默结束
    * （lifecycle 已是用户想要的 closed，不 createSession / 不 emit / 不 fall through，避免复活）。
@@ -172,40 +145,23 @@ export async function maybeCodexJsonlFallback(
       `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
   );
 
-  // **plan resume-inject-raw-messages-20260601 §D2/§D8 修法（解开 REVIEW_60 F5）**：
-  // codex 端原本完全不注入历史（只 emit「请下条消息把背景给 Codex」），本 plan 让 codex 与
-  // claude 对称走 injectResumeHistory 拼「总结段 + 最近原始对话消息段 + 当前消息」三段结构化
-  // 文本（§架构地基：拼 1 条结构化 user message 是唯一正解）。DB 没历史 / 总结失败 / 预算边界 /
-  // thunk throw → used=false 退回 originalText（仍 createSession 起 fresh thread）。
-  // **唯一例外** original-over-length（§D6 step0 + §不变量 1）：originalText 自身 > maxLength →
-  // throw 让 recoverer outer catch emit error + 不进 createSession（codex create-session-validate.ts
-  // 有 MAX throw 会阻塞 fresh thread → 这里提前拦下给清晰错误）。
-  const summaryResult = await injectResumeHistory({
-    sessionId: opts.sessionId,
-    originalText: opts.prompt,
-    cwd: opts.prependCwd,
-    recentMessagesCount: settingsStore.get('resumeRecentMessagesCount'),
-    maxLength: MAX_MESSAGE_LENGTH,
-    agentName: 'Agent', // §D8: codex 视角不自称「Claude 会话」
-    maxEventIdFn: opts.maxEventIdFn,
-    summariseFn: ctx.summariseFn,
-    listEventsFn: ctx.listEventsFn,
-    listMessagesFn: ctx.listMessagesFn,
-  });
-  if (summaryResult.failReason === 'original-over-length') {
-    throw new Error(
-      `单条消息 ${opts.prompt.length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限，无法作为 fallback 首条 prompt。请精简或拆分发送。`,
-    );
+  if (!opts.capture) {
+    if (opts.captureError instanceof Error) throw opts.captureError;
+    throw new Error('无法捕获不可变的恢复上下文，已停止创建新的 Codex thread。');
   }
 
+  // The capture was completed synchronously before the current user event. Preparation reads only
+  // that immutable TEMP spool, so the current event cannot be duplicated in the retained raw tail.
+  const recovery = await ctx.prepareRecovery(opts.capture, opts.prompt);
+
   // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法（对称 claude jsonl-fallback.ts）**：
-  // await injectResumeHistory（LLM oneshot 10-30s）后、createSession 前重读 lifecycle。recover
+  // await continuation preparation 后、createSession 前重读 lifecycle。recover
   // 路径若用户在 await 窗口内主动 close → isCancelledFn 返 true → abort 不起 fresh thread（否则
   // createSession SDK 事件过 ensure closed→active 复活，静默反转用户显式 close）。lifecycle 已是
   // 用户想要的 closed，abort 时不 createSession / 不 emit / 直接返 aborted:true。单线程无二次 TOCTOU。
   if (opts.isCancelledFn?.()) {
     logger.warn(
-      `[codex-bridge] recover fallback aborted: session ${opts.sessionId} closed during summary await (user close)`,
+      `[codex-bridge] recover fallback aborted: session ${opts.sessionId} closed during continuation preparation (user close)`,
     );
     return { fellBack: false, finalSessionId: opts.sessionId, aborted: true };
   }
@@ -219,13 +175,14 @@ export async function maybeCodexJsonlFallback(
   // 走 manager 黑名单链 (R5 HIGH-R5-1 + R6 MED-R6-1 修订)。
   await ctx.createSession({
     cwd: opts.cwd,
-    prompt: summaryResult.prompt, // 三段结构化文本 (含历史) 或 originalText (used:false 兜底)
+    trustedContinuation: recovery.turn,
     // **R6 MED-R6-1 修订**: resume = applicationSid (复用 caller 入参 sessionId)
     resume: opts.sessionId,
     // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
     resumeMode: 'fresh-cli-reuse-app',
     codexSandbox: opts.codexSandbox,
     model: toCodexModelOverride(opts.model),
+    modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,
     // plan codex-recover-network-dirs-parity-20260602：fresh thread 起动透传 network/dirs
     // （codex SDK runtime 真消费）让 reviewer-codex jsonl-missing fallback 后保持网络 + 跨目录能力。
@@ -249,17 +206,17 @@ export async function maybeCodexJsonlFallback(
   // 「⚠ 自动恢复失败」error → 时间线自相矛盾（fallback 已开始 vs 又失败）。移到 createSession
   // 成功后 emit：createSession throw 时本 emit 不执行，rethrow 给 recoverer outer catch 只 emit
   // 一条 error message，时间线干净（cross-adapter parity 对齐 claude）。
-  // **plan resume-inject §D8**: 文案按 summaryResult.used 二态选 builder（对称 claude
-  // buildJsonlMissingSummaryUsed/SkippedText）— used=true 历史已注入「应能续上前情」/
-  // used=false 退回纯当前消息「请补背景」。
+  // Instruction-only is the final explicit degradation level; every richer quality has either a
+  // validated checkpoint or retained raw user history and can use the "history restored" copy.
   ctx.emit({
     sessionId: opts.sessionId,
     agentId: AGENT_ID,
     kind: 'message',
     payload: {
-      text: summaryResult.used
-        ? buildCodexJsonlMissingSummaryUsedText(opts.cwd)
-        : buildCodexJsonlMissingSummarySkippedText(opts.cwd),
+      text:
+        recovery.prepared.quality === 'instruction-only'
+          ? buildCodexJsonlMissingInstructionOnlyText(opts.cwd)
+          : buildCodexJsonlMissingContextRestoredText(opts.cwd),
     },
     ts: Date.now(),
     source: 'sdk',

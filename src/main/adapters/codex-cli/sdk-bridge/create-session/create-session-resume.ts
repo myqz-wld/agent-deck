@@ -32,6 +32,7 @@ import type {
   CreateSessionResult,
   PreparedContext,
 } from './_deps';
+import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 const logger = log.scope('codex-create-session-resume');
 
@@ -40,6 +41,12 @@ export async function runCreateSessionResumePath(
   ctx: PreparedContext,
   deps: CreateSessionDeps,
 ): Promise<CreateSessionResult> {
+  const initialTurn = opts.resumeOnly
+    ? { providerPrompt: '', persistedUserText: '', metadata: null, trusted: false }
+    : resolveInternalInitialTurn({
+        prompt: opts.prompt,
+        trustedContinuation: opts.trustedContinuation,
+      });
   // resume 路径前置条件:opts.resume 已校验非空(orchestrator dispatch 入本 fn 前判断)
   // — 内部断言冗余但显式 narrow 让 TS 不撞 undefined 边角
   if (!opts.resume) {
@@ -118,13 +125,19 @@ export async function runCreateSessionResumePath(
       agentId: AGENT_ID,
       kind: 'message',
       payload: {
-        text: opts.prompt!,
+        text: initialTurn.persistedUserText,
         role: 'user',
         ...(attachments ? { attachments } : {}),
         // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 (resume 路径
         // first-user-message emit 3 处之一,详 plan §不变量 5):spread handOff metadata 让
         // renderer 端 message-row 识别 hand-off cold-start prompt + 渲染 Hand-off badge。
         ...(opts.handOff ? { handOff: opts.handOff } : {}),
+        ...(initialTurn.metadata
+          ? {
+              messageOrigin: 'continuation',
+              continuation: { ...initialTurn.metadata },
+            }
+          : {}),
       },
       ts: Date.now(),
       source: 'sdk',

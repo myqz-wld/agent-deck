@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { AgentEvent, SessionRecord, AgentDeckMessage, HandOffMetadata } from '@shared/types';
+import type { AgentEvent, SessionRecord, AgentDeckMessage } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
@@ -169,15 +169,11 @@ let createSessionThrow: Error | null = null;
 const sendMessageCalls: Array<{ sid: string; text: string }> = [];
 
 // D1 (CHANGELOG_76): spy createSession opts 让 test 能断言 prompt 是否被 body 前缀注入。
-// R1 reviewer-codex INFO 修法 (handoff-render-and-image-batch-20260521):扩 spy 捕获
-// `handOff` 字段,让 handOff plumbing 透传到 adapter.createSession opts.handOff 有回归断言守门
-// (覆盖 R3 曾经漏掉的 adapter facade → bridge 链路)。
 const createSessionCalls: Array<{
   adapter: string;
   cwd: string;
   prompt?: string;
   teamName?: string;
-  handOff?: HandOffMetadata;
   permissionMode?: string;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
@@ -208,7 +204,6 @@ vi.mock('@main/adapters/registry', () => ({
           cwd: string;
           prompt?: string;
           teamName?: string;
-          handOff?: HandOffMetadata;
           permissionMode?: string;
           codexSandbox?: string;
           claudeCodeSandbox?: string;
@@ -229,7 +224,6 @@ vi.mock('@main/adapters/registry', () => ({
             cwd: opts.cwd,
             prompt: opts.prompt,
             teamName: opts.teamName,
-            handOff: opts.handOff,
             permissionMode: opts.permissionMode,
             codexSandbox: opts.codexSandbox,
             claudeCodeSandbox: opts.claudeCodeSandbox,
@@ -1479,64 +1473,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       teamId: null,
       body: 'plain prompt without body',
     });
-  });
-
-  // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 + R1 reviewer-codex INFO 修法:
-  // handOff plumbing 透传到 adapter.createSession opts.handOff 的回归断言(覆盖 spawn handler →
-  // buildCreateSessionOptions → adapter narrow → facade → bridge 链路)。
-  it('handOff plumbing: claude-code adapter receives handOff metadata via createSession opts', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead', { cwd: '/repo' });
-    const handOffMeta: HandOffMetadata = {
-      mode: 'session',
-      fromCallerSid: 'lead-sid',
-    };
-    const r = await tools.get('spawn_session').handler({
-      adapter: 'claude-code',
-      cwd: '/repo',
-      prompt: 'cold-start prompt',
-      callerSessionId: 'lead',
-      handOff: handOffMeta,
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].handOff).toEqual(handOffMeta);
-  });
-
-  it('handOff plumbing: codex-cli adapter receives handOff metadata via createSession opts', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead', { cwd: '/repo' });
-    const handOffMeta: HandOffMetadata = {
-      mode: 'session',
-      fromCallerSid: 'lead-sid',
-    };
-    const r = await tools.get('spawn_session').handler({
-      adapter: 'codex-cli',
-      cwd: '/repo',
-      prompt: 'cold-start prompt',
-      callerSessionId: 'lead',
-      handOff: handOffMeta,
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].handOff).toEqual(handOffMeta);
-  });
-
-  it('handOff plumbing: caller not passing handOff → adapter receives handOff=undefined', async () => {
-    const tools = await getTools({ transport: 'http' });
-    seedSession('lead', { cwd: '/repo' });
-    const r = await tools.get('spawn_session').handler({
-      adapter: 'claude-code',
-      cwd: '/repo',
-      prompt: 'plain spawn without handOff',
-      callerSessionId: 'lead',
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].handOff).toBeUndefined();
   });
 
   it('regression Bug 1+2: native agent definition is passed as object without leaking [object Object] into prompt or DB body', async () => {

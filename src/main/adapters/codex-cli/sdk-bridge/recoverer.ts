@@ -2,7 +2,7 @@
  * SessionRecoverer — codex 端断连自愈 + jsonl 兜底（symmetry-plan P2 HIGH-B + MED-E + LOW-A）。
  *
  * 镜像 claude `claude-code/sdk-bridge/recoverer.ts` 同款架构，**精简版**：
- * - claude 1.0 (612 LOC + 6 builder + helpers + LLM 摘要 prepend)
+ * - Claude and Codex both use the provider-neutral continuation engine for missing history
  * - codex 1.0 (Phase 4 Step 4.3 拆分后 facade ~120 LOC + recover-and-send-impl ~280 LOC +
  *   jsonl-discovery ~120 LOC + _deps ~150 LOC，无摘要 prepend / 无 hook 通道)
  *
@@ -34,13 +34,9 @@
  *
  * **codex 与 claude 的关键差异**（架构内禀 / SDK 形态）：
  * - codex 无 hook 通道：不调 sessionManager.expectSdkSession（claude 走 hook 路径需要）
- * - **codex 历史注入已与 claude 对称**（plan resume-inject-raw-messages-20260601 §D8 解开
- *   REVIEW_60 F5）：jsonl-missing fallback 起 fresh thread 前走 shared `injectResumeHistory`
- *   （`@main/session/resume-history`）拼「总结段 + 最近原始对话消息段 + 当前消息」。总结段复用
- *   claude oneshot `summariseSessionForHandOff(cwd, events, 'Agent')`（本地 OAuth，agentName='Agent'
- *   让 codex 会话总结不自称「Claude 会话」），不为 codex 写平行总结函数。共享层 maxLength 参数化
- *   解开历史「claude MAX_MESSAGE_LENGTH 常量耦合」。3 thunk（summariseFn / listEventsFn /
- *   listMessagesFn）经 ctor 注入 → codex-jsonl-fallback helper。
+ * - jsonl-missing fallback uses the shared provider-neutral continuation engine. Mutable events are
+ *   copied to an immutable TEMP spool before the current user event; native jsonl presence bypasses
+ *   preparation, while a true miss starts a fresh provider thread under the stable application SID.
  * - codex 不支持 implicit fork：spike-A2 实测 codex CLI resume 永远返回同 thread_id（详
  *   restart-controller line 97 注释）。recoverer 仍保留 post-rename 防御（`if newRealId !== sessionId`）
  *   future-proof 防 SDK 升级 / CLI 行为变更。
@@ -64,9 +60,9 @@ import type {
   JsonlExistsThunk,
   RecovererCtx,
   SendMessageThunk,
-  SummariseFnThunk,
-  ListEventsFnThunk,
-  ListRecentMessagesFnThunk,
+  CaptureRecoveryContinuationThunk,
+  PrepareRecoveryContinuationThunk,
+  CleanupRecoveryContinuationThunk,
 } from './recoverer/_deps';
 import { recoverAndSendImpl } from './recoverer/recover-and-send-impl';
 
@@ -97,22 +93,9 @@ export class SessionRecoverer {
     private readonly sendThunk: SendMessageThunk,
     private readonly jsonlExistsThunk: JsonlExistsThunk,
     private readonly cwdExistsThunk: CwdExistsThunk,
-    /**
-     * **plan resume-inject-raw-messages-20260601 §D8 修法**: LLM 总结 thunk(test seam)。
-     * facade bind `summariseSessionForHandOff(cwd, events, 'Agent')`(复用 claude oneshot 本地
-     * OAuth，agentName='Agent' 让 codex 会话总结不自称「Claude 会话」)。解开 REVIEW_60 F5 耦合。
-     */
-    private readonly summariseFn: SummariseFnThunk,
-    /**
-     * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)。facade bind
-     * `eventRepo.listForSession`，喂 summariseFn 出六节检查点(总结段数据源)。
-     */
-    private readonly listEventsFn: ListEventsFnThunk,
-    /**
-     * **plan resume-inject §D5**: message-only 来源 thunk(test seam)。facade bind
-     * `eventRepo.listRecentMessages`，拼「最近原始对话消息段」(双数据源之二)。
-     */
-    private readonly listMessagesFn: ListRecentMessagesFnThunk,
+    private readonly captureRecovery: CaptureRecoveryContinuationThunk,
+    private readonly prepareRecovery: PrepareRecoveryContinuationThunk,
+    private readonly cleanupRecovery: CleanupRecoveryContinuationThunk,
   ) {}
 
   /**
@@ -144,11 +127,9 @@ export class SessionRecoverer {
       cwdExistsThunk: this.cwdExistsThunk,
       // arrow 闭包 this,运行时晚解析 → this.findFallbackCwd 一定已绑定 (test override 注入点)
       findFallbackCwd: (badCwd) => this.findFallbackCwd(badCwd),
-      // plan resume-inject-raw-messages-20260601 §D5/§D7/§D8: 3 thunk 透传给 codex-jsonl-fallback
-      // 让其调 injectResumeHistory 拼「总结段 + 原始对话段 + 当前消息」(对称 claude)。
-      summariseFn: this.summariseFn,
-      listEventsFn: this.listEventsFn,
-      listMessagesFn: this.listMessagesFn,
+      captureRecovery: this.captureRecovery,
+      prepareRecovery: this.prepareRecovery,
+      cleanupRecovery: this.cleanupRecovery,
     });
   }
 

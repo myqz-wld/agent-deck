@@ -13,7 +13,7 @@
  *
  * **codex 与 claude 关键差异（影响 TestBridge 形态）**：
  * - codex 的 `cwdExists` / `codexResumeJsonlExists` 是 protected method（不是 jsonlExists）
- * - codex 没有 `summariseForHandOff` —— recoverer 不接 LLM 摘要 prepend（详 recoverer.ts L29-33）
+ * - recovery uses the shared provider-neutral continuation engine
  * - codex 没有 `claudeCodeSandbox` —— per-session 沙盒字段叫 `codexSandbox`
  * - codex 没有 `permissionMode` —— SDK approvalPolicy 写死 'never'
  * - createSession 接 `attachments` + `model` + `codexSandbox`（不是 claudeCodeSandbox）
@@ -21,8 +21,22 @@
 
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
-import type { AgentEvent } from '@shared/types';
-import type { UploadedAttachmentRef } from '@shared/types';
+import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import type { CodexThinkingLevel } from '@shared/session-metadata';
+import type { CreateSessionOpts } from '@main/adapters/codex-cli/sdk-bridge/create-session/_deps';
+import {
+  createTrustedContinuationInitialTurn,
+  type TrustedContinuationInitialTurn,
+} from '@main/session/continuation-context/initial-turn';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery';
+import type {
+  ContinuationQuality,
+  PreparedContinuationContext,
+} from '@main/session/continuation-context/types';
 
 export interface CreateSessionCall {
   cwd: string;
@@ -45,6 +59,8 @@ export interface CreateSessionCall {
    * record.model 否则已 spawn 的 codex 实际跑默认 model 而 DB record 显示原 model 不一致。
    */
   model?: string;
+  modelReasoningEffort?: CodexThinkingLevel;
+  trustedContinuation?: TrustedContinuationInitialTurn;
   /**
    * plan codex-recover-network-dirs-parity-20260602：recover / restart 透传校验 —— reviewer-codex
    * spawn-time 持久化的 network/dirs 必须经 recover createSession 重新交还 codex SDK，否则
@@ -59,6 +75,42 @@ export interface CreateSessionCall {
    */
   cancelCheck?: () => boolean;
   resumeOnly?: boolean;
+  skipFirstUserEmit?: boolean;
+}
+
+function preparedRecovery(
+  instruction: string,
+  providerPrompt: string,
+  quality: ContinuationQuality,
+  spoolId: string,
+): PreparedContinuationContext {
+  return {
+    version: 1,
+    providerPrompt,
+    persistedUserText: instruction,
+    source: { eventRevision: 7, rebuildAfterRevision: 0, maxEventId: 7 },
+    checkpoint: { id: null, throughRevision: 0, formatVersion: 1, refreshed: false },
+    projection: { canonicalHash: null, omittedFacts: 0 },
+    quality,
+    metrics: {
+      rawRetentionCeilingTokens: 64_000,
+      targetPromptCapacityTokens: 100_000,
+      checkpointProjectionBudgetTokens: 12_000,
+      generatorFoldInputBudgetTokens: 32_000,
+      estimatedPromptTokens: 100,
+      checkpointTokens: 0,
+      rawTailTokens: quality === 'instruction-only' ? 0 : 20,
+      includedUserMessages: quality === 'instruction-only' ? 0 : 1,
+      truncatedBoundaryMessages: 0,
+      foldCalls: 0,
+      repairCalls: 0,
+      elapsedMs: 1,
+      uncoveredRevisionRange: null,
+    },
+    warnings: [],
+    preparationHash: 'c'.repeat(64),
+    spoolId,
+  };
 }
 
 export class TestCodexBridge extends CodexSdkBridge {
@@ -77,35 +129,19 @@ export class TestCodexBridge extends CodexSdkBridge {
    * findFallbackCwd 私有方法（与 claude TestBridge cwdExistsOverride 同款）。
    */
   public cwdExistsOverride: boolean | Map<string, boolean> = true;
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D8 test seam**：LLM 总结 mock。默认 null 让
-   * jsonl-missing fallback 走「无总结」路径（injectResumeHistory summary 段缺省，不破现有
-   * recovery case；现有断言验 used=false skipped 文案）。Step 7「总结成功」case 显式 set 字符串。
-   */
-  public summariseOverride: string | null = null;
-  /**
-   * **plan resume-inject §D7 test seam**：全量 events mock（喂 summariseForHandOff）。默认空数组。
-   */
-  public listEventsOverride: AgentEvent[] = [];
-  /**
-   * **plan resume-inject §D5 test seam**：message-only mock（拼原始对话段）。默认空数组 → 现有
-   * jsonl-missing case 走 no-history（used=false skipped 文案）。Step 7「raw 成功」case 显式 set。
-   */
-  public listMessagesOverride: (AgentEvent & { id: number })[] = [];
+  public captureCalls: Array<{
+    sessionId: string;
+    overrides: RecoveryRuntimeOverrides | undefined;
+    userEventsAtCapture: number;
+  }> = [];
+  public prepareCalls: Array<{ spoolId: string; instruction: string }> = [];
+  public cleanupCalls: string[] = [];
+  public captureError: Error | null = null;
+  public prepareError: Error | null = null;
+  public preparedQuality: ContinuationQuality = 'instruction-only';
+  public preparedProviderPrompt: string | null = null;
 
-  override async createSession(opts: {
-    cwd: string;
-    prompt?: string;
-    resume?: string;
-    resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
-    codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
-    model?: string;
-    networkAccessEnabled?: boolean;
-    additionalDirectories?: readonly string[];
-    attachments?: UploadedAttachmentRef[];
-    cancelCheck?: () => boolean;
-    resumeOnly?: boolean;
-  }): Promise<{ sessionId: string }> {
+  override async createSession(opts: CreateSessionOpts): Promise<{ sessionId: string }> {
     this.createCalls.push({
       cwd: opts.cwd,
       prompt: opts.prompt,
@@ -113,11 +149,14 @@ export class TestCodexBridge extends CodexSdkBridge {
       resumeMode: opts.resumeMode,
       codexSandbox: opts.codexSandbox,
       model: opts.model,
+      modelReasoningEffort: opts.modelReasoningEffort,
+      trustedContinuation: opts.trustedContinuation,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
       attachments: opts.attachments,
       cancelCheck: opts.cancelCheck,
       resumeOnly: opts.resumeOnly,
+      skipFirstUserEmit: opts.skipFirstUserEmit,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {
@@ -157,34 +196,63 @@ export class TestCodexBridge extends CodexSdkBridge {
     return this.cwdExistsOverride.get(cwd) ?? false;
   }
 
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D8 test seam**：override 让单测不调真
-   * summariseSessionForHandOff（撞 OAuth / 计费 / DB 未 init）。默认返 summariseOverride（null）。
-   */
-  protected override summariseForHandOff(
-    _cwd: string,
-    _events: AgentEvent[],
-  ): Promise<string | null> {
-    return Promise.resolve(this.summariseOverride);
+  protected override captureRecoveryContext(
+    session: SessionRecord,
+    overrides?: RecoveryRuntimeOverrides,
+  ): CapturedRecoveryContinuation {
+    this.captureCalls.push({
+      sessionId: session.id,
+      overrides,
+      userEventsAtCapture: emits.filter(
+        (event) => event.kind === 'message' && (event.payload as { role?: string }).role === 'user',
+      ).length,
+    });
+    if (this.captureError) throw this.captureError;
+    return {
+      sourceSessionId: session.id,
+      spoolId: `spool-${session.id}`,
+      generator: {
+        adapter: 'claude-code',
+        model: 'sonnet',
+        thinking: 'low',
+        contextWindowTokens: null,
+        configFingerprint: 'generator-test',
+      },
+      target: {
+        adapter: 'codex-cli',
+        model: session.model ?? null,
+        thinking: null,
+        sandbox: null,
+        permissionMode: null,
+        networkAccessEnabled: null,
+        additionalDirectories: [],
+        contextWindowTokens: 128_000,
+        runtimeFingerprint: 'target-test',
+      },
+      rawRetentionCeilingTokens: 64_000,
+    };
   }
 
-  /**
-   * **plan resume-inject §D7 test seam**：override 让单测不依赖真 eventRepo（DB 未 init）。
-   */
-  protected override listEventsForSession(_sessionId: string): AgentEvent[] {
-    return this.listEventsOverride;
+  protected override prepareRecoveryContext(
+    capture: CapturedRecoveryContinuation,
+    continuationInstruction: string,
+  ): Promise<PreparedRecoveryContinuation> {
+    this.prepareCalls.push({ spoolId: capture.spoolId, instruction: continuationInstruction });
+    if (this.prepareError) return Promise.reject(this.prepareError);
+    const prepared = preparedRecovery(
+      continuationInstruction,
+      this.preparedProviderPrompt ?? `FULL RECOVERY CONTEXT\n${continuationInstruction}`,
+      this.preparedQuality,
+      capture.spoolId,
+    );
+    return Promise.resolve({
+      prepared,
+      turn: createTrustedContinuationInitialTurn(prepared, capture.sourceSessionId),
+    });
   }
 
-  /**
-   * **plan resume-inject §D5 test seam**：override 让单测不依赖真 eventRepo（DB 未 init）。
-   * 默认空数组 → jsonl-missing fallback 走 no-history（used=false）。
-   */
-  protected override listRecentMessagesForSession(
-    _sessionId: string,
-    _limit: number,
-    _beforeIdInclusive?: number,
-  ): (AgentEvent & { id: number })[] {
-    return this.listMessagesOverride;
+  protected override cleanupRecoveryContext(capture: CapturedRecoveryContinuation): void {
+    this.cleanupCalls.push(capture.spoolId);
   }
 }
 

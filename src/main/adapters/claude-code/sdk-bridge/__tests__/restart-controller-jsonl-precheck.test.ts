@@ -6,11 +6,9 @@
  * - T1: jsonl 在 → fellBack=false → 走原 resume 路径 createSession 一次 + opts.resumeCliSid 正确
  * - T3: jsonl 缺失 + helper.createSession 抛错 → DB 回滚 + emit error + throw
  * - 关闭项回归: bypassPermissions / sandbox off 的 jsonl 在与缺失 fallback 均保留目标档位
- *
- * **测试方式**: new RestartController + mock RestartCtx (含 jsonlExistsThunk / summariseFn /
- * listEventsFn 3 个 Step 3c 新字段),不走 ClaudeSdkBridge facade。让 ctx.createSession spy 验证
+ * **测试方式**: new RestartController + mock RestartCtx，不走 ClaudeSdkBridge facade。让
+ * ctx.createSession spy 验证
  * caller 透传给 helper / 透传给原 resume 路径 createSession 的 opts。
- *
  * **不重复测**:
  * - helper 内部行为 (T2/T4/T7/T8/T9/T10): 见 jsonl-fallback.test.ts
  * - T5 thunk fail-safe: 由 thunk 自己负责契约 (defaultResumeJsonlExists try/catch),trivial 不测
@@ -22,8 +20,13 @@ import { RestartController, type RestartCtx, type RestartCreateOpts } from '../r
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import type { SdkSessionHandle } from '../types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
+import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+} from '@main/session/continuation-context/recovery';
+import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
 
-// sessionRepo / sessionManager mock 让 RestartController 不撞依赖
 const repoCache = new Map<string, SessionRecord>();
 const setPermissionModeSpy = vi.fn();
 const setClaudeCodeSandboxSpy = vi.fn();
@@ -52,23 +55,50 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    get: vi.fn((key: string) => (key === 'resumeRecentMessagesCount' ? 30 : undefined)),
-  },
-}));
-
 const emits: AgentEvent[] = [];
 
-function msg(id: number, role: 'user' | 'assistant', text: string): AgentEvent & { id: number } {
+function captureFor(session: SessionRecord): CapturedRecoveryContinuation {
   return {
-    id,
-    sessionId: 's',
-    agentId: 'claude-code',
-    kind: 'message',
-    payload: { role, text },
-    ts: id,
-    source: 'sdk',
+    sourceSessionId: session.id,
+    spoolId: `spool-${session.id}`,
+    generator: {
+      adapter: 'claude-code', model: null, thinking: 'medium',
+      contextWindowTokens: null, configFingerprint: 'generator',
+    },
+    target: {
+      adapter: 'claude-code', model: session.model ?? null, thinking: null, sandbox: null,
+      permissionMode: session.permissionMode ?? null, networkAccessEnabled: null,
+      additionalDirectories: [], contextWindowTokens: 128_000, runtimeFingerprint: 'target',
+    },
+    rawRetentionCeilingTokens: 64_000,
+  };
+}
+
+function prepareFor(
+  input: { capture: CapturedRecoveryContinuation; continuationInstruction: string },
+  quality: PreparedContinuationContext['quality'],
+): PreparedRecoveryContinuation {
+  const prepared: PreparedContinuationContext = {
+    version: 1,
+    providerPrompt: `===== Agent Deck Continuation Context v1 =====\n${input.continuationInstruction}`,
+    persistedUserText: input.continuationInstruction,
+    source: { eventRevision: 1, rebuildAfterRevision: 0, maxEventId: 1 },
+    checkpoint: { id: 1, throughRevision: 1, formatVersion: 1, refreshed: false },
+    projection: { canonicalHash: 'canonical', omittedFacts: 0 },
+    quality,
+    metrics: {
+      rawRetentionCeilingTokens: 64_000, targetPromptCapacityTokens: 104_000,
+      checkpointProjectionBudgetTokens: 12_000, generatorFoldInputBudgetTokens: 32_000,
+      estimatedPromptTokens: 100, checkpointTokens: 20, rawTailTokens: 20,
+      includedUserMessages: quality === 'instruction-only' ? 0 : 1,
+      truncatedBoundaryMessages: 0, foldCalls: 1, repairCalls: 0, elapsedMs: 1,
+      uncoveredRevisionRange: null,
+    },
+    warnings: [], preparationHash: 'c'.repeat(64), spoolId: input.capture.spoolId,
+  };
+  return {
+    prepared,
+    turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
   };
 }
 
@@ -104,19 +134,22 @@ function makeRec(
 interface MakeCtxOpts {
   jsonlExistsReturn?: boolean;
   createSession?: (opts: RestartCreateOpts) => Promise<SdkSessionHandle>;
-  summariseFnReturn?: string | null;
-  listEventsFnReturn?: AgentEvent[];
-  /** plan resume-inject §D5: message-only 返回（拼原始对话段）。默认空数组。 */
-  listMessagesFnReturn?: (AgentEvent & { id: number })[];
+  continuationQuality?: PreparedContinuationContext['quality'];
+  latestConversationMessageTs?: number | null;
+  captureThrow?: Error;
 }
 
 function makeCtx(opts: MakeCtxOpts = {}): {
   ctx: RestartCtx;
   createSessionSpy: ReturnType<typeof vi.fn>;
   closeCalls: Array<{ sid: string; opts?: { markRecentlyDeleted?: boolean } }>;
+  captureSnapshots: Array<{ emitCount: number; closeCount: number; input: unknown }>;
+  cleanupSpy: ReturnType<typeof vi.fn>;
 } {
   const recovering = new Map<string, Promise<unknown>>();
   const closeCalls: Array<{ sid: string; opts?: { markRecentlyDeleted?: boolean } }> = [];
+  const captureSnapshots: Array<{ emitCount: number; closeCount: number; input: unknown }> = [];
+  const cleanupSpy = vi.fn();
   const createSessionSpy = vi.fn(
     opts.createSession ??
       (async (_o: RestartCreateOpts) =>
@@ -131,11 +164,17 @@ function makeCtx(opts: MakeCtxOpts = {}): {
     createSession: createSessionSpy as unknown as RestartCtx['createSession'],
     jsonlExistsThunk: () => opts.jsonlExistsReturn ?? true,
     jsonlMtimeMsThunk: () => 10_000,
-    summariseFn: async () => opts.summariseFnReturn ?? null,
-    listEventsFn: () => opts.listEventsFnReturn ?? [],
-    listMessagesFn: () => opts.listMessagesFnReturn ?? [], // plan resume-inject §D5: message-only stub
+    latestConversationMessageTsThunk: () => opts.latestConversationMessageTs ?? null,
+    captureRecoveryContinuation: (input) => {
+      captureSnapshots.push({ emitCount: emits.length, closeCount: closeCalls.length, input });
+      if (opts.captureThrow) throw opts.captureThrow;
+      return captureFor(input.session);
+    },
+    prepareRecoveryContinuation: async (input) =>
+      prepareFor(input, opts.continuationQuality ?? 'instruction-only'),
+    cleanupRecoveryContinuation: cleanupSpy,
   };
-  return { ctx, createSessionSpy, closeCalls };
+  return { ctx, createSessionSpy, closeCalls, captureSnapshots, cleanupSpy };
 }
 
 beforeEach(() => {
@@ -156,18 +195,6 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     repoCache.set(sid, makeRec(sid, { cliSessionId: 'cli-sid-PM', permissionMode: 'default' }));
     const { ctx, createSessionSpy, closeCalls } = makeCtx({
       jsonlExistsReturn: true,
-      summariseFnReturn: '重启前摘要',
-      listEventsFnReturn: [
-        {
-          sessionId: sid,
-          agentId: 'claude-code',
-          kind: 'message',
-          payload: { text: 'x' },
-          ts: 1,
-          source: 'sdk',
-        },
-      ],
-      listMessagesFnReturn: [msg(2, 'assistant', '历史回答'), msg(1, 'user', '历史问题')],
     });
     const ctrl = new RestartController(ctx);
 
@@ -200,8 +227,6 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     );
     const { ctx, createSessionSpy, closeCalls } = makeCtx({
       jsonlExistsReturn: true,
-      summariseFnReturn: '不应注入的摘要',
-      listMessagesFnReturn: [msg(2, 'assistant', '历史回答'), msg(1, 'user', '历史问题')],
     });
     const ctrl = new RestartController(ctx);
 
@@ -224,6 +249,29 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
   });
 
+  it('capture 失败不阻断 native jsonl restart', async () => {
+    const sid = 'app-sid-capture-native';
+    repoCache.set(sid, makeRec(sid, { cliSessionId: 'cli-capture-native' }));
+    const { ctx, createSessionSpy } = makeCtx({
+      jsonlExistsReturn: true,
+      captureThrow: new Error('sqlite temp unavailable'),
+    });
+
+    const result = await new RestartController(ctx).restartWithPermissionMode(
+      sid,
+      'plan',
+      SDK_RESTART_RESUME_PROMPT,
+    );
+
+    expect(result).toBe(sid);
+    expect(createSessionSpy).toHaveBeenCalledOnce();
+    expect(createSessionSpy.mock.calls[0][0]).toMatchObject({
+      prompt: SDK_RESTART_RESUME_PROMPT,
+      resume: sid,
+      resumeCliSid: 'cli-capture-native',
+    });
+  });
+
   it('T2-pm-bypass: 切到 bypassPermissions 且 jsonl 缺失 → fresh fallback 保留 bypass/off 档位', async () => {
     const sid = 'app-sid-pm-bypass-T2';
     repoCache.set(
@@ -234,9 +282,8 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
         claudeCodeSandbox: 'off',
       }),
     );
-    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+    const { ctx, createSessionSpy, closeCalls, captureSnapshots, cleanupSpy } = makeCtx({
       jsonlExistsReturn: false,
-      summariseFnReturn: null,
     });
     const ctrl = new RestartController(ctx);
 
@@ -250,10 +297,29 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect('resumeCliSid' in opts).toBe(false);
     expect(opts.permissionMode).toBe('bypassPermissions');
     expect(opts.claudeCodeSandbox).toBe('off');
-    expect(opts.prompt).toContain('继续之前的会话');
+    expect(opts.prompt).toBeUndefined();
+    expect(opts.trustedContinuation?.providerPrompt).toContain(
+      'Agent Deck Continuation Context v1',
+    );
+    const persisted = emits.find(
+      (event) =>
+        event.kind === 'message' &&
+        (event.payload as { role?: string }).role === 'user',
+    );
+    expect(persisted?.payload).toMatchObject({
+      text: '继续之前的会话',
+      messageOrigin: 'continuation',
+      continuation: { sourceSessionId: sid },
+    });
     expect(setPermissionModeSpy).toHaveBeenCalledOnce();
     expect(setPermissionModeSpy.mock.calls[0]).toEqual([sid, 'bypassPermissions']);
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+    expect(captureSnapshots[0]).toMatchObject({
+      emitCount: 0,
+      closeCount: 0,
+      input: { overrides: { permissionMode: 'bypassPermissions' } },
+    });
+    expect(cleanupSpy).toHaveBeenCalledOnce();
     expect(emits.some((e) => e.kind === 'message' && (e.payload as { error?: boolean }).error)).toBe(
       false,
     );
@@ -298,18 +364,6 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     );
     const { ctx, createSessionSpy, closeCalls } = makeCtx({
       jsonlExistsReturn: true,
-      summariseFnReturn: '沙盒重启摘要',
-      listEventsFnReturn: [
-        {
-          sessionId: sid,
-          agentId: 'claude-code',
-          kind: 'message',
-          payload: { text: 'x' },
-          ts: 1,
-          source: 'sdk',
-        },
-      ],
-      listMessagesFnReturn: [msg(2, 'assistant', '沙盒历史回答'), msg(1, 'user', '沙盒历史问题')],
     });
     const ctrl = new RestartController(ctx);
 
@@ -340,8 +394,6 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     );
     const { ctx, createSessionSpy, closeCalls } = makeCtx({
       jsonlExistsReturn: true,
-      summariseFnReturn: '不应注入的摘要',
-      listMessagesFnReturn: [msg(2, 'assistant', '沙盒历史回答'), msg(1, 'user', '沙盒历史问题')],
     });
     const ctrl = new RestartController(ctx);
 
@@ -370,9 +422,8 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
         claudeCodeSandbox: 'workspace-write',
       }),
     );
-    const { ctx, createSessionSpy, closeCalls } = makeCtx({
+    const { ctx, createSessionSpy, closeCalls, captureSnapshots, cleanupSpy } = makeCtx({
       jsonlExistsReturn: false,
-      summariseFnReturn: null,
     });
     const ctrl = new RestartController(ctx);
 
@@ -386,10 +437,29 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     expect('resumeCliSid' in opts).toBe(false);
     expect(opts.claudeCodeSandbox).toBe('off');
     expect(opts.permissionMode).toBe('bypassPermissions');
-    expect(opts.prompt).toContain('继续之前的会话');
+    expect(opts.prompt).toBeUndefined();
+    expect(opts.trustedContinuation?.providerPrompt).toContain(
+      'Agent Deck Continuation Context v1',
+    );
+    const persisted = emits.find(
+      (event) =>
+        event.kind === 'message' &&
+        (event.payload as { role?: string }).role === 'user',
+    );
+    expect(persisted?.payload).toMatchObject({
+      text: '继续之前的会话',
+      messageOrigin: 'continuation',
+      continuation: { sourceSessionId: sid },
+    });
     expect(setClaudeCodeSandboxSpy).toHaveBeenCalledOnce();
     expect(setClaudeCodeSandboxSpy.mock.calls[0]).toEqual([sid, 'off']);
     expect(closeCalls).toEqual([{ sid, opts: { markRecentlyDeleted: false } }]);
+    expect(captureSnapshots[0]).toMatchObject({
+      emitCount: 0,
+      closeCount: 0,
+      input: { overrides: { claudeCodeSandbox: 'off' } },
+    });
+    expect(cleanupSpy).toHaveBeenCalledOnce();
     expect(emits.some((e) => e.kind === 'message' && (e.payload as { error?: boolean }).error)).toBe(
       false,
     );

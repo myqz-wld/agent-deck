@@ -30,7 +30,7 @@ import { getDb } from '../db';
  * - false → reasonKind='archive-throw' (row 存在但 archive 失败,FK constraint / DB locked 等,
  *   UI 显示「重试归档」按钮)
  *
- * 不 export 给非 archive caller 链使用 — 仅 baton-cleanup helper / sessions-hand-off-helper /
+ * 不 export 给非 archive caller 链使用 — 仅 baton-cleanup helper / session-hand-off-finalize /
  * ipc SessionArchive handler 需要 instanceof 判别。
  */
 export class SessionRowMissingError extends Error {

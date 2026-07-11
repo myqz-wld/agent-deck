@@ -116,12 +116,12 @@ export function makeDebouncedTeamSender<T>(
  * union 加值)忘加 TOOL_DISPLAY_NAME 条目时 tsc 编译期 fail(✅ feature),不再走 fallback `??
  * payload.toolName` 软兜底导致 IPC channel 内部名暴露给用户(R2 MED-1 修法的强化版)。
  *
- * 'SessionHandOffSpawn' 是 IPC channel 内部名 (IpcInvoke.SessionHandOffSpawn = 'session:hand-off-spawn',
+ * 'SessionHandOffCommit' 是 IPC channel 内部名 (IpcInvoke.SessionHandOffCommit = 'session:hand-off-commit',
  * 用户在 UI 看不到),映射成「会话接力」让通知 body 对用户友好,不暴露内部名。
  */
 export type CallerArchiveFailedToolName = EventMap['caller-archive-failed'][0]['toolName'];
 export const TOOL_DISPLAY_NAME: Record<CallerArchiveFailedToolName, string> = {
   archive_plan: 'plan 归档',
   hand_off_session: '会话接力',
-  SessionHandOffSpawn: '会话接力',
+  SessionHandOffCommit: '会话接力',
 };

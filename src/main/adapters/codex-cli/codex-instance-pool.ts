@@ -1,5 +1,5 @@
 /**
- * Codex app-server client pool — 仅服务 oneshot LLM caller（summarizer-runner / handoff-runner）。
+ * Codex app-server client pool — 仅服务周期总结 oneshot caller。
  *
  * live session bridge 需要 per-session MCP token/config，仍由 sdk-bridge 自己持 per-session
  * client；本 pool 不挂 MCP，仅复用同一个 app-server stdio 进程给 oneshot thread 工厂使用。

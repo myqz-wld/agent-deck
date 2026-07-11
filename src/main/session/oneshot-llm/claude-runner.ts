@@ -2,16 +2,15 @@
  * Claude SDK oneshot runner（R37 P2-H Step 3.2）— 跑一次 SDK query + consume + race。
  *
  * **抽出动机**（reviewer 双对抗 R1 H4 finding）：
- * `summariseViaLlm` + `summariseSessionForHandOff` 两路 claude SDK oneshot 字面镜像 ~95%：
+ * 收口 Claude-family 周期总结的 SDK query / consume / timeout 机制：
  *   - loadSdk + getSdkRuntimeOptions + getPathToClaudeCodeExecutable 同款 3 行
  *   - sdk.query 8+ option 同款（permissionMode / settingSources / executable / env / pathToClaudeCodeExecutable）
  *   - consumeLoop async iter（拼 assistant text + 收到 result 立刻 break 让 cli.js 退出）
  *   - race 模板（q.interrupt onTimeout + setTimeout reject + try/finally clearTimeout）
  *
- * 仅模型 / effort / prompt / systemPrompt / timeout / errorMessage 6 处差异。抽公共 helper 后
- * 两路 caller 只需传这些字段。
+ * caller 仅需传模型 / effort / prompt / systemPrompt / timeout / errorMessage。
  *
- * **不变量**（与原 2 runner 一致 — 不改行为）：
+ * **不变量**：
  * - permissionMode: 'plan'：禁实调用工具，只让模型输出文字
  * - settingSources: []：不读 ~/.claude/settings.json，避免 hook 回环到自己
  * - cwd: resolveSpawnCwd(opts) —— trim 后非空才用 caller cwd，否则降级 process.cwd()
@@ -23,9 +22,9 @@
  *
  * **不在本 helper 处理**：
  * - 模型优先级链（settings > env > alias）— caller 自己组装 + 传字符串 model 进来
- * - prompt 模板（summarize 30 字 vs handoff 六节检查点）— caller 用 build-prompt.ts helper 组装
- * - result 清洗（compact vs structured）— caller 用 clean-result.ts helper 处理
- * - errorMessage 字面（`__summarizer_timeout__` / `__handoff_summary_timeout__`）— caller 传
+ * - prompt 模板— caller 用 build-prompt.ts helper 组装
+ * - result 清洗— caller 用 clean-result.ts helper 处理
+ * - timeout error 字面— caller 传
  */
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
@@ -42,7 +41,7 @@ import { raceWithTimeout } from './race-with-timeout';
 export async function runClaudeOneshot(opts: {
   /** Session cwd（trim 后空降级到 process.cwd() — 见 cwd-resolver.ts）。 */
   cwd: string;
-  /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
+  /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt 组装。 */
   prompt: string;
   /** 模型 id（caller 已组装 settings > env > alias 优先级链，传最终字符串）。 */
   model: string;

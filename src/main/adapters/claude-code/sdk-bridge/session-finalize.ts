@@ -22,6 +22,7 @@ import { sessionManager } from '@main/session/manager';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import log from '@main/utils/logger';
+import type { TrustedContinuationMetadata } from '@main/session/continuation-context/initial-turn';
 
 const logger = log.scope('claude-finalize');
 
@@ -83,6 +84,7 @@ export interface FinalizeSessionStartArgs {
    * (sendMessage 后续 user message / fallback fresh CLI 路径)不携带。
    */
   handOff?: HandOffMetadata;
+  continuationMetadata?: TrustedContinuationMetadata | null;
   /**
    * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过本 finalize 内 emit 首条 user
    * message。详 sdk-bridge/index.ts createSession opts.skipFirstUserEmit jsdoc。
@@ -122,7 +124,7 @@ export interface FinalizeSessionStartArgs {
  * normal resume 走 ensure() revive 既有 row + caller 传 skipFirstUserEmit=true 防双气泡)。
  */
 export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
-  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, claudeCodeEffortLevel, extraAllowWrite, attachments, handOff, skipFirstUserEmit, skipSessionStartEmit, emit } = args;
+  const { applicationSid, cliSessionId, cwd, prompt, claudeSandboxMode, claudeModel, claudeCodeEffortLevel, extraAllowWrite, attachments, handOff, continuationMetadata, skipFirstUserEmit, skipSessionStartEmit, emit } = args;
 
   // 1. 主动 emit session-start
   if (!skipSessionStartEmit) {
@@ -221,6 +223,12 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
         role: 'user',
         ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
         ...(handOff ? { handOff } : {}),
+        ...(continuationMetadata
+          ? {
+              messageOrigin: 'continuation',
+              continuation: { ...continuationMetadata },
+            }
+          : {}),
       },
       ts: Date.now(),
       source: 'sdk',

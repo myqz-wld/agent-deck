@@ -24,7 +24,7 @@ export const AGENT_ID = 'claude-code';
  * Claude SDK / Anthropic API 本身没有 byte 上限，按 token 计费；102_400 char ~25k tokens
  * 远小于 200k context window，SDK 不会拒绝。
  */
-export const MAX_MESSAGE_LENGTH = 102_400;
+export { MAX_USER_MESSAGE_LENGTH as MAX_MESSAGE_LENGTH } from '@shared/message-limits';
 
 /**
  * 单会话 pendingUserMessages 队列上限。SDK 在 await canUseTool 等待用户响应时

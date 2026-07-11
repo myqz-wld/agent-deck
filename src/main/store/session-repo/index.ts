@@ -39,7 +39,7 @@ export const sessionRepo = {
 
 /**
  * archive-toctou-fix-20260515 plan: re-export SessionRowMissingError from archive submodule
- * 让 caller (baton-cleanup.ts / sessions-hand-off-helper.ts / ipc/sessions.ts SessionArchive
+ * 让 caller (baton-cleanup.ts / session-hand-off-finalize.ts / ipc/sessions.ts SessionArchive
  * handler) 通过 facade `import { SessionRowMissingError } from '@main/store/session-repo'`
  * 判别 setArchived no-op,不需深 import './archive'。
  */

@@ -5,12 +5,12 @@
  * 重点护栏（保持不变）：
  * - SetPermissionMode 的 bypassPermissions 走冷切（restartWithPermissionMode），见 REVIEW_11 Bug 2 次因
  * - SetPermissionMode 「先 DB 后 SDK」+ 失败回滚 DB + emit upsert 重抛
- * - createSession 走 sessionManager.recordCreatedPermissionMode / recordCreatedTeamName
- *   持久化（与 cli.ts applyCliInvocation 共享同一组 helper）
+ * - createSession 与 CLI 共用 sessionManager 的创建后持久化 helpers
  */
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
+import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { adapterRegistry } from '@main/adapters/registry';
 import { buildCreateSessionOptions, isAgentId } from '@main/adapters/options-builder';
 import {
@@ -78,7 +78,7 @@ export function registerAdaptersIpc(): void {
     const prompt = typeof raw.prompt === 'string' ? raw.prompt : undefined;
     // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：首条 prompt 走 102_400 字符上限（与
     // sdk-bridge MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
-    if (prompt !== undefined && prompt.length > 102_400) {
+    if (prompt !== undefined && prompt.length > MAX_USER_MESSAGE_LENGTH) {
       throw new IpcInputError(
         'opts.prompt',
         `> 102400 chars (got ${prompt.length.toLocaleString()} chars)`,
@@ -226,7 +226,7 @@ export function registerAdaptersIpc(): void {
     }
     // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：单条消息上限 102_400 字符（与 sdk-bridge
     // MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
-    if (text.length > 102_400) {
+    if (text.length > MAX_USER_MESSAGE_LENGTH) {
       throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);
     }
     // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时直接拒绝，
@@ -277,7 +277,7 @@ export function registerAdaptersIpc(): void {
     if (typeof text !== 'string') {
       throw new IpcInputError('text', 'must be string');
     }
-    if (text.length > 102_400) {
+    if (text.length > MAX_USER_MESSAGE_LENGTH) {
       throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);
     }
     await adapter.steerTurn(parseStringId('sessionId', sessionId), text);

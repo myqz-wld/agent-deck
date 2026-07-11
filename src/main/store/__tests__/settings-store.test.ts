@@ -332,13 +332,12 @@ describe('REVIEW_92 — value-uplift migration 一次性 sentinel（reviewer-cla
   });
 });
 
-describe('settings panel default uplift 一次性 sentinels', () => {
+describe('settings panel 2026-06-04 default uplift sentinel', () => {
   it('(A) 老数值默认值首次进来 → uplift 到新默认 + 置 sentinel', async () => {
     mockRawStore = {
       activeWindowMs: 30 * 60 * 1000,
       permissionTimeoutMs: 5 * 60 * 1000,
       issueResolvedRetentionDays: 90,
-      resumeRecentMessagesCount: 30,
     };
 
     const settings = await loadSettingsStore();
@@ -347,10 +346,8 @@ describe('settings panel default uplift 一次性 sentinels', () => {
     expect(mockSet).toHaveBeenCalledWith('activeWindowMs', 60 * 60 * 1000);
     expect(mockSet).toHaveBeenCalledWith('permissionTimeoutMs', 30 * 60 * 1000);
     expect(mockSet).toHaveBeenCalledWith('issueResolvedRetentionDays', 30);
-    expect(mockSet).toHaveBeenCalledWith('resumeRecentMessagesCount', 200);
     expect(mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('__settingsDefaults20260604Done', true);
-    expect(mockSet).toHaveBeenCalledWith('__resumeRecentMessagesDefault20260710Done', true);
   });
 
   it('(B) sentinel 已置 + 用户改回旧值 → migration 不 re-fire', async () => {
@@ -359,9 +356,7 @@ describe('settings panel default uplift 一次性 sentinels', () => {
       permissionTimeoutMs: 5 * 60 * 1000,
       issueResolvedRetentionDays: 90,
       enableAgentDeckMcp: false,
-      resumeRecentMessagesCount: 30,
       __settingsDefaults20260604Done: true,
-      __resumeRecentMessagesDefault20260710Done: true,
     };
 
     const settings = await loadSettingsStore();
@@ -372,7 +367,6 @@ describe('settings panel default uplift 一次性 sentinels', () => {
       'permissionTimeoutMs',
       'issueResolvedRetentionDays',
       'enableAgentDeckMcp',
-      'resumeRecentMessagesCount',
     ]) {
       expect(mockSet.mock.calls.filter((c) => c[0] === key)).toHaveLength(0);
     }
@@ -384,7 +378,6 @@ describe('settings panel default uplift 一次性 sentinels', () => {
       permissionTimeoutMs: 10 * 60 * 1000,
       issueResolvedRetentionDays: 14,
       enableAgentDeckMcp: true,
-      resumeRecentMessagesCount: 77,
     };
 
     const settings = await loadSettingsStore();
@@ -394,9 +387,7 @@ describe('settings panel default uplift 一次性 sentinels', () => {
     expect(mockSet.mock.calls.filter((c) => c[0] === 'permissionTimeoutMs')).toHaveLength(0);
     expect(mockSet.mock.calls.filter((c) => c[0] === 'issueResolvedRetentionDays')).toHaveLength(0);
     expect(mockSet.mock.calls.filter((c) => c[0] === 'enableAgentDeckMcp')).toHaveLength(0);
-    expect(mockSet.mock.calls.filter((c) => c[0] === 'resumeRecentMessagesCount')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('__settingsDefaults20260604Done', true);
-    expect(mockSet).toHaveBeenCalledWith('__resumeRecentMessagesDefault20260710Done', true);
   });
 
   it('(D) legacy enableTaskManager=false 仍保留 MCP explicit OFF', async () => {
@@ -430,7 +421,7 @@ describe('2026-06-04 — Claude Code sandbox default uplift', () => {
     expect(mockSet).toHaveBeenCalledWith('claudeCodeSandbox', 'workspace-write');
     expect(mockSet).toHaveBeenCalledWith('__claudeSandboxDefault20260604Done', true);
     expect(all.claudeCodeSandbox).toBe('workspace-write');
-    expect(all.resumeRecentMessagesCount).toBe(200);
+    expect(all.continuationRawRetentionTokens).toBe(64_000);
   });
 
   it('(B) sentinel 已置 + 用户改回 off → migration 不 re-fire', async () => {

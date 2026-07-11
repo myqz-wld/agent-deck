@@ -1,0 +1,70 @@
+import { type JSX } from 'react';
+import {
+  MAX_CONTINUATION_RAW_RETENTION_TOKENS,
+  MIN_CONTINUATION_RAW_RETENTION_TOKENS,
+  type AppSettings,
+  type ContinuationCheckpointProvider,
+} from '@shared/types';
+import { NumberInput, Section } from '../controls';
+import {
+  coerceThinkingForProvider,
+  ProviderModelThinkingFields,
+} from '../ProviderModelThinkingFields';
+
+interface Props {
+  settings: AppSettings;
+  update: (patch: Partial<AppSettings>) => Promise<void>;
+}
+
+function providerLabel(provider: ContinuationCheckpointProvider): string {
+  if (provider === 'claude') return 'Claude';
+  if (provider === 'deepseek') return 'Deepseek';
+  return 'Codex';
+}
+
+export function ContinuationContextSection({ settings, update }: Props): JSX.Element {
+  const provider = settings.continuationCheckpointProvider;
+
+  return (
+    <Section
+      title="会话续接上下文"
+      storageKey="continuation-context"
+      defaultOpen={false}
+    >
+      <p className="text-[10px] leading-snug text-deck-muted/70">
+        检查点生成器独立于续接目标 adapter；model 留空时沿用所选 provider 的默认模型。
+      </p>
+      <ProviderModelThinkingFields
+        label="续接检查点生成器"
+        hint="Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。"
+        provider={provider}
+        model={settings.continuationCheckpointModel}
+        thinking={settings.continuationCheckpointThinking}
+        modelPlaceholder={`留空使用 ${providerLabel(provider)} 默认模型`}
+        onProviderChange={(nextProvider) =>
+          void update({
+            continuationCheckpointProvider: nextProvider,
+            continuationCheckpointThinking: coerceThinkingForProvider(
+              nextProvider,
+              settings.continuationCheckpointThinking,
+            ),
+          })
+        }
+        onModelChange={(model) => void update({ continuationCheckpointModel: model })}
+        onThinkingChange={(thinking) =>
+          void update({ continuationCheckpointThinking: thinking })
+        }
+      />
+      <NumberInput
+        label="原始历史保留上限（token）"
+        value={settings.continuationRawRetentionTokens}
+        min={MIN_CONTINUATION_RAW_RETENTION_TOKENS}
+        max={MAX_CONTINUATION_RAW_RETENTION_TOKENS}
+        onChange={(tokens) => void update({ continuationRawRetentionTokens: tokens })}
+      />
+      <p className="text-[10px] leading-snug text-deck-muted/60">
+        按 token 计算，可设置 8,000–128,000；默认 64,000。
+      </p>
+    </Section>
+  );
+}

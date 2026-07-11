@@ -121,17 +121,17 @@ describe('TOOL_DISPLAY_NAME', () => {
     // (加新 toolName 忘加条目 → tsc 编译期 fail)。本测试运行期再兜一层穷举断言。
     expect(TOOL_DISPLAY_NAME.archive_plan).toBe('plan 归档');
     expect(TOOL_DISPLAY_NAME.hand_off_session).toBe('会话接力');
-    expect(TOOL_DISPLAY_NAME.SessionHandOffSpawn).toBe('会话接力');
+    expect(TOOL_DISPLAY_NAME.SessionHandOffCommit).toBe('会话接力');
     expect(Object.keys(TOOL_DISPLAY_NAME).sort()).toEqual(
-      ['SessionHandOffSpawn', 'archive_plan', 'hand_off_session'].sort(),
+      ['SessionHandOffCommit', 'archive_plan', 'hand_off_session'].sort(),
     );
   });
 
   it('所有 display name 非空(不暴露 IPC channel 内部名给用户)', () => {
     for (const [key, display] of Object.entries(TOOL_DISPLAY_NAME)) {
       expect(display.length).toBeGreaterThan(0);
-      // SessionHandOffSpawn 是内部 channel 名,display 必须映射成友好名(不等于 key 本身)
-      if (key === 'SessionHandOffSpawn') {
+      // SessionHandOffCommit 是内部 channel 名,display 必须映射成友好名(不等于 key 本身)
+      if (key === 'SessionHandOffCommit') {
         expect(display).not.toBe(key);
       }
     }

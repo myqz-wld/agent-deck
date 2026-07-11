@@ -29,26 +29,12 @@ vi.mock('@main/store/session-repo', () => ({
 
 vi.mock('@main/store/event-repo', () => ({
   eventRepo: {
-    listForSession: vi.fn(() => []),
-    // plan resume-inject-raw-messages-20260601 §D5: message-only 查询 + maxEventId（injectResumeHistory
-    // 双数据源 + beforeIdInclusive 来源）。默认空 / null 让现有 case 走 no-history（used=false）；
-    // 「raw 成功」case 显式 mockReturnValue 一条 message。
-    listRecentMessages: vi.fn(() => []),
-    maxEventId: vi.fn(() => null),
+    latestConversationMessageTs: vi.fn(() => null),
   },
 }));
 
 vi.mock('@main/store/settings-store', () => ({
-  settingsStore: makeSettingsStoreMock({
-    overrides: {
-      get: vi.fn((key: string) => {
-        // plan resume-inject-raw-messages-20260601 §D5: autoSummariseOnFallback 已删（无条件注入），
-        // 改 resumeRecentMessagesCount（injectResumeHistory 拉最近 N 条原始对话）。
-        if (key === 'resumeRecentMessagesCount') return 30;
-        return undefined;
-      }),
-    },
-  }),
+  settingsStore: makeSettingsStoreMock(),
 }));
 
 vi.mock('@main/session/manager', () => ({
@@ -82,8 +68,6 @@ vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
-import { eventRepo } from '@main/store/event-repo';
-import { settingsStore } from '@main/store/settings-store';
 import { emits, makeBridge } from './sdk-bridge/_setup';
 
 beforeEach(() => {
@@ -95,19 +79,6 @@ beforeEach(() => {
   vi.mocked(sessionManager.getCloseEpoch).mockReset();
   vi.mocked(sessionManager.getCloseEpoch).mockReturnValue(0);
   vi.mocked(sessionManager.markClosed).mockReset();
-  // CHANGELOG_107 Step 6 配套:reset event-repo / settings-store mock 让 case 间隔离
-  vi.mocked(eventRepo.listForSession).mockReset();
-  vi.mocked(eventRepo.listForSession).mockReturnValue([]);
-  // plan resume-inject-raw-messages-20260601 §D5: reset 新增 message-only 查询 + maxEventId mock
-  vi.mocked(eventRepo.listRecentMessages).mockReset();
-  vi.mocked(eventRepo.listRecentMessages).mockReturnValue([]);
-  vi.mocked(eventRepo.maxEventId).mockReset();
-  vi.mocked(eventRepo.maxEventId).mockReturnValue(null);
-  vi.mocked(settingsStore.get).mockReset();
-  vi.mocked(settingsStore.get).mockImplementation(((key: unknown) => {
-    if (key === 'resumeRecentMessagesCount') return 30;
-    return undefined;
-  }) as never);
 });
 
 afterEach(() => {
@@ -157,6 +128,9 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     });
     // REVIEW_99 R3 cancellation-epoch: normal-resume 路径透传 cancelCheck thunk(MED post-guard 窗口)
     expect(typeof bridge.createCalls[0].cancelCheck).toBe('function');
+    expect(bridge.recoveryCaptureCalls[0]?.emitCount).toBe(0);
+    expect(bridge.recoveryPrepareCalls).toHaveLength(0);
+    expect(bridge.recoveryCleanupCalls).toHaveLength(1);
   });
 
   it('record 不在 → 抛与原行为一致的 not found 错，createSession 不被调', async () => {
@@ -170,6 +144,55 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       ((e.payload as { text?: string }).text ?? '').includes('正在自动恢复'),
     );
     expect(placeholders).toHaveLength(0);
+  });
+
+  it('TEMP capture 失败仍保留当前消息并允许 native jsonl resume', async () => {
+    const bridge = makeBridge();
+    bridge.recoveryCaptureThrow = new Error('sqlite temp unavailable');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-capture-native', agentId: 'claude-code', cwd: '/tmp/work', title: 'work',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1, lastEventAt: 2,
+      endedAt: null, archivedAt: null, permissionMode: 'plan',
+    });
+
+    await bridge.sendMessage('sess-capture-native', 'still visible');
+
+    expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0]).toMatchObject({
+      prompt: 'still visible', resume: 'sess-capture-native', resumeMode: undefined,
+    });
+    expect(bridge.recoveryPrepareCalls).toHaveLength(0);
+    expect(
+      emits.filter(
+        (event) =>
+          event.kind === 'message' &&
+          (event.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('TEMP capture 失败 + jsonl 缺失时清晰失败，但不丢当前消息', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.recoveryCaptureThrow = new Error('sqlite temp unavailable');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-capture-missing', agentId: 'claude-code', cwd: '/tmp/work', title: 'work',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1, lastEventAt: 2,
+      endedAt: null, archivedAt: null, permissionMode: null,
+    });
+
+    await expect(
+      bridge.sendMessage('sess-capture-missing', 'persist me'),
+    ).rejects.toThrow(/sqlite temp unavailable/);
+
+    expect(bridge.createCalls).toHaveLength(0);
+    expect(bridge.recoveryPrepareCalls).toHaveLength(0);
+    const user = emits.find(
+      (event) =>
+        event.kind === 'message' &&
+        (event.payload as { role?: string }).role === 'user',
+    );
+    expect((user?.payload as { text?: string }).text).toBe('persist me');
   });
 
   it('单飞：同 sessionId 并发 sendMessage 只触发一次 createSession', async () => {
@@ -270,13 +293,18 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/tmp/abandoned',
-      prompt: 'hi',
+      prompt: undefined,
       resume: 'sess-no-jsonl',
       resumeMode: 'fresh-cli-reuse-app',
       permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原
       // REVIEW_36 HIGH-1: claudeCodeSandbox 也透传（fixture 中 record 没设此字段，应为 undefined）
       claudeCodeSandbox: undefined,
     });
+    expect(bridge.createCalls[0]?.trustedContinuation?.providerPrompt).toContain(
+      'Agent Deck Continuation Context v1',
+    );
+    expect(bridge.recoveryPrepareCalls).toHaveLength(1);
+    expect(bridge.recoveryCleanupCalls).toHaveLength(1);
 
     // 占位 message 仍 emit（用户体感「在自动恢复」与正常 resume 路径一致）
     const placeholders = emits.filter((e) =>
@@ -332,10 +360,14 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/Users/apple/myrepo',
-      prompt: 'hi',
+      prompt: undefined,
       resume: 'sess-cwd-bad',
       resumeMode: 'fresh-cli-reuse-app',
       permissionMode: 'plan',
+    });
+    expect(bridge.recoveryCaptureCalls[0]).toMatchObject({
+      emitCount: 0,
+      overrides: { cwd: '/Users/apple/myrepo' },
     });
 
     // **plan §A.4-pre S6+S8 修订**: 反向 rename 后 sessions.id 不变;jsonl missing fallback
@@ -471,32 +503,9 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
   // ─── CHANGELOG_107 LLM 摘要 fallback 自动注入 ────────────────────────────
 
-  it('CHANGELOG_107: jsonl 不存在 + 摘要成功 → prepended prompt + emit「LLM 摘要已注入」', async () => {
+  it('jsonl 不存在 + 历史可用 → trusted continuation + 续接上下文提示', async () => {
     const bridge = makeBridge();
     bridge.jsonlExistsOverride = false;
-    bridge.summariseOverride = '用户在做 X,已完成 Y,下一步 Z';
-    // listEventsFn 返非空让 helper 不走 'no-events' fallback;具体内容不重要(thunk mock 返固定字符串)
-    vi.mocked(eventRepo.listForSession).mockReturnValue([
-      {
-        id: 1,
-        sessionId: 'sess-summary-ok',
-        agentId: '',
-        kind: 'message',
-        payload: { text: 'hi' },
-        ts: 1,
-      },
-    ]);
-    // plan resume-inject §D5: raw 段是底线，used=true 需 listRecentMessages 返非空原始对话
-    vi.mocked(eventRepo.listRecentMessages).mockReturnValue([
-      {
-        id: 1,
-        sessionId: 'sess-summary-ok',
-        agentId: '',
-        kind: 'message',
-        payload: { role: 'user', text: '历史问题' },
-        ts: 1,
-      },
-    ]);
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-summary-ok',
       agentId: 'claude-code',
@@ -514,49 +523,36 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     await bridge.sendMessage('sess-summary-ok', '继续之前的话题');
 
-    // createSession 用 prepended prompt(含五等号块 + summary + originalText)
+    // Provider receives the branded continuation prompt; only the current instruction is persisted.
     expect(bridge.createCalls).toHaveLength(1);
-    const createdPrompt = bridge.createCalls[0]?.prompt ?? '';
-    expect(createdPrompt).toContain('===== 历史会话摘要');
-    expect(createdPrompt).toContain('用户在做 X,已完成 Y,下一步 Z');
-    expect(createdPrompt).toContain('===== 用户当前消息');
-    expect(createdPrompt).toContain('继续之前的话题');
+    expect(bridge.createCalls[0]?.prompt).toBeUndefined();
+    expect(bridge.createCalls[0]?.trustedContinuation?.providerPrompt).toContain(
+      'Agent Deck Continuation Context v1',
+    );
+    expect(bridge.createCalls[0]?.trustedContinuation?.persistedUserText).toBe('继续之前的话题');
+    expect(bridge.recoveryPrepareCalls).toHaveLength(1);
     expect(bridge.createCalls[0]?.resume).toBe('sess-summary-ok'); // **§A.4-pre S8 修订**: resume = applicationSid 复用
 
-    // emit「LLM 摘要自动注入」info(不打 error)
+    // emit 会话续接上下文成功 info(不打 error)
     const summaryOk = emits.filter((e) => {
       const p = e.payload as { text?: string; error?: boolean };
-      return (p.text ?? '').includes('应用通过 LLM 摘要自动注入');
+      return (p.text ?? '').includes('应用已自动生成会话续接上下文');
     });
     expect(summaryOk).toHaveLength(1);
     expect((summaryOk[0]!.payload as { error?: boolean }).error).not.toBe(true);
     expect((summaryOk[0]!.payload as { text: string }).text).toContain('Claude 应能续上前情');
 
-    // **不**emit CHANGELOG_106「请补背景」原文案(摘要成功 ≠ 丢失)
+    // **不**emit instruction-only 文案
     const compatNotice = emits.filter((e) =>
-      ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
+      ((e.payload as { text?: string }).text ?? '').includes('只能保留当前指令'),
     );
     expect(compatNotice).toHaveLength(0);
   });
 
-  it('plan resume-inject §不变量7: 无条件注入（无 settings off 开关）+ DB 无历史 → 退回原 prompt 走 skipped 文案', async () => {
+  it('无历史时以 instruction-only trusted turn 降级', async () => {
     const bridge = makeBridge();
     bridge.jsonlExistsOverride = false;
-    bridge.summariseOverride = '不应被注入(DB 无原始对话消息 → no-history)';
-    // plan resume-inject §不变量7: autoSummariseOnFallback 开关已删（无条件注入）。
-    // DB 无原始对话消息（listRecentMessages 空）→ injectResumeHistory no-history → used=false →
-    // 退回原 prompt（raw 段是底线，仅总结无 raw 不注入）。
-    vi.mocked(eventRepo.listForSession).mockReturnValue([
-      {
-        id: 1,
-        sessionId: 'sess-no-history',
-        agentId: '',
-        kind: 'message',
-        payload: { text: 'hi' },
-        ts: 1,
-      },
-    ]);
-    // listRecentMessages 默认空（beforeEach）→ no-history
+    bridge.recoveryQuality = 'instruction-only';
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-no-history',
       agentId: 'claude-code',
@@ -574,101 +570,30 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     await bridge.sendMessage('sess-no-history', 'hi');
 
-    // createSession 用原 prompt(no-history 退回 originalText，不 prepend)
+    // Instruction-only degradation is still a branded trusted continuation turn.
     expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0]?.prompt).toBe('hi');
+    expect(bridge.createCalls[0]?.prompt).toBeUndefined();
+    expect(bridge.createCalls[0]?.trustedContinuation?.persistedUserText).toBe('hi');
 
-    // emit skipped 文案(走 used=false 分支)
+    // emit instruction-only 文案
     const compatNotice = emits.filter((e) =>
-      ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
+      ((e.payload as { text?: string }).text ?? '').includes('只能保留当前指令'),
     );
     expect(compatNotice).toHaveLength(1);
 
-    // **不**emit「LLM 摘要自动注入」(no-history 退回前不拼总结)
+    // **不**emit历史恢复成功文案
     const summaryOk = emits.filter((e) =>
-      ((e.payload as { text?: string }).text ?? '').includes('应用通过 LLM 摘要自动注入'),
+      ((e.payload as { text?: string }).text ?? '').includes('应用已自动生成会话续接上下文'),
     );
     expect(summaryOk).toHaveLength(0);
   });
 
-  it('CHANGELOG_107: jsonl 不存在 + summariseFn throw → skip 摘要,走原 CHANGELOG_106 文案', async () => {
-    const bridge = makeBridge();
-    bridge.jsonlExistsOverride = false;
-    bridge.summariseThrow = new Error('LLM timeout: __handoff_summary_timeout__');
-    vi.mocked(eventRepo.listForSession).mockReturnValue([
-      {
-        id: 1,
-        sessionId: 'sess-thunk-throw',
-        agentId: '',
-        kind: 'message',
-        payload: { text: 'hi' },
-        ts: 1,
-      },
-    ]);
-    vi.mocked(sessionRepo.get).mockReturnValue({
-      id: 'sess-thunk-throw',
-      agentId: 'claude-code',
-      cwd: '/tmp/llm-fail',
-      title: 'x',
-      source: 'sdk',
-      lifecycle: 'dormant',
-      activity: 'idle',
-      startedAt: 1,
-      lastEventAt: 2,
-      endedAt: null,
-      archivedAt: null,
-      permissionMode: null,
-    });
-
-    // helper 内 try/catch 把 thunk throw 封装到 PrependResult.thrown,recoverer
-    // 主路径不抛错 → sendMessage 正常完成 + createSession 用原 prompt
-    await bridge.sendMessage('sess-thunk-throw', 'hi');
-
-    // createSession 用原 prompt(thunk throw 退到 originalText)
-    expect(bridge.createCalls).toHaveLength(1);
-    expect(bridge.createCalls[0]?.prompt).toBe('hi');
-
-    // emit 原 CHANGELOG_106 文案
-    const compatNotice = emits.filter((e) =>
-      ((e.payload as { text?: string }).text ?? '').includes('请在下条消息里把背景再告诉它一次'),
-    );
-    expect(compatNotice).toHaveLength(1);
-
-    // **不**emit「LLM 摘要自动注入」(thunk throw 退回原 prompt 不算注入成功)
-    const summaryOk = emits.filter((e) =>
-      ((e.payload as { text?: string }).text ?? '').includes('应用通过 LLM 摘要自动注入'),
-    );
-    expect(summaryOk).toHaveLength(0);
-  });
-
-  it('CHANGELOG_107: cwdFellBack=true + 摘要成功 → prepended prompt + emit cwdFellBack 摘要成功文案', async () => {
+  it('cwdFellBack=true + 历史可用 → trusted continuation + cwd 成功提示', async () => {
     const bridge = makeBridge();
     // 启发式 1 命中(worktrees 路径取段之前)
     bridge.cwdExistsOverride = new Map<string, boolean>([
       ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
       ['/Users/apple/myrepo', true],
-    ]);
-    bridge.summariseOverride = 'cwdFellBack 摘要内容';
-    vi.mocked(eventRepo.listForSession).mockReturnValue([
-      {
-        id: 1,
-        sessionId: 'sess-cwd-summary',
-        agentId: '',
-        kind: 'message',
-        payload: { text: 'hi' },
-        ts: 1,
-      },
-    ]);
-    // plan resume-inject §D5: raw 段是底线，used=true 需 listRecentMessages 返非空原始对话
-    vi.mocked(eventRepo.listRecentMessages).mockReturnValue([
-      {
-        id: 1,
-        sessionId: 'sess-cwd-summary',
-        agentId: '',
-        kind: 'message',
-        payload: { role: 'user', text: '历史问题' },
-        ts: 1,
-      },
     ]);
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-cwd-summary',
@@ -687,20 +612,21 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
     await bridge.sendMessage('sess-cwd-summary', 'hi');
 
-    // createSession cwd = main repo (启发式 1) + prompt 含 prepended 摘要
+    // createSession cwd = main repo and provider prompt comes from the unified engine.
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]?.cwd).toBe('/Users/apple/myrepo');
     expect(bridge.createCalls[0]?.resume).toBe('sess-cwd-summary'); // **§A.4-pre S8 修订**: resume = applicationSid 复用
-    const createdPrompt = bridge.createCalls[0]?.prompt ?? '';
-    expect(createdPrompt).toContain('===== 历史会话摘要');
-    expect(createdPrompt).toContain('cwdFellBack 摘要内容');
-    expect(createdPrompt).toContain('===== 用户当前消息');
+    expect(bridge.createCalls[0]?.prompt).toBeUndefined();
+    expect(bridge.createCalls[0]?.trustedContinuation?.providerPrompt).toContain(
+      'Agent Deck Continuation Context v1',
+    );
+    expect(bridge.createCalls[0]?.trustedContinuation?.persistedUserText).toBe('hi');
 
-    // emit cwdFellBack 摘要成功文案(含「在新 cwd 续上」字眼区分 jsonl missing 路径)
+    // emit cwdFellBack 续接成功文案
     const summaryOk = emits.filter((e) => {
       const p = e.payload as { text?: string };
       return (
-        (p.text ?? '').includes('应用通过 LLM 摘要自动注入') &&
+        (p.text ?? '').includes('应用已自动生成会话续接上下文') &&
         (p.text ?? '').includes('在新 cwd 续上')
       );
     });
@@ -712,7 +638,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     );
     expect(fallbackInfo).toHaveLength(1);
 
-    // **不**emit cwdFellBack「将丢失」原文案(摘要成功 ≠ 丢失)
+    // **不**emit cwdFellBack instruction-only 文案
     const willLoseNotice = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('CLI 内部对话历史(jsonl)将丢失'),
     );
@@ -1336,7 +1262,7 @@ describe('REVIEW_99 R3 cancellation-epoch: 恢复期间再次 close abort', () =
 
   it('② jsonl-fallback await 期间用户再次 close（epoch 变）→ aborted 不起 fresh CLI', async () => {
     const bridge = makeBridge();
-    bridge.jsonlExistsOverride = false; // 走 jsonl-missing fallback（含 injectResumeHistory await）
+    bridge.jsonlExistsOverride = false; // 走 jsonl-missing unified continuation fallback
     // getCloseEpoch: 第 1 次(入口 baseline) 0 → 第 2 次起(helper isCancelledFn await 后) 1（epoch 变）
     vi.mocked(sessionManager.getCloseEpoch)
       .mockReturnValueOnce(0) // 入口 baseline

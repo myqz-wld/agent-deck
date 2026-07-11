@@ -7,7 +7,7 @@
  * - codex 还有 `model` 字段（fallback 路径需透传 sessionRepo.model 否则 DB / spawn 不一致）
  * - codex jsonl missing emit text = "Codex 内部对话历史 (jsonl) 已不存在"（不是 claude 的「CLI 内部对话历史(jsonl)已丢失」）
  * - codex cwd fallback emit text = "已切到 fallback (...) 继续 (对话历史保留)"（R2-2 修法 — codex jsonl 独立于 cwd）
- * - codex 没有 LLM 摘要 prepend（详 recoverer.ts L29-33；shared helper 与 claude 耦合留 follow-up）
+ * - missing provider history uses the shared provider-neutral continuation engine
  *
  * 覆盖：sendMessage 检测 sessions Map 没有该 sessionId 时的「断连自愈」路径，重点：
  *   - HIGH-B：sessions Map miss → recoverer.recoverAndSend 端到端（resume 主路径 / jsonl missing fallback）
@@ -115,6 +115,7 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
       archivedAt: null,
       codexSandbox: 'workspace-write',
       model: 'gpt-5',
+      thinking: 'high',
     });
 
     await bridge.sendMessage('sess-1', 'hi');
@@ -138,7 +139,13 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
       resume: 'sess-1',
       codexSandbox: 'workspace-write',
       model: 'gpt-5',
+      modelReasoningEffort: 'high',
     });
+    expect(bridge.captureCalls).toEqual([
+      expect.objectContaining({ sessionId: 'sess-1', userEventsAtCapture: 0 }),
+    ]);
+    expect(bridge.prepareCalls).toHaveLength(0);
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-1']);
   });
 
   it('record 不在 → 抛 not found，createSession 不被调，不 emit placeholder', async () => {
@@ -250,13 +257,28 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]).toMatchObject({
       cwd: '/tmp/abandoned',
-      prompt: 'hi',
+      prompt: undefined,
       resume: 'sess-no-jsonl',
       resumeMode: 'fresh-cli-reuse-app',
       // codexSandbox + model 仍要透传（HIGH-1 同款防静默降级）
       codexSandbox: 'read-only',
       model: 'gpt-5-codex',
+      skipFirstUserEmit: true,
     });
+    const trusted = bridge.createCalls[0].trustedContinuation;
+    expect(trusted).toMatchObject({
+      kind: 'trusted-continuation',
+      providerPrompt: 'FULL RECOVERY CONTEXT\nhi',
+      persistedUserText: 'hi',
+    });
+    expect(bridge.captureCalls[0]).toMatchObject({
+      sessionId: 'sess-no-jsonl',
+      userEventsAtCapture: 0,
+    });
+    expect(bridge.prepareCalls).toEqual([
+      { spoolId: 'spool-sess-no-jsonl', instruction: 'hi' },
+    ]);
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-no-jsonl']);
 
     // 占位 message 仍 emit（用户体感「在自动恢复」）
     const placeholders = emits.filter((e) =>
@@ -265,8 +287,8 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     expect(placeholders).toHaveLength(1);
 
     // emit jsonl missing info — plan resume-inject §D8: 默认 mock(summarise=null + listMessages=[])
-    // → injectResumeHistory used=false → skipped 文案「Codex 内部对话历史(jsonl)已丢失」+ 请补背景。
-    // (REVIEW_60 F5 解开后 codex 也走注入,used=false 时文案与旧 NoSummary 语义一致仅措辞微调)
+    // → instruction-only quality → skipped 文案「Codex 内部对话历史(jsonl)已丢失」+ 请补背景。
+    // instruction-only degradation keeps the no-context behavior explicit
     const jsonlLostInfo = emits.filter((e) => {
       const p = e.payload as { text?: string; error?: boolean };
       return (p.text ?? '').includes('Codex 内部对话历史(jsonl)已丢失');
@@ -275,9 +297,160 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     expect(jsonlLostInfo[0].sessionId).toBe('sess-no-jsonl');
     // info 性质,不打 error: true(与 claude 路径一致)
     expect((jsonlLostInfo[0].payload as { error?: boolean }).error).not.toBe(true);
-    // 文案断言:used=false skipped 路径提示用户补背景（DB 无历史可注）
+    // instruction-only copy asks the user to supplement context
     expect((jsonlLostInfo[0].payload as { text: string }).text).toMatch(/背景/);
   });
+
+  it('native jsonl 在时 capture 失败仍原生 resume，且不调用 continuation prepare', async () => {
+    const bridge = makeBridge();
+    bridge.captureError = new Error('TEMP spool unavailable');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-native-capture-fail',
+      agentId: 'codex-cli',
+      cwd: '/tmp/native',
+      title: 'native',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    await bridge.sendMessage('sess-native-capture-fail', 'continue natively');
+
+    expect(bridge.captureCalls[0]).toMatchObject({ userEventsAtCapture: 0 });
+    expect(bridge.prepareCalls).toHaveLength(0);
+    expect(bridge.cleanupCalls).toHaveLength(0);
+    expect(bridge.createCalls[0]).toMatchObject({
+      prompt: 'continue natively',
+      resume: 'sess-native-capture-fail',
+    });
+    expect(bridge.createCalls[0].trustedContinuation).toBeUndefined();
+  });
+
+  it('missing jsonl + capture 失败保留当前 user event，清晰失败且不起 fresh thread', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.captureError = new Error('TEMP spool unavailable');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-missing-capture-fail',
+      agentId: 'codex-cli',
+      cwd: '/tmp/missing',
+      title: 'missing',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    await expect(
+      bridge.sendMessage('sess-missing-capture-fail', 'keep this input'),
+    ).rejects.toThrow(/TEMP spool unavailable/);
+
+    expect(bridge.prepareCalls).toHaveLength(0);
+    expect(bridge.createCalls).toHaveLength(0);
+    const userMessages = emits.filter(
+      (event) => event.kind === 'message' && (event.payload as { role?: string }).role === 'user',
+    );
+    expect(userMessages).toHaveLength(1);
+    expect((userMessages[0].payload as { text: string }).text).toBe('keep this input');
+    expect(
+      emits.some((event) =>
+        ((event.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
+      ),
+    ).toBe(true);
+  });
+
+  it('missing jsonl + prepare 失败清理 spool、保留 current event 且不起 fresh thread', async () => {
+    const bridge = makeBridge();
+    bridge.jsonlExistsOverride = false;
+    bridge.prepareError = new Error('checkpoint provider unavailable');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-prepare-fail',
+      agentId: 'codex-cli',
+      cwd: '/tmp/prepare',
+      title: 'prepare',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    await expect(bridge.sendMessage('sess-prepare-fail', 'continue')).rejects.toThrow(
+      /checkpoint provider unavailable/,
+    );
+
+    expect(bridge.prepareCalls).toEqual([
+      { spoolId: 'spool-sess-prepare-fail', instruction: 'continue' },
+    ]);
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-prepare-fail']);
+    expect(bridge.createCalls).toHaveLength(0);
+    expect(
+      emits.filter(
+        (event) => event.kind === 'message' && (event.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it.each(['full', 'projected', 'raw-only', 'instruction-only'] as const)(
+    'missing jsonl 的 %s degradation 以 trusted fresh thread 启动且保留 attachments/thinking',
+    async (quality) => {
+      const bridge = makeBridge();
+      bridge.jsonlExistsOverride = false;
+      bridge.preparedQuality = quality;
+      bridge.preparedProviderPrompt = `PROVIDER CONTEXT (${quality})`;
+      const sessionId = `sess-quality-${quality}`;
+      vi.mocked(sessionRepo.get).mockReturnValue({
+        id: sessionId,
+        agentId: 'codex-cli',
+        cwd: '/tmp/quality',
+        title: 'quality',
+        source: 'sdk',
+        lifecycle: 'dormant',
+        activity: 'idle',
+        startedAt: 1,
+        lastEventAt: 2,
+        endedAt: null,
+        archivedAt: null,
+        thinking: 'xhigh',
+      });
+      const attachments: UploadedAttachmentRef[] = [
+        { kind: 'uploaded', path: '/tmp/recovery.png', mime: 'image/png', bytes: 42 },
+      ];
+
+      await bridge.sendMessage(sessionId, 'authoritative next step', attachments);
+
+      expect(bridge.createCalls).toHaveLength(1);
+      expect(bridge.createCalls[0]).toMatchObject({
+        prompt: undefined,
+        resume: sessionId,
+        resumeMode: 'fresh-cli-reuse-app',
+        modelReasoningEffort: 'xhigh',
+        attachments,
+        skipFirstUserEmit: true,
+        trustedContinuation: {
+          providerPrompt: `PROVIDER CONTEXT (${quality})`,
+          persistedUserText: 'authoritative next step',
+        },
+      });
+      expect(bridge.cleanupCalls).toEqual([`spool-${sessionId}`]);
+      const userMessages = emits.filter(
+        (event) => event.kind === 'message' && (event.payload as { role?: string }).role === 'user',
+      );
+      expect(userMessages).toHaveLength(1);
+      expect((userMessages[0].payload as { text: string }).text).toBe(
+        'authoritative next step',
+      );
+    },
+  );
 
   it('jsonl 不存在 + handle.sessionId !== sessionId → 调 updateCliSessionId(applicationSid, NEW_CLI) — 反向 rename 修订', async () => {
     const bridge = makeBridge();
@@ -415,7 +588,6 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
       archivedAt: null,
       codexSandbox: 'workspace-write',
     });
-
     await bridge.sendMessage('sess-cwd-bad', 'hi');
 
     // R2-2 修法：cwd fallback 但 jsonl 在 → createSession 走 resume 主路径用 fallback cwd
@@ -427,6 +599,12 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
       resume: 'sess-cwd-bad', // ← R2-2 关键: cwdFellBack 不再强制 undefined,jsonl 在则保留 resume
       codexSandbox: 'workspace-write',
     });
+    expect(bridge.captureCalls[0]).toMatchObject({
+      userEventsAtCapture: 0,
+      overrides: { cwd: '/Users/apple/myrepo' },
+    });
+    expect(bridge.prepareCalls).toHaveLength(0);
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-cwd-bad']);
 
     // emit 一条 info message(不打 error)告诉用户 fallback 发生 + "对话历史保留"
     const fallbackInfo = emits.filter((e) => {
@@ -476,6 +654,8 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
 
     // createSession 不被调(短路 throw 在前)
     expect(bridge.createCalls).toHaveLength(0);
+    expect(bridge.captureCalls[0]).toMatchObject({ userEventsAtCapture: 0 });
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-no-rescue']);
 
     // emit error message 说明 cwd 不存在 + 启发式都失败
     const errorMessages = emits.filter((e) => {
@@ -562,7 +742,7 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     const cwdInfo = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('已切到 fallback'),
     );
-    // plan resume-inject §D8: codex 新文案「Codex 内部对话历史(jsonl)已丢失」(used=false skipped，
+    // codex instruction-only copy states that provider history is missing
     // TestBridge summarise/listMessages 默认空 → no-history)
     const jsonlInfo = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('Codex 内部对话历史(jsonl)已丢失'),
@@ -1001,7 +1181,7 @@ describe('REVIEW_99 R3 cancellation-epoch: codex 恢复期间再次 close abort'
 
   it('② codex-jsonl-fallback await 期间用户再次 close（epoch 变）→ aborted 不起 fresh thread', async () => {
     const bridge = makeBridge();
-    bridge.jsonlExistsOverride = false; // 走 jsonl-missing fallback（含 injectResumeHistory await）
+    bridge.jsonlExistsOverride = false; // 走 jsonl-missing fallback（含 continuation prepare await）
     vi.mocked(sessionManager.getCloseEpoch)
       .mockReturnValueOnce(0) // 入口 baseline
       .mockReturnValue(1); // helper isCancelledFn await 后 → 1 !== 0 → abort
@@ -1010,6 +1190,7 @@ describe('REVIEW_99 R3 cancellation-epoch: codex 恢复期间再次 close abort'
     await bridge.sendMessage('sess-await-close', 'hi');
 
     expect(bridge.createCalls).toHaveLength(0); // 不起 fresh thread（否则 ensure 复活 closed）
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-await-close']);
     expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
     const errMsgs = emits.filter(
       (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
@@ -1028,6 +1209,7 @@ describe('REVIEW_99 R3 cancellation-epoch: codex 恢复期间再次 close abort'
     await bridge.sendMessage('sess-postguard', 'hi');
 
     expect(typeof bridge.createCalls[0]?.cancelCheck).toBe('function');
+    expect(bridge.cleanupCalls).toEqual(['spool-sess-postguard']);
     expect(vi.mocked(sessionManager.markClosed)).not.toHaveBeenCalled();
     const errMsgs = emits.filter(
       (e) => ((e.payload as { text?: string }).text ?? '').includes('自动恢复失败'),
@@ -1215,4 +1397,3 @@ describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', 
     expect(bridge.createCalls[0].additionalDirectories).toEqual(REVIEWER_DIRS);
   });
 });
-

@@ -7,6 +7,10 @@
 
 import type { AppSettings } from './app-settings';
 
+export const DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS = 64_000;
+export const MIN_CONTINUATION_RAW_RETENTION_TOKENS = 8_000;
+export const MAX_CONTINUATION_RAW_RETENTION_TOKENS = 128_000;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   hookServerPort: 47821,
   hookServerToken: null,
@@ -21,25 +25,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryEventCount: 10,
   summaryMaxConcurrent: 2,
   summaryTimeoutMs: 60 * 1000,
-  // plan prancy-forging-penguin: provider × model × reasoning 三联字段(summary / handoff 两组)
-  // - summaryModel/handOffModel: 默认空 = 沿用各 provider env / alias / config.toml 链
-  // - summaryProvider/handOffProvider: 默认 'claude'(走 Claude Code SDK + OAuth 凭证)
-  // - summaryReasoning/handOffReasoning: 默认 low/medium 与原 hardcoded 行为对齐；Codex 与
-  //   Claude-family provider 都透传各自 SDK 的 reasoning / effort 字段
+  // 周期总结与会话续接检查点分开配置；两者的 provider/model/thinking 互不影响。
   summaryProvider: 'claude',
   summaryModel: '',
   summaryReasoning: 'low',
-  handOffProvider: 'claude',
-  handOffModel: '',
-  handOffReasoning: 'medium',
+  continuationCheckpointProvider: 'claude',
+  continuationCheckpointModel: '',
+  continuationCheckpointThinking: 'medium',
+  continuationRawRetentionTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
   permissionTimeoutMs: 30 * 60 * 1000,
   alwaysOnTop: true,
   windowTransparent: true,
   startOnLogin: false,
   historyRetentionDays: 30,
-  // plan resume-inject-raw-messages-20260601 §D5：jsonl-missing fallback / hand-off capsule
-  // 最多读取最近 N 条原始对话消息。各消费点再按自己的字符预算拼接，实际条数 ≤ N。
-  resumeRecentMessagesCount: 200,
   // Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：
   // - resolvedRetentionDays 默认 30d (与历史 / 消息保留默认窗口对齐)
   // - softDeletedRetentionDays 默认 7d (软删一周后硬删,与 history 30d 不同 — 软删本就 implicit 已完成 triage)

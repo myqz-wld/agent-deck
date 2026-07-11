@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe('SummarySection provider-specific thinking levels', () => {
-  it('enables provider-valid choices and coerces both summary and hand-off values', async () => {
+  it('enables provider-valid choices and coerces summary values', async () => {
     const onPatch = vi.fn();
     render(
       <SettingsHarness
@@ -63,8 +63,6 @@ describe('SummarySection provider-specific thinking levels', () => {
           ...DEFAULT_SETTINGS,
           summaryProvider: 'codex',
           summaryReasoning: 'minimal',
-          handOffProvider: 'codex',
-          handOffReasoning: 'ultra',
         }}
         onPatch={onPatch}
       />,
@@ -103,25 +101,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     fireEvent.click(rowButtons('周期性总结')[1]!);
     expect(visibleOptionLabels()).toEqual(['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX']);
     fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
-
-    let handOffButtons = rowButtons('Hand-off 简报');
-    fireEvent.click(handOffButtons[0]!);
-    fireEvent.click(screen.getByRole('option', { name: 'Deepseek' }));
-
-    await waitFor(() => {
-      const reasoningButton = rowButtons('Hand-off 简报')[1]!;
-      expect(reasoningButton.title).toBe('Deepseek 思考程度');
-      expect(reasoningButton.textContent).toContain('MAX');
-      expect(reasoningButton.disabled).toBe(false);
-    });
-    expect(onPatch).toHaveBeenCalledWith({
-      handOffProvider: 'deepseek',
-      handOffReasoning: 'max',
-    });
-
-    handOffButtons = rowButtons('Hand-off 简报');
-    fireEvent.click(handOffButtons[1]!);
-    expect(visibleOptionLabels()).toEqual(['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX']);
+    expect(screen.queryByText('Hand-off 简报')).toBeNull();
   });
 
   it('preserves a thinking level shared by Codex and Claude-family providers', async () => {
@@ -178,26 +158,27 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect(visibleOptionLabels()).toContain('MAX');
   });
 
-  it('allows MAX for Codex Hand-off brief generation', async () => {
+  it('trims a custom summary model before saving it', async () => {
     const onPatch = vi.fn();
     render(
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          handOffProvider: 'codex',
-          handOffReasoning: 'xhigh',
+          summaryProvider: 'codex',
         }}
         onPatch={onPatch}
       />,
     );
     openSection();
 
-    fireEvent.click(rowButtons('Hand-off 简报')[1]!);
-    fireEvent.click(screen.getByRole('option', { name: 'MAX' }));
+    const input = screen.getByRole('textbox', { name: '周期性总结 model' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '  gpt-5.6-sol  ' } });
+    fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(rowButtons('Hand-off 简报')[1]?.textContent).toContain('MAX');
+      expect((input as HTMLInputElement).value).toBe('gpt-5.6-sol');
     });
-    expect(onPatch).toHaveBeenCalledWith({ handOffReasoning: 'max' });
+    expect(onPatch).toHaveBeenCalledWith({ summaryModel: 'gpt-5.6-sol' });
   });
 });

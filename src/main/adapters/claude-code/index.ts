@@ -24,10 +24,8 @@ import { HookInstaller } from './hook-installer';
 import { ClaudeSdkBridge } from './sdk-bridge';
 import { createClaudeFamilyForkedSession } from './fork-session';
 import { settingsStore } from '@main/store/settings-store';
-import {
-  summariseViaLlm,
-  summariseSessionForHandOff,
-} from '@main/session/summarizer/llm-runners';
+import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 const ADAPTER_ID = 'claude-code';
 
@@ -97,6 +95,31 @@ class ClaudeCodeAdapter implements AgentAdapter {
       claudeAgents: opts.claudeAgents,
       // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 7 步(facade wrapper):
       // 显式 spread handOff,否则 facade 白名单 spread 会丢字段 → bridge 拿不到 metadata。
+      handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
+    });
+    return handle.sessionId;
+  }
+
+  async createTrustedContinuationSession(
+    opts: CreateSessionOptions,
+    turn: TrustedContinuationInitialTurn,
+  ): Promise<string> {
+    if (opts.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error('Claude trusted continuation requires an initialized Claude adapter');
+    }
+    const handle = await this.bridge.createSession({
+      cwd: opts.cwd,
+      trustedContinuation: turn,
+      permissionMode: opts.permissionMode,
+      teamName: opts.teamName,
+      attachments: opts.attachments,
+      claudeCodeSandbox: opts.claudeCodeSandbox,
+      extraAllowWrite: opts.extraAllowWrite,
+      model: opts.model,
+      claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
+      claudeAgentName: opts.claudeAgentName,
+      claudeAgents: opts.claudeAgents,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
     });
@@ -278,22 +301,9 @@ class ClaudeCodeAdapter implements AgentAdapter {
     return this.installer.status(opts);
   }
 
-  /**
-   * R37 P2-I Step 3.3：LLM 驱动的「最近做什么」入口（dispatch 下放）。
-   *
-   * - 'summary' → `summariseViaLlm` (Claude 侧 30 字 tag-line，settings.summaryTimeoutMs)
-   * - 'handoff' → `summariseSessionForHandOff` (Claude 侧六节压缩检查点，60s timeout hardcoded)
-   *
-   * model / systemPrompt / timeout / result 清洗等差异全在底层 runner，本 adapter 只做 dispatch。
-   */
-  async summariseEvents(
-    cwd: string,
-    events: AgentEvent[],
-    kind: 'summary' | 'handoff',
-  ): Promise<string | null> {
-    return kind === 'summary'
-      ? summariseViaLlm(cwd, events)
-      : summariseSessionForHandOff(cwd, events);
+  /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
+  async summariseEvents(cwd: string, events: AgentEvent[]): Promise<string | null> {
+    return summariseViaLlm(cwd, events);
   }
 }
 

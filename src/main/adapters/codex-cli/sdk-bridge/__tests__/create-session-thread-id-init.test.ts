@@ -104,8 +104,41 @@ import { sessionManager } from '@main/session/manager';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
 import { THREAD_STARTED_FALLBACK_MS } from '@main/adapters/codex-cli/sdk-bridge/constants';
 import type { AgentEvent } from '@shared/types';
+import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
 
 const emits: AgentEvent[] = [];
+
+function trustedRecoveryTurn() {
+  const prepared: PreparedContinuationContext = {
+    version: 1,
+    providerPrompt: 'FULL TRUSTED RECOVERY PROVIDER CONTEXT',
+    persistedUserText: 'Continue from here.',
+    source: { eventRevision: 9, rebuildAfterRevision: 0, maxEventId: 9 },
+    checkpoint: { id: 2, throughRevision: 9, formatVersion: 1, refreshed: false },
+    projection: { canonicalHash: 'd'.repeat(64), omittedFacts: 0 },
+    quality: 'full',
+    metrics: {
+      rawRetentionCeilingTokens: 64_000,
+      targetPromptCapacityTokens: 100_000,
+      checkpointProjectionBudgetTokens: 12_000,
+      generatorFoldInputBudgetTokens: 32_000,
+      estimatedPromptTokens: 100,
+      checkpointTokens: 20,
+      rawTailTokens: 20,
+      includedUserMessages: 1,
+      truncatedBoundaryMessages: 0,
+      foldCalls: 1,
+      repairCalls: 0,
+      elapsedMs: 1,
+      uncoveredRevisionRange: null,
+    },
+    warnings: [],
+    preparationHash: 'e'.repeat(64),
+    spoolId: 'recovery-spool',
+  };
+  return createTrustedContinuationInitialTurn(prepared, 'app-A');
+}
 
 /** runStreamed 受控：test 决定何时 emit thread.started / reject。 */
 class ControlledThread {
@@ -293,6 +326,89 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
     expect(getInternalThreadId(bridge, 'app-A')).toBe('cli-NEW');
     // case 3 命中 → 调 updateCliSessionId(applicationSid, newId)（intended 反向 rename）
     expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith('app-A', 'cli-NEW');
+  });
+
+  it('trusted recovery 可窄化进入 fresh-cli-reuse-app：provider 收 full context、app sid 稳定且不重复 emit user', async () => {
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'app-A',
+      agentId: 'codex-cli',
+      cwd: '/repo',
+      title: 't',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'workspace-write',
+      cliSessionId: 'cli-OLD',
+    } as unknown as ReturnType<typeof sessionRepo.get>);
+    nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
+    nextThread.startedThreadId = 'cli-RECOVERED';
+    const turn = trustedRecoveryTurn();
+
+    const handle = await makeBridge().createSession({
+      cwd: '/repo',
+      trustedContinuation: turn,
+      resume: 'app-A',
+      resumeMode: 'fresh-cli-reuse-app',
+      skipFirstUserEmit: true,
+    });
+
+    expect(handle.sessionId).toBe('app-A');
+    expect(nextThread.runStreamed).toHaveBeenCalledWith(
+      [{ type: 'text', text: turn.providerPrompt, text_elements: [] }],
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith('app-A', 'cli-RECOVERED');
+    expect(
+      emits.filter(
+        (event) => event.kind === 'message' && (event.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('trusted recovery 拒绝 native resume 与 resumeOnly，且 fresh reuse option 组合 fail closed', async () => {
+    const bridge = makeBridge();
+    const turn = trustedRecoveryTurn();
+
+    await expect(
+      bridge.createSession({ cwd: '/repo', trustedContinuation: turn, resume: 'app-A' }),
+    ).rejects.toThrow(/new Codex provider thread/);
+    await expect(
+      bridge.createSession({
+        cwd: '/repo',
+        trustedContinuation: turn,
+        resume: 'app-A',
+        resumeMode: 'fresh-cli-reuse-app',
+        resumeOnly: true,
+      }),
+    ).rejects.toThrow(/resumeOnly/);
+    await expect(
+      bridge.createSession({
+        cwd: '/repo',
+        prompt: 'invalid',
+        resumeMode: 'fresh-cli-reuse-app',
+      }),
+    ).rejects.toThrow(/application session id/);
+    await expect(
+      bridge.createSession({
+        cwd: '/repo',
+        prompt: 'invalid',
+        resumeCliSid: 'cli-without-app',
+      }),
+    ).rejects.toThrow(/resumeCliSid/);
+    await expect(
+      bridge.createSession({
+        cwd: '/repo',
+        trustedContinuation: turn,
+        resume: 'app-A',
+        resumeMode: 'fresh-cli-reuse-app',
+        resumeCliSid: 'cli-OLD',
+      }),
+    ).rejects.toThrow(/cannot resume a native/);
   });
 });
 

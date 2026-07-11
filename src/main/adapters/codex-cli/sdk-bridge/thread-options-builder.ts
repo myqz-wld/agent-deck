@@ -43,6 +43,20 @@ export interface BuildCodexThreadOptionsArgs {
   developerInstructions?: string;
   /** Additional config layer parsed from custom-agent TOML. */
   configOverrides?: CodexConfigObject;
+  /** Replace the provider base prompt for isolated internal runtimes. */
+  baseInstructions?: string;
+  /** Internal isolation seam: false prevents inherited app/user config from entering thread params. */
+  useBaseConfig?: boolean;
+  /** Explicitly empty means no host-supplied dynamic tools. */
+  dynamicTools?: readonly [];
+  /** Explicitly empty disables Codex environments. */
+  environments?: readonly [];
+  /** Explicitly empty removes runtime workspace roots. */
+  runtimeWorkspaceRoots?: readonly string[];
+  /** Explicitly empty removes host-selected capability roots. */
+  selectedCapabilityRoots?: readonly [];
+  /** Internal one-shot threads should not be retained in normal provider history. */
+  ephemeral?: boolean;
 }
 
 export interface CodexThreadOptions {
@@ -54,7 +68,14 @@ export interface CodexThreadOptions {
   modelReasoningEffort?: CodexReasoningEffort;
   modelReasoningSummary?: CodexReasoningSummary;
   developerInstructions?: string;
+  baseInstructions?: string;
   configOverrides?: CodexConfigObject;
+  useBaseConfig?: boolean;
+  dynamicTools?: [];
+  environments?: [];
+  runtimeWorkspaceRoots?: string[];
+  selectedCapabilityRoots?: [];
+  ephemeral?: boolean;
   networkAccessEnabled?: boolean;
   additionalDirectories?: string[];
 }
@@ -74,7 +95,18 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.developerInstructions !== undefined && args.developerInstructions.trim().length > 0
       ? { developerInstructions: args.developerInstructions.trim() }
       : {}),
+    ...(args.baseInstructions !== undefined && args.baseInstructions.trim().length > 0
+      ? { baseInstructions: args.baseInstructions.trim() }
+      : {}),
     ...(args.configOverrides !== undefined ? { configOverrides: args.configOverrides } : {}),
+    ...(args.useBaseConfig !== undefined ? { useBaseConfig: args.useBaseConfig } : {}),
+    ...(args.dynamicTools !== undefined ? { dynamicTools: [] } : {}),
+    ...(args.environments !== undefined ? { environments: [] } : {}),
+    ...(args.runtimeWorkspaceRoots !== undefined
+      ? { runtimeWorkspaceRoots: [...args.runtimeWorkspaceRoots] }
+      : {}),
+    ...(args.selectedCapabilityRoots !== undefined ? { selectedCapabilityRoots: [] } : {}),
+    ...(args.ephemeral !== undefined ? { ephemeral: args.ephemeral } : {}),
     ...(args.networkAccessEnabled !== undefined
       ? { networkAccessEnabled: args.networkAccessEnabled }
       : {}),

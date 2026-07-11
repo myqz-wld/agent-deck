@@ -15,10 +15,16 @@
 export type {
   CodexMcpServerConfigShared,
   AppSettings,
+  ContinuationCheckpointProvider,
   HookInstallStatus,
 } from './settings/app-settings';
 
-export { DEFAULT_SETTINGS } from './settings/defaults';
+export {
+  DEFAULT_SETTINGS,
+  DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
+  MIN_CONTINUATION_RAW_RETENTION_TOKENS,
+  MAX_CONTINUATION_RAW_RETENTION_TOKENS,
+} from './settings/defaults';
 
 export type {
   SettingsSource,

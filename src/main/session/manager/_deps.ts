@@ -85,7 +85,7 @@ export interface SessionManagerInternalState {
    * close-epoch 计数器 Map<sessionId, count>(REVIEW_99 R3 carry-forward cancellation-epoch 方案)。
    *
    * **动机**: closed 会话被用户合法 resume → recover 入口 emit user message(source:'sdk')经
-   * ensure closed→active 复活 → `await injectResumeHistory`(LLM 10-30s)/ createSession 内部
+   * ensure closed→active 复活 → 续接上下文准备 / createSession 内部
    * pre-registration await 期间用户**再次** close → 旧 `closed && !wasClosed` lifecycle 快照判定
    * 漏掉「恢复期间第二次 close」(wasClosed=true 让条件恒 false)→ 反转用户显式 close 起 fresh CLI。
    * epoch 是「close 动作发生过没有」的直接信号,不是「当前 lifecycle 是不是 closed」的快照推断。

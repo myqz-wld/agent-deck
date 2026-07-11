@@ -6,11 +6,18 @@ import type {
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
-  AgentEvent,
   ProviderUsageSnapshot,
 } from '@shared/types';
 import { eventRepo } from '@main/store/event-repo';
-import { summariseSessionForHandOff } from '@main/session/summarizer/llm-runners';
+import {
+  captureRecoveryContinuation as captureRecoveryContinuationShared,
+  cleanupRecoveryContinuation as cleanupRecoveryContinuationShared,
+  prepareRecoveryContinuation as prepareRecoveryContinuationShared,
+  type CapturedRecoveryContinuation,
+  type PreparedRecoveryContinuation,
+  type RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery';
+import type { SessionRecord } from '@shared/types';
 // CHANGELOG_52 Step 3a-3g + CHANGELOG_85 Step 3.2 + Step 4.4：拆 class 完成。本目录（sdk-bridge/）
 // 含 14 个 sub-module + 2 子目录（create-session/ + recoverer/） + index.ts (facade)。
 //
@@ -26,7 +33,6 @@ import type {
   SdkBridgeOptions,
   SdkSessionHandle,
 } from './types';
-import { sessionRepo } from '@main/store/session-repo';
 import { PermissionResponder } from './permission-responder';
 import {
   SessionRecoverer,
@@ -39,7 +45,6 @@ import { RestartController } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
-import { runCloseSessionCleanup } from './pending-cancellation';
 import { validateSendMessageOrThrow } from './send-validation';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
@@ -49,28 +54,11 @@ import {
 } from '../../provider-usage';
 import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 import log from '@main/utils/logger';
+import { closeClaudeSession, setClaudePermissionMode } from './session-lifecycle';
 
 const logger = log.scope('claude-bridge');
-const CLOSE_STREAM_DRAIN_TIMEOUT_MS = 1_000;
 
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
-
-async function waitForStreamDrained(internal: InternalSession, sessionId: string): Promise<void> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  const timeoutToken = Symbol('timeout');
-  const result = await Promise.race([
-    internal.streamDrained.then(() => undefined),
-    new Promise<typeof timeoutToken>((resolve) => {
-      timeout = setTimeout(() => resolve(timeoutToken), CLOSE_STREAM_DRAIN_TIMEOUT_MS);
-    }),
-  ]);
-  if (timeout) clearTimeout(timeout);
-  if (result === timeoutToken) {
-    logger.warn(
-      `[sdk-bridge] closeSession stream drain timed out after ${CLOSE_STREAM_DRAIN_TIMEOUT_MS}ms: ${sessionId}`,
-    );
-  }
-}
 
 /**
  * SDK 通道实现：每个 session 启动一个 query() AsyncGenerator，
@@ -89,8 +77,7 @@ async function waitForStreamDrained(internal: InternalSession, sessionId: string
  * - class shell + ctor（11 sub-module ref 装配）
  * - createSession 改 thin delegate → `./create-session/create-session-impl.ts:createSessionImpl`
  * - sendMessage / interrupt / closeSession / setPermissionMode / 2 restartWith* 不拆
- * - 4 protected wrapper（resumeJsonlExists / cwdExists / summariseForHandOff /
- *   listEventsForSession）作 test seam 留 class 内
+ * - provider-history and cwd probes remain protected test seams
  * - 6 responder thin wrapper / consume protected wrapper 不拆
  *
  * **decision 矛盾解决记录**（参照 Step 4.1 hand-off-session 同款 decision 范式）：
@@ -135,11 +122,8 @@ export class ClaudeSdkBridge {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
 
     // RestartController 必须先 init：PermissionResponder ctx thunk 要 restart ref
-    // **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
-    // ctor 注入 3 个新 thunk (jsonlExistsThunk + summariseFn + listEventsFn) — 与
-    // SessionRecoverer 共享同一份 thunk instance,让 helper maybeJsonlFallback 内部
-    // jsonl 预检 / LLM 摘要 / events 拉取 走与 recoverer 同款 facade extend override
-    // 模式 (test 子类化 facade override protected method)。
+    // Restart and disconnect recovery share the same provider-history probes and continuation
+    // preparation seams.
     this.restartController = new RestartController({
       recovering: this.recovering,
       emit: opts.emit,
@@ -147,12 +131,11 @@ export class ClaudeSdkBridge {
       createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
       jsonlExistsThunk: (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       jsonlMtimeMsThunk: (cwd, sid) => this.resumeJsonlMtimeMs(cwd, sid),
-      summariseFn: (cwd, events) => this.summariseForHandOff(cwd, events),
-      listEventsFn: (sid) => this.listEventsForSession(sid),
-      // plan resume-inject-raw-messages-20260601 §D5：message-only thunk（与 SessionRecoverer
-      // 共享同一 closure），helper injectResumeHistory 拼「最近原始对话消息段」用。
-      listMessagesFn: (sid, limit, beforeId) =>
-        this.listRecentMessagesForSession(sid, limit, beforeId),
+      latestConversationMessageTsThunk: (sid) =>
+        this.latestConversationMessageTsForSession(sid),
+      captureRecoveryContinuation: (input) => this.captureRecoveryContinuation(input),
+      prepareRecoveryContinuation: (input) => this.prepareRecoveryContinuation(input),
+      cleanupRecoveryContinuation: (capture) => this.cleanupRecoveryContinuation(capture),
     });
 
     this.sessionModelController = new SessionModelController({
@@ -187,16 +170,6 @@ export class ClaudeSdkBridge {
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（HIGH-1：避免 inflight 第二条等待者丢图）。
     // CHANGELOG_99：cwdExists thunk 也走 facade extend override 模式(同 resumeJsonlExists)
-    // CHANGELOG_107: summariseFn thunk 同款 facade extend override 模式,默认实现 =
-    // summariseSessionForHandOff,fallback 路径 helper 调它。
-    // **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
-    // 新增 listEventsFn ctor 字段,与 RestartController 共享同一 closure
-    // `(sid) => this.listEventsForSession(sid)`,让 helper maybeJsonlFallback 内部
-    // events 拉取走同款 facade extend override 模式(test 子类化 facade override
-    // listEventsForSession protected method)。
-    // **plan resume-inject-raw-messages-20260601 §D5 修法**: 新增 listMessagesFn ctor 字段
-    // (末尾),与 RestartController 共享同一 closure,helper injectResumeHistory 拼「最近原始
-    // 对话消息段」用(message-only,test 子类化 override listRecentMessagesForSession)。
     this.recoverer = new SessionRecoverer(
       { recovering: this.recovering, emit: opts.emit },
       (createOpts) => this.createSession(createOpts),
@@ -204,9 +177,10 @@ export class ClaudeSdkBridge {
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       (cwd, sid) => this.resumeJsonlMtimeMs(cwd, sid),
       (cwd) => this.cwdExists(cwd),
-      (cwd, events) => this.summariseForHandOff(cwd, events),
-      (sid) => this.listEventsForSession(sid),
-      (sid, limit, beforeId) => this.listRecentMessagesForSession(sid, limit, beforeId),
+      (sid) => this.latestConversationMessageTsForSession(sid),
+      (input) => this.captureRecoveryContinuation(input),
+      (input) => this.prepareRecoveryContinuation(input),
+      (capture) => this.cleanupRecoveryContinuation(capture),
     );
 
     this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
@@ -322,6 +296,28 @@ export class ClaudeSdkBridge {
     });
   }
 
+  /** Test seam around the synchronous provider-neutral recovery snapshot coordinator. */
+  protected captureRecoveryContinuation(input: {
+    session: SessionRecord;
+    overrides?: RecoveryRuntimeOverrides;
+  }): CapturedRecoveryContinuation {
+    return captureRecoveryContinuationShared(input);
+  }
+
+  /** Test seam around bounded checkpoint/raw-tail preparation from an immutable spool. */
+  protected prepareRecoveryContinuation(input: {
+    capture: CapturedRecoveryContinuation;
+    continuationInstruction: string;
+    signal?: AbortSignal;
+  }): Promise<PreparedRecoveryContinuation> {
+    return prepareRecoveryContinuationShared(input);
+  }
+
+  /** Test seam that keeps TEMP-spool ownership with the recovery lifecycle caller. */
+  protected cleanupRecoveryContinuation(capture: CapturedRecoveryContinuation): void {
+    cleanupRecoveryContinuationShared(capture);
+  }
+
   /**
    * 预检 CLI resume 用的 jsonl 文件是否存在。
    *
@@ -361,53 +357,9 @@ export class ClaudeSdkBridge {
     return defaultCwdExists(cwd);
   }
 
-  /**
-   * CHANGELOG_107: LLM 摘要 protected wrapper(同 resumeJsonlExists / cwdExists 模式)。
-   *
-   * 让 test 通过子类化 override 不调真 LLM(撞 OAuth / 计费 / DB 未 init);实际走
-   * module-level `summariseSessionForHandOff`(sonnet + 60s timeout + 六节结构化检查点输出)。
-   *
-   * recoverer 拿这个 thunk 在 jsonl missing fallback / cwdFellBack=true 路径前生成
-   * 摘要 prepend 到 fresh CLI 首条 prompt(Step 2 prependHistorySummary helper)。
-   *
-   * 失败语义参见 SummariseFnThunk type jsdoc。
-   */
-  protected summariseForHandOff(cwd: string, events: AgentEvent[]): Promise<string | null> {
-    return summariseSessionForHandOff(cwd, events);
-  }
-
-  /**
-   * **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
-   * events 来源 protected wrapper(同 resumeJsonlExists / cwdExists / summariseForHandOff 模式)。
-   *
-   * 让 test 通过子类化 override 不依赖真 DB(单测 mock event 序列);实际走 module-level
-   * `eventRepo.listForSession(sid)`(默认 limit=200,DESC 排序;`formatEventsForPrompt`
-   * 内部已自己 sort ASC + slice(-30) 取最新一段)。
-   *
-   * RestartController + SessionRecoverer ctor 共享同一份 closure 注入,让 helper
-   * `maybeJsonlFallback` 内部 events 拉取 + recoverer 主路径 prependHistorySummary
-   * 调用走同款 thunk(避免 recoverer.ts 与 helper 双处 hardcode eventRepo 漂移)。
-   */
-  protected listEventsForSession(sessionId: string): AgentEvent[] {
-    return eventRepo.listForSession(sessionId);
-  }
-
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D5 message-only test seam**（同
-   * listEventsForSession / summariseForHandOff 模式）。
-   *
-   * 让 test 通过子类化 override 不依赖真 DB（单测 mock message 序列）；实际走 module-level
-   * `eventRepo.listRecentMessages(sid, limit, beforeIdInclusive?)`（只取 kind='message' +
-   * role∈{user,assistant} + error 非真）。RestartController + SessionRecoverer ctor 共享同一份
-   * closure 注入，让 helper `maybeJsonlFallback` 内部「最近原始对话消息段」拉取走同款 thunk
-   * （避免双处 hardcode eventRepo 漂移）。
-   */
-  protected listRecentMessagesForSession(
-    sessionId: string,
-    limit: number,
-    beforeIdInclusive?: number,
-  ): (AgentEvent & { id: number })[] {
-    return eventRepo.listRecentMessages(sessionId, limit, beforeIdInclusive);
+  /** Test seam for phantom-resume freshness without loading bounded message batches. */
+  protected latestConversationMessageTsForSession(sessionId: string): number | null {
+    return eventRepo.latestConversationMessageTs(sessionId);
   }
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。
@@ -469,41 +421,12 @@ export class ClaudeSdkBridge {
    * 由 SessionManager.delete 调用，确保 SDK 子进程不继续跑（CHANGELOG_20 / N2）。
    */
   async closeSession(sessionId: string, opts: { markRecentlyDeleted?: boolean } = {}): Promise<void> {
-    let key: string | null = null;
-    let internal: InternalSession | null = null;
-    for (const [k, v] of this.sessions.entries()) {
-      if (k === sessionId || v.cliSessionId === sessionId || v.applicationSid === sessionId) {
-        key = k;
-        internal = v;
-        break;
-      }
-    }
-    if (!internal || !key) return;
-
-    // 1. abort query —— SDK 通过 ctx.signal 通知 canUseTool 链路，
-    //    pending Maps 内每条 entry 自身的 abort handler 会被触发并 resolver 释放，
-    //    consume() finally 也会清掉残余 pending。这里只是触发起点。
-    //
-    // 先打 expectedClose：interrupt 会让 SDK query loop 抛错（典型 [ede_diagnostic]
-    // / AbortError 等），catch 块据此降为 console.warn 不 emit「⚠ SDK 流中断」红字
-    // message——应用层主动关闭的副产品不该污染 UI 时间线。覆盖所有 closeSession 入口
-    // （SessionManager.delete / restartWithPermissionMode 冷切 / 应用退出清理等）。
-    internal.expectedClose = true;
-    try {
-      await internal.query?.interrupt?.();
-    } catch (err) {
-      logger.warn(`[sdk-bridge] interrupt during close failed: ${sessionId}`, err);
-    }
-
-    runCloseSessionCleanup({
+    await closeClaudeSession({
       sessions: this.sessions,
-      internal,
-      key,
-      sessionId,
       emit: this.opts.emit,
-      markRecentlyDeleted: opts.markRecentlyDeleted,
+      sessionId,
+      options: opts,
     });
-    await waitForStreamDrained(internal, sessionId);
   }
 
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */
@@ -511,60 +434,7 @@ export class ClaudeSdkBridge {
     sessionId: string,
     mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
   ): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    if (!s) {
-      if (sessionRepo.get(sessionId)) {
-        logger.info(
-          `[claude-bridge] setPermissionMode(${sessionId}, ${mode}) persisted with no live SDK query; ` +
-            'next recovery/createSession will apply it',
-        );
-        return;
-      }
-      throw new Error(`session ${sessionId} not found`);
-    }
-    // CHANGELOG_72 Bug 3：先同步 in-memory cache 再 await SDK，让下一次 canUseTool
-    // bypass 短路立刻按新 mode 判断。注：bypass 有 spawn-time flag 锁死限制，
-    // SDK 层会静默吞，仍按 fail-secure 处理（应用层比 SDK 严是安全方向）。
-    //
-    // A1-MED-1 (claude) plan §Phase 3 Step 3.1 修法：SDK setPermissionMode 抛错时回滚
-    // in-memory cache（与 restartWithPermissionMode 失败回滚 DB 同款 fail-fast 模式）。
-    // 修前：SDK throw → s.permissionMode 已经被改为 mode → caller 收到 throw 但 cache
-    // 已脏(canUseTool / sandbox decision 用脏 cache)→ DB / UI / 实际 SDK 行为三不一致。
-    //
-    // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase R3 fix-3 修法**（R3 plan-review
-    // codex Batch A HIGH-2 升级，替代 Phase 2.7 per-session seq counter）：per-session async
-    // lock 串行化 setPermissionMode。
-    //
-    // **Phase 2.7 per-session seq 残留 race 真根因**（codex A HIGH-2）：
-    // 同 session 并发 + 双失败：A: ++seq=1, oldMode='default', s.permissionMode='plan',
-    // await 失败 → B: ++seq=2, oldMode='plan'(A optimistic 写入), s.permissionMode='bypass',
-    // await 失败 → B catch: seq===2 === B.seq → s.permissionMode = oldMode = 'plan'(A 脏值);
-    // A catch: seq===2 !== A.seq(1) → 跳过回滚 → s.permissionMode 保留 'plan'。
-    // 最终 cache='plan' 但 SDK 实际仍'default' → canUseTool 按脏 cache 判断 → 安全降级风险。
-    //
-    // **修法 = chain 串行化**：通过 `s.permissionModeChain` 串行执行 setPermissionMode；
-    // 串行化后 oldMode 永远是上次 catch rollback 后的真值（永不读他人 optimistic 写入），
-    // catch rollback 是 race-free 的简单 oldMode 还原。
-    //
-    // **chain 设计**：caller 拿到的 Promise 仍 reject 真错；chain 内部 `.catch(() => undefined)`
-    // 吞 throw 让 chain 不被打破（否则一次失败后 chain 永卡 reject）。
-    //
-    // **plan §Phase 6.3 L1 by-design 时序窗口标注**：optimistic 写 cache 在 await SDK ack 之前
-    // 是 by-design fail-secure（详 InternalSession.permissionModeChain jsdoc 完整论述）。
-    const prev = s.permissionModeChain ?? Promise.resolve();
-    const next = prev.then(async () => {
-      const oldMode = s.permissionMode; // 串行化后 oldMode 永远是上次 catch rollback 后的真值
-      s.permissionMode = mode; // optimistic
-      try {
-        await s.query.setPermissionMode(mode);
-      } catch (err) {
-        s.permissionMode = oldMode; // race-free rollback (chain 串行化保证 oldMode 真值)
-        throw err;
-      }
-    });
-    // chain 自身吞 throw 防链路打破，caller 拿到的 next promise 仍 reject 真错给上层
-    s.permissionModeChain = next.catch(() => undefined);
-    return next;
+    return setClaudePermissionMode({ sessions: this.sessions, sessionId, mode });
   }
 
   async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {

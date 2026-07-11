@@ -24,12 +24,10 @@
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
-import { eventRepo } from '@main/store/event-repo';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from '../constants';
 // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 重构**:
 // jsonl missing fallback 整段移到 jsonl-fallback.ts helper,recoverer 不再直接调
-// prependHistorySummary / settingsStore / eventRepo / 4 个 jsonlMissing/cwdFallback 文案 builder
-// (这 4 个 import 已删,改 maybeJsonlFallback 一行覆盖)。
+// provider-history checks, continuation preparation and fallback copy are centralized there.
 import { maybeJsonlFallback } from '../jsonl-fallback';
 import {
   buildCwdFallbackInfoText,
@@ -37,6 +35,7 @@ import {
 } from '../recoverer-messages';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { RecoverAndSendDeps } from './_deps';
+import { sendAfterInflightRecovery } from './recovery-waiter';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-recoverer');
@@ -71,37 +70,13 @@ export async function recoverAndSendImpl(
 ): Promise<string> {
   const inflight = deps.ctx.recovering.get(sessionId);
   if (inflight) {
-    // 等同一恢复完成 → 然后正常走完整 sendMessage 流程把这条新 text push 进 sessions。
-    // catch 静默：第一波恢复失败时第二条等待者自己再走 sendMessage，要么进新一轮 recovery，
-    // 要么拿到真错。不要把第一波的错往第二条上抛 —— 调用方只关心自己这条的成败。
-    //
-    // plan cross-adapter-parity-20260515 Phase B.1: try/catch 拿 finalId 让 sendThunk 用 NEW
-    // sid 不撞 not found(plan §B.5 设计:reject 时 finalId=sessionId 让等待者再撞一次触发
-    // 新一轮 recovery,与原行为一致)。
-    //
-    // **REVIEW_99 R3 cancellation-epoch (codex 第 4 点 — 最易漏的 single-flight waiter 路径)**:
-    // 主 recovery 因「恢复期间用户再次 close」abort 时 IIFE throw RecoveryCancelledError(不 resolve
-    // sessionId)。若仍走旧 `catch { finalId = sessionId }` 兜底 → 等待者立刻 sendThunk(sessionId)
-    // → bridge.sendMessage sessions Map miss → 再进 recoverAndSend → 把刚 close 的会话又 revive
-    // (反转用户显式 close)。修法:special-case sentinel — 主 recovery 已判定该会话该关,等待者
-    // **不** retry / 不 sendThunk,静默返 sessionId(lifecycle 已是用户想要的 closed)。非 sentinel
-    // 的真失败仍走旧 retry 路径(第二条 OLD 再撞一次触发新一轮 recovery,plan §B.5 设计不变)。
-    let finalId: string;
-    try {
-      finalId = (await inflight) as string;
-    } catch (err) {
-      if (isRecoveryCancelledError(err)) {
-        // 主 recovery 被 close abort → 等待者不 retry(否则 revive closed),静默结束
-        return sessionId;
-      }
-      // 第一波恢复已失败(非 cancel),第二条用 OLD 再撞一次触发新一轮 recovery 路径
-      finalId = sessionId;
-    }
-    // HIGH-1 修法：attachments 透传给第二条等待者 sendThunk。
-    // 原版只 sendThunk(sessionId, text) 静默吞掉 attachments；
-    // 这条等待者带的图属于「自己这条 message」与第一条独立，必须走完整 sendMessage 路径。
-    await deps.sendThunk(finalId, text, attachments);
-    return finalId;
+    return sendAfterInflightRecovery({
+      inflight,
+      sessionId,
+      text,
+      attachments,
+      sendThunk: deps.sendThunk,
+    });
   }
 
   const rec: SessionRecord | null = sessionRepo.get(sessionId);
@@ -146,20 +121,36 @@ export async function recoverAndSendImpl(
     );
   }
 
-  // **plan resume-inject-raw-messages-20260601 §D4：在 entry emit user message 之前固化
-  // maxEventIdBefore**。下面 L154 emit user message 会落库 → 若 jsonl-fallback 路径用「emit
-  // 后」的 maxEventId 作 beforeIdInclusive，会把刚 emit 的当前消息算进「最近原始对话消息段」
-  // → 与拼接末段「用户当前消息」重复 + 白占 1 slot。这里**先**捕获常量值（emit 前的 max id =
-  // 最后一条真实历史本身），传给 maybeJsonlFallback.maxEventIdFn 作 `() => maxEventIdBefore`
-  // thunk（injectResumeHistory SQL `AND id <= ?` 保留 emit 前全部历史 + 排除 emit 的当前消息）。
-  // 异常封装在 injectResumeHistory 内（maxEventIdFn try/catch）；这里同步读一次也兜底 try/catch
-  // 防 eventRepo 抛错穿透阻断 fallback（§不变量 1 永不抛错 — 与 REVIEW_76 listEventsFn 同款教训）。
-  let maxEventIdBefore: number | null = null;
-  try {
-    maxEventIdBefore = eventRepo.maxEventId(sessionId);
-  } catch {
-    maxEventIdBefore = null;
+  // Resolve cwd synchronously before capture so the frozen target fingerprint matches the actual
+  // provider runtime. User-visible ordering is unchanged because no cwd message is emitted yet.
+  let effectiveCwd = rec.cwd;
+  let cwdFellBack = false;
+  let cwdFallbackUnavailable = false;
+  if (!deps.cwdExistsThunk(rec.cwd)) {
+    const fallback = deps.findFallbackCwdThunk(rec.cwd);
+    if (fallback === null) {
+      cwdFallbackUnavailable = true;
+    } else {
+      effectiveCwd = fallback;
+      cwdFellBack = true;
+    }
   }
+
+  // Synchronous TEMP capture must finish before the current user event advances the revision.
+  // Failure is deferred so the event is still visible and a valid native jsonl can still resume.
+  let recoveryCapture: ReturnType<RecoverAndSendDeps['captureRecoveryContinuation']> | null = null;
+  let recoveryCaptureError: unknown;
+  try {
+    recoveryCapture = deps.captureRecoveryContinuation({
+      session: rec,
+      overrides: { cwd: effectiveCwd },
+    });
+  } catch (error) {
+    recoveryCaptureError = error;
+    logger.warn(`[sdk-bridge] recovery continuation capture failed for ${sessionId}`, error);
+  }
+
+  try {
 
   // REVIEW_58 HIGH ✅ + R2 MED-1 收口修法 (deep-review 双方共识真问题):立即 emit user message,
   // 与 live 主路径 `index.ts:520-535` sendMessage emit 时机对称。修前 sendMessage `if (!s)` 分支
@@ -223,11 +214,7 @@ export async function recoverAndSendImpl(
   //
   // 找不到 fallback(启发式 1 & 2 全 miss)→ emit error + throw,**不**emit「正在自动恢复」
   // placeholder(误导:明明不可能恢复)。
-  let effectiveCwd = rec.cwd;
-  let cwdFellBack = false;
-  if (!deps.cwdExistsThunk(rec.cwd)) {
-    const fallback = deps.findFallbackCwdThunk(rec.cwd);
-    if (fallback === null) {
+  if (cwdFallbackUnavailable) {
       // 真没救:emit 清晰错误,throw,不进 placeholder 路径
       // **不 unarchive**:archived 状态下 throw,session 仍归档,用户在 SessionList "已归档"
       // 列表能看到清晰错误信息(MED-2 fix:之前 unarchive 在前 → throw 后 session 变 active 但死路)
@@ -241,12 +228,11 @@ export async function recoverAndSendImpl(
       throw new Error(
         `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
       );
-    }
-    effectiveCwd = fallback;
-    cwdFellBack = true;
+  }
+  if (cwdFellBack) {
     // 主动告诉用户 fallback 发生了 + 用了哪个目录(不打 error,info 性质)
     // CHANGELOG_107 Step 4: 删去「CLI 内部对话历史(jsonl)将丢失」字眼,让后续
-    // prependHistorySummary 决定丢失 / 续上(成功 → inner 分支 emit「LLM 摘要已注入」;
+    // unified continuation preparation 决定是否可续上历史;
     // 失败 → inner 分支 emit「将丢失,请补背景」)。outer 只 emit cwd 切换 fact,
     // 不预判 jsonl 命运,避免「outer 说将丢 + inner 说不丢」前后矛盾误导用户。
     // REVIEW_36 R2 HIGH-B 修法：补 sandbox 写权限边界变化提示。fallback 后 SDK 子进程
@@ -326,14 +312,11 @@ export async function recoverAndSendImpl(
       // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 修法**:
       // jsonl 预检 + fallback 整段 inline 实施 (原 recoverer.ts:378-491 ~113 LOC) 抽到
       // jsonl-fallback.ts helper `maybeJsonlFallback`,与 restart-controller 两条路径共享。
-      // helper 内部包办:① prependHistorySummary 续历史摘要 ② createSession with
+      // helper 内部包办:① prepare unified continuation context ② createSession with
       // resumeMode='fresh-cli-reuse-app' ③ emit fallback info message (按 §D4 三轴选 builder)
       // ④ emit role='user' message (含 attachments 透传)。详 §D2-C helper 接口设计 + §不变量 11。
       //
-      // CHANGELOG_28 / CHANGELOG_99 / CHANGELOG_107 现行 jsonl missing fallback 行为
-      // (prependCwd: cwdFellBack ? rec.cwd : effectiveCwd — R2 claude HIGH-F1-2 修法 让
-      // cwdFellBack=true 路径保留「原本是哪个 worktree」摘要语义) 由 helper 透传 opts.prependCwd
-      // 字段一并迁移。
+      // CHANGELOG_28 / CHANGELOG_99 的 jsonl missing / cwd fallback 选择仍由共享 helper 收口。
       //
       // outer cwdFellBack 路径已 emit cwd 切换 fact (line 293-300 不动),helper 内部
       // 进 fallback 分支后会补 emit「成功续上 / 将丢失」详情 (cwdFellBack=true 分支)。
@@ -342,26 +325,17 @@ export async function recoverAndSendImpl(
           jsonlExistsThunk: deps.jsonlExistsThunk,
           jsonlMtimeMsThunk: deps.jsonlMtimeMsThunk,
           createSession: deps.createThunk, // RecovererCtx 字段名是 createThunk (helper 接口字段名是 createSession,命名对齐 RestartCtx)
+          prepareRecoveryContinuation: deps.prepareRecoveryContinuation,
           emit: deps.ctx.emit,
-          summariseFn: deps.summariseFn,
-          listEventsFn: deps.listEventsFn, // Step 3g 新增 ctor 字段(replace recoverer.ts:395 inline closure)
-          listMessagesFn: deps.listMessagesFn, // plan resume-inject §D5: message-only 拼原始对话段
+          latestConversationMessageTsThunk: deps.latestConversationMessageTsThunk,
         },
         {
           sessionId,
           cliSessionId: rec.cliSessionId ?? null, // SessionRecord.cliSessionId 是 optional (?: string | null) → ?? null 兜底到 helper opts 的 string | null
           cwd: effectiveCwd, // SDK chdir 目标 (cwdFellBack=true 时是 fallback cwd)
-          prependCwd: cwdFellBack ? rec.cwd : effectiveCwd, // R2 claude HIGH-F1-2 修法 (与原 line 392 现行为对齐)
           prompt: text,
-          // plan resume-inject §D4: maxEventIdBefore 在 entry emit user message 之前固化(见上),
-          // thunk 返常量值排除当前消息(injectResumeHistory 内 try/catch 防御,这里已 null 兜底)。
-          // **R1 reviewer-codex MED 修法**:`?? 0` 兜 null。null 触发条件 = session 此前 0 条
-          // events（maxEventId 返 null）。此时若退化成「不加边界查最近 N」(beforeId=undefined),
-          // 入口刚 emit 的当前消息(此刻是唯一一行,emit→ingest→insert 全同步已落库)会被 raw 段
-          // 查到 → 与拼接末段「用户当前消息」重复。改返 0 让 SQL `id <= 0` 命中空集 → 干净走
-          // no-history（0 历史本就无可注）。restart 路径的 `() => null` 不受影响（那条 handoffPrompt
-          // 不入口 emit 落库，无当前消息需排除，退化查最近 N 正确）—— 仅 recover 路径需此兜底。
-          maxEventIdFn: () => maxEventIdBefore ?? 0,
+          recoveryCapture,
+          recoveryCaptureError,
           minHealJsonlMtimeMs: rec.lastEventAt,
           permissionMode: rec.permissionMode ?? undefined,
           claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
@@ -374,7 +348,7 @@ export async function recoverAndSendImpl(
           // helper 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
           skipFirstUserEmit: true,
           // **REVIEW_99 R3 cancellation-epoch (替代 R2 isCancelledFn lifecycle 快照)**：await
-          // injectResumeHistory（LLM oneshot 10-30s）期间用户主动 close 会被 closeImpl 自增 close-epoch
+          // continuation preparation 期间用户主动 close 会被 closeImpl 自增 close-epoch
           // + 静默设 closed 但不 abort 在途 recovering promise；helper 在 await 后重读本 thunk，
           // **epoch 变了**（恢复期间新 close / scheduler 衰减 / delete）→ abort 不起 fresh CLI
           // （否则 createSession first user message 触发 ensure closed→active 复活，反转用户显式 close）。
@@ -509,5 +483,17 @@ export async function recoverAndSendImpl(
     // 复活**(仅 closed 才复活),故回滚放 error emit 之后安全(markClosed active→closed 一次到位)。
     if (wasClosed) sessionManager.markClosed(sessionId);
     throw err;
+  }
+  } finally {
+    if (recoveryCapture) {
+      try {
+        deps.cleanupRecoveryContinuation(recoveryCapture);
+      } catch (cleanupError) {
+        logger.warn(
+          `[sdk-bridge] recovery continuation cleanup failed for ${sessionId}`,
+          cleanupError,
+        );
+      }
+    }
   }
 }
