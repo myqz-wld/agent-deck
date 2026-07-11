@@ -18,9 +18,10 @@
  * 拿同 newSid 返回（双方都拿到同 sid，UI 状态一致）。Promise 完成（无论 resolve 或 reject）
  * 自动 delete entry，下次同 sourceSid 仍可正常起新 hand-off。
  */
-import type { SessionRecord } from '@shared/types';
+import type { SessionAdapterId, SessionRecord } from '@shared/types';
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
+import { resolveCreateSessionModelOptions } from '@main/adapters/session-model-options';
 import { SessionRowMissingError } from '@main/store/session-repo';
 import log from '@main/utils/logger';
 
@@ -29,18 +30,49 @@ const logger = log.scope('ipc-sessions-handoff');
 export function buildHandOffCreateSessionOpts(
   session: SessionRecord,
   finalPrompt: string,
+  target: {
+    adapter: SessionAdapterId;
+    model: unknown;
+    thinking: unknown;
+  } = {
+    adapter: session.agentId as SessionAdapterId,
+    model: session.model ?? null,
+    thinking: session.thinking ?? null,
+  },
+  sourceMaxEventId: number | null = null,
 ): CreateSessionOptions {
+  const sameAdapter = target.adapter === session.agentId;
+  const modelOptions = resolveCreateSessionModelOptions(target.adapter, target);
   // p4-d2-impl Step 2.2：用 buildCreateSessionOptions builder helper 按 session.agentId
   // narrow 到对应 union arm（filter 掉不属本 adapter 的字段，TS 编译期阻止字段误传）。
   // session.agentId 是 SessionRecord.agentId: string，走 string overload 内部 isAgentId
   // guard，invalid throw（caller 端 sessions.ts:113 已先 sessionRepo.get 验过 session 存在
   // + line 156 验 adapter.createSession 存在，到此 session.agentId 应都是合法 union 成员）。
-  return buildCreateSessionOptions(session.agentId, {
+  return buildCreateSessionOptions(target.adapter, {
     cwd: session.cwd,
     prompt: finalPrompt,
-    ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
-    ...(session.codexSandbox ? { codexSandbox: session.codexSandbox } : {}),
-    ...(session.claudeCodeSandbox ? { claudeCodeSandbox: session.claudeCodeSandbox } : {}),
+    ...modelOptions,
+    handOff: {
+      mode: 'session',
+      fromCallerSid: session.id,
+      sourceMaxEventId,
+    },
+    awaitCanonicalId: true,
+    ...(sameAdapter && session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+    ...(sameAdapter && session.codexSandbox ? { codexSandbox: session.codexSandbox } : {}),
+    ...(sameAdapter && session.claudeCodeSandbox
+      ? { claudeCodeSandbox: session.claudeCodeSandbox }
+      : {}),
+    ...(sameAdapter && session.extraAllowWrite
+      ? { extraAllowWrite: session.extraAllowWrite }
+      : {}),
+    ...(sameAdapter && session.networkAccessEnabled !== null &&
+    session.networkAccessEnabled !== undefined
+      ? { networkAccessEnabled: session.networkAccessEnabled }
+      : {}),
+    ...(sameAdapter && session.additionalDirectories
+      ? { additionalDirectories: session.additionalDirectories }
+      : {}),
   });
 }
 
@@ -212,4 +244,3 @@ export async function dedupHandOff(
     if (handOffInflight.get(sourceSid) === p) handOffInflight.delete(sourceSid);
   }
 }
-

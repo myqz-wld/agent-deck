@@ -29,6 +29,8 @@ import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-se
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { packCodexInput, extractAttachmentPaths, toCodexAppServerInput } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
+import { SessionModelController } from '@main/adapters/session-model-controller';
+import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
@@ -129,6 +131,7 @@ export class CodexSdkBridge {
    * 不再 close/create Codex thread。
    */
   private restartController: RestartController;
+  private sessionModelController: SessionModelController;
 
   /**
    * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
@@ -179,6 +182,20 @@ export class CodexSdkBridge {
       },
     };
     this.restartController = new RestartController(restartCtx);
+    this.sessionModelController = new SessionModelController({
+      operations: this.recovering,
+      agentId: AGENT_ID,
+      emit: opts.emit,
+      applyLive: async (sessionId, options) => {
+        const internal = this.sessions.get(sessionId);
+        if (!internal) return false;
+        await internal.thread.updateModelOptions(
+          options.model,
+          options.thinking as CreateSessionOpts['modelReasoningEffort'] | null,
+        );
+        return true;
+      },
+    });
 
     // symmetry-plan P2 HIGH-B：SessionRecoverer 装配（与 claude facade 同款 thunk 注入模式）。
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
@@ -532,6 +549,10 @@ export class CodexSdkBridge {
     return this.restartController.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
   }
 
+  async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {
+    await this.sessionModelController.setOptions(sessionId, options);
+  }
+
   /**
    * 删会话清理：abort 当前 turn + 清 pendingMessages + 移除 internal session 记录。
    * 由 SessionManager.delete 调用，确保 codex 子进程不继续跑（CHANGELOG_20 / N2）。
@@ -644,9 +665,9 @@ export class CodexSdkBridge {
    * **plan resume-inject-raw-messages-20260601 §D8 test seam**（同 cwdExists / codexResumeJsonlExists
    * 模式）。codex jsonl-missing fallback 起 fresh thread 前生成 LLM 总结 prepend（解开 REVIEW_60 F5）。
    *
-   * 复用 claude oneshot `summariseSessionForHandOff`（本地 OAuth，Claude 侧 4 节结构化），传
+   * 复用 claude oneshot `summariseSessionForHandOff`（本地 OAuth，Claude 侧六节结构化检查点），传
    * **agentName='Agent'**（§D8：让 codex 会话总结不自称「Claude 会话」，buildHandoffPrompt 按此分支
-   * intro + 主体 `${a}` 替换）。不为 codex 写平行总结函数 —— 解开「codex SDK 4 节模板 reasoning
+   * intro + 主体 `${a}` 替换）。不为 codex 写平行总结函数 —— 解开「codex SDK 六节模板 reasoning
    * effort 签名差异」的历史耦合。失败语义见 SummariseFnThunk type jsdoc。
    *
    * test 通过子类化 override 不调真 LLM（撞 OAuth / 计费 / DB 未 init）。
@@ -656,7 +677,7 @@ export class CodexSdkBridge {
   }
 
   /**
-   * **plan resume-inject §D7 test seam**：全量 events 来源（喂 summariseForHandOff 出 4 节结构）。
+   * **plan resume-inject §D7 test seam**：全量 events 来源（喂 summariseForHandOff 出六节检查点）。
    * 实际走 module-level `eventRepo.listForSession`（默认 limit=200，DESC；formatEventsForPrompt
    * 内部自己 sort ASC + slice 取最新）。test 子类化 override 不依赖真 DB。
    */

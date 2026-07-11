@@ -75,6 +75,11 @@ export interface AgentAdapter {
     response: ExitPlanModeResponse,
   ): Promise<void>;
   setPermissionMode?(sessionId: string, mode: PermissionMode): Promise<void>;
+  /** Persist and apply the model / thinking selection to subsequent turns of an SDK session. */
+  setSessionModelOptions?(
+    sessionId: string,
+    options: { model: string | null; thinking: string | null },
+  ): Promise<void>;
   /**
    * 冷切：销毁旧 SDK 子进程 + 用新 mode 重建。`handoffPrompt` 必须非空（SDK streaming
    * 协议约束），调用方负责拼好语义。仅 bypassPermissions 必须走此路径，其他档可热切。
@@ -198,7 +203,7 @@ export interface AgentAdapter {
    * @param kind 区分两种 prompt 模板 + timeout：
    *   - 'summary'：周期 30 字短摘要（claude haiku ~6s / codex 'low' effort，timeout 走
    *     settings.summaryTimeoutMs）
-   *   - 'handoff'：4 节结构化简报（claude sonnet / codex 'medium' effort，60s timeout
+   *   - 'handoff'：六节结构化压缩检查点（claude sonnet / codex 'medium' effort，60s timeout
    *     hardcoded）
    *
    * @returns LLM 生成的文本；events 为空 / LLM 返回空串 → null；timeout / 进程错 → throw

@@ -112,6 +112,9 @@ export function buildTurnStartParams(
     approvalPolicy: options.approvalPolicy ?? 'never',
     sandboxPolicy: buildSandboxPolicy(options, effectiveConfig),
     ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.modelReasoningEffort !== undefined
+      ? { effort: options.modelReasoningEffort }
+      : {}),
   };
 }
 

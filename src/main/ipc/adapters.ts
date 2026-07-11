@@ -12,7 +12,11 @@ import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { adapterRegistry } from '@main/adapters/registry';
-import { buildCreateSessionOptions } from '@main/adapters/options-builder';
+import { buildCreateSessionOptions, isAgentId } from '@main/adapters/options-builder';
+import {
+  resolveCreateSessionModelOptions,
+  SessionModelOptionsError,
+} from '@main/adapters/session-model-options';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
@@ -28,86 +32,21 @@ import {
   parseCodexSandboxMode,
   parseSandboxMode,
 } from './_helpers';
-import {
-  writeUploadedImage,
-  deleteUploadIfExists,
-} from '@main/store/image-uploads';
-import { MAX_TOTAL_ATTACHMENTS_BYTES } from './_image-constants';
-import type {
-  UploadedAttachmentInput,
-  UploadedAttachmentRef,
-} from '@shared/types';
+import { deleteUploadIfExists } from '@main/store/image-uploads';
+import { persistAdapterAttachments } from './adapters-attachments';
+import { registerSessionModelOptionsIpc } from './adapters-session-model-options';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
-
 type PendingRequestList = Array<{ requestId: string }>;
-
 function mergePendingRequests<T extends { requestId: string }>(base: T[], extra: T[]): T[] {
   if (extra.length === 0) return base;
   const seen = new Set(base.map((req) => req.requestId));
   return [...base, ...extra.filter((req) => !seen.has(req.requestId))];
 }
 
-/**
- * 校验 + 写盘 attachments。失败抛错，由调用方决定回滚兄弟附件。
- *
- * 校验链：
- * - 必须是数组
- * - 每个元素必须是 UploadedAttachmentInput shape
- * - bytes 总和 ≤ MAX_TOTAL_ATTACHMENTS_BYTES（30MB）
- * - 单图校验在 writeUploadedImage 内（mime 反查 ext / base64 实测对账 / 单图 ≤ 20MB）
- *
- * 失败回滚：调用方 catch 后 deleteUploadIfExists 已落盘的 refs。
- */
-async function persistAttachments(
-  raw: unknown,
-  fieldName: string,
-): Promise<UploadedAttachmentRef[]> {
-  if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw)) {
-    throw new IpcInputError(fieldName, 'must be array');
-  }
-  if (raw.length === 0) return [];
-  if (raw.length > 20) {
-    // 上限 20 张/条：避免 renderer 误投或恶意构造
-    throw new IpcInputError(fieldName, `> 20 attachments (got ${raw.length})`);
-  }
-  let totalBytes = 0;
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') {
-      throw new IpcInputError(fieldName, 'each item must be object');
-    }
-    const it = item as Partial<UploadedAttachmentInput>;
-    if (it.kind !== 'image' || typeof it.base64 !== 'string' || typeof it.mime !== 'string') {
-      throw new IpcInputError(fieldName, 'each item must be UploadedAttachmentInput');
-    }
-    if (typeof it.bytes !== 'number' || !Number.isFinite(it.bytes) || it.bytes < 0) {
-      throw new IpcInputError(fieldName, 'each item.bytes must be non-negative number');
-    }
-    totalBytes += it.bytes;
-  }
-  if (totalBytes > MAX_TOTAL_ATTACHMENTS_BYTES) {
-    throw new IpcInputError(
-      fieldName,
-      `total ${(totalBytes / 1024 / 1024).toFixed(1)}MB > ${MAX_TOTAL_ATTACHMENTS_BYTES / 1024 / 1024}MB limit`,
-    );
-  }
-  const written: UploadedAttachmentRef[] = [];
-  try {
-    for (const item of raw as UploadedAttachmentInput[]) {
-      const ref = await writeUploadedImage(item);
-      written.push(ref);
-    }
-    return written;
-  } catch (err) {
-    // 任一图写盘失败 → 回滚已写的兄弟（best-effort）
-    await Promise.all(written.map((r) => deleteUploadIfExists(r.path)));
-    throw err;
-  }
-}
-
 export function registerAdaptersIpc(): void {
+  registerSessionModelOptionsIpc();
   // Adapter actions (createSession 在 M9 实现 SDK 通道后才会真正可用)
   on(IpcInvoke.AdapterList, () => {
     return adapterRegistry.list().map((a) => ({
@@ -118,6 +57,9 @@ export function registerAdaptersIpc(): void {
   });
   on(IpcInvoke.AdapterCreateSession, async (_e, agentId, opts) => {
     const validAgentId = parseStringId('agentId', agentId, 64);
+    if (!isAgentId(validAgentId)) {
+      throw new IpcInputError('agentId', 'unknown adapter');
+    }
     const adapter = adapterRegistry.get(validAgentId);
     if (!adapter?.createSession) throw new Error('adapter cannot create session');
     if (opts === undefined || opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
@@ -156,6 +98,18 @@ export function registerAdaptersIpc(): void {
     // 其它 adapter 静默忽略。白名单走 parseSandboxMode（_helpers.ts 已有，复用零新增）；
     // null = 不传 → claude-code adapter 用 settings.claudeCodeSandbox 全局值。
     const claudeCodeSandbox = parseSandboxMode(raw.claudeCodeSandbox);
+    let sessionModelOptions;
+    try {
+      sessionModelOptions = resolveCreateSessionModelOptions(validAgentId, {
+        model: raw.model,
+        thinking: raw.thinking,
+      });
+    } catch (error) {
+      if (error instanceof SessionModelOptionsError) {
+        throw new IpcInputError(`opts.${error.field}`, error.message);
+      }
+      throw error;
+    }
 
     // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时拒绝。
     // createSession 同 sendMessage 路径同样 enforce，防 NewSessionDialog / 测试 / 直接 IPC 绕过 ComposerSdk gate。
@@ -167,7 +121,7 @@ export function registerAdaptersIpc(): void {
       );
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。createSession throw 时本 handler 同款回滚。
-    const attachments = await persistAttachments(raw.attachments, 'opts.attachments');
+    const attachments = await persistAdapterAttachments(raw.attachments, 'opts.attachments');
     let sid: string;
     try {
       // p4-d2-impl Step 2.1：用 buildCreateSessionOptions builder helper 按 agentId narrow
@@ -183,6 +137,7 @@ export function registerAdaptersIpc(): void {
           ...(teamName !== null ? { teamName } : {}),
           ...(codexSandbox !== null ? { codexSandbox } : {}),
           ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
+          ...sessionModelOptions,
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
       );
@@ -286,7 +241,7 @@ export function registerAdaptersIpc(): void {
       );
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。sendMessage throw 时本 handler 同款回滚。
-    const attachments = await persistAttachments(rawAttachments, 'attachments');
+    const attachments = await persistAdapterAttachments(rawAttachments, 'attachments');
     // plan mcp-bug-and-feature-batch-20260513 N bug fix: 用户从历史归档会话「续聊」=
     // 主动 sendMessage 信号，应自动 unarchive 让会话回到实时面板。区分被动事件流路径
     //（hook event ingest 走 ensure() 的 archived 不动正交约定，manager.ts:152-156 注释），

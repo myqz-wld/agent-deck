@@ -25,6 +25,20 @@ describe('useLastSessionDefaults', () => {
     expect(getLastDefaults('codex-cli')).toEqual({ codexSandbox: 'read-only' });
   });
 
+  it('按 adapter 分桶记住模型与思考程度，空串保留 provider 默认语义', async () => {
+    const { getLastDefaults, setLastDefaults } = await loadDefaultsModule();
+
+    setLastDefaults('claude-code', { model: 'sonnet', thinking: 'max' });
+    setLastDefaults('codex-cli', { model: '', thinking: '' });
+
+    expect(getLastDefaults('claude-code')).toEqual({
+      permissionMode: 'bypassPermissions',
+      model: 'sonnet',
+      thinking: 'max',
+    });
+    expect(getLastDefaults('codex-cli')).toEqual({ model: '', thinking: '' });
+  });
+
   it('记住上次选择的 adapter，非法值不会污染记忆', async () => {
     const { getLastAdapter, setLastAdapter } = await loadDefaultsModule();
 

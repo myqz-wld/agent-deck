@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { NewSessionDialog } from '../NewSessionDialog';
 
 let chooseDirectory: ReturnType<typeof vi.fn>;
+let createAdapterSession: ReturnType<typeof vi.fn>;
 let resolveChooseDirectory: (value: string | null) => void;
 
 beforeEach(() => {
@@ -13,6 +14,7 @@ beforeEach(() => {
         resolveChooseDirectory = resolve;
       }),
   );
+  createAdapterSession = vi.fn().mockResolvedValue('session-new');
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -27,7 +29,7 @@ beforeEach(() => {
         },
       ]),
       chooseDirectory,
-      createAdapterSession: vi.fn(),
+      createAdapterSession,
     },
   });
 });
@@ -61,5 +63,36 @@ describe('NewSessionDialog directory picker', () => {
     });
     const readyButton = screen.getByText('选择…') as HTMLButtonElement;
     expect(readyButton.disabled).toBe(false);
+  });
+});
+
+describe('NewSessionDialog model options', () => {
+  it('把自由文本模型与 adapter-aware 思考程度透传给创建 IPC', async () => {
+    const onCreated = vi.fn();
+    const onClose = vi.fn();
+    render(<NewSessionDialog open={true} onClose={onClose} onCreated={onCreated} />);
+
+    fireEvent.change(await screen.findByLabelText('模型'), {
+      target: { value: 'claude-custom-preview' },
+    });
+    fireEvent.click(screen.getByLabelText('思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'XHIGH' }));
+    fireEvent.change(screen.getByPlaceholderText(/必填，启动会话需要第一条消息/), {
+      target: { value: '完成这个任务' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建会话' }));
+
+    await waitFor(() => {
+      expect(createAdapterSession).toHaveBeenCalledWith(
+        'claude-code',
+        expect.objectContaining({
+          prompt: '完成这个任务',
+          model: 'claude-custom-preview',
+          thinking: 'xhigh',
+        }),
+      );
+    });
+    expect(onCreated).toHaveBeenCalledWith('session-new');
+    expect(onClose).toHaveBeenCalled();
   });
 });

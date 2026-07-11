@@ -178,6 +178,19 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       }
       looseStore.set(SETTINGS_DEFAULTS_20260604_SENTINEL, true);
     }
+    // 2026-07-10：最近原始消息候选数默认从 30 升到 200。必须用独立 sentinel，确保已经
+    // 跑过 2026-06-04 uplift 的安装仍收到本次升级；首次升级后用户手动改回 30 也会保留。
+    const RECENT_MESSAGES_DEFAULT_20260710_SENTINEL =
+      '__resumeRecentMessagesDefault20260710Done';
+    if (persistedRaw[RECENT_MESSAGES_DEFAULT_20260710_SENTINEL] !== true) {
+      if (persistedRaw['resumeRecentMessagesCount'] === 30) {
+        store.set('resumeRecentMessagesCount', 200);
+        logger.info(
+          '[settings] migrated resumeRecentMessagesCount 30 → 200 (2026-07-10 default uplift)',
+        );
+      }
+      looseStore.set(RECENT_MESSAGES_DEFAULT_20260710_SENTINEL, true);
+    }
     // Claude Code sandbox 默认从 off 升到 workspace-write。单独 sentinel，不能复用上面的
     // 2026-06-04 数值默认 sentinel：已经跑过旧版本默认升级的用户也必须能收到本次迁移。
     const CLAUDE_SANDBOX_DEFAULT_20260604_SENTINEL = '__claudeSandboxDefault20260604Done';

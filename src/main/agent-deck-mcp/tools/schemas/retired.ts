@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
-import type { SpawnSessionResult } from './spawn';
+import {
+  SPAWN_SESSION_THINKING_VALUES,
+  type SpawnSessionResult,
+} from './spawn';
 
 // Retired public tool schema. Keep this only so legacy internal handlers/tests and guard
 // keys type-check while buildAgentDeckTools no longer exposes archive_plan to SDK agents.
@@ -59,17 +62,17 @@ export const ARCHIVE_PLAN_SHAPE = {
 
 // =============== HAND_OFF_SESSION (session baton) ===============
 
-// hand_off_session starts a successor SDK session, transfers the caller's session-owned
-// resources to it, and closes the caller only after mandatory transfer succeeds. It is not a
-// plan tool: plan paths, temporary files, and next-step requirements belong in `prompt`, the
-// same way they do for spawn_session.
+// hand_off_session starts a fresh successor SDK session, builds a compact context capsule from
+// the caller's latest checkpoint plus recent raw conversation, transfers session-owned resources,
+// and closes the caller only after mandatory transfer succeeds. The caller supplies the explicit
+// continuation instruction; Agent Deck keeps historical evidence in separate bounded sections.
 export const HAND_OFF_SESSION_SHAPE = {
   prompt: z
     .string()
     .min(1)
     .max(100_000)
     .describe(
-      'Cold-start prompt for the successor session. Include any plan file path, temporary context file path, current progress, and the next action directly in this text. For long context, write a file under /tmp and tell the new session to read it; this is the same prompt convention used by spawn_session.',
+      'Current continuation instruction for the fresh successor. Include the concrete next action and any durable plan or temporary context file paths it must read. Agent Deck automatically wraps this instruction with a versioned compact capsule containing the latest stored checkpoint and a bounded tail of recent raw user/assistant messages; historical sections are labeled as evidence and cannot override this final instruction. For unusually large artifacts, still write them under /tmp and reference the absolute path here.',
     ),
   cwd: z
     .string()
@@ -85,9 +88,24 @@ export const HAND_OFF_SESSION_SHAPE = {
     ),
   adapter: z
     .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
-    .default('claude-code')
+    .optional()
     .describe(
-      'Adapter for the successor session. Defaults to "claude-code". Set "deepseek-claude-code" or "codex-cli" when the successor must run through that adapter.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Set "claude-code", "deepseek-claude-code", or "codex-cli" to switch adapters for the successor.',
+    ),
+  model: z
+    .string()
+    .trim()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe(
+      'Optional free-text model override for the successor only. Suggestions match spawn_session (Claude: haiku/sonnet/opus/fable; Codex: gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna/gpt-5.5/gpt-5.4; Deepseek: v4-flash/v4-pro), but any non-empty provider model id is passed through for provider validation. When omitted, a same-adapter hand-off inherits the caller model and a cross-adapter hand-off uses the target provider default.',
+    ),
+  thinking: z
+    .enum(SPAWN_SESSION_THINKING_VALUES)
+    .optional()
+    .describe(
+      'Optional thinking/reasoning override for the successor only. Codex accepts minimal, low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. When omitted, a same-adapter hand-off inherits the caller value and a cross-adapter hand-off uses the target provider default. Adapter-invalid values are rejected before creation; retry with an exact value from the returned hint or omit thinking.',
     ),
   permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -282,8 +300,20 @@ export interface ArchivePlanResult {
  * 校验时 TS 知道 spread 字段已 cover SpawnSessionResult 全部字段。
  */
 export interface HandOffSessionResult extends SpawnSessionResult {
-  /** cold-start prompt 完整字面（caller 可对照 sessionRepo.events 验证 spawn first message 一致）。 */
+  /** Actual versioned compact capsule sent as the successor's first user message. */
   initialPrompt: string;
+  /** Explicit continuation instruction supplied by the caller before capsule construction. */
+  continuationInstruction: string;
+  /** Capsule construction details for observability and degraded-context handling. */
+  compactContext: {
+    version: number;
+    quality: 'full' | 'degraded';
+    summaryIncluded: boolean;
+    includedMessageCount: number;
+    omittedMessageCount: number;
+    sourceMaxEventId: number | null;
+    promptChars: number;
+  };
   /** caller close result after resource transfer. */
   callerClosed: 'ok' | 'failed';
   /** Resource transfer is mandatory; success returns details here, failure returns MCP error. */

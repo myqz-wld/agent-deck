@@ -24,17 +24,20 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
 let sendAdapterMessage: ReturnType<typeof vi.fn>;
 let steerAdapterTurn: ReturnType<typeof vi.fn>;
 let interruptAdapterSession: ReturnType<typeof vi.fn>;
+let setSessionModelOptions: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   sendAdapterMessage = vi.fn(() => Promise.resolve());
   steerAdapterTurn = vi.fn(() => Promise.resolve());
   interruptAdapterSession = vi.fn(() => Promise.resolve());
+  setSessionModelOptions = vi.fn(() => Promise.resolve());
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
       sendAdapterMessage,
       steerAdapterTurn,
       interruptAdapterSession,
+      setSessionModelOptions,
     } as unknown as Window['api'],
   });
 });
@@ -86,6 +89,23 @@ describe('ComposerSdk unified input routing', () => {
     await waitFor(() => {
       expect(input.value).toBe('do not continue that path');
       expect(screen.getByText(/Codex 当前没有可 steer 的 active turn/)).toBeTruthy();
+    });
+  });
+
+  it('applies a free-form model and dropdown thinking level to the next turn', async () => {
+    render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
+
+    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
+    fireEvent.click(screen.getByLabelText('思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
+    fireEvent.click(screen.getByRole('button', { name: '应用到下一轮' }));
+
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        model: 'gpt-custom',
+        thinking: 'ultra',
+      });
     });
   });
 });

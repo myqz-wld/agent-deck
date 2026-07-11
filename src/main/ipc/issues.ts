@@ -24,7 +24,14 @@ import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { z } from 'zod';
 import { adapterRegistry } from '@main/adapters/registry';
-import { buildCreateSessionOptions } from '@main/adapters/options-builder';
+import {
+  buildCreateSessionOptions,
+  type AgentId,
+} from '@main/adapters/options-builder';
+import {
+  resolveCreateSessionModelOptions,
+  SessionModelOptionsError,
+} from '@main/adapters/session-model-options';
 import { sessionManager } from '@main/session/manager';
 import { issueRepo } from '@main/store/issue-repo';
 import { eventBus } from '@main/event-bus';
@@ -86,6 +93,8 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   permissionMode: z.string().optional(), // parsePermissionMode 内部白名单
   codexSandbox: z.string().optional(),
   claudeCodeSandbox: z.string().optional(),
+  model: z.string().max(256).optional(),
+  thinking: z.string().optional(), // resolveCreateSessionModelOptions 内按 adapter 白名单校验
 }).strict();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -102,6 +111,8 @@ interface CreateIssueResolutionSessionInput {
   permissionMode: ReturnType<typeof parsePermissionMode>;
   codexSandbox: ReturnType<typeof parseCodexSandboxMode>;
   claudeCodeSandbox: ReturnType<typeof parseSandboxMode>;
+  model?: unknown;
+  thinking?: unknown;
 }
 
 export async function createIssueResolutionSession(input: CreateIssueResolutionSessionInput): Promise<string> {
@@ -126,6 +137,18 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
   if (input.cwd.length > 4096) {
     throw new IpcInputError('cwd', `length > 4096 (got ${input.cwd.length})`);
   }
+  let sessionModelOptions;
+  try {
+    sessionModelOptions = resolveCreateSessionModelOptions(validAdapterId as AgentId, {
+      model: input.model,
+      thinking: input.thinking,
+    });
+  } catch (error) {
+    if (error instanceof SessionModelOptionsError) {
+      throw new IpcInputError(error.field, error.message);
+    }
+    throw error;
+  }
   // §9 调 adapter.createSession（§8 不支持 attachments — buildCreateSessionOptions 不传 attachments
   // 字段 → builder 走 attachments=[] 默认；helper signature 无 attachments 字段保接口最小）
   const sid = await a.createSession(
@@ -135,6 +158,7 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
       ...(input.permissionMode !== null ? { permissionMode: input.permissionMode } : {}),
       ...(input.codexSandbox !== null ? { codexSandbox: input.codexSandbox } : {}),
       ...(input.claudeCodeSandbox !== null ? { claudeCodeSandbox: input.claudeCodeSandbox } : {}),
+      ...sessionModelOptions,
     }),
   );
   // §10 关键:recordCreatedPermissionMode 持久化（与 ipc/adapters.ts:182 同款 — 保证后续 SDK session
@@ -285,6 +309,8 @@ export async function issuesResolveInNewSessionHandler(
       permissionMode,
       codexSandbox,
       claudeCodeSandbox,
+      model: args.model?.trim() || null,
+      thinking: args.thinking ?? null,
       promptLength: args.prompt.length,
     });
     // §9-§10 起 SDK session + recordCreatedPermissionMode
@@ -295,6 +321,8 @@ export async function issuesResolveInNewSessionHandler(
       permissionMode,
       codexSandbox,
       claudeCodeSandbox,
+      model: args.model,
+      thinking: args.thinking,
     });
     logger.info('[IssuesResolveInNewSession] spawned resolution session', {
       issueId: args.issueId,

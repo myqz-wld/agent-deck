@@ -7,7 +7,7 @@
  * template，其中：
  *   - prompt template 4 份字面镜像 95%（仅 agent 身份 + intro + 1 句澄清差异）
  *   - race 模板 4 份字面镜像 100%（仅 errorMessage / onTimeout 差异）
- *   - result clean 4 份分两种模式（compact tag-line / structured 4-section）
+ *   - result clean 4 份分两种模式（compact tag-line / structured six-section checkpoint）
  *   - claude SDK 设置 2 份镜像 95%（仅模型 / prompt / systemPrompt 差异）
  *   - codex SDK 设置 2 份镜像 95%（仅 reasoning effort 差异）
  *

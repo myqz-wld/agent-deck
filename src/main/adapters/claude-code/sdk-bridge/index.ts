@@ -36,6 +36,9 @@ import {
 } from './recoverer';
 import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
+import { SessionModelController } from '@main/adapters/session-model-controller';
+import type { SessionModelOptions } from '@main/adapters/session-model-options';
+import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { runCloseSessionCleanup } from './pending-cancellation';
 import { validateSendMessageOrThrow } from './send-validation';
 import { createSessionImpl } from './create-session/create-session-impl';
@@ -126,6 +129,7 @@ export class ClaudeSdkBridge {
 
   /** 详 restart-controller.ts —— restartWithPermissionMode + restartWithClaudeCodeSandbox 冷切。 */
   private restartController: RestartController;
+  private sessionModelController: SessionModelController;
 
   constructor(private opts: SdkBridgeOptions) {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
@@ -149,6 +153,26 @@ export class ClaudeSdkBridge {
       // 共享同一 closure），helper injectResumeHistory 拼「最近原始对话消息段」用。
       listMessagesFn: (sid, limit, beforeId) =>
         this.listRecentMessagesForSession(sid, limit, beforeId),
+    });
+
+    this.sessionModelController = new SessionModelController({
+      operations: this.recovering,
+      agentId: 'claude-code',
+      emit: opts.emit,
+      applyLive: async (sessionId, options) => {
+        const internal = this.sessions.get(sessionId);
+        if (!internal) return false;
+        await internal.query.setModel(options.model ?? undefined);
+        const flagSettings = {
+          effortLevel: options.thinking,
+        } as unknown as Parameters<InternalSession['query']['applyFlagSettings']>[0];
+        await internal.query.applyFlagSettings(flagSettings);
+        internal.runtimeModel = options.model ?? undefined;
+        internal.runtimeEffort = isClaudeThinkingLevel(options.thinking)
+          ? options.thinking
+          : undefined;
+        return true;
+      },
     });
 
     this.responder = new PermissionResponder(
@@ -341,7 +365,7 @@ export class ClaudeSdkBridge {
    * CHANGELOG_107: LLM 摘要 protected wrapper(同 resumeJsonlExists / cwdExists 模式)。
    *
    * 让 test 通过子类化 override 不调真 LLM(撞 OAuth / 计费 / DB 未 init);实际走
-   * module-level `summariseSessionForHandOff`(sonnet + 60s timeout + 4 节结构化输出)。
+   * module-level `summariseSessionForHandOff`(sonnet + 60s timeout + 六节结构化检查点输出)。
    *
    * recoverer 拿这个 thunk 在 jsonl missing fallback / cwdFellBack=true 路径前生成
    * 摘要 prepend 到 fresh CLI 首条 prompt(Step 2 prependHistorySummary helper)。
@@ -541,6 +565,10 @@ export class ClaudeSdkBridge {
     // chain 自身吞 throw 防链路打破，caller 拿到的 next promise 仍 reject 真错给上层
     s.permissionModeChain = next.catch(() => undefined);
     return next;
+  }
+
+  async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {
+    await this.sessionModelController.setOptions(sessionId, options);
   }
 
   /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */

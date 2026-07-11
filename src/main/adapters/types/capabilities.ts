@@ -5,6 +5,12 @@
 
 export interface AdapterCapabilities {
   canCreateSession: boolean;
+  /**
+   * Whether an SDK session can change its model / thinking selection without creating a new
+   * application session. Changes are persisted immediately and apply to the next provider turn;
+   * an already-running response is never interrupted for this operation.
+   */
+  canSetSessionModelOptions?: boolean;
   /** Supports native same-adapter conversation forks through createForkedSession. */
   canForkSession: boolean;
   canInterrupt: boolean;

@@ -451,7 +451,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           所以这里 onClose 只关闭 modal 不需 props 传 newSid。 */}
       <HandOffPreviewDialog
         open={handOffOpen}
-        sessionId={session.id}
+        session={session}
         onClose={() => setHandOffOpen(false)}
       />
     </div>

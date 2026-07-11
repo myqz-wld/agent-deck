@@ -105,7 +105,7 @@ export async function summariseViaLlm(
  *
  * 与 `summariseViaLlm` 字面差异：
  * - 用 sonnet 模型（hand-off 是低频但要求结构化输出准确，haiku 偏弱）
- * - prompt 要求输出「目标 / 已做 / 下一步 / 相关文件」四节结构化
+ * - prompt 要求输出六节结构化压缩检查点
  * - 60s timeout（hardcoded，不读 settings.summaryTimeoutMs；hand-off 用 sonnet 慢需更长 budget）
  * - resultMaxLen 4000（允许更长接力简报，hand-off 不像 30 字 tag-line）
  *
@@ -132,7 +132,7 @@ export async function summariseSessionForHandOff(
     cwd,
     prompt: buildHandoffPrompt({ cwd, activity, agentName }),
     // hand-off 简报默认 sonnet(推翻 CHANGELOG_161 与 summary 对齐 haiku 的决策):
-    // 4 节结构化简报对结构精度 / 上下文压缩质量敏感,sonnet 比 haiku 显著更稳。summary 仍 haiku
+    // 六节结构化检查点对结构精度 / 上下文压缩质量敏感,sonnet 比 haiku 显著更稳。summary 仍 haiku
     // (短 tag-line 容错高、量大成本敏感),hand-off 不在该约束。user 想降 haiku 或升 opus/
     // thinking-max 自己在 settings.handOffModel 填 model id 即可。
     // 优先级链:
@@ -154,6 +154,6 @@ export async function summariseSessionForHandOff(
     timeoutErrorMessage: '__handoff_summary_timeout__',
   });
 
-  // 4 节简报允许较长（4000 字 ≈ 1500 token，足够 4 节展开）；保留 \n 换行让 textarea preview 直接渲染分段。
+  // 六节检查点允许较长（4000 字 ≈ 1500 token，足够各节展开）；保留 \n 换行让 textarea preview 直接渲染分段。
   return cleanStructuredResult(result, 4000);
 }

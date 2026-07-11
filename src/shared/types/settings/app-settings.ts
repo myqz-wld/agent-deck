@@ -113,7 +113,7 @@ export interface AppSettings {
   summaryReasoning: SessionThinkingLevel;
   /**
    * Hand-off 接力简报走哪个 LLM provider(plan prancy-forging-penguin)。语义同 summaryProvider
-   * 但作用于 IPC `SessionHandOffSummarize` handler(手动 UI 按钮触发的 4 节结构化简报):
+   * 但作用于 IPC `SessionHandOffSummarize` handler(手动 UI 按钮触发的六节结构化检查点):
    * **决定出简报的 adapter,与被 hand-off 的目标会话原 adapter 无关**(目标会话保持自己 adapter 不变,
    * 仅是简报这一段由 user 选的 provider 出)。
    */
@@ -131,7 +131,7 @@ export interface AppSettings {
    * - `''`(默认空) = 沿用各 provider env / alias / config.toml 链
    * - 非空 = 覆盖
    *
-   * **default sonnet**(与 summaryModel 默认 haiku 不同):4 节结构化简报对压缩质量 /
+   * **default sonnet**(与 summaryModel 默认 haiku 不同):六节结构化检查点对压缩质量 /
    * 结构精度敏感,sonnet 显著更稳;summary 短 tag-line 容错高量大走 haiku 省成本。
    */
   handOffModel: string;
@@ -141,7 +141,7 @@ export interface AppSettings {
    * provider 对应档位同 summaryReasoning：Codex 支持完整 7 档，Claude / Deepseek
    * 支持 `low | medium | high | xhigh | max`。
    *
-   * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 4 节结构化输出
+   * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 六节结构化检查点输出
    *   对模型理解力要求高,medium 是 spike 实测下的最佳折中(high 太慢、low 输出结构常常错位)
    * - `'low'`/`'minimal'`: user 想省 token / 出字快时降档
    * - `'high'/'xhigh'/'max'`: 更高结构精度需求（注意成本与延迟）
@@ -179,15 +179,16 @@ export interface AppSettings {
    */
   historyRetentionDays: number;
   /**
-   * resume/fallback 注入「最近原始对话消息」条数（plan resume-inject-raw-messages-20260601 §D5）。
+   * resume/fallback 与 hand-off capsule 读取「最近原始对话消息」的候选条数。
    *
    * jsonl-missing fallback 起 fresh CLI/thread 之前，除 LLM 总结段外**额外注入** DB（events 表）
    * 最近 N 条原始 role/text 对话消息（让 Agent 续聊不只看压缩总结，还看到原始上下文细节）。
-   * - 正数：注入最近 N 条对话（user/assistant message-only，预算式拼接逐条加到逼近 maxLength
-   *   预算就停，故实际条数 ≤ N — 长会话优先保最新对话不撑爆 102_400 单条上限）。
-   * - default 30：30 条对话扣总结约占 95900 预算，平均每条 ≤3196 字符即 fit（§架构地基）。
+   * - 正数：最多读取最近 N 条对话（user/assistant message-only）；消费者再按各自字符预算
+   *   选择最新可容纳消息，故实际条数 ≤ N。fallback 总 prompt 上限 102_400，hand-off raw
+   *   tail 预算约 20,000 字符。
+   * - default 200：提高长会话候选覆盖面，同时仍由字符预算限制最终注入大小。
    *
-   * 即改即生效：消费者（claude/codex fallback 路径）每次 fallback 触发临时 settingsStore.get，
+   * 即改即生效：claude/codex fallback 与 UI/MCP hand-off 每次构建上下文时临时读取设置，
    * 无 cache 需 invalidate；不影响正常 resume 路径（jsonl 在 → CLI 自续 jsonl，Agent 看完整对话）。
    */
   resumeRecentMessagesCount: number;

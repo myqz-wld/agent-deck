@@ -13,12 +13,24 @@ import { taskRepo } from '@main/store/task-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
 import { summariseSessionForHandOff } from '@main/session/summarizer';
+import {
+  buildHandOffContextPrompt,
+  DEFAULT_HAND_OFF_CONTINUATION_INSTRUCTION,
+} from '@main/session/hand-off/context-prompt';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import type { EventMap } from '@main/event-bus';
-import type { AppSettings, TaskRecord } from '@shared/types';
+import type {
+  AppSettings,
+  HandOffSpawnRequest,
+  SessionAdapterId,
+  TaskRecord,
+} from '@shared/types';
 import { buildHandOffCreateSessionOpts, dedupHandOff, archiveSourceSessionWithEmit } from './sessions-hand-off-helper';
+import { transferHandOffResources } from '@main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator';
+import { isAgentId } from '@main/adapters/options-builder';
+import { SessionModelOptionsError } from '@main/adapters/session-model-options';
 import { on, parseStringId, parsePositiveInt, parseStringIdArray, IpcInputError } from './_helpers';
 import log from '@main/utils/logger';
 
@@ -125,12 +137,9 @@ export function registerSessionsIpc(): void {
   });
 
   /**
-   * K3 hand-off Stage 1 (plan mcp-bug-and-feature-batch-20260513 Phase 4c)：
-   * 拉历史 → LLM oneshot 生成结构化接力简报，返回供 renderer 在 modal preview / 编辑
-   * 后再调 SessionHandOffSpawn 起新 session。
-   *
-   * 失败：throw → renderer modal inline error 让用户重试。不做兜底文本（让用户看到真实
-   * 错误便于决策：是 LLM 超时还是 session 已删 / 其它）。
+   * K3 hand-off Stage 1：在稳定的 sourceMaxEventId 边界内构建可编辑压缩胶囊。
+   * LLM 结构化总结是可选增强；总结失败时保留最近原始对话，不因外部 provider
+   * 超时丢掉可接力的历史。只有总结和合格原始对话都不存在时才报空会话。
    */
   on(IpcInvoke.SessionHandOffSummarize, async (_e, id) => {
     const sid = parseStringId('sessionId', id);
@@ -138,6 +147,11 @@ export function registerSessionsIpc(): void {
     if (!session) {
       throw new IpcInputError('sessionId', `session not found: ${sid}`);
     }
+    // Capture the high-water mark before the synchronous snapshot query. Events that arrive while
+    // the LLM summary is running must make Stage 2 reject this preview as stale.
+    // Use 0 as the stable empty-history boundary. A nullable boundary would disable Stage 2's
+    // stale-preview check and could let the first event created during summarization slip through.
+    const sourceMaxEventId = eventRepo.maxEventId(sid) ?? 0;
     const events = eventRepo.listForSession(sid, 200);
     // plan prancy-forging-penguin 改造:dispatch 改成按 **settings.handOffProvider** 选 adapter
     // 出简报(与被 hand-off 的目标会话原 adapter 解耦)。原 R37 P2-I 是按 session.agentId 走,
@@ -168,19 +182,58 @@ export function registerSessionsIpc(): void {
         `adapter cannot create session: ${session.agentId} (hand-off Stage 1 fail-fast)`,
       );
     }
-    const summary = summaryAdapter?.summariseEvents
-      ? await summaryAdapter.summariseEvents(session.cwd, events, 'handoff')
-      : await summariseSessionForHandOff(session.cwd, events);
-    if (!summary) {
-      // events 为空（新会话）/ LLM 返回空串都视为「没东西可总结」—— 让 renderer
-      // 显示「会话还没活动可总结」inline error，用户可手动写兜底 prompt 起新会话。
-      throw new Error('no summary generated (empty session or LLM returned empty)');
+    let summary: string | null = null;
+    try {
+      const generated = summaryAdapter?.summariseEvents
+        ? await summaryAdapter.summariseEvents(session.cwd, events, 'handoff')
+        : await summariseSessionForHandOff(session.cwd, events);
+      summary = generated?.trim() ? generated : null;
+      if (!summary) {
+        logger.warn(`[ipc hand-off] summary provider returned empty for ${sid}; using raw history`);
+      }
+    } catch (error) {
+      logger.warn(`[ipc hand-off] summary provider failed for ${sid}; using raw history`, error);
+    }
+
+    let recentMessages: ReturnType<typeof eventRepo.listRecentMessages> = [];
+    try {
+      recentMessages = eventRepo.listRecentMessages(
+        sid,
+        settingsStore.get('resumeRecentMessagesCount'),
+        sourceMaxEventId,
+      );
+    } catch (error) {
+      logger.warn(`[ipc hand-off] recent message snapshot failed for ${sid}`, error);
+    }
+
+    const context = buildHandOffContextPrompt({
+      source: {
+        sessionId: sid,
+        adapter: session.agentId,
+        cwd: session.cwd,
+        model: session.model ?? null,
+        thinking: session.thinking ?? null,
+        sourceMaxEventId,
+      },
+      summary,
+      recentMessages,
+      currentInstruction: DEFAULT_HAND_OFF_CONTINUATION_INSTRUCTION,
+    });
+    if (!summary && context.includedMessageCount === 0) {
+      throw new Error('no summary generated (empty session or no eligible raw messages)');
     }
     return {
-      summary,
+      summary: context.prompt,
+      contextQuality: context.quality,
+      summaryIncluded: context.summaryIncluded,
+      includedMessageCount: context.includedMessageCount,
+      omittedMessageCount: context.omittedMessageCount,
       sourceCwd: session.cwd,
       sourceAgentId: session.agentId,
       sourcePermissionMode: session.permissionMode ?? null,
+      sourceModel: session.model ?? null,
+      sourceThinking: session.thinking ?? null,
+      sourceMaxEventId,
     };
   });
 
@@ -193,8 +246,25 @@ export function registerSessionsIpc(): void {
    * TOCTOU 防线」节「失败路径也要清理」精神：这里不是「释放标记 / 清 Map」类清理，
    * 是「联动 UX 行为」，失败不传递错误更合用户预期。
    */
-  on(IpcInvoke.SessionHandOffSpawn, async (_e, id, finalPrompt) => {
+  on(IpcInvoke.SessionHandOffSpawn, async (_e, id, rawRequest) => {
     const sid = parseStringId('sessionId', id);
+    const source = sessionRepo.get(sid);
+    if (!source) {
+      throw new IpcInputError('sessionId', `session not found: ${sid}`);
+    }
+    const request: HandOffSpawnRequest =
+      typeof rawRequest === 'string'
+        ? {
+            prompt: rawRequest,
+            target: {
+              adapter: source.agentId as SessionAdapterId,
+              model: source.model ?? null,
+              thinking: source.thinking ?? null,
+            },
+            expectedSourceMaxEventId: null,
+          }
+        : parseHandOffSpawnRequest(rawRequest);
+    const finalPrompt = request.prompt;
     if (typeof finalPrompt !== 'string' || finalPrompt.length === 0) {
       throw new IpcInputError('finalPrompt', 'must be non-empty string');
     }
@@ -206,13 +276,9 @@ export function registerSessionsIpc(): void {
         `> 102400 chars (got ${finalPrompt.length.toLocaleString()})`,
       );
     }
-    const session = sessionRepo.get(sid);
-    if (!session) {
-      throw new IpcInputError('sessionId', `session not found: ${sid}`);
-    }
-    const adapter = adapterRegistry.get(session.agentId);
+    const adapter = adapterRegistry.get(request.target.adapter);
     if (!adapter?.createSession) {
-      throw new Error(`adapter cannot create session: ${session.agentId}`);
+      throw new Error(`adapter cannot create session: ${request.target.adapter}`);
     }
     // REVIEW_33 H7：dedupHandOff 单飞 —— 同 sourceSid 并发 IPC 复用同一 in-flight Promise，
     // 避免「双击 / 多 renderer 实例」起两个 SDK 子进程（按次计费 + UI 状态分裂）。
@@ -220,15 +286,58 @@ export function registerSessionsIpc(): void {
     // submitInFlightRef 同步守门，比 React state setSpawning 快 16-200ms），main 端
     // dedupHandOff 是兜底闸：第二次 IPC 拿到同一个 newSid 返回 + 同款 session-focus-request。
     return await dedupHandOff(sid, async () => {
+      const currentMaxEventId = eventRepo.maxEventId(sid) ?? 0;
+      if (
+        request.expectedSourceMaxEventId !== null &&
+        currentMaxEventId !== request.expectedSourceMaxEventId
+      ) {
+        throw new Error('接力预览已过期：源会话在总结后产生了新活动，请重新生成压缩上下文。');
+      }
       // REVIEW_33 H6：opts 拼装抽到 buildHandOffCreateSessionOpts —— 透传 cwd / permissionMode /
       // codexSandbox / claudeCodeSandbox 四字段，避免「用户原 session 切到 read-only / strict 后
       // hand-off 起的新 session 落 settings 全局默认」隐性沙盒 downgrade。详 helper 注释。
-      const newSid = await adapter.createSession!(
-        buildHandOffCreateSessionOpts(session, finalPrompt),
-      );
+      let createOptions: ReturnType<typeof buildHandOffCreateSessionOpts>;
+      try {
+        createOptions = buildHandOffCreateSessionOpts(
+          source,
+          finalPrompt,
+          request.target,
+          currentMaxEventId,
+        );
+      } catch (error) {
+        if (error instanceof SessionModelOptionsError) {
+          throw new IpcInputError(`target.${error.field}`, error.message);
+        }
+        throw error;
+      }
+      const newSid = await adapter.createSession!(createOptions);
       // permissionMode 持久化到新 session（沿用原 session，让 detail 视图显示一致）
-      if (session.permissionMode && session.permissionMode !== 'default') {
-        sessionManager.recordCreatedPermissionMode(newSid, session.permissionMode);
+      if (
+        request.target.adapter === source.agentId &&
+        source.permissionMode &&
+        source.permissionMode !== 'default'
+      ) {
+        sessionManager.recordCreatedPermissionMode(newSid, source.permissionMode);
+      }
+
+      const resourceTransfer = transferHandOffResources({
+        callerSessionId: sid,
+        callerRow: source,
+        newSessionId: newSid,
+      });
+      if (
+        resourceTransfer.tasks.status === 'failed' ||
+        resourceTransfer.teams.status === 'failed' ||
+        resourceTransfer.worktreeMarker.status === 'failed'
+      ) {
+        try {
+          await sessionManager.close(newSid);
+        } catch (cleanupError) {
+          logger.warn(`[ipc hand-off] successor cleanup failed: ${newSid}`, cleanupError);
+        }
+        throw new Error(
+          `接力资源迁移失败，源会话仍保持可用：${JSON.stringify(resourceTransfer)}`,
+        );
       }
       // 自动归档原 session：失败仅 warn 不阻塞 newSid 返回（用户至少能切到新 session 工作）。
       // archive-failure-ux-upthrow-20260515 plan: K3 走独立 sessionManager.archive(sid) 不经
@@ -240,6 +349,7 @@ export function registerSessionsIpc(): void {
       // R2 reviewer-codex MED-1 修法: 必传 getSession seam,helper 内部重新探针 source row
       // (createSession 是 long-running async,row 可能在期间被异常清理),与 mcp baton-cleanup 行为
       // 对齐 (row-missing → emit 'row-missing' 短路 / row 存在 → archive → 异常 emit 'archive-throw')。
+      await sessionManager.close(sid);
       await archiveSourceSessionWithEmit(sid, {
         archive: (id) => sessionManager.archive(id),
         getSession: (id) => sessionRepo.get(id),
@@ -265,6 +375,45 @@ export function registerSessionsIpc(): void {
       ),
     );
   });
+}
+
+function parseHandOffSpawnRequest(value: unknown): HandOffSpawnRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new IpcInputError('request', 'must be object');
+  }
+  const raw = value as Record<string, unknown>;
+  if (!raw.target || typeof raw.target !== 'object' || Array.isArray(raw.target)) {
+    throw new IpcInputError('request.target', 'must be object');
+  }
+  const target = raw.target as Record<string, unknown>;
+  if (typeof target.adapter !== 'string' || !isAgentId(target.adapter)) {
+    throw new IpcInputError('request.target.adapter', 'unknown adapter');
+  }
+  const checkpoint = raw.expectedSourceMaxEventId;
+  if (
+    checkpoint !== null &&
+    (!Number.isSafeInteger(checkpoint) || (checkpoint as number) < 0)
+  ) {
+    throw new IpcInputError(
+      'request.expectedSourceMaxEventId',
+      'must be a non-negative integer or null',
+    );
+  }
+  if (target.model !== null && typeof target.model !== 'string') {
+    throw new IpcInputError('request.target.model', 'must be a string or null');
+  }
+  if (target.thinking !== null && typeof target.thinking !== 'string') {
+    throw new IpcInputError('request.target.thinking', 'must be a string or null');
+  }
+  return {
+    prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
+    target: {
+      adapter: target.adapter,
+      model: target.model,
+      thinking: target.thinking,
+    },
+    expectedSourceMaxEventId: checkpoint as number | null,
+  };
 }
 
 async function getCurrentGitBranch(cwd: string): Promise<string | null> {

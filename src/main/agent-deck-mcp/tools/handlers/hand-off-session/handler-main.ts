@@ -1,10 +1,22 @@
 import { existsSync } from 'node:fs';
 
+import { isAgentId } from '@main/adapters/options-builder';
+import {
+  buildHandOffContextPrompt,
+  HAND_OFF_CONTEXT_VERSION,
+} from '@main/session/hand-off/context-prompt';
 import { sessionManager } from '@main/session/manager';
+import { eventRepo } from '@main/store/event-repo';
+import { settingsStore } from '@main/store/settings-store';
 import { sessionRepo } from '@main/store/session-repo';
+import { summaryRepo } from '@main/store/summary-repo';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import log from '@main/utils/logger';
 import { omitUndefined } from '@main/utils/optional-fields';
+import {
+  isClaudeThinkingLevel,
+  isCodexThinkingLevel,
+} from '@shared/session-metadata';
 
 import {
   err,
@@ -56,6 +68,15 @@ function summarizeHandlerResult(result: { content: Array<{ text: string }> }): s
   }
 }
 
+function inheritedThinkingForAdapter(
+  adapter: SpawnSessionArgs['adapter'],
+  value: string | null | undefined,
+): SpawnSessionArgs['thinking'] | undefined {
+  if (!value) return undefined;
+  if (adapter === 'codex-cli') return isCodexThinkingLevel(value) ? value : undefined;
+  return isClaudeThinkingLevel(value) ? value : undefined;
+}
+
 export const handOffSessionHandler = withMcpGuard(
   'hand_off_session',
   async (
@@ -74,6 +95,20 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
 
+    let targetAdapter = args.adapter;
+    if (targetAdapter === undefined) {
+      if (!isAgentId(callerRow.agentId)) {
+        logger.warn(
+          `[mcp hand_off_session] caller has unsupported legacy adapter: caller=${callerSessionId} adapter=${callerRow.agentId}`,
+        );
+        return err(
+          `caller session has unsupported adapter: ${callerRow.agentId}`,
+          'Pass args.adapter explicitly as claude-code, deepseek-claude-code, or codex-cli so Agent Deck can create the successor without relying on stale caller metadata.',
+        );
+      }
+      targetAdapter = callerRow.agentId;
+    }
+
     const finalCwd = args.cwd ?? callerRow.cwd;
     const cwdExists = handlerDeps?.cwdExists ?? existsSync;
     if (!cwdExists(finalCwd)) {
@@ -86,14 +121,59 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
 
+    let sourceMaxEventId: number | null;
+    let compactContext: ReturnType<typeof buildHandOffContextPrompt>;
+    try {
+      // Read the last already-committed checkpoint first, then capture the event boundary. A
+      // checkpoint inserted after this read is intentionally deferred to a later hand-off; every
+      // checkpoint we do accept was derived from events that existed before the captured boundary.
+      const latestSummary = summaryRepo.latestForSession(callerSessionId);
+      sourceMaxEventId = eventRepo.maxEventId(callerSessionId) ?? 0;
+      const recentMessages = eventRepo.listRecentMessages(
+        callerSessionId,
+        settingsStore.get('resumeRecentMessagesCount'),
+        sourceMaxEventId,
+      );
+      compactContext = buildHandOffContextPrompt({
+        source: {
+          sessionId: callerSessionId,
+          adapter: callerRow.agentId,
+          cwd: callerRow.cwd,
+          model: callerRow.model ?? null,
+          thinking: callerRow.thinking ?? null,
+          sourceMaxEventId,
+        },
+        summary: latestSummary?.content ?? null,
+        recentMessages,
+        currentInstruction: args.prompt,
+      });
+    } catch (e) {
+      logger.warn(
+        `[mcp hand_off_session] failed to build compact context caller=${callerSessionId}:`,
+        e,
+      );
+      return err(
+        `failed to build compact handoff context: ${errorMessage(e)}`,
+        'The caller remains active and no successor was spawned. Check the source session event/summary store, then retry hand_off_session with the same continuation instruction.',
+      );
+    }
+
     logger.info(
-      `[mcp hand_off_session] start caller=${callerSessionId} adapter=${args.adapter ?? 'claude-code'} cwd=${finalCwd} promptChars=${args.prompt.length} extraAllowWrite=${args.extraAllowWrite?.length ?? 0}`,
+      `[mcp hand_off_session] start caller=${callerSessionId} adapter=${targetAdapter} cwd=${finalCwd} continuationChars=${args.prompt.length} compactPromptChars=${compactContext.prompt.length} sourceMaxEventId=${sourceMaxEventId ?? 'none'} extraAllowWrite=${args.extraAllowWrite?.length ?? 0}`,
     );
 
+    const sameAdapter = targetAdapter === callerRow.agentId;
+    const targetModel = args.model ?? (sameAdapter ? (callerRow.model ?? undefined) : undefined);
+    const targetThinking =
+      args.thinking ??
+      (sameAdapter
+        ? inheritedThinkingForAdapter(targetAdapter, callerRow.thinking)
+        : undefined);
+
     const spawnArgs: SpawnSessionArgs = {
-      adapter: args.adapter ?? 'claude-code',
+      adapter: targetAdapter,
       cwd: finalCwd,
-      prompt: args.prompt,
+      prompt: compactContext.prompt,
       handOff: {
         mode: 'session',
         fromCallerSid: callerSessionId,
@@ -102,6 +182,8 @@ export const handOffSessionHandler = withMcpGuard(
         permissionMode: args.permissionMode,
         codexSandbox: args.codexSandbox,
         claudeCodeSandbox: args.claudeCodeSandbox,
+        model: targetModel,
+        thinking: targetThinking,
       }),
       ...(args.extraAllowWrite !== undefined && args.extraAllowWrite.length > 0
         ? { extraAllowWrite: [...args.extraAllowWrite] }
@@ -217,7 +299,17 @@ export const handOffSessionHandler = withMcpGuard(
     }
 
     return ok({
-      initialPrompt: args.prompt,
+      initialPrompt: compactContext.prompt,
+      continuationInstruction: args.prompt,
+      compactContext: {
+        version: HAND_OFF_CONTEXT_VERSION,
+        quality: compactContext.quality,
+        sourceMaxEventId,
+        summaryIncluded: compactContext.summaryIncluded,
+        includedMessageCount: compactContext.includedMessageCount,
+        omittedMessageCount: compactContext.omittedMessageCount,
+        promptChars: compactContext.prompt.length,
+      },
       callerClosed,
       resourceTransfer,
       ...spawnData,

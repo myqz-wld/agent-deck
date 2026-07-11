@@ -24,6 +24,7 @@ import {
   getClaudeConfigRoot,
 } from '../claude-code/fork-session';
 import { settingsStore } from '@main/store/settings-store';
+import { mapDeepseekModelAlias } from '@main/adapters/session-model-options';
 import {
   getDeepseekDefaultModel,
   getDeepseekModelForClaudeAlias,
@@ -119,6 +120,7 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
   displayName = 'Deepseek (Claude Code)';
   capabilities = {
     canCreateSession: true,
+    canSetSessionModelOptions: true,
     canForkSession: true,
     canInterrupt: true,
     canSendMessage: true,
@@ -254,6 +256,17 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
   async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.setPermissionMode(sessionId, mode);
+  }
+
+  async setSessionModelOptions(
+    sessionId: string,
+    options: { model: string | null; thinking: string | null },
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.setSessionModelOptions(sessionId, {
+      ...options,
+      model: mapDeepseekModelAlias(options.model),
+    });
   }
 
   async restartWithPermissionMode(

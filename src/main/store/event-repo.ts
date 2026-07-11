@@ -296,7 +296,7 @@ export const eventRepo = {
   /**
    * plan resume-inject-raw-messages-20260601 §D5：拉最近 N 条「对话消息」（kind='message'
    * 且 role ∈ {user, assistant} 且 error 非真），给 jsonl-missing fallback 注入「最近原始
-   * 对话消息段」用（与 LLM 总结段双数据源并列 — 总结段喂全量 events 出 4 节结构，原始消息
+   * 对话消息段」用（与 LLM 总结段双数据源并列 — 总结段喂全量 events 出六节检查点，原始消息
    * 段只要干净的 role/text 对话）。
    *
    * **为什么不复用 listForSession 再 JS 侧过滤**（plan §D5 R1 MED）：
@@ -336,8 +336,8 @@ export const eventRepo = {
     // **R1 reviewer-codex MED 防御层**：消费点（injectResumeHistory）已 clamp，这里再做一层
     // defensive clamp 防未来非 IPC caller 直接传坏值 → SQLite `LIMIT -1`（负数）= 无界拉全表
     // message + 全量 JSON.parse（长会话 OOM 风险）/ `LIMIT 0` = 静默空。clamp [1, 200] 与
-    // injectResumeHistory 入口对齐；`|| 30` 兜 NaN（Number.isFinite 失败 → fallback default）。
-    const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit)) || 30));
+    // injectResumeHistory 入口对齐；`|| 200` 兜 NaN（Number.isFinite 失败 → fallback default）。
+    const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit)) || 200));
     // 坏行隔离：CASE WHEN json_valid 包住 json_extract（malformed JSON 是 SQL 级 error，
     // 单行损坏会毒化整个查询；详 findLatestAssistantMessage 同款注释）。
     const validDialogCond = `CASE WHEN json_valid(payload_json) THEN (

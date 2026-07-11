@@ -7,7 +7,7 @@
  *   - SDK query 返回可控 async iterable，逐条 yield assistant + result message
  *
  * 覆盖：
- *   - happy path：events 非空 → SDK 返回结构化 4 节简报 → 函数返回 trim 后字符串
+ *   - happy path：events 非空 → SDK 返回结构化 6 节检查点 → 函数返回 trim 后字符串
  *   - empty events 短路：events=[] 直接返回 null（不调 SDK）
  *   - SDK 返回空 result：返回 null
  *   - SDK 阻塞超 timeoutMs：throw `__handoff_summary_timeout__` + 调 q.interrupt
@@ -74,7 +74,7 @@ function makeMockSdk(opts: {
           yield {
             type: 'assistant',
             message: {
-              content: [{ type: 'text', text: opts.text ?? '【目标】测试目标\n【已做】\n- 已做 1\n【下一步】\n- 下一步 1\n【相关文件】\n- /tmp/foo.ts' }],
+              content: [{ type: 'text', text: opts.text ?? '【目标与用户意图】测试目标\n【约束与偏好】\n- 无\n【已完成与验证】\n- 已做 1\n【当前状态与关键决策】\n- 无\n【下一步、开放问题与风险】\n- 下一步 1\n【关键文件、命令与错误】\n- 文件：/tmp/foo.ts' }],
             },
           };
         }
@@ -126,14 +126,15 @@ describe('summariseSessionForHandOff', () => {
       const sdk = makeMockSdk({ mode: 'ok' });
       loadSdkMock.mockResolvedValue(sdk as unknown as Awaited<ReturnType<typeof loadSdk>>);
       const out = await summariseSessionForHandOff('/tmp/cwd', sampleEvents());
-      expect(out).toContain('【目标】');
-      expect(out).toContain('【相关文件】');
+      expect(out).toContain('【目标与用户意图】');
+      expect(out).toContain('【关键文件、命令与错误】');
       expect(out).toContain('/tmp/foo.ts');
-      // SDK query 被调一次，prompt 含 cwd + activity 摘要 + 4 节模板说明
+      // SDK query 被调一次，prompt 含 cwd + activity 摘要 + 6 节模板说明
       expect(sdk.__calls).toHaveLength(1);
       const call = sdk.__calls[0];
       expect(call.prompt).toContain('/tmp/cwd');
-      expect(call.prompt).toContain('【目标】');
+      expect(call.prompt).toContain('【目标与用户意图】');
+      expect(call.prompt).toContain('【已完成与验证】');
       expect(call.options.permissionMode).toBe('plan');
       expect(call.options.settingSources).toEqual([]);
       // hand-off default sonnet(推翻 CHANGELOG_161 与 summary 对齐 haiku 决策,简报结构精度敏感)

@@ -150,7 +150,7 @@ export type FindFallbackCwdThunk = (badCwd: string) => string | null;
 /**
  * LLM 总结 thunk(test seam)。caller bind `summariseSessionForHandOff(cwd, events, 'Agent')`
  * (复用 claude oneshot 本地 OAuth，agentName='Agent' 让 codex 会话总结不自称「Claude 会话」，
- * §D8)。喂全量 events 出 4 节结构。失败语义：throw / null / 空 → injectResumeHistory 总结段缺省。
+ * §D8)。喂全量 events 出六节检查点。失败语义：throw / null / 空 → injectResumeHistory 总结段缺省。
  */
 export type SummariseFnThunk = (
   cwd: string,
@@ -159,7 +159,7 @@ export type SummariseFnThunk = (
 
 /**
  * 全量 events 来源 thunk(test seam)。caller bind `eventRepo.listForSession`。喂 summariseFn 出
- * 4 节结构（总结段数据源，§D7 双数据源之一）。
+ * 六节检查点结构（总结段数据源，§D7 双数据源之一）。
  */
 export type ListEventsFnThunk = (sessionId: string) => AgentEvent[];
 

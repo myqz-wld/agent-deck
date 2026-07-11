@@ -3,7 +3,8 @@
 #
 # 用法：
 #   agent-deck new [--cwd <path>] [--prompt "..."] [--agent claude-code]
-#                  [--model <name>] [--permission-mode default|acceptEdits|plan|bypassPermissions]
+#                  [--model <name>] [--thinking <level>]
+#                  [--permission-mode default|acceptEdits|plan|bypassPermissions]
 #                  [--system-prompt "..."] [--resume <sessionId>] [--no-focus]
 #
 # 行为：

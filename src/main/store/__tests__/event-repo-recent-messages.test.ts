@@ -249,9 +249,9 @@ describe.skipIf(!bindingAvailable)('event-repo listRecentMessages / maxEventId (
     expect((rows[0].payload as { text: string }).text).toBe('m4'); // 最近一条
   });
 
-  it('R1 MED-A defensive: limit=0 → clamp 到 30（不退化为 SQLite LIMIT 0 静默空）', () => {
+  it('R1 MED-A defensive: limit=0 → clamp 到 200（不退化为 SQLite LIMIT 0 静默空）', () => {
     for (let i = 0; i < 5; i++) insertMessage(testDb, 'sess-A', 'user', `m${i}`, 1000 + i);
-    // 0 是 falsy → safeLimit `|| 30` → 30 → 返全部 5 条（不是 LIMIT 0 的空集）
+    // 0 是 falsy → safeLimit `|| 200` → 200 → 返全部 5 条（不是 LIMIT 0 的空集）
     const rows = mod.eventRepo.listRecentMessages('sess-A', 0);
     expect(rows).toHaveLength(5);
   });

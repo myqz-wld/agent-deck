@@ -13,6 +13,10 @@ import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import {
+  SessionModelFields,
+  type SessionThinkingChoice,
+} from '@renderer/components/SessionModelFields';
+import {
   getLastAdapter,
   getLastDefaults,
   setLastAdapter,
@@ -95,6 +99,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
+  const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
+  const [thinking, setThinking] = useState<SessionThinkingChoice>(
+    () => getLastDefaults(getLastAdapter()).thinking ?? '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // deep-review H1 R2 LOW：adapter 列表加载失败 / 为空时禁止提交（否则用默认 'claude-code' 发起，
@@ -135,6 +143,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+    setModel(d.model ?? '');
+    setThinking(d.thinking ?? '');
   }, [adapter]);
 
   // 与 NewSessionDialog 同款按 adapter capability 决定字段可见性
@@ -167,6 +177,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         ...(showPermissionMode && permissionMode !== 'default' ? { permissionMode } : {}),
         ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
         ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
+        ...(model.trim() ? { model: model.trim() } : {}),
+        ...(thinking ? { thinking } : {}),
       });
       onResolved(result.issue);
     } catch (e) {
@@ -212,6 +224,20 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
             />
           </DialogField>
+          <SessionModelFields
+            adapterId={adapter}
+            model={model}
+            thinking={thinking}
+            disabled={busy}
+            onModelChange={(next) => {
+              setModel(next);
+              setLastDefaults(adapter, { model: next });
+            }}
+            onThinkingChange={(next) => {
+              setThinking(next);
+              setLastDefaults(adapter, { thinking: next });
+            }}
+          />
           <DialogField label="工作目录（留空则用问题来源目录，仍为空则用主目录）">
             <input
               type="text"

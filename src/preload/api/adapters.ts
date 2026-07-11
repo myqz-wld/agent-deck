@@ -92,6 +92,12 @@ export const adaptersApi = {
     mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
+  setSessionModelOptions: (
+    agentId: string,
+    sessionId: string,
+    options: { model: string | null; thinking: string | null },
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSetSessionModelOptions, agentId, sessionId, options),
 
   /**
    * Codex sandbox 切换。IPC 名称沿用 restartWithCodexSandbox 兼容旧调用方；app-server
