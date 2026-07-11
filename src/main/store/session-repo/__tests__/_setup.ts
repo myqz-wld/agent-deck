@@ -6,11 +6,13 @@
  * plan sqlite-tests-no-skip-20260601 D3：import + re-export 让 cwd-release-marker.test 的
  * `import { bindingAvailable } from './_setup'` 0 改动可用）。
  *
- * Migration 范围 v001-v032（plan sqlite-tests-no-skip-20260601 D4 + codex-recover-network-dirs-parity-20260602）：
+ * Migration 范围 v001-v038（plan sqlite-tests-no-skip-20260601 D4 + codex-recover-network-dirs-parity-20260602）：
  * 原只载到 v020，但 session-repo 的 core-crud.upsert 写 cli_session_id（v021）、rename.ts 迁
  * tasks.owner_session_id（v023）/ issues.*（v026）→ 补齐到 v026；upsert / rename 又新增
  * network_access_enabled + additional_directories（v029）→ 再补 v027-v029 否则撞 `no such column`。
  * thinking（v032）同款：core-crud.upsert 写 sessions.thinking，fixture 必须带最新 sessions 列。
+ * v033-v038 继续保持 latest-schema fixture；rename 会重建 v037 event revision boundary，
+ * 并使 v038 continuation checkpoints 失效。
  * 与 agent-deck-repos/_setup.ts 对齐。仅 cwd-release-marker.test.ts import 本 fixture
  * （archive.test.ts 不 import），改动 contained；v021-v029 中仅 v023 含 DROP TABLE IF EXISTS tasks，
  * fresh in-memory DB 下安全（drop 后重建）。
@@ -49,13 +51,19 @@ import v029 from '../../migrations/v029_sessions_network_dirs.sql?raw';
 import v030 from '../../migrations/v030_agent_deck_messages_indexes.sql?raw';
 import v031 from '../../migrations/v031_file_change_snapshots.sql?raw';
 import v032 from '../../migrations/v032_sessions_thinking.sql?raw';
+import v033 from '../../migrations/v033_issues_branch_name.sql?raw';
+import v034 from '../../migrations/v034_sessions_list_filter_indexes.sql?raw';
+import v035 from '../../migrations/v035_token_usage_reasoning.sql?raw';
+import v036 from '../../migrations/v036_token_usage_model_buckets.sql?raw';
+import v037 from '../../migrations/v037_event_revisions.sql?raw';
+import v038 from '../../migrations/v038_continuation_checkpoints.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让 cwd-release-marker.test 的 `import { bindingAvailable } from './_setup'` 0 改动可用。
 export { bindingAvailable } from '../../__tests__/_binding-probe';
 
 /**
- * In-memory SQLite + 跑 v001-v032 全部 migration 后返回 db 实例。
+ * In-memory SQLite + 跑 v001-v038 全部 migration 后返回 db 实例。
  * 调用方负责 db.close()(beforeEach/afterEach pattern)。
  */
 export function makeMemoryDb(): Database.Database {
@@ -66,7 +74,7 @@ export function makeMemoryDb(): Database.Database {
     v001, v002, v003, v004, v005, v006, v007, v008, v009, v010,
     v011, v012, v013, v014, v015, v016, v017, v018, v019, v020,
     v021, v022, v023, v024, v025, v026, v027, v028, v029, v030,
-    v031, v032,
+    v031, v032, v033, v034, v035, v036, v037, v038,
   ]) {
     db.exec(sql);
   }

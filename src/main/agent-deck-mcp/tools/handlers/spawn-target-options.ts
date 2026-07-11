@@ -39,7 +39,6 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       claudeAgentName: input.claudeAgentName,
       claudeAgents: input.claudeAgents,
       agentName: args.agentName,
-      handOff: args.handOff,
       awaitCanonicalId: true,
     }),
     ...(input.effectiveExtraAllowWrite !== undefined && input.effectiveExtraAllowWrite.length > 0

@@ -32,12 +32,26 @@ import { finalizeSessionStart } from '../session-finalize';
 import { runCreateSessionSdkQuery } from './create-session-sdk-query';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { extractProviderModelAliases } from '../runtime-metadata-sync';
+import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
   PreparedSessionContext,
   SdkSessionHandle,
 } from './_deps';
+
+function assertCreateOptsValid(opts: CreateSessionOpts): void {
+  const freshReuse = opts.resumeMode === 'fresh-cli-reuse-app';
+  if (freshReuse && !opts.resume) {
+    throw new Error('fresh-cli-reuse-app requires an application session id');
+  }
+  if (freshReuse && opts.resumeCliSid) {
+    throw new Error('fresh-cli-reuse-app cannot include resumeCliSid');
+  }
+  if (!opts.resume && opts.resumeCliSid) {
+    throw new Error('resumeCliSid requires an application session id');
+  }
+}
 
 function emitVisibleCreateFailure(
   deps: CreateSessionDeps,
@@ -83,6 +97,21 @@ export async function createSessionImpl(
   opts: CreateSessionOpts,
   deps: CreateSessionDeps,
 ): Promise<SdkSessionHandle> {
+  assertCreateOptsValid(opts);
+  const initialTurn = resolveInternalInitialTurn({
+    prompt: opts.prompt,
+    trustedContinuation: opts.trustedContinuation,
+  });
+  if (
+    initialTurn.trusted &&
+    opts.resume &&
+    opts.resumeMode !== 'fresh-cli-reuse-app'
+  ) {
+    throw new Error(
+      'Trusted continuation turns cannot be combined with native Claude resume',
+    );
+  }
+  opts = { ...opts, prompt: initialTurn.providerPrompt };
   // === phase 1: validate ===
   // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
   // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -209,13 +238,14 @@ export async function createSessionImpl(
       finalizeSessionStart({
         applicationSid: internal.applicationSid,
         cwd: opts.cwd,
-        prompt: opts.prompt,
+        prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
         claudeModel: internal.runtimeModel ?? claudeModel,
         claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
         attachments: opts.attachments,
         handOff: opts.handOff,
+        continuationMetadata: initialTurn.metadata,
         emit: deps.emit,
       });
 
@@ -230,13 +260,14 @@ export async function createSessionImpl(
             applicationSid: internal.applicationSid,
             cliSessionId: realId,
             cwd: opts.cwd,
-            prompt: opts.prompt,
+            prompt: initialTurn.persistedUserText,
             claudeSandboxMode,
             claudeModel: internal.runtimeModel ?? claudeModel,
             claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
             extraAllowWrite: opts.extraAllowWrite,
             attachments: opts.attachments,
             handOff: opts.handOff,
+            continuationMetadata: initialTurn.metadata,
             skipSessionStartEmit: true,
             skipFirstUserEmit: true,
             emit: deps.emit,
@@ -295,13 +326,14 @@ export async function createSessionImpl(
         applicationSid: internal.applicationSid,
         cliSessionId: realId,
         cwd: opts.cwd,
-        prompt: opts.prompt,
+        prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
         claudeModel: internal.runtimeModel ?? claudeModel,
         claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
         attachments: opts.attachments,
         handOff: opts.handOff,
+        continuationMetadata: initialTurn.metadata,
         // REVIEW_58 HIGH ✅ 收口修法:recoverer.recoverAndSend 入口已 emit user message 时
         // 显式传 true,finalize 跳过重复 emit(详 createSession opts.skipFirstUserEmit jsdoc)。
         skipFirstUserEmit: opts.skipFirstUserEmit,

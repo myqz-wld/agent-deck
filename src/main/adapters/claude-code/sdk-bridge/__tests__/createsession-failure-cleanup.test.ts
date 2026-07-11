@@ -101,10 +101,6 @@ vi.mock('@main/agent-deck-mcp/server', () => ({
   AGENT_DECK_MCP_TOOL_PATTERN: /^mcp__agent-deck/,
 }));
 
-vi.mock('@main/session/summarizer/llm-runners', () => ({
-  summariseSessionForHandOff: vi.fn(async () => null),
-}));
-
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';

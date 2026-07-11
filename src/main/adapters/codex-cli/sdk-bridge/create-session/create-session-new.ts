@@ -30,6 +30,7 @@ import type {
   PreparedContext,
   ValidateResult,
 } from './_deps';
+import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 const logger = log.scope('codex-create-session-new');
 
@@ -40,6 +41,10 @@ export async function runCreateSessionNewPath(
   deps: CreateSessionDeps,
 ): Promise<CreateSessionResult> {
   const { internal, cwd, sandboxMode } = ctx;
+  const initialTurn = resolveInternalInitialTurn({
+    prompt: opts.prompt,
+    trustedContinuation: opts.trustedContinuation,
+  });
   // 新建路径：用 initialSid（顶部 validate phase allocate 出的 tempKey）占位，等 thread.started 事件拿到
   // realId 后 rename。plan P2 Step 2.5c：initialSid = randomUUID() 已经在顶部分配 + allocate
   // 过 token,这里直接复用,不再二次 randomUUID(避免 token / Codex 实例 / sessions Map 三处 key
@@ -61,12 +66,18 @@ export async function runCreateSessionNewPath(
     agentId: AGENT_ID,
     kind: 'message',
     payload: {
-      text: opts.prompt!,
+      text: initialTurn.persistedUserText,
       role: 'user',
       ...(opts.attachments && opts.attachments.length > 0
         ? { attachments: opts.attachments }
         : {}),
       ...(opts.handOff ? { handOff: opts.handOff } : {}),
+      ...(initialTurn.metadata
+        ? {
+            messageOrigin: 'continuation',
+            continuation: { ...initialTurn.metadata },
+          }
+        : {}),
     },
     ts: Date.now(),
     source: 'sdk',

@@ -12,6 +12,7 @@ import type {
   CodexAppServerRunResult,
   CodexAppServerStreamEvent,
   CodexAppServerUserInput,
+  JsonObject,
 } from './protocol';
 import {
   buildThreadResumeParams,
@@ -25,6 +26,14 @@ type Unsubscribe = () => void;
 type ThreadMode =
   | { mode: 'start'; options: CodexThreadOptions }
   | { mode: 'resume'; threadId: string; options: CodexThreadOptions };
+
+export interface CodexAppServerRunOptions {
+  signal?: AbortSignal;
+  outputSchema?: JsonObject;
+  environments?: readonly [];
+  runtimeWorkspaceRoots?: readonly string[];
+  maxOutputBytes?: number;
+}
 
 export class CodexAppServerThread {
   private threadId: string | null;
@@ -92,21 +101,29 @@ export class CodexAppServerThread {
 
   async runStreamed(
     input: CodexAppServerUserInput[],
-    opts?: { signal?: AbortSignal },
+    opts?: CodexAppServerRunOptions,
   ): Promise<{ events: AsyncIterable<CodexAppServerStreamEvent> }> {
-    return { events: this.runTurn(input, opts?.signal) };
+    return { events: this.runTurn(input, opts) };
   }
 
   async run(
     input: CodexAppServerUserInput[],
-    opts?: { signal?: AbortSignal },
+    opts?: CodexAppServerRunOptions,
   ): Promise<CodexAppServerRunResult> {
     const { events } = await this.runStreamed(input, opts);
     const messages: string[] = [];
     for await (const ev of events) {
       if (ev.type !== 'server.notification') continue;
       const text = readCompletedAgentMessageText(ev.notification);
-      if (text) messages.push(text);
+      if (text) {
+        messages.push(text);
+        if (
+          opts?.maxOutputBytes !== undefined &&
+          Buffer.byteLength(messages.join('\n'), 'utf8') > opts.maxOutputBytes
+        ) {
+          throw new Error('Codex app-server output exceeded byte limit');
+        }
+      }
     }
     return { finalResponse: messages.join('\n') };
   }
@@ -133,8 +150,9 @@ export class CodexAppServerThread {
 
   private async *runTurn(
     input: CodexAppServerUserInput[],
-    signal: AbortSignal | undefined,
+    opts: CodexAppServerRunOptions | undefined,
   ): AsyncIterable<CodexAppServerStreamEvent> {
+    const signal = opts?.signal;
     let unsub: Unsubscribe | null = null;
     let abortListener: (() => void) | null = null;
     const queue = new AsyncNotificationQueue<CodexAppServerNotification>();
@@ -181,7 +199,13 @@ export class CodexAppServerThread {
       const response = await Promise.race([
         this.client.request<{ turn: { id: string } }>(
           'turn/start',
-          buildTurnStartParams(threadId, input, this.mode.options, this.client.baseConfig),
+          buildTurnStartParams(threadId, input, this.mode.options, this.client.baseConfig, {
+            ...(opts?.outputSchema !== undefined ? { outputSchema: opts.outputSchema } : {}),
+            ...(opts?.environments !== undefined ? { environments: [] } : {}),
+            ...(opts?.runtimeWorkspaceRoots !== undefined
+              ? { runtimeWorkspaceRoots: [...opts.runtimeWorkspaceRoots] }
+              : {}),
+          }),
         ),
         abortPromise,
       ]);

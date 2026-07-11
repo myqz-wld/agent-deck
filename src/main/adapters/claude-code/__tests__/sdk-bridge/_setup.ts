@@ -15,10 +15,22 @@
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type { SessionRecord } from '@shared/types';
+import {
+  createTrustedContinuationInitialTurn,
+  type TrustedContinuationInitialTurn,
+} from '@main/session/continuation-context/initial-turn';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery';
+import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
 
 export interface CreateSessionCall {
   cwd: string;
   prompt?: string;
+  trustedContinuation?: TrustedContinuationInitialTurn;
   resume?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
@@ -61,18 +73,19 @@ export class TestBridge extends ClaudeSdkBridge {
    * findFallbackCwd 私有方法。
    */
   public cwdExistsOverride: boolean | Map<string, boolean> = true;
-  /**
-   * CHANGELOG_107: LLM 摘要 mock。默认 null 让 Step 2 helper 集成后 prependHistorySummary
-   * 走 fallback 路径(不 prepend 摘要),不破现有 9 case 行为。Step 6 新加的「摘要成功」
-   * case 显式覆盖返回字符串验证 prepend 路径。
-   */
-  public summariseOverride: string | null = null;
-  /**
-   * CHANGELOG_107 Step 6: 让 summariseForHandOff 抛错的 mock(测 thunk-throw failReason
-   * 路径)。默认 null 不抛;set 为 Error 实例让 override 抛。优先级 > summariseOverride
-   * (throw 检测在前)。
-   */
-  public summariseThrow: Error | null = null;
+  public recoveryCaptureThrow: Error | null = null;
+  public recoveryPrepareThrow: Error | null = null;
+  public recoveryQuality: PreparedContinuationContext['quality'] = 'raw-only';
+  public recoveryCaptureCalls: Array<{
+    session: SessionRecord;
+    overrides?: RecoveryRuntimeOverrides;
+    emitCount: number;
+  }> = [];
+  public recoveryPrepareCalls: Array<{
+    capture: CapturedRecoveryContinuation;
+    continuationInstruction: string;
+  }> = [];
+  public recoveryCleanupCalls: CapturedRecoveryContinuation[] = [];
   /**
    * plan cross-adapter-parity-20260515 Phase B.4 regression: capture sendMessage 调用让
    * waiter Promise<string> regression test 能断言 inflight 等待者 path 拿 finalId 调
@@ -102,6 +115,7 @@ export class TestBridge extends ClaudeSdkBridge {
   override async createSession(opts: {
     cwd: string;
     prompt?: string;
+    trustedContinuation?: TrustedContinuationInitialTurn;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     resume?: string;
     resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
@@ -115,6 +129,7 @@ export class TestBridge extends ClaudeSdkBridge {
     this.createCalls.push({
       cwd: opts.cwd,
       prompt: opts.prompt,
+      trustedContinuation: opts.trustedContinuation,
       resume: opts.resume,
       resumeMode: opts.resumeMode,
       permissionMode: opts.permissionMode,
@@ -195,17 +210,78 @@ export class TestBridge extends ClaudeSdkBridge {
     return this.cwdExistsOverride.get(cwd) ?? false;
   }
 
-  /**
-   * CHANGELOG_107 LLM 摘要 test seam(同 resumeJsonlExists / cwdExists 模式)。
-   * 默认 null 让 Step 2 集成后 prependHistorySummary 走 skip 路径(不 prepend),
-   * 不破现有 9 case;Step 6 新加 case 显式覆盖 summariseOverride 验证 prepend 行为。
-   */
-  protected async summariseForHandOff(
-    _cwd: string,
-    _events: AgentEvent[],
-  ): Promise<string | null> {
-    if (this.summariseThrow) throw this.summariseThrow;
-    return this.summariseOverride;
+  protected override captureRecoveryContinuation(input: {
+    session: SessionRecord;
+    overrides?: RecoveryRuntimeOverrides;
+  }): CapturedRecoveryContinuation {
+    this.recoveryCaptureCalls.push({ ...input, emitCount: emits.length });
+    if (this.recoveryCaptureThrow) throw this.recoveryCaptureThrow;
+    return {
+      sourceSessionId: input.session.id,
+      spoolId: `spool-${input.session.id}`,
+      generator: {
+        adapter: 'claude-code',
+        model: 'generator-model',
+        thinking: 'medium',
+        contextWindowTokens: null,
+        configFingerprint: 'generator-fingerprint',
+      },
+      target: {
+        adapter: 'claude-code',
+        model: input.session.model ?? null,
+        thinking: null,
+        sandbox: null,
+        permissionMode: input.session.permissionMode ?? null,
+        networkAccessEnabled: null,
+        additionalDirectories: [],
+        contextWindowTokens: 128_000,
+        runtimeFingerprint: 'target-fingerprint',
+      },
+      rawRetentionCeilingTokens: 64_000,
+    };
+  }
+
+  protected override async prepareRecoveryContinuation(input: {
+    capture: CapturedRecoveryContinuation;
+    continuationInstruction: string;
+  }): Promise<PreparedRecoveryContinuation> {
+    this.recoveryPrepareCalls.push(input);
+    if (this.recoveryPrepareThrow) throw this.recoveryPrepareThrow;
+    const prepared: PreparedContinuationContext = {
+      version: 1,
+      providerPrompt: `===== Agent Deck Continuation Context v1 =====\n${input.continuationInstruction}`,
+      persistedUserText: input.continuationInstruction,
+      source: { eventRevision: 7, rebuildAfterRevision: 0, maxEventId: 7 },
+      checkpoint: { id: 3, throughRevision: 7, formatVersion: 1, refreshed: false },
+      projection: { canonicalHash: 'canonical', omittedFacts: 0 },
+      quality: this.recoveryQuality,
+      metrics: {
+        rawRetentionCeilingTokens: 64_000,
+        targetPromptCapacityTokens: 104_000,
+        checkpointProjectionBudgetTokens: 12_000,
+        generatorFoldInputBudgetTokens: 32_000,
+        estimatedPromptTokens: 100,
+        checkpointTokens: 20,
+        rawTailTokens: 20,
+        includedUserMessages: 1,
+        truncatedBoundaryMessages: 0,
+        foldCalls: 1,
+        repairCalls: 0,
+        elapsedMs: 1,
+        uncoveredRevisionRange: null,
+      },
+      warnings: [],
+      preparationHash: 'a'.repeat(64),
+      spoolId: input.capture.spoolId,
+    };
+    return {
+      prepared,
+      turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
+    };
+  }
+
+  protected override cleanupRecoveryContinuation(capture: CapturedRecoveryContinuation): void {
+    this.recoveryCleanupCalls.push(capture);
   }
 }
 

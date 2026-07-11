@@ -1,23 +1,4 @@
-/**
- * plan restart-controller-jsonl-precheck-20260521 §D5 测试矩阵 - helper 单测部分。
- *
- * 覆盖 maybeJsonlFallback helper 自身行为(不走 facade / 完整 createSession):
- * - T2: jsonl 缺失 → fellBack=true,helper 调 ctx.createSession + emit 2 次 + return finalSessionId
- * - T4: cliSessionId !== sessionId(反向 rename 场景) → helper 用 cliSessionId 找 jsonl
- * - T7: fellBack=true 路径 — 摘要成功 vs 失败两态,emit 对应 builder
- * - T8: 6 个文案 case (recover × cwdFellBack 4 + restart × cwdFellBack=false 2)
- * - T9: ctx.createSession opts 字段 + emit role='user' payload + attachments 三 sub-case (T9a/b/c)
- * - T10: OR 短路 — T10a (cwdFellBack=true + spy.callCount=0);T10b (cwdFellBack=false + spy.callCount=1)
- *
- * **测试方式**: 直接调 module-level `maybeJsonlFallback(ctx, opts)`,ctx 字段全 stub
- * (jsonlExistsThunk / createSession / emit / summariseFn / listEventsFn),不走 facade /
- * 完整 createSession,纯函数 input/output 验证。
- *
- * **不测**(由 Step 3a.5 guard 单点 if 已 typecheck 验证,无需 runtime test):
- * - createSession 内部 finalizeSessionStart skip
- * - createSession 内部 stream-processor S3 fresh-cli-reuse-app 分支 updateCliSessionId
- */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   maybeJsonlFallback,
   type JsonlFallbackCtx,
@@ -25,119 +6,153 @@ import {
 } from '../jsonl-fallback';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import type { SdkSessionHandle } from '../types';
-
-// mock settingsStore 让 helper 内部 settingsStore.get('resumeRecentMessagesCount') 返 30
-// (plan resume-inject-raw-messages-20260601 §D5: autoSummariseOnFallback 已删，改无条件注入 +
-//  resumeRecentMessagesCount 控制原始对话条数)
-vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    get: vi.fn((key: string) => {
-      if (key === 'resumeRecentMessagesCount') return 30;
-      return undefined;
-    }),
-  },
-}));
+import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+} from '@main/session/continuation-context/recovery';
+import type {
+  ContinuationQuality,
+  PreparedContinuationContext,
+} from '@main/session/continuation-context/types';
 
 const emits: AgentEvent[] = [];
+const capture: CapturedRecoveryContinuation = {
+  sourceSessionId: 'app-sid-A',
+  spoolId: 'spool-test',
+  generator: {
+    adapter: 'claude-code',
+    model: null,
+    thinking: 'medium',
+    contextWindowTokens: null,
+    configFingerprint: 'generator',
+  },
+  target: {
+    adapter: 'claude-code',
+    model: null,
+    thinking: null,
+    sandbox: null,
+    permissionMode: null,
+    networkAccessEnabled: null,
+    additionalDirectories: [],
+    contextWindowTokens: 128_000,
+    runtimeFingerprint: 'target',
+  },
+  rawRetentionCeilingTokens: 64_000,
+};
 
-interface MakeCtxOpts {
-  jsonlExistsReturn?: boolean | ((cwd: string, sid: string) => boolean);
-  jsonlMtimeMsReturn?: number | null | ((cwd: string, sid: string) => number | null);
-  createSession?: (opts: unknown) => Promise<SdkSessionHandle>;
-  summariseFnReturn?: string | null;
-  listEventsFnReturn?: AgentEvent[];
-  /** REVIEW_76 MED: 让 listEventsFn 抛错验证「永不抛错」契约（fresh fallback 仍走 createSession） */
-  listEventsFnThrow?: Error;
-  /** plan resume-inject §D5: message-only 返回（拼原始对话段）。默认空数组。 */
-  listMessagesFnReturn?: (AgentEvent & { id: number })[];
+function preparedRecovery(
+  instruction: string,
+  quality: ContinuationQuality,
+  sourceSessionId = capture.sourceSessionId,
+): PreparedRecoveryContinuation {
+  const prepared: PreparedContinuationContext = {
+    version: 1,
+    providerPrompt: `===== Agent Deck Continuation Context v1 =====\n${instruction}`,
+    persistedUserText: instruction,
+    source: { eventRevision: 4, rebuildAfterRevision: 0, maxEventId: 4 },
+    checkpoint: { id: 2, throughRevision: 4, formatVersion: 1, refreshed: false },
+    projection: { canonicalHash: 'canonical', omittedFacts: 0 },
+    quality,
+    metrics: {
+      rawRetentionCeilingTokens: 64_000,
+      targetPromptCapacityTokens: 104_000,
+      checkpointProjectionBudgetTokens: 12_000,
+      generatorFoldInputBudgetTokens: 32_000,
+      estimatedPromptTokens: 100,
+      checkpointTokens: 20,
+      rawTailTokens: 20,
+      includedUserMessages: quality === 'instruction-only' ? 0 : 1,
+      truncatedBoundaryMessages: 0,
+      foldCalls: 1,
+      repairCalls: 0,
+      elapsedMs: 1,
+      uncoveredRevisionRange: null,
+    },
+    warnings: [],
+    preparationHash: 'b'.repeat(64),
+    spoolId: 'spool-test',
+  };
+  return { prepared, turn: createTrustedContinuationInitialTurn(prepared, sourceSessionId) };
 }
 
-function makeCtx(opts: MakeCtxOpts = {}): {
-  ctx: JsonlFallbackCtx;
-  jsonlExistsThunkSpy: ReturnType<typeof vi.fn>;
-  jsonlMtimeMsThunkSpy: ReturnType<typeof vi.fn>;
-  createSessionSpy: ReturnType<typeof vi.fn>;
-  summariseFnSpy: ReturnType<typeof vi.fn>;
-} {
-  const jsonlExistsThunkSpy = vi.fn(
-    typeof opts.jsonlExistsReturn === 'function'
-      ? opts.jsonlExistsReturn
-      : (_cwd: string, _sid: string) =>
-          opts.jsonlExistsReturn === undefined ? true : opts.jsonlExistsReturn,
+interface MakeCtxOptions {
+  jsonlExists?: boolean | ((cwd: string, sessionId: string) => boolean);
+  jsonlMtimeMs?: number | null;
+  latestConversationMessageTs?: number | null;
+  quality?: ContinuationQuality;
+  createSession?: (opts: unknown) => Promise<SdkSessionHandle>;
+  prepare?: JsonlFallbackCtx['prepareRecoveryContinuation'];
+}
+
+function makeCtx(options: MakeCtxOptions = {}) {
+  const jsonlExistsThunk = vi.fn((cwd: string, sessionId: string): boolean =>
+    typeof options.jsonlExists === 'function'
+      ? options.jsonlExists(cwd, sessionId)
+      : (options.jsonlExists ?? true),
   );
-  const jsonlMtimeMsThunkSpy = vi.fn(
-    typeof opts.jsonlMtimeMsReturn === 'function'
-      ? opts.jsonlMtimeMsReturn
-      : (_cwd: string, _sid: string) =>
-          opts.jsonlMtimeMsReturn === undefined ? 10_000 : opts.jsonlMtimeMsReturn,
+  const jsonlMtimeMsThunk = vi.fn(() => options.jsonlMtimeMs ?? 10_000);
+  const latestConversationMessageTsThunk = vi.fn(
+    () => options.latestConversationMessageTs ?? null,
   );
-  const createSessionSpy = vi.fn(
-    opts.createSession ??
+  const createSession = vi.fn(
+    options.createSession ??
       (async () => ({ sessionId: 'helper-stub-sid' }) as SdkSessionHandle),
   );
-  const summariseFnSpy = vi.fn(async () => opts.summariseFnReturn ?? null);
+  const prepareRecoveryContinuation = vi.fn(
+    options.prepare ??
+      (async ({ capture: inputCapture, continuationInstruction }) =>
+        preparedRecovery(
+          continuationInstruction,
+          options.quality ?? 'raw-only',
+          inputCapture.sourceSessionId,
+        )),
+  );
   const ctx: JsonlFallbackCtx = {
-    jsonlExistsThunk: jsonlExistsThunkSpy as unknown as JsonlFallbackCtx['jsonlExistsThunk'],
-    jsonlMtimeMsThunk: jsonlMtimeMsThunkSpy as unknown as JsonlFallbackCtx['jsonlMtimeMsThunk'],
-    createSession: createSessionSpy as unknown as JsonlFallbackCtx['createSession'],
-    emit: (e) => emits.push(e),
-    summariseFn: summariseFnSpy as unknown as JsonlFallbackCtx['summariseFn'],
-    listEventsFn: opts.listEventsFnThrow
-      ? () => {
-          throw opts.listEventsFnThrow;
-        }
-      : () => opts.listEventsFnReturn ?? [],
-    listMessagesFn: () => opts.listMessagesFnReturn ?? [],
+    jsonlExistsThunk,
+    jsonlMtimeMsThunk,
+    latestConversationMessageTsThunk,
+    createSession: createSession as unknown as JsonlFallbackCtx['createSession'],
+    prepareRecoveryContinuation,
+    emit: (event) => emits.push(event),
   };
-  return { ctx, jsonlExistsThunkSpy, jsonlMtimeMsThunkSpy, createSessionSpy, summariseFnSpy };
+  return {
+    ctx,
+    jsonlExistsThunk,
+    jsonlMtimeMsThunk,
+    latestConversationMessageTsThunk,
+    createSession,
+    prepareRecoveryContinuation,
+  };
 }
 
-function makeRecoverOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallbackOpts {
+function recoverOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallbackOpts {
   return {
     sessionId: 'app-sid-A',
     cliSessionId: 'cli-sid-X',
     cwd: '/tmp/test',
-    prependCwd: '/tmp/test',
     prompt: '继续之前的话题',
-    maxEventIdFn: () => null,
+    recoveryCapture: capture,
     minHealJsonlMtimeMs: 1_000,
     emitContext: 'recover',
     cwdFellBack: false,
-    ...(overrides as object),
+    ...overrides,
   } as JsonlFallbackOpts;
 }
 
-function makeRestartOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallbackOpts {
+function restartOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallbackOpts {
   return {
     sessionId: 'app-sid-R',
     cliSessionId: 'cli-sid-Y',
     cwd: '/tmp/test',
-    prependCwd: '/tmp/test',
     prompt: '继续之前的会话',
-    maxEventIdFn: () => null,
+    recoveryCapture: { ...capture, sourceSessionId: 'app-sid-R' },
     minHealJsonlMtimeMs: 1_000,
     emitContext: 'restart',
     cwdFellBack: false,
     restartLabel: '权限模式 plan',
-    ...(overrides as object),
+    ...overrides,
   } as JsonlFallbackOpts;
-}
-
-function msg(
-  id: number,
-  role: 'user' | 'assistant',
-  text: string,
-  ts = id,
-): AgentEvent & { id: number } {
-  return {
-    id,
-    sessionId: 's',
-    agentId: 'claude-code',
-    kind: 'message',
-    payload: { role, text },
-    ts,
-    source: 'sdk',
-  };
 }
 
 beforeEach(() => {
@@ -145,500 +160,156 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+describe('maybeJsonlFallback unified continuation recovery', () => {
+  it('native jsonl resume bypasses continuation preparation and session creation', async () => {
+    const { ctx, prepareRecoveryContinuation, createSession } = makeCtx({ jsonlExists: true });
+    const result = await maybeJsonlFallback(ctx, recoverOpts());
 
-describe('maybeJsonlFallback helper (plan §D5 测试矩阵)', () => {
-  // ─────────────────────────────────────────────
-  // T10: OR 短路 sub-case
-  // ─────────────────────────────────────────────
-  it('T10a: cwdFellBack=true → jsonlExistsThunk spy 不被调(短路求值 + fail-safe 不被绕过)', async () => {
-    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: true });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwdFellBack: true }));
-    expect(jsonlExistsThunkSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ finalSessionId: 'app-sid-A', fellBack: false });
+    expect(prepareRecoveryContinuation).not.toHaveBeenCalled();
+    expect(createSession).not.toHaveBeenCalled();
+    expect(emits).toEqual([]);
   });
 
-  it('T10b: cwdFellBack=false → jsonlExistsThunk spy 被调一次', async () => {
-    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: true });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwdFellBack: false }));
-    expect(jsonlExistsThunkSpy).toHaveBeenCalledOnce();
-  });
+  it('cwd fallback short-circuits the jsonl probe and creates a trusted continuation turn', async () => {
+    const { ctx, jsonlExistsThunk, createSession } = makeCtx({ jsonlExists: true });
+    const result = await maybeJsonlFallback(ctx, recoverOpts({ cwdFellBack: true }));
 
-  // ─────────────────────────────────────────────
-  // T4: D3 cli sid 维度找 jsonl
-  // ─────────────────────────────────────────────
-  it('T4: cliSessionId !== sessionId → jsonlExistsThunk 用 cliSessionId 找 jsonl', async () => {
-    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: true });
-    await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({
-        sessionId: 'app-sid',
-        cliSessionId: 'cli-sid-DIFFERENT',
-        cwd: '/tmp/x',
-      }),
-    );
-    expect(jsonlExistsThunkSpy).toHaveBeenCalledWith('/tmp/x', 'cli-sid-DIFFERENT');
-  });
-
-  it('T4-fallback: cliSessionId null → ?? sessionId 兜底用 sessionId 找 jsonl', async () => {
-    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: true });
-    await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({
-        sessionId: 'app-sid-only',
-        cliSessionId: null,
-      }),
-    );
-    expect(jsonlExistsThunkSpy).toHaveBeenCalledWith('/tmp/test', 'app-sid-only');
-  });
-
-  // ─────────────────────────────────────────────
-  // T2: jsonl 缺失 → fellBack=true 完整路径
-  // ─────────────────────────────────────────────
-  it('T2: jsonl 缺失 → fellBack=true,createSession 被调一次,emit 2 次,return finalSessionId === opts.sessionId', async () => {
-    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: false });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-fellback', cwd: '/tmp/fb' }),
-    );
     expect(result.fellBack).toBe(true);
-    expect(result.finalSessionId).toBe('app-sid-fellback'); // 不变量 3: applicationSid 全程不变
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-    expect(emits).toHaveLength(2);
-    expect(emits[0].kind).toBe('message');
-    expect(emits[1].kind).toBe('message');
-  });
-
-  // ─────────────────────────────────────────────
-  // T9: ctx.createSession opts 字段断言
-  // ─────────────────────────────────────────────
-  it('T9: createSession 被调 opts 字段 — resume === sessionId + resumeMode === fresh-cli-reuse-app + 不含 resumeCliSid (不变量 10)', async () => {
-    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: false });
-    await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-X', cwd: '/tmp/x' }),
-    );
-    const opts = createSessionSpy.mock.calls[0][0] as Record<string, unknown>;
-    expect(opts.resume).toBe('app-sid-X');
-    expect(opts.resumeMode).toBe('fresh-cli-reuse-app');
-    expect(opts).not.toHaveProperty('resumeCliSid'); // 不变量 10 硬约束
-    expect(opts.cwd).toBe('/tmp/x');
-  });
-
-  // T9a/T9b/T9c: attachments 三 sub-case
-  it('T9a: attachments undefined → emit role=user payload 不含 attachments 字段', async () => {
-    const { ctx } = makeCtx({ jsonlExistsReturn: false });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ prompt: 'hi', attachments: undefined }));
-    const userMsg = emits.find(
-      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
-    );
-    expect(userMsg).toBeDefined();
-    expect(userMsg!.payload).not.toHaveProperty('attachments');
-  });
-
-  it('T9b: attachments 空数组 → emit role=user payload 不含 attachments 字段 (length > 0 spread 条件)', async () => {
-    const { ctx } = makeCtx({ jsonlExistsReturn: false });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ attachments: [] }));
-    const userMsg = emits.find(
-      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
-    );
-    expect(userMsg).toBeDefined();
-    expect(userMsg!.payload).not.toHaveProperty('attachments');
-  });
-
-  it('T9c: attachments 非空数组 → emit role=user payload.attachments === opts.attachments (reference 透传)', async () => {
-    const { ctx } = makeCtx({ jsonlExistsReturn: false });
-    const refs: UploadedAttachmentRef[] = [
-      { kind: 'uploaded', path: '/tmp/a.png', mime: 'image/png', bytes: 100 },
-      { kind: 'uploaded', path: '/tmp/b.png', mime: 'image/png', bytes: 200 },
-    ];
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ attachments: refs }));
-    const userMsg = emits.find(
-      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
-    );
-    expect(userMsg).toBeDefined();
-    expect((userMsg!.payload as { attachments: unknown }).attachments).toBe(refs);
-  });
-
-  it('T9-extra: emit payload.text === opts.prompt (用户原 prompt 不是 prepend 后 summary prompt)', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: false,
-      summariseFnReturn: 'fake summary',
-      listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
-    });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ prompt: '用户实际发的话' }));
-    const userMsg = emits.find(
-      (e) => e.kind === 'message' && (e.payload as { role?: string }).role === 'user',
-    );
-    expect(userMsg).toBeDefined();
-    expect((userMsg!.payload as { text: string }).text).toBe('用户实际发的话');
-  });
-
-  // ─────────────────────────────────────────────
-  // T7: 摘要成功 vs 失败 — fellBack=true 路径
-  // ─────────────────────────────────────────────
-  it('T7-used: 摘要成功 (summaryResult.used=true) → emit fallback info 走 buildJsonlMissingSummaryUsedText', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: false,
-      summariseFnReturn: '前情摘要内容',
-      listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
-      // plan resume-inject §D5: used=true 需有原始对话消息（raw 段是底线）
-      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
-    });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwd: '/tmp/x' }));
-    expect(emits).toHaveLength(2);
-    const infoText = (emits[0].payload as { text: string }).text;
-    expect(infoText).toContain('LLM 摘要自动注入了历史上下文'); // buildJsonlMissingSummaryUsedText 标志短语
-    expect(infoText).toContain('/tmp/x');
-  });
-
-  it('T7-skipped: 无历史 (listMessages 空,used=false) → emit 走 buildJsonlMissingSummarySkippedText', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: false,
-      listEventsFnReturn: [], // 空 events → 总结段也空
-      // listMessagesFnReturn 默认空 → injectResumeHistory no-history → used=false
-    });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwd: '/tmp/x' }));
-    expect(emits).toHaveLength(2);
-    const infoText = (emits[0].payload as { text: string }).text;
-    expect(infoText).toContain('典型原因'); // buildJsonlMissingSummarySkippedText 标志短语
-    expect(infoText).toContain('/tmp/x');
-  });
-
-  // ─────────────────────────────────────────────
-  // T8: 6 文案矩阵 (recover × cwdFellBack 4 + restart × cwdFellBack=false 2)
-  // ─────────────────────────────────────────────
-  it('T8-1 recover × cwdFellBack=false × used=true → buildJsonlMissingSummaryUsedText', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: false,
-      summariseFnReturn: '摘要',
-      listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
-      // plan resume-inject §D5: used=true 需有原始对话消息（raw 段是底线，仅总结无 raw → no-history）
-      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
-    });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwdFellBack: false, cwd: '/tmp/c1' }));
-    expect((emits[0].payload as { text: string }).text).toContain('LLM 摘要自动注入');
-    expect((emits[0].payload as { text: string }).text).toContain('/tmp/c1');
-  });
-
-  it('T8-2 recover × cwdFellBack=false × used=false → buildJsonlMissingSummarySkippedText', async () => {
-    const { ctx } = makeCtx({ jsonlExistsReturn: false, listEventsFnReturn: [] });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwdFellBack: false, cwd: '/tmp/c2' }));
-    expect((emits[0].payload as { text: string }).text).toContain('典型原因');
-    expect((emits[0].payload as { text: string }).text).toContain('/tmp/c2');
-  });
-
-  it('T8-3 recover × cwdFellBack=true × used=true → buildCwdFallbackSummaryUsedText (不含 cwd 字段)', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: true, // cwdFellBack=true 短路不调 jsonlExistsThunk
-      summariseFnReturn: '摘要',
-      listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
-      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
-    });
-    await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ cwdFellBack: true, cwd: '/tmp/fb', prependCwd: '/tmp/orig' }),
-    );
-    const txt = (emits[0].payload as { text: string }).text;
-    expect(txt).toContain('Claude 应能在新 cwd 续上前情'); // buildCwdFallbackSummaryUsedText 标志
-    expect(txt).not.toContain('/tmp/fb'); // 不重复 cwd (outer caller 已 emit cwd 切换 fact)
-  });
-
-  it('T8-4 recover × cwdFellBack=true × used=false → buildCwdFallbackSummarySkippedText', async () => {
-    const { ctx } = makeCtx({ jsonlExistsReturn: true, listEventsFnReturn: [] });
-    await maybeJsonlFallback(ctx, makeRecoverOpts({ cwdFellBack: true }));
-    const txt = (emits[0].payload as { text: string }).text;
-    expect(txt).toContain('原 cwd 编码下的 jsonl 在新 cwd 不可用'); // buildCwdFallbackSummarySkippedText 标志
-  });
-
-  it('T8-5 restart × cwdFellBack=false × used=true → buildRestartJsonlMissingSummaryUsedText (含 restartLabel)', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: false,
-      summariseFnReturn: '摘要',
-      listEventsFnReturn: [{ sessionId: 's', agentId: 'a', kind: 'message', payload: { text: 'x' }, ts: 0, source: 'sdk' }],
-      listMessagesFnReturn: [{ id: 1, sessionId: 's', agentId: 'a', kind: 'message', payload: { role: 'user', text: '历史问题' }, ts: 0, source: 'sdk' }],
-    });
-    await maybeJsonlFallback(
-      ctx,
-      makeRestartOpts({ cwd: '/tmp/r1', restartLabel: '权限模式 acceptEdits' }),
-    );
-    const txt = (emits[0].payload as { text: string }).text;
-    expect(txt).toContain('LLM 摘要自动注入');
-    expect(txt).toContain('已切到 权限模式 acceptEdits');
-    expect(txt).toContain('/tmp/r1');
-  });
-
-  it('T8-6 restart × cwdFellBack=false × used=false → buildRestartJsonlMissingSummarySkippedText (含 restartLabel)', async () => {
-    const { ctx } = makeCtx({ jsonlExistsReturn: false, listEventsFnReturn: [] });
-    await maybeJsonlFallback(
-      ctx,
-      makeRestartOpts({ cwd: '/tmp/r2', restartLabel: 'OS 沙盒 workspace-write' }),
-    );
-    const txt = (emits[0].payload as { text: string }).text;
-    expect(txt).toContain('典型原因');
-    expect(txt).toContain('已切到 OS 沙盒 workspace-write');
-    expect(txt).toContain('/tmp/r2');
-  });
-
-  // ─────────────────────────────────────────────
-  // T1 配套: jsonl 在 → fellBack=false 不调 createSession
-  // ─────────────────────────────────────────────
-  it('T1-helper: jsonl 在 → fellBack=false,createSession 不被调,emit 0 次,return finalSessionId === opts.sessionId', async () => {
-    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: true });
-    const result = await maybeJsonlFallback(ctx, makeRecoverOpts({ sessionId: 'app-X' }));
-    expect(result.fellBack).toBe(false);
-    expect(result.finalSessionId).toBe('app-X');
-    expect(createSessionSpy).not.toHaveBeenCalled();
-    expect(emits).toHaveLength(0);
-  });
-
-  // ─────────────────────────────────────────────
-  // createSession 抛错 → helper rethrow,caller catch 块处理
-  // ─────────────────────────────────────────────
-  it('createSession 抛错 → helper rethrow,emit 仅 0 次 (fallback info 不 emit,因 emit 顺序契约 createSession 先)', async () => {
-    const { ctx } = makeCtx({
-      jsonlExistsReturn: false,
-      createSession: async () => {
-        throw new Error('SDK 启动失败');
-      },
-    });
-    await expect(maybeJsonlFallback(ctx, makeRecoverOpts())).rejects.toThrow('SDK 启动失败');
-    expect(emits).toHaveLength(0); // R5 双方共识 emit 顺序: createSession 先 / emit 后 — createSession 抛错时 emit 不发,caller catch 块 emit error
-  });
-
-  // ─────────────────────────────────────────────
-  // REVIEW_76 MED: listEventsFn throw 不阻断 fresh fallback（「永不抛错」契约）
-  // ─────────────────────────────────────────────
-  it('REVIEW_76 MED: listEventsFn 抛错 → 不传播,fresh fallback 仍调 createSession（永不抛错契约）', async () => {
-    // 模拟 eventRepo.listForSession 内部 rowToEvent JSON.parse 损坏 payload 抛错
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: false, // jsonl 缺失 → 走 fresh fallback
-      listEventsFnThrow: new Error('JSON.parse: corrupt payload_json (simulated)'),
-    });
-
-    // 修前：listEventsFn 在 prependHistorySummary try 外抛错 → 穿透 maybeJsonlFallback →
-    // 在 createSession 之前中断 → recoverer 只 emit「自动恢复失败」不进 fresh CLI fallback。
-    // 修后：listEventsFn 纳入 try/catch → thunk-throw failReason → fall back to originalText →
-    // 仍调 createSession 起 fresh CLI thread（fellBack=true）。
-    const result = await maybeJsonlFallback(ctx, makeRecoverOpts({ cwd: '/tmp/corrupt' }));
-
-    // **MED-2 核心断言**：helper 不抛错 + fellBack=true + createSession 仍被调（fresh CLI 起来）
-    expect(result.fellBack).toBe(true);
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-    // createSession 用 originalText（摘要 prepend 跳过，因 listEventsFn 抛错走 thunk-throw）
-    expect(createSessionSpy.mock.calls[0][0]).toMatchObject({
-      prompt: '继续之前的话题', // makeRecoverOpts 默认 prompt（未被摘要 prepend）
+    expect(jsonlExistsThunk).not.toHaveBeenCalled();
+    const createOptions = createSession.mock.calls[0][0] as Record<string, unknown>;
+    expect(createOptions).toMatchObject({
+      cwd: '/tmp/test',
+      resume: 'app-sid-A',
       resumeMode: 'fresh-cli-reuse-app',
     });
+    expect(createOptions.prompt).toBeUndefined();
+    expect(createOptions.resumeCliSid).toBeUndefined();
+    expect(createOptions.trustedContinuation).toMatchObject({
+      persistedUserText: '继续之前的话题',
+    });
   });
 
-  // ─────────────────────────────────────────────
-  // R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实: close-during-summary-await abort
-  // ─────────────────────────────────────────────
-  it('R2 HIGH: isCancelledFn 在 summary await 后返 true（用户 close）→ abort 不调 createSession（aborted:true）', async () => {
-    // 模拟用户在 injectResumeHistory（summariseFn await）期间主动 close：
-    // summariseFn 是 async（让出事件循环），其间把 cancelled flag 翻 true 模拟 closeImpl 设 closed。
+  it('missing provider history emits bounded metadata and preserves attachments', async () => {
+    const attachments: UploadedAttachmentRef[] = [
+      { kind: 'uploaded', path: '/tmp/a.png', mime: 'image/png', bytes: 100 },
+    ];
+    const { ctx } = makeCtx({ jsonlExists: false, quality: 'full' });
+    await maybeJsonlFallback(ctx, recoverOpts({ attachments }));
+
+    expect(emits).toHaveLength(2);
+    const userEvent = emits[1];
+    expect(userEvent.payload).toMatchObject({
+      text: '继续之前的话题',
+      role: 'user',
+      attachments,
+      messageOrigin: 'continuation',
+      continuation: { sourceSessionId: 'app-sid-A', sourceEventRevision: 4 },
+    });
+    expect(JSON.stringify(userEvent.payload)).not.toContain('Agent Deck Continuation Context');
+  });
+
+  it('instruction-only degradation uses the skipped-history notice', async () => {
+    const { ctx } = makeCtx({ jsonlExists: false, quality: 'instruction-only' });
+    await maybeJsonlFallback(ctx, recoverOpts());
+    expect((emits[0].payload as { text: string }).text).toContain('典型原因');
+  });
+
+  it('a missing pre-await capture fails before side effects', async () => {
+    const { ctx, createSession, prepareRecoveryContinuation } = makeCtx({ jsonlExists: false });
+    await expect(
+      maybeJsonlFallback(
+        ctx,
+        recoverOpts({ recoveryCapture: null, recoveryCaptureError: new Error('spool failed') }),
+      ),
+    ).rejects.toThrow('无法准备会话续接上下文：spool failed');
+    expect(prepareRecoveryContinuation).not.toHaveBeenCalled();
+    expect(createSession).not.toHaveBeenCalled();
+    expect(emits).toEqual([]);
+  });
+
+  it('close during asynchronous preparation aborts before fresh session creation', async () => {
     let cancelled = false;
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: false, // jsonl 缺失 → 走 fallback
-      listMessagesFnReturn: [
-        { id: 1, sessionId: 's', agentId: '', kind: 'message', payload: { role: 'user', text: '历史' }, ts: 1, source: 'sdk' },
-      ],
-    });
-    // 覆写 summariseFn 让它在 await 期间翻 cancelled（模拟用户 close 落在 LLM await 窗口）
-    ctx.summariseFn = (async () => {
-      cancelled = true; // closeImpl setLifecycle('closed') 发生在 await 中途
-      return '总结';
-    }) as unknown as JsonlFallbackCtx['summariseFn'];
-
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ isCancelledFn: () => cancelled }),
-    );
-
-    // 修后：await 后重读 isCancelledFn → true → abort 不起 fresh CLI
-    expect(result.aborted).toBe(true);
-    expect(result.fellBack).toBe(false);
-    expect(createSessionSpy).not.toHaveBeenCalled(); // 关键：不起 fresh CLI（否则 ensure 复活 closed）
-    // abort 时不 emit fallback info（避免 close 后又冒「恢复成功」矛盾文案）
-    expect(emits.filter((e) => e.kind === 'message')).toHaveLength(0);
-  });
-
-  it('R2 HIGH: isCancelledFn 返 false（未 close）→ 正常 fallback 起 fresh CLI', async () => {
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: false,
-      summariseFnReturn: '总结',
-      listMessagesFnReturn: [
-        { id: 1, sessionId: 's', agentId: '', kind: 'message', payload: { role: 'user', text: '历史' }, ts: 1, source: 'sdk' },
-      ],
+    const { ctx, createSession } = makeCtx({
+      jsonlExists: false,
+      prepare: async ({ capture: inputCapture, continuationInstruction }) => {
+        await Promise.resolve();
+        cancelled = true;
+        return preparedRecovery(continuationInstruction, 'raw-only', inputCapture.sourceSessionId);
+      },
     });
     const result = await maybeJsonlFallback(
       ctx,
-      makeRecoverOpts({ isCancelledFn: () => false }),
+      recoverOpts({ isCancelledFn: () => cancelled }),
     );
-    expect(result.aborted).toBeUndefined();
-    expect(result.fellBack).toBe(true);
-    expect(createSessionSpy).toHaveBeenCalledOnce(); // 未 close → 正常起 fresh
+
+    expect(result).toMatchObject({ fellBack: false, aborted: true });
+    expect(createSession).not.toHaveBeenCalled();
+    expect(emits).toEqual([]);
   });
 
-  it('R2 HIGH: restart 路径不传 isCancelledFn → 不 gate（即使 lifecycle 过渡态 closed 也正常 fallback）', async () => {
-    // restart 本就「先 close 再 cold restart」，过渡态 closed 是预期，不能被 abort 拦
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: false,
-      summariseFnReturn: '总结',
-      listMessagesFnReturn: [
-        { id: 1, sessionId: 's', agentId: '', kind: 'message', payload: { role: 'user', text: '历史' }, ts: 1, source: 'sdk' },
-      ],
+  it('create failure propagates without success/user emissions', async () => {
+    const { ctx } = makeCtx({
+      jsonlExists: false,
+      createSession: async () => {
+        throw new Error('SDK start failed');
+      },
     });
-    // makeRestartOpts 不传 isCancelledFn（undefined）→ helper 不 gate
-    const result = await maybeJsonlFallback(ctx, makeRestartOpts());
-    expect(result.aborted).toBeUndefined();
-    expect(result.fellBack).toBe(true);
-    expect(createSessionSpy).toHaveBeenCalledOnce(); // restart 正常起，不被 closed gate 拦
+    await expect(maybeJsonlFallback(ctx, recoverOpts())).rejects.toThrow('SDK start failed');
+    expect(emits).toEqual([]);
   });
 
-  // ─────────────────────────────────────────────
-  // CHANGELOG_224: 幻影 fork 自愈 — cli sid 维度 jsonl 缺失但 applicationSid jsonl 在盘
-  // (CLI `--resume` 下 init 帧吐幻影运行 id,transcript 仍写在 applicationSid 名下)
-  // ─────────────────────────────────────────────
-  it('Heal-1: cliSessionId.jsonl 缺失 + applicationSid.jsonl 在 → fellBack=false + healedCliSessionId===sessionId + 不退 fresh-cli', async () => {
-    const { ctx, createSessionSpy, jsonlExistsThunkSpy, jsonlMtimeMsThunkSpy } = makeCtx({
-      // cli sid 维度的 jsonl 不在(幻影),只有 applicationSid 的在盘
-      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-A',
-      jsonlMtimeMsReturn: 10_000,
+  it('skipFirstUserEmit keeps recovery entry emission single-owned', async () => {
+    const { ctx } = makeCtx({ jsonlExists: false });
+    await maybeJsonlFallback(ctx, recoverOpts({ skipFirstUserEmit: true }));
+    expect(emits).toHaveLength(1);
+    expect((emits[0].payload as { role?: string }).role).toBeUndefined();
+  });
+
+  it('heals a phantom cli id when the application jsonl is fresh', async () => {
+    const { ctx, createSession, jsonlExistsThunk } = makeCtx({
+      jsonlExists: (_cwd, sessionId) => sessionId === 'app-sid-A',
+      jsonlMtimeMs: 10_000,
     });
     const result = await maybeJsonlFallback(
       ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-phantom', cwd: '/tmp/h' }),
+      recoverOpts({ cliSessionId: 'cli-sid-phantom', minHealJsonlMtimeMs: 9_000 }),
     );
-    expect(result.fellBack).toBe(false); // 不退 fresh-cli
-    expect(result.healedCliSessionId).toBe('app-sid-A'); // caller 据此把 resumeCliSid 切到 applicationSid
-    expect(result.finalSessionId).toBe('app-sid-A');
-    expect(createSessionSpy).not.toHaveBeenCalled(); // helper 不起 fresh CLI
-    expect(emits).toHaveLength(0); // 不 emit fallback info(走正常 resume)
-    // 探测两次: 先 cli sid(false) 后 applicationSid(true)
-    expect(jsonlExistsThunkSpy).toHaveBeenNthCalledWith(1, '/tmp/h', 'cli-sid-phantom');
-    expect(jsonlExistsThunkSpy).toHaveBeenNthCalledWith(2, '/tmp/h', 'app-sid-A');
-    expect(jsonlMtimeMsThunkSpy).toHaveBeenCalledWith('/tmp/h', 'app-sid-A');
+
+    expect(result).toMatchObject({ fellBack: false, healedCliSessionId: 'app-sid-A' });
+    expect(jsonlExistsThunk).toHaveBeenCalledTimes(2);
+    expect(createSession).not.toHaveBeenCalled();
   });
 
-  it('Heal-1b: applicationSid.jsonl 早于 lastEventAt → 视为 stale,不自愈并退 fresh-cli', async () => {
-    const { ctx, createSessionSpy, jsonlMtimeMsThunkSpy } = makeCtx({
-      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-A',
-      jsonlMtimeMsReturn: 1_000,
+  it('restart healing compares jsonl mtime to the latest dialog rather than lifecycle churn', async () => {
+    const { ctx, createSession, latestConversationMessageTsThunk } = makeCtx({
+      jsonlExists: (_cwd, sessionId) => sessionId === 'app-sid-R',
+      jsonlMtimeMs: 5_000,
+      latestConversationMessageTs: 5_100,
     });
     const result = await maybeJsonlFallback(
       ctx,
-      makeRecoverOpts({
-        sessionId: 'app-sid-A',
-        cliSessionId: 'cli-sid-real-fork',
-        cwd: '/tmp/h',
-        minHealJsonlMtimeMs: 10_000,
-      }),
+      restartOpts({ cliSessionId: 'cli-sid-phantom', minHealJsonlMtimeMs: 20_000 }),
     );
+
+    expect(result).toMatchObject({ fellBack: false, healedCliSessionId: 'app-sid-R' });
+    expect(latestConversationMessageTsThunk).toHaveBeenCalledWith('app-sid-R');
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it('a jsonl older than the latest restart dialog fails closed to unified fallback', async () => {
+    const { ctx, createSession } = makeCtx({
+      jsonlExists: (_cwd, sessionId) => sessionId === 'app-sid-R',
+      jsonlMtimeMs: 5_000,
+      latestConversationMessageTs: 10_000,
+    });
+    const result = await maybeJsonlFallback(
+      ctx,
+      restartOpts({ cliSessionId: 'cli-sid-real-fork', minHealJsonlMtimeMs: 20_000 }),
+    );
+
     expect(result.fellBack).toBe(true);
     expect(result.healedCliSessionId).toBeUndefined();
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-    expect(jsonlMtimeMsThunkSpy).toHaveBeenCalledWith('/tmp/h', 'app-sid-A');
-  });
-
-  it('Heal-restart-1: restart 场景 appSid.jsonl 早于 lastEventAt 但不早于最近对话消息 → 自愈', async () => {
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-R',
-      jsonlMtimeMsReturn: 5_000,
-      listMessagesFnReturn: [msg(1, 'assistant', 'plan text', 5_100)],
-    });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRestartOpts({
-        sessionId: 'app-sid-R',
-        cliSessionId: 'cli-sid-phantom',
-        cwd: '/tmp/h',
-        minHealJsonlMtimeMs: 20_000,
-      }),
-    );
-    expect(result.fellBack).toBe(false);
-    expect(result.healedCliSessionId).toBe('app-sid-R');
-    expect(createSessionSpy).not.toHaveBeenCalled();
-  });
-
-  it('Heal-restart-2: restart 场景 appSid.jsonl 早于最近对话消息 → 不自愈并退 fresh-cli', async () => {
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-R',
-      jsonlMtimeMsReturn: 5_000,
-      listMessagesFnReturn: [msg(1, 'assistant', 'newer message', 10_000)],
-    });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRestartOpts({
-        sessionId: 'app-sid-R',
-        cliSessionId: 'cli-sid-real-fork',
-        cwd: '/tmp/h',
-        minHealJsonlMtimeMs: 20_000,
-      }),
-    );
-    expect(result.fellBack).toBe(true);
-    expect(result.healedCliSessionId).toBeUndefined();
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-  });
-
-  it('Heal-1c: applicationSid.jsonl mtime 探测失败 → 证据不足,不自愈并退 fresh-cli', async () => {
-    const { ctx, createSessionSpy } = makeCtx({
-      jsonlExistsReturn: (_cwd: string, sid: string) => sid === 'app-sid-A',
-      jsonlMtimeMsReturn: null,
-    });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-real-fork', cwd: '/tmp/h' }),
-    );
-    expect(result.fellBack).toBe(true);
-    expect(result.healedCliSessionId).toBeUndefined();
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-  });
-
-  it('Heal-2: cli sid + applicationSid 两个 jsonl 都缺失 → 无自愈,正常退 fresh-cli (fellBack=true + healedCliSessionId undefined)', async () => {
-    const { ctx, createSessionSpy } = makeCtx({ jsonlExistsReturn: false });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-phantom' }),
-    );
-    expect(result.fellBack).toBe(true);
-    expect(result.healedCliSessionId).toBeUndefined();
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-  });
-
-  it('Heal-3: cwdFellBack=true → 短路不探测(applicationSid jsonl 即便在盘也不自愈,保持 fail-safe fallback)', async () => {
-    const { ctx, createSessionSpy, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: true });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: 'cli-sid-phantom', cwdFellBack: true }),
-    );
-    expect(result.healedCliSessionId).toBeUndefined();
-    expect(result.fellBack).toBe(true); // cwd 切了走 fresh-cli fallback
-    expect(jsonlExistsThunkSpy).not.toHaveBeenCalled(); // 短路: 自愈探测也不调 thunk
-    expect(createSessionSpy).toHaveBeenCalledOnce();
-  });
-
-  it('Heal-4: cliSessionId === sessionId (无幻影可言) + jsonl 缺失 → 不自愈,退 fresh-cli', async () => {
-    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: false });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'same-id', cliSessionId: 'same-id' }),
-    );
-    expect(result.healedCliSessionId).toBeUndefined();
-    expect(result.fellBack).toBe(true);
-    expect(jsonlExistsThunkSpy).toHaveBeenCalledOnce(); // 仅 primary 一次,不重复探 applicationSid
-  });
-
-  it('Heal-5: cliSessionId null + applicationSid jsonl 缺失 → 不因 null 触发自愈探测,退 fresh-cli', async () => {
-    const { ctx, jsonlExistsThunkSpy } = makeCtx({ jsonlExistsReturn: false });
-    const result = await maybeJsonlFallback(
-      ctx,
-      makeRecoverOpts({ sessionId: 'app-sid-A', cliSessionId: null }),
-    );
-    expect(result.healedCliSessionId).toBeUndefined();
-    expect(result.fellBack).toBe(true);
-    expect(jsonlExistsThunkSpy).toHaveBeenCalledOnce(); // primary 用 ?? sessionId 探一次,不二探
+    expect(createSession).toHaveBeenCalledOnce();
   });
 });

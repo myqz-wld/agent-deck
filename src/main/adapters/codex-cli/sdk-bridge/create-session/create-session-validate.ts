@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { MAX_MESSAGE_LENGTH } from '../constants';
 import type { CreateSessionOpts, ValidateResult } from './_deps';
+import { isTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 export function validateCreateSessionOpts(opts: CreateSessionOpts): ValidateResult {
   if (opts.resumeOnly && !opts.resume) {
@@ -42,7 +43,7 @@ export function validateCreateSessionOpts(opts: CreateSessionOpts): ValidateResu
   // attachments 不算 text length（IPC 层 30MB 总附件独立校验）
   // REVIEW_24 HIGH-2 follow-up：byteLength → length 与 messageRepo cap 全局对齐
   const promptLen = opts.prompt.length;
-  if (promptLen > MAX_MESSAGE_LENGTH) {
+  if (!isTrustedContinuationInitialTurn(opts.trustedContinuation) && promptLen > MAX_MESSAGE_LENGTH) {
     throw new Error(
       `首条 prompt 超出 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限（实际 ${promptLen.toLocaleString()} 字符）`,
     );

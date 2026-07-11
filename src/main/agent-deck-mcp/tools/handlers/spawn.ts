@@ -38,6 +38,8 @@ import {
   ensureSpawnTeam,
 } from './spawn-team';
 import log from '@main/utils/logger';
+import { createOrdinaryInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { executeFreshSession } from '@main/session/continuation-context/fresh-session-executor';
 
 const logger = log.scope('mcp-spawn');
 
@@ -282,7 +284,10 @@ export const spawnSessionHandler = withMcpGuard(
         forkHandle = await adapter.createForkedSession!(forkSource, targetOptions);
         sid = forkHandle.sessionId;
       } else {
-        sid = await adapter.createSession(targetOptions);
+        sid = await executeFreshSession(
+          targetOptions,
+          createOrdinaryInitialTurn(targetOptions.prompt ?? ''),
+        );
       }
       // 仅当 caller 自身在 sessions 表里时记 spawn link（in-process 闭包外 caller 视为顶层）。
       // setSpawnLink 在 release 之前完成，关闭 fan-out race window（详上方 MED-1 注释）。

@@ -4,7 +4,7 @@
  *
  * **动机**（REVIEW_99 R3 reviewer-codex HIGH + MED carry-forward）:
  * closed 会话被用户合法 resume → recover 入口 emit user message(source:'sdk') 经 ensure
- * closed→active 复活 → `await injectResumeHistory`(LLM 10-30s)/ createSession 内部
+ * closed→active 复活 → 续接上下文准备 / createSession 内部
  * loadSdk·buildMcpServers pre-registration await 期间用户**再次** close → 旧 isCancelledFn
  * 用 `closed && !wasClosed` lifecycle 快照判定漏掉「恢复期间第二次 close」(wasClosed=true
  * 让条件恒 false)→ createSession 反转用户显式 close 起一个不想要的 fresh CLI(按次计费)。

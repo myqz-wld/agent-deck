@@ -2,7 +2,7 @@
  * preload/api/sessions: 会话相关 IPC facade。
  *
  * 包含会话 CRUD / 历史查询 / 子表（events / file_changes / summaries）拉取，以及
- * K3 hand-off 两阶段（summarize + spawn）。
+ * 会话续接上下文三阶段（prepare + commit/cancel）。
  */
 
 import { ipcRenderer } from 'electron';
@@ -11,8 +11,9 @@ import type {
   AgentEvent,
   FileFinalDiffResult,
   FileChangeRecord,
-  HandOffPreview,
-  HandOffSpawnRequest,
+  SessionHandOffCommitResponse,
+  SessionHandOffPreparation,
+  SessionHandOffPrepareRequest,
   SessionRecord,
   SummaryRecord,
   TaskRecord,
@@ -61,18 +62,15 @@ export const sessionsApi = {
   listSessionTasks: (id: string): Promise<{ tasks: TaskRecord[] }> =>
     ipcRenderer.invoke(IpcInvoke.SessionListTasks, id),
 
-  /**
-   * Stage 1：在稳定事件边界内生成六节压缩检查点，并与最近原始对话和当前续接指令
-   * 组成可编辑 capsule。LLM 失败时可降级保留 raw；没有任何可接力历史时才 throw。
-   */
-  handOffSummarize: (sessionId: string): Promise<HandOffPreview> =>
-    ipcRenderer.invoke(IpcInvoke.SessionHandOffSummarize, sessionId),
+  handOffPrepare: (
+    request: SessionHandOffPrepareRequest,
+  ): Promise<SessionHandOffPreparation> =>
+    ipcRenderer.invoke(IpcInvoke.SessionHandOffPrepare, request),
 
-  /**
-   * Stage 2：用已审阅 capsule 和所选 adapter / model / thinking 起新 SDK session，迁移
-   * session-owned resources 后关闭并归档源 session。
-   * spawn 成功后 main 端 emit session-focus-request 自动切 detail 到新 session。
-   */
-  handOffSpawn: (sessionId: string, request: HandOffSpawnRequest): Promise<string> =>
-    ipcRenderer.invoke(IpcInvoke.SessionHandOffSpawn, sessionId, request),
+  /** Commit deliberately sends only the opaque preparation id. */
+  handOffCommit: (preparationId: string): Promise<SessionHandOffCommitResponse> =>
+    ipcRenderer.invoke(IpcInvoke.SessionHandOffCommit, preparationId),
+
+  handOffCancel: (preparationId: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcInvoke.SessionHandOffCancel, preparationId),
 };

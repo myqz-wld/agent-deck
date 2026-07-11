@@ -3,7 +3,7 @@
  *
  * scope: SQL 单点 setter throw 行为(.changes !== 1 → SessionRowMissingError),verify SSOT
  * 让 caller 链(sessionManager.archive / unarchive / IPC handler / mcp baton-cleanup helper /
- * K3 sessions-hand-off-helper)通过 throw 自然感知 race window 内 row 被外部删的边界。
+ * UI session-hand-off-finalize)通过 throw 自然感知 race window 内 row 被外部删的边界。
  *
  * 不依赖真 SQLite — 通过 vi.mock 把 `@main/store/db` 的 getDb 替换成 fake stmt,这样测试
  * 不撞 better-sqlite3 ABI 环境守门(`pnpm exec vitest` 在 Electron 33 / Node 20 ABI 间不一致),

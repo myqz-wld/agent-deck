@@ -47,6 +47,40 @@ export function rename(fromId: string, toId: string): void {
 }
 
 /**
+ * Session-id moves are intentionally excluded from the per-event UPDATE revision trigger: allocating
+ * one revision per moved row would make rename cost and semantics depend on history size. Instead,
+ * rename publishes one destructive boundary after every event has moved. The next checkpoint must
+ * rebuild at that boundary, including when neither side has an event.
+ */
+function recomputeEventRevisionAfterRename(db: Database, toId: string): void {
+  const result = db
+    .prepare(
+      `WITH next_boundary AS (
+         SELECT MAX(
+           revision + 1,
+           COALESCE(
+             (SELECT MAX(COALESCE(change_revision, id))
+                FROM events
+               WHERE session_id = ?),
+             0
+           )
+         ) AS boundary
+           FROM session_event_revisions
+          WHERE session_id = ?
+       )
+       UPDATE session_event_revisions
+          SET revision = (SELECT boundary FROM next_boundary),
+              rebuild_after_revision = (SELECT boundary FROM next_boundary)
+        WHERE session_id = ?`,
+    )
+    .run(toId, toId, toId);
+
+  if (result.changes !== 1) {
+    throw new Error(`Cannot recompute event revision for renamed session ${toId}`);
+  }
+}
+
+/**
  * Test seam（plan linked-swimming-platypus）：让 agent-deck-repos.test.ts 用 in-memory db
  * 真测 rename 迁移行为（v017 + 三段 UPDATE 不撞 FK + NEW 续接 OLD 角色）。生产路径走
  * `rename(fromId, toId)` 默认 wrapper 用 getDb()；测试路径走本函数显式传 db。
@@ -130,8 +164,14 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.additional_directories,
       );
     }
+    // Derived target checkpoints describe the pre-rename target history and cannot be merged with
+    // moved source history. Invalidate them in the same transaction; source checkpoints cascade
+    // when the source session row is deleted below.
+    db.prepare(`DELETE FROM continuation_checkpoints WHERE session_id = ?`).run(toId);
+
     // 迁移子表引用（外键 ON DELETE CASCADE 在删 fromId 时不会误删，因为 session_id 已改）
     db.prepare(`UPDATE events SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
+    recomputeEventRevisionAfterRename(db, toId);
     db.prepare(`UPDATE file_changes SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
     db.prepare(`UPDATE summaries SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
 

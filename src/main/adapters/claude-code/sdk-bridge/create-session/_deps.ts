@@ -25,6 +25,7 @@ import type { ClaudeCodeEffortLevel } from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 /**
  * facade ClaudeSdkBridge.createSession 入参 SSOT（原 inline opts type）。
@@ -37,6 +38,8 @@ import type { StreamProcessor } from '../stream-processor';
 export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
+  /** Main-only branded continuation turn; absent from public adapter create options. */
+  trustedContinuation?: TrustedContinuationInitialTurn;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
   resume?: string;

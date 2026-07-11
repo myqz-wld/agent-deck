@@ -71,4 +71,32 @@ describe('claude finalizeSessionStart', () => {
       }),
     );
   });
+
+  it('persists only the continuation instruction plus lineage metadata', () => {
+    const emit = vi.fn();
+    vi.mocked(sessionRepo.get).mockReturnValue(null);
+    finalizeSessionStart({
+      applicationSid: 'successor',
+      cwd: '/repo',
+      prompt: 'Only this next-step instruction is visible.',
+      continuationMetadata: {
+        formatVersion: 1,
+        checkpointId: 7,
+        sourceSessionId: 'source',
+        sourceEventRevision: 42,
+        preparationHash: 'a'.repeat(64),
+        messageOrigin: 'continuation',
+      },
+      claudeSandboxMode: 'off',
+      emit,
+    });
+    const message = emit.mock.calls.map(([event]) => event).find((event) => event.kind === 'message');
+    expect(message.payload).toMatchObject({
+      text: 'Only this next-step instruction is visible.',
+      role: 'user',
+      messageOrigin: 'continuation',
+      continuation: { checkpointId: 7, sourceEventRevision: 42 },
+    });
+    expect(JSON.stringify(message.payload)).not.toContain('Agent Deck Continuation Context');
+  });
 });

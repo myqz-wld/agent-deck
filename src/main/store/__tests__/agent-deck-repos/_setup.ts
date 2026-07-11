@@ -2,7 +2,7 @@
  * agent-deck-repos 单测共享 fixture（CHANGELOG_105 拆分自 agent-deck-repos.test.ts）。
  *
  * 抽出 better-sqlite3 binding probe + in-memory DB factory + insertSession helper +
- * 17 个 ?raw migration import，让 team-repo 与 message-repo 两组 test 复用。
+ * latest-schema ?raw migration imports，让 team-repo 与 message-repo 两组 test 复用。
  *
  * 与 task-repo.test.ts 同 pattern：bind probe 失败时 skip 整个 describe。
  */
@@ -44,6 +44,8 @@ import v033 from '../../migrations/v033_issues_branch_name.sql?raw';
 import v034 from '../../migrations/v034_sessions_list_filter_indexes.sql?raw';
 import v035 from '../../migrations/v035_token_usage_reasoning.sql?raw';
 import v036 from '../../migrations/v036_token_usage_model_buckets.sql?raw';
+import v037 from '../../migrations/v037_event_revisions.sql?raw';
+import v038 from '../../migrations/v038_continuation_checkpoints.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
@@ -92,6 +94,8 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
     v034,
     v035,
     v036,
+    v037,
+    v038,
   ]) {
     db.exec(sql);
   }

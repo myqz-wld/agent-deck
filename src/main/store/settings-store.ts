@@ -1,6 +1,13 @@
 import Store from 'electron-store';
 import { randomBytes } from 'node:crypto';
-import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types';
+import {
+  DEFAULT_SETTINGS,
+  MAX_CONTINUATION_RAW_RETENTION_TOKENS,
+  MIN_CONTINUATION_RAW_RETENTION_TOKENS,
+  type AppSettings,
+  type ContinuationCheckpointProvider,
+} from '@shared/types';
+import { isClaudeThinkingLevel, isCodexThinkingLevel } from '@shared/session-metadata';
 import log from '@main/utils/logger';
 
 const logger = log.scope('settings-store');
@@ -42,10 +49,9 @@ const REMOVED_KEYS: readonly string[] = [
   // 失能力 — raw enableTaskManager:true + raw 不含 enableAgentDeckMcp → 自动 set
   // enableAgentDeckMcp:true 后再 delete legacy（详 plan §D2 R1 F11 + R3-claude-MED-1）。
   'enableTaskManager',
-  // plan prancy-forging-penguin：原 codexSummaryModel / codexHandOffModel 两个 codex 端独立
-  // 字段下线,合并入统一的 summaryModel / handOffModel + 新增 summaryProvider / handOffProvider
-  // 选择器(走 claude SDK 还是 codex SDK)。老用户如有填过 codex 字段值不自动迁移到新统一字段
-  // — 简洁 design,user 在新 UI 重选 provider=codex 后再填 model id。
+  // Earlier releases retired the provider-specific Codex fields into summary* and the now-legacy
+  // handOff* settings. They were never migrated automatically; the continuation migration below
+  // starts from handOff* and deliberately does not resurrect these older orphan keys.
   'codexSummaryModel',
   'codexHandOffModel',
   // plan resume-inject-raw-messages-20260601 §不变量 7：删 autoSummariseOnFallback toggle。
@@ -56,7 +62,111 @@ const REMOVED_KEYS: readonly string[] = [
   // 2026-06-15：Claude bundled plugin 的 skills / agents 注入拆成两个独立开关。
   // ensure() 内先把 legacy 值迁移到 injectAgentDeckClaude{Skills,Agents}，随后清旧字段。
   'injectAgentDeckPlugin',
+  // Unified Continuation Context replaces the hand-off-only generator names and count-based
+  // retention control. Migration runs before this cleanup list.
+  'handOffProvider',
+  'handOffModel',
+  'handOffReasoning',
+  'resumeRecentMessagesCount',
+  '__resumeRecentMessagesDefault20260710Done',
 ];
+
+const CONTINUATION_PROVIDERS: readonly ContinuationCheckpointProvider[] = [
+  'claude',
+  'deepseek',
+  'codex',
+];
+
+interface LooseStore {
+  set(key: string, value: unknown): void;
+}
+
+function validContinuationProvider(value: unknown): value is ContinuationCheckpointProvider {
+  return CONTINUATION_PROVIDERS.includes(value as ContinuationCheckpointProvider);
+}
+
+function migratedThinking(
+  provider: ContinuationCheckpointProvider,
+  value: unknown,
+  allowLegacyCoercion: boolean,
+): AppSettings['continuationCheckpointThinking'] {
+  if (provider === 'codex') {
+    return isCodexThinkingLevel(value) ? value : DEFAULT_SETTINGS.continuationCheckpointThinking;
+  }
+  if (allowLegacyCoercion && value === 'minimal') return 'low';
+  if (allowLegacyCoercion && value === 'ultra') return 'max';
+  return isClaudeThinkingLevel(value)
+    ? value
+    : DEFAULT_SETTINGS.continuationCheckpointThinking;
+}
+
+/** Presence-aware one-time migration; persisted new keys always win over legacy values. */
+function migrateContinuationSettings(
+  persistedRaw: Readonly<Record<string, unknown>>,
+  target: LooseStore,
+): void {
+  const providerSource = 'continuationCheckpointProvider' in persistedRaw
+    ? persistedRaw.continuationCheckpointProvider
+    : persistedRaw.handOffProvider;
+  const hasProviderSource =
+    'continuationCheckpointProvider' in persistedRaw || 'handOffProvider' in persistedRaw;
+  const provider = validContinuationProvider(providerSource)
+    ? providerSource
+    : DEFAULT_SETTINGS.continuationCheckpointProvider;
+  if (
+    hasProviderSource &&
+    (!('continuationCheckpointProvider' in persistedRaw) || providerSource !== provider)
+  ) {
+    target.set('continuationCheckpointProvider', provider);
+  }
+
+  const modelSource = 'continuationCheckpointModel' in persistedRaw
+    ? persistedRaw.continuationCheckpointModel
+    : persistedRaw.handOffModel;
+  const hasModelSource =
+    'continuationCheckpointModel' in persistedRaw || 'handOffModel' in persistedRaw;
+  const model =
+    typeof modelSource === 'string' && modelSource.length <= 256
+      ? modelSource
+      : DEFAULT_SETTINGS.continuationCheckpointModel;
+  if (
+    hasModelSource &&
+    (!('continuationCheckpointModel' in persistedRaw) || modelSource !== model)
+  ) {
+    target.set('continuationCheckpointModel', model);
+  }
+
+  const thinkingSource = 'continuationCheckpointThinking' in persistedRaw
+    ? persistedRaw.continuationCheckpointThinking
+    : persistedRaw.handOffReasoning;
+  const hasThinkingSource =
+    'continuationCheckpointThinking' in persistedRaw || 'handOffReasoning' in persistedRaw;
+  const thinking = migratedThinking(
+    provider,
+    thinkingSource,
+    !('continuationCheckpointThinking' in persistedRaw) && 'handOffReasoning' in persistedRaw,
+  );
+  if (
+    hasThinkingSource &&
+    (!('continuationCheckpointThinking' in persistedRaw) || thinkingSource !== thinking)
+  ) {
+    target.set('continuationCheckpointThinking', thinking);
+  }
+
+  if ('continuationRawRetentionTokens' in persistedRaw) {
+    const rawTokens = persistedRaw.continuationRawRetentionTokens;
+    if (
+      !Number.isSafeInteger(rawTokens) ||
+      (rawTokens as number) < MIN_CONTINUATION_RAW_RETENTION_TOKENS ||
+      (rawTokens as number) > MAX_CONTINUATION_RAW_RETENTION_TOKENS
+    ) {
+      target.set(
+        'continuationRawRetentionTokens',
+        DEFAULT_SETTINGS.continuationRawRetentionTokens,
+      );
+    }
+  }
+}
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
 
@@ -136,6 +246,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       set: (k: string, v: unknown) => void;
       delete: (k: string) => void;
     };
+    migrateContinuationSettings(persistedRaw, looseStore);
     const VALUE_UPLIFT_SENTINEL = '__valueUpliftMigrationDone';
     if (persistedRaw[VALUE_UPLIFT_SENTINEL] !== true) {
       if (persistedRaw['mcpMaxFanOutPerParent'] === 5) {
@@ -177,19 +288,6 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
         );
       }
       looseStore.set(SETTINGS_DEFAULTS_20260604_SENTINEL, true);
-    }
-    // 2026-07-10：最近原始消息候选数默认从 30 升到 200。必须用独立 sentinel，确保已经
-    // 跑过 2026-06-04 uplift 的安装仍收到本次升级；首次升级后用户手动改回 30 也会保留。
-    const RECENT_MESSAGES_DEFAULT_20260710_SENTINEL =
-      '__resumeRecentMessagesDefault20260710Done';
-    if (persistedRaw[RECENT_MESSAGES_DEFAULT_20260710_SENTINEL] !== true) {
-      if (persistedRaw['resumeRecentMessagesCount'] === 30) {
-        store.set('resumeRecentMessagesCount', 200);
-        logger.info(
-          '[settings] migrated resumeRecentMessagesCount 30 → 200 (2026-07-10 default uplift)',
-        );
-      }
-      looseStore.set(RECENT_MESSAGES_DEFAULT_20260710_SENTINEL, true);
     }
     // Claude Code sandbox 默认从 off 升到 workspace-write。单独 sentinel，不能复用上面的
     // 2026-06-04 数值默认 sentinel：已经跑过旧版本默认升级的用户也必须能收到本次迁移。

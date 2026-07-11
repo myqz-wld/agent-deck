@@ -28,31 +28,37 @@
  * - REVIEW_7 H1 — 用 createSession 返回值拿 newRealId（不再 entries() 反查 cwd）
  * - REVIEW_17 R3 — 5s placeholder dedup
  */
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type { UploadedAttachmentRef } from '@shared/types';
 import { findFallbackCwd as findFallbackCwdShared } from '@main/adapters/shared/find-fallback-cwd';
 import { AGENT_ID } from './constants';
 import { recoverAndSendImpl } from './recoverer/recover-and-send-impl';
 import type {
+  CaptureRecoveryContinuationThunk,
+  CleanupRecoveryContinuationThunk,
   CreateSessionThunk,
   CwdExistsThunk,
   JsonlExistsThunk,
   JsonlMtimeMsThunk,
+  LatestConversationMessageTsThunk,
+  PrepareRecoveryContinuationThunk,
   RecovererCtx,
   SendMessageThunk,
-  SummariseFnThunk,
 } from './recoverer/_deps';
 
 // re-export 5 thunk type + 1 ctx interface — caller 仍按
 // `import { SessionRecoverer, RecovererCtx, ... } from '@main/adapters/claude-code/sdk-bridge/recoverer'`
 // 方式 import (Step 4.4 facade re-export 保 import path byte-identical)。
 export type {
+  CaptureRecoveryContinuationThunk,
+  CleanupRecoveryContinuationThunk,
   CreateSessionThunk,
   CwdExistsThunk,
   JsonlExistsThunk,
   JsonlMtimeMsThunk,
+  LatestConversationMessageTsThunk,
+  PrepareRecoveryContinuationThunk,
   RecovererCtx,
   SendMessageThunk,
-  SummariseFnThunk,
 };
 
 // re-export 2 default fn — facade.ctor 默认值 + sdk-bridge.ts:46 import 链兼容
@@ -86,38 +92,10 @@ export class SessionRecoverer {
      * cwdExists 方法,默认走 fs.existsSync。
      */
     private readonly cwdExistsThunk: CwdExistsThunk,
-    /**
-     * CHANGELOG_107: LLM 摘要 thunk(test seam)。facade 内部转发给 protected
-     * summariseForHandOff 方法,默认实现 = `summariseSessionForHandOff`。
-     *
-     * Step 1: 仅接通 thunk 通道,recoverer 主路径暂不调用(零业务行为变化)。
-     * Step 2 起 `prependHistorySummary` helper 在 fallback 路径前调用本 thunk
-     * 把摘要 prepend 到 fresh CLI 首条 prompt。
-     */
-    private readonly summariseFn: SummariseFnThunk,
-    /**
-     * **plan restart-controller-jsonl-precheck-20260521 §Step 3g 修法**:
-     * events 来源 thunk(test seam)。facade 内部转发给 protected
-     * listEventsForSession 方法,默认走 `eventRepo.listForSession`。
-     *
-     * 让 jsonl-fallback helper (Step 3f 重构后 fallback 路径调本 thunk) 与 recoverer
-     * 主路径共享同款 facade extend override 模式(避免 recoverer.ts 与 helper 双处
-     * hardcode eventRepo 漂移)。
-     */
-    private readonly listEventsFn: (sessionId: string) => AgentEvent[],
-    /**
-     * **plan resume-inject-raw-messages-20260601 §D5 修法**:
-     * message-only 来源 thunk(test seam)。facade 内部转发给 protected
-     * listRecentMessagesForSession 方法,默认走 `eventRepo.listRecentMessages`。
-     *
-     * 让 jsonl-fallback helper(injectResumeHistory)拼「最近原始对话消息段」与 recoverer
-     * 主路径共享同款 facade extend override 模式(避免双处 hardcode eventRepo 漂移)。
-     */
-    private readonly listMessagesFn: (
-      sessionId: string,
-      limit: number,
-      beforeIdInclusive?: number,
-    ) => (AgentEvent & { id: number })[],
+    private readonly latestConversationMessageTsThunk: LatestConversationMessageTsThunk,
+    private readonly captureRecoveryContinuation: CaptureRecoveryContinuationThunk,
+    private readonly prepareRecoveryContinuation: PrepareRecoveryContinuationThunk,
+    private readonly cleanupRecoveryContinuation: CleanupRecoveryContinuationThunk,
   ) {}
 
   /**
@@ -136,9 +114,10 @@ export class SessionRecoverer {
       jsonlExistsThunk: this.jsonlExistsThunk,
       jsonlMtimeMsThunk: this.jsonlMtimeMsThunk,
       cwdExistsThunk: this.cwdExistsThunk,
-      summariseFn: this.summariseFn,
-      listEventsFn: this.listEventsFn,
-      listMessagesFn: this.listMessagesFn,
+      latestConversationMessageTsThunk: this.latestConversationMessageTsThunk,
+      captureRecoveryContinuation: this.captureRecoveryContinuation,
+      prepareRecoveryContinuation: this.prepareRecoveryContinuation,
+      cleanupRecoveryContinuation: this.cleanupRecoveryContinuation,
       findFallbackCwdThunk: (badCwd) => this.findFallbackCwd(badCwd),
       emitFallbackMessageThunk: (sid, text, opts) => this.emitFallbackMessage(sid, text, opts),
       placeholderEmittedAt: this.placeholderEmittedAt,
@@ -158,8 +137,8 @@ export class SessionRecoverer {
    * **覆盖范围**（与 builder #1-#6 1:1）：
    * - outer cwd missing throw（buildCwdMissingErrorText，带 `error: true`）
    * - outer cwd fallback info（buildCwdFallbackInfoText）
-   * - inner jsonl missing summary used / skipped（buildJsonlMissingSummary*Text）
-   * - inner cwdFellBack summary used / skipped（buildCwdFallbackSummary*Text）
+   * - inner jsonl missing context restored / instruction-only
+   * - inner cwdFellBack context restored / instruction-only
    *
    * **不覆盖**（recoverer-messages.ts 注释明示「单行字面量留 inline」）：
    * - 占位 message 「⚠ SDK 通道已断开，正在自动恢复…」（占位 dedup 用 nowTs 同款 const）

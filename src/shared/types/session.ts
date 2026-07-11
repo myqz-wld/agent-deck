@@ -242,36 +242,78 @@ export interface HandOffMetadata {
   mode: 'session';
   /** caller session id that handed off its resources to this successor. */
   fromCallerSid: string;
-  /** Stable event boundary captured when the compact hand-off context was prepared. */
+  /** Stable event boundary captured when the Continuation Context was prepared. */
   sourceMaxEventId?: number | null;
 }
 
 export type SessionAdapterId = 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
 
-export interface HandOffPreview {
-  /** Editable compact context rendered for the successor's first user turn. */
-  summary: string;
-  /** Full includes a generated checkpoint; degraded preserves raw conversation without one. */
-  contextQuality: 'full' | 'degraded';
-  summaryIncluded: boolean;
-  includedMessageCount: number;
-  omittedMessageCount: number;
-  sourceCwd: string;
-  sourceAgentId: string;
-  sourcePermissionMode: PermissionMode | null;
-  sourceModel: string | null;
-  sourceThinking: string | null;
-  /** Source event high-water mark used to reject stale previews at commit time. */
-  sourceMaxEventId: number;
+export interface SessionHandOffTarget {
+  adapter: SessionAdapterId;
+  /** Empty/null delegates model selection to the target provider. */
+  model: string | null;
+  /** Empty/null delegates thinking selection to the target provider. */
+  thinking: string | null;
 }
 
-export interface HandOffSpawnRequest {
-  prompt: string;
-  target: {
-    adapter: SessionAdapterId;
-    model: string | null;
-    thinking: string | null;
-  };
-  /** Null permits a manually-authored prompt that did not come from Stage 1. */
-  expectedSourceMaxEventId: number | null;
+export interface SessionHandOffPrepareRequest {
+  sourceSessionId: string;
+  /** Authoritative successor instruction; generated history remains read-only. */
+  continuationInstruction: string;
+  target: SessionHandOffTarget;
 }
+
+export type SessionContinuationQuality =
+  | 'full'
+  | 'projected'
+  | 'coverage-gap'
+  | 'raw-only'
+  | 'instruction-only';
+
+/** Bounded renderer projection. Full provider prompt, spool ids, and fingerprints stay in main. */
+export interface SessionHandOffPreparation {
+  preparationId: string;
+  preview: string;
+  previewTruncated: boolean;
+  quality: SessionContinuationQuality;
+  source: {
+    eventRevision: number;
+    rebuildAfterRevision: number;
+  };
+  checkpoint: {
+    id: number | null;
+    throughRevision: number;
+    formatVersion: number;
+    refreshed: boolean;
+  };
+  metrics: {
+    estimatedPromptTokens: number;
+    checkpointTokens: number;
+    rawTailTokens: number;
+    includedUserMessages: number;
+    truncatedBoundaryMessages: number;
+    rawRetentionCeilingTokens: number;
+    elapsedMs: number;
+  };
+  warnings: Array<{ code: string; message: string }>;
+  target: SessionHandOffTarget;
+}
+
+export interface SessionHandOffCommitResult {
+  successorSessionId: string;
+  /** Successor is usable even when best-effort source close/archive reports a warning. */
+  sourceFinalizationWarning: string | null;
+}
+
+/** Post-create failure details must cross Electron IPC without relying on Error serialization. */
+export interface SessionHandOffExecutionFailure {
+  stage: 'cutover' | 'transfer';
+  successorSessionId: string;
+  successorCleanup: 'ok' | 'failed';
+  message: string;
+}
+
+/** Serializable UI commit boundary: known post-create failures resolve as structured results. */
+export type SessionHandOffCommitResponse =
+  | ({ status: 'success' } & SessionHandOffCommitResult)
+  | ({ status: 'execution-error' } & SessionHandOffExecutionFailure);

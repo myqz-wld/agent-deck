@@ -12,9 +12,9 @@ import { CodexSdkBridge } from './sdk-bridge';
 import { buildCodexHookRoutes } from './hook-routes';
 import { CodexHookInstaller } from './hook-installer';
 import { summariseCodexSessionViaOneshot } from './summarizer-runner';
-import { summariseCodexSessionForHandOff } from './handoff-runner';
 import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
 import { unavailableUsageSnapshot } from '../provider-usage';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -116,6 +116,33 @@ class CodexCliAdapter implements AgentAdapter {
       envOverrideExtra: opts.envOverrideExtra,
       // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 7 步(facade wrapper):
       // 显式 spread handOff,否则 facade 白名单 spread 会丢字段 → bridge 拿不到 metadata。
+      handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
+    });
+    return handle.sessionId;
+  }
+
+  async createTrustedContinuationSession(
+    opts: CreateSessionOptions,
+    turn: TrustedContinuationInitialTurn,
+  ): Promise<string> {
+    if (opts.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error('Codex trusted continuation requires an initialized Codex adapter');
+    }
+    const handle = await this.bridge.createSession({
+      cwd: opts.cwd,
+      trustedContinuation: turn,
+      codexSandbox: opts.codexSandbox,
+      attachments: opts.attachments,
+      model: opts.model,
+      modelReasoningEffort: opts.modelReasoningEffort,
+      developerInstructions: opts.developerInstructions,
+      codexConfigOverrides: opts.codexConfigOverrides,
+      extraAllowWrite: opts.extraAllowWrite,
+      approvalPolicy: opts.approvalPolicy,
+      networkAccessEnabled: opts.networkAccessEnabled,
+      additionalDirectories: opts.additionalDirectories,
+      envOverrideExtra: opts.envOverrideExtra,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
     });
@@ -271,23 +298,9 @@ class CodexCliAdapter implements AgentAdapter {
     return this.bridge.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
   }
 
-  /**
-   * R37 P2-I Step 3.3：LLM 驱动的「最近做什么」入口（dispatch 下放）。
-   *
-   * - 'summary' → `summariseCodexSessionViaOneshot` ('low' effort，settings.summaryTimeoutMs)
-   * - 'handoff' → `summariseCodexSessionForHandOff` ('medium' effort，60s timeout hardcoded)
-   *
-   * 两个 codex runner 都需 caller 注入 `formatEventsForPrompt`（避免 codex/ 子目录反向
-   * import @main/session/summarizer/event-formatter；adapter 在此一处统一注入）。
-   */
-  async summariseEvents(
-    cwd: string,
-    events: AgentEvent[],
-    kind: 'summary' | 'handoff',
-  ): Promise<string | null> {
-    return kind === 'summary'
-      ? summariseCodexSessionViaOneshot(cwd, events, formatEventsForPrompt)
-      : summariseCodexSessionForHandOff(cwd, events, formatEventsForPrompt);
+  /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
+  async summariseEvents(cwd: string, events: AgentEvent[]): Promise<string | null> {
+    return summariseCodexSessionViaOneshot(cwd, events, formatEventsForPrompt);
   }
 
   // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /

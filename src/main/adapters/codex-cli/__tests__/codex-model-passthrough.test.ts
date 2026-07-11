@@ -6,7 +6,7 @@
  * 测试三件事:
  * 1. `runCodexOneshot(opts.model)` 透传到 app-server `startThread({ model })` 参数
  * 2. `opts.model` 边界 case (undefined / '' / '   ' / 'gpt-x') 的 trim+skip 行为
- * 3. summarizer-runner / handoff-runner caller 走 `settings.codex*Model > env > undefined`
+ * 3. summarizer-runner caller 走 configured model > env > undefined
  *    优先级链
  *
  * Mock 策略 (与 `sdk-bridge.early-err-cleanup.test.ts` 同款):
@@ -209,20 +209,6 @@ describe('Codex summary runner reasoning settings', () => {
     }
   });
 
-  it('passes handOffReasoning=max to the Hand-off brief oneshot', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('handOffReasoning');
-    settingsStore.set('handOffReasoning', 'max');
-    try {
-      const { summariseCodexSessionForHandOff } = await import('../handoff-runner');
-      await summariseCodexSessionForHandOff('/tmp', [], () => 'activity');
-
-      expect(captured).toHaveLength(1);
-      expect(captured[0].modelReasoningEffort).toBe('max');
-    } finally {
-      settingsStore.set('handOffReasoning', previous);
-    }
-  });
 });
 
 describe('runCodexOneshot timeout abort (REVIEW_82 MED — codex 子进程取消 parity)', () => {

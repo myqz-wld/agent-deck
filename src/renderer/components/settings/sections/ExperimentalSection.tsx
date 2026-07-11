@@ -45,7 +45,7 @@ const CODEX_SANDBOX_OPTIONS: {
  * 孤儿不可配）。plan resume-inject-raw-messages-20260601 §不变量 7 **彻底删字段**：fallback 路径
  * (jsonl missing / cwdFellBack=true) 改为**无条件注入历史**（DB 有历史就注「LLM 总结 + 最近原始
  * 对话」），autoSummariseOnFallback 进 settings-store REMOVED_KEYS 清孤儿 —— settings.json 手动
- * set false 也不再生效（字段已不存在）。注入条数由「会话生命周期」section 的 resumeRecentMessagesCount 控制。
+ * set false 也不再生效（字段已不存在）。原始历史容量由「会话续接上下文」section 的 token 预算控制。
  */
 export function ExperimentalSection({ settings, update }: Props): JSX.Element {
   const sandboxNativeAvailable = IS_DARWIN || IS_LINUX;

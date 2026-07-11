@@ -86,16 +86,14 @@ vi.mock('@main/agent-deck-mcp/server', () => ({
   AGENT_DECK_MCP_TOOL_PATTERN: /^mcp__agent-deck/,
 }));
 
-vi.mock('@main/session/summarizer/llm-runners', () => ({
-  summariseSessionForHandOff: vi.fn(async () => null),
-}));
-
 import { sessionManager } from '@main/session/manager';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import { sessionRepo } from '@main/store/session-repo';
 import type { AgentEvent } from '@shared/types';
+import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
 
 const emits: AgentEvent[] = [];
 
@@ -129,6 +127,29 @@ function installMockQuery(mockQuery: MockSdkQuery): void {
   } as never);
 }
 
+function trustedRecoveryTurn() {
+  const prepared: PreparedContinuationContext = {
+    version: 1,
+    providerPrompt: 'FULL TRUSTED RECOVERY CONTEXT',
+    persistedUserText: 'continue recovery',
+    source: { eventRevision: 9, rebuildAfterRevision: 0, maxEventId: 9 },
+    checkpoint: { id: 4, throughRevision: 9, formatVersion: 1, refreshed: false },
+    projection: { canonicalHash: 'canonical', omittedFacts: 0 },
+    quality: 'full',
+    metrics: {
+      rawRetentionCeilingTokens: 64_000, targetPromptCapacityTokens: 104_000,
+      checkpointProjectionBudgetTokens: 12_000, generatorFoldInputBudgetTokens: 32_000,
+      estimatedPromptTokens: 100, checkpointTokens: 20, rawTailTokens: 20,
+      includedUserMessages: 1, truncatedBoundaryMessages: 0,
+      foldCalls: 1, repairCalls: 0, elapsedMs: 1, uncoveredRevisionRange: null,
+    },
+    warnings: [],
+    preparationHash: 'd'.repeat(64),
+    spoolId: 'spool-recovery',
+  };
+  return createTrustedContinuationInitialTurn(prepared, 'source-session');
+}
+
 beforeEach(() => {
   emits.length = 0;
   vi.mocked(loadSdk).mockReset();
@@ -147,6 +168,81 @@ afterEach(() => {
 });
 
 describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame', () => {
+  it('trusted fresh-cli-reuse-app sends provider context, keeps app sid, and skips persisted re-emit', async () => {
+    const bridge = makeBridge();
+    const mockQuery = new MockSdkQuery();
+    let firstUserMessage: Promise<unknown> | undefined;
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: vi.fn((args: { prompt: AsyncIterable<unknown> }) => {
+        firstUserMessage = args.prompt[Symbol.asyncIterator]().next();
+        return mockQuery;
+      }),
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name, description, inputSchema, handler,
+      })),
+    } as never);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'app-recovery', agentId: 'claude-code', cwd: '/tmp/test', title: 'recovery',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1,
+      lastEventAt: 2, endedAt: null, archivedAt: null, permissionMode: 'plan',
+      thinking: 'high',
+    });
+    mockQuery.pushFrame({
+      type: 'system', subtype: 'init', session_id: 'fresh-cli-id', model: 'claude-sonnet-5',
+    });
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      trustedContinuation: trustedRecoveryTurn(),
+      resume: 'app-recovery',
+      resumeMode: 'fresh-cli-reuse-app',
+      permissionMode: 'plan',
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    mockQuery.endStream();
+
+    const handle = await createPromise;
+    const first = await firstUserMessage as {
+      value: { message: { content: string } };
+    };
+    expect(handle.sessionId).toBe('app-recovery');
+    expect(first.value.message.content).toBe('FULL TRUSTED RECOVERY CONTEXT');
+    expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith(
+      'app-recovery',
+      'fresh-cli-id',
+    );
+    expect(
+      emits.filter(
+        (event) =>
+          event.kind === 'message' &&
+          (event.payload as { role?: string }).role === 'user',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('rejects invalid fresh-reuse combinations and trusted native resume before SDK startup', async () => {
+    const bridge = makeBridge();
+    const turn = trustedRecoveryTurn();
+
+    await expect(
+      bridge.createSession({
+        cwd: '/tmp/test', trustedContinuation: turn, resume: 'app', resumeMode: 'resume-cli',
+      }),
+    ).rejects.toThrow(/native Claude resume/);
+    await expect(
+      bridge.createSession({
+        cwd: '/tmp/test', prompt: 'x', resumeMode: 'fresh-cli-reuse-app',
+      }),
+    ).rejects.toThrow(/requires an application session id/);
+    await expect(
+      bridge.createSession({
+        cwd: '/tmp/test', prompt: 'x', resume: 'app', resumeMode: 'fresh-cli-reuse-app',
+        resumeCliSid: 'cli',
+      }),
+    ).rejects.toThrow(/cannot include resumeCliSid/);
+    expect(loadSdk).not.toHaveBeenCalled();
+  });
+
   it('non-resume 路径：mock SDK 1 frame 无 session_id + endStream → createSession throw + sessions Map empty + releasePending', async () => {
     const bridge = makeBridge();
     const mockQuery = new MockSdkQuery();

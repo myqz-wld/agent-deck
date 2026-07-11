@@ -31,14 +31,12 @@ import {
   getDeepseekSettingsPath,
   loadDeepseekClaudeEnv,
 } from './config';
-import {
-  summariseViaLlm,
-  summariseSessionForHandOff,
-} from '@main/session/summarizer/llm-runners';
+import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
 import { unsupportedUsageSnapshot } from '../provider-usage';
 import { sessionManager } from '@main/session/manager';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 const ADAPTER_ID = 'deepseek-claude-code';
 
@@ -157,6 +155,31 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
       prompt: opts.prompt,
       permissionMode: opts.permissionMode,
       resume: opts.resume,
+      teamName: opts.teamName,
+      attachments: opts.attachments,
+      claudeCodeSandbox: opts.claudeCodeSandbox,
+      extraAllowWrite: opts.extraAllowWrite,
+      model: opts.model,
+      claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
+      claudeAgentName: opts.claudeAgentName,
+      claudeAgents: opts.claudeAgents,
+      handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
+    });
+    return handle.sessionId;
+  }
+
+  async createTrustedContinuationSession(
+    opts: CreateSessionOptions,
+    turn: TrustedContinuationInitialTurn,
+  ): Promise<string> {
+    if (opts.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error('Deepseek trusted continuation requires an initialized Deepseek adapter');
+    }
+    const handle = await this.bridge.createSession({
+      cwd: opts.cwd,
+      trustedContinuation: turn,
+      permissionMode: opts.permissionMode,
       teamName: opts.teamName,
       attachments: opts.attachments,
       claudeCodeSandbox: opts.claudeCodeSandbox,
@@ -315,22 +338,10 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
     );
   }
 
-  /**
-   * Deepseek provider for periodic summaries and hand-off briefs.
-   *
-   * It reuses the Claude-family oneshot runner with Deepseek's Anthropic-compatible
-   * base URL/token/model env overlay, keeping provider selection independent from the
-   * target session adapter.
-   */
-  async summariseEvents(
-    cwd: string,
-    events: AgentEvent[],
-    kind: 'summary' | 'handoff',
-  ): Promise<string | null> {
+  /** Deepseek periodic summaries use its Anthropic-compatible environment overlay. */
+  async summariseEvents(cwd: string, events: AgentEvent[]): Promise<string | null> {
     const envOverride = loadDeepseekClaudeEnv();
-    return kind === 'summary'
-      ? summariseViaLlm(cwd, events, { agentName: 'Deepseek', envOverride })
-      : summariseSessionForHandOff(cwd, events, 'Deepseek', { envOverride });
+    return summariseViaLlm(cwd, events, { agentName: 'Deepseek', envOverride });
   }
 }
 

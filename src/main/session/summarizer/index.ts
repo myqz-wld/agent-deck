@@ -10,16 +10,7 @@ import log from '@main/utils/logger';
 
 const logger = log.scope('session-summarizer');
 
-// CHANGELOG_104 物理拆分：保持外部 import path `from '@main/session/summarizer'` 不变
-// （hand-off.test.ts caller 直接用），TS module resolution 自动 fallback
-// 到 `summarizer/index.ts`。re-export 也方便未来直接 import 子文件无歧义。
-//
-// R37 P2-I Step 3.3：dispatch 下放到 adapter.summariseEvents 后，本文件不再直接 import
-// 4 个 LLM runner（summariseViaLlm / summariseCodexSessionViaOneshot / formatEventsForPrompt）；
-// summariseSessionForHandOff re-export 保留给 hand-off.test.ts unit test seam，
-// formatEventsForPrompt re-export 保留作为 summarizer facade 公共 API（recoverer-helpers
-// 等外部 caller 通过 facade 引用而非子文件直接 import 仍能 work）。
-export { summariseSessionForHandOff } from './llm-runners';
+// Keep the formatter facade stable for periodic-summary callers.
 export { formatEventsForPrompt } from './event-formatter';
 
 /**
@@ -275,7 +266,7 @@ export class Summarizer {
       const adapter = adapterRegistry.get(providerAgentId);
       let llm: string | null = null;
       if (adapter?.summariseEvents) {
-        llm = await adapter.summariseEvents(session.cwd, events, 'summary');
+        llm = await adapter.summariseEvents(session.cwd, events);
       }
       if (llm) {
         // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」

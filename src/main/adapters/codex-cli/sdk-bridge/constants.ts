@@ -13,7 +13,7 @@ export const AGENT_ID = 'codex-cli';
  * REVIEW_24 HIGH-2 follow-up：原是 `MAX_MESSAGE_BYTES = 100_000` (byteLength)，详
  * `claude-code/sdk-bridge/constants.ts` 同款注释。
  */
-export const MAX_MESSAGE_LENGTH = 102_400;
+export { MAX_USER_MESSAGE_LENGTH as MAX_MESSAGE_LENGTH } from '@shared/message-limits';
 
 /** 单会话 pendingMessages 队列上限（与 claude-code 对齐：20 条）。 */
 export const MAX_PENDING_MESSAGES = 20;

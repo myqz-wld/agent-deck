@@ -69,11 +69,40 @@ import type {
   CreateSessionResult,
   PreparedContext,
 } from './_deps';
+import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 export async function createSessionImpl(
   opts: CreateSessionOpts,
   deps: CreateSessionDeps,
 ): Promise<CreateSessionResult> {
+  const freshProviderReuse = opts.resumeMode === 'fresh-cli-reuse-app';
+  if (opts.resumeCliSid !== undefined && !opts.resume) {
+    throw new Error('resumeCliSid requires an existing Agent Deck application session id');
+  }
+  if (freshProviderReuse && !opts.resume) {
+    throw new Error('fresh-cli-reuse-app requires an existing Agent Deck application session id');
+  }
+  if (freshProviderReuse && opts.resumeCliSid !== undefined) {
+    throw new Error('fresh-cli-reuse-app cannot resume a native Codex thread id');
+  }
+  if (opts.resumeOnly && freshProviderReuse) {
+    throw new Error('resumeOnly cannot be combined with fresh-cli-reuse-app');
+  }
+  if (
+    opts.trustedContinuation !== undefined &&
+    (opts.resumeOnly || (opts.resume !== undefined && !freshProviderReuse))
+  ) {
+    throw new Error(
+      'Trusted continuation turns require a new Codex provider thread (new session or fresh-cli-reuse-app)',
+    );
+  }
+  const initialTurn = opts.resumeOnly
+    ? { providerPrompt: '', persistedUserText: '', metadata: null, trusted: false }
+    : resolveInternalInitialTurn({
+        prompt: opts.prompt,
+        trustedContinuation: opts.trustedContinuation,
+      });
+  opts = opts.resumeOnly ? opts : { ...opts, prompt: initialTurn.providerPrompt };
   // validate phase: prompt empty / cap check + sid 分配 + token allocate (同步执行,throw 跳出
   // 不进 try block — token 未 allocate 无需 rollback)
   const validate = validateCreateSessionOpts(opts);

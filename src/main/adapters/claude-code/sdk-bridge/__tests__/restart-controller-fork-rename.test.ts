@@ -23,6 +23,7 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import type { SdkSessionHandle } from '../types';
 import type { AgentEvent, SessionRecord } from '@shared/types';
+import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
 
 // sessionRepo / sessionManager mock 让 RestartController 不撞依赖
 const repoCache = new Map<string, SessionRecord>();
@@ -40,12 +41,6 @@ vi.mock('@main/session/manager', () => ({
   sessionManager: {
     renameSdkSession: vi.fn(),
     updateCliSessionId: vi.fn(),
-  },
-}));
-
-vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    get: vi.fn((key: string) => (key === 'resumeRecentMessagesCount' ? 30 : undefined)),
   },
 }));
 
@@ -84,17 +79,29 @@ function makeCtx(opts?: {
       opts?.createSession ??
       (async () =>
         ({ sessionId: 'no-fork-default', cwd: '/tmp/test' }) as unknown as SdkSessionHandle),
-    // **plan restart-controller-jsonl-precheck-20260521 §Step 3c + 3g 修法**:
-    // 测试不验证 helper fallback 行为(本 test 只测 fork rename race fix),stub 3 字段让 ctx
-    // typecheck 过。jsonlExistsThunk 返 true → maybeJsonlFallback 走正常 resume 路径(fellBack=false
-    // 不调 createSession / 不 emit),fall through 到原有 line 198+ resume 路径不影响 fork rename
-    // race 行为验证。summariseFn / listEventsFn 走 stub return null / 空数组,fellBack=true 不会
-    // 触发(jsonl 假装在),不调用。
+    // jsonl 假装存在，maybeJsonlFallback 不准备续接上下文，让本测试只观察 rename race。
     jsonlExistsThunk: () => true, // jsonl 假装在 → maybeJsonlFallback fellBack=false 走原路径
     jsonlMtimeMsThunk: () => 10_000,
-    summariseFn: async () => null,
-    listEventsFn: () => [],
-    listMessagesFn: () => [], // plan resume-inject §D5: jsonl 假装在不触发 fallback，stub 空
+    latestConversationMessageTsThunk: () => null,
+    captureRecoveryContinuation: ({ session }) =>
+      ({
+        sourceSessionId: session.id,
+        spoolId: `spool-${session.id}`,
+        generator: {
+          adapter: 'claude-code', model: null, thinking: 'medium',
+          contextWindowTokens: null, configFingerprint: 'generator',
+        },
+        target: {
+          adapter: 'claude-code', model: null, thinking: null, sandbox: null,
+          permissionMode: null, networkAccessEnabled: null, additionalDirectories: [],
+          contextWindowTokens: 128_000, runtimeFingerprint: 'target',
+        },
+        rawRetentionCeilingTokens: 64_000,
+      }) satisfies CapturedRecoveryContinuation,
+    prepareRecoveryContinuation: async () => {
+      throw new Error('native-jsonl test must not prepare continuation context');
+    },
+    cleanupRecoveryContinuation: () => undefined,
   };
   return { ctx, recovering };
 }

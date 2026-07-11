@@ -127,7 +127,7 @@ export interface RunBatonCleanupInput {
    * - 'archive_plan': mcp archive_plan handler 调用
    * - 'hand_off_session': mcp hand_off_session handler 调用
    *
-   * K3 SessionHandOffSpawn 走独立 archiveSourceSessionWithEmit helper 不经本路径,
+   * UI SessionHandOffCommit 走独立 archiveSourceSessionWithEmit helper 不经本路径,
    * 故 union 仅 2 值。新增 mcp tool 走本 helper 必须先在 EventMap 'caller-archive-failed'
    * payload toolName union 加值,然后在此同步 narrow,否则 emit 时 tsc 报错(✅ feature)。
    *

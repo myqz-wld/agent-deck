@@ -26,6 +26,7 @@ import { summarizer } from '../session/summarizer';
 import { stopAllSounds } from '../notify/sound';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { handleCliArgv } from '../cli';
+import { cleanupSessionHandOffPreparations } from '../ipc/session-hand-off';
 
 import type { BootstrapState } from './_deps';
 import log from '@main/utils/logger';
@@ -115,6 +116,7 @@ export function registerLifecycleHooks(
         stopAllSounds();
         // R3.E5:universal-message-watcher shutdown
         universalMessageWatcher.stop();
+        cleanupSessionHandOffPreparations();
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底,防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程(codex CLI
         // 卡死等场景)。10s 超时降级 process.exit(1) 强退。

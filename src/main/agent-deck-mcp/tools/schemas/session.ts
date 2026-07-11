@@ -5,6 +5,7 @@ import {
   SDK_READ_CALLER_SESSION_ID_DESCRIPTION,
   SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION,
 } from './shared';
+import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 
 export const SEND_MESSAGE_SCHEMA = {
   sessionId: z
@@ -15,7 +16,7 @@ export const SEND_MESSAGE_SCHEMA = {
   text: z
     .string()
     .min(1)
-    .max(100_000)
+    .max(MAX_USER_MESSAGE_LENGTH)
     .describe('Message body to inject as a user-role turn in the target session. Include enough context for the receiver to act without polling.'),
   callerSessionId: z
     .string()

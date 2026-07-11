@@ -25,6 +25,7 @@ import type {
 } from '../types';
 import type { CodexAppServerClient, CodexAppServerThread } from '../../app-server/client';
 import type { ThreadLoop } from '../thread-loop';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 
 export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-access';
 
@@ -36,6 +37,8 @@ export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-ac
 export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
+  /** Main-only branded continuation turn; absent from public adapter create options. */
+  trustedContinuation?: TrustedContinuationInitialTurn;
   /** 传 thread_id 表示恢复历史会话；codex 从 ~/.codex/sessions/<id>.jsonl 重放 */
   resume?: string;
   /** 首条 user message 的图片附件（IPC 层已落盘到 <userData>/image-uploads/） */

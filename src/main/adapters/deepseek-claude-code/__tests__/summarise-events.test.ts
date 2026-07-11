@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => {
     env,
     loadDeepseekClaudeEnv: vi.fn(() => env),
     summariseViaLlm: vi.fn(async () => 'summary from deepseek'),
-    summariseSessionForHandOff: vi.fn(async () => 'handoff from deepseek'),
   };
 });
 
@@ -29,7 +28,6 @@ vi.mock('@main/adapters/deepseek-claude-code/config', () => ({
 
 vi.mock('@main/session/summarizer/llm-runners', () => ({
   summariseViaLlm: mocks.summariseViaLlm,
-  summariseSessionForHandOff: mocks.summariseSessionForHandOff,
 }));
 
 import {
@@ -52,7 +50,7 @@ describe('deepseekClaudeCodeAdapter.summariseEvents', () => {
   });
 
   it('routes periodic summaries through the Claude-family runner with Deepseek env overlay', async () => {
-    const out = await deepseekClaudeCodeAdapter.summariseEvents('/tmp/work', events, 'summary');
+    const out = await deepseekClaudeCodeAdapter.summariseEvents('/tmp/work', events);
 
     expect(out).toBe('summary from deepseek');
     expect(mocks.loadDeepseekClaudeEnv).toHaveBeenCalledTimes(1);
@@ -60,18 +58,6 @@ describe('deepseekClaudeCodeAdapter.summariseEvents', () => {
       agentName: 'Deepseek',
       envOverride: mocks.env,
     });
-    expect(mocks.summariseSessionForHandOff).not.toHaveBeenCalled();
-  });
-
-  it('routes hand-off briefs through the Claude-family runner with Deepseek env overlay', async () => {
-    const out = await deepseekClaudeCodeAdapter.summariseEvents('/tmp/work', events, 'handoff');
-
-    expect(out).toBe('handoff from deepseek');
-    expect(mocks.loadDeepseekClaudeEnv).toHaveBeenCalledTimes(1);
-    expect(mocks.summariseSessionForHandOff).toHaveBeenCalledWith('/tmp/work', events, 'Deepseek', {
-      envOverride: mocks.env,
-    });
-    expect(mocks.summariseViaLlm).not.toHaveBeenCalled();
   });
 });
 

@@ -4,6 +4,7 @@ import { SectionGroup } from './settings/controls';
 import { HookSection } from './settings/sections/HookSection';
 import { NotifySection } from './settings/sections/NotifySection';
 import { LifecycleSection } from './settings/sections/LifecycleSection';
+import { ContinuationContextSection } from './settings/sections/ContinuationContextSection';
 import { SummarySection } from './settings/sections/SummarySection';
 import { WindowSection } from './settings/sections/WindowSection';
 import { KeyboardShortcutsSection } from './settings/sections/KeyboardShortcutsSection';
@@ -212,6 +213,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
               <>
                 <SectionGroup title="会话">
                   <LifecycleSection settings={settings} update={update} />
+                  <ContinuationContextSection settings={settings} update={update} />
                   <SummarySection settings={settings} update={update} />
                 </SectionGroup>
 
@@ -274,7 +276,8 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   上报到 Agent Deck。应用内 Codex 会话会通过 thread options 注入 Agent Deck 应用约定和内置 skills。
                   <br />
                   <br />
-                  Codex 用的总结 / 接力模型在「通用 → 会话 → 间歇总结」中设置;
+                  Codex 用的周期总结模型在「通用 → 会话 → 间歇总结」中设置，
+                  续接检查点生成器在「通用 → 会话 → 会话续接上下文」中设置；
                   Agent Deck 自带的 MCP 服务在「通用 → 跨工具协作」中配置(Codex 启动时会自动连接)。
                 </div>
               </SectionGroup>

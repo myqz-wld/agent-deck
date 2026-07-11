@@ -2,18 +2,14 @@
  * Codex app-server oneshot runner（R37 P2-H Step 3.2）— 跑一次 codex thread.run + race。
  *
  * **抽出动机**（reviewer 双对抗 R1 H4 finding）：
- * `summariseCodexSessionViaOneshot` + `summariseCodexSessionForHandOff` 两路 codex
- * oneshot 字面镜像 ~90%：
+ * 收口 Codex 周期总结的 app-server thread / run / timeout 机制：
  *   - getCodexInstance 复用应用全局 codex app-server client（R37 P1-G codex-instance-pool）
  *   - thread = codex.startThread(...) 共款 4 option（workingDirectory / sandboxMode='read-only'
  *     / approvalPolicy='never' / skipGitRepoCheck）
  *   - thread.run(prompt) → finalResponse
- *   - 可选 race（handoff 60s hardcoded；summarize 走 settings.summaryTimeoutMs）
+ *   - timeout race 走 settings.summaryTimeoutMs
  *
- * 仅 modelReasoningEffort（由两组 settings 独立选择）+ timeoutMs + errorMessage 3 处差异。
- * 抽公共 helper 收口。
- *
- * **不变量**（与原 2 runner 一致）：
+ * **不变量**：
  * - sandboxMode='read-only'：禁 codex 真跑工具改文件
  * - approvalPolicy='never'：不等审批（read-only 下也无可审批，双保险）
  * - skipGitRepoCheck=true：跳 codex 默认 git repo 校验（任意 cwd 都能跑 oneshot）
@@ -21,11 +17,9 @@
  *   （R37 P3-C Step 4.1 抽 helper 收口前是宽松版 `opts.cwd || process.cwd()`，对正常调用零变化）
  *
  * **不在本 helper 处理**：
- * - prompt 模板（用 build-prompt.ts buildSummarizePrompt({agentName:'Agent'}) /
- *   buildHandoffPrompt({agentName:'Agent'}) 组装）
- * - finalResponse 清洗（用 clean-result.ts cleanCompactResult / cleanStructuredResult）
- * - errorMessage 字面（caller 传 `__codex_summarizer_timeout__` /
- *   `__codex_handoff_summary_timeout__`）
+ * - prompt 模板（用 build-prompt.ts buildSummarizePrompt({agentName:'Agent'}) 组装）
+ * - finalResponse 清洗（用 clean-result.ts cleanCompactResult）
+ * - timeout error 字面
  *
  * **Codex 取消（REVIEW_82 MED 修法）**：raceWithTimeout onTimeout 调 `controller.abort()`，
  * 把 `{signal}` 传给 app-server `thread.run(...)` → timer reject 后 Codex turn 被取消，不再后台跑。与 claude
@@ -50,12 +44,10 @@ import { raceWithTimeout } from './race-with-timeout';
 export async function runCodexOneshot(opts: {
   /** Session cwd（trim 后空降级到 process.cwd() — 见 cwd-resolver.ts）。 */
   cwd: string;
-  /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt / buildHandoffPrompt 组装。 */
+  /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt 组装。 */
   prompt: string;
   /**
-   * Reasoning effort：caller 的 summarize 默认 'low'（30 字 tag-line 不需深思 + 出字快），
-   * handoff 默认 'medium'（六节结构化检查点对理解力要求更高）。
-   *
+   * Reasoning effort for the periodic summary.
    * 与 settings UI 共用 CodexThinkingLevel：minimal / low / medium / high / xhigh / max / ultra。
    */
   modelReasoningEffort: CodexThinkingLevel;

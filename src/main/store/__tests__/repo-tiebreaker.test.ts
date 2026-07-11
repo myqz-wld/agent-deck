@@ -134,6 +134,23 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / event-repo', () => {
     expect(latest?.text).toBe('NEW');
   });
 
+  it('latestConversationMessageTs ignores non-dialog/error rows and returns the latest dialog time', () => {
+    testDb.prepare(
+      `INSERT INTO events (session_id, kind, payload_json, ts) VALUES (?, ?, ?, ?)`,
+    ).run('sess-A', 'message', JSON.stringify({ role: 'user', text: 'question' }), 5_000);
+    testDb.prepare(
+      `INSERT INTO events (session_id, kind, payload_json, ts) VALUES (?, ?, ?, ?)`,
+    ).run('sess-A', 'message', JSON.stringify({ role: 'assistant', text: 'error', error: true }), 8_000);
+    insertGenericEvent(testDb, 'sess-A', 'tool-use-start', 9_000, 'tool');
+
+    expect(mod.eventRepo.latestConversationMessageTs('sess-A')).toBe(5_000);
+  });
+
+  it('latestConversationMessageTs and maxEventId return null for an empty session', () => {
+    expect(mod.eventRepo.latestConversationMessageTs('sess-A')).toBeNull();
+    expect(mod.eventRepo.maxEventId('sess-A')).toBeNull();
+  });
+
   it('listForSessionRange 同毫秒按 id ASC 升序（方向跟 ts ASC 一致）', () => {
     const id1 = insertGenericEvent(testDb, 'sess-A', 'message', 8000, 'first');
     const id2 = insertGenericEvent(testDb, 'sess-A', 'message', 8000, 'second');

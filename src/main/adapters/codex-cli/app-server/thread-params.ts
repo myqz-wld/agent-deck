@@ -8,6 +8,18 @@ export function buildThreadStartParams(
 ): JsonObject {
   return {
     ...buildThreadCommonParams(options, baseConfig),
+    ...(options.baseInstructions !== undefined
+      ? { baseInstructions: options.baseInstructions }
+      : {}),
+    ...(options.dynamicTools !== undefined ? { dynamicTools: [] } : {}),
+    ...(options.environments !== undefined ? { environments: [] } : {}),
+    ...(options.runtimeWorkspaceRoots !== undefined
+      ? { runtimeWorkspaceRoots: [...options.runtimeWorkspaceRoots] }
+      : {}),
+    ...(options.selectedCapabilityRoots !== undefined
+      ? { selectedCapabilityRoots: [] }
+      : {}),
+    ...(options.ephemeral !== undefined ? { ephemeral: options.ephemeral } : {}),
     // Codex app-server filters RawResponseItem events unless each new thread opts in.
     // Those events are the only complete source for MultiAgentV2 collaboration calls.
     experimentalRawEvents: true,
@@ -66,7 +78,7 @@ export function buildThreadConfig(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
-  const config = cloneConfig(baseConfig);
+  const config = options.useBaseConfig === false ? {} : cloneConfig(baseConfig);
   mergeJsonObject(config, cloneConfig(options.configOverrides ?? null));
   if (options.skipGitRepoCheck) {
     config.skip_git_repo_check = true;
@@ -103,6 +115,11 @@ export function buildTurnStartParams(
   input: CodexAppServerUserInput[],
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
+  turnOptions: {
+    outputSchema?: JsonObject;
+    environments?: readonly [];
+    runtimeWorkspaceRoots?: readonly string[];
+  } = {},
 ): JsonObject {
   const effectiveConfig = buildThreadConfig(options, baseConfig);
   return {
@@ -114,6 +131,13 @@ export function buildTurnStartParams(
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.modelReasoningEffort !== undefined
       ? { effort: options.modelReasoningEffort }
+      : {}),
+    ...(turnOptions.outputSchema !== undefined
+      ? { outputSchema: turnOptions.outputSchema }
+      : {}),
+    ...(turnOptions.environments !== undefined ? { environments: [] } : {}),
+    ...(turnOptions.runtimeWorkspaceRoots !== undefined
+      ? { runtimeWorkspaceRoots: [...turnOptions.runtimeWorkspaceRoots] }
       : {}),
   };
 }

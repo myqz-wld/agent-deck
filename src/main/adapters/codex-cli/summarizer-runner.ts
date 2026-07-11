@@ -9,7 +9,7 @@
  *
  * **R37 P2-H 行为变化**：本 runner 现内置 timeout（settings.summaryTimeoutMs 同 claude），
  * 替代原 caller (summarizer/index.ts) 自己起 Promise.race 的模式。这让 codex summarize 与
- * codex handoff（handoff-runner.ts 早就内置 60s timeout）+ claude 双路统一「runner 自带
+ * periodic summary 统一「runner 自带
  * timeout」契约。caller 不再需要知道 codex SDK 没 q.interrupt() 等价物的实现细节。
  *
  * **R37 P1 Step 1.2 (G)**：codex 实例改用 `codex-instance-pool.getCodexInstance()` 应用全局

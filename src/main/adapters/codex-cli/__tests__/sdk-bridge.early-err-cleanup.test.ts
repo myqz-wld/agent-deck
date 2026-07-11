@@ -375,8 +375,11 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     // recoverer 已调 sessionRepo.get 拿 record (验证走的是 recoverAndSend 而非直接 throw)
     expect(sessionRepo.get).toHaveBeenCalledWith('sess-r3');
 
-    // 让第二轮挂起的 runStreamed 抛错收尾 sendPromise (避免悬空 promise)
-    nextThread.rejectStreamed!(new Error('second wave also fails (test cleanup)'));
-    await sendPromise;
+    // Unified continuation preparation may fail before a replacement provider thread starts in
+    // this deliberately DB-less harness. The cleanup invariant under test is already proven by the
+    // placeholder + repository lookup above; settle the caught recovery result without assuming a
+    // fixed async depth or forcing runStreamed to exist.
+    const recoveryResult = await sendPromise;
+    expect(recoveryResult).toBeInstanceOf(Error);
   });
 });

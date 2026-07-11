@@ -60,35 +60,39 @@ async function loadSettingsStore() {
 }
 
 describe('settings-store — Codex MAX preservation', () => {
-  it('preserves retained Codex MAX values', async () => {
+  it('preserves retained Codex continuation MAX values', async () => {
     mockRawStore = {
       summaryProvider: 'codex',
       summaryReasoning: 'max',
-      handOffProvider: 'codex',
-      handOffReasoning: 'max',
+      continuationCheckpointProvider: 'codex',
+      continuationCheckpointThinking: 'max',
     };
 
     const all = (await loadSettingsStore()).getAll();
 
     expect(mockSet.mock.calls.filter((call) => call[0] === 'summaryReasoning')).toHaveLength(0);
-    expect(mockSet.mock.calls.filter((call) => call[0] === 'handOffReasoning')).toHaveLength(0);
+    expect(
+      mockSet.mock.calls.filter((call) => call[0] === 'continuationCheckpointThinking'),
+    ).toHaveLength(0);
     expect(all.summaryReasoning).toBe('max');
-    expect(all.handOffReasoning).toBe('max');
+    expect(all.continuationCheckpointThinking).toBe('max');
   });
 
-  it('preserves Claude-family MAX values', async () => {
+  it('preserves Claude-family continuation MAX values', async () => {
     mockRawStore = {
       summaryProvider: 'claude',
       summaryReasoning: 'max',
-      handOffProvider: 'deepseek',
-      handOffReasoning: 'max',
+      continuationCheckpointProvider: 'deepseek',
+      continuationCheckpointThinking: 'max',
     };
 
     const all = (await loadSettingsStore()).getAll();
 
     expect(mockSet.mock.calls.filter((call) => call[0] === 'summaryReasoning')).toHaveLength(0);
-    expect(mockSet.mock.calls.filter((call) => call[0] === 'handOffReasoning')).toHaveLength(0);
+    expect(
+      mockSet.mock.calls.filter((call) => call[0] === 'continuationCheckpointThinking'),
+    ).toHaveLength(0);
     expect(all.summaryReasoning).toBe('max');
-    expect(all.handOffReasoning).toBe('max');
+    expect(all.continuationCheckpointThinking).toBe('max');
   });
 });

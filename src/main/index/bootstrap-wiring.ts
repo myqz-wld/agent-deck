@@ -95,7 +95,8 @@ export function initWiring(settings: AppSettings): void {
   // 触发源 3 处:
   // 1. mcp baton-cleanup row-missing 短路 (toolName='archive_plan' / 'hand_off_session', reasonKind='row-missing')
   // 2. mcp baton-cleanup archiveFn 抛错 (toolName 同上, reasonKind='archive-throw')
-  // 3. K3 SessionHandOffSpawn archive 抛错或 row-missing (toolName='SessionHandOffSpawn', reasonKind 区分)
+  // 3. UI SessionHandOffCommit archive 抛错或 row-missing
+  //    (toolName='SessionHandOffCommit', reasonKind 区分)
   //
   // listener 双通道桥接:
   // - notifyUser({level:'info'}) — macOS 系统通知,settings.enableSystemNotification 开启时显示;
@@ -113,8 +114,9 @@ export function initWiring(settings: AppSettings): void {
   // 修法: listener 顶层 try/catch + console.error 兜底,零成本守住不变量。
   //
   // R2 reviewer-claude MED-1 守门: payload.toolName 含三种值 ('archive_plan' / 'hand_off_session' /
-  // 'SessionHandOffSpawn'),其中前两个是 mcp tool 名 (用户在 codex/claude 调用 mcp tool 时熟悉),
-  // 'SessionHandOffSpawn' 是 IPC channel 内部名 (IpcInvoke.SessionHandOffSpawn = 'session:hand-off-spawn',
+  // 'SessionHandOffCommit'),其中前两个是 mcp tool 名 (用户在 codex/claude 调用 mcp tool 时熟悉),
+  // 'SessionHandOffCommit' 是 IPC channel 内部名
+  // (IpcInvoke.SessionHandOffCommit = 'session:hand-off-commit',
   // 用户在 UI 看不到)。映射成「会话接力」让通知 body 对用户友好,不暴露内部名。
   //
   // archive-toctou-fix-20260515 plan: TOOL_DISPLAY_NAME 抽到 _deps.ts 单源

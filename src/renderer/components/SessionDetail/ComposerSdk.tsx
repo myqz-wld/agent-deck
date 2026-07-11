@@ -420,7 +420,7 @@ export function ComposerSdk({
             type="button"
             onClick={onHandOff}
             className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
-            title="接力到新会话:让 AI 总结当前会话历史,然后打开新会话继续(沿用工作目录和权限设置,自动归档当前会话)"
+            title="接力到新会话：生成会话续接上下文，然后按所选目标运行时打开新会话继续"
           >
             📤 接力
           </button>

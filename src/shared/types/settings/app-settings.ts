@@ -3,7 +3,7 @@
  *
  * 拆分自 src/shared/types/settings.ts（Phase 4 Step 4.10）；entity 域：
  * - **AppSettings**：30+ 字段聚合 interface（hook server / sound / lifecycle /
- *   summary / handoff LLM / window / sandbox / mcp 等所有设置项 SSOT）
+ *   summary / continuation checkpoint LLM / window / sandbox / mcp 等所有设置项 SSOT）
  * - **CodexMcpServerConfigShared**：仅供 AppSettings.codexMcpServers 字段使用的子结构
  * - **HookInstallStatus**：hook 安装状态（与 settings UI hook section 紧贴）
  */
@@ -32,6 +32,8 @@ export interface CodexMcpServerConfigShared {
   url?: string;
   bearerTokenEnvVar?: string;
 }
+
+export type ContinuationCheckpointProvider = 'claude' | 'deepseek' | 'codex';
 
 export interface AppSettings {
   hookServerPort: number;
@@ -111,43 +113,17 @@ export interface AppSettings {
    * - `'ultra'`: codex 最高档；Claude Code 不支持该 effort 名称
    */
   summaryReasoning: SessionThinkingLevel;
+  /** 续接检查点由哪个隔离 provider runtime 生成，与 successor adapter 独立。 */
+  continuationCheckpointProvider: ContinuationCheckpointProvider;
+  /** 空字符串表示沿用 provider 的 Sonnet/Codex 默认模型链。 */
+  continuationCheckpointModel: string;
+  /** Codex 支持完整七档；Claude/Deepseek 仅支持 low..max。 */
+  continuationCheckpointThinking: SessionThinkingLevel;
   /**
-   * Hand-off 接力简报走哪个 LLM provider(plan prancy-forging-penguin)。语义同 summaryProvider
-   * 但作用于 IPC `SessionHandOffSummarize` handler(手动 UI 按钮触发的六节结构化检查点):
-   * **决定出简报的 adapter,与被 hand-off 的目标会话原 adapter 无关**(目标会话保持自己 adapter 不变,
-   * 仅是简报这一段由 user 选的 provider 出)。
+   * 续接上下文中保留历史 user input 的 token 上限。它不限制当前指令、检查点投影或
+   * generator 输入；合法范围 8,000–128,000，默认 64,000。
    */
-  handOffProvider: 'claude' | 'deepseek' | 'codex';
-  /**
-   * Hand-off 接力简报用的 LLM model id(覆盖 env / alias 兜底)。
-   *
-   * 优先级链(provider='claude' / 'deepseek' 时由 summariseSessionForHandOff 实施):
-   *   `settings.handOffModel` ＞ `ANTHROPIC_DEFAULT_SONNET_MODEL` env ＞ `ANTHROPIC_MODEL` env
-   *   ＞ 'sonnet' alias 兜底
-   *
-   * 优先级链(provider='codex' 时由 summariseCodexSessionForHandOff 实施):
-   *   `settings.handOffModel` ＞ `CODEX_HANDOFF_MODEL` env ＞ undefined (fallback config.toml)
-   *
-   * - `''`(默认空) = 沿用各 provider env / alias / config.toml 链
-   * - 非空 = 覆盖
-   *
-   * **default sonnet**(与 summaryModel 默认 haiku 不同):六节结构化检查点对压缩质量 /
-   * 结构精度敏感,sonnet 显著更稳;summary 短 tag-line 容错高量大走 haiku 省成本。
-   */
-  handOffModel: string;
-  /**
-   * Hand-off 接力简报的 reasoning effort 档位(plan prancy-forging-penguin)。
-   *
-   * provider 对应档位同 summaryReasoning：Codex 支持完整 7 档，Claude / Deepseek
-   * 支持 `low | medium | high | xhigh | max`。
-   *
-   * - default `'medium'`: 与原 hardcoded handoff='medium' 行为对齐 — hand-off 六节结构化检查点输出
-   *   对模型理解力要求高,medium 是 spike 实测下的最佳折中(high 太慢、low 输出结构常常错位)
-   * - `'low'`/`'minimal'`: user 想省 token / 出字快时降档
-   * - `'high'/'xhigh'/'max'`: 更高结构精度需求（注意成本与延迟）
-   * - `'ultra'`: 仅 Codex 支持
-   */
-  handOffReasoning: SessionThinkingLevel;
+  continuationRawRetentionTokens: number;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。 */
   permissionTimeoutMs: number;
   alwaysOnTop: boolean;
@@ -178,20 +154,6 @@ export interface AppSettings {
    * 不影响 active / dormant：那些先由生命周期阈值推到 closed 后才进入清理候选。
    */
   historyRetentionDays: number;
-  /**
-   * resume/fallback 与 hand-off capsule 读取「最近原始对话消息」的候选条数。
-   *
-   * jsonl-missing fallback 起 fresh CLI/thread 之前，除 LLM 总结段外**额外注入** DB（events 表）
-   * 最近 N 条原始 role/text 对话消息（让 Agent 续聊不只看压缩总结，还看到原始上下文细节）。
-   * - 正数：最多读取最近 N 条对话（user/assistant message-only）；消费者再按各自字符预算
-   *   选择最新可容纳消息，故实际条数 ≤ N。fallback 总 prompt 上限 102_400，hand-off raw
-   *   tail 预算约 20,000 字符。
-   * - default 200：提高长会话候选覆盖面，同时仍由字符预算限制最终注入大小。
-   *
-   * 即改即生效：claude/codex fallback 与 UI/MCP hand-off 每次构建上下文时临时读取设置，
-   * 无 cache 需 invalidate；不影响正常 resume 路径（jsonl 在 → CLI 自续 jsonl，Agent 看完整对话）。
-   */
-  resumeRecentMessagesCount: number;
   /**
    * Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：resolved issue 保留天数。
    * - 正数：超过该天数的 resolved issue（resolved_at < now - days * 86400_000）将被

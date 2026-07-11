@@ -40,10 +40,105 @@ import {
 } from '@main/codex-config/agents-md-installer';
 import { syncSkills } from '@main/codex-config/skills-installer';
 import log, { setFileLevel } from '@main/utils/logger';
-import type { AppSettings } from '@shared/types';
+import {
+  DEFAULT_SETTINGS,
+  MAX_CONTINUATION_RAW_RETENTION_TOKENS,
+  MIN_CONTINUATION_RAW_RETENTION_TOKENS,
+  type AppSettings,
+  type ContinuationCheckpointProvider,
+} from '@shared/types';
+import { isClaudeThinkingLevel, isCodexThinkingLevel } from '@shared/session-metadata';
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
+import { invalidateSessionHandOffPreparationsForSettingsChange } from './session-hand-off';
 
 const logger = log.scope('ipc-settings');
+
+const CONTINUATION_CHECKPOINT_PROVIDERS: readonly ContinuationCheckpointProvider[] = [
+  'claude',
+  'deepseek',
+  'codex',
+];
+
+/** Validate the untrusted SettingsSet payload before any persistent or runtime side effect. */
+export function validateSettingsPatch(
+  patch: unknown,
+  current: AppSettings,
+): Partial<AppSettings> {
+  if (patch !== undefined && (patch === null || typeof patch !== 'object' || Array.isArray(patch))) {
+    throw new IpcInputError('patch', 'must be plain object');
+  }
+  const raw = { ...((patch ?? {}) as Record<string, unknown>) };
+  for (const key of Object.keys(raw)) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
+      throw new IpcInputError(key, 'unknown setting');
+    }
+  }
+
+  const p = raw as Partial<AppSettings>;
+  if ('claudeCodeSandbox' in p) {
+    p.claudeCodeSandbox = parseSandboxMode(p.claudeCodeSandbox) ?? 'off';
+  }
+  if ('codexSandbox' in p) {
+    p.codexSandbox = parseCodexSandboxMode(p.codexSandbox) ?? 'workspace-write';
+  }
+
+  const continuationChanged = Object.keys(raw).some((key) =>
+    key.startsWith('continuationCheckpoint') || key === 'continuationRawRetentionTokens',
+  );
+  if (continuationChanged) {
+    const provider =
+      'continuationCheckpointProvider' in p
+        ? p.continuationCheckpointProvider
+        : current.continuationCheckpointProvider;
+    if (!CONTINUATION_CHECKPOINT_PROVIDERS.includes(provider as ContinuationCheckpointProvider)) {
+      throw new IpcInputError(
+        'continuationCheckpointProvider',
+        `must be one of ${CONTINUATION_CHECKPOINT_PROVIDERS.join('|')}`,
+      );
+    }
+    if ('continuationCheckpointModel' in p) {
+      if (typeof p.continuationCheckpointModel !== 'string') {
+        throw new IpcInputError('continuationCheckpointModel', 'must be string');
+      }
+      if (p.continuationCheckpointModel.length > 256) {
+        throw new IpcInputError('continuationCheckpointModel', 'length > 256');
+      }
+    }
+    const thinking =
+      'continuationCheckpointThinking' in p
+        ? p.continuationCheckpointThinking
+        : current.continuationCheckpointThinking;
+    const thinkingIsValid =
+      provider === 'codex'
+        ? isCodexThinkingLevel(thinking)
+        : isClaudeThinkingLevel(thinking);
+    if (!thinkingIsValid) {
+      throw new IpcInputError(
+        'continuationCheckpointThinking',
+        `incompatible with provider ${String(provider)}`,
+      );
+    }
+    if ('continuationRawRetentionTokens' in p) {
+      const value = p.continuationRawRetentionTokens;
+      if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+        throw new IpcInputError(
+          'continuationRawRetentionTokens',
+          `must be a safe integer: ${String(value)}`,
+        );
+      }
+      if (
+        value < MIN_CONTINUATION_RAW_RETENTION_TOKENS ||
+        value > MAX_CONTINUATION_RAW_RETENTION_TOKENS
+      ) {
+        throw new IpcInputError(
+          'continuationRawRetentionTokens',
+          `out of range [${MIN_CONTINUATION_RAW_RETENTION_TOKENS}, ${MAX_CONTINUATION_RAW_RETENTION_TOKENS}]`,
+        );
+      }
+    }
+  }
+  return p;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsSet 「即改即生效」分发（CHANGELOG_20 / A）。
@@ -203,6 +298,22 @@ function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void 
   }
 }
 
+function applyContinuationPreparationSettings(
+  p: Partial<AppSettings>,
+  _next: AppSettings,
+): void {
+  if (
+    'continuationCheckpointProvider' in p ||
+    'continuationCheckpointModel' in p ||
+    'continuationCheckpointThinking' in p ||
+    'continuationRawRetentionTokens' in p ||
+    'codexSandbox' in p ||
+    'claudeCodeSandbox' in p
+  ) {
+    invalidateSessionHandOffPreparationsForSettingsChange();
+  }
+}
+
 function applyLogLevel(p: Partial<AppSettings>, next: AppSettings): void {
   // Plan runtime-logging-electron-log-20260529 §D4 §D14 §Step 3.1.3:
   // 只更新 file transport, console transport 永远 'silly' 不变 (dev terminal 看全部输出)。
@@ -243,28 +354,11 @@ function invalidateClaudeMdCache(p: Partial<AppSettings>): void {
 export function registerSettingsIpc(): void {
   on(IpcInvoke.SettingsGet, () => settingsStore.getAll());
   on(IpcInvoke.SettingsSet, (_e, patch) => {
-    if (patch !== undefined && (patch === null || typeof patch !== 'object' || Array.isArray(patch))) {
-      throw new IpcInputError('patch', 'must be plain object');
-    }
-    const p = (patch ?? {}) as Partial<AppSettings>;
-    // per-field 白名单校验：claudeCodeSandbox 是 union type，避免 renderer 传非法字符串
-    // 静默存入 store 后 sdk-bridge 时拿到「不属于三档之一」的值导致沙盒装配混乱。
-    // 走 parseSandboxMode（同 parsePermissionMode 模式）：null → 调用方决定是否兜底，
-    // 非白名单 → throw IpcInputError 让 renderer 显错。
-    if ('claudeCodeSandbox' in p) {
-      const validated = parseSandboxMode(p.claudeCodeSandbox);
-      // null（renderer 传 null / undefined 想清空字段）→ 兜底回默认 'off'
-      p.claudeCodeSandbox = validated ?? 'off';
-    }
-    // codexSandbox 同模式：null 兜底回默认 'workspace-write'（与 codex 历史硬编码值一致）
-    if ('codexSandbox' in p) {
-      const validated = parseCodexSandboxMode(p.codexSandbox);
-      p.codexSandbox = validated ?? 'workspace-write';
-    }
+    const before = settingsStore.getAll();
+    const p = validateSettingsPatch(patch, before);
     // N6 事务保护：先快照改前值，持久化后逐项 apply。任一 apply throw 时回滚 DB **和运行时**
     // 到改前状态（REVIEW_4 H2：旧版只回 DB，apply* 已动 scheduler/loginItem/window/adapter/cache，
     // 留在「DB 退了 + 运行时半生效」正是注释要避免的状态）。
-    const before = settingsStore.getAll();
     const next = settingsStore.patch(p);
     // REVIEW_7 L3：apply / rollback 函数列表统一来源。旧版分别在 try / catch 里手写两份对称
     // 列表，新增 setting 字段时易漏 apply 导致「能改但不生效」。warn* 没运行时副作用，
@@ -290,6 +384,9 @@ export function registerSettingsIpc(): void {
       for (const fn of APPLY_FNS) fn(p, next);
       warnHookServerPort(p);
       warnHookServerToken(p);
+      // Cache eviction is intentionally last and is not part of the rollback apply chain: it is
+      // safe but irreversible, so an earlier runtime-apply failure must leave previews intact.
+      applyContinuationPreparationSettings(p, next);
     } catch (err) {
       // 1) DB 回滚：只回 patch 涉及的 key，避免动到本来就不该变的字段。
       //    双层 unknown 中转：AppSettings 严格联合类型，TS 不允许直接当 Record<string,unknown>。

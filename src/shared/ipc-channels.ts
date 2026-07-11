@@ -34,17 +34,12 @@ export const IpcInvoke = {
   SessionLatestSummaries: 'session:latest-summaries',
   /** 拉某 session 视角可见的 SQLite tasks：own personal tasks + active-team tasks。 */
   SessionListTasks: 'session:list-tasks',
-  /**
-   * hand-off Stage 1：在稳定事件边界内把六节压缩检查点、最近原始对话和当前续接
-   * 指令组成可编辑 capsule；LLM 失败可降级 raw-only。
-   */
-  SessionHandOffSummarize: 'session:hand-off-summarize',
-  /**
-   * K3 hand-off Stage 2：用 finalPrompt（用户在 modal 可能已编辑）起新 SDK session（adapter
-   * / cwd / permissionMode 沿用原 session）+ 自动归档原 session（archive 失败仅 warn 不阻
-   * 塞 newSid 返回，让用户至少能切到新 session 工作）。
-   */
-  SessionHandOffSpawn: 'session:hand-off-spawn',
+  /** 冻结源事件边界、生成器和目标 runtime，并在 main 保留完整会话续接上下文。 */
+  SessionHandOffPrepare: 'session:hand-off-prepare',
+  /** 仅凭 owner-bound preparation id 创建 successor；renderer 不回传或改写 capsule。 */
+  SessionHandOffCommit: 'session:hand-off-commit',
+  /** 取消未提交的 preparation，并同步清理 main-side TEMP spool。 */
+  SessionHandOffCancel: 'session:hand-off-cancel',
   HookInstall: 'hook:install',
   HookUninstall: 'hook:uninstall',
   HookStatus: 'hook:status',
@@ -233,10 +228,10 @@ export const IpcEvent = {
    *
    * payload schema 与 event-bus.ts EventMap['caller-archive-failed'] 同(archive-toctou-fix-20260515
    * plan 已 narrow union):
-   *   { sessionId: string; toolName: 'archive_plan' | 'hand_off_session' | 'SessionHandOffSpawn';
+   *   { sessionId: string; toolName: 'archive_plan' | 'hand_off_session' | 'SessionHandOffCommit';
    *     reason: string; reasonKind: 'row-missing' | 'probe-throw' | 'archive-throw' }
    *
-   * 触发：mcp baton-cleanup（archive_plan / hand_off_session）+ K3 SessionHandOffSpawn
+   * 触发：mcp baton-cleanup（archive_plan / hand_off_session）+ UI SessionHandOffCommit
    * 三处 archive caller 失败时；main bootstrap listener 桥接到此 IPC channel。
    *
    * 当前 MVP 仅 macOS 系统通知 + IPC 上抛；renderer 端 P2 enhancement 全局 toast 容器

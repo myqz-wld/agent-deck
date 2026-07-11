@@ -7,9 +7,9 @@
  * 抽 helper 共享 fallback 路径(原 recoverer.ts:378-491 inline 实施 → 移到本 module),
  * 让两条 caller 路径共享:
  * 1. jsonl 预检 (`cliSessionId ?? sessionId` 维度 — §D3 决策)
- * 2. `prependHistorySummary` 续历史摘要前情(避免 fresh CLI thread 失上下文)
+ * 2. 从不可变事件 spool 准备统一会话续接上下文
  * 3. `createSession` with `resumeMode='fresh-cli-reuse-app'` 起 fresh CLI thread + 复用 applicationSid
- * 4. emit fallback info message (按 emitContext × cwdFellBack × summary used/failed 三轴选 builder)
+ * 4. emit fallback info message (按 emitContext × cwdFellBack × quality 选 builder)
  * 5. emit role='user' message (含 attachments 透传)
  *
  * **不变量** (plan §不变量):
@@ -44,18 +44,25 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { PermissionMode } from '@main/adapters/types';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
-import { settingsStore } from '@main/store/settings-store';
 import { encodeClaudeProjectDir } from '@main/platform';
-import { injectResumeHistory } from '@main/session/resume-history';
-import { AGENT_ID, MAX_MESSAGE_LENGTH } from './constants';
-import type { JsonlExistsThunk, JsonlMtimeMsThunk, SummariseFnThunk } from './recoverer';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+} from '@main/session/continuation-context/recovery';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { AGENT_ID } from './constants';
+import type {
+  JsonlExistsThunk,
+  JsonlMtimeMsThunk,
+  LatestConversationMessageTsThunk,
+} from './recoverer';
 import {
-  buildCwdFallbackSummarySkippedText,
-  buildCwdFallbackSummaryUsedText,
-  buildJsonlMissingSummarySkippedText,
-  buildJsonlMissingSummaryUsedText,
-  buildRestartJsonlMissingSummarySkippedText,
-  buildRestartJsonlMissingSummaryUsedText,
+  buildCwdFallbackContextRestoredText,
+  buildCwdFallbackInstructionOnlyText,
+  buildJsonlMissingContextRestoredText,
+  buildJsonlMissingInstructionOnlyText,
+  buildRestartJsonlMissingContextRestoredText,
+  buildRestartJsonlMissingInstructionOnlyText,
 } from './recoverer-messages';
 import type { SdkSessionHandle } from './types';
 import log from '@main/utils/logger';
@@ -66,12 +73,10 @@ const HEAL_JSONL_MTIME_SKEW_MS = 2_000;
 
 function latestConversationMessageTs(
   opts: { sessionId: string; emitContext: 'recover' | 'restart' },
-  listMessagesFn: JsonlFallbackCtx['listMessagesFn'],
+  readLatestTs: LatestConversationMessageTsThunk,
 ): number | null {
   try {
-    const messages = listMessagesFn(opts.sessionId, 1);
-    const first = messages[0];
-    return typeof first?.ts === 'number' ? first.ts : null;
+    return readLatestTs(opts.sessionId);
   } catch (err) {
     logger.warn(
       `[jsonl-fallback] 最近对话消息时间读取失败: emitContext=${opts.emitContext} ` +
@@ -96,7 +101,8 @@ function latestConversationMessageTs(
  */
 export interface JsonlFallbackCreateOpts {
   cwd: string;
-  prompt: string;
+  prompt?: string;
+  trustedContinuation?: TrustedContinuationInitialTurn;
   resume: string; // applicationSid 复用 (fresh-cli-reuse-app 路径必填)
   resumeMode: 'fresh-cli-reuse-app';
   permissionMode?: PermissionMode;
@@ -114,7 +120,7 @@ export interface JsonlFallbackCreateOpts {
    * **REVIEW_99 R3 cancellation-epoch MED 修法**:fresh-cli fallback 路径 createSession 内部也有
    * pre-registration await(loadSdk / buildMcpServersForSession)窗口。helper 把 recover caller 的
    * cancelGuard(= opts.isCancelledFn 同一 closure)透传到本字段,让 fresh-cli createSession 在
-   * sessions.set 前再查一次 epoch — 覆盖 helper isCancelledFn 检查点(injectResumeHistory await 后)
+   * sessions.set 前再查一次 epoch — 覆盖 helper isCancelledFn 的 preparation-await 检查点
    * 与 createSession 内部 sessions.set 之间的二段 await 窗口。restart 路径不传(undefined → 不 gate)。
    */
   cancelCheck?: () => boolean;
@@ -124,25 +130,13 @@ export interface JsonlFallbackCtx {
   jsonlExistsThunk: JsonlExistsThunk;
   jsonlMtimeMsThunk: JsonlMtimeMsThunk;
   createSession: (opts: JsonlFallbackCreateOpts) => Promise<SdkSessionHandle>;
+  prepareRecoveryContinuation: (input: {
+    capture: CapturedRecoveryContinuation;
+    continuationInstruction: string;
+    signal?: AbortSignal;
+  }) => Promise<PreparedRecoveryContinuation>;
   emit: (event: AgentEvent) => void;
-  summariseFn: SummariseFnThunk;
-  /**
-   * 全量 events 来源 thunk (test seam) — caller bind `eventRepo.listForSession`;
-   * 单测可注入 mock 数组让纯函数行为可控。喂 `injectResumeHistory` 的 summariseFn 出六节检查点
-   * (总结段数据源,plan resume-inject-raw-messages-20260601 §D7 双数据源之一)。
-   */
-  listEventsFn: (sessionId: string) => AgentEvent[];
-  /**
-   * message-only 来源 thunk (test seam) — caller bind `eventRepo.listRecentMessages`;
-   * 拼「最近原始对话消息段」(plan resume-inject-raw-messages-20260601 §D5 双数据源之二)。
-   * 第二参 limit = recentMessagesCount,第三参 beforeIdInclusive 由 `injectResumeHistory` 从
-   * maxEventIdFn 拿到后传入(排除 entry emit 的当前消息)。
-   */
-  listMessagesFn: (
-    sessionId: string,
-    limit: number,
-    beforeIdInclusive?: number,
-  ) => (AgentEvent & { id: number })[];
+  latestConversationMessageTsThunk: LatestConversationMessageTsThunk;
 }
 
 /**
@@ -167,27 +161,12 @@ type JsonlFallbackOptsBase = {
   cliSessionId: string | null;
   /** SDK 子进程 chdir 目标 cwd (recover 路径下 cwdFellBack=true 时是 fallback cwd) */
   cwd: string;
-  /**
-   * injectResumeHistory 用的 cwd (传给 LLM 总结 prompt 标注「会话 cwd」)。
-   *
-   * recover 路径 cwdFellBack=true 时**应**传原 `rec.cwd`(让总结保留「原本是哪个
-   * worktree」的语义); restart 路径 cwdFellBack 永远 false,prependCwd === cwd。
-   */
-  prependCwd: string;
-  /** 用户当前要发的 prompt(原文,不带 prefix);helper 内部走 injectResumeHistory 拼三段 */
+  /** Authoritative continuation instruction. */
   prompt: string;
-  /**
-   * **plan resume-inject-raw-messages-20260601 §D4：maxEventId thunk（不是预算值）**。
-   * 传给 `injectResumeHistory` 作 message-only 查询的 beforeIdInclusive 来源，排除「当前消息」。
-   *
-   * - **recover 路径**：caller 在 entry emit user message **之前**捕获 `eventRepo.maxEventId(sid)`
-   *   常量值后绑成 `() => <captured>` thunk（emit 后再 lazy 调会把当前消息算进去 → off-by-one）。
-   * - **restart 路径**：handoffPrompt 不在入口 emit 落库 → 无「当前消息」需排除 → 传 `() => null`。
-   *
-   * helper(injectResumeHistory) 内 try/catch 调本 thunk（§不变量 1 永不抛错；throw → 退化为
-   * 「查最近 N」不加边界，仍继续 fallback）。
-   */
-  maxEventIdFn: () => number | null;
+  /** Immutable pre-emit capture. Missing capture blocks only the missing-jsonl branch. */
+  recoveryCapture?: CapturedRecoveryContinuation | null;
+  /** Preserved capture failure so native resume can proceed and fallback can fail clearly. */
+  recoveryCaptureError?: unknown;
   /**
    * read-side 幻影 fork 自愈的 freshness 下界，通常传 SessionRecord.lastEventAt。
    *
@@ -214,8 +193,8 @@ type JsonlFallbackOptsBase = {
   skipFirstUserEmit?: boolean;
   /**
    * **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实（双方共识，lead 全链 trace + 两端
-   * 独立时序脚本复现）**：recover 路径在 `await injectResumeHistory`（summariseFn LLM oneshot
-   * 10-30s）期间，用户若在 UI 主动 close → closeImpl 调 adapter.closeSession（此刻 fresh CLI
+   * 独立时序脚本复现）**：recover 路径在续接上下文准备期间，用户若在 UI 主动
+   * close → closeImpl 调 adapter.closeSession（此刻 fresh CLI
    * 还没起，sessions Map 无 live internal → early-return no-op）+ setLifecycle('closed')，但
    * **不 abort 在途 recovering promise / 不加黑名单**。await resolve 后 helper 若继续 createSession
    * 起 fresh CLI → 首条 SDK 事件过 ensure（closed && archivedAt===null && source==='sdk'）→
@@ -247,7 +226,7 @@ export type JsonlFallbackOpts =
       /**
        * restart 路径**必填** — `权限模式 ${mode}` (restartWithPermissionMode 路径) /
        * `OS 沙盒 ${sandbox}` (restartWithClaudeCodeSandbox 路径)。
-       * 给 `buildRestartJsonlMissingSummary[Used|Skipped]Text(label, cwd)` 用作 label 参数。
+       * 给 restart fallback 文案用作 label 参数。
        */
       restartLabel: string;
     });
@@ -265,7 +244,7 @@ export interface JsonlFallbackResult {
    */
   fellBack: boolean;
   /**
-   * **R2 HIGH 修法**：recover 路径在 await injectResumeHistory 后重读 lifecycle 发现已 closed/missing
+   * **R2 HIGH 修法**：recover 路径在 await continuation preparation 后重读 lifecycle 发现已 closed/missing
    * （用户 await 窗口内主动 close）→ abort 不起 fresh CLI。caller 必须在判 fellBack/fall-through
    * **之前**先检查本字段：true → 直接 return finalSessionId 静默结束（lifecycle 已是用户想要的
    * closed，不 createSession / 不 emit / 不 fall through 到正常 resume，避免复活）。
@@ -288,13 +267,13 @@ export interface JsonlFallbackResult {
  * 行为分两路:
  *
  * - **fallback 路径** (jsonlExistsThunk → false **或** `opts.cwdFellBack === true` 短路):
- *   ① prependHistorySummary 续历史摘要前情 ② ctx.createSession with
+ *   ① prepare unified continuation context ② ctx.createSession with
  *   `resumeMode='fresh-cli-reuse-app'` ③ emit fallback info message (按 §D4 三轴选 builder)
  *   ④ emit role='user' message (含 attachments 透传)
  *   → 返 `{ finalSessionId: opts.sessionId, fellBack: true }`
  *
  * - **正常路径** (jsonl 存在 + 非 cwdFellBack):
- *   不调 createSession / 不 emit / 不 prependHistorySummary,
+ *   不调 createSession / 不 emit / 不准备续接上下文,
  *   → 返 `{ finalSessionId: opts.sessionId, fellBack: false }`
  *   caller 自己走原 resume 路径。
  *
@@ -336,7 +315,7 @@ export async function maybeJsonlFallback(
       const freshnessCutoff = opts.minHealJsonlMtimeMs - HEAL_JSONL_MTIME_SKEW_MS;
       const restartMessageTs =
         appSidJsonlMtimeMs != null && opts.emitContext === 'restart'
-          ? latestConversationMessageTs(opts, ctx.listMessagesFn)
+          ? latestConversationMessageTs(opts, ctx.latestConversationMessageTsThunk)
           : null;
       const restartMessageFreshnessCutoff =
         restartMessageTs == null ? null : restartMessageTs - HEAL_JSONL_MTIME_SKEW_MS;
@@ -399,34 +378,25 @@ export async function maybeJsonlFallback(
       `cliSessionId=${opts.cliSessionId ?? 'null'} lookupId=${lookupId} cwd=${opts.cwd} jsonlPath=${jsonlPath}`,
   );
 
-  // fallback 分支: ① injectResumeHistory 拼「总结段 + 最近原始对话消息段 + 当前消息」三段
-  // (plan resume-inject-raw-messages-20260601 §架构地基：拼 1 条结构化 user message 是唯一正解；
-  //  设计动机:让 fresh CLI thread 不失上下文 — 用户体感「Claude 还能续聊」)。
-  // DB 没历史 / 总结失败 / 预算边界 / thunk throw → result.used=false 退回 originalText（仍 createSession）。
-  // **唯一例外** original-over-length（§D6 step0 + §不变量 1）：originalText 自身 > maxLength →
-  // throw 让 caller catch 块按现行模式 emit error + 不进 createSession（超长 prompt 裸进 SDK 会
-  // 无界透传撑爆；覆盖 restart 传 handoffPrompt 含 plan 无 cap 的 caller）。
-  const summaryResult = await injectResumeHistory({
-    sessionId: opts.sessionId,
-    originalText: opts.prompt,
-    cwd: opts.prependCwd,
-    recentMessagesCount: settingsStore.get('resumeRecentMessagesCount'),
-    maxLength: MAX_MESSAGE_LENGTH,
-    agentName: 'Claude',
-    maxEventIdFn: opts.maxEventIdFn,
-    summariseFn: ctx.summariseFn,
-    listEventsFn: ctx.listEventsFn,
-    listMessagesFn: ctx.listMessagesFn,
-  });
-  if (summaryResult.failReason === 'original-over-length') {
-    // §不变量 1 唯一阻塞态：不进 createSession，throw 给 caller catch（emit error + rethrow）。
-    throw new Error(
-      `单条消息 ${opts.prompt.length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限，无法作为 fallback 首条 prompt。请精简或拆分发送。`,
-    );
+  // Missing provider history is rebuilt only from the immutable pre-emit spool. Native resume above
+  // deliberately bypasses this paid preparation path. A capture failure is deferred until here so
+  // the original current-user event remains visible and a valid native jsonl can still resume.
+  if (!opts.recoveryCapture) {
+    const detail =
+      opts.recoveryCaptureError instanceof Error
+        ? opts.recoveryCaptureError.message
+        : opts.recoveryCaptureError === undefined
+          ? 'capture was not provided'
+          : String(opts.recoveryCaptureError);
+    throw new Error(`无法准备会话续接上下文：${detail}`);
   }
+  const recovery = await ctx.prepareRecoveryContinuation({
+    capture: opts.recoveryCapture,
+    continuationInstruction: opts.prompt,
+  });
 
-  // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法**：await injectResumeHistory（LLM
-  // oneshot 10-30s）后、createSession 前重读 lifecycle。recover 路径若用户在 await 窗口内主动
+  // **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法**：await continuation preparation
+  // 后、createSession 前重读 lifecycle。recover 路径若用户在 await 窗口内主动
   // close → isCancelledFn 返 true → abort 不起 fresh CLI（否则 createSession SDK 事件过 ensure
   // closed→active 复活，静默反转用户显式 close + 起多余 fresh CLI）。lifecycle 已是用户想要的
   // closed，abort 时不 createSession / 不 emit / 直接返 aborted:true 让 caller 静默结束。
@@ -445,7 +415,7 @@ export async function maybeJsonlFallback(
   // 抛错 → 直接 rethrow 让 caller catch 块按现行模式 emit error + DB 回滚 + rethrow。
   await ctx.createSession({
     cwd: opts.cwd,
-    prompt: summaryResult.prompt, // 三段结构化文本 (含历史) 或 originalText (used:false 兜底)
+    trustedContinuation: recovery.turn,
     resume: opts.sessionId, // applicationSid 复用 (不变量 2)
     resumeMode: 'fresh-cli-reuse-app', // 触发 index.ts:419 createSession finalize guard 跳过 finalizeSessionStart
     permissionMode: opts.permissionMode,
@@ -461,26 +431,27 @@ export async function maybeJsonlFallback(
     // ⚠️ 严禁传 resumeCliSid (不变量 10)
   });
 
-  // ③ emit fallback info message — 按 emitContext × cwdFellBack × summary used/failed 三轴选 builder
+  // ③ emit fallback info message — 按 emitContext × cwdFellBack × historical context used 三轴选 builder
   //    (§D4 文案矩阵 6 case;detail jsdoc 见 recoverer-messages.ts 每个 builder)
   let fallbackMessage: string;
+  const historicalContextUsed = recovery.prepared.quality !== 'instruction-only';
   if (opts.emitContext === 'recover') {
     if (opts.cwdFellBack) {
       // recover 路径 cwdFellBack=true: outer caller (recoverer) 已 emit cwd 切换 fact,
       // 本分支补 emit「成功续上 / 将丢失」详情(不重复 cwd 信息)
-      fallbackMessage = summaryResult.used
-        ? buildCwdFallbackSummaryUsedText()
-        : buildCwdFallbackSummarySkippedText();
+      fallbackMessage = historicalContextUsed
+        ? buildCwdFallbackContextRestoredText()
+        : buildCwdFallbackInstructionOnlyText();
     } else {
-      fallbackMessage = summaryResult.used
-        ? buildJsonlMissingSummaryUsedText(opts.cwd)
-        : buildJsonlMissingSummarySkippedText(opts.cwd);
+      fallbackMessage = historicalContextUsed
+        ? buildJsonlMissingContextRestoredText(opts.cwd)
+        : buildJsonlMissingInstructionOnlyText(opts.cwd);
     }
   } else {
     // emitContext === 'restart' — discriminated union 已 narrow opts.restartLabel: string (必填)
-    fallbackMessage = summaryResult.used
-      ? buildRestartJsonlMissingSummaryUsedText(opts.restartLabel, opts.cwd)
-      : buildRestartJsonlMissingSummarySkippedText(opts.restartLabel, opts.cwd);
+    fallbackMessage = historicalContextUsed
+      ? buildRestartJsonlMissingContextRestoredText(opts.restartLabel, opts.cwd)
+      : buildRestartJsonlMissingInstructionOnlyText(opts.restartLabel, opts.cwd);
   }
   ctx.emit({
     sessionId: opts.sessionId,
@@ -503,9 +474,11 @@ export async function maybeJsonlFallback(
       agentId: AGENT_ID,
       kind: 'message',
       payload: {
-        text: opts.prompt, // 用户原 prompt (不是 prepend 后 summary prompt — UI 显示用户实际发的那条)
+        text: recovery.turn.persistedUserText,
         role: 'user',
         ...(opts.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),
+        messageOrigin: 'continuation',
+        continuation: { ...recovery.turn.metadata },
       },
       ts: Date.now(),
       source: 'sdk',
