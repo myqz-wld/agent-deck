@@ -49,8 +49,10 @@ export function rename(fromId: string, toId: string): void {
 /**
  * Session-id moves are intentionally excluded from the per-event UPDATE revision trigger: allocating
  * one revision per moved row would make rename cost and semantics depend on history size. Instead,
- * rename publishes one destructive boundary after every event has moved. The next checkpoint must
- * rebuild at that boundary, including when neither side has an event.
+ * rename publishes one destructive boundary after every event has moved. The boundary is strictly
+ * greater than both the target head and every moved effective revision, so migrated checkpoint or
+ * summary metadata can never collide with the new epoch. The next derived state must rebuild there,
+ * including when neither side has an event.
  */
 function recomputeEventRevisionAfterRename(db: Database, toId: string): void {
   const result = db
@@ -63,7 +65,7 @@ function recomputeEventRevisionAfterRename(db: Database, toId: string): void {
                 FROM events
                WHERE session_id = ?),
              0
-           )
+           ) + 1
          ) AS boundary
            FROM session_event_revisions
           WHERE session_id = ?

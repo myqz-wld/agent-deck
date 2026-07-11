@@ -7,7 +7,21 @@ interface Row {
   content: string;
   trigger: string;
   ts: number;
+  source_event_revision: number | null;
+  source_rebuild_after_revision: number | null;
+  generation_source: string;
 }
+
+type InsertSummaryRecord = Omit<
+  SummaryRecord,
+  'id' | 'sourceEventRevision' | 'sourceRebuildAfterRevision' | 'generationSource'
+> &
+  Partial<
+    Pick<
+      SummaryRecord,
+      'sourceEventRevision' | 'sourceRebuildAfterRevision' | 'generationSource'
+    >
+  >;
 
 function rowToRecord(r: Row): SummaryRecord {
   return {
@@ -16,17 +30,40 @@ function rowToRecord(r: Row): SummaryRecord {
     content: r.content,
     trigger: r.trigger as SummaryRecord['trigger'],
     ts: r.ts,
+    sourceEventRevision: r.source_event_revision,
+    sourceRebuildAfterRevision: r.source_rebuild_after_revision,
+    generationSource: r.generation_source as SummaryRecord['generationSource'],
   };
 }
 
 export const summaryRepo = {
-  insert(rec: Omit<SummaryRecord, 'id'>): SummaryRecord {
+  insert(rec: InsertSummaryRecord): SummaryRecord {
+    const sourceEventRevision = rec.sourceEventRevision ?? null;
+    const sourceRebuildAfterRevision = rec.sourceRebuildAfterRevision ?? null;
+    const generationSource = rec.generationSource ?? 'legacy';
     const info = getDb()
       .prepare(
-        `INSERT INTO summaries (session_id, content, trigger, ts) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO summaries (
+           session_id, content, trigger, ts, source_event_revision,
+           source_rebuild_after_revision, generation_source
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(rec.sessionId, rec.content, rec.trigger, rec.ts);
-    return { ...rec, id: Number(info.lastInsertRowid) };
+      .run(
+        rec.sessionId,
+        rec.content,
+        rec.trigger,
+        rec.ts,
+        sourceEventRevision,
+        sourceRebuildAfterRevision,
+        generationSource,
+      );
+    return {
+      ...rec,
+      id: Number(info.lastInsertRowid),
+      sourceEventRevision,
+      sourceRebuildAfterRevision,
+      generationSource,
+    };
   },
 
   listForSession(sessionId: string, limit = 50): SummaryRecord[] {

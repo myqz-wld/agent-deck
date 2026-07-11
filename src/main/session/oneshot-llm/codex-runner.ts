@@ -13,8 +13,8 @@
  * - sandboxMode='read-only'：禁 codex 真跑工具改文件
  * - approvalPolicy='never'：不等审批（read-only 下也无可审批，双保险）
  * - skipGitRepoCheck=true：跳 codex 默认 git repo 校验（任意 cwd 都能跑 oneshot）
- * - cwd: resolveSpawnCwd(opts) —— trim 后非空才用 caller cwd，否则降级 process.cwd()
- *   （R37 P3-C Step 4.1 抽 helper 收口前是宽松版 `opts.cwd || process.cwd()`，对正常调用零变化）
+ * - cwd: 每次调用创建空临时目录，结束后清理，不让 summary provider 读取 session 工作区
+ * - base config / MCP / dynamic tools / network / writable dirs 均禁用，只消费调用方提供的证据
  *
  * **不在本 helper 处理**：
  * - prompt 模板（用 build-prompt.ts buildSummarizePrompt({agentName:'Agent'}) 组装）
@@ -32,9 +32,13 @@
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import { toCodexModelOverride } from '@main/adapters/codex-cli/sdk-model';
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
-import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
+import { DISABLED_EXECUTABLE_FEATURES } from '@main/session/continuation-context/codex-isolation';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import { raceWithTimeout } from './race-with-timeout';
+import { buildSummarizeSystemPrompt } from './build-prompt';
 
 /**
  * 跑一次 codex app-server oneshot thread.run，返回 finalResponse 原始文本。
@@ -42,10 +46,12 @@ import { raceWithTimeout } from './race-with-timeout';
  * @returns codex 完整输出文本（未清洗）；race 输（timer 先 reject）→ throw `Error(timeoutErrorMessage)`
  */
 export async function runCodexOneshot(opts: {
-  /** Session cwd（trim 后空降级到 process.cwd() — 见 cwd-resolver.ts）。 */
+  /** Session cwd，仅作为 prompt 中的只读标签；provider 实际运行在空临时目录。 */
   cwd: string;
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt 组装。 */
   prompt: string;
+  /** Highest-priority no-tool display-summary instruction. */
+  systemPrompt?: string;
   /**
    * Reasoning effort for the periodic summary.
    * 与 settings UI 共用 CodexThinkingLevel：minimal / low / medium / high / xhigh / max / ultra。
@@ -59,7 +65,7 @@ export async function runCodexOneshot(opts: {
   model?: string;
   /** Timeout 毫秒；<= 0 不起 timer。 */
   timeoutMs: number;
-  /** Timer 触发 reject 的 errorMessage（caller 区分 summarize / handoff）。 */
+  /** Timer 触发 reject 的 summary-specific errorMessage。 */
   timeoutErrorMessage: string;
 }): Promise<string> {
   // REVIEW_37 R2 MED-1 修法：timeout race 必须包整个 oneshot 流程（getCodexInstance +
@@ -70,30 +76,48 @@ export async function runCodexOneshot(opts: {
   //
   // app-server run 接收 AbortSignal；timeout 先赢时 interrupt 当前 turn，对齐 claude 取消语义。
   const controller = new AbortController();
+  const isolatedCwd = mkdtempSync(join(tmpdir(), 'agent-deck-periodic-summary-'));
   const work = (async () => {
     const codex = await getCodexInstance();
     const model = toCodexModelOverride(opts.model);
 
     const thread = codex.startThread({
-      workingDirectory: resolveSpawnCwd(opts),
+      workingDirectory: isolatedCwd,
       sandboxMode: 'read-only',
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
       modelReasoningEffort: opts.modelReasoningEffort,
+      modelReasoningSummary: 'none',
+      baseInstructions: opts.systemPrompt ?? buildSummarizeSystemPrompt('Agent'),
+      configOverrides: {
+        features: { ...DISABLED_EXECUTABLE_FEATURES },
+        mcp_servers: {},
+      },
+      useBaseConfig: false,
+      networkAccessEnabled: false,
+      additionalDirectories: [],
+      dynamicTools: [],
+      environments: [],
+      runtimeWorkspaceRoots: [],
+      selectedCapabilityRoots: [],
+      ephemeral: true,
       ...(model !== undefined ? { model } : {}),
     });
 
     return thread.run(toCodexAppServerInput(opts.prompt), { signal: controller.signal });
   })();
 
-  const result = await raceWithTimeout({
-    work,
-    timeoutMs: opts.timeoutMs,
-    errorMessage: opts.timeoutErrorMessage,
-    // timer 先赢 → abort signal 让 Codex app-server 取消当前 turn。
-    // 与 claude runClaudeOneshot q.interrupt() onTimeout 对称，防周期 timeout 累积后台进程。
-    onTimeout: () => controller.abort(),
-  });
-
-  return result.finalResponse;
+  try {
+    const result = await raceWithTimeout({
+      work,
+      timeoutMs: opts.timeoutMs,
+      errorMessage: opts.timeoutErrorMessage,
+      // timer 先赢 → abort signal 让 Codex app-server 取消当前 turn。
+      // 与 claude runClaudeOneshot q.interrupt() onTimeout 对称，防周期 timeout 累积后台进程。
+      onTimeout: () => controller.abort(),
+    });
+    return result.finalResponse;
+  } finally {
+    rmSync(isolatedCwd, { recursive: true, force: true });
+  }
 }

@@ -1,89 +1,73 @@
 {
   "root": "/Users/wanglidong/Repository/agent-deck",
-  "scanned_at": "2026-07-11T09:18:37Z",
-  "expires_at": "2026-07-18T09:18:37Z",
-  "scan_reason": "User requested simple-review and deep-review Codex reviewers use gpt-5.6-sol with xhigh; refresh authoritative paired skills and inspect their reviewer runtime dependency.",
-  "git_head": "93d7048f1f324c9ea5f89db75b40a21d40581d20",
+  "scanned_at": "2026-07-11T12:50:21Z",
+  "expires_at": "2026-07-18T12:50:21Z",
+  "scan_reason": "User confirmed richer revision-bounded periodic summaries with compact evidence reuse.",
+  "git_head": "e4efca29a4d3fb4ee97d87a791409479ff265b21",
   "assets": [
     {
-      "path": "resources/codex-config/agent-deck-plugin/skills/simple-review/SKILL.md",
-      "type": "codex-bundled-skill",
-      "scope": "counterpart-check-only",
-      "reason": "User narrowed the edit to the existing reviewer-codex fallback; this skill remains unchanged and resolves that named agent.",
-      "exists": true,
-      "hash": "71b2f4e894aa905041ab070f745a7ae138fc6a4f15eb7cf71746fbfb47240bc9"
-    },
-    {
-      "path": "resources/claude-config/agent-deck-plugin/skills/simple-review/SKILL.md",
-      "type": "claude-bundled-skill",
-      "scope": "counterpart-check-only",
-      "reason": "User narrowed the edit to the existing reviewer-codex fallback; paired simple-review behavior remains unchanged.",
-      "exists": true,
-      "hash": "71b2f4e894aa905041ab070f745a7ae138fc6a4f15eb7cf71746fbfb47240bc9"
-    },
-    {
-      "path": "resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md",
-      "type": "codex-bundled-skill",
-      "scope": "counterpart-check-only",
-      "reason": "User narrowed the edit to the existing reviewer-codex fallback; this skill remains unchanged and resolves that named agent.",
-      "exists": true,
-      "hash": "b79a7364f0e638391f3aa176772955fbc5d089f112b561802de5dd272f1d9ae1"
-    },
-    {
-      "path": "resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md",
-      "type": "claude-bundled-skill",
-      "scope": "counterpart-check-only",
-      "reason": "User narrowed the edit to the existing reviewer-codex fallback; paired deep-review behavior remains unchanged.",
-      "exists": true,
-      "hash": "b79a7364f0e638391f3aa176772955fbc5d089f112b561802de5dd272f1d9ae1"
-    },
-    {
-      "path": "resources/codex-config/agent-deck-plugin/agents/reviewer-codex.toml",
-      "type": "codex-custom-agent",
+      "path": "src/main/session/oneshot-llm/build-prompt.ts",
+      "type": "periodic-summary-prompt-template",
       "scope": "confirmed",
-      "reason": "User approved aligning the direct reviewer-codex fallback with the two skills at gpt-5.6-sol/xhigh.",
+      "reason": "Replace the vague 30-character one-line contract with a bounded evidence-aware multiline summary contract.",
       "exists": true,
-      "hash": "de5776036c56dd33714d0c0b5100b87af086cd8d7a0ac609b716f25ab4eb8fc0"
+      "hash": "c6278ec9bcf260dfb9a64278211e36305288759aa7693e9560da6b0dc8efad22"
     },
     {
-      "path": "resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md",
-      "type": "claude-custom-agent",
-      "scope": "counterpart-check-only",
-      "reason": "Reviewer role and evidence contract remain aligned; Claude-specific runtime stays unchanged.",
+      "path": "README.md",
+      "type": "repository-prompt-reference",
+      "scope": "confirmed",
+      "reason": "Document revision-bounded evidence, multiline display summaries, and explicit fallback labeling.",
       "exists": true,
-      "hash": "2de75b68068750b8997cc2627d4474c2a2c9dc8e2d07ea15a49a49bb04fffc0c"
+      "hash": "2667e97f595848e55eb7fd5c243c6cc15d8e8f59d6b6ab3df3138c2463974741"
     },
     {
-      "path": "resources/claude-config/agent-deck-plugin/agents/reviewer-deepseek.md",
-      "type": "deepseek-custom-agent",
-      "scope": "counterpart-check-only",
-      "reason": "Reviewer role and evidence contract remain aligned; Deepseek-specific runtime stays unchanged.",
+      "path": "ref/changelogs/recent-3-days/CHANGELOG_360_periodic-summary-evidence.md",
+      "type": "changelog-prompt-asset",
+      "scope": "confirmed",
+      "reason": "Record the periodic summary evidence and revision-cursor behavior change.",
       "exists": true,
-      "hash": "d0195e917169fe6ce56167cd1eb8b4bef46bfd9812a95750f6d134d401557f6d"
+      "hash": "96d1022500549616a34a3628a8705c8e38cc895f6759c65d3a4cc5f2bf2c7a78"
     },
     {
-      "path": "resources/codex-config/CODEX_AGENTS.md",
-      "type": "codex-runtime-prompt",
-      "scope": "counterpart-check-only",
-      "reason": "It defines reviewer slot and retry boundaries but intentionally does not own per-skill runtime selection.",
+      "path": "ref/changelogs/INDEX.md",
+      "type": "changelog-routing-index",
+      "scope": "confirmed",
+      "reason": "Route the new periodic summary changelog.",
       "exists": true,
-      "hash": "cccf21daf7aeafba14ad418cc945427b617bdeff5d29795f2730f2a0a3840404"
+      "hash": "f24356c3b8a22be4ca40a59983167ce87fd87ebc4665f08b76d7f68363efb075"
+    },
+    {
+      "path": "ref/changelogs/recent-3-days/INDEX.md",
+      "type": "changelog-bucket-index",
+      "scope": "confirmed",
+      "reason": "List the new periodic summary changelog in the current bucket.",
+      "exists": true,
+      "hash": "1b01b6362f883da62fdeefbf7759f63e1c3cf2568fe12234882a71f753f5fc61"
+    },
+    {
+      "path": "src/main/session/continuation-context/checkpoint-prompts.ts",
+      "type": "continuation-checkpoint-prompt",
+      "scope": "counterpart-check-only",
+      "reason": "Confirm periodic display summaries reuse validated facts without changing the hand-off compactor prompt.",
+      "exists": true,
+      "hash": "2d2ea409993df5444f26d464633f4d86249d662fd2c77fee532e28dc8ea6d7ed"
     },
     {
       "path": "resources/claude-config/CLAUDE.md",
       "type": "claude-runtime-prompt",
       "scope": "counterpart-check-only",
-      "reason": "It defines reviewer slot and retry boundaries but intentionally does not own per-skill runtime selection.",
+      "reason": "The runtime hand-off protocol remains unchanged by display-summary evidence reuse.",
       "exists": true,
       "hash": "ec2b35d14ee4fdb92ea0f97690559d6f9fa48c811dcbc5c95a7c79a11b11352a"
     },
     {
-      "path": "resources/README.md",
-      "type": "bundled-resource-reference",
+      "path": "resources/codex-config/CODEX_AGENTS.md",
+      "type": "codex-runtime-prompt",
       "scope": "counterpart-check-only",
-      "reason": "Existing paired-asset and packaging guidance remains accurate.",
+      "reason": "The paired runtime hand-off protocol remains unchanged by display-summary evidence reuse.",
       "exists": true,
-      "hash": "c6dc1fc7963c7b106d88bc743a2ae9f09b367d977055d40356e59a5db9f4c6fd"
+      "hash": "cccf21daf7aeafba14ad418cc945427b617bdeff5d29795f2730f2a0a3840404"
     }
   ]
 }

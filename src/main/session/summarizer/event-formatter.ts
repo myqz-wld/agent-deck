@@ -3,7 +3,8 @@ import type { AgentEvent } from '@shared/types';
 /**
  * 把 events 转成给 LLM 看的「最近活动」文本。`events` 入参按 (ts DESC, id DESC)（listForSession
  * 的语义），先按时间升序排回去（按发生顺序读 LLM 才能正确理解前后逻辑），
- * 然后取**最新** 30 行 —— 注意是末尾 30 不是前 30，否则丢掉的是最新 10 条而不是最旧 10 条
+ * 转成有效行后再取**最新** 60 行。必须先过滤再截断，否则 thinking / token / user rows 会
+ * 占满原始事件窗口，让真正的 assistant、工具结果和完成状态从 prompt 中消失。
  * （历史 bug：原来 `for (...) if (lines.length >= 30) break` 在升序遍历里 break 早，
  * 导致 LLM 看到的总是会话开头那段旧上下文，越往后看到的越旧）。
  *
@@ -23,11 +24,10 @@ import type { AgentEvent } from '@shared/types';
  *   的"Claude 在做什么"
  */
 export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]): string {
-  // 升序后取末尾 30：events 已经是 (ts DESC, id DESC)，先排正（ts 升序 + id tie-breaker 还原
-  // 同毫秒 chronological），再 slice(-30) 拿最新一段。
+  // events 通常是 (ts DESC, id DESC)，先排正（ts 升序 + id tie-breaker 还原同毫秒
+  // chronological），全部转换成有效行后再 slice(-60)。
   const ordered = [...events]
-    .sort((a, b) => a.ts - b.ts || (a.id ?? 0) - (b.id ?? 0))
-    .slice(-30);
+    .sort((a, b) => a.ts - b.ts || (a.id ?? 0) - (b.id ?? 0));
   const lines: string[] = [];
   for (const e of ordered) {
     const p = (e.payload ?? {}) as Record<string, unknown>;
@@ -40,6 +40,16 @@ export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]):
       const tool = (p.toolName as string) || 'tool';
       const detail = summariseToolInput(tool, p.toolInput);
       lines.push(detail ? `[Claude 调用工具] ${tool} · ${detail}` : `[Claude 调用工具] ${tool}`);
+    } else if (e.kind === 'tool-use-end') {
+      const tool = (p.toolName as string) || 'tool';
+      const status = toolResultStatus(p);
+      const result = p.toolResult ?? p.toolResponse ?? p.output;
+      const detail = compactValue(result, 360);
+      lines.push(
+        detail
+          ? `[Claude 工具结果] ${tool} · ${status} · ${detail}`
+          : `[Claude 工具结果] ${tool} · ${status}`,
+      );
     } else if (e.kind === 'file-changed') {
       const path = (p.filePath as string) || '';
       if (path) lines.push(`[Claude 改动文件] ${path}`);
@@ -65,9 +75,43 @@ export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]):
         const msg = typeof p.message === 'string' ? p.message : '';
         lines.push(`[Claude 等待用户输入] ${truncate(msg, 200)}`);
       }
+    } else if (e.kind === 'finished') {
+      const ok = p.ok === true || p.subtype === 'success';
+      const detail = compactValue(p.message ?? p.error ?? p.lastAssistantMessage, 240);
+      lines.push(
+        `[Claude 本轮${ok ? '完成' : '结束异常'}]${detail ? ` ${detail}` : ''}`,
+      );
+    } else if (e.kind === 'session-end') {
+      lines.push('[Claude 会话流结束]');
+    } else if (e.kind === 'team-task-created' || e.kind === 'team-task-completed') {
+      const subject = compactValue(p.subject ?? p.task ?? p.title ?? p.taskId, 240);
+      lines.push(
+        `[团队任务${e.kind === 'team-task-created' ? '创建' : '完成'}]${subject ? ` ${subject}` : ''}`,
+      );
+    } else if (e.kind === 'team-teammate-idle') {
+      const teammate = compactValue(p.name ?? p.agentName ?? p.sessionId, 160);
+      lines.push(`[协作者空闲]${teammate ? ` ${teammate}` : ''}`);
     }
   }
-  return lines.join('\n');
+  return lines.slice(-60).join('\n');
+}
+
+function toolResultStatus(payload: Record<string, unknown>): string {
+  if (payload.status === 'failed' || payload.isError === true) return '失败';
+  if (payload.status === 'interrupted') return '中断';
+  if (payload.status === 'completed') return '完成';
+  if (payload.status === 'inProgress') return '进行中';
+  return '结果';
+}
+
+function compactValue(value: unknown, max: number): string {
+  if (typeof value === 'string') return truncate(value.replace(/\s+/g, ' ').trim(), max);
+  if (value === null || value === undefined) return '';
+  try {
+    return truncate(JSON.stringify(value).replace(/\s+/g, ' ').trim(), max);
+  } catch {
+    return truncate(String(value).replace(/\s+/g, ' ').trim(), max);
+  }
 }
 
 function summariseToolInput(toolName: string, input: unknown): string | null {

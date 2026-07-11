@@ -299,8 +299,17 @@ class CodexCliAdapter implements AgentAdapter {
   }
 
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
-  async summariseEvents(cwd: string, events: AgentEvent[]): Promise<string | null> {
-    return summariseCodexSessionViaOneshot(cwd, events, formatEventsForPrompt);
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    evidenceContext?: string,
+  ): Promise<string | null> {
+    return summariseCodexSessionViaOneshot(
+      cwd,
+      events,
+      formatEventsForPrompt,
+      evidenceContext,
+    );
   }
 
   // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /

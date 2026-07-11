@@ -4,7 +4,7 @@
  * 覆盖 formatEventsForPrompt 的排序契约：
  * - 同毫秒事件按 id tie-breaker 还原 chronological（旧→新），不因 JS stable sort 保留
  *   listForSession 的 (ts DESC, id DESC) 输入顺序而在 prompt 里逆序。
- * - 取末尾 30 条（最新一段），不是前 30。
+ * - 先转换有效行，再取末尾 60 条（最新一段）。
  *
  * 纯函数无 SQLite / 无 better-sqlite3 binding 依赖，任何 Node 版本都能跑。
  */
@@ -56,17 +56,65 @@ describe('formatEventsForPrompt — 排序契约', () => {
     expect(out.indexOf('mid')).toBeLessThan(out.indexOf('late'));
   });
 
-  it('取末尾 30 条（最新一段）而非前 30', () => {
-    // 造 35 条递增 ts，期望保留最新 30（ts 6..35），丢弃最旧 5（ts 1..5）
+  it('取末尾 60 条有效行（最新一段）而非前 60', () => {
+    // 造 65 条递增 ts，期望保留最新 60（ts 6..65），丢弃最旧 5（ts 1..5）
     const events: (AgentEvent & { id: number })[] = [];
-    for (let i = 1; i <= 35; i++) events.push(msg(i, i * 1000, `m${i}`));
+    for (let i = 1; i <= 65; i++) events.push(msg(i, i * 1000, `m${i}`));
     const out = formatEventsForPrompt(events);
     // 最旧 5 条不在
     expect(out).not.toContain('m1 ');
     expect(out).not.toContain('m5 ');
     // 最新条在
-    expect(out).toContain('m35');
+    expect(out).toContain('m65');
     expect(out).toContain('m6');
+  });
+
+  it('filters noise before the line cap and includes concrete tool results', () => {
+    const events: (AgentEvent & { id: number })[] = [];
+    events.push(msg(1, 1, 'meaningful assistant state'));
+    for (let index = 0; index < 80; index += 1) {
+      events.push({
+        id: index + 2,
+        sessionId: 's1',
+        agentId: 'claude-code',
+        kind: 'thinking',
+        payload: { text: `noise-${index}` },
+        ts: index + 2,
+      });
+    }
+    events.push({
+      id: 100,
+      sessionId: 's1',
+      agentId: 'claude-code',
+      kind: 'tool-use-end',
+      payload: {
+        toolName: 'Bash',
+        status: 'completed',
+        toolResult: { stdout: '42 tests passed' },
+      },
+      ts: 100,
+    });
+    const out = formatEventsForPrompt(events);
+    expect(out).toContain('meaningful assistant state');
+    expect(out).toContain('[Claude 工具结果] Bash · 完成 · {"stdout":"42 tests passed"}');
+    expect(out).not.toContain('noise-');
+  });
+
+  it('labels interrupted tool results without claiming completion', () => {
+    const event: AgentEvent = {
+      sessionId: 's1',
+      agentId: 'codex-cli',
+      kind: 'tool-use-end',
+      payload: {
+        toolName: 'Bash',
+        status: 'interrupted',
+        toolResult: 'test run cancelled',
+      },
+      ts: 100,
+    };
+    const out = formatEventsForPrompt([event]);
+    expect(out).toContain('[Claude 工具结果] Bash · 中断 · test run cancelled');
+    expect(out).not.toContain('· 完成 ·');
   });
 
   it('无 id 字段时降级到纯 ts 排序（兼容无 id caller，?? 0 兜底不抛错）', () => {

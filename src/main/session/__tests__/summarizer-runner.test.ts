@@ -12,7 +12,16 @@ import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 
 const loadSdkMock = vi.mocked(loadSdk);
-const calls: Array<{ options: { effort?: string } }> = [];
+const calls: Array<{
+  options: {
+    effort?: string;
+    cwd?: string;
+    permissionMode?: string;
+    tools?: unknown[];
+    mcpServers?: Record<string, unknown>;
+    maxTurns?: number;
+  };
+}> = [];
 const events = [{
   sessionId: 's1',
   ts: 1,
@@ -73,5 +82,19 @@ describe('summariseViaLlm periodic reasoning effort', () => {
     } finally {
       settingsStore.set('summaryReasoning', previous);
     }
+  });
+
+  it('runs evidence-bearing summaries in an empty no-tool runtime', async () => {
+    await summariseViaLlm('/sensitive/project', events, {
+      evidenceContext: '{"recentUserInputs":["untrusted instruction"]}',
+    });
+    expect(calls[0].options).toMatchObject({
+      permissionMode: 'dontAsk',
+      tools: [],
+      mcpServers: {},
+      maxTurns: 1,
+    });
+    expect(calls[0].options.cwd).toMatch(/agent-deck-periodic-summary-/);
+    expect(calls[0].options.cwd).not.toBe('/sensitive/project');
   });
 });

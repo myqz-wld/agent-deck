@@ -235,9 +235,8 @@ export const eventRepo = {
    * summarizer 第二层兜底用：LLM 失败时拿这条作为「Claude 当前在做什么」的近似。
    *
    * 为什么不在调用方过滤 events 数组：
-   * - summarizer 调用方传 limit=40（summarizer/index.ts:253，非 listForSession 默认 200），
-   *   tool 密集会话最近 40 条事件可能 0 条 message kind（都被 tool-use-start/end 占满），
-   *   数组 .find 直接 undefined → 走第三层事件统计
+   * - periodic-summary activity evidence 有独立行数/令牌预算，tool 密集会话的窗口可能
+   *   没有 message kind，数组 .find 会直接 undefined → 走第三层事件统计
    * - 数组 .find 也没过滤 role/error，会拿到用户输入（"push 一下"）或 ⚠ 警告，
    *   summary 显示成"用户的话"而不是"Claude 在做什么"
    *
@@ -284,6 +283,93 @@ export const eventRepo = {
     } catch (err) {
       logger.warn('[event-repo] payload JSON parse failed', {
         operation: 'find-latest-assistant-message',
+        eventId: row.id,
+        sessionId,
+        kind: 'message',
+        ts: row.ts,
+      }, err);
+      return null;
+    }
+  },
+
+  /** Revision-bounded equivalent used by v040 periodic summaries. */
+  findLatestAssistantMessageAfterRevision(
+    sessionId: string,
+    afterRevision: number,
+    throughRevision: number,
+  ): { text: string; ts: number } | null {
+    const row = getDb()
+      .prepare(
+        `SELECT id, payload_json, ts FROM events
+         WHERE session_id = ?
+           AND kind = 'message'
+           AND COALESCE(change_revision, id) > ?
+           AND COALESCE(change_revision, id) <= ?
+           AND CASE WHEN json_valid(payload_json) THEN (
+             json_extract(payload_json, '$.role') = 'assistant'
+             AND (json_extract(payload_json, '$.error') IS NULL
+                  OR json_extract(payload_json, '$.error') = 0)
+           ) ELSE 0 END
+         ORDER BY COALESCE(change_revision, id) DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(sessionId, afterRevision, throughRevision) as
+      | { id: number; payload_json: string; ts: number }
+      | undefined;
+    if (!row) return null;
+    try {
+      const payload = JSON.parse(row.payload_json) as { text?: string };
+      return typeof payload.text === 'string' && payload.text
+        ? { text: payload.text, ts: row.ts }
+        : null;
+    } catch (err) {
+      logger.warn('[event-repo] payload JSON parse failed', {
+        operation: 'find-latest-assistant-message-after-revision',
+        eventId: row.id,
+        sessionId,
+        kind: 'message',
+        ts: row.ts,
+      }, err);
+      return null;
+    }
+  },
+
+  /** Latest assistant message inside a frozen revision boundary, optionally after a legacy ts. */
+  findLatestAssistantMessageAtOrBeforeRevision(
+    sessionId: string,
+    throughRevision: number,
+    sinceTs?: number,
+  ): { text: string; ts: number } | null {
+    const sinceClause = sinceTs === undefined ? '' : 'AND ts >= ?';
+    const params =
+      sinceTs === undefined
+        ? [sessionId, throughRevision]
+        : [sessionId, throughRevision, sinceTs];
+    const row = getDb()
+      .prepare(
+        `SELECT id, payload_json, ts FROM events
+         WHERE session_id = ?
+           AND kind = 'message'
+           AND COALESCE(change_revision, id) <= ?
+           ${sinceClause}
+           AND CASE WHEN json_valid(payload_json) THEN (
+             json_extract(payload_json, '$.role') = 'assistant'
+             AND (json_extract(payload_json, '$.error') IS NULL
+                  OR json_extract(payload_json, '$.error') = 0)
+           ) ELSE 0 END
+         ORDER BY COALESCE(change_revision, id) DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(...params) as { id: number; payload_json: string; ts: number } | undefined;
+    if (!row) return null;
+    try {
+      const payload = JSON.parse(row.payload_json) as { text?: string };
+      return typeof payload.text === 'string' && payload.text
+        ? { text: payload.text, ts: row.ts }
+        : null;
+    } catch (err) {
+      logger.warn('[event-repo] payload JSON parse failed', {
+        operation: 'find-latest-assistant-message-at-or-before-revision',
         eventId: row.id,
         sessionId,
         kind: 'message',

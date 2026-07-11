@@ -42,11 +42,13 @@ import v023 from '../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
 import v024 from '../migrations/v024_tasks_add_team_id.sql?raw';
 import v025 from '../migrations/v025_events_tool_use_end_dedup.sql?raw';
 import v026 from '../migrations/v026_issues.sql?raw';
+import v037 from '../migrations/v037_event_revisions.sql?raw';
+import v040 from '../migrations/v040_summary_revision_metadata.sql?raw';
 
 const ALL_MIGRATIONS = [
   v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012,
   v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024,
-  v025, v026,
+  v025, v026, v037, v040,
 ];
 
 // vi.mock 闭包 dbHolder：动态 import 的生产 repo 通过 getDb() 拿到本文件注入的 testDb。
@@ -132,6 +134,27 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / event-repo', () => {
     insertAssistantMessage(testDb, 'sess-A', 'NEW', 7000);
     const latest = mod.eventRepo.findLatestAssistantMessage('sess-A', 6000);
     expect(latest?.text).toBe('NEW');
+  });
+
+  it('bounds assistant fallback by captured revision and optional legacy timestamp', () => {
+    insertAssistantMessage(testDb, 'sess-A', 'OLD', 5_000);
+    const captured = (
+      testDb.prepare(
+        `SELECT revision FROM session_event_revisions WHERE session_id = 'sess-A'`,
+      ).get() as { revision: number }
+    ).revision;
+    insertAssistantMessage(testDb, 'sess-A', 'NEW', 7_000);
+
+    expect(
+      mod.eventRepo.findLatestAssistantMessageAtOrBeforeRevision('sess-A', captured)?.text,
+    ).toBe('OLD');
+    expect(
+      mod.eventRepo.findLatestAssistantMessageAtOrBeforeRevision(
+        'sess-A',
+        captured + 1,
+        6_000,
+      )?.text,
+    ).toBe('NEW');
   });
 
   it('latestConversationMessageTs ignores non-dialog/error rows and returns the latest dialog time', () => {

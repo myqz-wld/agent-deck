@@ -20,7 +20,9 @@ function buildModelPlaceholder(provider: GeneratorProvider): string {
 }
 
 function buildModelHint(provider: GeneratorProvider): string {
-  if (provider === 'codex') return '模型留空时使用 Codex 配置里的默认模型。';
+  if (provider === 'codex') {
+    return 'Codex 当前无法证明模型侧内建工具已完全隔离，因此不会启动总结 turn，并使用带“降级”标记的本地兜底。';
+  }
   if (provider === 'deepseek') return '模型留空时使用 Deepseek Haiku 默认模型。';
   return '模型留空时使用 Claude Haiku。';
 }

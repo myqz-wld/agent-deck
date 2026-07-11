@@ -68,6 +68,9 @@ describe('SummarySection provider-specific thinking levels', () => {
       />,
     );
     openSection();
+    expect(
+      screen.getByText(/Codex 当前无法证明模型侧内建工具已完全隔离/),
+    ).toBeTruthy();
 
     let summaryButtons = rowButtons('周期性总结');
     expect(summaryButtons[1]?.title).toBe('Codex 思考程度');

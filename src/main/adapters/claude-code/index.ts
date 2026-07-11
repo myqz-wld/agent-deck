@@ -302,8 +302,16 @@ class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
-  async summariseEvents(cwd: string, events: AgentEvent[]): Promise<string | null> {
-    return summariseViaLlm(cwd, events);
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    evidenceContext?: string,
+  ): Promise<string | null> {
+    return summariseViaLlm(
+      cwd,
+      events,
+      evidenceContext ? { evidenceContext } : undefined,
+    );
   }
 }
 

@@ -200,5 +200,9 @@ export interface AgentAdapter {
    * Periodic session-list summary. Continuation checkpoints use the isolated continuation
    * runtime and never dispatch through this display-summary API.
    */
-  summariseEvents?(cwd: string, events: AgentEvent[]): Promise<string | null>;
+  summariseEvents?(
+    cwd: string,
+    events: AgentEvent[],
+    evidenceContext?: string,
+  ): Promise<string | null>;
 }

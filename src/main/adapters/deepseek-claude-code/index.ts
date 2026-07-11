@@ -339,9 +339,17 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
   }
 
   /** Deepseek periodic summaries use its Anthropic-compatible environment overlay. */
-  async summariseEvents(cwd: string, events: AgentEvent[]): Promise<string | null> {
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    evidenceContext?: string,
+  ): Promise<string | null> {
     const envOverride = loadDeepseekClaudeEnv();
-    return summariseViaLlm(cwd, events, { agentName: 'Deepseek', envOverride });
+    return summariseViaLlm(cwd, events, {
+      agentName: 'Deepseek',
+      envOverride,
+      ...(evidenceContext ? { evidenceContext } : {}),
+    });
   }
 }
 

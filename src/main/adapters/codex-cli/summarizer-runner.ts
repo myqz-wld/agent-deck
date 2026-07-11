@@ -15,11 +15,9 @@
  * **R37 P1 Step 1.2 (G)**：codex 实例改用 `codex-instance-pool.getCodexInstance()` 应用全局
  * 共享，path 改 → pool 内部 path 比较自动失效。
  *
- * **行为不变**（与原 runner 一致）：
- * - sandboxMode='read-only' 禁 codex 真跑工具改文件
- * - approvalPolicy='never' 不等审批（read-only 下也无可审批）
- * - skipGitRepoCheck=true 跳 git repo 校验
- * - modelReasoningEffort 读 settings.summaryReasoning（默认 low；可选 minimal..ultra）
+ * **当前隔离契约**：Codex 0.144 无法证明最终 model-visible built-in tool registry 为空，
+ * 所以 periodic summary 在启动 turn 前复用 compact attestation 并 fail-closed。下方
+ * read-only / empty cwd / empty MCP 配置保留为未来 provider 能完成 attestation 后的最低配置。
  *
  * spike-A3 实测：5 codex 并发 oneshot 复用 codex app-server 单例，总耗 10s + 单进程
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
@@ -28,32 +26,50 @@ import type { AgentEvent } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import {
   buildSummarizePrompt,
+  buildSummarizeSystemPrompt,
   cleanCompactResult,
   runCodexOneshot,
 } from '@main/session/oneshot-llm';
+import { codexCompactorIsolationAttestation } from '@main/session/continuation-context/codex-isolation';
 
 /**
  * 跑一次 codex oneshot 总结。`formatEvents` 由 caller 注入（避免本 runner 重复维护
  * events → prompt 序列化逻辑——summarizer/event-formatter.ts 已有 formatEventsForPrompt
  * 函数措辞精细）。
  *
- * @returns 总结文本（≤ 120 字符）；events 没有可总结内容 / codex 返回空 → null；
+ * @returns 最多四行的紧凑总结；events 与 evidence 都为空 / codex 返回空 → null；
  *          timer 先赢 / codex 进程错 → throw
  */
 export async function summariseCodexSessionViaOneshot(
   cwd: string,
   events: AgentEvent[],
   formatEvents: (events: AgentEvent[]) => string,
+  evidenceContext?: string,
 ): Promise<string | null> {
   const activity = formatEvents(events);
-  if (!activity) return null;
+  if (!activity && !evidenceContext) return null;
+
+  // Periodic summaries now include raw user intent. Codex 0.144 accepts the available hardening
+  // knobs but cannot attest the final model-visible built-in tool registry, so mirror the compact
+  // runtime's fail-closed policy. The scheduler records this diagnostic and emits a labeled local
+  // fallback instead of exposing evidence to an unproven runtime.
+  const attestation = codexCompactorIsolationAttestation();
+  if (!attestation.proven) {
+    throw new Error(`__codex_summarizer_tools_unproven__: ${attestation.reason}`);
+  }
 
   const result = await runCodexOneshot({
     cwd,
-    // prompt 与 claude summariseViaLlm 相同结构：列举近期事件类型，让模型一句话总结。
+    // prompt 与 claude summariseViaLlm 相同结构：提供冻结证据并生成紧凑多行总结。
     // agentName='Agent'：codex 不是 Claude，build-prompt.ts 把主体 `Claude` 改 `Agent`，但
     // 保留 [Claude 说] marker 不变（marker 是 formatEventsForPrompt 固定 label，不本地化）。
-    prompt: buildSummarizePrompt({ cwd, activity, agentName: 'Agent' }),
+    prompt: buildSummarizePrompt({
+      cwd,
+      activity,
+      agentName: 'Agent',
+      evidenceContext,
+    }),
+    systemPrompt: buildSummarizeSystemPrompt('Agent'),
     // plan prancy-forging-penguin:reasoning 改读 settings.summaryReasoning(原 hardcoded 'low'
     // 已下线)。default 'low' 与原行为对齐，用户也可选完整 Codex effort 档位。
     modelReasoningEffort: settingsStore.get('summaryReasoning') ?? 'low',
@@ -73,5 +89,5 @@ export async function summariseCodexSessionViaOneshot(
     timeoutErrorMessage: '__codex_summarizer_timeout__',
   });
 
-  return cleanCompactResult(result, 120);
+  return cleanCompactResult(result, 800);
 }

@@ -17,6 +17,7 @@ import { formatEventsForPrompt } from './event-formatter';
 interface ClaudeFamilyRunnerOptions {
   agentName?: AgentName;
   envOverride?: Readonly<Record<string, string>>;
+  evidenceContext?: string;
 }
 
 function providerEnv(
@@ -34,7 +35,7 @@ function claudeReasoningSetting(): ClaudeThinkingLevel | undefined {
 }
 
 /**
- * 用本地 OAuth + Claude Code SDK 跑一次 oneshot 总结。一句话（≤ 30 字）描述当前任务。
+ * 用本地 OAuth + Claude Code SDK 跑一次 oneshot 总结，生成最多四行的具体状态摘要。
  *
  * **超时**：底层 cli.js 子进程因代理超时 / 鉴权死锁 / API 限流卡在等待 result 时，
  * for-await 会永远不返回 → inFlight 槽永不释放，maxConcurrent 个卡死后整个
@@ -48,13 +49,18 @@ export async function summariseViaLlm(
   opts?: ClaudeFamilyRunnerOptions,
 ): Promise<string | null> {
   const activity = formatEventsForPrompt(events);
-  if (!activity) return null;
+  if (!activity && !opts?.evidenceContext) return null;
   const agentName = opts?.agentName ?? 'Claude';
 
   const result = await runClaudeOneshot({
     cwd,
-    prompt: buildSummarizePrompt({ cwd, activity, agentName }),
-    // 总结只一句话，用 haiku 足够：成本低、吐字快，多个会话排队也不会卡。
+    prompt: buildSummarizePrompt({
+      cwd,
+      activity,
+      agentName,
+      evidenceContext: opts?.evidenceContext,
+    }),
+    // 展示摘要保持短小，优先使用轻量模型以降低多个会话排队时的成本和延迟。
     // 模型优先级（plan model-wiring-and-handoff-20260514 Step 4.3）：
     //   1. settings.summaryModel（UI 暴露的字符串字段，'' 表示沿用下面 env / alias 链）
     //   2. settings.json 里配的 ANTHROPIC_DEFAULT_HAIKU_MODEL（具体 id）
@@ -73,5 +79,5 @@ export async function summariseViaLlm(
     timeoutErrorMessage: '__summarizer_timeout__',
   });
 
-  return cleanCompactResult(result, 120);
+  return cleanCompactResult(result, 800);
 }
