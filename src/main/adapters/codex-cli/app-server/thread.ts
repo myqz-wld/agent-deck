@@ -68,6 +68,28 @@ export class CodexAppServerThread {
         : { mode: 'start', options };
   }
 
+  /** Apply model / effort to subsequent turns without interrupting an active turn. */
+  async updateModelOptions(
+    model: CodexThreadOptions['model'] | null,
+    effort: CodexThreadOptions['modelReasoningEffort'] | null,
+  ): Promise<void> {
+    const threadId = await this.ensureThread();
+    await this.client.request('thread/settings/update', {
+      threadId,
+      model,
+      effort,
+    });
+    const options: CodexThreadOptions = { ...this.mode.options };
+    if (model === null) delete options.model;
+    else options.model = model;
+    if (effort === null) delete options.modelReasoningEffort;
+    else options.modelReasoningEffort = effort;
+    this.mode =
+      this.mode.mode === 'resume'
+        ? { mode: 'resume', threadId: this.mode.threadId, options }
+        : { mode: 'start', options };
+  }
+
   async runStreamed(
     input: CodexAppServerUserInput[],
     opts?: { signal?: AbortSignal },

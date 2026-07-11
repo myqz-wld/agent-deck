@@ -128,7 +128,7 @@ export interface JsonlFallbackCtx {
   summariseFn: SummariseFnThunk;
   /**
    * 全量 events 来源 thunk (test seam) — caller bind `eventRepo.listForSession`;
-   * 单测可注入 mock 数组让纯函数行为可控。喂 `injectResumeHistory` 的 summariseFn 出 4 节结构
+   * 单测可注入 mock 数组让纯函数行为可控。喂 `injectResumeHistory` 的 summariseFn 出六节检查点
    * (总结段数据源,plan resume-inject-raw-messages-20260601 §D7 双数据源之一)。
    */
   listEventsFn: (sessionId: string) => AgentEvent[];

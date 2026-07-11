@@ -105,7 +105,7 @@ export class SessionRecoverer {
     private readonly summariseFn: SummariseFnThunk,
     /**
      * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)。facade bind
-     * `eventRepo.listForSession`，喂 summariseFn 出 4 节结构(总结段数据源)。
+     * `eventRepo.listForSession`，喂 summariseFn 出六节检查点(总结段数据源)。
      */
     private readonly listEventsFn: ListEventsFnThunk,
     /**

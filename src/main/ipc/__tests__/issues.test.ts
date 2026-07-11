@@ -519,6 +519,46 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
     expect(mockSessionManager.recordCreatedPermissionMode).toHaveBeenCalledWith('new-sid-123', undefined);
   });
 
+  it('把 Codex 模型与思考程度映射到 adapter-native createSession 字段', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ id: 'codex-cli' }));
+    mockIssueRepo.update.mockReturnValue(makeIssue());
+
+    await issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'codex-cli',
+      prompt: 'p',
+      model: '  gpt-custom-preview  ',
+      thinking: 'ultra',
+    });
+
+    expect(mocks.buildCreateSessionOptions).toHaveBeenCalledWith(
+      'codex-cli',
+      expect.objectContaining({
+        model: 'gpt-custom-preview',
+        modelReasoningEffort: 'ultra',
+      }),
+    );
+    const opts = mocks.buildCreateSessionOptions.mock.calls.at(-1)?.[1];
+    expect(opts).not.toHaveProperty('claudeCodeEffortLevel');
+  });
+
+  it('在创建会话前拒绝与 adapter 不匹配的思考程度', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    const adapter = makeAdapter();
+    mockAdapterRegistry.get.mockReturnValue(adapter);
+
+    await expect(
+      issuesResolveInNewSessionHandler({
+        issueId: 'issue-1',
+        adapter: 'claude-code',
+        prompt: 'p',
+        thinking: 'ultra',
+      }),
+    ).rejects.toThrow(/thinking.*must be one of/);
+    expect(adapter.createSession).not.toHaveBeenCalled();
+  });
+
   it('reject permissionMode 非白名单 (parsePermissionMode 守门)', async () => {
     mockIssueRepo.get.mockReturnValue(makeIssue());
     mockAdapterRegistry.get.mockReturnValue(makeAdapter());

@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
+import type {
+  HandOffPreview,
+  SessionAdapterId,
+  SessionRecord,
+} from '@shared/types';
+import { DeckSelect, type DeckSelectOption } from './DeckSelect';
+import {
+  SessionModelFields,
+  thinkingOptionsForAdapter,
+  type SessionThinkingChoice,
+} from './SessionModelFields';
 
 interface Props {
   open: boolean;
-  sessionId: string;
+  session: SessionRecord;
   /** 关闭对话框（取消 / 起 spawn 完成）。spawn 成功时 main 端会 emit session-focus-request
    *  让 App.tsx 自动 setView('live') + select(newSid)，此处不必额外 props。 */
   onClose: () => void;
@@ -26,8 +37,25 @@ interface Props {
  *   - spawn 失败：显示 inline error，textarea 状态保留让用户重试
  *   - 不允许 modal 内 close 中断 in-flight IPC（按钮 disabled），避免用户疑惑「点了但没反应」
  */
-export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.Element | null {
+function sourceThinking(session: SessionRecord): SessionThinkingChoice {
+  const value = session.thinking ?? '';
+  return thinkingOptionsForAdapter(session.agentId).some((option) => option.value === value)
+    ? (value as SessionThinkingChoice)
+    : '';
+}
+
+export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Element | null {
+  const sessionId = session.id;
   const [summary, setSummary] = useState('');
+  const [preview, setPreview] = useState<HandOffPreview | null>(null);
+  const [adapters, setAdapters] = useState<DeckSelectOption<SessionAdapterId>[]>([]);
+  const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(
+    session.agentId as SessionAdapterId,
+  );
+  const [targetModel, setTargetModel] = useState(session.model ?? '');
+  const [targetThinking, setTargetThinking] = useState<SessionThinkingChoice>(() =>
+    sourceThinking(session),
+  );
   const [summarizing, setSummarizing] = useState(false);
   const [hasSummarized, setHasSummarized] = useState(false);
   const [spawning, setSpawning] = useState(false);
@@ -52,6 +80,10 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
     if (!open) return;
     requestSeqRef.current += 1;
     setSummary('');
+    setPreview(null);
+    setTargetAdapter(session.agentId as SessionAdapterId);
+    setTargetModel(session.model ?? '');
+    setTargetThinking(sourceThinking(session));
     setError(null);
     setSummarizing(false);
     setHasSummarized(false);
@@ -64,6 +96,32 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
       requestSeqRef.current += 1;
     };
   }, [open, sessionId]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void window.api
+      .listAdapters()
+      .then((rows) => {
+        if (cancelled) return;
+        const options = rows
+          .filter(
+            (row): row is typeof row & { id: SessionAdapterId } =>
+              row.capabilities.canCreateSession === true &&
+              (row.id === 'claude-code' ||
+                row.id === 'deepseek-claude-code' ||
+                row.id === 'codex-cli'),
+          )
+          .map((row) => ({ value: row.id, label: row.displayName }));
+        setAdapters(options);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(`加载 adapter 失败：${(err as Error).message ?? String(err)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -82,6 +140,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
       .then((result) => {
         if (cur !== requestSeqRef.current || capturedSid !== sessionId) return;
         setSummary(result.summary);
+        setPreview(result);
         setHasSummarized(true);
       })
       .catch((err: unknown) => {
@@ -109,7 +168,15 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
     submitInFlightRef.current = true;
     setSpawning(true);
     try {
-      await window.api.handOffSpawn(sessionId, summary);
+      await window.api.handOffSpawn(sessionId, {
+        prompt: summary,
+        target: {
+          adapter: targetAdapter,
+          model: targetModel.trim() || null,
+          thinking: targetThinking || null,
+        },
+        expectedSourceMaxEventId: preview?.sourceMaxEventId ?? null,
+      });
       // 成功：main 端已 emit session-focus-request → App 自动切 detail。直接关闭对话框。
       onClose();
     } catch (err) {
@@ -129,7 +196,7 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="no-drag flex w-[480px] max-h-[85%] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
+      <div className="no-drag flex w-[560px] max-h-[90%] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
           <h2 className="text-[13px] font-medium">
             📤 接力到新会话{summarizing ? '(总结中…)' : spawning ? '(打开新会话中…)' : ''}
@@ -147,9 +214,43 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-deck p-4">
           <p className="shrink-0 text-[10px] leading-relaxed text-deck-muted">
-            生成一份接力简报(目标、已完成、下一步、相关文件),约 10-30 秒,会消耗一次模型调用额度。
-            你可以编辑简报,确认后会打开新会话(沿用工作目录和权限设置),并自动归档当前会话。
+            先生成可编辑的压缩接力上下文，再创建目标会话。总结使用设置中的接力摘要 provider；
+            下方选择的是目标会话实际运行的 adapter、模型和思考程度，两者相互独立。
           </p>
+
+          <div className="shrink-0 space-y-3 rounded border border-deck-border/80 bg-white/[0.02] p-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
+                目标 adapter
+              </label>
+              <DeckSelect
+                value={targetAdapter}
+                ariaLabel="目标 adapter"
+                options={adapters}
+                disabled={busy || adapters.length === 0}
+                onChange={(next) => {
+                  setTargetAdapter(next);
+                  if (next === session.agentId) {
+                    setTargetModel(session.model ?? '');
+                    setTargetThinking(sourceThinking(session));
+                  } else {
+                    setTargetModel('');
+                    setTargetThinking('');
+                  }
+                }}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px]"
+                menuMinWidth={220}
+              />
+            </div>
+            <SessionModelFields
+              adapterId={targetAdapter}
+              model={targetModel}
+              thinking={targetThinking}
+              disabled={busy}
+              onModelChange={setTargetModel}
+              onThinkingChange={setTargetThinking}
+            />
+          </div>
 
           {idle && (
             <button
@@ -180,6 +281,13 @@ export function HandOffPreviewDialog({ open, sessionId, onClose }: Props): JSX.E
               }
               className="min-h-[280px] flex-1 resize-y rounded border border-deck-border bg-white/[0.04] px-3 py-2 font-mono text-[11px] leading-relaxed outline-none focus:border-white/20 disabled:opacity-50"
             />
+          )}
+
+          {preview?.contextQuality === 'degraded' && (
+            <div className="shrink-0 rounded bg-status-waiting/10 px-3 py-2 text-[11px] text-status-waiting">
+              ⚠️ 摘要模型未生成压缩检查点；已保留最近 {preview.includedMessageCount}{' '}
+              条原始对话。请检查并补充关键约束后再接力。
+            </div>
           )}
 
           {error && (

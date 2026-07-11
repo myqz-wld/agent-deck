@@ -63,7 +63,7 @@ export interface CodexJsonlFallbackCtx {
    */
   summariseFn: SummariseFnThunk;
   /**
-   * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)，喂 summariseFn 出 4 节结构。
+   * **plan resume-inject §D7**: 全量 events 来源 thunk(test seam)，喂 summariseFn 出六节检查点。
    */
   listEventsFn: ListEventsFnThunk;
   /**

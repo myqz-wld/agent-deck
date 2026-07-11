@@ -36,6 +36,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
   displayName = 'Claude Code';
   capabilities = {
     canCreateSession: true,
+    canSetSessionModelOptions: true,
     canForkSession: true,
     canInterrupt: true,
     canSendMessage: true,
@@ -195,6 +196,14 @@ class ClaudeCodeAdapter implements AgentAdapter {
     await this.bridge.setPermissionMode(sessionId, mode);
   }
 
+  async setSessionModelOptions(
+    sessionId: string,
+    options: { model: string | null; thinking: string | null },
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.setSessionModelOptions(sessionId, options);
+  }
+
   async restartWithPermissionMode(
     sessionId: string,
     mode: PermissionMode,
@@ -273,7 +282,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
    * R37 P2-I Step 3.3：LLM 驱动的「最近做什么」入口（dispatch 下放）。
    *
    * - 'summary' → `summariseViaLlm` (Claude 侧 30 字 tag-line，settings.summaryTimeoutMs)
-   * - 'handoff' → `summariseSessionForHandOff` (Claude 侧 4 节简报，60s timeout hardcoded)
+   * - 'handoff' → `summariseSessionForHandOff` (Claude 侧六节压缩检查点，60s timeout hardcoded)
    *
    * model / systemPrompt / timeout / result 清洗等差异全在底层 runner，本 adapter 只做 dispatch。
    */

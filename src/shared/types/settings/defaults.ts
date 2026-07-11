@@ -37,9 +37,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   windowTransparent: true,
   startOnLogin: false,
   historyRetentionDays: 30,
-  // plan resume-inject-raw-messages-20260601 §D5：jsonl-missing fallback 注入最近 N 条原始
-  // 对话消息（预算式拼接，实际条数 ≤ N，长会话优先保最新不撑爆 102_400）。default 30。
-  resumeRecentMessagesCount: 30,
+  // plan resume-inject-raw-messages-20260601 §D5：jsonl-missing fallback / hand-off capsule
+  // 最多读取最近 N 条原始对话消息。各消费点再按自己的字符预算拼接，实际条数 ≤ N。
+  resumeRecentMessagesCount: 200,
   // Issue Tracker §D13 GC 阈值（plan issue-tracker-mcp-20260529）：
   // - resolvedRetentionDays 默认 30d (与历史 / 消息保留默认窗口对齐)
   // - softDeletedRetentionDays 默认 7d (软删一周后硬删,与 history 30d 不同 — 软删本就 implicit 已完成 triage)

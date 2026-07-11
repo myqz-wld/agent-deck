@@ -362,8 +362,8 @@ describe('injectResumeHistory (plan resume-inject §D5/§D6/§D7)', () => {
     await injectResumeHistory(
       makeOpts({ recentMessagesCount: 0, listMessagesFn: listMessagesSpy }),
     );
-    // clamp: 0 → Math.max(1, 0||30=30) ... 0 是 falsy → || 30 → min(200,max(1,30))=30
-    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 30, undefined);
+    // clamp: 0 → Math.max(1, 0||200=200) → min(200,max(1,200))=200
+    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 200, undefined);
   });
 
   it('R1 MED-A: recentMessagesCount=-1 → clamp（不传无界 LIMIT -1）', async () => {
@@ -375,13 +375,13 @@ describe('injectResumeHistory (plan resume-inject §D5/§D6/§D7)', () => {
     expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 1, undefined);
   });
 
-  it('R1 MED-A: recentMessagesCount=NaN → fallback default 30', async () => {
+  it('R1 MED-A: recentMessagesCount=NaN → fallback default 200', async () => {
     const listMessagesSpy = vi.fn(() => [msg(1, 'user', '历史')]);
     await injectResumeHistory(
       makeOpts({ recentMessagesCount: NaN, listMessagesFn: listMessagesSpy }),
     );
-    // NaN: Number(NaN)=NaN, Math.floor(NaN)=NaN, NaN||30=30 → min(200,max(1,30))=30
-    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 30, undefined);
+    // NaN: Number(NaN)=NaN, Math.floor(NaN)=NaN, NaN||200=200 → min(200,max(1,200))=200
+    expect(listMessagesSpy).toHaveBeenCalledWith('sess-1', 200, undefined);
   });
 
   it('R1 MED-A: recentMessagesCount=9999 → clamp 上界 200', async () => {

@@ -41,6 +41,7 @@ class CodexCliAdapter implements AgentAdapter {
   displayName = 'Codex CLI';
   capabilities = {
     canCreateSession: true,
+    canSetSessionModelOptions: true,
     canForkSession: true,
     canInterrupt: true,
     canSendMessage: true,
@@ -181,6 +182,14 @@ class CodexCliAdapter implements AgentAdapter {
   async steerTurn(sessionId: string, text: string): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     await this.bridge.steerTurn(sessionId, text);
+  }
+
+  async setSessionModelOptions(
+    sessionId: string,
+    options: { model: string | null; thinking: string | null },
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    await this.bridge.setSessionModelOptions(sessionId, options);
   }
 
   /**

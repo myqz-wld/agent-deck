@@ -23,7 +23,7 @@
  *
  * **不在本 helper 处理**：
  * - 模型优先级链（settings > env > alias）— caller 自己组装 + 传字符串 model 进来
- * - prompt 模板（summarize 30 字 vs handoff 4 节）— caller 用 build-prompt.ts helper 组装
+ * - prompt 模板（summarize 30 字 vs handoff 六节检查点）— caller 用 build-prompt.ts helper 组装
  * - result 清洗（compact vs structured）— caller 用 clean-result.ts helper 处理
  * - errorMessage 字面（`__summarizer_timeout__` / `__handoff_summary_timeout__`）— caller 传
  */

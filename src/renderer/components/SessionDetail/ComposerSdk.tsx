@@ -5,6 +5,7 @@ import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import log from '@renderer/utils/logger';
 import { ImageIcon } from './composer-sdk/ImageIcon';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
+import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
 import {
   SelectRow,
   PERMISSION_MODE_OPTIONS,
@@ -298,6 +299,7 @@ export function ComposerSdk({
 
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
+      <SessionRuntimeControls session={session} />
       {supportsPermissionMode && (
         <SelectRow
           label="权限"

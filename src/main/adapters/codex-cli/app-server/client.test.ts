@@ -153,6 +153,59 @@ describe('Codex app-server thread params', () => {
     });
   });
 
+  it('passes the selected effort to every turn/start request', () => {
+    const params = __testables.buildTurnStartParams(
+      'thread-1',
+      [{ type: 'text', text: 'hi', text_elements: [] }],
+      {
+        workingDirectory: '/repo',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'never',
+        skipGitRepoCheck: true,
+        model: 'gpt-next',
+        modelReasoningEffort: 'xhigh',
+      },
+      null,
+    );
+
+    expect(params).toMatchObject({ model: 'gpt-next', effort: 'xhigh' });
+  });
+
+  it('updates a live thread model and effort without starting a turn', async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    class RecordingClient extends CodexAppServerClient {
+      override request<T = unknown>(method: string, params: unknown): Promise<T> {
+        calls.push({ method, params });
+        if (method === 'thread/start') {
+          return Promise.resolve({ thread: { id: 'thread-1' } } as T);
+        }
+        return Promise.resolve({} as T);
+      }
+    }
+    const client = new RecordingClient({ env: {}, config: null });
+    const thread = client.startThread({
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'never',
+      skipGitRepoCheck: true,
+      model: 'old-model',
+      modelReasoningEffort: 'low',
+    });
+
+    await thread.updateModelOptions('new-model', 'high');
+
+    expect(calls).toEqual([
+      {
+        method: 'thread/start',
+        params: expect.objectContaining({ model: 'old-model' }),
+      },
+      {
+        method: 'thread/settings/update',
+        params: { threadId: 'thread-1', model: 'new-model', effort: 'high' },
+      },
+    ]);
+  });
+
   it('issues exact read, fork, inject, and delete RPC payloads through one client', async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     class RecordingClient extends CodexAppServerClient {

@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { eventRepo } from '@main/store/event-repo';
+import { settingsStore } from '@main/store/settings-store';
 import { sessionRepo } from '@main/store/session-repo';
+import { summaryRepo } from '@main/store/summary-repo';
 import { sessionManager } from '@main/session/manager';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { handOffSessionHandler, resolveBatonRoleForSpawn } from '../tools/handlers/hand-off-session';
@@ -41,6 +44,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+beforeEach(() => {
+  vi.spyOn(eventRepo, 'maxEventId').mockReturnValue(null);
+  vi.spyOn(eventRepo, 'listRecentMessages').mockReturnValue([]);
+  vi.spyOn(summaryRepo, 'latestForSession').mockReturnValue(null);
+  vi.spyOn(settingsStore, 'get').mockReturnValue(30);
+});
+
 describe('handOffSessionHandler', () => {
   it('rejects external callers before spawning a successor', async () => {
     const result = await handOffSessionHandler(
@@ -52,8 +62,41 @@ describe('handOffSessionHandler', () => {
     expect(result.content[0]?.text).toContain('not allowed for external caller');
   });
 
-  it('spawns prompt-only successor, transfers resources, and closes caller', async () => {
-    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow({ cwdReleaseMarker: null }));
+  it('inherits caller adapter and spawns a compact capsule with model/thinking overrides', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(
+      callerRow({
+        agentId: 'codex-cli',
+        model: 'gpt-source',
+        thinking: 'medium',
+        cwdReleaseMarker: null,
+      }),
+    );
+    vi.mocked(eventRepo.maxEventId).mockReturnValue(77);
+    vi.mocked(eventRepo.listRecentMessages).mockReturnValue([
+      {
+        id: 75,
+        sessionId: 'caller-sid',
+        agentId: 'codex-cli',
+        kind: 'message',
+        payload: { role: 'assistant', text: 'The migration is half complete.' },
+        ts: 75,
+      },
+      {
+        id: 74,
+        sessionId: 'caller-sid',
+        agentId: 'codex-cli',
+        kind: 'message',
+        payload: { role: 'user', text: 'Keep the public API backward compatible.' },
+        ts: 74,
+      },
+    ]);
+    vi.mocked(summaryRepo.latestForSession).mockReturnValue({
+      id: 3,
+      sessionId: 'caller-sid',
+      content: 'Checkpoint: schema migration and runtime wiring are complete.',
+      trigger: 'manual',
+      ts: 70,
+    });
 
     const seen: { args?: SpawnSessionArgs; opts?: { handOffMode?: boolean; batonRole?: string } } = {};
     const spawnSession = vi.fn(
@@ -99,8 +142,9 @@ describe('handOffSessionHandler', () => {
 
     const args: HandOffSessionArgs = {
       prompt: 'Read /tmp/handoff-123.md, then continue the work.',
-      adapter: 'codex-cli',
       cwd: '/repo',
+      model: 'gpt-5.6-sol',
+      thinking: 'xhigh',
     };
 
     const result = await handOffSessionHandler(args, ctx(), {
@@ -121,21 +165,43 @@ describe('handOffSessionHandler', () => {
     expect(seen.args).toMatchObject({
       adapter: 'codex-cli',
       cwd: '/repo',
-      prompt: args.prompt,
+      model: 'gpt-5.6-sol',
+      thinking: 'xhigh',
       handOff: { mode: 'session', fromCallerSid: 'caller-sid' },
     });
+    expect(seen.args?.prompt).not.toBe(args.prompt);
+    expect(seen.args?.prompt).toContain('Checkpoint: schema migration and runtime wiring are complete.');
+    expect(seen.args?.prompt).toContain('Keep the public API backward compatible.');
+    expect(seen.args?.prompt).toContain('The migration is half complete.');
+    expect(seen.args?.prompt).toContain(args.prompt);
     expect(seen.args).not.toHaveProperty('contextMode');
+    expect(seen.args?.handOff).not.toHaveProperty('sourceMaxEventId');
     expect(closeSession).toHaveBeenCalledWith('caller-sid');
+    expect(settingsStore.get).toHaveBeenCalledWith('resumeRecentMessagesCount');
+    expect(eventRepo.maxEventId).toHaveBeenCalledWith('caller-sid');
+    expect(eventRepo.listRecentMessages).toHaveBeenCalledWith('caller-sid', 30, 77);
+    expect(summaryRepo.latestForSession).toHaveBeenCalledWith('caller-sid');
 
     const data = parseResult(result);
-    expect(data.initialPrompt).toBe(args.prompt);
+    expect(data.initialPrompt).toBe(seen.args?.prompt);
+    expect(data.continuationInstruction).toBe(args.prompt);
+    expect(data.compactContext).toMatchObject({
+      version: 1,
+      sourceMaxEventId: 77,
+      summaryIncluded: true,
+      includedMessageCount: 2,
+      omittedMessageCount: 0,
+      promptChars: seen.args?.prompt.length,
+    });
     expect(data.sessionId).toBe('successor-sid');
     expect(data.callerClosed).toBe('ok');
     expect(data.resourceTransfer.worktreeMarker).toEqual({ status: 'skipped', marker: null });
   });
 
   it('default caller close keeps post-handoff tail events visible by not marking recentlyDeleted', async () => {
-    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow({ cwdReleaseMarker: null }));
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(
+      callerRow({ cwdReleaseMarker: null, model: 'sonnet', thinking: 'high' }),
+    );
     const markClosed = vi.spyOn(sessionManager, 'markClosed').mockImplementation(() => undefined);
     const markRecentlyDeleted = vi
       .spyOn(sessionManager, 'markRecentlyDeleted')
@@ -167,7 +233,7 @@ describe('handOffSessionHandler', () => {
     }));
 
     const result = await handOffSessionHandler(
-      { prompt: 'continue', adapter: 'claude-code' },
+      { prompt: 'continue' },
       ctx(),
       {
         spawnSession,
@@ -181,6 +247,15 @@ describe('handOffSessionHandler', () => {
     );
 
     expect(result.isError).toBeFalsy();
+    expect(spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: 'claude-code',
+        model: 'sonnet',
+        thinking: 'high',
+      }),
+      expect.anything(),
+      { handOffMode: true, batonRole: 'lead' },
+    );
     expect(markClosed).toHaveBeenCalledWith('caller-sid');
     expect(markRecentlyDeleted).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledWith('caller-sid');

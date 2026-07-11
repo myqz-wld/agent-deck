@@ -12,6 +12,7 @@
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type { IssueRecord } from '@shared/types';
+import type { SessionThinkingLevel } from '@shared/session-metadata';
 
 export interface IssuesListFilters {
   statuses?: Array<'open' | 'in-progress' | 'resolved'>;
@@ -45,6 +46,10 @@ export interface IssuesResolveInNewSessionArgs {
   permissionMode?: string;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
+  /** optional — 空值不传，使用目标 provider 默认模型。 */
+  model?: string;
+  /** optional — adapter-aware 档位；空值不传，使用目标 provider 默认值。 */
+  thinking?: SessionThinkingLevel;
 }
 
 export interface IssuesResolveInNewSessionResult {

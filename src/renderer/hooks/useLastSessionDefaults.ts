@@ -17,7 +17,7 @@
  *   普通 module-level `let` 才稳。
  * - `getLastAdapter()` / `setLastAdapter(adapter)` 记住上次选择的 adapter，让会被 unmount
  *   的 issue 解决弹窗重开后也沿用用户选择。
- * - `getLastDefaults(adapter)` 读（仅读本 adapter 的字段：claude 读 claudeCodeSandbox、codex 读 codexSandbox）
+ * - `getLastDefaults(adapter)` 读（model / thinking 各 adapter 都记；sandbox 字段按 adapter 收口）
  * - `setLastDefaults(adapter, patch)` 写（merge）
  *
  * **adapter 收口**：通过 `as AdapterId` 强制窄化（sandbox-options.ts 字面量），非法 adapter key
@@ -28,6 +28,7 @@ import type {
   CodexSandboxChoice,
   PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
+import type { SessionThinkingLevel } from '@shared/session-metadata';
 
 type AdapterId = 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
 
@@ -35,6 +36,10 @@ type Defaults = {
   permissionMode?: PermissionModeChoice;
   codexSandbox?: CodexSandboxChoice;
   claudeCodeSandbox?: ClaudeSandboxChoice;
+  /** 自由文本；空串表示明确恢复 provider 默认模型。 */
+  model?: string;
+  /** 空串表示明确恢复 provider 默认思考程度。 */
+  thinking?: SessionThinkingLevel | '';
 };
 
 const store: Record<AdapterId, Defaults> = {
@@ -59,8 +64,10 @@ export function setLastAdapter(adapter: string): void {
 
 /**
  * 读本 adapter 上次记的默认值。返回的 shape 故意只含本 adapter 的字段：
- * - claude-code/deepseek adapter → 可能含 permissionMode + claudeCodeSandbox（不带 codexSandbox）
- * - codex-cli adapter → 可能含 codexSandbox（不带 permissionMode / claudeCodeSandbox）
+ * - claude-code/deepseek adapter → 可能含 permissionMode + claudeCodeSandbox + model/thinking
+ *   （不带 codexSandbox）
+ * - codex-cli adapter → 可能含 codexSandbox + model/thinking（不带 permissionMode /
+ *   claudeCodeSandbox）
  * 避免 caller 误读跨 adapter 字段。
  */
 export function getLastDefaults(adapter: string): Defaults {
@@ -72,8 +79,9 @@ export function getLastDefaults(adapter: string): Defaults {
 
 /**
  * 写本 adapter 的 last-used。patch 任意字段可空，merge 进 store。
- * - claude-code/deepseek-claude-code: patch.permissionMode / patch.claudeCodeSandbox 落库；patch.codexSandbox 忽略
- * - codex-cli: patch.codexSandbox 落库；patch.permissionMode / patch.claudeCodeSandbox 忽略
+ * - model / thinking：三个 adapter 都落到各自桶
+ * - claude-code/deepseek-claude-code: permissionMode / claudeCodeSandbox 落库；codexSandbox 忽略
+ * - codex-cli: codexSandbox 落库；permissionMode / claudeCodeSandbox 忽略
  * 不在主进程跑、纯 renderer 内存 store —— 任何值传错也是本地错，UI 下一次 reset 自然恢复。
  */
 export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void {
@@ -82,11 +90,15 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     const next: Defaults = { ...store[adapter] };
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode;
     if (patch.claudeCodeSandbox !== undefined) next.claudeCodeSandbox = patch.claudeCodeSandbox;
+    if (patch.model !== undefined) next.model = patch.model;
+    if (patch.thinking !== undefined) next.thinking = patch.thinking;
     // 故意忽略 patch.codexSandbox —— 不允许跨 adapter 串味
     store[adapter] = next;
   } else {
     const next: Defaults = { ...store['codex-cli'] };
     if (patch.codexSandbox !== undefined) next.codexSandbox = patch.codexSandbox;
+    if (patch.model !== undefined) next.model = patch.model;
+    if (patch.thinking !== undefined) next.thinking = patch.thinking;
     store['codex-cli'] = next;
   }
 }

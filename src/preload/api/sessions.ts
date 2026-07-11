@@ -11,6 +11,8 @@ import type {
   AgentEvent,
   FileFinalDiffResult,
   FileChangeRecord,
+  HandOffPreview,
+  HandOffSpawnRequest,
   SessionRecord,
   SummaryRecord,
   TaskRecord,
@@ -60,25 +62,17 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionListTasks, id),
 
   /**
-   * K3 hand-off Stage 1 (plan mcp-bug-and-feature-batch-20260513 Phase 4c)：拉历史 →
-   * LLM oneshot 生成结构化「目标 / 已做 / 下一步 / 相关文件」接力简报。返回供 renderer
-   * 在 modal preview / 编辑后再调 handOffSpawn 起新 session。
-   * 失败：throw → renderer modal 显示 inline error 让用户重试。
+   * Stage 1：在稳定事件边界内生成六节压缩检查点，并与最近原始对话和当前续接指令
+   * 组成可编辑 capsule。LLM 失败时可降级保留 raw；没有任何可接力历史时才 throw。
    */
-  handOffSummarize: (
-    sessionId: string,
-  ): Promise<{
-    summary: string;
-    sourceCwd: string;
-    sourceAgentId: string;
-    sourcePermissionMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | null;
-  }> => ipcRenderer.invoke(IpcInvoke.SessionHandOffSummarize, sessionId),
+  handOffSummarize: (sessionId: string): Promise<HandOffPreview> =>
+    ipcRenderer.invoke(IpcInvoke.SessionHandOffSummarize, sessionId),
 
   /**
-   * K3 hand-off Stage 2：用 finalPrompt（modal 可能已编辑）起新 SDK session（adapter / cwd /
-   * permissionMode 沿用原 session）+ 自动归档原 session（archive 失败仅 warn 不阻塞）。
+   * Stage 2：用已审阅 capsule 和所选 adapter / model / thinking 起新 SDK session，迁移
+   * session-owned resources 后关闭并归档源 session。
    * spawn 成功后 main 端 emit session-focus-request 自动切 detail 到新 session。
    */
-  handOffSpawn: (sessionId: string, finalPrompt: string): Promise<string> =>
-    ipcRenderer.invoke(IpcInvoke.SessionHandOffSpawn, sessionId, finalPrompt),
+  handOffSpawn: (sessionId: string, request: HandOffSpawnRequest): Promise<string> =>
+    ipcRenderer.invoke(IpcInvoke.SessionHandOffSpawn, sessionId, request),
 };

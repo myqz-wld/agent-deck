@@ -18,7 +18,14 @@ import { realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { adapterRegistry } from './adapters/registry';
-import { buildCreateSessionOptions } from './adapters/options-builder';
+import {
+  buildCreateSessionOptions,
+  isAgentId,
+} from './adapters/options-builder';
+import {
+  resolveCreateSessionModelOptions,
+  SessionModelOptionsError,
+} from './adapters/session-model-options';
 import { eventBus } from './event-bus';
 import { getFloatingWindow } from './window';
 import { sessionManager } from './session/manager';
@@ -43,6 +50,10 @@ export interface CliNewSession {
   prompt: string;
   permissionMode?: PermissionMode;
   resume?: string;
+  /** Free-form provider model id for the lead session only. */
+  model?: string;
+  /** Adapter-aware reasoning level for the lead session only. */
+  thinking?: string;
   focus: boolean;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** R3.E10：填了表示创建 / 加入指定 team（lead 角色） */
@@ -106,6 +117,8 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'permission-mode',
   'resume',
   'codex-sandbox',
+  'model',
+  'thinking',
   'team',     // R3.E10
   'member',   // R3.E10
 ]);
@@ -186,6 +199,8 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     // 不然 SDK CLI 子进程拿不到首条 user message 会卡到 30s fallback。
     const prompt = asString(f.get('prompt')) ?? '你好';
     const resume = asString(f.get('resume'));
+    const model = asString(f.get('model'));
+    const thinking = asString(f.get('thinking'));
 
     const pmRaw = asString(f.get('permission-mode'));
     let permissionMode: PermissionMode | undefined;
@@ -241,6 +256,8 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       prompt,
       permissionMode,
       resume,
+      ...(model !== undefined ? { model } : {}),
+      ...(thinking !== undefined ? { thinking } : {}),
       focus,
       ...(codexSandbox !== undefined ? { codexSandbox } : {}),
       ...(team ? { team } : {}),
@@ -271,6 +288,21 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
     throw new Error(`agent-deck new: adapter "${inv.agent}" 不支持创建会话`);
   }
   const cwd = await resolveCwd(inv.cwd);
+  if (!isAgentId(inv.agent)) {
+    throw new Error(`agent-deck new: adapter "${inv.agent}" 不受支持`);
+  }
+  let sessionModelOptions;
+  try {
+    sessionModelOptions = resolveCreateSessionModelOptions(inv.agent, {
+      model: inv.model,
+      thinking: inv.thinking,
+    });
+  } catch (error) {
+    if (error instanceof SessionModelOptionsError) {
+      throw new Error(`agent-deck new: --${error.field} ${error.message}`);
+    }
+    throw error;
+  }
   // p4-d2-impl Step 2.1：用 buildCreateSessionOptions builder helper 按 inv.agent narrow
   // 到对应 union arm。inv.agent 是 string（CliInvocation.agent: string）走 string overload
   // 内部 isAgentId guard，invalid throw（caller 已 line 263-266 验过 adapter 存在 +
@@ -281,6 +313,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
       prompt: inv.prompt,
       permissionMode: inv.permissionMode,
       resume: inv.resume,
+      ...sessionModelOptions,
       ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
     }),
   );

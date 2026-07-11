@@ -35,9 +35,8 @@ export const IpcInvoke = {
   /** 拉某 session 视角可见的 SQLite tasks：own personal tasks + active-team tasks。 */
   SessionListTasks: 'session:list-tasks',
   /**
-   * K3 hand-off Stage 1（plan mcp-bug-and-feature-batch-20260513 Phase 4c）：拉历史 →
-   * LLM oneshot 生成「目标 / 已做 / 下一步 / 相关文件」结构化接力简报，返回供 renderer
-   * 在 modal preview / 编辑后再确认。失败 throw → renderer 显示 inline error 让用户重试。
+   * hand-off Stage 1：在稳定事件边界内把六节压缩检查点、最近原始对话和当前续接
+   * 指令组成可编辑 capsule；LLM 失败可降级 raw-only。
    */
   SessionHandOffSummarize: 'session:hand-off-summarize',
   /**
@@ -60,6 +59,7 @@ export const IpcInvoke = {
   AdapterRespondExitPlanMode: 'adapter:respond-exit-plan-mode',
   AdapterRespondDiffReview: 'adapter:respond-diff-review',
   AdapterSetPermissionMode: 'adapter:set-permission-mode',
+  AdapterSetSessionModelOptions: 'adapter:set-session-model-options',
   AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
   AdapterRestartWithClaudeCodeSandbox: 'adapter:restart-with-claude-code-sandbox',
   AdapterListPending: 'adapter:list-pending',

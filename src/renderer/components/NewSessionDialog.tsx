@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import {
+  SessionModelFields,
+  type SessionThinkingChoice,
+} from '@renderer/components/SessionModelFields';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import {
   getLastAdapter,
@@ -41,6 +45,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
+  const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
+  const [thinking, setThinking] = useState<SessionThinkingChoice>(
+    () => getLastDefaults(getLastAdapter()).thinking ?? '',
+  );
   // R3.E7：删 agentTeamsEnabled / canJoinTeam 路径（老 inbox 协议下线）。
   // 新 universal team backend 不需要在新建会话对话框里预选 team —— 用户在 TeamHub
   // 单独建 team / 加 member。
@@ -85,6 +93,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+    // model / thinking 对所有 adapter 都有意义；切 adapter 时无历史值必须显式清空，
+    // 不能把上一个 provider 的 model id / effort 串到新 provider。
+    setModel(d.model ?? '');
+    setThinking(d.thinking ?? '');
   }, [open, agentId]);
 
   if (!open) return null;
@@ -136,6 +148,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
         claudeCodeSandbox:
           showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
+        ...(model.trim() ? { model: model.trim() } : {}),
+        ...(thinking ? { thinking } : {}),
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
       });
       onCreated(id);
@@ -181,6 +195,21 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
               />
             </Field>
+
+            <SessionModelFields
+              adapterId={agentId}
+              model={model}
+              thinking={thinking}
+              disabled={busy}
+              onModelChange={(next) => {
+                setModel(next);
+                setLastDefaults(agentId, { model: next });
+              }}
+              onThinkingChange={(next) => {
+                setThinking(next);
+                setLastDefaults(agentId, { thinking: next });
+              }}
+            />
 
             <Field label="工作目录">
               <div className="flex gap-1">

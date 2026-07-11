@@ -54,7 +54,7 @@ export async function runCodexOneshot(opts: {
   prompt: string;
   /**
    * Reasoning effort：caller 的 summarize 默认 'low'（30 字 tag-line 不需深思 + 出字快），
-   * handoff 默认 'medium'（4 节结构化输出对理解力要求更高）。
+   * handoff 默认 'medium'（六节结构化检查点对理解力要求更高）。
    *
    * 与 settings UI 共用 CodexThinkingLevel：minimal / low / medium / high / xhigh / max / ultra。
    */

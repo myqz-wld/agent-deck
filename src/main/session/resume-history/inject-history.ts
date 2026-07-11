@@ -25,7 +25,7 @@
  *    caller，超长 prompt 裸进 SDK 会撑爆 — claude 无 MAX 校验无界透传 / codex throw 阻塞）。
  * 2. 注入内容 = 总结段 + 原始消息段 + 用户当前消息，三段顺序固定（§D3）。总结段可降级缺省，
  *    原始消息段 + 当前消息是底线。
- * 4. **双数据源**：`listEventsFn`（全量 events 喂总结段出 4 节结构）+ `listMessagesFn`
+ * 4. **双数据源**：`listEventsFn`（全量 events 喂总结段出六节压缩检查点）+ `listMessagesFn`
  *    （message-only 拼原始消息段）。都走 DB，不碰 jsonl（jsonl 丢失正是触发本路径的原因）。
  * 5. 两端行为对称：claude / codex 注入同款三段结构、同款总结（都走本地 OAuth claude oneshot，
  *    agentName 按 adapter 视角参数化）。差异仅 adapter 视角文案。
@@ -63,7 +63,7 @@ export interface InjectResumeHistoryOptions {
    * 不传 fallback cwd（fallback cwd 是新选的逃生路径，与历史活动无关）。caller 决定。
    */
   cwd: string;
-  /** 原始消息段最多取多少条对话（settings.resumeRecentMessagesCount，default 30）。 */
+  /** 原始消息段最多取多少条对话（settings.resumeRecentMessagesCount，default 200）。 */
   recentMessagesCount: number;
   /**
    * 单条消息长度上限（两端同传 102_400 = adapter constants MAX_MESSAGE_LENGTH）。参数化
@@ -84,14 +84,14 @@ export interface InjectResumeHistoryOptions {
   maxEventIdFn: () => number | null;
   /**
    * LLM 总结 thunk（test seam）。caller bind `summariseSessionForHandOff`（claude oneshot，
-   * sonnet，≤4000 字，目标/已做/下一步/相关文件 四节）。喂**全量** events（见 listEventsFn）。
+   * sonnet，≤4000 字，六节压缩检查点）。喂**全量** events（见 listEventsFn）。
    * 失败语义：throw / 返 null / 返空 → 总结段缺省，仍拼原始消息段 + 当前消息（§D7）。
    */
   summariseFn: (cwd: string, events: AgentEvent[]) => Promise<string | null>;
   /**
    * 全量 events 来源 thunk（test seam）。caller bind `eventRepo.listForSession`（默认 limit=200，
    * DESC；`formatEventsForPrompt` 内部自己 sort ASC + slice 取最新一段）。喂 summariseFn 出
-   * 4 节结构（含 tool-use / file-changed / waiting 活动 → 「相关文件」节）。
+   * 六节检查点结构（含 tool-use / file-changed / waiting 活动 → 关键文件、命令与错误节）。
    */
   listEventsFn: (sessionId: string) => AgentEvent[];
   /**
@@ -274,10 +274,10 @@ export async function injectResumeHistory(
   // 失效；NaN → better-sqlite3 bind 抛错被下方 try/catch 兜成 no-history。三者都不 crash 主路径
   // （预算式拼接兜底最终 prompt 恒不超长），但负数有真实性能后果 + 与 settings.ts 其他字段 per-field
   // 校验不一致。clamp 到 [1, 200]：1 = raw 段底线（§D1），200 上界与 listForSession 默认 limit 对齐
-  // 防离谱大值。`|| 30` 兜 NaN（Number.isFinite 失败 → fallback default）。
+  // 防离谱大值。`|| 200` 兜 NaN（Number.isFinite 失败 → fallback default）。
   const safeRecentCount = Math.min(
     200,
-    Math.max(1, Math.floor(Number(recentMessagesCount)) || 30),
+    Math.max(1, Math.floor(Number(recentMessagesCount)) || 200),
   );
 
   // ===== step0：originalText 自身超长 → 唯一阻塞态，caller 不进 createSession =====

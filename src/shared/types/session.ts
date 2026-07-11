@@ -242,4 +242,36 @@ export interface HandOffMetadata {
   mode: 'session';
   /** caller session id that handed off its resources to this successor. */
   fromCallerSid: string;
+  /** Stable event boundary captured when the compact hand-off context was prepared. */
+  sourceMaxEventId?: number | null;
+}
+
+export type SessionAdapterId = 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+
+export interface HandOffPreview {
+  /** Editable compact context rendered for the successor's first user turn. */
+  summary: string;
+  /** Full includes a generated checkpoint; degraded preserves raw conversation without one. */
+  contextQuality: 'full' | 'degraded';
+  summaryIncluded: boolean;
+  includedMessageCount: number;
+  omittedMessageCount: number;
+  sourceCwd: string;
+  sourceAgentId: string;
+  sourcePermissionMode: PermissionMode | null;
+  sourceModel: string | null;
+  sourceThinking: string | null;
+  /** Source event high-water mark used to reject stale previews at commit time. */
+  sourceMaxEventId: number;
+}
+
+export interface HandOffSpawnRequest {
+  prompt: string;
+  target: {
+    adapter: SessionAdapterId;
+    model: string | null;
+    thinking: string | null;
+  };
+  /** Null permits a manually-authored prompt that did not come from Stage 1. */
+  expectedSourceMaxEventId: number | null;
 }
