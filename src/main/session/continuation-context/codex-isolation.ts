@@ -3,7 +3,8 @@ import type { CodexThreadOptions } from '@main/adapters/codex-cli/sdk-bridge/thr
 import type { ResolvedContinuationGenerator } from './types';
 import { CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from './checkpoint-prompts';
 
-const DISABLED_EXECUTABLE_FEATURES: Record<string, boolean> = {
+/** Shared no-side-effect feature floor for checkpoint and periodic-summary oneshots. */
+export const DISABLED_EXECUTABLE_FEATURES: Record<string, boolean> = {
   apps: false,
   artifact: false,
   browser_use: false,

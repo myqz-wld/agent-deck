@@ -1,14 +1,23 @@
 import type { AppSettings, SummaryRecord } from '@shared/types';
 import { summaryRepo } from '@main/store/summary-repo';
 import { eventRepo } from '@main/store/event-repo';
+import { eventRevisionRepo } from '@main/store/event-revision-repo';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { settingsStore } from '@main/store/settings-store';
 import { adapterRegistry } from '@main/adapters/registry';
 import { localStatsFallback } from './event-formatter';
+import { capturePeriodicSummaryEvidence } from './evidence-snapshot';
 import log from '@main/utils/logger';
 
 const logger = log.scope('session-summarizer');
+
+interface GeneratedSummary {
+  content: string;
+  sourceEventRevision: number;
+  sourceRebuildAfterRevision: number;
+  generationSource: SummaryRecord['generationSource'];
+}
 
 // Keep the formatter facade stable for periodic-summary callers.
 export { formatEventsForPrompt } from './event-formatter';
@@ -17,12 +26,13 @@ export { formatEventsForPrompt } from './event-formatter';
  * Summarizer 调度：定时扫描所有活跃会话，为达到「时间阈值」或「事件数阈值」
  * 的会话生成一段「会话目前在做什么」的意义层面描述。
  *
- * 优先级：LLM 一句话 → 最近一条 assistant 文字 → 事件统计兜底。
+ * 优先级：LLM 结构化短摘要 → 最近一条 assistant 文字 → 事件统计兜底。
  */
 export class Summarizer {
   private timer: NodeJS.Timeout | null = null;
   private currentIntervalMs = 0;
-  private lastSummarizedAt = new Map<string, number>();
+  /** Persisted revision cursor cache; null means the session has no summary yet. */
+  private latestSummaryBySession = new Map<string, SummaryRecord | null>();
   private inFlight = new Set<string>();
   /**
    * 最近一次失败原因（by sessionId），CHANGELOG_20 / G。UI 设置面板能拉到诊断。
@@ -37,12 +47,12 @@ export class Summarizer {
   start(): void {
     if (this.timer) return;
     this.scheduleTimer();
-    // 会话被删除时同步清掉 lastSummarizedAt 该 sessionId，
+    // 会话被删除时同步清掉该 sessionId 的持久化 summary cursor，
     // 否则这张 Map 单调增长（每条 SDK summary 都 set，永不 delete），
     // 长期跑下来 + 历史超期清理 / 用户手动删 / SDK fallback rename 都会留孤儿 key。
     if (!this.offSessionRemoved) {
       const handler = (sid: string): void => {
-        this.lastSummarizedAt.delete(sid);
+        this.latestSummaryBySession.delete(sid);
         // 同时清错误诊断：会话都没了，错误也无意义。
         this.lastErrorBySession.delete(sid);
       };
@@ -52,14 +62,16 @@ export class Summarizer {
     // REVIEW_35 MED-B2：summarizer per-session state 必须跟随 session rename 迁移。
     // manager.renameSdkSession 只 emit `session-renamed` + `session-upserted`，**不**emit
     // `session-removed`。如果只挂 session-removed listener，CLI 隐式 fork (OLD→NEW) /
-    // SDK fallback (tempKey→realId) 后 lastSummarizedAt[OLD] 变孤儿、NEW 从 startedAt 重算
+    // SDK fallback (tempKey→realId) 后 latestSummaryBySession[OLD] 变孤儿、NEW 从 startedAt 重算
     // 重复处理旧事件；lastErrorBySession[OLD] 同样孤儿（renderer 设置面板永远显示 OLD_ID 错）。
     if (!this.offSessionRenamed) {
       const renameHandler = (payload: { from: string; to: string }): void => {
-        const lastTs = this.lastSummarizedAt.get(payload.from);
-        if (lastTs !== undefined) {
-          this.lastSummarizedAt.set(payload.to, lastTs);
-          this.lastSummarizedAt.delete(payload.from);
+        if (this.latestSummaryBySession.has(payload.from)) {
+          this.latestSummaryBySession.set(
+            payload.to,
+            this.latestSummaryBySession.get(payload.from) ?? null,
+          );
+          this.latestSummaryBySession.delete(payload.from);
         }
         const errInfo = this.lastErrorBySession.get(payload.from);
         if (errInfo !== undefined) {
@@ -123,19 +135,37 @@ export class Summarizer {
       // 全局并发上限：到顶就退出本轮扫描，下次扫描重新评估。
       if (this.inFlight.size >= maxConcurrent) break;
       if (this.inFlight.has(s.id)) continue;
-      const lastTs = this.lastSummarizedAt.get(s.id) ?? s.startedAt;
-      const eventsSince = eventRepo.countForSession(s.id, lastTs);
+      const previous = this.latestSummary(s.id);
+      const revisionState = eventRevisionRepo.state(s.id);
+      if (!revisionState) continue;
+      const previousRevision = previous?.sourceEventRevision ?? null;
+      const previousRebuildEpoch = previous?.sourceRebuildAfterRevision ?? null;
+      const revisionCursorValid =
+        previousRevision !== null &&
+        previousRebuildEpoch === revisionState.rebuildAfterRevision &&
+        previousRevision >= revisionState.rebuildAfterRevision &&
+        previousRevision <= revisionState.revision;
+      const cursorRequiresRebuild = previousRevision !== null && !revisionCursorValid;
+      const lastTs = previous?.ts ?? s.startedAt;
+      const legacyEventsSince = (): number => eventRepo.countForSession(s.id, lastTs);
+      const eventsSince = revisionCursorValid
+        ? revisionState.revision - previousRevision
+        : previousRevision !== null
+          // A destructive event rebuild/rename invalidates the old revision cursor. Force one
+          // fresh bounded snapshot even when all rebuilt event timestamps predate the summary.
+          ? Math.max(1, legacyEventsSince())
+          : legacyEventsSince();
       // 没新事件就跳过：静默会话不需要反复跑 LLM 拿一模一样的总结。
       // 这条比时间/数量阈值优先级更高。
       if (eventsSince === 0) continue;
       const shouldByTime = now - lastTs >= intervalMs;
       const shouldByCount = eventsSince >= eventCount;
-      if (!shouldByTime && !shouldByCount) continue;
+      if (!shouldByTime && !shouldByCount && !cursorRequiresRebuild) continue;
 
       // 不阻塞循环：每个会话独立 await，避免一个慢的 LLM 总结拖慢其余会话
       this.inFlight.add(s.id);
       // **REVIEW_56 MED-2 修法**: rename handler 必须迁 inFlight + finally 用最终 sid。
-      // 修前 class-level offSessionRenamed handler 只迁 lastSummarizedAt + lastErrorBySession,
+      // 修前 class-level offSessionRenamed handler 只迁 summary cursor + lastErrorBySession,
       // **漏迁 inFlight**;rename 期间(典型: CLI 软 fork / SDK fallback tempKey→realId 触发
       // renameSdkSession) 同会话场景:
       //  1) scanAll 看到 NEW 不在 inFlight 守门(line 131 has(NEW) miss) → 启第二条 LLM
@@ -152,9 +182,9 @@ export class Summarizer {
         }
       };
       eventBus.on('session-renamed', renameInflightHandler);
-      void this.summarize(s.id)
-        .then((content) => {
-          if (!content) return;
+      void this.summarize(s.id, previous)
+        .then((generated) => {
+          if (!generated) return;
           // REVIEW_35 R2 HIGH-B1：in-flight summary 在 LLM await 期间撞 renameSdkSession(OLD,NEW)
           // → sessionRepo.rename 已 UPDATE summaries SET session_id=NEW + DELETE FROM sessions WHERE id=OLD
           // → 此处 insert sessionId=OLD 撞 FK constraint failed (v001 schema CASCADE+pragma foreign_keys=ON)
@@ -166,12 +196,15 @@ export class Summarizer {
           }
           const rec = summaryRepo.insert({
             sessionId: s.id,
-            content,
-            trigger: shouldByCount ? 'event-count' : 'time',
+            content: generated.content,
+            trigger: shouldByCount || cursorRequiresRebuild ? 'event-count' : 'time',
             ts: Date.now(),
+            sourceEventRevision: generated.sourceEventRevision,
+            sourceRebuildAfterRevision: generated.sourceRebuildAfterRevision,
+            generationSource: generated.generationSource,
           });
           eventBus.emit('summary-added', rec);
-          this.lastSummarizedAt.set(s.id, Date.now());
+          this.latestSummaryBySession.set(s.id, rec);
           // REVIEW_35 MED-B1：旧版 .then 无脑 delete LLM 错误 — 但 summarize() 在 LLM 失败时
           // 会继续走 fallback 兜底（assistant 文字 / 事件统计），fallback 成功 → content 非 null →
           // 走到这里 → delete 把刚发生的 LLM 错误诊断洗掉，CLAUDE.md「LLM oneshot 失败要透传 stderr」
@@ -199,6 +232,13 @@ export class Summarizer {
     }
   }
 
+  private latestSummary(sessionId: string): SummaryRecord | null {
+    if (!this.latestSummaryBySession.has(sessionId)) {
+      this.latestSummaryBySession.set(sessionId, summaryRepo.latestForSession(sessionId));
+    }
+    return this.latestSummaryBySession.get(sessionId) ?? null;
+  }
+
   /** 拉取最近一次失败诊断（by sessionId），UI 设置面板用。空 Map 表示没有任何会话失败过。 */
   getLastErrors(): Record<string, { message: string; ts: number }> {
     const out: Record<string, { message: string; ts: number }> = {};
@@ -214,7 +254,7 @@ export class Summarizer {
    * **REVIEW_83 LOW (reviewer-claude E2 + lead grep 0 caller)**: 走 inFlight 守门，与 scanAll
    * 共享并发上限。修前 summarizeNow 直接调 summarize() 不 add/check inFlight → 若未来接 IPC
    * 「手动总结」按钮与周期 scanAll 并发跑同 sid → 两条 LLM oneshot 并发同 session → 双 insert
-   * summary + race lastSummarizedAt.set。当前 0 caller 故 latent，但 public method 一旦接 IPC
+   * summary + race latestSummaryBySession.set。当前 0 caller 故 latent，但 public method 一旦接 IPC
    * 即激活 → 防御性加守门：inFlight.has → 跳过返 null（与 scanAll line 134 同款语义）；否则
    * add + try/finally delete 保证异常路径也释放槽。
    */
@@ -222,27 +262,35 @@ export class Summarizer {
     if (this.inFlight.has(sessionId)) return null; // 已有 in-flight（scanAll 或另一次 summarizeNow）→ 跳过
     this.inFlight.add(sessionId);
     try {
-      const summary = await this.summarize(sessionId);
-      if (!summary) return null;
+      const generated = await this.summarize(sessionId, this.latestSummary(sessionId));
+      if (!generated) return null;
       const rec = summaryRepo.insert({
         sessionId,
-        content: summary,
+        content: generated.content,
         trigger: 'manual',
         ts: Date.now(),
+        sourceEventRevision: generated.sourceEventRevision,
+        sourceRebuildAfterRevision: generated.sourceRebuildAfterRevision,
+        generationSource: generated.generationSource,
       });
       eventBus.emit('summary-added', rec);
-      this.lastSummarizedAt.set(sessionId, Date.now());
+      this.latestSummaryBySession.set(sessionId, rec);
       return rec;
     } finally {
       this.inFlight.delete(sessionId);
     }
   }
 
-  private async summarize(sessionId: string): Promise<string | null> {
+  private async summarize(
+    sessionId: string,
+    previous: SummaryRecord | null,
+  ): Promise<GeneratedSummary | null> {
     const session = sessionRepo.get(sessionId);
     if (!session) return null;
-    const events = eventRepo.listForSession(sessionId, 40);
-    if (events.length === 0) return null;
+    const evidence = capturePeriodicSummaryEvidence(sessionId, previous);
+    if (!evidence) return null;
+    const events = evidence.events;
+    if (events.length === 0 && !evidence.promptContext) return null;
 
     // 1) 优先：跑一次 LLM oneshot,**dispatch 由 settings.summaryProvider 决定**
     //    (plan prancy-forging-penguin 改造):
@@ -266,14 +314,23 @@ export class Summarizer {
       const adapter = adapterRegistry.get(providerAgentId);
       let llm: string | null = null;
       if (adapter?.summariseEvents) {
-        llm = await adapter.summariseEvents(session.cwd, events);
+        llm = await adapter.summariseEvents(
+          session.cwd,
+          events,
+          evidence.promptContext,
+        );
       }
       if (llm) {
         // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」
         // 时 lastErrorBySession 仍保留 LLM 错误诊断（与 CLAUDE.md「LLM oneshot 失败要透传 stderr」
         // 约束一致）。
         this.lastErrorBySession.delete(sessionId);
-        return llm;
+        return {
+          content: llm,
+          sourceEventRevision: evidence.sourceEventRevision,
+          sourceRebuildAfterRevision: evidence.rebuildAfterRevision,
+          generationSource: 'llm',
+        };
       }
     } catch (err) {
       // REVIEW_35 MED-B1：LLM 失败时立即 set 错误诊断（不仅 console.warn）。caller .then 不再
@@ -302,18 +359,44 @@ export class Summarizer {
     // 2) 退化：取最近一条「assistant 自己说的话」（任何 adapter 都走这条）。
     //    走独立 SQL 查询（eventRepo.findLatestAssistantMessage）而不是 events.find，
     //    原因：
-    //    a. events 限 40 条，tool 密集会话最近 40 条可能 0 条 message → find 必返 undefined
+    //    a. activity evidence 有行数/令牌预算，tool 密集会话可能没有 assistant message
     //    b. 没过滤 role/error 时会拿到用户输入（"push 一下"）或 ⚠ 警告
-    //    sinceTs 用 lastSummarizedAt：只取自上次总结后的最新 assistant 文字，
-    //    避免回到几小时前的旧 message 当成"现在在做什么"。
-    const sinceTs = this.lastSummarizedAt.get(sessionId) ?? session.startedAt;
-    const lastMsg = eventRepo.findLatestAssistantMessage(sessionId, sinceTs);
+    //    优先按持久化 source revision 找本轮新增 assistant 文字；v040 前的 legacy summary
+    //    没有 revision 时才回退 timestamp 口径。
+    const previousRevisionValid =
+      previous?.sourceEventRevision != null &&
+      previous.sourceRebuildAfterRevision === evidence.rebuildAfterRevision &&
+      previous.sourceEventRevision >= evidence.rebuildAfterRevision &&
+      previous.sourceEventRevision <= evidence.sourceEventRevision;
+    const lastMsg = previousRevisionValid
+        ? eventRepo.findLatestAssistantMessageAfterRevision(
+            sessionId,
+            previous!.sourceEventRevision!,
+            evidence.sourceEventRevision,
+          )
+        : eventRepo.findLatestAssistantMessageAtOrBeforeRevision(
+            sessionId,
+            evidence.sourceEventRevision,
+            previous?.sourceEventRevision == null
+              ? previous?.ts ?? session.startedAt
+              : undefined,
+          );
     if (lastMsg) {
-      return lastMsg.text.replace(/\s+/g, ' ').trim().slice(0, 100);
+      return {
+        content: lastMsg.text.replace(/\s+/g, ' ').trim().slice(0, 400),
+        sourceEventRevision: evidence.sourceEventRevision,
+        sourceRebuildAfterRevision: evidence.rebuildAfterRevision,
+        generationSource: 'assistant-fallback',
+      };
     }
 
     // 3) 再退化：事件 kind 统计
-    return localStatsFallback(events);
+    return {
+      content: localStatsFallback(events),
+      sourceEventRevision: evidence.sourceEventRevision,
+      sourceRebuildAfterRevision: evidence.rebuildAfterRevision,
+      generationSource: 'stats-fallback',
+    };
   }
 }
 

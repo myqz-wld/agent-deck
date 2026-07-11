@@ -59,6 +59,17 @@ describe('deepseekClaudeCodeAdapter.summariseEvents', () => {
       envOverride: mocks.env,
     });
   });
+
+  it('forwards the frozen evidence context without changing the provider overlay', async () => {
+    const evidenceContext = '{"source":{"eventRevision":42}}';
+    await deepseekClaudeCodeAdapter.summariseEvents('/tmp/work', events, evidenceContext);
+
+    expect(mocks.summariseViaLlm).toHaveBeenCalledWith('/tmp/work', events, {
+      agentName: 'Deepseek',
+      envOverride: mocks.env,
+      evidenceContext,
+    });
+  });
 });
 
 describe('rewriteDeepseekEvent', () => {

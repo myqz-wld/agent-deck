@@ -69,7 +69,7 @@ describe.skipIf(!bindingAvailable)('session rename / v037 event revision boundar
     db.close();
   });
 
-  it('moves events to a missing target and rebuilds at the greatest effective revision', () => {
+  it('moves events to a missing target and rebuilds beyond the greatest effective revision', () => {
     insertSession(db, 'source');
     const firstId = insertMessage(db, 'source', 'first');
     const secondId = insertMessage(db, 'source', 'second');
@@ -79,8 +79,8 @@ describe.skipIf(!bindingAvailable)('session rename / v037 event revision boundar
 
     expect(revisionState(db, 'source')).toBeUndefined();
     expect(revisionState(db, 'target')).toEqual({
-      revision: 10,
-      rebuild_after_revision: 10,
+      revision: 11,
+      rebuild_after_revision: 11,
     });
     expect(
       db
@@ -95,6 +95,41 @@ describe.skipIf(!bindingAvailable)('session rename / v037 event revision boundar
       { id: firstId, session_id: 'target', effective_revision: 1 },
       { id: secondId, session_id: 'target', effective_revision: 10 },
     ]);
+  });
+
+  it('allocates beyond a moved source summary whose revision and rebuild epoch already match', () => {
+    insertSession(db, 'source');
+    insertSession(db, 'target');
+    const sourceEvent = insertMessage(db, 'source', 'source history');
+    insertMessage(db, 'target', 'target history');
+    db.prepare(`UPDATE events SET change_revision = 10 WHERE id = ?`).run(sourceEvent);
+    db.prepare(
+      `UPDATE session_event_revisions
+          SET revision = 10, rebuild_after_revision = 10
+        WHERE session_id = 'source'`,
+    ).run();
+    db.prepare(
+      `INSERT INTO summaries (
+         session_id, content, trigger, ts, source_event_revision,
+         source_rebuild_after_revision, generation_source
+       ) VALUES ('source', 'source-only summary', 'time', 10, 10, 10, 'llm')`,
+    ).run();
+
+    renameWithDb(db, 'source', 'target');
+
+    expect(revisionState(db, 'target')).toEqual({
+      revision: 11,
+      rebuild_after_revision: 11,
+    });
+    expect(
+      db.prepare(
+        `SELECT source_event_revision, source_rebuild_after_revision
+           FROM summaries WHERE session_id = 'target'`,
+      ).get(),
+    ).toEqual({
+      source_event_revision: 10,
+      source_rebuild_after_revision: 10,
+    });
   });
 
   it('advances an existing target once even when moved revisions do not exceed its head', () => {

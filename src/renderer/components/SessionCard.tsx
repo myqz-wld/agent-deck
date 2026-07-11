@@ -74,7 +74,11 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   // 稳定时不重算（已知踩坑：L SessionCard 大改影响 SessionList 滚动性能）。
   // 第 4 行是较稳定的总结（5min/10events 才更新一次），缺失时回退到 cwd。
   const liveLines = useMemo(() => describeLiveActivity(session, recent), [session, recent]);
-  const summaryLine = latestSummary?.content?.split('\n')[0]?.trim() || session.cwd || '无工作目录';
+  const summaryHeadline = latestSummary?.content?.split('\n')[0]?.trim();
+  const summaryLine = summaryHeadline
+    ? `${latestSummary?.generationSource === 'assistant-fallback' || latestSummary?.generationSource === 'stats-fallback' ? '降级 · ' : ''}${summaryHeadline}`
+    : session.cwd || '无工作目录';
+  const summaryTitle = latestSummary?.content?.trim() || summaryLine;
 
   // plan team-cohesion-fix-20260513 Phase A：teams[] 是 universal team backend 投影
   // （sessionManager.enrichWithTeams 在 IPC 桥点统一注入）。v014 drop sessions.team_name
@@ -164,7 +168,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
           ))}
         </div>
       )}
-      <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryLine}>
+      <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryTitle}>
         {summaryLine}
       </div>
       {menuOpen && (

@@ -11,10 +11,9 @@
  * caller 仅需传模型 / effort / prompt / systemPrompt / timeout / errorMessage。
  *
  * **不变量**：
- * - permissionMode: 'plan'：禁实调用工具，只让模型输出文字
+ * - permissionMode: 'dontAsk' + tools=[] + mcpServers={}：不暴露可执行工具
  * - settingSources: []：不读 ~/.claude/settings.json，避免 hook 回环到自己
- * - cwd: resolveSpawnCwd(opts) —— trim 后非空才用 caller cwd，否则降级 process.cwd()
- *   （R37 P3-C Step 4.1 抽 helper 收口前是宽松版 `opts.cwd || process.cwd()`，对正常调用零变化）
+ * - cwd: 每次调用创建空临时目录，结束后清理，不让 summary provider 读取 session 工作区
  * - effort 有配置时透传 Claude Code SDK；undefined 时沿用 provider 默认
  * - 收到 type='result' 立刻 break，让 cli.js 子进程尽快退出（不等下个 message）
  * - executable + env + pathToClaudeCodeExecutable 走 sdk-runtime helper（解 Electron .app 启
@@ -29,7 +28,9 @@
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
-import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ClaudeThinkingLevel } from '@shared/session-metadata';
 import { raceWithTimeout } from './race-with-timeout';
 
@@ -39,7 +40,7 @@ import { raceWithTimeout } from './race-with-timeout';
  * @returns LLM 完整输出文本（未清洗）；race 输（timer 先 reject）→ throw `Error(timeoutErrorMessage)`
  */
 export async function runClaudeOneshot(opts: {
-  /** Session cwd（trim 后空降级到 process.cwd() — 见 cwd-resolver.ts）。 */
+  /** Session cwd，仅作为 prompt 中的只读标签；provider 实际运行在空临时目录。 */
   cwd: string;
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt 组装。 */
   prompt: string;
@@ -53,7 +54,7 @@ export async function runClaudeOneshot(opts: {
   envOverride?: Readonly<Record<string, string>>;
   /** Timeout 毫秒；<= 0 不起 timer。 */
   timeoutMs: number;
-  /** Timer 触发 reject 的 errorMessage（caller 区分 summarize / handoff）。 */
+  /** Timer 触发 reject 的 summary-specific errorMessage。 */
   timeoutErrorMessage: string;
 }): Promise<string> {
   const sdk = await loadSdk();
@@ -63,41 +64,47 @@ export async function runClaudeOneshot(opts: {
   // override priority chain + existsSync 护栏 + bundled fallback。详 resolve-claude-binary.ts。
   const claudeBinary = resolveClaudeBinary();
 
-  const q = sdk.query({
-    prompt: opts.prompt,
-    options: {
-      cwd: resolveSpawnCwd(opts),
-      model: opts.model,
-      ...(opts.effort ? { effort: opts.effort } : {}),
-      permissionMode: 'plan',
-      systemPrompt: opts.systemPrompt,
-      settingSources: [],
-      // SDK 默认会 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
-      // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime，零依赖系统 node。
-      executable: runtime.executable,
-      env: {
-        ...runtime.env,
-        ...(opts.envOverride ?? {}),
+  const isolatedCwd = mkdtempSync(join(tmpdir(), 'agent-deck-periodic-summary-'));
+  try {
+    const q = sdk.query({
+      prompt: opts.prompt,
+      options: {
+        cwd: isolatedCwd,
+        model: opts.model,
+        ...(opts.effort ? { effort: opts.effort } : {}),
+        permissionMode: 'dontAsk',
+        systemPrompt: opts.systemPrompt,
+        settingSources: [],
+        tools: [],
+        mcpServers: {},
+        maxTurns: 1,
+        // SDK 默认会 spawn 'node'，但 .app 走 launchd 启动时 PATH 不含 nvm/homebrew 的 node。
+        // 用 Electron 二进制 + ELECTRON_RUN_AS_NODE=1 复用内置 Node runtime，零依赖系统 node。
+        executable: runtime.executable,
+        env: {
+          ...runtime.env,
+          ...(opts.envOverride ?? {}),
+        },
+        // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
+        // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
+        // 不经 Electron fs patch → ENOTDIR → summarizer LLM 100% 失败 → 全降级到事件统计。
+        // 显式传解析后的 unpacked 路径绕开 SDK 自带 K7。详见 sdk-runtime.ts。
+        ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
       },
-      // SDK 0.2.x 把 cli.js 拆成 native binary（platform-specific 包），SDK 内部
-      // require.resolve 拿到的路径在 .app 里走 `app.asar/...`，spawn 走系统 syscall
-      // 不经 Electron fs patch → ENOTDIR → summarizer LLM 100% 失败 → 全降级到事件统计。
-      // 显式传解析后的 unpacked 路径绕开 SDK 自带 K7。详见 sdk-runtime.ts。
-      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-    },
-  });
+    });
 
-  const consumeLoop = consumeClaudeQuery(q);
-
-  return raceWithTimeout({
-    work: consumeLoop,
-    timeoutMs: opts.timeoutMs,
-    errorMessage: opts.timeoutErrorMessage,
-    // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓（reject 抛错兜底）。
-    onTimeout: () => {
-      q.interrupt?.().catch(() => undefined);
-    },
-  });
+    return await raceWithTimeout({
+      work: consumeClaudeQuery(q),
+      timeoutMs: opts.timeoutMs,
+      errorMessage: opts.timeoutErrorMessage,
+      // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓（reject 抛错兜底）。
+      onTimeout: () => {
+        q.interrupt?.().catch(() => undefined);
+      },
+    });
+  } finally {
+    rmSync(isolatedCwd, { recursive: true, force: true });
+  }
 }
 
 /**

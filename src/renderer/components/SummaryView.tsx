@@ -46,9 +46,9 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
     <div className="flex flex-col gap-2">
       <div className="rounded-md border border-deck-border bg-white/[0.04] px-2.5 py-2">
         <div className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-          最新 · {formatTrigger(latest.trigger)} · {new Date(latest.ts).toLocaleString('zh-CN', { hour12: false })}
+          最新 · {formatTrigger(latest.trigger)} · {formatGenerationSource(latest.generationSource)} · {new Date(latest.ts).toLocaleString('zh-CN', { hour12: false })}
         </div>
-        <div className="mt-1 text-[11px] leading-relaxed">{latest.content}</div>
+        <div className="mt-1 whitespace-pre-line text-[11px] leading-relaxed">{latest.content}</div>
       </div>
       {rest.length > 0 && (
         <button
@@ -64,9 +64,9 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
           {rest.map((s) => (
             <li key={s.id} className="rounded-md border border-deck-border/50 px-2.5 py-1.5">
               <div className="text-[9px] text-deck-muted/70">
-                {formatTrigger(s.trigger)} · {new Date(s.ts).toLocaleString('zh-CN', { hour12: false })}
+                {formatTrigger(s.trigger)} · {formatGenerationSource(s.generationSource)} · {new Date(s.ts).toLocaleString('zh-CN', { hour12: false })}
               </div>
-              <div className="mt-0.5 text-[11px] leading-relaxed text-deck-muted">{s.content}</div>
+              <div className="mt-0.5 whitespace-pre-line text-[11px] leading-relaxed text-deck-muted">{s.content}</div>
             </li>
           ))}
         </ol>
@@ -77,4 +77,10 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
 
 function formatTrigger(t: SummaryRecord['trigger']): string {
   return t === 'time' ? '⏱ 定时' : t === 'event-count' ? '📊 事件触发' : '✋ 手动';
+}
+
+function formatGenerationSource(source: SummaryRecord['generationSource']): string {
+  if (source === 'llm') return 'AI 总结';
+  if (source === 'legacy') return '历史总结';
+  return '降级总结';
 }

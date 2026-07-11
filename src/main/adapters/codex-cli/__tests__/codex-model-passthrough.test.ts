@@ -35,6 +35,12 @@ interface CapturedThreadOptions {
   sandboxMode?: string;
   approvalPolicy?: string;
   skipGitRepoCheck?: boolean;
+  useBaseConfig?: boolean;
+  networkAccessEnabled?: boolean;
+  additionalDirectories?: string[];
+  dynamicTools?: unknown[];
+  ephemeral?: boolean;
+  configOverrides?: Record<string, unknown>;
 }
 
 let captured: CapturedThreadOptions[] = [];
@@ -189,21 +195,35 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
       skipGitRepoCheck: true,
       modelReasoningEffort: 'medium',
       model: 'gpt-5.5',
+      useBaseConfig: false,
+      networkAccessEnabled: false,
+      additionalDirectories: [],
+      dynamicTools: [],
+      ephemeral: true,
     });
+    expect(captured[0].workingDirectory).toMatch(/agent-deck-periodic-summary-/);
+    expect(captured[0].workingDirectory).not.toBe('/tmp/proj');
+    expect(captured[0].configOverrides).toMatchObject({ mcp_servers: {} });
   });
 });
 
 describe('Codex summary runner reasoning settings', () => {
-  it('passes summaryReasoning=max to the periodic summary oneshot', async () => {
+  it('fails closed before starting a periodic-summary turn when tool isolation is unproven', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
     const previous = settingsStore.get('summaryReasoning');
     settingsStore.set('summaryReasoning', 'max');
     try {
       const { summariseCodexSessionViaOneshot } = await import('../summarizer-runner');
-      await summariseCodexSessionViaOneshot('/tmp', [], () => 'activity');
+      await expect(
+        summariseCodexSessionViaOneshot(
+          '/tmp',
+          [],
+          () => 'activity',
+          '{"recentUserInputs":["untrusted"]}',
+        ),
+      ).rejects.toThrow('__codex_summarizer_tools_unproven__');
 
-      expect(captured).toHaveLength(1);
-      expect(captured[0].modelReasoningEffort).toBe('max');
+      expect(captured).toHaveLength(0);
     } finally {
       settingsStore.set('summaryReasoning', previous);
     }

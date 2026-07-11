@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-11 | `CHANGELOG_360_periodic-summary-evidence.md` | Make periodic summaries evidence-rich and revision-safe |
 | 2026-07-11 | `CHANGELOG_359_session-pinning-reviewer-model.md` | Add persistent Live pins and update the Codex reviewer model |
 | 2026-07-11 | `CHANGELOG_358_unified-continuation-context.md` | Unify provider-neutral Continuation Context across hand-off and recovery |
 | 2026-07-10 | `CHANGELOG_357_session-runtime-and-compact-handoff.md` | Add per-session model controls and compact cross-adapter hand-off |
