@@ -37,7 +37,7 @@ describe('setArchived (archive-toctou-fix-20260515 plan)', () => {
 
     expect(fakeDb.prepare).toHaveBeenCalledTimes(1);
     expect(fakeDb.prepare).toHaveBeenCalledWith(
-      'UPDATE sessions SET archived_at = ? WHERE id = ?',
+      'UPDATE sessions SET archived_at = ?, pinned_at = NULL WHERE id = ?',
     );
     expect(runMock).toHaveBeenCalledTimes(1);
     expect(runMock).toHaveBeenCalledWith(ts, 'sid-OK');
@@ -48,7 +48,10 @@ describe('setArchived (archive-toctou-fix-20260515 plan)', () => {
 
     expect(() => setArchived('sid-OK', null)).not.toThrow();
 
-    expect(runMock).toHaveBeenCalledWith(null, 'sid-OK');
+    expect(fakeDb.prepare).toHaveBeenCalledWith(
+      'UPDATE sessions SET archived_at = NULL WHERE id = ?',
+    );
+    expect(runMock).toHaveBeenCalledWith('sid-OK');
   });
 
   it('row missing(.changes === 0)→ throw SessionRowMissingError + name 字段对', () => {

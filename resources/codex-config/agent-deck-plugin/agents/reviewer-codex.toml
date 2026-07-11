@@ -1,6 +1,6 @@
 name = "reviewer-codex"
 description = "Codex-side heterogeneous reviewer slot. Use only when selected as one of exactly two reviewer slots through `agentName:'reviewer-codex'`; handles `output_mode: full_review` and `output_mode: rebuttal`, validates read-only, and replies through Agent Deck messages."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
 
 developer_instructions = '''

@@ -26,7 +26,7 @@ interface SchedulerOptions {
  * （「24h 没动静就关掉」）。
  *
  * 性能：早期版本每个会话跑「get → setLifecycle → get → emit」共 3 次 SQL，
- * better-sqlite3 同步执行 → 主线程被卡。现在改成 batchSetLifecycle 单事务批量推进，
+ * better-sqlite3 同步执行 → 主线程被卡。现在改成 batchAdvanceLifecycle 单事务批量推进，
  * 事务内一次 UPDATE + SELECT 拿真正变化的行后批量 emit，避免 N+1 SQL。
  *
  * 历史清理：findHistoryOlderThan 单次最多取 500 条，剩余下轮继续，避免一次扫描
@@ -62,10 +62,12 @@ export class LifecycleScheduler {
     // 1. active → dormant：先拿候选 id，再单事务批量推进
     const activeRows = sessionRepo.findActiveExpiring(dormantThreshold);
     if (activeRows.length > 0) {
-      const updated = sessionRepo.batchSetLifecycle(
+      const updated = sessionRepo.batchAdvanceLifecycle(
         activeRows.map((r) => r.id),
+        'active',
         'dormant',
         now,
+        dormantThreshold,
       );
       for (const rec of updated) eventBus.emit('session-upserted', rec);
     }
@@ -74,16 +76,18 @@ export class LifecycleScheduler {
     const updatedClosedIds = new Set<string>();
     const dormantRows = sessionRepo.findDormantExpiring(closedThreshold);
     if (dormantRows.length > 0) {
-      const updated = sessionRepo.batchSetLifecycle(
+      const updated = sessionRepo.batchAdvanceLifecycle(
         dormantRows.map((r) => r.id),
+        'dormant',
         'closed',
         now,
+        closedThreshold,
       );
       // REVIEW_56 Batch C R1 codex HIGH-1 + reviewer-claude 反驳轮验证修法(方案 B):
       // 补齐 sessionManager.markClosed 三入口副作用(`manager.ts:329-347` 注释:
       // "三入口 markClosed / close / archive 统一" 清 cwd_release_marker + "被动清理
       // closed session 自动 leave 所有 active team membership" — 两条 invariant 显式声明)。
-      // 旧实现 scheduler 只调 batchSetLifecycle (只 UPDATE sessions.lifecycle/ended_at),
+      // 旧实现 scheduler 只调 batchAdvanceLifecycle (只 UPDATE sessions.lifecycle/ended_at),
       // 是绕过两条 invariant 的"第四入口" → (1) UI 幽灵成员 user-visible(closed session
       // 仍 active member); (2) cwd_release_marker 残留 latent risk; (3) 0-lead
       // auto-archive 联动缺失。修法:保留 batch SQL 性能 + 对 updated rows 逐条补齐两个副作用
@@ -92,12 +96,12 @@ export class LifecycleScheduler {
       //
       // REVIEW_56 Batch C R2 codex LOW-1 修法:scheduler emit 'session-upserted' 前,
       // sessionRepo.get(rec.id) re-fetch 拿 fresh record(含 cwd_release_marker=NULL),
-      // 避免 renderer 收到 stale marker(batchSetLifecycle 内 SELECT 拿的 rec 在 clear
+      // 避免 renderer 收到 stale marker(batchAdvanceLifecycle 内 SELECT 拿的 rec 在 clear
       // 之前;clear 后 emit 旧 rec → renderer store 仍带 stale marker 直到下次 upsert)。
       for (const rec of updated) {
         updatedClosedIds.add(rec.id);
         // **REVIEW_99 R3 cancellation-epoch (codex 第 2 点 + reviewer-claude 落地注意 ②)**:
-        // scheduler 走 batchSetLifecycle「第四入口」绕过 markClosedImpl 内部 epoch++,这里显式补一次。
+        // scheduler 走 batchAdvanceLifecycle「第四入口」绕过 markClosedImpl 内部 epoch++,这里显式补一次。
         // 否则 recover await 期间 scheduler 衰减 dormant→closed 不被 cancelGuard 感知 → 给已判定该关
         // 的会话起 fresh CLI(结构上 active 10-30s 难达 closed,防御性补全消除理论缝)。
         sessionManager.bumpCloseEpoch(rec.id);
@@ -137,8 +141,8 @@ export class LifecycleScheduler {
       const idsToPurge =
         updatedClosedIds.size > 0 ? ids.filter((id) => !updatedClosedIds.has(id)) : ids;
       if (idsToPurge.length > 0) {
-        const removed = sessionRepo.batchDelete(idsToPurge);
-        // **REVIEW_99 R3 cancellation-epoch**:purge 走 batchDelete「第四入口」绕过 deleteImpl 内部
+        const removed = sessionRepo.batchDeleteHistory(idsToPurge, purgeThreshold);
+        // **REVIEW_99 R3 cancellation-epoch**:purge 走 batchDeleteHistory「第四入口」绕过 deleteImpl 内部
         // closeEpoch.delete → 显式清 entry 防 Map 随 purge 会话无界累积(与 recentlyDeleted TTL 同款
         // 防泄漏纪律)。purged sid randomUUID 不复用,清后无 correctness 影响纯内存回收。
         for (const id of removed) {

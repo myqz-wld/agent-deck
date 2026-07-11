@@ -54,8 +54,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -114,6 +114,9 @@ export function upsert(rec: SessionRecord): void {
         rec.additionalDirectories && rec.additionalDirectories.length > 0
           ? JSON.stringify(rec.additionalDirectories)
           : null,
+      // Pin state has one dedicated setter. It participates in first INSERT, but is deliberately
+      // absent from ON CONFLICT so a stale full-record upsert cannot undo a concurrent pin toggle.
+      pinned_at: rec.pinnedAt ?? null,
     });
 }
 
@@ -156,6 +159,65 @@ export function listActiveAndDormant(
     )
     .all(...params) as Row[];
   return rows.map(rowToRecord);
+}
+
+/**
+ * Real-time renderer list: every pinned row survives capacity, then the result expands beyond that
+ * capacity for live structural owners required by the renderer tree. The recursive closure follows
+ * both spawn ancestors and active universal-team leads for teammate rows; UNION dedupes cycles.
+ */
+export function listLiveForUi(limit = 100): SessionRecord[] {
+  const db = getDb();
+  return db.transaction(() => {
+    const pinnedCount = db
+      .prepare(
+        `SELECT COUNT(*) FROM sessions
+         WHERE archived_at IS NULL AND lifecycle IN ('active', 'dormant')
+           AND pinned_at IS NOT NULL`,
+      )
+      .pluck()
+      .get() as number;
+    const effectiveLimit = Math.max(Math.trunc(limit), pinnedCount, 0);
+    const rows = db
+      .prepare(
+        `WITH RECURSIVE
+         seed_ids(id) AS (
+           SELECT id FROM sessions
+           WHERE archived_at IS NULL AND lifecycle IN ('active', 'dormant')
+           ORDER BY pinned_at DESC, last_event_at DESC, id ASC
+           LIMIT ?
+         ),
+         visible_ids(id) AS (
+           SELECT id FROM seed_ids
+           UNION
+           SELECT parent.id
+           FROM visible_ids AS visible
+           INNER JOIN sessions AS child ON child.id = visible.id
+           INNER JOIN sessions AS parent ON parent.id = child.spawned_by
+           WHERE parent.archived_at IS NULL
+             AND parent.lifecycle IN ('active', 'dormant')
+           UNION
+           SELECT lead_session.id
+           FROM visible_ids AS visible
+           INNER JOIN agent_deck_team_members AS teammate
+             ON teammate.session_id = visible.id
+            AND teammate.role = 'teammate'
+            AND teammate.left_at IS NULL
+           INNER JOIN agent_deck_team_members AS lead
+             ON lead.team_id = teammate.team_id
+            AND lead.role = 'lead'
+            AND lead.left_at IS NULL
+           INNER JOIN sessions AS lead_session ON lead_session.id = lead.session_id
+           WHERE lead_session.archived_at IS NULL
+             AND lead_session.lifecycle IN ('active', 'dormant')
+         )
+         SELECT session.* FROM sessions AS session
+         INNER JOIN visible_ids AS visible ON visible.id = session.id
+         ORDER BY session.pinned_at DESC, session.last_event_at DESC, session.id ASC`,
+      )
+      .all(effectiveLimit) as Row[];
+    return rows.map(rowToRecord);
+  })();
 }
 
 /**

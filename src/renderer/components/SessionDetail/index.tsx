@@ -12,6 +12,7 @@ import { PermissionsView } from '../PermissionsView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
 import { SessionMetadataChips } from '../SessionMetadataChips';
+import { SessionPinButton } from '../SessionPinButton';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
@@ -309,6 +310,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const isSdk = session.source === 'sdk';
   const turnBusy = session.activity === 'working';
   const canSteerTurn = session.agentId === 'codex-cli';
+  const canPin =
+    session.archivedAt === null &&
+    (session.lifecycle === 'active' || session.lifecycle === 'dormant');
   const selectFileGroup = (group: NonNullable<typeof selectedGroup>): void => {
     setSelectedFilePath(group.filePath);
     setSelectedChangeId(group.items[group.items.length - 1].id);
@@ -329,6 +333,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           </div>
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-1">
+          {canPin && <SessionPinButton key={session.id} session={session} />}
           <button
             type="button"
             onClick={onClose}

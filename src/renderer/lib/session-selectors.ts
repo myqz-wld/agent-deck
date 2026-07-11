@@ -20,7 +20,21 @@ export function selectLiveSessions(
         s.archivedAt === null &&
         (s.lifecycle === 'active' || s.lifecycle === 'dormant'),
     )
-    .sort((a, b) => b.lastEventAt - a.lastEventAt);
+    .sort(comparePinnedSessions);
+}
+
+/** 置顶优先；同组依次按最近活动与稳定 id 排序。 */
+function comparePinnedSessions(a: SessionRecord, b: SessionRecord): number {
+  const aPinnedAt = a.pinnedAt ?? null;
+  const bPinnedAt = b.pinnedAt ?? null;
+
+  if (aPinnedAt !== null || bPinnedAt !== null) {
+    if (aPinnedAt === null) return 1;
+    if (bPinnedAt === null) return -1;
+    if (aPinnedAt !== bPinnedAt) return bPinnedAt - aPinnedAt;
+  }
+  if (a.lastEventAt !== b.lastEventAt) return b.lastEventAt - a.lastEventAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 export interface PendingBucket {

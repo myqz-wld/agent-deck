@@ -45,6 +45,8 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionUnarchive, id),
   reactivateSession: (id: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.SessionReactivate, id),
+  setSessionPinned: (id: string, pinned: boolean): Promise<SessionRecord> =>
+    ipcRenderer.invoke(IpcInvoke.SessionSetPinned, id, pinned),
   deleteSession: (id: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.SessionDelete, id),
   listEvents: (id: string, limit?: number): Promise<AgentEvent[]> =>

@@ -12,6 +12,7 @@ It is built for people who "drive multiple coding agents at once": if you have 3
 
 - **Translucent frosted-glass floating window**: draggable, resizable, collapsible into a capsule; in pin mode the window is nearly transparent and stays on top so you can keep working through it.
 - **Multi-session aggregation**: sessions created inside the app via SDK (**internal**) and events reported from external terminal CLI hooks (**external**) share one view, with three tabs: Live / Pending / History.
+- **Persistent session pinning**: pin important sessions from a Live card or detail header. Pinned sessions sort first, a dormant session is reactivated when pinned, and idle lifecycle decay plus retention cleanup skip pinned rows. Deliberate archive, handoff, shutdown, delete, or a real provider session end still proceeds and clears the pin.
 - **Activity stream + Diff + Summary**: open each session to inspect its message timeline, Monaco DiffEditor grouped by file, and one-line periodic LLM summaries. Session cards and detail headers show the current model and thinking level; SessionDetail also shows the current Git branch when the cwd is inside a repository. Click a tool-call start row to expand full input, and click an end row to expand output. Task / Agent tool calls have dedicated rendering (subagent name + purple chip + folded/expanded full prompt).
 - **Control handoff alerts**: waiting -> red flashing + alert sound + system notification + Dock bounce; finished -> yellow + completion sound. Each can be disabled independently, and custom alert sounds are supported.
 - **Embedded human responses** (SDK sessions only): tool permission requests, Claude proactive questions (options / other / notes), Claude Plan mode execution-plan approval, and MCP user-presentation requests (`present_plan` plans and `present_diff` diffs) are all handled directly in activity-stream cards. Diff presentation supports PR-style two-column before/after view and merge-conflict ours/theirs/resolution view; diff content is collapsed by default and opens into a taller scrollable review area. `present_diff` can keep rationale / confirmation instructions outside the source panes and render optional line-anchored annotation cards beside the presented fragment. When approving Claude Plan mode, you can choose the target permission mode (default / auto-accept edits / keep Plan / fully bypass prompts); switching to "fully bypass prompts" automatically restarts the SDK child process.
@@ -51,6 +52,8 @@ SDK-owned sessionIds are added to `sdkOwned`, and hook-channel events with the s
 | `archived_at IS NOT NULL` | User manually archived it; completely independent of lifecycle, and unarchiving preserves the original lifecycle |
 
 If a closed session receives another event with the same sessionId, it is automatically revived to active. Archived sessions skip lifecycle advancement and do not participate in time decay.
+
+`pinned_at` is a persistent Live-session protection flag. The idle scheduler and history retention GC recheck it atomically at the final write/delete boundary, so a pin that arrives after candidate selection still wins. Pinning a dormant row moves it back to active; deliberate terminal actions clear the pin instead of blocking the requested workflow.
 
 ### Control-Handoff Detection
 

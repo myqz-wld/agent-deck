@@ -23,10 +23,7 @@
  * UpsertOptions 全部从本 facade export,test / caller import path `@main/session/manager`
  * 零改动。
  */
-import type {
-  AgentEvent,
-  SessionRecord,
-} from '@shared/types';
+import type { AgentEvent, SessionRecord } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { isDbClosed } from '@main/store/db';
@@ -67,6 +64,7 @@ import {
   unarchiveImpl,
   unarchiveOnUserSendImpl,
   reactivateImpl,
+  setPinnedImpl,
   recordCreatedPermissionModeImpl,
   notifyTeamMembershipChangedImpl,
   deleteImpl,
@@ -383,7 +381,7 @@ class SessionManagerClass {
    * 自增 close-epoch(REVIEW_99 R3 cancellation-epoch)— **scheduler 衰减 dormant→closed 专用入口**。
    *
    * closeImpl / markClosedImpl / deleteImpl 内部已自增(close intent 起点),但 LifecycleScheduler
-   * 出于性能走 `batchSetLifecycle` + inline `applyClosedSideEffects`「第四入口」**绕过** markClosedImpl
+   * 出于性能走 `batchAdvanceLifecycle` + inline `applyClosedSideEffects`「第四入口」**绕过** markClosedImpl
    * (REVIEW_56 §F20 只统一了 side-effects,不走 markClosedImpl)→ 不会触发内部自增。本 public 方法让
    * scheduler 在 batched close loop 显式补一次 epoch++,与其他三入口对齐 close intent 信号,recover
    * await 期间 scheduler 衰减同样能 abort。结构上 active(刚被 entry emit revive)10-30s 内难达 closed,
@@ -397,8 +395,8 @@ class SessionManagerClass {
    * 删 close-epoch entry(REVIEW_99 R3 cancellation-epoch)— **scheduler 历史 purge 专用清理入口**。
    *
    * deleteImpl 内部已在删 row 后清 entry,但 LifecycleScheduler 历史超期 purge 走
-   * `sessionRepo.batchDelete`「第四入口」**绕过** deleteImpl → 不清 closeEpoch entry。本 public 方法让
-   * scheduler 在 batchDelete loop 显式清,防 closeEpoch Map 随 purge 的会话无界累积(与 recentlyDeleted
+   * `sessionRepo.batchDeleteHistory`「第四入口」**绕过** deleteImpl → 不清 closeEpoch entry。本 public 方法让
+   * scheduler 在 batchDeleteHistory loop 显式清,防 closeEpoch Map 随 purge 的会话无界累积(与 recentlyDeleted
    * TTL 清理同款防泄漏纪律)。清后 getCloseEpoch 返 0,但 purged sid 永不会再被任何 recovery 引用
    * (sid 是 randomUUID 不复用),无correctness 影响纯内存回收。
    */
@@ -427,6 +425,10 @@ class SessionManagerClass {
   /** thin delegate → manager/lifecycle.reactivateImpl (closed → active 强制复活)。 */
   reactivate(sessionId: string): void {
     reactivateImpl(sessionId);
+  }
+
+  setPinned(sessionId: string, pinned: boolean): SessionRecord {
+    return setPinnedImpl(sessionId, pinned);
   }
 
   /** thin delegate → manager/lifecycle.recordCreatedPermissionModeImpl (持久化 permission_mode)。 */
@@ -471,7 +473,7 @@ class SessionManagerClass {
   }
 
   list(): SessionRecord[] {
-    return enrichRecordsWithTeamsBatch(sessionRepo.listActiveAndDormant());
+    return enrichRecordsWithTeamsBatch(sessionRepo.listLiveForUi());
   }
 
   get(id: string): SessionRecord | null {

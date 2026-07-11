@@ -46,6 +46,13 @@ export function parseStringId(field: string, value: unknown, maxLen = 256): stri
   return value;
 }
 
+export function parseBoolean(field: string, value: unknown): boolean {
+  if (typeof value !== 'boolean') {
+    throw new IpcInputError(field, `must be boolean, got ${String(value)}`);
+  }
+  return value;
+}
+
 export function parseHookScope(value: unknown): 'user' | 'project' {
   if (value === 'user' || value === 'project') return value;
   throw new IpcInputError('scope', `must be 'user' or 'project', got ${String(value)}`);

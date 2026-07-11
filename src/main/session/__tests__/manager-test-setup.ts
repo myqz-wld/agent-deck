@@ -76,6 +76,7 @@ const COMMON_SESSION_IDS = [
   'sess-archive',
   'sess-unarchive',
   'sess-reactivate',
+  'sdk-pinned-end',
   'sess-del-1',
   'sess-ghost',
   'sess-ghost-hook',

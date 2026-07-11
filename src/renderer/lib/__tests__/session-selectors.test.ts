@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PermissionRequest, SessionRecord } from '@shared/types';
-import { selectPendingBuckets } from '../session-selectors';
+import { selectLiveSessions, selectPendingBuckets } from '../session-selectors';
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -33,6 +33,41 @@ function perm(requestId: string): PermissionRequest {
 
 const emptyAsks = new Map();
 const emptyExits = new Map();
+
+describe('selectLiveSessions — 置顶排序与实时过滤', () => {
+  it('按 pinnedAt DESC、lastEventAt DESC、id ASC 排序', () => {
+    const sessions = new Map([
+      ['plain-new', makeSession({ id: 'plain-new', lastEventAt: 900 })],
+      ['pinned-old', makeSession({ id: 'pinned-old', pinnedAt: 100, lastEventAt: 1 })],
+      ['pinned-new', makeSession({ id: 'pinned-new', pinnedAt: 200, lastEventAt: 0 })],
+      ['tie-b', makeSession({ id: 'tie-b', lastEventAt: 500 })],
+      ['tie-a', makeSession({ id: 'tie-a', lastEventAt: 500 })],
+    ]);
+
+    expect(selectLiveSessions(sessions).map((session) => session.id)).toEqual([
+      'pinned-new',
+      'pinned-old',
+      'plain-new',
+      'tie-a',
+      'tie-b',
+    ]);
+  });
+
+  it('保留未归档 active/dormant 过滤，且不改变输入 Map 的迭代顺序', () => {
+    const sessions = new Map([
+      ['active', makeSession({ id: 'active', lifecycle: 'active', lastEventAt: 1 })],
+      ['dormant', makeSession({ id: 'dormant', lifecycle: 'dormant', pinnedAt: 2 })],
+      ['closed', makeSession({ id: 'closed', lifecycle: 'closed', pinnedAt: 3 })],
+      ['archived', makeSession({ id: 'archived', archivedAt: 4, pinnedAt: 4 })],
+    ]);
+
+    expect(selectLiveSessions(sessions).map((session) => session.id)).toEqual([
+      'dormant',
+      'active',
+    ]);
+    expect([...sessions.keys()]).toEqual(['active', 'dormant', 'closed', 'archived']);
+  });
+});
 
 describe('selectPendingBuckets — archivedAt / lifecycle 过滤（PendingSection 复用口径）', () => {
   it('active + 未归档 + 有 pending → 收入', () => {

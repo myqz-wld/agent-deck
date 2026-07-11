@@ -56,7 +56,12 @@ export class SessionRowMissingError extends Error {
  * 详见本 module 顶部 jsdoc 的修法理由。
  */
 export function setArchived(id: string, ts: number | null): void {
-  const result = getDb().prepare(`UPDATE sessions SET archived_at = ? WHERE id = ?`).run(ts, id);
+  const result =
+    ts === null
+      ? getDb().prepare(`UPDATE sessions SET archived_at = NULL WHERE id = ?`).run(id)
+      : getDb()
+          .prepare(`UPDATE sessions SET archived_at = ?, pinned_at = NULL WHERE id = ?`)
+          .run(ts, id);
   if (result.changes !== 1) {
     throw new SessionRowMissingError(id);
   }
