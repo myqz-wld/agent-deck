@@ -10,16 +10,24 @@ import type { ActivityState, LifecycleState, SessionRecord } from '@shared/types
 import { getDb } from '../db';
 import { rowToRecord, type Row } from './types';
 
-export function setLifecycle(id: string, lifecycle: LifecycleState, ts: number): void {
+export function setLifecycle(
+  id: string,
+  lifecycle: LifecycleState,
+  ts: number,
+  options: { clearPinned?: boolean } = {},
+): void {
+  const clearPinned = options.clearPinned === true;
   if (lifecycle === 'closed') {
-    getDb()
-      .prepare(`UPDATE sessions SET lifecycle = ?, ended_at = ? WHERE id = ?`)
-      .run(lifecycle, ts, id);
+    const sql = clearPinned
+      ? `UPDATE sessions SET lifecycle = ?, ended_at = ?, pinned_at = NULL WHERE id = ?`
+      : `UPDATE sessions SET lifecycle = ?, ended_at = ? WHERE id = ?`;
+    getDb().prepare(sql).run(lifecycle, ts, id);
   } else {
     // active / dormant：清掉结束时间（不再「已结束」）。归档与否由 archived_at 单独管。
-    getDb()
-      .prepare(`UPDATE sessions SET lifecycle = ?, ended_at = NULL WHERE id = ?`)
-      .run(lifecycle, id);
+    const sql = clearPinned
+      ? `UPDATE sessions SET lifecycle = ?, ended_at = NULL, pinned_at = NULL WHERE id = ?`
+      : `UPDATE sessions SET lifecycle = ?, ended_at = NULL WHERE id = ?`;
+    getDb().prepare(sql).run(lifecycle, id);
   }
 }
 
@@ -29,21 +37,44 @@ export function setActivity(id: string, activity: ActivityState, lastEventAt: nu
     .run(activity, lastEventAt, id);
 }
 
-/** lifecycle scheduler 用：找出所有可能要从 active → dormant 的会话；归档的不参与衰减 */
+/** Persist one event-driven state transition; terminal events clear pin in the same statement. */
+export function setEventState(
+  id: string,
+  activity: ActivityState,
+  lifecycle: LifecycleState,
+  lastEventAt: number,
+  options: { clearPinned?: boolean } = {},
+): void {
+  const endedAt = lifecycle === 'closed' ? lastEventAt : null;
+  const sql = options.clearPinned
+    ? `UPDATE sessions
+       SET activity = ?, lifecycle = ?, last_event_at = ?, ended_at = ?, pinned_at = NULL
+       WHERE id = ?`
+    : `UPDATE sessions
+       SET activity = ?, lifecycle = ?, last_event_at = ?, ended_at = ?
+       WHERE id = ?`;
+  getDb().prepare(sql).run(activity, lifecycle, lastEventAt, endedAt, id);
+}
+
+/** lifecycle scheduler 用：找出所有可能要从 active → dormant 的未归档、未 pin 会话。 */
 export function findActiveExpiring(threshold: number): SessionRecord[] {
   const rows = getDb()
     .prepare(
-      `SELECT * FROM sessions WHERE lifecycle = 'active' AND archived_at IS NULL AND last_event_at < ?`,
+      `SELECT * FROM sessions
+       WHERE lifecycle = 'active' AND archived_at IS NULL
+         AND pinned_at IS NULL AND last_event_at < ?`,
     )
     .all(threshold) as Row[];
   return rows.map(rowToRecord);
 }
 
-/** lifecycle scheduler 用：找出所有可能要从 dormant → closed 的会话；归档的不参与衰减 */
+/** lifecycle scheduler 用：找出所有可能要从 dormant → closed 的未归档、未 pin 会话。 */
 export function findDormantExpiring(threshold: number): SessionRecord[] {
   const rows = getDb()
     .prepare(
-      `SELECT * FROM sessions WHERE lifecycle = 'dormant' AND archived_at IS NULL AND last_event_at < ?`,
+      `SELECT * FROM sessions
+       WHERE lifecycle = 'dormant' AND archived_at IS NULL
+         AND pinned_at IS NULL AND last_event_at < ?`,
     )
     .all(threshold) as Row[];
   return rows.map(rowToRecord);
@@ -57,28 +88,28 @@ export function findDormantExpiring(threshold: number): SessionRecord[] {
  * SQL 不用动态拼 IN(?, ?, ?) —— 一次性 prepare + transaction 内多次 run，
  * better-sqlite3 内部会复用 statement，比拼 IN 更稳。
  */
-export function batchSetLifecycle(
+export function batchAdvanceLifecycle(
   ids: readonly string[],
-  lifecycle: LifecycleState,
+  fromLifecycle: 'active' | 'dormant',
+  toLifecycle: 'dormant' | 'closed',
   ts: number,
+  inactivityBefore: number,
 ): SessionRecord[] {
   if (ids.length === 0) return [];
   const db = getDb();
-  const updateClosed = db.prepare(
-    `UPDATE sessions SET lifecycle = ?, ended_at = ? WHERE id = ? AND lifecycle != ?`,
-  );
-  const updateOther = db.prepare(
-    `UPDATE sessions SET lifecycle = ?, ended_at = NULL WHERE id = ? AND lifecycle != ?`,
+  const update = db.prepare(
+    `UPDATE sessions
+     SET lifecycle = ?, ended_at = ?
+     WHERE id = ? AND lifecycle = ? AND archived_at IS NULL
+       AND pinned_at IS NULL AND last_event_at < ?`,
   );
   const fetch = db.prepare(`SELECT * FROM sessions WHERE id = ?`);
   const updated: SessionRecord[] = [];
   const tx = db.transaction(() => {
     for (const id of ids) {
-      const info =
-        lifecycle === 'closed'
-          ? updateClosed.run(lifecycle, ts, id, lifecycle)
-          : updateOther.run(lifecycle, id, lifecycle);
-      if (info.changes > 0) {
+      const endedAt = toLifecycle === 'closed' ? ts : null;
+      const info = update.run(toLifecycle, endedAt, id, fromLifecycle, inactivityBefore);
+      if (info.changes === 1) {
         const row = fetch.get(id) as Row | undefined;
         if (row) updated.push(rowToRecord(row));
       }
@@ -98,9 +129,9 @@ export function findHistoryOlderThan(threshold: number, limit = 500): string[] {
   const rows = getDb()
     .prepare(
       `SELECT id FROM sessions
-       WHERE last_event_at < ?
+       WHERE pinned_at IS NULL AND last_event_at < ?
          AND (lifecycle = 'closed' OR archived_at IS NOT NULL)
-       ORDER BY last_event_at ASC
+       ORDER BY last_event_at ASC, id ASC
        LIMIT ?`,
     )
     .all(threshold, limit) as { id: string }[];
@@ -112,18 +143,19 @@ export function findHistoryOlderThan(threshold: number, limit = 500): string[] {
  * 单事务内逐条 DELETE，事务保证「要么全删要么全不删」，避免中途异常留下半残行。
  * 返回 IPC 上层用来一次性广播 session-removed 的 id 数组（已存在的才返回）。
  */
-export function batchDelete(ids: readonly string[]): string[] {
+export function batchDeleteHistory(ids: readonly string[], threshold: number): string[] {
   if (ids.length === 0) return [];
   const db = getDb();
-  const exists = db.prepare(`SELECT 1 FROM sessions WHERE id = ?`);
-  const del = db.prepare(`DELETE FROM sessions WHERE id = ?`);
+  const del = db.prepare(
+    `DELETE FROM sessions
+     WHERE id = ? AND pinned_at IS NULL AND last_event_at < ?
+       AND (lifecycle = 'closed' OR archived_at IS NOT NULL)`,
+  );
   const removed: string[] = [];
   const tx = db.transaction(() => {
     for (const id of ids) {
-      if (exists.get(id)) {
-        del.run(id);
-        removed.push(id);
-      }
+      const result = del.run(id, threshold);
+      if (result.changes === 1) removed.push(id);
     }
   });
   tx();

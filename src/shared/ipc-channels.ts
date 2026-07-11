@@ -26,6 +26,7 @@ export const IpcInvoke = {
   SessionUnarchive: 'session:unarchive',
   SessionDelete: 'session:delete',
   SessionReactivate: 'session:reactivate',
+  SessionSetPinned: 'session:set-pinned',
   SessionListEvents: 'session:list-events',
   SessionListFileChanges: 'session:list-file-changes',
   SessionGetFileFinalDiff: 'session:get-file-final-diff',

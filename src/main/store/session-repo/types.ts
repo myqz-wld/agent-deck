@@ -32,6 +32,7 @@ export interface Row {
   last_event_at: number;
   ended_at: number | null;
   archived_at: number | null;
+  pinned_at: number | null;
   permission_mode: string | null;
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，Row 接口不再含
   codex_sandbox: string | null;
@@ -76,6 +77,7 @@ export function rowToRecord(r: Row): SessionRecord {
     lastEventAt: r.last_event_at,
     endedAt: r.ended_at,
     archivedAt: r.archived_at,
+    pinnedAt: r.pinned_at ?? null,
     permissionMode: (r.permission_mode as PermissionMode) ?? null,
     // plan team-cohesion-fix-20260513 Phase A Step A9：teamName 字段不在 repo 层投影。
     // sessionManager.enrichWithTeams / enrichWithTeamsBatch 在更高层注入 teams[] 数组 + teamName fallback。

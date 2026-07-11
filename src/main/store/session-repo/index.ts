@@ -9,8 +9,8 @@
  *     listHistory / _delete + 5 setter)
  *   - archive.ts (~22 行 setArchived 单独抽出，呼应「lifecycle 与 archived_at 正交」原则)
  *   - lifecycle.ts (~135 行 7 个 method：setLifecycle / setActivity /
- *     batchSetLifecycle / findActiveExpiring / findDormantExpiring /
- *     findHistoryOlderThan / batchDelete)
+ *     batchAdvanceLifecycle / findActiveExpiring / findDormantExpiring /
+ *     findHistoryOlderThan / batchDeleteHistory)
  *   - rename.ts (~110 行 跨表事务复杂迁移)
  *   - spawn-chain.ts (~70 行 3 个 MCP spawn 链路 method：
  *     getSpawnDepth / setSpawnLink / listChildren；listAncestors 已 REVIEW_88 删 dead code)
@@ -22,6 +22,7 @@
 import * as coreCrud from './core-crud';
 import { setArchived, SessionRowMissingError } from './archive';
 import * as lifecycle from './lifecycle';
+import { setPinned, SessionPinStateError } from './pinning';
 import { rename } from './rename';
 import * as spawnChain from './spawn-chain';
 
@@ -32,6 +33,7 @@ export const sessionRepo = {
   ...coreRest,
   delete: _delete,
   setArchived,
+  setPinned,
   ...lifecycle,
   rename,
   ...spawnChain,
@@ -43,4 +45,4 @@ export const sessionRepo = {
  * handler) 通过 facade `import { SessionRowMissingError } from '@main/store/session-repo'`
  * 判别 setArchived no-op,不需深 import './archive'。
  */
-export { SessionRowMissingError };
+export { SessionRowMissingError, SessionPinStateError };

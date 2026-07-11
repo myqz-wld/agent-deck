@@ -79,9 +79,15 @@ export function markRecentlyDeletedImpl(
 /** lifecycle scheduler 用:把 active 推到 dormant(拆自 manager.ts:321 markDormant)。 */
 export function markDormantImpl(sessionId: string): void {
   const r = sessionRepo.get(sessionId);
-  if (!r || r.lifecycle !== 'active') return;
-  sessionRepo.setLifecycle(sessionId, 'dormant', Date.now());
-  const updated = sessionRepo.get(sessionId);
+  if (!r || r.lifecycle !== 'active' || r.pinnedAt != null) return;
+  const now = Date.now();
+  const updated = sessionRepo.batchAdvanceLifecycle(
+    [sessionId],
+    'active',
+    'dormant',
+    now,
+    now,
+  )[0];
   if (updated) eventBus.emit('session-upserted', updated);
 }
 
@@ -105,7 +111,7 @@ export function markClosedImpl(
   // 期间发生时同样应 abort 不给已判定该关的会话起 fresh CLI。transition guard(active/dormant→closed)
   // 通过后才自增(与「真正发生 close 推进」对齐;guard 拦下的 no-op 不算 close 动作)。
   bumpCloseEpochImpl(state, sessionId);
-  sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
+  sessionRepo.setLifecycle(sessionId, 'closed', Date.now(), { clearPinned: true });
   void applyClosedSideEffects(sessionId, {
     awaitLeave: false,
     logPrefix: '[session-mgr] markClosed',
@@ -155,7 +161,7 @@ export async function closeImpl(
       logger.warn(`[session-mgr] adapter close failed during close(): ${sessionId}`, err);
     }
   }
-  sessionRepo.setLifecycle(sessionId, 'closed', Date.now());
+  sessionRepo.setLifecycle(sessionId, 'closed', Date.now(), { clearPinned: true });
   await applyClosedSideEffects(sessionId, {
     awaitLeave: true,
     logPrefix: '[session-mgr] close',
@@ -249,6 +255,13 @@ export function reactivateImpl(sessionId: string): void {
   sessionRepo.setLifecycle(sessionId, 'active', Date.now());
   const updated = sessionRepo.get(sessionId);
   if (updated) eventBus.emit('session-upserted', updated);
+}
+
+/** Persist a live-session pin toggle and broadcast the committed row. */
+export function setPinnedImpl(sessionId: string, pinned: boolean): SessionRecord {
+  const updated = sessionRepo.setPinned(sessionId, pinned ? Date.now() : null);
+  eventBus.emit('session-upserted', updated);
+  return updated;
 }
 
 /**

@@ -227,6 +227,36 @@ describe('SessionManager.ingest 时序', () => {
     expect(rec?.endedAt).toBe(200);
   });
 
+  it('4d) real SDK session-end → pinned 会话落 dormant 并清除 pin', () => {
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'sdk-pinned-end',
+        source: 'sdk',
+        kind: 'session-start',
+        payload: { cwd: '/tmp' },
+        ts: 100,
+      }),
+    );
+    const active = mockSessions.get('sdk-pinned-end');
+    if (active) mockSessions.set('sdk-pinned-end', { ...active, pinnedAt: 150 });
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'sdk-pinned-end',
+        source: 'sdk',
+        kind: 'session-end',
+        payload: { cwd: '/tmp', reason: 'completed' },
+        ts: 200,
+      }),
+    );
+
+    expect(mockSessions.get('sdk-pinned-end')).toMatchObject({
+      lifecycle: 'dormant',
+      lastEventAt: 200,
+      pinnedAt: null,
+    });
+  });
+
   it('5) file-changed 事件 → fileChangeRepo.insert 被调用 + before/after 序列化', () => {
     const ev = makeEvent({
       sessionId: 'sess-3',

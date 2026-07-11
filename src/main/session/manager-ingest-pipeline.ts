@@ -317,11 +317,7 @@ export function advanceState(record: SessionRecord, event: AgentEvent): void {
     if (event.kind === 'session-end') {
       const term: LifecycleState = event.source === 'sdk' ? 'dormant' : 'closed';
       if (term !== record.lifecycle) {
-        sessionRepo.upsert({
-          ...record,
-          lifecycle: term,
-          endedAt: term === 'closed' ? event.ts : null,
-        });
+        sessionRepo.setLifecycle(event.sessionId, term, event.ts, { clearPinned: true });
       }
     }
     return;
@@ -337,6 +333,16 @@ export function advanceState(record: SessionRecord, event: AgentEvent): void {
     // SDK 通道的 session-end = 我们这边 query 流终止（用户中断 / dev 重启 / 流出错），
     // 但 ~/.claude/projects 里的对话历史还在，用户随时可以 resume → 标 dormant 更合理。
     nextLifecycle = event.source === 'sdk' ? 'dormant' : 'closed';
+    sessionRepo.setEventState(
+      event.sessionId,
+      nextActivity,
+      nextLifecycle,
+      event.ts,
+      { clearPinned: true },
+    );
+    const updated = sessionRepo.get(event.sessionId);
+    if (updated) eventBus.emit('session-upserted', updated);
+    return;
   }
 
   if (nextActivity !== record.activity || nextLifecycle !== record.lifecycle) {
@@ -345,7 +351,7 @@ export function advanceState(record: SessionRecord, event: AgentEvent): void {
       activity: nextActivity,
       lifecycle: nextLifecycle,
       lastEventAt: event.ts,
-      endedAt: nextLifecycle === 'closed' ? event.ts : null,
+      endedAt: null,
     };
     sessionRepo.upsert(updated);
     eventBus.emit('session-upserted', updated);

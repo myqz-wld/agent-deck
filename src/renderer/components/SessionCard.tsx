@@ -7,6 +7,7 @@ import { toolIcon } from './activity-feed/tool-icons';
 import { describeAgentToolInput } from './activity-feed/describe';
 import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
+import { SessionPinButton } from './SessionPinButton';
 
 interface Props {
   session: SessionRecord;
@@ -107,6 +108,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
           archived={session.archivedAt !== null}
         />
         <div className="flex-1 truncate text-[12px] font-medium">{session.title}</div>
+        <SessionPinButton session={session} />
         <span
           className={`rounded px-1 py-0.5 text-[8px] font-medium uppercase tracking-wider ${
             session.source === 'sdk'

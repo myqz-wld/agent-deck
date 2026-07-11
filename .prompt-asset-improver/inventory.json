@@ -1,199 +1,89 @@
 {
-  "root": "/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/codex__unified-continuation-context",
-  "scanned_at": "2026-07-11T09:00:07Z",
-  "expires_at": "2026-07-18T09:00:07Z",
-  "scan_reason": "User-approved unified Continuation Context engine: refresh paired runtime prompts, MCP contracts, legacy prompt replacements, README, and changelog scope",
-  "git_head": "92382b43aae51875531c7f56a08550acdc9dad9e",
+  "root": "/Users/wanglidong/Repository/agent-deck",
+  "scanned_at": "2026-07-11T09:18:37Z",
+  "expires_at": "2026-07-18T09:18:37Z",
+  "scan_reason": "User requested simple-review and deep-review Codex reviewers use gpt-5.6-sol with xhigh; refresh authoritative paired skills and inspect their reviewer runtime dependency.",
+  "git_head": "93d7048f1f324c9ea5f89db75b40a21d40581d20",
   "assets": [
     {
-      "path": "resources/claude-config/CLAUDE.md",
-      "type": "claude-runtime-prompt",
-      "scope": "confirmed",
-      "reason": "Replace compact-capsule handoff wording with the unified Continuation Context contract while preserving Claude-specific mechanics.",
+      "path": "resources/codex-config/agent-deck-plugin/skills/simple-review/SKILL.md",
+      "type": "codex-bundled-skill",
+      "scope": "counterpart-check-only",
+      "reason": "User narrowed the edit to the existing reviewer-codex fallback; this skill remains unchanged and resolves that named agent.",
       "exists": true,
-      "hash": "ec2b35d14ee4fdb92ea0f97690559d6f9fa48c811dcbc5c95a7c79a11b11352a"
+      "hash": "71b2f4e894aa905041ab070f745a7ae138fc6a4f15eb7cf71746fbfb47240bc9"
+    },
+    {
+      "path": "resources/claude-config/agent-deck-plugin/skills/simple-review/SKILL.md",
+      "type": "claude-bundled-skill",
+      "scope": "counterpart-check-only",
+      "reason": "User narrowed the edit to the existing reviewer-codex fallback; paired simple-review behavior remains unchanged.",
+      "exists": true,
+      "hash": "71b2f4e894aa905041ab070f745a7ae138fc6a4f15eb7cf71746fbfb47240bc9"
+    },
+    {
+      "path": "resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md",
+      "type": "codex-bundled-skill",
+      "scope": "counterpart-check-only",
+      "reason": "User narrowed the edit to the existing reviewer-codex fallback; this skill remains unchanged and resolves that named agent.",
+      "exists": true,
+      "hash": "b79a7364f0e638391f3aa176772955fbc5d089f112b561802de5dd272f1d9ae1"
+    },
+    {
+      "path": "resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md",
+      "type": "claude-bundled-skill",
+      "scope": "counterpart-check-only",
+      "reason": "User narrowed the edit to the existing reviewer-codex fallback; paired deep-review behavior remains unchanged.",
+      "exists": true,
+      "hash": "b79a7364f0e638391f3aa176772955fbc5d089f112b561802de5dd272f1d9ae1"
+    },
+    {
+      "path": "resources/codex-config/agent-deck-plugin/agents/reviewer-codex.toml",
+      "type": "codex-custom-agent",
+      "scope": "confirmed",
+      "reason": "User approved aligning the direct reviewer-codex fallback with the two skills at gpt-5.6-sol/xhigh.",
+      "exists": true,
+      "hash": "de5776036c56dd33714d0c0b5100b87af086cd8d7a0ac609b716f25ab4eb8fc0"
+    },
+    {
+      "path": "resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md",
+      "type": "claude-custom-agent",
+      "scope": "counterpart-check-only",
+      "reason": "Reviewer role and evidence contract remain aligned; Claude-specific runtime stays unchanged.",
+      "exists": true,
+      "hash": "2de75b68068750b8997cc2627d4474c2a2c9dc8e2d07ea15a49a49bb04fffc0c"
+    },
+    {
+      "path": "resources/claude-config/agent-deck-plugin/agents/reviewer-deepseek.md",
+      "type": "deepseek-custom-agent",
+      "scope": "counterpart-check-only",
+      "reason": "Reviewer role and evidence contract remain aligned; Deepseek-specific runtime stays unchanged.",
+      "exists": true,
+      "hash": "d0195e917169fe6ce56167cd1eb8b4bef46bfd9812a95750f6d134d401557f6d"
     },
     {
       "path": "resources/codex-config/CODEX_AGENTS.md",
       "type": "codex-runtime-prompt",
-      "scope": "confirmed",
-      "reason": "Keep the paired Codex runtime contract aligned while preserving Codex wait and fork mechanics.",
+      "scope": "counterpart-check-only",
+      "reason": "It defines reviewer slot and retry boundaries but intentionally does not own per-skill runtime selection.",
       "exists": true,
       "hash": "cccf21daf7aeafba14ad418cc945427b617bdeff5d29795f2730f2a0a3840404"
     },
     {
-      "path": "src/main/agent-deck-mcp/tools/index.ts",
-      "type": "mcp-tool-description",
-      "scope": "confirmed",
-      "reason": "Describe shared Continuation Context preparation, compact result metadata, and non-destructive failure ordering.",
-      "exists": true,
-      "hash": "bd5f6be2d0bc58285a388a087d169072a773391fe6f9b47e0bcd8de5b2c3ea22"
-    },
-    {
-      "path": "src/main/agent-deck-mcp/tools/schemas/retired.ts",
-      "type": "mcp-tool-schema",
-      "scope": "confirmed",
-      "reason": "Update the active hand_off_session prompt description, shared length cap, and result metadata contract.",
-      "exists": true,
-      "hash": "8c4086e8afc43b14826cab8e9aff164bcf135170f68d4d805bd4a6cf4c21b8b6"
-    },
-    {
-      "path": "src/main/agent-deck-mcp/tools/schemas/spawn.ts",
-      "type": "mcp-tool-schema",
-      "scope": "confirmed",
-      "reason": "Remove publicly constructible internal handoff metadata while preserving ordinary spawn prompt behavior.",
-      "exists": true,
-      "hash": "7d1afc5dfc2966f5d31cfa8dc7e3a8da058b96b35a4399d1d854f0208f2815ae"
-    },
-    {
-      "path": "src/main/session/oneshot-llm/build-prompt.ts",
-      "type": "provider-prompt-template",
-      "scope": "confirmed",
-      "reason": "Remove only the legacy free-text handoff checkpoint prompts and retain periodic-summary prompts.",
-      "exists": true,
-      "hash": "3727358f6d6d38ae8bcce48180657909ba59678549d8675e275d5b521da9e943"
-    },
-    {
-      "path": "src/main/session/hand-off/context-prompt.ts",
-      "type": "provider-prompt-template",
-      "scope": "confirmed",
-      "reason": "Back up and retire the legacy character-budget capsule after the unified renderer replaces it.",
-      "exists": false
-    },
-    {
-      "path": "src/main/session/resume-history/inject-history.ts",
-      "type": "provider-prompt-template",
-      "scope": "confirmed",
-      "reason": "Back up and retire the legacy 200-message recovery wrapper after unified recovery integration.",
-      "exists": false
-    },
-    {
-      "path": "README.md",
-      "type": "repository-prompt-reference",
-      "scope": "confirmed",
-      "reason": "Document the Continuation Context engine, four budgets, settings separation, and unified UI/MCP/recovery behavior.",
-      "exists": true,
-      "hash": "ffeaea90a3ba2cc5e5c6de5538f39b81917192b30fe88ede351b7bce0a028ed5"
-    },
-    {
-      "path": "ref/changelogs/recent-3-days/INDEX.md",
-      "type": "prompt-record-index",
-      "scope": "confirmed",
-      "reason": "Index the new unified Continuation Context changelog record.",
-      "exists": true,
-      "hash": "a76056674ac593414fdc58c481410a58971da762ec3fc3d40f7a1a4947d5152d"
-    },
-    {
-      "path": "ref/changelogs/INDEX.md",
-      "type": "prompt-record-index",
-      "scope": "confirmed",
-      "reason": "Confirm the root index remains a bucket-routing index; the dated bucket index owns the new record row.",
-      "exists": true,
-      "hash": "f24356c3b8a22be4ca40a59983167ce87fd87ebc4665f08b76d7f68363efb075"
-    },
-    {
-      "path": "src/main/session/continuation-context/checkpoint-prompts.ts",
-      "type": "provider-prompt-template",
-      "scope": "confirmed",
-      "reason": "Add isolated no-tool fold, JSON fallback, and repair prompts with untrusted-evidence boundaries.",
-      "exists": true,
-      "hash": "2d2ea409993df5444f26d464633f4d86249d662fd2c77fee532e28dc8ea6d7ed"
-    },
-    {
-      "path": "src/main/session/continuation-context/checkpoint-schema.ts",
-      "type": "provider-output-schema",
-      "scope": "confirmed",
-      "reason": "Add the canonical model-visible checkpoint schema and validator.",
-      "exists": true,
-      "hash": "9e48839a4173c64ed9ef36a47389608778ef25a2a6ebf849c7e659fa32add761"
-    },
-    {
-      "path": "src/main/session/continuation-context/renderer.ts",
-      "type": "provider-prompt-template",
-      "scope": "confirmed",
-      "reason": "Add deterministic rendering for checkpoint projection, eligible user tail, and the authoritative current instruction.",
-      "exists": true,
-      "hash": "eb8588961924f44d3ffc6c444a8b4686609d711aa53ae8cd2ac949bc36beeaec"
-    },
-    {
-      "path": "ref/changelogs/recent-3-days/CHANGELOG_358_unified-continuation-context.md",
-      "type": "prompt-record",
-      "scope": "confirmed",
-      "reason": "Record the new feature without rewriting the prior compact-handoff changelog.",
-      "exists": true,
-      "hash": "1264a685eaae86112c81a829ce9a6ed452eb5c24847c823f237469a8f881e585"
-    },
-    {
-      "path": "ref/changelogs/recent-3-days/CHANGELOG_357_session-runtime-and-compact-handoff.md",
-      "type": "historical-prompt-record",
+      "path": "resources/claude-config/CLAUDE.md",
+      "type": "claude-runtime-prompt",
       "scope": "counterpart-check-only",
-      "reason": "Preserve the previous compact-handoff record as historical evidence and supersede it with a new record.",
+      "reason": "It defines reviewer slot and retry boundaries but intentionally does not own per-skill runtime selection.",
       "exists": true,
-      "hash": "200645d4323a799925af65e33d8da7af0f4e8f6fd015996c9fe75247e7ca227a"
+      "hash": "ec2b35d14ee4fdb92ea0f97690559d6f9fa48c811dcbc5c95a7c79a11b11352a"
     },
     {
       "path": "resources/README.md",
       "type": "bundled-resource-reference",
       "scope": "counterpart-check-only",
-      "reason": "Resource packaging and paired-boundary paths remain correct.",
+      "reason": "Existing paired-asset and packaging guidance remains accurate.",
       "exists": true,
       "hash": "c6dc1fc7963c7b106d88bc743a2ae9f09b367d977055d40356e59a5db9f4c6fd"
-    },
-    {
-      "path": "CLAUDE.md",
-      "type": "repository-runtime-prompt",
-      "scope": "counterpart-check-only",
-      "reason": "Shared repository workflow remains unchanged.",
-      "exists": true,
-      "hash": "f9b6904c2369e8c4704c0b736ca2c73cb012ada919f4c1f982e084f979bf249c"
-    },
-    {
-      "path": "AGENTS.md",
-      "type": "repository-runtime-prompt",
-      "scope": "counterpart-check-only",
-      "reason": "Codex repository entry-point rules remain unchanged.",
-      "exists": true,
-      "hash": "0a0ec852904ce4e6219ddfbe71daaa8a6440841cfa88919b058a8bede4e1fc7e"
-    },
-    {
-      "path": "UI_COPY_LANGUAGE.md",
-      "type": "ui-copy-policy",
-      "scope": "counterpart-check-only",
-      "reason": "The single-language zh-CN mode already matches the approved user-facing naming.",
-      "exists": true,
-      "hash": "7394a209c9fbe9fb0af18d04651dc37976c2cdab238d92e2d89f86dd4cdcf7fe"
-    },
-    {
-      "path": "src/shared/restart-prompts.ts",
-      "type": "provider-prompt-template",
-      "scope": "counterpart-check-only",
-      "reason": "Native-history restart instructions remain distinct from missing-history recovery.",
-      "exists": true,
-      "hash": "20f000d9d7f7b57b9b02f4f414ad51c4a5416953caa9038dd9e0d5c4945bf1fa"
-    },
-    {
-      "path": "src/main/agent-deck-mcp/tools/handlers/adopted-teams-context-block.ts",
-      "type": "mcp-prompt-fragment",
-      "scope": "counterpart-check-only",
-      "reason": "Adopted-team resource-transfer context has separate semantics.",
-      "exists": true,
-      "hash": "32ddfcea3d0990f96d9143b26047d7d2a7c8cb239a5f772a04773921778e745c"
-    },
-    {
-      "path": "src/main/agent-deck-mcp/tools/handlers/lead-context-block.ts",
-      "type": "mcp-prompt-fragment",
-      "scope": "counterpart-check-only",
-      "reason": "Lead-role resource-transfer context has separate semantics.",
-      "exists": true,
-      "hash": "c86eca1b596bfb0527211d7f399a8b152ccbb03b0b8d8fb5d97f3c47681af6b0"
-    },
-    {
-      "path": "src/shared/hand-off-headers.ts",
-      "type": "wire-prompt-fragment",
-      "scope": "counterpart-check-only",
-      "reason": "Team and resource hand-off headers are not continuation-context capsules.",
-      "exists": true,
-      "hash": "2f537025306f7f7fa5c2cff48b8ae2e031af4bd032e3b46b89f2165a731b8084"
     }
   ]
 }

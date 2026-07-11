@@ -7,10 +7,10 @@
  *    `sessionRepo.clearCwdReleaseMarker` + fire-and-forget `leaveTeamsAndAutoArchive(id, 'closed')`
  *    + emit 'session-upserted'。绕过 sessionManager.markClosed 的 invariant 漏洞被补齐。
  * 2. R2 codex MED-1 修法: 同 tick purge 排除本轮 updatedClosedIds — 避免 leaveTeamsAndAutoArchive
- *    fire-and-forget microtask yield 期间 purge 抢先 batchDelete sessions → CASCADE 删 team_members
+ *    fire-and-forget microtask yield 期间 purge 抢先 batchDeleteHistory sessions → CASCADE 删 team_members
  *    → helper 跑空 leave + auto-archive 联动漏触发的 fix-to-fix regression。
  * 3. R2 codex LOW-1 修法: emit 'session-upserted' 用 sessionRepo.get(rec.id) re-fetch 拿 fresh
- *    record(含 cwd_release_marker=null),避免 renderer 收到 stale marker(batchSetLifecycle 内
+ *    record(含 cwd_release_marker=null),避免 renderer 收到 stale marker(batchAdvanceLifecycle 内
  *    SELECT 拿的 rec 在 clear 之前)。
  *
  * 不依赖真 SQLite / Electron / SDK: vi.mock 替换 sessionRepo / eventBus / manager-team-coordinator。
@@ -23,10 +23,10 @@ import type { SessionRecord } from '@shared/types';
 
 const findDormantExpiringCalls: number[] = [];
 const findActiveExpiringCalls: number[] = [];
-const batchSetLifecycleCalls: Array<{ ids: readonly string[]; lifecycle: string; ts: number }> = [];
+const batchAdvanceLifecycleCalls: Array<{ ids: readonly string[]; lifecycle: string; ts: number }> = [];
 const clearCwdReleaseMarkerCalls: string[] = [];
 const findHistoryOlderThanCalls: number[] = [];
-const batchDeleteCalls: string[][] = [];
+const batchDeleteHistoryCalls: string[][] = [];
 const getCalls: string[] = [];
 const emitCalls: Array<{ name: string; payload: unknown }> = [];
 const leaveTeamsAndAutoArchiveCalls: Array<{ sessionId: string; reason: string }> = [];
@@ -38,7 +38,7 @@ let nextHistoryIds: string[] = [];
 let nextBatchDeleteReturn: string[] = [];
 let nextGetReturn: SessionRecord | null = null;
 // REVIEW_56 R2 LOW-1 fixture: scheduler emit 前会调 sessionRepo.get(rec.id) 取 fresh,
-// 测试要能区分「batchSetLifecycle 返的 stale rec」vs「get 返的 fresh rec」。
+// 测试要能区分「batchAdvanceLifecycle 返的 stale rec」vs「get 返的 fresh rec」。
 let getResultsBySid: Map<string, SessionRecord> | null = null;
 
 vi.mock('@main/store/session-repo', () => ({
@@ -51,8 +51,13 @@ vi.mock('@main/store/session-repo', () => ({
       findActiveExpiringCalls.push(threshold);
       return nextActiveRows;
     },
-    batchSetLifecycle: (ids: readonly string[], lifecycle: string, ts: number) => {
-      batchSetLifecycleCalls.push({ ids, lifecycle, ts });
+    batchAdvanceLifecycle: (
+      ids: readonly string[],
+      _fromLifecycle: string,
+      lifecycle: string,
+      ts: number,
+    ) => {
+      batchAdvanceLifecycleCalls.push({ ids, lifecycle, ts });
       return nextBatchSetLifecycleReturn;
     },
     clearCwdReleaseMarker: (id: string) => {
@@ -62,8 +67,8 @@ vi.mock('@main/store/session-repo', () => ({
       findHistoryOlderThanCalls.push(threshold);
       return nextHistoryIds;
     },
-    batchDelete: (ids: readonly string[]) => {
-      batchDeleteCalls.push([...ids]);
+    batchDeleteHistory: (ids: readonly string[]) => {
+      batchDeleteHistoryCalls.push([...ids]);
       return nextBatchDeleteReturn;
     },
     get: (id: string) => {
@@ -138,10 +143,10 @@ function makeRecord(overrides: Partial<SessionRecord> & { id: string }): Session
 beforeEach(() => {
   findDormantExpiringCalls.length = 0;
   findActiveExpiringCalls.length = 0;
-  batchSetLifecycleCalls.length = 0;
+  batchAdvanceLifecycleCalls.length = 0;
   clearCwdReleaseMarkerCalls.length = 0;
   findHistoryOlderThanCalls.length = 0;
-  batchDeleteCalls.length = 0;
+  batchDeleteHistoryCalls.length = 0;
   getCalls.length = 0;
   emitCalls.length = 0;
   leaveTeamsAndAutoArchiveCalls.length = 0;
@@ -232,9 +237,9 @@ describe('LifecycleScheduler.scan — R2 codex MED-1 修法契约 (purge race fi
     });
     scheduler.scan();
 
-    // 关键: batchDelete 只删 sid-old (排除本轮 dormant→closed 的 sid-A / sid-B)
-    expect(batchDeleteCalls).toHaveLength(1);
-    expect(batchDeleteCalls[0]).toEqual(['sid-old']);
+    // 关键: batchDeleteHistory 只删 sid-old (排除本轮 dormant→closed 的 sid-A / sid-B)
+    expect(batchDeleteHistoryCalls).toHaveLength(1);
+    expect(batchDeleteHistoryCalls[0]).toEqual(['sid-old']);
     // sid-A / sid-B 仍走 leaveTeamsAndAutoArchive (fire-and-forget,microtask 让出),
     // 排除 purge 让 helper 有时间 await import + 跑完
     expect(leaveTeamsAndAutoArchiveCalls.map((c) => c.sessionId)).toEqual(['sid-A', 'sid-B']);
@@ -252,14 +257,14 @@ describe('LifecycleScheduler.scan — R2 codex MED-1 修法契约 (purge race fi
     });
     scheduler.scan();
 
-    // 关键: 无 updatedClosedIds → 全部 ids 进 batchDelete
-    expect(batchDeleteCalls).toHaveLength(1);
-    expect(batchDeleteCalls[0]).toEqual(['sid-historic-1', 'sid-historic-2']);
+    // 关键: 无 updatedClosedIds → 全部 ids 进 batchDeleteHistory
+    expect(batchDeleteHistoryCalls).toHaveLength(1);
+    expect(batchDeleteHistoryCalls[0]).toEqual(['sid-historic-1', 'sid-historic-2']);
     // 无 leaveTeamsAndAutoArchive (无 dormant→closed)
     expect(leaveTeamsAndAutoArchiveCalls).toEqual([]);
   });
 
-  it('historyRetentionDays=0 (关闭清理) → 不调 findHistoryOlderThan / batchDelete', () => {
+  it('historyRetentionDays=0 (关闭清理) → 不调 findHistoryOlderThan / batchDeleteHistory', () => {
     nextDormantRows = [makeRecord({ id: 'sid-A' })];
     nextBatchSetLifecycleReturn = [makeRecord({ id: 'sid-A', lifecycle: 'closed' })];
 
@@ -271,7 +276,7 @@ describe('LifecycleScheduler.scan — R2 codex MED-1 修法契约 (purge race fi
     scheduler.scan();
 
     expect(findHistoryOlderThanCalls).toEqual([]);
-    expect(batchDeleteCalls).toEqual([]);
+    expect(batchDeleteHistoryCalls).toEqual([]);
     // R1 副作用仍跑
     expect(clearCwdReleaseMarkerCalls).toEqual(['sid-A']);
   });
@@ -279,7 +284,7 @@ describe('LifecycleScheduler.scan — R2 codex MED-1 修法契约 (purge race fi
 
 describe('LifecycleScheduler.scan — R2 codex LOW-1 修法契约 (emit fresh rec)', () => {
   it('emit "session-upserted" 用 sessionRepo.get(rec.id) re-fetch 拿 fresh rec (cwd_release_marker=null)', () => {
-    // 场景: batchSetLifecycle 内 SELECT 拿的 rec 仍带 stale marker='/path/X'
+    // 场景: batchAdvanceLifecycle 内 SELECT 拿的 rec 仍带 stale marker='/path/X'
     // clearCwdReleaseMarker 后, get(id) 返 fresh rec marker=null → 此 rec 应被 emit
     const staleRec = makeRecord({
       id: 'sid-A',
@@ -312,7 +317,7 @@ describe('LifecycleScheduler.scan — R2 codex LOW-1 修法契约 (emit fresh re
     expect((upsert?.payload as SessionRecord).cwdReleaseMarker).toBeNull();
   });
 
-  it('sessionRepo.get 返 null 时 fallback 用 batchSetLifecycle 的 rec (防 emit 丢失)', () => {
+  it('sessionRepo.get 返 null 时 fallback 用 batchAdvanceLifecycle 的 rec (防 emit 丢失)', () => {
     // 边角: race 中 session 被并发删,get 返 null → 仍 emit 旧 rec 避免完全丢失 session-upserted
     const oldRec = makeRecord({ id: 'sid-deleted', lifecycle: 'closed' });
     nextDormantRows = [makeRecord({ id: 'sid-deleted' })];
@@ -375,9 +380,9 @@ describe('LifecycleScheduler.scan — R3 reviewer-claude LOW-1 修法契约 (cle
 });
 
 describe('LifecycleScheduler.scan — R3 reviewer-claude INFO-1 修法契约 (batch 返空数组 edge case)', () => {
-  it('batchSetLifecycle 返空数组时不执行任何 for loop body (concurrent IPC markClosed 抢先 close 场景)', () => {
+  it('batchAdvanceLifecycle 返空数组时不执行任何 for loop body (concurrent IPC markClosed 抢先 close 场景)', () => {
     // 边角: scheduler findDormantExpiring 选中 sid-A,但 IPC markClosed 已先 close sid-A
-    // → batchSetLifecycle UPDATE 0 行返空数组 → for loop body 不执行
+    // → batchAdvanceLifecycle UPDATE 0 行返空数组 → for loop body 不执行
     nextDormantRows = [makeRecord({ id: 'sid-raced-closed' })];
     nextBatchSetLifecycleReturn = []; // batch UPDATE 0 行
     getResultsBySid = new Map();
@@ -394,7 +399,7 @@ describe('LifecycleScheduler.scan — R3 reviewer-claude INFO-1 修法契约 (ba
     expect(leaveTeamsAndAutoArchiveCalls).toEqual([]);
     const upserts = emitCalls.filter((e) => e.name === 'session-upserted');
     expect(upserts).toEqual([]);
-    // 但 batchSetLifecycle 仍被调到 (race 触发链上游)
-    expect(batchSetLifecycleCalls).toHaveLength(1);
+    // 但 batchAdvanceLifecycle 仍被调到 (race 触发链上游)
+    expect(batchAdvanceLifecycleCalls).toHaveLength(1);
   });
 });

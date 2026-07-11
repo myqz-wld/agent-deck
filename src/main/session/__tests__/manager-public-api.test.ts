@@ -50,10 +50,12 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     });
     sessionManager.ingest(ev);
     expect(sessionManager.list().some((s) => s.id === 'sess-archive')).toBe(true);
+    sessionManager.setPinned('sess-archive', true);
 
     await sessionManager.archive('sess-archive');
     const r = mockSessions.get('sess-archive');
     expect(r?.archivedAt).not.toBeNull();
+    expect(r?.pinnedAt).toBeNull();
     expect(sessionManager.list().some((s) => s.id === 'sess-archive')).toBe(false);
     // 广播了 session-upserted
     expect(
@@ -200,6 +202,33 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
 
     sessionManager.reactivate('sess-reactivate');
     expect(mockSessions.get('sess-reactivate')?.lifecycle).toBe('active');
+  });
+
+  it('setPinned() persists committed state, reactivates dormant, and emits the fresh record', () => {
+    mockSessions.set('sess-pin', {
+      id: 'sess-pin',
+      agentId: 'codex-cli',
+      cwd: '/tmp',
+      title: 'pin me',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 1,
+      endedAt: null,
+      archivedAt: null,
+      pinnedAt: null,
+    });
+
+    const pinned = sessionManager.setPinned('sess-pin', true);
+    expect(pinned.lifecycle).toBe('active');
+    expect(pinned.pinnedAt).toEqual(expect.any(Number));
+    expect(mockEmits.at(-1)).toMatchObject({
+      name: 'session-upserted',
+      payload: { id: 'sess-pin', lifecycle: 'active', pinnedAt: pinned.pinnedAt },
+    });
+
+    expect(sessionManager.setPinned('sess-pin', false).pinnedAt).toBeNull();
   });
 
   it('renameSdkSession() → 原子转移 sdkOwned claim（REVIEW_7 M3：内聚 release+claim）', async () => {

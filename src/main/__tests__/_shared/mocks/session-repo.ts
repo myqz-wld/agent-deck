@@ -64,6 +64,22 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
         .filter((s) => (spawnedBy !== undefined ? s.spawnedBy === spawnedBy : true))
         .filter((s) => (agentId !== undefined ? s.agentId === agentId : true))
         .slice(offset, offset + limit),
+    listLiveForUi: (limit = 100) => {
+      const live = [...sessions.values()]
+        .filter(
+          (s) =>
+            s.archivedAt === null &&
+            (s.lifecycle === 'active' || s.lifecycle === 'dormant'),
+        )
+        .sort(
+          (a, b) =>
+            (b.pinnedAt ?? -1) - (a.pinnedAt ?? -1) ||
+            b.lastEventAt - a.lastEventAt ||
+            a.id.localeCompare(b.id),
+        );
+      const pinnedCount = live.filter((session) => session.pinnedAt != null).length;
+      return live.slice(0, Math.max(limit, pinnedCount));
+    },
     listHistory: (
       opts: { limit?: number; offset?: number; spawnedBy?: string; agentId?: string } = {},
     ) =>
@@ -78,13 +94,38 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, activity, lastEventAt: ts });
     },
-    setLifecycle: (id: string, lifecycle: SessionRecord['lifecycle'], ts: number) => {
+    setLifecycle: (
+      id: string,
+      lifecycle: SessionRecord['lifecycle'],
+      ts: number,
+      options: { clearPinned?: boolean } = {},
+    ) => {
       const r = sessions.get(id);
       if (r) {
         sessions.set(id, {
           ...r,
           lifecycle,
           endedAt: lifecycle === 'closed' ? ts : null,
+          pinnedAt: options.clearPinned ? null : r.pinnedAt,
+        });
+      }
+    },
+    setEventState: (
+      id: string,
+      activity: SessionRecord['activity'],
+      lifecycle: SessionRecord['lifecycle'],
+      ts: number,
+      options: { clearPinned?: boolean } = {},
+    ) => {
+      const r = sessions.get(id);
+      if (r) {
+        sessions.set(id, {
+          ...r,
+          activity,
+          lifecycle,
+          lastEventAt: ts,
+          endedAt: lifecycle === 'closed' ? ts : null,
+          pinnedAt: options.clearPinned ? null : r.pinnedAt,
         });
       }
     },
@@ -96,7 +137,19 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       // SessionRowMissingError,工作量大且属测试基建升级。本 plan 标 LOW acceptable 留 P2 plan,
       // 与 codex LOW-2 originaml 评估「scope 评估值不值,如有现成 pattern 建议补」一致。
       const r = sessions.get(id);
-      if (r) sessions.set(id, { ...r, archivedAt: ts });
+      if (r) sessions.set(id, { ...r, archivedAt: ts, pinnedAt: ts === null ? r.pinnedAt : null });
+    },
+    setPinned: (id: string, pinnedAt: number | null) => {
+      const r = sessions.get(id);
+      if (!r) throw new Error(`session ${id} not found`);
+      const updated: SessionRecord = {
+        ...r,
+        lifecycle: pinnedAt !== null && r.lifecycle === 'dormant' ? 'active' : r.lifecycle,
+        endedAt: pinnedAt !== null && r.lifecycle === 'dormant' ? null : r.endedAt,
+        pinnedAt: pinnedAt === null ? null : r.pinnedAt ?? pinnedAt,
+      };
+      sessions.set(id, updated);
+      return updated;
     },
     // R2 reviewer-codex MED 修法: archive() 新增 clearCwdReleaseMarker(sessionId) 调用,
     // mock 必须补该 method 否则 manager-public-api.test.ts 撞 TypeError。

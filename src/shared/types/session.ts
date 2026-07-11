@@ -35,6 +35,8 @@ export interface SessionRecord {
   lastEventAt: number;
   endedAt: number | null;
   archivedAt: number | null;
+  /** Real-time session pin timestamp; null/undefined means unpinned. */
+  pinnedAt?: number | null;
   /** SDK 通道：上次手动选过的权限模式；null/undefined 视为 'default'。CLI 通道字段无意义。 */
   permissionMode?: PermissionMode | null;
   /**

@@ -49,6 +49,7 @@ import v035 from './v035_token_usage_reasoning.sql?raw';
 import v036 from './v036_token_usage_model_buckets.sql?raw';
 import v037 from './v037_event_revisions.sql?raw';
 import v038 from './v038_continuation_checkpoints.sql?raw';
+import v039 from './v039_sessions_pinned.sql?raw';
 
 export interface Migration {
   version: number;
@@ -95,4 +96,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 36, name: 'token_usage_model_buckets', sql: v036 },
   { version: 37, name: 'event_revisions', sql: v037 },
   { version: 38, name: 'continuation_checkpoints', sql: v038 },
+  { version: 39, name: 'sessions_pinned', sql: v039 },
 ];

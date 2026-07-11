@@ -12,7 +12,7 @@ import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
 import { summaryRepo } from '@main/store/summary-repo';
 import { taskRepo } from '@main/store/task-repo';
 import log from '@main/utils/logger';
-import { on, parsePositiveInt, parseStringId, parseStringIdArray } from './_helpers';
+import { on, parseBoolean, parsePositiveInt, parseStringId, parseStringIdArray } from './_helpers';
 import { registerSessionHandOffIpc } from './session-hand-off';
 
 const logger = log.scope('ipc-sessions');
@@ -92,6 +92,12 @@ export function registerSessionsIpc(): void {
     sessionManager.reactivate(parseStringId('sessionId', id));
     return true;
   });
+  on(IpcInvoke.SessionSetPinned, (_event, id, pinned) =>
+    sessionManager.setPinned(
+      parseStringId('sessionId', id),
+      parseBoolean('pinned', pinned),
+    ),
+  );
   on(IpcInvoke.SessionDelete, async (_event, id) => {
     await sessionManager.delete(parseStringId('sessionId', id));
     return true;
