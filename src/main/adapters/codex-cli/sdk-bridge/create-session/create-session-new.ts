@@ -57,10 +57,17 @@ export async function runCreateSessionNewPath(
     sessionId: tempKey,
     agentId: AGENT_ID,
     kind: 'session-start',
-    payload: { cwd, source: 'sdk' },
+    payload: {
+      cwd,
+      source: 'sdk',
+      ...(opts.initialSessionRegistration
+        ? { initialSpawnLink: opts.initialSessionRegistration.spawnLink }
+        : {}),
+    },
     ts: Date.now(),
     source: 'sdk',
   });
+  opts.initialSessionRegistration?.onRegistered(tempKey);
   deps.emit({
     sessionId: tempKey,
     agentId: AGENT_ID,
@@ -139,7 +146,7 @@ export async function runCreateSessionNewPath(
       opts.prompt!,
       opts.attachments,
       opts.handOff,
-      { initialSessionEmitted: true },
+      { initialSessionEmitted: true, rejectOnFallback: true },
     );
     return { sessionId: canonicalId };
   }

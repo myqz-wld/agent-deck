@@ -115,6 +115,9 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   // 时 spread 进 events.payload。
   if (raw.handOff !== undefined) out.handOff = raw.handOff;
   if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
+  if (raw.initialSessionRegistration !== undefined) {
+    out.initialSessionRegistration = raw.initialSessionRegistration;
+  }
   return out;
 }
 
@@ -133,9 +136,9 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  * 走 caller 显式字段路径，不被 spread 污染（不变量 6）。reviewer-* 的 codexSandbox 不在本层
  * 强制覆盖，沿用 caller 显式值 / same-adapter 继承 / target adapter 默认值。
  *
- * **信号源 = `raw.agentName`**（v4 D7）：禁用 `opts.spawnedBy` 反向信号源（v3 错误信号 — spawn
- * link 在 spawn handler `setSpawnLink` 后才写库，adapter.createSession 时刻 spawned_by 还没
- * 持久化；baton 路径已删 spawnedBy 写入更不能用）。
+ * **信号源 = `raw.agentName`**（v4 D7）：禁用 spawn-link 反向信号源。reviewer runtime 只由
+ * agentName 决定；initialSessionRegistration 是 UI/限流所需的父子关系注册，不代表 reviewer，
+ * hand-off 路径也不会携带它。
  */
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
@@ -161,6 +164,9 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   // sdk-bridge resume,详 plan §不变量 5)。
   if (raw.handOff !== undefined) out.handOff = raw.handOff;
   if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
+  if (raw.initialSessionRegistration !== undefined) {
+    out.initialSessionRegistration = raw.initialSessionRegistration;
+  }
 
   // plan §P3 Step 3.5 + §不变量 6: codex reviewer teammate spawn (REVIEWER_AGENT_NAMES
   // SSOT) runtime default spread enforce 点。caller 路径 / 普通 codex session 走
@@ -369,6 +375,7 @@ const _CLAUDE_PASSTHROUGH_KEYS = {
   extraAllowWrite: 0,
   handOff: 0,
   awaitCanonicalId: 0,
+  initialSessionRegistration: 0,
 } as const;
 const _assertClaudePassthroughCoversArm: AssertSameKeys<
   typeof _CLAUDE_PASSTHROUGH_KEYS,
@@ -390,6 +397,7 @@ const _CODEX_PASSTHROUGH_KEYS = {
   extraAllowWrite: 0,
   handOff: 0,
   awaitCanonicalId: 0,
+  initialSessionRegistration: 0,
 } as const;
 const _assertCodexPassthroughCoversArm: AssertSameKeys<
   typeof _CODEX_PASSTHROUGH_KEYS,

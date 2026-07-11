@@ -179,10 +179,17 @@ export async function createCodexForkedSession(
       sessionId: tempId,
       agentId: AGENT_ID,
       kind: 'session-start',
-      payload: { cwd: runtime.cwd, source: 'sdk' },
+      payload: {
+        cwd: runtime.cwd,
+        source: 'sdk',
+        ...(target.initialSessionRegistration
+          ? { initialSpawnLink: target.initialSessionRegistration.spawnLink }
+          : {}),
+      },
       ts: Date.now(),
       source: 'sdk',
     });
+    target.initialSessionRegistration?.onRegistered(tempId);
     (deps.persistTargetFields ?? persistSessionFields)({
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,

@@ -165,6 +165,7 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
       claudeAgents: opts.claudeAgents,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
+      initialSessionRegistration: opts.initialSessionRegistration,
     });
     return handle.sessionId;
   }
@@ -190,6 +191,7 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
       claudeAgents: opts.claudeAgents,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
+      initialSessionRegistration: opts.initialSessionRegistration,
     });
     return handle.sessionId;
   }

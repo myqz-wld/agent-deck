@@ -1,73 +1,33 @@
 {
   "root": "/Users/wanglidong/Repository/agent-deck",
-  "scanned_at": "2026-07-11T12:50:21Z",
-  "expires_at": "2026-07-18T12:50:21Z",
-  "scan_reason": "User confirmed richer revision-bounded periodic summaries with compact evidence reuse.",
-  "git_head": "e4efca29a4d3fb4ee97d87a791409479ff265b21",
+  "scanned_at": "2026-07-11T17:49:49Z",
+  "expires_at": "2026-07-18T17:49:49Z",
+  "scan_reason": "User confirmed prompt-only terminal behavior after successful hand_off_session.",
+  "git_head": "2a0998ff13d9f1766bed741fb615f69640991c69",
   "assets": [
-    {
-      "path": "src/main/session/oneshot-llm/build-prompt.ts",
-      "type": "periodic-summary-prompt-template",
-      "scope": "confirmed",
-      "reason": "Replace the vague 30-character one-line contract with a bounded evidence-aware multiline summary contract.",
-      "exists": true,
-      "hash": "c6278ec9bcf260dfb9a64278211e36305288759aa7693e9560da6b0dc8efad22"
-    },
-    {
-      "path": "README.md",
-      "type": "repository-prompt-reference",
-      "scope": "confirmed",
-      "reason": "Document revision-bounded evidence, multiline display summaries, and explicit fallback labeling.",
-      "exists": true,
-      "hash": "2667e97f595848e55eb7fd5c243c6cc15d8e8f59d6b6ab3df3138c2463974741"
-    },
-    {
-      "path": "ref/changelogs/recent-3-days/CHANGELOG_360_periodic-summary-evidence.md",
-      "type": "changelog-prompt-asset",
-      "scope": "confirmed",
-      "reason": "Record the periodic summary evidence and revision-cursor behavior change.",
-      "exists": true,
-      "hash": "96d1022500549616a34a3628a8705c8e38cc895f6759c65d3a4cc5f2bf2c7a78"
-    },
-    {
-      "path": "ref/changelogs/INDEX.md",
-      "type": "changelog-routing-index",
-      "scope": "confirmed",
-      "reason": "Route the new periodic summary changelog.",
-      "exists": true,
-      "hash": "f24356c3b8a22be4ca40a59983167ce87fd87ebc4665f08b76d7f68363efb075"
-    },
-    {
-      "path": "ref/changelogs/recent-3-days/INDEX.md",
-      "type": "changelog-bucket-index",
-      "scope": "confirmed",
-      "reason": "List the new periodic summary changelog in the current bucket.",
-      "exists": true,
-      "hash": "1b01b6362f883da62fdeefbf7759f63e1c3cf2568fe12234882a71f753f5fc61"
-    },
-    {
-      "path": "src/main/session/continuation-context/checkpoint-prompts.ts",
-      "type": "continuation-checkpoint-prompt",
-      "scope": "counterpart-check-only",
-      "reason": "Confirm periodic display summaries reuse validated facts without changing the hand-off compactor prompt.",
-      "exists": true,
-      "hash": "2d2ea409993df5444f26d464633f4d86249d662fd2c77fee532e28dc8ea6d7ed"
-    },
     {
       "path": "resources/claude-config/CLAUDE.md",
       "type": "claude-runtime-prompt",
-      "scope": "counterpart-check-only",
-      "reason": "The runtime hand-off protocol remains unchanged by display-summary evidence reuse.",
+      "scope": "confirmed",
+      "reason": "Make successful handoff the final and sole tool action, including source-finalization warnings.",
       "exists": true,
-      "hash": "ec2b35d14ee4fdb92ea0f97690559d6f9fa48c811dcbc5c95a7c79a11b11352a"
+      "hash": "8be52fb5695e95ab711992f3415bcdb00550edc78d962856b563cc1b9fbec8ba"
     },
     {
       "path": "resources/codex-config/CODEX_AGENTS.md",
       "type": "codex-runtime-prompt",
-      "scope": "counterpart-check-only",
-      "reason": "The paired runtime hand-off protocol remains unchanged by display-summary evidence reuse.",
+      "scope": "confirmed",
+      "reason": "Keep the Codex bundled handoff terminal rule aligned with the Claude runtime asset.",
       "exists": true,
-      "hash": "cccf21daf7aeafba14ad418cc945427b617bdeff5d29795f2730f2a0a3840404"
+      "hash": "a41f760766ec460e42d28ee72a85f91f981cdeea61a1f9ce43284a6d04de8605"
+    },
+    {
+      "path": "src/main/agent-deck-mcp/tools/index.ts",
+      "type": "mcp-tool-description",
+      "scope": "confirmed",
+      "reason": "Expose the same final-only invocation and terminal-success contract in hand_off_session metadata.",
+      "exists": true,
+      "hash": "ab709225581193b8bc18687242125d6b548c9f53bca9d3ccf244e47a3787962f"
     }
   ]
 }

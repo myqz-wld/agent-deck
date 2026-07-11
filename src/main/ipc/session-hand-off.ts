@@ -104,7 +104,7 @@ async function executeUiHandOff(input: {
         failures.push(`关闭源会话失败：${error instanceof Error ? error.message : String(error)}`);
       }
       try {
-        await archiveSourceSessionWithEmit(source.id, {
+        const archiveResult = await archiveSourceSessionWithEmit(source.id, {
           archive: (sessionId) => sessionManager.archive(sessionId),
           getSession: (sessionId) => sessionRepo.get(sessionId),
           emitArchiveFailed: (payload) =>
@@ -113,6 +113,9 @@ async function executeUiHandOff(input: {
               payload satisfies EventMap['caller-archive-failed'][0],
             ),
         });
+        if (!archiveResult.ok) {
+          failures.push(`归档源会话失败：${archiveResult.reason}`);
+        }
       } catch (error) {
         failures.push(`归档源会话失败：${error instanceof Error ? error.message : String(error)}`);
       }

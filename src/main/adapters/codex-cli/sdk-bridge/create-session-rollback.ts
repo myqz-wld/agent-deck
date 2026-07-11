@@ -11,7 +11,8 @@
  *    本 catch 走 best-effort 重复 cleanup (idempotent) 加固
  *
  * **设计要点**:
- * - 4 资源 best-effort cleanup,每个独立 try/catch warn 不抛 (任一 cleanup 失败仍继续后续 cleanup)
+ * - 新建 provisional session 先经 lifecycle SSOT 删除；其余资源 best-effort cleanup，
+ *   每个独立 try/catch warn 不抛（任一 cleanup 失败仍继续后续 cleanup）
  * - 全部操作 idempotent (mcp-session-token-map.release sid 不在 → silent no-op +
  *   Map.delete / Set.delete 同款),thread-loop earlyErrCb 已 cleanup 的资源重复调用安全
  * - Cleanup 顺序: codexBySession → tokenMap → sessions → sdkClaim (与 closeSession L730-L744
@@ -22,9 +23,9 @@
  * **接口**:
  * - sessionId: codex 端 initialSid = opts.resume ?? randomUUID() (与 sessions.set / codexBySession.set
  *   / mcpSessionTokenMap.allocate 用同一 key,不变量 7)
- * - resumeSessionId: opts.resume (定义时机:caller 侧 createSession opts.resume) — 仅 resume 路径需
- *   清 sdkClaim,spawn 主路径 randomUUID tempKey 不在 sdkClaim 集合
- * - deps: 4 个 cleanup 操作的注入点 (test seam 让单测 mock 覆盖)
+ * - resumeSessionId: opts.resume (定义时机:caller 侧 createSession opts.resume) — 有值表示既有
+ *   会话，绝不能删除历史行；无值表示失败的新建 provisional session，可以安全删除
+ * - deps: Map cleanup 操作的注入点 (test seam 让单测 mock 覆盖)
  *
  * **测试 seam**: deps 字段 inject mock,跟踪每个 cleanup call site 是否被调 + idempotent 行为
  */
@@ -53,14 +54,30 @@ export interface RunCreateSessionRollbackArgs {
 }
 
 /**
- * 4 资源 best-effort cleanup:codexBySession.delete + mcpSessionTokenMap.release +
- * sessions.delete + (resume 时) sessionManager.releaseSdkClaim。caller 调完后 throw err。
+ * 新建 provisional row 删除 + 4 资源 best-effort cleanup：codexBySession.delete +
+ * mcpSessionTokenMap.release + sessions.delete + sessionManager.releaseSdkClaim。
+ * caller 调完后继续抛出原始错误。
  *
  * 失败兜底:每个 cleanup 独立 try/catch warn 不抛 — 任一失败仍继续后续。
  * Idempotent:重复调用安全 (thread-loop earlyErrCb 可能已 cleanup 部分资源)。
  */
-export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): void {
+export async function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): Promise<void> {
   const { sessionId, resumeSessionId, deps } = args;
+
+  // Programmatic new-session creation may already have emitted a provisional row before the
+  // provider reports its canonical id. Remove that row through the lifecycle SSOT so renderer
+  // state, cascaded events, adapter state, and the late-event blacklist stay aligned. Never delete
+  // a resume target: it is pre-existing user history rather than a failed provisional session.
+  if (resumeSessionId === undefined) {
+    try {
+      await sessionManager.delete(sessionId);
+    } catch (cleanupErr) {
+      logger.warn(
+        `[codex-bridge] sessionManager.delete failed during createSession rollback for ${sessionId}:`,
+        cleanupErr,
+      );
+    }
+  }
 
   try {
     deps.codexBySession.get(sessionId)?.dispose();
@@ -87,14 +104,12 @@ export function runCreateSessionRollback(args: RunCreateSessionRollbackArgs): vo
       cleanupErr,
     );
   }
-  if (resumeSessionId !== undefined) {
-    try {
-      sessionManager.releaseSdkClaim(resumeSessionId);
-    } catch (cleanupErr) {
-      logger.warn(
-        `[codex-bridge] releaseSdkClaim failed during createSession early-err cleanup for ${resumeSessionId}:`,
-        cleanupErr,
-      );
-    }
+  try {
+    sessionManager.releaseSdkClaim(sessionId);
+  } catch (cleanupErr) {
+    logger.warn(
+      `[codex-bridge] releaseSdkClaim failed during createSession early-err cleanup for ${sessionId}:`,
+      cleanupErr,
+    );
   }
 }

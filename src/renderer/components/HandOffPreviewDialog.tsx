@@ -234,7 +234,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       if (result.sourceFinalizationWarning) {
         setError(
           `新会话 ${result.successorSessionId} 已创建，但源会话收尾失败：${result.sourceFinalizationWarning}。` +
-            '请确认源会话已关闭并归档后，再切换到新会话继续。',
+            '新会话不会回滚；请检查源会话状态并按提示处理后，再切换继续。',
         );
         return;
       }

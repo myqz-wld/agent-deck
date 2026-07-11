@@ -90,15 +90,18 @@ vi.mock('@main/session/manager', () => ({
     releaseSdkClaim: vi.fn(),
     renameSdkSession: vi.fn(),
     unarchive: vi.fn(),
+    delete: vi.fn(async () => undefined),
     // REVIEW_99 R3 cancellation-epoch: recoverAndSend 入口捕 baseline。返 0 恒定 = 不 close →
     // 合法 resume 不误 abort（本 test 验 earlyErr cleanup 后 recoverer 自愈,非 close 场景）。
     getCloseEpoch: vi.fn(() => 0),
   },
 }));
 
+import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
+import { THREAD_STARTED_FALLBACK_MS } from '@main/adapters/codex-cli/sdk-bridge/constants';
 import type { AgentEvent } from '@shared/types';
 
 const emits: AgentEvent[] = [];
@@ -147,6 +150,7 @@ beforeEach(() => {
   nextThread = null;
   appServerClientMock.nextThread = null;
   appServerClientMock.CodexAppServerClient.mockClear();
+  mcpSessionTokenMap.clearAll();
   vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionRepo.setCodexSandbox).mockReset();
   vi.mocked(sessionRepo.setModel).mockReset();
@@ -154,7 +158,8 @@ beforeEach(() => {
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.renameSdkSession).mockReset();
   vi.mocked(sessionManager.unarchive).mockReset();
-
+  vi.mocked(sessionManager.delete).mockReset();
+  vi.mocked(sessionManager.delete).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -174,6 +179,69 @@ function makeBridge(): CodexSdkBridge {
 function getSessionsMap(bridge: CodexSdkBridge): Map<string, unknown> {
   return (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
 }
+
+function getInjectedMcpToken(): string {
+  const calls = appServerClientMock.CodexAppServerClient.mock.calls as unknown as Array<
+    [{ env?: Record<string, string> }]
+  >;
+  const options = calls.at(-1)?.[0];
+  const token = options?.env?.AGENT_DECK_MCP_TOKEN;
+  if (!token) throw new Error('CodexAppServerClient was not given a per-session MCP token');
+  return token;
+}
+
+describe('codex sdk-bridge strict canonical startup cleanup', () => {
+  it('rejects an early startup error and removes the provisional session', async () => {
+    nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
+    const bridge = makeBridge();
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/new-early-error',
+      prompt: 'hi',
+      awaitCanonicalId: true,
+    });
+
+    await flushMicrotasks();
+    const token = getInjectedMcpToken();
+    const tempSid = emits.find((event) => event.kind === 'session-start')?.sessionId;
+    expect(tempSid).toBeTruthy();
+    nextThread.rejectStreamed!(new Error('spawn boom'));
+
+    await expect(createPromise).rejects.toThrow(/spawn boom/);
+    expect(sessionManager.delete).toHaveBeenCalledWith(tempSid);
+    expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith(tempSid);
+    expect(mcpSessionTokenMap.get(token)).toBeNull();
+    expect(getSessionsMap(bridge).has(tempSid!)).toBe(false);
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects thread.started timeout and removes the provisional session', async () => {
+    vi.useFakeTimers();
+    nextThread = new ControlledThread();
+    appServerClientMock.nextThread = nextThread;
+    const bridge = makeBridge();
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/new-timeout',
+      prompt: 'hi',
+      awaitCanonicalId: true,
+    });
+    const rejection = expect(createPromise).rejects.toThrow(/30 秒内未发出 thread_id/);
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+    const token = getInjectedMcpToken();
+    const tempSid = emits.find((event) => event.kind === 'session-start')?.sessionId;
+    expect(tempSid).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(THREAD_STARTED_FALLBACK_MS);
+    await rejection;
+
+    expect(sessionManager.delete).toHaveBeenCalledWith(tempSid);
+    expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith(tempSid);
+    expect(mcpSessionTokenMap.get(token)).toBeNull();
+    expect(getSessionsMap(bridge).has(tempSid!)).toBe(false);
+    expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+  });
+});
 
 describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
   // ─── R2-1 path 1: 30s 内 earlyErr → cleanup + reject + finished:error 一次 ───────

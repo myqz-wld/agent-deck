@@ -105,6 +105,77 @@ describe('SessionManager.ingest 时序', () => {
     expect(agentCount).toBe(1);
   });
 
+  it('SDK 首个 session-start 原子持久化 spawn link，hook 伪造同字段无效', () => {
+    sessionManager.claimAsSdk('linked-child');
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'linked-child',
+        source: 'sdk',
+        kind: 'session-start',
+        payload: {
+          cwd: '/tmp',
+          initialSpawnLink: { parentSessionId: 'lead-session', depth: 2 },
+        },
+      }),
+    );
+    expect(mockSessions.get('linked-child')).toMatchObject({
+      spawnedBy: 'lead-session',
+      spawnDepth: 2,
+    });
+    expect(
+      mockEmits.find(
+        (entry) =>
+          entry.name === 'session-upserted' &&
+          (entry.payload as SessionRecord).id === 'linked-child',
+      )?.payload,
+    ).toMatchObject({ spawnedBy: 'lead-session', spawnDepth: 2 });
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'forged-hook-child',
+        source: 'hook',
+        kind: 'session-start',
+        payload: {
+          cwd: '/tmp',
+          initialSpawnLink: { parentSessionId: 'lead-session', depth: 9 },
+        },
+      }),
+    );
+    expect(mockSessions.get('forged-hook-child')).toMatchObject({
+      spawnedBy: null,
+      spawnDepth: 0,
+    });
+  });
+
+  it('可信 SDK registration 可补齐同一启动流程先创建的 flat row', () => {
+    sessionManager.claimAsSdk('late-linked-child');
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'late-linked-child',
+        source: 'sdk',
+        kind: 'message',
+        payload: { role: 'assistant', text: 'provider started' },
+      }),
+    );
+    expect(mockSessions.get('late-linked-child')?.spawnedBy).toBeNull();
+
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'late-linked-child',
+        source: 'sdk',
+        kind: 'session-start',
+        payload: {
+          cwd: '/tmp',
+          initialSpawnLink: { parentSessionId: 'lead-session', depth: 1 },
+        },
+      }),
+    );
+    expect(mockSessions.get('late-linked-child')).toMatchObject({
+      spawnedBy: 'lead-session',
+      spawnDepth: 1,
+    });
+  });
+
   it('2) SDK 先到 + 后续同 id hook → hook 被丢（sdkOwned dedup）', () => {
     sessionManager.claimAsSdk('sess-sdk-claim');
     const sdkEv = makeEvent({

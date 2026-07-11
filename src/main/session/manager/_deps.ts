@@ -60,6 +60,9 @@ export interface UpsertOptions {
   title?: string;
   source?: SessionSource;
   reviveClosed?: boolean;
+  /** Trusted main-process spawn registration, consumed only while creating the first SDK row. */
+  spawnedBy?: string | null;
+  spawnDepth?: number;
 }
 
 /**

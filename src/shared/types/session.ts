@@ -194,9 +194,9 @@ export interface SessionRecord {
    * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
    * - 字符串：MCP `spawn_session` tool 调用方的 session id
    *
-   * 与 spawnDepth 配合用于防递归 4 条规则（depth 上限 / per-parent fan-out /
-   * cwd realpath 整链回溯）。MCP spawn_session handler 在 createSession 前 reserve
-   * 占位时调 sessionRepo.setSpawnLink 写入。
+   * 与 spawnDepth 配合用于 depth / per-parent fan-out 防护。MCP handler 先持有 in-flight
+   * reservation；首个可信 SDK session-start 原子写入 spawn link 后立即把 reservation 转成
+   * durable active-child 计数，canonical id 完成后再幂等校验一次。
    */
   spawnedBy?: string | null;
   /**

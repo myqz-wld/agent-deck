@@ -140,7 +140,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     expect(
       await screen.findByText(/新会话 target-warning 已创建，但源会话收尾失败/),
     ).toBeTruthy();
-    expect(screen.getByText(/请确认源会话已关闭并归档后/)).toBeTruthy();
+    expect(screen.getByText(/新会话不会回滚；请检查源会话状态/)).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('续接上下文预览')).toBeNull();
   });

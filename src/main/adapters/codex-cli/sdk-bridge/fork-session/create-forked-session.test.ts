@@ -58,6 +58,10 @@ describe('Codex native fork lifecycle', () => {
     expect(h.claims.has(CHILD_ID)).toBe(true);
     expect(h.appRows.has(tempId)).toBe(false);
     expect(h.appRows.has(CHILD_ID)).toBe(true);
+    expect(h.events.find((event) => event.kind === 'session-start')?.payload).toMatchObject({
+      initialSpawnLink: { parentSessionId: SOURCE_APP_ID, depth: 1 },
+    });
+    expect(h.onRegistered).toHaveBeenCalledWith(tempId);
     expect(h.ops).toEqual(expect.arrayContaining([
       `emit:start:${tempId}`,
       `rename:${tempId}:${CHILD_ID}`,
@@ -257,6 +261,10 @@ function makeHarness(options: HarnessOptions = {}) {
     prompt: 'delegated task',
     model: 'target-model',
     modelReasoningEffort: 'high',
+    initialSessionRegistration: {
+      spawnLink: { parentSessionId: SOURCE_APP_ID, depth: 1 },
+      onRegistered: vi.fn(),
+    },
     ...(options.targetAttachmentPath
       ? {
           attachments: [{
@@ -346,6 +354,7 @@ function makeHarness(options: HarnessOptions = {}) {
       cwd: '/repo',
     },
     target,
+    onRegistered: target.initialSessionRegistration!.onRegistered,
     deps,
     runtime,
     sessions,

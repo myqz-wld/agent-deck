@@ -15,8 +15,9 @@
  * lead 用 → 饥饿。改为「rate token 在 depth + fan-out 都通过后才扣」，避免这条饥饿路径。
  *
  * **Race protection**（REVIEW_27 reviewer 双对抗 MED 修法）：fan-out check + inFlightChildren.inc
- * 必须在同一同步段内完成，handler 后续 await createSession；createSession 失败 / 完成时
- * 必须保证 dec 一次（finally 兜底）。
+ * 必须在同一同步段内完成。首个 linked SDK session row 落库后，registration callback 立即
+ * 把 reservation 转成 active-child 计数；createSession 更早失败或 adapter 不支持该 callback 时
+ * 由 finally 幂等 release 兜底。
  *
  * **2026-05 移除 §6.2 cwd realpath 整链回溯**（REVIEW_28）：原 §6.2 同 cwd 同 adapter 拒绝
  * 拦掉了 deep-code-review SKILL 的合法用例（lead 在 repo 起两 reviewer teammate 同 cwd 同
@@ -101,9 +102,8 @@ function deny(error: string, hint: string | undefined, spawnLimits: SpawnSession
  *
  * 返回值：
  * - GuardDenial：拒绝，handler 直接返回该值（带 isError:true）
- * - { ok: true, parentDepth, fanOutSlot }：通过，handler 继续；fanOutSlot 必须在
- *   handler 末尾（无论 createSession 成功 / 失败）调 .release() 释放 in-flight 计数
- *   (handOffMode=true 路径 release 是 no-op,因没 inc 过)
+ * - { ok: true, parentDepth, fanOutSlot }：通过，handler 继续；首个 linked row 注册后立即
+ *   release，handler finally 再幂等调用一次兜底（handOffMode=true 时为 no-op）。
  */
 export function applySpawnGuards(
   caller: CallerContext,

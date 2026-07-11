@@ -76,7 +76,7 @@ describe('Codex trusted continuation new-session split', () => {
       'FULL CODEX PROVIDER CONTEXT',
       undefined,
       undefined,
-      { initialSessionEmitted: true },
+      { initialSessionEmitted: true, rejectOnFallback: true },
     );
     const message = emit.mock.calls.map(([event]) => event).find((event) => event.kind === 'message');
     expect(message.payload).toMatchObject({

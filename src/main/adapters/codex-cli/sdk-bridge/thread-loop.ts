@@ -75,11 +75,20 @@ export class ThreadLoop {
      * (详 plan §不变量 5 — codex 3 处 emit:fallback / success / sdk-bridge resume)。
      */
     handOff?: HandOffMetadata,
-    options?: { initialSessionEmitted?: boolean },
+    options?: { initialSessionEmitted?: boolean; rejectOnFallback?: boolean },
   ): Promise<string> {
-    return new Promise<string>((resolve) => {
+    return new Promise<string>((resolve, reject) => {
       let resolved = false;
       const initialSessionEmitted = options?.initialSessionEmitted === true;
+      const rejectOnFallback = options?.rejectOnFallback === true;
+
+      const settleInterrupted = (): void => {
+        const error = new Error(
+          'Codex session creation was interrupted before thread.started was received.',
+        );
+        if (rejectOnFallback) reject(error);
+        else resolve(tempKey);
+      };
 
       /**
        * 用 tempKey 顶上 realId 的兜底路径。errorText 是要显示给用户的错误消息：
@@ -94,7 +103,7 @@ export class ThreadLoop {
         resolved = true;
         clearTimeout(fallback);
         if (internal.intentionallyClosed && fallbackOptions?.abortInitiatedByFallback !== true) {
-          resolve(tempKey);
+          settleInterrupted();
           return;
         }
         // P5 Round 1 reviewer-claude MED-1 修法:fallback 路径(30s timeout / earlyErr)清 codexBySession
@@ -155,14 +164,15 @@ export class ThreadLoop {
           ts: Date.now(),
           source: 'sdk',
         });
-        resolve(tempKey);
+        if (rejectOnFallback) reject(new Error(errorText));
+        else resolve(tempKey);
       };
 
       const fallback = setTimeout(() => {
         if (internal.intentionallyClosed) {
           if (resolved) return;
           resolved = true;
-          resolve(tempKey);
+          settleInterrupted();
           return;
         }
         // 30s 内 codex 既没吐 thread.started 也没退出 → 中断它，避免子进程继续挂着。
@@ -187,21 +197,19 @@ export class ThreadLoop {
         tempKey,
         (realId) => {
           if (resolved) return;
-          resolved = true;
           clearTimeout(fallback);
           if (internal.intentionallyClosed) {
-            resolve(tempKey);
+            resolved = true;
+            settleInterrupted();
             return;
           }
           if (realId !== tempKey) {
-            // 切 sessions map 的 key
+            // 先完成 durable rename + sdk claim/token/client hook，再切 bridge sessions Map。
+            // 若 durable rename 抛错，tempKey 仍完整可由 fallback/rollback 清理，不会留下 realId
+            // 半迁移条目或让 strict canonical Promise 永久悬挂。
+            sessionManager.renameSdkSession(tempKey, realId);
             this.ctx.sessions.delete(tempKey);
             this.ctx.sessions.set(realId, internal);
-            sessionManager.claimAsSdk(realId);
-            // 把已经登记到 sessionManager 的 tempKey 行迁移到 realId
-            // （实际上 tempKey 还没进 sessionManager —— 我们等到 thread.started 才 claim）
-            // 但保险起见调一次 rename，sessionManager 内部会处理「from 不存在」的 noop
-            sessionManager.renameSdkSession(tempKey, realId);
           } else {
             sessionManager.claimAsSdk(realId);
           }
@@ -231,6 +239,7 @@ export class ThreadLoop {
               source: 'sdk',
             });
           }
+          resolved = true;
           resolve(realId);
         },
         (earlyErr) => {

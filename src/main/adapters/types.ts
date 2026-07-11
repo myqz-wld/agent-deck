@@ -19,6 +19,7 @@ export type {
   CodexCreateOpts,
   CreateSessionOptions,
   CreateSessionOptionsRaw,
+  InitialSessionRegistration,
 } from './types/create-session-opts';
 export type { AdapterCapabilities } from './types/capabilities';
 export type {

@@ -264,7 +264,7 @@ export async function createSessionImpl(
     // REVIEW_60 MED-codex-2 + R4 §B 抽法 #3 修法 (与 try 块配对):
     // 4 资源 best-effort cleanup 抽到 create-session-rollback.ts helper (REVIEW_60 R4 reviewer-claude
     // 抽法清单),caller 调完后 throw err。详 helper jsdoc。
-    runCreateSessionRollback({
+    await runCreateSessionRollback({
       sessionId: initialSid,
       resumeSessionId: opts.resume,
       deps: {

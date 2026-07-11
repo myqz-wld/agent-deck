@@ -22,6 +22,35 @@ function matchingSource() {
 }
 
 describe('executePreparedHandOff', () => {
+  it('propagates successor startup failure before cutover, transfer, or source finalization', async () => {
+    const sourcePreconditionMatches = vi.fn();
+    const transferResources = vi.fn();
+    const closeSuccessor = vi.fn();
+    const finalizeSource = vi.fn();
+
+    await expect(
+      executePreparedHandOff({
+        source,
+        sourcePrecondition,
+        sourcePreconditionMatches,
+        target,
+        turn,
+        createSuccessor: vi.fn(async () => {
+          throw new Error('Codex startup failed before thread.started');
+        }),
+        transferResources,
+        resourceTransferFailed: vi.fn(),
+        closeSuccessor,
+        finalizeSource,
+      }),
+    ).rejects.toThrow(/Codex startup failed/);
+
+    expect(sourcePreconditionMatches).not.toHaveBeenCalled();
+    expect(transferResources).not.toHaveBeenCalled();
+    expect(closeSuccessor).not.toHaveBeenCalled();
+    expect(finalizeSource).not.toHaveBeenCalled();
+  });
+
   it('creates, transfers, then finalizes in strict order', async () => {
     const order: string[] = [];
     const result = await executePreparedHandOff({

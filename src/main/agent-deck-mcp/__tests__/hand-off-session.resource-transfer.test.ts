@@ -18,7 +18,12 @@ const mocks = vi.hoisted(() => ({
   taskRepo: {
     reassignOwner: vi.fn(),
   },
+  transaction: vi.fn((fn: () => unknown) => fn),
   warn: vi.fn(),
+}));
+
+vi.mock('@main/store/db', () => ({
+  getDb: () => ({ transaction: mocks.transaction }),
 }));
 
 vi.mock('@main/event-bus', () => ({
@@ -64,6 +69,7 @@ function callerRow(overrides: Partial<SessionRecord> = {}): SessionRecord {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.transaction.mockImplementation((fn: () => unknown) => fn);
   mocks.teamRepo.get.mockReturnValue({ id: 'team', archivedAt: null });
   mocks.teamRepo.findActiveTeamMembershipsBySession.mockImplementation((sid: string) =>
     mocks.teamRepo.findActiveMembershipsBySession(sid),
@@ -119,6 +125,7 @@ describe('transferHandOffResources', () => {
       'successor-sid',
       '/repo/.agent-deck/worktrees/w1',
     );
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
   });
 
   it('skips archived teams without failing the handoff resource transfer', () => {
@@ -332,5 +339,60 @@ describe('transferHandOffResources', () => {
     );
     expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(2, 'successor-sid', null);
     expect(mocks.teamRepo.findActiveMembershipsBySession).not.toHaveBeenCalled();
+  });
+
+  it('transaction rollback restores ownership even when every manual compensation fails', () => {
+    const durable = {
+      marker: null as string | null,
+      taskOwner: 'caller-sid',
+      teamALead: 'caller-sid',
+    };
+    mocks.transaction.mockImplementation((fn: () => unknown) => () => {
+      const snapshot = { ...durable };
+      try {
+        return fn();
+      } catch (error) {
+        Object.assign(durable, snapshot);
+        throw error;
+      }
+    });
+    mocks.setCwdReleaseMarker.mockImplementation((_sid: string, marker: string | null) => {
+      if (marker === null) throw new Error('marker compensation failed');
+      durable.marker = marker;
+    });
+    mocks.taskRepo.reassignOwner.mockImplementation((oldSid: string, newSid: string) => {
+      if (oldSid === 'successor-sid') throw new Error('task compensation failed');
+      durable.taskOwner = newSid;
+      return 1;
+    });
+    mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-a', role: 'lead' },
+      { teamId: 'team-b', role: 'lead' },
+    ]);
+    mocks.teamRepo.swapLead.mockImplementation((teamId: string, oldSid: string, newSid: string) => {
+      if (teamId === 'team-a' && oldSid === 'caller-sid') {
+        durable.teamALead = newSid;
+        return { swapped: true };
+      }
+      if (teamId === 'team-b') return { swapped: false, reason: 'team-b write failed' };
+      throw new Error('team compensation failed');
+    });
+
+    const result = transferHandOffResources({
+      callerSessionId: 'caller-sid',
+      callerRow: callerRow({ cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1' }),
+      newSessionId: 'successor-sid',
+    });
+
+    expect(result.teams.status).toBe('failed');
+    expect(result.tasks).toMatchObject({ status: 'failed', count: 1 });
+    expect(result.worktreeMarker).toMatchObject({ status: 'failed' });
+    expect(durable).toEqual({
+      marker: null,
+      taskOwner: 'caller-sid',
+      teamALead: 'caller-sid',
+    });
+    expect(mocks.eventEmit).not.toHaveBeenCalled();
+    expect(mocks.notifyTeamMembershipChanged).not.toHaveBeenCalled();
   });
 });

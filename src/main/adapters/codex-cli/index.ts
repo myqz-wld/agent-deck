@@ -118,6 +118,7 @@ class CodexCliAdapter implements AgentAdapter {
       // 显式 spread handOff,否则 facade 白名单 spread 会丢字段 → bridge 拿不到 metadata。
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
+      initialSessionRegistration: opts.initialSessionRegistration,
     });
     return handle.sessionId;
   }
@@ -145,6 +146,7 @@ class CodexCliAdapter implements AgentAdapter {
       envOverrideExtra: opts.envOverrideExtra,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
+      initialSessionRegistration: opts.initialSessionRegistration,
     });
     return handle.sessionId;
   }
@@ -184,6 +186,7 @@ class CodexCliAdapter implements AgentAdapter {
       envOverrideExtra: target.envOverrideExtra,
       handOff: target.handOff,
       awaitCanonicalId: true,
+      initialSessionRegistration: target.initialSessionRegistration,
     });
   }
 

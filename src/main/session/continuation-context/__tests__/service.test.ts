@@ -175,7 +175,12 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(first.quality).toBe('coverage-gap');
     expect(first.metrics.uncoveredRevisionRange).toEqual({ from: 1, to: 2 });
     expect(first.providerPrompt).toContain('continuation.coverage-gap.after1.r2.');
-    expect(first.warnings).toContainEqual(expect.objectContaining({ code: 'coverage-gap' }));
+    expect(first.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'coverage-gap',
+        message: 'Checkpoint coverage stops at revision 1; source capture is revision 2.',
+      }),
+    );
 
     const second = await prepareContinuationContextWithDependencies(input, {
       db,
