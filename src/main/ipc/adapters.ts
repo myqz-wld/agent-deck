@@ -1,12 +1,4 @@
-/**
- * Adapter*：createSession / interrupt / sendMessage / RespondPermission /
- * RespondAskUserQuestion / RespondExitPlanMode / SetPermissionMode / ListPending(All)。
- *
- * 重点护栏（保持不变）：
- * - SetPermissionMode 的 bypassPermissions 走冷切（restartWithPermissionMode），见 REVIEW_11 Bug 2 次因
- * - SetPermissionMode 「先 DB 后 SDK」+ 失败回滚 DB + emit upsert 重抛
- * - createSession 与 CLI 共用 sessionManager 的创建后持久化 helpers
- */
+/** Adapter creation, messaging, pending requests, and runtime-control IPC handlers. */
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
@@ -35,6 +27,7 @@ import {
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { registerSessionModelOptionsIpc } from './adapters-session-model-options';
+import { dispatchAdapterMessageWithHandOffRedirect } from './adapters-message-dispatch';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
@@ -257,8 +250,12 @@ export function registerAdaptersIpc(): void {
     // 与 reviewer-codex R1 HIGH「row 真不存在让 throw 冒泡更合理」立场一致。
     const sidParsed = parseStringId('sessionId', sessionId);
     try {
-      await sessionManager.unarchiveOnUserSend(sidParsed);
-      await adapter.sendMessage(sidParsed, text, attachments);
+      await dispatchAdapterMessageWithHandOffRedirect({
+        sourceSessionId: sidParsed,
+        sourceAdapter: adapter,
+        text,
+        attachments,
+      });
     } catch (err) {
       // sendMessage / unarchive throw：path 还没塞进 SDK 队列（adapter 内部入队前 throw），
       // 安全清干净

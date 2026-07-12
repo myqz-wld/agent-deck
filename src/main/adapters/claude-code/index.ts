@@ -1,5 +1,6 @@
 import type {
   AgentAdapter,
+  AgentEnqueueOptions,
   AdapterContext,
   ClaudeCreateOpts,
   CreateSessionOptions,
@@ -166,6 +167,10 @@ class ClaudeCodeAdapter implements AgentAdapter {
     await this.bridge.closeSession(sessionId);
   }
 
+  retireSessionAfterCurrentTurn(sessionId: string): void {
+    this.bridge?.retireSessionAfterCurrentTurn(sessionId);
+  }
+
   async sendMessage(
     sessionId: string,
     text: string,
@@ -173,6 +178,20 @@ class ClaudeCodeAdapter implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments);
+  }
+
+  async enqueueMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.enqueueMessage(sessionId, text, attachments, options);
+  }
+
+  snapshotQueuedMessagesForHandOff(sessionId: string) {
+    return this.bridge?.snapshotQueuedMessagesForHandOff(sessionId) ?? [];
   }
 
   /**

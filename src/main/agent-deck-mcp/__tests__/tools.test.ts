@@ -1837,6 +1837,55 @@ describe('agent-deck-mcp tools — send_message', () => {
     ]);
   });
 
+  it('routes an old handoff target even after its source row is gone', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('old-teammate', { lifecycle: 'closed' });
+    seedSession('new-teammate', { agentId: 'codex-cli' });
+    setSharedTeams('lead', 'new-teammate', ['team-X']);
+    mockMessages.set('old-handoff-wire', {
+      id: 'old-handoff-wire',
+      teamId: 'team-X',
+      fromSessionId: 'old-teammate',
+      toSessionId: 'lead',
+      body: 'reply using this old wire anchor',
+      status: 'delivered',
+      statusReason: null,
+      sentAt: 1_000,
+      deliveredAt: 1_100,
+      attemptCount: 1,
+      lastAttemptAt: 1_000,
+      deliveringSince: null,
+      replyToMessageId: null,
+    });
+    const { handOffCutoverCoordinator } = await import(
+      '@main/session/hand-off/cutover-coordinator'
+    );
+    const lease = handOffCutoverCoordinator.tryAcquire('old-teammate')!;
+    expect(lease.commit('new-teammate')).toBe(true);
+    lease.release();
+    sessionStore.delete('old-teammate');
+
+    const result = await tools.get('send_message').handler({
+      sessionId: 'old-teammate',
+      text: 'reply after handoff',
+      teamId: 'team-X',
+      replyToMessageId: 'old-handoff-wire',
+      callerSessionId: 'lead',
+    }, {});
+
+    const parsed = parseResult(result);
+    expect(parsed.isError).toBeFalsy();
+    expect(parsed.data.sessionId).toBe('new-teammate');
+    expect(enqueuedMessages).toEqual([{
+      teamId: 'team-X',
+      fromSessionId: 'lead',
+      toSessionId: 'new-teammate',
+      body: 'reply after handoff',
+      replyToMessageId: 'old-handoff-wire',
+    }]);
+  });
+
   it('rejects target session not found', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');

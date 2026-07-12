@@ -31,6 +31,8 @@ export interface CachedContinuationPreparation {
   };
   spoolBytes: number;
   bytes: number;
+  /** Main-process lifecycle hook for resources owned for exactly this cache entry. */
+  onDiscard?: () => void;
 }
 
 export interface PreparationCacheOptions {
@@ -69,6 +71,7 @@ export class ContinuationPreparationCache {
     target: ResolvedSuccessorSpec;
     frozen?: CachedContinuationPreparation['frozen'];
     spoolBytes?: number;
+    onDiscard?: () => void;
     now?: number;
   }): CachedContinuationPreparation {
     const now = input.now ?? Date.now();
@@ -104,9 +107,11 @@ export class ContinuationPreparationCache {
       frozen: input.frozen,
       spoolBytes,
       bytes,
+      ...(input.onDiscard ? { onDiscard: input.onDiscard } : {}),
     };
+    this.makeRoomFor(entry.bytes, now);
     this.entries.set(entry.preparationId, entry);
-    this.evict(now);
+    this.scheduleExpiry();
     return entry;
   }
 
@@ -133,14 +138,21 @@ export class ContinuationPreparationCache {
     const entry = this.get(preparationId, ownerSessionId, now);
     if (entry.consumed) throw new Error('Continuation preparation has already been consumed');
     entry.consumed = true;
+    this.scheduleExpiry();
     return entry;
   }
 
   releasePreSpawnFailure(preparationId: string, ownerSessionId: string, now = Date.now()): boolean {
     const entry = this.get(preparationId, ownerSessionId, now);
     if (!entry.consumed || !entry.retryAvailable) return false;
+    if (entry.expiresAt <= now) {
+      this.remove(entry.preparationId);
+      this.scheduleExpiry();
+      return false;
+    }
     entry.consumed = false;
     entry.retryAvailable = false;
+    this.scheduleExpiry();
     return true;
   }
 
@@ -152,7 +164,7 @@ export class ContinuationPreparationCache {
 
   invalidateSource(sourceSessionId: string): number {
     const ids = [...this.entries.values()]
-      .filter((entry) => entry.sourceSessionId === sourceSessionId)
+      .filter((entry) => entry.sourceSessionId === sourceSessionId && !entry.consumed)
       .map((entry) => entry.preparationId);
     ids.forEach((id) => this.remove(id));
     this.scheduleExpiry();
@@ -167,7 +179,10 @@ export class ContinuationPreparationCache {
 
   clear(): void {
     this.cancelExpiryTimer();
-    [...this.entries.keys()].forEach((id) => this.remove(id));
+    [...this.entries.values()]
+      .filter((entry) => !entry.consumed)
+      .forEach((entry) => this.remove(entry.preparationId));
+    this.scheduleExpiry();
   }
 
   get size(): number {
@@ -178,32 +193,45 @@ export class ContinuationPreparationCache {
     return [...this.entries.values()].reduce((total, entry) => total + entry.bytes, 0);
   }
 
-  private evict(now: number): void {
+  private makeRoomFor(incomingBytes: number, now: number): void {
     this.purgeExpiredEntries(now);
-    const oldestFirst = [...this.entries.values()].sort(
-      (left, right) => left.lastAccessedAt - right.lastAccessedAt || left.createdAt - right.createdAt,
-    );
-    let bytes = oldestFirst.reduce((total, entry) => total + entry.bytes, 0);
-    while (this.entries.size > this.maxEntries || bytes > this.maxBytes) {
+    const pinned = [...this.entries.values()].filter((entry) => entry.consumed);
+    const pinnedBytes = pinned.reduce((total, entry) => total + entry.bytes, 0);
+    if (pinned.length + 1 > this.maxEntries || pinnedBytes + incomingBytes > this.maxBytes) {
+      throw new Error('Preparation cache capacity is occupied by in-flight handoffs');
+    }
+    const oldestFirst = [...this.entries.values()]
+      .filter((entry) => !entry.consumed)
+      .sort(
+        (left, right) =>
+          left.lastAccessedAt - right.lastAccessedAt || left.createdAt - right.createdAt,
+      );
+    let bytes = [...this.entries.values()].reduce((total, entry) => total + entry.bytes, 0);
+    let entries = this.entries.size;
+    while (entries + 1 > this.maxEntries || bytes + incomingBytes > this.maxBytes) {
       const oldest = oldestFirst.shift();
       if (!oldest) break;
       bytes -= oldest.bytes;
+      entries -= 1;
       this.remove(oldest.preparationId);
     }
-    this.scheduleExpiry();
   }
 
   private remove(preparationId: string): boolean {
     const entry = this.entries.get(preparationId);
     if (!entry) return false;
     this.entries.delete(preparationId);
-    this.options.onEvict?.(entry);
+    try {
+      entry.onDiscard?.();
+    } finally {
+      this.options.onEvict?.(entry);
+    }
     return true;
   }
 
   private purgeExpiredEntries(now: number): number {
     const ids = [...this.entries.values()]
-      .filter((entry) => entry.expiresAt <= now)
+      .filter((entry) => !entry.consumed && entry.expiresAt <= now)
       .map((entry) => entry.preparationId);
     ids.forEach((id) => this.remove(id));
     return ids.length;
@@ -219,6 +247,7 @@ export class ContinuationPreparationCache {
     this.cancelExpiryTimer();
     let earliestExpiry = Number.POSITIVE_INFINITY;
     for (const entry of this.entries.values()) {
+      if (entry.consumed) continue;
       earliestExpiry = Math.min(earliestExpiry, entry.expiresAt);
     }
     if (!Number.isFinite(earliestExpiry)) return;

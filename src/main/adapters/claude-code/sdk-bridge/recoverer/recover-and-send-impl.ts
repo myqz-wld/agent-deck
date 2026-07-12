@@ -1,15 +1,6 @@
 /**
  * SessionRecoverer.recoverAndSend free fn impl — Step 4.4 拆分子模块。
  *
- * **抽出范围**（原 recoverer.ts:243-544 ~302 LOC）：
- * - inflight path（双等待者 + try/catch finalId + sendThunk transparent）
- * - not-found short-circuit
- * - length cap validate
- * - immediate user message emit（REVIEW_58 HIGH + R2 MED-1 收口）
- * - cwd precheck + fallback（CHANGELOG_99）
- * - IIFE 单飞（unarchive + placeholder dedup + maybeJsonlFallback + normal resume）
- * - outer try/catch + emit error message
- *
  * **签名 / 约束**：
  * - 入参：sessionId / text / attachments + deps (RecoverAndSendDeps bundle)
  * - 返回：Promise<string> finalId（resume 路径 === sessionId, implicit fork 路径 === newRealId）
@@ -66,6 +57,10 @@ export async function recoverAndSendImpl(
   sessionId: string,
   text: string,
   attachments: UploadedAttachmentRef[] | undefined,
+  options: {
+    userEventAlreadyPersisted?: boolean;
+    sendAfterRecovery?: (sessionId: string) => Promise<void>;
+  } | undefined,
   deps: RecoverAndSendDeps,
 ): Promise<string> {
   const inflight = deps.ctx.recovering.get(sessionId);
@@ -75,7 +70,10 @@ export async function recoverAndSendImpl(
       sessionId,
       text,
       attachments,
-      sendThunk: deps.sendThunk,
+      sendThunk:
+        options?.userEventAlreadyPersisted && options.sendAfterRecovery
+          ? (finalId) => options.sendAfterRecovery!(finalId)
+          : deps.sendThunk,
     });
   }
 
@@ -171,18 +169,20 @@ export async function recoverAndSendImpl(
   // ③ 下游 createThunk / maybeJsonlFallback 显式传 skipFirstUserEmit:true 让 finalize /
   //    fallback helper 跳过重复 emit,避免双气泡
   // 等待者 inflight path(L234-254)无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
-  deps.ctx.emit({
-    sessionId,
-    agentId: AGENT_ID,
-    kind: 'message',
-    payload: {
-      text,
-      role: 'user',
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    },
-    ts: Date.now(),
-    source: 'sdk',
-  });
+  if (!options?.userEventAlreadyPersisted) {
+    deps.ctx.emit({
+      sessionId,
+      agentId: AGENT_ID,
+      kind: 'message',
+      payload: {
+        text,
+        role: 'user',
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+  }
 
   // **REVIEW_99 R3 cancellation-epoch baseline (codex 第 1 点 — 必须 entry emit 之后捕获)**:
   // closed 合法 resume 时上面 entry emit(source:'sdk')同步走 ingest → ensure(manager.ts:265)

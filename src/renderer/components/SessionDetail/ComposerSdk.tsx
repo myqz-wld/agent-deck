@@ -419,8 +419,13 @@ export function ComposerSdk({
           <button
             type="button"
             onClick={onHandOff}
-            className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
-            title="接力到新会话：生成会话续接上下文，然后按所选目标运行时打开新会话继续"
+            disabled={turnBusy || session.activity === 'waiting'}
+            className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              turnBusy || session.activity === 'waiting'
+                ? '当前任务完成或中断后可接力'
+                : '接力到新会话：生成会话续接上下文，然后按所选目标运行时打开新会话继续'
+            }
           >
             <HandOffIcon className="mr-1 inline h-3 w-3" />接力
           </button>

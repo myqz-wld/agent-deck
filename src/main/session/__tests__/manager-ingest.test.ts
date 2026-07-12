@@ -29,10 +29,17 @@ import {
   resetMocks,
 } from './manager-test-setup';
 
+const reactivateHandOffSource = vi.hoisted(() =>
+  vi.fn((_sessionId: string, persist: () => void) => persist()),
+);
+
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: makeFileChangeRepoMock() }));
 vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
+vi.mock('@main/session/hand-off/source-reactivation', () => ({
+  reactivateHandOffSource,
+}));
 // REVIEW_31 Bug 5：见 manager-public-api.test.ts 同源注释
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
@@ -73,9 +80,15 @@ import { sessionManager } from '@main/session/manager';
 // shutdown guard 专测拿 mocked sessionRepo 引用 spy findByCliSessionId（ingest 第一处 repo 访问）。
 // vi.mock('@main/store/session-repo') 已 hoist,此 import 拿到的就是 makeSessionRepoMock() 产物。
 import { sessionRepo } from '@main/store/session-repo';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 beforeEach(async () => {
   await resetMocks();
+  reactivateHandOffSource.mockClear();
+  reactivateHandOffSource.mockImplementation((sessionId, persist) => {
+    persist();
+    handOffCutoverCoordinator.reactivateSource(sessionId);
+  });
   dbMock.__setClosed(false); // 防 guard 专测把 closed 态泄漏给后续 it
 });
 
@@ -84,6 +97,36 @@ afterEach(() => {
 });
 
 describe('SessionManager.ingest 时序', () => {
+  it('persists handoff-buffered user input without falsely starting source activity', () => {
+    mockSessions.set('HANDOFF_BUFFERED_IDLE', {
+      id: 'HANDOFF_BUFFERED_IDLE',
+      agentId: 'codex-cli',
+      cwd: '/tmp',
+      title: 'buffered source',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'HANDOFF_BUFFERED_IDLE',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'late handoff input', role: 'user', handOffBuffered: true },
+      ts: 200,
+    }));
+
+    expect(mockEvents).toHaveLength(1);
+    expect(mockSessions.get('HANDOFF_BUFFERED_IDLE')).toMatchObject({
+      activity: 'idle',
+      lastEventAt: 200,
+    });
+  });
+
   it('1) hook 先到（无 sdk claim） → 创建 cli 会话 + 落库 + 广播 session-upserted', () => {
     const ev = makeEvent({
       sessionId: 'sess-hook-first',
@@ -578,6 +621,7 @@ describe('SessionManager.ingest 时序', () => {
       archivedAt: null,
       permissionMode: null,
     });
+    handOffCutoverCoordinator.revokeSource('CLOSED_RESUME');
     // SDK 通道事件(用户从 detail 主动 sendMessage → recoverAndSend emit source:'sdk' user message)
     const resumeEvent = makeEvent({
       sessionId: 'CLOSED_RESUME',
@@ -590,6 +634,13 @@ describe('SessionManager.ingest 时序', () => {
 
     // **关键断言**: SDK resume 仍能复活 closed → active(否则破坏 resume 主路径)
     expect(mockSessions.get('CLOSED_RESUME')?.lifecycle).toBe('active');
+    expect(reactivateHandOffSource).toHaveBeenCalledWith(
+      'CLOSED_RESUME',
+      expect.any(Function),
+    );
+    const handoffLease = handOffCutoverCoordinator.tryAcquire('CLOSED_RESUME');
+    expect(handoffLease).not.toBeNull();
+    handoffLease?.release();
   });
 
   it('recentlyDeleted close path：SDK user message 可续聊并清黑名单', () => {
@@ -640,6 +691,9 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockEvents).toHaveLength(2);
     expect(mockEvents[1]?.sessionId).toBe('HANDOFF_SOURCE_CONTINUE');
     expect(mockEvents[1]?.payload).toMatchObject({ text: 'assistant visible too', role: 'assistant' });
+    const handoffLease = handOffCutoverCoordinator.tryAcquire('HANDOFF_SOURCE_CONTINUE');
+    expect(handoffLease).not.toBeNull();
+    handoffLease?.release();
   });
 
   it('recentlyDeleted close path：无用户续聊的迟到 assistant 尾包仍被丢弃', () => {

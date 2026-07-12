@@ -5,7 +5,7 @@ import type {
   SessionHandOffTarget,
   SessionRecord,
 } from '@shared/types';
-import type { CreateSessionOptions } from '@main/adapters/types';
+import type { CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
 import { adapterRegistry } from '@main/adapters/registry';
 import { isAgentId } from '@main/adapters/options-builder';
 import { SessionModelOptionsError } from '@main/adapters/session-model-options';
@@ -26,6 +26,8 @@ import {
   HandOffExecutionError,
   type HandOffSourceCutoverPrecondition,
 } from '@main/session/hand-off/executor';
+import { checkHandOffSourcePrecondition } from '@main/session/hand-off/source-precondition';
+import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
 import { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import {
   UiHandOffCoordinator,
@@ -37,7 +39,10 @@ import { getDb } from '@main/store/db';
 import { sessionRepo } from '@main/store/session-repo';
 import { transferHandOffResources } from '@main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator';
 import type { EventMap } from '@main/event-bus';
-import { archiveSourceSessionWithEmit } from './session-hand-off-finalize';
+import {
+  archiveSourceSessionWithEmit,
+  finalizeUiHandOffSource,
+} from './session-hand-off-finalize';
 import { serializeSessionHandOffCommit } from './session-hand-off-response';
 import { IpcInputError, on, parseStringId } from './_helpers';
 import log from '@main/utils/logger';
@@ -71,55 +76,42 @@ function transferFailed(result: ReturnType<typeof transferHandOffResources>): bo
 
 async function executeUiHandOff(input: {
   source: SessionRecord;
+  queuedMessages: QueuedAgentMessage[];
   sourcePrecondition: HandOffSourceCutoverPrecondition;
   target: CreateSessionOptions;
   turn: TrustedContinuationInitialTurn;
+  commitIngress: (successorSessionId: string) => void;
+  sourceOwnershipCheck: () => boolean;
 }): Promise<UiHandOffExecutionResult> {
   const result = await executePreparedHandOff({
     source: input.source,
+    queuedMessages: input.queuedMessages,
     sourcePrecondition: input.sourcePrecondition,
-    sourcePreconditionMatches: ({ sourceSessionId, expected }) => {
-      const current = sessionRepo.get(sourceSessionId);
-      const revision = eventRevisionRepo.state(sourceSessionId);
-      return Boolean(
-        current &&
-          current.lifecycle !== 'closed' &&
-          current.archivedAt === null &&
-          revision?.revision === expected.eventRevision &&
-          revision.rebuildAfterRevision === expected.rebuildAfterRevision &&
-          continuationSessionRuntimeFingerprint(getDb(), sourceSessionId) ===
-            expected.runtimeFingerprint,
-      );
-    },
+    sourcePreconditionCheck: checkHandOffSourcePrecondition,
     target: input.target,
     turn: input.turn,
     transferResources: transferHandOffResources,
     resourceTransferFailed: transferFailed,
+    commitIngress: input.commitIngress,
+    sourceOwnershipCheck: input.sourceOwnershipCheck,
     closeSuccessor: (sessionId) => sessionManager.close(sessionId),
     finalizeSource: async ({ source }) => {
-      const failures: string[] = [];
-      try {
-        await sessionManager.close(source.id);
-      } catch (error) {
-        failures.push(`关闭源会话失败：${error instanceof Error ? error.message : String(error)}`);
-      }
-      try {
-        const archiveResult = await archiveSourceSessionWithEmit(source.id, {
-          archive: (sessionId) => sessionManager.archive(sessionId),
-          getSession: (sessionId) => sessionRepo.get(sessionId),
-          emitArchiveFailed: (payload) =>
-            eventBus.emit(
-              'caller-archive-failed',
-              payload satisfies EventMap['caller-archive-failed'][0],
-            ),
-        });
-        if (!archiveResult.ok) {
-          failures.push(`归档源会话失败：${archiveResult.reason}`);
-        }
-      } catch (error) {
-        failures.push(`归档源会话失败：${error instanceof Error ? error.message : String(error)}`);
-      }
-      if (failures.length > 0) throw new Error(failures.join('；'));
+      // Seal synchronously in the same call stack as the final source scan/resource transfer. The
+      // provider close below may await, but no additional UI input should land on the old owner.
+      await finalizeUiHandOffSource(source.id, {
+        markClosed: (sessionId) => sessionManager.markClosed(sessionId),
+        close: (sessionId) => sessionManager.close(sessionId),
+        archive: (sessionId) =>
+          archiveSourceSessionWithEmit(sessionId, {
+            archive: (sessionId) => sessionManager.archive(sessionId),
+            getSession: (sessionId) => sessionRepo.get(sessionId),
+            emitArchiveFailed: (payload) =>
+              eventBus.emit(
+                'caller-archive-failed',
+                payload satisfies EventMap['caller-archive-failed'][0],
+              ),
+          }),
+      });
       return true;
     },
   });
@@ -140,6 +132,8 @@ const coordinator = new UiHandOffCoordinator({
   maxEventId: (sessionId) => eventRepo.maxEventId(sessionId),
   sourceRuntimeFingerprint: (sessionId) =>
     continuationSessionRuntimeFingerprint(getDb(), sessionId),
+  snapshotQueuedMessages: snapshotHandOffQueuedMessages,
+  sourcePreconditionCheck: checkHandOffSourcePrecondition,
   resolveTarget: ({ source, selection, sourceMaxEventId }) => {
     const adapter = adapterRegistry.get(selection.adapter);
     if (!adapter?.createSession || !adapter.capabilities.canCreateSession) {
@@ -218,14 +212,13 @@ let lifecycleInvalidationRegistered = false;
 export function registerSessionHandOffIpc(): void {
   if (!lifecycleInvalidationRegistered) {
     lifecycleInvalidationRegistered = true;
-    eventBus.on('session-removed', (sessionId) => coordinator.invalidateSource(sessionId));
-    eventBus.on('session-renamed', ({ from, to }) => {
-      coordinator.invalidateSource(from);
-      coordinator.invalidateSource(to);
-    });
+    eventBus.on('session-removed', (sessionId) => coordinator.removeSource(sessionId));
+    eventBus.on('session-renamed', ({ from, to }) => coordinator.renameSource(from, to));
     eventBus.on('session-upserted', (session) => {
-      if (session.lifecycle === 'closed' || session.archivedAt !== null) {
+      if (session.lifecycle === 'closed') {
         coordinator.invalidateSource(session.id);
+      } else if (session.archivedAt !== null) {
+        coordinator.abortSource(session.id);
       }
     });
   }

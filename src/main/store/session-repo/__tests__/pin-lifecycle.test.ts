@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import { bindingAvailable, makeMemoryDb } from './_setup';
 import { renameWithDb } from '../rename';
+import {
+  findSessionHandOffSuccessorWithDb,
+  recordSessionHandOffAliasWithDb,
+} from '../../session-handoff-alias-repo';
 
 let currentDb: Database.Database | null = null;
 vi.mock('../../db', () => ({
@@ -13,6 +17,7 @@ vi.mock('../../db', () => ({
 
 import { sessionRepo, SessionPinStateError } from '../index';
 import * as coreCrud from '../core-crud';
+import { reactivateHandOffSource } from '@main/session/hand-off/source-reactivation';
 
 function insertSession(
   db: Database.Database,
@@ -63,6 +68,37 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
     });
 
     expect(sessionRepo.setPinned('active', null).pinnedAt).toBeNull();
+  });
+
+  it('moves alias endpoints while retaining the old durable wire anchor during rename', () => {
+    insertSession(db, 'old-source');
+    recordSessionHandOffAliasWithDb(db, 'parent-source', 'old-source', 10);
+    recordSessionHandOffAliasWithDb(db, 'old-source', 'later-successor', 20);
+    recordSessionHandOffAliasWithDb(db, 'renamed-source', 'old-source', 30);
+
+    renameWithDb(db, 'old-source', 'renamed-source');
+
+    expect(findSessionHandOffSuccessorWithDb(db, 'parent-source')).toBe('renamed-source');
+    expect(findSessionHandOffSuccessorWithDb(db, 'renamed-source')).toBe('later-successor');
+    expect(findSessionHandOffSuccessorWithDb(db, 'old-source')).toBe('renamed-source');
+  });
+
+  it('reactivates the row and clears its durable successor in one transaction', () => {
+    insertSession(db, 'reactivated-source', 'closed');
+    recordSessionHandOffAliasWithDb(db, 'reactivated-source', 'old-successor', 10);
+
+    expect(() => reactivateHandOffSource('reactivated-source', () => {
+      sessionRepo.setLifecycle('reactivated-source', 'active', 200);
+      throw new Error('rollback reactivation');
+    })).toThrow('rollback reactivation');
+    expect(sessionRepo.get('reactivated-source')?.lifecycle).toBe('closed');
+    expect(findSessionHandOffSuccessorWithDb(db, 'reactivated-source')).toBe('old-successor');
+
+    reactivateHandOffSource('reactivated-source', () => {
+      sessionRepo.setLifecycle('reactivated-source', 'active', 300);
+    });
+    expect(sessionRepo.get('reactivated-source')?.lifecycle).toBe('active');
+    expect(findSessionHandOffSuccessorWithDb(db, 'reactivated-source')).toBeNull();
   });
 
   it('reactivates dormant rows while pinning and rejects archived or closed rows', () => {

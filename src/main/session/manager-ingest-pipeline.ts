@@ -338,7 +338,16 @@ export function advanceState(record: SessionRecord, event: AgentEvent): void {
     }
     return;
   }
-  const nextActivity = nextActivityState(record.activity, event.kind, event.payload);
+  const handOffBuffered =
+    event.kind === 'message' &&
+    event.payload !== null &&
+    typeof event.payload === 'object' &&
+    (event.payload as { handOffBuffered?: unknown }).handOffBuffered === true;
+  // A handoff-buffered user event is durable history but has not started source execution. Keep the
+  // source idle so the prepared UI cutover can accept and deliver that late input to the successor.
+  const nextActivity = handOffBuffered
+    ? record.activity
+    : nextActivityState(record.activity, event.kind, event.payload);
   let nextLifecycle: LifecycleState = record.lifecycle;
   if (record.lifecycle !== 'active') {
     // 任意事件都让会话回到 active（复活）

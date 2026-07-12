@@ -30,9 +30,14 @@ describe('StreamProcessor.makeUserMessage', () => {
     await writeFile(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
     try {
-      const msg = await makeProcessor().makeUserMessage('sess-img', 'describe', [
+      const pending = makeProcessor().makeUserMessage('sess-img', 'describe', [
         { kind: 'uploaded', path: imagePath, mime: 'image/png', bytes: 4 },
-      ])();
+      ]);
+      expect(pending.handOffMessage).toEqual({
+        text: 'describe',
+        attachments: [{ kind: 'uploaded', path: imagePath, mime: 'image/png', bytes: 4 }],
+      });
+      const msg = await pending();
 
       expect(msg.priority).toBe('now');
       expect(msg.session_id).toBe('sess-img');

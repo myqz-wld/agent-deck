@@ -4,6 +4,10 @@ import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { getDb } from '@main/store/db';
 import { sessionRepo } from '@main/store/session-repo';
 import { taskRepo } from '@main/store/task-repo';
+import {
+  compressSessionHandOffAliasesWithDb,
+  recordSessionHandOffAliasWithDb,
+} from '@main/store/session-handoff-alias-repo';
 import log from '@main/utils/logger';
 import type { SessionRecord } from '@shared/types';
 import type { HandOffSessionResult } from '../../schemas';
@@ -269,6 +273,31 @@ function transferTasks(
   }
 }
 
+/** Keep queued inbound and outbound envelopes attached to the new owner. */
+function retargetInFlightMessages(callerSessionId: string, newSessionId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE agent_deck_messages
+          SET from_session_id = CASE WHEN from_session_id = ? THEN ? ELSE from_session_id END,
+              to_session_id = CASE WHEN to_session_id = ? THEN ? ELSE to_session_id END
+        WHERE (from_session_id = ? OR to_session_id = ?)
+          AND status IN ('pending', 'delivering')`,
+    )
+    .run(
+      callerSessionId,
+      newSessionId,
+      callerSessionId,
+      newSessionId,
+      callerSessionId,
+      callerSessionId,
+    );
+}
+
+/** Flatten every older wire anchor that currently resolves to the outgoing owner. */
+function compressHandOffAliases(callerSessionId: string, newSessionId: string): void {
+  compressSessionHandOffAliasesWithDb(getDb(), callerSessionId, newSessionId);
+}
+
 function rollbackTasks(
   result: HandOffResourceTransferResult['tasks'],
   callerSessionId: string,
@@ -325,6 +354,14 @@ function transferHandOffResourcesInTransaction(input: {
     const rolledBackMarker = rollbackWorktreeMarker(marker, input.newSessionId);
     return { tasks: rolledBackTasks, teams, worktreeMarker: rolledBackMarker };
   }
+
+  retargetInFlightMessages(input.callerSessionId, input.newSessionId);
+  compressHandOffAliases(input.callerSessionId, input.newSessionId);
+  recordSessionHandOffAliasWithDb(
+    getDb(),
+    input.callerSessionId,
+    input.newSessionId,
+  );
 
   return { tasks, teams, worktreeMarker: marker };
 }

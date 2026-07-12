@@ -72,6 +72,7 @@ import { emits, makeBridge } from './sdk-bridge/_setup';
 import { parseWirePrefix } from '@shared/wire-prefix';
 import type { CodexInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 beforeEach(() => {
   emits.length = 0;
@@ -392,6 +393,32 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     });
   });
 
+  it('active turn：bridge.enqueueMessage(sid, wireBody) 强制进入 pendingMessages，不调用 steer，并 emit user message', async () => {
+    const bridge = makeBridge();
+    const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    const sid = 'codex-active-enqueue';
+    const { internal, steer } = makeActiveInternalSession(sid);
+    sessions.set(sid, internal);
+
+    const wireBody = buildClaudeLeadToCodexTeammateWireBody({
+      displayName: 'Lead-Enqueue',
+      msgId: '32345678-1234-4567-8901-234567890abc',
+      senderSid: 'cbcdef01-2345-4678-89ab-cdef01234567',
+      body: '这条必须排到当前 turn 之后',
+    });
+
+    await bridge.enqueueMessage(sid, wireBody);
+
+    expect(steer).not.toHaveBeenCalled();
+    expect(internal.pendingMessages).toEqual([wireBody]);
+    const messageEvents = emits.filter((e) => e.kind === 'message' && e.sessionId === sid);
+    expect(messageEvents).toHaveLength(1);
+    expect(messageEvents[0].payload).toEqual({
+      text: wireBody,
+      role: 'user',
+    });
+  });
+
   it('active turn + attachments：bridge.sendMessage 保持普通队列，避免 turn/steer 丢附件', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
@@ -416,5 +443,65 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     const items = internal.pendingMessages[0] as Array<{ type: string; text?: string; path?: string }>;
     expect(items[0]).toMatchObject({ type: 'local_image', path: '/tmp/active.png' });
     expect(items[1]).toMatchObject({ type: 'text', text: wireBody });
+  });
+
+  it('active turn + attachments：bridge.enqueueMessage 仍按附件输入形态入队', async () => {
+    const bridge = makeBridge();
+    const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    const sid = 'codex-active-enqueue-attach';
+    const { internal, steer } = makeActiveInternalSession(sid);
+    sessions.set(sid, internal);
+
+    const wireBody = buildClaudeLeadToCodexTeammateWireBody({
+      displayName: 'Lead-Enqueue-Attach',
+      msgId: '42345678-1234-4567-8901-234567890abc',
+      senderSid: 'dbcdef01-2345-4678-89ab-cdef01234567',
+      body: '图片也必须排到当前 turn 之后',
+    });
+    const attachments = [
+      { kind: 'uploaded' as const, path: '/tmp/enqueue-active.png', mime: 'image/png', bytes: 2048 },
+    ];
+
+    await bridge.enqueueMessage(sid, wireBody, attachments);
+
+    expect(steer).not.toHaveBeenCalled();
+    expect(internal.pendingMessages).toHaveLength(1);
+    const items = internal.pendingMessages[0] as Array<{ type: string; text?: string; path?: string }>;
+    expect(items).toEqual([
+      { type: 'local_image', path: '/tmp/enqueue-active.png' },
+      { type: 'text', text: wireBody },
+    ]);
+    const messageEvents = emits.filter((e) => e.kind === 'message' && e.sessionId === sid);
+    expect(messageEvents).toHaveLength(1);
+    expect(messageEvents[0].payload).toEqual({
+      text: wireBody,
+      role: 'user',
+      attachments,
+    });
+  });
+
+  it('active handoff diverts source ingress and replays it without a duplicate event on rollback', async () => {
+    const bridge = makeBridge();
+    const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
+    const sid = 'codex-handoff-buffer';
+    const { internal, steer } = makeActiveInternalSession(sid);
+    sessions.set(sid, internal);
+    const lease = handOffCutoverCoordinator.tryAcquire(sid)!;
+
+    try {
+      await bridge.sendMessage(sid, 'late input during handoff');
+      expect(steer).not.toHaveBeenCalled();
+      expect(internal.pendingMessages).toHaveLength(0);
+      expect(emits.filter((event) => event.kind === 'message' && event.sessionId === sid))
+        .toHaveLength(1);
+
+      lease.release();
+      await vi.waitFor(() => expect(internal.pendingMessages).toEqual(['late input during handoff']));
+      expect(steer).not.toHaveBeenCalled();
+      expect(emits.filter((event) => event.kind === 'message' && event.sessionId === sid))
+        .toHaveLength(1);
+    } finally {
+      lease.release();
+    }
   });
 });

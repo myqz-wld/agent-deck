@@ -294,6 +294,7 @@ export interface HandOffSessionResult {
     version: number;
     quality: 'full' | 'projected' | 'coverage-gap' | 'raw-only' | 'instruction-only';
     sourceEventRevision: number;
+    cutoverEventRevision: number;
     rebuildAfterRevision: number;
     checkpoint: {
       id: number | null;
@@ -312,6 +313,7 @@ export interface HandOffSessionResult {
       rawTail: number;
     };
     includedUserMessages: number;
+    lateMessagesDelivered: number;
     truncatedBoundaryMessages: number;
     foldCalls: number;
     repairCalls: number;
@@ -319,8 +321,8 @@ export interface HandOffSessionResult {
   };
   /** Source close result after successful creation and mandatory resource transfer. */
   callerClosed: 'ok' | 'failed';
-  /** A source-finalization warning never invalidates the already-transferred successor. */
-  warnings: Array<'source-finalization-failed'>;
+  /** Non-fatal source advancement/finalization warnings never invalidate the successor. */
+  warnings: Array<'source-finalization-failed' | 'source-advanced-after-capture'>;
   /** Resource transfer is mandatory; success returns details here, failure returns MCP error. */
   resourceTransfer: {
     tasks: { status: 'ok' | 'failed'; count: number; error?: string };

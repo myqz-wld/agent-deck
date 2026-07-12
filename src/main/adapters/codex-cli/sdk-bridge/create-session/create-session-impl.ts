@@ -240,6 +240,14 @@ export async function createSessionImpl(
       cwd,
       thread,
       pendingMessages: firstInput ? [firstInput] : [],
+      pendingHandOffMessages: firstInput
+        ? [{
+            text: initialTurn.persistedUserText,
+            ...(opts.attachments && opts.attachments.length > 0
+              ? { attachments: opts.attachments.map((attachment) => ({ ...attachment })) }
+              : {}),
+          }]
+        : [],
       currentTurn: null,
       currentTurnId: null,
       turnLoopRunning: false,

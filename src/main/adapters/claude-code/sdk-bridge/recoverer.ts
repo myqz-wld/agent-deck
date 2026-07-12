@@ -106,8 +106,12 @@ export class SessionRecoverer {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    options?: {
+      userEventAlreadyPersisted?: boolean;
+      sendAfterRecovery?: (sessionId: string) => Promise<void>;
+    },
   ): Promise<string> {
-    return recoverAndSendImpl(sessionId, text, attachments, {
+    return recoverAndSendImpl(sessionId, text, attachments, options, {
       ctx: this.ctx,
       createThunk: this.createThunk,
       sendThunk: this.sendThunk,

@@ -209,6 +209,41 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       `UPDATE agent_deck_messages SET to_session_id = ? WHERE to_session_id = ?`,
     ).run(toId, fromId);
 
+    // Durable handoff aliases are identity references too. Point older chains at the surviving id,
+    // move any continuation owned by the renamed row, then retain OLD → NEW. Keeping the old key is
+    // essential: provider history and wire prefixes may mention it long after the sessions row is
+    // gone, and this table intentionally has no session FK for exactly that reason.
+    // The destination now names a live session, so discard any older alias with that source key
+    // before retargeting predecessors; otherwise a historical NEW → OLD row becomes a CHECK-
+    // violating NEW → NEW self-loop during the update below.
+    db.prepare(
+      `DELETE FROM session_handoff_aliases WHERE source_session_id = ?`,
+    ).run(toId);
+    db.prepare(
+      `UPDATE session_handoff_aliases
+          SET successor_session_id = ?
+        WHERE successor_session_id = ?`,
+    ).run(toId, fromId);
+    db.prepare(
+      `INSERT INTO session_handoff_aliases
+         (source_session_id, successor_session_id, created_at)
+       SELECT ?, successor_session_id, created_at
+         FROM session_handoff_aliases
+        WHERE source_session_id = ?
+          AND successor_session_id <> ?
+       ON CONFLICT(source_session_id) DO UPDATE SET
+         successor_session_id = excluded.successor_session_id,
+         created_at = MAX(session_handoff_aliases.created_at, excluded.created_at)`,
+    ).run(toId, fromId, toId);
+    db.prepare(
+      `INSERT INTO session_handoff_aliases
+         (source_session_id, successor_session_id, created_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(source_session_id) DO UPDATE SET
+         successor_session_id = excluded.successor_session_id,
+         created_at = MAX(session_handoff_aliases.created_at, excluded.created_at)`,
+    ).run(fromId, toId, Date.now());
+
     // plan linked-swimming-platypus (c) sessions.spawned_by 自引用迁移：v009 ON DELETE
     // SET NULL 兜底，DELETE OLD 自动断链不会撞 FK。但 spawn chain 完整性更友好：UPDATE
     // 让 OLD 派生的子 session 仍指向 NEW（spawned_by 用于 §6.4 per-parent fan-out 反查

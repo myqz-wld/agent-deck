@@ -1,18 +1,27 @@
-import type { CreateSessionOptions } from '@main/adapters/types';
-import type { SessionRecord } from '@shared/types';
+import type { CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
+import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import { executeFreshSession } from '../continuation-context/fresh-session-executor';
 import type { TrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
+import {
+  cleanupHandOffLateMessageAttachments,
+  deliverHandOffLateMessages,
+  HandOffLateMessageDeliveryError,
+  type DeliverHandOffLateMessagesInput,
+} from './late-message-delivery';
+import type {
+  HandOffSourceCutoverCheck,
+  HandOffSourceCutoverPrecondition,
+  HandOffSourceCutoverRejectionReason,
+  HandOffSourceCutoverResult,
+} from './source-precondition';
 
-export interface HandOffSourceCutoverPrecondition {
-  eventRevision: number;
-  rebuildAfterRevision: number;
-  runtimeFingerprint: string;
-}
+const MAX_LATE_MESSAGE_DELIVERY_PASSES = 8;
 
-export interface HandOffSourceCutoverCheck {
-  sourceSessionId: string;
-  expected: HandOffSourceCutoverPrecondition;
-}
+export type {
+  HandOffSourceCutoverCheck,
+  HandOffSourceCutoverPrecondition,
+  HandOffSourceCutoverResult,
+} from './source-precondition';
 
 export class HandOffExecutionError<ResourceTransfer> extends Error {
   constructor(
@@ -24,6 +33,8 @@ export class HandOffExecutionError<ResourceTransfer> extends Error {
     readonly resourceTransfer: ResourceTransfer | null,
     /** Explicit error detail when the transfer callback or its result classifier threw. */
     readonly transferError: string | null,
+    /** Source incompatibility detected after successor creation, when stage is cutover. */
+    readonly cutoverReason: HandOffSourceCutoverRejectionReason | null = null,
   ) {
     super(message);
     this.name = 'HandOffExecutionError';
@@ -32,20 +43,32 @@ export class HandOffExecutionError<ResourceTransfer> extends Error {
 
 export interface ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResult> {
   source: SessionRecord;
+  /** Provider turns accepted before the ingress gate, but not yet started on the source. */
+  queuedMessages?: QueuedAgentMessage[];
   sourcePrecondition: HandOffSourceCutoverPrecondition;
-  sourcePreconditionMatches: (input: HandOffSourceCutoverCheck) => boolean;
+  sourcePreconditionCheck: (input: HandOffSourceCutoverCheck) => HandOffSourceCutoverResult;
   target: CreateSessionOptions;
   turn: TrustedContinuationInitialTurn;
   createSuccessor?: (
     target: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
   ) => Promise<string>;
+  deliverLateMessages?: (
+    input: DeliverHandOffLateMessagesInput,
+  ) => Promise<UploadedAttachmentRef[]>;
+  cleanupLateMessageAttachments?: (
+    attachments: HandOffLateMessageDeliveryError['createdAttachments'],
+  ) => Promise<void>;
   transferResources: (input: {
     callerSessionId: string;
     callerRow: SessionRecord;
     newSessionId: string;
   }) => ResourceTransfer;
   resourceTransferFailed: (result: ResourceTransfer) => boolean;
+  /** Atomically switch ingress ownership after durable transfer and before async finalization. */
+  commitIngress?: (successorSessionId: string) => void;
+  /** Revoke an in-flight UI execution when the source is explicitly closed or removed. */
+  sourceOwnershipCheck?: () => boolean;
   closeSuccessor: (sessionId: string) => Promise<void>;
   finalizeSource: (input: {
     source: SessionRecord;
@@ -56,7 +79,9 @@ export interface ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResul
 
 export interface ExecutePreparedHandOffResult<ResourceTransfer, FinalizationResult> {
   successorSessionId: string;
+  queuedMessagesDelivered: number;
   resourceTransfer: ResourceTransfer;
+  sourceCutover: Extract<HandOffSourceCutoverResult, { ok: true }>;
   sourceFinalization:
     | { ok: true; value: FinalizationResult }
     | { ok: false; error: string };
@@ -72,12 +97,21 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
   closeSuccessor: (sessionId: string) => Promise<void>;
   resourceTransfer: ResourceTransfer | null;
   transferError: string | null;
+  cutoverReason?: HandOffSourceCutoverRejectionReason | null;
+  afterClose?: () => Promise<void>;
 }): Promise<never> {
   let successorCleanup: 'ok' | 'failed' = 'ok';
   try {
     await input.closeSuccessor(input.successorSessionId);
   } catch {
     successorCleanup = 'failed';
+  }
+  if (successorCleanup === 'ok' && input.afterClose) {
+    try {
+      await input.afterClose();
+    } catch {
+      // Upload reaper remains the final fallback; cleanup failure must not mask cutover failure.
+    }
   }
   throw new HandOffExecutionError(
     input.stage === 'cutover'
@@ -90,6 +124,7 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
     successorCleanup,
     input.resourceTransfer,
     input.transferError,
+    input.cutoverReason ?? null,
   );
 }
 
@@ -102,23 +137,154 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
   input: ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResult>,
 ): Promise<ExecutePreparedHandOffResult<ResourceTransfer, FinalizationResult>> {
   const createSuccessor = input.createSuccessor ?? executeFreshSession;
+  const deliverLateMessages = input.deliverLateMessages ?? deliverHandOffLateMessages;
   const successorSessionId = await createSuccessor(input.target, input.turn);
-  let sourceMatches = false;
-  try {
-    sourceMatches = input.sourcePreconditionMatches({
-      sourceSessionId: input.source.id,
-      expected: input.sourcePrecondition,
-    });
-  } catch {
-    sourceMatches = false;
+  const deliveredLateMessageIds = new Set<number>();
+  const createdLateAttachments: UploadedAttachmentRef[] = [];
+  const cleanupLateMessageAttachments =
+    input.cleanupLateMessageAttachments ?? cleanupHandOffLateMessageAttachments;
+  const cleanupCreatedAttachments = (): Promise<void> =>
+    cleanupLateMessageAttachments(createdLateAttachments);
+  const ownershipIsHeld = (): boolean => {
+    try {
+      return input.sourceOwnershipCheck?.() ?? true;
+    } catch {
+      return false;
+    }
+  };
+  const queuedMessages = input.queuedMessages ?? [];
+  if (queuedMessages.length > 0) {
+    try {
+      const created = await deliverLateMessages({
+        successorSessionId,
+        target: input.target,
+        messages: queuedMessages.map((message, index) => ({
+          eventId: -(index + 1),
+          text: message.text,
+          attachments: message.attachments ?? [],
+          origin: 'legacy-unwrapped' as const,
+        })),
+      });
+      createdLateAttachments.push(...created);
+    } catch (error) {
+      const failedAttachments =
+        error instanceof HandOffLateMessageDeliveryError
+          ? [...createdLateAttachments, ...error.createdAttachments]
+          : createdLateAttachments;
+      return failAfterSuccessor({
+        stage: 'cutover',
+        successorSessionId,
+        closeSuccessor: input.closeSuccessor,
+        resourceTransfer: null,
+        transferError: errorMessage(error),
+        cutoverReason: 'late-message-delivery-failed',
+        ...(failedAttachments.length > 0
+          ? {
+              afterClose: () => cleanupLateMessageAttachments(failedAttachments),
+            }
+          : {}),
+      });
+    }
   }
-  if (!sourceMatches) {
+  let sourceCutover: Extract<HandOffSourceCutoverResult, { ok: true }> | null = null;
+  // Permit eight delivery batches plus one final scan that proves the tail is quiescent.
+  for (let pass = 0; pass <= MAX_LATE_MESSAGE_DELIVERY_PASSES; pass += 1) {
+    if (!ownershipIsHeld()) {
+      return failAfterSuccessor({
+        stage: 'cutover',
+        successorSessionId,
+        closeSuccessor: input.closeSuccessor,
+        resourceTransfer: null,
+        transferError: null,
+        cutoverReason: 'source-not-open',
+        ...(createdLateAttachments.length > 0
+          ? { afterClose: cleanupCreatedAttachments }
+          : {}),
+      });
+    }
+    let current: HandOffSourceCutoverResult;
+    try {
+      current = input.sourcePreconditionCheck({
+        sourceSessionId: input.source.id,
+        expected: input.sourcePrecondition,
+      });
+    } catch {
+      current = { ok: false, reason: 'check-failed', currentEventRevision: null };
+    }
+    if (!current.ok) {
+      return failAfterSuccessor({
+        stage: 'cutover',
+        successorSessionId,
+        closeSuccessor: input.closeSuccessor,
+        resourceTransfer: null,
+        transferError: null,
+        cutoverReason: current.reason,
+        ...(createdLateAttachments.length > 0
+          ? { afterClose: cleanupCreatedAttachments }
+          : {}),
+      });
+    }
+    const pendingMessages = current.lateMessages.filter(
+      (message) => !deliveredLateMessageIds.has(message.eventId),
+    );
+    if (pendingMessages.length === 0) {
+      sourceCutover = current;
+      break;
+    }
+    if (pass === MAX_LATE_MESSAGE_DELIVERY_PASSES) break;
+    try {
+      const created = await deliverLateMessages({
+        successorSessionId,
+        target: input.target,
+        messages: pendingMessages,
+      });
+      createdLateAttachments.push(...created);
+      for (const message of pendingMessages) deliveredLateMessageIds.add(message.eventId);
+    } catch (error) {
+      const failedAttachments =
+        error instanceof HandOffLateMessageDeliveryError
+          ? [...createdLateAttachments, ...error.createdAttachments]
+          : createdLateAttachments;
+      return failAfterSuccessor({
+        stage: 'cutover',
+        successorSessionId,
+        closeSuccessor: input.closeSuccessor,
+        resourceTransfer: null,
+        transferError: errorMessage(error),
+        cutoverReason: 'late-message-delivery-failed',
+        ...(failedAttachments.length > 0
+          ? {
+              afterClose: () => cleanupLateMessageAttachments(failedAttachments),
+            }
+          : {}),
+      });
+    }
+  }
+  if (!sourceCutover) {
     return failAfterSuccessor({
       stage: 'cutover',
       successorSessionId,
       closeSuccessor: input.closeSuccessor,
       resourceTransfer: null,
       transferError: null,
+      cutoverReason: 'source-kept-changing',
+      ...(createdLateAttachments.length > 0
+        ? { afterClose: cleanupCreatedAttachments }
+        : {}),
+    });
+  }
+
+  if (!ownershipIsHeld()) {
+    return failAfterSuccessor({
+      stage: 'cutover',
+      successorSessionId,
+      closeSuccessor: input.closeSuccessor,
+      resourceTransfer: null,
+      transferError: null,
+      cutoverReason: 'source-not-open',
+      ...(createdLateAttachments.length > 0
+        ? { afterClose: cleanupCreatedAttachments }
+        : {}),
     });
   }
 
@@ -138,6 +304,9 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer: null,
       transferError: errorMessage(error),
+      ...(createdLateAttachments.length > 0
+        ? { afterClose: cleanupCreatedAttachments }
+        : {}),
     });
   }
   let transferFailed: boolean;
@@ -150,6 +319,9 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer,
       transferError: errorMessage(error),
+      ...(createdLateAttachments.length > 0
+        ? { afterClose: cleanupCreatedAttachments }
+        : {}),
     });
   }
   if (transferFailed) {
@@ -159,8 +331,13 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer,
       transferError: null,
+      ...(createdLateAttachments.length > 0
+        ? { afterClose: cleanupCreatedAttachments }
+        : {}),
     });
   }
+
+  input.commitIngress?.(successorSessionId);
 
   try {
     const value = await input.finalizeSource({
@@ -170,13 +347,17 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
     });
     return {
       successorSessionId,
+      queuedMessagesDelivered: queuedMessages.length,
       resourceTransfer,
+      sourceCutover,
       sourceFinalization: { ok: true, value },
     };
   } catch (error) {
     return {
       successorSessionId,
+      queuedMessagesDelivered: queuedMessages.length,
       resourceTransfer,
+      sourceCutover,
       sourceFinalization: { ok: false, error: errorMessage(error) },
     };
   }

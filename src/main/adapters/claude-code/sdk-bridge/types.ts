@@ -5,7 +5,11 @@
  * sdk-bridge.ts 仍 import 这些类型；class state 不动。
  */
 import type { PermissionResult, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ClaudeCodeEffortLevel, PermissionMode } from '@main/adapters/types';
+import type {
+  ClaudeCodeEffortLevel,
+  PermissionMode,
+  QueuedAgentMessage,
+} from '@main/adapters/types';
 import type {
   AgentEvent,
   AskUserQuestionAnswer,
@@ -66,7 +70,10 @@ export interface PendingExitPlanModeEntry {
  * - consumer (createUserMessageStream) yield 前 `await thunk()`，期间 SDK Query 短暂阻塞
  *   等磁盘读（10MB ~10ms 级别）—— 可接受
  */
-export type PendingUserMessage = () => Promise<SDKUserMessage>;
+export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
+  /** Provider-neutral copy retained while the lazy SDK message still waits in the source queue. */
+  handOffMessage?: QueuedAgentMessage;
+};
 
 export interface LiveTokenEstimateState {
   bucketKey: string;
@@ -154,6 +161,12 @@ export interface InternalSession {
    */
   permissionMode: PermissionMode;
   pendingUserMessages: PendingUserMessage[];
+  /** Prevent the SDK input iterable from eagerly handing it more than one provider turn at once. */
+  userTurnInFlight?: boolean;
+  /** Handoff owns this source; do not consume any more user input before the active turn ends. */
+  retireRequested?: boolean;
+  /** The active provider turn emitted its result and the streaming input may now terminate. */
+  retireBoundaryReached?: boolean;
   notify: (() => void) | null;
   /** 等待用户回应的权限请求：requestId → entry（payload + resolver + 超时定时器） */
   pendingPermissions: Map<string, PendingPermissionEntry>;

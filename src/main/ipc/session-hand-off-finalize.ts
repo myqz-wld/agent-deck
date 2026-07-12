@@ -22,6 +22,37 @@ export type ArchiveSourceSessionResult =
       reasonKind: 'row-missing' | 'probe-throw' | 'archive-throw';
     };
 
+export interface FinalizeUiHandOffSourceDeps {
+  markClosed: (sessionId: string) => void;
+  close: (sessionId: string) => Promise<void>;
+  archive: (sessionId: string) => Promise<ArchiveSourceSessionResult>;
+}
+
+/** Run every post-commit source cleanup step even when an earlier one fails. */
+export async function finalizeUiHandOffSource(
+  sessionId: string,
+  deps: FinalizeUiHandOffSourceDeps,
+): Promise<void> {
+  const failures: string[] = [];
+  try {
+    deps.markClosed(sessionId);
+  } catch (error) {
+    failures.push(`标记源会话关闭失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    await deps.close(sessionId);
+  } catch (error) {
+    failures.push(`关闭源会话失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    const archiveResult = await deps.archive(sessionId);
+    if (!archiveResult.ok) failures.push(`归档源会话失败：${archiveResult.reason}`);
+  } catch (error) {
+    failures.push(`归档源会话失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (failures.length > 0) throw new Error(failures.join('；'));
+}
+
 /** Best-effort UI source archive with an actionable failure event and a fresh row probe. */
 export async function archiveSourceSessionWithEmit(
   sessionId: string,

@@ -17,6 +17,7 @@ export async function serializeSessionHandOffCommit(
       stage: error.stage,
       successorSessionId: error.successorSessionId,
       successorCleanup: error.successorCleanup,
+      ...(error.cutoverReason ? { cutoverReason: error.cutoverReason } : {}),
       message: error.message,
     };
   }

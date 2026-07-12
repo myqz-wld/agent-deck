@@ -40,6 +40,8 @@ import {
 import type { SessionCloseFn, SessionManagerInternalState } from './_deps';
 import { bumpCloseEpochImpl } from './_deps';
 import log from '@main/utils/logger';
+import { handOffCutoverCoordinator } from '../hand-off/cutover-coordinator';
+import { reactivateHandOffSource } from '../hand-off/source-reactivation';
 
 const logger = log.scope('session-manager-lifecycle');
 
@@ -110,6 +112,7 @@ export function markClosedImpl(
   // scheduler 衰减 active→closed / restart rollback / 非 UI close 路径 — 这些在 recover await
   // 期间发生时同样应 abort 不给已判定该关的会话起 fresh CLI。transition guard(active/dormant→closed)
   // 通过后才自增(与「真正发生 close 推进」对齐;guard 拦下的 no-op 不算 close 动作)。
+  handOffCutoverCoordinator.revokeSource(sessionId);
   bumpCloseEpochImpl(state, sessionId);
   sessionRepo.setLifecycle(sessionId, 'closed', Date.now(), { clearPinned: true });
   void applyClosedSideEffects(sessionId, {
@@ -153,6 +156,7 @@ export async function closeImpl(
   // REVIEW_99 R3 cancellation-epoch (codex 第 2 点):自增放 close intent **起点**(adapter
   // close 之前)。否则 adapter.closeSession no-op / 卡住期间 recover guard 看不到 close intent
   // → 漏判「恢复期间第二次 close」。session 存在(record 校验已过)→ close intent 确定发生 → 自增。
+  handOffCutoverCoordinator.revokeSource(sessionId);
   bumpCloseEpochImpl(state, sessionId);
   if (session.agentId && sessionCloseFn) {
     try {
@@ -197,6 +201,7 @@ export async function closeImpl(
  */
 export async function archiveImpl(sessionId: string): Promise<void> {
   sessionRepo.setArchived(sessionId, Date.now());
+  handOffCutoverCoordinator.abortSource(sessionId);
   sessionRepo.clearCwdReleaseMarker(sessionId);
   const updated = sessionRepo.get(sessionId);
   if (updated) eventBus.emit('session-upserted', updated);
@@ -252,7 +257,9 @@ export async function unarchiveOnUserSendImpl(
 export function reactivateImpl(sessionId: string): void {
   const r = sessionRepo.get(sessionId);
   if (!r) return;
-  sessionRepo.setLifecycle(sessionId, 'active', Date.now());
+  reactivateHandOffSource(sessionId, () => {
+    sessionRepo.setLifecycle(sessionId, 'active', Date.now());
+  });
   const updated = sessionRepo.get(sessionId);
   if (updated) eventBus.emit('session-upserted', updated);
 }
@@ -341,6 +348,7 @@ export async function deleteImpl(
   // REVIEW_99 R3 cancellation-epoch (codex 第 2 点):delete 路径起点也自增 — 与 close 同款
   // 「会话结束 intent」语义,recover await 期间 delete 同样应 abort 不起 fresh CLI(record-missing
   // guard 也能挡,但自增便于日志 / 测试断言 + 与 close 路径对称)。
+  if (sessionRepo.get(sessionId)) handOffCutoverCoordinator.revokeSource(sessionId);
   bumpCloseEpochImpl(state, sessionId);
   await leaveTeamsAndAutoArchive(sessionId, 'deleted');
   const session = sessionRepo.get(sessionId);
@@ -355,6 +363,7 @@ export async function deleteImpl(
   const recBeforeDelete = sessionRepo.get(sessionId);
   const cliSidBeforeDelete = recBeforeDelete?.cliSessionId;
   sessionRepo.delete(sessionId);
+  handOffCutoverCoordinator.restoreSource(sessionId);
   const now = Date.now();
   state.recentlyDeleted.set(sessionId, now);
   if (cliSidBeforeDelete && cliSidBeforeDelete !== sessionId) {

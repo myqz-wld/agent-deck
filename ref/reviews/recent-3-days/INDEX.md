@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-12 | `REVIEW_155_handoff-cutover-continuity.md` | Message-safe session handoff cutover | 0 CRITICAL / 7 HIGH fixed / 6 MEDIUM fixed / 2 LOW fixed |
 | 2026-07-12 | `REVIEW_154_core-snapshot-ui-copy.md` | Core snapshot integrity and concise UI copy | 0 CRITICAL / 1 HIGH fixed / 4 MEDIUM fixed / 3 LOW fixed |
 | 2026-07-12 | `REVIEW_153_storage-maintenance-worker-provider-compaction.md` | Dedicated storage worker and provider compact runtime | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed |
 | 2026-07-11 | `REVIEW_152_storage-performance-observability-svg-icons.md` | Storage migration, MCP readiness, and SVG icons | 0 CRITICAL / 5 HIGH fixed / 6 MEDIUM fixed / 2 LOW residuals |

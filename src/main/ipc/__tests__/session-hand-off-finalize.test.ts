@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import log from 'electron-log/main';
 import { SessionRowMissingError } from '@main/store/session-repo';
-import { archiveSourceSessionWithEmit } from '../session-hand-off-finalize';
+import {
+  archiveSourceSessionWithEmit,
+  finalizeUiHandOffSource,
+} from '../session-hand-off-finalize';
 
 const logger = log.scope('ipc-sessions-handoff');
 
@@ -100,5 +103,31 @@ describe('archiveSourceSessionWithEmit', () => {
       reason: expect.stringContaining('probe getSession threw'),
       reasonKind: 'probe-throw',
     });
+  });
+});
+
+describe('finalizeUiHandOffSource', () => {
+  it('attempts close and archive even when an earlier post-commit cleanup step fails', async () => {
+    const markClosed = vi.fn(() => {
+      throw new Error('lifecycle write failed');
+    });
+    const close = vi.fn(async () => {
+      throw new Error('provider close failed');
+    });
+    const archive = vi.fn(async () => ({
+      ok: false as const,
+      reason: 'archive write failed',
+      reasonKind: 'archive-throw' as const,
+    }));
+
+    await expect(finalizeUiHandOffSource('source', {
+      markClosed,
+      close,
+      archive,
+    })).rejects.toThrow(/lifecycle write failed.*provider close failed.*archive write failed/);
+
+    expect(markClosed).toHaveBeenCalledWith('source');
+    expect(close).toHaveBeenCalledWith('source');
+    expect(archive).toHaveBeenCalledWith('source');
   });
 });

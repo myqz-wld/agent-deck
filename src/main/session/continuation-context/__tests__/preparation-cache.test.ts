@@ -46,8 +46,71 @@ describe('continuation preparation cache and singleflight', () => {
     expect(cache.releasePreSpawnFailure(entry.preparationId, 'owner', 1_003)).toBe(true);
     expect(cache.consume(entry.preparationId, 'owner', 1_004).consumed).toBe(true);
     expect(cache.releasePreSpawnFailure(entry.preparationId, 'owner', 1_005)).toBe(false);
-    expect(cache.purgeExpired(1_100)).toBe(1);
+    expect(cache.purgeExpired(1_100)).toBe(0);
+    expect(cache.size).toBe(1);
+    expect(cache.delete(entry.preparationId)).toBe(true);
     expect(evicted).toHaveBeenCalledTimes(1);
+  });
+
+  it('pins an in-flight entry against expiry, invalidation, clear, and capacity eviction', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(30_000);
+    const discarded = vi.fn();
+    const evicted = vi.fn();
+    const cache = new ContinuationPreparationCache({
+      ttlMs: 100,
+      maxEntries: 1,
+      maxBytes: 10_000,
+      onEvict: evicted,
+    });
+    const entry = cache.put({
+      ownerSessionId: 'owner',
+      sourceSessionId: 'source',
+      prepared,
+      generator,
+      target,
+      onDiscard: discarded,
+    });
+    cache.consume(entry.preparationId, 'owner');
+
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(1_000);
+    expect(cache.purgeExpired()).toBe(0);
+    expect(cache.invalidateSource('source')).toBe(0);
+    cache.clear();
+    expect(cache.size).toBe(1);
+    expect(discarded).not.toHaveBeenCalled();
+    expect(evicted).not.toHaveBeenCalled();
+    expect(() =>
+      cache.put({
+        ownerSessionId: 'owner',
+        sourceSessionId: 'other-source',
+        prepared: { ...prepared, spoolId: 'other-spool' },
+        generator,
+        target,
+      }),
+    ).toThrow(/in-flight handoffs/);
+    expect(cache.peek(entry.preparationId, 'owner').consumed).toBe(true);
+
+    expect(cache.delete(entry.preparationId)).toBe(true);
+    expect(discarded).toHaveBeenCalledOnce();
+    expect(evicted).toHaveBeenCalledOnce();
+  });
+
+  it('expires a pinned entry instead of exposing a retry after pre-spawn failure', () => {
+    const cache = new ContinuationPreparationCache({ ttlMs: 100 });
+    const entry = cache.put({
+      ownerSessionId: 'owner',
+      sourceSessionId: 'source',
+      prepared,
+      generator,
+      target,
+      now: 1_000,
+    });
+    cache.consume(entry.preparationId, 'owner', 1_050);
+
+    expect(cache.releasePreSpawnFailure(entry.preparationId, 'owner', 1_100)).toBe(false);
+    expect(cache.size).toBe(0);
   });
 
   it('accounts immutable spool bytes and keeps peek non-touching for LRU', () => {

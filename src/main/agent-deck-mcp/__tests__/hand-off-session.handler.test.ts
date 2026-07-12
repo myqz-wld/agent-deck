@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { adapterRegistry } from '@main/adapters/registry';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { PreparedHandOffContinuation } from '@main/session/continuation-context/handoff';
@@ -8,6 +9,7 @@ import type {
   ResolvedSuccessorSpec,
 } from '@main/session/continuation-context/types';
 import { sessionManager } from '@main/session/manager';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { sessionRepo } from '@main/store/session-repo';
 import type { SessionRecord } from '@shared/types';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
@@ -150,7 +152,12 @@ function testDeps(overrides: Partial<HandOffSessionHandlerDeps> = {}): HandOffSe
     validateTargetAdapter: () => null,
     prepareContinuation: vi.fn(async (input) => preparedHandOff(input.target)),
     spoolMetadata: () => preparedSpoolMetadata(),
-    sourcePreconditionMatches: () => true,
+    sourcePreconditionCheck: () => ({
+      ok: true,
+      currentEventRevision: 77,
+      compatibleEventRows: 0,
+      lateMessages: [],
+    }),
     createSuccessor: vi.fn(async () => 'successor-sid'),
     transferResources: vi.fn(() => successfulTransfer()),
     closeSuccessor: vi.fn(async () => undefined),
@@ -251,6 +258,26 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       callerRow: expect.objectContaining({ id: 'caller-sid' }),
       newSessionId: 'successor-sid',
     });
+  });
+
+  it('always releases ingress ownership when the final source probe throws', async () => {
+    vi.spyOn(sessionRepo, 'get')
+      .mockReturnValueOnce(callerRow())
+      .mockReturnValueOnce(callerRow())
+      .mockImplementationOnce(() => {
+        throw new Error('database unavailable during final probe');
+      });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps(),
+    );
+
+    expect(result.isError).toBeFalsy();
+    const nextLease = handOffCutoverCoordinator.tryAcquire('caller-sid');
+    expect(nextLease).not.toBeNull();
+    nextLease?.release();
   });
 
   it('uses target defaults for cross-adapter options and validates thinking before preparation', async () => {
@@ -421,6 +448,29 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(result.content[0]?.text).not.toContain('source close secret detail');
   });
 
+  it('carries provider input queued before the cutover lease into the successor', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const deliverLateMessages = vi.fn(async () => []);
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({
+        snapshotQueuedMessages: () => [{ text: 'queued before handoff' }],
+        deliverLateMessages,
+      }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(deliverLateMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        successorSessionId: 'successor-sid',
+        messages: [expect.objectContaining({ text: 'queued before handoff' })],
+      }),
+    );
+    expect(parseResult(result).continuationContext.lateMessagesDelivered).toBe(1);
+  });
+
   it('returns compact metadata without provider context, instruction, spool, or runtime fingerprints', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
     const result = await handOffSessionHandler(
@@ -440,6 +490,8 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
         version: 1,
         quality: 'projected',
         sourceEventRevision: 77,
+        cutoverEventRevision: 77,
+        lateMessagesDelivered: 0,
         checkpoint: { id: 12, formatVersion: 1, throughRevision: 77 },
         preparationHash: 'a'.repeat(64),
         tokenStats: {
@@ -472,6 +524,10 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     const markClosed = vi.spyOn(sessionManager, 'markClosed').mockImplementation(() => undefined);
     const close = vi.spyOn(sessionManager, 'close').mockImplementation(async () => undefined);
     const release = vi.spyOn(mcpSessionTokenMap, 'release').mockImplementation(() => undefined);
+    const retire = vi.fn();
+    vi.spyOn(adapterRegistry, 'get').mockReturnValue({
+      retireSessionAfterCurrentTurn: retire,
+    } as unknown as ReturnType<typeof adapterRegistry.get>);
     const deps = testDeps();
     delete deps.finalizeSource;
 
@@ -480,6 +536,37 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(result.isError).toBeFalsy();
     expect(markClosed).toHaveBeenCalledWith('caller-sid');
     expect(release).toHaveBeenCalledWith('caller-sid');
+    expect(retire).toHaveBeenCalledWith('caller-sid');
+    expect(markClosed.mock.invocationCallOrder[0]).toBeLessThan(retire.mock.invocationCallOrder[0]);
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(retire.mock.invocationCallOrder[0]);
     expect(close).not.toHaveBeenCalledWith('caller-sid');
+  });
+
+  it('attempts token revocation and runtime retirement even when marking the source closed fails', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const markClosed = vi.spyOn(sessionManager, 'markClosed').mockImplementation(() => {
+      throw new Error('lifecycle write failed');
+    });
+    const release = vi.spyOn(mcpSessionTokenMap, 'release').mockImplementation(() => {
+      throw new Error('token map failed');
+    });
+    const retire = vi.fn();
+    vi.spyOn(adapterRegistry, 'get').mockReturnValue({
+      retireSessionAfterCurrentTurn: retire,
+    } as unknown as ReturnType<typeof adapterRegistry.get>);
+    const deps = testDeps();
+    delete deps.finalizeSource;
+
+    const result = await handOffSessionHandler({ prompt: 'continue' }, ctx(), deps);
+
+    expect(result.isError).toBeFalsy();
+    expect(markClosed).toHaveBeenCalledWith('caller-sid');
+    expect(release).toHaveBeenCalledWith('caller-sid');
+    expect(retire).toHaveBeenCalledWith('caller-sid');
+    expect(parseResult(result)).toMatchObject({
+      sessionId: 'successor-sid',
+      callerClosed: 'failed',
+      warnings: ['source-finalization-failed'],
+    });
   });
 });

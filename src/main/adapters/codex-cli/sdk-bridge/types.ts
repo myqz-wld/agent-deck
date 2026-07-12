@@ -7,6 +7,7 @@ import type { AgentEvent } from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexInput } from './input-pack';
+import type { QueuedAgentMessage } from '@main/adapters/types';
 
 export interface CodexSessionHandle {
   sessionId: string;
@@ -61,12 +62,20 @@ export interface InternalSession {
    *   所以 codex 这边天然没有「base64 常驻队列内存」问题
    */
   pendingMessages: CodexInput[];
+  /** Provider-neutral metadata kept in FIFO lockstep with production-enqueued pendingMessages. */
+  pendingHandOffMessages?: Array<QueuedAgentMessage | null>;
   /** 当前正在跑的 turn 的 AbortController；中断时调用 abort() */
   currentTurn: AbortController | null;
   /** app-server active turn id；turn/steer 的 expectedTurnId 必须匹配它。 */
   currentTurnId: string | null;
   /** turn loop 是否在跑（避免 sendMessage 重复启动） */
   turnLoopRunning: boolean;
+  /** Successful handoff sealed this source; finish only the active turn, then dispose runtime. */
+  retireAfterCurrentTurn?: boolean;
+  /** Idempotence guard for source runtime/client/claim/token cleanup. */
+  retirementFinalized?: boolean;
+  /** Ordinary close may reap queued uploads; handoff retirement preserves source-history paths. */
+  deletePendingAttachmentsOnRetirement?: boolean;
   /**
    * 已被外部关闭（closeSession / 30s timeout fallback）—— 进 abort 之前置 true。
    * runTurnLoop catch 看到此标记一律静默退出，**不**再 emit `finished/message`。

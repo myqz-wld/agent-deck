@@ -23,6 +23,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 import {
   err,
@@ -42,7 +43,13 @@ export const sendMessageHandler = withMcpGuard(
   async (args: SendMessageArgs, ctx: HandlerContext) => {
     const { caller } = ctx;
 
-    const target = resolveSendTarget(args.sessionId);
+    const requestedTarget = resolveSendTarget(args.sessionId);
+    const redirectedTargetId = handOffCutoverCoordinator.successorFor(
+      requestedTarget?.id ?? args.sessionId,
+    );
+    const target = redirectedTargetId
+      ? resolveSendTarget(redirectedTargetId)
+      : requestedTarget;
     if (!target) {
       return err(
         `session ${args.sessionId} not found`,
@@ -139,11 +146,13 @@ export const sendMessageHandler = withMcpGuard(
         );
       }
       if (teamId === null) {
+        const canonicalSessionId = (sessionId: string): string =>
+          handOffCutoverCoordinator.successorFor(sessionId) ?? sessionId;
+        const originalFrom = canonicalSessionId(original.fromSessionId);
+        const originalTo = canonicalSessionId(original.toSessionId);
         const pairMatch =
-          (original.fromSessionId === caller.callerSessionId &&
-            original.toSessionId === targetSessionId) ||
-          (original.fromSessionId === targetSessionId &&
-            original.toSessionId === caller.callerSessionId);
+          (originalFrom === caller.callerSessionId && originalTo === targetSessionId) ||
+          (originalFrom === targetSessionId && originalTo === caller.callerSessionId);
         if (!pairMatch) {
           return err(
             `teamless reply chain mismatch: replyToMessageId ${args.replyToMessageId} is between other sessions, not (${caller.callerSessionId.slice(0, 8)}, ${targetSessionId.slice(0, 8)})`,
