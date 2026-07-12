@@ -37,6 +37,7 @@ const emitStatusCalls: Array<{ id: string; status: string }> = [];
 const teamRepoGetCalls: string[] = [];
 const membershipInCalls: Array<{ teamId: string; sessionId: string }> = [];
 let markDeliveredThrow: Error | null = null;
+let currentMessageOverride: AgentDeckMessage | null = null;
 
 let nextClaimResult: AgentDeckMessage | null = null;
 let nextSessionResult: { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null = null;
@@ -78,6 +79,13 @@ const receiveTeammateMessageStub = async (to: string, from: string, body: string
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   MAX_RETRY: 3,
   agentDeckMessageRepo: {
+    get: (id: string) => {
+      if (statefulPendingMap) {
+        const current = statefulPendingMap.get(id);
+        return current ? { ...current } : null;
+      }
+      return currentMessageOverride ?? nextClaimResult;
+    },
     claim: (id: string, _now: number) => {
       claimCalls.push(id);
       // stateful 模式：从 pending Map 取 + 改 status
@@ -240,6 +248,7 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 // import after mocks
 import { UniversalMessageWatcher, teamEventDispatcher } from '@main/teams/universal-message-watcher';
 import { PerKeyRateLimiter } from '@main/teams/universal-message-watcher/rate-limiter';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -280,6 +289,7 @@ beforeEach(() => {
   teamRepoListCalls.length = 0;
   teamRepoListResults = [];
   nextClaimResult = null;
+  currentMessageOverride = null;
   nextSessionResult = null;
   nextAdapterResult = undefined;
   // REVIEW_35 follow-up A1 R2: 默认关 stateful 模式
@@ -355,6 +365,98 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
     expect(receiveTeammateMessageCalls[0]?.from).toBe('sender-sid');
     expect(markDeliveredCalls).toHaveLength(1);
     expect(markFailedCalls).toHaveLength(0);
+  });
+
+  it('refreshes a delivering envelope retargeted by handoff before adapter dispatch', async () => {
+    const original = makeMessage({ id: 'handoff-retarget', toSessionId: 'source-sid' });
+    nextClaimResult = { ...original, status: 'delivering' };
+    currentMessageOverride = {
+      ...original,
+      toSessionId: 'successor-sid',
+      status: 'delivering',
+    };
+    sessionByIdMap.set('successor-sid', {
+      id: 'successor-sid',
+      lifecycle: 'active',
+      agentId: 'codex-cli',
+      archivedAt: null,
+    });
+    sessionByIdMap.set('sender-sid', {
+      id: 'sender-sid',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: null,
+    });
+    membershipBySid.set('successor-sid', {
+      sessionId: 'successor-sid',
+      teamId: 'team-1',
+      role: 'lead',
+      leftAt: null,
+    });
+    membershipBySid.set('sender-sid', {
+      sessionId: 'sender-sid',
+      teamId: 'team-1',
+      role: 'teammate',
+      leftAt: null,
+    });
+    nextAdapterResult = {
+      capabilities: { canCollaborate: true },
+      receiveTeammateMessage: receiveTeammateMessageStub,
+    };
+
+    await callDeliver(new UniversalMessageWatcher(), original);
+
+    expect(adapterRegistryGetCalls).toEqual(['codex-cli']);
+    expect(receiveTeammateMessageCalls).toEqual([
+      expect.objectContaining({ to: 'successor-sid', from: 'sender-sid' }),
+    ]);
+    expect(markDeliveredCalls).toHaveLength(1);
+    expect(markFailedCalls).toHaveLength(0);
+  });
+
+  it('redirects an envelope inserted just after handoff ownership committed', async () => {
+    const sourceId = 'source-after-commit';
+    const successorId = 'successor-after-commit';
+    const lease = handOffCutoverCoordinator.tryAcquire(sourceId)!;
+    lease.commit(successorId);
+    lease.release();
+    const original = makeMessage({ id: 'post-commit-message', toSessionId: sourceId });
+    nextClaimResult = { ...original, status: 'delivering' };
+    sessionByIdMap.set(successorId, {
+      id: successorId,
+      lifecycle: 'active',
+      agentId: 'codex-cli',
+      archivedAt: null,
+    });
+    sessionByIdMap.set('sender-sid', {
+      id: 'sender-sid',
+      lifecycle: 'active',
+      agentId: 'claude-code',
+      archivedAt: null,
+    });
+    membershipBySid.set(successorId, {
+      sessionId: successorId,
+      teamId: 'team-1',
+      role: 'lead',
+      leftAt: null,
+    });
+    membershipBySid.set('sender-sid', {
+      sessionId: 'sender-sid',
+      teamId: 'team-1',
+      role: 'teammate',
+      leftAt: null,
+    });
+    nextAdapterResult = {
+      capabilities: { canCollaborate: true },
+      receiveTeammateMessage: receiveTeammateMessageStub,
+    };
+
+    await callDeliver(new UniversalMessageWatcher(), original);
+
+    expect(receiveTeammateMessageCalls).toEqual([
+      expect.objectContaining({ to: successorId }),
+    ]);
+    expect(markDeliveredCalls).toHaveLength(1);
   });
 
   it('reply 在 target session 已删除时 markFailed（与普通 message 同款，不再短路 markDelivered）', async () => {

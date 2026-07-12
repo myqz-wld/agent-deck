@@ -166,6 +166,12 @@ export async function createCodexForkedSession(
           extractAttachmentPaths(delegatedInput),
         ),
       ],
+      pendingHandOffMessages: [{
+        text: target.prompt!,
+        ...(target.attachments && target.attachments.length > 0
+          ? { attachments: target.attachments.map((attachment) => ({ ...attachment })) }
+          : {}),
+      }],
       currentTurn: null,
       currentTurnId: null,
       turnLoopRunning: false,

@@ -48,6 +48,42 @@ afterEach(() => {
 });
 
 describe('ComposerSdk unified input routing', () => {
+  it('offers handoff only after the active turn finishes or is interrupted', () => {
+    const onHandOff = vi.fn();
+    const view = render(
+      <ComposerSdk
+        session={makeSession({ activity: 'working' })}
+        turnBusy
+        canSteerTurn
+        onHandOff={onHandOff}
+      />,
+    );
+    const busyButton = screen.getByRole('button', { name: '接力' }) as HTMLButtonElement;
+    expect(busyButton.disabled).toBe(true);
+    expect(busyButton.title).toBe('当前任务完成或中断后可接力');
+    fireEvent.click(busyButton);
+    expect(onHandOff).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ComposerSdk
+        session={makeSession({ activity: 'waiting' })}
+        turnBusy={false}
+        onHandOff={onHandOff}
+      />,
+    );
+    expect(
+      (screen.getByRole('button', { name: '接力' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    view.rerender(
+      <ComposerSdk session={makeSession()} turnBusy={false} onHandOff={onHandOff} />,
+    );
+    const idleButton = screen.getByRole('button', { name: '接力' }) as HTMLButtonElement;
+    expect(idleButton.disabled).toBe(false);
+    fireEvent.click(idleButton);
+    expect(onHandOff).toHaveBeenCalledOnce();
+  });
+
   it('routes Codex busy input through sendAdapterMessage from the main composer', async () => {
     render(<ComposerSdk session={makeSession({ activity: 'working' })} turnBusy canSteerTurn />);
 

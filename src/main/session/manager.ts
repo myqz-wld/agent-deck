@@ -77,6 +77,8 @@ import {
   consumePendingSdkClaim as consumePendingSdkClaimImpl,
   expectPendingSdkSession,
 } from './manager/sdk-pending-claim';
+import { handOffCutoverCoordinator } from './hand-off/cutover-coordinator';
+import { reactivateHandOffSource } from './hand-off/source-reactivation';
 
 /**
  * SessionManager 是 AgentEvent 的中央汇集点。所有 adapter 都通过 ingest()
@@ -234,7 +236,7 @@ class SessionManagerClass {
           lifecycle: 'active',
           endedAt: null,
         };
-        sessionRepo.upsert(revived);
+        reactivateHandOffSource(sessionId, () => sessionRepo.upsert(revived));
         eventBus.emit('session-upserted', revived);
         return revived;
       }
@@ -379,6 +381,7 @@ class SessionManagerClass {
    * 此入口是防御性补全(消除理论缝)而非热路径。
    */
   bumpCloseEpoch(sessionId: string): void {
+    handOffCutoverCoordinator.revokeSource(sessionId);
     bumpCloseEpochImpl(this.internalState, sessionId);
   }
 
@@ -393,6 +396,7 @@ class SessionManagerClass {
    */
   forgetCloseEpoch(sessionId: string): void {
     this.closeEpoch.delete(sessionId);
+    handOffCutoverCoordinator.restoreSource(sessionId);
   }
 
   /** thin delegate → manager/lifecycle.archiveImpl (setArchived + clearCwdReleaseMarker + team 联动)。 */

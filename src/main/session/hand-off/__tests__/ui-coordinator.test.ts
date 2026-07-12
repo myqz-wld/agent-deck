@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CreateSessionOptions } from '@main/adapters/types';
+import type { CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
 import type { SessionEventRevisionState } from '@main/store/event-revision-repo';
 import type { SessionHandOffTarget, SessionRecord } from '@shared/types';
 import type { PreparedHandOffContinuation } from '../../continuation-context/handoff';
@@ -12,6 +12,8 @@ import type {
   ResolvedSuccessorSpec,
 } from '../../continuation-context/types';
 import { HandOffExecutionError } from '../executor';
+import { HandOffCutoverCoordinator } from '../cutover-coordinator';
+import type { HandOffSourceCutoverResult } from '../source-precondition';
 import type { ResolvedHandOffTarget } from '../target-resolver';
 import {
   boundedContinuationPreview,
@@ -129,11 +131,13 @@ interface MutableHarnessState {
   source: SessionRecord | null;
   eventState: SessionEventRevisionState | null;
   sourceRuntimeFingerprint: string | null;
+  sourcePreconditionResult: HandOffSourceCutoverResult;
   settingsFingerprint: string;
   target: ResolvedHandOffTarget;
+  queuedMessages: QueuedAgentMessage[];
 }
 
-function createHarness() {
+function createHarness(options: { cacheTtlMs?: number } = {}) {
   const state: MutableHarnessState = {
     source: makeSource(),
     eventState: {
@@ -142,11 +146,20 @@ function createHarness() {
       rebuildAfterRevision: 2,
     },
     sourceRuntimeFingerprint: 'source-runtime-secret',
+    sourcePreconditionResult: {
+      ok: true,
+      currentEventRevision: 7,
+      compatibleEventRows: 0,
+      lateMessages: [],
+    },
     settingsFingerprint: 'settings-secret',
     target: makeTarget(),
+    queuedMessages: [],
   };
   const cleanupSpool = vi.fn<(spoolId: string) => void>();
+  const cutoverCoordinator = new HandOffCutoverCoordinator();
   const cache = new ContinuationPreparationCache({
+    ...(options.cacheTtlMs ? { ttlMs: options.cacheTtlMs } : {}),
     onEvict: (entry) => cleanupSpool(entry.prepared.spoolId),
   });
   let sequence = 0;
@@ -164,17 +177,41 @@ function createHarness() {
   });
   const resolveTarget = vi.fn(() => state.target);
   const execute = vi.fn(
-    async (): Promise<UiHandOffExecutionResult> => ({
-      successorSessionId: 'successor-session',
-      sourceFinalization: { ok: true, value: undefined },
-    }),
+    async (input): Promise<UiHandOffExecutionResult> => {
+      input.commitIngress('successor-session');
+      const sourceCutover = state.sourcePreconditionResult.ok
+        ? state.sourcePreconditionResult
+        : {
+            ok: true as const,
+            currentEventRevision: 7,
+            compatibleEventRows: 0,
+            lateMessages: [],
+          };
+      return {
+        successorSessionId: 'successor-session',
+        queuedMessagesDelivered: input.queuedMessages.length,
+        sourceCutover,
+        sourceFinalization: { ok: true, value: undefined },
+      };
+    },
   );
   const coordinator = new UiHandOffCoordinator({
     cache,
+    cutoverCoordinator,
     getSession: () => state.source,
     eventState: () => state.eventState,
     maxEventId: () => 42,
     sourceRuntimeFingerprint: () => state.sourceRuntimeFingerprint,
+    snapshotQueuedMessages: () => state.queuedMessages,
+    sourcePreconditionCheck: () => {
+      if (!state.source || state.source.lifecycle === 'closed' || state.source.archivedAt !== null) {
+        return { ok: false, reason: 'source-not-open', currentEventRevision: null };
+      }
+      if (state.sourceRuntimeFingerprint !== 'source-runtime-secret') {
+        return { ok: false, reason: 'runtime-changed', currentEventRevision: null };
+      }
+      return state.sourcePreconditionResult;
+    },
     resolveTarget,
     prepare,
     currentSettingsFingerprint: () => state.settingsFingerprint,
@@ -211,6 +248,7 @@ function createHarness() {
 
   return {
     coordinator,
+    cutoverCoordinator,
     cache,
     cleanupSpool,
     execute,
@@ -309,15 +347,161 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
   });
 
-  it.each([
-    ['same-id event update', { revision: 8, rebuildAfterRevision: 2 }],
-    ['rebuild epoch advance', { revision: 7, rebuildAfterRevision: 3 }],
-  ])('rejects stale %s before any execute/create/transfer side effect', async (_name, next) => {
+  it('buffers source ingress while preview is open and replays it when the user cancels', async () => {
     const harness = createHarness();
     const preparation = await harness.prepareOne();
-    harness.state.eventState = {
-      sessionId: SOURCE_ID,
-      ...next,
+    const record = vi.fn();
+    const replay = vi.fn(async () => undefined);
+
+    expect(
+      harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, { record, replay }),
+    ).toBe(true);
+    expect(record).toHaveBeenCalledOnce();
+    expect(harness.coordinator.cancel(OWNER, preparation.preparationId)).toBe(true);
+    await vi.waitFor(() => expect(replay).toHaveBeenCalledOnce());
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+  });
+
+  it.each(['working', 'waiting'] as const)(
+    'rejects UI preparation while source activity is %s',
+    async (activity) => {
+      const harness = createHarness();
+      harness.state.source = makeSource({ activity });
+
+      await expect(harness.prepareOne()).rejects.toThrow(/仍在运行/);
+      expect(harness.prepare).not.toHaveBeenCalled();
+      expect(harness.cache.size).toBe(0);
+      expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+    },
+  );
+
+  it('expires a preview if the source starts running before commit', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.state.source = makeSource({ activity: 'working' });
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toThrow(/仍在运行/);
+    expect(harness.execute).not.toHaveBeenCalled();
+    expect(harness.cache.size).toBe(0);
+  });
+
+  it('aborts a renamed preview and restores accepted input on the surviving session id', async () => {
+    const harness = createHarness();
+    await harness.prepareOne();
+    const replay = vi.fn(async () => undefined);
+    harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+      record: vi.fn(),
+      replay,
+    });
+
+    expect(harness.coordinator.renameSource(SOURCE_ID, 'renamed-source')).toBe(1);
+    expect(harness.cache.size).toBe(0);
+    await vi.waitFor(() => expect(replay).toHaveBeenCalledWith('renamed-source'));
+    expect(harness.cutoverCoordinator.isActive('renamed-source')).toBe(false);
+  });
+
+  it('replays accepted input when a reversible archive aborts the preview', async () => {
+    const harness = createHarness();
+    await harness.prepareOne();
+    const replay = vi.fn(async () => undefined);
+    harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+      record: vi.fn(),
+      replay,
+    });
+
+    expect(harness.coordinator.abortSource(SOURCE_ID)).toBe(1);
+    await vi.waitFor(() => expect(replay).toHaveBeenCalledWith(SOURCE_ID));
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+  });
+
+  it('drops terminally removed input without retaining a permanent source-id seal', async () => {
+    const harness = createHarness();
+    await harness.prepareOne();
+    const replay = vi.fn(async () => undefined);
+    harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+      record: vi.fn(),
+      replay,
+    });
+
+    expect(harness.coordinator.removeSource(SOURCE_ID)).toBe(1);
+    expect(replay).not.toHaveBeenCalled();
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+    const freshLease = harness.cutoverCoordinator.tryAcquire(SOURCE_ID);
+    expect(freshLease).not.toBeNull();
+    freshLease?.release();
+  });
+
+  it('does not publish a preview if the source closes while context generation is pending', async () => {
+    const harness = createHarness();
+    let finishPreparation!: (value: PreparedHandOffContinuation) => void;
+    harness.prepare.mockImplementationOnce(
+      () => new Promise<PreparedHandOffContinuation>((resolve) => {
+        finishPreparation = resolve;
+      }),
+    );
+
+    const preparation = harness.prepareOne();
+    await Promise.resolve();
+    harness.state.source = makeSource({ lifecycle: 'closed', endedAt: 100 });
+    harness.coordinator.invalidateSource(SOURCE_ID);
+    const prepared = makePrepared(99);
+    finishPreparation({
+      prepared,
+      turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      generator,
+      target: harness.state.target.spec,
+      settingsFingerprint: harness.state.settingsFingerprint,
+    });
+
+    await expect(preparation).rejects.toThrow(/已关闭、归档或移除/);
+    expect(harness.cache.size).toBe(0);
+    expect(harness.cleanupSpool).toHaveBeenCalledWith(prepared.spoolId);
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+  });
+
+  it('releases preparation ingress even when spool cleanup throws', async () => {
+    const harness = createHarness();
+    let finishPreparation!: (value: PreparedHandOffContinuation) => void;
+    harness.prepare.mockImplementationOnce(
+      () => new Promise<PreparedHandOffContinuation>((resolve) => {
+        finishPreparation = resolve;
+      }),
+    );
+    harness.cleanupSpool.mockImplementationOnce(() => {
+      throw new Error('cleanup database unavailable');
+    });
+
+    const preparation = harness.prepareOne();
+    await Promise.resolve();
+    harness.coordinator.invalidateSource(SOURCE_ID);
+    const prepared = makePrepared(100);
+    finishPreparation({
+      prepared,
+      turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      generator,
+      target: harness.state.target.spec,
+      settingsFingerprint: harness.state.settingsFingerprint,
+    });
+
+    await expect(preparation).rejects.toThrow(/已关闭、归档或移除/);
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+    harness.cutoverCoordinator.restoreSource(SOURCE_ID);
+    const next = await harness.prepareOne();
+    expect(harness.coordinator.cancel(OWNER, next.preparationId)).toBe(true);
+  });
+
+  it.each([
+    ['captured event update', 'captured-event-mutated'],
+    ['rebuild epoch advance', 'rebuild-epoch-changed'],
+  ] as const)('rejects stale %s before any execute/create/transfer side effect', async (_name, reason) => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.state.sourcePreconditionResult = {
+      ok: false,
+      reason,
+      currentEventRevision: 8,
     };
 
     await expect(
@@ -326,6 +510,31 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.execute).not.toHaveBeenCalled();
     expect(harness.cache.size).toBe(0);
     expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+  });
+
+  it('allows append-only activity and late user input after preparation', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.state.sourcePreconditionResult = {
+      ok: true,
+      currentEventRevision: 10,
+      compatibleEventRows: 3,
+      lateMessages: [{
+        eventId: 45,
+        text: 'late correction',
+        attachments: [],
+        origin: 'user',
+      }],
+    };
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).resolves.toMatchObject({
+      successorSessionId: 'successor-session',
+      cutoverEventRevision: 10,
+      lateMessagesDelivered: 1,
+    });
+    expect(harness.execute).toHaveBeenCalledTimes(1);
   });
 
   it.each(['source runtime', 'settings', 'target create options', 'target runtime'] as const)(
@@ -377,13 +586,23 @@ describe('UiHandOffCoordinator', () => {
 
     expect(result).toEqual({
       successorSessionId: 'successor-session',
+      cutoverEventRevision: 7,
+      lateMessagesDelivered: 0,
       sourceFinalizationWarning: null,
     });
     expect(harness.execute).toHaveBeenCalledTimes(1);
     expect(harness.execute).toHaveBeenCalledWith({
       source: harness.state.source,
-      sourcePrecondition: { eventRevision: 7, rebuildAfterRevision: 2, runtimeFingerprint: 'source-runtime-secret' },
+      queuedMessages: [],
+      sourcePrecondition: {
+        eventRevision: 7,
+        rebuildAfterRevision: 2,
+        maxEventId: 42,
+        runtimeFingerprint: 'source-runtime-secret',
+      },
       target: harness.state.target.createOptions,
+      commitIngress: expect.any(Function),
+      sourceOwnershipCheck: expect.any(Function),
       turn: expect.objectContaining({
         kind: 'trusted-continuation',
         providerPrompt: harness.preparedValues[0]?.providerPrompt,
@@ -400,6 +619,33 @@ describe('UiHandOffCoordinator', () => {
       harness.coordinator.commit(OWNER, preparation.preparationId),
     ).rejects.toThrow(/not authorized/);
     expect(harness.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('freezes source adapter input queued before preview and carries it into execution', async () => {
+    const harness = createHarness();
+    harness.state.queuedMessages = [{
+      text: 'queued image instruction',
+      attachments: [{
+        kind: 'uploaded',
+        path: '/uploads/queued.png',
+        mime: 'image/png',
+        bytes: 4,
+      }],
+    }];
+
+    const preparation = await harness.prepareOne();
+    harness.state.queuedMessages = [];
+    const result = await harness.coordinator.commit(OWNER, preparation.preparationId);
+
+    expect(result.lateMessagesDelivered).toBe(1);
+    expect(harness.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queuedMessages: [{
+          text: 'queued image instruction',
+          attachments: [expect.objectContaining({ path: '/uploads/queued.png' })],
+        }],
+      }),
+    );
   });
 
   it('deletes a transfer-failed preparation and never permits another attempt', async () => {
@@ -439,6 +685,11 @@ describe('UiHandOffCoordinator', () => {
     ).rejects.toThrow('spawn failed before creation');
     expect(harness.cache.size).toBe(1);
     expect(harness.cleanupSpool).not.toHaveBeenCalled();
+    const replay = vi.fn(async () => undefined);
+    expect(harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+      record: vi.fn(),
+      replay,
+    })).toBe(true);
 
     await expect(
       harness.coordinator.commit(OWNER, preparation.preparationId),
@@ -446,6 +697,7 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.execute).toHaveBeenCalledTimes(2);
     expect(harness.cache.size).toBe(0);
     expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+    await vi.waitFor(() => expect(replay).toHaveBeenCalledOnce());
 
     await expect(
       harness.coordinator.commit(OWNER, preparation.preparationId),
@@ -468,33 +720,196 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
   });
 
-  it('serializes commits per source while leaving the rejected preparation reusable', async () => {
+  it('owns source ingress from preparation through commit and releases it afterward', async () => {
     const harness = createHarness();
     const first = await harness.prepareOne();
-    const second = await harness.prepareOne();
+    await expect(harness.prepareOne()).rejects.toThrow(/正在创建续接会话/);
     let finishFirst!: (result: UiHandOffExecutionResult) => void;
     harness.execute.mockImplementationOnce(
-      () =>
-        new Promise<UiHandOffExecutionResult>((resolve) => {
+      (input) => {
+        input.commitIngress('first-successor');
+        return new Promise<UiHandOffExecutionResult>((resolve) => {
           finishFirst = resolve;
-        }),
+        });
+      },
     );
 
     const firstCommit = harness.coordinator.commit(OWNER, first.preparationId);
     await vi.waitFor(() => expect(harness.execute).toHaveBeenCalledTimes(1));
     await expect(
-      harness.coordinator.commit(OWNER, second.preparationId),
-    ).rejects.toThrow(/正在创建续接会话/);
-    expect(harness.execute).toHaveBeenCalledTimes(1);
-    expect(harness.cache.peek(second.preparationId, OWNER).consumed).toBe(false);
+      harness.coordinator.commit(OWNER, first.preparationId),
+    ).rejects.toThrow(/正在提交/);
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(true);
 
     finishFirst({
       successorSessionId: 'first-successor',
+      queuedMessagesDelivered: 0,
+      sourceCutover: {
+        ok: true,
+        currentEventRevision: 7,
+        compatibleEventRows: 0,
+        lateMessages: [],
+      },
       sourceFinalization: { ok: true, value: undefined },
     });
     await expect(firstCommit).resolves.toMatchObject({ successorSessionId: 'first-successor' });
-    expect(harness.cache.size).toBe(1);
-    expect(harness.coordinator.cancel(OWNER, second.preparationId)).toBe(true);
+    const next = await harness.prepareOne();
+    expect(harness.coordinator.cancel(OWNER, next.preparationId)).toBe(true);
     expect(harness.cleanupSpool).toHaveBeenCalledTimes(2);
+  });
+
+  it('pins an in-flight commit across TTL expiry and settings cleanup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(50_000);
+    try {
+      const harness = createHarness({ cacheTtlMs: 100 });
+      const preparation = await harness.prepareOne();
+      let finish!: (result: UiHandOffExecutionResult) => void;
+      let executionInput!: Parameters<typeof harness.execute>[0];
+      harness.execute.mockImplementationOnce(
+        (input) => {
+          executionInput = input;
+          return new Promise<UiHandOffExecutionResult>((resolve) => {
+            finish = resolve;
+          });
+        },
+      );
+
+      const commit = harness.coordinator.commit(OWNER, preparation.preparationId);
+      await Promise.resolve();
+      expect(harness.execute).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(1_000);
+      harness.coordinator.clear();
+      expect(harness.cache.size).toBe(1);
+      expect(harness.cleanupSpool).not.toHaveBeenCalled();
+
+      const replay = vi.fn(async () => undefined);
+      expect(harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+        record: vi.fn(),
+        replay,
+      })).toBe(true);
+      executionInput.commitIngress('successor-after-expiry');
+      finish({
+        successorSessionId: 'successor-after-expiry',
+        queuedMessagesDelivered: 0,
+        sourceCutover: {
+          ok: true,
+          currentEventRevision: 8,
+          compatibleEventRows: 1,
+          lateMessages: [],
+        },
+        sourceFinalization: { ok: true, value: undefined },
+      });
+
+      await expect(commit).resolves.toMatchObject({
+        successorSessionId: 'successor-after-expiry',
+      });
+      expect(replay).not.toHaveBeenCalled();
+      expect(harness.cache.size).toBe(0);
+      expect(harness.cleanupSpool).toHaveBeenCalledOnce();
+      expect(harness.cutoverCoordinator.successorFor(SOURCE_ID))
+        .toBe('successor-after-expiry');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('revokes a deferred commit on terminal source close without replaying or reopening input', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    let continueExecution!: () => void;
+    const executionGate = new Promise<void>((resolve) => {
+      continueExecution = resolve;
+    });
+    harness.execute.mockImplementationOnce(async (input) => {
+      await executionGate;
+      if (!input.sourceOwnershipCheck()) {
+        throw new HandOffExecutionError(
+          'source closed during create',
+          'cutover',
+          'closed-source-orphan',
+          'ok',
+          null,
+          null,
+          'source-not-open',
+        );
+      }
+      throw new Error('ownership should have been revoked');
+    });
+
+    const commit = harness.coordinator.commit(OWNER, preparation.preparationId);
+    await Promise.resolve();
+    const replay = vi.fn(async () => undefined);
+    expect(harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+      record: vi.fn(),
+      replay,
+    })).toBe(true);
+    harness.state.source = makeSource({ lifecycle: 'closed', endedAt: 100 });
+    expect(harness.coordinator.invalidateSource(SOURCE_ID)).toBe(0);
+    expect(harness.cache.size).toBe(1);
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(true);
+    expect(() => harness.cutoverCoordinator.tryBufferInput(SOURCE_ID, {
+      record: vi.fn(),
+      replay: vi.fn(async () => undefined),
+    })).toThrow(/closed or unavailable/);
+
+    continueExecution();
+    await expect(commit).rejects.toMatchObject({
+      stage: 'cutover',
+      cutoverReason: 'source-not-open',
+    });
+    expect(replay).not.toHaveBeenCalled();
+    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+    expect(harness.cache.size).toBe(0);
+    expect(harness.cleanupSpool).toHaveBeenCalledOnce();
+  });
+
+  it('does not offer a retry when terminal invalidation wins a pre-spawn failure', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    let rejectCreate!: (error: Error) => void;
+    harness.execute.mockImplementationOnce(
+      () => new Promise<UiHandOffExecutionResult>((_resolve, reject) => {
+        rejectCreate = reject;
+      }),
+    );
+
+    const commit = harness.coordinator.commit(OWNER, preparation.preparationId);
+    await Promise.resolve();
+    harness.state.source = makeSource({ lifecycle: 'closed', endedAt: 100 });
+    harness.coordinator.invalidateSource(SOURCE_ID);
+    rejectCreate(new Error('spawn failed after source close'));
+
+    await expect(commit).rejects.toThrow('spawn failed after source close');
+    expect(harness.cache.size).toBe(0);
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toThrow(/not authorized/);
+  });
+
+  it('ignores expected source-close invalidation after ingress has committed', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockImplementationOnce(async (input) => {
+      input.commitIngress('committed-successor');
+      harness.state.source = makeSource({ lifecycle: 'closed', endedAt: 100 });
+      harness.coordinator.invalidateSource(SOURCE_ID);
+      return {
+        successorSessionId: 'committed-successor',
+        queuedMessagesDelivered: 0,
+        sourceCutover: {
+          ok: true,
+          currentEventRevision: 7,
+          compatibleEventRows: 0,
+          lateMessages: [],
+        },
+        sourceFinalization: { ok: true, value: undefined },
+      };
+    });
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).resolves.toMatchObject({ successorSessionId: 'committed-successor' });
+    expect(harness.cutoverCoordinator.successorFor(SOURCE_ID)).toBe('committed-successor');
   });
 });

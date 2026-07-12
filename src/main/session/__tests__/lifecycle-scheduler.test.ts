@@ -119,6 +119,7 @@ vi.mock('@main/session/manager-team-coordinator', () => ({
 
 // import after mocks
 import { LifecycleScheduler } from '@main/session/lifecycle-scheduler';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -194,6 +195,10 @@ describe('LifecycleScheduler.scan — R1 codex HIGH-1 修法契约', () => {
     expect(upserts).toHaveLength(2);
     expect((upserts[0]?.payload as SessionRecord).id).toBe('sid-A');
     expect((upserts[1]?.payload as SessionRecord).id).toBe('sid-B');
+    expect(handOffCutoverCoordinator.tryAcquire('sid-A')).toBeNull();
+    expect(handOffCutoverCoordinator.tryAcquire('sid-B')).toBeNull();
+    handOffCutoverCoordinator.restoreSource('sid-A');
+    handOffCutoverCoordinator.restoreSource('sid-B');
   });
 
   it('active→dormant 路径不调 clearCwdReleaseMarker / leaveTeamsAndAutoArchive (仅 dormant→closed 触发)', () => {

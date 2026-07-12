@@ -26,18 +26,13 @@ export function validateSendMessageOrThrow(
   sessionId: string,
   text: string,
   emit: (e: AgentEvent) => void,
+  allowQueueOverflow = false,
 ): void {
-  // REVIEW_24 HIGH-2 follow-up：单条字符长度上限（与 messageRepo cap 全局对齐）。
-  // attachments 走 lazy thunk 内 fs.readFile，不算在 text length 内（IPC 层独立 30MB 校验）。
-  const len = text.length;
-  if (len > MAX_MESSAGE_LENGTH) {
-    throw new Error(
-      `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
-    );
-  }
+  validateMessageLengthOrThrow(text);
+  validateSessionAcceptsMessageOrThrow(s, sessionId);
 
   // 队列上限：超过就拒绝排队。
-  if (s.pendingUserMessages.length >= MAX_PENDING_MESSAGES) {
+  if (!allowQueueOverflow && s.pendingUserMessages.length >= MAX_PENDING_MESSAGES) {
     throw new Error(
       `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条。请先处理 pending 请求（权限/提问/计划批准）` +
         `或等 Claude 消费当前队列再继续发送。`,
@@ -61,5 +56,27 @@ export function validateSendMessageOrThrow(
       ts: Date.now(),
       source: 'sdk',
     });
+  }
+}
+
+/** A committed handoff owns the old runtime, so no direct caller may refill its input queue. */
+export function validateSessionAcceptsMessageOrThrow(
+  session: InternalSession,
+  sessionId: string,
+): void {
+  if (session.retireRequested) {
+    throw new Error(`会话 ${sessionId} 已完成交接，旧会话不再接收消息。`);
+  }
+}
+
+/** Length validation is retained even when handoff temporarily owns queue backpressure. */
+export function validateMessageLengthOrThrow(text: string): void {
+  // REVIEW_24 HIGH-2 follow-up：单条字符长度上限（与 messageRepo cap 全局对齐）。
+  // attachments 走 lazy thunk 内 fs.readFile，不算在 text length 内（IPC 层独立 30MB 校验）。
+  const len = text.length;
+  if (len > MAX_MESSAGE_LENGTH) {
+    throw new Error(
+      `单条消息 ${len.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简或拆分发送。`,
+    );
   }
 }

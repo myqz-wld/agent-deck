@@ -54,6 +54,15 @@ export class StreamProcessor {
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): PendingUserMessage {
+    const handOffMessage = {
+      text,
+      ...(attachments && attachments.length > 0
+        ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+        : {}),
+    };
+    const retainForHandOff = (
+      materialize: () => Promise<SDKUserMessage>,
+    ): PendingUserMessage => Object.assign(materialize, { handOffMessage });
     if (!attachments || attachments.length === 0) {
       // 纯文本快路径：thunk 同步 resolve，无 fs IO，无 base64
       const msg: SDKUserMessage = {
@@ -63,10 +72,10 @@ export class StreamProcessor {
         priority: 'now',
         session_id: sessionId,
       };
-      return () => Promise.resolve(msg);
+      return retainForHandOff(() => Promise.resolve(msg));
     }
     // 带图片：thunk 在 yield 前 await readFile + base64
-    return async () => {
+    return retainForHandOff(async () => {
       // Anthropic SDK Base64ImageSource.media_type 严格限制 4 种字面量；
       // IPC 层 ALLOWED_UPLOAD_MIMES 已收口同款集合，这里 cast 安全。
       type ClaudeImageMime = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
@@ -101,7 +110,7 @@ export class StreamProcessor {
         priority: 'now',
         session_id: sessionId,
       };
-    };
+    });
   }
 
   async *createUserMessageStream(
@@ -109,16 +118,27 @@ export class StreamProcessor {
     _tempKey: string,
   ): AsyncIterable<SDKUserMessage> {
     while (true) {
-      while (internal.pendingUserMessages.length > 0) {
+      if (internal.retireBoundaryReached) return;
+      if (
+        !internal.retireRequested &&
+        !internal.userTurnInFlight &&
+        internal.pendingUserMessages.length > 0
+      ) {
         const thunk = internal.pendingUserMessages.shift()!;
         // HIGH-2 修法：lazy materialize —— readFile + base64 在 yield 前才发生。
         // 队列只存 thunk（轻量），SDK consume 完后整条 SDKUserMessage GC，base64 不常驻
-        yield await thunk();
+        const message = await thunk();
+        if (internal.retireBoundaryReached) return;
+        if (internal.retireRequested) continue;
+        internal.userTurnInFlight = true;
+        yield message;
+        continue;
       }
       await new Promise<void>((resolve) => {
         internal.notify = resolve;
       });
       internal.notify = null;
+      if (internal.retireBoundaryReached) return;
       // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R4 HIGH-H 修订**:
       // sessions Map key 是 applicationSid 维度 (S3 修订让 sessions.set 用 applicationSid),
       // createUserMessageStream 流式 prompt 喂 SDK 主循环必须用 applicationSid 才能命中
@@ -424,6 +444,31 @@ export class StreamProcessor {
         // isNewSpawn 分支保护),resume/fallback 路径 ctor 时 = opts.resume 全程不变。
         const sid = internal.applicationSid;
         translateSdkMessage(this.ctx.emit, sid, m, internal);
+        if (m.type === 'result') {
+          internal.userTurnInFlight = false;
+        }
+        if (internal.retireRequested && m.type === 'result') {
+          // The result must be translated before expectedClose is set; otherwise the current
+          // handoff turn loses its result/usage/finished events. This is the provider turn boundary.
+          internal.retireBoundaryReached = true;
+          internal.expectedClose = true;
+          internal.pendingUserMessages.length = 0;
+          const notify = internal.notify;
+          internal.notify = null;
+          notify?.();
+          try {
+            void internal.query.interrupt().catch((error) => {
+              logger.warn(`[sdk-bridge] deferred handoff retirement interrupt failed: ${sid}`, error);
+            });
+          } catch (error) {
+            logger.warn(`[sdk-bridge] deferred handoff retirement interrupt failed: ${sid}`, error);
+          }
+          break;
+        } else if (m.type === 'result') {
+          const notify = internal.notify;
+          internal.notify = null;
+          notify?.();
+        }
       }
     } catch (err) {
       logger.warn(`[sdk-bridge] query loop ended`, err);

@@ -18,6 +18,7 @@ import { eventRepo } from '@main/store/event-repo';
 import { eventBus } from '@main/event-bus';
 import { summarizer } from '@main/session/summarizer';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import type {
   AgentDeckMessage,
   AgentDeckTeam,
@@ -252,7 +253,9 @@ export function registerTeamsIpc(): void {
       const obj = input as Record<string, unknown>;
       const teamId = parseId(obj.teamId, 'teamId');
       const fromSessionId = parseId(obj.fromSessionId, 'fromSessionId');
-      const toSessionId = parseId(obj.toSessionId, 'toSessionId');
+      const requestedToSessionId = parseId(obj.toSessionId, 'toSessionId');
+      const toSessionId =
+        handOffCutoverCoordinator.successorFor(requestedToSessionId) ?? requestedToSessionId;
       if (typeof obj.body !== 'string' || !obj.body) {
         throw new IpcInputError('body', 'body required (non-empty string)');
       }

@@ -44,8 +44,8 @@ import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
+import type { AgentEnqueueOptions, QueuedAgentMessage } from '@main/adapters/types';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
-import { validateSendMessageOrThrow } from './send-validation';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
 import {
@@ -55,9 +55,9 @@ import {
 import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 import log from '@main/utils/logger';
 import { closeClaudeSession, setClaudePermissionMode } from './session-lifecycle';
+import { sendClaudeMessage } from './message-controller';
 
 const logger = log.scope('claude-bridge');
-
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
 /**
@@ -247,52 +247,38 @@ export class ClaudeSdkBridge {
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    if (!s) {
-      // 通道死了（dev 重启 / SDK 流自然终止 / 历史会话 lifecycle 已 dormant 或 closed 等）。
-      // 早期靠 throw 'not found' 让 renderer 自己识别再调 createAdapterSession({resume:...})；
-      // CHANGELOG_26 / B 方案：把恢复语义沉到 adapter owner 层，renderer 不感知 resume 实现细节。
-      // 委托 recoverer.recoverAndSend：单飞 + 完整复用 createSession（H4/H1 全套护栏不绕）。
-      // CHANGELOG_52 Step 3d：实现迁到 SessionRecoverer，class 上 sendMessage 路径不变。
-      // attachments 透传：HIGH-1 修法，避免 inflight 第二条等待者丢图
-      //
-      // plan cross-adapter-parity-20260515 Phase B Step B.3:recoverAndSend signature 改
-      // Promise<string>(返 finalId)。本 caller(bridge sendMessage)**不消费**返回值 —
-      // bridge sendMessage 整个 return 流程结束;但 recoverAndSend 内部 inflight 等待者 path
-      // 通过 `await inflight` 拿同款 finalId 调 sendThunk → bridge.sendMessage(finalId, ...)
-      // 直接命中 sessions Map(主 recovery 完成后已 sync),不再撞 OLD sid not found(REVIEW_40
-      // R2 reviewer-codex MED parity 限制治法,plan §B 主体)。
-      await this.recoverer.recoverAndSend(sessionId, text, attachments);
-      // 失败仍 throw 给 IPC，与原 'not found' 路径行为一致。
-      return;
-    }
-
-    // CHANGELOG_85 Step 3.2：3 段 pre-condition check 抽到 send-validation.ts
-    // （长度上限 / 队列上限 / pending warning emit）。
-    validateSendMessageOrThrow(s, sessionId, text, this.opts.emit);
-
-    s.pendingUserMessages.push(
-      this.streamProcessor.makeUserMessage(sessionId, text, attachments),
-    );
-    s.notify?.();
-    // 把用户输入也作为一条 message event emit 出去，详情面板能看到完整对话；
-    // role: 'user' 让 UI 区分用户/Claude；attachments path 进 events.payload，
-    // 历史 detail view 用 UploadedImageThumb 走新 IPC loadUploadedImage 渲染
-    this.opts.emit({
+    await sendClaudeMessage({
+      sessions: this.sessions,
+      emit: this.opts.emit,
+      recoverAndSend: (sid, body, refs, options) =>
+        this.recoverer.recoverAndSend(sid, body, refs, options),
+      makeUserMessage: (sid, body, refs) =>
+        this.streamProcessor.makeUserMessage(sid, body, refs),
+    }, {
       sessionId,
-      agentId: 'claude-code',
-      kind: 'message',
-      payload: {
-        text,
-        role: 'user',
-        ...(attachments && attachments.length > 0 ? { attachments } : {}),
-        // plan handoff-render-and-image-batch-20260521 §不变量 5 严守 + R1 reviewer-claude
-        // INFO-1 修法:仅 createSession first user message 携带 handOff metadata(finalizeSessionStart
-        // 路径),后续 sendMessage 轮(本 emit)不重复携带 — 防 events 表 hand-off baton 链识别
-        // 误把后续轮次也计为新 baton 触发点。与 codex sdk-bridge sendMessage emit 同款语义。
-      },
-      ts: Date.now(),
-      source: 'sdk',
+      text,
+      attachments,
+    });
+  }
+
+  async enqueueMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void> {
+    await sendClaudeMessage({
+      sessions: this.sessions,
+      emit: this.opts.emit,
+      recoverAndSend: (sid, body, refs, options) =>
+        this.recoverer.recoverAndSend(sid, body, refs, options),
+      makeUserMessage: (sid, body, refs) =>
+        this.streamProcessor.makeUserMessage(sid, body, refs),
+    }, {
+      sessionId,
+      text,
+      attachments,
+      allowQueueOverflow: options?.bypassQueueLimit === true,
     });
   }
 
@@ -426,6 +412,37 @@ export class ClaudeSdkBridge {
       emit: this.opts.emit,
       sessionId,
       options: opts,
+    });
+  }
+
+  /** Let the current MCP turn return its handoff result, then end the source query before next input. */
+  retireSessionAfterCurrentTurn(sessionId: string): void {
+    const internal = [...this.sessions.values()].find(
+      (candidate) =>
+        candidate.applicationSid === sessionId || candidate.cliSessionId === sessionId,
+    );
+    if (!internal) return;
+    // This method runs before the MCP handler returns. Only seal future input here: expectedClose
+    // and query interruption would suppress or truncate the current turn's result frame.
+    internal.retireRequested = true;
+    internal.pendingUserMessages.length = 0;
+  }
+
+  snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
+    const internal = [...this.sessions.values()].find(
+      (candidate) =>
+        candidate.applicationSid === sessionId || candidate.cliSessionId === sessionId,
+    );
+    if (!internal) return [];
+    return internal.pendingUserMessages.flatMap((pending) => {
+      const message = pending.handOffMessage;
+      if (!message) return [];
+      return [{
+        text: message.text,
+        ...(message.attachments
+          ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+          : {}),
+      }];
     });
   }
 

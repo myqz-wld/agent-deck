@@ -18,12 +18,24 @@ const mocks = vi.hoisted(() => ({
   taskRepo: {
     reassignOwner: vi.fn(),
   },
+  retargetMessages: vi.fn(),
+  compressAliases: vi.fn(),
+  recordAlias: vi.fn(),
   transaction: vi.fn((fn: () => unknown) => fn),
   warn: vi.fn(),
 }));
 
 vi.mock('@main/store/db', () => ({
-  getDb: () => ({ transaction: mocks.transaction }),
+  getDb: () => ({
+    transaction: mocks.transaction,
+    prepare: (sql: string) => ({
+      run: sql.includes('UPDATE session_handoff_aliases')
+        ? mocks.compressAliases
+        : sql.includes('session_handoff_aliases')
+        ? mocks.recordAlias
+        : mocks.retargetMessages,
+    }),
+  }),
 }));
 
 vi.mock('@main/event-bus', () => ({
@@ -79,6 +91,7 @@ beforeEach(() => {
   mocks.teamRepo.leaveTeam.mockReturnValue(null);
   mocks.teamRepo.findActiveMembershipIn.mockReturnValue(null);
   mocks.taskRepo.reassignOwner.mockReturnValue(0);
+  mocks.compressAliases.mockReturnValue({ changes: 0 });
 });
 
 describe('transferHandOffResources', () => {
@@ -126,6 +139,20 @@ describe('transferHandOffResources', () => {
       '/repo/.agent-deck/worktrees/w1',
     );
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.retargetMessages).toHaveBeenCalledWith(
+      'caller-sid',
+      'successor-sid',
+      'caller-sid',
+      'successor-sid',
+      'caller-sid',
+      'caller-sid',
+    );
+    expect(mocks.recordAlias).toHaveBeenCalledWith(
+      'caller-sid',
+      'successor-sid',
+      expect.any(Number),
+    );
+    expect(mocks.compressAliases).toHaveBeenCalledWith('successor-sid', 'caller-sid');
   });
 
   it('skips archived teams without failing the handoff resource transfer', () => {
@@ -157,6 +184,19 @@ describe('transferHandOffResources', () => {
     expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
       policy: 'preserve-team',
     });
+    expect(mocks.retargetMessages).toHaveBeenCalledWith(
+      'caller-sid',
+      'successor-sid',
+      'caller-sid',
+      'successor-sid',
+      'caller-sid',
+      'caller-sid',
+    );
+    expect(mocks.recordAlias).toHaveBeenCalledWith(
+      'caller-sid',
+      'successor-sid',
+      expect.any(Number),
+    );
   });
 
   it('transfers active teams while reporting archived memberships as skipped', () => {
@@ -297,6 +337,8 @@ describe('transferHandOffResources', () => {
     expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(2, 'successor-sid', null);
     expect(mocks.eventEmit).not.toHaveBeenCalled();
     expect(mocks.notifyTeamMembershipChanged).not.toHaveBeenCalled();
+    expect(mocks.retargetMessages).not.toHaveBeenCalled();
+    expect(mocks.recordAlias).not.toHaveBeenCalled();
   });
 
   it('rolls back marker and skips teams when task transfer fails', () => {

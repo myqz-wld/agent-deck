@@ -303,6 +303,10 @@ export interface SessionHandOffPreparation {
 
 export interface SessionHandOffCommitResult {
   successorSessionId: string;
+  /** Durable source boundary accepted immediately before ownership transfer. */
+  cutoverEventRevision: number;
+  /** Source inputs queued behind the prepared successor turn. */
+  lateMessagesDelivered: number;
   /** Successor is usable even when best-effort source close/archive reports a warning. */
   sourceFinalizationWarning: string | null;
 }
@@ -312,6 +316,7 @@ export interface SessionHandOffExecutionFailure {
   stage: 'cutover' | 'transfer';
   successorSessionId: string;
   successorCleanup: 'ok' | 'failed';
+  cutoverReason?: string;
   message: string;
 }
 

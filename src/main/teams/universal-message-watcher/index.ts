@@ -43,6 +43,7 @@
  */
 
 import type { AgentAdapter } from '@main/adapters/types';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
@@ -393,6 +394,15 @@ export class UniversalMessageWatcher {
     // adapter.receiveTeammateMessage → adapter.sendMessage → sender SDK emit 'message'
     // kind 'user' role event → SessionDetail echo → lead/teammate 直接看到 reply 自动 act on
     // it。这跟收任意普通 message 同款处理路径，无特殊机制 — 一统协议。
+
+    // Handoff may retarget a pending/delivering row while this watcher turn is queued. Refresh the
+    // durable envelope before resolving lifecycle, membership, adapter, and destination fields.
+    const current = agentDeckMessageRepo.get(claimed.id);
+    if (!current || (current.status !== 'pending' && current.status !== 'delivering')) return;
+    const redirectedSessionId = handOffCutoverCoordinator.successorFor(current.toSessionId);
+    claimed = redirectedSessionId
+      ? { ...current, toSessionId: redirectedSessionId }
+      : current;
 
     const target = sessionRepo.get(claimed.toSessionId);
     if (!target) {

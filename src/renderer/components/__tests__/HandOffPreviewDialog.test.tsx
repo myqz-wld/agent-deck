@@ -55,6 +55,8 @@ beforeEach(() => {
   handOffCommit = vi.fn().mockResolvedValue({
     status: 'success',
     successorSessionId: 'target-1',
+    cutoverEventRevision: 42,
+    lateMessagesDelivered: 0,
     sourceFinalizationWarning: null,
   });
   handOffCancel = vi.fn().mockResolvedValue(true);
@@ -129,6 +131,8 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     handOffCommit.mockResolvedValueOnce({
       status: 'success',
       successorSessionId: 'target-warning',
+      cutoverEventRevision: 43,
+      lateMessagesDelivered: 1,
       sourceFinalizationWarning: '关闭源会话失败',
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
@@ -178,6 +182,25 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     expect(
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  it('shows an actionable cause when late-message delivery fails', async () => {
+    handOffCommit.mockResolvedValueOnce({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: 'orphan-delivery-1',
+      successorCleanup: 'ok',
+      cutoverReason: 'late-message-delivery-failed',
+      message: 'late delivery failed',
+    });
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+    await screen.findByLabelText('续接上下文预览');
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
+
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toContain('新增消息转交失败');
+    expect(warning.textContent).toContain('目标 adapter 的消息队列容量和附件可读性');
   });
 
   it('retains the orphan interlock across close, session navigation, and reopen', async () => {

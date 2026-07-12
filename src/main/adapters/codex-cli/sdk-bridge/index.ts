@@ -18,12 +18,11 @@ import type {
 } from './types';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
-import { extractAttachmentPaths } from './input-pack';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
+import type { AgentEnqueueOptions, QueuedAgentMessage } from '@main/adapters/types';
 import type { ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
-import { deleteUploadIfExists } from '@main/store/image-uploads';
 import {
   SessionRecoverer,
   defaultCodexResumeJsonlExists,
@@ -53,6 +52,10 @@ import {
   type RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { SessionRecord } from '@shared/types';
+import {
+  armCodexSessionRetirement,
+  finalizeCodexSessionRetirement,
+} from './session-retirement';
 
 const logger = log.scope('codex-bridge');
 
@@ -147,6 +150,7 @@ export class CodexSdkBridge {
           );
         }
       },
+      finalizeRetirement: (internal) => this.finalizeSessionRetirement(internal),
     };
     this.threadLoop = new ThreadLoop(ctx);
     const restartCtx: RestartCtx = {
@@ -191,8 +195,8 @@ export class CodexSdkBridge {
     this.messageController = new MessageController({
       sessions: this.sessions,
       emit: opts.emit,
-      recoverAndSend: (sessionId, text, attachments) =>
-        this.recoverer.recoverAndSend(sessionId, text, attachments),
+      recoverAndSend: (sessionId, text, attachments, options) =>
+        this.recoverer.recoverAndSend(sessionId, text, attachments, options),
       runTurnLoop: (session, sessionId) => this.threadLoop.runTurnLoop(session, sessionId),
     });
   }
@@ -283,12 +287,46 @@ export class CodexSdkBridge {
     await this.messageController.sendMessage(sessionId, text, attachments);
   }
 
+  async enqueueMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void> {
+    await this.messageController.enqueueMessage(sessionId, text, attachments, options);
+  }
+
   async steerTurn(sessionId: string, text: string): Promise<void> {
     await this.messageController.steerTurn(sessionId, text);
   }
 
   async interrupt(sessionId: string): Promise<void> {
     await this.messageController.interrupt(sessionId);
+  }
+
+  /** Finish the current provider turn, but never start queued work on a handed-off source. */
+  retireSessionAfterCurrentTurn(sessionId: string): void {
+    const internal = this.sessions.get(sessionId);
+    if (!internal) return;
+    armCodexSessionRetirement(internal);
+    if (!internal.currentTurn && !internal.turnLoopRunning) {
+      this.finalizeSessionRetirement(internal);
+    }
+  }
+
+  snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
+    const internal = this.sessions.get(sessionId);
+    if (!internal) return [];
+    return (internal.pendingHandOffMessages ?? []).flatMap((message) =>
+      message
+        ? [{
+            text: message.text,
+            ...(message.attachments
+              ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+              : {}),
+          }]
+        : [],
+    );
   }
 
   /**
@@ -325,6 +363,7 @@ export class CodexSdkBridge {
 
     // 关键：标记必须在 abort 之前置位，否则 runTurnLoop 的 catch 微任务会先看到 aborted 跑常规分支
     internal.intentionallyClosed = true;
+    armCodexSessionRetirement(internal, true);
 
     if (internal.currentTurn) {
       try {
@@ -333,41 +372,21 @@ export class CodexSdkBridge {
         logger.warn(`[codex-bridge] abort during close failed: ${sessionId}`, err);
       }
       internal.currentTurn = null;
+      internal.currentTurnId = null;
     }
+    this.finalizeSessionRetirement(internal);
+  }
 
-    // 清残余待发消息：close 后不应再 resume 这个 session，pending 不再有意义。
-    // MED 修法：未消费的 attachments 文件 fire-and-forget unlink，减少孤儿（reaper 14 天兜底）
-    const orphanPaths: string[] = [];
-    for (const input of internal.pendingMessages) {
-      orphanPaths.push(...extractAttachmentPaths(input));
-    }
-    internal.pendingMessages.length = 0;
-    if (orphanPaths.length > 0) {
-      // best-effort 异步删，失败 swallow（reaper 兜底）
-      void Promise.all(orphanPaths.map((p) => deleteUploadIfExists(p))).catch(() => {
-        /* swallow */
-      });
-    }
-
-    this.sessions.delete(sessionId);
-    sessionManager.releaseSdkClaim(sessionId);
-    if (internal.threadId && internal.threadId !== sessionId) {
-      sessionManager.releaseSdkClaim(internal.threadId);
-    }
-
-    // plan codex-handoff-team-alignment-20260518 P2 Sub-step 2.5d：清 per-session
-    // codexBySession Map entry + 释放 token map entry。覆盖两个 key:sessionId 与 internal.threadId
-    // 不一致时(例如新建路径 thread-loop firstId 拿到 realId !== tempKey 的瞬间已经 rename 过
-    // codexBySession + token map,这里 sessionId == realId / threadId == realId 同款,只命中一次
-    // 不会双删;但保险起见两条都跑同款 noop 边角)。
-    this.codexBySession.get(sessionId)?.dispose();
-    this.codexBySession.delete(sessionId);
-    mcpSessionTokenMap.release(sessionId);
-    if (internal.threadId && internal.threadId !== sessionId) {
-      this.codexBySession.get(internal.threadId)?.dispose();
-      this.codexBySession.delete(internal.threadId);
-      mcpSessionTokenMap.release(internal.threadId);
-    }
+  private finalizeSessionRetirement(internal: InternalSession): void {
+    finalizeCodexSessionRetirement(
+      {
+        sessions: this.sessions,
+        clients: this.codexBySession,
+        releaseClaim: (sid) => sessionManager.releaseSdkClaim(sid),
+        releaseToken: (sid) => mcpSessionTokenMap.release(sid),
+      },
+      internal,
+    );
   }
 
   /**

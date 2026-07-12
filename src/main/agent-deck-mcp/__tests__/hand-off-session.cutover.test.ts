@@ -7,6 +7,8 @@ import type { SessionRecord } from '@shared/types';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import type { HandOffSessionHandlerDeps } from '../tools/handlers/hand-off-session/_deps';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { HandOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 const SPOOL_ID = 'cutover-spool';
 
@@ -116,7 +118,12 @@ function dependencies(
       rawScanTruncated: false,
       consumed: false,
     }),
-    sourcePreconditionMatches: () => true,
+    sourcePreconditionCheck: () => ({
+      ok: true,
+      currentEventRevision: 77,
+      compatibleEventRows: 0,
+      lateMessages: [],
+    }),
     createSuccessor: vi.fn(async () => 'successor-sid'),
     transferResources: vi.fn(() => successfulTransfer()),
     closeSuccessor: vi.fn(async () => undefined),
@@ -135,6 +142,119 @@ afterEach(() => {
 });
 
 describe('hand_off_session cutover exclusion and freshness', () => {
+  it('creates nothing when close intent already sealed the source', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
+    const createSuccessor = vi.fn(async () => 'must-not-exist');
+    const transferResources = vi.fn(() => successfulTransfer());
+    handOffCutoverCoordinator.revokeSource('caller-sid');
+
+    try {
+      const result = await handOffSessionHandler(
+        { prompt: 'too late' },
+        context(),
+        dependencies({ createSuccessor, transferResources }),
+      );
+      expect(result.isError).toBe(true);
+      expect(createSuccessor).not.toHaveBeenCalled();
+      expect(transferResources).not.toHaveBeenCalled();
+    } finally {
+      handOffCutoverCoordinator.restoreSource('caller-sid');
+    }
+  });
+
+  it('closes the orphan when close intent arrives during successor creation', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
+    let signalCreateStarted!: () => void;
+    let finishCreate!: (sessionId: string) => void;
+    const createStarted = new Promise<void>((resolve) => {
+      signalCreateStarted = resolve;
+    });
+    const createSuccessor = vi.fn(
+      () => new Promise<string>((resolve) => {
+        finishCreate = resolve;
+        signalCreateStarted();
+      }),
+    );
+    const closeSuccessor = vi.fn(async () => undefined);
+    const transferResources = vi.fn(() => successfulTransfer());
+
+    try {
+      const pending = handOffSessionHandler(
+        { prompt: 'continue' },
+        context(),
+        dependencies({ createSuccessor, closeSuccessor, transferResources }),
+      );
+      await createStarted;
+      handOffCutoverCoordinator.revokeSource('caller-sid');
+      finishCreate('orphan-after-close-intent');
+
+      const result = await pending;
+      expect(result.isError).toBe(true);
+      expect(closeSuccessor).toHaveBeenCalledWith('orphan-after-close-intent');
+      expect(transferResources).not.toHaveBeenCalled();
+    } finally {
+      handOffCutoverCoordinator.restoreSource('caller-sid');
+    }
+  });
+
+  it.each([
+    ['archive', 'caller-sid'] as const,
+    ['rename', 'renamed-caller-sid'] as const,
+  ])('replays buffered input after a reversible %s abort', async (change, replaySessionId) => {
+    const cutoverCoordinator = new HandOffCutoverCoordinator();
+    let sourceState: 'open' | 'archived' | 'renamed' = 'open';
+    vi.spyOn(sessionRepo, 'get').mockImplementation((sessionId) => {
+      if (sourceState === 'renamed') {
+        return sessionId === 'renamed-caller-sid'
+          ? source({ id: 'renamed-caller-sid' })
+          : null;
+      }
+      return source(sourceState === 'archived' ? { archivedAt: 100 } : {});
+    });
+    let finishPrepare!: (value: PreparedHandOffContinuation) => void;
+    let signalPrepareStarted!: () => void;
+    let frozenTarget: ResolvedSuccessorSpec | null = null;
+    const prepareStarted = new Promise<void>((resolve) => {
+      signalPrepareStarted = resolve;
+    });
+    const prepareContinuation = vi.fn(
+      (input: Parameters<NonNullable<HandOffSessionHandlerDeps['prepareContinuation']>>[0]) => {
+        frozenTarget = input.target;
+        signalPrepareStarted();
+        return new Promise<PreparedHandOffContinuation>((resolve) => {
+          finishPrepare = resolve;
+        });
+      },
+    );
+    const createSuccessor = vi.fn(async () => 'must-not-exist');
+    const replay = vi.fn(async () => undefined);
+
+    const pending = handOffSessionHandler(
+      { prompt: 'continue' },
+      context(),
+      dependencies({ cutoverCoordinator, prepareContinuation, createSuccessor }),
+    );
+    await prepareStarted;
+    expect(cutoverCoordinator.tryBufferInput('caller-sid', {
+      record: vi.fn(),
+      replay,
+    })).toBe(true);
+    if (change === 'archive') {
+      cutoverCoordinator.abortSource('caller-sid');
+      sourceState = 'archived';
+    } else {
+      cutoverCoordinator.renameSource('caller-sid', 'renamed-caller-sid');
+      sourceState = 'renamed';
+    }
+    finishPrepare(preparedHandOff(frozenTarget!));
+
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(createSuccessor).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(replay).toHaveBeenCalledWith(replaySessionId));
+  });
+
+
   it.each(['runtime', 'lineage boundary'] as const)(
     'rejects %s drift between target resolution and immutable capture',
     async (drift) => {
@@ -216,15 +336,25 @@ describe('hand_off_session cutover exclusion and freshness', () => {
     expect(transferResources).toHaveBeenCalledTimes(1);
   });
 
-  it('closes the orphan and moves no resources when source drifts during create', async () => {
+  it('allows append-only non-user activity through both cutover checks', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
     const closeSuccessor = vi.fn(async () => undefined);
     const transferResources = vi.fn(() => successfulTransfer());
-    const finalizeSource = vi.fn();
-    const sourcePreconditionMatches = vi
+    const finalizeSource = vi.fn(async () => undefined);
+    const sourcePreconditionCheck = vi
       .fn()
-      .mockReturnValueOnce(true)
-      .mockReturnValueOnce(false);
+      .mockReturnValueOnce({
+        ok: true,
+        currentEventRevision: 79,
+        compatibleEventRows: 2,
+        lateMessages: [],
+      })
+      .mockReturnValueOnce({
+        ok: true,
+        currentEventRevision: 81,
+        compatibleEventRows: 4,
+        lateMessages: [],
+      });
 
     const result = await handOffSessionHandler(
       { prompt: 'continue' },
@@ -233,13 +363,100 @@ describe('hand_off_session cutover exclusion and freshness', () => {
         closeSuccessor,
         transferResources,
         finalizeSource,
-        sourcePreconditionMatches,
+        sourcePreconditionCheck,
+      }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(sourcePreconditionCheck).toHaveBeenCalledTimes(2);
+    expect(transferResources).toHaveBeenCalledTimes(1);
+    expect(finalizeSource).toHaveBeenCalledTimes(1);
+    expect(closeSuccessor).not.toHaveBeenCalled();
+    expect(parsed(result).warnings).toEqual(['source-advanced-after-capture']);
+  });
+
+  it('delivers late user input to the successor instead of rejecting the handoff', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
+    const lateMessage = {
+      eventId: 89,
+      text: 'corrected requirement',
+      attachments: [],
+      origin: 'user' as const,
+    };
+    const sourcePreconditionCheck = vi.fn(() => ({
+      ok: true as const,
+      currentEventRevision: 78,
+      compatibleEventRows: 1,
+      lateMessages: [lateMessage],
+    }));
+    const deliverLateMessages = vi.fn(async () => []);
+    const transferResources = vi.fn(() => successfulTransfer());
+    const finalizeSource = vi.fn(async () => undefined);
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      context(),
+      dependencies({
+        sourcePreconditionCheck,
+        deliverLateMessages,
+        transferResources,
+        finalizeSource,
+      }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(sourcePreconditionCheck).toHaveBeenCalledTimes(3);
+    expect(deliverLateMessages).toHaveBeenCalledOnce();
+    expect(deliverLateMessages).toHaveBeenCalledWith({
+      successorSessionId: 'successor-sid',
+      target: expect.objectContaining({ agentId: 'codex-cli' }),
+      messages: [lateMessage],
+    });
+    expect(transferResources).toHaveBeenCalledOnce();
+    expect(finalizeSource).toHaveBeenCalledOnce();
+    expect(parsed(result)).toMatchObject({
+      warnings: ['source-advanced-after-capture'],
+      continuationContext: {
+        sourceEventRevision: 77,
+        cutoverEventRevision: 78,
+        lateMessagesDelivered: 1,
+      },
+    });
+  });
+
+  it('closes the orphan and moves no resources when source drifts during create', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
+    const closeSuccessor = vi.fn(async () => undefined);
+    const transferResources = vi.fn(() => successfulTransfer());
+    const finalizeSource = vi.fn();
+    const sourcePreconditionCheck = vi
+      .fn()
+      .mockReturnValueOnce({
+        ok: true,
+        currentEventRevision: 77,
+        compatibleEventRows: 0,
+        lateMessages: [],
+      })
+      .mockReturnValueOnce({
+        ok: false,
+        reason: 'captured-event-mutated',
+        currentEventRevision: 78,
+      });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      context(),
+      dependencies({
+        closeSuccessor,
+        transferResources,
+        finalizeSource,
+        sourcePreconditionCheck,
       }),
     );
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('source session changed while creating');
-    expect(sourcePreconditionMatches).toHaveBeenCalledTimes(2);
+    expect(sourcePreconditionCheck).toHaveBeenCalledTimes(2);
     expect(closeSuccessor).toHaveBeenCalledWith('successor-sid');
     expect(transferResources).not.toHaveBeenCalled();
     expect(finalizeSource).not.toHaveBeenCalled();

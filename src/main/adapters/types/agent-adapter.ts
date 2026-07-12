@@ -27,6 +27,17 @@ import type { CreateSessionOptions } from './create-session-opts';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { ForkedSessionHandle, ForkSessionSource } from './fork-session';
 
+/** One provider input accepted by the source adapter but not yet started as a provider turn. */
+export interface QueuedAgentMessage {
+  text: string;
+  attachments?: UploadedAttachmentRef[];
+}
+
+export interface AgentEnqueueOptions {
+  /** Reserved for mandatory continuity tails already bounded by the handoff ingress gate. */
+  bypassQueueLimit?: boolean;
+}
+
 export interface AgentAdapter {
   id: string;
   displayName: string;
@@ -58,11 +69,30 @@ export interface AgentAdapter {
    * 不抛错（出错只 warn）：删除路径不能因为 close 失败而失败，否则 DB 行删了 bridge 状态留着会更糟。
    */
   closeSession?(sessionId: string): Promise<void>;
+  /**
+   * Seal queued work immediately, but let the provider finish the turn that is currently returning
+   * an MCP handoff result before disposing its live runtime. This method must return without waiting
+   * for the active turn, otherwise hand_off_session would deadlock on its own tool response.
+   */
+  retireSessionAfterCurrentTurn?(sessionId: string): void;
   sendMessage?(
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): Promise<void>;
+  /**
+   * Queue a user message for the next provider turn even when the current turn supports steering.
+   * Handoff uses this to preserve the ordering between the prepared continuation turn and any
+   * source inputs that arrive while the successor is being created.
+   */
+  enqueueMessage?(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void>;
+  /** Snapshot queued, not-yet-started provider turns while a handoff ingress lease is held. */
+  snapshotQueuedMessagesForHandOff?(sessionId: string): QueuedAgentMessage[];
   /** Mid-turn steering：只修改当前正在跑的 turn，不进入下一轮 pending message queue。 */
   steerTurn?(sessionId: string, text: string): Promise<void>;
   respondPermission?(

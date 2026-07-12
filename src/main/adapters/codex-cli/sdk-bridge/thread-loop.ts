@@ -45,6 +45,8 @@ export interface ThreadLoopCtx {
    * mcp-session-token-map 模块。失败 swallow 不阻塞 fallback emit 序列。
    */
   readonly cleanupTempKey: (tempKey: string) => void;
+  /** Dispose a handoff source only after its current event iterable has fully drained. */
+  readonly finalizeRetirement: (internal: InternalSession) => void;
 }
 
 export class ThreadLoop {
@@ -272,8 +274,9 @@ export class ThreadLoop {
     let firstIdCb = onFirstId;
     let earlyErrCb = onEarlyError;
     try {
-      while (internal.pendingMessages.length > 0) {
+      while (!internal.retireAfterCurrentTurn && internal.pendingMessages.length > 0) {
         const input = internal.pendingMessages.shift()!;
+        internal.pendingHandOffMessages?.shift();
         const controller = new AbortController();
         internal.currentTurn = controller;
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4 R4 HIGH-H 修订**:
@@ -427,6 +430,7 @@ export class ThreadLoop {
       }
     } finally {
       internal.turnLoopRunning = false;
+      if (internal.retireAfterCurrentTurn) this.ctx.finalizeRetirement(internal);
     }
   }
 

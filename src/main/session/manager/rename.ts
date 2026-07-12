@@ -19,6 +19,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import type { SessionManagerInternalState, SessionRenameHookFn } from './_deps';
 import log from '@main/utils/logger';
+import { handOffCutoverCoordinator } from '../hand-off/cutover-coordinator';
 
 const logger = log.scope('session-manager-rename');
 
@@ -64,6 +65,7 @@ export function renameSdkSessionImpl(
 ): void {
   // ① DB 行 rename(INSERT NEW + DELETE OLD)
   sessionRepo.rename(fromId, toId);
+  handOffCutoverCoordinator.renameSource(fromId, toId);
   // ② `#sdkOwned` 真私有 mutate(facade class method callback)
   callbacks.transferSdkClaim();
   // ③ 黑名单写 OLD_ID 60s,挡迟到 hook event

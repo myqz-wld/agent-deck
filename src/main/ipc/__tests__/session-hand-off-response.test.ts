@@ -8,12 +8,16 @@ describe('session handoff IPC response serialization', () => {
       serializeSessionHandOffCommit(
         vi.fn().mockResolvedValue({
           successorSessionId: 'successor-ok',
+          cutoverEventRevision: 45,
+          lateMessagesDelivered: 2,
           sourceFinalizationWarning: null,
         }),
       ),
     ).resolves.toEqual({
       status: 'success',
       successorSessionId: 'successor-ok',
+      cutoverEventRevision: 45,
+      lateMessagesDelivered: 2,
       sourceFinalizationWarning: null,
     });
   });
@@ -36,6 +40,28 @@ describe('session handoff IPC response serialization', () => {
       successorSessionId: 'orphan-successor-42',
       successorCleanup: 'failed',
       message: 'source drifted after successor creation',
+    });
+  });
+
+  it('preserves the cutover reason needed for actionable late-delivery UI copy', async () => {
+    const executionError = new HandOffExecutionError(
+      'late delivery failed',
+      'cutover',
+      'orphan-successor-43',
+      'ok',
+      null,
+      'queue full',
+      'late-message-delivery-failed',
+    );
+
+    await expect(
+      serializeSessionHandOffCommit(vi.fn().mockRejectedValue(executionError)),
+    ).resolves.toMatchObject({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: 'orphan-successor-43',
+      successorCleanup: 'ok',
+      cutoverReason: 'late-message-delivery-failed',
     });
   });
 

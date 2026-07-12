@@ -18,10 +18,17 @@ import {
   resetMocks,
 } from './manager-test-setup';
 
+const reactivateHandOffSource = vi.hoisted(() =>
+  vi.fn((_sessionId: string, persist: () => void) => persist()),
+);
+
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: makeFileChangeRepoMock() }));
 vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
+vi.mock('@main/session/hand-off/source-reactivation', () => ({
+  reactivateHandOffSource,
+}));
 // REVIEW_31 Bug 5：sessionManager.list/delete/markClosed 调真 agent-deck-team-repo →
 // 真 getDb() throws「Database not initialized」。无 team 联动 mock 让主路径走通。
 vi.mock('@main/store/agent-deck-team-repo', () => ({
@@ -33,6 +40,7 @@ import { sessionManager } from '@main/session/manager';
 
 beforeEach(async () => {
   await resetMocks();
+  reactivateHandOffSource.mockClear();
 });
 
 afterEach(() => {
@@ -202,6 +210,10 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
 
     sessionManager.reactivate('sess-reactivate');
     expect(mockSessions.get('sess-reactivate')?.lifecycle).toBe('active');
+    expect(reactivateHandOffSource).toHaveBeenCalledWith(
+      'sess-reactivate',
+      expect.any(Function),
+    );
   });
 
   it('setPinned() persists committed state, reactivates dormant, and emits the fresh record', () => {

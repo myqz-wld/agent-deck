@@ -35,6 +35,7 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 }));
 
 import { sessionManager, setSessionCloseFn } from '@main/session/manager';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 
 beforeEach(async () => {
   await resetMocks();
@@ -75,6 +76,76 @@ describe('SessionManager.delete + H1 删除后尾包不复活幽灵（REVIEW_4 H
     expect(mockEmits.some((e) => e.name === 'session-removed' && e.payload === 'sess-del-1')).toBe(
       true,
     );
+  });
+
+  it('seals handoff ingress at close intent before the deferred adapter close settles', async () => {
+    const sessionId = 'sess-close-handoff-intent';
+    sessionManager.ingest(makeEvent({
+      sessionId,
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    }));
+    let signalStarted!: () => void;
+    let finishClose!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const closeGate = new Promise<void>((resolve) => {
+      finishClose = resolve;
+    });
+    setSessionCloseFn(async () => {
+      signalStarted();
+      await closeGate;
+    });
+    const lease = handOffCutoverCoordinator.tryAcquire(sessionId)!;
+
+    try {
+      const closing = sessionManager.close(sessionId);
+      await started;
+      expect(lease.canCommit()).toBe(false);
+      lease.release();
+      expect(handOffCutoverCoordinator.tryAcquire(sessionId)).toBeNull();
+      finishClose();
+      await closing;
+    } finally {
+      finishClose();
+      lease.release();
+      handOffCutoverCoordinator.restoreSource(sessionId);
+    }
+  });
+
+  it('seals handoff ingress before delete awaits team and adapter cleanup', async () => {
+    const sessionId = 'sess-delete-handoff-intent';
+    sessionManager.ingest(makeEvent({
+      sessionId,
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp' },
+    }));
+    let signalStarted!: () => void;
+    let finishClose!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const closeGate = new Promise<void>((resolve) => {
+      finishClose = resolve;
+    });
+    setSessionCloseFn(async () => {
+      signalStarted();
+      await closeGate;
+    });
+
+    try {
+      const deleting = sessionManager.delete(sessionId);
+      await started;
+      expect(handOffCutoverCoordinator.tryAcquire(sessionId)).toBeNull();
+      finishClose();
+      await deleting;
+    } finally {
+      finishClose();
+      handOffCutoverCoordinator.restoreSource(sessionId);
+    }
   });
 
   it('删除窗口内（60s）尾包 finished:interrupted 被丢弃，不创建幽灵 record', async () => {

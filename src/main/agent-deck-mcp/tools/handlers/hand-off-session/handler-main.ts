@@ -1,12 +1,9 @@
 import { statSync } from 'node:fs';
 
-import { adapterRegistry } from '@main/adapters/registry';
 import { isAgentId } from '@main/adapters/options-builder';
 import { SessionModelOptionsError } from '@main/adapters/session-model-options';
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { getDb } from '@main/store/db';
 import { eventRepo } from '@main/store/event-repo';
-import { eventRevisionRepo } from '@main/store/event-revision-repo';
 import { sessionRepo } from '@main/store/session-repo';
 import { prepareHandOffContinuation } from '@main/session/continuation-context/handoff';
 import { continuationFingerprint } from '@main/session/continuation-context/resolver';
@@ -15,32 +12,26 @@ import {
   continuationSessionRuntimeFingerprint,
 } from '@main/session/continuation-context/source-spool';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
-import {
-  executePreparedHandOff,
-  HandOffExecutionError,
-  type HandOffSourceCutoverCheck,
-} from '@main/session/hand-off/executor';
-import {
-  HandOffTargetOptionsError,
-  resolveHandOffTarget,
-} from '@main/session/hand-off/target-resolver';
+import { executePreparedHandOff, HandOffExecutionError } from '@main/session/hand-off/executor';
+import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
+import { checkHandOffSourcePrecondition, type HandOffSourceCutoverResult } from '@main/session/hand-off/source-precondition';
+import { HandOffTargetOptionsError, resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import { sessionManager } from '@main/session/manager';
 import log from '@main/utils/logger';
 import type { SessionAdapterId } from '@shared/types';
 
 import { err, ok, withMcpGuard, type HandlerContext } from '../../helpers';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
-import type {
-  HandOffSessionHandlerDeps,
-  HandOffTargetValidationError,
-} from './_deps';
+import type { HandOffSessionHandlerDeps } from './_deps';
 import {
   transferHandOffResources,
   type HandOffResourceTransferResult,
 } from './resource-transfer-coordinator';
+import { sourceChangeError } from './source-change-copy';
+import { finalizeMcpHandOffSource } from './source-finalization';
+import { validateHandOffTargetAdapter } from './target-adapter-validation';
 
 const logger = log.scope('mcp-handoff-main');
-
 function resourceTransferFailed(result: HandOffResourceTransferResult): boolean {
   return (
     result.tasks.status === 'failed' ||
@@ -48,34 +39,6 @@ function resourceTransferFailed(result: HandOffResourceTransferResult): boolean 
     result.worktreeMarker.status === 'failed'
   );
 }
-
-function validateTargetAdapter(
-  adapterId: SessionAdapterId,
-): HandOffTargetValidationError | null {
-  const adapter = adapterRegistry.get(adapterId);
-  if (!adapter?.createSession || !adapter.capabilities.canCreateSession) {
-    return {
-      error: `adapter "${adapterId}" does not support session creation`,
-      hint: 'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, or codex-cli.',
-    };
-  }
-  if (!adapter.createTrustedContinuationSession) {
-    return {
-      error: `adapter "${adapterId}" does not support trusted continuation turns`,
-      hint: 'Update or enable the target adapter before retrying hand_off_session. The source session remains active.',
-    };
-  }
-  return null;
-}
-
-function finalizeSourceWithoutInterrupt(sourceSessionId: string): void {
-  // Do not call sessionManager.close here: it interrupts the currently executing SDK turn before
-  // its MCP result can be delivered. markClosed keeps the post-handoff tail visible while making
-  // the lifecycle terminal; token release removes the obsolete MCP authentication mapping.
-  sessionManager.markClosed(sourceSessionId);
-  mcpSessionTokenMap.release(sourceSessionId);
-}
-
 function cleanupSpool(spoolId: string): void {
   new ContinuationSourceSpoolStore(getDb()).cleanup(spoolId);
 }
@@ -84,28 +47,14 @@ function spoolMetadata(spoolId: string) {
   return new ContinuationSourceSpoolStore(getDb()).metadata(spoolId);
 }
 
-function sourcePreconditionMatches(input: HandOffSourceCutoverCheck): boolean {
-  const source = sessionRepo.get(input.sourceSessionId);
-  const revision = eventRevisionRepo.state(input.sourceSessionId);
-  return Boolean(
-    source &&
-    source.lifecycle !== 'closed' &&
-    source.archivedAt === null &&
-    revision?.revision === input.expected.eventRevision &&
-    revision.rebuildAfterRevision === input.expected.rebuildAfterRevision &&
-    continuationSessionRuntimeFingerprint(getDb(), input.sourceSessionId) ===
-    input.expected.runtimeFingerprint,
-  );
-}
-
-function safelyMatchesSourcePrecondition(
-  check: (input: HandOffSourceCutoverCheck) => boolean,
-  input: HandOffSourceCutoverCheck,
-): boolean {
+function safelyCheckSourcePrecondition(
+  check: NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>,
+  input: Parameters<NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>>[0],
+): HandOffSourceCutoverResult {
   try {
     return check(input);
   } catch {
-    return false;
+    return { ok: false, reason: 'check-failed', currentEventRevision: null };
   }
 }
 
@@ -168,7 +117,7 @@ export const handOffSessionHandler = withMcpGuard(
     }
 
     const targetValidation = (
-      handlerDeps?.validateTargetAdapter ?? validateTargetAdapter
+      handlerDeps?.validateTargetAdapter ?? validateHandOffTargetAdapter
     )(targetAdapter);
     if (targetValidation) return err(targetValidation.error, targetValidation.hint);
 
@@ -239,6 +188,18 @@ export const handOffSessionHandler = withMcpGuard(
     }
 
     try {
+      let queuedMessages: ReturnType<typeof snapshotHandOffQueuedMessages>;
+      try {
+        queuedMessages = (
+          handlerDeps?.snapshotQueuedMessages ?? snapshotHandOffQueuedMessages
+        )(callerRow);
+      } catch (error) {
+        logger.warn(`[mcp hand_off_session] failed to snapshot queued source input:`, error);
+        return err(
+          'failed to freeze queued source input',
+          'The source remains active and no successor was created. Retry after checking the source adapter runtime.',
+        );
+      }
       let continuation: Awaited<ReturnType<typeof prepareHandOffContinuation>>;
       try {
         continuation = await (
@@ -336,16 +297,16 @@ export const handOffSessionHandler = withMcpGuard(
       const sourcePrecondition = {
         eventRevision: prepared.source.eventRevision,
         rebuildAfterRevision: prepared.source.rebuildAfterRevision,
+        maxEventId: prepared.source.maxEventId,
         runtimeFingerprint: frozenSourceRuntimeFingerprint,
       };
-      const matchesSourcePrecondition =
-        handlerDeps?.sourcePreconditionMatches ?? sourcePreconditionMatches;
-      if (
-        !safelyMatchesSourcePrecondition(matchesSourcePrecondition, {
-          sourceSessionId: callerSessionId,
-          expected: sourcePrecondition,
-        })
-      ) {
+      const checkSourcePrecondition =
+        handlerDeps?.sourcePreconditionCheck ?? checkHandOffSourcePrecondition;
+      const preparedSourceCheck = safelyCheckSourcePrecondition(checkSourcePrecondition, {
+        sourceSessionId: callerSessionId,
+        expected: sourcePrecondition,
+      });
+      if (!preparedSourceCheck.ok) {
         try {
           (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
         } catch (error) {
@@ -354,9 +315,21 @@ export const handOffSessionHandler = withMcpGuard(
             error,
           );
         }
+        const copy = sourceChangeError(preparedSourceCheck.reason);
+        return err(copy.error, copy.hint);
+      }
+      if (!cutoverLease.canCommit()) {
+        try {
+          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+        } catch (error) {
+          logger.warn(
+            `[mcp hand_off_session] failed to clean revoked continuation spool caller=${callerSessionId}:`,
+            error,
+          );
+        }
         return err(
-          'source session changed while preparing continuation context',
-          'No successor was created and no resources moved. Prepare a fresh handoff from the current source state.',
+          'source session closed or changed while preparing continuation context',
+          'No successor was created and no resources moved. Reopen the source if appropriate, then prepare a new handoff.',
         );
       }
       logger.info(
@@ -367,15 +340,21 @@ export const handOffSessionHandler = withMcpGuard(
       try {
         const execution = await executePreparedHandOff({
           source: sourceForExecution,
+          queuedMessages,
           sourcePrecondition,
-          sourcePreconditionMatches: matchesSourcePrecondition,
+          sourcePreconditionCheck: checkSourcePrecondition,
           target: target.createOptions,
           turn: continuation.turn,
           ...(handlerDeps?.createSuccessor
             ? { createSuccessor: handlerDeps.createSuccessor }
             : {}),
+          ...(handlerDeps?.deliverLateMessages
+            ? { deliverLateMessages: handlerDeps.deliverLateMessages }
+            : {}),
           transferResources: handlerDeps?.transferResources ?? transferHandOffResources,
           resourceTransferFailed,
+          sourceOwnershipCheck: () => cutoverLease.canCommit(),
+          commitIngress: (successorSessionId) => cutoverLease.commit(successorSessionId),
           closeSuccessor:
             handlerDeps?.closeSuccessor ??
             (async (sessionId: string) => {
@@ -384,13 +363,16 @@ export const handOffSessionHandler = withMcpGuard(
           finalizeSource:
             handlerDeps?.finalizeSource ??
             (({ source }) => {
-              finalizeSourceWithoutInterrupt(source.id);
+              finalizeMcpHandOffSource(source);
             }),
         });
 
         const callerClosed: HandOffSessionResult['callerClosed'] =
           execution.sourceFinalization.ok ? 'ok' : 'failed';
         const lifecycleWarnings: HandOffSessionResult['warnings'] = [];
+        if (execution.sourceCutover.compatibleEventRows > 0) {
+          lifecycleWarnings.push('source-advanced-after-capture');
+        }
         if (!execution.sourceFinalization.ok) {
           lifecycleWarnings.push('source-finalization-failed');
           logger.warn(
@@ -409,6 +391,7 @@ export const handOffSessionHandler = withMcpGuard(
             version: prepared.version,
             quality: prepared.quality,
             sourceEventRevision: prepared.source.eventRevision,
+            cutoverEventRevision: execution.sourceCutover.currentEventRevision,
             rebuildAfterRevision: prepared.source.rebuildAfterRevision,
             checkpoint: {
               id: prepared.checkpoint.id,
@@ -427,6 +410,8 @@ export const handOffSessionHandler = withMcpGuard(
               rawTail: prepared.metrics.rawTailTokens,
             },
             includedUserMessages: prepared.metrics.includedUserMessages,
+            lateMessagesDelivered:
+              execution.sourceCutover.lateMessages.length + execution.queuedMessagesDelivered,
             truncatedBoundaryMessages: prepared.metrics.truncatedBoundaryMessages,
             foldCalls: prepared.metrics.foldCalls,
             repairCalls: prepared.metrics.repairCalls,
@@ -442,9 +427,12 @@ export const handOffSessionHandler = withMcpGuard(
             logger.warn(
               `[mcp hand_off_session] source drifted during successor creation caller=${callerSessionId} successor=${error.successorSessionId} cleanup=${error.successorCleanup}`,
             );
+            const deliveryFailed = error.cutoverReason === 'late-message-delivery-failed';
             response = err(
-              'source session changed while creating the handoff successor',
-              `No resources moved. Orphan successor ${error.successorSessionId} cleanup: ${error.successorCleanup}. Prepare a fresh continuation context and retry.`,
+              deliveryFailed
+                ? 'failed to deliver late source messages to the handoff successor'
+                : 'source session changed while creating the handoff successor',
+              `No resources moved. Orphan successor ${error.successorSessionId} cleanup: ${error.successorCleanup}. ${deliveryFailed ? 'The source remains active; retry after the target adapter can accept the queued messages.' : 'Prepare a fresh continuation context and retry.'}`,
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,
@@ -489,7 +477,24 @@ export const handOffSessionHandler = withMcpGuard(
 
       return response;
     } finally {
-      cutoverLease.release();
+      try {
+        const currentSourceId = cutoverLease.sourceSessionId;
+        const currentSource = sessionRepo.get(currentSourceId);
+        if (
+          cutoverLease.canCommit() &&
+          (!currentSource || currentSource.lifecycle === 'closed')
+        ) {
+          cutoverLease.revoke();
+        }
+      } catch (error) {
+        logger.warn(
+          `[mcp hand_off_session] final source probe failed caller=${cutoverLease.sourceSessionId}:`,
+          error,
+        );
+        if (cutoverLease.canCommit()) cutoverLease.revoke();
+      } finally {
+        cutoverLease.release();
+      }
     }
   },
 );

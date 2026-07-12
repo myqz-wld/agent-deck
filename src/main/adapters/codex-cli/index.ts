@@ -1,5 +1,6 @@
 import type {
   AgentAdapter,
+  AgentEnqueueOptions,
   AdapterContext,
   CodexCreateOpts,
   CreateSessionOptions,
@@ -200,6 +201,10 @@ class CodexCliAdapter implements AgentAdapter {
     await this.bridge.closeSession(sessionId);
   }
 
+  retireSessionAfterCurrentTurn(sessionId: string): void {
+    this.bridge?.retireSessionAfterCurrentTurn(sessionId);
+  }
+
   async sendMessage(
     sessionId: string,
     text: string,
@@ -207,6 +212,20 @@ class CodexCliAdapter implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments);
+  }
+
+  async enqueueMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    await this.bridge.enqueueMessage(sessionId, text, attachments, options);
+  }
+
+  snapshotQueuedMessagesForHandOff(sessionId: string) {
+    return this.bridge?.snapshotQueuedMessagesForHandOff(sessionId) ?? [];
   }
 
   async steerTurn(sessionId: string, text: string): Promise<void> {

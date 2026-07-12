@@ -119,6 +119,7 @@ export function runCloseSessionCleanup(args: {
   // event 会让 PendingTab 漂浮 pending 项无人清 (R4 HIGH-H 13 同款 PendingTab 路由错位)。
   const realIdForEmit = internal.applicationSid;
   cancelPendingAndEmit(internal, realIdForEmit, emit);
+  internal.pendingUserMessages.length = 0;
 
   // step 3：从 sessions map 移除
   if (sessions.get(key) === internal) {

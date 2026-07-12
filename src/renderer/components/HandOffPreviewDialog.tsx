@@ -68,7 +68,12 @@ function warningLabel(code: string): string {
 }
 
 function executionFailureLabel(failure: SessionHandOffExecutionFailure): string {
-  const stageLabel = failure.stage === 'cutover' ? '源会话切换前检查' : '必要资源转移';
+  const deliveryFailed = failure.cutoverReason === 'late-message-delivery-failed';
+  const stageLabel = deliveryFailed
+    ? '新增消息转交'
+    : failure.stage === 'cutover'
+      ? '源会话切换前检查'
+      : '必要资源转移';
   const cleanupLabel = failure.successorCleanup === 'failed' ? '自动关闭失败' : '已自动关闭';
   const prefix =
     `续接会话 ${failure.successorSessionId} 已创建，但${stageLabel}失败` +
@@ -78,6 +83,12 @@ function executionFailureLabel(failure: SessionHandOffExecutionFailure): string 
       `${prefix}自动关闭该会话也失败，它可能仍在运行。` +
       `请先找到并关闭会话 ${failure.successorSessionId}，确认关闭后再重新生成续接上下文，` +
       '避免产生更多孤儿会话。'
+    );
+  }
+  if (deliveryFailed) {
+    return (
+      `${prefix}该会话已自动关闭，源会话仍可继续使用。` +
+      '请检查目标 adapter 的消息队列容量和附件可读性后再试。'
     );
   }
   return `${prefix}该会话已自动关闭；请重新生成续接上下文后再试。`;

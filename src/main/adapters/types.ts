@@ -28,4 +28,8 @@ export type {
   ForkSessionSource,
   ValidateForkSession,
 } from './types/fork-session';
-export type { AgentAdapter } from './types/agent-adapter';
+export type {
+  AgentAdapter,
+  AgentEnqueueOptions,
+  QueuedAgentMessage,
+} from './types/agent-adapter';
