@@ -75,3 +75,8 @@ checks Claude's available effort levels, and updates the targeted provider SDKs.
 
 Implementation, validation, independent review, and durable records are complete. Main/renderer
 changes require a safe application restart; this resolution session did not restart the running app.
+
+Archived release-gate harnesses are retained under this plan's `spike-reports/` directory:
+
+- [Built-worker integrity and heartbeat verification](PLAN_7_storage-maintenance-worker-provider-compaction/spike-reports/verify-maintenance-worker-built.mjs)
+- [Continuous-ingress latency and WAL high-water benchmark](PLAN_7_storage-maintenance-worker-provider-compaction/spike-reports/benchmark-maintenance-worker-built.mjs)
