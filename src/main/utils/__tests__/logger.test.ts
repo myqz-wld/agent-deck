@@ -27,7 +27,14 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import log from 'electron-log/main';
-import { setFileLevel, cleanupOldLogs, shouldDropWebFrameMainDisposedNoise, installWebFrameMainDisposedFileFilter } from '../logger';
+import {
+  setFileLevel,
+  cleanupOldLogs,
+  shouldDropWebFrameMainDisposedNoise,
+  installWebFrameMainDisposedFileFilter,
+  shouldDropClaudeCanUseToolShadowedNoise,
+  installClaudeCanUseToolShadowedFileFilter,
+} from '../logger';
 
 const mockedLog = log as unknown as {
   initialize: ReturnType<typeof vi.fn>;
@@ -201,6 +208,43 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
 
     it('空 data 数组 → 透传', () => {
       expect(shouldDropWebFrameMainDisposedNoise({ data: [] })).toBe(false);
+    });
+  });
+
+  describe('Claude canUseTool shadowed warning file filter', () => {
+    const warning =
+      "(node:123) [CLAUDE_SDK_CAN_USE_TOOL_SHADOWED] Warning: canUseTool will not be invoked: permissionMode 'bypassPermissions'";
+
+    it('requires both the SDK warning code and explanation', () => {
+      expect(shouldDropClaudeCanUseToolShadowedNoise({ data: [warning] })).toBe(true);
+      const warningObject = Object.assign(
+        new Error('canUseTool will not be invoked in bypass mode'),
+        { name: 'Warning', code: 'CLAUDE_SDK_CAN_USE_TOOL_SHADOWED' },
+      );
+      expect(shouldDropClaudeCanUseToolShadowedNoise({ data: [warningObject] })).toBe(true);
+      expect(
+        shouldDropClaudeCanUseToolShadowedNoise({
+          data: ['[CLAUDE_SDK_CAN_USE_TOOL_SHADOWED] unrelated text'],
+        }),
+      ).toBe(false);
+      expect(
+        shouldDropClaudeCanUseToolShadowedNoise({
+          data: ['canUseTool will not be invoked for another reason'],
+        }),
+      ).toBe(false);
+    });
+
+    it('installs once, drops only the file transport, and preserves console visibility', () => {
+      (log as unknown as { hooks: unknown[] }).hooks = [];
+      installClaudeCanUseToolShadowedFileFilter();
+      installClaudeCanUseToolShadowedFileFilter();
+      const hooks = (log as unknown as {
+        hooks: ((m: { data: unknown[] }, t: unknown, n?: string) => unknown)[];
+      }).hooks;
+      expect(hooks).toHaveLength(1);
+      expect(hooks[0]({ data: [warning] }, () => undefined, 'file')).toBe(false);
+      const consoleMessage = { data: [warning] };
+      expect(hooks[0](consoleMessage, () => undefined, 'console')).toBe(consoleMessage);
     });
   });
 

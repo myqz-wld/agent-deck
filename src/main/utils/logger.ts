@@ -157,6 +157,39 @@ export function shouldDropWebFrameMainDisposedNoise(
   return false; // 不丢
 }
 
+/**
+ * Claude Agent SDK emits this deterministic process warning whenever Agent Deck starts a query in
+ * bypassPermissions mode with the shared canUseTool callback. The callback is intentionally shared
+ * across permission modes and the SDK explicitly ignores it in bypass mode. Keep the warning in the
+ * development console, but do not let it occupy the persisted error channel: all five recent
+ * `[error]` rows were this warning, obscuring real application failures during log triage.
+ */
+export function shouldDropClaudeCanUseToolShadowedNoise(
+  message: FilterLogMessage,
+): boolean {
+  let hasWarningCode = false;
+  let hasShadowExplanation = false;
+  for (const item of message.data) {
+    if (
+      item instanceof Error &&
+      (item as Error & { code?: unknown }).code === 'CLAUDE_SDK_CAN_USE_TOOL_SHADOWED'
+    ) {
+      hasWarningCode = true;
+    }
+    const text =
+      typeof item === 'string'
+        ? item
+        : item instanceof Error
+          ? `${item.name}: ${item.message}`
+          : '';
+    if (!text) continue;
+    if (text.includes('[CLAUDE_SDK_CAN_USE_TOOL_SHADOWED]')) hasWarningCode = true;
+    if (text.includes('canUseTool will not be invoked')) hasShadowExplanation = true;
+    if (hasWarningCode && hasShadowExplanation) return true;
+  }
+  return false;
+}
+
 const webFrameMainDisposedNoiseHook = (
   message: FilterLogMessage,
   _transport: unknown,
@@ -178,6 +211,27 @@ export function installWebFrameMainDisposedFileFilter(): void {
 }
 
 installWebFrameMainDisposedFileFilter();
+
+const claudeCanUseToolShadowedNoiseHook = (
+  message: FilterLogMessage,
+  _transport: unknown,
+  transportName?: string,
+): FilterLogMessage | false => {
+  if (transportName !== 'file') return message;
+  return shouldDropClaudeCanUseToolShadowedNoise(message) ? false : message;
+};
+
+export function installClaudeCanUseToolShadowedFileFilter(): void {
+  const hooks = log.hooks as unknown as ((
+    m: FilterLogMessage,
+    t: unknown,
+    n?: string,
+  ) => FilterLogMessage | false)[];
+  if (hooks.includes(claudeCanUseToolShadowedNoiseHook)) return;
+  hooks.push(claudeCanUseToolShadowedNoiseHook);
+}
+
+installClaudeCanUseToolShadowedFileFilter();
 
 // Settings UI 显示日志路径 + 「在 Finder 中显示」用
 export { LOG_DIR };
