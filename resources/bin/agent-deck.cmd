@@ -29,8 +29,8 @@ set "APP_EXE=%AGENT_DECK_APP%"
 if not defined APP_EXE set "APP_EXE=%LOCALAPPDATA%\Programs\Agent Deck\Agent Deck.exe"
 if not exist "%APP_EXE%" set "APP_EXE=%PROGRAMFILES%\Agent Deck\Agent Deck.exe"
 if not exist "%APP_EXE%" (
-  echo agent-deck: Agent Deck.exe not found.        1>&2
-  echo   Set AGENT_DECK_APP to override default install location, or install via NSIS to default. 1>&2
+  echo agent-deck：找不到 Agent Deck.exe。 1>&2
+  echo   请安装到默认位置，或设置 AGENT_DECK_APP 指定路径。 1>&2
   exit /b 1
 )
 

@@ -114,7 +114,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
               加载失败：{listError}
             </div>
           ) : loading && filteredList.length === 0 ? (
-            <div className="px-3 py-8 text-center text-xs text-deck-muted">加载中...</div>
+            <div className="px-3 py-8 text-center text-xs text-deck-muted">加载中…</div>
           ) : filteredList.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-deck-muted">
               暂无问题。Agent 执行任务时主动上报的问题会显示在这里。
@@ -180,7 +180,7 @@ function FilterBar({
     <div className="space-y-2 border-b border-deck-border px-3 py-2">
       <input
         type="text"
-        placeholder="搜索标题..."
+        placeholder="搜索标题…"
         value={keywordInput}
         onChange={(e) => onKeywordChange(e.target.value)}
         className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20"
@@ -198,7 +198,7 @@ function FilterBar({
         />
       </div>
       <div className="flex flex-wrap gap-1">
-        <span className="text-[10px] text-deck-muted">类型:</span>
+        <span className="text-[10px] text-deck-muted">类型：</span>
         {KIND_OPTIONS.map((k) => (
           <FilterChip
             key={k}

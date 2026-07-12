@@ -6,6 +6,9 @@ import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '@shared/types';
 import { RefreshIcon } from './icons';
+import log from '@renderer/utils/logger';
+
+const logger = log.scope('renderer-data-panel');
 
 /**
  * 数据 tab：每模型每天 token 使用统计（plan model-token-stats-and-dashboard-20260602 §Phase 3 R5）。
@@ -53,9 +56,14 @@ export function DataPanel(): JSX.Element {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const fetchDaily = (): void => {
-      void window.api.tokenUsageDaily().then((rows) => {
-        if (!cancelled) setDaily(rows);
-      });
+      void window.api
+        .tokenUsageDaily()
+        .then((rows) => {
+          if (!cancelled) setDaily(rows);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) logger.warn('[data] daily token usage read failed', err);
+        });
     };
     fetchDaily();
     const off = window.api.onTokenUsageChanged(() => {

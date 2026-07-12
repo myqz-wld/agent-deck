@@ -16,6 +16,7 @@ import {
 } from '@renderer/stores/session-store';
 import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
 import log from '@renderer/utils/logger';
+import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
 import { EMPTY_EVENTS } from './shared';
 import { eventKey } from './format';
 import { MessageBubble } from './rows/message-row';
@@ -29,6 +30,34 @@ interface Props {
   sessionId: string;
   agentId: string;
   isSdk: boolean;
+}
+
+type SetPendingRequests = ReturnType<typeof useSessionStore.getState>['setPendingRequests'];
+
+async function refreshPendingRequests(
+  agentId: string,
+  sessionId: string,
+  setPending: SetPendingRequests,
+  isCancelled: () => boolean,
+): Promise<void> {
+  const result = await loadStableSnapshot({
+    readVersion: () =>
+      useSessionStore.getState().pendingRevisionsBySession.get(sessionId) ?? 0,
+    load: () => window.api.listAdapterPending(agentId, sessionId),
+    apply: (snapshot) => {
+      setPending(
+        sessionId,
+        snapshot.permissions,
+        snapshot.askQuestions,
+        snapshot.exitPlanModes,
+        snapshot.diffReviews,
+      );
+    },
+    isCancelled,
+  });
+  if (result === 'unstable') {
+    logger.warn('[activity-feed] pending snapshot stayed unstable; kept live state', { sessionId });
+  }
 }
 
 export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element {
@@ -59,11 +88,21 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     let aborted = false;
     setLoaded(false);
     setLoadError(null);
-    void window.api
-      .listEvents(sessionId, RECENT_LIMIT)
-      .then((events) => {
+    void loadStableSnapshot({
+      readVersion: () =>
+        useSessionStore.getState().eventRevisionsBySession.get(sessionId) ?? 0,
+      load: () => window.api.listEvents(sessionId, RECENT_LIMIT),
+      apply: (events) => setRecent(sessionId, events),
+      isCancelled: () => aborted,
+    })
+      .then((result) => {
         if (aborted) return;
-        setRecent(sessionId, events);
+        if (
+          result === 'unstable' &&
+          (useSessionStore.getState().recentEventsBySession.get(sessionId)?.length ?? 0) === 0
+        ) {
+          setLoadError('活动更新频繁，请稍后重试。');
+        }
         setLoaded(true);
       })
       .catch((err: unknown) => {
@@ -72,12 +111,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
         setLoaded(true);
       });
     if (isSdk) {
-      void window.api
-        .listAdapterPending(agentId, sessionId)
-        .then((res) => {
-          if (aborted) return;
-          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes, res.diffReviews);
-        })
+      void refreshPendingRequests(agentId, sessionId, setPending, () => aborted)
         .catch((err: unknown) => {
           logger.warn('[activity-feed] listAdapterPending failed:', err);
         });
@@ -87,29 +121,22 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     };
   }, [sessionId, agentId, isSdk, setRecent, setPending]);
 
-  // plan pending-tab-resume-and-new-session-default-20260602 §D1 BUG 1 根因修法：
-  // resume 路径（session-upserted + lifecycle 转 active）下，SessionDetail 不重 mount、
-  // 上方 useEffect 不重跑、listAdapterPending 不再同步一次，主进程协议层 resume 后新 emit 的
-  // in-process AskUserQuestion 落到 pendingAskQuestionsBySession，但 row 视图拿的是 useMemo
-  // 派生的 pendingAskIds（line 88-91），listAdapterPending 不再调就没机会覆盖。
-  // 实测修复：监听 onSessionUpserted 当同 sessionId 到达时（resume / 重连 / lifecycle 切换
-  // 都会 emit），强制重拉一次 listAdapterPending 把 in-process 等待态同步进 store。
-  // 副作用安全：listAdapterPending 走 setPendingRequests store action，line 392-407 内部
-  // length===0 时 delete key、否则 set — 与 pushEvent 增量更新同款语义，重复调用幂等。
+  // resume / 重连不会重挂 ActivityFeed，因此同会话 upsert 后主动同步一次主进程 pending。
+  // 版本守门会避开同步窗口内的实时增删，重复拉取保持幂等。
   useEffect(() => {
     if (!isSdk) return;
+    let cancelled = false;
     const off = window.api.onSessionUpserted((s) => {
       if (s.id !== sessionId) return;
-      void window.api
-        .listAdapterPending(agentId, sessionId)
-        .then((res) => {
-          setPending(sessionId, res.permissions, res.askQuestions, res.exitPlanModes, res.diffReviews);
-        })
+      void refreshPendingRequests(agentId, sessionId, setPending, () => cancelled)
         .catch((err: unknown) => {
           logger.warn('[activity-feed] onSessionUpserted listAdapterPending failed:', err);
         });
     });
-    return off;
+    return () => {
+      cancelled = true;
+      off();
+    };
   }, [sessionId, agentId, isSdk, setPending]);
 
   const pendingPermIds = useMemo(

@@ -1,3 +1,10 @@
+import type {
+  AskUserQuestionRequest,
+  DiffReviewRequest,
+  ExitPlanModeRequest,
+  PermissionRequest,
+} from '@shared/types';
+
 export function pruneMapByValidIds<V>(
   src: Map<string, V>,
   validIds: Set<string>,
@@ -12,24 +19,6 @@ export function pruneMapByValidIds<V>(
   if (!changed) return src;
   const next = new Map<string, V>();
   for (const [k, v] of src) if (validIds.has(k)) next.set(k, v);
-  return next;
-}
-
-export function mergeRequestBuckets<R extends { requestId: string }>(
-  existing: Map<string, R[]>,
-  incoming: Map<string, R[]>,
-): Map<string, R[]> {
-  const next = new Map(existing);
-  for (const [sid, snap] of incoming) {
-    const cur = next.get(sid);
-    if (!cur || cur.length === 0) {
-      if (snap.length > 0) next.set(sid, snap);
-      continue;
-    }
-    const seen = new Set(cur.map((r) => r.requestId));
-    const merged = [...cur, ...snap.filter((r) => !seen.has(r.requestId))];
-    next.set(sid, merged);
-  }
   return next;
 }
 
@@ -50,4 +39,35 @@ export function moveRequestBucket<R extends { requestId: string }>(
     next.set(toId, [...existing, ...v.filter((r) => !seen.has(r.requestId))]);
   }
   return next;
+}
+
+type PendingSnapshot = Record<
+  string,
+  {
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
+    diffReviews?: DiffReviewRequest[];
+  }
+>;
+
+export function pendingRequestMapsFromSnapshot(map: PendingSnapshot) {
+  const pendingPermissionsBySession = new Map<string, PermissionRequest[]>();
+  const pendingAskQuestionsBySession = new Map<string, AskUserQuestionRequest[]>();
+  const pendingExitPlanModesBySession = new Map<string, ExitPlanModeRequest[]>();
+  const pendingDiffReviewsBySession = new Map<string, DiffReviewRequest[]>();
+  for (const [sid, bucket] of Object.entries(map)) {
+    if (bucket.permissions.length > 0) pendingPermissionsBySession.set(sid, bucket.permissions);
+    if (bucket.askQuestions.length > 0) pendingAskQuestionsBySession.set(sid, bucket.askQuestions);
+    if (bucket.exitPlanModes.length > 0) pendingExitPlanModesBySession.set(sid, bucket.exitPlanModes);
+    if ((bucket.diffReviews?.length ?? 0) > 0) {
+      pendingDiffReviewsBySession.set(sid, bucket.diffReviews!);
+    }
+  }
+  return {
+    pendingPermissionsBySession,
+    pendingAskQuestionsBySession,
+    pendingExitPlanModesBySession,
+    pendingDiffReviewsBySession,
+  };
 }

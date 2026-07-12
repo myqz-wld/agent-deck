@@ -74,7 +74,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
-    fireEvent.click(screen.getByRole('button', { name: '起新会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
 
     await waitFor(() => {
       expect(issuesResolveInNewSession).toHaveBeenCalledWith(

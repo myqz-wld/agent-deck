@@ -49,9 +49,9 @@ export function PendingTab({ onOpenSession }: Props): JSX.Element {
   if (buckets.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
-        <div className="text-[12px]">暂无待处理</div>
+        <div className="text-[12px]">没有待处理事项</div>
         <div className="text-[10px] leading-relaxed text-deck-muted/70">
-          所有会话当前都没有等待你响应的权限请求 / 提问 / 计划批准。
+          当前没有需要你授权、回答或确认的内容。
         </div>
       </div>
     );
@@ -118,9 +118,9 @@ function PendingSection({
   const teamRole = deriveTeamRole(session, false, 0, true);
   const teamHoverTitle =
     teamCount > 1
-      ? `所在团队 (${teamCount}):\n${session.teams!.map((t) => `· ${t.teamName} [${t.role === 'lead' ? '负责人' : '协作者'}]`).join('\n')}`
+      ? `所在团队（${teamCount}）：\n${session.teams!.map((t) => `· ${t.teamName}［${t.role === 'lead' ? '负责人' : '协作者'}］`).join('\n')}`
       : displayTeamName
-        ? `团队: ${displayTeamName} [${teamRole === 'lead' ? '负责人' : teamRole === 'teammate' ? '协作者' : '未知'}]`
+        ? `团队：${displayTeamName}［${teamRole === 'lead' ? '负责人' : teamRole === 'teammate' ? '协作者' : '未知'}］`
         : '';
 
   const batchTooltip = !isSdk
@@ -128,7 +128,7 @@ function PendingSection({
     : batchableCount === 0
       ? diffReviews.length > 0
         ? '仅剩需要你逐条处理的差异展示'
-        : '仅剩需要你逐条处理的计划 / 问题（请展开对应行）'
+        : '仅剩需要逐项处理的计划或问题'
       : `批量响应 ${permissions.length} 项权限请求${
           exitPlanModes.length + askCount + diffReviews.length > 0
             ? `；${exitPlanModes.length} 项计划确认 + ${askCount} 个问题 + ${diffReviews.length} 项差异展示需要逐条处理`

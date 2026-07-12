@@ -40,7 +40,7 @@ class RootErrorBoundary extends React.Component<
         }}
       >
         <div style={{ marginBottom: 6, fontWeight: 600 }}>
-          Renderer crashed: {e.name}: {e.message}
+          界面崩溃：{e.name}：{e.message}
         </div>
         <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8 }}>{e.stack}</pre>
       </div>
@@ -66,7 +66,7 @@ window.addEventListener('error', (ev) => {
     return;
   }
   logger.error('[renderer] window.onerror', ev.error ?? ev.message);
-  showFatal(`window.onerror: ${ev.message}\nsrc=${ev.filename}:${ev.lineno}:${ev.colno}`);
+  showFatal(`界面错误：${ev.message}\n位置：${ev.filename}:${ev.lineno}:${ev.colno}`);
 });
 window.addEventListener('unhandledrejection', (ev) => {
   // 跟 window.onerror 同套白名单 —— monaco DiffEditor 卸载 race 抛错有两条路径：
@@ -83,7 +83,7 @@ window.addEventListener('unhandledrejection', (ev) => {
     return;
   }
   logger.error('[renderer] unhandledrejection', ev.reason);
-  showFatal(`unhandledrejection: ${(ev.reason as { message?: string })?.message ?? ev.reason}`);
+  showFatal(`异步操作失败：${(ev.reason as { message?: string })?.message ?? ev.reason}`);
 });
 
 /**
@@ -172,7 +172,7 @@ function showFatal(text: string): void {
 
 const container = document.getElementById('root');
 if (!container) {
-  showFatal('#root not found in DOM');
+  showFatal('界面启动失败：找不到 #root 节点');
 } else {
   try {
     ReactDOM.createRoot(container).render(
@@ -183,6 +183,8 @@ if (!container) {
       </React.StrictMode>,
     );
   } catch (err) {
-    showFatal(`createRoot failed: ${(err as Error).message}\n${(err as Error).stack ?? ''}`);
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack ?? '' : '';
+    showFatal(`界面启动失败：${message}\n${stack}`);
   }
 }

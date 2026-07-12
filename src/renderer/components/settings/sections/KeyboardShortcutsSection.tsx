@@ -22,7 +22,7 @@ export function KeyboardShortcutsSection(): JSX.Element {
                 <code className="rounded bg-white/[0.04] px-1.5 py-0.5">{mod}+Alt+P</code>
               </td>
               <td className="py-1 text-deck-muted/80">
-                切换 <strong>置顶</strong>(等价顶栏置顶按钮;独立于透明开关)
+                切换<strong>窗口置顶</strong>
               </td>
             </tr>
             <tr className="border-b border-deck-border/40">
@@ -30,7 +30,7 @@ export function KeyboardShortcutsSection(): JSX.Element {
                 <code className="rounded bg-white/[0.04] px-1.5 py-0.5">{mod}+Alt+T</code>
               </td>
               <td className="py-1 text-deck-muted/80">
-                切换 <strong>窗口透明</strong>
+                切换<strong>窗口透明</strong>
                 {IS_DARWIN ? (
                   <>（macOS 下切换半透明毛玻璃效果，可看到下方桌面）</>
                 ) : (
@@ -43,7 +43,7 @@ export function KeyboardShortcutsSection(): JSX.Element {
                 <code className="rounded bg-white/[0.04] px-1.5 py-0.5">{mod}+Alt+=</code>
               </td>
               <td className="py-1 text-deck-muted/80">
-                一键 <strong>最大化窗口</strong>(到屏幕可用区域;再按回上次手动尺寸)
+                <strong>最大化窗口</strong>；再按一次恢复上次尺寸
               </td>
             </tr>
             <tr>
@@ -51,13 +51,13 @@ export function KeyboardShortcutsSection(): JSX.Element {
                 <code className="rounded bg-white/[0.04] px-1.5 py-0.5">{mod}+Alt+-</code>
               </td>
               <td className="py-1 text-deck-muted/80">
-                一键 <strong>回默认尺寸</strong>(520×680;再按回上次手动尺寸)
+                <strong>恢复默认尺寸</strong>（520×680）；再按一次恢复上次尺寸
               </td>
             </tr>
           </tbody>
         </table>
         <div className="mt-2 text-[10px] text-deck-muted/60 leading-snug">
-          全局快捷键 — 应用在前台 / 后台均可触发;被其它 app 占用时启动日志会有 warn 提示。
+          应用在前台或后台都可使用。若快捷键被其他应用占用，请查看启动日志。
         </div>
       </div>
     </Section>

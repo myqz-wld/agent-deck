@@ -39,6 +39,8 @@ export const sessionsApi = {
   }): Promise<SessionRecord[]> => ipcRenderer.invoke(IpcInvoke.SessionListHistory, filters),
   getSession: (id: string): Promise<SessionRecord | null> =>
     ipcRenderer.invoke(IpcInvoke.SessionGet, id),
+  takePendingSessionFocus: (): Promise<string | null> =>
+    ipcRenderer.invoke(IpcInvoke.SessionTakePendingFocus),
   archiveSession: (id: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.SessionArchive, id),
   unarchiveSession: (id: string): Promise<void> =>

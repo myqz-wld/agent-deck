@@ -54,20 +54,20 @@ describe('ContinuationContextSection', () => {
 
     expect(
       screen.getByText(
-        '检查点生成器独立于续接目标 adapter；空模型分别使用 Claude Opus、Deepseek Sonnet 或 Codex 配置默认模型。',
+        '选择用于整理接力上下文的 provider 和模型；它可以不同于目标会话。模型留空时使用各 provider 的默认值。',
       ),
     ).not.toBeNull();
     expect(
       screen.getByText(
-        '默认思考程度为 high。Codex compact 在空临时目录、只读沙盒、禁网、空 MCP 与禁用可执行功能的边界内运行；app-server 仍不能证明模型侧内建工具列表为空。Codex 支持 low、medium、high、xhigh、max、ultra。',
+        '思考程度默认 high。在只读、无网络、无 MCP 的临时环境中运行；Codex app-server 暂时无法验证模型内置工具是否为空。可选 low、medium、high、xhigh、max、ultra。',
       ),
     ).not.toBeNull();
     expect(
-      (screen.getByRole('textbox', { name: '续接检查点生成器 model' }) as HTMLInputElement)
+      (screen.getByRole('textbox', { name: '上下文整理模型 model' }) as HTMLInputElement)
         .placeholder,
     ).toBe('留空使用 Codex 配置默认模型');
 
-    fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 思考程度' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 思考程度' }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'LOW',
       'MEDIUM',
@@ -78,16 +78,16 @@ describe('ContinuationContextSection', () => {
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 provider' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 provider' }));
     fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
 
     await waitFor(() => {
       expect(
-        screen.getByRole('button', { name: '续接检查点生成器 思考程度' }).textContent,
+        screen.getByRole('button', { name: '上下文整理模型 思考程度' }).textContent,
       ).toContain('MAX');
       expect(
         (screen.getByRole('textbox', {
-          name: '续接检查点生成器 model',
+          name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
       ).toBe('留空使用 Claude Opus');
       expect(
@@ -99,7 +99,7 @@ describe('ContinuationContextSection', () => {
       continuationCheckpointThinking: 'max',
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 思考程度' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 思考程度' }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'LOW',
       'MEDIUM',
@@ -108,12 +108,12 @@ describe('ContinuationContextSection', () => {
       'MAX',
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 provider' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 provider' }));
     fireEvent.click(screen.getByRole('option', { name: 'Deepseek' }));
     await waitFor(() => {
       expect(
         (screen.getByRole('textbox', {
-          name: '续接检查点生成器 model',
+          name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
       ).toBe('留空使用 Deepseek Sonnet');
     });
@@ -124,7 +124,7 @@ describe('ContinuationContextSection', () => {
     render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
     openSection();
 
-    const modelInput = screen.getByRole('textbox', { name: '续接检查点生成器 model' });
+    const modelInput = screen.getByRole('textbox', { name: '上下文整理模型 model' });
     fireEvent.focus(modelInput);
     fireEvent.change(modelInput, { target: { value: '  claude-sonnet-custom  ' } });
     fireEvent.blur(modelInput);
@@ -132,7 +132,7 @@ describe('ContinuationContextSection', () => {
       continuationCheckpointModel: 'claude-sonnet-custom',
     });
 
-    const tokenInput = screen.getByRole('textbox', { name: '原始历史保留上限（token）' });
+    const tokenInput = screen.getByRole('textbox', { name: '保留最近对话的 token 上限' });
     expect((tokenInput as HTMLInputElement).value).toBe('64000');
     expect(tokenInput.getAttribute('min')).toBe('8000');
     expect(tokenInput.getAttribute('max')).toBe('128000');

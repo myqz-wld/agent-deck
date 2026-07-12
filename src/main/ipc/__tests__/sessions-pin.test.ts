@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { IpcInputError } from '../_helpers';
+import { rememberSessionFocusRequest } from '@main/session-focus-request';
 
 const setPinned = vi.hoisted(() => vi.fn());
 
@@ -69,5 +70,15 @@ describe('SessionSetPinned IPC', () => {
     }
     expect(() => handler!({} as never, '', false)).toThrow(IpcInputError);
     expect(setPinned).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a cold renderer consume the latest pending focus request once', () => {
+    rememberSessionFocusRequest('session-focus');
+    const handler = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.find(([channel]) => channel === IpcInvoke.SessionTakePendingFocus)?.[1];
+    expect(handler).toBeTypeOf('function');
+    expect(handler!({} as never)).toBe('session-focus');
+    expect(handler!({} as never)).toBeNull();
   });
 });

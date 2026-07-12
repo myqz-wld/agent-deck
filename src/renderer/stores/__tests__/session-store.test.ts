@@ -2,12 +2,12 @@
  * session-store 纯逻辑单测（deep-review H2 回归兜底）。
  *
  * 覆盖本批 fix：
- * - setPendingRequestsAll **merge**（非整表替换）：启动快照 IPC 在途期间 live event 新增的 pending 不被抹掉（防 SDK 死锁）。
+ * - pending / event live revisions advance independently from snapshot replacement.
  * - renameSession **merge** by-session Map（非 toId 存在则丢 fromId）：fromId 历史 events/summaries/pending 保留。
  * - pushEvent cancel 分支 delete-on-empty（与 resolve* / setPendingRequests 对齐）。
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { AgentEvent, PermissionRequest, SessionRecord } from '@shared/types';
+import type { AgentEvent, PermissionRequest, SessionRecord, SummaryRecord } from '@shared/types';
 import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import { useSessionStore } from '../session-store';
 
@@ -48,32 +48,71 @@ beforeEach(() => {
     pendingPermissionsBySession: new Map(),
     pendingAskQuestionsBySession: new Map(),
     pendingExitPlanModesBySession: new Map(),
+    pendingDiffReviewsBySession: new Map(),
+    sessionRevision: 0,
+    eventRevisionsBySession: new Map(),
+    summaryRevisionsBySession: new Map(),
+    pendingRevisionsBySession: new Map(),
   });
 });
 
-describe('setPendingRequestsAll — merge 非整表替换（deep-review H2 MED）', () => {
-  it('启动快照 merge 进现有 pending（live event 先到的 request 不被抹掉）', () => {
+describe('pending snapshot replacement and live revisions', () => {
+  it('uses a stable full snapshot as the authority and does not advance the live revision', () => {
     const { pushEvent, setPendingRequestsAll } = useSessionStore.getState();
-    // t1: live waiting-for-user event 先到，加 r-live 到 sid-1
     pushEvent(makeEvent('sid-1', 'waiting-for-user', makePerm('r-live')));
-    expect(useSessionStore.getState().pendingPermissionsBySession.get('sid-1')).toHaveLength(1);
-    // t2: 慢启动快照 resolve，快照不含 sid-1 的 r-live（只含 sid-2 的 r-snap）
+    const revisionBeforeSnapshot = useSessionStore
+      .getState()
+      .pendingRevisionsBySession.get('sid-1');
+
     setPendingRequestsAll({
       'sid-2': { permissions: [makePerm('r-snap')], askQuestions: [], exitPlanModes: [] },
     });
-    const m = useSessionStore.getState().pendingPermissionsBySession;
-    expect(m.get('sid-1')?.map((r) => r.requestId)).toEqual(['r-live']); // live 保留，没被抹掉
-    expect(m.get('sid-2')?.map((r) => r.requestId)).toEqual(['r-snap']); // 快照补全
+    const state = useSessionStore.getState();
+    expect(state.pendingPermissionsBySession.has('sid-1')).toBe(false);
+    expect(state.pendingPermissionsBySession.get('sid-2')?.map((r) => r.requestId)).toEqual([
+      'r-snap',
+    ]);
+    expect(state.pendingRevisionsBySession.get('sid-1')).toBe(revisionBeforeSnapshot);
   });
 
-  it('同 sid union by requestId（快照补 live 没有的，不重复）', () => {
-    const { pushEvent, setPendingRequestsAll } = useSessionStore.getState();
+  it('advances event and pending revisions for a waiting event, then again on resolution', () => {
+    const { pushEvent } = useSessionStore.getState();
     pushEvent(makeEvent('sid-1', 'waiting-for-user', makePerm('r-live')));
-    setPendingRequestsAll({
-      'sid-1': { permissions: [makePerm('r-live'), makePerm('r-snap')], askQuestions: [], exitPlanModes: [] },
+    expect(useSessionStore.getState().eventRevisionsBySession.get('sid-1')).toBe(1);
+    expect(useSessionStore.getState().pendingRevisionsBySession.get('sid-1')).toBe(1);
+
+    useSessionStore.getState().resolvePermission('sid-1', 'r-live');
+    expect(useSessionStore.getState().pendingRevisionsBySession.get('sid-1')).toBe(2);
+  });
+});
+
+describe('latest summary snapshot', () => {
+  it('advances the summary revision only for a live summary push', () => {
+    useSessionStore.getState().pushSummary({
+      id: 1,
+      sessionId: 'sid-live',
+      content: 'fresh',
+      trigger: 'time',
+      ts: 2,
+    } as SummaryRecord);
+    expect(useSessionStore.getState().summaryRevisionsBySession.get('sid-live')).toBe(1);
+
+    useSessionStore.getState().setSummaries('sid-live', []);
+    expect(useSessionStore.getState().summaryRevisionsBySession.get('sid-live')).toBe(1);
+  });
+
+  it('does not create an orphan when a session disappears before the IPC response', () => {
+    useSessionStore.getState().setSessions([makeSession('sid-live')]);
+    useSessionStore.getState().setLatestSummaries({
+      'sid-gone': {
+        id: 1,
+        sessionId: 'sid-gone',
+        content: 'stale',
+        trigger: 'time',
+        ts: 1,
+      } as SummaryRecord,
     });
-    const list = useSessionStore.getState().pendingPermissionsBySession.get('sid-1');
-    expect(list?.map((r) => r.requestId).sort()).toEqual(['r-live', 'r-snap']); // 不重复 r-live
+    expect(useSessionStore.getState().latestSummaryBySession.has('sid-gone')).toBe(false);
   });
 });
 

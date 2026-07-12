@@ -14,6 +14,7 @@ import { taskRepo } from '@main/store/task-repo';
 import log from '@main/utils/logger';
 import { on, parseBoolean, parsePositiveInt, parseStringId, parseStringIdArray } from './_helpers';
 import { registerSessionHandOffIpc } from './session-hand-off';
+import { takePendingSessionFocusRequest } from '@main/session-focus-request';
 
 const logger = log.scope('ipc-sessions');
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,7 @@ const execFileAsync = promisify(execFile);
 export function registerSessionsIpc(): void {
   on(IpcInvoke.SessionList, () => sessionManager.list());
   on(IpcInvoke.SessionGet, (_event, id) => sessionManager.get(String(id)));
+  on(IpcInvoke.SessionTakePendingFocus, () => takePendingSessionFocusRequest());
   on(IpcInvoke.SessionListEvents, (_event, id, limit) => {
     const sessionId = parseStringId('sessionId', id);
     const safeLimit = parsePositiveInt('limit', limit, {

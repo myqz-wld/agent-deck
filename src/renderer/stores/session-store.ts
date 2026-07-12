@@ -20,14 +20,22 @@ import {
 } from './event-type-guards';
 import {
   dedupeRecentEvents,
-  mergeSessionEvents,
   upsertEvent,
 } from './session-store-events';
 import {
-  mergeRequestBuckets,
   moveRequestBucket,
+  pendingRequestMapsFromSnapshot,
   pruneMapByValidIds,
 } from './session-store-maps';
+import {
+  bumpRenamedSessionRevisions,
+  bumpSessionRevision,
+} from './session-store-revisions';
+import {
+  moveLatestSummary,
+  moveSessionEvents,
+  moveSessionSummaries,
+} from './session-store-rename';
 
 interface State {
   sessions: Map<string, SessionRecord>;
@@ -44,6 +52,14 @@ interface State {
   pendingExitPlanModesBySession: Map<string, ExitPlanModeRequest[]>;
   /** 等待用户查看/确认的 MCP diff 片段，独立于权限请求，UI 上单独渲染。 */
   pendingDiffReviewsBySession: Map<string, DiffReviewRequest[]>;
+  /** 只由实时 session 事件推进；启动快照用它拒绝晚到的旧响应。 */
+  sessionRevision: number;
+  /** 只由实时 AgentEvent 推进；按会话隔离，避免其他活跃会话阻塞历史快照。 */
+  eventRevisionsBySession: Map<string, number>;
+  /** 只由实时总结推进；防止慢列表快照覆盖新总结。 */
+  summaryRevisionsBySession: Map<string, number>;
+  /** 只由实时 pending 增删推进；快照写入本身不改变版本。 */
+  pendingRevisionsBySession: Map<string, number>;
   setSessions: (records: SessionRecord[]) => void;
   upsertSession: (record: SessionRecord) => void;
   removeSession: (id: string) => void;
@@ -95,10 +111,6 @@ export const EMPTY_ASK_QUESTIONS: AskUserQuestionRequest[] = [];
 export const EMPTY_EXIT_PLAN_MODES: ExitPlanModeRequest[] = [];
 export const EMPTY_DIFF_REVIEWS: DiffReviewRequest[] = [];
 
-// 8 个 isXxx type guards 已迁出到 ./event-type-guards.ts（CHANGELOG_52 Step 2，纯 type guard 无副作用）
-
-// EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES 已在文件上方导出
-
 export const useSessionStore = create<State>((set) => ({
   sessions: new Map(),
   selectedSessionId: null,
@@ -109,6 +121,10 @@ export const useSessionStore = create<State>((set) => ({
   pendingAskQuestionsBySession: new Map(),
   pendingExitPlanModesBySession: new Map(),
   pendingDiffReviewsBySession: new Map(),
+  sessionRevision: 0,
+  eventRevisionsBySession: new Map(),
+  summaryRevisionsBySession: new Map(),
+  pendingRevisionsBySession: new Map(),
 
   setSessions: (records) => {
     // 全量替换会话列表（启动 / HMR / history 视图初始拉）。
@@ -139,7 +155,7 @@ export const useSessionStore = create<State>((set) => ({
     set((state) => {
       const m = new Map(state.sessions);
       m.set(record.id, record);
-      return { sessions: m };
+      return { sessions: m, sessionRevision: state.sessionRevision + 1 };
     }),
 
   removeSession: (id) =>
@@ -173,6 +189,10 @@ export const useSessionStore = create<State>((set) => ({
         summariesBySession: su,
         latestSummaryBySession: ls,
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
+        sessionRevision: state.sessionRevision + 1,
+        eventRevisionsBySession: bumpSessionRevision(state.eventRevisionsBySession, id),
+        summaryRevisionsBySession: bumpSessionRevision(state.summaryRevisionsBySession, id),
+        pendingRevisionsBySession: bumpSessionRevision(state.pendingRevisionsBySession, id),
       };
     }),
 
@@ -187,6 +207,11 @@ export const useSessionStore = create<State>((set) => ({
       let askMap = state.pendingAskQuestionsBySession;
       let exitMap = state.pendingExitPlanModesBySession;
       let diffMap = state.pendingDiffReviewsBySession;
+      const eventRevisions = bumpSessionRevision(state.eventRevisionsBySession, event.sessionId);
+      const pendingRevisions =
+        event.kind === 'waiting-for-user'
+          ? bumpSessionRevision(state.pendingRevisionsBySession, event.sessionId)
+          : state.pendingRevisionsBySession;
       if (event.kind === 'waiting-for-user') {
         if (isPermissionRequest(event.payload)) {
           const req = event.payload;
@@ -262,6 +287,8 @@ export const useSessionStore = create<State>((set) => ({
         pendingAskQuestionsBySession: askMap,
         pendingExitPlanModesBySession: exitMap,
         pendingDiffReviewsBySession: diffMap,
+        eventRevisionsBySession: eventRevisions,
+        pendingRevisionsBySession: pendingRevisions,
       };
     }),
 
@@ -277,7 +304,14 @@ export const useSessionStore = create<State>((set) => ({
       if (!cur || summary.ts >= cur.ts) {
         latestMap.set(summary.sessionId, summary);
       }
-      return { summariesBySession: m, latestSummaryBySession: latestMap };
+      return {
+        summariesBySession: m,
+        latestSummaryBySession: latestMap,
+        summaryRevisionsBySession: bumpSessionRevision(
+          state.summaryRevisionsBySession,
+          summary.sessionId,
+        ),
+      };
     }),
 
   setSummaries: (sessionId, summaries) =>
@@ -296,6 +330,7 @@ export const useSessionStore = create<State>((set) => ({
     set((state) => {
       const next = new Map(state.latestSummaryBySession);
       for (const [sid, s] of Object.entries(map)) {
+        if (!state.sessions.has(sid)) continue;
         // REVIEW_35 LOW-B5：与 pushSummary (line 287-289) 对齐做 ts 比较，避免启动 IIFE
         // 顺序问题：listSessions IPC 等 await 期间 summarizer 跑出 fresh summary → emit
         // summary-added → pushSummary 写 latestMap[sid]=fresh → 后到的 setLatestSummaries
@@ -337,7 +372,10 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map(state.pendingPermissionsBySession);
       if (next.length === 0) m.delete(sessionId);
       else m.set(sessionId, next);
-      return { pendingPermissionsBySession: m };
+      return {
+        pendingPermissionsBySession: m,
+        pendingRevisionsBySession: bumpSessionRevision(state.pendingRevisionsBySession, sessionId),
+      };
     }),
 
   resolveAskQuestion: (sessionId, requestId) =>
@@ -348,7 +386,10 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map(state.pendingAskQuestionsBySession);
       if (next.length === 0) m.delete(sessionId);
       else m.set(sessionId, next);
-      return { pendingAskQuestionsBySession: m };
+      return {
+        pendingAskQuestionsBySession: m,
+        pendingRevisionsBySession: bumpSessionRevision(state.pendingRevisionsBySession, sessionId),
+      };
     }),
 
   resolveExitPlanMode: (sessionId, requestId) =>
@@ -359,7 +400,10 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map(state.pendingExitPlanModesBySession);
       if (next.length === 0) m.delete(sessionId);
       else m.set(sessionId, next);
-      return { pendingExitPlanModesBySession: m };
+      return {
+        pendingExitPlanModesBySession: m,
+        pendingRevisionsBySession: bumpSessionRevision(state.pendingRevisionsBySession, sessionId),
+      };
     }),
 
   resolveDiffReview: (sessionId, requestId) =>
@@ -370,7 +414,10 @@ export const useSessionStore = create<State>((set) => ({
       const m = new Map(state.pendingDiffReviewsBySession);
       if (next.length === 0) m.delete(sessionId);
       else m.set(sessionId, next);
-      return { pendingDiffReviewsBySession: m };
+      return {
+        pendingDiffReviewsBySession: m,
+        pendingRevisionsBySession: bumpSessionRevision(state.pendingRevisionsBySession, sessionId),
+      };
     }),
 
   setPendingRequests: (sessionId, permissions, askQuestions, exitPlanModes, diffReviews) =>
@@ -396,29 +443,10 @@ export const useSessionStore = create<State>((set) => ({
     }),
 
   setPendingRequestsAll: (map) =>
-    set((state) => {
-      // deep-review H2 MED（codex）：启动全量快照**merge** 进现有 pending（非整表替换）。
-      // App mount 先挂 useEventBridge（onAgentEvent 订阅）再异步拉 listAdapterPendingAll，
-      // 快照 IPC 在途期间到达的 waiting-for-user live event 已 pushEvent 加 pending；旧实现
-      // `set(() => new Map(snapshot))` 整表替换会抹掉这些 live pending → chip 0 + 按钮不显示 →
-      // 用户授权不了 → SDK 死锁。改为按 sid + requestId union 合并：快照补全主进程已知 pending，
-      // live event 加的 pending 保留。
-      const pIn = new Map<string, PermissionRequest[]>();
-      const aIn = new Map<string, AskUserQuestionRequest[]>();
-      const xIn = new Map<string, ExitPlanModeRequest[]>();
-      const dIn = new Map<string, DiffReviewRequest[]>();
-      for (const [sid, { permissions, askQuestions, exitPlanModes, diffReviews }] of Object.entries(map)) {
-        if (permissions.length > 0) pIn.set(sid, permissions);
-        if (askQuestions.length > 0) aIn.set(sid, askQuestions);
-        if (exitPlanModes.length > 0) xIn.set(sid, exitPlanModes);
-        if ((diffReviews?.length ?? 0) > 0) dIn.set(sid, diffReviews!);
-      }
-      return {
-        pendingPermissionsBySession: mergeRequestBuckets(state.pendingPermissionsBySession, pIn),
-        pendingAskQuestionsBySession: mergeRequestBuckets(state.pendingAskQuestionsBySession, aIn),
-        pendingExitPlanModesBySession: mergeRequestBuckets(state.pendingExitPlanModesBySession, xIn),
-        pendingDiffReviewsBySession: mergeRequestBuckets(state.pendingDiffReviewsBySession, dIn),
-      };
+    set(() => {
+      // 调用方先用 pendingRevisionsBySession 守住请求窗口；稳定的全量快照可安全替换，
+      // 同时清掉 HMR 后主进程已不再等待的旧请求。
+      return pendingRequestMapsFromSnapshot(map);
     }),
 
   renameSession: (fromId, toId) =>
@@ -429,36 +457,6 @@ export const useSessionStore = create<State>((set) => ({
       // 200 条 recentEvents / summaries / pending 被静默整张丢弃。改为 **merge**：events/summaries
       // 按值拼接（fromId 在前保时间线）后截断 RECENT_LIMIT；pending 按 requestId union。fromId 几乎
       // 总是全新 realId 不触发冲突（claude：toId 预存极罕见），但 merge 让任意 IPC 到达顺序无数据丢失。
-      const moveEvents = (src: Map<string, AgentEvent[]>): Map<string, AgentEvent[]> => {
-        if (!src.has(fromId)) return src;
-        const next = new Map(src);
-        const v = next.get(fromId)!;
-        next.delete(fromId);
-        const existing = next.get(toId);
-        next.set(toId, existing ? mergeSessionEvents(v, existing, RECENT_LIMIT) : v);
-        return next;
-      };
-      const moveSummaries = (src: Map<string, SummaryRecord[]>): Map<string, SummaryRecord[]> => {
-        if (!src.has(fromId)) return src;
-        const next = new Map(src);
-        const v = next.get(fromId)!;
-        next.delete(fromId);
-        const existing = next.get(toId);
-        // summaries：fromId（历史）+ toId（新到）concat 后按 ts DESC 排序（from/to 是不同 sessionId
-        // stamp，同一 summary record 不会同时在两 key → 无需 dedup，concat+sort 即正确）。
-        next.set(toId, existing ? [...v, ...existing].sort((a, b) => b.ts - a.ts) : v);
-        return next;
-      };
-      const moveLatest = (src: Map<string, SummaryRecord>): Map<string, SummaryRecord> => {
-        if (!src.has(fromId)) return src;
-        const next = new Map(src);
-        const v = next.get(fromId)!;
-        next.delete(fromId);
-        const existing = next.get(toId);
-        // latest：取 ts 更新者。
-        next.set(toId, existing && existing.ts >= v.ts ? existing : v);
-        return next;
-      };
       // sessions 这张表里 record 自身的 id 也要同步改
       const sessions = new Map(state.sessions);
       const fromRec = sessions.get(fromId);
@@ -472,14 +470,30 @@ export const useSessionStore = create<State>((set) => ({
       }
       return {
         sessions,
-        recentEventsBySession: moveEvents(state.recentEventsBySession),
-        summariesBySession: moveSummaries(state.summariesBySession),
-        latestSummaryBySession: moveLatest(state.latestSummaryBySession),
+        recentEventsBySession: moveSessionEvents(state.recentEventsBySession, fromId, toId, RECENT_LIMIT),
+        summariesBySession: moveSessionSummaries(state.summariesBySession, fromId, toId),
+        latestSummaryBySession: moveLatestSummary(state.latestSummaryBySession, fromId, toId),
         pendingPermissionsBySession: moveRequestBucket(state.pendingPermissionsBySession, fromId, toId),
         pendingAskQuestionsBySession: moveRequestBucket(state.pendingAskQuestionsBySession, fromId, toId),
         pendingExitPlanModesBySession: moveRequestBucket(state.pendingExitPlanModesBySession, fromId, toId),
         pendingDiffReviewsBySession: moveRequestBucket(state.pendingDiffReviewsBySession, fromId, toId),
         selectedSessionId: state.selectedSessionId === fromId ? toId : state.selectedSessionId,
+        sessionRevision: state.sessionRevision + 1,
+        eventRevisionsBySession: bumpRenamedSessionRevisions(
+          state.eventRevisionsBySession,
+          fromId,
+          toId,
+        ),
+        summaryRevisionsBySession: bumpRenamedSessionRevisions(
+          state.summaryRevisionsBySession,
+          fromId,
+          toId,
+        ),
+        pendingRevisionsBySession: bumpRenamedSessionRevisions(
+          state.pendingRevisionsBySession,
+          fromId,
+          toId,
+        ),
       };
     }),
 }));

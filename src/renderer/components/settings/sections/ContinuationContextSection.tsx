@@ -32,13 +32,13 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
       defaultOpen={false}
     >
       <p className="text-[10px] leading-snug text-deck-muted/70">
-        检查点生成器独立于续接目标 adapter；空模型分别使用 Claude Opus、Deepseek Sonnet 或 Codex 配置默认模型。
+        选择用于整理接力上下文的 provider 和模型；它可以不同于目标会话。模型留空时使用各 provider 的默认值。
       </p>
       <ProviderModelThinkingFields
-        label="续接检查点生成器"
+        label="上下文整理模型"
         hint={
           provider === 'codex'
-            ? '默认思考程度为 high。Codex compact 在空临时目录、只读沙盒、禁网、空 MCP 与禁用可执行功能的边界内运行；app-server 仍不能证明模型侧内建工具列表为空。Codex 支持 low、medium、high、xhigh、max、ultra。'
+            ? '思考程度默认 high。在只读、无网络、无 MCP 的临时环境中运行；Codex app-server 暂时无法验证模型内置工具是否为空。可选 low、medium、high、xhigh、max、ultra。'
             : '默认思考程度为 high。Claude 与 Deepseek 支持 low 至 max。'
         }
         provider={provider}
@@ -60,7 +60,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         }
       />
       <NumberInput
-        label="原始历史保留上限（token）"
+        label="保留最近对话的 token 上限"
         value={settings.continuationRawRetentionTokens}
         min={MIN_CONTINUATION_RAW_RETENTION_TOKENS}
         max={MAX_CONTINUATION_RAW_RETENTION_TOKENS}

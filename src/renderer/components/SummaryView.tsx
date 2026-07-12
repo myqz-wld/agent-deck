@@ -1,6 +1,8 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { SummaryRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
+import { errorMessage } from '@renderer/lib/error-message';
 import { ChevronDownIcon, ChevronUpIcon } from './icons';
 
 interface Props {
@@ -14,15 +16,29 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
   const setLocal = useSessionStore((s) => s.setSummaries);
   const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoaded(false);
+    setLoadError(null);
     let aborted = false;
-    void window.api.listSummaries(sessionId).then((rows) => {
-      if (aborted) return;
-      setLocal(sessionId, rows as SummaryRecord[]);
-      setLoaded(true);
-    });
+    void loadStableSnapshot({
+      readVersion: () =>
+        useSessionStore.getState().summaryRevisionsBySession.get(sessionId) ?? 0,
+      load: () => window.api.listSummaries(sessionId),
+      apply: (rows) => setLocal(sessionId, rows as SummaryRecord[]),
+      isCancelled: () => aborted,
+    })
+      .then((result) => {
+        if (aborted) return;
+        if (result === 'unstable') setLoadError('总结更新频繁，请稍后重试。');
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        if (aborted) return;
+        setLoadError(`总结读取失败：${errorMessage(err)}`);
+        setLoaded(true);
+      });
     return () => {
       aborted = true;
     };
@@ -30,6 +46,9 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
 
   if (!loaded && local.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
+  }
+  if (loadError && local.length === 0) {
+    return <div className="px-2 py-3 text-[11px] text-status-waiting/90">{loadError}</div>;
   }
   if (local.length === 0) {
     return (

@@ -17,6 +17,7 @@ import { useIssuesBridge } from './hooks/use-issues-bridge';
 import { useStartupDataPreload } from './hooks/use-startup-data-preload';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
 import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
+import { loadStableSnapshot } from './lib/load-stable-snapshot';
 import type { AppSettings, SessionRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
 
@@ -65,36 +66,57 @@ export function App(): JSX.Element {
   // 实战不 unmount，dev StrictMode 双调会 warn；与 H1 同款守门）。
   useEffect(() => {
     let cancelled = false;
-    void window.api.getSettings().then((s) => {
-      if (cancelled) return;
-      const settings = s as AppSettings;
-      setPinned(settings.alwaysOnTop);
-      setWindowTransparent(settings.windowTransparent);
-      void window.api.setAlwaysOnTop(settings.alwaysOnTop);
-    });
+    void window.api
+      .getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const settings = s as AppSettings;
+        setPinned(settings.alwaysOnTop);
+        setWindowTransparent(settings.windowTransparent);
+        void window.api.setAlwaysOnTop(settings.alwaysOnTop).catch((err: unknown) => {
+          logger.warn('[app] applying initial always-on-top setting failed', err);
+        });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) logger.warn('[app] initial settings read failed', err);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // 启动时同步主进程当前还在等的 pending 请求 —— renderer HMR / 重启后 store 是空的，
-  // 但主进程的 SDK 仍在 await 用户响应；不拉一次的话 PermissionRow 会被错渲成「已处理」，
-  // 按钮不显示，用户授权不了 → SDK 死锁。
-  // 注：setPendingAll 现为 merge（非整表替换，deep-review H2 MED）→ IPC 在途期间 live event
-  // 新增的 pending 不被快照抹掉。
+  // 启动时同步主进程仍在等待的请求。请求期间若收到实时增删，版本守门会丢弃旧快照并重拉；
+  // 稳定后再全量替换，既不会抹掉新请求，也不会复活已取消请求。
   useEffect(() => {
     let cancelled = false;
-    void window.api.listAdapters().then(async (adapters) => {
-      for (const adapter of adapters) {
-        try {
-          const map = await window.api.listAdapterPendingAll(adapter.id);
-          if (cancelled) return;
-          setPendingAll(map);
-        } catch (err) {
-          logger.warn(`[app] listAdapterPendingAll(${adapter.id}) failed`, err);
+    void loadStableSnapshot({
+      readVersion: () => useSessionStore.getState().pendingRevisionsBySession,
+      load: async () => {
+        const adapters = await window.api.listAdapters();
+        const snapshots = await Promise.all(
+          adapters.map(async (adapter) => {
+            try {
+              return await window.api.listAdapterPendingAll(adapter.id);
+            } catch (err) {
+              throw new Error(`listAdapterPendingAll(${adapter.id}) failed`, { cause: err });
+            }
+          }),
+        );
+        const combined: Parameters<typeof setPendingAll>[0] = {};
+        for (const snapshot of snapshots) Object.assign(combined, snapshot);
+        return combined;
+      },
+      apply: setPendingAll,
+      isCancelled: () => cancelled,
+    })
+      .then((result) => {
+        if (result === 'unstable') {
+          logger.warn('[app] pending snapshot stayed unstable; kept live state');
         }
-      }
-    });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) logger.warn('[app] initial pending snapshot failed', err);
+      });
     return () => {
       cancelled = true;
     };
@@ -104,7 +126,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     const off = window.api.onPinToggled((next) => {
       setPinned(next);
-      void window.api.setSettings({ alwaysOnTop: next });
+      void window.api.setSettings({ alwaysOnTop: next }).catch((err: unknown) => {
+        logger.warn('[app] persisting pin shortcut failed', err);
+      });
     });
     return off;
   }, []);
@@ -115,7 +139,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     const off = window.api.onTransparentToggled((next) => {
       setWindowTransparent(next);
-      void window.api.setSettings({ windowTransparent: next });
+      void window.api.setSettings({ windowTransparent: next }).catch((err: unknown) => {
+        logger.warn('[app] persisting transparency shortcut failed', err);
+      });
     });
     return off;
   }, []);
@@ -131,19 +157,47 @@ export function App(): JSX.Element {
     return off;
   }, []);
 
-  // CLI 子命令新建会话后跳转：切到「实时」并选中新 sessionId。
-  // 主进程在 createSession resolve 后才 emit，所以 renderer 此时一般已 mount；
-  // 仅在 createSession 极快返回（如 --resume）时可能丢失，可接受。
+  // CLI / hand-off 创建会话后跳转。先挂实时监听，再领取主进程保留的最新请求，
+  // 覆盖窗口冷启动和 renderer HMR 尚未挂载监听器的空档。
   useEffect(() => {
-    const off = window.api.onSessionFocusRequest((sid) => {
+    let cancelled = false;
+    let focusRequestSeq = 0;
+    const focusSession = (sid: string): void => {
+      if (cancelled) return;
       setView('live');
       select(sid);
+    };
+    const consumePendingFocus = (fallback?: string): void => {
+      const seq = ++focusRequestSeq;
+      void window.api
+        .takePendingSessionFocus()
+        .then((sid) => {
+          if (seq !== focusRequestSeq) return;
+          const target = sid ?? fallback;
+          if (target) focusSession(target);
+        })
+        .catch((err: unknown) => {
+          if (seq !== focusRequestSeq) return;
+          if (fallback) focusSession(fallback);
+          if (!cancelled) logger.warn('[app] takePendingSessionFocus failed', err);
+        });
+    };
+    const off = window.api.onSessionFocusRequest((sid) => {
+      consumePendingFocus(sid);
     });
-    return off;
+    consumePendingFocus();
+    return () => {
+      cancelled = true;
+      off();
+    };
   }, [select]);
 
   useEffect(() => {
-    if (view !== 'history') setHistorySession(null);
+    if (view !== 'history') {
+      // 让离开历史页前发出的 getSession 响应失效，避免稍后回到历史页时误开旧详情。
+      historySelectSeqRef.current++;
+      setHistorySession(null);
+    }
   }, [view]);
 
   // CHANGELOG_27 / REVIEW_6：sdk-bridge.consume 检测 CLI fork（resume 路径下 SDK 给的
@@ -177,13 +231,28 @@ export function App(): JSX.Element {
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
     setPinned(next);
-    await window.api.setAlwaysOnTop(next);
-    await window.api.setSettings({ alwaysOnTop: next });
+    try {
+      await window.api.setAlwaysOnTop(next);
+      await window.api.setSettings({ alwaysOnTop: next });
+    } catch (err) {
+      logger.warn('[app] toggling always-on-top failed', err);
+      try {
+        const settings = (await window.api.getSettings()) as AppSettings;
+        setPinned(settings.alwaysOnTop);
+        await window.api.setAlwaysOnTop(settings.alwaysOnTop);
+      } catch (restoreErr) {
+        logger.warn('[app] restoring always-on-top state failed', restoreErr);
+      }
+    }
   };
 
   const toggleCompact = async (): Promise<void> => {
-    const next = await window.api.toggleCompact();
-    setCompact(next);
+    try {
+      const next = await window.api.toggleCompact();
+      setCompact(next);
+    } catch (err) {
+      logger.warn('[app] toggling compact mode failed', err);
+    }
   };
 
   // sessions Map 在新建会话 / SDK rename / CLI focus-request 时序变化时可能短暂不含 selectedId
@@ -256,10 +325,16 @@ export function App(): JSX.Element {
 
   const onHistorySelect = async (id: string): Promise<void> => {
     const seq = ++historySelectSeqRef.current;
-    const s = (await window.api.getSession(id)) as SessionRecord | null;
-    // 旧响应（用户已点了别的 row）丢弃：只有最新一次请求的响应才 setHistorySession。
-    if (seq !== historySelectSeqRef.current) return;
-    if (s) setHistorySession(s);
+    try {
+      const s = (await window.api.getSession(id)) as SessionRecord | null;
+      // 旧响应（用户已点了别的 row）丢弃：只有最新一次请求的响应才 setHistorySession。
+      if (seq !== historySelectSeqRef.current) return;
+      if (s) setHistorySession(s);
+    } catch (err) {
+      if (seq === historySelectSeqRef.current) {
+        logger.warn('[app] loading history session failed', err);
+      }
+    }
   };
 
   return (
@@ -335,10 +410,15 @@ export function App(): JSX.Element {
           // 但 renderer CSS 层的 frosted-frame 颜色判定走 windowTransparent 单字段（Phase 5
           // Step 5.6 解耦后），这里 re-fetch 一次让 CSS 透明态与设置对齐（无 settings broadcast
           // 通道时的轻量兜底）。
-          void window.api.getSettings().then((s) => {
-            const settings = s as AppSettings;
-            setWindowTransparent(settings.windowTransparent);
-          });
+          void window.api
+            .getSettings()
+            .then((s) => {
+              const settings = s as AppSettings;
+              setWindowTransparent(settings.windowTransparent);
+            })
+            .catch((err: unknown) => {
+              logger.warn('[app] refreshing transparency setting failed', err);
+            });
         }}
       />
       <NewSessionDialog

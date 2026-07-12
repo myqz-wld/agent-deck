@@ -51,12 +51,18 @@ function Find-SourceRepo {
 function Value-OrUnknown {
   param([object]$Value)
 
+  if ($Value -is [bool]) {
+    if ($Value) {
+      return "是"
+    }
+    return "否"
+  }
   if ($null -eq $Value) {
-    return "unknown"
+    return "未知"
   }
   $text = [string]$Value
   if ($text.Length -eq 0) {
-    return "unknown"
+    return "未知"
   }
   return $text
 }
@@ -65,9 +71,9 @@ $appRoot = Split-Path $AppExe -Parent
 $buildInfoPath = Join-Path $appRoot "resources\build-info.json"
 
 if (!(Test-Path $buildInfoPath)) {
-  Write-Host "Agent Deck: build-info.json not found"
-  Write-Host ("  path: " + $buildInfoPath)
-  Write-Host "  hint: this installed package is older or was not built with the current packaging script."
+  Write-Host "Agent Deck：未找到 build-info.json"
+  Write-Host ("  查找路径：" + $buildInfoPath)
+  Write-Host "  提示：安装包版本较旧，或未使用当前打包脚本构建。"
   if ($CheckInstalled) {
     exit 2
   }
@@ -77,14 +83,14 @@ if (!(Test-Path $buildInfoPath)) {
 $info = Get-Content -Raw $buildInfoPath | ConvertFrom-Json
 
 Write-Host ("Agent Deck " + (Value-OrUnknown $info.version))
-Write-Host ("  installed commit: " + (Value-OrUnknown $info.commit) + " (" + (Value-OrUnknown $info.shortCommit) + ")")
-Write-Host ("  installed branch: " + (Value-OrUnknown $info.branch))
-Write-Host ("  installed dirty: " + (Value-OrUnknown $info.dirty))
-Write-Host ("  built at: " + (Value-OrUnknown $info.builtAt))
+Write-Host ("  安装 commit：" + (Value-OrUnknown $info.commit) + " (" + (Value-OrUnknown $info.shortCommit) + ")")
+Write-Host ("  安装分支：" + (Value-OrUnknown $info.branch))
+Write-Host ("  安装时有未提交改动：" + (Value-OrUnknown $info.dirty))
+Write-Host ("  构建时间：" + (Value-OrUnknown $info.builtAt))
 
 $repo = Find-SourceRepo
 if (!$repo) {
-  Write-Host "  status: no agent-deck source checkout found under current directory"
+  Write-Host "  状态：当前目录下未找到 agent-deck 源码 checkout"
   exit 0
 }
 
@@ -97,31 +103,31 @@ if ($originMain) {
 }
 $sourceDirty = [bool](Invoke-Git -Repo $repo -GitArgs @("status", "--porcelain"))
 
-Write-Host ("  source checkout: " + $repo)
-Write-Host ("  source HEAD: " + (Value-OrUnknown $head) + " (" + (Value-OrUnknown $shortHead) + ")")
-Write-Host ("  source dirty: " + $sourceDirty)
+Write-Host ("  源码目录：" + $repo)
+Write-Host ("  源码 HEAD：" + (Value-OrUnknown $head) + " (" + (Value-OrUnknown $shortHead) + ")")
+Write-Host ("  源码有未提交改动：" + (Value-OrUnknown $sourceDirty))
 if ($originMain) {
-  Write-Host ("  origin/main: " + $originMain + " (" + (Value-OrUnknown $shortOrigin) + ")")
+  Write-Host ("  origin/main：" + $originMain + " (" + (Value-OrUnknown $shortOrigin) + ")")
 }
 
 if ($head -and $info.commit -eq $head) {
   $suffix = ""
   if ($sourceDirty) {
-    $suffix = "; source checkout has uncommitted changes"
+    $suffix = "，但源码有未提交改动"
   }
-  Write-Host ("  status: installed build matches this checkout commit" + $suffix)
+  Write-Host ("  状态：安装版本与当前 commit 一致" + $suffix)
   exit 0
 }
 
 if ($originMain -and $info.commit -eq $originMain) {
-  Write-Host "  status: installed build matches origin/main but differs from this checkout"
+  Write-Host "  状态：安装版本与 origin/main 一致，但不同于当前 checkout"
   if ($CheckInstalled) {
     exit 1
   }
   exit 0
 }
 
-Write-Host "  status: installed build differs from this checkout"
+Write-Host "  状态：安装版本不同于当前 checkout"
 if ($CheckInstalled) {
   exit 1
 }
