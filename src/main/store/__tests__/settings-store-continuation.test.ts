@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppSettings } from '@shared/types';
+import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types';
 
 let mockRawStore: Record<string, unknown> = {};
+let constructorDefaults: Record<string, unknown> | undefined;
 const mockSet = vi.fn((key: string, value: unknown) => {
   mockRawStore[key] = value;
 });
@@ -14,6 +15,7 @@ vi.mock('electron-store', () => ({
   default: class MockStore {
     constructor(opts?: { defaults?: Record<string, unknown> }) {
       if (!opts?.defaults) return;
+      constructorDefaults = opts.defaults;
       const persisted = { ...mockRawStore };
       if (Object.keys(opts.defaults).some((key) => !(key in persisted))) {
         mockRawStore = { ...opts.defaults, ...persisted };
@@ -39,6 +41,7 @@ vi.mock('electron-store', () => ({
 
 beforeEach(() => {
   mockRawStore = {};
+  constructorDefaults = undefined;
   vi.resetModules();
   mockSet.mockClear();
   mockGet.mockClear();
@@ -51,6 +54,13 @@ async function loadSettingsStore() {
 
 describe('unified continuation settings migration', () => {
   const callsFor = (key: string) => mockSet.mock.calls.filter((call) => call[0] === key);
+
+  it('gives electron-store a copy instead of the shared defaults object', async () => {
+    (await loadSettingsStore()).getAll();
+    expect(constructorDefaults).toBeDefined();
+    expect(constructorDefaults).not.toBe(DEFAULT_SETTINGS);
+    expect(constructorDefaults).toMatchObject(DEFAULT_SETTINGS);
+  });
 
   it('copies an old-only generator and removes the count plus legacy sentinel', async () => {
     mockRawStore = {
@@ -128,12 +138,12 @@ describe('unified continuation settings migration', () => {
       continuationCheckpointProvider: 'claude',
       continuationCheckpointModel: '',
       // New incompatible values are repaired, not legacy-coerced.
-      continuationCheckpointThinking: 'medium',
+      continuationCheckpointThinking: 'high',
       continuationRawRetentionTokens: 64_000,
     });
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointProvider', 'claude');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', '');
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'medium');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
     expect(mockSet).toHaveBeenCalledWith('continuationRawRetentionTokens', 64_000);
   });
 
@@ -157,8 +167,40 @@ describe('unified continuation settings migration', () => {
       continuationCheckpointThinking: value,
     };
     const all = (await loadSettingsStore()).getAll();
+    expect(all.continuationCheckpointThinking).toBe('high');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
+  });
+
+  it('uplifts the exact old generator defaults once', async () => {
+    mockRawStore = {
+      summaryReasoning: 'low',
+      continuationCheckpointThinking: 'medium',
+    };
+
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.summaryReasoning).toBe('medium');
+    expect(all.continuationCheckpointThinking).toBe('high');
+    expect(mockSet).toHaveBeenCalledWith('summaryReasoning', 'medium');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
+    expect(mockSet).toHaveBeenCalledWith('__generatorDefaults20260711Done', true);
+  });
+
+  it('respects later user choices after the generator-default uplift sentinel is set', async () => {
+    mockRawStore = {
+      summaryReasoning: 'low',
+      continuationCheckpointThinking: 'medium',
+    };
+    const first = await loadSettingsStore();
+    first.set('summaryReasoning', 'low');
+    first.set('continuationCheckpointThinking', 'medium');
+
+    vi.resetModules();
+    mockSet.mockClear();
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.summaryReasoning).toBe('low');
     expect(all.continuationCheckpointThinking).toBe('medium');
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'medium');
+    expect(callsFor('summaryReasoning')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
   });
 
   it.each([

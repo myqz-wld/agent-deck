@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
+import { ChevronRightIcon, FolderOpenIcon, PlayIcon, RefreshIcon } from '../icons';
 
 /**
  * 通用控件 + 测试 / picker 组件，给 SettingsDialog 内 Section 复用。
@@ -56,7 +57,7 @@ export function Section({
           style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
           aria-hidden
         >
-          ▶
+          <ChevronRightIcon className="h-3 w-3" />
         </span>
         <span>{title}</span>
       </button>
@@ -201,14 +202,14 @@ export function SoundPicker({
             title="试听当前提示音"
             className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
           >
-            ▶ 试听
+            <PlayIcon className="mr-1 inline h-3 w-3" />试听
           </button>
           <button
             type="button"
             onClick={() => void choose()}
             className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
           >
-            选择…
+            <FolderOpenIcon className="mr-1 inline h-3 w-3" />选择…
           </button>
           {path && (
             <button
@@ -217,7 +218,7 @@ export function SoundPicker({
               title="恢复默认（系统提示音）"
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20"
             >
-              重置
+              <RefreshIcon className="mr-1 inline h-3 w-3" />重置
             </button>
           )}
         </div>
@@ -259,7 +260,7 @@ export function ExecutablePicker({
             onClick={() => void choose()}
             className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
           >
-            选择…
+            <FolderOpenIcon className="mr-1 inline h-3 w-3" />选择…
           </button>
           {path && (
             <button
@@ -268,7 +269,7 @@ export function ExecutablePicker({
               title="恢复默认（用应用内置可执行文件）"
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20"
             >
-              重置
+              <RefreshIcon className="mr-1 inline h-3 w-3" />重置
             </button>
           )}
         </div>
@@ -340,7 +341,7 @@ export function NotificationTestRow(): JSX.Element {
           onClick={() => void test()}
           className="no-drag rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
         >
-          ▶ 弹一条
+          <PlayIcon className="mr-1 inline h-3 w-3" />弹一条
         </button>
       </div>
       {result && <div className="text-[10px] leading-snug text-deck-muted/80">{result}</div>}

@@ -6,6 +6,7 @@ import type {
   SessionRecord,
 } from '@shared/types';
 import { DeckSelect, type DeckSelectOption } from './DeckSelect';
+import { CloseIcon, HandOffIcon, RefreshIcon } from './icons';
 import {
   SessionModelFields,
   thinkingOptionsForAdapter,
@@ -262,17 +263,19 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
-          <h2 className="text-[13px] font-medium">
-            📤 接力到新会话{preparing ? '（正在压缩会话上下文…）' : committing ? '（正在创建…）' : ''}
+          <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
+            <HandOffIcon className="h-4 w-4 text-status-working" />
+            <span>接力到新会话{preparing ? '（正在压缩会话上下文…）' : committing ? '（正在创建…）' : ''}</span>
           </h2>
           <button
             type="button"
             onClick={close}
             disabled={busy}
+            aria-label={busy ? '请等待当前操作完成' : '关闭接力窗口'}
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10 disabled:opacity-30"
             title={busy ? '请等待当前操作完成' : '取消'}
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
 
@@ -346,6 +349,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             }
             className="self-start rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
+            {!preparing && preparation ? <RefreshIcon className="mr-1 inline h-3 w-3" /> : null}
             {preparing
               ? '正在压缩会话上下文…'
               : preparation
@@ -424,6 +428,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             disabled={busy || !preparation}
             className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
+            {!committing && <HandOffIcon className="mr-1 inline h-3 w-3" />}
             {committing ? '正在创建续接会话…' : '打开新会话接力'}
           </button>
         </footer>

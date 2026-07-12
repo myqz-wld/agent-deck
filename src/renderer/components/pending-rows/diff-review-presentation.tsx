@@ -6,6 +6,7 @@ import type {
   DiffReviewRequest,
 } from '@shared/types';
 import { DiffViewer } from '../diff/DiffViewer';
+import { ChevronDownIcon, ChevronUpIcon } from '../icons';
 
 const PRESENTED_DIFF_HEIGHT = 'h-[60vh] min-h-96 max-h-[44rem]';
 const PRESENTED_PANE_MAX_HEIGHT = 'max-h-[44rem]';
@@ -98,7 +99,7 @@ export function DiffPresentationPanel({
           aria-expanded={expanded}
           className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
         >
-          {expanded ? '收起' : `展开${payload.mode === 'merge-conflict' ? '冲突' : '差异'}（${size} 字）`}
+          {expanded ? <ChevronUpIcon className="mr-1 inline h-3 w-3" /> : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}{expanded ? '收起' : `展开${payload.mode === 'merge-conflict' ? '冲突' : '差异'}（${size} 字）`}
         </button>
       </div>
     </div>

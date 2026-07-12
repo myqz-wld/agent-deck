@@ -3,6 +3,7 @@ import type { AgentEvent } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { formatDisplayText } from '../format';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
+import { ChevronDownIcon, ChevronUpIcon } from '../../icons';
 
 /** REVIEW_4 M16：thinking 内容默认折叠阈值。内容可能很长，阈值比 message 略低。 */
 const COLLAPSE_THRESHOLD_CHARS = 600;
@@ -76,6 +77,7 @@ export function ThinkingBubble({
               aria-expanded={expanded}
               className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/60 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
             >
+              {expanded ? <ChevronUpIcon className="mr-0.5 inline h-3 w-3" /> : <ChevronDownIcon className="mr-0.5 inline h-3 w-3" />}
               {expanded ? '收起' : `展开（${text.length} 字）`}
             </button>
           )}

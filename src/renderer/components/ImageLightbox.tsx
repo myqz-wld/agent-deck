@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react';
 import { useImageBlob } from '@renderer/hooks/useImageBlob';
 import { sharedImageBlobCache } from '@renderer/lib/image-blob-cache';
+import { CloseIcon } from './icons';
 
 /**
  * plan handoff-render-and-image-batch-20260521 §Phase 4 Step 2:用户上传图片的放大查看
@@ -25,7 +26,7 @@ import { sharedImageBlobCache } from '@renderer/lib/image-blob-cache';
  *   不重新拉图。
  * - **不引入新依赖**:不引入 `@radix-ui/react-dialog` / shadcn-ui Dialog / `react-lightbox` /
  *   `lucide-react`,全部走项目自实现 overlay + `useImageBlob` + 自实现 Esc keydown listener +
- *   unicode close 符号(项目 tool-icons.ts:4-6 明确不引入 lucide)。
+ *   项目内 source-owned SVG close icon。
  */
 export function ImageLightbox({
   onClose,
@@ -89,7 +90,7 @@ export function ImageLightbox({
           aria-label="关闭预览"
           className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full border border-deck-border bg-deck-bg/90 text-deck-text hover:bg-white/10"
         >
-          ✕
+          <CloseIcon className="h-4 w-4" />
         </button>
       </div>
     </div>

@@ -53,7 +53,7 @@ describe('Codex app-server thread params', () => {
   it('deep-merges custom agent configOverrides over base config for thread/start and thread/resume', () => {
     const baseConfig = {
       mcp_servers: {
-        existing: { command: 'tool' },
+        existing: { command: 'tool', required: true },
       },
       sandbox_workspace_write: {
         network_access: false,
@@ -79,7 +79,7 @@ describe('Codex app-server thread params', () => {
 
     expect(__testables.buildThreadStartParams(options, baseConfig).config).toEqual({
       mcp_servers: {
-        existing: { command: 'tool' },
+        existing: { command: 'tool', required: true },
         agent: { command: 'agent-tool' },
       },
       sandbox_workspace_write: {
@@ -291,5 +291,73 @@ describe('Codex app-server thread params', () => {
       method: 'thread/resume',
       params: expect.objectContaining({ threadId: 'child', cwd: '/repo' }),
     }]);
+  });
+
+  it('retries a same-process thread boundary after required MCP readiness rejects once', async () => {
+    let attempts = 0;
+    class FlakyClient extends CodexAppServerClient {
+      override request<T = unknown>(method: string, _params: unknown): Promise<T> {
+        if (method !== 'thread/resume') return Promise.resolve({} as T);
+        attempts += 1;
+        if (attempts === 1) {
+          return Promise.reject(new Error('required MCP server agent-deck failed to initialize'));
+        }
+        return Promise.resolve({ thread: { id: 'thread-1' } } as T);
+      }
+    }
+    const client = new FlakyClient({ env: {}, config: null });
+    const thread = client.resumeThread('thread-1', {
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'never',
+      skipGitRepoCheck: true,
+    });
+
+    await expect(thread.ensureReady()).rejects.toThrow(/failed to initialize/);
+    await expect(thread.ensureReady()).resolves.toBe('thread-1');
+    expect(attempts).toBe(2);
+  });
+
+  it('clears a live-process initialize rejection so the next request can retry', async () => {
+    const client = new CodexAppServerClient({ env: {}, config: null });
+    let attempts = 0;
+    const internal = client as unknown as {
+      ensureInitialized: () => Promise<void>;
+      requestRaw: (method: string, params: unknown) => Promise<unknown>;
+      initializePromise: Promise<void> | null;
+    };
+    internal.requestRaw = async (method) => {
+      expect(method).toBe('initialize');
+      attempts += 1;
+      if (attempts === 1) throw new Error('temporary initialize failure');
+      return {};
+    };
+
+    await expect(internal.ensureInitialized()).rejects.toThrow(/temporary/);
+    expect(internal.initializePromise).toBeNull();
+    await expect(internal.ensureInitialized()).resolves.toBeUndefined();
+    expect(attempts).toBe(2);
+  });
+
+  it('ignores stale or duplicate child exits instead of clobbering a replacement process', () => {
+    const client = new CodexAppServerClient({ env: {}, config: null });
+    const currentChild = {} as never;
+    const staleChild = {} as never;
+    const internal = client as unknown as {
+      child: unknown;
+      handleExit: (child: unknown, err: Error) => void;
+    };
+    internal.child = currentChild;
+    const generation = client.generation;
+
+    internal.handleExit(staleChild, new Error('stale exit'));
+    expect(internal.child).toBe(currentChild);
+    expect(client.generation).toBe(generation);
+
+    internal.handleExit(currentChild, new Error('current exit'));
+    expect(internal.child).toBeNull();
+    expect(client.generation).toBe(generation + 1);
+    internal.handleExit(currentChild, new Error('duplicate exit'));
+    expect(client.generation).toBe(generation + 1);
   });
 });

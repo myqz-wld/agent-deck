@@ -9,13 +9,16 @@
 // - app.on('before-quit'):cleaningUp idempotent guard + globalShortcut.unregisterAll +
 //   event-loop monitor/scheduler/teamScheduler/summarizer/stopAllSounds/universalMessageWatcher 同步停 +
 //   adapterRegistry.shutdownAll / agentDeckMcpHttpShutdown / hookServer.stop 走 10s
-//   race-with-timeout 兜底 + closeDb 在 race 外**总是**跑保 SQLite WAL checkpoint
+//   race-with-timeout 兜底 + 完整 drain 后 await 独立 storage worker + closeDb 在 race 外
+//   **总是**跑保 SQLite WAL checkpoint
 //   (REVIEW_35 R2 MED-D claude R2-3 修法)。
 // ────────────────────────────────────────────────────────────────────────────
 
 import { app, BrowserWindow, globalShortcut } from 'electron';
 
-import { closeDb } from '../store/db';
+import { closeDb, getDb } from '../store/db';
+import { hasPendingStorageShutdownTasks } from '../store/storage-maintenance/shutdown-tasks';
+import { runStorageShutdownMaintenance } from '../store/storage-maintenance/shutdown-runner';
 import { adapterRegistry } from '../adapters/registry';
 import { setLifecycleScheduler } from '../session/lifecycle-scheduler';
 import { setTeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
@@ -93,9 +96,10 @@ export function registerLifecycleHooks(
       // cleanupSteps reject(未来有人往里加无 try/catch 的 await)→ race reject → 直接跳外层
       // catch → closeDb 被跳过,同时绕过 10s timeout 保护(MED-A/B 共同侵蚀同一 WAL 不变量的
       // 两条路径:重入 vs reject)。修法:① cleanupSteps 用 .catch 兜成 'err' 哨兵让 race 永不
-      // reject;② closeDb 提到 finally 块开头,无论 cleanup error / timeout / 正常都先跑,再决定
-      // process.exit(1) vs app.exit(0)。
+      // reject;② closeDb 放入 finally，先完成可失败的存储收尾并逐项兜底，再无条件 checkpoint，
+      // 最后决定 process.exit(1) vs app.exit(0)。
       let timedOut = false;
+      let ingressDrained = false;
       try {
         globalShortcut.unregisterAll();
         state.mainEventLoopMonitorStop?.();
@@ -114,6 +118,8 @@ export function registerLifecycleHooks(
         setMessageLifecycleScheduler(null);
         state.tokenUsageScheduler?.stop();
         setTokenUsageLifecycleScheduler(null);
+        state.storageMaintenanceScheduler?.stop();
+        state.storageMaintenanceScheduler = null;
         summarizer.stop();
         stopAllSounds();
         // R3.E5:universal-message-watcher shutdown
@@ -122,21 +128,26 @@ export function registerLifecycleHooks(
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底,防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程(codex CLI
         // 卡死等场景)。10s 超时降级 process.exit(1) 强退。
-        const cleanupSteps = (async (): Promise<void> => {
-          await adapterRegistry.shutdownAll();
+        const cleanupSteps = (async (): Promise<'ok' | 'degraded'> => {
+          let allIngressStopped = true;
+          const adapterShutdown = await adapterRegistry.shutdownAll();
+          if (adapterShutdown.some((result) => !result.ok)) allIngressStopped = false;
           if (state.agentDeckMcpHttpShutdown) {
             try {
               await state.agentDeckMcpHttpShutdown();
             } catch (err) {
+              allIngressStopped = false;
               logger.warn('[agent-deck-mcp] HTTP shutdown failed during cleanup', err);
             }
             state.agentDeckMcpHttpShutdown = null;
           }
           try {
             await state.hookServer?.stop();
-          } catch {
-            // ignore: 已经在退出
+          } catch (err) {
+            allIngressStopped = false;
+            logger.warn('[hook-server] shutdown failed during cleanup', err);
           }
+          return allIngressStopped ? 'ok' : 'degraded';
         })();
         const cleanupTimeout = new Promise<'__timeout__'>((resolve) =>
           setTimeout(() => resolve('__timeout__'), 10_000),
@@ -144,18 +155,33 @@ export function registerLifecycleHooks(
         // REVIEW_104 MED-B: cleanupSteps.catch 兜成 'err' 哨兵 → Promise.race 永不 reject,
         // 保证控制流必到下方,closeDb(finally)必跑。reject 不再静默绕过 closeDb + timeout 保护。
         const result = await Promise.race([
-          cleanupSteps.then(() => 'ok' as const).catch((err) => {
+          cleanupSteps.catch((err) => {
             logger.warn('[before-quit] cleanup steps error', err);
             return 'err' as const;
           }),
           cleanupTimeout,
         ]);
         timedOut = result === '__timeout__';
+        ingressDrained = result === 'ok';
       } catch (err) {
         logger.warn('[before-quit] cleanup error', err);
       } finally {
-        // closeDb 在 finally 块开头**无条件**跑(sync 操作 + WAL checkpoint 关键),在 app.exit /
-        // process.exit 之前,覆盖 normal / cleanup-throw / reject / timeout 全部路径。
+        // Cold copy gates measured 0.84s snapshot-index creation and 5.8-6.0s legacy FTS DROP.
+        // Run both on an isolated SQLite worker only after every ingress owner drained. The main
+        // connection stays open but idle, then is closed unconditionally below for its checkpoint.
+        if (ingressDrained) {
+          try {
+            const db = getDb();
+            if (hasPendingStorageShutdownTasks(db)) {
+              const results = await runStorageShutdownMaintenance(db.name);
+              logStorageShutdownResults(results);
+            }
+          } catch (err) {
+            logger.warn('[storage-maintenance] shutdown worker failed; tasks remain retryable', err);
+          }
+        }
+        // closeDb 在 finally 中**无条件**跑（sync 操作 + WAL checkpoint 关键），所有可选存储
+        // 收尾都已逐项 catch，因此 normal / cleanup-throw / reject / timeout 全部路径均会到达。
         try {
           closeDb();
         } catch (err) {
@@ -169,4 +195,35 @@ export function registerLifecycleHooks(
       }
     })();
   });
+}
+
+function logStorageShutdownResults(
+  results: Awaited<ReturnType<typeof runStorageShutdownMaintenance>>,
+): void {
+  if (results.snapshotIndexes.ok) {
+    if (results.snapshotIndexes.result.prepared) {
+      logger.info('[storage-maintenance] snapshot GC indexes prepared on shutdown worker', {
+        durationMs: Math.round(results.snapshotIndexes.result.durationMs),
+      });
+    }
+  } else {
+    logger.warn(
+      `[storage-maintenance] snapshot GC index preparation deferred: ` +
+        results.snapshotIndexes.error,
+    );
+  }
+
+  if (results.eventSearchRetirement.ok) {
+    if (results.eventSearchRetirement.result.retired) {
+      logger.info('[storage-maintenance] legacy event search index retired on shutdown worker', {
+        durationMs: Math.round(results.eventSearchRetirement.result.durationMs),
+        freedPages: results.eventSearchRetirement.result.freedPages,
+      });
+    }
+  } else {
+    logger.warn(
+      `[storage-maintenance] legacy event search retirement deferred: ` +
+        results.eventSearchRetirement.error,
+    );
+  }
 }

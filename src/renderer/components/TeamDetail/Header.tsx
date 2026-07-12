@@ -1,11 +1,12 @@
 import type { JSX, ReactNode } from 'react';
+import { ArrowLeftIcon } from '../icons';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：TeamDetail 顶部 header（标题 + 右侧 actions
  * + 右上角返回按钮）。从原 TeamDetail/index.tsx 抽出，便于 5 sections 子组件复用 Section
  * 风格的同时复用同一 Header。
  *
- * CHANGELOG_94: 「← 返回」按钮从左上角挪到右上角（与 SessionDetail header 风格统一），
+ * CHANGELOG_94: 「返回」按钮从左上角挪到右上角（与 SessionDetail header 风格统一），
  * 与 actions 同组在右侧。标题居左占 flex-1。
  */
 interface Props {
@@ -26,8 +27,9 @@ export function Header({ onBack, children, actions }: Props): JSX.Element {
           onClick={onBack}
           className="no-drag flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           title="返回列表"
+          aria-label="返回列表"
         >
-          ←
+          <ArrowLeftIcon className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>

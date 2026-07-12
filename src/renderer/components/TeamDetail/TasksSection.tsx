@@ -2,13 +2,23 @@ import type { JSX } from 'react';
 import type { TaskRecord } from '@shared/types';
 import { Section, EmptyState } from './Header';
 import { relativeTime } from './helpers';
+import {
+  AlertTriangleIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  BanIcon,
+  CircleCheckIcon,
+  ClockIcon,
+  InfoIcon,
+  WrenchIcon,
+} from '../icons';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：team 内 task 列表 section。
  *
  * 数据来自 IPC `agent-deck-team:get-full` 的 `tasks` 字段（taskRepo.list({teamId}) — task 表
  * 自己的 team_id 列）。展示：
- * - 状态 emoji + subject
+ * - 状态图标 + subject
  * - activeForm（"present continuous form shown during execution" 如 "Running tests"，
  *   sdk-task-manager-spec §3，是状态描述不是 sessionId — 不要 lookup sessions Map）
  * - priority（5 是默认；非 5 显示 ⬆/⬇ + 数字）
@@ -57,7 +67,7 @@ function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
     >
       <div className="flex items-baseline justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="shrink-0">{statusEmoji(task.status)}</span>
+          <span className="shrink-0">{statusIcon(task.status)}</span>
           <strong className="truncate text-deck-text">{task.subject}</strong>
         </div>
         <span className="shrink-0 text-[9px] text-deck-muted/60 tabular-nums">
@@ -68,12 +78,12 @@ function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
         <div className="mt-0.5 flex items-center gap-2 text-[9px] text-deck-muted">
           {task.activeForm && (
             <span title="当前进度描述">
-              🔧 {task.activeForm}
+              <WrenchIcon className="mr-0.5 inline h-3 w-3" />{task.activeForm}
             </span>
           )}
           {task.priority !== 5 && (
             <span title={`优先级 ${task.priority}`}>
-              {task.priority < 5 ? '⬆' : '⬇'} 优先级 {task.priority}
+              {task.priority < 5 ? <ArrowUpIcon className="mr-0.5 inline h-3 w-3" /> : <ArrowDownIcon className="mr-0.5 inline h-3 w-3" />}优先级 {task.priority}
             </span>
           )}
         </div>
@@ -82,19 +92,20 @@ function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
   );
 }
 
-function statusEmoji(status: TaskRecord['status']): string {
+function statusIcon(status: TaskRecord['status']): JSX.Element {
+  const className = 'h-3.5 w-3.5';
   switch (status) {
     case 'pending':
-      return '⏳';
+      return <ClockIcon className={className} label="待处理" />;
     case 'active':
-      return '🔧';
+      return <WrenchIcon className={className} label="进行中" />;
     case 'completed':
-      return '✅';
+      return <CircleCheckIcon className={className} label="已完成" />;
     case 'blocked':
-      return '🚧';
+      return <AlertTriangleIcon className={className} label="已阻塞" />;
     case 'abandoned':
-      return '⊘';
+      return <BanIcon className={className} label="已放弃" />;
     default:
-      return '❓';
+      return <InfoIcon className={className} label="未知状态" />;
   }
 }

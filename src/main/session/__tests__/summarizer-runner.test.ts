@@ -1,11 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, AppSettings } from '@shared/types';
 import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
+
+const settings = vi.hoisted(() => {
+  const values: Record<string, unknown> = {};
+  return {
+    values,
+    get: vi.fn((key: string) => values[key]),
+    set: vi.fn((key: string, value: unknown) => {
+      values[key] = value;
+    }),
+  };
+});
 
 vi.mock('@main/adapters/claude-code/sdk-loader', () => makeBareSdkLoaderMock());
 vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
   getSdkRuntimeOptions: () => ({ executable: 'node', env: {} }),
   getPathToClaudeCodeExecutable: () => '/fake/cli',
+}));
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: { get: settings.get, set: settings.set },
 }));
 
 import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
@@ -15,6 +29,7 @@ const loadSdkMock = vi.mocked(loadSdk);
 const calls: Array<{
   options: {
     effort?: string;
+    model?: string;
     cwd?: string;
     permissionMode?: string;
     tools?: unknown[];
@@ -50,6 +65,9 @@ function installSdk(): void {
 
 beforeEach(() => {
   calls.length = 0;
+  settings.values.summaryModel = '';
+  settings.values.summaryReasoning = 'medium';
+  settings.values.summaryTimeoutMs = 0;
   vi.clearAllMocks();
   installSdk();
 });
@@ -57,6 +75,52 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('summariseViaLlm periodic reasoning effort', () => {
+  it('uses the Haiku alias for a blank Claude model and ignores ANTHROPIC_MODEL', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('summaryModel');
+    settingsStore.set('summaryModel', '');
+    try {
+      await summariseViaLlm('/tmp/cwd', events, {
+        envOverride: {
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: '',
+          ANTHROPIC_MODEL: 'hidden-generic-model',
+        },
+      });
+      expect(calls[0].options.model).toBe('haiku');
+    } finally {
+      settingsStore.set('summaryModel', previous);
+    }
+  });
+
+  it('uses the configured Haiku alias override for a blank Claude model', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('summaryModel');
+    settingsStore.set('summaryModel', '');
+    try {
+      await summariseViaLlm('/tmp/cwd', events, {
+        envOverride: {
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-env',
+          ANTHROPIC_MODEL: 'hidden-generic-model',
+        },
+      });
+      expect(calls[0].options.model).toBe('claude-haiku-env');
+    } finally {
+      settingsStore.set('summaryModel', previous);
+    }
+  });
+
+  it.each(['', 'invalid'])('falls back from summary effort %j to medium', async (value) => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    const previous = settingsStore.get('summaryReasoning');
+    settingsStore.set('summaryReasoning', value as AppSettings['summaryReasoning']);
+    try {
+      await summariseViaLlm('/tmp/cwd', events);
+      expect(calls[0].options.effort).toBe('medium');
+    } finally {
+      settingsStore.set('summaryReasoning', previous);
+    }
+  });
+
   it('passes a valid Claude-family summary effort', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
     const previous = settingsStore.get('summaryReasoning');

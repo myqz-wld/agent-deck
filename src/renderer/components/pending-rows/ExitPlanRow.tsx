@@ -3,6 +3,7 @@ import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@sha
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import log from '@renderer/utils/logger';
 import { MemoizedMarkdownText } from '../MarkdownText';
+import { ChevronDownIcon, ChevronUpIcon } from '../icons';
 
 const logger = log.scope('renderer-exit-plan-row');
 const PLAN_COLLAPSE_THRESHOLD_CHARS = 1_800;
@@ -249,7 +250,7 @@ function PlanMarkdownPanel({ plan }: { plan: string }): JSX.Element {
             aria-expanded={expanded}
             className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
           >
-            {expanded ? '收起' : `展开全部（${plan.length} 字）`}
+            {expanded ? <ChevronUpIcon className="mr-1 inline h-3 w-3" /> : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}{expanded ? '收起' : `展开全部（${plan.length} 字）`}
           </button>
         </div>
       )}

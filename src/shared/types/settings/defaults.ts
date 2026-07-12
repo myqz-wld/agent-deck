@@ -10,6 +10,9 @@ import type { AppSettings } from './app-settings';
 export const DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS = 64_000;
 export const MIN_CONTINUATION_RAW_RETENTION_TOKENS = 8_000;
 export const MAX_CONTINUATION_RAW_RETENTION_TOKENS = 128_000;
+/** Stable runtime fallbacks; unlike electron-store defaults these values are never store-owned. */
+export const DEFAULT_SUMMARY_REASONING = 'medium' as const;
+export const DEFAULT_CONTINUATION_CHECKPOINT_THINKING = 'high' as const;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   hookServerPort: 47821,
@@ -28,10 +31,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // 周期总结与会话续接检查点分开配置；两者的 provider/model/thinking 互不影响。
   summaryProvider: 'claude',
   summaryModel: '',
-  summaryReasoning: 'low',
+  summaryReasoning: DEFAULT_SUMMARY_REASONING,
   continuationCheckpointProvider: 'claude',
   continuationCheckpointModel: '',
-  continuationCheckpointThinking: 'medium',
+  continuationCheckpointThinking: DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
   continuationRawRetentionTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
   permissionTimeoutMs: 30 * 60 * 1000,
   alwaysOnTop: true,

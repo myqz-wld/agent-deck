@@ -3,6 +3,7 @@ import type { AppSettings } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { Section } from '../controls';
 import { LogViewerModal } from './LogViewerModal';
+import { EyeIcon, FolderOpenIcon, TrashIcon } from '../../icons';
 
 interface Props {
   settings: AppSettings;
@@ -77,14 +78,14 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
             onClick={() => void handleOpenDirectory()}
             className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
           >
-            打开日志目录
+            <FolderOpenIcon className="mr-1 inline h-3 w-3" />打开日志目录
           </button>
           <button
             type="button"
             onClick={() => setLogOpen(true)}
             className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
           >
-            查看日志
+            <EyeIcon className="mr-1 inline h-3 w-3" />查看日志
           </button>
         </div>
         <button
@@ -92,7 +93,7 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
           onClick={() => void handleTruncateToday()}
           className="no-drag self-start rounded bg-status-waiting/15 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/25"
         >
-          清空今天日志
+          <TrashIcon className="mr-1 inline h-3 w-3" />清空今天日志
         </button>
       </div>
 

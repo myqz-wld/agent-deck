@@ -10,16 +10,18 @@
  * **§D7**: status 严格 3 态（zod IPC 层守门 reject foo）。
  */
 
-import { cloneElement, useEffect, useId, useRef, useState, type JSX } from 'react';
-import type {
-  IssueRecord,
-  IssueAppendix,
-  IssueSeverity,
-  IssueStatus,
-} from '@shared/types';
+import { useEffect, useRef, useState, type JSX } from 'react';
+import type { IssueRecord, IssueAppendix } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { useIssuesStore } from '../stores/issues-store';
 import { ResolveInNewSessionDialog } from './ResolveInNewSessionDialog';
+import { CloseIcon, HandOffIcon, RefreshIcon, SaveIcon, TrashIcon } from './icons';
+import {
+  Field,
+  SessionLink,
+  ISSUE_SEVERITY_OPTIONS,
+  ISSUE_STATUS_OPTIONS,
+} from './issue-detail-controls';
 import {
   type EditingState,
   type FieldKey,
@@ -35,18 +37,6 @@ interface Props {
   /** 点「解决会话 / 来源会话」跳到 live 视图打开该 session（App → IssuesPanel 透传） */
   onOpenSession?: (sid: string) => void;
 }
-
-const ISSUE_STATUS_OPTIONS: { value: IssueStatus; label: string }[] = [
-  { value: 'open', label: 'open' },
-  { value: 'in-progress', label: 'in-progress' },
-  { value: 'resolved', label: 'resolved' },
-];
-
-const ISSUE_SEVERITY_OPTIONS: { value: IssueSeverity; label: string }[] = [
-  { value: 'low', label: 'LOW' },
-  { value: 'medium', label: 'MEDIUM' },
-  { value: 'high', label: 'HIGH' },
-];
 
 export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Element {
   // store 是权威源：list 重拉 / onIssueChanged event（含起新会话改 status='in-progress'）都先
@@ -272,7 +262,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           aria-label="关闭"
           className="text-xs text-deck-muted hover:text-deck-text"
         >
-          ✕
+          <CloseIcon className="h-3.5 w-3.5" />
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto scrollbar-deck px-3 py-3">
@@ -442,7 +432,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             disabled={saving}
             className="rounded bg-white/15 px-2 py-1 text-xs text-deck-text hover:bg-white/25 disabled:opacity-50"
           >
-            保存
+            <SaveIcon className="mr-1 inline h-3 w-3" />保存
           </button>
         )}
         {!isDeleted && !isResolved && (
@@ -457,7 +447,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             }
             className="rounded bg-status-working/25 px-2 py-1 text-xs text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
-            {issue.resolutionSessionId ? '换解决会话' : '起新会话解决'}
+            <HandOffIcon className="mr-1 inline h-3 w-3" />{issue.resolutionSessionId ? '换解决会话' : '起新会话解决'}
           </button>
         )}
         <div className="flex-1" />
@@ -468,7 +458,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             disabled={saving}
             className="rounded bg-status-waiting/25 px-2 py-1 text-xs text-status-waiting hover:bg-status-waiting/40 disabled:opacity-50"
           >
-            删除
+            <TrashIcon className="mr-1 inline h-3 w-3" />删除
           </button>
         ) : (
           <button
@@ -477,7 +467,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             disabled={saving}
             className="rounded bg-status-finished/25 px-2 py-1 text-xs text-status-finished hover:bg-status-finished/40 disabled:opacity-50"
           >
-            恢复
+            <RefreshIcon className="mr-1 inline h-3 w-3" />恢复
           </button>
         )}
       </div>
@@ -499,40 +489,5 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         />
       )}
     </div>
-  );
-}
-
-// deep-review H1 LOW（a11y）：label 经 htmlFor/id 关联到唯一控件子节点，点 label 聚焦输入框、
-// 屏幕阅读器拿到控件名。children 必须是单个表单控件元素（input/select/textarea）。
-function Field({ label, children }: { label: string; children: JSX.Element }): JSX.Element {
-  const id = useId();
-  return (
-    <div className="space-y-1">
-      <label htmlFor={id} className="block text-[10px] uppercase tracking-wide text-deck-muted">
-        {label}
-      </label>
-      {cloneElement(children, { id })}
-    </div>
-  );
-}
-
-/** session id 渲染：有 onOpenSession 回调时可点击跳转到该会话，否则纯文本展示。 */
-function SessionLink({
-  sid,
-  onOpenSession,
-}: {
-  sid: string;
-  onOpenSession?: (sid: string) => void;
-}): JSX.Element {
-  if (!onOpenSession) return <span className="font-mono">{sid}</span>;
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenSession(sid)}
-      title="打开该会话"
-      className="truncate font-mono text-status-working underline-offset-2 hover:underline"
-    >
-      {sid}
-    </button>
   );
 }

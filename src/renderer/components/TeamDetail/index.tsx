@@ -14,6 +14,7 @@ import { EventsSection } from './EventsSection';
 import { TasksSection } from './TasksSection';
 import { MessagesSection } from './MessagesSection';
 import { PendingSection } from './PendingSection';
+import { ArchiveIcon, StopIcon } from '../icons';
 
 const logger = log.scope('renderer-team-detail');
 
@@ -184,6 +185,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
                 title={`关闭团队内全部 ${activeTeammateCount} 个协作者(负责人不动)`}
                 className="rounded bg-status-waiting/25 px-2 py-0.5 text-[10px] text-status-waiting transition hover:bg-status-waiting/35 disabled:cursor-not-allowed disabled:opacity-40"
               >
+                {actionBusy !== 'shutdown' && <StopIcon className="mr-1 inline h-3 w-3" />}
                 {actionBusy === 'shutdown' ? '关闭中…' : `关闭 ${activeTeammateCount} 个协作者`}
               </button>
             )}
@@ -195,6 +197,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
                 title="归档团队(不关成员、不删数据)"
                 className="rounded bg-deck-muted/20 px-2 py-0.5 text-[10px] text-deck-muted transition hover:bg-deck-muted/30 disabled:cursor-not-allowed disabled:opacity-40"
               >
+                {actionBusy !== 'archive' && <ArchiveIcon className="mr-1 inline h-3 w-3" />}
                 {actionBusy === 'archive' ? '归档中…' : '归档'}
               </button>
             )}

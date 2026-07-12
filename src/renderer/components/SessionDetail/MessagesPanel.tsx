@@ -2,7 +2,9 @@ import { useEffect, useState, type JSX } from 'react';
 import type { AgentDeckMessage } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { MarkdownText } from '@renderer/components/MarkdownText';
-import { statusBadge, relativeTime } from '../TeamDetail/helpers';
+import { relativeTime } from '../TeamDetail/helpers';
+import { ArrowRightIcon, ReplyIcon } from '../icons';
+import { MessageStatusBadge } from '../MessageStatusBadge';
 
 /**
  * SessionDetail 「跨会话消息」tab —— DB 视角的 send_message 历史全量视图。
@@ -96,7 +98,6 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
         const otherId = isSender ? msg.toSessionId : msg.fromSessionId;
         const otherSess = sessions.get(otherId);
         const otherTitle = otherSess?.title ?? otherId.slice(0, 8);
-        const arrow = isSender ? '→' : '↩';
         const arrowColor = isSender ? 'text-cyan-300/80' : 'text-blue-300/80';
         return (
           <li
@@ -105,14 +106,17 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
           >
             <div className="flex items-center justify-between text-[10px] text-deck-muted">
               <span className="truncate">
-                <span className={`mr-1 font-mono ${arrowColor}`}>{arrow}</span>
+                <span className={`mr-1 inline-block align-middle ${arrowColor}`}>
+                  {isSender ? <ArrowRightIcon className="h-3 w-3" /> : <ReplyIcon className="h-3 w-3" />}
+                </span>
+                <span className="sr-only">{isSender ? '发送给 ' : '来自 '}</span>
                 <span className="text-deck-text/85">{otherTitle}</span>
                 {msg.replyToMessageId && (
                   <span
                     className="ml-1 text-blue-300/70"
                     title="回复上一条消息"
                   >
-                    ↩ 回复
+                    <ReplyIcon className="mr-0.5 inline h-3 w-3" />回复
                   </span>
                 )}
               </span>
@@ -120,7 +124,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
                 <span className="text-deck-muted/60 tabular-nums">
                   {relativeTime(msg.sentAt)}
                 </span>
-                <span>{statusBadge(msg.status)}</span>
+                <MessageStatusBadge status={msg.status} />
               </span>
             </div>
             <div className="mt-1 break-words text-deck-text">

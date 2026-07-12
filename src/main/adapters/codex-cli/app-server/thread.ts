@@ -227,7 +227,7 @@ export class CodexAppServerThread {
       return this.readyPromise;
     }
     this.readyGeneration = this.client.generation;
-    this.readyPromise = (async () => {
+    const attempt = (async () => {
       if (this.threadId) {
         const result = await this.client.request<{ thread: { id: string } }>(
           'thread/resume',
@@ -244,6 +244,18 @@ export class CodexAppServerThread {
       this.threadId = result.thread.id;
       return this.threadId;
     })();
-    return this.readyPromise;
+    this.readyPromise = attempt;
+    try {
+      return await attempt;
+    } catch (err) {
+      // A required MCP startup failure rejects thread/start or thread/resume while app-server stays
+      // alive. Do not pin that same-generation rejection forever: watcher/user retries must issue a
+      // fresh thread boundary RPC after the transient endpoint/auth problem is corrected.
+      if (this.readyPromise === attempt) {
+        this.readyPromise = null;
+        this.readyGeneration = -1;
+      }
+      throw err;
+    }
   }
 }

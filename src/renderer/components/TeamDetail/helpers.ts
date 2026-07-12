@@ -2,26 +2,6 @@
  * plan team-cohesion-fix-20260513 Phase C：TeamDetail 子组件共用纯函数。
  * 全部 module-level，无 React state，便于子组件 import。
  */
-import type { AgentDeckMessage } from '@shared/types';
-
-/** message status → emoji + 文字标签(与原 inline 实现一致)。 */
-export function statusBadge(status: AgentDeckMessage['status']): string {
-  switch (status) {
-    case 'pending':
-      return '⏳ 待发送';
-    case 'delivering':
-      return '📤 发送中';
-    case 'delivered':
-      return '✅ 已送达';
-    case 'failed':
-      return '❌ 失败';
-    case 'cancelled':
-      return '⊘ 已取消';
-    default:
-      return status;
-  }
-}
-
 /** 折叠过长 cwd / 路径:>4 段时只保留最后 3 段。 */
 export function shortenPath(p: string | null | undefined): string {
   if (!p) return '';

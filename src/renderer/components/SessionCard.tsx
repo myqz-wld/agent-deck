@@ -8,6 +8,7 @@ import { describeAgentToolInput } from './activity-feed/describe';
 import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
 import { SessionPinButton } from './SessionPinButton';
+import { ArchiveIcon, CrownIcon, RefreshIcon, ShieldIcon, TrashIcon, UsersIcon } from './icons';
 
 interface Props {
   session: SessionRecord;
@@ -26,7 +27,7 @@ interface Props {
    * 收编 fallback,详 plan §D2) 后传入。SessionList / PendingTab 共用同一份 deriveTeamRole
    * util 保持行为一致 (plan §HIGH-1)。
    *
-   * lead 走「蓝边」(border 颜色);teammate 走「浅蓝小 chip」(bg+text),与现有 🛡 teamName
+   * lead 走「蓝边」(border 颜色);teammate 走「浅蓝小 chip」(bg+text),与现有 teamName
    * chip 风格一致。
    */
   teamRole?: 'lead' | 'teammate';
@@ -128,7 +129,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
             className="max-w-[6rem] truncate rounded bg-purple-500/20 px-1 py-0.5 text-[9px] font-medium text-purple-300"
             title={teamHoverTitle}
           >
-            🛡 {displayTeamName}
+            <ShieldIcon className="mr-0.5 inline h-3 w-3" />{displayTeamName}
             {teamCount > 1 && <span className="ml-0.5 text-purple-300/70">+{teamCount - 1}</span>}
           </span>
         )}
@@ -137,7 +138,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
             className="rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
             title={teamHoverTitle || '本会话是某团队的负责人'}
           >
-            👑 负责人
+            <CrownIcon className="mr-0.5 inline h-3 w-3" />负责人
           </span>
         )}
         {teamRole === 'teammate' && (
@@ -145,7 +146,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
             className="rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
             title={teamHoverTitle || '本会话是某团队的协作者'}
           >
-            ↳ 协作者
+            <UsersIcon className="mr-0.5 inline h-3 w-3" />协作者
           </span>
         )}
         <span className="text-[9px] text-deck-muted/60">{agentIdLabel(session.agentId)}</span>
@@ -190,7 +191,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
                   void archive();
                 }}
               >
-                归档
+                <ArchiveIcon className="mr-1 inline h-3 w-3" />归档
               </button>
             )}
             {(session.lifecycle === 'closed' || session.lifecycle === 'dormant') && session.archivedAt === null && (
@@ -202,7 +203,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
                   void reactivate();
                 }}
               >
-                重新激活
+                <RefreshIcon className="mr-1 inline h-3 w-3" />重新激活
               </button>
             )}
             <button
@@ -213,7 +214,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
                 void remove();
               }}
             >
-              删除
+              <TrashIcon className="mr-1 inline h-3 w-3" />删除
             </button>
           </div>
         </>

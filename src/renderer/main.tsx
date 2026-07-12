@@ -7,6 +7,7 @@ import log from './utils/logger';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { createCloseIconElement } from './components/icons/dom';
 import './styles/globals.css';
 
 const logger = log.scope('renderer-main');
@@ -109,7 +110,7 @@ function isMonacoUnmountRaceNoise(reason: unknown): boolean {
 
 /** 自动消失的 fatal banner 持续时间。
  * 之前所有未捕获 rejection 都升级到全屏 fatal 永久遮挡，瞬时主进程异常会把整窗打死，
- * 用户必须点 ✕ 才能恢复。改成 8s 自动 fade，手动 ✕ 仍然立刻关；console 留痕不丢线索。 */
+ * 用户必须点关闭按钮才能恢复。改成 8s 自动 fade，手动关闭仍然立刻关；console 留痕不丢线索。 */
 const FATAL_AUTO_DISMISS_MS = 8000;
 
 function showFatal(text: string): void {
@@ -135,7 +136,10 @@ function showFatal(text: string): void {
   el.textContent = text;
 
   const close = document.createElement('button');
-  close.textContent = '✕';
+  close.type = 'button';
+  close.setAttribute('aria-label', '关闭错误提示');
+  close.title = '关闭';
+  close.append(createCloseIconElement());
   Object.assign(close.style, {
     position: 'absolute',
     top: '6px',

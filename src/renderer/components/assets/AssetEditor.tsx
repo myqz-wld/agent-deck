@@ -3,6 +3,7 @@ import type { AssetKind, AssetMeta } from '@shared/types';
 import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import { CloseIcon, SaveIcon, TrashIcon } from '../icons';
 
 /**
  * 用户自定义 agent / skill 编辑器（CHANGELOG_57 C3 / plan assets-codex-user-and-ui-unify-20260521
@@ -262,9 +263,10 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           <button
             type="button"
             onClick={() => void handleClose()}
+            aria-label="关闭编辑器"
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
 
@@ -352,7 +354,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
                 disabled={busy}
                 className="rounded bg-status-waiting/15 px-2 py-1 text-[10px] text-status-waiting hover:bg-status-waiting/25 disabled:opacity-40"
               >
-                删除
+                <TrashIcon className="mr-1 inline h-3 w-3" />删除
               </button>
             )}
             <button
@@ -361,7 +363,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
               disabled={busy || hasError || !dirty}
               className="rounded bg-status-working/20 px-3 py-1 text-[10px] text-status-working hover:bg-status-working/30 disabled:opacity-40"
             >
-              保存
+              <SaveIcon className="mr-1 inline h-3 w-3" />保存
             </button>
           </div>
         </footer>

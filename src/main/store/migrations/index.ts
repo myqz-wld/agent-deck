@@ -51,6 +51,7 @@ import v037 from './v037_event_revisions.sql?raw';
 import v038 from './v038_continuation_checkpoints.sql?raw';
 import v039 from './v039_sessions_pinned.sql?raw';
 import v040 from './v040_summary_revision_metadata.sql?raw';
+import v041 from './v041_storage_maintenance_staging.sql?raw';
 
 export interface Migration {
   version: number;
@@ -99,4 +100,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 38, name: 'continuation_checkpoints', sql: v038 },
   { version: 39, name: 'sessions_pinned', sql: v039 },
   { version: 40, name: 'summary_revision_metadata', sql: v040 },
+  { version: 41, name: 'storage_maintenance_staging', sql: v041 },
 ];

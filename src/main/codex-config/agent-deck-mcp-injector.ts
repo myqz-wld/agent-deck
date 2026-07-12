@@ -78,6 +78,11 @@ export function buildAgentDeckMcpConfigForCodex(
         url: `http://127.0.0.1:${hookServer.listeningPort}/mcp`,
         bearer_token_env_var: AGENT_DECK_MCP_TOKEN_ENV,
         tool_timeout_sec: permissionTimeoutMsToCodexToolTimeoutSec(settings.permissionTimeoutMs),
+        // Codex otherwise starts/resumes the thread after an MCP initialization failure and
+        // silently omits every Agent Deck tool. That leaves native collaboration tools visible and
+        // can misroute an Agent Deck session UUID as a native agent id. Fail the thread boundary
+        // instead so the bridge exposes the real initialization error and can recover explicitly.
+        required: true,
       },
     },
   };

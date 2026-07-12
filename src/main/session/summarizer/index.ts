@@ -8,6 +8,7 @@ import { settingsStore } from '@main/store/settings-store';
 import { adapterRegistry } from '@main/adapters/registry';
 import { localStatsFallback } from './event-formatter';
 import { capturePeriodicSummaryEvidence } from './evidence-snapshot';
+import { isSummaryProviderCapabilityError } from './provider-capability-error';
 import log from '@main/utils/logger';
 
 const logger = log.scope('session-summarizer');
@@ -39,6 +40,15 @@ export class Summarizer {
    * 成功 summarize 后 delete 该 sessionId（避免历史错误一直留着误导）。
    */
   private lastErrorBySession = new Map<string, { message: string; ts: number }>();
+  /**
+   * Permanent provider failures are process/build capabilities, not per-session failures. Retrying
+   * them for every eligible session only repeats the same fallback work and warning stack. A new
+   * application build/restart constructs a fresh Summarizer and is the reset boundary.
+   */
+  private providerCapabilityFailures = new Map<
+    AppSettings['summaryProvider'],
+    { message: string; ts: number }
+  >();
   /** event-bus 上 session-removed 监听的解绑函数，stop() 时调一下避免泄漏。 */
   private offSessionRemoved: (() => void) | null = null;
   /** event-bus 上 session-renamed 监听的解绑函数，stop() 时调一下避免泄漏（REVIEW_35 MED-B2）。 */
@@ -299,7 +309,7 @@ export class Summarizer {
     //    - settings.summaryProvider='deepseek' → Deepseek Claude Code adapter oneshot(Deepseek config)
     //      + 同一组 Claude-family effort
     //    - settings.summaryProvider='codex' → codex SDK oneshot(read-only sandbox + reasoning 档位
-    //      由 settings.summaryReasoning 决定,默认 'low')
+    //      由 settings.summaryReasoning 决定,默认 'medium')
     //
     //    **关键 design 决策**:adapter 不再按 session.agentId 选(原 R37 P2-I 路径),改成按
     //    settings.summaryProvider 选 — claude session 也可能走 codex SDK 总结,反之亦然。
@@ -308,51 +318,76 @@ export class Summarizer {
     //
     //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例,资源温和(10s / ~44MB),
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
-    try {
-      const provider = settingsStore.get('summaryProvider');
-      const providerAgentId = providerToAdapterId(provider);
-      const adapter = adapterRegistry.get(providerAgentId);
-      let llm: string | null = null;
-      if (adapter?.summariseEvents) {
-        llm = await adapter.summariseEvents(
-          session.cwd,
-          events,
-          evidence.promptContext,
-        );
-      }
-      if (llm) {
-        // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」
-        // 时 lastErrorBySession 仍保留 LLM 错误诊断（与 CLAUDE.md「LLM oneshot 失败要透传 stderr」
-        // 约束一致）。
-        this.lastErrorBySession.delete(sessionId);
-        return {
-          content: llm,
-          sourceEventRevision: evidence.sourceEventRevision,
-          sourceRebuildAfterRevision: evidence.rebuildAfterRevision,
-          generationSource: 'llm',
-        };
-      }
-    } catch (err) {
-      // REVIEW_35 MED-B1：LLM 失败时立即 set 错误诊断（不仅 console.warn）。caller .then 不再
-      // 删除（已修），所以「fallback 成功」不会洗掉本错误。下次 LLM 真成功时 delete（line 上方）。
-      //
-      // **REVIEW_56 R2 LOW-1 修法 (reviewer-codex)**: rename 期间(class-level rename handler 已
-      // fire 在 catch 之前迁了 OLD→NEW 已有 entry) inner catch 再 set OLD 创建第二个孤儿
-      // diagnostics(UI 设置面板永远显示 OLD_ID 错)。预检 sessionRepo.get(sessionId) 短路:
-      // OLD 不存在 → 不写 OLD lastErrorBySession 防孤儿(NEW 在 next scanAll 仍失败时会重 set,
-      // trade-off: 单次失败 NEW 端诊断丢失,可接受)。
-      if (!sessionRepo.get(sessionId)) {
-        logger.warn(
-          `[summarizer] LLM failed for ${sessionId} but session renamed/deleted, ` +
-            `skipping orphan diagnostics`,
-          err,
-        );
-      } else {
-        this.lastErrorBySession.set(sessionId, {
-          message: (err as Error)?.message ?? String(err),
-          ts: Date.now(),
-        });
-        logger.warn(`[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`, err);
+    const provider = settingsStore.get('summaryProvider');
+    const blockedProvider = this.providerCapabilityFailures.get(provider);
+    if (blockedProvider) {
+      // Keep the existing per-session diagnostic contract without repeating provider work/logs.
+      this.lastErrorBySession.set(sessionId, blockedProvider);
+    } else {
+      try {
+        const providerAgentId = providerToAdapterId(provider);
+        const adapter = adapterRegistry.get(providerAgentId);
+        let llm: string | null = null;
+        if (adapter?.summariseEvents) {
+          llm = await adapter.summariseEvents(
+            session.cwd,
+            events,
+            evidence.promptContext,
+          );
+        }
+        if (llm) {
+          // REVIEW_35 MED-B1：LLM 真成功才 delete 历史错误，确保「LLM 失败 + fallback 成功」
+          // 时 lastErrorBySession 仍保留 LLM 错误诊断（与 CLAUDE.md「LLM oneshot 失败要透传 stderr」
+          // 约束一致）。
+          this.lastErrorBySession.delete(sessionId);
+          return {
+            content: llm,
+            sourceEventRevision: evidence.sourceEventRevision,
+            sourceRebuildAfterRevision: evidence.rebuildAfterRevision,
+            generationSource: 'llm',
+          };
+        }
+      } catch (err) {
+        // REVIEW_35 MED-B1：LLM 失败时立即 set 错误诊断（不仅 console.warn）。caller .then 不再
+        // 删除（已修），所以「fallback 成功」不会洗掉本错误。下次 LLM 真成功时 delete（line 上方）。
+        //
+        // **REVIEW_56 R2 LOW-1 修法 (reviewer-codex)**: rename 期间(class-level rename handler 已
+        // fire 在 catch 之前迁了 OLD→NEW 已有 entry) inner catch 再 set OLD 创建第二个孤儿
+        // diagnostics(UI 设置面板永远显示 OLD_ID 错)。预检 sessionRepo.get(sessionId) 短路:
+        // OLD 不存在 → 不写 OLD lastErrorBySession 防孤儿(NEW 在 next scanAll 仍失败时会重 set,
+        // trade-off: 单次失败 NEW 端诊断丢失,可接受)。
+        if (isSummaryProviderCapabilityError(err)) {
+          const existing = this.providerCapabilityFailures.get(provider);
+          const diagnostic = existing ?? {
+            message: err.message,
+            ts: Date.now(),
+          };
+          if (!existing) {
+            this.providerCapabilityFailures.set(provider, diagnostic);
+            logger.warn(
+              `[summarizer] ${provider} provider capability unavailable; ` +
+                `using local fallback until application restart: ${err.message}`,
+            );
+          }
+          if (sessionRepo.get(sessionId)) {
+            this.lastErrorBySession.set(sessionId, diagnostic);
+          }
+        } else if (!sessionRepo.get(sessionId)) {
+          logger.warn(
+            `[summarizer] LLM failed for ${sessionId} but session renamed/deleted, ` +
+              `skipping orphan diagnostics`,
+            err,
+          );
+        } else {
+          this.lastErrorBySession.set(sessionId, {
+            message: (err as Error)?.message ?? String(err),
+            ts: Date.now(),
+          });
+          logger.warn(
+            `[summarizer] LLM failed for ${sessionId} (${session.agentId}), fallback to last-message`,
+            err,
+          );
+        }
       }
     }
 

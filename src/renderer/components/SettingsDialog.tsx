@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
+import { CloseIcon } from './icons';
 import { DEFAULT_SETTINGS, type AppSettings, type HookInstallStatus } from '@shared/types';
 import { SectionGroup } from './settings/controls';
 import { HookSection } from './settings/sections/HookSection';
@@ -27,7 +28,7 @@ interface Props {
  *   到 AssetsLibraryDialog 三 tab 顶部，实现「资产编辑 + 注入开关」单一真源
  * - 剩 10 个 section 按 4 主题分组（会话 / 提醒与外观 / 集成与运行环境 / 跨工具协作）加视觉分隔标题
  * - 默认展开项从 HookSection 改到 LifecycleSection（首装引导早已结束）
- * - 不再持有 onOpenAssetsLibrary prop（设置面板与资产库完全解耦，唯一访问点是 Header「📚 资产库」按钮）
+ * - 不再持有 onOpenAssetsLibrary prop（设置面板与资产库完全解耦，唯一访问点是 Header「资产库」按钮）
  *
  * 历史：CHANGELOG_57 D 把 9 个 section 拆到 settings/sections/ 子目录；CHANGELOG_58 把 CLAUDE.md
  * 编辑器迁到 AssetsLibraryDialog；本轮 CHANGELOG_69 完成「设置 / 资产」彻底解耦。
@@ -160,7 +161,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             aria-label="关闭设置"
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
 

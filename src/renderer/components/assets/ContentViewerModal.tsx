@@ -1,5 +1,6 @@
 import { type JSX } from 'react';
 import type { AssetMeta } from '@shared/types';
+import { CloseIcon, FolderOpenIcon } from '../icons';
 
 /**
  * 资产 / CLAUDE.md 内容只读 viewer modal（CHANGELOG_57 / CHANGELOG_69 抽出；
@@ -44,7 +45,7 @@ export function ContentViewerModal({
               title="在 Finder / 资源管理器中显示"
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
-              显示文件
+              <FolderOpenIcon className="mr-1 inline h-3 w-3" />显示文件
             </button>
             <button
               type="button"
@@ -52,7 +53,7 @@ export function ContentViewerModal({
               aria-label="关闭"
               className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
             >
-              ✕
+              <CloseIcon className="h-3.5 w-3.5" />
             </button>
           </div>
         </header>

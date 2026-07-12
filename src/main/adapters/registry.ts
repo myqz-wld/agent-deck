@@ -44,6 +44,12 @@ export interface AdapterInitResult {
   err?: unknown;
 }
 
+export interface AdapterShutdownResult {
+  id: string;
+  ok: boolean;
+  err?: unknown;
+}
+
 /**
  * **守门 (4)**: AdapterIdMap keys 必须与 CreateSessionOptionsByAdapter keys 严格一致
  * (与 options-builder.ts 守门 (3) 同款 trick)。漏 entry → 此 type 解析为 false → 赋值 true 报错。
@@ -111,14 +117,18 @@ export class AdapterRegistryClass {
     return results;
   }
 
-  async shutdownAll(): Promise<void> {
+  async shutdownAll(): Promise<AdapterShutdownResult[]> {
+    const results: AdapterShutdownResult[] = [];
     for (const adapter of this.map.values()) {
       try {
         await adapter.shutdown();
+        results.push({ id: adapter.id, ok: true });
       } catch (err) {
         logger.error(`[adapter] ${adapter.id} shutdown failed:`, err);
+        results.push({ id: adapter.id, ok: false, err });
       }
     }
+    return results;
   }
 }
 

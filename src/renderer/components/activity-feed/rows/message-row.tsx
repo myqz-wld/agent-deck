@@ -8,6 +8,7 @@ import { parseWirePrefix } from '@shared/wire-prefix';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { UploadedImageThumb } from '@renderer/components/UploadedImageThumb';
 import { ImageLightbox } from '@renderer/components/ImageLightbox';
+import { ChevronDownIcon, ChevronUpIcon, ReplyIcon } from '@renderer/components/icons';
 import { formatDisplayText } from '../format';
 import { DEFAULT_RENDER_MODE, getAgentShortName, type RenderMode } from '../shared';
 
@@ -172,7 +173,7 @@ export function MessageBubble({
               className="ml-0.5 inline-flex max-w-[16rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
               title={`来自 ${wirePrefix.from}（${getAgentShortName(wirePrefix.adapter)}）`}
             >
-              ↩ {wirePrefix.from}
+              <ReplyIcon className="mr-0.5 inline h-3 w-3" />{wirePrefix.from}
               {wirePrefix.senderSessionId && (
                 <span className="ml-0.5 font-mono text-cyan-300/70">
                   ·{wirePrefix.senderSessionId.slice(0, 8)}
@@ -213,6 +214,7 @@ export function MessageBubble({
               aria-expanded={expanded}
               className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/70 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
             >
+              {expanded ? <ChevronUpIcon className="mr-0.5 inline h-3 w-3" /> : <ChevronDownIcon className="mr-0.5 inline h-3 w-3" />}
               {expanded ? '收起' : `展开（${text.length} 字）`}
             </button>
           )}

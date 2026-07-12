@@ -4,6 +4,7 @@ import type { AgentDeckTeamMember } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectPendingBuckets } from '@renderer/lib/session-selectors';
 import { Section, EmptyState } from './Header';
+import { ShieldIcon } from '../icons';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：team 内 pending 聚合 section（与 PendingTab 同源）。
@@ -85,10 +86,30 @@ export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
                 </span>
               </span>
               <span className="ml-2 shrink-0 text-[9px] text-deck-muted">
-                {r.perms > 0 && <span className="mr-1.5">🛡 {r.perms}</span>}
-                {r.asks > 0 && <span className="mr-1.5">❓ {r.asks}</span>}
-                {r.exits > 0 && <span className="mr-1.5">📋 {r.exits}</span>}
-                {r.diffs > 0 && <span>🧩 {r.diffs}</span>}
+                {r.perms > 0 && (
+                  <span className="mr-1.5">
+                    <span className="sr-only">权限请求 </span>
+                    <ShieldIcon className="mr-0.5 inline h-3 w-3" />{r.perms}
+                  </span>
+                )}
+                {r.asks > 0 && (
+                  <span className="mr-1.5">
+                    <span className="sr-only">提问 </span>
+                    <span aria-hidden="true">❓ </span>{r.asks}
+                  </span>
+                )}
+                {r.exits > 0 && (
+                  <span className="mr-1.5">
+                    <span className="sr-only">计划确认 </span>
+                    <span aria-hidden="true">📋 </span>{r.exits}
+                  </span>
+                )}
+                {r.diffs > 0 && (
+                  <span>
+                    <span className="sr-only">差异确认 </span>
+                    <span aria-hidden="true">🧩 </span>{r.diffs}
+                  </span>
+                )}
               </span>
             </li>
           );

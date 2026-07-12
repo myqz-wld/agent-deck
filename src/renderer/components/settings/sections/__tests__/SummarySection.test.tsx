@@ -69,8 +69,14 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
     expect(
-      screen.getByText(/Codex 当前无法证明模型侧内建工具已完全隔离/),
+      screen.getByText(
+        /Codex 空模型使用 Codex 配置默认模型，默认思考程度为 medium。.*无法证明模型侧内建工具已完全隔离/,
+      ),
     ).toBeTruthy();
+    expect(
+      (screen.getByRole('textbox', { name: '周期性总结 model' }) as HTMLInputElement)
+        .placeholder,
+    ).toBe('留空使用 Codex 配置默认模型');
 
     let summaryButtons = rowButtons('周期性总结');
     expect(summaryButtons[1]?.title).toBe('Codex 思考程度');
@@ -95,7 +101,14 @@ describe('SummarySection provider-specific thinking levels', () => {
       expect(reasoningButton.title).toBe('Claude 思考程度');
       expect(reasoningButton.textContent).toContain('LOW');
       expect(reasoningButton.disabled).toBe(false);
+      expect(
+        (screen.getByRole('textbox', { name: '周期性总结 model' }) as HTMLInputElement)
+          .placeholder,
+      ).toBe('留空使用 Claude Haiku');
     });
+    expect(
+      screen.getByText('模型留空时使用 Claude Haiku，默认思考程度为 medium。'),
+    ).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'claude',
       summaryReasoning: 'low',

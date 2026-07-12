@@ -4,6 +4,7 @@ import type { DiffPayload, FileChangeRecord, FileFinalDiffResult } from '@shared
 import { DiffViewer } from '../diff/DiffViewer';
 import { ChangeTimeline } from './ChangeTimeline';
 import type { FileChangeGroup } from './helpers';
+import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from '../icons';
 
 type DiffMode = 'single' | 'final';
 type FileGroup = FileChangeGroup<FileChangeRecord>;
@@ -65,7 +66,7 @@ export function DiffTab({
         className="rounded bg-white/[0.03] px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
         title="切换到上一个文件"
       >
-        上一文件
+        <ChevronLeftIcon className="mr-1 inline h-3 w-3" />上一文件
       </button>
       <button
         type="button"
@@ -74,7 +75,7 @@ export function DiffTab({
         className="rounded bg-white/[0.03] px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
         title="切换到下一个文件"
       >
-        下一文件
+        下一文件<ChevronRightIcon className="ml-1 inline h-3 w-3" />
       </button>
       {showExpand && (
         <button
@@ -84,7 +85,7 @@ export function DiffTab({
           className="rounded bg-white/[0.03] px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
           title="放大改动视图"
         >
-          放大
+          <ExpandIcon className="mr-1 inline h-3 w-3" />放大
         </button>
       )}
     </div>
@@ -268,7 +269,7 @@ function ExpandedDiffOverlay({
               onClick={onClose}
               className="rounded bg-white/[0.06] px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.12]"
             >
-              关闭
+              <CloseIcon className="mr-1 inline h-3 w-3" />关闭
             </button>
           </div>
         </div>
