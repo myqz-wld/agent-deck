@@ -1,5 +1,9 @@
 import { useEffect } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
+import log from '@renderer/utils/logger';
+
+const logger = log.scope('renderer-event-bridge');
 
 /**
  * 桥接主进程事件 → Zustand store。整个应用只挂载一次。
@@ -14,11 +18,10 @@ export function useEventBridge(): void {
   const renameSession = useSessionStore((s) => s.renameSession);
 
   useEffect(() => {
+    let cancelled = false;
     // 启动顺序：先挂订阅再拉快照。
-    // REVIEW_2 修：原本先 await listSessions().then(setSessions(...)) 再注册 listener，
-    // await 期间收到的 session-upserted 会被 setSessions 全量覆盖抹掉。
-    // 现在先订阅，listSessions 返回后用 upsert 逐条 merge 而不是 setSessions 替换，
-    // 这样期间到达的 upsert 不会被覆盖；同 id 重复 upsert 是幂等的。
+    // 快照请求期间的任何增删改都会推进 sessionRevision；晚到响应会被丢弃并重拉，
+    // 因而既能安全全量替换/prune，也不会覆盖较新的实时记录。
     const offUp = window.api.onSessionUpserted((s) => {
       // 仅当是「之前没见过的会话」才懒拉一次 latest summary（让卡片即时显示「在干嘛」）。
       // 已存在的会话走 upsert 路径不再重拉 —— manager.ingest 现在仅在状态真变化时
@@ -28,7 +31,12 @@ export function useEventBridge(): void {
       const isNew = !useSessionStore.getState().sessions.has(s.id);
       upsert(s);
       if (isNew) {
-        void window.api.latestSummaries([s.id]).then(setLatestSummaries);
+        void window.api
+          .latestSummaries([s.id])
+          .then(setLatestSummaries)
+          .catch((err: unknown) => {
+            logger.warn('[event-bridge] latest summary read failed', { sessionId: s.id }, err);
+          });
       }
     });
     const offRm = window.api.onSessionRemoved((id) => remove(id));
@@ -36,21 +44,33 @@ export function useEventBridge(): void {
     const offEv = window.api.onAgentEvent((e) => pushEvent(e));
     const offSum = window.api.onSummaryAdded((s) => pushSummary(s));
 
-    // 初始快照：先全量 setSessions（能 prune 掉 store 里已经被服务端删掉的孤儿），
-    // 再拉 latest summary。setSessions 已实现「按 id 集合 prune by-session 缓存」+
-    // 「保留同 id 的内容覆盖」语义，对 listener 已 upsert 的新会话不会丢——
-    // 服务端这边 listSessions 永远包含已存在的所有会话，新会话也会在快照里。
+    // 初始快照稳定后再全量替换，清掉 HMR 留下的孤儿缓存；随后补最新摘要。
     void (async () => {
-      const list = await window.api.listSessions();
-      setSessions(list);
-      const ids = list.map((s) => s.id);
+      let ids: string[] = [];
+      const result = await loadStableSnapshot({
+        readVersion: () => useSessionStore.getState().sessionRevision,
+        load: () => window.api.listSessions(),
+        apply: (list) => {
+          setSessions(list);
+          ids = list.map((s) => s.id);
+        },
+        isCancelled: () => cancelled,
+      });
+      if (result === 'unstable') {
+        logger.warn('[event-bridge] session snapshot stayed unstable; kept live state');
+        return;
+      }
+      if (result !== 'applied' || cancelled) return;
       if (ids.length > 0) {
         const map = await window.api.latestSummaries(ids);
-        setLatestSummaries(map);
+        if (!cancelled) setLatestSummaries(map);
       }
-    })();
+    })().catch((err: unknown) => {
+      if (!cancelled) logger.warn('[event-bridge] initial session snapshot failed', err);
+    });
 
     return () => {
+      cancelled = true;
       offUp();
       offRm();
       offRen();

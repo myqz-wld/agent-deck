@@ -58,7 +58,7 @@ describe('NewSessionDialog directory picker', () => {
     });
 
     await waitFor(() => {
-      const cwdInput = screen.getByPlaceholderText('留空使用主目录 (~)') as HTMLInputElement;
+      const cwdInput = screen.getByPlaceholderText('留空则使用主目录（~）') as HTMLInputElement;
       expect(cwdInput.value).toBe('/tmp/agent-deck');
     });
     const readyButton = screen.getByText('选择…') as HTMLButtonElement;
@@ -77,10 +77,10 @@ describe('NewSessionDialog model options', () => {
     });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'XHIGH' }));
-    fireEvent.change(screen.getByPlaceholderText(/必填，启动会话需要第一条消息/), {
+    fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
       target: { value: '完成这个任务' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '创建会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(() => {
       expect(createAdapterSession).toHaveBeenCalledWith(

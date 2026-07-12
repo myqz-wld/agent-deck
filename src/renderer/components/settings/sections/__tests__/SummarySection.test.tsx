@@ -70,15 +70,15 @@ describe('SummarySection provider-specific thinking levels', () => {
     openSection();
     expect(
       screen.getByText(
-        /Codex 空模型使用 Codex 配置默认模型，默认思考程度为 medium。.*空临时目录.*仍不能证明模型侧内建工具列表为空/,
+        /留空时使用 Codex 默认模型，思考程度默认 medium。.*临时环境.*暂时无法验证模型内置工具是否为空/,
       ),
     ).toBeTruthy();
     expect(
-      (screen.getByRole('textbox', { name: '周期性总结 model' }) as HTMLInputElement)
+      (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
         .placeholder,
     ).toBe('留空使用 Codex 配置默认模型');
 
-    let summaryButtons = rowButtons('周期性总结');
+    let summaryButtons = rowButtons('总结模型');
     expect(summaryButtons[1]?.title).toBe('Codex 思考程度');
     fireEvent.click(summaryButtons[1]!);
     expect(visibleOptionLabels()).toEqual([
@@ -91,17 +91,17 @@ describe('SummarySection provider-specific thinking levels', () => {
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
 
-    summaryButtons = rowButtons('周期性总结');
+    summaryButtons = rowButtons('总结模型');
     fireEvent.click(summaryButtons[0]!);
     fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
 
     await waitFor(() => {
-      const reasoningButton = rowButtons('周期性总结')[1]!;
+      const reasoningButton = rowButtons('总结模型')[1]!;
       expect(reasoningButton.title).toBe('Claude 思考程度');
       expect(reasoningButton.textContent).toContain('LOW');
       expect(reasoningButton.disabled).toBe(false);
       expect(
-        (screen.getByRole('textbox', { name: '周期性总结 model' }) as HTMLInputElement)
+        (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
           .placeholder,
       ).toBe('留空使用 Claude Haiku');
     });
@@ -113,7 +113,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       summaryReasoning: 'low',
     });
 
-    fireEvent.click(rowButtons('周期性总结')[1]!);
+    fireEvent.click(rowButtons('总结模型')[1]!);
     expect(visibleOptionLabels()).toEqual(['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX']);
     fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
     expect(screen.queryByText('Hand-off 简报')).toBeNull();
@@ -133,11 +133,11 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    fireEvent.click(rowButtons('周期性总结')[0]!);
+    fireEvent.click(rowButtons('总结模型')[0]!);
     fireEvent.click(screen.getByRole('option', { name: 'Deepseek' }));
 
     await waitFor(() => {
-      expect(rowButtons('周期性总结')[1]?.textContent).toContain('XHIGH');
+      expect(rowButtons('总结模型')[1]?.textContent).toContain('XHIGH');
     });
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'deepseek',
@@ -159,7 +159,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    fireEvent.click(rowButtons('周期性总结')[0]!);
+    fireEvent.click(rowButtons('总结模型')[0]!);
     fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
 
     await waitFor(() => {
@@ -184,17 +184,17 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    fireEvent.click(rowButtons('周期性总结')[0]!);
+    fireEvent.click(rowButtons('总结模型')[0]!);
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
 
     await waitFor(() => {
-      expect(rowButtons('周期性总结')[1]?.textContent).toContain('MAX');
+      expect(rowButtons('总结模型')[1]?.textContent).toContain('MAX');
     });
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'codex',
       summaryReasoning: 'max',
     });
-    fireEvent.click(rowButtons('周期性总结')[1]!);
+    fireEvent.click(rowButtons('总结模型')[1]!);
     expect(visibleOptionLabels()).toContain('MAX');
   });
 
@@ -211,7 +211,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    const input = screen.getByRole('textbox', { name: '周期性总结 model' });
+    const input = screen.getByRole('textbox', { name: '总结模型 model' });
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '  gpt-5.6-sol  ' } });
     fireEvent.blur(input);

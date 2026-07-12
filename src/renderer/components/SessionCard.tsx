@@ -9,6 +9,7 @@ import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
 import { SessionPinButton } from './SessionPinButton';
 import { ArchiveIcon, CrownIcon, RefreshIcon, ShieldIcon, TrashIcon, UsersIcon } from './icons';
+import { errorMessage } from '@renderer/lib/error-message';
 
 interface Props {
   session: SessionRecord;
@@ -39,6 +40,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   const recent = useSessionStore((s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS);
   const latestSummary = useSessionStore((s) => s.latestSummaryBySession.get(session.id));
   const [menuOpen, setMenuOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault();
@@ -48,25 +50,40 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
   const close = (): void => setMenuOpen(false);
 
   const archive = async (): Promise<void> => {
-    await window.api.archiveSession(session.id);
-    close();
+    setActionError(null);
+    try {
+      await window.api.archiveSession(session.id);
+      close();
+    } catch (err) {
+      setActionError(`归档失败：${errorMessage(err)}`);
+    }
   };
   const reactivate = async (): Promise<void> => {
-    await window.api.reactivateSession(session.id);
-    close();
+    setActionError(null);
+    try {
+      await window.api.reactivateSession(session.id);
+      close();
+    } catch (err) {
+      setActionError(`重新激活失败：${errorMessage(err)}`);
+    }
   };
   const remove = async (): Promise<void> => {
-    const ok = await window.api.confirmDialog({
-      title: '删除会话',
-      message: `确定要删除会话「${session.title}」吗？`,
-      detail: '此操作不可恢复，会话的所有事件、文件改动和总结都会一并删除。',
-      okLabel: '删除',
-      cancelLabel: '取消',
-      destructive: true,
-    });
-    if (!ok) return;
-    await window.api.deleteSession(session.id);
-    close();
+    setActionError(null);
+    try {
+      const ok = await window.api.confirmDialog({
+        title: '删除会话',
+        message: `确定要删除会话「${session.title}」吗？`,
+        detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',
+        okLabel: '删除',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+      await window.api.deleteSession(session.id);
+      close();
+    } catch (err) {
+      setActionError(`删除失败：${errorMessage(err)}`);
+    }
   };
 
   // 「在干嘛」：当前活动详情（实时） + 最近一次总结（一句话）
@@ -172,6 +189,11 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
       <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryTitle}>
         {summaryLine}
       </div>
+      {actionError && (
+        <div className="mt-1 truncate text-[10px] text-status-waiting" title={actionError}>
+          {actionError}
+        </div>
+      )}
       {menuOpen && (
         <>
           <div

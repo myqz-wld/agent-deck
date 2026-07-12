@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { SessionRecord, SummaryRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { SessionCard } from '../SessionCard';
@@ -51,6 +51,7 @@ beforeEach(() => {
   useSessionStore.setState({
     summariesBySession: new Map(),
     latestSummaryBySession: new Map(),
+    summaryRevisionsBySession: new Map(),
     recentEventsBySession: new Map(),
   });
   Object.defineProperty(window, 'api', {
@@ -96,5 +97,29 @@ describe('SummaryView rich periodic summaries', () => {
     );
     const headline = screen.getByText('降级 · 优化周期总结');
     expect(headline.getAttribute('title')).toBe(llmSummary.content);
+  });
+
+  it('shows a local error instead of leaking a rejected snapshot to the global fatal handler', async () => {
+    window.api.listSummaries = vi.fn().mockRejectedValue(new Error('database busy'));
+    render(<SummaryView sessionId="summary-session" />);
+    expect(await screen.findByText('总结读取失败：database busy')).toBeTruthy();
+  });
+
+  it('retries a stale snapshot instead of overwriting a newly pushed summary', async () => {
+    let resolveFirst!: (rows: SummaryRecord[]) => void;
+    const fresh = { ...llmSummary, id: 3, ts: 300, content: '刚生成的总结' };
+    window.api.listSummaries = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<SummaryRecord[]>((resolve) => { resolveFirst = resolve; }),
+      )
+      .mockResolvedValueOnce([fresh, llmSummary, fallbackSummary]);
+
+    render(<SummaryView sessionId="summary-session" />);
+    act(() => useSessionStore.getState().pushSummary(fresh));
+    await act(async () => resolveFirst([llmSummary, fallbackSummary]));
+
+    expect(await screen.findByText('刚生成的总结')).toBeTruthy();
+    expect(window.api.listSummaries).toHaveBeenCalledTimes(2);
   });
 });

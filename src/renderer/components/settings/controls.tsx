@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { ChevronRightIcon, FolderOpenIcon, PlayIcon, RefreshIcon } from '../icons';
+import log from '@renderer/utils/logger';
+
+const logger = log.scope('renderer-settings-controls');
 
 /**
  * 通用控件 + 测试 / picker 组件，给 SettingsDialog 内 Section 复用。
@@ -188,8 +191,12 @@ export function SoundPicker({
 }): JSX.Element {
   const fileName = path ? path.split('/').pop() : null;
   const choose = async (): Promise<void> => {
-    const r = await window.api.chooseSoundFile(path ?? undefined);
-    if (r) onChange(r);
+    try {
+      const r = await window.api.chooseSoundFile(path ?? undefined);
+      if (r) onChange(r);
+    } catch (err) {
+      logger.warn('[settings] choosing sound file failed', err);
+    }
   };
   return (
     <div className="flex flex-col gap-1 text-[11px]">
@@ -198,7 +205,11 @@ export function SoundPicker({
         <div className="flex items-center gap-1 no-drag">
           <button
             type="button"
-            onClick={() => void window.api.playTestSound(kind)}
+            onClick={() => {
+              void window.api.playTestSound(kind).catch((err: unknown) => {
+                logger.warn('[settings] playing test sound failed', err);
+              });
+            }}
             title="试听当前提示音"
             className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
           >
@@ -247,8 +258,12 @@ export function ExecutablePicker({
   onChange: (path: string | null) => void;
 }): JSX.Element {
   const choose = async (): Promise<void> => {
-    const r = await window.api.chooseExecutableFile(path ?? undefined);
-    if (r) onChange(r);
+    try {
+      const r = await window.api.chooseExecutableFile(path ?? undefined);
+      if (r) onChange(r);
+    } catch (err) {
+      logger.warn('[settings] choosing executable failed', err);
+    }
   };
   return (
     <div className="flex flex-col gap-1 text-[11px]">

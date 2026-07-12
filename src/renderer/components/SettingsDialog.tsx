@@ -14,6 +14,7 @@ import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
 import { LogsSection } from './settings/sections/LogsSection';
+import { errorMessage } from '@renderer/lib/error-message';
 
 interface Props {
   open: boolean;
@@ -67,7 +68,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
       })
       .catch((err: unknown) => {
         if (seq !== openSeqRef.current) return;
-        setLoadError(`getSettings 失败：${(err as Error).message ?? String(err)}`);
+        setLoadError(`设置读取失败：${errorMessage(err)}`);
         // REVIEW_4 M8：getSettings 失败时降级用 DEFAULT_SETTINGS 兜底渲染表单，
         // 让用户至少能看到完整设置面板而非死锁在「读取设置中…」。
         // 写设置仍可用（main 持久化独立），只是初始值是 default。
@@ -84,7 +85,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
         setLoadError(
           (prev) =>
             (prev ? prev + '\n' : '') +
-            `Claude hookStatus 失败：${(err as Error).message ?? String(err)}`,
+            `Claude Hook 状态读取失败：${errorMessage(err)}`,
         );
       });
     void window.api
@@ -98,7 +99,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
         setLoadError(
           (prev) =>
             (prev ? prev + '\n' : '') +
-            `Codex hookStatus 失败：${(err as Error).message ?? String(err)}`,
+            `Codex Hook 状态读取失败：${errorMessage(err)}`,
         );
       });
   }, [open]);
@@ -183,7 +184,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
           <>
             <nav
               role="tablist"
-              aria-label="设置 tab 切换"
+              aria-label="切换设置分类"
               className="mb-3 flex gap-0.5 rounded-md border border-deck-border bg-white/[0.02] p-0.5"
             >
               {(
@@ -231,16 +232,16 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   <LogsSection settings={settings} update={update} />
                 </SectionGroup>
 
-                <SectionGroup title="跨工具协作(MCP)">
+                <SectionGroup title="跨工具协作（MCP）">
                   <AgentDeckMcpSection settings={settings} update={update} />
                 </SectionGroup>
               </>
             )}
 
             {activeTab === 'claude' && (
-              <SectionGroup title="Claude Code 专属配置">
+              <SectionGroup title="Claude Code 配置">
                 <HookSection
-                  title="Claude Code Hook（系统钩子）"
+                  title="Claude Code 终端 Hook"
                   storageKey="hook-claude"
                   installLabel="安装到 ~/.claude/settings.json"
                   hookStatus={claudeHookStatus}
@@ -253,15 +254,15 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   <code className="ml-1 rounded bg-white/5 px-1">~/.claude/settings.json</code>
                   或项目根目录的
                   <code className="ml-1 rounded bg-white/5 px-1">.mcp.json</code>
-                  里直接编辑,应用不代写以免和 CLI 改动冲突。Agent Deck 自带的 MCP 服务在「通用 → 跨工具协作」中配置。
+                  中直接编辑。为避免覆盖 CLI 的修改，Agent Deck 不会代写；内置 MCP 在「通用 → 跨工具协作」中设置。
                 </div>
               </SectionGroup>
             )}
 
             {activeTab === 'codex' && (
-              <SectionGroup title="Codex CLI 专属配置">
+              <SectionGroup title="Codex CLI 配置">
                 <HookSection
-                  title="Codex CLI Hook（系统钩子）"
+                  title="Codex CLI 终端 Hook"
                   storageKey="hook-codex"
                   installLabel="安装到 ~/.codex/hooks.json"
                   hookStatus={codexHookStatus}

@@ -183,7 +183,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     );
   }
   if (!issue || !editing || !baseline) {
-    return <div className="px-3 py-3 text-xs text-deck-muted">加载中...</div>;
+    return <div className="px-3 py-3 text-xs text-deck-muted">加载中…</div>;
   }
 
   const handleSave = async (): Promise<void> => {

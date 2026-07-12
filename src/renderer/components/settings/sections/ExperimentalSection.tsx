@@ -53,7 +53,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
   return (
     <Section title="实验功能" storageKey="experimental" defaultOpen={false}>
       <div className="flex flex-col gap-1 text-[11px]">
-        <div>Claude Code 沙盒(系统级隔离)</div>
+        <div>Claude Code 沙盒（系统隔离）</div>
         <DeckSelect
           value={settings.claudeCodeSandbox}
           onChange={(next) =>
@@ -68,26 +68,26 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
       <div className="text-[10px] leading-snug text-deck-muted/70">
         {sandboxNativeAvailable ? (
           <>
-            默认限制 Claude 访问敏感目录、降低误操作风险,并与 Codex 的默认沙盒档位对齐。
-            <br />· <strong>关闭</strong>:仅用应用内授权弹窗管控
-            <br />· <strong>工作目录可写</strong>:工作目录可写,网络默认禁止;
+            默认保护敏感目录并减少误操作，与 Codex 的默认档位一致。
+            <br />· <strong>关闭：</strong>仅由应用内授权弹窗管控
+            <br />· <strong>工作目录可写：</strong>可写工作目录，默认禁用网络；
             <code className="rounded bg-white/5 px-1">~/.ssh</code> /
             <code className="rounded bg-white/5 px-1">~/.aws</code> /
             <code className="rounded bg-white/5 px-1">~/.config</code> /
             <code className="rounded bg-white/5 px-1">~/.kube</code> /
             <code className="rounded bg-white/5 px-1">~/.gnupg</code> 等敏感目录禁读
-            <br />· <strong>严格只读</strong>:工作目录也只读,彻底防越权
+            <br />· <strong>严格只读：</strong>工作目录也只读
             <br />
             <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
           </>
         ) : (
           <>
-            Windows 当前不支持系统级沙盒,本设置仅在 macOS / Linux 生效。
+            Windows 暂不支持系统沙盒，此设置仅在 macOS 和 Linux 生效。
           </>
         )}
       </div>
       <div className="mt-3 flex flex-col gap-1 text-[11px]">
-        <div>Codex 沙盒(系统级隔离)</div>
+        <div>Codex 沙盒（系统隔离）</div>
         <DeckSelect
           value={settings.codexSandbox}
           onChange={(next) =>
@@ -100,10 +100,10 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
         />
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        Codex 的沙盒档位(Codex 原生三档,跨平台一致)。默认<strong>工作目录可写</strong>与 Claude 默认对齐。
-        <br />· <strong>工作目录可写</strong>:工作目录可写,网络默认禁,其他目录只读
-        <br />· <strong>完全只读</strong>:所有文件只读,包括工作目录
-        <br />· <strong>完全开放</strong>:无任何限制(读写任意文件 / 联网 / 运行任意命令)
+        Codex 原生提供三档沙盒，默认选择<strong>工作目录可写</strong>。
+        <br />· <strong>工作目录可写：</strong>可写工作目录，默认禁用网络，其他目录只读
+        <br />· <strong>完全只读：</strong>包括工作目录在内的所有文件都只读
+        <br />· <strong>完全开放：</strong>可读写任意文件、联网并运行任意命令
         <br />
         <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
       </div>

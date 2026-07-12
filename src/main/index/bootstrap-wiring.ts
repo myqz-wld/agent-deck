@@ -21,6 +21,7 @@ import { eventBus } from '../event-bus';
 import { sessionManager } from '../session/manager';
 import { notifyUser } from '../notify/visual';
 import { handleCliArgv } from '../cli';
+import { rememberSessionFocusRequest } from '../session-focus-request';
 import { IpcEvent } from '@shared/ipc-channels';
 import type { AppSettings } from '@shared/types/settings/app-settings';
 
@@ -74,7 +75,10 @@ export function initWiring(settings: AppSettings): void {
   eventBus.on('session-removed', (id) => safeSend(IpcEvent.SessionRemoved, id));
   eventBus.on('session-renamed', (p) => safeSend(IpcEvent.SessionRenamed, p));
   eventBus.on('summary-added', (s) => safeSend(IpcEvent.SummaryAdded, s));
-  eventBus.on('session-focus-request', (sid) => safeSend(IpcEvent.SessionFocusRequest, sid));
+  eventBus.on('session-focus-request', (sid) => {
+    rememberSessionFocusRequest(sid);
+    safeSend(IpcEvent.SessionFocusRequest, sid);
+  });
 
   // Task Manager (CHANGELOG_43):tasks 表写操作 → renderer
   eventBus.on('task-changed', (p) => safeSend(IpcEvent.TaskChanged, p));

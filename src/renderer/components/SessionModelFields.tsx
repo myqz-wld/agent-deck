@@ -73,7 +73,7 @@ export function SessionModelFields({
           maxLength={256}
           disabled={disabled}
           onChange={(event) => onModelChange(event.target.value)}
-          placeholder="留空使用 provider 默认模型"
+          placeholder="留空则使用 provider 默认模型"
           className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
         />
       </div>

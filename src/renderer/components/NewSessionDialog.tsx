@@ -20,6 +20,7 @@ import {
   type ClaudeSandboxChoice,
   type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
+import { errorMessage } from '@renderer/lib/error-message';
 
 interface AdapterInfo {
   id: string;
@@ -67,21 +68,31 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setError(null);
-    void window.api.listAdapters().then((rows) => {
-      const usable = rows.filter((a) => a.capabilities.canCreateSession);
-      setAdapters(usable);
-      if (usable.length > 0) {
-        setAgentId((current) => {
-          const next =
-            usable.find((a) => a.id === current)?.id
-            ?? usable.find((a) => a.id === getLastAdapter())?.id
-            ?? usable[0].id;
-          setLastAdapter(next);
-          return next;
-        });
-      }
-    });
+    void window.api
+      .listAdapters()
+      .then((rows) => {
+        if (cancelled) return;
+        const usable = rows.filter((a) => a.capabilities.canCreateSession);
+        setAdapters(usable);
+        if (usable.length > 0) {
+          setAgentId((current) => {
+            const next =
+              usable.find((a) => a.id === current)?.id
+              ?? usable.find((a) => a.id === getLastAdapter())?.id
+              ?? usable[0].id;
+            setLastAdapter(next);
+            return next;
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(`执行器读取失败：${errorMessage(err)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   // plan pending-tab-resume-and-new-session-default-20260602 §D2 BUG 2：两个弹窗共享 last-used。
@@ -129,7 +140,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const submit = async (): Promise<void> => {
     setError(null);
     if (!prompt.trim()) {
-      setError('请输入第一条消息（留空无法启动会话）');
+      setError('请输入第一条消息');
       return;
     }
     setBusy(true);
@@ -183,7 +194,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         </header>
 
         {adapters.length === 0 ? (
-          <div className="text-[11px] text-deck-muted">没有可用的适配器</div>
+          <div className={error ? 'text-[11px] text-status-waiting' : 'text-[11px] text-deck-muted'}>
+            {error ?? '没有可用的执行器'}
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             <Field label="执行器">
@@ -219,7 +232,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   type="text"
                   value={cwd}
                   onChange={(e) => setCwd(e.target.value)}
-                  placeholder="留空使用主目录 (~)"
+                  placeholder="留空则使用主目录（~）"
                   className="flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
                 />
                 <button
@@ -234,14 +247,14 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               </div>
             </Field>
 
-            <Field label="第一条消息 *">
+            <Field label="第一条消息（必填）">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onPaste={imgs.onPaste}
                 onDrop={imgs.onDrop}
                 onDragOver={imgs.onDragOver}
-                placeholder="必填，启动会话需要第一条消息（可粘贴或拖放图片）"
+                placeholder="输入任务或问题；也可粘贴、拖放图片"
                 rows={3}
                 className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
               />
@@ -277,7 +290,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="rounded border border-dashed border-deck-border px-2 py-1 text-[10px] text-deck-muted hover:bg-white/5"
-                title="上传图片（也可粘贴 / 拖放到首条消息）"
+                title="上传图片（也可粘贴或拖放到第一条消息）"
               >
                 <ImageIcon className="mr-1 inline h-3 w-3" />添加图片
               </button>
@@ -366,7 +379,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
               >
                 {!busy && <SendIcon className="mr-1 inline h-3 w-3" />}
-                {busy ? '创建中…' : '创建会话'}
+                {busy ? '创建中…' : '创建'}
               </button>
             </div>
           </div>

@@ -76,11 +76,16 @@ print_build_status() {
   dirty="$(json_bool dirty "$BUILD_INFO_PATH")"
   built_at="$(json_string builtAt "$BUILD_INFO_PATH")"
 
-  echo "Agent Deck ${version:-unknown}"
-  echo "  installed commit: ${commit:-unknown} (${short_commit:-unknown})"
-  echo "  installed branch: ${branch:-unknown}"
-  echo "  installed dirty: ${dirty:-unknown}"
-  echo "  built at: ${built_at:-unknown}"
+  case "$dirty" in
+    true) dirty="是" ;;
+    false) dirty="否" ;;
+  esac
+
+  echo "Agent Deck ${version:-未知}"
+  echo "  安装 commit：${commit:-未知} (${short_commit:-未知})"
+  echo "  安装分支：${branch:-未知}"
+  echo "  安装时有未提交改动：${dirty:-未知}"
+  echo "  构建时间：${built_at:-未知}"
 
   local repo
   if repo="$(find_source_repo 2>/dev/null)"; then
@@ -90,33 +95,33 @@ print_build_status() {
     origin_main="$(git -C "$repo" rev-parse --verify --quiet origin/main 2>/dev/null || true)"
     short_origin="$(git -C "$repo" rev-parse --short=12 --verify --quiet origin/main 2>/dev/null || true)"
     source_dirty="$(git -C "$repo" status --porcelain 2>/dev/null || true)"
-    echo "  source checkout: $repo"
-    echo "  source HEAD: ${head:-unknown} (${short_head:-unknown})"
+    echo "  源码目录：$repo"
+    echo "  源码 HEAD：${head:-未知} (${short_head:-未知})"
     if [[ -n "$source_dirty" ]]; then
-      echo "  source dirty: true"
+      echo "  源码有未提交改动：是"
     else
-      echo "  source dirty: false"
+      echo "  源码有未提交改动：否"
     fi
     if [[ -n "$origin_main" ]]; then
-      echo "  origin/main: $origin_main ($short_origin)"
+      echo "  origin/main：$origin_main ($short_origin)"
     fi
     if [[ -n "$head" && "$commit" == "$head" ]]; then
       if [[ -n "$source_dirty" ]]; then
-        echo "  status: installed build matches this checkout commit, but the source checkout has uncommitted changes"
+        echo "  状态：安装版本与当前 commit 一致，但源码有未提交改动"
       else
-        echo "  status: installed build matches this checkout commit"
+        echo "  状态：安装版本与当前 commit 一致"
       fi
       return 0
     fi
     if [[ -n "$origin_main" && "$commit" == "$origin_main" ]]; then
-      echo "  status: installed build matches origin/main but differs from this checkout"
+      echo "  状态：安装版本与 origin/main 一致，但不同于当前 checkout"
       return 1
     fi
-    echo "  status: installed build differs from this checkout"
+    echo "  状态：安装版本不同于当前 checkout"
     return 1
   fi
 
-  echo "  status: no agent-deck source checkout found under current directory"
+  echo "  状态：当前目录下未找到 agent-deck 源码 checkout"
   return 0
 }
 

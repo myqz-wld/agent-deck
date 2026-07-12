@@ -22,6 +22,7 @@ export const IpcInvoke = {
   SessionList: 'session:list',
   SessionListHistory: 'session:list-history',
   SessionGet: 'session:get',
+  SessionTakePendingFocus: 'session:take-pending-focus',
   SessionArchive: 'session:archive',
   SessionUnarchive: 'session:unarchive',
   SessionDelete: 'session:delete',

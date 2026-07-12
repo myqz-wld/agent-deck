@@ -3,6 +3,7 @@ import type { SessionRecord } from '@shared/types';
 import { StatusBadge } from './StatusBadge';
 import { lifecycleLabel, agentIdLabel } from './TeamDetail/helpers';
 import { ArchiveIcon, RefreshIcon, TrashIcon } from './icons';
+import { errorMessage } from '@renderer/lib/error-message';
 
 interface Filters {
   agentId?: string;
@@ -30,6 +31,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   const [keywordInput, setKeywordInput] = useState('');
   const [rows, setRows] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   /** reload 序列号：每次发起递增；then 回调先比较序列号，过期请求直接丢弃。
    * REVIEW_2 修：旧筛选慢请求返回会覆盖新筛选结果（搜索 / 切「仅归档」时列表回跳到过期数据）。 */
   const reqIdRef = useRef(0);
@@ -53,12 +55,17 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   const reload = async (): Promise<void> => {
     const cur = ++reqIdRef.current;
     setLoading(true);
+    setError(null);
     try {
       // 走 preload 强类型 facade 而不是 ipcInvokeRaw —— 避免 channel 名 typo 静默 fail
       // 用 filtersRef.current 而非 filters：让 listener 路径（空 deps 注册一次）也能拿最新 filters
       const r = await window.api.listSessionHistory(filtersRef.current);
       if (cur !== reqIdRef.current) return; // 过期请求，丢弃结果
       setRows(r);
+    } catch (err) {
+      if (cur === reqIdRef.current) {
+        setError(`历史会话读取失败：${errorMessage(err)}`);
+      }
     } finally {
       if (cur === reqIdRef.current) setLoading(false);
     }
@@ -104,25 +111,40 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
   }, []);
 
   const archive = async (id: string): Promise<void> => {
-    await window.api.archiveSession(id);
-    await reload();
+    setError(null);
+    try {
+      await window.api.archiveSession(id);
+      await reload();
+    } catch (err) {
+      setError(`归档失败：${errorMessage(err)}`);
+    }
   };
   const unarchive = async (id: string): Promise<void> => {
-    await window.api.unarchiveSession(id);
-    await reload();
+    setError(null);
+    try {
+      await window.api.unarchiveSession(id);
+      await reload();
+    } catch (err) {
+      setError(`取消归档失败：${errorMessage(err)}`);
+    }
   };
   const remove = async (id: string): Promise<void> => {
-    const ok = await window.api.confirmDialog({
-      title: '删除会话',
-      message: '确定要删除该会话吗？',
-      detail: '此操作不可恢复，会话的所有事件、文件改动和总结都会一并删除。',
-      okLabel: '删除',
-      cancelLabel: '取消',
-      destructive: true,
-    });
-    if (!ok) return;
-    await window.api.deleteSession(id);
-    await reload();
+    setError(null);
+    try {
+      const ok = await window.api.confirmDialog({
+        title: '删除会话',
+        message: '确定要删除该会话吗？',
+        detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',
+        okLabel: '删除',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+      await window.api.deleteSession(id);
+      await reload();
+    } catch (err) {
+      setError(`删除失败：${errorMessage(err)}`);
+    }
   };
 
   return (
@@ -131,7 +153,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
         <div className="flex gap-1.5">
           <input
             type="text"
-            placeholder="搜索会话(目录 / 标题 / 事件 / 总结)…"
+            placeholder="搜索目录、标题、事件或总结…"
             title="长工具输出仅搜索开头和结尾各 2,048 个字符"
             className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
             value={keywordInput}
@@ -154,12 +176,17 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
         <p className="text-[9px] text-deck-muted/60">
           长工具输出仅搜索开头和结尾各 2,048 个字符。
         </p>
+        {error && (
+          <div className="rounded bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
+            {error}
+          </div>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
         {loading ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
         ) : rows.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">无匹配的历史会话</div>
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">没有匹配结果</div>
         ) : (
           <ol className="flex flex-col gap-1.5">
             {rows.map((s) => (

@@ -8,6 +8,7 @@ import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
 import { CodexAgentsMdEditor } from './settings/CodexAgentsMdEditor';
 import { CloseIcon, LibraryIcon, PlusIcon } from './icons';
+import { errorMessage } from '@renderer/lib/error-message';
 
 /**
  * 资产库 Dialog（CHANGELOG_57 / CHANGELOG_69 / CHANGELOG_137 / plan
@@ -89,7 +90,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       if (s.status === 'fulfilled') {
         setSettings({ ...DEFAULT_SETTINGS, ...((s.value as Partial<AppSettings>) ?? {}) });
       } else {
-        errs.push(`settings 读取失败：${(s.reason as Error).message}`);
+        errs.push(`设置读取失败：${errorMessage(s.reason)}`);
         setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
       }
       setLoadError(errs.length > 0 ? errs.join('\n') : null);
@@ -98,10 +99,16 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
 
   const refreshUser = (): void => {
     const seq = ++fetchSeqRef.current;
-    void window.api.listUserAssets().then((u) => {
-      if (seq !== fetchSeqRef.current) return;
-      setUser(u);
-    });
+    void window.api
+      .listUserAssets()
+      .then((u) => {
+        if (seq !== fetchSeqRef.current) return;
+        setUser(u);
+      })
+      .catch((err: unknown) => {
+        if (seq !== fetchSeqRef.current) return;
+        setLoadError(`用户资产刷新失败：${errorMessage(err)}`);
+      });
   };
 
   const updateSettings = async (patch: Partial<AppSettings>): Promise<void> => {
@@ -265,7 +272,16 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
         <ContentViewerModal
           state={viewer}
           onReveal={() => {
-            void window.api.revealAssetInFolder(viewer.asset.kind, viewer.asset.name, viewer.asset.source, viewer.asset.adapter);
+            void window.api
+              .revealAssetInFolder(
+                viewer.asset.kind,
+                viewer.asset.name,
+                viewer.asset.source,
+                viewer.asset.adapter,
+              )
+              .catch((err: unknown) => {
+                setUpdateError(`无法在文件夹中显示：${errorMessage(err)}`);
+              });
           }}
           onClose={closeViewer}
         />

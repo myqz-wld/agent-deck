@@ -196,7 +196,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-[640px] flex-col rounded-lg bg-deck-bg shadow-xl">
         <div className="flex items-center justify-between border-b border-deck-border px-4 py-2">
-          <h2 className="text-sm font-medium text-deck-text">起新会话解决问题</h2>
+          <h2 className="text-sm font-medium text-deck-text">新建会话解决问题</h2>
           <button type="button" onClick={onClose} aria-label="关闭" className="text-deck-muted hover:text-deck-text">
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
@@ -209,8 +209,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           )}
           {issue.resolutionSessionId && (
             <div className="rounded bg-status-waiting/15 px-2 py-1 text-[11px] text-status-waiting">
-              ⚠️ 该问题已有解决会话（{issue.resolutionSessionId.slice(0, 8)}）。重新起新会话会替换
-              resolutionSessionId，旧解决会话将失去自助改状态（update_issue_status）的授权。
+              该问题已有解决会话（{issue.resolutionSessionId.slice(0, 8)}）。继续后将改为关联新会话，
+              旧会话不能再更新此问题的状态。
             </div>
           )}
           <DialogField label="执行器">
@@ -239,7 +239,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               setLastDefaults(adapter, { thinking: next });
             }}
           />
-          <DialogField label="工作目录（留空则用问题来源目录，仍为空则用主目录）">
+          <DialogField label="工作目录（留空则沿用来源目录或主目录）">
             <input
               type="text"
               value={cwd}
@@ -250,7 +250,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
           </DialogField>
-          <DialogField label="第一条消息（已根据问题内容预填，可编辑）">
+          <DialogField label="第一条消息（已预填，可编辑）">
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -262,7 +262,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           </DialogField>
           <div className="-mt-2 text-[10px] text-deck-muted">{prompt.length} / 102400</div>
           {showPermissionMode && (
-            <DialogField label="权限模式（跟随上次选；切 adapter 会重读）">
+            <DialogField label="权限模式（沿用上次选择）">
               <DeckSelect
                 value={permissionMode}
                 onChange={(v) => {
@@ -276,7 +276,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             </DialogField>
           )}
           {showCodexSandbox && (
-            <DialogField label="沙盒（跟随上次选）">
+            <DialogField label="沙盒（沿用上次选择）">
               <DeckSelect
                 value={codexSandbox}
                 onChange={(v) => {
@@ -290,7 +290,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             </DialogField>
           )}
           {showClaudeCodeSandbox && (
-            <DialogField label="系统沙盒（跟随上次选）">
+            <DialogField label="系统沙盒（沿用上次选择）">
               <DeckSelect
                 value={claudeCodeSandbox}
                 onChange={(v) => {
@@ -320,7 +320,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             disabled={busy || !adaptersReady}
             className="rounded bg-status-working/30 px-3 py-1 text-xs text-status-working hover:bg-status-working/50 disabled:opacity-50"
           >
-            {!busy && <HandOffIcon className="mr-1 inline h-3 w-3" />}{busy ? '正在起新会话…' : '起新会话'}
+            {!busy && <HandOffIcon className="mr-1 inline h-3 w-3" />}{busy ? '创建中…' : '新建会话'}
           </button>
         </div>
       </div>
