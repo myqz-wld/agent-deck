@@ -62,7 +62,7 @@ describe('SummarySection provider-specific thinking levels', () => {
         initial={{
           ...DEFAULT_SETTINGS,
           summaryProvider: 'codex',
-          summaryReasoning: 'minimal',
+          summaryReasoning: 'low',
         }}
         onPatch={onPatch}
       />,
@@ -70,7 +70,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     openSection();
     expect(
       screen.getByText(
-        /Codex 空模型使用 Codex 配置默认模型，默认思考程度为 medium。.*无法证明模型侧内建工具已完全隔离/,
+        /Codex 空模型使用 Codex 配置默认模型，默认思考程度为 medium。.*空临时目录.*仍不能证明模型侧内建工具列表为空/,
       ),
     ).toBeTruthy();
     expect(
@@ -82,7 +82,6 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect(summaryButtons[1]?.title).toBe('Codex 思考程度');
     fireEvent.click(summaryButtons[1]!);
     expect(visibleOptionLabels()).toEqual([
-      'MINIMAL',
       'LOW',
       'MEDIUM',
       'HIGH',
@@ -90,7 +89,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       'MAX',
       'ULTRA',
     ]);
-    fireEvent.click(screen.getByRole('option', { name: 'MINIMAL' }));
+    fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
 
     summaryButtons = rowButtons('周期性总结');
     fireEvent.click(summaryButtons[0]!);
@@ -143,6 +142,31 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'deepseek',
       summaryReasoning: 'xhigh',
+    });
+  });
+
+  it('coerces a legacy Codex minimal value to low when switching provider', async () => {
+    const onPatch = vi.fn();
+    render(
+      <SettingsHarness
+        initial={{
+          ...DEFAULT_SETTINGS,
+          summaryProvider: 'codex',
+          summaryReasoning: 'minimal',
+        }}
+        onPatch={onPatch}
+      />,
+    );
+    openSection();
+
+    fireEvent.click(rowButtons('周期性总结')[0]!);
+    fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
+
+    await waitFor(() => {
+      expect(onPatch).toHaveBeenCalledWith({
+        summaryProvider: 'claude',
+        summaryReasoning: 'low',
+      });
     });
   });
 

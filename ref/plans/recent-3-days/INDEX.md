@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-12 | `PLAN_7_storage-maintenance-worker-provider-compaction.md` | completed | Isolate live storage maintenance and restore compact generation | CHANGELOG_362 / REVIEW_153 |
 | 2026-07-11 | `PLAN_6_storage-performance-observability-svg-icons.md` | completed | Stage storage maintenance and unify renderer SVG icons | CHANGELOG_361 / REVIEW_152 |
 | 2026-07-11 | `PLAN_5_unified-continuation-context.md` | completed | Unify provider-neutral continuation context | CHANGELOG_358 / REVIEW_148 |
 | 2026-07-11 | `PLAN_4_session-pinning-reviewer-model.md` | completed | Add persistent Live pins and Codex reviewer default | CHANGELOG_359 / REVIEW_149 |

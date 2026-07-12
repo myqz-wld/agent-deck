@@ -63,7 +63,6 @@ function warningLabel(code: string): string {
     'target-capacity-fallback': '目标模型容量尚未观测，已采用保守容量。',
     'instruction-only': '没有可验证的历史，仅发送下一步指令。',
     'spool-resource-guard': '不可变历史快照达到资源上限，覆盖范围已明确标记。',
-    'codex-generator-tools-unproven': 'Codex 压缩运行时隔离尚未证明安全，已关闭检查点生成。',
   };
   return labels[code] ?? `会话续接上下文已降级（${code}）。`;
 }

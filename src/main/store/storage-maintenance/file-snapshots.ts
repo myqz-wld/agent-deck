@@ -37,6 +37,22 @@ interface LegacyRow {
   after_snapshot: string | null;
 }
 
+interface CurrentLegacyRow extends LegacyRow {
+  before_snapshot_hash: unknown;
+  after_snapshot_hash: unknown;
+}
+
+interface EncodedLegacyRow {
+  row: LegacyRow;
+  before: EncodedFileSnapshot | null;
+  after: EncodedFileSnapshot | null;
+}
+
+/** Deterministic interleaving seam for real two-connection tests. */
+export interface SnapshotMaintenanceTestHooks {
+  beforeBackfillWrite?: () => void;
+}
+
 interface VerifyRow extends LegacyRow {
   before_snapshot_hash: Buffer | null;
   before_codec: unknown;
@@ -52,10 +68,11 @@ interface VerifyRow extends LegacyRow {
 
 export function runSnapshotMaintenanceSlice(
   db: Database,
+  testHooks: SnapshotMaintenanceTestHooks = {},
 ): SnapshotMaintenanceSliceResult | null {
   const state = readMaintenanceState(db, TASK);
   if (!state) return null;
-  if (state.phase === 'backfill') return backfill(db, state);
+  if (state.phase === 'backfill') return backfill(db, state, testHooks);
   if (state.phase === 'verify' || state.phase === 'restart-verify') {
     return verify(db, state);
   }
@@ -71,6 +88,10 @@ export function runSnapshotMaintenanceSlice(
 
 /** Called only when awaiting-restart was already durable before this app run. */
 export function beginSnapshotRestartVerification(db: Database): void {
+  const state = readMaintenanceState(db, TASK);
+  // Worker replacement reuses the app-run eligibility snapshot. Once this run already advanced
+  // past awaiting-restart, replaying that eligibility must not rewind durable verification/clear.
+  if (state?.phase !== 'awaiting-restart') return;
   updateMaintenanceState(db, TASK, {
     phase: 'restart-verify',
     cursor: 0,
@@ -113,12 +134,17 @@ export function runSnapshotGcSlice(
   );
   const deleteBlob = db.prepare('DELETE FROM file_snapshot_blobs WHERE digest = ?');
   const dequeue = db.prepare('DELETE FROM file_snapshot_gc_queue WHERE digest = ?');
-  db.transaction(() => {
+  const cleanup = db.transaction(() => {
     for (const digest of digests) {
       if (!referenced.get(digest, digest)) deleteBlob.run(digest);
       dequeue.run(digest);
     }
-  })();
+  });
+  // A deferred read-then-write transaction can observe "unreferenced", lose a writer race, and
+  // fail its upgrade with SQLITE_BUSY_SNAPSHOT. Acquire the WAL writer slot before probing so a
+  // concurrent hash-only ingress either commits first and is visible here, or waits until cleanup
+  // finishes and recreates its blob atomically with the new reference.
+  cleanup.immediate();
   return {
     task: 'file-snapshot-gc',
     phase: 'cleanup',
@@ -128,7 +154,11 @@ export function runSnapshotGcSlice(
   };
 }
 
-function backfill(db: Database, state: StorageMaintenanceState): SnapshotMaintenanceSliceResult {
+function backfill(
+  db: Database,
+  state: StorageMaintenanceState,
+  testHooks: SnapshotMaintenanceTestHooks,
+): SnapshotMaintenanceSliceResult {
   const started = performance.now();
   const selectedRows = db.prepare(
     `SELECT id, before_snapshot, after_snapshot FROM file_changes
@@ -145,28 +175,77 @@ function backfill(db: Database, state: StorageMaintenanceState): SnapshotMainten
     return result('verify', 0, performance.now() - started, false);
   }
 
-  const encodedRows = rows.map((row) => ({
+  // SHA-256 and DEFLATE intentionally finish before acquiring the cross-connection writer lock.
+  const encodedRows: EncodedLegacyRow[] = rows.map((row) => ({
     row,
     before: encodePersistedFileSnapshot(row.before_snapshot),
     after: encodePersistedFileSnapshot(row.after_snapshot),
   }));
   const unique = uniqueSnapshots(encodedRows.flatMap(({ before, after }) => [before, after]));
+  // Existing-blob collision/integrity checks inflate and hash data. Keep those checks outside the
+  // short write transaction too; an unexpected digest inserted after this preflight causes a safe
+  // rollback/retry instead of moving expensive validation under the writer lock.
+  const prevalidatedDigests = prevalidateSnapshotBlobs(db, unique);
+  testHooks.beforeBackfillWrite?.();
+
+  const readCurrent = db.prepare(
+    `SELECT id, before_snapshot, after_snapshot,
+            before_snapshot_hash, after_snapshot_hash
+       FROM file_changes WHERE id = ?`,
+  );
   const update = db.prepare(
     `UPDATE file_changes
         SET before_snapshot_hash = COALESCE(before_snapshot_hash, ?),
             after_snapshot_hash = COALESCE(after_snapshot_hash, ?)
-      WHERE id = ?`,
+      WHERE id = ?
+        AND before_snapshot IS ?
+        AND after_snapshot IS ?`,
   );
-  db.transaction(() => {
-    for (const snapshot of unique) insertSnapshotBlob(db, snapshot);
+
+  const write = db.transaction(() => {
+    const liveRows: EncodedLegacyRow[] = [];
     for (const encoded of encodedRows) {
-      update.run(encoded.before?.digest ?? null, encoded.after?.digest ?? null, encoded.row.id);
+      const current = readCurrent.get(encoded.row.id) as CurrentLegacyRow | undefined;
+      // A concurrent session cascade already removed both the source row and any possible
+      // reference. Treat it as processed, but never create a blob for it.
+      if (!current) continue;
+      if (
+        current.before_snapshot !== encoded.row.before_snapshot ||
+        current.after_snapshot !== encoded.row.after_snapshot
+      ) {
+        throw new Error(`snapshot source changed during backfill (id=${encoded.row.id})`);
+      }
+      assertCurrentHashMatches(encoded.row.id, 'before', current.before_snapshot_hash, encoded.before);
+      assertCurrentHashMatches(encoded.row.id, 'after', current.after_snapshot_hash, encoded.after);
+      liveRows.push(encoded);
+    }
+
+    const liveSnapshots = uniqueSnapshots(
+      liveRows.flatMap(({ before, after }) => [before, after]),
+    );
+    for (const snapshot of liveSnapshots) {
+      insertPrevalidatedSnapshotBlob(db, snapshot, prevalidatedDigests);
+    }
+    for (const encoded of liveRows) {
+      const info = update.run(
+        encoded.before?.digest ?? null,
+        encoded.after?.digest ?? null,
+        encoded.row.id,
+        encoded.row.before_snapshot,
+        encoded.row.after_snapshot,
+      );
+      if (info.changes !== 1) {
+        throw new Error(`snapshot source changed during guarded update (id=${encoded.row.id})`);
+      }
     }
     updateMaintenanceState(db, TASK, {
       cursor: rows[rows.length - 1].id,
       lastError: null,
     });
-  })();
+  });
+  // Revalidation must happen after obtaining the writer slot. This keeps the source values stable
+  // through blob insertion, hash assignment, and cursor commit while leaving all codec CPU outside.
+  write.immediate();
   const durationMs = performance.now() - started;
   const batchSize = adaptBatchSize(state.batchSize, durationMs, { min: 1, max: 8 });
   if (batchSize !== state.batchSize) updateMaintenanceState(db, TASK, { batchSize });
@@ -276,7 +355,29 @@ export function prepareSnapshotGcIndexesOnShutdown(
   return { prepared: true, durationMs: performance.now() - started };
 }
 
-function insertSnapshotBlob(db: Database, snapshot: EncodedFileSnapshot): void {
+function prevalidateSnapshotBlobs(
+  db: Database,
+  snapshots: EncodedFileSnapshot[],
+): Set<string> {
+  const select = db.prepare(
+    `SELECT codec, raw_bytes AS rawBytes, compressed_bytes AS compressedBytes, data
+       FROM file_snapshot_blobs WHERE digest = ?`,
+  );
+  const prevalidated = new Set<string>();
+  for (const snapshot of snapshots) {
+    const stored = select.get(snapshot.digest) as StoredFileSnapshotBlob | undefined;
+    if (!stored) continue;
+    assertStoredSnapshotMatches(snapshot, stored);
+    prevalidated.add(snapshot.digestHex);
+  }
+  return prevalidated;
+}
+
+function insertPrevalidatedSnapshotBlob(
+  db: Database,
+  snapshot: EncodedFileSnapshot,
+  prevalidatedDigests: Set<string>,
+): void {
   const info = db.prepare(
     `INSERT OR IGNORE INTO file_snapshot_blobs
       (digest, codec, raw_bytes, compressed_bytes, data) VALUES (?, ?, ?, ?, ?)`,
@@ -288,11 +389,22 @@ function insertSnapshotBlob(db: Database, snapshot: EncodedFileSnapshot): void {
     snapshot.data,
   );
   if (info.changes > 0) return;
-  const stored = db.prepare(
-    `SELECT codec, raw_bytes AS rawBytes, compressed_bytes AS compressedBytes, data
-       FROM file_snapshot_blobs WHERE digest = ?`,
-  ).get(snapshot.digest) as StoredFileSnapshotBlob | undefined;
-  assertStoredSnapshotMatches(snapshot, stored);
+  if (prevalidatedDigests.has(snapshot.digestHex)) return;
+  // Another connection inserted this digest after the CPU-heavy preflight. Roll back the whole
+  // data+cursor transaction; the next slice will validate that row outside the writer lock.
+  throw new Error(`snapshot digest appeared after preflight (${snapshot.digestHex})`);
+}
+
+function assertCurrentHashMatches(
+  id: number,
+  side: 'before' | 'after',
+  current: unknown,
+  encoded: EncodedFileSnapshot | null,
+): void {
+  if (current == null) return;
+  if (!encoded || !Buffer.isBuffer(current) || !current.equals(encoded.digest)) {
+    throw new Error(`snapshot hash changed during backfill (id=${id}, side=${side})`);
+  }
 }
 
 function verifyRow(row: VerifyRow): void {

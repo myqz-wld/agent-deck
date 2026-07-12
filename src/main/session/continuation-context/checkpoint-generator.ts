@@ -12,8 +12,7 @@ export type CheckpointGeneratorErrorCode =
   | 'output-too-large'
   | 'schema-unsupported'
   | 'provider-error'
-  | 'tool-use-observed'
-  | 'codex-generator-tools-unproven';
+  | 'tool-use-observed';
 
 export class CheckpointGeneratorError extends Error {
   constructor(
@@ -46,7 +45,7 @@ export interface CheckpointGeneratorResult {
 }
 
 export interface ContinuationCheckpointGenerator {
-  readonly isolation: 'proven-no-tools' | 'fail-closed';
+  readonly isolation: 'proven-no-tools' | 'hardened-unattested' | 'fail-closed';
   generate(request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult>;
 }
 

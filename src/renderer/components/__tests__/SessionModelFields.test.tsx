@@ -12,7 +12,6 @@ describe('SessionModelFields', () => {
   it('按 adapter 展示合法思考档位，并始终保留 provider 默认选项', () => {
     expect(thinkingOptionsForAdapter('codex-cli').map((option) => option.value)).toEqual([
       '',
-      'minimal',
       'low',
       'medium',
       'high',

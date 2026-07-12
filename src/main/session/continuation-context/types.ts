@@ -65,8 +65,7 @@ export interface ContinuationWarning {
     | 'checkpoint-omitted'
     | 'target-capacity-fallback'
     | 'instruction-only'
-    | 'spool-resource-guard'
-    | 'codex-generator-tools-unproven';
+    | 'spool-resource-guard';
   message: string;
 }
 

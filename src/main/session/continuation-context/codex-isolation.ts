@@ -1,5 +1,6 @@
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { CodexThreadOptions } from '@main/adapters/codex-cli/sdk-bridge/thread-options-builder';
+import { isCodexThinkingLevel } from '@shared/session-metadata';
 import type { ResolvedContinuationGenerator } from './types';
 import { CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from './checkpoint-prompts';
 
@@ -46,7 +47,9 @@ export function buildCodexCompactorThreadOptions(input: {
     approvalPolicy: 'never',
     skipGitRepoCheck: true,
     ...(input.generator.model ? { model: input.generator.model } : {}),
-    modelReasoningEffort: input.generator.thinking,
+    modelReasoningEffort: isCodexThinkingLevel(input.generator.thinking)
+      ? input.generator.thinking
+      : 'low',
     modelReasoningSummary: 'none',
     baseInstructions: CONTINUATION_CHECKPOINT_SYSTEM_PROMPT,
     developerInstructions:
@@ -69,13 +72,14 @@ export interface CodexCompactorIsolationAttestation {
 }
 
 /**
- * Codex 0.144 accepts the hardening fields above but exposes no API that attests the final
- * model-visible built-in tool registry. The checkpoint generator therefore must not start a turn.
+ * Codex 0.144.1 accepts the hardening fields above but exposes no API that attests the final
+ * model-visible built-in tool registry. This reports the residual risk; after explicit user
+ * approval, checkpoint and periodic-summary runtimes may run only with every hardening field above.
  */
 export function codexCompactorIsolationAttestation(): CodexCompactorIsolationAttestation {
   return {
     proven: false,
     reason:
-      'Codex 0.144 has no model-visible tool-registry attestation API; config controls alone are insufficient proof',
+      'Codex 0.144.1 has no model-visible tool-registry attestation API; config controls alone are insufficient proof',
   };
 }

@@ -245,6 +245,28 @@ describe.skipIf(!bindingAvailable)('staged storage maintenance', () => {
     }
   });
 
+  it('does not rewind snapshot restart verification when a worker is replaced in the same run', () => {
+    const db = legacyDb();
+    try {
+      updateMaintenanceState(db, 'file-snapshot-blobs-v1', {
+        phase: 'restart-verify',
+        cursor: 1,
+        batchSize: 12,
+      });
+
+      // Replacement workers receive the app-start eligibility snapshot again. Replaying it after
+      // durable progress must be a no-op rather than resetting the cursor to zero.
+      beginSnapshotRestartVerification(db);
+      expect(readMaintenanceState(db, 'file-snapshot-blobs-v1')).toMatchObject({
+        phase: 'restart-verify',
+        cursor: 1,
+        batchSize: 12,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it('adapts future batches around the maintenance slice target', () => {
     expect(adaptBatchSize(20, 30, { min: 5, max: 100, targetMs: 18 })).toBe(10);
     expect(adaptBatchSize(20, 5, { min: 5, max: 100, targetMs: 18 })).toBe(40);

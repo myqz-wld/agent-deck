@@ -103,7 +103,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking/reasoning override for the successor only. Codex accepts minimal, low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. When omitted, a same-adapter hand-off inherits the caller value and a cross-adapter hand-off uses the target provider default. Adapter-invalid values are rejected before creation; retry with an exact value from the returned hint or omit thinking.',
+      'Optional thinking/reasoning override for the successor only. Codex accepts low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. When omitted, a same-adapter hand-off inherits the caller value and a cross-adapter hand-off uses the target provider default. Adapter-invalid values are rejected before creation; retry with an exact value from the returned hint or omit thinking.',
     ),
   permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])

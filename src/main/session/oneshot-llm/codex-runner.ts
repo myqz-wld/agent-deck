@@ -54,7 +54,7 @@ export async function runCodexOneshot(opts: {
   systemPrompt?: string;
   /**
    * Reasoning effort for the periodic summary.
-   * 与 settings UI 共用 CodexThinkingLevel：minimal / low / medium / high / xhigh / max / ultra。
+   * 与 settings UI 共用 CodexThinkingLevel：low / medium / high / xhigh / max / ultra。
    */
   modelReasoningEffort: CodexThinkingLevel;
   /**

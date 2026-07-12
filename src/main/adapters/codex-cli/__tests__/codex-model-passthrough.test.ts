@@ -36,6 +36,9 @@ interface CapturedThreadOptions {
   networkAccessEnabled?: boolean;
   additionalDirectories?: string[];
   dynamicTools?: unknown[];
+  environments?: unknown[];
+  runtimeWorkspaceRoots?: string[];
+  selectedCapabilityRoots?: unknown[];
   ephemeral?: boolean;
   configOverrides?: Record<string, unknown>;
 }
@@ -224,7 +227,7 @@ describe('Codex summary runner reasoning settings', () => {
     },
   );
 
-  it('fails closed before starting a periodic-summary turn when tool isolation is unproven', async () => {
+  it('runs periodic summary only inside the explicitly relaxed hardened boundary', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
     const previous = settingsStore.get('summaryReasoning');
     settingsStore.set('summaryReasoning', 'max');
@@ -232,14 +235,34 @@ describe('Codex summary runner reasoning settings', () => {
       const { summariseCodexSessionViaOneshot } = await import('../summarizer-runner');
       await expect(
         summariseCodexSessionViaOneshot(
-          '/tmp',
+          '/tmp/source-workspace',
           [],
           () => 'activity',
           '{"recentUserInputs":["untrusted"]}',
         ),
-      ).rejects.toThrow('__codex_summarizer_tools_unproven__');
+      ).resolves.toBe('mock-response');
 
-      expect(captured).toHaveLength(0);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toMatchObject({
+        sandboxMode: 'read-only',
+        approvalPolicy: 'never',
+        skipGitRepoCheck: true,
+        modelReasoningEffort: 'max',
+        useBaseConfig: false,
+        networkAccessEnabled: false,
+        additionalDirectories: [],
+        dynamicTools: [],
+        environments: [],
+        runtimeWorkspaceRoots: [],
+        selectedCapabilityRoots: [],
+        ephemeral: true,
+        configOverrides: { mcp_servers: {} },
+      });
+      expect(captured[0].workingDirectory).toMatch(/agent-deck-periodic-summary-/);
+      expect(captured[0].workingDirectory).not.toBe('/tmp/source-workspace');
+      const features = captured[0].configOverrides?.features as Record<string, unknown>;
+      expect(Object.keys(features).length).toBeGreaterThan(0);
+      expect(Object.values(features).every((value) => value === false)).toBe(true);
     } finally {
       settingsStore.set('summaryReasoning', previous);
     }

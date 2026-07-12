@@ -118,8 +118,18 @@ export function registerLifecycleHooks(
         setMessageLifecycleScheduler(null);
         state.tokenUsageScheduler?.stop();
         setTokenUsageLifecycleScheduler(null);
-        state.storageMaintenanceScheduler?.stop();
+        const storageMaintenanceScheduler = state.storageMaintenanceScheduler;
         state.storageMaintenanceScheduler = null;
+        // Begin the staged-worker drain immediately, but keep it inside the existing bounded quit
+        // policy below. A lost worker response must not bypass the 10s adapter/MCP/hook timeout and
+        // hang before closeDb/app.exit. Shutdown-only storage work still requires this promise to
+        // settle successfully, so no third connection opens while a live slice may remain active.
+        const storageMaintenanceStop = storageMaintenanceScheduler?.stop()
+          .then(() => true)
+          .catch((err) => {
+            logger.warn('[storage-maintenance] staged worker stop failed during cleanup', err);
+            return false;
+          }) ?? Promise.resolve(true);
         summarizer.stop();
         stopAllSounds();
         // R3.E5:universal-message-watcher shutdown
@@ -147,6 +157,7 @@ export function registerLifecycleHooks(
             allIngressStopped = false;
             logger.warn('[hook-server] shutdown failed during cleanup', err);
           }
+          if (!await storageMaintenanceStop) allIngressStopped = false;
           return allIngressStopped ? 'ok' : 'degraded';
         })();
         const cleanupTimeout = new Promise<'__timeout__'>((resolve) =>

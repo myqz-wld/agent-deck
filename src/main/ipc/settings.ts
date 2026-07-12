@@ -59,6 +59,21 @@ const CONTINUATION_CHECKPOINT_PROVIDERS: readonly ContinuationCheckpointProvider
   'codex',
 ];
 
+function isContinuationCheckpointProvider(
+  value: unknown,
+): value is ContinuationCheckpointProvider {
+  return CONTINUATION_CHECKPOINT_PROVIDERS.includes(value as ContinuationCheckpointProvider);
+}
+
+function isValidGeneratorThinking(
+  provider: ContinuationCheckpointProvider,
+  thinking: unknown,
+): boolean {
+  return provider === 'codex'
+    ? isCodexThinkingLevel(thinking)
+    : isClaudeThinkingLevel(thinking);
+}
+
 /** Validate the untrusted SettingsSet payload before any persistent or runtime side effect. */
 export function validateSettingsPatch(
   patch: unknown,
@@ -82,6 +97,30 @@ export function validateSettingsPatch(
     p.codexSandbox = parseCodexSandboxMode(p.codexSandbox) ?? 'workspace-write';
   }
 
+  const summaryChanged = 'summaryProvider' in p || 'summaryReasoning' in p;
+  if (summaryChanged) {
+    const provider =
+      'summaryProvider' in p
+        ? p.summaryProvider
+        : current.summaryProvider;
+    if (!isContinuationCheckpointProvider(provider)) {
+      throw new IpcInputError(
+        'summaryProvider',
+        `must be one of ${CONTINUATION_CHECKPOINT_PROVIDERS.join('|')}`,
+      );
+    }
+    const thinking =
+      'summaryReasoning' in p
+        ? p.summaryReasoning
+        : current.summaryReasoning;
+    if (!isValidGeneratorThinking(provider, thinking)) {
+      throw new IpcInputError(
+        'summaryReasoning',
+        `incompatible with provider ${String(provider)}`,
+      );
+    }
+  }
+
   const continuationChanged = Object.keys(raw).some((key) =>
     key.startsWith('continuationCheckpoint') || key === 'continuationRawRetentionTokens',
   );
@@ -90,7 +129,7 @@ export function validateSettingsPatch(
       'continuationCheckpointProvider' in p
         ? p.continuationCheckpointProvider
         : current.continuationCheckpointProvider;
-    if (!CONTINUATION_CHECKPOINT_PROVIDERS.includes(provider as ContinuationCheckpointProvider)) {
+    if (!isContinuationCheckpointProvider(provider)) {
       throw new IpcInputError(
         'continuationCheckpointProvider',
         `must be one of ${CONTINUATION_CHECKPOINT_PROVIDERS.join('|')}`,
@@ -108,11 +147,7 @@ export function validateSettingsPatch(
       'continuationCheckpointThinking' in p
         ? p.continuationCheckpointThinking
         : current.continuationCheckpointThinking;
-    const thinkingIsValid =
-      provider === 'codex'
-        ? isCodexThinkingLevel(thinking)
-        : isClaudeThinkingLevel(thinking);
-    if (!thinkingIsValid) {
+    if (!isValidGeneratorThinking(provider, thinking)) {
       throw new IpcInputError(
         'continuationCheckpointThinking',
         `incompatible with provider ${String(provider)}`,

@@ -26,12 +26,26 @@ export interface LegacyEventSearchRetirementResult {
 interface SearchRow {
   event_id: number;
   search_text: string;
+  change_revision: number | null;
 }
 
-export function runEventSearchSlice(db: Database): MaintenanceSliceResult | null {
+interface EventVersionRow {
+  event_id: number;
+  change_revision: number | null;
+}
+
+/** Deterministic seam for exercising a second WAL writer between selection and write-lock entry. */
+export interface EventSearchSliceTestHooks {
+  afterBackfillPreselect?: (eventIds: readonly number[]) => void;
+}
+
+export function runEventSearchSlice(
+  db: Database,
+  testHooks: EventSearchSliceTestHooks = {},
+): MaintenanceSliceResult | null {
   const state = readMaintenanceState(db, TASK);
   if (!state) return null;
-  if (state.phase === 'backfill') return backfill(db, state);
+  if (state.phase === 'backfill') return backfill(db, state, testHooks);
   if (state.phase === 'verify') return verify(db, state);
   if (state.phase === 'restart-verify') return verifyEventRowids(db, state);
   if (state.phase === 'restart-verify-orphans') return verifyIndexRowids(db, state);
@@ -58,11 +72,18 @@ export function beginEventSearchRestartVerification(db: Database): void {
   });
 }
 
-function backfill(db: Database, state: StorageMaintenanceState): MaintenanceSliceResult {
+function backfill(
+  db: Database,
+  state: StorageMaintenanceState,
+  testHooks: EventSearchSliceTestHooks,
+): MaintenanceSliceResult {
   const started = performance.now();
   const rows = db.prepare(
-    `SELECT event_id, search_text FROM event_search_source_v1
-      WHERE event_id > ? AND event_id <= ? ORDER BY event_id ASC LIMIT ?`,
+    `SELECT source.event_id, source.search_text, events.change_revision
+       FROM event_search_source_v1 source
+       JOIN events ON events.id = source.event_id
+      WHERE source.event_id > ? AND source.event_id <= ?
+      ORDER BY source.event_id ASC LIMIT ?`,
   ).all(state.cursor, state.upperBound, state.batchSize) as SearchRow[];
   if (rows.length === 0) {
     updateMaintenanceState(db, TASK, {
@@ -77,19 +98,60 @@ function backfill(db: Database, state: StorageMaintenanceState): MaintenanceSlic
   const insert = db.prepare(
     'INSERT INTO event_search_fts_v1(rowid, search_text) VALUES (?, ?)',
   );
+  const eventIds = rows.map((row) => row.event_id);
+  const placeholders = eventIds.map(() => '?').join(', ');
+  const readCurrentVersions = db.prepare(
+    `SELECT id AS event_id, change_revision FROM events WHERE id IN (${placeholders})`,
+  );
+
+  testHooks.afterBackfillPreselect?.(Object.freeze([...eventIds]));
+
   const tx = db.transaction(() => {
+    // The initial projection deliberately stays outside the write lock. Once BEGIN IMMEDIATE has
+    // serialized us with live ingress, revisions identify the uncommon rows that changed in the
+    // gap. Re-project only those rows; a missing id was deleted and must not be resurrected.
+    const currentVersions = readCurrentVersions.all(...eventIds) as EventVersionRow[];
+    const currentById = new Map(currentVersions.map((row) => [row.event_id, row]));
+    const changedIds = rows
+      .filter((row) => {
+        const current = currentById.get(row.event_id);
+        return current !== undefined && current.change_revision !== row.change_revision;
+      })
+      .map((row) => row.event_id);
+    const refreshedById = new Map<number, string>();
+    if (changedIds.length > 0) {
+      const changedPlaceholders = changedIds.map(() => '?').join(', ');
+      const refreshed = db.prepare(
+        `SELECT event_id, search_text FROM event_search_source_v1
+          WHERE event_id IN (${changedPlaceholders})`,
+      ).all(...changedIds) as Array<Pick<SearchRow, 'event_id' | 'search_text'>>;
+      for (const row of refreshed) refreshedById.set(row.event_id, row.search_text);
+    }
+
     for (const row of rows) {
+      const current = currentById.get(row.event_id);
+      if (!current) continue;
+      const searchText = current.change_revision === row.change_revision
+        ? row.search_text
+        : refreshedById.get(row.event_id);
+      if (searchText === undefined) {
+        throw new Error(
+          `event search source disappeared while write-locked: eventId=${row.event_id}`,
+        );
+      }
       // An old event may have been updated after v041 and already dual-written. Contentless-delete
       // makes the replace sequence safe for both present and absent rowids.
       remove.run(row.event_id);
-      insert.run(row.event_id, row.search_text);
+      insert.run(row.event_id, searchText);
     }
     updateMaintenanceState(db, TASK, {
       cursor: rows[rows.length - 1].event_id,
       lastError: null,
     });
   });
-  tx();
+  // A deferred read transaction cannot safely upgrade after another WAL writer commits. Acquire the
+  // write reservation first, then validate/re-project and mutate in one short critical section.
+  tx.immediate();
   const durationMs = performance.now() - started;
   const batchSize = adaptBatchSize(state.batchSize, durationMs, { min: 10, max: 50 });
   if (batchSize !== state.batchSize) updateMaintenanceState(db, TASK, { batchSize });

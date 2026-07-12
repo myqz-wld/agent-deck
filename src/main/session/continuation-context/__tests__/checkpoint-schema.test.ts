@@ -79,5 +79,11 @@ describe('continuation checkpoint schema', () => {
         goals: expect.objectContaining({ type: 'array' }),
       }),
     });
+    const goals = (CONTINUATION_CHECKPOINT_JSON_SCHEMA as {
+      properties: {
+        goals: { items: { properties: Record<string, unknown>; required: string[] } };
+      };
+    }).properties.goals;
+    expect(goals.items.required).toEqual(Object.keys(goals.items.properties));
   });
 });

@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-12 | `CHANGELOG_362_storage-maintenance-worker-provider-compaction.md` | Isolate live storage maintenance and restore Codex compact generation |
 | 2026-07-11 | `CHANGELOG_361_storage-performance-observability-svg-icons.md` | Stage storage maintenance, require MCP readiness, and unify SVG icons |
 | 2026-07-11 | `CHANGELOG_360_periodic-summary-evidence.md` | Make periodic summaries evidence-rich and revision-safe |
 | 2026-07-11 | `CHANGELOG_359_session-pinning-reviewer-model.md` | Add persistent Live pins and update the Codex reviewer model |

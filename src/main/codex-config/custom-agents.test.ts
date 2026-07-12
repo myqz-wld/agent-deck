@@ -87,12 +87,12 @@ describe('resolveCodexAgentContent', () => {
     },
   );
 
-  it('rejects an unknown future Codex effort instead of guessing support', async () => {
+  it.each(['minimal', 'extreme'])('rejects unsupported Codex effort %s instead of guessing support', async (effort) => {
     writeAgent(join(mockHome.value, '.codex', 'agents', 'future-effort.toml'), {
       name: 'future-effort',
       description: 'Future effort agent',
       body: 'Use a future effort.',
-      effort: 'extreme',
+      effort,
     });
 
     const { getUserCodexAgentContent } = await import('./custom-agents');
@@ -100,7 +100,7 @@ describe('resolveCodexAgentContent', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.reason).toContain('invalid model_reasoning_effort "extreme"');
+    expect(result.reason).toContain(`invalid model_reasoning_effort "${effort}"`);
   });
 
   it('skips bundled TOML when the Agent Deck Codex agents toggle is disabled', async () => {

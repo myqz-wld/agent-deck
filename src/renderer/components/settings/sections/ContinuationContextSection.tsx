@@ -36,7 +36,11 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
       </p>
       <ProviderModelThinkingFields
         label="续接检查点生成器"
-        hint="默认思考程度为 high。Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。"
+        hint={
+          provider === 'codex'
+            ? '默认思考程度为 high。Codex compact 在空临时目录、只读沙盒、禁网、空 MCP 与禁用可执行功能的边界内运行；app-server 仍不能证明模型侧内建工具列表为空。Codex 支持 low、medium、high、xhigh、max、ultra。'
+            : '默认思考程度为 high。Claude 与 Deepseek 支持 low 至 max。'
+        }
         provider={provider}
         model={settings.continuationCheckpointModel}
         thinking={settings.continuationCheckpointThinking}

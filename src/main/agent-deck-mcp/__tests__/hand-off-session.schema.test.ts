@@ -25,6 +25,16 @@ describe('hand_off_session schema — unified Continuation Context', () => {
     if (result.success) expect(result.data.adapter).toBeUndefined();
   });
 
+  it('rejects removed minimal thinking', () => {
+    expect(
+      HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+        prompt: 'continue',
+        adapter: 'codex-cli',
+        thinking: 'minimal',
+      }).success,
+    ).toBe(false);
+  });
+
   it('requires a continuation instruction', () => {
     expect(
       HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({ adapter: 'claude-code' }).success,

@@ -234,7 +234,7 @@ describe('readTopLevelModelReasoningEffortFromCodexConfig', () => {
     return path;
   }
 
-  it.each(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)(
+  it.each(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)(
     'reads supported top-level effort %s',
     (effort) => {
       const path = writeConfig(
@@ -245,6 +245,14 @@ describe('readTopLevelModelReasoningEffortFromCodexConfig', () => {
       expect(readFileSync(path, 'utf8')).toBe(before);
     },
   );
+
+  it('does not accept removed minimal as a configured top-level effort', () => {
+    expect(
+      readTopLevelModelReasoningEffortFromCodexConfig(
+        writeConfig('model_reasoning_effort = "minimal"\n'),
+      ),
+    ).toBeNull();
+  });
 
   it('supports a literal string and ignores inline comments', () => {
     const path = writeConfig("model_reasoning_effort = 'max' # current default\n");
