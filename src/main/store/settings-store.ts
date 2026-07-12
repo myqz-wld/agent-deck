@@ -91,10 +91,12 @@ function migratedThinking(
   value: unknown,
   allowLegacyCoercion: boolean,
 ): AppSettings['continuationCheckpointThinking'] {
+  // Codex no longer accepts minimal. Preserve a user's nearest lower-cost choice rather than
+  // falling through to the generator default (high).
+  if (value === 'minimal') return 'low';
   if (provider === 'codex') {
     return isCodexThinkingLevel(value) ? value : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
   }
-  if (allowLegacyCoercion && value === 'minimal') return 'low';
   if (allowLegacyCoercion && value === 'ultra') return 'max';
   return isClaudeThinkingLevel(value)
     ? value
@@ -166,6 +168,16 @@ function migrateContinuationSettings(
         DEFAULT_SETTINGS.continuationRawRetentionTokens,
       );
     }
+  }
+}
+
+function migrateRemovedCodexMinimalGeneratorSettings(
+  persistedRaw: Readonly<Record<string, unknown>>,
+  target: LooseStore,
+): void {
+  if (persistedRaw.summaryReasoning === 'minimal') {
+    target.set('summaryReasoning', 'low');
+    logger.info('[settings] migrated summaryReasoning minimal → low (Codex effort removal)');
   }
 }
 
@@ -251,6 +263,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       delete: (k: string) => void;
     };
     migrateContinuationSettings(persistedRaw, looseStore);
+    migrateRemovedCodexMinimalGeneratorSettings(persistedRaw, looseStore);
     // 2026-07-11 generator defaults: periodic summaries low → medium; continuation checkpoints
     // medium → high. electron-store persists defaults as ordinary values, so exact old defaults
     // need a one-time value uplift for existing installs. The sentinel prevents a later explicit

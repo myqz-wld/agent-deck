@@ -258,11 +258,7 @@ export async function foldContinuationCheckpoint(
     } catch (error) {
       if (error instanceof CheckpointGeneratorError) foldCalls += error.providerCalls;
       warnings.push({
-        code:
-          error instanceof CheckpointGeneratorError &&
-          error.code === 'codex-generator-tools-unproven'
-            ? 'codex-generator-tools-unproven'
-            : 'checkpoint-generation-failed',
+        code: 'checkpoint-generation-failed',
         message: error instanceof Error ? error.message : String(error),
       });
       break;

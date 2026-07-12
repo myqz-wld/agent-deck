@@ -21,7 +21,7 @@ function buildModelPlaceholder(provider: GeneratorProvider): string {
 
 function buildModelHint(provider: GeneratorProvider): string {
   if (provider === 'codex') {
-    return 'Codex 空模型使用 Codex 配置默认模型，默认思考程度为 medium。当前无法证明模型侧内建工具已完全隔离，因此不会启动总结 turn，并使用带“降级”标记的本地兜底。';
+    return 'Codex 空模型使用 Codex 配置默认模型，默认思考程度为 medium。总结在空临时目录、只读沙盒、禁网、空 MCP 与禁用可执行功能的边界内运行；当前 app-server 仍不能证明模型侧内建工具列表为空。';
   }
   if (provider === 'deepseek') {
     return '模型留空时使用 Deepseek Haiku，默认思考程度为 medium。';

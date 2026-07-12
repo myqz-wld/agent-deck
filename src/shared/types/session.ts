@@ -96,7 +96,7 @@ export interface SessionRecord {
    *   (`low` / `medium` / `high` / `xhigh` / `max`), replaced by the latest actual effort
    *   observed from a completed SDK turn (including provider-side silent downgrade)
    * - codex-cli: app-server `model_reasoning_effort`
-   *   (`minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`)
+   *   (`low` / `medium` / `high` / `xhigh` / `max` / `ultra`)
    *
    * null/undefined means no per-session value has been recorded or observed, so the provider
    * default remains in effect.

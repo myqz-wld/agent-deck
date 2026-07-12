@@ -59,7 +59,7 @@ describe('ContinuationContextSection', () => {
     ).not.toBeNull();
     expect(
       screen.getByText(
-        '默认思考程度为 high。Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。',
+        '默认思考程度为 high。Codex compact 在空临时目录、只读沙盒、禁网、空 MCP 与禁用可执行功能的边界内运行；app-server 仍不能证明模型侧内建工具列表为空。Codex 支持 low、medium、high、xhigh、max、ultra。',
       ),
     ).not.toBeNull();
     expect(
@@ -69,7 +69,6 @@ describe('ContinuationContextSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 思考程度' }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'MINIMAL',
       'LOW',
       'MEDIUM',
       'HIGH',
@@ -91,6 +90,9 @@ describe('ContinuationContextSection', () => {
           name: '续接检查点生成器 model',
         }) as HTMLInputElement).placeholder,
       ).toBe('留空使用 Claude Opus');
+      expect(
+        screen.getByText('默认思考程度为 high。Claude 与 Deepseek 支持 low 至 max。'),
+      ).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
       continuationCheckpointProvider: 'claude',

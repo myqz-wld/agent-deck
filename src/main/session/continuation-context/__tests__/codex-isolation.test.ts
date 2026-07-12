@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { __testables } from '@main/adapters/codex-cli/app-server/client';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { CONTINUATION_CHECKPOINT_JSON_SCHEMA } from '../checkpoint-schema';
 import { buildCodexCompactorThreadOptions, codexCompactorIsolationAttestation } from '../codex-isolation';
 import { createCheckpointGeneratorRuntime } from '../runtime';
+
+const harness = vi.hoisted(() => ({
+  startThread: vi.fn(),
+  run: vi.fn(),
+}));
+
+vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
+  getCodexInstance: vi.fn(async () => ({ startThread: harness.startThread })),
+}));
 
 const generator = {
   adapter: 'codex-cli' as const,
@@ -13,7 +22,20 @@ const generator = {
   configFingerprint: 'codex-test',
 };
 
+const emptyCheckpoint = {
+  formatVersion: 1,
+  goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [], currentState: [],
+  nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
+};
+
 describe('Codex checkpoint compactor isolation', () => {
+  beforeEach(() => {
+    harness.run.mockReset().mockResolvedValue({
+      finalResponse: JSON.stringify(emptyCheckpoint),
+    });
+    harness.startThread.mockReset().mockReturnValue({ run: harness.run });
+  });
+
   it('builds actual thread/turn params with every available no-side-effect control', () => {
     const options = buildCodexCompactorThreadOptions({ generator, emptyWorkingDirectory: '/tmp/empty' });
     const thread = __testables.buildThreadStartParams(options, {
@@ -46,11 +68,48 @@ describe('Codex checkpoint compactor isolation', () => {
     });
   });
 
-  it('fails closed before a Codex turn because 0.144 cannot attest the final model-visible registry', async () => {
+  it('runs with every hardened option while reporting the remaining unattested boundary', async () => {
     expect(codexCompactorIsolationAttestation()).toMatchObject({ proven: false });
     const runtime = createCheckpointGeneratorRuntime(generator);
-    expect(runtime.isolation).toBe('fail-closed');
-    await expect(runtime.generate({ prompt: 'x', timeoutMs: 1, maxOutputBytes: 100, remainingCalls: 1 }))
-      .rejects.toMatchObject({ code: 'codex-generator-tools-unproven', providerCalls: 0 });
+    expect(runtime.isolation).toBe('hardened-unattested');
+    await expect(
+      runtime.generate({ prompt: 'fold', timeoutMs: 1_000, maxOutputBytes: 10_000, remainingCalls: 1 }),
+    ).resolves.toMatchObject({
+      output: JSON.stringify(emptyCheckpoint),
+      providerCalls: 1,
+      structured: true,
+    });
+
+    expect(harness.startThread).toHaveBeenCalledTimes(1);
+    expect(harness.startThread.mock.calls[0][0]).toMatchObject({
+      sandboxMode: 'read-only', approvalPolicy: 'never', useBaseConfig: false,
+      networkAccessEnabled: false, additionalDirectories: [], dynamicTools: [],
+      environments: [], runtimeWorkspaceRoots: [], selectedCapabilityRoots: [], ephemeral: true,
+      configOverrides: { mcp_servers: {} },
+    });
+    expect(harness.startThread.mock.calls[0][0].workingDirectory)
+      .toMatch(/agent-deck-codex-continuation-compactor-/);
+    expect(harness.run.mock.calls[0][1]).toMatchObject({
+      outputSchema: CONTINUATION_CHECKPOINT_JSON_SCHEMA,
+      environments: [],
+      runtimeWorkspaceRoots: [],
+      maxOutputBytes: 10_000,
+    });
+    expect(harness.run.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('aborts the Codex turn at the checkpoint deadline', async () => {
+    let signal: AbortSignal | undefined;
+    harness.run.mockImplementation(
+      async (_input: unknown, options: { signal?: AbortSignal }) => {
+        signal = options.signal;
+        return new Promise(() => undefined);
+      },
+    );
+    const runtime = createCheckpointGeneratorRuntime(generator);
+    await expect(
+      runtime.generate({ prompt: 'fold', timeoutMs: 5, maxOutputBytes: 10_000, remainingCalls: 1 }),
+    ).rejects.toMatchObject({ code: 'timeout', providerCalls: 1 });
+    expect(signal?.aborted).toBe(true);
   });
 });

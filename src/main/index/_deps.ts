@@ -40,7 +40,7 @@ export interface BootstrapState {
   messageScheduler: MessageLifecycleScheduler | null;
   /** fixed 365d token_usage retention GC scheduler */
   tokenUsageScheduler: TokenUsageLifecycleScheduler | null;
-  /** Resumable, post-startup FTS/snapshot compaction slices. */
+  /** Persistent worker controller for resumable FTS/snapshot slices and live WAL checkpoints. */
   storageMaintenanceScheduler: StorageMaintenanceScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
   /** Stops the main-process event-loop drift monitor during orderly shutdown. */

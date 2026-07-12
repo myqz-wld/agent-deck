@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentEvent, SummaryRecord } from '@shared/types';
+import type { AgentEvent, AppSettings, SummaryRecord } from '@shared/types';
 
 const harness = vi.hoisted(() => {
   const pending: Array<(value: string | null) => void> = [];
@@ -7,6 +7,7 @@ const harness = vi.hoisted(() => {
     currentRevision: 11,
     rebuildAfterRevision: 0,
     summaryEventCount: 1,
+    summaryProvider: 'claude' as AppSettings['summaryProvider'],
     previous: null as SummaryRecord | null,
     nextId: 10,
     pending,
@@ -19,6 +20,7 @@ const harness = vi.hoisted(() => {
     })),
     countForSession: vi.fn(() => 1),
     emit: vi.fn(),
+    info: vi.fn(),
     warn: vi.fn(),
   };
 });
@@ -81,7 +83,7 @@ vi.mock('@main/store/settings-store', () => ({
       if (key === 'summaryIntervalMs') return 300_000;
       if (key === 'summaryEventCount') return harness.summaryEventCount;
       if (key === 'summaryMaxConcurrent') return 2;
-      if (key === 'summaryProvider') return 'claude';
+      if (key === 'summaryProvider') return harness.summaryProvider;
       return undefined;
     }),
   },
@@ -110,7 +112,7 @@ vi.mock('@main/event-bus', () => ({
 }));
 vi.mock('@main/utils/logger', () => ({
   default: {
-    scope: () => ({ info: vi.fn(), warn: harness.warn }),
+    scope: () => ({ info: harness.info, warn: harness.warn }),
   },
 }));
 
@@ -126,6 +128,7 @@ describe('Summarizer persisted revision cursor', () => {
     harness.currentRevision = 11;
     harness.rebuildAfterRevision = 0;
     harness.summaryEventCount = 1;
+    harness.summaryProvider = 'claude';
     harness.previous = {
       id: 1,
       sessionId: session.id,
@@ -145,6 +148,7 @@ describe('Summarizer persisted revision cursor', () => {
     harness.insert.mockClear();
     harness.countForSession.mockClear();
     harness.emit.mockClear();
+    harness.info.mockClear();
     harness.warn.mockClear();
     harness.insert.mockImplementation((input) => ({
       ...input,
@@ -228,8 +232,9 @@ describe('Summarizer persisted revision cursor', () => {
   });
 
   it('aggregates concurrent capability failures and keeps the circuit open until restart', async () => {
+    harness.summaryProvider = 'codex';
     harness.summariseEvents.mockRejectedValue(
-      new SummaryProviderCapabilityError('claude', 'tool registry cannot be attested'),
+      new SummaryProviderCapabilityError('codex', 'tool isolation cannot be attested'),
     );
     const summarizer = new Summarizer();
 
@@ -242,24 +247,24 @@ describe('Summarizer persisted revision cursor', () => {
     expect(first?.generationSource).toBe('stats-fallback');
     expect(second?.generationSource).toBe('stats-fallback');
     expect(later?.generationSource).toBe('stats-fallback');
-    // The first concurrent batch can perform two cheap capability checks, but only one warning is
+    // The first concurrent batch can perform two cheap capability checks, but only one info is
     // emitted and later sessions do not retry. The Codex runner separately proves no turn starts.
     expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
-    expect(harness.warn).toHaveBeenCalledTimes(1);
-    expect(harness.warn).toHaveBeenCalledWith(
-      expect.stringContaining('using local fallback until application restart'),
+    expect(harness.info).toHaveBeenCalledTimes(1);
+    expect(harness.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'codex provider capability unavailable; using local fallback until application restart',
+      ),
     );
-    expect(summarizer.getLastErrors()['capability-a']?.message).toContain(
-      '__claude_summarizer_tools_unproven__',
-    );
-    expect(summarizer.getLastErrors()['capability-later']?.message).toContain(
-      '__claude_summarizer_tools_unproven__',
-    );
+    expect(harness.warn).not.toHaveBeenCalled();
+    expect(summarizer.getLastErrors()).toEqual({});
 
     const restarted = new Summarizer();
     await restarted.summarizeNow('capability-after-restart');
     expect(harness.summariseEvents).toHaveBeenCalledTimes(3);
-    expect(harness.warn).toHaveBeenCalledTimes(2);
+    expect(harness.info).toHaveBeenCalledTimes(2);
+    expect(harness.warn).not.toHaveBeenCalled();
+    expect(restarted.getLastErrors()).toEqual({});
   });
 
   it('does not open the capability circuit for a transient provider failure', async () => {
@@ -267,6 +272,7 @@ describe('Summarizer persisted revision cursor', () => {
     const summarizer = new Summarizer();
 
     await summarizer.summarizeNow(session.id);
+    expect(summarizer.getLastErrors()[session.id]?.message).toBe('temporary auth failure');
     const retry = summarizer.summarizeNow(session.id);
     expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
     harness.pending.shift()!('provider recovered');

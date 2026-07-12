@@ -768,7 +768,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     );
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('spawned session only');
     expect(SPAWN_SESSION_SCHEMA.thinking.unwrap().options).toEqual([
-      'minimal',
       'low',
       'medium',
       'high',
@@ -776,6 +775,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'max',
       'ultra',
     ]);
+    expect(SPAWN_SESSION_SCHEMA.thinking.safeParse('minimal').success).toBe(false);
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
       'explicit thinking > resolved agent effort > provider default',
     );

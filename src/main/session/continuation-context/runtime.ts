@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
+import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
+import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
+import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { loadDeepseekClaudeEnv } from '@main/adapters/deepseek-claude-code/config';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import type { ResolvedContinuationGenerator } from './types';
@@ -16,7 +19,7 @@ import {
   type ContinuationCheckpointGenerator,
 } from './checkpoint-generator';
 import { utf8ByteLength } from './token-estimator';
-import { codexCompactorIsolationAttestation } from './codex-isolation';
+import { buildCodexCompactorThreadOptions } from './codex-isolation';
 
 interface ClaudeRuntimeResult extends Omit<CheckpointGeneratorResult, 'providerCalls'> {
   schemaUnsupported: boolean;
@@ -234,15 +237,91 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
   }
 }
 
-class FailClosedCodexCheckpointGenerator implements ContinuationCheckpointGenerator {
-  readonly isolation = 'fail-closed' as const;
+async function runCodexCheckpoint(input: {
+  generator: ResolvedContinuationGenerator;
+  request: CheckpointGeneratorRequest;
+}): Promise<CheckpointGeneratorResult> {
+  if (input.request.remainingCalls < 1) {
+    throw new CheckpointGeneratorError('No checkpoint generator calls remain', 'provider-error');
+  }
+  if (input.request.signal?.aborted) {
+    throw new CheckpointGeneratorError('Checkpoint generation aborted', 'aborted');
+  }
 
-  async generate(): Promise<CheckpointGeneratorResult> {
-    const attestation = codexCompactorIsolationAttestation();
-    throw new CheckpointGeneratorError(
-      attestation.reason,
-      'codex-generator-tools-unproven',
+  const cwd = mkdtempSync(join(tmpdir(), 'agent-deck-codex-continuation-compactor-'));
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  let timeout: NodeJS.Timeout | null = null;
+  let timedOut = false;
+  const abort = () => controller.abort();
+  input.request.signal?.addEventListener('abort', abort, { once: true });
+  try {
+    const codex = await getCodexInstance();
+    const thread = codex.startThread(
+      buildCodexCompactorThreadOptions({
+        generator: input.generator,
+        emptyWorkingDirectory: cwd,
+      }),
     );
+    const work = thread.run(toCodexAppServerInput(input.request.prompt), {
+      signal: controller.signal,
+      outputSchema: CONTINUATION_CHECKPOINT_JSON_SCHEMA as unknown as JsonObject,
+      environments: [],
+      runtimeWorkspaceRoots: [],
+      maxOutputBytes: input.request.maxOutputBytes,
+    });
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      if (input.request.timeoutMs <= 0) return;
+      timeout = setTimeout(() => {
+        timedOut = true;
+        reject(new CheckpointGeneratorError('Checkpoint generation timed out', 'timeout', 1));
+        controller.abort();
+      }, input.request.timeoutMs);
+    });
+    const result =
+      input.request.timeoutMs > 0
+        ? await Promise.race([work, timeoutPromise])
+        : await work;
+    const checked = checkedOutput(result.finalResponse, input.request.maxOutputBytes);
+    return {
+      ...checked,
+      inputTokens: null,
+      outputTokens: null,
+      contextWindowTokens: null,
+      latencyMs: Date.now() - startedAt,
+      providerCalls: 1,
+      structured: true,
+    };
+  } catch (error) {
+    if (error instanceof CheckpointGeneratorError) throw error;
+    if (timedOut) {
+      throw new CheckpointGeneratorError('Checkpoint generation timed out', 'timeout', 1);
+    }
+    if (input.request.signal?.aborted || controller.signal.aborted) {
+      throw new CheckpointGeneratorError('Checkpoint generation aborted', 'aborted', 1);
+    }
+    if (error instanceof Error && error.message.includes('output exceeded byte limit')) {
+      throw new CheckpointGeneratorError(error.message, 'output-too-large', 1);
+    }
+    throw new CheckpointGeneratorError(
+      error instanceof Error ? error.message : String(error),
+      'provider-error',
+      1,
+    );
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    input.request.signal?.removeEventListener('abort', abort);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
+class HardenedCodexCheckpointGenerator implements ContinuationCheckpointGenerator {
+  readonly isolation = 'hardened-unattested' as const;
+
+  constructor(private readonly generator: ResolvedContinuationGenerator) {}
+
+  generate(request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> {
+    return runCodexCheckpoint({ generator: this.generator, request });
   }
 }
 
@@ -250,7 +329,7 @@ export function createCheckpointGeneratorRuntime(
   generator: ResolvedContinuationGenerator,
 ): ContinuationCheckpointGenerator {
   return generator.adapter === 'codex-cli'
-    ? new FailClosedCodexCheckpointGenerator()
+    ? new HardenedCodexCheckpointGenerator(generator)
     : new ClaudeFamilyCheckpointGenerator(generator);
 }
 

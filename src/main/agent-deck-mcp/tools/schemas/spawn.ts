@@ -86,7 +86,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking/reasoning override for the spawned session only. Codex accepts minimal, low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Precedence: explicit thinking > resolved agent effort > provider default. Adapter-invalid values are rejected before session creation; retry with an exact value from the returned hint or omit thinking. The provider remains authoritative for model-specific support. This override does not change existing sessions or global defaults.',
+      'Optional thinking/reasoning override for the spawned session only. Codex accepts low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Precedence: explicit thinking > resolved agent effort > provider default. Adapter-invalid values are rejected before session creation; retry with an exact value from the returned hint or omit thinking. The provider remains authoritative for model-specific support. This override does not change existing sessions or global defaults.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。

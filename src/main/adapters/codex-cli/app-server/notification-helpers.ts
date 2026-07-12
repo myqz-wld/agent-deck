@@ -44,6 +44,16 @@ export function readCompletedAgentMessageText(notification: CodexAppServerNotifi
   return typeof item.text === 'string' ? item.text : '';
 }
 
+export function readTerminalErrorText(notification: CodexAppServerNotification): string {
+  if (notification.method !== 'error') return '';
+  const params = asObject(notification.params);
+  if (params?.willRetry === true) return '';
+  const error = asObject(params?.error);
+  return typeof error?.message === 'string' && error.message.trim()
+    ? error.message
+    : 'Codex app-server turn failed';
+}
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)

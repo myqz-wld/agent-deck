@@ -63,8 +63,8 @@ describe('SettingsSet continuation validation', () => {
     },
   );
 
-  it('accepts all Codex thinking levels and a provider/model update together', () => {
-    for (const thinking of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']) {
+  it('accepts all current Codex thinking levels and a provider/model update together', () => {
+    for (const thinking of ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']) {
       expect(
         validateSettingsPatch(
           {
@@ -76,6 +76,27 @@ describe('SettingsSet continuation validation', () => {
         ),
       ).toMatchObject({ continuationCheckpointThinking: thinking });
     }
+  });
+
+  it.each(['minimal', 'bogus'])('rejects removed or unknown Codex thinking %s', (thinking) => {
+    expect(() =>
+      validateSettingsPatch(
+        {
+          continuationCheckpointProvider: 'codex',
+          continuationCheckpointThinking: thinking,
+        } as unknown,
+        current(),
+      ),
+    ).toThrow(/continuationCheckpointThinking/);
+  });
+
+  it.each(['minimal', 'bogus'])('rejects removed or unknown Codex summary thinking %s', (thinking) => {
+    expect(() =>
+      validateSettingsPatch(
+        { summaryProvider: 'codex', summaryReasoning: thinking } as unknown,
+        current(),
+      ),
+    ).toThrow(/summaryReasoning/);
   });
 
   it.each(['minimal', 'ultra', 'bogus'])(

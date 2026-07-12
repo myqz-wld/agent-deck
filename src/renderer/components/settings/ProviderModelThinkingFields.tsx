@@ -35,8 +35,11 @@ export function coerceThinkingForProvider(
   provider: GeneratorProvider,
   thinking: SessionThinkingLevel,
 ): SessionThinkingLevel {
-  if (provider === 'codex' || isClaudeThinkingLevel(thinking)) return thinking;
-  return thinking === 'ultra' ? 'max' : 'low';
+  if (provider === 'codex') {
+    return thinking === 'minimal' ? 'low' : thinking;
+  }
+  if (isClaudeThinkingLevel(thinking)) return thinking;
+  return thinking === 'minimal' ? 'low' : 'max';
 }
 
 function providerLabel(provider: GeneratorProvider): string {

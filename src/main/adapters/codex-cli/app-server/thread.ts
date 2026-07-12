@@ -6,6 +6,7 @@ import {
   getNotificationTurnId,
   isTerminalForTurn,
   readCompletedAgentMessageText,
+  readTerminalErrorText,
 } from './notification-helpers';
 import type {
   CodexAppServerNotification,
@@ -114,6 +115,8 @@ export class CodexAppServerThread {
     const messages: string[] = [];
     for await (const ev of events) {
       if (ev.type !== 'server.notification') continue;
+      const terminalError = readTerminalErrorText(ev.notification);
+      if (terminalError) throw new Error(terminalError);
       const text = readCompletedAgentMessageText(ev.notification);
       if (text) {
         messages.push(text);

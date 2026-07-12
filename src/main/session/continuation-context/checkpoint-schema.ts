@@ -113,7 +113,10 @@ function factJsonSchema(): Record<string, unknown> {
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['id', 'status', 'text', 'priority', 'evidence'],
+    // Codex/OpenAI structured output requires every declared object property to be required.
+    // The canonical Zod shape remains backward-compatible with older checkpoints where the two
+    // explanatory strings were absent, while newly generated checkpoints always include them.
+    required: ['id', 'status', 'text', 'rationale', 'validation', 'priority', 'evidence'],
     properties: {
       id: {
         type: 'string',

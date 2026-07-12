@@ -1,6 +1,5 @@
 export const CLAUDE_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const CODEX_THINKING_LEVELS = [
-  'minimal',
   'low',
   'medium',
   'high',
@@ -12,7 +11,11 @@ export const SESSION_THINKING_LEVELS = CODEX_THINKING_LEVELS;
 
 export type ClaudeThinkingLevel = (typeof CLAUDE_THINKING_LEVELS)[number];
 export type CodexThinkingLevel = (typeof CODEX_THINKING_LEVELS)[number];
-export type SessionThinkingLevel = (typeof SESSION_THINKING_LEVELS)[number];
+/** Retained only to read pre-removal persisted settings and session metadata. */
+export type LegacySessionThinkingLevel = 'minimal';
+export type SessionThinkingLevel =
+  | (typeof SESSION_THINKING_LEVELS)[number]
+  | LegacySessionThinkingLevel;
 
 export function isClaudeThinkingLevel(value: unknown): value is ClaudeThinkingLevel {
   return typeof value === 'string' && (CLAUDE_THINKING_LEVELS as readonly string[]).includes(value);
@@ -30,6 +33,7 @@ export function formatThinkingLevel(value: string | null | undefined): string {
   if (!value) return 'default';
   switch (value) {
     case 'minimal':
+      // Historical session rows can retain the removed value for display only.
       return 'minimal';
     case 'low':
       return 'low';

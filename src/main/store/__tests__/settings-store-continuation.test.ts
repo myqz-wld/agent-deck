@@ -137,13 +137,14 @@ describe('unified continuation settings migration', () => {
     expect(all).toMatchObject({
       continuationCheckpointProvider: 'claude',
       continuationCheckpointModel: '',
-      // New incompatible values are repaired, not legacy-coerced.
-      continuationCheckpointThinking: 'high',
+      // Removed Codex minimal always migrates to its nearest supported value, even when the
+      // persisted provider is invalid and falls back to Claude.
+      continuationCheckpointThinking: 'low',
       continuationRawRetentionTokens: 64_000,
     });
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointProvider', 'claude');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', '');
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'low');
     expect(mockSet).toHaveBeenCalledWith('continuationRawRetentionTokens', 64_000);
   });
 
@@ -161,7 +162,7 @@ describe('unified continuation settings migration', () => {
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', '');
   });
 
-  it.each(['minimal', 'ultra'])('repairs new Claude-incompatible thinking %s', async (value) => {
+  it.each(['ultra', 'bogus'])('repairs new Claude-incompatible thinking %s', async (value) => {
     mockRawStore = {
       continuationCheckpointProvider: 'claude',
       continuationCheckpointThinking: value,
@@ -169,6 +170,21 @@ describe('unified continuation settings migration', () => {
     const all = (await loadSettingsStore()).getAll();
     expect(all.continuationCheckpointThinking).toBe('high');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
+  });
+
+  it('coerces persisted removed Codex minimal generator settings to low', async () => {
+    mockRawStore = {
+      summaryProvider: 'codex',
+      summaryReasoning: 'minimal',
+      continuationCheckpointProvider: 'codex',
+      continuationCheckpointThinking: 'minimal',
+    };
+
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.summaryReasoning).toBe('low');
+    expect(all.continuationCheckpointThinking).toBe('low');
+    expect(mockSet).toHaveBeenCalledWith('summaryReasoning', 'low');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'low');
   });
 
   it('uplifts the exact old generator defaults once', async () => {

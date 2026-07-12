@@ -1,33 +1,49 @@
 {
   "root": "/Users/wanglidong/Repository/agent-deck",
-  "scanned_at": "2026-07-11T17:49:49Z",
-  "expires_at": "2026-07-18T17:49:49Z",
-  "scan_reason": "User confirmed prompt-only terminal behavior after successful hand_off_session.",
-  "git_head": "2a0998ff13d9f1766bed741fb615f69640991c69",
+  "scanned_at": "2026-07-12T09:23:04Z",
+  "expires_at": "2026-07-19T09:23:04Z",
+  "scan_reason": "User confirmed removing Codex minimal and enabling hardened Codex summary and compact generation.",
+  "git_head": "4ca882199ff04cb7e9cca761a8566488c7ac6f5d",
   "assets": [
+    {
+      "path": "README.md",
+      "type": "repository-prompt-reference",
+      "scope": "confirmed",
+      "reason": "Document the thinking values and hardened-but-unattested Codex summary/compact boundary accepted by the user.",
+      "exists": true,
+      "hash": "d58606f8d651c5089eafe2d171397e2e4fc0029482e350b455e3df98f687da5f"
+    },
     {
       "path": "resources/claude-config/CLAUDE.md",
       "type": "claude-runtime-prompt",
       "scope": "confirmed",
-      "reason": "Make successful handoff the final and sole tool action, including source-finalization warnings.",
+      "reason": "Keep the bundled Claude-side collaboration contract aligned with the accepted Codex thinking values.",
       "exists": true,
-      "hash": "8be52fb5695e95ab711992f3415bcdb00550edc78d962856b563cc1b9fbec8ba"
+      "hash": "f73d513673a6fab24e65670c5c4433fef8cc3440c8437f7918a44e3bff6d6fd1"
     },
     {
       "path": "resources/codex-config/CODEX_AGENTS.md",
       "type": "codex-runtime-prompt",
       "scope": "confirmed",
-      "reason": "Keep the Codex bundled handoff terminal rule aligned with the Claude runtime asset.",
+      "reason": "Remove minimal from the bundled Codex-side collaboration contract.",
       "exists": true,
-      "hash": "a41f760766ec460e42d28ee72a85f91f981cdeea61a1f9ce43284a6d04de8605"
+      "hash": "bbae9f813bd379d92eda97d11fe8cd9213e1f7c122656d95bbb58d768abc971a"
     },
     {
-      "path": "src/main/agent-deck-mcp/tools/index.ts",
+      "path": "src/main/agent-deck-mcp/tools/schemas/spawn.ts",
       "type": "mcp-tool-description",
       "scope": "confirmed",
-      "reason": "Expose the same final-only invocation and terminal-success contract in hand_off_session metadata.",
+      "reason": "Describe the exact thinking values accepted by spawn_session after removing Codex minimal.",
       "exists": true,
-      "hash": "ab709225581193b8bc18687242125d6b548c9f53bca9d3ccf244e47a3787962f"
+      "hash": "e831963e412190cdd5e071d604638ac2fe0c7bbd7268759f91c7e2691fd7f62d"
+    },
+    {
+      "path": "src/main/agent-deck-mcp/tools/schemas/retired.ts",
+      "type": "mcp-tool-description",
+      "scope": "confirmed",
+      "reason": "Describe the exact thinking values accepted by hand_off_session after removing Codex minimal.",
+      "exists": true,
+      "hash": "8188d64b3c1e0d3c81720afa74c9f20cb0a4468e783196897a68a60731c063e2"
     }
   ]
 }

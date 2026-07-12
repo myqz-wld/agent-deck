@@ -58,6 +58,9 @@ describe('session model option normalization', () => {
     expect(() =>
       normalizeSessionModelOptions('claude-code', { thinking: 'ultra' }),
     ).toThrow(SessionModelOptionsError);
+    expect(() =>
+      normalizeSessionModelOptions('codex-cli', { thinking: 'minimal' }),
+    ).toThrow(SessionModelOptionsError);
   });
 });
 

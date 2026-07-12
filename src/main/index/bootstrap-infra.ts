@@ -306,9 +306,9 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   state.tokenUsageScheduler = new TokenUsageLifecycleScheduler();
   state.tokenUsageScheduler.start();
   setTokenUsageLifecycleScheduler(state.tokenUsageScheduler);
-  // v041 only creates empty targets and durable cursors. Backfill starts after a 15s grace and
-  // performs one adaptive slice per timer turn, so startup and normal event persistence never pay
-  // a monolithic FTS rebuild or snapshot compression pass.
+  // v041 only creates empty targets and durable cursors. A persistent SQLite worker takes over live
+  // PASSIVE checkpoints after its ready handshake, then starts adaptive backfill after a 15s grace.
+  // Codec work, maintenance writes, and their commit/checkpoint tails never execute on Electron main.
   state.storageMaintenanceScheduler = new StorageMaintenanceScheduler();
   state.storageMaintenanceScheduler.start();
   summarizer.start();

@@ -15,9 +15,11 @@
  * **R37 P1 Step 1.2 (G)**：codex 实例改用 `codex-instance-pool.getCodexInstance()` 应用全局
  * 共享，path 改 → pool 内部 path 比较自动失效。
  *
- * **当前隔离契约**：Codex 0.144 无法证明最终 model-visible built-in tool registry 为空，
- * 所以 periodic summary 在启动 turn 前复用 compact attestation 并 fail-closed。下方
- * read-only / empty cwd / empty MCP 配置保留为未来 provider 能完成 attestation 后的最低配置。
+ * **当前隔离契约**：Codex 0.144.1 仍无法证明最终 model-visible built-in tool registry
+ * 为空。周期 summary 与 Continuation Context checkpoint 经 user 明确接受该剩余风险后，
+ * 都允许在 empty cwd / read-only / no network / empty MCP + dynamic tools / disabled
+ * executable features 的外围硬化边界内运行；checkpoint 另有 structured schema、evidence、
+ * active-fact carry-forward、revision 与 CAS persistence 校验。
  *
  * spike-A3 实测：5 codex 并发 oneshot 复用 codex app-server 单例，总耗 10s + 单进程
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
@@ -32,8 +34,6 @@ import {
   cleanCompactResult,
   runCodexOneshot,
 } from '@main/session/oneshot-llm';
-import { codexCompactorIsolationAttestation } from '@main/session/continuation-context/codex-isolation';
-import { SummaryProviderCapabilityError } from '@main/session/summarizer/provider-capability-error';
 
 export function resolveCodexSummaryModel(configured: unknown): string | undefined {
   if (typeof configured !== 'string') return undefined;
@@ -64,15 +64,11 @@ export async function summariseCodexSessionViaOneshot(
   const activity = formatEvents(events);
   if (!activity && !evidenceContext) return null;
 
-  // Periodic summaries now include raw user intent. Codex 0.144 accepts the available hardening
-  // knobs but cannot attest the final model-visible built-in tool registry, so mirror the compact
-  // runtime's fail-closed policy. The scheduler records this diagnostic and emits a labeled local
-  // fallback instead of exposing evidence to an unproven runtime.
-  const attestation = codexCompactorIsolationAttestation();
-  if (!attestation.proven) {
-    throw new SummaryProviderCapabilityError('codex', attestation.reason);
-  }
-
+  // Codex 0.144.1 still cannot attest its final built-in tool registry. Periodic summaries use the
+  // explicitly accepted relaxed boundary implemented by runCodexOneshot: empty temporary cwd,
+  // read-only sandbox, no network/base config/MCP/dynamic tools/extra roots, and executable feature
+  // flags disabled. Continuation Context uses the same outer boundary plus its own structured
+  // schema, evidence, carry-forward, revision, and CAS persistence validation.
   const result = await runCodexOneshot({
     cwd,
     // prompt 与 claude summariseViaLlm 相同结构：提供冻结证据并生成紧凑多行总结。

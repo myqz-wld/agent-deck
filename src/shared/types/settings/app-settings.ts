@@ -99,16 +99,15 @@ export interface AppSettings {
    * 周期性 summarize 的 reasoning effort 档位(plan prancy-forging-penguin)。
    *
    * provider 对应档位：
-   * - Codex：`minimal | low | medium | high | xhigh | max | ultra`
+   * - Codex：`low | medium | high | xhigh | max | ultra`
    * - Claude / Deepseek（Claude Code SDK effort）：`low | medium | high | xhigh | max`
    *   （具体模型支持子集由 Claude Code 校准）
    *
-   * UI 切换 provider 时会把 Claude-family 不支持的 `minimal` / `ultra` 分别收口为
-   * `low` / `max`；main 端做同样的兼容收口并过滤其他非法值，避免脏配置透传给 SDK。
+   * UI 切换 provider 时会把 Claude-family 不支持的 `ultra` 收口为 `max`；main 端做同样
+   * 的兼容收口并过滤其他非法值，避免脏配置透传给 SDK。历史 `minimal` 设置迁移为 `low`。
    *
    * - default `'medium'`：在摘要稳定性与成本 / 延迟之间取平衡
    * - `'medium'/'high'/'xhigh'/'max'`: 用户需精度时升档(注意成本与延迟)
-   * - `'minimal'`: codex 最轻档,极短输出
    * - `'ultra'`: codex 最高档；Claude Code 不支持该 effort 名称
    */
   summaryReasoning: SessionThinkingLevel;
@@ -116,7 +115,7 @@ export interface AppSettings {
   continuationCheckpointProvider: ContinuationCheckpointProvider;
   /** 空字符串：Claude 用 Opus，Deepseek 用 Sonnet，Codex 用当前配置默认模型。 */
   continuationCheckpointModel: string;
-  /** 默认 high。Codex 支持完整七档；Claude/Deepseek 仅支持 low..max。 */
+  /** 默认 high。Codex 支持 low..ultra；Claude/Deepseek 仅支持 low..max。 */
   continuationCheckpointThinking: SessionThinkingLevel;
   /**
    * 续接上下文中保留历史 user input 的 token 上限。它不限制当前指令、检查点投影或

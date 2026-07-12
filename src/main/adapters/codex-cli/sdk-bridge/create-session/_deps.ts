@@ -60,7 +60,7 @@ export interface CreateSessionOpts {
   model?: string;
   /**
    * Codex app-server ThreadOptions.modelReasoningEffort passthrough for live spawned sessions.
-   * Supports `minimal` / `low` / `medium` / `high` / `xhigh` / `max` / `ultra`.
+   * Supports `low` / `medium` / `high` / `xhigh` / `max` / `ultra`.
    */
   modelReasoningEffort?: CodexThinkingLevel;
   /**

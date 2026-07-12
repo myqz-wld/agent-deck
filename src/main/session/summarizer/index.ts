@@ -42,7 +42,7 @@ export class Summarizer {
   private lastErrorBySession = new Map<string, { message: string; ts: number }>();
   /**
    * Permanent provider failures are process/build capabilities, not per-session failures. Retrying
-   * them for every eligible session only repeats the same fallback work and warning stack. A new
+   * them for every eligible session only repeats the same fallback work and capability log. A new
    * application build/restart constructs a fresh Summarizer and is the reset boundary.
    */
   private providerCapabilityFailures = new Map<
@@ -320,10 +320,7 @@ export class Summarizer {
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
     const provider = settingsStore.get('summaryProvider');
     const blockedProvider = this.providerCapabilityFailures.get(provider);
-    if (blockedProvider) {
-      // Keep the existing per-session diagnostic contract without repeating provider work/logs.
-      this.lastErrorBySession.set(sessionId, blockedProvider);
-    } else {
+    if (!blockedProvider) {
       try {
         const providerAgentId = providerToAdapterId(provider);
         const adapter = adapterRegistry.get(providerAgentId);
@@ -357,20 +354,15 @@ export class Summarizer {
         // OLD 不存在 → 不写 OLD lastErrorBySession 防孤儿(NEW 在 next scanAll 仍失败时会重 set,
         // trade-off: 单次失败 NEW 端诊断丢失,可接受)。
         if (isSummaryProviderCapabilityError(err)) {
-          const existing = this.providerCapabilityFailures.get(provider);
-          const diagnostic = existing ?? {
-            message: err.message,
-            ts: Date.now(),
-          };
-          if (!existing) {
-            this.providerCapabilityFailures.set(provider, diagnostic);
-            logger.warn(
+          if (!this.providerCapabilityFailures.has(provider)) {
+            this.providerCapabilityFailures.set(provider, {
+              message: err.message,
+              ts: Date.now(),
+            });
+            logger.info(
               `[summarizer] ${provider} provider capability unavailable; ` +
                 `using local fallback until application restart: ${err.message}`,
             );
-          }
-          if (sessionRepo.get(sessionId)) {
-            this.lastErrorBySession.set(sessionId, diagnostic);
           }
         } else if (!sessionRepo.get(sessionId)) {
           logger.warn(

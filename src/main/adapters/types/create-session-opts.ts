@@ -165,7 +165,7 @@ export interface CodexCreateOpts {
   model?: string;
   /**
    * Codex app-server ThreadOptions.modelReasoningEffort passthrough for per-session thinking
-   * complexity (`minimal` through `ultra`). Undefined lets a new session resolve the valid
+   * complexity (`low` through `ultra`). Undefined lets a new session resolve the valid
    * top-level Codex config value; resume keeps its persisted value instead of inheriting a changed
    * global default.
    */
