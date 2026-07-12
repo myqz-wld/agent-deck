@@ -318,6 +318,64 @@ describe('Codex app-server thread params', () => {
     expect(attempts).toBe(2);
   });
 
+  it('isolates three synchronized required-MCP readiness attempts and retries only the rejected client', async () => {
+    type ClientLabel = 'one' | 'two' | 'three';
+    const labels: ClientLabel[] = ['one', 'two', 'three'];
+    const requiredConfig = {
+      mcp_servers: {
+        'agent-deck': { url: 'http://127.0.0.1:47821/mcp', required: true },
+      },
+    };
+    const attempts = new Map<ClientLabel, number>();
+    let arrivals = 0;
+    let release!: () => void;
+    const synchronized = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    class SynchronizedClient extends CodexAppServerClient {
+      constructor(private readonly label: ClientLabel) {
+        super({ env: {}, config: requiredConfig });
+      }
+
+      override async request<T = unknown>(method: string, params: unknown): Promise<T> {
+        expect(method).toBe('thread/start');
+        expect(params).toMatchObject({
+          config: { mcp_servers: { 'agent-deck': { required: true } } },
+        });
+        const attempt = (attempts.get(this.label) ?? 0) + 1;
+        attempts.set(this.label, attempt);
+        if (attempt === 1) {
+          arrivals += 1;
+          if (arrivals === labels.length) release();
+          await synchronized;
+          if (this.label === 'two') {
+            throw new Error('required MCP server agent-deck failed to initialize');
+          }
+        }
+        return { thread: { id: `thread-${this.label}` } } as T;
+      }
+    }
+
+    const threads = labels.map((label) =>
+      new SynchronizedClient(label).startThread({
+        workingDirectory: '/repo',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'never',
+        skipGitRepoCheck: true,
+      }),
+    );
+    const first = await Promise.allSettled(threads.map((thread) => thread.ensureReady()));
+
+    expect(first[0]).toEqual({ status: 'fulfilled', value: 'thread-one' });
+    expect(first[1]).toEqual({ status: 'rejected', reason: expect.any(Error) });
+    expect(first[2]).toEqual({ status: 'fulfilled', value: 'thread-three' });
+    await expect(threads[1].ensureReady()).resolves.toBe('thread-two');
+    await expect(Promise.all([threads[0].ensureReady(), threads[2].ensureReady()])).resolves
+      .toEqual(['thread-one', 'thread-three']);
+    expect(labels.map((label) => attempts.get(label))).toEqual([1, 2, 1]);
+  });
+
   it('clears a live-process initialize rejection so the next request can retry', async () => {
     const client = new CodexAppServerClient({ env: {}, config: null });
     let attempts = 0;
