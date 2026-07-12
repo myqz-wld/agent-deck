@@ -2,6 +2,7 @@ import Store from 'electron-store';
 import { randomBytes } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
   MAX_CONTINUATION_RAW_RETENTION_TOKENS,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type AppSettings,
@@ -91,13 +92,13 @@ function migratedThinking(
   allowLegacyCoercion: boolean,
 ): AppSettings['continuationCheckpointThinking'] {
   if (provider === 'codex') {
-    return isCodexThinkingLevel(value) ? value : DEFAULT_SETTINGS.continuationCheckpointThinking;
+    return isCodexThinkingLevel(value) ? value : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
   }
   if (allowLegacyCoercion && value === 'minimal') return 'low';
   if (allowLegacyCoercion && value === 'ultra') return 'max';
   return isClaudeThinkingLevel(value)
     ? value
-    : DEFAULT_SETTINGS.continuationCheckpointThinking;
+    : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
 }
 
 /** Presence-aware one-time migration; persisted new keys always win over legacy values. */
@@ -211,7 +212,10 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
 
     store = new Store<AppSettings>({
       name: 'agent-deck-settings',
-      defaults: DEFAULT_SETTINGS,
+      // conf/electron-store may retain and mutate the object supplied as defaults when set() is
+      // called. Never hand it the exported process-wide constant: runtime fallback logic and tests
+      // must not inherit a user's most recent setting through an aliased defaults object.
+      defaults: structuredClone(DEFAULT_SETTINGS),
     }) as Store<AppSettings> & StoreApi<AppSettings>;
 
     // 清理已弃用字段（idempotent：再次启动时即便没有这些键也无副作用）
@@ -247,6 +251,25 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       delete: (k: string) => void;
     };
     migrateContinuationSettings(persistedRaw, looseStore);
+    // 2026-07-11 generator defaults: periodic summaries low → medium; continuation checkpoints
+    // medium → high. electron-store persists defaults as ordinary values, so exact old defaults
+    // need a one-time value uplift for existing installs. The sentinel prevents a later explicit
+    // user choice of low/medium from being rewritten again on restart.
+    const GENERATOR_DEFAULTS_20260711_SENTINEL = '__generatorDefaults20260711Done';
+    if (persistedRaw[GENERATOR_DEFAULTS_20260711_SENTINEL] !== true) {
+      if (persistedRaw['summaryReasoning'] === 'low') {
+        store.set('summaryReasoning', 'medium');
+        logger.info('[settings] migrated summaryReasoning low → medium (2026-07-11 default uplift)');
+      }
+      if (persistedRaw['continuationCheckpointThinking'] === 'medium') {
+        store.set('continuationCheckpointThinking', 'high');
+        logger.info(
+          '[settings] migrated continuationCheckpointThinking medium → high ' +
+            '(2026-07-11 default uplift)',
+        );
+      }
+      looseStore.set(GENERATOR_DEFAULTS_20260711_SENTINEL, true);
+    }
     const VALUE_UPLIFT_SENTINEL = '__valueUpliftMigrationDone';
     if (persistedRaw[VALUE_UPLIFT_SENTINEL] !== true) {
       if (persistedRaw['mcpMaxFanOutPerParent'] === 5) {

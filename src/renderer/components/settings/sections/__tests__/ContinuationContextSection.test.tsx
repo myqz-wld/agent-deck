@@ -54,18 +54,18 @@ describe('ContinuationContextSection', () => {
 
     expect(
       screen.getByText(
-        '检查点生成器独立于续接目标 adapter；model 留空时沿用所选 provider 的默认模型。',
+        '检查点生成器独立于续接目标 adapter；空模型分别使用 Claude Opus、Deepseek Sonnet 或 Codex 配置默认模型。',
       ),
     ).not.toBeNull();
     expect(
       screen.getByText(
-        'Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。',
+        '默认思考程度为 high。Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。',
       ),
     ).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: '续接检查点生成器 model' }) as HTMLInputElement)
         .placeholder,
-    ).toBe('留空使用 Codex 默认模型');
+    ).toBe('留空使用 Codex 配置默认模型');
 
     fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 思考程度' }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
@@ -86,6 +86,11 @@ describe('ContinuationContextSection', () => {
       expect(
         screen.getByRole('button', { name: '续接检查点生成器 思考程度' }).textContent,
       ).toContain('MAX');
+      expect(
+        (screen.getByRole('textbox', {
+          name: '续接检查点生成器 model',
+        }) as HTMLInputElement).placeholder,
+      ).toBe('留空使用 Claude Opus');
     });
     expect(onPatch).toHaveBeenCalledWith({
       continuationCheckpointProvider: 'claude',
@@ -100,6 +105,16 @@ describe('ContinuationContextSection', () => {
       'XHIGH',
       'MAX',
     ]);
+
+    fireEvent.click(screen.getByRole('button', { name: '续接检查点生成器 provider' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Deepseek' }));
+    await waitFor(() => {
+      expect(
+        (screen.getByRole('textbox', {
+          name: '续接检查点生成器 model',
+        }) as HTMLInputElement).placeholder,
+      ).toBe('留空使用 Deepseek Sonnet');
+    });
   });
 
   it('saves a trimmed model and clamps the token retention range', async () => {

@@ -10,7 +10,7 @@ import type { AgentEvent } from '@shared/types';
  * - file-changed 用 ts+filePath（MultiEdit 拆出多条同 filePath 也按 ts 区分）
  * - message / thinking 用 sessionId+kind+ts+payload 文本前 32 字符（REVIEW_4 M19）。
  *   旧版仅 `sessionId:kind:ts` 同毫秒同 kind（SDK 一帧吐多条 message + thinking 不少见）撞 key
- *   导致 React 复用错 row 的 useState（MD/TXT, ▾/▸）；payload.text 前 32 字符做 nonce 区分。
+ *   导致 React 复用错 row 的 useState（MD/TXT、展开状态）；payload.text 前 32 字符做 nonce 区分。
  * - 其余用 sessionId+kind+ts；同毫秒兜底极小概率冲突，无 payload 摘要可用，不会比 ts+idx 差
  */
 export function eventKey(e: AgentEvent): string {

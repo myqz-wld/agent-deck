@@ -7,6 +7,7 @@ import { toolInputToDiff } from '@renderer/components/pending-rows';
 import { describeToolInput } from '../describe';
 import { formatDisplayText, formatToolInput, formatToolResult, parseImageReadResult } from '../format';
 import { toolIcon } from '../tool-icons';
+import { ChevronDownIcon, ChevronRightIcon, ImageIcon } from '../../icons';
 
 /**
  * tool-use-start：内嵌 diff（Edit/Write/MultiEdit）/ ExitPlanMode 走特殊 plan 渲染路径
@@ -64,7 +65,7 @@ export function ToolStartRow({
           onKeyDown={handleInputHeaderKeyDown}
           className={`mb-1 flex min-w-0 items-center gap-1.5 text-[10px] ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
         >
-          {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
+          {hasInput && <span className="text-deck-muted/70">{inputOpen ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>}
           <span>{toolIcon('ExitPlanMode')}</span>
           <span className="font-mono">ExitPlanMode</span>
           <span className="text-deck-muted/80">收到一个执行计划</span>
@@ -83,7 +84,7 @@ export function ToolStartRow({
 
   // Task / Agent：spawn subagent 或执行 Codex collaboration 操作。
   // 单行摘要靠 describe.ts 的 Task case；prompt 全文较长（典型 review prompt 含 scope+focus+skip 上百行）
-  // → 默认折叠，点「展开 prompt」才显示。subagent 的返回值由后续 ToolEndRow 的 ▸/▾ 展开。
+  // → 默认折叠，点「展开 prompt」才显示。subagent 的返回值由后续 ToolEndRow 展开按钮控制。
   if (tool === 'Task' || tool === 'Agent') {
     const taskInput = (p.toolInput ?? {}) as {
       subagent_type?: unknown;
@@ -167,7 +168,7 @@ export function ToolStartRow({
           onKeyDown={handleInputHeaderKeyDown}
           className={`flex min-w-0 items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
         >
-          {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
+          {hasInput && <span className="text-deck-muted/70">{inputOpen ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>}
           <span>{toolIcon(tool)}</span>
           <span className="font-mono">{tool}</span>
           {subType && (
@@ -262,7 +263,7 @@ export function ToolStartRow({
               aria-expanded={taskPromptOpen}
               className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
-              {taskPromptOpen ? '收起指令' : '查看指令'}
+              {taskPromptOpen ? <ChevronDownIcon className="mr-0.5 inline h-3 w-3" /> : <ChevronRightIcon className="mr-0.5 inline h-3 w-3" />}{taskPromptOpen ? '收起指令' : '查看指令'}
             </button>
           )}
           <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
@@ -297,7 +298,7 @@ export function ToolStartRow({
         onKeyDown={handleInputHeaderKeyDown}
         className={`flex min-w-0 items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-deck-accent/60' : ''}`}
       >
-        {hasInput && <span className="text-deck-muted/70">{inputOpen ? '▾' : '▸'}</span>}
+        {hasInput && <span className="text-deck-muted/70">{inputOpen ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>}
         <span>{toolIcon(tool)}</span>
         <span className="min-w-0 truncate font-mono">{tool}</span>
         {detail && <span className="truncate text-[10px] text-deck-muted">· {detail}</span>}
@@ -308,7 +309,7 @@ export function ToolStartRow({
             aria-expanded={diffOpen}
             className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
           >
-            {diffOpen ? '收起改动' : '查看改动'}
+            {diffOpen ? <ChevronDownIcon className="mr-0.5 inline h-3 w-3" /> : <ChevronRightIcon className="mr-0.5 inline h-3 w-3" />}{diffOpen ? '收起改动' : '查看改动'}
           </button>
         )}
         <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
@@ -324,7 +325,7 @@ export function ToolStartRow({
 }
 
 /**
- * tool-use-end：result 折叠/展开（点击行头 ▸/▾）+ image-read 缩略图卡片走特殊渲染（缩略图 + 描述）。
+ * tool-use-end：result 折叠/展开（点击行头按钮）+ image-read 缩略图卡片走特殊渲染（缩略图 + 描述）。
  * 其他 image-* kinds 不需要在 ToolEndRow 显示 — 由 file-changed → ImageDiffRenderer 接管。
  *
  * `startEvent` 是同 toolUseId 的 tool-use-start 事件（由 ActivityFeed 反查传入）。
@@ -387,9 +388,9 @@ export function ToolEndRow({
         aria-expanded={open}
         className="flex min-w-0 w-full items-center gap-1.5 text-left"
       >
-        <span>{open ? '▾' : '▸'}</span>
+        <span>{open ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>
         <span className="min-w-0 truncate">
-          {imageRead ? '🖼 ImageRead' : `${toolIcon(tool)} ${tool}`}{' '}
+          {imageRead ? <><ImageIcon className="mr-1 inline h-3 w-3" />ImageRead</> : `${toolIcon(tool)} ${tool}`}{' '}
           {isFailed ? (
             <span className="text-status-error/90">失败</span>
           ) : (
@@ -429,7 +430,7 @@ export function ToolEndRow({
           </div>
         </div>
       )}
-      {/* REVIEW_52 B1：移除 disabled={!hasContent}，总是允许 ▸/▾ 展开。
+      {/* REVIEW_52 B1：移除 disabled={!hasContent}，总是允许展开。
          空结果展开（codex 无 stdout 命令 mkdir/cd / mcp_tool_call 返 [] / null）显示
          status / exitCode 元信息，避免「点不动 + 没解释」UX 卡住感。imageRead 由
          上面 mt-2 分支独立渲染，本块仅文本结果路径。*/}

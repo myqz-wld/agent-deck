@@ -2,6 +2,7 @@ import { lazy, Suspense, type JSX } from 'react';
 import type { DiffPayload } from '@shared/types';
 import { reconstructUnifiedDiffSnapshots } from '@shared/unified-diff';
 import { useDiffExpanded } from '../ExpandedContext';
+import { FileTextIcon } from '../../icons';
 
 // Monaco 体积大，懒加载
 const DiffEditor = lazy(async () => {
@@ -129,7 +130,7 @@ function DiffHeader({
 }): JSX.Element {
   return (
     <div className="flex items-center gap-2 text-[11px]">
-      <span className="text-deck-muted/70">📄</span>
+      <FileTextIcon className="h-3.5 w-3.5 text-deck-muted/70" />
       <span className="truncate font-mono text-[11px]">{filePath}</span>
       {isNewFile && (
         <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">

@@ -22,7 +22,7 @@ export function KeyboardShortcutsSection(): JSX.Element {
                 <code className="rounded bg-white/[0.04] px-1.5 py-0.5">{mod}+Alt+P</code>
               </td>
               <td className="py-1 text-deck-muted/80">
-                切换 <strong>置顶</strong>(等价 header 📌 按钮;独立于透明开关)
+                切换 <strong>置顶</strong>(等价顶栏置顶按钮;独立于透明开关)
               </td>
             </tr>
             <tr className="border-b border-deck-border/40">

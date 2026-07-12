@@ -5,6 +5,7 @@ import { PROVIDER_USAGE_RENDERER_STALE_MS } from '../hooks/use-startup-data-prel
 import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '@shared/types';
+import { RefreshIcon } from './icons';
 
 /**
  * 数据 tab：每模型每天 token 使用统计（plan model-token-stats-and-dashboard-20260602 §Phase 3 R5）。
@@ -144,7 +145,7 @@ export function DataPanel(): JSX.Element {
               disabled={usageLoading}
               className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-deck-muted transition hover:border-white/20 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-50"
             >
-              刷新
+              <RefreshIcon className="mr-1 inline h-3 w-3" />刷新
             </button>
           </div>
         </div>

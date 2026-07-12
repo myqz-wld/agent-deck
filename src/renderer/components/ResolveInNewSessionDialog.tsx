@@ -12,6 +12,7 @@
 import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import { CloseIcon, HandOffIcon } from './icons';
 import {
   SessionModelFields,
   type SessionThinkingChoice,
@@ -197,7 +198,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         <div className="flex items-center justify-between border-b border-deck-border px-4 py-2">
           <h2 className="text-sm font-medium text-deck-text">起新会话解决问题</h2>
           <button type="button" onClick={onClose} aria-label="关闭" className="text-deck-muted hover:text-deck-text">
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto scrollbar-deck px-4 py-3">
@@ -319,7 +320,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             disabled={busy || !adaptersReady}
             className="rounded bg-status-working/30 px-3 py-1 text-xs text-status-working hover:bg-status-working/50 disabled:opacity-50"
           >
-            {busy ? '正在起新会话…' : '起新会话'}
+            {!busy && <HandOffIcon className="mr-1 inline h-3 w-3" />}{busy ? '正在起新会话…' : '起新会话'}
           </button>
         </div>
       </div>

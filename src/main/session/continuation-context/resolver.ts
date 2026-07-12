@@ -8,6 +8,7 @@ import {
 } from '@shared/session-metadata';
 import {
   DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
+  DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
   MAX_CONTINUATION_RAW_RETENTION_TOKENS,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type PermissionMode,
@@ -43,22 +44,27 @@ function configuredGeneratorThinking(
   configured: unknown,
 ): SessionThinkingLevel {
   if (adapter === 'codex-cli') {
-    return isCodexThinkingLevel(configured) ? configured : 'medium';
+    return isCodexThinkingLevel(configured)
+      ? configured
+      : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
   }
-  return isClaudeThinkingLevel(configured) ? configured : 'medium';
+  return isClaudeThinkingLevel(configured)
+    ? configured
+    : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
 }
 
 function configuredGeneratorModel(adapter: SessionAdapterId, configured: unknown): string | null {
   const explicit = typeof configured === 'string' ? configured.trim() : '';
   if (explicit) return explicit;
-  if (adapter === 'codex-cli') return process.env.CODEX_HANDOFF_MODEL?.trim() || null;
+  // Leaving Codex unset delegates to its active config.toml model. Do not let a legacy hidden env
+  // override turn an intentionally blank setting into a second, invisible source of truth.
+  if (adapter === 'codex-cli') return null;
   if (adapter === 'deepseek-claude-code') {
     return getDeepseekModelForClaudeAlias('sonnet') ?? null;
   }
   return (
-    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim() ||
-    process.env.ANTHROPIC_MODEL?.trim() ||
-    'sonnet'
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?.trim() ||
+    'opus'
   );
 }
 

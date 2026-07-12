@@ -101,6 +101,7 @@ describe('createInitialBootstrapState', () => {
       issueScheduler: null,
       messageScheduler: null,
       tokenUsageScheduler: null,
+      storageMaintenanceScheduler: null,
       agentDeckMcpHttpShutdown: null,
       mainEventLoopMonitorStop: null,
     });

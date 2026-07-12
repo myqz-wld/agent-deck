@@ -17,6 +17,7 @@ import type { AgentAdapter, AdapterContext } from '../types';
 function makeStubAdapter(
   id: string,
   initBehavior: 'ok' | 'throw',
+  shutdownBehavior: 'ok' | 'throw' = 'ok',
 ): AgentAdapter {
   return {
     id,
@@ -25,7 +26,9 @@ function makeStubAdapter(
     init: vi.fn(async () => {
       if (initBehavior === 'throw') throw new Error(`${id} init boom`);
     }),
-    shutdown: vi.fn(async () => {}),
+    shutdown: vi.fn(async () => {
+      if (shutdownBehavior === 'throw') throw new Error(`${id} shutdown boom`);
+    }),
   };
 }
 
@@ -85,5 +88,25 @@ describe('AdapterRegistryClass.initAll per-adapter result (REVIEW_105 MED-2)', (
     expect(() => reg.register(makeStubAdapter('claude-code', 'ok'))).toThrow(
       /already registered/,
     );
+  });
+});
+
+describe('AdapterRegistryClass.shutdownAll per-adapter result', () => {
+  it('reports a failed drain while continuing to shut down the remaining adapters', async () => {
+    const reg = new AdapterRegistryClass();
+    const bad = makeStubAdapter('claude-code', 'ok', 'throw');
+    const good = makeStubAdapter('codex-cli', 'ok');
+    reg.register(bad);
+    reg.register(good);
+
+    const results = await reg.shutdownAll();
+
+    expect(results.find((result) => result.id === 'claude-code')).toMatchObject({ ok: false });
+    expect(results.find((result) => result.id === 'codex-cli')).toEqual({
+      id: 'codex-cli',
+      ok: true,
+    });
+    expect(bad.shutdown).toHaveBeenCalledTimes(1);
+    expect(good.shutdown).toHaveBeenCalledTimes(1);
   });
 });

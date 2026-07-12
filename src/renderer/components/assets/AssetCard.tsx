@@ -1,5 +1,6 @@
 import { type JSX } from 'react';
 import type { AssetMeta } from '@shared/types';
+import { EyeIcon, PencilIcon } from '../icons';
 
 /**
  * 资产库 Dialog 单条 AssetCard（plan assets-codex-user-and-ui-unify-20260521 §D6 简化:
@@ -33,7 +34,7 @@ export function AssetCard({
             title="查看完整内容"
             className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
           >
-            查看
+            <EyeIcon className="mr-1 inline h-3 w-3" />查看
           </button>
           {onEdit && (
             <button
@@ -42,7 +43,7 @@ export function AssetCard({
               title="编辑（删除入口在编辑器内）"
               className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
-              编辑
+              <PencilIcon className="mr-1 inline h-3 w-3" />编辑
             </button>
           )}
         </div>

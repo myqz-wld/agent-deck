@@ -1,6 +1,7 @@
 import { type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
 import { Section, Toggle, NumberInput } from '../controls';
+import { CopyIcon } from '../../icons';
 
 interface Props {
   settings: AppSettings;
@@ -154,7 +155,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             disabled={!settings.mcpServerToken}
             className="no-drag shrink-0 rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:opacity-40"
           >
-            复制
+            <CopyIcon className="mr-1 inline h-3 w-3" />复制
           </button>
         </div>
         <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">

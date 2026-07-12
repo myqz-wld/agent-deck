@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import log from '@renderer/utils/logger';
+import { CloseIcon, RefreshIcon } from '../../icons';
 
 const logger = log.scope('log-viewer');
 
@@ -139,7 +140,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
               disabled={loading}
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text disabled:opacity-50"
             >
-              {loading ? '加载中…' : '刷新'}
+              {loading ? '加载中…' : <><RefreshIcon className="mr-1 inline h-3 w-3" />刷新</>}
             </button>
             <button
               type="button"
@@ -147,7 +148,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
               aria-label="关闭日志查看"
               className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
             >
-              ✕
+              <CloseIcon className="h-3.5 w-3.5" />
             </button>
           </div>
         </header>

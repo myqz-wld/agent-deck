@@ -55,6 +55,7 @@ import {
   TokenUsageLifecycleScheduler,
   setTokenUsageLifecycleScheduler,
 } from '../store/token-usage-lifecycle-scheduler';
+import { StorageMaintenanceScheduler } from '../store/storage-maintenance';
 import { summarizer } from '../session/summarizer';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
@@ -305,6 +306,11 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   state.tokenUsageScheduler = new TokenUsageLifecycleScheduler();
   state.tokenUsageScheduler.start();
   setTokenUsageLifecycleScheduler(state.tokenUsageScheduler);
+  // v041 only creates empty targets and durable cursors. Backfill starts after a 15s grace and
+  // performs one adaptive slice per timer turn, so startup and normal event persistence never pay
+  // a monolithic FTS rebuild or snapshot compression pass.
+  state.storageMaintenanceScheduler = new StorageMaintenanceScheduler();
+  state.storageMaintenanceScheduler.start();
   summarizer.start();
 
   // 7.0 D1+D2:app ready 后清理历史 Codex AGENTS marker，并准备 app-owned skills extraRoot

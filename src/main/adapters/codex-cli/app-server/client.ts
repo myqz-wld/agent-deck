@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { performance } from 'node:perf_hooks';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import {
   prependResolvedCodexPathDirs,
@@ -7,6 +8,10 @@ import {
 } from '../sdk-bridge/codex-binary';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import { formatRpcError } from './notification-helpers';
+import {
+  AgentDeckMcpStartupObserver,
+  sanitizeMcpDiagnostic,
+} from './mcp-startup-observer';
 import type {
   CodexAppServerNotification,
   CodexAppServerOptions,
@@ -49,9 +54,9 @@ export class CodexAppServerClient {
   private pending = new Map<number | string, PendingRequest>();
   private notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
   private initializePromise: Promise<void> | null = null;
-  private lastStderr = '';
   private closed = false;
   private processGeneration = 0;
+  private readonly mcpStartupObserver = new AgentDeckMcpStartupObserver();
 
   constructor(private readonly opts: CodexAppServerOptions) {}
 
@@ -122,7 +127,25 @@ export class CodexAppServerClient {
 
   async request<T = unknown>(method: string, params: unknown): Promise<T> {
     await this.ensureInitialized();
-    return this.requestRaw<T>(method, params);
+    if (!isThreadBoundaryMethod(method)) return this.requestRaw<T>(method, params);
+    const started = performance.now();
+    const thread = readRequestThreadId(params);
+    try {
+      const response = await this.requestRaw<T>(method, params);
+      logger.info(
+        `[codex-app-server] ${method} ready ` +
+          `(thread=${thread}, durationMs=${Math.round(performance.now() - started)})`,
+      );
+      return response;
+    } catch (err) {
+      const diagnostic = sanitizeMcpDiagnostic(err) ?? 'unknown error';
+      logger.warn(
+        `[codex-app-server] ${method} failed before thread readiness ` +
+          `(thread=${thread}, durationMs=${Math.round(performance.now() - started)}, ` +
+          `error=${diagnostic})`,
+      );
+      throw err;
+    }
   }
 
   subscribe(listener: (notification: CodexAppServerNotification) => void): Unsubscribe {
@@ -142,7 +165,7 @@ export class CodexAppServerClient {
 
   private async ensureInitialized(): Promise<void> {
     if (this.initializePromise) return this.initializePromise;
-    this.initializePromise = (async () => {
+    const attempt = (async () => {
       await this.requestRaw('initialize', {
         clientInfo: {
           name: 'agent-deck',
@@ -164,7 +187,17 @@ export class CodexAppServerClient {
         }
       }
     })();
-    return this.initializePromise;
+    this.initializePromise = attempt;
+    try {
+      await attempt;
+    } catch (err) {
+      if (this.initializePromise === attempt) this.initializePromise = null;
+      logger.warn(
+        '[codex-app-server] initialize failed; next request will retry ' +
+          `(error=${sanitizeMcpDiagnostic(err) ?? 'unknown error'})`,
+      );
+      throw err;
+    }
   }
 
   private ensureProcess(): ChildProcessWithoutNullStreams {
@@ -183,19 +216,23 @@ export class CodexAppServerClient {
       stdio: 'pipe',
     });
     this.child = child;
+    let lastStderr = '';
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
-      this.lastStderr = `${this.lastStderr}${chunk}`.slice(-8000);
+      lastStderr = `${lastStderr}${chunk}`.slice(-8000);
       logger.debug(`[codex-app-server] stderr: ${chunk.trimEnd()}`);
     });
 
     const rl = createInterface({ input: child.stdout });
     rl.on('line', (line) => this.handleLine(line));
-    child.on('error', (err) => this.handleExit(err));
+    child.on('error', (err) => this.handleExit(child, err));
     child.on('exit', (code, signal) => {
-      const suffix = this.lastStderr ? `: ${this.lastStderr.trim()}` : '';
-      this.handleExit(new Error(`Codex app-server exited code=${code} signal=${signal}${suffix}`));
+      const suffix = lastStderr ? `: ${lastStderr.trim()}` : '';
+      this.handleExit(
+        child,
+        new Error(`Codex app-server exited code=${code} signal=${signal}${suffix}`),
+      );
     });
 
     return child;
@@ -271,6 +308,9 @@ export class CodexAppServerClient {
   }
 
   private dispatchNotification(notification: CodexAppServerNotification): void {
+    const mcpStartup = this.mcpStartupObserver.observe(notification);
+    if (mcpStartup?.level === 'warn') logger.warn(mcpStartup.message);
+    else if (mcpStartup) logger.info(mcpStartup.message);
     for (const listener of [...this.notificationListeners]) {
       try {
         listener(notification);
@@ -280,11 +320,14 @@ export class CodexAppServerClient {
     }
   }
 
-  private handleExit(err: Error): void {
-    if (this.closed && this.pending.size === 0) return;
+  private handleExit(exitedChild: ChildProcessWithoutNullStreams, err: Error): void {
+    // `error` is normally followed by `exit`; an old child's late exit may also arrive after a
+    // replacement process was spawned. Only the currently-owned child may clear state/reject RPCs.
+    if (this.child !== exitedChild) return;
     this.child = null;
     this.initializePromise = null;
     this.processGeneration++;
+    this.mcpStartupObserver.reset();
     this.rejectAll(err);
     this.dispatchNotification({
       method: 'error',
@@ -305,6 +348,16 @@ export class CodexAppServerClient {
     }
     this.pending.clear();
   }
+}
+
+function isThreadBoundaryMethod(method: string): boolean {
+  return method === 'thread/start' || method === 'thread/resume' || method === 'thread/fork';
+}
+
+function readRequestThreadId(params: unknown): string {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return 'new';
+  const threadId = (params as Record<string, unknown>).threadId;
+  return typeof threadId === 'string' ? threadId : 'new';
 }
 
 export const __testables = {

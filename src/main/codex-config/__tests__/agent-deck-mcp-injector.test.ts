@@ -84,6 +84,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
           url: 'http://127.0.0.1:47821/mcp',
           bearer_token_env_var: AGENT_DECK_MCP_TOKEN_ENV,
           tool_timeout_sec: 1800,
+          required: true,
         },
       },
     });
@@ -100,6 +101,7 @@ describe('buildAgentDeckMcpConfigForCodex', () => {
           url: 'http://127.0.0.1:47821/mcp',
           bearer_token_env_var: AGENT_DECK_MCP_TOKEN_ENV,
           tool_timeout_sec: 0,
+          required: true,
         },
       },
     });

@@ -48,6 +48,7 @@ import v037 from '../../migrations/v037_event_revisions.sql?raw';
 import v038 from '../../migrations/v038_continuation_checkpoints.sql?raw';
 import v039 from '../../migrations/v039_sessions_pinned.sql?raw';
 import v040 from '../../migrations/v040_summary_revision_metadata.sql?raw';
+import v041 from '../../migrations/v041_storage_maintenance_staging.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
@@ -100,6 +101,7 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
     v038,
     v039,
     v040,
+    v041,
   ]) {
     db.exec(sql);
   }

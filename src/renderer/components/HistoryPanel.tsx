@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { StatusBadge } from './StatusBadge';
 import { lifecycleLabel, agentIdLabel } from './TeamDetail/helpers';
+import { ArchiveIcon, RefreshIcon, TrashIcon } from './icons';
 
 interface Filters {
   agentId?: string;
@@ -18,9 +19,8 @@ interface Props {
 
 /**
  * 关键字输入到查询触发的延迟（毫秒）。
- * 避免用户每敲一个字就触发一次 SQL 查询：events.payload_json 上的 LIKE %kw% 是
- * 全表扫描 + 全文字符串匹配，几千条事件后每次输入都会卡 200~500ms。
- * 后端 session-repo 也额外加了"短关键词只搜 title"的过滤兜底。
+ * 避免用户每敲一个字就触发一次 SQL 查询。后端三字符以上走 trigram FTS，短关键词只查
+ * sessions 的标题 / 目录；两种路径都不需要扫描 events.payload_json。
  */
 const KEYWORD_DEBOUNCE_MS = 300;
 
@@ -132,6 +132,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
           <input
             type="text"
             placeholder="搜索会话(目录 / 标题 / 事件 / 总结)…"
+            title="长工具输出仅搜索开头和结尾各 2,048 个字符"
             className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
             value={keywordInput}
             onChange={(e) => setKeywordInput(e.target.value)}
@@ -147,9 +148,12 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                 : 'bg-white/[0.03] text-deck-muted hover:bg-white/[0.06]'
             }`}
           >
-            仅归档
+            <ArchiveIcon className="mr-1 inline h-3 w-3" />仅归档
           </button>
         </div>
+        <p className="text-[9px] text-deck-muted/60">
+          长工具输出仅搜索开头和结尾各 2,048 个字符。
+        </p>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
         {loading ? (
@@ -210,7 +214,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                           void unarchive(s.id);
                         }}
                       >
-                        取消归档
+                        <RefreshIcon className="mr-1 inline h-3 w-3" />取消归档
                       </button>
                     ) : (
                       <button
@@ -221,7 +225,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                           void archive(s.id);
                         }}
                       >
-                        归档
+                        <ArchiveIcon className="mr-1 inline h-3 w-3" />归档
                       </button>
                     )}
                     <button
@@ -232,7 +236,7 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                         void remove(s.id);
                       }}
                     >
-                      删除
+                      <TrashIcon className="mr-1 inline h-3 w-3" />删除
                     </button>
                   </span>
                 </div>

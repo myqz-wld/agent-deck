@@ -9,9 +9,11 @@
 
 import type { PermissionMode, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
-import { buildKeywordPredicate } from '../search-predicate';
+import {
+  buildKeywordPredicate,
+  shouldIncludeLegacyEventIndex,
+} from '../search-predicate';
 import { rowToRecord, type Row } from './types';
-
 export function upsert(rec: SessionRecord): void {
   // 注意：permission_mode 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
   // 与 SQL 字段集错位 —— 复活 closed 会话用 `{...existing, lifecycle:'active'}`
@@ -247,6 +249,7 @@ export function listHistory(
   const rawOffset = opts.offset ?? 0;
   const limit = Math.min(Math.max(Math.trunc(rawLimit), 1), 500);
   const offset = Math.max(Math.trunc(rawOffset), 0);
+  const db = getDb();
   const conditions: string[] = [];
   const params: Record<string, unknown> = { limit, offset };
 
@@ -285,16 +288,20 @@ export function listHistory(
   }
   if (opts.keyword) {
     // 关键词谓词由 search-predicate.ts/buildKeywordPredicate 构造，详见该文件注释。
-    // < 3 字符走 title LIKE-only（trigram tokenizer 需要 ≥ 3 gram）；
-    // ≥ 3 字符走 title LIKE OR events_fts MATCH OR summaries_fts MATCH，
+    // < 3 字符走 title / cwd LIKE（trigram tokenizer 需要 ≥ 3 gram）；
+    // ≥ 3 字符走 title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH，
     // FTS5 + trigram 索引 substring 友好，远快于历史的 events.payload_json LIKE 全表扫。
-    const pred = buildKeywordPredicate(opts.keyword);
+    // 旧索引退休前双读保 rollback 覆盖；phase=complete 后必须移除空 legacy UNION。生产副本
+    // common-term 实测空 UNION 仍额外消耗 6-8ms，并把 p50 推过 50ms。
+    const pred = buildKeywordPredicate(opts.keyword, {
+      includeLegacyEventIndex: shouldIncludeLegacyEventIndex(db),
+    });
     conditions.push(pred.sql);
     Object.assign(params, pred.params);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const sql = `SELECT * FROM sessions ${where} ORDER BY last_event_at DESC LIMIT @limit OFFSET @offset`;
-  const rows = getDb().prepare(sql).all(params) as Row[];
+  const rows = db.prepare(sql).all(params) as Row[];
   return rows.map(rowToRecord);
 }
 

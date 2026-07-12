@@ -66,6 +66,10 @@ vi.mock('@main/store/session-repo', () => ({
   }),
 }));
 
+vi.mock('@main/store/event-repo', () => ({
+  eventRepo: { hasExactUserMessage: vi.fn(() => false) },
+}));
+
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
     claimAsSdk: vi.fn(),
@@ -80,6 +84,7 @@ vi.mock('@main/session/manager', () => ({
 }));
 
 import { sessionRepo } from '@main/store/session-repo';
+import { eventRepo } from '@main/store/event-repo';
 import { sessionManager } from '@main/session/manager';
 import { emits, makeBridge } from './sdk-bridge/_setup';
 
@@ -92,6 +97,8 @@ beforeEach(() => {
   // REVIEW_99 R3 cancellation-epoch: reset getCloseEpoch 默认返 0(不 close → 合法 resume 不误 abort)
   vi.mocked(sessionManager.getCloseEpoch).mockReset();
   vi.mocked(sessionManager.getCloseEpoch).mockReturnValue(0);
+  vi.mocked(eventRepo.hasExactUserMessage).mockReset();
+  vi.mocked(eventRepo.hasExactUserMessage).mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -229,6 +236,40 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     );
     expect(errorMsgs).toHaveLength(1);
     expect(errorMsgs[0].sessionId).toBe('sess-3');
+  });
+
+  it('同一 universal message 恢复重投不重复 user/placeholder/error 气泡', async () => {
+    const bridge = makeBridge();
+    bridge.createBehavior = 'reject';
+    bridge.rejectWith = new Error('required MCP failed');
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-retry',
+      agentId: 'codex-cli',
+      cwd: '/tmp/retry',
+      title: 'retry',
+      source: 'sdk',
+      lifecycle: 'dormant',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+    });
+    const wire = '[from lead @ codex-cli][msg 11111111-1111-1111-1111-111111111111]' +
+      '[sid 22222222-2222-2222-2222-222222222222]\nfinish the audit';
+
+    vi.mocked(eventRepo.hasExactUserMessage).mockReturnValueOnce(false).mockReturnValueOnce(true);
+    await expect(bridge.sendMessage('sess-retry', wire)).rejects.toThrow(/required MCP/);
+    await expect(bridge.sendMessage('sess-retry', wire)).rejects.toThrow(/required MCP/);
+
+    expect(emits.filter((event) =>
+      event.kind === 'message' && (event.payload as { role?: string }).role === 'user'
+    )).toHaveLength(1);
+    expect(emits.filter((event) =>
+      ((event.payload as { text?: string }).text ?? '').includes('正在自动恢复')
+    )).toHaveLength(1);
+    expect(emits.filter((event) => (event.payload as { error?: boolean }).error)).toHaveLength(1);
+    expect(bridge.createCalls).toHaveLength(2);
   });
 
   it('jsonl 不存在 → fallback 走不带 resume 的 createSession + emit jsonl missing info（MED-E + CHANGELOG_28 同款）', async () => {

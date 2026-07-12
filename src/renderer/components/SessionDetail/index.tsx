@@ -13,6 +13,7 @@ import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
 import { SessionMetadataChips } from '../SessionMetadataChips';
 import { SessionPinButton } from '../SessionPinButton';
+import { ArrowLeftIcon, CloseIcon } from '../icons';
 import {
   EMPTY_ASK_QUESTIONS,
   EMPTY_EXIT_PLAN_MODES,
@@ -339,8 +340,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
             onClick={onClose}
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
             title="返回列表"
+            aria-label="返回列表"
           >
-            ←
+            <ArrowLeftIcon className="h-3.5 w-3.5" />
           </button>
         </div>
       </header>
@@ -364,7 +366,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
                   className="text-deck-muted/60 hover:text-deck-text"
                   aria-label="关闭"
                 >
-                  ✕
+                  <CloseIcon className="h-3.5 w-3.5" />
                 </button>
               </div>
             ))}

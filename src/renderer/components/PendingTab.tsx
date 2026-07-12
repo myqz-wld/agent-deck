@@ -5,6 +5,7 @@ import { selectPendingBuckets, type PendingBucket } from '@renderer/lib/session-
 import { deriveTeamRole } from '@renderer/lib/derive-team-role';
 import { StatusBadge } from './StatusBadge';
 import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from './pending-rows';
+import { CheckIcon, ChevronRightIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIcon } from './icons';
 
 /**
  * 集中「待处理」面板。把所有有未响应请求的会话按 section 平铺，用户在此一屏完成
@@ -203,7 +204,7 @@ function PendingSection({
                 className="max-w-[6rem] shrink-0 truncate rounded bg-purple-500/20 px-1 py-0.5 text-[9px] font-medium text-purple-300"
                 title={teamHoverTitle}
               >
-                🛡 {displayTeamName}
+                <ShieldIcon className="mr-0.5 inline h-3 w-3" />{displayTeamName}
                 {teamCount > 1 && <span className="ml-0.5 text-purple-300/70">+{teamCount - 1}</span>}
               </span>
             )}
@@ -212,7 +213,7 @@ function PendingSection({
                 className="shrink-0 rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200"
                 title={`本会话在团队「${displayTeamName}」中是负责人`}
               >
-                👑 负责人
+                <CrownIcon className="mr-0.5 inline h-3 w-3" />负责人
               </span>
             )}
             {teamRole === 'teammate' && (
@@ -220,7 +221,7 @@ function PendingSection({
                 className="shrink-0 rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85"
                 title={`本会话在团队「${displayTeamName}」中是协作者`}
               >
-                ↳ 协作者
+                <UsersIcon className="mr-0.5 inline h-3 w-3" />协作者
               </span>
             )}
             <span className="shrink-0 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] font-medium text-status-waiting">
@@ -237,7 +238,7 @@ function PendingSection({
                 title={batchTooltip}
                 className="rounded bg-status-working/30 px-2 py-0.5 text-[10px] text-status-working transition hover:bg-status-working/40 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                全部允许
+                <CheckIcon className="mr-1 inline h-3 w-3" />全部允许
               </button>
               <button
                 type="button"
@@ -246,13 +247,13 @@ function PendingSection({
                 title={batchTooltip}
                 className="rounded bg-status-waiting/30 px-2 py-0.5 text-[10px] text-status-waiting transition hover:bg-status-waiting/40 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                全部拒绝
+                <CloseIcon className="mr-1 inline h-3 w-3" />全部拒绝
               </button>
               <span
                 className="ml-0.5 select-none text-[12px] leading-none text-deck-muted/60"
                 aria-hidden
               >
-                ›
+                <ChevronRightIcon className="h-3.5 w-3.5" />
               </span>
             </div>
           </div>

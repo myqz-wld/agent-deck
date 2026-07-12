@@ -1,4 +1,5 @@
 import { useEffect, useState, type JSX } from 'react';
+import { RefreshIcon, SaveIcon, TrashIcon } from '../icons';
 
 /**
  * 编辑「注入到 SDK system prompt 末尾」的 agent-deck CLAUDE.md。
@@ -126,7 +127,7 @@ export function ClaudeMdEditor({ onDirtyChange }: ClaudeMdEditorProps): JSX.Elem
               disabled={busy}
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text disabled:opacity-50"
             >
-              撤销
+              <RefreshIcon className="mr-1 inline h-3 w-3" />撤销
             </button>
           )}
           {loaded?.isCustom && (
@@ -137,7 +138,7 @@ export function ClaudeMdEditor({ onDirtyChange }: ClaudeMdEditorProps): JSX.Elem
               title="删除用户副本，回落到应用内置 CLAUDE.md"
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20 disabled:opacity-50"
             >
-              恢复默认
+              <TrashIcon className="mr-1 inline h-3 w-3" />恢复默认
             </button>
           )}
           <button
@@ -146,7 +147,7 @@ export function ClaudeMdEditor({ onDirtyChange }: ClaudeMdEditorProps): JSX.Elem
             disabled={busy || !dirty}
             className="rounded bg-status-working/20 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/30 disabled:opacity-40"
           >
-            保存
+            <SaveIcon className="mr-1 inline h-3 w-3" />保存
           </button>
         </div>
       </div>

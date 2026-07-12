@@ -63,7 +63,10 @@ export function ensureCodexClient({
   const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, hookServer ?? null);
   const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
   if (agentDeckMcpConfig) {
-    logger.info(`[codex-bridge] agent-deck MCP server config injected (HTTP transport, sid=${sessionId})`);
+    logger.info(
+      `[codex-bridge] agent-deck MCP server configured as required ` +
+        `(HTTP transport, sid=${sessionId})`,
+    );
   }
 
   // Supplying env replaces SDK inheritance, so preserve the process snapshot before adding the

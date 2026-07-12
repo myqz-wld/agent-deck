@@ -1,6 +1,7 @@
 import { useRef, useState, type JSX, type MouseEvent } from 'react';
 import type { SessionRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
+import { PushpinIcon } from './icons';
 
 const logger = log.scope('renderer-session-pin-button');
 
@@ -49,7 +50,7 @@ export function SessionPinButton({ session }: Props): JSX.Element {
           : 'text-deck-muted/70 hover:bg-white/10 hover:text-deck-text'
       } ${busy ? 'cursor-wait opacity-50' : ''}`}
     >
-      <span aria-hidden="true">{pinned ? '📌' : '📍'}</span>
+      <PushpinIcon filled={pinned} className="h-3.5 w-3.5" />
     </button>
   );
 }

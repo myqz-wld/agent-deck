@@ -228,6 +228,17 @@ export const eventRepo = {
     return r.c;
   },
 
+  /** Idempotency seam for retrying one universal-message delivery after SDK recovery failed. */
+  hasExactUserMessage(sessionId: string, text: string): boolean {
+    return getDb().prepare(
+      `SELECT 1 FROM events
+        WHERE session_id = ? AND kind = 'message' AND json_valid(payload_json)
+          AND json_extract(payload_json, '$.role') = 'user'
+          AND json_extract(payload_json, '$.text') = ?
+        LIMIT 1`,
+    ).get(sessionId, text) !== undefined;
+  },
+
   /**
    * plan team-cohesion-fix-20260513 Phase C：按 teamId 拉 team 内所有 active 成员的最近 events，
    * 跨 adapter 聚合（claude-code / codex-cli）。TeamDetail 事件流 section 用。

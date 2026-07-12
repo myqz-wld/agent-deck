@@ -6,19 +6,16 @@
  * 测试三件事:
  * 1. `runCodexOneshot(opts.model)` 透传到 app-server `startThread({ model })` 参数
  * 2. `opts.model` 边界 case (undefined / '' / '   ' / 'gpt-x') 的 trim+skip 行为
- * 3. summarizer-runner caller 走 configured model > env > undefined
- *    优先级链
+ * 3. summarizer-runner 空 model 保持 undefined，直接回退到 Codex config.toml
  *
  * Mock 策略 (与 `sdk-bridge.early-err-cleanup.test.ts` 同款):
  * - mock `@main/adapters/codex-cli/codex-instance-pool.getCodexInstance` 返 fake Codex
  *   instance,startThread 捕获 ThreadOptions 参数后返 fake Thread (run 立即 resolve)
- * - mock `@main/store/settings-store.settingsStore` 控 codexSummaryModel / codexHandOffModel
- * - mock `process.env.CODEX_SUMMARY_MODEL` / `CODEX_HANDOFF_MODEL` 控 env 层
  *
- * 不变量验证 (从 R2 reviewer-codex MED-2 修法建议):
+ * 不变量验证（从 R2 reviewer-codex MED-2 修法建议）：
  * - settings 非空 → ThreadOptions.model = settings 值
- * - settings 空 + env 非空 → ThreadOptions.model = env 值
- * - settings 空 + env 空 → ThreadOptions 不含 model 字段 (fallback config.toml)
+ * - settings 空 → ThreadOptions 不含 model 字段（fallback config.toml）
+ * - 历史 `CODEX_SUMMARY_MODEL` env 不能偷偷覆盖空 settings
  * - 全空格字符串 → trim 后视为空 → 不 spread
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,6 +71,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('runCodexOneshot model spread to ThreadOptions', () => {
@@ -208,6 +206,24 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
 });
 
 describe('Codex summary runner reasoning settings', () => {
+  it('keeps a blank model unset despite a legacy summary environment override', async () => {
+    vi.stubEnv('CODEX_SUMMARY_MODEL', 'hidden-codex-model');
+    const { resolveCodexSummaryModel } = await import('../summarizer-runner');
+
+    expect(resolveCodexSummaryModel(undefined)).toBeUndefined();
+    expect(resolveCodexSummaryModel('')).toBeUndefined();
+    expect(resolveCodexSummaryModel('   ')).toBeUndefined();
+    expect(resolveCodexSummaryModel('  gpt-explicit  ')).toBe('gpt-explicit');
+  });
+
+  it.each([undefined, '', 'invalid'])(
+    'falls back from summary effort %j to medium',
+    async (value) => {
+      const { resolveCodexSummaryReasoning } = await import('../summarizer-runner');
+      expect(resolveCodexSummaryReasoning(value)).toBe('medium');
+    },
+  );
+
   it('fails closed before starting a periodic-summary turn when tool isolation is unproven', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
     const previous = settingsStore.get('summaryReasoning');
@@ -228,7 +244,6 @@ describe('Codex summary runner reasoning settings', () => {
       settingsStore.set('summaryReasoning', previous);
     }
   });
-
 });
 
 describe('runCodexOneshot timeout abort (REVIEW_82 MED — codex 子进程取消 parity)', () => {

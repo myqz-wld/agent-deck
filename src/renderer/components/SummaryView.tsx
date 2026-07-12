@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { SummaryRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
+import { ChevronDownIcon, ChevronUpIcon } from './icons';
 
 interface Props {
   sessionId: string;
@@ -56,6 +57,7 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
           onClick={() => setExpanded((v) => !v)}
           className="self-start text-[10px] text-deck-muted hover:text-deck-text"
         >
+          {expanded ? <ChevronUpIcon className="mr-1 inline h-3 w-3" /> : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}
           {expanded ? '收起历史' : `展开 ${rest.length} 条历史`}
         </button>
       )}

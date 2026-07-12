@@ -2,6 +2,7 @@ import { useState, type JSX, type ReactNode } from 'react';
 import type { DiffPayload, ImageSource } from '@shared/types';
 import { useDiffSessionId } from '../SessionContext';
 import { ImageBlobLoader } from './ImageBlobLoader';
+import { ImageIcon } from '../../icons';
 
 interface Props {
   payload: DiffPayload<ImageSource | null>;
@@ -35,7 +36,7 @@ export function ImageDiffRenderer({ payload }: Props): JSX.Element {
   return (
     <div className="flex h-full flex-col gap-1.5">
       <div className="flex items-center gap-2 text-[11px]">
-        <span className="text-deck-muted/70">🖼</span>
+        <ImageIcon className="h-3.5 w-3.5 text-deck-muted/70" />
         <span className="truncate font-mono text-[11px]">{payload.filePath}</span>
         {isWrite && (
           <span className="rounded bg-status-working/20 px-1.5 py-0.5 text-[9px] text-status-working">

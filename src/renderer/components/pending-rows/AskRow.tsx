@@ -4,6 +4,7 @@ import type {
   AskUserQuestionItem,
   AskUserQuestionRequest,
 } from '@shared/types';
+import { CheckboxIcon } from '../icons';
 
 type AskDraft = { selected: string[]; other?: string; note?: string };
 
@@ -143,6 +144,7 @@ export function AskRow({
                       key={opt.label}
                       type="button"
                       disabled={!isSdk || !stillPending || busy}
+                      aria-pressed={isSel}
                       onClick={() => toggle(q, opt.label)}
                       title={opt.description}
                       className={`max-w-full break-words rounded border px-2 py-0.5 text-[10px] disabled:opacity-50 ${
@@ -151,7 +153,7 @@ export function AskRow({
                           : 'border-deck-border bg-white/[0.04] text-deck-muted hover:bg-white/[0.08]'
                       }`}
                     >
-                      {q.multiSelect && <span className="mr-1">{isSel ? '☑' : '☐'}</span>}
+                      {q.multiSelect && <CheckboxIcon checked={isSel} className="mr-1 inline h-3 w-3" />}
                       {opt.label}
                     </button>
                   );

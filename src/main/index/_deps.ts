@@ -16,6 +16,7 @@ import type { TeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import type { IssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import type { MessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
 import type { TokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
+import type { StorageMaintenanceScheduler } from '../store/storage-maintenance';
 import type { EventMap } from '../event-bus';
 
 /**
@@ -39,6 +40,8 @@ export interface BootstrapState {
   messageScheduler: MessageLifecycleScheduler | null;
   /** fixed 365d token_usage retention GC scheduler */
   tokenUsageScheduler: TokenUsageLifecycleScheduler | null;
+  /** Resumable, post-startup FTS/snapshot compaction slices. */
+  storageMaintenanceScheduler: StorageMaintenanceScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
   /** Stops the main-process event-loop drift monitor during orderly shutdown. */
   mainEventLoopMonitorStop: (() => void) | null;
@@ -53,6 +56,7 @@ export function createInitialBootstrapState(): BootstrapState {
     issueScheduler: null,
     messageScheduler: null,
     tokenUsageScheduler: null,
+    storageMaintenanceScheduler: null,
     agentDeckMcpHttpShutdown: null,
     mainEventLoopMonitorStop: null,
   };

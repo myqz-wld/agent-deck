@@ -3,7 +3,7 @@ import type { SessionRecord } from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import log from '@renderer/utils/logger';
-import { ImageIcon } from './composer-sdk/ImageIcon';
+import { CloseIcon, HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
 import {
@@ -32,7 +32,7 @@ const logger = log.scope('renderer-composer-sdk');
  *   保留 base64 ref 让「乐观清空」语义混乱，多数失败是真错而非 race
  *
  * **CHANGELOG_105 拆分**：原 512 LOC 单文件按档位 1 抽 3 个 sub-component:
- * - `composer-sdk/ImageIcon.tsx`        inline SVG icon
+ * - `../icons/`                         shared source-owned SVG chrome
  * - `composer-sdk/ErrorBanner.tsx`      通用错误条（5 处复用）
  * - `composer-sdk/SandboxSelects.tsx`   通用 SelectRow + permission/codex/claude 三组 options
  */
@@ -363,7 +363,7 @@ export function ComposerSdk({
       />
       {/* 下方工具栏：左 = 上传图片 + 缩略图，右 = 中断 / 发送。
           替代了原「右侧三按钮纵向堆叠」+「单独 attachments strip」，让附件操作分组、
-          发送/中断作为主操作右对齐。emoji 图标换成 inline SVG 避免基线对不齐。 */}
+          发送/中断作为主操作右对齐。所有图标复用 renderer SVG chrome。 */}
       <div className="mt-1.5 flex items-center gap-1.5">
         {/* REVIEW_35 HIGH-D2：仅允许附件入口时才显示图片按钮 */}
         {canUseAttachments && (
@@ -408,7 +408,7 @@ export function ComposerSdk({
                   aria-label="移除附件"
                   title="移除"
                 >
-                  ✕
+                  <CloseIcon className="h-2.5 w-2.5" />
                 </button>
               </div>
             ))}
@@ -422,7 +422,7 @@ export function ComposerSdk({
             className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
             title="接力到新会话：生成会话续接上下文，然后按所选目标运行时打开新会话继续"
           >
-            📤 接力
+            <HandOffIcon className="mr-1 inline h-3 w-3" />接力
           </button>
         )}
         <button
@@ -431,7 +431,7 @@ export function ComposerSdk({
           className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
           title="中断当前任务"
         >
-          中断
+          <StopIcon className="mr-1 inline h-3 w-3" />中断
         </button>
         <button
           type="button"
@@ -439,7 +439,7 @@ export function ComposerSdk({
           disabled={!canSubmit}
           className="h-7 shrink-0 rounded bg-status-working/30 px-3 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40"
         >
-          {submitLabel}
+          {!busy && <SendIcon className="mr-1 inline h-3 w-3" />}{submitLabel}
         </button>
       </div>
     </div>

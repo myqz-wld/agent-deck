@@ -78,17 +78,16 @@ export interface AppSettings {
    */
   summaryProvider: 'claude' | 'deepseek' | 'codex';
   /**
-   * 周期性 summarize 用的 LLM model id(覆盖 env / alias 兜底,plan prancy-forging-penguin)。
+   * 周期性 summarize 用的 LLM model id（plan prancy-forging-penguin）。
    *
-   * 优先级链(provider='claude' / 'deepseek' 时由 summariseViaLlm 实施):
-   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ `ANTHROPIC_MODEL` env
-   *   ＞ 'haiku' alias 兜底
+   * 优先级链（provider='claude' / 'deepseek' 时由 summariseViaLlm 实施）：
+   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ 'haiku' alias 兜底
    *
-   * 优先级链(provider='codex' 时由 summariseCodexSessionViaOneshot 实施):
-   *   `settings.summaryModel` ＞ `CODEX_SUMMARY_MODEL` env ＞ undefined (fallback
-   *   `~/.codex/config.toml` 顶层 `model` 配置)
+   * 优先级链（provider='codex' 时由 summariseCodexSessionViaOneshot 实施）：
+   *   `settings.summaryModel` ＞ undefined（交给 `~/.codex/config.toml` 顶层 `model`）
    *
-   * - `''`(默认空) = 沿用各 provider 自己的 env / alias / config.toml 链
+   * - `''`（默认空）= Claude / Deepseek 用 Haiku；Codex 直接使用当前配置默认模型
+   *   （不再读取隐藏的 `ANTHROPIC_MODEL` / `CODEX_SUMMARY_MODEL` 覆盖）
    * - 非空 = 覆盖,直接传给对应 SDK 的 options.model;**填的 model id 必须对当前 provider 可用**
    *   (Claude/Deepseek 端用所选 Claude-family provider alias,codex 端用 Codex SDK 可用 model id)
    *
@@ -107,7 +106,7 @@ export interface AppSettings {
    * UI 切换 provider 时会把 Claude-family 不支持的 `minimal` / `ultra` 分别收口为
    * `low` / `max`；main 端做同样的兼容收口并过滤其他非法值，避免脏配置透传给 SDK。
    *
-   * - default `'low'`: 与原 hardcoded summarize='low' 行为对齐,省 token + 出字快
+   * - default `'medium'`：在摘要稳定性与成本 / 延迟之间取平衡
    * - `'medium'/'high'/'xhigh'/'max'`: 用户需精度时升档(注意成本与延迟)
    * - `'minimal'`: codex 最轻档,极短输出
    * - `'ultra'`: codex 最高档；Claude Code 不支持该 effort 名称
@@ -115,9 +114,9 @@ export interface AppSettings {
   summaryReasoning: SessionThinkingLevel;
   /** 续接检查点由哪个隔离 provider runtime 生成，与 successor adapter 独立。 */
   continuationCheckpointProvider: ContinuationCheckpointProvider;
-  /** 空字符串表示沿用 provider 的 Sonnet/Codex 默认模型链。 */
+  /** 空字符串：Claude 用 Opus，Deepseek 用 Sonnet，Codex 用当前配置默认模型。 */
   continuationCheckpointModel: string;
-  /** Codex 支持完整七档；Claude/Deepseek 仅支持 low..max。 */
+  /** 默认 high。Codex 支持完整七档；Claude/Deepseek 仅支持 low..max。 */
   continuationCheckpointThinking: SessionThinkingLevel;
   /**
    * 续接上下文中保留历史 user input 的 token 上限。它不限制当前指令、检查点投影或

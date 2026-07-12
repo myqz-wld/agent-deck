@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { CloseIcon } from '../../icons';
 
 /**
  * 通用错误条（5 处复用）：权限模式 / Codex sandbox / Claude OS 沙盒 / 发送 / 图片附件。
@@ -9,7 +10,7 @@ import type { JSX } from 'react';
  * 行为约束：
  * - `message` falsy 时返回 null（与原行为 `{xxxError && (...)}` 等价）
  * - `prefix` 默认 '⚠'；caller 可传额外前缀文案如「权限模式切换失败」
- * - `onDismiss` 用户点 ✕ 时调；caller 通常 setXxxError(null)
+ * - `onDismiss` 用户点关闭图标时调；caller 通常 setXxxError(null)
  */
 export function ErrorBanner({
   message,
@@ -30,7 +31,7 @@ export function ErrorBanner({
         className="text-status-waiting/70 hover:text-status-waiting"
         aria-label="关闭"
       >
-        ✕
+        <CloseIcon className="h-3.5 w-3.5" />
       </button>
     </div>
   );

@@ -5,6 +5,7 @@ import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
 import { lifecycleLabel, agentIdLabel } from './helpers';
 import { selectJoinableTeamSessions } from './member-candidates';
+import { CrownIcon, PlusIcon, UsersIcon } from '../icons';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：成员清单 section。
@@ -213,7 +214,7 @@ function AddMemberForm({
           disabled={disabled}
           className="rounded bg-blue-400/15 px-2 py-0.5 text-[10px] font-medium text-blue-200 transition hover:bg-blue-400/25 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {busy ? '加入中…' : '+ 加入'}
+          {!busy && <PlusIcon className="mr-1 inline h-3 w-3" />}{busy ? '加入中…' : '加入'}
         </button>
       </div>
       {error && <div className="text-[10px] text-status-waiting/90">{error}</div>}
@@ -230,13 +231,13 @@ function RoleBadge({ role }: { role: 'lead' | 'teammate' }): JSX.Element {
   if (role === 'lead') {
     return (
       <span className="ml-0.5 rounded bg-blue-400/15 px-1 py-0.5 text-[9px] font-medium text-blue-200">
-        👑 负责人
+        <CrownIcon className="mr-0.5 inline h-3 w-3" />负责人
       </span>
     );
   }
   return (
     <span className="ml-0.5 rounded bg-blue-400/10 px-1 py-0.5 text-[9px] font-medium text-blue-200/85">
-      ↳ 协作者
+      <UsersIcon className="mr-0.5 inline h-3 w-3" />协作者
     </span>
   );
 }

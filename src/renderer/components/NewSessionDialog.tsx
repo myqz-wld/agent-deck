@@ -5,6 +5,7 @@ import {
   type SessionThinkingChoice,
 } from '@renderer/components/SessionModelFields';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import { CloseIcon, FolderOpenIcon, ImageIcon, SendIcon } from './icons';
 import {
   getLastAdapter,
   getLastDefaults,
@@ -174,9 +175,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
           <button
             type="button"
             onClick={onClose}
+            aria-label="关闭新建会话"
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
 
@@ -226,6 +228,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   disabled={busy || pickingDirectory}
                   className="shrink-0 rounded bg-white/10 px-2 text-[10px] hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
+                  {!pickingDirectory && <FolderOpenIcon className="mr-1 inline h-3 w-3" />}
                   {pickingDirectory ? '选择中…' : '选择…'}
                 </button>
               </div>
@@ -276,7 +279,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 className="rounded border border-dashed border-deck-border px-2 py-1 text-[10px] text-deck-muted hover:bg-white/5"
                 title="上传图片（也可粘贴 / 拖放到首条消息）"
               >
-                🖼 添加图片
+                <ImageIcon className="mr-1 inline h-3 w-3" />添加图片
               </button>
               {imgs.attachments.map((a) => (
                 <div key={a.id} className="relative">
@@ -293,7 +296,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                     aria-label="移除附件"
                     title="移除"
                   >
-                    ✕
+                    <CloseIcon className="h-2.5 w-2.5" />
                   </button>
                 </div>
               ))}
@@ -362,6 +365,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                 disabled={busy || !prompt.trim()}
                 className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
               >
+                {!busy && <SendIcon className="mr-1 inline h-3 w-3" />}
                 {busy ? '创建中…' : '创建会话'}
               </button>
             </div>

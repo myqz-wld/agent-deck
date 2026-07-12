@@ -30,36 +30,14 @@ import {
 import { maybeCodexJsonlFallback } from '../codex-jsonl-fallback';
 import { toCodexModelOverride } from '../../sdk-model';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
-import type {
-  CreateSessionThunk,
-  CwdExistsThunk,
-  FindFallbackCwdThunk,
-  JsonlExistsThunk,
-  RecovererCtx,
-  SendMessageThunk,
-  CaptureRecoveryContinuationThunk,
-  PrepareRecoveryContinuationThunk,
-  CleanupRecoveryContinuationThunk,
-} from './_deps';
+import type { RecoverAndSendDeps } from './_deps';
 import { PLACEHOLDER_DEDUP_MS } from './_deps';
+import { isRetryingUniversalDelivery } from './universal-delivery';
 import log from '@main/utils/logger';
 import { isCodexThinkingLevel } from '@shared/session-metadata';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
 
 const logger = log.scope('codex-recoverer');
-
-export interface RecoverAndSendDeps {
-  readonly ctx: RecovererCtx;
-  readonly placeholderEmittedAt: Map<string, number>;
-  readonly createThunk: CreateSessionThunk;
-  readonly sendThunk: SendMessageThunk;
-  readonly jsonlExistsThunk: JsonlExistsThunk;
-  readonly cwdExistsThunk: CwdExistsThunk;
-  readonly findFallbackCwd: FindFallbackCwdThunk;
-  readonly captureRecovery: CaptureRecoveryContinuationThunk;
-  readonly prepareRecovery: PrepareRecoveryContinuationThunk;
-  readonly cleanupRecovery: CleanupRecoveryContinuationThunk;
-}
 
 /**
  * **plan cross-adapter-parity-20260515 Phase B Step B.2 — 返回 Promise<string>**:
@@ -131,6 +109,7 @@ export async function recoverAndSendImpl(
   const wasClosed = rec.lifecycle === 'closed';
   const sdkModel = toCodexModelOverride(rec.model);
   const sdkThinking = isCodexThinkingLevel(rec.thinking) ? rec.thinking : undefined;
+  const retryingUniversalDelivery = isRetryingUniversalDelivery(sessionId, text);
 
   // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
   // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
@@ -202,7 +181,7 @@ export async function recoverAndSendImpl(
   // 下游 createThunk 显式传 skipFirstUserEmit:true 让 createSession resume path 跳过重复 emit。
   // 等待者 inflight path 无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
   try {
-    deps.ctx.emit({
+    if (!retryingUniversalDelivery) deps.ctx.emit({
       sessionId,
       agentId: AGENT_ID,
       kind: 'message',
@@ -336,7 +315,10 @@ export async function recoverAndSendImpl(
       // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,与 unarchive 同款 single-flight 锁覆盖。
       const lastPlaceholderAt = deps.placeholderEmittedAt.get(sessionId);
       const nowTs = Date.now();
-      if (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS) {
+      if (
+        !retryingUniversalDelivery &&
+        (lastPlaceholderAt === undefined || nowTs - lastPlaceholderAt > PLACEHOLDER_DEDUP_MS)
+      ) {
         deps.placeholderEmittedAt.set(sessionId, nowTs);
         // 顺手清掉过期 entry（避免 Map 无限涨）
         for (const [k, ts] of deps.placeholderEmittedAt) {
@@ -474,17 +456,19 @@ export async function recoverAndSendImpl(
       return sessionId; // 静默结束(lifecycle 已是用户想要的 closed,无需回滚 / 不抛错给 renderer)
     }
     // createSession 失败：占位 message 已经 emit，再补一条 error message 让用户看到原因
-    deps.ctx.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text: `⚠ 自动恢复失败：${(err as Error)?.message ?? String(err)}`,
-        error: true,
-      },
-      ts: Date.now(),
-      source: 'sdk',
-    });
+    if (!retryingUniversalDelivery) {
+      deps.ctx.emit({
+        sessionId,
+        agentId: AGENT_ID,
+        kind: 'message',
+        payload: {
+          text: `⚠ 自动恢复失败：${(err as Error)?.message ?? String(err)}`,
+          error: true,
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+    }
     // **REVIEW_81 MED 修法**: closed 会话被入口 emit user message 复活成 active，createSession
     // reject 后无 SDK live session（dead-active 幽灵）。wasClosed 时走 markClosed 再关闭。
     // 顺序：上面 error message emit（source:'sdk'）过 ingest 时 record 已 active → ensure 走

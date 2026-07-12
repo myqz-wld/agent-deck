@@ -23,6 +23,8 @@
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
  */
 import type { AgentEvent } from '@shared/types';
+import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
+import { isCodexThinkingLevel, type CodexThinkingLevel } from '@shared/session-metadata';
 import { settingsStore } from '@main/store/settings-store';
 import {
   buildSummarizePrompt,
@@ -31,6 +33,19 @@ import {
   runCodexOneshot,
 } from '@main/session/oneshot-llm';
 import { codexCompactorIsolationAttestation } from '@main/session/continuation-context/codex-isolation';
+import { SummaryProviderCapabilityError } from '@main/session/summarizer/provider-capability-error';
+
+export function resolveCodexSummaryModel(configured: unknown): string | undefined {
+  if (typeof configured !== 'string') return undefined;
+  const trimmed = configured.trim();
+  return trimmed || undefined;
+}
+
+export function resolveCodexSummaryReasoning(configured: unknown): CodexThinkingLevel {
+  return isCodexThinkingLevel(configured)
+    ? configured
+    : DEFAULT_SUMMARY_REASONING;
+}
 
 /**
  * 跑一次 codex oneshot 总结。`formatEvents` 由 caller 注入（避免本 runner 重复维护
@@ -55,7 +70,7 @@ export async function summariseCodexSessionViaOneshot(
   // fallback instead of exposing evidence to an unproven runtime.
   const attestation = codexCompactorIsolationAttestation();
   if (!attestation.proven) {
-    throw new Error(`__codex_summarizer_tools_unproven__: ${attestation.reason}`);
+    throw new SummaryProviderCapabilityError('codex', attestation.reason);
   }
 
   const result = await runCodexOneshot({
@@ -71,17 +86,16 @@ export async function summariseCodexSessionViaOneshot(
     }),
     systemPrompt: buildSummarizeSystemPrompt('Agent'),
     // plan prancy-forging-penguin:reasoning 改读 settings.summaryReasoning(原 hardcoded 'low'
-    // 已下线)。default 'low' 与原行为对齐，用户也可选完整 Codex effort 档位。
-    modelReasoningEffort: settingsStore.get('summaryReasoning') ?? 'low',
+    // 已下线)。默认值现为 'medium'，用户也可选完整 Codex effort 档位。
+    modelReasoningEffort: resolveCodexSummaryReasoning(
+      settingsStore.get('summaryReasoning'),
+    ),
     // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
-    // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。优先级链:
-    //   settings.summaryModel > CODEX_SUMMARY_MODEL env > undefined (fallback config.toml)
+    // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。空值保持 undefined，让
+    // Codex 直接使用 config.toml 当前模型，不再叠加隐藏的 CODEX_SUMMARY_MODEL env 来源。
     // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用。
     // 填其他 provider 的 alias 会撞 codex SDK 不识别报错并走 caller fallback。
-    model:
-      settingsStore.get('summaryModel') ||
-      process.env.CODEX_SUMMARY_MODEL ||
-      undefined,
+    model: resolveCodexSummaryModel(settingsStore.get('summaryModel')),
     // R37 P2-H：runner 自己内置 timeout（同 claude path 走 settings.summaryTimeoutMs；
     // 原 caller summarizer/index.ts 起 Promise.race 已删除）。timer 先赢 → 抛
     // `__codex_summarizer_timeout__` 让 caller catch 走 fallback 路径。

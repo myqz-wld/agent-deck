@@ -16,10 +16,10 @@ interface Props {
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }
 
-function providerLabel(provider: ContinuationCheckpointProvider): string {
-  if (provider === 'claude') return 'Claude';
-  if (provider === 'deepseek') return 'Deepseek';
-  return 'Codex';
+function modelPlaceholder(provider: ContinuationCheckpointProvider): string {
+  if (provider === 'claude') return '留空使用 Claude Opus';
+  if (provider === 'deepseek') return '留空使用 Deepseek Sonnet';
+  return '留空使用 Codex 配置默认模型';
 }
 
 export function ContinuationContextSection({ settings, update }: Props): JSX.Element {
@@ -32,15 +32,15 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
       defaultOpen={false}
     >
       <p className="text-[10px] leading-snug text-deck-muted/70">
-        检查点生成器独立于续接目标 adapter；model 留空时沿用所选 provider 的默认模型。
+        检查点生成器独立于续接目标 adapter；空模型分别使用 Claude Opus、Deepseek Sonnet 或 Codex 配置默认模型。
       </p>
       <ProviderModelThinkingFields
         label="续接检查点生成器"
-        hint="Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。"
+        hint="默认思考程度为 high。Codex 支持 minimal、low、medium、high、xhigh、max、ultra；Claude 与 Deepseek 支持 low 至 max。"
         provider={provider}
         model={settings.continuationCheckpointModel}
         thinking={settings.continuationCheckpointThinking}
-        modelPlaceholder={`留空使用 ${providerLabel(provider)} 默认模型`}
+        modelPlaceholder={modelPlaceholder(provider)}
         onProviderChange={(nextProvider) =>
           void update({
             continuationCheckpointProvider: nextProvider,

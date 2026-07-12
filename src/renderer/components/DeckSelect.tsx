@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { ChevronDownIcon } from './icons';
 
 export interface DeckSelectOption<T extends string> {
   value: T;
@@ -199,7 +200,7 @@ export function DeckSelect<T extends string>({
           className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-deck-muted/70 transition-transform ${open ? 'rotate-180' : ''}`}
           aria-hidden
         >
-          ▾
+          <ChevronDownIcon className="h-3 w-3" />
         </span>
       </button>
       {open && menuStyle

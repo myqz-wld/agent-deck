@@ -2,7 +2,7 @@
  * useLastSessionDefaults — 新建会话类对话框的「上次选项」跨 mount 记忆
  * (plan pending-tab-resume-and-new-session-default-20260602 §D2)。
  *
- * 两个入口（NewSessionDialog 顶部「＋」按钮起、ResolveInNewSessionDialog issue 详情起）
+ * 两个入口（NewSessionDialog 顶部新增按钮、ResolveInNewSessionDialog issue 详情起）
  * 共享同一组记忆：用户在 A 弹窗选了「plan + strict」，关掉后再开 B 弹窗默认还是「plan + strict」。
  * Claude Code 桥接层冷启动默认 permissionMode = bypassPermissions；用户改过后以内存记忆为准。
  *

@@ -2,8 +2,10 @@ import type { JSX } from 'react';
 import type { AgentDeckMessage } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
-import { statusBadge, relativeTime } from './helpers';
+import { relativeTime } from './helpers';
 import { MarkdownText } from '@renderer/components/MarkdownText';
+import { ArrowRightIcon, ReplyIcon } from '../icons';
+import { MessageStatusBadge } from '../MessageStatusBadge';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：team 内 cross-adapter messages 流 section（最近
@@ -48,14 +50,16 @@ export function MessagesSection({ messages }: Props): JSX.Element {
             >
               <div className="flex items-center justify-between text-[10px] text-deck-muted">
                 <span className="truncate">
-                  {fromSess?.title ?? msg.fromSessionId.slice(0, 8)} →{' '}
+                  <span className="sr-only">从 </span>
+                  {fromSess?.title ?? msg.fromSessionId.slice(0, 8)} <ArrowRightIcon className="mx-0.5 inline h-3 w-3" />{' '}
+                  <span className="sr-only">发送给 </span>
                   {toSess?.title ?? msg.toSessionId.slice(0, 8)}
                   {msg.replyToMessageId && (
                     <span
                       className="ml-1 text-blue-300/70"
                       title="回复上一条消息"
                     >
-                      ↩ 回复
+                      <ReplyIcon className="mr-0.5 inline h-3 w-3" />回复
                     </span>
                   )}
                 </span>
@@ -63,7 +67,7 @@ export function MessagesSection({ messages }: Props): JSX.Element {
                   <span className="text-deck-muted/60 tabular-nums">
                     {relativeTime(msg.sentAt)}
                   </span>
-                  <span>{statusBadge(msg.status)}</span>
+                  <MessageStatusBadge status={msg.status} />
                 </span>
               </div>
               <div className="mt-1 break-words text-deck-text">

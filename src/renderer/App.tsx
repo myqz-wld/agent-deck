@@ -10,7 +10,7 @@ import { PendingTab } from './components/PendingTab';
 import { TeamHub } from './components/TeamHub';
 import { IssuesPanel } from './components/IssuesPanel';
 import { DataPanel } from './components/DataPanel';
-import { HeaderTokenRates } from './components/HeaderTokenRates';
+import { AppHeader, type AppView } from './components/AppHeader';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
 import { useIssuesBridge } from './hooks/use-issues-bridge';
@@ -24,8 +24,6 @@ registerBuiltinDiffRenderers();
 
 const logger = log.scope('renderer-app');
 
-type View = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
-
 export function App(): JSX.Element {
   useEventBridge();
   // 常驻订阅 issue-changed（不放 IssuesPanel 组件内，否则切走 tab unmount 即漏事件 →
@@ -37,9 +35,9 @@ export function App(): JSX.Element {
   const select = useSessionStore((s) => s.selectSession);
   const setPendingAll = useSessionStore((s) => s.setPendingRequestsAll);
 
-  const [view, setView] = useState<View>('live');
+  const [view, setView] = useState<AppView>('live');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  /** Header「📚 资产库」按钮控制（CHANGELOG_57 C5）。SettingsDialog 内的「在资产库中查看」按钮
+  /** Header 资产库按钮控制（CHANGELOG_57 C5）。SettingsDialog 内的「在资产库中查看」按钮
    *  也走这条 state——点击时 SettingsDialog 自关 + AssetsLibrary 自开（CHANGELOG_58 起两个
    *  section 文案统一为「在资产库中查看 ↗」）。 */
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
@@ -124,8 +122,8 @@ export function App(): JSX.Element {
 
   // CHANGELOG_124 R1 fix REVIEW_45 MED-1：toggleMaximize / toggleDefault (Cmd+Alt+= / -)
   // 退出 compact 态时主进程 emit IpcEvent.CompactToggled — 同步本地 compact state 避免
-  // 按钮 label `{compact ? '▢' : '─'}` 与实际窗口尺寸反转（用户先点 ▢ 折叠 → 按 Cmd+Alt+= 后
-  // 窗口实际 max 但按钮仍显示 ▢ → 用户点 ▢ 反而又把窗口收成 compact）。
+  // 展开/折叠按钮状态与实际窗口尺寸反转（用户先点折叠 → 按 Cmd+Alt+= 后窗口实际 max，
+  // 但按钮仍显示折叠状态 → 用户再次点击反而又把窗口收成 compact）。
   useEffect(() => {
     const off = window.api.onCompactToggled((next) => {
       setCompact(next);
@@ -267,110 +265,26 @@ export function App(): JSX.Element {
   return (
     <FloatingFrame transparent={windowTransparent}>
       <div className="flex h-full flex-col">
-        <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
-          <div className="min-w-0 shrink truncate">
-            <span className="text-[11px] font-medium tracking-wide">Agent Deck</span>
-            <span className="ml-1.5 text-[10px] text-deck-muted/70">
-              {stats.total} 会话
-              {stats.waiting > 0 && (
-                <span className="ml-1.5 text-status-waiting">· {stats.waiting} 等待</span>
-              )}
-              {stats.working > 0 && (
-                <span className="ml-1.5 text-status-working">· {stats.working} 进行中</span>
-              )}
-            </span>
-            {pending > 0 && (
-              <button
-                type="button"
-                onClick={jumpToPending}
-                title="打开待处理列表"
-                className="no-drag ml-2 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/40"
-              >
-                ⚠️ {pending} 待处理
-              </button>
-            )}
-          </div>
-          {/* 需求1：header 中部 Top3 模型输出 token/s，窄宽自动退化隐藏（HeaderTokenRates 内部用
-              useContainerWidth 判阈值）。drag-region 上的交互元素需要时再加 no-drag，纯展示无需。 */}
-          <HeaderTokenRates />
-          <div className="flex shrink-0 items-center gap-0.5 no-drag">
-            <IconButton title="新建会话" onClick={() => setNewSessionOpen(true)}>
-              ＋
-            </IconButton>
-            <Divider />
-            <TabButton active={view === 'live'} onClick={() => setView('live')}>
-              实时
-            </TabButton>
-            <TabButton
-              active={view === 'pending'}
-              onClick={() => {
-                setView('pending');
-                // 与 jumpToPending 同因：不清 selectedSessionId，
-                // App.tsx:99 的 detailSession 仍非空 → main 区域优先渲 SessionDetail
-                // 把 PendingTab 盖掉，详情页里点这个 tab 看起来"无反应"。
-                select(null);
-              }}
-              badge={pending > 0 ? pending : undefined}
-            >
-              待处理
-            </TabButton>
-            <TabButton active={view === 'history'} onClick={() => setView('history')}>
-              历史
-            </TabButton>
-            <TabButton
-              active={view === 'teams'}
-              onClick={() => {
-                setView('teams');
-                // 切到 teams tab 时清掉 selectedSessionId，否则 detailSession 优先级
-                // 高于 view 判断会盖掉 TeamHub。同 PendingTab 同模式。
-                select(null);
-              }}
-            >
-              团队
-            </TabButton>
-            <TabButton
-              active={view === 'issues'}
-              onClick={() => {
-                setView('issues');
-                // 与 teams / pending 同模式：切到 issues tab 时清 selectedSessionId
-                select(null);
-              }}
-            >
-              问题
-            </TabButton>
-            <TabButton
-              active={view === 'data'}
-              onClick={() => {
-                setView('data');
-                // 与 teams / issues 同模式：切到 data tab 时清 selectedSessionId（否则
-                // detailSession 优先级高于 view 分支会盖掉 DataPanel）
-                select(null);
-              }}
-            >
-              数据
-            </TabButton>
-            <Divider />
-            <IconButton
-              title={pinned ? '取消置顶' : '置顶'}
-              onClick={() => void togglePin()}
-              active={pinned}
-            >
-              {pinned ? '📌' : '📍'}
-            </IconButton>
-            <IconButton
-              title={compact ? '展开' : '折叠'}
-              onClick={() => void toggleCompact()}
-            >
-              {compact ? '▢' : '─'}
-            </IconButton>
-            <IconButton title="资产库" onClick={() => setAssetsLibraryOpen(true)}>
-              📚
-            </IconButton>
-            <IconButton title="设置" onClick={() => setSettingsOpen(true)}>
-              ⚙
-            </IconButton>
-          </div>
-        </header>
+        <AppHeader
+          view={view}
+          stats={stats}
+          pending={pending}
+          pinned={pinned}
+          compact={compact}
+          onViewChange={(nextView) => {
+            setView(nextView);
+            if (nextView === 'pending' || nextView === 'teams' || nextView === 'issues' || nextView === 'data') {
+              // Detail rendering has priority over these panels, so clear the selected session first.
+              select(null);
+            }
+          }}
+          onOpenPending={jumpToPending}
+          onNewSession={() => setNewSessionOpen(true)}
+          onTogglePin={() => void togglePin()}
+          onToggleCompact={() => void toggleCompact()}
+          onOpenLibrary={() => setAssetsLibraryOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
 
         <main className="flex-1 overflow-hidden">
           {detailSession ? (
@@ -441,65 +355,4 @@ export function App(): JSX.Element {
       />
     </FloatingFrame>
   );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  badge?: number;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-2 py-0.5 text-[10px] transition ${
-        active ? 'bg-white/15 text-deck-text' : 'text-deck-muted hover:bg-white/8'
-      }`}
-    >
-      {children}
-      {badge && badge > 0 ? (
-        <span className="ml-1 rounded bg-status-waiting/30 px-1 py-px text-[9px] font-medium tabular-nums text-status-waiting">
-          {badge}
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-function IconButton({
-  title,
-  onClick,
-  active,
-  children,
-}: {
-  title: string;
-  onClick: () => void;
-  active?: boolean;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      className={`flex h-5 w-5 items-center justify-center rounded text-[10px] transition ${
-        active
-          ? 'bg-white/12 text-deck-text'
-          : 'text-deck-muted hover:bg-white/8 hover:text-deck-text'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Divider(): JSX.Element {
-  return <span className="mx-0.5 h-3 w-px bg-white/10" />;
 }

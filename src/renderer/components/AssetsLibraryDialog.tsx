@@ -7,6 +7,7 @@ import { ContentViewerModal, type ContentViewerState } from './assets/ContentVie
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
 import { CodexAgentsMdEditor } from './settings/CodexAgentsMdEditor';
+import { CloseIcon, LibraryIcon, PlusIcon } from './icons';
 
 /**
  * 资产库 Dialog（CHANGELOG_57 / CHANGELOG_69 / CHANGELOG_137 / plan
@@ -183,7 +184,9 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       <div className="no-drag w-[420px] max-h-[85%] flex flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
         <header className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <h2 className="text-[13px] font-medium">📚 资产库</h2>
+            <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
+              <LibraryIcon className="h-4 w-4" />资产库
+            </h2>
             <span className="text-[10px] text-deck-muted/70">(Skills / Agents / 应用约定)</span>
           </div>
           <button
@@ -192,7 +195,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
             aria-label="关闭资产库"
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
-            ✕
+            <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
 
@@ -361,7 +364,7 @@ function AssetsTab({
             onClick={onNew}
             className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25"
           >
-            + 新建{kind === 'agent' ? ' Agent' : ' Skill'}
+            <PlusIcon className="mr-1 inline h-3 w-3" />新建{kind === 'agent' ? ' Agent' : ' Skill'}
           </button>
         </div>
         {filteredUser.length === 0 ? (

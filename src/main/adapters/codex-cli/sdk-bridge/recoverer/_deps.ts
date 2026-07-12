@@ -167,3 +167,17 @@ export type PrepareRecoveryContinuationThunk = (
 export type CleanupRecoveryContinuationThunk = (
   capture: CapturedRecoveryContinuation,
 ) => void;
+
+/** Dependencies injected into the recovery implementation by the thin facade. */
+export interface RecoverAndSendDeps {
+  readonly ctx: RecovererCtx;
+  readonly placeholderEmittedAt: Map<string, number>;
+  readonly createThunk: CreateSessionThunk;
+  readonly sendThunk: SendMessageThunk;
+  readonly jsonlExistsThunk: JsonlExistsThunk;
+  readonly cwdExistsThunk: CwdExistsThunk;
+  readonly findFallbackCwd: FindFallbackCwdThunk;
+  readonly captureRecovery: CaptureRecoveryContinuationThunk;
+  readonly prepareRecovery: PrepareRecoveryContinuationThunk;
+  readonly cleanupRecovery: CleanupRecoveryContinuationThunk;
+}

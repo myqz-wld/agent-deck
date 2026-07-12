@@ -10,7 +10,7 @@ interface Props {
 /**
  * 「窗口」section。
  *
- * - 始终置顶由 header 的 📌 按钮 / 全局快捷键 Cmd+Alt+P 控制(详「快捷键」section);
+ * - 始终置顶由 header 的置顶按钮 / 全局快捷键 Cmd+Alt+P 控制(详「快捷键」section);
  *   这里不放重复的「始终置顶」toggle,避免两处状态打架。
  * - 「窗口透明」toggle 已从本 section 移除(独立于 settings UI,user 通过全局快捷键
  *   Cmd+Alt+T 切换;settings.windowTransparent 字段仍持久化、运行时仍 honor;详「快捷键」
@@ -27,7 +27,7 @@ export function WindowSection({ settings, update }: Props): JSX.Element {
       />
       <div className="mt-2 text-[10px] leading-snug text-deck-muted/70">
         其他窗口操作走快捷键（详见「快捷键」section）：
-        <br />· 始终置顶：点顶栏 📌 按钮 或 Cmd+Alt+P
+        <br />· 始终置顶：点顶栏置顶按钮或按 Cmd+Alt+P
         <br />· 窗口透明：Cmd+Alt+T
         <br />· 放大 / 缩小窗口：Cmd+Alt+= / Cmd+Alt+-
       </div>
