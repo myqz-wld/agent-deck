@@ -11,7 +11,7 @@ export function expectPendingSdkSession(
   const key = normalizeCwd(cwd);
   const expiresAt = Date.now() + ttlMs;
   pendingSdkCwds.set(key, expiresAt);
-  logger.info(`[session-mgr] expect sdk session @ ${key} (ttl ${ttlMs}ms)`);
+  logger.debug(`[session-mgr] expect sdk session @ ${key} (ttl ${ttlMs}ms)`);
   return () => {
     if (pendingSdkCwds.get(key) === expiresAt) {
       pendingSdkCwds.delete(key);

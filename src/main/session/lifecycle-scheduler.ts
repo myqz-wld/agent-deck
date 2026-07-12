@@ -149,7 +149,7 @@ export class LifecycleScheduler {
           sessionManager.forgetCloseEpoch(id);
           eventBus.emit('session-removed', id);
         }
-        logger.info(
+        logger.debug(
           `[lifecycle] purged ${removed.length} history sessions older than ${this.opts.historyRetentionDays}d`,
         );
       }

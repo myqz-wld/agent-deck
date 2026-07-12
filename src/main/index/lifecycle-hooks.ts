@@ -7,7 +7,7 @@
 // - app.on('second-instance'):聚焦窗口 + 等 bootstrap 完成后转发 argv 到 handleCliArgv
 // - app.on('window-all-closed'):非 darwin 直接 quit
 // - app.on('before-quit'):cleaningUp idempotent guard + globalShortcut.unregisterAll +
-//   scheduler/teamScheduler/summarizer/stopAllSounds/universalMessageWatcher 同步停 +
+//   event-loop monitor/scheduler/teamScheduler/summarizer/stopAllSounds/universalMessageWatcher 同步停 +
 //   adapterRegistry.shutdownAll / agentDeckMcpHttpShutdown / hookServer.stop 走 10s
 //   race-with-timeout 兜底 + closeDb 在 race 外**总是**跑保 SQLite WAL checkpoint
 //   (REVIEW_35 R2 MED-D claude R2-3 修法)。
@@ -98,6 +98,8 @@ export function registerLifecycleHooks(
       let timedOut = false;
       try {
         globalShortcut.unregisterAll();
+        state.mainEventLoopMonitorStop?.();
+        state.mainEventLoopMonitorStop = null;
         state.scheduler?.stop();
         setLifecycleScheduler(null);
         state.teamScheduler?.stop();

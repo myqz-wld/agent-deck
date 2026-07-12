@@ -6,6 +6,7 @@
 // Phase 0   app id + applyClaudeSettingsEnv + browser-window-created listener
 // Phase 1   initDb
 // Phase 2   settings.getAll
+// Phase 2.5 main event-loop delay monitor
 // Phase 3   HookServer + RouteRegistry 创建
 // Phase 4   adapter register
 // Phase 5   adapter.initAll + setSessionCloseFn + setSessionRenameHookFn hook 注入
@@ -63,6 +64,7 @@ import { reapStaleUploads } from '../store/image-uploads';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { AGENT_DECK_MCP_TOKEN_ENV } from '../codex-config/agent-deck-mcp-injector';
 import { unionUserShellPath } from '../utils/user-shell-path';
+import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
 // NOTE(REVIEW_<X>):以下两个 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import(index.ts × 2 + ipc/settings.ts × 3)会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js,独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
@@ -122,6 +124,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // settings.logLevel 仅在后续 SettingsSet patch 含 logLevel 时经 applyLogLevel 生效 → 重启后运行时
   // 回退 'info' 与 UI 显示的持久化值不一致。启动读 settings 后补一次 setFileLevel 应用持久化级别。
   setFileLevel(settings.logLevel);
+  state.mainEventLoopMonitorStop = startMainEventLoopMonitor();
 
   // 3. HookServer + RouteRegistry
   state.hookServer = new HookServer(

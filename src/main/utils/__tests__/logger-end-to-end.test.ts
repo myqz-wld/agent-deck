@@ -22,7 +22,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import realLog from 'electron-log/node';
-import { shouldDropWebFrameMainDisposedNoise } from '../logger';
+import {
+  shouldDropClaudeCanUseToolShadowedNoise,
+  shouldDropWebFrameMainDisposedNoise,
+} from '../logger';
 
 // electron-log/node 是真包(不依赖 electron),hook 装到 log.hooks 模拟生产链
 // (Logger.js:177 `this.hooks.reduce(...)`)。FilterLogMessage 与 LogMessage 结构子集
@@ -33,7 +36,10 @@ const webFrameMainDisposedNoiseHook = (
   transportName?: string,
 ): { data: unknown[] } | false => {
   if (transportName !== 'file') return message;
-  return shouldDropWebFrameMainDisposedNoise(message) ? false : message;
+  return shouldDropWebFrameMainDisposedNoise(message) ||
+    shouldDropClaudeCanUseToolShadowedNoise(message)
+    ? false
+    : message;
 };
 
 describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)', () => {
@@ -93,6 +99,16 @@ describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)'
     return new Promise<void>((resolve) => setTimeout(resolve, 50)).then(() => {
       const content = fs.existsSync(tmpLogFile) ? fs.readFileSync(tmpLogFile, 'utf8') : '';
       expect(content).toContain('plain business log message');
+    });
+  });
+
+  it('Claude bypass canUseTool 固定 SDK warning → file transport 不占 error channel', () => {
+    realLog.error(
+      "(node:123) [CLAUDE_SDK_CAN_USE_TOOL_SHADOWED] Warning: canUseTool will not be invoked: permissionMode 'bypassPermissions'",
+    );
+    return new Promise<void>((resolve) => setTimeout(resolve, 50)).then(() => {
+      const content = fs.existsSync(tmpLogFile) ? fs.readFileSync(tmpLogFile, 'utf8') : '';
+      expect(content).not.toContain('CLAUDE_SDK_CAN_USE_TOOL_SHADOWED');
     });
   });
 

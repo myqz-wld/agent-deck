@@ -1,4 +1,5 @@
 import type { AgentEvent } from '@shared/types';
+import { performance } from 'node:perf_hooks';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { getDb } from './db';
 import { safeStringifyPayload } from './payload-truncate';
@@ -6,6 +7,7 @@ import { agentDeckTeamRepo } from './agent-deck-team-repo';
 import log from '@main/utils/logger';
 
 const logger = log.scope('event-repo');
+const SLOW_EVENT_WRITE_MS = 250;
 
 interface Row {
   id: number;
@@ -106,60 +108,85 @@ export const eventRepo = {
    * payload_json 才能保留缺失字段并按 marker 追加 output delta。
    */
   insert(event: AgentEvent): number {
+    const startedAt = performance.now();
+    let operation = 'insert';
+    let payloadChars = 0;
     const toolUseId = extractToolUseId(event);
-
-    if (
-      (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') &&
-      toolUseId
-    ) {
-      const existing = getDb()
-        .prepare(
-          `SELECT id, payload_json
-             FROM events
-            WHERE session_id = ? AND kind = ? AND tool_use_id = ?
-            LIMIT 1`,
-        )
-        .get(event.sessionId, event.kind, toolUseId) as
-        | { id: number; payload_json: string }
-        | undefined;
-      const payload = existing
-        ? mergeToolUsePayload(
-          parsePayloadJson(existing.payload_json, {
-            operation: 'merge-existing-payload',
-            eventId: existing.id,
-            sessionId: event.sessionId,
-            kind: event.kind,
-            toolUseId,
-            ts: event.ts,
-          }),
-          event.payload,
-        )
-        : mergeToolUsePayload(null, event.payload);
-      if (existing) {
-        getDb()
-          .prepare(`UPDATE events SET payload_json = ?, ts = ? WHERE id = ?`)
-          .run(safeStringifyPayload(payload), event.ts, existing.id);
-        return existing.id;
+    try {
+      const db = getDb();
+      if (
+        (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') &&
+        toolUseId
+      ) {
+        const existing = db
+          .prepare(
+            `SELECT id, payload_json
+               FROM events
+              WHERE session_id = ? AND kind = ? AND tool_use_id = ?
+              LIMIT 1`,
+          )
+          .get(event.sessionId, event.kind, toolUseId) as
+          | { id: number; payload_json: string }
+          | undefined;
+        const payload = existing
+          ? mergeToolUsePayload(
+              parsePayloadJson(existing.payload_json, {
+                operation: 'merge-existing-payload',
+                eventId: existing.id,
+                sessionId: event.sessionId,
+                kind: event.kind,
+                toolUseId,
+                ts: event.ts,
+              }),
+              event.payload,
+            )
+          : mergeToolUsePayload(null, event.payload);
+        const payloadJson = safeStringifyPayload(payload);
+        payloadChars = payloadJson.length;
+        if (existing) {
+          operation = 'merge-update';
+          db.prepare(`UPDATE events SET payload_json = ?, ts = ? WHERE id = ?`).run(
+            payloadJson,
+            event.ts,
+            existing.id,
+          );
+          return existing.id;
+        }
+        operation = 'tool-insert';
+        const row = db
+          .prepare(
+            `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
+             VALUES (?, ?, ?, ?, ?)
+             RETURNING id`,
+          )
+          .get(event.sessionId, event.kind, payloadJson, event.ts, toolUseId) as {
+          id: number;
+        };
+        return row.id;
       }
-      const row = getDb()
+
+      const payloadJson = safeStringifyPayload(event.payload);
+      payloadChars = payloadJson.length;
+      const info = db
         .prepare(
           `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
-           VALUES (?, ?, ?, ?, ?)
-           RETURNING id`,
+           VALUES (?, ?, ?, ?, ?)`,
         )
-        .get(event.sessionId, event.kind, safeStringifyPayload(payload), event.ts, toolUseId) as {
-        id: number;
-      };
-      return row.id;
+        .run(event.sessionId, event.kind, payloadJson, event.ts, toolUseId);
+      return Number(info.lastInsertRowid);
+    } finally {
+      const durationMs = performance.now() - startedAt;
+      if (durationMs >= SLOW_EVENT_WRITE_MS) {
+        logger.warn('[performance] slow event persistence', {
+          durationMs: Math.round(durationMs),
+          operation,
+          kind: event.kind,
+          sessionId: event.sessionId.slice(0, 8),
+          payloadChars,
+          hasToolUseId: toolUseId !== null,
+        });
+      }
     }
-
-    const info = getDb()
-      .prepare(
-        `INSERT INTO events (session_id, kind, payload_json, ts, tool_use_id)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(event.sessionId, event.kind, safeStringifyPayload(event.payload), event.ts, toolUseId);
-    return Number(info.lastInsertRowid);
   },
 
   listForSession(sessionId: string, limit = 200, offset = 0): (AgentEvent & { id: number })[] {

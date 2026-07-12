@@ -31,7 +31,7 @@ vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({}),
 }));
 
-import { resolveCallerSidForReadOnly } from '../transport-http';
+import { describeMcpHttpRequest, resolveCallerSidForReadOnly } from '../transport-http';
 import { makeCallerContext, denyExternalIfNotAllowed } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from '../types';
 
@@ -79,6 +79,27 @@ describe('resolveCallerSidForReadOnly (production lambda) — 3 分支合约', (
       } satisfies McpAuthInfo,
     };
     expect(resolveCallerSidForReadOnly(extra)).toBe(EXTERNAL_CALLER_SENTINEL);
+  });
+});
+
+describe('describeMcpHttpRequest', () => {
+  it('extracts the tool name without retaining tool arguments', () => {
+    expect(
+      describeMcpHttpRequest({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'send_message', arguments: { text: 'sensitive body' } },
+      }),
+    ).toEqual({ rpcMethod: 'tools/call', toolName: 'send_message' });
+  });
+
+  it('labels protocol, batch, and malformed requests safely', () => {
+    expect(describeMcpHttpRequest({ method: 'initialize', params: {} })).toEqual({
+      rpcMethod: 'initialize',
+      toolName: null,
+    });
+    expect(describeMcpHttpRequest([])).toEqual({ rpcMethod: 'batch', toolName: null });
+    expect(describeMcpHttpRequest('bad')).toEqual({ rpcMethod: 'unknown', toolName: null });
   });
 });
 

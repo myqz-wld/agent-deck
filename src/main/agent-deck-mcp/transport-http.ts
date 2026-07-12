@@ -44,8 +44,13 @@
  */
 
 import type { RouteRegistry } from '@main/hook-server/route-registry';
+import { performance } from 'node:perf_hooks';
 import { buildAgentDeckTools } from './tools';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from './types';
+import log from '@main/utils/logger';
+
+const logger = log.scope('agent-deck-mcp-http');
+const SLOW_MCP_HTTP_REQUEST_MS = 500;
 
 const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
@@ -73,6 +78,25 @@ interface McpStreamableHttpModule {
 }
 
 let cachedMcpSdk: { server: McpSdkServerModule; http: McpStreamableHttpModule } | null = null;
+
+export function describeMcpHttpRequest(body: unknown): {
+  rpcMethod: string;
+  toolName: string | null;
+} {
+  if (Array.isArray(body)) return { rpcMethod: 'batch', toolName: null };
+  if (body == null || typeof body !== 'object') {
+    return { rpcMethod: 'unknown', toolName: null };
+  }
+  const record = body as Record<string, unknown>;
+  const rpcMethod = typeof record.method === 'string' ? record.method : 'unknown';
+  const params =
+    record.params != null && typeof record.params === 'object'
+      ? (record.params as Record<string, unknown>)
+      : null;
+  const toolName =
+    rpcMethod === 'tools/call' && typeof params?.name === 'string' ? params.name : null;
+  return { rpcMethod, toolName };
+}
 
 /**
  * @internal Only for `__tests__/`. Do NOT import from other production files.
@@ -214,6 +238,36 @@ export async function registerAgentDeckMcpHttpRoutes(
     method: 'POST',
     url: '/mcp',
     handler: async (req, reply) => {
+      const requestStartedAt = performance.now();
+      const request = describeMcpHttpRequest(req.body);
+      const authInfo = (req.raw as { auth?: McpAuthInfo }).auth;
+      const caller = authInfo?.resolvedSid
+        ? authInfo.resolvedSid.slice(0, 8)
+        : authInfo?.fallbackToGlobal
+          ? 'external'
+          : 'unknown';
+      let requestLogged = false;
+      const logSlowRequest = (): void => {
+        if (requestLogged) return;
+        requestLogged = true;
+        reply.raw.off('finish', logSlowRequest);
+        reply.raw.off('close', logSlowRequest);
+        const durationMs = performance.now() - requestStartedAt;
+        if (durationMs >= SLOW_MCP_HTTP_REQUEST_MS) {
+          logger.warn('[performance] slow MCP HTTP request', {
+            durationMs: Math.round(durationMs),
+            rpcMethod: request.rpcMethod,
+            toolName: request.toolName,
+            caller,
+            statusCode: reply.raw.statusCode,
+            responseEnded: reply.raw.writableEnded,
+          });
+        }
+      };
+      // `finish` covers normal responses; `close` also captures aborted clients and setup errors.
+      reply.raw.once('finish', logSlowRequest);
+      reply.raw.once('close', logSlowRequest);
+
       const transport = new http.StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });

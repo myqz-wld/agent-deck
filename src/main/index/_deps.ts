@@ -40,6 +40,8 @@ export interface BootstrapState {
   /** fixed 365d token_usage retention GC scheduler */
   tokenUsageScheduler: TokenUsageLifecycleScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
+  /** Stops the main-process event-loop drift monitor during orderly shutdown. */
+  mainEventLoopMonitorStop: (() => void) | null;
 }
 
 export function createInitialBootstrapState(): BootstrapState {
@@ -52,6 +54,7 @@ export function createInitialBootstrapState(): BootstrapState {
     messageScheduler: null,
     tokenUsageScheduler: null,
     agentDeckMcpHttpShutdown: null,
+    mainEventLoopMonitorStop: null,
   };
 }
 
