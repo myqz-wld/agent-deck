@@ -56,6 +56,8 @@ export interface CodexAppServerOptions {
   env: Record<string, string>;
   cwd?: string;
   skillExtraRoots?: string[];
+  /** Test/embedding override; production defaults to the app-server watchdog constant. */
+  firstModelEventTimeoutMs?: number;
 }
 
 export interface JsonRpcResponse {
