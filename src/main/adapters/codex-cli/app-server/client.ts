@@ -12,6 +12,18 @@ import {
   AgentDeckMcpStartupObserver,
   sanitizeMcpDiagnostic,
 } from './mcp-startup-observer';
+import { DEFAULT_FIRST_MODEL_EVENT_TIMEOUT_MS } from './first-model-event-watchdog';
+import {
+  sanitizeCodexStderrTail,
+  type CodexProcessDiagnosticSnapshot,
+} from './turn-watchdog-diagnostics';
+import { terminateRetiredCodexChild } from './process-recycle';
+import {
+  logCodexRecycleCompleted,
+  logCodexRecycleDetachFailure,
+  logCodexRecycleSkipped,
+  logCodexTerminationFailure,
+} from './recycle-logging';
 import type {
   CodexAppServerNotification,
   CodexAppServerOptions,
@@ -56,6 +68,7 @@ export class CodexAppServerClient {
   private initializePromise: Promise<void> | null = null;
   private closed = false;
   private processGeneration = 0;
+  private currentStderrTail = '';
   private readonly mcpStartupObserver = new AgentDeckMcpStartupObserver();
 
   constructor(private readonly opts: CodexAppServerOptions) {}
@@ -66,6 +79,24 @@ export class CodexAppServerClient {
 
   get generation(): number {
     return this.processGeneration;
+  }
+
+  get firstModelEventTimeoutMs(): number {
+    const configured = this.opts.firstModelEventTimeoutMs;
+    return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+      ? Math.max(1, Math.trunc(configured))
+      : DEFAULT_FIRST_MODEL_EVENT_TIMEOUT_MS;
+  }
+
+  getProcessDiagnosticSnapshot(): CodexProcessDiagnosticSnapshot {
+    return {
+      processGeneration: this.processGeneration,
+      processPid: this.child?.pid ?? null,
+      processAlive: this.child !== null,
+      pendingRpcCount: this.pending.size,
+      stderrTailBytes: Buffer.byteLength(this.currentStderrTail, 'utf8'),
+      hasStderrTail: this.currentStderrTail.length > 0,
+    };
   }
 
   /**
@@ -153,10 +184,73 @@ export class CodexAppServerClient {
     return () => this.notificationListeners.delete(listener);
   }
 
+  /**
+   * Best-effort interrupt followed by a fenced process recycle.
+   *
+   * The interrupt is written only to the currently-owned child and is intentionally not awaited:
+   * a silent app-server cannot be trusted to answer it. Detaching first makes pending RPC cleanup
+   * synchronous, increments the generation before another process can start, and fences every
+   * late stdout/exit callback from the retired child.
+   */
+  abortTurnAndRecycleGeneration(
+    expectedGeneration: number,
+    threadId: string,
+    turnId: string,
+    err: Error,
+  ): boolean {
+    const before = this.getProcessDiagnosticSnapshot();
+    const recycleContext = { threadId, turnId, expectedGeneration, before };
+    if (this.closed || this.processGeneration !== expectedGeneration) {
+      logCodexRecycleSkipped(logger, recycleContext, 'generation_mismatch');
+      return false;
+    }
+    const child = this.child;
+    if (!child) {
+      logCodexRecycleSkipped(logger, recycleContext, 'process_missing');
+      return false;
+    }
+
+    let interruptWrite: 'sent' | 'failed' = 'sent';
+    try {
+      const id = this.nextId++;
+      child.stdin.write(`${JSON.stringify({
+        method: 'turn/interrupt',
+        id,
+        params: { threadId, turnId },
+      })}\n`);
+    } catch (interruptErr) {
+      interruptWrite = 'failed';
+      logger.debug('[codex-app-server] watchdog interrupt write failed', {
+        event: 'codex_turn_watchdog_interrupt_write_failed',
+        errorName: interruptErr instanceof Error ? interruptErr.name : 'unknown',
+        errorCode: readErrorCode(interruptErr),
+      });
+    }
+
+    // Recycling is process-wide. Emit a process-level terminal (no turn/thread filter) so any
+    // other accepted turns sharing this generation also close instead of waiting on dead queues.
+    if (!this.retireCurrentProcess(child, err)) {
+      logCodexRecycleDetachFailure(
+        logger,
+        recycleContext,
+        this.getProcessDiagnosticSnapshot(),
+        interruptWrite,
+      );
+      return false;
+    }
+    const termination = terminateRetiredCodexChild(child, (signal) => {
+      logCodexTerminationFailure(logger, recycleContext, signal);
+    });
+    const after = this.getProcessDiagnosticSnapshot();
+    logCodexRecycleCompleted(logger, recycleContext, after, interruptWrite, termination);
+    return true;
+  }
+
   dispose(): void {
     this.closed = true;
     const child = this.child;
     this.child = null;
+    this.currentStderrTail = '';
     if (child && !child.killed) {
       child.kill();
     }
@@ -216,19 +310,31 @@ export class CodexAppServerClient {
       stdio: 'pipe',
     });
     this.child = child;
+    this.currentStderrTail = '';
     let lastStderr = '';
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
+      if (this.child !== child) return;
       lastStderr = `${lastStderr}${chunk}`.slice(-8000);
-      logger.debug(`[codex-app-server] stderr: ${chunk.trimEnd()}`);
+      this.currentStderrTail = lastStderr;
+      const safeTail = sanitizeCodexStderrTail(chunk);
+      logger.debug('[codex-app-server] stderr activity', {
+        event: 'codex_app_server_stderr',
+        processGeneration: this.processGeneration,
+        processPid: child.pid ?? null,
+        bytes: Buffer.byteLength(chunk, 'utf8'),
+        sanitizedTail: safeTail,
+        contentOmitted: safeTail === null,
+      });
     });
 
     const rl = createInterface({ input: child.stdout });
-    rl.on('line', (line) => this.handleLine(line));
+    rl.on('line', (line) => this.handleLine(child, line));
     child.on('error', (err) => this.handleExit(child, err));
     child.on('exit', (code, signal) => {
-      const suffix = lastStderr ? `: ${lastStderr.trim()}` : '';
+      const stderrBytes = Buffer.byteLength(lastStderr, 'utf8');
+      const suffix = stderrBytes > 0 ? ` stderrBytes=${stderrBytes}` : '';
       this.handleExit(
         child,
         new Error(`Codex app-server exited code=${code} signal=${signal}${suffix}`),
@@ -255,14 +361,23 @@ export class CodexAppServerClient {
     });
   }
 
-  private handleLine(raw: string): void {
+  private handleLine(sourceChild: ChildProcessWithoutNullStreams, raw: string): void {
+    // A watchdog recycle detaches the old process before SIGTERM/SIGKILL completes. Its buffered
+    // stdout may still emit lines; never let those cross the generation boundary.
+    if (this.child !== sourceChild) return;
     const line = raw.trim();
     if (!line) return;
     let msg: unknown;
     try {
       msg = JSON.parse(line);
     } catch (err) {
-      logger.warn('[codex-app-server] failed to parse stdout line', err, line);
+      logger.warn('[codex-app-server] failed to parse stdout line', {
+        event: 'codex_app_server_stdout_parse_failed',
+        processGeneration: this.processGeneration,
+        processPid: sourceChild.pid ?? null,
+        bytes: Buffer.byteLength(line, 'utf8'),
+        errorName: err instanceof Error ? err.name : 'unknown',
+      });
       return;
     }
     if (!msg || typeof msg !== 'object') return;
@@ -323,8 +438,16 @@ export class CodexAppServerClient {
   private handleExit(exitedChild: ChildProcessWithoutNullStreams, err: Error): void {
     // `error` is normally followed by `exit`; an old child's late exit may also arrive after a
     // replacement process was spawned. Only the currently-owned child may clear state/reject RPCs.
-    if (this.child !== exitedChild) return;
+    this.retireCurrentProcess(exitedChild, err);
+  }
+
+  private retireCurrentProcess(
+    exitedChild: ChildProcessWithoutNullStreams,
+    err: Error,
+  ): boolean {
+    if (this.child !== exitedChild) return false;
     this.child = null;
+    this.currentStderrTail = '';
     this.initializePromise = null;
     this.processGeneration++;
     this.mcpStartupObserver.reset();
@@ -340,6 +463,7 @@ export class CodexAppServerClient {
         willRetry: false,
       },
     });
+    return true;
   }
 
   private rejectAll(err: Error): void {
@@ -358,6 +482,12 @@ function readRequestThreadId(params: unknown): string {
   if (!params || typeof params !== 'object' || Array.isArray(params)) return 'new';
   const threadId = (params as Record<string, unknown>).threadId;
   return typeof threadId === 'string' ? threadId : 'new';
+}
+
+function readErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' || typeof code === 'number' ? String(code).slice(0, 64) : null;
 }
 
 export const __testables = {
