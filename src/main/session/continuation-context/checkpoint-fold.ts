@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import log from '@main/utils/logger';
 import {
   createContinuationCheckpointRepo,
   type ContinuationCheckpointRecord,
@@ -34,6 +35,56 @@ import { estimateContinuationJsonTokens, estimateContinuationTokens, truncateCon
 import type { ContinuationWarning, ResolvedContinuationGenerator } from './types';
 
 const MAX_CANONICAL_CHECKPOINT_TOKENS = 24_000;
+const logger = log.scope('continuation-context');
+
+type CheckpointFailureStage =
+  | 'bounded-marker-commit'
+  | 'fold-generate'
+  | 'fold-validate'
+  | 'fold-commit'
+  | 'repair';
+
+function checkpointFailureDiagnostic(
+  stage: CheckpointFailureStage,
+  error: unknown,
+): { stage: CheckpointFailureStage; category: string; providerCalls: number } {
+  return {
+    stage,
+    category:
+      error instanceof CheckpointGeneratorError
+        ? error.code
+        : stage === 'fold-validate' || stage === 'repair'
+          ? 'checkpoint-validation'
+          : stage === 'fold-commit' || stage === 'bounded-marker-commit'
+            ? 'checkpoint-commit'
+            : 'internal-error',
+    providerCalls: error instanceof CheckpointGeneratorError ? error.providerCalls : 0,
+  };
+}
+
+function addCheckpointFailure(input: {
+  warnings: ContinuationWarning[];
+  code: 'checkpoint-generation-failed' | 'checkpoint-repair-failed';
+  stage: CheckpointFailureStage;
+  error: unknown;
+  checkpointRevision: number;
+  captureRevision: number;
+  deadlineRemainingMs: number;
+}): void {
+  const diagnostic = checkpointFailureDiagnostic(input.stage, input.error);
+  logger.warn('[continuation-context] checkpoint fold failed', {
+    ...diagnostic,
+    checkpointRevision: input.checkpointRevision,
+    captureRevision: input.captureRevision,
+    deadlineRemainingMs: Math.max(0, input.deadlineRemainingMs),
+  });
+  input.warnings.push({
+    code: input.code,
+    message:
+      `Checkpoint stage ${diagnostic.stage} failed ` +
+      `(category=${diagnostic.category}, providerCalls=${diagnostic.providerCalls}).`,
+  });
+}
 
 export interface FoldContinuationCheckpointInput {
   db: Database;
@@ -81,6 +132,13 @@ function readAllRows(spool: ContinuationSourceSpoolStore, spoolId: string): RawE
 
 function deadlineRemaining(input: FoldContinuationCheckpointInput, now: () => number): number {
   if (input.signal?.aborted) throw new CheckpointGeneratorError('Checkpoint generation aborted', 'aborted');
+  return Math.max(0, input.deadlineAt - now());
+}
+
+function diagnosticDeadlineRemaining(
+  input: FoldContinuationCheckpointInput,
+  now: () => number,
+): number {
   return Math.max(0, input.deadlineAt - now());
 }
 
@@ -225,9 +283,14 @@ export async function foldContinuationCheckpoint(
           message: `Revision ${chunk.groups[0].revision} was retained only as a durable bounded digest; full semantic coverage remains unavailable.`,
         });
       } catch (error) {
-        warnings.push({
+        addCheckpointFailure({
+          warnings,
           code: 'checkpoint-generation-failed',
-          message: error instanceof Error ? error.message : String(error),
+          stage: 'bounded-marker-commit',
+          error,
+          checkpointRevision: current?.sourceEventRevision ?? 0,
+          captureRevision: input.metadata.captureRevision,
+          deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
         });
         current = repo.latestAtOrBefore(input.metadata.sessionId, input.metadata.captureRevision);
         break;
@@ -257,9 +320,14 @@ export async function foldContinuationCheckpoint(
       }
     } catch (error) {
       if (error instanceof CheckpointGeneratorError) foldCalls += error.providerCalls;
-      warnings.push({
+      addCheckpointFailure({
+        warnings,
         code: 'checkpoint-generation-failed',
-        message: error instanceof Error ? error.message : String(error),
+        stage: 'fold-generate',
+        error,
+        checkpointRevision: current?.sourceEventRevision ?? 0,
+        captureRevision: input.metadata.captureRevision,
+        deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
       });
       break;
     }
@@ -282,9 +350,14 @@ export async function foldContinuationCheckpoint(
       });
     } catch (validationError) {
       if (repairCalls >= input.maxRepairCalls || deadlineRemaining(input, now) <= 0) {
-        warnings.push({
+        addCheckpointFailure({
+          warnings,
           code: 'checkpoint-repair-failed',
-          message: validationError instanceof Error ? validationError.message : String(validationError),
+          stage: 'fold-validate',
+          error: validationError,
+          checkpointRevision: current?.sourceEventRevision ?? 0,
+          captureRevision: input.metadata.captureRevision,
+          deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
         });
         break;
       }
@@ -331,9 +404,14 @@ export async function foldContinuationCheckpoint(
         });
       } catch (repairError) {
         if (repairError instanceof CheckpointGeneratorError) repairCalls += repairError.providerCalls;
-        warnings.push({
+        addCheckpointFailure({
+          warnings,
           code: 'checkpoint-repair-failed',
-          message: repairError instanceof Error ? repairError.message : String(repairError),
+          stage: 'repair',
+          error: repairError,
+          checkpointRevision: current?.sourceEventRevision ?? 0,
+          captureRevision: input.metadata.captureRevision,
+          deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
         });
         break;
       }
@@ -348,9 +426,14 @@ export async function foldContinuationCheckpoint(
         });
       }
     } catch (error) {
-      warnings.push({
+      addCheckpointFailure({
+        warnings,
         code: 'checkpoint-generation-failed',
-        message: error instanceof Error ? error.message : String(error),
+        stage: 'fold-commit',
+        error,
+        checkpointRevision: current?.sourceEventRevision ?? 0,
+        captureRevision: input.metadata.captureRevision,
+        deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
       });
       current = repo.latestAtOrBefore(input.metadata.sessionId, input.metadata.captureRevision);
       break;

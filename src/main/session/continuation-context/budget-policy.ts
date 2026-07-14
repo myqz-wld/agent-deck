@@ -3,7 +3,9 @@ import { estimateContinuationTokens, utf8ByteLength } from './token-estimator';
 export const DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS = 64_000;
 export const MIN_CONTINUATION_RAW_RETENTION_TOKENS = 8_000;
 export const MAX_CONTINUATION_RAW_RETENTION_TOKENS = 128_000;
-export const DEFAULT_GENERATOR_FOLD_INPUT_TOKENS = 32_000;
+export const DEFAULT_GENERATOR_FOLD_INPUT_TOKENS = 96_000;
+export const MAX_GENERATOR_FOLD_INPUT_TOKENS = 128_000;
+export const GENERATOR_RESPONSE_AND_RUNTIME_RESERVE_TOKENS = 32_000;
 export const CONTINUATION_PROMPT_MAX_UTF8_BYTES = 512 * 1024;
 export const DEFAULT_SYSTEM_PROJECT_RESERVE_TOKENS = 16_000;
 export const DEFAULT_RESPONSE_RESERVE_TOKENS = 8_000;
@@ -74,8 +76,16 @@ export function resolveTargetPromptCapacityTokens(
 export function resolveGeneratorFoldInputBudgetTokens(contextWindowTokens: number | null): number {
   if (contextWindowTokens == null) return DEFAULT_GENERATOR_FOLD_INPUT_TOKENS;
   safeNonNegative(contextWindowTokens, 'generatorContextWindowTokens');
-  // Reserve half for app-owned instructions, checkpoint output, and provider accounting variance.
-  return Math.max(1, Math.floor(contextWindowTokens / 2));
+  // The canonical checkpoint is independently capped at 24k estimated tokens. Keep another 8k
+  // for app-owned instructions and provider accounting variance, then cap the input so the 512 KiB
+  // prompt guard remains authoritative even for very large model windows.
+  return Math.max(
+    1,
+    Math.min(
+      MAX_GENERATOR_FOLD_INPUT_TOKENS,
+      contextWindowTokens - GENERATOR_RESPONSE_AND_RUNTIME_RESERVE_TOKENS,
+    ),
+  );
 }
 
 export function resolveContinuationBudgets(

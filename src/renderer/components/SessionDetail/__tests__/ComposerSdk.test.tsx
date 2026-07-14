@@ -128,20 +128,117 @@ describe('ComposerSdk unified input routing', () => {
     });
   });
 
-  it('applies a free-form model and dropdown thinking level to the next turn', async () => {
+  it('automatically applies a free-form model and dropdown thinking level to the next turn', async () => {
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
     fireEvent.click(screen.getByText('模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
-    fireEvent.click(screen.getByRole('button', { name: '应用到下一轮' }));
 
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
         model: 'gpt-custom',
         thinking: 'ultra',
       });
+    });
+    expect(screen.queryByRole('button', { name: '应用到下一轮' })).toBeNull();
+  });
+
+  it('automatically persists a free-form model without another control change', async () => {
+    render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
+
+    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
+
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        model: 'gpt-custom',
+        thinking: 'low',
+      });
+    });
+  });
+
+  it('sends the latest rapid edit after an older selection settles', async () => {
+    let rejectFirst: (error: Error) => void = () => undefined;
+    setSessionModelOptions
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockResolvedValueOnce(undefined);
+    render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
+
+    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'first-model' } });
+    fireEvent.click(screen.getByLabelText('思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'HIGH' }));
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        model: 'first-model',
+        thinking: 'high',
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'latest-model' } });
+    fireEvent.click(screen.getByLabelText('思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
+    expect(setSessionModelOptions).toHaveBeenCalledTimes(1);
+
+    rejectFirst(new Error('first selection failed'));
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenLastCalledWith('codex-cli', 'sess-1', {
+        model: 'latest-model',
+        thinking: 'ultra',
+      });
+      expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('latest-model');
+      expect(screen.queryByText('first selection failed')).toBeNull();
+    });
+  });
+
+  it('keeps a new session draft when an older session write finishes later', async () => {
+    let rejectFirst: (error: Error) => void = () => undefined;
+    setSessionModelOptions
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockResolvedValueOnce(undefined);
+    const view = render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
+
+    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'old-session-model' } });
+    fireEvent.click(screen.getByLabelText('思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'HIGH' }));
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        model: 'old-session-model',
+        thinking: 'high',
+      });
+    });
+
+    view.rerender(<ComposerSdk session={makeSession({ id: 'sess-2', model: 'gpt-new', thinking: 'low' })} />);
+    await waitFor(() => {
+      expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('gpt-new');
+    });
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'new-session-model' } });
+    fireEvent.click(screen.getByLabelText('思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-2', {
+        model: 'new-session-model',
+        thinking: 'ultra',
+      });
+    });
+
+    rejectFirst(new Error('old session failed'));
+    await waitFor(() => {
+      expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('new-session-model');
+      expect(screen.queryByText('old session failed')).toBeNull();
     });
   });
 });

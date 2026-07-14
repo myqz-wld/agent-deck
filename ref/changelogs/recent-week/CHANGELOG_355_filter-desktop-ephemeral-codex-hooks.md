@@ -44,4 +44,4 @@ Filtering on a missing transcript alone was rejected because Codex supports user
 - Existing misclassified database rows are not deleted or mutated; they follow the normal lifecycle thresholds.
 - The installed Agent Deck instance was not restarted because it owns this session. Restart is required before runtime verification.
 - Resolved app issue: `38fdc312-ee81-4ed6-a6b8-6e7e699f2919`.
-- Related review: [REVIEW_146](../../reviews/recent-3-days/REVIEW_146_desktop-ephemeral-codex-hooks.md).
+- Related review: [REVIEW_146](../../reviews/recent-week/REVIEW_146_desktop-ephemeral-codex-hooks.md).
