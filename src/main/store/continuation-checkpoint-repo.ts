@@ -1,35 +1,21 @@
 import type { Database } from 'better-sqlite3';
-import {
-  CONTINUATION_CHECKPOINT_SECTIONS,
-  canonicalizeContinuationCheckpoint,
-  parseContinuationCheckpointJson,
-  type ContinuationCheckpoint,
-} from '@main/session/continuation-context/checkpoint-schema';
+import { canonicalizeContinuationCheckpoint } from '@main/session/continuation-context/checkpoint-schema';
 import { getDb } from './db';
+import {
+  assertCheckpointEvidenceWithinCoverage,
+  latestValidatedContinuationCheckpoint,
+  listContinuationCheckpointRows,
+  readContinuationCheckpointRevisionState,
+  readLatestContinuationCheckpointAtOrBefore,
+  validateContinuationCheckpointRow,
+  type ContinuationCheckpointRecord,
+  type ContinuationCheckpointRevisionState,
+  type ContinuationCheckpointRow,
+} from './continuation-checkpoint-read';
+
+export type { ContinuationCheckpointRecord } from './continuation-checkpoint-read';
 
 const RETAINED_VALID_CHECKPOINTS = 3;
-
-export interface ContinuationCheckpointRecord {
-  id: number;
-  sessionId: string;
-  generation: number;
-  parentCheckpointId: number | null;
-  formatVersion: number;
-  sourceEventRevision: number;
-  sourceRebuildAfterRevision: number;
-  sourceMaxEventId: number | null;
-  checkpoint: ContinuationCheckpoint;
-  payloadJson: string;
-  contentHash: string;
-  generatorAdapter: string;
-  generatorModel: string | null;
-  generatorThinking: string | null;
-  trigger: string;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  checkpointTokens: number | null;
-  createdAt: number;
-}
 
 export interface CommitContinuationCheckpointInput {
   sessionId: string;
@@ -73,32 +59,6 @@ export interface ContinuationCheckpointRepo {
   commit(input: CommitContinuationCheckpointInput): CommitContinuationCheckpointResult;
 }
 
-interface CheckpointRow {
-  id: number;
-  session_id: string;
-  generation: number;
-  parent_checkpoint_id: number | null;
-  format_version: number;
-  source_event_revision: number;
-  source_rebuild_after_revision: number;
-  source_max_event_id: number | null;
-  payload_json: string;
-  content_hash: string;
-  generator_adapter: string;
-  generator_model: string | null;
-  generator_thinking: string | null;
-  trigger: string;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  checkpoint_tokens: number | null;
-  created_at: number;
-}
-
-interface RevisionStateRow {
-  revision: number;
-  rebuild_after_revision: number;
-}
-
 function assertSafeNonNegativeInteger(value: number, field: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${field} must be a non-negative safe integer`);
@@ -117,121 +77,9 @@ function validateText(value: string, field: string): string {
   return normalized;
 }
 
-function assertEvidenceWithinCoverage(
-  checkpoint: ContinuationCheckpoint,
-  sourceEventRevision: number,
-): void {
-  for (const section of CONTINUATION_CHECKPOINT_SECTIONS) {
-    for (const fact of checkpoint[section]) {
-      for (const evidence of fact.evidence) {
-        if (evidence.revision > sourceEventRevision) {
-          throw new Error(
-            `Checkpoint fact ${fact.id} cites revision ${evidence.revision} beyond source revision ${sourceEventRevision}`,
-          );
-        }
-      }
-    }
-  }
-}
-
-function readRevisionState(db: Database, sessionId: string): RevisionStateRow | null {
-  return (
-    (db
-      .prepare(
-        `SELECT revision, rebuild_after_revision
-           FROM session_event_revisions
-          WHERE session_id = ?`,
-      )
-      .get(sessionId) as RevisionStateRow | undefined) ?? null
-  );
-}
-
-function validateRow(
-  row: CheckpointRow,
-  state: RevisionStateRow,
-): ContinuationCheckpointRecord | null {
-  try {
-    if (
-      row.source_event_revision < state.rebuild_after_revision ||
-      row.source_event_revision > state.revision ||
-      row.source_rebuild_after_revision !== state.rebuild_after_revision ||
-      row.source_rebuild_after_revision > row.source_event_revision
-    ) {
-      return null;
-    }
-    const canonical = parseContinuationCheckpointJson(row.payload_json);
-    assertEvidenceWithinCoverage(canonical.checkpoint, row.source_event_revision);
-    if (
-      canonical.checkpoint.formatVersion !== row.format_version ||
-      canonical.contentHash !== row.content_hash
-    ) {
-      return null;
-    }
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      generation: row.generation,
-      parentCheckpointId: row.parent_checkpoint_id,
-      formatVersion: row.format_version,
-      sourceEventRevision: row.source_event_revision,
-      sourceRebuildAfterRevision: row.source_rebuild_after_revision,
-      sourceMaxEventId: row.source_max_event_id,
-      checkpoint: canonical.checkpoint,
-      payloadJson: canonical.payloadJson,
-      contentHash: row.content_hash,
-      generatorAdapter: row.generator_adapter,
-      generatorModel: row.generator_model,
-      generatorThinking: row.generator_thinking,
-      trigger: row.trigger,
-      inputTokens: row.input_tokens,
-      outputTokens: row.output_tokens,
-      checkpointTokens: row.checkpoint_tokens,
-      createdAt: row.created_at,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function listRows(
-  db: Database,
-  sessionId: string,
-  atOrBeforeRevision?: number,
-): CheckpointRow[] {
-  if (atOrBeforeRevision === undefined) {
-    return db
-      .prepare(
-        `SELECT * FROM continuation_checkpoints
-          WHERE session_id = ?
-          ORDER BY generation DESC`,
-      )
-      .all(sessionId) as CheckpointRow[];
-  }
-  return db
-    .prepare(
-      `SELECT * FROM continuation_checkpoints
-        WHERE session_id = ? AND source_event_revision <= ?
-        ORDER BY generation DESC`,
-    )
-    .all(sessionId, atOrBeforeRevision) as CheckpointRow[];
-}
-
-function latestValidated(
-  db: Database,
-  sessionId: string,
-  state: RevisionStateRow,
-  atOrBeforeRevision?: number,
-): ContinuationCheckpointRecord | null {
-  for (const row of listRows(db, sessionId, atOrBeforeRevision)) {
-    const checkpoint = validateRow(row, state);
-    if (checkpoint) return checkpoint;
-  }
-  return null;
-}
-
 function conflict(
   reason: CommitCheckpointConflictReason,
-  state: RevisionStateRow | null,
+  state: ContinuationCheckpointRevisionState | null,
   currentHeadId: number | null,
 ): CommitContinuationCheckpointResult {
   return {
@@ -245,25 +93,23 @@ function conflict(
 
 export function createContinuationCheckpointRepo(db: Database): ContinuationCheckpointRepo {
   function latest(sessionId: string): ContinuationCheckpointRecord | null {
-    const state = readRevisionState(db, sessionId);
-    return state ? latestValidated(db, sessionId, state) : null;
+    const state = readContinuationCheckpointRevisionState(db, sessionId);
+    return state ? latestValidatedContinuationCheckpoint(db, sessionId, state) : null;
   }
 
   function latestAtOrBefore(
     sessionId: string,
     revision: number,
   ): ContinuationCheckpointRecord | null {
-    assertSafeNonNegativeInteger(revision, 'revision');
-    const state = readRevisionState(db, sessionId);
-    return state ? latestValidated(db, sessionId, state, revision) : null;
+    return readLatestContinuationCheckpointAtOrBefore(db, sessionId, revision);
   }
 
   const commitTx = db.transaction(
     (input: CommitContinuationCheckpointInput): CommitContinuationCheckpointResult => {
-      const state = readRevisionState(db, input.sessionId);
+      const state = readContinuationCheckpointRevisionState(db, input.sessionId);
       if (!state) return conflict('session-missing', null, null);
 
-      const currentHead = latestValidated(db, input.sessionId, state);
+      const currentHead = latestValidatedContinuationCheckpoint(db, input.sessionId, state);
       if (state.rebuild_after_revision !== input.expectedRebuildAfterRevision) {
         return conflict('rebuild-epoch-changed', state, currentHead?.id ?? null);
       }
@@ -288,7 +134,7 @@ export function createContinuationCheckpointRepo(db: Database): ContinuationChec
       }
 
       const canonical = canonicalizeContinuationCheckpoint(input.checkpoint);
-      assertEvidenceWithinCoverage(canonical.checkpoint, input.sourceEventRevision);
+      assertCheckpointEvidenceWithinCoverage(canonical.checkpoint, input.sourceEventRevision);
       const maxGeneration = db
         .prepare(
           `SELECT COALESCE(MAX(generation), 0) AS generation
@@ -331,10 +177,10 @@ export function createContinuationCheckpointRepo(db: Database): ContinuationChec
         );
       const insertedId = Number(info.lastInsertRowid);
 
-      const allRows = listRows(db, input.sessionId);
+      const allRows = listContinuationCheckpointRows(db, input.sessionId);
       const validIds: number[] = [];
       for (const row of allRows) {
-        if (validateRow(row, state)) validIds.push(row.id);
+        if (validateContinuationCheckpointRow(row, state)) validIds.push(row.id);
       }
       const retainedIds = validIds.slice(0, RETAINED_VALID_CHECKPOINTS);
       if (retainedIds.length > 0) {
@@ -347,8 +193,8 @@ export function createContinuationCheckpointRepo(db: Database): ContinuationChec
 
       const inserted = db
         .prepare(`SELECT * FROM continuation_checkpoints WHERE id = ?`)
-        .get(insertedId) as CheckpointRow | undefined;
-      const checkpoint = inserted ? validateRow(inserted, state) : null;
+        .get(insertedId) as ContinuationCheckpointRow | undefined;
+      const checkpoint = inserted ? validateContinuationCheckpointRow(inserted, state) : null;
       if (!checkpoint) throw new Error('Committed continuation checkpoint failed read validation');
       return { ok: true, checkpoint };
     },

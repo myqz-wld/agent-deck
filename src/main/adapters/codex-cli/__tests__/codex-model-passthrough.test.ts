@@ -220,10 +220,10 @@ describe('Codex summary runner reasoning settings', () => {
   });
 
   it.each([undefined, '', 'invalid'])(
-    'falls back from summary effort %j to medium',
+    'falls back from summary effort %j to low',
     async (value) => {
       const { resolveCodexSummaryReasoning } = await import('../summarizer-runner');
-      expect(resolveCodexSummaryReasoning(value)).toBe('medium');
+      expect(resolveCodexSummaryReasoning(value)).toBe('low');
     },
   );
 

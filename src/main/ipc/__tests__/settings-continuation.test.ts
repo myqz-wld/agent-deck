@@ -10,6 +10,7 @@ const settingsStoreMocks = vi.hoisted(() => ({
   patch: vi.fn(),
 }));
 const invalidatePreparations = vi.hoisted(() => vi.fn());
+const updateCheckpointRefresh = vi.hoisted(() => vi.fn());
 
 vi.mock('@electron-toolkit/utils', () => ({ is: { dev: true } }));
 vi.mock('@main/window', () => ({ getFloatingWindow: vi.fn() }));
@@ -20,6 +21,11 @@ vi.mock('@main/session/lifecycle-scheduler', () => ({ getLifecycleScheduler: vi.
 vi.mock('@main/store/issue-lifecycle-scheduler', () => ({ getIssueLifecycleScheduler: vi.fn() }));
 vi.mock('@main/store/message-lifecycle-scheduler', () => ({ getMessageLifecycleScheduler: vi.fn() }));
 vi.mock('@main/session/summarizer', () => ({ summarizer: {} }));
+vi.mock('@main/session/continuation-context/checkpoint-refresh-service', () => ({
+  getContinuationCheckpointRefreshService: () => ({
+    updateSettings: updateCheckpointRefresh,
+  }),
+}));
 vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
   getActiveAgentDeckClaudeMd: vi.fn(),
   getBuiltinAgentDeckClaudeMd: vi.fn(),
@@ -75,6 +81,48 @@ describe('SettingsSet continuation validation', () => {
           current(),
         ),
       ).toMatchObject({ continuationCheckpointThinking: thinking });
+    }
+  });
+
+  it('validates checkpoint refresh and summary enable controls', () => {
+    expect(
+      validateSettingsPatch(
+        {
+          summaryEnabled: false,
+          continuationCheckpointAutoRefreshEnabled: false,
+          continuationCheckpointAutoRefreshIntervalMinutes: 30,
+        },
+        current(),
+      ),
+    ).toMatchObject({
+      summaryEnabled: false,
+      continuationCheckpointAutoRefreshEnabled: false,
+      continuationCheckpointAutoRefreshIntervalMinutes: 30,
+    });
+    for (const value of [true, 'false', 1, null]) {
+      if (value === true) continue;
+      expect(() =>
+        validateSettingsPatch({ summaryEnabled: value } as unknown, current()),
+      ).toThrow(/summaryEnabled/);
+      expect(() =>
+        validateSettingsPatch(
+          { continuationCheckpointAutoRefreshEnabled: value } as unknown,
+          current(),
+        ),
+      ).toThrow(/continuationCheckpointAutoRefreshEnabled/);
+    }
+    for (const value of [4, 1_441, 30.5, Number.NaN, '30']) {
+      expect(() =>
+        validateSettingsPatch(
+          { continuationCheckpointAutoRefreshIntervalMinutes: value } as unknown,
+          current(),
+        ),
+      ).toThrow(/continuationCheckpointAutoRefreshIntervalMinutes/);
+    }
+    for (const value of [42, null, 'm'.repeat(257)]) {
+      expect(() =>
+        validateSettingsPatch({ summaryModel: value } as unknown, current()),
+      ).toThrow(/summaryModel/);
     }
   });
 
@@ -166,6 +214,7 @@ describe('SettingsSet continuation validation', () => {
       ...patch,
     }));
     invalidatePreparations.mockClear();
+    updateCheckpointRefresh.mockClear();
     const handle = vi.mocked(ipcMain.handle);
     handle.mockClear();
     registerSettingsIpc();
@@ -197,6 +246,23 @@ describe('SettingsSet continuation validation', () => {
     expect(setHandler!({} as never, { claudeCodeSandbox: 'strict' })).toMatchObject({
       claudeCodeSandbox: 'strict',
     });
+    expect(invalidatePreparations).toHaveBeenCalledTimes(2);
+
+    expect(
+      setHandler!({} as never, {
+        continuationCheckpointAutoRefreshEnabled: false,
+        continuationCheckpointAutoRefreshIntervalMinutes: 60,
+      }),
+    ).toMatchObject({
+      continuationCheckpointAutoRefreshEnabled: false,
+      continuationCheckpointAutoRefreshIntervalMinutes: 60,
+    });
+    expect(updateCheckpointRefresh).toHaveBeenCalledWith(
+      expect.objectContaining({
+        continuationCheckpointAutoRefreshEnabled: false,
+        continuationCheckpointAutoRefreshIntervalMinutes: 60,
+      }),
+    );
     expect(invalidatePreparations).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,12 +1,11 @@
 import type { Database } from 'better-sqlite3';
 import log from '@main/utils/logger';
+import { assertContinuationPromptByteLimit } from './budget-policy';
 import {
   createContinuationCheckpointRepo,
   type ContinuationCheckpointRecord,
 } from '@main/store/continuation-checkpoint-repo';
-import type { RawEventRevisionRow } from '@main/store/event-revision-repo';
 import {
-  CONTINUATION_CHECKPOINT_SECTIONS,
   canonicalizeContinuationCheckpoint,
   type ContinuationCheckpoint,
 } from './checkpoint-schema';
@@ -18,23 +17,33 @@ import {
 } from './checkpoint-generator';
 import {
   buildCheckpointFoldChunk,
-  groupContinuationRows,
   priorCheckpointEvidence,
+  type FoldChunkView,
 } from './checkpoint-fold-chunk';
-import { buildCheckpointRepairPrompt } from './checkpoint-prompts';
+import {
+  fitCanonicalCheckpointForPersistence,
+  MAX_CANONICAL_CHECKPOINT_TOKENS,
+} from './checkpoint-canonical-fit';
+import { buildCheckpointRepairPrompt, CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from './checkpoint-prompts';
 import {
   assertActiveCheckpointFactsCarryForward,
   projectContinuationCheckpointWithCoverageMarker,
 } from './checkpoint-projection';
 import {
-  buildCoverageGapFact,
   coverageGapRangeFromCheckpoint,
 } from './checkpoint-fold-coverage-gap';
-import type { ContinuationSourceSpoolStore, ContinuationSpoolMetadata } from './source-spool';
+import {
+  assertCheckpointFoldSource,
+  emptyContinuationCheckpoint,
+  foregroundChunkView,
+  foregroundRevisionGroups,
+  calculateUncoveredRevisionRange,
+  type CheckpointFoldMetadata,
+  type CheckpointFoldSourceSelection,
+} from './checkpoint-fold-source';
 import { estimateContinuationJsonTokens, estimateContinuationTokens, truncateContinuationTextMiddle } from './token-estimator';
 import type { ContinuationWarning, ResolvedContinuationGenerator } from './types';
 
-const MAX_CANONICAL_CHECKPOINT_TOKENS = 24_000;
 const logger = log.scope('continuation-context');
 
 type CheckpointFailureStage =
@@ -86,10 +95,9 @@ function addCheckpointFailure(input: {
   });
 }
 
-export interface FoldContinuationCheckpointInput {
+export interface FoldContinuationCheckpointInput extends CheckpointFoldSourceSelection {
   db: Database;
-  spool: ContinuationSourceSpoolStore;
-  metadata: ContinuationSpoolMetadata;
+  metadata: CheckpointFoldMetadata;
   generatorSpec: ResolvedContinuationGenerator;
   generator: ContinuationCheckpointGenerator;
   generatorFoldInputBudgetTokens: number;
@@ -112,24 +120,6 @@ export interface FoldContinuationCheckpointResult {
   uncoveredRevisionRange: { from: number; to: number } | null;
 }
 
-function emptyCheckpoint(): ContinuationCheckpoint {
-  return Object.fromEntries([
-    ['formatVersion', 1],
-    ...CONTINUATION_CHECKPOINT_SECTIONS.map((section) => [section, []]),
-  ]) as unknown as ContinuationCheckpoint;
-}
-
-function readAllRows(spool: ContinuationSourceSpoolStore, spoolId: string): RawEventRevisionRow[] {
-  const rows: RawEventRevisionRow[] = [];
-  let ordinal = -1;
-  for (;;) {
-    const page = spool.readSourceRows(spoolId, ordinal, 1_000);
-    rows.push(...page);
-    if (page.length < 1_000) return rows;
-    ordinal += page.length;
-  }
-}
-
 function deadlineRemaining(input: FoldContinuationCheckpointInput, now: () => number): number {
   if (input.signal?.aborted) throw new CheckpointGeneratorError('Checkpoint generation aborted', 'aborted');
   return Math.max(0, input.deadlineAt - now());
@@ -142,13 +132,10 @@ function diagnosticDeadlineRemaining(
   return Math.max(0, input.deadlineAt - now());
 }
 
-function uncovered(from: number, to: number): { from: number; to: number } | null {
-  return from < to ? { from, to } : null;
-}
-
 export async function foldContinuationCheckpoint(
   input: FoldContinuationCheckpointInput,
 ): Promise<FoldContinuationCheckpointResult> {
+  assertCheckpointFoldSource(input, input.metadata);
   const now = input.now ?? Date.now;
   const repo = createContinuationCheckpointRepo(input.db);
   const storedAtCapture = repo.latestAtOrBefore(
@@ -168,10 +155,14 @@ export async function foldContinuationCheckpoint(
   let outputTokens = 0;
   let observedContextWindowTokens: number | null = null;
   const warnings: ContinuationWarning[] = [];
-  const rows = readAllRows(input.spool, input.metadata.spoolId);
-  let remainingGroups = groupContinuationRows(rows).filter(
-    (group) => group.revision > (current?.sourceEventRevision ?? 0),
-  );
+  let remainingGroups = foregroundRevisionGroups({
+    spool: input.spool,
+    metadata: input.metadata,
+    afterRevision: current?.sourceEventRevision ?? 0,
+  });
+  let backgroundCursor = 0;
+  let backgroundRemaining = input.backgroundSource !== undefined &&
+    input.metadata.materializedThroughRevision > (current?.sourceEventRevision ?? 0);
 
   const persistentCoverageGap = () =>
     coverageGapRangeFromCheckpoint(current?.checkpoint ?? null, input.metadata.captureRevision);
@@ -188,7 +179,13 @@ export async function foldContinuationCheckpoint(
   addPersistentCoverageWarning();
 
   const commit = (checkpoint: ContinuationCheckpoint, throughRevision: number, trigger: string) => {
-    const canonical = canonicalizeContinuationCheckpoint(checkpoint);
+    const candidate = canonicalizeContinuationCheckpoint(checkpoint).checkpoint;
+    const fit = fitCanonicalCheckpointForPersistence({
+      candidate,
+      previous: current?.checkpoint ?? null,
+    });
+    if (!fit.ok) throw new Error(`Canonical checkpoint fit failed: ${fit.reason}`);
+    const canonical = canonicalizeContinuationCheckpoint(fit.checkpoint);
     const checkpointTokens = estimateContinuationJsonTokens(canonical.checkpoint, { structuralOverhead: 8 });
     if (checkpointTokens > MAX_CANONICAL_CHECKPOINT_TOKENS) {
       throw new Error(`Canonical checkpoint exceeds ${MAX_CANONICAL_CHECKPOINT_TOKENS} estimated tokens`);
@@ -211,12 +208,21 @@ export async function foldContinuationCheckpoint(
     if (!result.ok) throw new Error(`Checkpoint CAS conflict: ${result.reason}`);
     current = result.checkpoint;
     refreshed = true;
+    if (fit.omittedFacts > 0) {
+      warnings.push({
+        code: 'checkpoint-projected',
+        message: `${fit.omittedFacts} lower-priority inactive facts were pruned from the canonical checkpoint at its ${fit.mode} capacity boundary.`,
+      });
+    }
   };
 
-  if (remainingGroups.every((group) => group.normalized.length === 0)) {
+  const normalizedSourceIsEmpty = input.backgroundSource
+    ? input.metadata.normalizedEventCount === 0
+    : remainingGroups.every((group) => group.normalized.length === 0);
+  if (normalizedSourceIsEmpty) {
     if (input.metadata.materializedThroughRevision > (current?.sourceEventRevision ?? 0)) {
       try {
-        commit(current?.checkpoint ?? emptyCheckpoint(), input.metadata.materializedThroughRevision, 'continuation-deterministic-fold');
+        commit(current?.checkpoint ?? emptyContinuationCheckpoint(), input.metadata.materializedThroughRevision, 'continuation-deterministic-fold');
       } catch {
         current = repo.latestAtOrBefore(input.metadata.sessionId, input.metadata.captureRevision);
       }
@@ -232,18 +238,35 @@ export async function foldContinuationCheckpoint(
       warnings,
       uncoveredRevisionRange:
         persistentCoverageGap() ??
-        uncovered(current?.sourceEventRevision ?? 0, input.metadata.captureRevision),
+        calculateUncoveredRevisionRange(current?.sourceEventRevision ?? 0, input.metadata.captureRevision),
     };
   }
 
-  while (remainingGroups.length > 0) {
+  while (input.backgroundSource ? backgroundRemaining : remainingGroups.length > 0) {
     if (deadlineRemaining(input, now) <= 0) break;
-    const chunk = buildCheckpointFoldChunk({
-      groups: remainingGroups,
-      previous: current?.checkpoint ?? null,
-      finalThroughRevision: input.metadata.materializedThroughRevision,
-      budget: input.generatorFoldInputBudgetTokens,
-    });
+    let chunk: FoldChunkView | null;
+    if (input.backgroundSource) {
+      chunk = await input.backgroundSource.buildNextChunk({
+        cursor: backgroundCursor,
+        coveredThroughRevision: current?.sourceEventRevision ?? 0,
+        previous: current?.checkpoint ?? null,
+        budget: input.generatorFoldInputBudgetTokens,
+      });
+    } else {
+      const foregroundChunk = buildCheckpointFoldChunk({
+        groups: remainingGroups,
+        previous: current?.checkpoint ?? null,
+        finalThroughRevision: input.metadata.materializedThroughRevision,
+        budget: input.generatorFoldInputBudgetTokens,
+      });
+      chunk = foregroundChunk
+        ? foregroundChunkView({
+            chunk: foregroundChunk,
+            remainingGroupCount: remainingGroups.length,
+            coveredThroughRevision: current?.sourceEventRevision ?? 0,
+          })
+        : null;
+    }
     if (!chunk) {
       warnings.push({
         code: 'coverage-gap',
@@ -252,12 +275,7 @@ export async function foldContinuationCheckpoint(
       break;
     }
     if (chunk.requiresCoverageMarker) {
-      const marker = buildCoverageGapFact({
-        coveredThroughRevision: current?.sourceEventRevision ?? 0,
-        revision: chunk.groups[0].revision,
-        rows: chunk.groups.flatMap((group) => group.rows),
-        allowedEvidence: chunk.currentEvidence,
-      });
+      const marker = chunk.coverageMarker;
       const bounded = marker
         ? projectContinuationCheckpointWithCoverageMarker({
             previous: current?.checkpoint ?? null,
@@ -268,7 +286,7 @@ export async function foldContinuationCheckpoint(
       if (!bounded) {
         warnings.push({
           code: 'coverage-gap',
-          message: `Revision ${chunk.groups[0].revision} could not be represented by a bounded checkpoint marker without dropping required active facts.`,
+          message: `Revision ${chunk.firstRevision} could not be represented by a bounded checkpoint marker without dropping required active facts.`,
         });
         break;
       }
@@ -278,9 +296,15 @@ export async function foldContinuationCheckpoint(
           chunk.throughRevision,
           'continuation-bounded-coverage-fold',
         );
+        if (bounded.omittedFacts > 0) {
+          warnings.push({
+            code: 'checkpoint-projected',
+            message: `${bounded.omittedFacts} lower-priority inactive facts were pruned while adding the durable coverage marker.`,
+          });
+        }
         warnings.push({
           code: 'coverage-gap',
-          message: `Revision ${chunk.groups[0].revision} was retained only as a durable bounded digest; full semantic coverage remains unavailable.`,
+          message: `Revision ${chunk.firstRevision} was retained only as a durable bounded digest; full semantic coverage remains unavailable.`,
         });
       } catch (error) {
         addCheckpointFailure({
@@ -295,7 +319,12 @@ export async function foldContinuationCheckpoint(
         current = repo.latestAtOrBefore(input.metadata.sessionId, input.metadata.captureRevision);
         break;
       }
-      remainingGroups = remainingGroups.slice(chunk.groups.length);
+      if (input.backgroundSource) {
+        backgroundCursor = chunk.nextCursor;
+        backgroundRemaining = chunk.remainingAfter;
+      } else {
+        remainingGroups = remainingGroups.slice(chunk.consumedGroupCount);
+      }
       continue;
     }
     if (foldCalls >= input.maxFoldCalls) break;
@@ -378,6 +407,7 @@ export async function foldContinuationCheckpoint(
           validationError:
             validationError instanceof Error ? validationError.message : String(validationError),
         });
+        assertContinuationPromptByteLimit(CONTINUATION_CHECKPOINT_SYSTEM_PROMPT + repairPrompt);
         const repaired = await input.generator.generate({
           prompt: repairPrompt,
           timeoutMs: deadlineRemaining(input, now),
@@ -438,12 +468,17 @@ export async function foldContinuationCheckpoint(
       current = repo.latestAtOrBefore(input.metadata.sessionId, input.metadata.captureRevision);
       break;
     }
-    remainingGroups = remainingGroups.slice(chunk.groups.length);
+    if (input.backgroundSource) {
+      backgroundCursor = chunk.nextCursor;
+      backgroundRemaining = chunk.remainingAfter;
+    } else {
+      remainingGroups = remainingGroups.slice(chunk.consumedGroupCount);
+    }
   }
 
   const uncoveredRevisionRange =
     persistentCoverageGap() ??
-    uncovered(current?.sourceEventRevision ?? 0, input.metadata.captureRevision);
+    calculateUncoveredRevisionRange(current?.sourceEventRevision ?? 0, input.metadata.captureRevision);
   if (uncoveredRevisionRange && !warnings.some((warning) => warning.code === 'coverage-gap')) {
     warnings.push({
       code: 'coverage-gap',

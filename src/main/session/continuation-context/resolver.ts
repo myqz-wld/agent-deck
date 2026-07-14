@@ -63,8 +63,8 @@ function configuredGeneratorModel(adapter: SessionAdapterId, configured: unknown
     return getDeepseekModelForClaudeAlias('sonnet') ?? null;
   }
   return (
-    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?.trim() ||
-    'opus'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim() ||
+    'sonnet'
   );
 }
 

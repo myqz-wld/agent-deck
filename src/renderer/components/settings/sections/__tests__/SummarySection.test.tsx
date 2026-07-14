@@ -70,7 +70,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     openSection();
     expect(
       screen.getByText(
-        /留空时使用 Codex 默认模型，思考程度默认 medium。.*临时环境.*暂时无法验证模型内置工具是否为空/,
+        /留空时使用 Codex 配置默认模型，思考程度默认 low。.*临时环境.*暂时无法验证模型内置工具是否为空/,
       ),
     ).toBeTruthy();
     expect(
@@ -106,7 +106,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       ).toBe('留空使用 Claude Haiku');
     });
     expect(
-      screen.getByText('模型留空时使用 Claude Haiku，默认思考程度为 medium。'),
+      screen.getByText('模型留空时使用 Claude Haiku，默认思考程度为 low。'),
     ).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'claude',
@@ -138,7 +138,14 @@ describe('SummarySection provider-specific thinking levels', () => {
 
     await waitFor(() => {
       expect(rowButtons('总结模型')[1]?.textContent).toContain('XHIGH');
+      expect(
+        (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
+          .placeholder,
+      ).toBe('留空使用 Deepseek Sonnet');
     });
+    expect(
+      screen.getByText('模型留空时使用 Deepseek Sonnet，默认思考程度为 low。'),
+    ).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'deepseek',
       summaryReasoning: 'xhigh',
@@ -220,5 +227,17 @@ describe('SummarySection provider-specific thinking levels', () => {
       expect((input as HTMLInputElement).value).toBe('gpt-5.6-sol');
     });
     expect(onPatch).toHaveBeenCalledWith({ summaryModel: 'gpt-5.6-sol' });
+  });
+
+  it('can disable periodic summaries before they start another model call', () => {
+    const onPatch = vi.fn();
+    render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
+    openSection();
+
+    expect(screen.getByText('关闭后不会启动新的总结模型调用。')).toBeTruthy();
+    const toggle = screen.getByRole('checkbox', { name: '启用周期总结' });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(onPatch).toHaveBeenCalledWith({ summaryEnabled: false });
   });
 });

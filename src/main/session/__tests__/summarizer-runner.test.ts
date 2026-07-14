@@ -109,13 +109,13 @@ describe('summariseViaLlm periodic reasoning effort', () => {
     }
   });
 
-  it.each(['', 'invalid'])('falls back from summary effort %j to medium', async (value) => {
+  it.each(['', 'invalid'])('falls back from summary effort %j to low', async (value) => {
     const { settingsStore } = await import('@main/store/settings-store');
     const previous = settingsStore.get('summaryReasoning');
     settingsStore.set('summaryReasoning', value as AppSettings['summaryReasoning']);
     try {
       await summariseViaLlm('/tmp/cwd', events);
-      expect(calls[0].options.effort).toBe('medium');
+      expect(calls[0].options.effort).toBe('low');
     } finally {
       settingsStore.set('summaryReasoning', previous);
     }

@@ -133,6 +133,7 @@ export class Summarizer {
   }
 
   async scanAll(): Promise<void> {
+    if (settingsStore.get('summaryEnabled') === false) return;
     const sessions = sessionRepo.listActiveAndDormant(50);
     const intervalMs = settingsStore.get('summaryIntervalMs');
     const eventCount = settingsStore.get('summaryEventCount');
@@ -295,6 +296,7 @@ export class Summarizer {
     sessionId: string,
     previous: SummaryRecord | null,
   ): Promise<GeneratedSummary | null> {
+    if (settingsStore.get('summaryEnabled') === false) return null;
     const session = sessionRepo.get(sessionId);
     if (!session) return null;
     const evidence = capturePeriodicSummaryEvidence(sessionId, previous);
@@ -309,7 +311,7 @@ export class Summarizer {
     //    - settings.summaryProvider='deepseek' → Deepseek Claude Code adapter oneshot(Deepseek config)
     //      + 同一组 Claude-family effort
     //    - settings.summaryProvider='codex' → codex SDK oneshot(read-only sandbox + reasoning 档位
-    //      由 settings.summaryReasoning 决定,默认 'medium')
+    //      由 settings.summaryReasoning 决定,默认 'low')
     //
     //    **关键 design 决策**:adapter 不再按 session.agentId 选(原 R37 P2-I 路径),改成按
     //    settings.summaryProvider 选 — claude session 也可能走 codex SDK 总结,反之亦然。

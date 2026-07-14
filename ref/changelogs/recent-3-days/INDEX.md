@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-14 | `CHANGELOG_365_automatic-continuation-checkpoints.md` | Keep continuation checkpoints fresh and bounded |
 | 2026-07-14 | `CHANGELOG_363_runtime-controls-handoff-context.md` | Auto-save runtime controls and keep hand-off context current |
 | 2026-07-12 | `CHANGELOG_362_storage-maintenance-worker-provider-compaction.md` | Isolate live storage maintenance and restore Codex compact generation |
 | 2026-07-11 | `CHANGELOG_361_storage-performance-observability-svg-icons.md` | Stage storage maintenance, require MCP readiness, and unify SVG icons |

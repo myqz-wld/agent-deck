@@ -5,6 +5,7 @@ import {
   type TrustedContinuationInitialTurn,
 } from './initial-turn';
 import { prepareContinuationContext } from './service';
+import { acquireContinuationCheckpointForegroundLease } from './checkpoint-refresh-service';
 import {
   assertSessionAdapterId,
   resolveContinuationGeneratorSnapshot,
@@ -145,25 +146,32 @@ export async function prepareRecoveryContinuation(input: {
   continuationInstruction: string;
   signal?: AbortSignal;
 }): Promise<PreparedRecoveryContinuation> {
-  const prepared = await prepareContinuationContext({
-    purpose: 'recovery',
-    sourceSessionId: input.capture.sourceSessionId,
-    continuationInstruction: input.continuationInstruction,
-    generator: input.capture.generator,
-    target: input.capture.target,
-    source: { mode: 'immutable-spool', spoolId: input.capture.spoolId },
-    limits: {
-      rawRetentionCeilingTokens: input.capture.rawRetentionCeilingTokens,
-      deadlineMs: RECOVERY_CONTINUATION_DEADLINE_MS,
-      maxFoldCalls: RECOVERY_CONTINUATION_MAX_FOLD_CALLS,
-      maxRepairCalls: RECOVERY_CONTINUATION_MAX_REPAIR_CALLS,
-    },
-    ...(input.signal ? { signal: input.signal } : {}),
-  });
-  return {
-    prepared,
-    turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
-  };
+  const releaseForeground = await acquireContinuationCheckpointForegroundLease(
+    input.capture.sourceSessionId,
+  );
+  try {
+    const prepared = await prepareContinuationContext({
+      purpose: 'recovery',
+      sourceSessionId: input.capture.sourceSessionId,
+      continuationInstruction: input.continuationInstruction,
+      generator: input.capture.generator,
+      target: input.capture.target,
+      source: { mode: 'immutable-spool', spoolId: input.capture.spoolId },
+      limits: {
+        rawRetentionCeilingTokens: input.capture.rawRetentionCeilingTokens,
+        deadlineMs: RECOVERY_CONTINUATION_DEADLINE_MS,
+        maxFoldCalls: RECOVERY_CONTINUATION_MAX_FOLD_CALLS,
+        maxRepairCalls: RECOVERY_CONTINUATION_MAX_REPAIR_CALLS,
+      },
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    return {
+      prepared,
+      turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
+    };
+  } finally {
+    releaseForeground();
+  }
 }
 
 /** Idempotent for already-cleaned/missing rows. */

@@ -8,6 +8,7 @@ import {
   resolveContinuationRawRetentionCeiling,
 } from './resolver';
 import { prepareContinuationContext } from './service';
+import { acquireContinuationCheckpointForegroundLease } from './checkpoint-refresh-service';
 import type {
   PreparedContinuationContext,
   ResolvedContinuationGenerator,
@@ -59,26 +60,33 @@ export async function prepareHandOffContinuation(input: {
     generator,
     rawRetentionCeilingTokens,
   });
-  const prepared = await prepareContinuationContext({
-    purpose: 'handoff',
-    sourceSessionId: input.sourceSessionId,
-    continuationInstruction: input.continuationInstruction,
-    generator,
-    target: input.target,
-    source: { mode: 'capture' },
-    limits: {
-      rawRetentionCeilingTokens,
-      deadlineMs: HANDOFF_CONTINUATION_DEADLINE_MS,
-      maxFoldCalls: HANDOFF_CONTINUATION_MAX_FOLD_CALLS,
-      maxRepairCalls: HANDOFF_CONTINUATION_MAX_REPAIR_CALLS,
-    },
-    ...(input.signal ? { signal: input.signal } : {}),
-  });
-  return {
-    prepared,
-    turn: createTrustedContinuationInitialTurn(prepared, input.sourceSessionId),
-    generator,
-    target: input.target,
-    settingsFingerprint,
-  };
+  const releaseForeground = await acquireContinuationCheckpointForegroundLease(
+    input.sourceSessionId,
+  );
+  try {
+    const prepared = await prepareContinuationContext({
+      purpose: 'handoff',
+      sourceSessionId: input.sourceSessionId,
+      continuationInstruction: input.continuationInstruction,
+      generator,
+      target: input.target,
+      source: { mode: 'capture' },
+      limits: {
+        rawRetentionCeilingTokens,
+        deadlineMs: HANDOFF_CONTINUATION_DEADLINE_MS,
+        maxFoldCalls: HANDOFF_CONTINUATION_MAX_FOLD_CALLS,
+        maxRepairCalls: HANDOFF_CONTINUATION_MAX_REPAIR_CALLS,
+      },
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    return {
+      prepared,
+      turn: createTrustedContinuationInitialTurn(prepared, input.sourceSessionId),
+      generator,
+      target: input.target,
+      settingsFingerprint,
+    };
+  } finally {
+    releaseForeground();
+  }
 }

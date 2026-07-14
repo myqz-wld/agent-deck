@@ -18,6 +18,7 @@ import { getLifecycleScheduler } from '@main/session/lifecycle-scheduler';
 import { getIssueLifecycleScheduler } from '@main/store/issue-lifecycle-scheduler';
 import { getMessageLifecycleScheduler } from '@main/store/message-lifecycle-scheduler';
 import { summarizer } from '@main/session/summarizer';
+import { getContinuationCheckpointRefreshService } from '@main/session/continuation-context/checkpoint-refresh-service';
 import {
   getActiveAgentDeckClaudeMd,
   getBuiltinAgentDeckClaudeMd,
@@ -42,37 +43,13 @@ import { syncSkills } from '@main/codex-config/skills-installer';
 import log, { setFileLevel } from '@main/utils/logger';
 import {
   DEFAULT_SETTINGS,
-  MAX_CONTINUATION_RAW_RETENTION_TOKENS,
-  MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type AppSettings,
-  type ContinuationCheckpointProvider,
 } from '@shared/types';
-import { isClaudeThinkingLevel, isCodexThinkingLevel } from '@shared/session-metadata';
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
+import { validateContinuationAndSummarySettingsPatch } from './settings-continuation-validation';
 import { invalidateSessionHandOffPreparationsForSettingsChange } from './session-hand-off';
 
 const logger = log.scope('ipc-settings');
-
-const CONTINUATION_CHECKPOINT_PROVIDERS: readonly ContinuationCheckpointProvider[] = [
-  'claude',
-  'deepseek',
-  'codex',
-];
-
-function isContinuationCheckpointProvider(
-  value: unknown,
-): value is ContinuationCheckpointProvider {
-  return CONTINUATION_CHECKPOINT_PROVIDERS.includes(value as ContinuationCheckpointProvider);
-}
-
-function isValidGeneratorThinking(
-  provider: ContinuationCheckpointProvider,
-  thinking: unknown,
-): boolean {
-  return provider === 'codex'
-    ? isCodexThinkingLevel(thinking)
-    : isClaudeThinkingLevel(thinking);
-}
 
 /** Validate the untrusted SettingsSet payload before any persistent or runtime side effect. */
 export function validateSettingsPatch(
@@ -96,82 +73,7 @@ export function validateSettingsPatch(
   if ('codexSandbox' in p) {
     p.codexSandbox = parseCodexSandboxMode(p.codexSandbox) ?? 'workspace-write';
   }
-
-  const summaryChanged = 'summaryProvider' in p || 'summaryReasoning' in p;
-  if (summaryChanged) {
-    const provider =
-      'summaryProvider' in p
-        ? p.summaryProvider
-        : current.summaryProvider;
-    if (!isContinuationCheckpointProvider(provider)) {
-      throw new IpcInputError(
-        'summaryProvider',
-        `must be one of ${CONTINUATION_CHECKPOINT_PROVIDERS.join('|')}`,
-      );
-    }
-    const thinking =
-      'summaryReasoning' in p
-        ? p.summaryReasoning
-        : current.summaryReasoning;
-    if (!isValidGeneratorThinking(provider, thinking)) {
-      throw new IpcInputError(
-        'summaryReasoning',
-        `incompatible with provider ${String(provider)}`,
-      );
-    }
-  }
-
-  const continuationChanged = Object.keys(raw).some((key) =>
-    key.startsWith('continuationCheckpoint') || key === 'continuationRawRetentionTokens',
-  );
-  if (continuationChanged) {
-    const provider =
-      'continuationCheckpointProvider' in p
-        ? p.continuationCheckpointProvider
-        : current.continuationCheckpointProvider;
-    if (!isContinuationCheckpointProvider(provider)) {
-      throw new IpcInputError(
-        'continuationCheckpointProvider',
-        `must be one of ${CONTINUATION_CHECKPOINT_PROVIDERS.join('|')}`,
-      );
-    }
-    if ('continuationCheckpointModel' in p) {
-      if (typeof p.continuationCheckpointModel !== 'string') {
-        throw new IpcInputError('continuationCheckpointModel', 'must be string');
-      }
-      if (p.continuationCheckpointModel.length > 256) {
-        throw new IpcInputError('continuationCheckpointModel', 'length > 256');
-      }
-    }
-    const thinking =
-      'continuationCheckpointThinking' in p
-        ? p.continuationCheckpointThinking
-        : current.continuationCheckpointThinking;
-    if (!isValidGeneratorThinking(provider, thinking)) {
-      throw new IpcInputError(
-        'continuationCheckpointThinking',
-        `incompatible with provider ${String(provider)}`,
-      );
-    }
-    if ('continuationRawRetentionTokens' in p) {
-      const value = p.continuationRawRetentionTokens;
-      if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
-        throw new IpcInputError(
-          'continuationRawRetentionTokens',
-          `must be a safe integer: ${String(value)}`,
-        );
-      }
-      if (
-        value < MIN_CONTINUATION_RAW_RETENTION_TOKENS ||
-        value > MAX_CONTINUATION_RAW_RETENTION_TOKENS
-      ) {
-        throw new IpcInputError(
-          'continuationRawRetentionTokens',
-          `out of range [${MIN_CONTINUATION_RAW_RETENTION_TOKENS}, ${MAX_CONTINUATION_RAW_RETENTION_TOKENS}]`,
-        );
-      }
-    }
-  }
+  validateContinuationAndSummarySettingsPatch(raw, p, current);
   return p;
 }
 
@@ -333,6 +235,18 @@ function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void 
   }
 }
 
+function applyContinuationCheckpointRefresh(
+  p: Partial<AppSettings>,
+  next: AppSettings,
+): void {
+  if (
+    'continuationCheckpointAutoRefreshEnabled' in p ||
+    'continuationCheckpointAutoRefreshIntervalMinutes' in p
+  ) {
+    getContinuationCheckpointRefreshService()?.updateSettings(next);
+  }
+}
+
 function applyContinuationPreparationSettings(
   p: Partial<AppSettings>,
   _next: AppSettings,
@@ -412,6 +326,7 @@ export function registerSettingsIpc(): void {
       applyCodexAgentsMd,
       applyCodexSkills,
       applySummaryInterval,
+      applyContinuationCheckpointRefresh,
       applyLogLevel,
       invalidateClaudeMdCache,
     ] as const;

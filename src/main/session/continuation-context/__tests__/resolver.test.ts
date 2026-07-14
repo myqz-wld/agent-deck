@@ -32,24 +32,24 @@ afterEach(() => {
 });
 
 describe('continuation generator defaults', () => {
-  it('uses Claude Opus for a blank model and ignores the generic Anthropic model', () => {
-    vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', '');
+  it('uses Claude Sonnet for a blank model and ignores the generic Anthropic model', () => {
+    vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', '');
     vi.stubEnv('ANTHROPIC_MODEL', 'hidden-generic-model');
     state.settings.continuationCheckpointThinking = 'invalid';
 
     expect(resolveContinuationGeneratorSnapshot()).toMatchObject({
       adapter: 'claude-code',
-      model: 'opus',
-      thinking: 'high',
+      model: 'sonnet',
+      thinking: 'medium',
     });
   });
 
-  it('honors the Claude Opus alias override and trims an explicit model', () => {
-    vi.stubEnv('ANTHROPIC_DEFAULT_OPUS_MODEL', ' claude-opus-env ');
-    expect(resolveContinuationGeneratorSnapshot().model).toBe('claude-opus-env');
+  it('honors the Claude Sonnet alias override and trims an explicit model', () => {
+    vi.stubEnv('ANTHROPIC_DEFAULT_SONNET_MODEL', ' claude-sonnet-env ');
+    expect(resolveContinuationGeneratorSnapshot().model).toBe('claude-sonnet-env');
 
-    state.settings.continuationCheckpointModel = ' claude-opus-explicit ';
-    expect(resolveContinuationGeneratorSnapshot().model).toBe('claude-opus-explicit');
+    state.settings.continuationCheckpointModel = ' claude-sonnet-explicit ';
+    expect(resolveContinuationGeneratorSnapshot().model).toBe('claude-sonnet-explicit');
   });
 
   it('leaves a blank Codex model unset despite a legacy hand-off environment override', () => {
@@ -63,7 +63,7 @@ describe('continuation generator defaults', () => {
     expect(resolveContinuationGeneratorSnapshot()).toMatchObject({
       adapter: 'codex-cli',
       model: null,
-      thinking: 'high',
+      thinking: 'medium',
     });
   });
 

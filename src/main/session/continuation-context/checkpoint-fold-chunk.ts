@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { RawEventRevisionRow } from '@main/store/event-revision-repo';
+import { CONTINUATION_PROMPT_MAX_UTF8_BYTES } from './budget-policy';
 import {
   MAX_NORMALIZED_EVENT_UTF8_BYTES,
   normalizeContinuationEvent,
@@ -12,8 +13,13 @@ import { projectContinuationCheckpointForFold } from './checkpoint-projection';
 import {
   CONTINUATION_CHECKPOINT_SECTIONS,
   type ContinuationCheckpoint,
+  type ContinuationFact,
 } from './checkpoint-schema';
-import { estimateContinuationTokens, truncateContinuationTextMiddle } from './token-estimator';
+import {
+  estimateContinuationTokens,
+  truncateContinuationTextMiddle,
+  utf8ByteLength,
+} from './token-estimator';
 
 const COMPACT_EDGE_TOKENS = 512;
 const COMPACT_TELEMETRY_EVENT_UTF8_BYTES = 256;
@@ -38,6 +44,37 @@ export interface FoldChunk {
   previousForFold: ContinuationCheckpoint | null;
   omittedPriorFacts: number;
   requiresCoverageMarker: boolean;
+}
+
+/**
+ * Bounded chunk view shared by the foreground fold and the background worker RPC.
+ * Raw rows and the complete remaining group list deliberately never cross the worker boundary.
+ */
+export interface FoldChunkView {
+  cursor: number;
+  nextCursor: number;
+  remainingAfter: boolean;
+  consumedGroupCount: number;
+  firstRevision: number;
+  throughRevision: number;
+  prompt: string;
+  normalized: unknown[];
+  currentEvidence: Array<{ eventId: number; revision: number }>;
+  previousForFold: ContinuationCheckpoint | null;
+  omittedPriorFacts: number;
+  requiresCoverageMarker: boolean;
+  coverageMarker: ContinuationFact | null;
+}
+
+export interface BuildFoldChunkViewInput {
+  cursor: number;
+  coveredThroughRevision: number;
+  previous: ContinuationCheckpoint | null;
+  budget: number;
+}
+
+export interface AsyncFoldChunkSource {
+  buildNextChunk(input: BuildFoldChunkViewInput): Promise<FoldChunkView | null>;
 }
 
 export function priorCheckpointEvidence(
@@ -162,6 +199,12 @@ function promptTokens(prompt: string): number {
   );
 }
 
+function promptFits(prompt: string, tokenBudget: number): boolean {
+  return promptTokens(prompt) <= tokenBudget &&
+    utf8ByteLength(CONTINUATION_CHECKPOINT_SYSTEM_PROMPT) + utf8ByteLength(prompt) <=
+      CONTINUATION_PROMPT_MAX_UTF8_BYTES;
+}
+
 export function buildCheckpointFoldChunk(input: {
   groups: RevisionGroup[];
   previous: ContinuationCheckpoint | null;
@@ -191,7 +234,7 @@ export function buildCheckpointFoldChunk(input: {
       allowedEvidence: [...baseEvidence, ...currentEvidence],
     });
     if (
-      promptTokens(prompt) > input.budget &&
+      !promptFits(prompt, input.budget) &&
       selected.length === 1 &&
       group.normalized.length > 0
     ) {
@@ -203,7 +246,7 @@ export function buildCheckpointFoldChunk(input: {
         allowedEvidence: [...baseEvidence, ...currentEvidence],
       });
     }
-    if (promptTokens(prompt) > input.budget) {
+    if (!promptFits(prompt, input.budget)) {
       if (selected.length !== 1) return best;
       if (!input.previous) {
         return {
@@ -236,7 +279,7 @@ export function buildCheckpointFoldChunk(input: {
           normalizedDelta: normalized,
           allowedEvidence: [...projectedEvidence, ...currentEvidence],
         });
-        if (promptTokens(projectedPrompt) <= input.budget) {
+        if (promptFits(projectedPrompt, input.budget)) {
           projectedBest = {
             groups: selected,
             normalized,

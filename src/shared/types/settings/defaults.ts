@@ -10,9 +10,12 @@ import type { AppSettings } from './app-settings';
 export const DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS = 64_000;
 export const MIN_CONTINUATION_RAW_RETENTION_TOKENS = 8_000;
 export const MAX_CONTINUATION_RAW_RETENTION_TOKENS = 128_000;
+export const DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES = 30;
+export const MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES = 5;
+export const MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES = 1_440;
 /** Stable runtime fallbacks; unlike electron-store defaults these values are never store-owned. */
-export const DEFAULT_SUMMARY_REASONING = 'medium' as const;
-export const DEFAULT_CONTINUATION_CHECKPOINT_THINKING = 'high' as const;
+export const DEFAULT_SUMMARY_REASONING = 'low' as const;
+export const DEFAULT_CONTINUATION_CHECKPOINT_THINKING = 'medium' as const;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   hookServerPort: 47821,
@@ -24,6 +27,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   finishedSoundPath: null,
   activeWindowMs: 60 * 60 * 1000,
   closeAfterMs: 24 * 60 * 60 * 1000,
+  summaryEnabled: true,
   summaryIntervalMs: 5 * 60 * 1000,
   summaryEventCount: 10,
   summaryMaxConcurrent: 2,
@@ -35,6 +39,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   continuationCheckpointProvider: 'claude',
   continuationCheckpointModel: '',
   continuationCheckpointThinking: DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
+  continuationCheckpointAutoRefreshEnabled: true,
+  continuationCheckpointAutoRefreshIntervalMinutes:
+    DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
   continuationRawRetentionTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
   permissionTimeoutMs: 30 * 60 * 1000,
   alwaysOnTop: true,
