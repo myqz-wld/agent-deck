@@ -26,6 +26,7 @@ import { setIssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import { setMessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
 import { setTokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
+import { stopContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
 import { stopAllSounds } from '../notify/sound';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { handleCliArgv } from '../cli';
@@ -130,16 +131,28 @@ export function registerLifecycleHooks(
             logger.warn('[storage-maintenance] staged worker stop failed during cleanup', err);
             return false;
           }) ?? Promise.resolve(true);
+        const checkpointRefreshStop = stopContinuationCheckpointRefreshService()
+          .then(() => true)
+          .catch((err) => {
+            logger.warn('[checkpoint-refresh] stop failed during cleanup', err);
+            return false;
+          });
         summarizer.stop();
         stopAllSounds();
         // R3.E5:universal-message-watcher shutdown
         universalMessageWatcher.stop();
-        cleanupSessionHandOffPreparations();
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底,防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程(codex CLI
         // 卡死等场景)。10s 超时降级 process.exit(1) 强退。
         const cleanupSteps = (async (): Promise<'ok' | 'degraded'> => {
           let allIngressStopped = true;
+          if (!await checkpointRefreshStop) allIngressStopped = false;
+          // Background checkpoint folds and foreground hand-off preparations share the
+          // connection-local continuation spool. Do not clear it until the refresh queue has
+          // fully drained; otherwise shutdown can delete a frozen source underneath a running
+          // fold. Foreground preparation cleanup remains best-effort inside the bounded quit
+          // window, as before.
+          cleanupSessionHandOffPreparations();
           const adapterShutdown = await adapterRegistry.shutdownAll();
           if (adapterShutdown.some((result) => !result.ok)) allIngressStopped = false;
           if (state.agentDeckMcpHttpShutdown) {

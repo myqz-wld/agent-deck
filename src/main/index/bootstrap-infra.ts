@@ -57,6 +57,7 @@ import {
 } from '../store/token-usage-lifecycle-scheduler';
 import { StorageMaintenanceScheduler } from '../store/storage-maintenance';
 import { summarizer } from '../session/summarizer';
+import { startContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
 import { prefetchProviderUsageSnapshots } from '../ipc/provider-usage';
@@ -312,6 +313,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   state.storageMaintenanceScheduler = new StorageMaintenanceScheduler();
   state.storageMaintenanceScheduler.start();
   summarizer.start();
+  startContinuationCheckpointRefreshService(settings);
 
   // 7.0 D1+D2:app ready 后清理历史 Codex AGENTS marker，并准备 app-owned skills extraRoot
   // syncAgentDeckSection / syncSkills 走 static import(顶部 import 段已说明原因),

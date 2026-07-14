@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { RawEventRevisionRow } from '@main/store/event-revision-repo';
+import { CONTINUATION_PROMPT_MAX_UTF8_BYTES } from '../budget-policy';
 import { CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from '../checkpoint-prompts';
 import { buildCheckpointFoldChunk, groupContinuationRows } from '../checkpoint-fold-chunk';
-import { estimateContinuationTokens } from '../token-estimator';
+import { estimateContinuationTokens, utf8ByteLength } from '../token-estimator';
 
 function row(input: {
   id: number;
@@ -159,5 +160,28 @@ describe('checkpoint fold chunk backlog bounds', () => {
       estimateContinuationTokens(chunk!.prompt);
     expect(estimatedPromptTokens).toBeGreaterThan(32_000);
     expect(estimatedPromptTokens).toBeLessThanOrEqual(96_000);
+  });
+
+  it('treats the UTF-8 prompt byte guard as authoritative above a large token budget', () => {
+    const rows = Array.from({ length: 30 }, (_, index) => row({
+      id: index + 1,
+      kind: 'message',
+      payload: { role: 'user', text: `${index}:${'界'.repeat(10_000)}` },
+    }));
+    const groups = groupContinuationRows(rows);
+
+    const chunk = buildCheckpointFoldChunk({
+      groups,
+      previous: null,
+      finalThroughRevision: rows.length,
+      budget: 1_000_000,
+    });
+
+    expect(chunk).not.toBeNull();
+    expect(chunk!.groups.length).toBeLessThan(groups.length);
+    expect(
+      utf8ByteLength(CONTINUATION_CHECKPOINT_SYSTEM_PROMPT) +
+      utf8ByteLength(chunk!.prompt),
+    ).toBeLessThanOrEqual(CONTINUATION_PROMPT_MAX_UTF8_BYTES);
   });
 });

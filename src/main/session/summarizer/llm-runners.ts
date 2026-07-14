@@ -52,6 +52,9 @@ export async function summariseViaLlm(
   const activity = formatEventsForPrompt(events);
   if (!activity && !opts?.evidenceContext) return null;
   const agentName = opts?.agentName ?? 'Claude';
+  const defaultModelAlias = agentName === 'Deepseek' ? 'sonnet' : 'haiku';
+  const defaultModelEnv =
+    agentName === 'Deepseek' ? 'ANTHROPIC_DEFAULT_SONNET_MODEL' : 'ANTHROPIC_DEFAULT_HAIKU_MODEL';
 
   const result = await runClaudeOneshot({
     cwd,
@@ -61,16 +64,12 @@ export async function summariseViaLlm(
       agentName,
       evidenceContext: opts?.evidenceContext,
     }),
-    // 展示摘要保持短小，优先使用轻量模型以降低多个会话排队时的成本和延迟。
-    // 模型优先级（plan model-wiring-and-handoff-20260514 Step 4.3）：
-    //   1. settings.summaryModel（UI 暴露的字符串字段，'' 表示沿用下面 Haiku 专属链）
-    //   2. settings.json 里配的 ANTHROPIC_DEFAULT_HAIKU_MODEL（具体 id）
-    //   3. 'haiku' alias（让什么都没配的环境也能跑，由 SDK / CLI 自己解析）
-    // applyClaudeSettingsEnv 在 bootstrap 时已把 settings.json 的 env 注入 process.env。
+    // Blank model keeps Claude summaries cheap with Haiku, while Deepseek uses Sonnet for enough
+    // quality to maintain a useful periodic brief. Provider-specific env aliases remain authoritative.
     model:
       settingsStore.get('summaryModel') ||
-      providerEnv(opts, 'ANTHROPIC_DEFAULT_HAIKU_MODEL') ||
-      'haiku',
+      providerEnv(opts, defaultModelEnv) ||
+      defaultModelAlias,
     effort: claudeReasoningSetting(),
     systemPrompt: buildSummarizeSystemPrompt(agentName),
     envOverride: opts?.envOverride,

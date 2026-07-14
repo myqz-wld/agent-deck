@@ -62,6 +62,164 @@ describe('unified continuation settings migration', () => {
     expect(constructorDefaults).toMatchObject(DEFAULT_SETTINGS);
   });
 
+  it('uses the new-install automation and generator defaults without materializing legacy models', async () => {
+    const all = (await loadSettingsStore()).getAll();
+    expect(all).toMatchObject({
+      summaryEnabled: true,
+      summaryModel: '',
+      summaryReasoning: 'low',
+      continuationCheckpointModel: '',
+      continuationCheckpointThinking: 'medium',
+      continuationCheckpointAutoRefreshEnabled: true,
+      continuationCheckpointAutoRefreshIntervalMinutes: 30,
+    });
+    expect(mockRawStore.__generatorBlankFallbacks20260714Done).toBe(true);
+    expect(callsFor('summaryModel')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointModel')).toHaveLength(0);
+  });
+
+  it('materializes only the existing blank-model fallbacks whose meaning changed', async () => {
+    mockRawStore = {
+      summaryProvider: 'deepseek',
+      summaryModel: '',
+      summaryReasoning: 'xhigh',
+      continuationCheckpointProvider: 'claude',
+      continuationCheckpointModel: '',
+      continuationCheckpointThinking: 'low',
+      __generatorDefaults20260711Done: true,
+    };
+
+    const all = (await loadSettingsStore()).getAll();
+    expect(all).toMatchObject({
+      summaryModel: 'haiku',
+      summaryReasoning: 'xhigh',
+      continuationCheckpointModel: 'opus',
+      continuationCheckpointThinking: 'low',
+    });
+    expect(mockSet).toHaveBeenCalledWith('summaryModel', 'haiku');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
+    expect(callsFor('summaryReasoning')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
+  });
+
+  it('treats model keys missing from an existing store as unset legacy fallbacks', async () => {
+    mockRawStore = {
+      summaryProvider: 'deepseek',
+      summaryReasoning: 'high',
+      __generatorDefaults20260711Done: true,
+    };
+
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.summaryModel).toBe('haiku');
+    expect(all.continuationCheckpointProvider).toBe('claude');
+    expect(all.continuationCheckpointModel).toBe('opus');
+    expect(mockSet).toHaveBeenCalledWith('summaryModel', 'haiku');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
+  });
+
+  it('uses the old Claude defaults when provider keys are also missing', async () => {
+    mockRawStore = {
+      activeWindowMs: DEFAULT_SETTINGS.activeWindowMs,
+      __generatorDefaults20260711Done: true,
+    };
+
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.continuationCheckpointModel).toBe('opus');
+    expect(all.summaryModel).toBe('');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
+    expect(callsFor('summaryModel')).toHaveLength(0);
+  });
+
+  it('leaves Codex blanks, explicit models, and unchanged-provider blanks untouched', async () => {
+    mockRawStore = {
+      summaryProvider: 'claude',
+      summaryModel: '',
+      continuationCheckpointProvider: 'codex',
+      continuationCheckpointModel: '',
+      __generatorDefaults20260711Done: true,
+    };
+    let all = (await loadSettingsStore()).getAll();
+    expect(all.summaryModel).toBe('');
+    expect(all.continuationCheckpointModel).toBe('');
+    expect(callsFor('summaryModel')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointModel')).toHaveLength(0);
+
+    vi.resetModules();
+    mockSet.mockClear();
+    mockRawStore.summaryProvider = 'deepseek';
+    mockRawStore.summaryModel = 'deepseek-explicit';
+    mockRawStore.continuationCheckpointProvider = 'claude';
+    mockRawStore.continuationCheckpointModel = 'claude-explicit';
+    delete mockRawStore.__generatorBlankFallbacks20260714Done;
+    all = (await loadSettingsStore()).getAll();
+    expect(all.summaryModel).toBe('deepseek-explicit');
+    expect(all.continuationCheckpointModel).toBe('claude-explicit');
+    expect(callsFor('summaryModel')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointModel')).toHaveLength(0);
+  });
+
+  it('runs the blank-fallback migration once and preserves later user-cleared blanks', async () => {
+    mockRawStore = {
+      summaryProvider: 'deepseek',
+      summaryModel: '',
+      continuationCheckpointProvider: 'claude',
+      continuationCheckpointModel: '',
+      __generatorDefaults20260711Done: true,
+    };
+    const first = await loadSettingsStore();
+    first.getAll();
+    first.set('summaryModel', '');
+    first.set('continuationCheckpointModel', '');
+
+    vi.resetModules();
+    mockSet.mockClear();
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.summaryModel).toBe('');
+    expect(all.continuationCheckpointModel).toBe('');
+    expect(callsFor('summaryModel')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointModel')).toHaveLength(0);
+  });
+
+  it.each([4, 1_441, 30.5, Number.NaN])(
+    'repairs invalid automatic checkpoint interval %s',
+    async (value) => {
+      mockRawStore = { continuationCheckpointAutoRefreshIntervalMinutes: value };
+      const all = (await loadSettingsStore()).getAll();
+      expect(all.continuationCheckpointAutoRefreshIntervalMinutes).toBe(30);
+      expect(mockSet).toHaveBeenCalledWith(
+        'continuationCheckpointAutoRefreshIntervalMinutes',
+        30,
+      );
+    },
+  );
+
+  it.each([5, 1_440])('preserves valid automatic checkpoint interval %s', async (value) => {
+    mockRawStore = { continuationCheckpointAutoRefreshIntervalMinutes: value };
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.continuationCheckpointAutoRefreshIntervalMinutes).toBe(value);
+    expect(callsFor('continuationCheckpointAutoRefreshIntervalMinutes')).toHaveLength(0);
+  });
+
+  it('repairs malformed automation switches but preserves valid explicit off values', async () => {
+    mockRawStore = {
+      summaryEnabled: 'yes',
+      continuationCheckpointAutoRefreshEnabled: 1,
+    };
+    let all = (await loadSettingsStore()).getAll();
+    expect(all.summaryEnabled).toBe(true);
+    expect(all.continuationCheckpointAutoRefreshEnabled).toBe(true);
+
+    vi.resetModules();
+    mockSet.mockClear();
+    mockRawStore.summaryEnabled = false;
+    mockRawStore.continuationCheckpointAutoRefreshEnabled = false;
+    all = (await loadSettingsStore()).getAll();
+    expect(all.summaryEnabled).toBe(false);
+    expect(all.continuationCheckpointAutoRefreshEnabled).toBe(false);
+    expect(callsFor('summaryEnabled')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointAutoRefreshEnabled')).toHaveLength(0);
+  });
+
   it('copies an old-only generator and removes the count plus legacy sentinel', async () => {
     mockRawStore = {
       handOffProvider: 'codex',
@@ -162,14 +320,25 @@ describe('unified continuation settings migration', () => {
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', '');
   });
 
+  it.each([42, 'm'.repeat(257)])('repairs invalid persisted summary model %s', async (value) => {
+    mockRawStore = {
+      summaryProvider: 'claude',
+      summaryModel: value,
+      __generatorBlankFallbacks20260714Done: true,
+    };
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.summaryModel).toBe('');
+    expect(mockSet).toHaveBeenCalledWith('summaryModel', '');
+  });
+
   it.each(['ultra', 'bogus'])('repairs new Claude-incompatible thinking %s', async (value) => {
     mockRawStore = {
       continuationCheckpointProvider: 'claude',
       continuationCheckpointThinking: value,
     };
     const all = (await loadSettingsStore()).getAll();
-    expect(all.continuationCheckpointThinking).toBe('high');
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
+    expect(all.continuationCheckpointThinking).toBe('medium');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'medium');
   });
 
   it('coerces persisted removed Codex minimal generator settings to low', async () => {
@@ -187,17 +356,17 @@ describe('unified continuation settings migration', () => {
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'low');
   });
 
-  it('uplifts the exact old generator defaults once', async () => {
+  it('retires the obsolete generator-default uplift without rewriting valid choices', async () => {
     mockRawStore = {
       summaryReasoning: 'low',
       continuationCheckpointThinking: 'medium',
     };
 
     const all = (await loadSettingsStore()).getAll();
-    expect(all.summaryReasoning).toBe('medium');
-    expect(all.continuationCheckpointThinking).toBe('high');
-    expect(mockSet).toHaveBeenCalledWith('summaryReasoning', 'medium');
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'high');
+    expect(all.summaryReasoning).toBe('low');
+    expect(all.continuationCheckpointThinking).toBe('medium');
+    expect(callsFor('summaryReasoning')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('__generatorDefaults20260711Done', true);
   });
 

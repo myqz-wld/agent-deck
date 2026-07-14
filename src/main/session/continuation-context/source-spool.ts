@@ -9,14 +9,10 @@ import {
   type EventRevisionCursor,
   type RawEventRevisionRow,
 } from '@main/store/event-revision-repo';
-import {
-  classifyContinuationMessage,
-  type ClassifiedContinuationMessage,
-} from './message-classifier';
-import { estimateRawUserTailTokens, selectRawUserTail } from './raw-user-tail';
 import type { RawContinuationUserInput } from './types';
 import { utf8ByteLength } from './token-estimator';
 import { continuationSessionRuntimeFingerprint } from './runtime-fingerprint';
+import { captureSpoolRawTail } from './source-spool-raw-tail';
 
 export { continuationSessionRuntimeFingerprint } from './runtime-fingerprint';
 
@@ -26,6 +22,8 @@ export const DEFAULT_CONTINUATION_SPOOL_MAX_BYTES = 32 * 1024 * 1024;
 export interface CaptureContinuationSourceInput {
   sessionId: string;
   rawRetentionCeilingTokens: number;
+  /** Fold-only background refreshes do not need the separately retained raw-user tail. */
+  includeRawTail?: boolean;
   maxSpoolBytes?: number;
   ttlMs?: number;
   now?: number;
@@ -153,16 +151,26 @@ export class ContinuationSourceSpoolStore {
       const revisionRepo = createEventRevisionRepo(this.db);
       const state = revisionRepo.state(input.sessionId);
       if (!state) throw new Error(`Cannot capture continuation source for missing session ${input.sessionId}`);
-      const checkpoint = createContinuationCheckpointRepo(this.db).latest(input.sessionId);
+      // events rows can be updated in place and their change_revision moves forward. Without MVCC,
+      // an older numeric revision is not a reconstructible snapshot. The IMMEDIATE transaction
+      // freezes the only safe boundary: the latest durable state at capture start.
+      const captureRevision = state.revision;
+      const checkpoint = createContinuationCheckpointRepo(this.db).latestAtOrBefore(
+        input.sessionId,
+        captureRevision,
+      );
       const checkpointThroughRevision = checkpoint?.sourceEventRevision ?? 0;
       const runtimeFingerprint = continuationSessionRuntimeFingerprint(this.db, input.sessionId);
       if (!runtimeFingerprint) {
         throw new Error(`Cannot capture runtime for missing session ${input.sessionId}`);
       }
       const maxEventId = this.db
-        .prepare(`SELECT MAX(id) FROM events WHERE session_id = ?`)
+        .prepare(
+          `SELECT MAX(id) FROM events
+            WHERE session_id = ? AND COALESCE(change_revision, id) <= ?`,
+        )
         .pluck()
-        .get(input.sessionId) as number | null;
+        .get(input.sessionId, captureRevision) as number | null;
       const checkpointJson = checkpoint ? JSON.stringify(checkpoint) : null;
       let spoolBytes = checkpointJson ? utf8ByteLength(checkpointJson) : 0;
       let ordinal = 0;
@@ -204,7 +212,7 @@ export class ContinuationSourceSpoolStore {
       for (;;) {
         const page = revisionRepo.listRawEvents({
           sessionId: input.sessionId,
-          throughRevision: state.revision,
+          throughRevision: captureRevision,
           after: cursor,
           limit: 500,
         });
@@ -212,7 +220,7 @@ export class ContinuationSourceSpoolStore {
           if (!storeGroup(pendingGroup)) resourceGuardHit = true;
           pendingGroup = [];
           if (resourceGuardHit) break;
-          materializedThroughRevision = state.revision;
+          materializedThroughRevision = captureRevision;
           break;
         }
         for (const row of page) {
@@ -235,84 +243,28 @@ export class ContinuationSourceSpoolStore {
           if (!storeGroup(pendingGroup)) resourceGuardHit = true;
           pendingGroup = [];
           if (resourceGuardHit) break;
-          materializedThroughRevision = state.revision;
+          materializedThroughRevision = captureRevision;
           break;
         }
       }
 
-      const rawCandidates: ClassifiedContinuationMessage[] = [];
-      const rawWarnings = new Set<'legacy-wrapper-excluded' | 'legacy-wrapper-unwrapped'>();
-      let rawCursor: EventRevisionCursor | null = null;
-      let rawScanBytes = 0;
-      let rawScanTruncated = false;
-      for (;;) {
-        const params: Array<string | number> = [input.sessionId, state.revision];
-        const cursorClause = rawCursor
-          ? `AND (COALESCE(change_revision, id), id) < (?, ?)`
-          : '';
-        if (rawCursor) params.push(rawCursor.revision, rawCursor.id);
-        params.push(128);
-        const rows = this.db
-          .prepare(
-            `SELECT id, COALESCE(change_revision, id) AS effective_revision,
-                    kind, payload_json, ts
-               FROM events
-              WHERE session_id = ?
-                AND COALESCE(change_revision, id) <= ?
-                ${cursorClause}
-              ORDER BY COALESCE(change_revision, id) DESC, id DESC
-              LIMIT ?`,
-          )
-          .all(...params) as Array<{
-            id: number;
-            effective_revision: number;
-            kind: string;
-            payload_json: string;
-            ts: number;
-          }>;
-        for (const row of rows) {
-          rawScanBytes += utf8ByteLength(row.payload_json) + 64;
-          if (spoolBytes + rawScanBytes > maxSpoolBytes) {
-            rawScanTruncated = true;
-            break;
+      const rawTail = input.includeRawTail === false
+        ? {
+            spoolBytes,
+            retainedRawTokens: 0,
+            rawWarnings: [] as ContinuationSpoolMetadata['rawWarnings'],
+            rawScanTruncated: false,
           }
-          const classified = classifyContinuationMessage({
-            eventId: row.id,
-            effectiveRevision: row.effective_revision,
-            ts: row.ts,
-            kind: row.kind,
-            payloadJson: row.payload_json,
+        : captureSpoolRawTail({
+            db: this.db,
+            spoolId,
+            sessionId: input.sessionId,
+            captureRevision,
+            rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
+            maxSpoolBytes,
+            initialSpoolBytes: spoolBytes,
           });
-          if (classified.warning) rawWarnings.add(classified.warning);
-          if (classified.message) rawCandidates.push(classified.message);
-        }
-        if (rawScanTruncated) break;
-        const selection = selectRawUserTail(rawCandidates, input.rawRetentionCeilingTokens);
-        if (selection.stoppedAtEventId !== null || rows.length < 128) break;
-        const last = rows.at(-1)!;
-        rawCursor = { revision: last.effective_revision, id: last.id };
-      }
-      const rawSelection = selectRawUserTail(rawCandidates, input.rawRetentionCeilingTokens);
-      const insertRaw = this.db.prepare(
-        `INSERT INTO continuation_raw_spool (preparation_id, ordinal, input_json)
-         VALUES (?, ?, ?)`,
-      );
-      const retainedRawNewestFirst: RawContinuationUserInput[] = [];
-      for (const message of [...rawSelection.messages].reverse()) {
-        const inputJson = JSON.stringify(message);
-        const bytes = utf8ByteLength(inputJson) + 32;
-        if (spoolBytes + bytes > maxSpoolBytes) {
-          rawScanTruncated = true;
-          break;
-        }
-        retainedRawNewestFirst.push(message);
-        spoolBytes += bytes;
-      }
-      const retainedRaw = retainedRawNewestFirst.reverse();
-      retainedRaw.forEach((message, index) => {
-        insertRaw.run(spoolId, index, JSON.stringify(message));
-      });
-      const retainedRawTokens = estimateRawUserTailTokens(retainedRaw);
+      spoolBytes = rawTail.spoolBytes;
 
       this.db
         .prepare(
@@ -329,7 +281,7 @@ export class ContinuationSourceSpoolStore {
           now,
           now + ttlMs,
           now,
-          state.revision,
+          captureRevision,
           state.rebuildAfterRevision,
           maxEventId,
           runtimeFingerprint,
@@ -337,9 +289,9 @@ export class ContinuationSourceSpoolStore {
           checkpointThroughRevision,
           materializedThroughRevision,
           spoolBytes,
-          retainedRawTokens,
-          JSON.stringify([...rawWarnings]),
-          rawScanTruncated ? 1 : 0,
+          rawTail.retainedRawTokens,
+          JSON.stringify(rawTail.rawWarnings),
+          rawTail.rawScanTruncated ? 1 : 0,
         );
     });
     transaction.immediate();

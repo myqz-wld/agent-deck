@@ -119,6 +119,27 @@ describe.skipIf(!bindingAvailable)('continuation SQLite TEMP source spool', () =
     expect(spool.readSourceRows(metadata.spoolId).map((row) => row.id)).toEqual([second]);
   });
 
+  it('can skip the unrelated raw-user tail for fold-only capture', () => {
+    const first = insertMessage(db, 'source', 'user', 'first');
+
+    const metadata = spool.capture({
+      sessionId: 'source',
+      rawRetentionCeilingTokens: 8_000,
+      includeRawTail: false,
+    });
+
+    expect(metadata).toMatchObject({
+      captureRevision: 1,
+      materializedThroughRevision: 1,
+      maxEventId: first,
+      rawTailTokens: 0,
+      rawWarnings: [],
+      rawScanTruncated: false,
+    });
+    expect(spool.readSourceRows(metadata.spoolId).map((row) => row.id)).toEqual([first]);
+    expect(spool.readRawInputs(metadata.spoolId)).toEqual([]);
+  });
+
   it('remains exact when unread source rows are updated or deleted after capture', () => {
     const first = insertMessage(db, 'source', 'user', 'before update');
     const second = insertMessage(db, 'source', 'user', 'before delete');

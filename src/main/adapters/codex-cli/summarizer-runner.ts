@@ -82,7 +82,7 @@ export async function summariseCodexSessionViaOneshot(
     }),
     systemPrompt: buildSummarizeSystemPrompt('Agent'),
     // plan prancy-forging-penguin:reasoning 改读 settings.summaryReasoning(原 hardcoded 'low'
-    // 已下线)。默认值现为 'medium'，用户也可选完整 Codex effort 档位。
+    // 已下线)。默认值现为 'low'，用户也可选完整 Codex effort 档位。
     modelReasoningEffort: resolveCodexSummaryReasoning(
       settingsStore.get('summaryReasoning'),
     ),

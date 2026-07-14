@@ -54,12 +54,12 @@ describe('ContinuationContextSection', () => {
 
     expect(
       screen.getByText(
-        '选择用于整理接力上下文的 provider 和模型；它可以不同于目标会话。模型留空时使用各 provider 的默认值。',
+        /常规刷新需达到上方间隔.*8,000 token.*provider 空闲.*60 秒.*48,000 token.*不会中断当前回复.*达到阈值只负责排队.*最新持久化 revision.*工具结果/,
       ),
     ).not.toBeNull();
     expect(
       screen.getByText(
-        '思考程度默认 high。在只读、无网络、无 MCP 的临时环境中运行；Codex app-server 暂时无法验证模型内置工具是否为空。可选 low、medium、high、xhigh、max、ultra。',
+        '思考程度默认 medium。在只读、无网络、无 MCP 的临时环境中运行；Codex app-server 暂时无法验证模型内置工具是否为空。可选 low、medium、high、xhigh、max、ultra。',
       ),
     ).not.toBeNull();
     expect(
@@ -89,9 +89,11 @@ describe('ContinuationContextSection', () => {
         (screen.getByRole('textbox', {
           name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
-      ).toBe('留空使用 Claude Opus');
+      ).toBe('留空使用 Claude Sonnet');
       expect(
-        screen.getByText('默认思考程度为 high。Claude 与 Deepseek 支持 low 至 max。'),
+        screen.getByText(
+          '模型留空时使用 Sonnet，默认思考程度为 medium。Claude 与 Deepseek 支持 low 至 max。',
+        ),
       ).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
@@ -136,7 +138,16 @@ describe('ContinuationContextSection', () => {
     expect((tokenInput as HTMLInputElement).value).toBe('64000');
     expect(tokenInput.getAttribute('min')).toBe('8000');
     expect(tokenInput.getAttribute('max')).toBe('128000');
-    expect(screen.getByText('按 token 计算，可设置 8,000–128,000；默认 64,000。')).not.toBeNull();
+    expect(
+      screen.getByText(
+        /generator 输入默认 96,000 token.*min\(128,000, 窗口 − 32,000\).*512 KiB.*20,000 token.*24,000/,
+      ),
+    ).not.toBeNull();
+    expect(
+      screen.getByText(
+        /目标窗口未知时按 128,000 token.*16,000.*8,000.*20%.*2,000–12,000.*user input/,
+      ),
+    ).not.toBeNull();
 
     fireEvent.focus(tokenInput);
     fireEvent.change(tokenInput, { target: { value: '7999' } });
@@ -148,5 +159,36 @@ describe('ContinuationContextSection', () => {
     fireEvent.change(tokenInput, { target: { value: '128001' } });
     fireEvent.blur(tokenInput);
     expect(onPatch).toHaveBeenCalledWith({ continuationRawRetentionTokens: 128000 });
+  });
+
+  it('toggles automatic checkpoint maintenance and clamps its interval', async () => {
+    const onPatch = vi.fn();
+    render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
+    openSection();
+
+    const toggle = screen.getByRole('checkbox', { name: '自动维护续接检查点' });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(onPatch).toHaveBeenCalledWith({ continuationCheckpointAutoRefreshEnabled: false });
+
+    const interval = screen.getByRole('textbox', { name: '常规检查间隔（分钟）' });
+    expect((interval as HTMLInputElement).value).toBe('30');
+    expect(interval.getAttribute('min')).toBe('5');
+    expect(interval.getAttribute('max')).toBe('1440');
+
+    fireEvent.focus(interval);
+    fireEvent.change(interval, { target: { value: '4' } });
+    fireEvent.blur(interval);
+    expect(onPatch).toHaveBeenCalledWith({
+      continuationCheckpointAutoRefreshIntervalMinutes: 5,
+    });
+
+    await waitFor(() => expect((interval as HTMLInputElement).value).toBe('5'));
+    fireEvent.focus(interval);
+    fireEvent.change(interval, { target: { value: '1441' } });
+    fireEvent.blur(interval);
+    expect(onPatch).toHaveBeenCalledWith({
+      continuationCheckpointAutoRefreshIntervalMinutes: 1440,
+    });
   });
 });

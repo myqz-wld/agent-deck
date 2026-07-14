@@ -8,6 +8,11 @@ import {
   type AppSettings,
   type ContinuationCheckpointProvider,
 } from '@shared/types';
+import {
+  DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+  MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+  MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+} from '@shared/types/settings/defaults';
 import { isClaudeThinkingLevel, isCodexThinkingLevel } from '@shared/session-metadata';
 import log from '@main/utils/logger';
 
@@ -92,7 +97,7 @@ function migratedThinking(
   allowLegacyCoercion: boolean,
 ): AppSettings['continuationCheckpointThinking'] {
   // Codex no longer accepts minimal. Preserve a user's nearest lower-cost choice rather than
-  // falling through to the generator default (high).
+  // falling through to the generator default (medium).
   if (value === 'minimal') return 'low';
   if (provider === 'codex') {
     return isCodexThinkingLevel(value) ? value : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
@@ -169,8 +174,66 @@ function migrateContinuationSettings(
       );
     }
   }
-}
 
+  if (
+    'continuationCheckpointAutoRefreshEnabled' in persistedRaw &&
+    typeof persistedRaw.continuationCheckpointAutoRefreshEnabled !== 'boolean'
+  ) {
+    target.set('continuationCheckpointAutoRefreshEnabled', true);
+  }
+  if ('continuationCheckpointAutoRefreshIntervalMinutes' in persistedRaw) {
+    const minutes = persistedRaw.continuationCheckpointAutoRefreshIntervalMinutes;
+    if (
+      !Number.isSafeInteger(minutes) ||
+      (minutes as number) < MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES ||
+      (minutes as number) > MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES
+    ) {
+      target.set(
+        'continuationCheckpointAutoRefreshIntervalMinutes',
+        DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+      );
+    }
+  }
+  if ('summaryEnabled' in persistedRaw && typeof persistedRaw.summaryEnabled !== 'boolean') {
+    target.set('summaryEnabled', true);
+  }
+  if (
+    'summaryModel' in persistedRaw &&
+    (typeof persistedRaw.summaryModel !== 'string' || persistedRaw.summaryModel.length > 256)
+  ) {
+    target.set('summaryModel', DEFAULT_SETTINGS.summaryModel);
+  }
+}
+const GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL = '__generatorBlankFallbacks20260714Done';
+
+function migrateGeneratorBlankFallbacks(
+  persistedRaw: Readonly<Record<string, unknown>>,
+  target: LooseStore,
+): void {
+  if (persistedRaw[GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL] === true) return;
+  const existingStore = Object.keys(persistedRaw).length > 0;
+  const continuationProviderSource = 'continuationCheckpointProvider' in persistedRaw
+    ? persistedRaw.continuationCheckpointProvider
+    : persistedRaw.handOffProvider;
+  const continuationProvider = validContinuationProvider(continuationProviderSource)
+    ? continuationProviderSource
+    : DEFAULT_SETTINGS.continuationCheckpointProvider;
+  const continuationModel = 'continuationCheckpointModel' in persistedRaw
+    ? persistedRaw.continuationCheckpointModel
+    : persistedRaw.handOffModel;
+  const isBlank = (value: unknown): boolean => value === undefined || !String(value).trim();
+  if (existingStore && continuationProvider === 'claude' && isBlank(continuationModel)) {
+    target.set('continuationCheckpointModel', 'opus');
+  }
+  if (
+    existingStore &&
+    persistedRaw.summaryProvider === 'deepseek' &&
+    isBlank(persistedRaw.summaryModel)
+  ) {
+    target.set('summaryModel', 'haiku');
+  }
+  target.set(GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL, true);
+}
 function migrateRemovedCodexMinimalGeneratorSettings(
   persistedRaw: Readonly<Record<string, unknown>>,
   target: LooseStore,
@@ -264,23 +327,13 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
     };
     migrateContinuationSettings(persistedRaw, looseStore);
     migrateRemovedCodexMinimalGeneratorSettings(persistedRaw, looseStore);
-    // 2026-07-11 generator defaults: periodic summaries low → medium; continuation checkpoints
-    // medium → high. electron-store persists defaults as ordinary values, so exact old defaults
-    // need a one-time value uplift for existing installs. The sentinel prevents a later explicit
-    // user choice of low/medium from being rewritten again on restart.
+    migrateGeneratorBlankFallbacks(persistedRaw, looseStore);
+    // The short-lived 2026-07-11 default uplift was superseded before this lifecycle revision:
+    // summaries now default to low and checkpoints to medium. Keep its sentinel for installs that
+    // skip directly across versions, but never rewrite an existing user's valid thinking choice.
+    // Installs that already ran the old uplift keep their persisted medium/high values unchanged.
     const GENERATOR_DEFAULTS_20260711_SENTINEL = '__generatorDefaults20260711Done';
     if (persistedRaw[GENERATOR_DEFAULTS_20260711_SENTINEL] !== true) {
-      if (persistedRaw['summaryReasoning'] === 'low') {
-        store.set('summaryReasoning', 'medium');
-        logger.info('[settings] migrated summaryReasoning low → medium (2026-07-11 default uplift)');
-      }
-      if (persistedRaw['continuationCheckpointThinking'] === 'medium') {
-        store.set('continuationCheckpointThinking', 'high');
-        logger.info(
-          '[settings] migrated continuationCheckpointThinking medium → high ' +
-            '(2026-07-11 default uplift)',
-        );
-      }
       looseStore.set(GENERATOR_DEFAULTS_20260711_SENTINEL, true);
     }
     const VALUE_UPLIFT_SENTINEL = '__valueUpliftMigrationDone';
