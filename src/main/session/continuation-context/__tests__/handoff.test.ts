@@ -50,7 +50,7 @@ describe('prepareHandOffContinuation', () => {
       source: { mode: 'capture' }, target,
       limits: {
         rawRetentionCeilingTokens: 64_000,
-        deadlineMs: 120_000,
+        deadlineMs: 300_000,
         maxFoldCalls: 4,
         maxRepairCalls: 1,
       },

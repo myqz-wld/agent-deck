@@ -122,4 +122,4 @@ Decision: remove `MAX` only from the generic summary / Hand-off settings selecto
 
 ## Related Records
 
-- [CHANGELOG_354](../../changelogs/recent-3-days/CHANGELOG_354_thinking-options-and-claude-usage.md)
+- [CHANGELOG_354](../../changelogs/recent-week/CHANGELOG_354_thinking-options-and-claude-usage.md)

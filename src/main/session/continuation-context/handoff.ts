@@ -14,7 +14,7 @@ import type {
   ResolvedSuccessorSpec,
 } from './types';
 
-export const HANDOFF_CONTINUATION_DEADLINE_MS = 120_000;
+export const HANDOFF_CONTINUATION_DEADLINE_MS = 300_000;
 export const HANDOFF_CONTINUATION_MAX_FOLD_CALLS = 4;
 export const HANDOFF_CONTINUATION_MAX_REPAIR_CALLS = 1;
 

@@ -47,4 +47,4 @@ The Codex reasoning selector used by periodic summaries and Hand-off briefs no l
 - Claude's current SDK thinking-token signal is explicitly approximate, not an authoritative billed reasoning breakdown.
 - Bundled runtime prompts and the MCP tool description remain unchanged because they describe model-specific backend capabilities, which still include `max` for some Codex models.
 - The hosting installed Agent Deck application was not restarted because it owns this implementation session; restart it before interactive verification.
-- Related review: [REVIEW_145](../../reviews/recent-3-days/REVIEW_145_claude-reasoning-usage.md).
+- Related review: [REVIEW_145](../../reviews/recent-week/REVIEW_145_claude-reasoning-usage.md).

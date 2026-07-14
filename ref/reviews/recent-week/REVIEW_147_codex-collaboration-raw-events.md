@@ -114,5 +114,5 @@ This A/B result matches the source-level unconditional listener filter.
 
 ## Related Records
 
-- [PLAN_3](../../plans/recent-3-days/PLAN_3_codex-collaboration-raw-events.md)
-- [CHANGELOG_350](../../changelogs/recent-3-days/CHANGELOG_350_codex-collaboration-observability.md)
+- [PLAN_3](../../plans/recent-week/PLAN_3_codex-collaboration-raw-events.md)
+- [CHANGELOG_350](../../changelogs/recent-week/CHANGELOG_350_codex-collaboration-observability.md)

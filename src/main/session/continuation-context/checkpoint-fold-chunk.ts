@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { RawEventRevisionRow } from '@main/store/event-revision-repo';
-import { normalizeContinuationEvent } from './event-normalizer';
+import {
+  MAX_NORMALIZED_EVENT_UTF8_BYTES,
+  normalizeContinuationEvent,
+} from './event-normalizer';
 import {
   buildCheckpointFoldPrompt,
   CONTINUATION_CHECKPOINT_SYSTEM_PROMPT,
@@ -13,6 +16,12 @@ import {
 import { estimateContinuationTokens, truncateContinuationTextMiddle } from './token-estimator';
 
 const COMPACT_EDGE_TOKENS = 512;
+const COMPACT_TELEMETRY_EVENT_UTF8_BYTES = 256;
+const COMPACT_TELEMETRY_EVENT_KINDS = new Set([
+  'file-changed',
+  'tool-use-end',
+  'tool-use-start',
+]);
 
 export interface RevisionGroup {
   revision: number;
@@ -48,7 +57,29 @@ export function priorCheckpointEvidence(
   );
 }
 
+function serializedToolInput(payloadJson: string): string | null {
+  try {
+    const payload = JSON.parse(payloadJson) as unknown;
+    if (!payload || typeof payload !== 'object' || !Object.hasOwn(payload, 'toolInput')) {
+      return null;
+    }
+    return JSON.stringify((payload as { toolInput: unknown }).toolInput) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function groupContinuationRows(rows: RawEventRevisionRow[]): RevisionGroup[] {
+  // Codex completed-tool rows repeat the start row's tool input and add result/status. Retaining
+  // both was the dominant fold amplifier in real handoffs. Deduplicate only when the serialized
+  // inputs are byte-identical: Claude end rows often omit toolInput, and unmatched/in-flight starts
+  // remain meaningful state.
+  const completedToolInputs = new Map<string, string>();
+  for (const row of rows) {
+    if (row.kind !== 'tool-use-end' || !row.toolUseId) continue;
+    const toolInput = serializedToolInput(row.payloadJson);
+    if (toolInput !== null) completedToolInputs.set(row.toolUseId, toolInput);
+  }
   const groups: RevisionGroup[] = [];
   for (const row of rows) {
     let group = groups.at(-1);
@@ -57,7 +88,18 @@ export function groupContinuationRows(rows: RawEventRevisionRow[]): RevisionGrou
       groups.push(group);
     }
     group.rows.push(row);
-    const normalized = normalizeContinuationEvent(row);
+    const duplicatedCompletedToolStart =
+      row.kind === 'tool-use-start' &&
+      row.toolUseId !== null &&
+      serializedToolInput(row.payloadJson) === completedToolInputs.get(row.toolUseId);
+    const normalized = duplicatedCompletedToolStart
+      ? null
+      : normalizeContinuationEvent(
+          row,
+          COMPACT_TELEMETRY_EVENT_KINDS.has(row.kind)
+            ? COMPACT_TELEMETRY_EVENT_UTF8_BYTES
+            : MAX_NORMALIZED_EVENT_UTF8_BYTES,
+        );
     if (normalized) group.normalized.push(normalized);
   }
   return groups;

@@ -25,7 +25,7 @@ describe('continuation budget policy', () => {
     expect(budgets.rawRetentionCeilingTokens).toBe(64_000);
     expect(budgets.targetPromptCapacityTokens).toBe(104_000);
     expect(budgets.checkpointProjectionBudgetTokens).toBe(12_000);
-    expect(budgets.generatorFoldInputBudgetTokens).toBe(32_000);
+    expect(budgets.generatorFoldInputBudgetTokens).toBe(96_000);
     expect(budgets.initialRawTailBudgetTokens).toBeLessThanOrEqual(64_000);
   });
 
@@ -39,7 +39,7 @@ describe('continuation budget policy', () => {
       systemProjectReserveTokens: 4_000,
       responseReserveTokens: 4_000,
     });
-    expect(budgets.generatorFoldInputBudgetTokens).toBe(100_000);
+    expect(budgets.generatorFoldInputBudgetTokens).toBe(128_000);
     expect(budgets.initialRawTailBudgetTokens).toBe(8_000);
     expect(budgets.checkpointProjectionBudgetTokens).toBeGreaterThanOrEqual(2_000);
   });
@@ -82,6 +82,6 @@ describe('continuation budget policy', () => {
       contextWindowTokens: 180_000,
       source: 'observed',
     });
-    expect(resolveGeneratorFoldInputBudgetTokens(null)).toBe(32_000);
+    expect(resolveGeneratorFoldInputBudgetTokens(null)).toBe(96_000);
   });
 });
