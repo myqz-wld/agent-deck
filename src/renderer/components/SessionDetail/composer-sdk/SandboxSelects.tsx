@@ -1,5 +1,11 @@
 import { useId, type JSX } from 'react';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import {
+  CLAUDE_SANDBOX_MODE_OPTIONS,
+  CODEX_SANDBOX_MODE_OPTIONS,
+  type ClaudeSandboxMode,
+  type CodexSandboxMode,
+} from '@renderer/lib/sandbox-options';
 
 /**
  * 3 个 sandbox / permission select 行（permissionMode / codex sandbox / claude OS 沙盒）。
@@ -48,8 +54,8 @@ export function SelectRow<T extends string>({
 }
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-export type CodexSandbox = 'workspace-write' | 'read-only' | 'danger-full-access';
-export type ClaudeCodeSandbox = 'off' | 'workspace-write' | 'strict';
+export type CodexSandbox = CodexSandboxMode;
+export type ClaudeCodeSandbox = ClaudeSandboxMode;
 
 export const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; title?: string }[] = [
   { value: 'default', label: '每次询问', title: '每次工具调用前都询问你是否允许' },
@@ -58,14 +64,5 @@ export const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; ti
   { value: 'bypassPermissions', label: '⚠️ 不再询问（仍在系统沙盒内）', title: 'Claude 全程不再询问任何工具调用；系统沙盒（若启用）仍生效' },
 ];
 
-export const CODEX_SANDBOX_OPTIONS: { value: CodexSandbox; label: string; title?: string }[] = [
-  { value: 'workspace-write', label: '工作目录可写（默认）', title: '工作目录可写；网络默认禁；其他目录只读' },
-  { value: 'read-only', label: '完全只读', title: '所有文件只读，包括工作目录' },
-  { value: 'danger-full-access', label: '⚠️ 完全开放（可改任意文件 / 联网 / 运行任意命令）', title: '没有任何限制：可以读写任意文件、访问网络、运行任意命令' },
-];
-
-export const CLAUDE_CODE_SANDBOX_OPTIONS: { value: ClaudeCodeSandbox; label: string; title?: string }[] = [
-  { value: 'off', label: '⚠️ 关闭（无系统沙盒）', title: '系统不会限制 Claude；仅靠应用内授权弹窗管控' },
-  { value: 'workspace-write', label: '工作目录可写', title: '工作目录可写；敏感目录（~/.ssh、~/.aws 等）禁读；网络默认禁' },
-  { value: 'strict', label: '严格只读', title: '工作目录也只读，最严格' },
-];
+export const CODEX_SANDBOX_OPTIONS = CODEX_SANDBOX_MODE_OPTIONS;
+export const CLAUDE_CODE_SANDBOX_OPTIONS = CLAUDE_SANDBOX_MODE_OPTIONS;

@@ -1,9 +1,6 @@
 /**
- * 新建会话类对话框共享的 permission / sandbox 下拉选项（NewSessionDialog + ResolveInNewSessionDialog）。
- *
- * 与 composer-sdk/SandboxSelects.tsx 的区别：本组每类多一个 `''` =「跟随设置（默认）」选项 —
- * 新建会话时留空表示「不 per-session 覆盖，走 adapter / settings 全局默认」；composer 那组用于
- * 已存在会话，sandbox 已是具体值故无 `''` 档。两个新建会话对话框共用本模块避免选项数组三处重复。
+ * 全部 renderer 入口共享的 permission / sandbox 下拉选项。
+ * 新建会话使用含 `''` =「跟随设置（默认）」的数组；设置页和会话详情使用具体档位数组。
  */
 
 export type PermissionModeChoice = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -11,6 +8,8 @@ export type PermissionModeChoice = 'default' | 'acceptEdits' | 'plan' | 'bypassP
 export type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-full-access';
 /** `''` = 跟随设置（不 per-session 覆盖） */
 export type ClaudeSandboxChoice = '' | 'off' | 'workspace-write' | 'strict';
+export type CodexSandboxMode = Exclude<CodexSandboxChoice, ''>;
+export type ClaudeSandboxMode = Exclude<ClaudeSandboxChoice, ''>;
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
   { value: 'default', label: '每次询问', title: '每次工具调用前都询问你是否允许' },
@@ -23,20 +22,60 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
   },
 ];
 
-export const CODEX_SANDBOX_OPTIONS: { value: CodexSandboxChoice; label: string; title?: string }[] = [
-  { value: '', label: '跟随设置（默认）', title: '使用「实验功能」中的全局设置' },
-  { value: 'workspace-write', label: '工作目录可写', title: '工作目录可写；网络默认禁；其他目录只读' },
+export const CODEX_SANDBOX_MODE_OPTIONS: {
+  value: CodexSandboxMode;
+  label: string;
+  title?: string;
+}[] = [
   { value: 'read-only', label: '完全只读', title: '所有文件只读，包括工作目录' },
   {
+    value: 'workspace-write',
+    label: '工作目录可写',
+    title: '工作目录可写；网络默认禁用；其他目录只读',
+  },
+  {
     value: 'danger-full-access',
-    label: '⚠️ 完全开放（可改任意文件 / 联网 / 运行任意命令）',
-    title: '没有任何限制：可以读写任意文件、访问网络、运行任意命令',
+    label: '⚠️ 完全开放',
+    title: '可读写任意文件、访问网络并运行任意命令',
   },
 ];
 
-export const CLAUDE_SANDBOX_OPTIONS: { value: ClaudeSandboxChoice; label: string; title?: string }[] = [
-  { value: '', label: '跟随设置（默认）', title: '使用「实验功能」中的全局设置' },
-  { value: 'off', label: '⚠️ 关闭（无系统沙盒）', title: '系统不会限制 Claude；仅靠应用内授权弹窗管控' },
-  { value: 'workspace-write', label: '工作目录可写', title: '工作目录可写；敏感目录禁读；网络默认禁' },
-  { value: 'strict', label: '严格只读', title: '工作目录也只读，最严格' },
+export const CLAUDE_SANDBOX_MODE_OPTIONS: {
+  value: ClaudeSandboxMode;
+  label: string;
+  title?: string;
+}[] = [
+  {
+    value: 'strict',
+    label: '完全只读',
+    title: '工作目录只读；敏感目录禁读；禁止绕过系统沙盒',
+  },
+  {
+    value: 'workspace-write',
+    label: '工作目录可写',
+    title: '工作目录可写；敏感目录禁读；网络默认禁用',
+  },
+  {
+    value: 'off',
+    label: '⚠️ 完全开放',
+    title: '关闭系统沙盒；仍受 Claude Code 权限设置约束',
+  },
 ];
+
+const FOLLOW_SETTINGS_OPTION = {
+  value: '' as const,
+  label: '跟随设置（默认）',
+  title: '使用「实验功能」中的全局设置',
+};
+
+export const CODEX_SANDBOX_OPTIONS: {
+  value: CodexSandboxChoice;
+  label: string;
+  title?: string;
+}[] = [FOLLOW_SETTINGS_OPTION, ...CODEX_SANDBOX_MODE_OPTIONS];
+
+export const CLAUDE_SANDBOX_OPTIONS: {
+  value: ClaudeSandboxChoice;
+  label: string;
+  title?: string;
+}[] = [FOLLOW_SETTINGS_OPTION, ...CLAUDE_SANDBOX_MODE_OPTIONS];

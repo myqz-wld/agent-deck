@@ -3,31 +3,15 @@ import type { AppSettings } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { Section } from '../controls';
 import { IS_DARWIN, IS_LINUX } from '@renderer/lib/platform';
+import {
+  CLAUDE_SANDBOX_MODE_OPTIONS,
+  CODEX_SANDBOX_MODE_OPTIONS,
+} from '@renderer/lib/sandbox-options';
 
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }
-
-const CLAUDE_SANDBOX_OPTIONS: {
-  value: AppSettings['claudeCodeSandbox'];
-  label: string;
-  title: string;
-}[] = [
-  { value: 'off', label: '⚠️ 关闭（无系统沙盒）', title: '系统不会限制 Claude；仅靠应用内授权弹窗管控' },
-  { value: 'workspace-write', label: '工作目录可写（默认）', title: '工作目录可写；敏感目录禁读；网络默认禁' },
-  { value: 'strict', label: '严格只读', title: '工作目录也只读，最严格' },
-];
-
-const CODEX_SANDBOX_OPTIONS: {
-  value: AppSettings['codexSandbox'];
-  label: string;
-  title: string;
-}[] = [
-  { value: 'workspace-write', label: '工作目录可写（默认）', title: '工作目录可写；网络默认禁；其他目录只读' },
-  { value: 'read-only', label: '完全只读', title: '所有文件只读，包括工作目录' },
-  { value: 'danger-full-access', label: '⚠️ 完全开放（无限制）', title: '没有任何限制：可以读写任意文件、访问网络、运行任意命令' },
-];
 
 /**
  * 「实验功能」section。包含：
@@ -61,22 +45,22 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
               claudeCodeSandbox: next,
             })
           }
-          options={CLAUDE_SANDBOX_OPTIONS}
+          options={CLAUDE_SANDBOX_MODE_OPTIONS}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
         />
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
         {sandboxNativeAvailable ? (
           <>
-            默认保护敏感目录并减少误操作，与 Codex 的默认档位一致。
-            <br />· <strong>关闭：</strong>仅由应用内授权弹窗管控
+            默认档位为<strong>工作目录可写</strong>。
+            <br />· <strong>完全只读：</strong>工作目录只读，且禁止绕过系统沙盒
             <br />· <strong>工作目录可写：</strong>可写工作目录，默认禁用网络；
             <code className="rounded bg-white/5 px-1">~/.ssh</code> /
             <code className="rounded bg-white/5 px-1">~/.aws</code> /
             <code className="rounded bg-white/5 px-1">~/.config</code> /
             <code className="rounded bg-white/5 px-1">~/.kube</code> /
             <code className="rounded bg-white/5 px-1">~/.gnupg</code> 等敏感目录禁读
-            <br />· <strong>严格只读：</strong>工作目录也只读
+            <br />· <strong>完全开放：</strong>关闭系统沙盒，仍受 Claude Code 权限设置约束
             <br />
             <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
           </>
@@ -95,14 +79,14 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
               codexSandbox: next,
             })
           }
-          options={CODEX_SANDBOX_OPTIONS}
+          options={CODEX_SANDBOX_MODE_OPTIONS}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
         />
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        Codex 原生提供三档沙盒，默认选择<strong>工作目录可写</strong>。
-        <br />· <strong>工作目录可写：</strong>可写工作目录，默认禁用网络，其他目录只读
+        默认档位为<strong>工作目录可写</strong>。
         <br />· <strong>完全只读：</strong>包括工作目录在内的所有文件都只读
+        <br />· <strong>工作目录可写：</strong>可写工作目录，默认禁用网络，其他目录只读
         <br />· <strong>完全开放：</strong>可读写任意文件、联网并运行任意命令
         <br />
         <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。

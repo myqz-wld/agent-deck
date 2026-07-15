@@ -20,10 +20,10 @@ interface Props {
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }
 
-function modelPlaceholder(provider: ContinuationCheckpointProvider): string {
-  if (provider === 'claude') return '留空使用 Claude Sonnet';
-  if (provider === 'deepseek') return '留空使用 Deepseek Sonnet';
-  return '留空使用 Codex 配置默认模型';
+function modelHint(provider: ContinuationCheckpointProvider): string {
+  if (provider === 'claude') return '留空时使用 Claude Sonnet';
+  if (provider === 'deepseek') return '留空时使用 Deepseek Sonnet';
+  return '留空时使用 Codex 配置默认模型';
 }
 
 export function ContinuationContextSection({ settings, update }: Props): JSX.Element {
@@ -35,6 +35,9 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
       storageKey="continuation-context"
       defaultOpen={false}
     >
+      <p className="text-[10px] leading-snug text-deck-muted/70">
+        用于接力到新会话，以及原生会话历史缺失时的恢复。
+      </p>
       <Toggle
         label="自动维护续接检查点"
         value={settings.continuationCheckpointAutoRefreshEnabled}
@@ -52,21 +55,16 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         }
       />
       <p className="text-[10px] leading-snug text-deck-muted/70">
-        常规刷新需达到上方间隔、新增至少 32,000 token，并等待 provider 空闲且会话安静 60
-        秒；新增达到 48,000 token 时会后台安全刷新，不等待空闲，也不会中断当前回复。达到阈值只负责排队，
-        真正开始时会原子捕获最新持久化 revision，排队期间完成的工具结果会合并进本次检查点。
+        达到检查间隔、新增 32,000 token 且会话空闲时刷新；积压到 48,000 token
+        时直接排队，仍不会中断当前回复。
       </p>
       <ProviderModelThinkingFields
         label="上下文整理模型"
-        hint={
-          provider === 'codex'
-            ? '思考程度默认 medium。在只读、无网络、无 MCP 的临时环境中运行；Codex app-server 暂时无法验证模型内置工具是否为空。可选 low、medium、high、xhigh、max、ultra。'
-            : '模型留空时使用 Sonnet，默认思考程度为 medium。Claude 与 Deepseek 支持 low 至 max。'
-        }
+        hint={modelHint(provider) + '。'}
         provider={provider}
         model={settings.continuationCheckpointModel}
         thinking={settings.continuationCheckpointThinking}
-        modelPlaceholder={modelPlaceholder(provider)}
+        modelPlaceholder="模型（可留空）"
         onProviderChange={(nextProvider) =>
           void update({
             continuationCheckpointProvider: nextProvider,
@@ -89,13 +87,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         onChange={(tokens) => void update({ continuationRawRetentionTokens: tokens })}
       />
       <p className="text-[10px] leading-snug text-deck-muted/60">
-        generator 输入默认 96,000 token；已知模型窗口时取 min(128,000, 窗口 − 32,000)，完整
-        prompt 另有 512 KiB 上限。canonical checkpoint 约 20,000 token 开始精简，硬上限
-        24,000。
-      </p>
-      <p className="text-[10px] leading-snug text-deck-muted/60">
-        目标窗口未知时按 128,000 token；先预留系统/项目指令 16,000 和回复 8,000，再扣固定包装与当前指令。
-        checkpoint 获得剩余历史的 20%（2,000–12,000），最近 user input 使用余量且受上方上限约束。
+        仅限制续接上下文中的最近用户输入，不包含检查点、当前指令和回复预留。
       </p>
     </Section>
   );

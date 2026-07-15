@@ -15,6 +15,10 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-11 | `CHANGELOG_361_storage-performance-observability-svg-icons.md` | Stage storage maintenance, require MCP readiness, and unify SVG icons |
+| 2026-07-11 | `CHANGELOG_360_periodic-summary-evidence.md` | Make periodic summaries evidence-rich and revision-safe |
+| 2026-07-11 | `CHANGELOG_359_session-pinning-reviewer-model.md` | Add persistent Live pins and update the Codex reviewer model |
+| 2026-07-11 | `CHANGELOG_358_unified-continuation-context.md` | Unify provider-neutral Continuation Context across hand-off and recovery |
 | 2026-07-10 | `CHANGELOG_357_session-runtime-and-compact-handoff.md` | Add per-session model controls and compact cross-adapter hand-off |
 | 2026-07-10 | `CHANGELOG_356_codex-max-thinking.md` | Restore Codex MAX across settings and existing thinking inputs |
 | 2026-07-10 | `CHANGELOG_355_filter-desktop-ephemeral-codex-hooks.md` | Hide Desktop ambient Codex hooks from external sessions |
