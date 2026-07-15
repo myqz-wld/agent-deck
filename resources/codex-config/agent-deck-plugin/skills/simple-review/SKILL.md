@@ -1,209 +1,144 @@
 ---
 name: simple-review
-description: "Run a one-pass check with exactly two confirmed heterogeneous reviewer slots selected from reviewer-claude, reviewer-codex, and reviewer-deepseek for code, plans, prompt assets, technical decisions, agent validation, overall-change validation, post-edit prompt-asset validation, or Chinese anchors such as 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Blocks completion until CRITICAL/HIGH findings are fixed or disproven."
+description: "Run exactly one independent review round followed by one bounded rebuttal round with two confirmed heterogeneous reviewer slots. Use for focused code, plan, prompt-asset, technical-decision, agent-validation, or overall-change checks, including 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Present the evidence and recommendation to the user for final judgment; do not start a fix-and-re-review loop."
 ---
 
 # Simple Review
 
-Use this skill when a single code change, plan, prompt asset, agent instruction, technical decision, or completed diff needs a fast heterogeneous adversarial review. It requires an explicit two-slot reviewer selection, starts those reviewers once, compares their independent findings, and gives the user a final gate decision.
+Run one focused adversarial review and one rebuttal round, then return the final judgment to the user. Use `deep-review` when the work needs iterative fixes, repeated review rounds, or deep architecture, race, lifecycle, security, or performance investigation.
 
-Use `deep-review` instead when scope spans many modules, needs multiple fix rounds, mixes code and plan review, or requires deep race/security/architecture investigation.
+## Shared Review Protocol
 
-## Preconditions
+### Scope And Authorization
 
-Run this skill only when Agent Deck MCP tools are available. If `spawn_session`, `send_message`, `shutdown_session`, or task/session tools are missing, stop and ask for manual review or an environment with Agent Deck MCP enabled.
+Agent Deck MCP session tools must be available. If `spawn_session`, `send_message`, `get_session`, or `shutdown_session` is unavailable, stop and ask for an Agent Deck-enabled environment or a manual review.
 
-The lead owns adjudication. Reviewers produce evidence; they do not decide whether to merge.
+Establish the scope from the user's request:
 
-## Inputs
+- Classify the review as code, plan, prompt, technical decision, or a small mixed scope. Ask only when the intent is materially ambiguous.
+- Resolve the requested files or current change set, then place absolute paths in reviewer prompts.
+- Keep one invocation small enough for a single direct pass. Split a broad scope or use `deep-review`.
+- Keep reviewed artifacts read-only. Adding the required `.review-cache/` ignore entry is the only review-infrastructure write; findings do not authorize target edits, commits, or external actions.
+- In a worktree, review the worktree copy rather than the base checkout.
 
-The caller must pass typed scope:
+### Reviewer Pair
 
-```ts
-{
-  kind: 'code' | 'plan' | 'prompt',
-  paths: string[],
-  reviewers?: [
-    'reviewer-claude' | 'reviewer-codex' | 'reviewer-deepseek',
-    'reviewer-claude' | 'reviewer-codex' | 'reviewer-deepseek'
-  ],
-  ack_cache_unignored?: boolean
-}
-```
-
-- `kind` is mandatory; do not infer it from file extensions.
-- Use `kind: 'prompt'` for system prompts, agent bodies, `SKILL.md`, MCP/tool descriptions, and other durable AI-facing instructions.
-- `paths` must be absolute paths.
-- `reviewers` must contain exactly two distinct selected slots before spawn; if it is absent, ask the user to choose two and stop.
-- Paths should be inside the same repo/worktree root as `cwd`; paths outside that root are copied into the sandbox cache before spawning reviewers.
-- Keep a single invocation small enough for one pass. If the scope is broad, split by topic or use `deep-review`.
-
-## Prompt Asset Reviews
-
-Use `kind: 'prompt'` as the expected validation pass after material prompt-asset edits. Do not skip it only because reviewer replies arrive in a later turn. Reviewer priorities come from the Prompt focus template below.
-
-## Sandbox Cache
-
-Copy any path outside `reviewRoot` into a readable cache before spawning reviewers.
-
-- `reviewRoot` is the absolute `cwd` used for reviewer spawn.
-- Cache root: `<reviewRoot>/.deep-review-cache/<invocationId>/`.
-- `invocationId`: fresh short id for this skill run.
-- Cache filename: `<fileSha8>-<sanitized-basename>.md`, where `fileSha8` hashes the original absolute path and `sanitized-basename` removes unsafe filename characters.
-- Manifest: write `manifest.json` beside cache files with `invocationId`, `createdAt`, and `{ origAbspath, cachePath }[]`.
-
-Startup checks:
-
-- Sweep cache invocation directories older than 24h.
-- Check `<reviewRoot>/.gitignore` for `.deep-review-cache/`. If missing and `ack_cache_unignored` is not true, warn and stop for explicit user consent.
-
-Cleanup:
-
-- After review finishes or aborts, remove only this invocation cache directory.
-- If cleanup fails, report the exact failed path. Copy failures follow the Failure Handling table.
-
-## Reviewer Slot Selection
-
-Before spawning, require exactly two confirmed reviewer slots. If no selection is already provided, ask the user to choose exactly two slots and stop this turn; do not silently default.
+Require exactly two user-confirmed, distinct reviewer slots. If the user has not selected a pair, ask them to choose and stop before spawning.
 
 | Reviewer | Spawn |
 |---|---|
-| reviewer-claude | `spawn_session({ adapter: 'claude-code', agentName: 'reviewer-claude', cwd, teamName, displayName, prompt })` |
-| reviewer-codex | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
-| reviewer-deepseek | `spawn_session({ adapter: 'deepseek-claude-code', agentName: 'reviewer-deepseek', model: 'deepseek-v4-pro[1m]', cwd, teamName, displayName, prompt })` |
+| `reviewer-claude` | `spawn_session({ adapter: 'claude-code', agentName: 'reviewer-claude', cwd, teamName, displayName, prompt })` |
+| `reviewer-codex` | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
+| `reviewer-deepseek` | `spawn_session({ adapter: 'deepseek-claude-code', agentName: 'reviewer-deepseek', model: 'deepseek-v4-pro[1m]', cwd, teamName, displayName, prompt })` |
 
-Reject duplicate slots, one slot, or three slots. The selected slots must be heterogeneous by adapter / provider slot; the bundled slots above are distinct. Record `reviewer_selection` in reviewer prompts and in the final report. Do not pass `permissionMode`, `claudeCodeSandbox`, or `codexSandbox` unless the user explicitly requested that override.
+Reject duplicate slots and one- or three-slot selections. Spawn only the selected pair, concurrently. Record the pair in reviewer prompts and the final report. Do not pass permission or sandbox overrides unless the user requested them.
 
-Never replace a failed selected reviewer with an unselected slot or a duplicate of the surviving reviewer. If one selected slot fails, use the fallback table below.
+Keep the pair heterogeneous for the whole invocation. If one selected reviewer fails, shut it down and respawn the same adapter, `agentName`, and model slot; never substitute an unselected slot or duplicate the survivor.
 
-## Turn Boundary
+### Shared Review Cache
 
-After spawning reviewers or sending rebuttal/Round 2 prompts, tell the user what was dispatched and end the current turn. Reviewer replies arrive as later Agent Deck user-role messages; continue adjudication when they arrive. Do not use `sleep`, busy loops, or repeated `get_session` polling in the same turn.
+Use `<reviewRoot>/.review-cache/<invocationId>/` only when a scoped path is outside the absolute reviewer `cwd` (`reviewRoot`).
 
-## Workflow
+Before creating or using the cache, ensure `<reviewRoot>/.gitignore` contains the exact `.review-cache/` entry. Add the entry when it is missing. If the ignore file cannot be updated, stop before writing cache files and ask the user to add the entry.
 
-| Step | Action |
+For each invocation:
+
+1. Generate a fresh short `invocationId`.
+2. Remove only cache invocation directories whose manifest is older than 24 hours.
+3. Copy every external scoped file to `<reviewRoot>/.review-cache/<invocationId>/<fileSha8>-<sanitized-basename>`.
+4. Write `manifest.json` in that invocation directory with `invocationId`, `createdAt`, and each original absolute path plus cache path.
+5. Send the staged paths to reviewers.
+6. On completion or abort, remove only this invocation directory. Report an exact path if staging or cleanup fails.
+
+### Turn Boundary
+
+After spawning reviewers or sending rebuttal prompts, tell the user what was dispatched and end the current turn. Reviewer replies arrive through later Agent Deck messages. Do not sleep, busy-wait, or repeatedly poll sessions in the same turn.
+
+Check progress only when the user asks or a reviewer has had no reply and no activity for at least 30 minutes. If activity is recent, report that it is still running. If stale, send one nudge on the current reply chain; use the failure path if it remains stale.
+
+### Evidence And Adjudication
+
+The lead classifies evidence; reviewers do not decide the outcome. Give each finding one status:
+
+- `ACCEPTED`: independently reported by both reviewers, or reported by one and verified by a bounded lead-side check.
+- `REBUTTED`: disproved by the other reviewer or lead-side evidence.
+- `UNVERIFIED`: plausible but unsupported; keep it at MEDIUM or lower.
+
+Track `Coverage: COMPLETE | INCOMPLETE` separately for each reviewer. Incomplete coverage is not evidence that the unreadable surface has no findings and cannot support a `NO_BLOCKING_EVIDENCE` recommendation.
+
+CRITICAL and HIGH findings require a rebuttal record even when both reviewers found the issue. Record the supporting evidence, strongest rebuttal, and lead classification. For a single-reviewer MEDIUM, run a small search, read, command, or focused test when possible; otherwise mark it `UNVERIFIED` or lower its severity.
+
+Severity follows impact and trigger likelihood:
+
+| Severity | Meaning |
 |---|---|
-| 0 | Normalize `scope`, confirm or record exactly two reviewer slots, create sandbox cache for external paths, and build the reviewer prompt from the templates below. |
-| 1 | Spawn the two selected reviewers without waiting between spawns. Record each `sessionId`, `teamId`, and `spawnPromptMessageId`. |
-| 2 | Tell the user that both selected reviewers are running and replies will arrive through Agent Deck messages; then end the current turn. |
-| 3 | When both reviewer replies arrive, adjudicate every finding with the tri-state rules below. |
-| 4 | For every CRITICAL/HIGH finding, send one rebuttal request to the other selected reviewer using `send_message` and the relevant reply chain anchor; then end the current turn. |
-| 5 | If a real CRITICAL/HIGH is fixed, reuse the same selected reviewers for one optional Round 2. Send only the fix diff and `skip` summary; then end the current turn. Do not respawn unless a fresh-session or scope mismatch warning requires it. |
-| 6 | Finish with reviewer shutdown, cache cleanup, and the final summary report. |
+| CRITICAL | Stable data loss, permission bypass, secret disclosure, arbitrary code execution, severe cross-session mixup, or global core-path outage without a reliable workaround. |
+| HIGH | Reproducible crash, deadlock, state corruption, security-boundary break, user work loss, core wrong result, or stable regression for a user class. |
+| MEDIUM | Real limited-scope defect, missing key regression coverage, or prompt/plan defect that can cause a wrong action without breaking a hard safety boundary. |
+| LOW | Small edge case, minor copy drift, or low-risk maintainability issue. |
+| INFO | Context, caveat, coverage note, confirmed non-issue, or optional improvement. |
 
-Stop after one fix round unless the result still has CRITICAL/HIGH findings or many new true findings. Escalate that case to `deep-review`.
+### Finding Contract
 
-## Tri-State Adjudication
+Require every finding to include:
 
-Each finding gets one outcome:
-
-- ✅ **True issue**: both reviewers independently report it, or one reviewer reports it and the lead verifies it with search/read/command/test evidence.
-- ❌ **Rebutted**: the other selected reviewer or lead verification disproves it.
-- ❓ **Partial / unverified**: evidence is incomplete or based on weak text-only reasoning. Downgrade to MEDIUM or lower.
-
-CRITICAL/HIGH findings require a rebuttal record before final decision. If both reviewers report the issue, still ask one side to challenge severity or exploitability.
-
-Single-reviewer findings:
-
-- CRITICAL/HIGH: run rebuttal.
-- MEDIUM: lead verifies with a small bounded check; otherwise downgrade or record accepted risk.
-- LOW/INFO: record as context or follow-up.
-
-## Severity
-
-Severity follows real impact and trigger likelihood; uncertainty lowers severity.
-
-| Level | Use When | Gate |
-|---|---|---|
-| CRITICAL (P0) | Stable data loss, permission bypass, secret leak, arbitrary code execution, severe cross-session mixup, or total core-path outage without workaround. | Block until fixed or disproven; rebuttal required. |
-| HIGH (P1) | Reproducible crash, deadlock, state corruption, security boundary break, user work loss, core wrong result, or stable regression for a user class. | Block until fixed or disproven; rebuttal required. |
-| MEDIUM (P2) | Real defect with workaround, limited trigger surface, non-core impact, missing key regression test, or prompt/doc issue that can mislead an agent without breaking safety. | Lead records fix, accepted risk, or follow-up. |
-| LOW (P3) | Small edge issue, minor UX/copy drift, readability or maintainability improvement with low reversible impact. | Record only. |
-| INFO (P4) | Context, coverage note, caveat, non-action observation, or confirmed no-issue risk. | Record only. |
-
-## Finding Contract
-
-Lead must spot-check reviewer findings. A valid finding includes:
-
+- A stable `finding_id`, unique within the invocation, and preserved unchanged through rebuttal and reporting.
 - `file:line` and a source snippet of at most 6 lines.
-- Verification method, such as grep results, a failing test, command output, or direct code reading.
-- Fix direction in 1-2 lines, not a full patch.
-- Severity from CRITICAL / HIGH / MEDIUM / LOW / INFO; add `*unverified*` only when validation is limited.
-- For complex race, lifecycle, architecture, security, performance, or multi-step plan issues: a concrete user-facing example with the trigger path, state sequence, input, or plan step and the visible failure.
+- A verification method: search evidence, focused test, command result, or precise reasoning check.
+- Severity and a 1-2 line fix direction, not a full patch.
+- For race, lifecycle, architecture, security, performance, or multi-step plan claims, a concrete trigger or state sequence and visible consequence.
+- `Decision impact: routine | major`; the lead validates this classification rather than treating it as a reviewer decision.
 
-Invalid findings are downgraded or rejected when they lack location, snippet, verification, fix direction, or a concrete example for complex claims.
+Mark limited evidence as `*unverified*`. Downgrade or reject findings that lack a location, snippet, verification, fix direction, or concrete example for a complex claim.
 
-Weak assertion words such as "maybe", "might", "probably", "可能 / 也许 / 看起来 / 应该 / 大概" are allowed only in `*unverified*` findings.
+### Reviewer Prompt Contract
 
-## Prompt Templates
+Every independent-review prompt includes:
 
-Every reviewer prompt must include:
+- A fresh `invocation_id`, `output_mode: full_review`, the selected reviewer pair, `review_type`, and a reviewer-specific `finding_id_prefix` such as `R1-CLAUDE`.
+- Absolute scope paths, a required single-pass `focus`, and `baseline: commit:<hash> | working-tree`.
+- The finding contract and the requirement to report `Coverage: COMPLETE | INCOMPLETE`, reviewed paths, and unreadable paths or restricted steps.
 
-- `output_mode: full_review` or `output_mode: rebuttal`.
-- `reviewer_selection`: the exact two selected slots and each slot's adapter, `agentName`, and model when the slot sets one.
-- `scope`: absolute paths after sandbox-cache replacement.
-- `focus`: review priorities.
-- `finding_contract`: location, snippet, verification, severity, fix direction, and complex-issue example requirements.
-- `skip`: only for Round 2, summarizing fixed or stable items.
+For a commit baseline, reviewers compare with `git diff <hash> -- <paths>`. For a working-tree baseline, they inspect both `git diff -- <paths>` and `git diff --cached -- <paths>` when diffs are relevant. Round 1 still requires reading every target file.
 
-Code focus:
+### Failure Handling
 
-```text
-- Fix correctness and regressions.
-- Relevant edge cases, concurrency, lifecycle, security, or performance risks.
-- Regression test coverage for key fixes.
-```
-
-Plan focus:
-
-```text
-- Decisions and invariants are clear.
-- Workflow is internally consistent.
-- Next handoff step is executable from a cold start.
-```
-
-Prompt focus:
-
-```text
-- Instructions change the next agent action at task time.
-- Safety, tool, validation, and failure-handling gates are preserved.
-- Paired assets stay behaviorally aligned while preserving adapter-specific mechanics.
-- No stale, duplicated, or contradictory rules; no hidden local assumptions or local-only maintenance rules leak into reusable assets.
-```
-
-Rebuttal prompt:
-
-```text
-output_mode: rebuttal
-reviewer_selection: <same two selected reviewer slots>
-Review only this finding from the other reviewer.
-Give one stance: agree / disagree / uncertain.
-Do not add unrelated findings.
-<finding text>
-```
-
-## Failure Handling
-
-| Situation | Action |
+| Situation | Required action |
 |---|---|
-| A selected reviewer fails | Shutdown the failed session and respawn the same selected slot using the table above; retry at most twice and keep the surviving reviewer. If it still fails, ask the user to wait, proceed with single-reviewer downgraded findings, or abort. Never respawn an unselected slot and never duplicate the survivor. |
-| reviewer reports `⚠ FRESH SESSION` | Shutdown and respawn that reviewer, then rerun Round 1 with full scope. Do not continue Round 2. |
-| reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the scope path or cache manifest, then shutdown, respawn, and resend the prompt. |
-| reviewer does not reply for 30 minutes | Only after the threshold or a user status request, check `get_session(lastEventAt)`. If recent, tell the user it is still running and end the turn; otherwise ask the user to resolve pending UI approvals if relevant or respawn. |
-| sandbox cache copy fails | Warn with the exact failed path, abort this review, and ask caller to provide readable paths. Do not invent findings for unreadable files. |
-| MCP send/spawn errors | Follow the MCP tool error. Do not silently downgrade to same-adapter reviewers. |
+| Selected reviewer fails to start, loses auth, hits sandbox denial, times out, or loses thread state | Shut down that session and retry the same selected slot at most twice. If it still fails, ask the user to wait, continue with explicitly downgraded single-reviewer evidence, or abort. |
+| Reviewer reports `⚠ FRESH SESSION` | Shut it down, respawn the same slot, and restart the review round with the full scope. |
+| Reviewer reports `⚠ SCOPE PATH MISMATCH` | Correct the path list or cache manifest, then shut down and respawn the affected reviewer with the full prompt. |
+| Cache staging fails | Abort before review and report the exact path and reason. |
+| MCP send or spawn fails | Follow the tool error; do not silently change reviewer slots or adapters. |
 
-## Final Summary Report
+## One-Pass Workflow
 
-Before ending the workflow, report:
+1. Normalize the scope, confirm the reviewer pair, prepare the cache if needed, and build a focused prompt for each reviewer.
+2. Spawn the two reviewers concurrently. Save each `sessionId` and `spawnPromptMessageId`, announce the dispatch, and end the turn.
+3. When both independent reviews arrive, verify that every finding has a unique stable id such as `R1-CLAUDE-001`, classify it, and assemble one rebuttal batch per reviewer. Include all CRITICAL/HIGH findings and any material disagreement; preserve each `finding_id` and ask each reviewer to challenge only the other reviewer's listed findings.
+4. Send both rebuttal batches, save the returned reply-chain anchors, announce the dispatch, and end the turn.
+5. When the rebuttals arrive, finalize evidence classifications. Do not apply fixes, start a second review round, or silently escalate.
+6. Shut down both reviewer sessions, remove this invocation's cache directory, and present the result to the user.
 
-- Scope, kind, and reviewed paths.
-- Final gate: PASS / BLOCKED / ABORTED / ESCALATED_TO_DEEP_REVIEW.
-- Reviewer coverage: selected slots, session ids, retries, and whether the two-slot heterogeneous pair stayed intact.
-- Findings by severity and tri-state outcome, including CRITICAL/HIGH support, rebuttal, and lead decision.
-- Complex finding examples for accepted complex issues.
-- Fix and decision log: files changed, tests or commands run, MEDIUM disposition, accepted risk, and follow-ups.
-- Cleanup status: reviewer shutdown and sandbox cache cleanup.
+Every rebuttal prompt retains the same `invocation_id`, reviewer pair, and absolute scope paths, uses `output_mode: rebuttal`, contains only challenged findings with their stable `finding_id` values, and requires one verdict per id: an independent `agree`, `disagree`, or `uncertain` judgment with evidence. Never accept one aggregate verdict for a multi-finding batch.
 
-Do not finish with only "done" or "review passed".
+Use these focus areas as relevant:
+
+- Code: correctness, regression risk, edge cases, concurrency/lifecycle/security/performance risk, and key regression coverage.
+- Plan: decision and invariant clarity, internal consistency, current file/function references, executable handoff steps, and test coverage.
+- Prompt: task-time action changes, preserved safety/tool/validation/failure gates, paired-asset alignment, and stale or contradictory instructions.
+- Mixed: apply each relevant focus and verify that decisions are enforced by the implementation or prompt behavior.
+
+## User Decision Report
+
+Simple review does not issue a final merge or acceptance gate. Report:
+
+- Scope and reviewed paths.
+- Per-reviewer coverage, unreadable paths, and validation restrictions.
+- Reviewer pair, session ids, retries, and whether heterogeneity stayed intact.
+- Findings by severity and `ACCEPTED` / `REBUTTED` / `UNVERIFIED`, including CRITICAL/HIGH support and rebuttal evidence.
+- A lead recommendation: `NO_BLOCKING_EVIDENCE`, `CHANGES_ADVISED`, `INCOMPLETE_REVIEW`, or `ESCALATE_TO_DEEP_REVIEW`. Use `INCOMPLETE_REVIEW` whenever either selected reviewer did not complete the required scope and focus.
+- Explicit next choices for the user: accept, request fixes, or start `deep-review`.
+- Reviewer shutdown and cache cleanup status.
+
+End with `Final decision: USER_DECISION_REQUIRED`. The user owns the final judgment.

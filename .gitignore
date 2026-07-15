@@ -13,9 +13,9 @@ dist/
 .deep-code-review/
 # Legacy directory, now migrated to user-scoped ~/.claude/state/deep-code-review/<cwd-slug>/.
 # Keep this defensive ignore in case a tool regression or manual run recreates it.
-.deep-review-cache/
-# deep-review sandbox cache. Each invocation creates a subdirectory plus manifest.
-# Worktree cache directories must stay out of git and fast-forward merges.
+.review-cache/
+# Shared simple-review/deep-review sandbox cache. Each invocation creates a
+# subdirectory plus manifest; review caches must never enter git history.
 .prompt-asset-improver/local/
 # Local prompt-asset-improver inventory, backups, and custom points.
 .claude/worktrees/
