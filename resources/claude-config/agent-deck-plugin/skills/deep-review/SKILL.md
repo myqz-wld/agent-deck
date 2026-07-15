@@ -1,253 +1,179 @@
 ---
 name: deep-review
-description: "Run multi-round review with exactly two confirmed heterogeneous reviewer slots selected from reviewer-claude, reviewer-codex, and reviewer-deepseek for complex code, plans, or mixed plan-and-code changes; use for deep race, lifecycle, architecture, security, performance, or plan-gate risk. Requires evidence and rebuttal for CRITICAL/HIGH findings and blocks until they are fixed or disproved. Chinese anchors: 深度 review, 双对抗 review, review agent 深挖, 再 review 一轮, 深挖整体改动是否符合预期, and plan 评审."
+description: "Run iterative heterogeneous review rounds for complex code, plans, or mixed changes with two confirmed reviewer slots. Use for deep race, lifecycle, architecture, security, performance, plan-gate, or design-to-code risk, including 深度 review, 双对抗 review, review agent 深挖, 再 review 一轮, 深挖整体改动是否符合预期, and plan 评审. Continue routine in-scope review/fix rounds autonomously; ask the user to review only when a proposed remedy requires an architecture-level or similarly major decision."
 ---
 
 # Deep Review
 
-Run a multi-round `review -> fix -> review` loop until the two selected heterogeneous reviewers stop finding new material issues or the gate is blocked. Use this skill for depth: round 1 catches obvious correctness and consistency defects; later rounds pressure-test races, lifecycle leaks, plan invariants, architecture, security, performance, and test gaps.
+Run a multi-round `review -> adjudicate -> fix when authorized -> review` loop until the selected reviewers stop finding material issues or the workflow is blocked. Use later rounds to pressure-test edge cases, races, lifecycle leaks, plan invariants, architecture coupling, security, performance, and test gaps.
 
-Agent Deck MCP tools must be available. Use `mcp__agent-deck__spawn_session`, `send_message`, `get_session`, and `shutdown_session` for reviewer orchestration. Keep the executable protocol in this skill; use the runtime Agent Deck backend rules only for message delivery details, team scoping, and tool error semantics.
+## Shared Review Protocol
 
-## When To Use
+### Scope And Authorization
 
-- `kind: "code"`: critical-path code, core abstractions, concurrency, lifecycle, resource management, security boundaries, multi-module changes, or final merge gates.
-- `kind: "plan"`: RFCs, implementation plans, workflow designs, invariant definitions, line-level references, handoff plans, and test matrices.
-- `kind: "mixed"`: changes where the plan and implementation must be reviewed together for design-to-code consistency.
-- Do not use this skill for trivial edits, obvious wording fixes, single-file renames, or review work that only needs one quick pass.
+Agent Deck MCP session tools must be available. If `spawn_session`, `send_message`, `get_session`, or `shutdown_session` is unavailable, stop and ask for an Agent Deck-enabled environment or a manual review.
 
-## Scope Contract
+Establish the scope from the user's request:
 
-The caller must provide typed scope. Do not infer review kind from file extensions.
+- Classify the review as code, plan, or mixed. Ask only when the intent is materially ambiguous.
+- Resolve the requested files or current change set, then place absolute paths in reviewer prompts.
+- Keep each batch directly inspectable; split very broad scopes by subsystem or decision boundary.
+- Keep reviewed artifacts read-only except for the required `.review-cache/` ignore entry. Apply target fixes only when the user requested review-and-fix or the surrounding implementation task already grants write authority.
+- In a worktree, review and edit the worktree copy rather than the base checkout.
 
-```ts
-{
-  kind: "code" | "plan" | "mixed",
-  paths: string[],
-  reviewers?: [
-    "reviewer-claude" | "reviewer-codex" | "reviewer-deepseek",
-    "reviewer-claude" | "reviewer-codex" | "reviewer-deepseek"
-  ],
-  ack_cache_unignored?: boolean
-}
-```
+### Reviewer Pair
 
-Caller requirements:
+Require exactly two user-confirmed, distinct reviewer slots. If the user has not selected a pair, ask them to choose and stop before spawning.
 
-- `kind` is mandatory.
-- `paths` are absolute paths.
-- `reviewers` must contain exactly two distinct selected slots before spawn; if it is absent, ask the user to choose two and stop.
-- Each batch stays small enough for reviewers to inspect directly: prefer <= 10 files and <= 30 prompt lines of path/context text.
-- Paths normally share the reviewer `cwd` prefix. Paths outside `cwd` are allowed only through the staging flow below.
-- In worktree reviews, code paths must point at the worktree copy, not the base checkout.
-
-## Staging External Paths
-
-Define `reviewRoot` as the absolute `cwd` passed to reviewer sessions. Before spawning reviewers, stage any scoped file outside `reviewRoot` into `<reviewRoot>/.deep-review-cache/<invocationId>/` so reviewer sandboxes can read it.
-
-Run staging in step 0:
-
-1. Generate `invocationId = sha256(timestamp + random)[0:8]`.
-2. Sweep old staging directories by reading `<reviewRoot>/.deep-review-cache/*/manifest.json`; delete invocation directories whose `createdAt` is older than 24 hours.
-3. Check `<reviewRoot>/.gitignore` for a `.deep-review-cache/` entry. If it is missing and `ack_cache_unignored` is not true, warn the caller that staged files may be committed accidentally, then stop for explicit consent.
-4. For every scoped path outside `reviewRoot`, copy it to `<reviewRoot>/.deep-review-cache/<invocationId>/<fileSha8>-<sanitized-basename>`, where `fileSha8 = sha256(original absolute path)[0:8]` and `sanitized-basename` keeps only `A-Za-z0-9._-`.
-5. Write `<reviewRoot>/.deep-review-cache/<invocationId>/manifest.json`:
-
-```json
-{
-  "invocationId": "<invocationId>",
-  "createdAt": "<ISO timestamp>",
-  "files": [
-    {
-      "origAbspath": "/Users/.../external-inputs/foo.md",
-      "cachePath": "<reviewRoot>/.deep-review-cache/<invocationId>/<fileSha8>-foo.md"
-    }
-  ]
-}
-```
-
-6. Send reviewers the staged paths instead of the original external paths.
-7. On final cleanup, remove only `<reviewRoot>/.deep-review-cache/<invocationId>/`. Use a try/finally pattern so cleanup still runs after review failures.
-
-If staging fails because of permissions, missing files, or disk space, abort the skill and tell the caller to stage the files manually or fix the environment before retrying.
-
-## Reviewer Slot Selection
-
-Every review round must use the same two confirmed heterogeneous reviewer slots. If no selection is already provided, ask the user to choose exactly two slots and stop this turn; do not silently default.
-
-| Reviewer | Adapter |
+| Reviewer | Spawn |
 |---|---|
-| `reviewer-claude` | `claude-code` |
-| `reviewer-codex` | `codex-cli` |
-| `reviewer-deepseek` | `deepseek-claude-code`, model `deepseek-v4-pro[1m]` |
+| `reviewer-claude` | `spawn_session({ adapter: 'claude-code', agentName: 'reviewer-claude', cwd, teamName, displayName, prompt })` |
+| `reviewer-codex` | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
+| `reviewer-deepseek` | `spawn_session({ adapter: 'deepseek-claude-code', agentName: 'reviewer-deepseek', model: 'deepseek-v4-pro[1m]', cwd, teamName, displayName, prompt })` |
 
-Reject duplicate slots, one slot, or three slots. The selected slots must be heterogeneous by adapter / provider slot; the bundled slots above are distinct. Record `reviewer_selection` in every reviewer prompt and in the final report. Do not pass `permissionMode`, `claudeCodeSandbox`, or `codexSandbox` unless the user explicitly requested that override.
+Reject duplicate slots and one- or three-slot selections. Spawn only the selected pair, concurrently. Record the pair in reviewer prompts and the final report. Do not pass permission or sandbox overrides unless the user requested them.
 
-Spawn the selected reviewers concurrently in round 1. Reuse the same reviewer sessions in later rounds with `send_message`; do not respawn between rounds unless a failure path requires it.
+Keep the pair heterogeneous for the whole invocation. If one selected reviewer fails, shut it down and respawn the same adapter, `agentName`, and model slot; never substitute an unselected slot or duplicate the survivor.
 
-The lead adapter does not matter. Any lead can select any valid two-slot combination. Reviewers stay independent: they do not contact each other and do not read or judge the other reviewer's conclusions except in explicit rebuttal rounds. The lead adjudicates.
+### Shared Review Cache
 
-Never replace a failed selected reviewer with an unselected slot or a duplicate of the surviving reviewer. Heterogeneity is part of the gate.
+Use `<reviewRoot>/.review-cache/<invocationId>/` only when a scoped path is outside the absolute reviewer `cwd` (`reviewRoot`).
 
-## Round Focus
+Before creating or using the cache, ensure `<reviewRoot>/.gitignore` contains the exact `.review-cache/` entry. Add the entry when it is missing. If the ignore file cannot be updated, stop before writing cache files and ask the user to add the entry.
 
-| Round | `kind: "code"` | `kind: "plan"` | `kind: "mixed"` |
+For each invocation:
+
+1. Generate a fresh short `invocationId`.
+2. Remove only cache invocation directories whose manifest is older than 24 hours.
+3. Copy every external scoped file to `<reviewRoot>/.review-cache/<invocationId>/<fileSha8>-<sanitized-basename>`.
+4. Write `manifest.json` in that invocation directory with `invocationId`, `createdAt`, and each original absolute path plus cache path.
+5. Send the staged paths to reviewers.
+6. On completion or abort, remove only this invocation directory. Report an exact path if staging or cleanup fails.
+
+### Turn Boundary
+
+After spawning reviewers or sending rebuttal or next-round prompts, tell the user what was dispatched and end the current turn. Reviewer replies arrive through later Agent Deck messages. Do not sleep, busy-wait, or repeatedly poll sessions in the same turn.
+
+Check progress only when the user asks or a reviewer has had no reply and no activity for at least 30 minutes. If activity is recent, report that it is still running. If stale, send one nudge on the current reply chain; use the failure path if it remains stale.
+
+### Evidence And Adjudication
+
+The lead classifies evidence; reviewers do not decide the outcome. Give each finding one status:
+
+- `ACCEPTED`: independently reported by both reviewers, or reported by one and verified by a bounded lead-side check.
+- `REBUTTED`: disproved by the other reviewer or lead-side evidence.
+- `UNVERIFIED`: plausible but unsupported; keep it at MEDIUM or lower.
+
+Track `Coverage: COMPLETE | INCOMPLETE` separately for each reviewer and round. Incomplete coverage is not evidence that the unreadable surface has no findings; a round cannot converge until both reviewers complete the required scope and focus or the workflow reports a blocker.
+
+CRITICAL and HIGH findings require a rebuttal record even when both reviewers found the issue. Record the supporting evidence, strongest rebuttal, and lead classification. For a single-reviewer MEDIUM, run a small search, read, command, or focused test when possible; otherwise mark it `UNVERIFIED` or lower its severity.
+
+Severity follows impact and trigger likelihood:
+
+| Severity | Meaning |
+|---|---|
+| CRITICAL | Stable data loss, permission bypass, secret disclosure, arbitrary code execution, severe cross-session mixup, or global core-path outage without a reliable workaround. |
+| HIGH | Reproducible crash, deadlock, state corruption, security-boundary break, user work loss, core wrong result, or stable regression for a user class. |
+| MEDIUM | Real limited-scope defect, missing key regression coverage, or prompt/plan defect that can cause a wrong action without breaking a hard safety boundary. |
+| LOW | Small edge case, minor copy drift, or low-risk maintainability issue. |
+| INFO | Context, caveat, coverage note, confirmed non-issue, or optional improvement. |
+
+### Finding Contract
+
+Require every finding to include:
+
+- A stable `finding_id`, unique within the invocation, and preserved unchanged through rebuttal, fixes, later rounds, and reporting.
+- `file:line` and a source snippet of at most 6 lines.
+- A verification method: search evidence, focused test, command result, or precise reasoning check.
+- Severity and a 1-2 line fix direction, not a full patch.
+- For race, lifecycle, architecture, security, performance, or multi-step plan claims, a concrete trigger or state sequence and visible consequence.
+- `Decision impact: routine | major`; the lead validates this signal against the User Review Boundary rather than treating it as a reviewer decision.
+
+Mark limited evidence as `*unverified*`. Downgrade or reject findings that lack a location, snippet, verification, fix direction, or concrete example for a complex claim.
+
+### Failure Handling
+
+| Situation | Required action |
+|---|---|
+| Selected reviewer fails to start, loses auth, hits sandbox denial, times out, or loses thread state | Shut down that session and retry the same selected slot at most twice. If it still fails, ask the user to wait, continue with explicitly downgraded single-reviewer evidence, or abort. |
+| Reviewer reports `⚠ FRESH SESSION` | Shut it down, respawn the same slot, and restart the current round with the full scope. |
+| Reviewer reports `⚠ SCOPE PATH MISMATCH` | Correct the path list or cache manifest, then shut down and respawn the affected reviewer with the full prompt. |
+| Cache staging fails | Abort before review and report the exact path and reason. |
+| MCP send or spawn fails | Follow the tool error; do not silently change reviewer slots or adapters. |
+
+## Round Strategy
+
+Use the same reviewer sessions and pair in every round. Send only the current round's focus plus relevant changed paths and accepted-fix summaries; do not resend a large menu of every possible focus.
+
+| Round | Code | Plan | Mixed |
 |---|---|---|---|
-| 1 | Correctness, regressions, tests | Workflow consistency, design clarity, checklist completeness | Run both code and plan focus |
-| 2 | Edge cases, races, resource lifecycle | Invariant boundaries, line references, test matrix coverage | Run both code and plan focus |
-| 3 | Architecture coupling, security, tail performance | Phase drift, conflicting triggers, missing fallback paths | Run both code and plan focus |
-| 4+ | Previous residuals and user focus areas | Previous residuals and user focus areas | Previous residuals and user focus areas |
+| 1 | Correctness, regressions, key tests | Workflow consistency, decision clarity, checklist completeness | Apply both round-1 focuses and check design-to-code consistency |
+| 2 | Edge cases, races, resource lifecycle | Invariant boundaries, current line/function references, test matrix | Apply both round-2 focuses and check invariant enforcement |
+| 3 | Architecture coupling, security, tail performance | Phase drift, conflicting triggers, missing fallback paths | Apply both round-3 focuses and check architecture alignment |
+| 4+ | Residual findings and newly changed surfaces | Residual findings and newly changed decisions | Residuals across both artifacts |
 
-For `kind: "mixed"`, still spawn only two reviewers. The prompt is larger because each reviewer evaluates both the plan and the implementation, so expect roughly double prompt cost per reviewer, not four reviewer sessions.
+Every reviewer prompt includes:
 
-## Adjudication
+- A fresh `invocation_id` that remains stable for all rounds.
+- `output_mode: full_review` or `output_mode: rebuttal`.
+- The selected pair and exact adapter, `agentName`, and model when specified.
+- The `review_type`.
+- A reviewer- and round-specific `finding_id_prefix`, such as `R2-CODEX`.
+- Absolute scope paths, using staged cache paths for external files.
+- Only the current round's focus.
+- The finding contract.
+- `baseline: commit:<hash> | working-tree`. For a commit baseline, reviewers use `git diff <hash> -- <paths>`; for a working-tree baseline, they inspect both `git diff -- <paths>` and `git diff --cached -- <paths>`.
+- A `skip` list for accepted stable items and fixes, formatted as `fixed: <file:line> <change> (baseline commit:<hash> | working-tree)`.
+- The requirement to report `Coverage: COMPLETE | INCOMPLETE`, reviewed paths, and unreadable paths or restricted steps.
 
-Every finding receives one lead outcome:
+Round 1 still requires reading every target file. For Round 2+, choose the baseline that identifies the prior accepted state, send the relevant changed paths and validation evidence, and keep the stable finding ids for carried findings.
 
-- `ACCEPTED`: A real issue. CRITICAL/HIGH findings require either independent agreement from both reviewers or one reviewer plus lead-side verification.
-- `REBUTTED`: The finding is disproved by the other reviewer or by lead-side checks. Record the rebuttal evidence.
-- `UNVERIFIED`: Lead outcome for a finding that may be real but lacks evidence. Downgrade severity to MEDIUM or lower.
+## Multi-Round Workflow
 
-CRITICAL/HIGH rules:
+1. Normalize the scope, confirm the reviewer pair, prepare the cache if needed, and build round 1 prompts.
+2. Spawn the two reviewers concurrently. Save each `sessionId` and `spawnPromptMessageId`, announce the dispatch, and end the turn.
+3. When both replies arrive, verify that every finding has a unique stable id such as `R2-CODEX-001` and classify it. Send the full text of each CRITICAL/HIGH finding to the other reviewer for rebuttal; preserve each `finding_id`, batch findings per recipient, require one verdict per id, announce the dispatch, and end the turn.
+4. Finalize classifications after rebuttal. Give every MEDIUM a disposition: fix now, accept risk, or follow-up.
+5. In review-and-fix scope, apply localized, reversible, in-scope fixes and run focused validation. In review-only scope, preserve the working tree and carry accepted findings into the next round.
+6. Send the next-round focus, baseline, changed paths, validation evidence, and `skip` list to the same reviewer sessions. Announce the dispatch and end the turn.
+7. Repeat adjudication, authorized fixes, validation, and review until both reviewers find no new material issue, an unresolved blocker remains, or a major-decision boundary requires the user.
+8. Shut down both reviewer sessions, remove this invocation's cache directory, and deliver the final report.
 
-- Every CRITICAL/HIGH finding needs a rebuttal record before final adjudication.
-- If only one reviewer reports it, send the full finding to the other reviewer for rebuttal.
-- If both reviewers independently report it, still request or write a rebuttal that tests whether the severity is truly CRITICAL/HIGH.
-- Final adjudication must record support, rebuttal, and the lead decision.
+Do not shut down reviewers between rounds. Reuse their context unless a failure path requires a same-slot respawn. If the next round may happen much later, leave the sessions active or dormant and resume them with `send_message`.
 
-Single-reviewer findings:
+## User Review Boundary
 
-- CRITICAL/HIGH: run the rebuttal path above.
-- MEDIUM: the lead checks quickly with search/read commands or at most one focused test. Keep the check under about 5 minutes, 5 searches, and 1 test. If still uncertain, assign lead outcome `UNVERIFIED` and downgrade severity to LOW/INFO.
-- LOW/INFO: assign lead outcome `UNVERIFIED` unless the lead can confirm it cheaply.
+Continue routine rounds without asking the user to approve every finding, localized fix, test addition, or round transition when those actions are already authorized and stay within the requested design.
 
-Severity is based on real impact and trigger likelihood, not reviewer confidence. Lack of evidence lowers severity.
+Pause and ask the user to review before applying a remedy that would materially change any of these:
 
-| Severity | Use When | Gate |
-|---|---|---|
-| CRITICAL (P0) | Stable data loss, permission bypass, secret disclosure, arbitrary code execution, severe cross-session mixup, or global main-path outage without a reliable workaround | Must fix or disprove; blocks merge |
-| HIGH (P1) | Reproducible crash, deadlock, state corruption, security boundary break, user work loss, core wrong result, or stable regression for a class of users | Must fix or disprove; blocks merge |
-| MEDIUM (P2) | Real defect with a workaround or limited trigger scope; risky change missing regression tests; misleading prompt/docs that can cause wrong agent action without breaking a hard safety boundary | Lead must fix now, accept risk, or record follow-up |
-| LOW (P3) | Small edge case, minor UX/text drift, readability or maintainability improvement with low likelihood and reversible impact | Record only |
-| INFO (P4) | Context, caveat, confirmed non-issue, coverage note, or improvement idea | Context only |
+- Architecture, subsystem ownership, or core abstraction boundaries.
+- Public API, protocol, persistence model, migration strategy, or security boundary.
+- User-visible behavior or compatibility outside the confirmed request.
+- Destructive behavior, data handling, or a major dependency/tooling choice.
+- Scope, timeline, or risk tradeoffs where multiple materially different designs remain viable.
 
-## Gate Conditions
+Present the finding, evidence, rebuttal, viable options, and expected downstream impact. Resume the same review round after the user decides. Do not request intermediate user review for routine in-scope remediation.
 
-Pass only when both selected reviewers approve, no CRITICAL/HIGH finding remains, all accepted CRITICAL/HIGH fixes have been tested, and every MEDIUM has a lead disposition.
+Treat reviewer `Decision impact` as an input to this boundary, not as authority. The lead must explain why the remedy is routine or major before continuing or pausing.
 
-Block when any CRITICAL/HIGH remains unfixed or undisproved, reviewers keep finding substantial new issues, or the user stops the workflow.
+## Gate And Final Report
 
-## Workflow
+Pass only when both reviewers report `Coverage: COMPLETE` for the final round, no CRITICAL/HIGH remains unresolved, authorized CRITICAL/HIGH fixes have focused validation, and every MEDIUM has a disposition. Block when coverage remains incomplete, a CRITICAL/HIGH remains, reviewers keep finding substantial new issues without convergence, required write authority is absent, or the user declines a necessary major change.
 
-Turn boundary: after sending reviewer work in steps 2, 4, or 5, tell the user what was dispatched and end the current response. Do not use sleep, busy polling, or repeated `get_session` checks while waiting. Reviewer replies arrive later as user-role messages; continue adjudication when they appear.
+Report:
 
-1. Prepare `cwd`, `scope`, and staging. Use the staged path list for reviewer prompts.
-2. Spawn the two selected reviewers concurrently:
-   - `spawn_session({ adapter: "claude-code", agentName: "reviewer-claude", cwd, teamName, displayName, prompt })`
-   - `spawn_session({ adapter: "codex-cli", agentName: "reviewer-codex", cwd, teamName, displayName, prompt })`
-   - `spawn_session({ adapter: "deepseek-claude-code", agentName: "reviewer-deepseek", model: "deepseek-v4-pro[1m]", cwd, teamName, displayName, prompt })`
-   Run only the two selected spawn calls.
-   Save each `sessionId` and `spawnPromptMessageId`.
-3. Tell the user that the two selected reviewers are running, progress is visible in the UI, and replies will be injected when complete. End the response.
-4. When reviewer findings arrive, adjudicate with the tri-state rules. For CRITICAL/HIGH, enter a rebuttal round.
-5. Rebuttal round: send the full finding to the other reviewer with `send_message({ sessionId, teamId, replyToMessageId, text })`, ask for independent rebuttal, then end the response. When the rebuttal arrives, finalize the finding or downgrade it.
-6. Fix accepted CRITICAL/HIGH issues. For MEDIUM, choose `fix now`, `accept risk`, or `follow-up`. Start the next review round with the same reviewer sessions and a `skip` list in this format: `fixed: <filepath:line> <one-sentence change> (commit <hash> | working tree)`. End the response and return to adjudication when replies arrive.
-7. Finish only after the gate passes or blocks. Then shut down both reviewer sessions, clean the staging directory for this invocation, and deliver the final summary report.
+- Scope, review type, reviewed paths, and number of rounds.
+- Per-reviewer, per-round coverage, unreadable paths, and validation restrictions.
+- Final gate: `PASS`, `BLOCKED`, `ABORTED`, or `ESCALATED_TO_USER`.
+- Reviewer pair, session ids, retries, and whether heterogeneity stayed intact.
+- Findings by severity and `ACCEPTED` / `REBUTTED` / `UNVERIFIED`, including CRITICAL/HIGH support and rebuttal evidence.
+- Fix and decision log, validation commands, MEDIUM dispositions, accepted risks, and follow-ups.
+- Any user-reviewed major decision and its downstream consequence.
+- Reviewer shutdown and cache cleanup status.
 
-Do not shut down reviewer sessions during the fix loop. Keeping the same pair preserves cross-round context. If the next round may happen hours later, leave sessions active or dormant and resume them with `send_message`.
-
-## Stuck Reviewers
-
-Check reviewer progress only when the user asks for status or when no reply has arrived and the last reviewer activity is at least 30 minutes old.
-
-1. Call `get_session(reviewerSid)` and inspect `lastEventAt`.
-2. If it is recent, tell the user the reviewer is still running and end the response.
-3. If it is stale, send a nudge with `send_message` on the last reply chain, asking the reviewer to reply with either findings or a progress note. End the response.
-4. If the reviewer remains stale after the next threshold, use the failure fallback for that reviewer.
-
-Do not keep consuming lead context by repeatedly checking in one turn.
-
-## Prompt Fields
-
-Each spawn or round prompt must include:
-
-- `output_mode`: `full_review` or `rebuttal`.
-- `reviewer_selection`: the exact two selected slots and each slot's adapter, `agentName`, and model when the slot sets one.
-- `scope`: absolute paths, using staged cache paths for external files.
-- `focus`: the current round's row from the Round Focus table, expanded with wording from the focus blocks below; do not send the full multi-round menu.
-- `finding_contract`: location, snippet, verification, severity, fix direction, and example requirements.
-- `skip`: accepted fixes and stable items from previous rounds.
-
-Code focus:
-
-```text
-- correctness and regression risk
-- edge cases, races, and resource lifecycle
-- architecture coupling, security, and tail performance
-- regression test coverage for each fix
-```
-
-Plan focus:
-
-```text
-- design decisions and invariant boundaries
-- line-level references, function names, and file paths match current code
-- workflow consistency and evidence folded into decisions
-- test matrix covers each invariant
-- next-session first step is executable from a cold start
-- known risks and historical issues are complete
-```
-
-Mixed focus:
-
-```text
-- evaluate the implementation with code focus
-- evaluate the plan with plan focus
-- verify plan decisions and invariants are enforced by the implementation
-```
-
-## Finding Contract
-
-Every reviewer finding must include:
-
-- `file:line` plus a code or text snippet of at most 6 lines.
-- Verification method, such as search evidence, a focused test, a command result, or a precise reasoning check.
-- User-facing example for complex findings: name the concrete trigger path, state sequence, input, or plan step and the visible failure.
-- Fix direction in 1-2 lines. Do not ask reviewers to write a full patch.
-- Severity bucket: CRITICAL, HIGH, MEDIUM, LOW, or INFO. When validation is limited, keep the severity bucket and add `*unverified*` in the heading or first description line.
-
-Lead spot-checks:
-
-- Missing location, snippet, verification, or fix direction means assign lead outcome `UNVERIFIED` or `REBUTTED`.
-- Complex findings without a concrete example get lead outcome `UNVERIFIED`; if they claim CRITICAL/HIGH, ask the reviewer to add the example before rebuttal.
-- Weak language such as "maybe", "might", "looks like", or "probably" is allowed only in findings marked `*unverified*`.
-- Pure text reasoning cannot become accepted CRITICAL/HIGH without independent agreement or lead-side verification plus rebuttal.
-
-## Failure Fallbacks
-
-| Failure | Required Action |
-|---|---|
-| A selected reviewer fails to start, loses auth, hits sandbox denial, times out, reports tool-call cancellation, or loses its thread state | Shut down the failed reviewer, respawn the same selected adapter / `agentName` / model slot, and retry up to 2 times within about 5 minutes per attempt. If it still fails, offer: wait for recovery, continue with single-side findings from the surviving selected reviewer downgraded through single-reviewer adjudication, or abort. Never respawn an unselected slot and never duplicate the survivor. |
-| Reviewer reports `⚠ FRESH SESSION` or equivalent empty-memory state | Shut down that reviewer, respawn the same adapter/agent, and restart from the round 1 full prompt for the current scope. Do not continue round N+1 with lost context. |
-| Reviewer reports `⚠ SCOPE PATH MISMATCH` | Fix the path list or staging manifest, shut down affected reviewers, respawn, and resend the full prompt. |
-| Reviewer remains stuck after status check and nudge | Ask the user to resolve pending UI approvals if relevant, or use the same-adapter respawn fallback above. |
-| `kind: "mixed"` loses one reviewer | Run the retry and respawn chain first. If only one reviewer remains, its findings cannot become CRITICAL/HIGH unless they pass single-reviewer adjudication with lead-side verification and rebuttal. |
-| Staging external files fails | Abort and report the failed path and reason. |
-
-## Final Summary Report
-
-When the workflow passes, blocks, aborts, or escalates, report:
-
-- Scope, review kind, reviewed paths, and number of rounds.
-- Final gate: PASS, BLOCKED, ABORTED, or ESCALATED.
-- Reviewer coverage: selected slots, both session ids, retry/fallback status, and whether the two-slot heterogeneity stayed intact.
-- Findings by severity and tri-state outcome, including CRITICAL/HIGH support, rebuttal, and lead decision.
-- Complex accepted findings with a short concrete example.
-- Fix and decision log: changed files, commands/tests run, MEDIUM dispositions, accepted risks, and follow-ups.
-- Cleanup status: reviewer shutdown and staging cleanup.
-
-Do not finish a deep review with only "done" or "review passed".
+Do not finish with only "done" or "review passed".
 
 ## Relation To Simple Review
 
-Use `simple-review` for a single-pass sanity check, focused decision review, small plan review, or technical-policy check. Use `deep-review` when the scope needs multiple rounds, rebuttal, cross-round reviewer context, race/lifecycle/security depth, or mixed plan-to-code validation. If a simple review reveals deeper risk, start a deep review with the same scope and continue from the next round focus.
+Use `simple-review` for exactly one independent review round plus one rebuttal round, followed by user judgment. Use `deep-review` for iterative depth and autonomous in-scope remediation, involving the user mid-process only at the major-decision boundary above.
