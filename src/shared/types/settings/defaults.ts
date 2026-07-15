@@ -29,7 +29,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   closeAfterMs: 24 * 60 * 60 * 1000,
   summaryEnabled: true,
   summaryIntervalMs: 5 * 60 * 1000,
-  summaryEventCount: 10,
+  summaryEventCount: 30,
   summaryMaxConcurrent: 2,
   summaryTimeoutMs: 60 * 1000,
   // 周期总结与会话续接检查点分开配置；两者的 provider/model/thinking 互不影响。

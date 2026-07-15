@@ -235,6 +235,9 @@ describe('SummarySection provider-specific thinking levels', () => {
     openSection();
 
     expect(screen.getByText('关闭后不会启动新的总结模型调用。')).toBeTruthy();
+    expect(
+      (screen.getByRole('textbox', { name: '每多少个事件总结' }) as HTMLInputElement).value,
+    ).toBe('30');
     const toggle = screen.getByRole('checkbox', { name: '启用周期总结' });
     expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);

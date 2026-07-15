@@ -54,7 +54,7 @@ describe('ContinuationContextSection', () => {
 
     expect(
       screen.getByText(
-        /常规刷新需达到上方间隔.*8,000 token.*provider 空闲.*60 秒.*48,000 token.*不会中断当前回复.*达到阈值只负责排队.*最新持久化 revision.*工具结果/,
+        /常规刷新需达到上方间隔.*32,000 token.*provider 空闲.*60 秒.*48,000 token.*不会中断当前回复.*达到阈值只负责排队.*最新持久化 revision.*工具结果/,
       ),
     ).not.toBeNull();
     expect(
