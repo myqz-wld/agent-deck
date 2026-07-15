@@ -324,6 +324,7 @@ function scanUserCodexAgents(): AssetMeta[] {
       out.push(__metaBuilders.buildAgentMeta(name, absPath, {
         description: parsed.description ?? '',
         model: parsed.model ?? '',
+        model_reasoning_effort: parsed.modelReasoningEffort ?? '',
       }, 'user', 'codex-cli'));
     } catch (err) {
       logger.warn(`[user-assets] skip codex agent ${file}:`, (err as Error).message);

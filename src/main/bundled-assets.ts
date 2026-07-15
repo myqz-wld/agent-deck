@@ -7,7 +7,7 @@
  *   - codex-cli  root: `getCodexAgentDeckPluginPath()`  → `resources/codex-config/agent-deck-plugin/`
  *
  * 各 root 下两个子目录：
- *   - Claude agents: `agents/<name>.md` —— frontmatter: name/description/tools/model
+ *   - Claude agents: `agents/<name>.md` —— frontmatter: name/description/tools/model/effort
  *   - Codex agents: `agents/<name>.toml` —— official Codex custom-agent TOML
  *   - `skills/<name>/SKILL.md`  —— frontmatter: name/description
  *
@@ -141,6 +141,7 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
         out.push(buildAgentMeta(name, absPath, {
           description: parsed.description ?? '',
           model: parsed.model ?? '',
+          model_reasoning_effort: parsed.modelReasoningEffort ?? '',
         }, 'bundled', adapter));
         continue;
       }
@@ -232,7 +233,7 @@ function buildAgentMeta(
     description,
     tools: fm.tools,
     model: fm.model,
-    triggers: extractTriggers(description),
+    thinking: fm.effort || fm.model_reasoning_effort || undefined,
     absPath,
   };
 }
@@ -252,28 +253,12 @@ function buildSkillMeta(
     name,
     qualifiedName: source === 'bundled' ? `agent-deck:${adapter}:${name}` : name,
     description,
-    triggers: extractTriggers(description),
     absPath,
   };
 }
 
 /** 共享给 user-assets.ts：避免重复造轮子（agent/skill meta 拼装规则一致）。 */
 export const __metaBuilders = { buildAgentMeta, buildSkillMeta };
-
-/**
- * 从 description 文本里抽出「触发：xxx」/「/agent-deck:xxx」短语，给 UI 显示「触发关键词」。
- * 简化：只抽 `/<plugin>:<skill>` 形态的 slash command 引用，最多 5 条。
- */
-function extractTriggers(description: string): string[] | undefined {
-  const set = new Set<string>();
-  const re = /\/[a-z0-9-]+:[a-z0-9-]+/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(description)) !== null) {
-    set.add(m[0]);
-    if (set.size >= 5) break;
-  }
-  return set.size > 0 ? Array.from(set) : undefined;
-}
 
 /**
  * snapshot 排序：先 adapter（claude-code 排前 / codex-cli 排后），再 name。

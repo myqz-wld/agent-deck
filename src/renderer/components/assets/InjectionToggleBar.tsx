@@ -2,6 +2,36 @@ import { type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
 import { Toggle } from '../settings/controls';
 
+type InjectionTab = 'skills' | 'agents' | 'claude-md';
+type InjectionSettingKey =
+  | 'injectAgentDeckClaudeSkills'
+  | 'injectAgentDeckCodexSkills'
+  | 'injectAgentDeckClaudeAgents'
+  | 'injectAgentDeckCodexAgents'
+  | 'injectAgentDeckClaudeMd'
+  | 'injectAgentDeckCodexAgentsMd';
+
+const INJECTION_CONFIG: Record<
+  InjectionTab,
+  { assetLabel: string; claudeKey: InjectionSettingKey; codexKey: InjectionSettingKey }
+> = {
+  skills: {
+    assetLabel: 'Skills',
+    claudeKey: 'injectAgentDeckClaudeSkills',
+    codexKey: 'injectAgentDeckCodexSkills',
+  },
+  agents: {
+    assetLabel: 'Agents',
+    claudeKey: 'injectAgentDeckClaudeAgents',
+    codexKey: 'injectAgentDeckCodexAgents',
+  },
+  'claude-md': {
+    assetLabel: '应用约定',
+    claudeKey: 'injectAgentDeckClaudeMd',
+    codexKey: 'injectAgentDeckCodexAgentsMd',
+  },
+};
+
 /**
  * 资产库三 tab 顶部的「资产注入开关」横条（CHANGELOG_69）。
  *
@@ -23,7 +53,7 @@ export function InjectionToggleBar({
   settings,
   update,
 }: {
-  tab: 'skills' | 'agents' | 'claude-md';
+  tab: InjectionTab;
   settings: AppSettings | null;
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }): JSX.Element {
@@ -35,63 +65,29 @@ export function InjectionToggleBar({
     );
   }
 
+  const config = INJECTION_CONFIG[tab];
+  const description = `只控制 Agent Deck 内置 ${config.assetLabel}；用户和项目中的同类资产不受影响。仅对新建会话生效，已运行的会话不受影响。`;
+
   return (
     <div className="mb-3 rounded-md border border-deck-border/60 bg-white/[0.03] p-2">
       <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-deck-muted/60">
         注入开关
       </div>
-      {tab === 'skills' && (
-        <div className="flex flex-col gap-1.5">
-          <Toggle
-            label="注入到 Claude 会话(内置 Skills)"
-            value={settings.injectAgentDeckClaudeSkills}
-            onChange={(v) => void update({ injectAgentDeckClaudeSkills: v })}
-          />
-          <Toggle
-            label="注入到 Codex 会话(内置 Skills extraRoot)"
-            value={settings.injectAgentDeckCodexSkills}
-            onChange={(v) => void update({ injectAgentDeckCodexSkills: v })}
-          />
-          <div className="text-[10px] leading-snug text-deck-muted/60">
-            ⚠️ 仅对新建会话生效。已运行的会话不受影响。
-          </div>
+      <div className="flex flex-col gap-1.5">
+        <Toggle
+          label="注入到 Claude 会话"
+          value={settings[config.claudeKey]}
+          onChange={(value) => void update({ [config.claudeKey]: value })}
+        />
+        <Toggle
+          label="注入到 Codex 会话"
+          value={settings[config.codexKey]}
+          onChange={(value) => void update({ [config.codexKey]: value })}
+        />
+        <div className="text-[10px] leading-snug text-deck-muted/60">
+          {description}
         </div>
-      )}
-      {tab === 'agents' && (
-        <div className="flex flex-col gap-1.5">
-          <Toggle
-            label="注入到 Claude 会话(内置 Agents)"
-            value={settings.injectAgentDeckClaudeAgents}
-            onChange={(v) => void update({ injectAgentDeckClaudeAgents: v })}
-          />
-          <Toggle
-            label="注入到 Codex 会话(内置 Agents)"
-            value={settings.injectAgentDeckCodexAgents}
-            onChange={(v) => void update({ injectAgentDeckCodexAgents: v })}
-          />
-          <div className="text-[10px] leading-snug text-deck-muted/60">
-            只控制 Agent Deck 内置 Agents；用户和项目 agents 不受影响。
-            仅对新建会话生效，已运行的会话不受影响。
-          </div>
-        </div>
-      )}
-      {tab === 'claude-md' && (
-        <div className="flex flex-col gap-1.5">
-          <Toggle
-            label="注入到 Claude 会话"
-            value={settings.injectAgentDeckClaudeMd}
-            onChange={(v) => void update({ injectAgentDeckClaudeMd: v })}
-          />
-          <Toggle
-            label="注入到 Codex 会话"
-            value={settings.injectAgentDeckCodexAgentsMd}
-            onChange={(v) => void update({ injectAgentDeckCodexAgentsMd: v })}
-          />
-          <div className="text-[10px] leading-snug text-deck-muted/60">
-            仅对新建会话生效，已运行的会话不受影响。
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

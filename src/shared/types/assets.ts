@@ -10,10 +10,8 @@
  *     - claude-code user → ~/.claude/{agents,skills}/
  *     - codex-cli  user → ~/.codex/{agents/<name>.toml,skills/<name>/SKILL.md}
  *
- * frontmatter 字段（agents only：tools/model；两类共用：name/description）由
+ * frontmatter 字段（agents only：tools/model/effort；两类共用：name/description）由
  * main 进程 `src/main/bundled-assets.ts` 与 `src/main/user-assets.ts` 解析。
- * triggers 是从 description 文本里 regex 提取的「触发：xxx / /agent-deck:xxx」hint，
- * 给 UI 显示用，不写入 frontmatter。
  *
  * 跨进程共享，遵守 src/shared/types/ 约束：只依赖标准库类型。
  */
@@ -85,8 +83,8 @@ export interface AssetMeta {
   tools?: string;
   /** agent only。`fable` / `opus` / `sonnet` / `haiku` alias 之一，或 SDK 接受的具体 model id。 */
   model?: string;
-  /** UI hint：从 description 里 regex 抽出的「触发：...」/「/agent-deck:...」短语列表。 */
-  triggers?: string[];
+  /** agent only。Claude `effort` / Codex `model_reasoning_effort` 的统一展示值。 */
+  thinking?: string;
   /** 主进程绝对路径。renderer 显示前可截短，「在 Finder/资源管理器中显示」用。 */
   absPath: string;
 }
