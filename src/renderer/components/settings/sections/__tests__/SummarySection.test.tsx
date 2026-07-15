@@ -69,14 +69,12 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
     expect(
-      screen.getByText(
-        /留空时使用 Codex 配置默认模型，思考程度默认 low。.*临时环境.*暂时无法验证模型内置工具是否为空/,
-      ),
+      screen.getByText('留空时使用 Codex 配置默认模型。'),
     ).toBeTruthy();
     expect(
       (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
         .placeholder,
-    ).toBe('留空使用 Codex 配置默认模型');
+    ).toBe('模型（可留空）');
 
     let summaryButtons = rowButtons('总结模型');
     expect(summaryButtons[1]?.title).toBe('Codex 思考程度');
@@ -103,11 +101,9 @@ describe('SummarySection provider-specific thinking levels', () => {
       expect(
         (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
           .placeholder,
-      ).toBe('留空使用 Claude Haiku');
+      ).toBe('模型（可留空）');
     });
-    expect(
-      screen.getByText('模型留空时使用 Claude Haiku，默认思考程度为 low。'),
-    ).toBeTruthy();
+    expect(screen.getByText('留空时使用 Claude Haiku。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'claude',
       summaryReasoning: 'low',
@@ -141,11 +137,9 @@ describe('SummarySection provider-specific thinking levels', () => {
       expect(
         (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
           .placeholder,
-      ).toBe('留空使用 Deepseek Sonnet');
+      ).toBe('模型（可留空）');
     });
-    expect(
-      screen.getByText('模型留空时使用 Deepseek Sonnet，默认思考程度为 low。'),
-    ).toBeTruthy();
+    expect(screen.getByText('留空时使用 Deepseek Sonnet。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'deepseek',
       summaryReasoning: 'xhigh',
@@ -234,7 +228,10 @@ describe('SummarySection provider-specific thinking levels', () => {
     render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
     openSection();
 
-    expect(screen.getByText('关闭后不会启动新的总结模型调用。')).toBeTruthy();
+    expect(
+      screen.getByText('用于会话卡片和「总结」视图，不用于会话接力或历史恢复。'),
+    ).toBeTruthy();
+    expect(screen.getByText('关闭后不再生成新总结。')).toBeTruthy();
     expect(
       (screen.getByRole('textbox', { name: '每多少个事件总结' }) as HTMLInputElement).value,
     ).toBe('30');
@@ -242,5 +239,22 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);
     expect(onPatch).toHaveBeenCalledWith({ summaryEnabled: false });
+  });
+
+  it('updates the concurrent summary limit within the supported range', async () => {
+    const onPatch = vi.fn();
+    render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
+    openSection();
+
+    const input = screen.getByRole('textbox', { name: '最多同时总结的会话数' });
+    expect((input as HTMLInputElement).value).toBe('2');
+    expect(input.getAttribute('min')).toBe('1');
+    expect(input.getAttribute('max')).toBe('10');
+    expect(screen.getByText('限制后台总结模型的并发调用数。')).toBeTruthy();
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '4' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(onPatch).toHaveBeenCalledWith({ summaryMaxConcurrent: 4 }));
   });
 });

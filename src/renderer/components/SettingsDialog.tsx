@@ -15,6 +15,8 @@ import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
 import { LogsSection } from './settings/sections/LogsSection';
 import { errorMessage } from '@renderer/lib/error-message';
+import { AdapterConfigHelp } from './settings/AdapterConfigHelp';
+import { ResetSettingsButton } from './settings/ResetSettingsButton';
 
 interface Props {
   open: boolean;
@@ -235,6 +237,8 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                 <SectionGroup title="跨工具协作（MCP）">
                   <AgentDeckMcpSection settings={settings} update={update} />
                 </SectionGroup>
+
+                <ResetSettingsButton busy={busy} update={update} />
               </>
             )}
 
@@ -249,13 +253,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   installHook={() => installHook('claude-code')}
                   uninstallHook={() => uninstallHook('claude-code')}
                 />
-                <div className="text-[10px] leading-snug text-deck-muted/70">
-                  Claude Code 的 MCP 服务在
-                  <code className="ml-1 rounded bg-white/5 px-1">~/.claude/settings.json</code>
-                  或项目根目录的
-                  <code className="ml-1 rounded bg-white/5 px-1">.mcp.json</code>
-                  中直接编辑。为避免覆盖 CLI 的修改，Agent Deck 不会代写；内置 MCP 在「通用 → 跨工具协作」中设置。
-                </div>
+                <AdapterConfigHelp adapter="claude" />
               </SectionGroup>
             )}
 
@@ -270,18 +268,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   installHook={() => installHook('codex-cli')}
                   uninstallHook={() => uninstallHook('codex-cli')}
                 />
-                <div className="text-[10px] leading-snug text-deck-muted/70">
-                  Codex 配置(模型 / 沙盒 / 审批 / MCP 等)在
-                  <code className="ml-1 rounded bg-white/5 px-1">~/.codex/config.toml</code>
-                  中编辑;外部终端 Codex 会话通过
-                  <code className="ml-1 rounded bg-white/5 px-1">~/.codex/hooks.json</code>
-                  上报到 Agent Deck。应用内 Codex 会话会通过 thread options 注入 Agent Deck 应用约定和内置 skills。
-                  <br />
-                  <br />
-                  Codex 用的周期总结模型在「通用 → 会话 → 间歇总结」中设置，
-                  续接检查点生成器在「通用 → 会话 → 会话续接上下文」中设置；
-                  Agent Deck 自带的 MCP 服务在「通用 → 跨工具协作」中配置(Codex 启动时会自动连接)。
-                </div>
+                <AdapterConfigHelp adapter="codex" />
               </SectionGroup>
             )}
           </>

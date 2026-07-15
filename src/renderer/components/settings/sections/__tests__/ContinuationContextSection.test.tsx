@@ -54,18 +54,16 @@ describe('ContinuationContextSection', () => {
 
     expect(
       screen.getByText(
-        /常规刷新需达到上方间隔.*32,000 token.*provider 空闲.*60 秒.*48,000 token.*不会中断当前回复.*达到阈值只负责排队.*最新持久化 revision.*工具结果/,
+        /达到检查间隔.*32,000 token.*会话空闲.*48,000 token.*不会中断当前回复/,
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText(
-        '思考程度默认 medium。在只读、无网络、无 MCP 的临时环境中运行；Codex app-server 暂时无法验证模型内置工具是否为空。可选 low、medium、high、xhigh、max、ultra。',
-      ),
+      screen.getByText('留空时使用 Codex 配置默认模型。'),
     ).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: '上下文整理模型 model' }) as HTMLInputElement)
         .placeholder,
-    ).toBe('留空使用 Codex 配置默认模型');
+    ).toBe('模型（可留空）');
 
     fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 思考程度' }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
@@ -89,12 +87,8 @@ describe('ContinuationContextSection', () => {
         (screen.getByRole('textbox', {
           name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
-      ).toBe('留空使用 Claude Sonnet');
-      expect(
-        screen.getByText(
-          '模型留空时使用 Sonnet，默认思考程度为 medium。Claude 与 Deepseek 支持 low 至 max。',
-        ),
-      ).not.toBeNull();
+      ).toBe('模型（可留空）');
+      expect(screen.getByText('留空时使用 Claude Sonnet。')).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
       continuationCheckpointProvider: 'claude',
@@ -117,7 +111,7 @@ describe('ContinuationContextSection', () => {
         (screen.getByRole('textbox', {
           name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
-      ).toBe('留空使用 Deepseek Sonnet');
+      ).toBe('模型（可留空）');
     });
   });
 
@@ -140,12 +134,7 @@ describe('ContinuationContextSection', () => {
     expect(tokenInput.getAttribute('max')).toBe('128000');
     expect(
       screen.getByText(
-        /generator 输入默认 96,000 token.*min\(128,000, 窗口 − 32,000\).*512 KiB.*20,000 token.*24,000/,
-      ),
-    ).not.toBeNull();
-    expect(
-      screen.getByText(
-        /目标窗口未知时按 128,000 token.*16,000.*8,000.*20%.*2,000–12,000.*user input/,
+        '仅限制续接上下文中的最近用户输入，不包含检查点、当前指令和回复预留。',
       ),
     ).not.toBeNull();
 
