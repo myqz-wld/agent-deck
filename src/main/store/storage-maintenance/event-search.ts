@@ -301,7 +301,7 @@ export function retireLegacyEventSearchIndexOnShutdown(
         payload_json,
         content='',
         contentless_delete=1,
-        tokenize='trigram case_sensitive 1'
+        tokenize='trigram case_sensitive 0'
       );
     `);
     updateMaintenanceState(db, TASK, {

@@ -53,6 +53,7 @@ import v039 from './v039_sessions_pinned.sql?raw';
 import v040 from './v040_summary_revision_metadata.sql?raw';
 import v041 from './v041_storage_maintenance_staging.sql?raw';
 import v042 from './v042_session_handoff_aliases.sql?raw';
+import v043 from './v043_history_search_case_insensitive.sql?raw';
 
 export interface Migration {
   version: number;
@@ -103,4 +104,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 40, name: 'summary_revision_metadata', sql: v040 },
   { version: 41, name: 'storage_maintenance_staging', sql: v041 },
   { version: 42, name: 'session_handoff_aliases', sql: v042 },
+  { version: 43, name: 'history_search_case_insensitive', sql: v043 },
 ];
