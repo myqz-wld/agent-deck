@@ -47,6 +47,14 @@ describe('buildKeywordPredicate', () => {
     expect(result.params.kw_fts).toBeUndefined();
   });
 
+  it('短关键词仍由 ASCII 大小写不敏感的 title / cwd LIKE 处理', () => {
+    const result = buildKeywordPredicate('aB');
+    expect(result.sql).toContain('title LIKE @kw_like');
+    expect(result.sql).toContain('cwd LIKE @kw_like');
+    expect(result.sql).not.toContain('_fts');
+    expect(result.params).toEqual({ kw_like: '%aB%' });
+  });
+
   it('= 3 字符触发 legacy/bounded events FTS + summaries FTS MATCH', () => {
     const result = buildKeywordPredicate('foo');
     expect(result.sql).toContain('title LIKE @kw_like');
@@ -60,6 +68,13 @@ describe('buildKeywordPredicate', () => {
     expect(result.sql).not.toMatch(/\bfts MATCH\b/);
     expect(result.params.kw_like).toBe('%foo%');
     expect(result.params.kw_fts).toBe('"foo"');
+  });
+
+  it('大小写混合关键词原样绑定，大小写折叠由 v43 trigram tokenizer 统一完成', () => {
+    const result = buildKeywordPredicate('FooBar', { includeLegacyEventIndex: false });
+    expect(result.params).toEqual({ kw_like: '%FooBar%', kw_fts: '"FooBar"' });
+    expect(result.sql).toContain('event_search_fts_v1 MATCH @kw_fts');
+    expect(result.sql).toContain('summaries_fts MATCH @kw_fts');
   });
 
   it('FTS 子查询走 IN + SELECT DISTINCT（不是 EXISTS + 相关子查询）', () => {

@@ -14,7 +14,7 @@ It is built for people who "drive multiple coding agents at once": if you have 3
 - **Multi-session aggregation**: sessions created inside the app via SDK (**internal**) and events reported from external terminal CLI hooks (**external**) share one view, with three tabs: Live / Pending / History.
 - **Persistent session pinning**: pin important sessions from a Live card or detail header. Pinned sessions sort first, a dormant session is reactivated when pinned, and idle lifecycle decay plus retention cleanup skip pinned rows. Deliberate archive, handoff, shutdown, delete, or a real provider session end still proceeds and clears the pin.
 - **Activity stream + Diff + Summary**: open each session to inspect its message timeline, Monaco DiffEditor grouped by file, and one-line periodic LLM summaries. Session cards and detail headers show the current model and thinking level; SessionDetail also shows the current Git branch when the cwd is inside a repository. Click a tool-call start row to expand full input, and click an end row to expand output. Task / Agent tool calls have dedicated rendering (subagent name + purple chip + folded/expanded full prompt).
-- **Bounded history search**: History searches session directories and titles directly, plus messages, thinking, event fields, summaries, and tool output through a trigram index. Tool output longer than 4,096 characters indexes only its first and last 2,048 characters, so text appearing solely in the middle of a long output is intentionally not searchable.
+- **Bounded history search**: History searches session directories, titles, messages, thinking, event fields, summaries, and tool output with uniform ASCII case-insensitive matching. Event and summary substring search uses trigram indexes. Tool output longer than 4,096 characters indexes only its first and last 2,048 characters, so text appearing solely in the middle of a long output is intentionally not searchable.
 - **Staged local-storage compaction**: large event-search and file-snapshot data migrates in resumable post-startup slices, verifies across an app restart, and retires compatibility storage only at a clean drained shutdown. No automatic `VACUUM` runs, so released pages are reused by SQLite and the physical database file is not expected to shrink immediately. After this v41 cutover completes, downgrading to an older Agent Deck build is unsupported; recovery requires a verified pre-upgrade database backup restored while Agent Deck is stopped.
 - **Control handoff alerts**: waiting -> red flashing + alert sound + system notification + Dock bounce; finished -> yellow + completion sound. Each can be disabled independently, and custom alert sounds are supported.
 - **Embedded human responses** (SDK sessions only): tool permission requests, Claude proactive questions (options / other / notes), Claude Plan mode execution-plan approval, and MCP user-presentation requests (`present_plan` plans and `present_diff` diffs) are all handled directly in activity-stream cards. `present_plan` blocks indefinitely by default. Its Deep Review view expands the full selectable plan, lets selected text be quoted into a dedicated question composer, and uses one isolated same-adapter native fork for read-mostly answers or for deriving revision feedback from inherited chat context. Approve and continue-modifying keep their compact-card behavior; an explicit timeout stops the calling flow while the pending card remains available for a later decision that resumes the current owning session (the latest committed handoff successor, when present). Diff presentation supports PR-style two-column before/after view and merge-conflict ours/theirs/resolution view; diff content is collapsed by default and opens into a taller scrollable review area. `present_diff` can keep rationale / confirmation instructions outside the source panes and render optional line-anchored annotation cards beside the presented fragment. When approving Claude Plan mode, you can choose the target permission mode (default / auto-accept edits / keep Plan / fully bypass prompts); switching to "fully bypass prompts" automatically restarts the SDK child process.
@@ -403,6 +403,23 @@ SQLite lives under the app userData directory as `agent-deck.db`:
 - Linux: `~/.config/Agent Deck/`
 
 Schema version advances incrementally through the `user_version` pragma. Migration files live in `src/main/store/migrations/`; the current version is the latest file in that directory. Tables: `sessions / events / file_changes / summaries / app_meta / tasks / agent_deck_teams / agent_deck_team_members / agent_deck_messages / issues / issue_appendices / token_usage`.
+
+The v43 history-search upgrade is intentionally offline for an existing database. First observe the
+database path from the running app, quit Agent Deck completely, then pass that exact path to:
+
+```bash
+pnpm migrate:history-search -- --db "/observed/path/agent-deck.db"
+```
+
+The command refuses active Agent Deck processes or open database handles, migrates and validates a
+copy, atomically switches files, and retains the timestamped `.bak` path it prints. After the new app
+passes event and summary case-insensitive History smoke tests, quit it again and finalize with the
+printed backup path:
+
+```bash
+pnpm migrate:history-search -- --finalize --smoke-passed \
+  --db "/observed/path/agent-deck.db" --backup "/printed/path/agent-deck.db.<timestamp>.bak"
+```
 
 ### Key Ports
 

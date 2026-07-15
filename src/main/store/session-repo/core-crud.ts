@@ -289,7 +289,8 @@ export function listHistory(
   if (opts.keyword) {
     // 关键词谓词由 search-predicate.ts/buildKeywordPredicate 构造，详见该文件注释。
     // < 3 字符走 title / cwd LIKE（trigram tokenizer 需要 ≥ 3 gram）；
-    // ≥ 3 字符走 title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH，
+    // ≥ 3 字符走 title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH；v43 后四类字段
+    // 对 ASCII 统一大小写不敏感，
     // FTS5 + trigram 索引 substring 友好，远快于历史的 events.payload_json LIKE 全表扫。
     // 旧索引退休前双读保 rollback 覆盖；phase=complete 后必须移除空 legacy UNION。生产副本
     // common-term 实测空 UNION 仍额外消耗 6-8ms，并把 p50 推过 50ms。

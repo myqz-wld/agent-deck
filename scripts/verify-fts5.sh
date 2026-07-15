@@ -7,7 +7,7 @@
 #  - FTS MATCH 谓词可 prepare（review N5 #1：alias MATCH 形态会 parse fail 的 regression 防御）
 #  - 关键词命中正确（events / summaries / title 三路命中各跑一次）
 #  - INSERT/DELETE/UPDATE 触发器同步（review N5 #3：UPDATE WHEN 防御 rename 白工作）
-#  - 大小写敏感性维持原 LIKE BINARY 行为（review N5 #5：trigram case_sensitive=1）
+#  - v43 目标 tokenizer 的 ASCII 大小写不敏感行为（trigram case_sensitive=0）
 #
 # 不依赖 better-sqlite3 binding（electron 重编版本与本机 node 不兼容），不依赖 vitest。
 # 任何步骤失败 → 整脚本 exit 1。
@@ -145,15 +145,22 @@ run_sql "summaries_fts MATCH hits" \
   "s3"
 
 #
-# 测试 5 (N5 #5): trigram case_sensitive=1 维持大小写敏感
-# 'HELLO' (大写) 不应命中含 'hello' (小写) 的文档
+# 测试 5 (v43): trigram case_sensitive=0 双向命中混合大小写
 #
-run_sql "trigram case_sensitive=1 (大小写敏感, 维持原 LIKE BINARY 行为)" \
-  "SELECT count(*) FROM events_fts WHERE events_fts MATCH '\"HELLO\"';" \
-  "0"
+run_sql "trigram case_sensitive=0 (大写查询命中小写内容)" \
+  "CREATE VIRTUAL TABLE casefold_fts USING fts5(
+     content, tokenize='trigram case_sensitive 0'
+   );
+   INSERT INTO casefold_fts(content) VALUES ('hello FooBar');
+   SELECT count(*) FROM casefold_fts WHERE casefold_fts MATCH '\"HELLO\"';" \
+  "1"
 
-run_sql "trigram case_sensitive=1 (相同大小写命中)" \
-  "SELECT count(*) FROM events_fts WHERE events_fts MATCH '\"hello\"';" \
+run_sql "trigram case_sensitive=0 (小写查询命中混合大小写内容)" \
+  "CREATE VIRTUAL TABLE casefold_fts USING fts5(
+     content, tokenize='trigram case_sensitive 0'
+   );
+   INSERT INTO casefold_fts(content) VALUES ('hello FooBar');
+   SELECT count(*) FROM casefold_fts WHERE casefold_fts MATCH '\"foobar\"';" \
   "1"
 
 #

@@ -3,7 +3,8 @@
  *
  * 历史方案：`payload_json LIKE '%kw%'` + EXISTS LIMIT 1 短路（详见 session-repo.ts 注释）。
  * 当前方案：≥ 3 字符走 FTS5 + trigram MATCH（legacy events_fts、bounded
- * event_search_fts_v1、summaries_fts），保留 title / cwd LIKE；cwd 直接查 sessions，避免把
+ * event_search_fts_v1、summaries_fts），保留 title / cwd LIKE；四类字段统一为 ASCII
+ * 大小写不敏感。cwd 直接查 sessions，避免把
  * 每条 event 都重复索引一份目录。新索引回填期间 UNION 保持旧索引完整覆盖；跨重启验证并在
  * 无写入的关机阶段退休旧索引后，长工具输出只保留首尾各 2,048 字符用于搜索。
  *
@@ -39,7 +40,8 @@ export interface KeywordPredicateOptions {
  * 构造关键词谓词。约束：
  * - keyword 为空 / 全空白 → 调用方应跳过（这里不 enforce，传进来会回 LIKE-only 形态）
  * - 长度 < 3：trigram 索引 3-gram 不可用，只搜 title / cwd LIKE
- * - 长度 ≥ 3：title / cwd LIKE OR 两代 event FTS MATCH OR summaries_fts MATCH
+ * - 长度 ≥ 3：title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH；v43 tokenizer
+ *   使用 `trigram case_sensitive 0`，与 SQLite LIKE 的 ASCII 大小写语义一致
  *
  * SQL 形态（Phase 4 N5 review 修订，REVIEW_X #1 + #2）：
  *
