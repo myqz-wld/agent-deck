@@ -29,7 +29,7 @@ const CODEX_PLUGIN_ROOT = join(FIXTURE_ROOT, 'codex-config', 'agent-deck-plugin'
 
 // fixture 文件内容（TC2 关键：同名 reviewer-claude.md 双 root 内容不同）
 const CLAUDE_REVIEWER_CLAUDE_BODY =
-  '---\nname: reviewer-claude\ndescription: claude-config 视角 reviewer-claude SDK teammate\nmodel: opus\n---\n\n# claude-config reviewer-claude body\n这是 claude SDK 直接跑的 reviewer。';
+  '---\nname: reviewer-claude\ndescription: claude-config 视角 reviewer-claude SDK teammate\nmodel: opus\neffort: xhigh\n---\n\n# claude-config reviewer-claude body\n这是 claude SDK 直接跑的 reviewer。';
 
 const CODEX_REVIEWER_CLAUDE_BODY =
   '---\nname: reviewer-claude\ndescription: codex-config 视角 reviewer-claude wrapper (Bash spawn 外部 claude)\nmodel: gpt-5\n---\n\n# codex-config reviewer-claude wrapper body\n这是 codex SDK 子 session 通过 Bash 起外部 claude CLI 拿 oneshot 的 wrapper。';
@@ -38,7 +38,7 @@ const CLAUDE_REVIEWER_CODEX_BODY =
   '---\nname: reviewer-codex\ndescription: claude-config 视角 reviewer-codex wrapper (Bash spawn 外部 codex)\nmodel: sonnet\n---\n\n# claude-config reviewer-codex wrapper body';
 
 const CODEX_REVIEWER_CODEX_BODY =
-  '---\nname: reviewer-codex\ndescription: codex-config 视角 reviewer-codex SDK teammate\nmodel: gpt-5\n---\n\n# codex-config reviewer-codex body';
+  'name = "reviewer-codex"\ndescription = "codex-config 视角 reviewer-codex SDK teammate"\nmodel = "gpt-5"\nmodel_reasoning_effort = "max"\n\ndeveloper_instructions = \'\'\'\n# codex-config reviewer-codex body\n\'\'\'';
 
 const CLAUDE_SAMPLE_SKILL =
   '---\nname: claude-only-skill\ndescription: claude-config 专有 skill\n---\n# claude-only-skill SKILL';
@@ -58,7 +58,7 @@ beforeAll(() => {
   writeFileSync(join(CLAUDE_PLUGIN_ROOT, 'skills', 'claude-only-skill', 'SKILL.md'), CLAUDE_SAMPLE_SKILL);
 
   writeFileSync(join(CODEX_PLUGIN_ROOT, 'agents', 'reviewer-claude.md'), CODEX_REVIEWER_CLAUDE_BODY);
-  writeFileSync(join(CODEX_PLUGIN_ROOT, 'agents', 'reviewer-codex.md'), CODEX_REVIEWER_CODEX_BODY);
+  writeFileSync(join(CODEX_PLUGIN_ROOT, 'agents', 'reviewer-codex.toml'), CODEX_REVIEWER_CODEX_BODY);
   writeFileSync(join(CODEX_PLUGIN_ROOT, 'skills', 'codex-only-skill', 'SKILL.md'), CODEX_SAMPLE_SKILL);
 });
 
@@ -149,6 +149,12 @@ describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
     expect(codexReviewerClaude).toBeDefined();
     expect(claudeReviewerClaude!.qualifiedName).toBe('agent-deck:claude-code:reviewer-claude');
     expect(codexReviewerClaude!.qualifiedName).toBe('agent-deck:codex-cli:reviewer-claude');
+    expect(claudeReviewerClaude!.thinking).toBe('xhigh');
+    expect(
+      snapshot.agents.find(
+        (a) => a.adapter === 'codex-cli' && a.name === 'reviewer-codex',
+      )?.thinking,
+    ).toBe('max');
 
     // 排序 (adapter asc claude→codex, name asc) — claude 4 agents 在前 / codex 在后
     const adapters = snapshot.agents.map((a) => a.adapter);

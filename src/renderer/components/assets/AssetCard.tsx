@@ -48,22 +48,16 @@ export function AssetCard({
           )}
         </div>
       </div>
-      {asset.kind === 'agent' && (asset.model || asset.tools) && (
+      {asset.kind === 'agent' && (asset.model || asset.thinking || asset.tools) && (
         <div className="mt-0.5 text-[10px] text-deck-muted/70">
           {asset.model && <span>模型：<code className="rounded bg-white/5 px-1">{asset.model}</code> </span>}
+          {asset.thinking && <span>思考程度：<code className="rounded bg-white/5 px-1">{asset.thinking}</code> </span>}
           {asset.tools && <span>工具：<code className="rounded bg-white/5 px-1">{asset.tools}</code></span>}
         </div>
       )}
       {asset.description && (
         <div className="mt-1 text-[10px] leading-relaxed text-deck-muted line-clamp-3">
           {asset.description}
-        </div>
-      )}
-      {asset.triggers && asset.triggers.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {asset.triggers.map((t) => (
-            <code key={t} className="rounded bg-white/5 px-1 text-[10px] text-deck-muted/80">{t}</code>
-          ))}
         </div>
       )}
     </div>
