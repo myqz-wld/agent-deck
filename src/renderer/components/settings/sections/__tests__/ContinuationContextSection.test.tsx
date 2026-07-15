@@ -150,7 +150,7 @@ describe('ContinuationContextSection', () => {
     expect(onPatch).toHaveBeenCalledWith({ continuationRawRetentionTokens: 128000 });
   });
 
-  it('toggles automatic checkpoint maintenance and clamps its interval', async () => {
+  it('toggles automatic checkpoint maintenance and clamps scheduling controls', async () => {
     const onPatch = vi.fn();
     render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
     openSection();
@@ -179,5 +179,24 @@ describe('ContinuationContextSection', () => {
     expect(onPatch).toHaveBeenCalledWith({
       continuationCheckpointAutoRefreshIntervalMinutes: 1440,
     });
+
+    const concurrency = screen.getByRole('textbox', {
+      name: '最多同时整理的会话数',
+    });
+    expect((concurrency as HTMLInputElement).value).toBe('2');
+    expect(concurrency.getAttribute('min')).toBe('1');
+    expect(concurrency.getAttribute('max')).toBe('10');
+    expect(screen.getByText('限制后台上下文整理模型的并发调用数。')).not.toBeNull();
+
+    fireEvent.focus(concurrency);
+    fireEvent.change(concurrency, { target: { value: '0' } });
+    fireEvent.blur(concurrency);
+    expect(onPatch).toHaveBeenCalledWith({ continuationCheckpointMaxConcurrent: 1 });
+
+    await waitFor(() => expect((concurrency as HTMLInputElement).value).toBe('1'));
+    fireEvent.focus(concurrency);
+    fireEvent.change(concurrency, { target: { value: '11' } });
+    fireEvent.blur(concurrency);
+    expect(onPatch).toHaveBeenCalledWith({ continuationCheckpointMaxConcurrent: 10 });
   });
 });

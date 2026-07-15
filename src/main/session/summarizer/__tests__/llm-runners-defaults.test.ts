@@ -39,13 +39,14 @@ describe('periodic summary blank-model defaults', () => {
 
   it.each([
     ['Claude', 'claude-haiku-from-env'],
-    ['Deepseek', 'deepseek-sonnet-from-env'],
+    ['Deepseek', 'deepseek-haiku-from-env'],
   ] as const)('uses the %s provider-specific env default with low effort', async (agentName, model) => {
     await summariseViaLlm('/repo', events, {
       agentName,
       envOverride: {
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-from-env',
-        ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-sonnet-from-env',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL:
+          agentName === 'Deepseek' ? 'deepseek-haiku-from-env' : 'claude-haiku-from-env',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'must-not-be-used',
       },
     });
 
@@ -54,14 +55,17 @@ describe('periodic summary blank-model defaults', () => {
     );
   });
 
-  it('falls back to the Sonnet alias for a blank Deepseek model', async () => {
+  it('falls back to the Haiku alias for a blank Deepseek model', async () => {
     await summariseViaLlm('/repo', events, {
       agentName: 'Deepseek',
-      envOverride: { ANTHROPIC_DEFAULT_SONNET_MODEL: '' },
+      envOverride: {
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: '',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'must-not-be-used',
+      },
     });
 
     expect(harness.runClaudeOneshot).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'sonnet', effort: 'low' }),
+      expect.objectContaining({ model: 'haiku', effort: 'low' }),
     );
   });
 });

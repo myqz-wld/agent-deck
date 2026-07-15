@@ -13,6 +13,9 @@ export const MAX_CONTINUATION_RAW_RETENTION_TOKENS = 128_000;
 export const DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES = 30;
 export const MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES = 5;
 export const MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES = 1_440;
+export const DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT = 2;
+export const MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT = 1;
+export const MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT = 10;
 /** Stable runtime fallbacks; unlike electron-store defaults these values are never store-owned. */
 export const DEFAULT_SUMMARY_REASONING = 'low' as const;
 export const DEFAULT_CONTINUATION_CHECKPOINT_THINKING = 'medium' as const;
@@ -42,6 +45,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   continuationCheckpointAutoRefreshEnabled: true,
   continuationCheckpointAutoRefreshIntervalMinutes:
     DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+  continuationCheckpointMaxConcurrent: DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   continuationRawRetentionTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
   permissionTimeoutMs: 30 * 60 * 1000,
   alwaysOnTop: true,

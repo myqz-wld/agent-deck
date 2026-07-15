@@ -86,12 +86,12 @@ export interface AppSettings {
    *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ 'haiku' alias 兜底
    *
    * 优先级链（provider='deepseek' 时）：
-   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_SONNET_MODEL` env ＞ 'sonnet' alias 兜底
+   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ 'haiku' alias 兜底
    *
    * 优先级链（provider='codex' 时由 summariseCodexSessionViaOneshot 实施）：
    *   `settings.summaryModel` ＞ undefined（交给 `~/.codex/config.toml` 顶层 `model`）
    *
-   * - `''`（默认空）= Claude 用 Haiku、Deepseek 用 Sonnet；Codex 使用当前配置默认模型
+   * - `''`（默认空）= Claude/Deepseek 用 Haiku；Codex 使用当前配置默认模型
    *   （不再读取隐藏的 `ANTHROPIC_MODEL` / `CODEX_SUMMARY_MODEL` 覆盖）
    * - 非空 = 覆盖,直接传给对应 SDK 的 options.model;**填的 model id 必须对当前 provider 可用**
    *   (Claude/Deepseek 端用所选 Claude-family provider alias,codex 端用 Codex SDK 可用 model id)
@@ -126,6 +126,8 @@ export interface AppSettings {
   continuationCheckpointAutoRefreshEnabled: boolean;
   /** 常规自动刷新检查间隔，单位分钟；合法范围 5–1,440，默认 30。 */
   continuationCheckpointAutoRefreshIntervalMinutes: number;
+  /** 后台检查点整理的跨会话并发上限；合法范围 1–10，默认 2。 */
+  continuationCheckpointMaxConcurrent: number;
   /**
    * 续接上下文中保留历史 user input 的 token 上限。它不限制当前指令、检查点投影或
    * generator 输入；合法范围 8,000–128,000，默认 64,000。

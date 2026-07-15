@@ -46,8 +46,12 @@ describe('continuation checkpoint refresh service integration', () => {
     await Promise.all(services.splice(0).map((service) => service.stop()));
   });
 
-  it('serializes safety refreshes globally across active sessions', async () => {
-    const sessions = [session('a', 'working'), session('b', 'working')];
+  it('bounds safety refresh concurrency across active sessions', async () => {
+    const sessions = [
+      session('a', 'working'),
+      session('b', 'working'),
+      session('c', 'working'),
+    ];
     const tokens = new Map(sessions.map((item) => [item.id, 48_000]));
     const releases: Array<() => void> = [];
     let active = 0;
@@ -64,6 +68,56 @@ describe('continuation checkpoint refresh service integration', () => {
       {
         continuationCheckpointAutoRefreshEnabled: true,
         continuationCheckpointAutoRefreshIntervalMinutes: 30,
+        continuationCheckpointMaxConcurrent: 2,
+      },
+      {
+        bus: new TypedEventBus(),
+        listSessions: (limit, offset) => sessions.slice(offset, offset + limit),
+        getSession: (id) => sessions.find((item) => item.id === id) ?? null,
+        checkpointBaseline: () => 0,
+        estimateBacklog: (id) => ({
+          sessionId: id,
+          captureRevision: 1,
+          rebuildAfterRevision: 0,
+          checkpointThroughRevision: 0,
+          checkpointCreatedAt: null,
+          estimatedTokens: tokens.get(id) ?? 0,
+          sourceRows: 1,
+          saturated: false,
+        }),
+        refresh,
+      },
+    );
+    services.push(service);
+    service.start();
+
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    expect(active).toBe(2);
+    releases.shift()!();
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+    expect(active).toBe(2);
+    releases.splice(0).forEach((release) => release());
+    await vi.waitFor(() => expect(active).toBe(0));
+    expect(maxActive).toBe(2);
+  });
+
+  it('applies a higher checkpoint concurrency limit immediately', async () => {
+    const sessions = [session('a', 'working'), session('b', 'working')];
+    const tokens = new Map(sessions.map((item) => [item.id, 48_000]));
+    const releases: Array<() => void> = [];
+    let active = 0;
+    const refresh = vi.fn(async (request) => {
+      active += 1;
+      await new Promise<void>((resolve) => releases.push(resolve));
+      active -= 1;
+      tokens.set(request.sessionId, 0);
+      return result();
+    });
+    const service = new ContinuationCheckpointRefreshService(
+      {
+        continuationCheckpointAutoRefreshEnabled: true,
+        continuationCheckpointAutoRefreshIntervalMinutes: 30,
+        continuationCheckpointMaxConcurrent: 1,
       },
       {
         bus: new TypedEventBus(),
@@ -88,12 +142,16 @@ describe('continuation checkpoint refresh service integration', () => {
 
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
     expect(active).toBe(1);
-    releases.shift()!();
+    service.updateSettings({
+      continuationCheckpointAutoRefreshEnabled: true,
+      continuationCheckpointAutoRefreshIntervalMinutes: 30,
+      continuationCheckpointMaxConcurrent: 2,
+    });
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
-    expect(active).toBe(1);
-    releases.shift()!();
+    expect(active).toBe(2);
+
+    releases.splice(0).forEach((release) => release());
     await vi.waitFor(() => expect(active).toBe(0));
-    expect(maxActive).toBe(1);
   });
 
   it('honors the 32k normal floor after interval and quiet eligibility', async () => {
@@ -263,6 +321,7 @@ describe('continuation checkpoint refresh service integration', () => {
       {
         continuationCheckpointAutoRefreshEnabled: true,
         continuationCheckpointAutoRefreshIntervalMinutes: 30,
+        continuationCheckpointMaxConcurrent: 1,
       },
       {
         bus: new TypedEventBus(),
@@ -399,13 +458,29 @@ describe('continuation checkpoint refresh service integration', () => {
   });
 
   it('drains the refresh queue before propagating a worker-stop failure', async () => {
+    const activeSession = session('drain-on-stop', 'working');
     const stopFailure = new Error('worker stop failed');
+    let releaseRefresh!: () => void;
     const estimator: CheckpointBacklogEstimator = {
-      estimate: vi.fn(async () => null),
+      estimate: vi.fn(async () => ({
+        sessionId: activeSession.id,
+        captureRevision: 1,
+        rebuildAfterRevision: 0,
+        checkpointThroughRevision: 0,
+        checkpointCreatedAt: null,
+        estimatedTokens: 48_000,
+        sourceRows: 1,
+        saturated: false,
+      })),
       stop: vi.fn(async () => {
         throw stopFailure;
       }),
     };
+    const refresh = vi.fn(
+      () => new Promise<BackgroundCheckpointRefreshResult>((resolve) => {
+        releaseRefresh = () => resolve(result());
+      }),
+    );
     const service = new ContinuationCheckpointRefreshService(
       {
         continuationCheckpointAutoRefreshEnabled: true,
@@ -413,30 +488,28 @@ describe('continuation checkpoint refresh service integration', () => {
       },
       {
         bus: new TypedEventBus(),
-        listSessions: () => [],
-        getSession: () => null,
+        listSessions: () => [activeSession],
+        getSession: () => activeSession,
         checkpointBaseline: () => 0,
         backlogEstimator: estimator,
+        refresh,
       },
     );
     services.push(service);
     service.start();
-    let releaseRefresh!: () => void;
-    const refreshTail = new Promise<void>((resolve) => {
-      releaseRefresh = resolve;
-    });
-    (service as unknown as { refreshTail: Promise<void> }).refreshTail = refreshTail;
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 
     let settled = false;
     const stopping = service.stop().finally(() => {
       settled = true;
     });
     await flush();
-    expect(estimator.stop).toHaveBeenCalledTimes(1);
+    expect(estimator.stop).not.toHaveBeenCalled();
     expect(settled).toBe(false);
 
     releaseRefresh();
     await expect(stopping).rejects.toBe(stopFailure);
+    expect(estimator.stop).toHaveBeenCalledTimes(1);
     expect(settled).toBe(true);
   });
 

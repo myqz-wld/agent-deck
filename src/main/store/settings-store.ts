@@ -2,9 +2,12 @@ import Store from 'electron-store';
 import { randomBytes } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
+  MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   MAX_CONTINUATION_RAW_RETENTION_TOKENS,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
+  MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   type AppSettings,
   type ContinuationCheckpointProvider,
 } from '@shared/types';
@@ -194,6 +197,19 @@ function migrateContinuationSettings(
       );
     }
   }
+  if ('continuationCheckpointMaxConcurrent' in persistedRaw) {
+    const maxConcurrent = persistedRaw.continuationCheckpointMaxConcurrent;
+    if (
+      !Number.isSafeInteger(maxConcurrent) ||
+      (maxConcurrent as number) < MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT ||
+      (maxConcurrent as number) > MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT
+    ) {
+      target.set(
+        'continuationCheckpointMaxConcurrent',
+        DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
+      );
+    }
+  }
   if ('summaryEnabled' in persistedRaw && typeof persistedRaw.summaryEnabled !== 'boolean') {
     target.set('summaryEnabled', true);
   }
@@ -224,13 +240,6 @@ function migrateGeneratorBlankFallbacks(
   const isBlank = (value: unknown): boolean => value === undefined || !String(value).trim();
   if (existingStore && continuationProvider === 'claude' && isBlank(continuationModel)) {
     target.set('continuationCheckpointModel', 'opus');
-  }
-  if (
-    existingStore &&
-    persistedRaw.summaryProvider === 'deepseek' &&
-    isBlank(persistedRaw.summaryModel)
-  ) {
-    target.set('summaryModel', 'haiku');
   }
   target.set(GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL, true);
 }

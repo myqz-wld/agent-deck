@@ -15,7 +15,7 @@ interface Props {
 
 function buildModelHint(provider: GeneratorProvider): string {
   if (provider === 'codex') return '留空时使用 Codex 配置默认模型';
-  if (provider === 'deepseek') return '留空时使用 Deepseek Sonnet';
+  if (provider === 'deepseek') return '留空时使用 Deepseek Haiku';
   return '留空时使用 Claude Haiku';
 }
 

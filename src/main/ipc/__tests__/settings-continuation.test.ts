@@ -91,6 +91,7 @@ describe('SettingsSet continuation validation', () => {
           summaryEnabled: false,
           continuationCheckpointAutoRefreshEnabled: false,
           continuationCheckpointAutoRefreshIntervalMinutes: 30,
+          continuationCheckpointMaxConcurrent: 2,
         },
         current(),
       ),
@@ -98,6 +99,7 @@ describe('SettingsSet continuation validation', () => {
       summaryEnabled: false,
       continuationCheckpointAutoRefreshEnabled: false,
       continuationCheckpointAutoRefreshIntervalMinutes: 30,
+      continuationCheckpointMaxConcurrent: 2,
     });
     for (const value of [true, 'false', 1, null]) {
       if (value === true) continue;
@@ -118,6 +120,14 @@ describe('SettingsSet continuation validation', () => {
           current(),
         ),
       ).toThrow(/continuationCheckpointAutoRefreshIntervalMinutes/);
+    }
+    for (const value of [0, 11, 2.5, Number.NaN, '2']) {
+      expect(() =>
+        validateSettingsPatch(
+          { continuationCheckpointMaxConcurrent: value } as unknown,
+          current(),
+        ),
+      ).toThrow(/continuationCheckpointMaxConcurrent/);
     }
     for (const value of [42, null, 'm'.repeat(257)]) {
       expect(() =>
@@ -252,15 +262,18 @@ describe('SettingsSet continuation validation', () => {
       setHandler!({} as never, {
         continuationCheckpointAutoRefreshEnabled: false,
         continuationCheckpointAutoRefreshIntervalMinutes: 60,
+        continuationCheckpointMaxConcurrent: 4,
       }),
     ).toMatchObject({
       continuationCheckpointAutoRefreshEnabled: false,
       continuationCheckpointAutoRefreshIntervalMinutes: 60,
+      continuationCheckpointMaxConcurrent: 4,
     });
     expect(updateCheckpointRefresh).toHaveBeenCalledWith(
       expect.objectContaining({
         continuationCheckpointAutoRefreshEnabled: false,
         continuationCheckpointAutoRefreshIntervalMinutes: 60,
+        continuationCheckpointMaxConcurrent: 4,
       }),
     );
     expect(invalidatePreparations).toHaveBeenCalledTimes(2);
