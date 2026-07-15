@@ -96,9 +96,9 @@ describe('continuation checkpoint refresh service integration', () => {
     expect(maxActive).toBe(1);
   });
 
-  it('honors the 8k normal floor after interval and quiet eligibility', async () => {
+  it('honors the 32k normal floor after interval and quiet eligibility', async () => {
     const idle = session('idle', 'idle');
-    let tokens = 7_999;
+    let tokens = 31_999;
     const refresh = vi.fn(async () => {
       tokens = 0;
       return result();
@@ -132,7 +132,7 @@ describe('continuation checkpoint refresh service integration', () => {
     await flush();
     expect(refresh).not.toHaveBeenCalled();
 
-    tokens = 8_000;
+    tokens = 32_000;
     idle.lastEventAt = 1;
     service.updateSettings({
       continuationCheckpointAutoRefreshEnabled: true,
@@ -206,7 +206,7 @@ describe('continuation checkpoint refresh service integration', () => {
   it('keeps active waiting sessions busy but treats stale dormant working state as idle', async () => {
     const bus = new TypedEventBus();
     const candidate = session('provider-state', 'waiting');
-    let tokens = 8_000;
+    let tokens = 32_000;
     const refresh = vi.fn(async () => {
       tokens = 0;
       return result();

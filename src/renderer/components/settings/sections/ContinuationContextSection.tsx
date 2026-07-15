@@ -52,7 +52,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         }
       />
       <p className="text-[10px] leading-snug text-deck-muted/70">
-        常规刷新需达到上方间隔、新增至少 8,000 token，并等待 provider 空闲且会话安静 60
+        常规刷新需达到上方间隔、新增至少 32,000 token，并等待 provider 空闲且会话安静 60
         秒；新增达到 48,000 token 时会后台安全刷新，不等待空闲，也不会中断当前回复。达到阈值只负责排队，
         真正开始时会原子捕获最新持久化 revision，排队期间完成的工具结果会合并进本次检查点。
       </p>

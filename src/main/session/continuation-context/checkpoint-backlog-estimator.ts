@@ -145,7 +145,7 @@ function listRawEvents(
 /**
  * Estimate only normalized events not covered by the latest validated checkpoint. This is the
  * scheduler's cost gate, not the complete generator prompt size: the prior checkpoint and prompt
- * wrapper are deliberately excluded from the 8k/48k delta thresholds.
+ * wrapper are deliberately excluded from the 32k/48k delta thresholds.
  */
 export function estimateCheckpointBacklog(
   input: EstimateCheckpointBacklogInput,

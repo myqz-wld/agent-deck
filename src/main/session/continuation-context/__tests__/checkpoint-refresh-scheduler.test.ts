@@ -42,15 +42,15 @@ describe('CheckpointRefreshScheduler', () => {
     vi.useRealTimers();
   });
 
-  it('uses the confirmed 30m / 60s / 8k / 48k defaults', () => {
+  it('uses the confirmed 30m / 60s / 32k / 48k defaults', () => {
     expect(DEFAULT_CHECKPOINT_REFRESH_INTERVAL_MS).toBe(30 * 60 * 1_000);
     expect(DEFAULT_CHECKPOINT_REFRESH_QUIET_MS).toBe(60 * 1_000);
-    expect(DEFAULT_CHECKPOINT_REFRESH_NORMAL_TOKENS).toBe(8_000);
+    expect(DEFAULT_CHECKPOINT_REFRESH_NORMAL_TOKENS).toBe(32_000);
     expect(DEFAULT_CHECKPOINT_REFRESH_SAFETY_TOKENS).toBe(48_000);
   });
 
-  it('requires both the normal interval and a continuous quiet window at 8k', async () => {
-    let current = snapshot('normal', 1, 8_000);
+  it('requires both the normal interval and a continuous quiet window at 32k', async () => {
+    let current = snapshot('normal', 1, 32_000);
     const refresh = vi.fn(async (request: CheckpointRefreshRequest<TestSnapshot>) => {
       current = snapshot('normal', request.snapshot.sourceEventRevision, 0, request.snapshot.sourceEventRevision);
     });
@@ -76,10 +76,10 @@ describe('CheckpointRefreshScheduler', () => {
     await scheduler.dispose();
   });
 
-  it('does not invoke the refresh callback below 8k, even after interval and quiet elapse', async () => {
+  it('does not invoke the refresh callback below 32k, even after interval and quiet elapse', async () => {
     const refresh = vi.fn(async () => undefined);
     const scheduler = new CheckpointRefreshScheduler<TestSnapshot>({
-      loadBacklogSnapshot: async () => snapshot('small', 3, 7_999),
+      loadBacklogSnapshot: async () => snapshot('small', 3, 31_999),
       refresh,
     });
 
@@ -93,7 +93,7 @@ describe('CheckpointRefreshScheduler', () => {
   });
 
   it('does not slide the durable interval anchor when later activity omits baselineAt', async () => {
-    let current = snapshot('stable-anchor', 1, 8_000);
+    let current = snapshot('stable-anchor', 1, 32_000);
     const refresh = vi.fn(async (request: CheckpointRefreshRequest<TestSnapshot>) => {
       current = snapshot(
         'stable-anchor',
@@ -110,7 +110,7 @@ describe('CheckpointRefreshScheduler', () => {
     scheduler.observePersistedActivity({ sessionId: 'stable-anchor', observedAt: 0, baselineAt: 0 });
     await flushBackgroundWork();
     await vi.advanceTimersByTimeAsync(10 * 60 * 1_000);
-    current = snapshot('stable-anchor', 2, 8_000);
+    current = snapshot('stable-anchor', 2, 32_000);
     scheduler.observePersistedActivity({ sessionId: 'stable-anchor', observedAt: Date.now() });
     await flushBackgroundWork();
 
@@ -152,7 +152,7 @@ describe('CheckpointRefreshScheduler', () => {
     await flushBackgroundWork();
 
     await vi.advanceTimersByTimeAsync(6 * 60 * 1_000);
-    current = snapshot('foreground-anchor', 2, 8_000, 1);
+    current = snapshot('foreground-anchor', 2, 32_000, 1);
     scheduler.observePersistedActivity({
       sessionId: 'foreground-anchor',
       observedAt: Date.now(),
@@ -278,7 +278,7 @@ describe('CheckpointRefreshScheduler', () => {
       );
     });
     let snapshots: Record<string, TestSnapshot> = {
-      pending: snapshot('pending', 1, 8_000),
+      pending: snapshot('pending', 1, 32_000),
       active: snapshot('active', 1, 48_000),
     };
     const scheduler = new CheckpointRefreshScheduler<TestSnapshot>({
