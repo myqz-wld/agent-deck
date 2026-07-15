@@ -41,6 +41,7 @@ import {
 import log from '@main/utils/logger';
 import { createOrdinaryInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { executeFreshSession } from '@main/session/continuation-context/fresh-session-executor';
+import type { SpawnSessionHandlerOptions } from './spawn-handler-options';
 
 const logger = log.scope('mcp-spawn');
 
@@ -49,7 +50,7 @@ export const spawnSessionHandler = withMcpGuard(
   async (
     args: SpawnSessionArgs,
     ctx: HandlerContext,
-    opts?: { handOffMode?: boolean; batonRole?: 'lead' | 'teammate' },
+    opts?: SpawnSessionHandlerOptions,
   ) => {
     const { caller } = ctx;
     const contextMode = args.contextMode ?? 'fresh';
@@ -179,6 +180,7 @@ export const spawnSessionHandler = withMcpGuard(
       codexConfigOverrides: codexConfigOverridesFromAgent,
       claudeAgentName: claudeAgentNameFromAgent,
       claudeAgents: claudeAgentsFromAgent,
+      codexRuntimeAccess: opts?.codexRuntimeAccess,
     });
 
     let forkSource: ForkSessionSource | null = null;
@@ -269,6 +271,7 @@ export const spawnSessionHandler = withMcpGuard(
       promptToUse,
       teamIdEarly,
       handOffMode: opts?.handOffMode,
+      suppressLeadContext: opts?.suppressLeadContext,
     });
     setSpawnTargetPrompt(targetOptions, promptForSpawn);
     if (shouldWriteNormalSpawnLink) {

@@ -130,6 +130,25 @@ export class StreamProcessor {
         const message = await thunk();
         if (internal.retireBoundaryReached) return;
         if (internal.retireRequested) continue;
+        if (thunk.deferredUserEvent) {
+          this.ctx.emit({
+            sessionId: internal.applicationSid,
+            agentId: 'claude-code',
+            kind: 'message',
+            payload: {
+              text: thunk.deferredUserEvent.text,
+              role: 'user',
+              ...(thunk.deferredUserEvent.attachments?.length
+                ? { attachments: thunk.deferredUserEvent.attachments }
+                : {}),
+              ...(thunk.deferredUserEvent.turnCorrelationId
+                ? { turnCorrelationId: thunk.deferredUserEvent.turnCorrelationId }
+                : {}),
+            },
+            ts: Date.now(),
+            source: 'sdk',
+          });
+        }
         internal.userTurnInFlight = true;
         yield message;
         continue;

@@ -33,6 +33,7 @@ import { runCreateSessionSdkQuery } from './create-session-sdk-query';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { extractProviderModelAliases } from '../runtime-metadata-sync';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -174,9 +175,17 @@ export async function createSessionImpl(
 
     if (opts.prompt) {
       // 用 tempKey 占位 session_id，实际 SDK 会忽略这个字段（用自己的）
-      internal.pendingUserMessages.push(
-        deps.streamProcessor.makeUserMessage(tempKey, opts.prompt, opts.attachments),
+      const pending = deps.streamProcessor.makeUserMessage(tempKey, opts.prompt, opts.attachments);
+      const initialEnqueue = buildInitialEnqueueState(
+        initialTurn.persistedUserText,
+        opts.attachments,
+        opts.initialEnqueueOptions,
       );
+      if (initialEnqueue.deferredUserEvent) {
+        pending.deferredUserEvent = initialEnqueue.deferredUserEvent;
+      }
+      internal.acceptedEnqueueFingerprints = initialEnqueue.acceptedEnqueueFingerprints;
+      internal.pendingUserMessages.push(pending);
     }
 
     const userMessageIterable = deps.streamProcessor.createUserMessageStream(internal, tempKey);

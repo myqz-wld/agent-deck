@@ -90,6 +90,35 @@ beforeEach(() => {
 });
 
 describe('Codex handoff source runtime retirement', () => {
+  it('emits a deferred correlated user event only after dequeuing its turn', async () => {
+    const sessionId = 'codex-correlated-turn';
+    const thread = {
+      runStreamed: vi.fn(async () => ({
+        events: (async function* () {})(),
+      })),
+    } as unknown as InternalSession['thread'];
+    const internal = makeInternal(sessionId, thread, ['internal prompt']);
+    internal.pendingDeferredUserEvents = [{
+      text: 'internal prompt',
+      turnCorrelationId: 'turn-1',
+    }];
+    const emit = vi.fn();
+    const bridge = new CodexSdkBridge({ emit });
+
+    await bridgeInternals(bridge).threadLoop.runTurnLoop(internal, sessionId);
+
+    expect(thread.runStreamed).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId,
+      kind: 'message',
+      payload: expect.objectContaining({
+        role: 'user',
+        text: 'internal prompt',
+        turnCorrelationId: 'turn-1',
+      }),
+    }));
+  });
+
   it('drains the active event iterable, rejects old input, and retires before another turn', async () => {
     const sessionId = 'codex-handoff-source';
     let finishEvents!: () => void;

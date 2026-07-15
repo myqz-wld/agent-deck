@@ -26,7 +26,7 @@ import type {
 import type { CodexAppServerClient, CodexAppServerThread } from '../../app-server/client';
 import type { ThreadLoop } from '../thread-loop';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
-import type { InitialSessionRegistration } from '@main/adapters/types';
+import type { AgentEnqueueOptions, InitialSessionRegistration } from '@main/adapters/types';
 
 export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-access';
 
@@ -157,6 +157,8 @@ export interface CreateSessionOpts {
    */
   awaitCanonicalId?: boolean;
   initialSessionRegistration?: InitialSessionRegistration;
+  /** Recovery-only metadata for the first input already being accepted by this create. */
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法 — 对称 claude createSession opts):
    * 跳过本 createSession resume path 内 emit 首条 user message。

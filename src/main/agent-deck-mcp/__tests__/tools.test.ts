@@ -45,6 +45,7 @@ const {
   sessionGetThrow,
   eventStore,
   listForSessionCalls,
+  handoffPredecessors,
 } = vi.hoisted(() => ({
   sessionStore: new Map<string, SessionRecord>(),
   setSpawnLinkCalls: [] as Array<{ id: string; parentId: string | null; depth: number }>,
@@ -61,6 +62,7 @@ const {
   sessionGetThrow: { sid: null as string | null },
   eventStore: new Map<string, Array<AgentEvent & { id: number }>>(),
   listForSessionCalls: [] as Array<{ sessionId: string; limit: number; offset: number }>,
+  handoffPredecessors: new Map<string, string[]>(),
 }));
 
 vi.mock('@main/store/session-repo', () => ({
@@ -103,6 +105,20 @@ vi.mock('@main/store/session-repo', () => ({
       },
     },
   }),
+}));
+
+vi.mock('@main/session/hand-off/ownership', () => ({
+  isCurrentHandOffOwner: (owner: string | null, caller: string) =>
+    owner === caller || (owner !== null && (handoffPredecessors.get(caller) ?? []).includes(owner)),
+  sessionOwnershipLineage: (sessionId: string) => [
+    sessionId,
+    ...(handoffPredecessors.get(sessionId) ?? []),
+  ],
+  sessionOwnershipLineages: (sessionIds: string[]) => new Map(sessionIds.map((sessionId) => [
+    sessionId,
+    [sessionId, ...(handoffPredecessors.get(sessionId) ?? [])],
+  ])),
+  notifySessionHandOffCommitted: vi.fn(),
 }));
 
 const closeCalls: string[] = [];
@@ -576,6 +592,7 @@ beforeEach(async () => {
   sessionGetThrow.sid = null;
   eventStore.clear();
   listForSessionCalls.length = 0;
+  handoffPredecessors.clear();
   inFlightChildren.reset();
   spawnRateLimiter.reset();
   mockMessages.clear();
@@ -2333,6 +2350,26 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     ]);
   });
 
+  it('keeps predecessor descendants visible to the current handoff owner', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('source', { lifecycle: 'closed' });
+    seedSession('successor');
+    seedSession('source-child', { spawnedBy: 'source', spawnDepth: 1 });
+    seedSession('unrelated');
+    handoffPredecessors.set('successor', ['source']);
+
+    const r = await tools.get('list_sessions').handler({
+      callerSessionId: 'successor',
+      statusFilter: 'active',
+      limit: 50,
+    }, {});
+
+    expect(parseResult(r).data.sessions.map((s: any) => s.sessionId).sort()).toEqual([
+      'source-child',
+      'successor',
+    ]);
+  });
+
   it('projects metadata only (no events / messages)', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { spawnDepth: 0 });
@@ -2421,9 +2458,9 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('caller');
     seedSession('old-lead');
-    seedSession('old-child-1', { spawnedBy: 'old-lead' });
-    seedSession('old-child-2', { spawnedBy: 'old-lead' });
-    seedSession('old-child-3', { spawnedBy: 'old-lead' });
+    seedSession('old-child-1', { spawnedBy: 'old-lead', lastEventAt: 300 });
+    seedSession('old-child-2', { spawnedBy: 'old-lead', lastEventAt: 200 });
+    seedSession('old-child-3', { spawnedBy: 'old-lead', lastEventAt: 100 });
     const r = await tools.get('list_sessions').handler({
       callerSessionId: 'caller',
       statusFilter: 'active',
@@ -2587,6 +2624,31 @@ describe('agent-deck-mcp tools — list_session_events', () => {
     expect(parseResult(childReadsParent).data.events[0].sessionId).toBe('parent');
   });
 
+  it('preserves predecessor and predecessor-descendant reads for a chained handoff owner', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('source', { lifecycle: 'closed' });
+    seedSession('middle', { lifecycle: 'closed' });
+    seedSession('successor');
+    seedSession('source-child', { spawnedBy: 'source', spawnDepth: 1 });
+    handoffPredecessors.set('successor', ['source', 'middle']);
+    seedEvent('source', 1);
+    seedEvent('source-child', 2);
+
+    const sourceRead = await tools.get('list_session_events').handler({
+      callerSessionId: 'successor',
+      sessionId: 'source',
+      limit: 10,
+    }, {});
+    const childRead = await tools.get('list_session_events').handler({
+      callerSessionId: 'successor',
+      sessionId: 'source-child',
+      limit: 10,
+    }, {});
+
+    expect(parseResult(sourceRead).isError).toBeFalsy();
+    expect(parseResult(childRead).isError).toBeFalsy();
+  });
+
   it('allows shared active team reads', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('caller');
@@ -2619,7 +2681,7 @@ describe('agent-deck-mcp tools — list_session_events', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.reason).toBe('unrelated');
-    expect(parsed.data.hint).toMatch(/self, spawn ancestors\/descendants, or sessions sharing an active team/);
+    expect(parsed.data.hint).toMatch(/current handoff ownership chain/);
     expect(listForSessionCalls).toEqual([]);
   });
 

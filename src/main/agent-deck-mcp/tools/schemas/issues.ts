@@ -113,15 +113,15 @@ export const REPORT_ISSUE_SCHEMA = {
 };
 
 /**
- * `append_issue_context` mcp tool — agent 在同一 session 内为已上报 issue 追加现场。
- * source-bound + resolved/软删 reject 详 handler;append 走 issue_appendices 子表不动 description。
+ * `append_issue_context` mcp tool — issue 当前逻辑所有者为已上报 issue 追加现场。
+ * handoff 后仅 latest committed successor 保留授权；resolved/软删 reject 详 handler。
  */
 export const APPEND_ISSUE_CONTEXT_SCHEMA = {
   issueId: z
     .string()
     .min(1)
     .max(128)
-    .describe('Issue `id` returned by report_issue. Only the same source session that reported it can append.'),
+    .describe('Issue `id` returned by report_issue. Only the current logical owner may append: the reporting source before handoff, or only its latest committed successor after handoff.'),
   additionalContext: z
     .string()
     .min(1)
@@ -139,15 +139,15 @@ export const APPEND_ISSUE_CONTEXT_SCHEMA = {
 };
 
 /**
- * `update_issue_status` mcp tool — issue 的源会话或解决会话自助推进 status。
- * 授权边界 source OR resolution session;软删 reject;可选 note 留痕 — 详 handler。
+ * `update_issue_status` mcp tool — source / resolution lineage 的当前逻辑所有者推进 status。
+ * handoff 后每条 lineage 仅 latest committed successor 保留授权；软删 reject — 详 handler。
  */
 export const UPDATE_ISSUE_STATUS_SCHEMA = {
   issueId: z
     .string()
     .min(1)
     .max(128)
-    .describe('Issue `id` to update. Only its source session or resolution session may update it.'),
+    .describe('Issue `id` to update. Only a current logical owner may update it: the source or resolution session before handoff, otherwise only the latest committed successor of that lineage.'),
   status: z
     .enum(['open', 'in-progress', 'resolved'])
     .describe('New issue status. Use "resolved" after fixing it, or "open" / "in-progress" to reopen.'),

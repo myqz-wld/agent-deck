@@ -30,6 +30,7 @@ import type {
   RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { AgentEnqueueOptions } from '@main/adapters/types';
 
 /** 5s dedup 窗口防同 sessionId 短时间内多次 recover 重 emit「⚠ Codex 通道已断开」噪声。 */
 export const PLACEHOLDER_DEDUP_MS = 5_000;
@@ -115,6 +116,8 @@ export type CreateSessionThunk = (opts: {
    * 走此路径,resume path 必须 emit user message 让 UI 活动流看到「你」发的第一条话)。
    */
   skipFirstUserEmit?: boolean;
+  /** Preserve keyed/deferred queue semantics when this prompt is the recovery create's first turn. */
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法 (codex 对称 claude)**:recover 路径透传 cancelGuard,
    * createSession 内部 ensureCodex / resumeThread pre-registration 到 sessions.set 之间查一次 epoch,

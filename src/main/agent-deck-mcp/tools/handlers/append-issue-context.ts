@@ -1,12 +1,11 @@
 /**
- * append_issue_context handler — agent 在**同一 session 内**为已上报 issue 追加现场。
+ * append_issue_context handler — issue 的当前逻辑所有者为已上报 issue 追加现场。
  *
  * plan issue-tracker-mcp-20260529 §Step 3.3.3 / §D7 / §D10 / §D16 / §D17 / §D19。
  *
  * 关键行为：
- * 1. **strict source-bound**（§D10 / §不变量 3）：`issue.sourceSessionId === callerSid`，
- *    跨 session / 跨 caller 一律 reject + 详细 hint「issue.sourceSessionId=<old>, caller=<new>。
- *    append_issue_context 仅支持同 session 补现场,请用 report_issue 重新上报新 issue,UI 端人工 merge」
+ * 1. **current logical owner-bound**：未 handoff 时 source session 可写；一旦 handoff commit，
+ *    仅 latest committed successor 可写，predecessor 立即失权。sourceSessionId 只保留 provenance。
  * 2. **status='resolved' 时 reject**（§D7 / §D13）：「issue 已 resolved，新现场请 create 新 issue」
  *    避免 resolved issue 被 appendContext 长期续命让 GC 时钟错位
  * 3. **append 不动 issues.description**（§不变量 9 / §D16）：新行写入 issue_appendices 子表 +
@@ -20,6 +19,7 @@
 
 import { issueRepo } from '@main/store/issue-repo';
 import { eventBus } from '@main/event-bus';
+import { isCurrentHandOffOwner } from '@main/session/hand-off/ownership';
 
 import {
   err,
@@ -41,13 +41,11 @@ export const appendIssueContextHandler = withMcpGuard(
           'Verify issueId against the id returned by report_issue. If the issue was removed, call report_issue to create a new issue.',
         );
       }
-      // §D10 strict source-bound 校验：issue.sourceSessionId 必须等于 callerSid。
-      // 跨 session / 跨 caller / hand_off 后丢 issueId 都走这条 reject 路径,详细 hint
-      // 让 agent 知道改走 report_issue 重新上报新 issue。
-      if (issue.sourceSessionId !== callerSid) {
+      // Keep sourceSessionId as provenance; authorization follows only the current logical owner.
+      if (!isCurrentHandOffOwner(issue.sourceSessionId, callerSid)) {
         return err(
           `append rejected: issue.sourceSessionId=${issue.sourceSessionId ?? '<null>'}, caller=${callerSid}`,
-          'Only the source session can append context. Call report_issue from this session to create a new issue with the additional context; ask the user to merge it in the Agent Deck UI if needed.',
+          "Only the issue's current logical owner can append context: the reporting source before handoff, or only its latest committed successor afterward. A predecessor whose handoff committed no longer has authority. Call report_issue only when this caller owns a separate issue.",
         );
       }
       // 与 resolved-reject 对称：软删（用户已在 UI 隐藏）的 issue 也不接受 append。继续 append

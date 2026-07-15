@@ -40,6 +40,7 @@ import {
 import type { CreateSessionThunk, JsonlExistsThunk } from './recoverer';
 import type { PrepareRecoveryContinuationThunk } from './recoverer/_deps';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
+import type { AgentEnqueueOptions } from '@main/adapters/types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-jsonl-fallback');
@@ -86,6 +87,7 @@ export interface CodexJsonlFallbackOpts {
   additionalDirectories?: readonly string[];
   /** 首条恢复消息带图 attachments 透传 */
   attachments?: UploadedAttachmentRef[];
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * **R2 reviewer-codex HIGH + reviewer-claude 反驳轮证实修法（对称 claude jsonl-fallback.ts）**：
    * recover 路径在 continuation preparation await 期间用户若主动
@@ -189,6 +191,7 @@ export async function maybeCodexJsonlFallback(
     networkAccessEnabled: opts.networkAccessEnabled,
     additionalDirectories: opts.additionalDirectories,
     attachments: opts.attachments,
+    initialEnqueueOptions: opts.initialEnqueueOptions,
     // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
     // createSession resume path 跳过重复 emit (详 recoverer.recoverAndSend emit user message 段注释)
     skipFirstUserEmit: true,

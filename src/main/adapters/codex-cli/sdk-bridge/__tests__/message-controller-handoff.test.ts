@@ -20,6 +20,105 @@ function internal(sessionId: string): InternalSession {
 }
 
 describe('MessageController handoff rollback recovery', () => {
+  it('defers a correlated user event until the queued turn starts', async () => {
+    const sessionId = 'codex-correlated-turn';
+    const session = internal(sessionId);
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit,
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    await controller.enqueueMessage(sessionId, 'internal prompt', [], {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'turn-1',
+    });
+
+    expect(emit).not.toHaveBeenCalled();
+    expect(session.pendingDeferredUserEvents).toEqual([{
+      text: 'internal prompt',
+      turnCorrelationId: 'turn-1',
+    }]);
+  });
+
+  it('preserves the execution marker when a correlated turn must recover first', async () => {
+    const sourceId = 'codex-missing-correlated-turn';
+    const recovered = internal('codex-recovered-correlated-turn');
+    const sessions = new Map<string, InternalSession>();
+    const recoverAndSend = vi.fn(async (
+      _sessionId: string,
+      _text: string,
+      _attachments: unknown,
+      options?: {
+        userEventAlreadyPersisted?: boolean;
+        initialEnqueueOptions?: {
+          deferUserEventUntilTurnStart?: boolean;
+          turnCorrelationId?: string;
+        };
+        sendAfterRecovery?: (sessionId: string) => Promise<void>;
+      },
+    ) => {
+      sessions.set(recovered.applicationSid, recovered);
+      await options?.sendAfterRecovery?.(recovered.applicationSid);
+    });
+    const controller = new MessageController({
+      sessions,
+      emit: vi.fn(),
+      recoverAndSend,
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    await controller.enqueueMessage(sourceId, 'correlated recovery prompt', [], {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'recovered-turn-1',
+    });
+
+    expect(recoverAndSend).toHaveBeenCalledWith(
+      sourceId,
+      'correlated recovery prompt',
+      [],
+      expect.objectContaining({
+        initialEnqueueOptions: expect.objectContaining({
+          deferUserEventUntilTurnStart: true,
+          turnCorrelationId: 'recovered-turn-1',
+        }),
+        sendAfterRecovery: expect.any(Function),
+      }),
+    );
+    expect(recovered.pendingDeferredUserEvents).toEqual([{
+      text: 'correlated recovery prompt',
+      turnCorrelationId: 'recovered-turn-1',
+    }]);
+  });
+
+  it('acknowledges an accepted keyed turn when its activity event throws and deduplicates retry', async () => {
+    const sessionId = 'codex-idempotent-late-decision';
+    const session = internal(sessionId);
+    const emit = vi.fn<(event: AgentEvent) => void>()
+      .mockImplementationOnce(() => {
+        throw new Error('event sink unavailable');
+      });
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit,
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+    const options = { idempotencyKey: 'plan-late-decision:plan-1' };
+
+    await expect(controller.enqueueMessage(sessionId, 'approve plan', [], options))
+      .resolves.toBeUndefined();
+    await expect(controller.enqueueMessage(sessionId, 'approve plan', [], options))
+      .resolves.toBeUndefined();
+
+    expect(session.pendingMessages).toEqual(['approve plan']);
+    expect(session.acceptedEnqueueFingerprints?.size).toBe(1);
+    await expect(controller.enqueueMessage(sessionId, 'revise plan', [], options))
+      .rejects.toThrow('different payload');
+  });
+
   it('allows mandatory successor tails past ordinary pending queue backpressure', async () => {
     const sessionId = 'codex-successor-overflow';
     const session = internal(sessionId);

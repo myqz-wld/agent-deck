@@ -28,6 +28,7 @@ import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters
 import type { RecoverAndSendDeps } from './_deps';
 import { sendAfterInflightRecovery } from './recovery-waiter';
 import log from '@main/utils/logger';
+import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
 
 const logger = log.scope('claude-recoverer');
 
@@ -57,10 +58,7 @@ export async function recoverAndSendImpl(
   sessionId: string,
   text: string,
   attachments: UploadedAttachmentRef[] | undefined,
-  options: {
-    userEventAlreadyPersisted?: boolean;
-    sendAfterRecovery?: (sessionId: string) => Promise<void>;
-  } | undefined,
+  options: AdapterRecoveryDeliveryOptions | undefined,
   deps: RecoverAndSendDeps,
 ): Promise<string> {
   const inflight = deps.ctx.recovering.get(sessionId);
@@ -70,10 +68,7 @@ export async function recoverAndSendImpl(
       sessionId,
       text,
       attachments,
-      sendThunk:
-        options?.userEventAlreadyPersisted && options.sendAfterRecovery
-          ? (finalId) => options.sendAfterRecovery!(finalId)
-          : deps.sendThunk,
+      sendThunk: options?.sendAfterRecovery ?? deps.sendThunk,
     });
   }
 
@@ -169,7 +164,10 @@ export async function recoverAndSendImpl(
   // ③ 下游 createThunk / maybeJsonlFallback 显式传 skipFirstUserEmit:true 让 finalize /
   //    fallback helper 跳过重复 emit,避免双气泡
   // 等待者 inflight path(L234-254)无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
-  if (!options?.userEventAlreadyPersisted) {
+  if (
+    !options?.userEventAlreadyPersisted &&
+    !options?.initialEnqueueOptions?.deferUserEventUntilTurnStart
+  ) {
     deps.ctx.emit({
       sessionId,
       agentId: AGENT_ID,
@@ -342,6 +340,7 @@ export async function recoverAndSendImpl(
           model: rec.model ?? undefined,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           attachments,
+          initialEnqueueOptions: options?.initialEnqueueOptions,
           cwdFellBack,
           emitContext: 'recover',
           // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
@@ -422,6 +421,7 @@ export async function recoverAndSendImpl(
         extraAllowWrite: rec.extraAllowWrite ?? undefined,
         // HIGH-1 修法：attachments 透传，正常 resume 路径下首条恢复消息带图
         attachments,
+        initialEnqueueOptions: options?.initialEnqueueOptions,
         // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
         // finalizeSessionStart 跳过重复 emit 避免双气泡(详 recoverer.recoverAndSend emit user message 段注释)
         skipFirstUserEmit: true,

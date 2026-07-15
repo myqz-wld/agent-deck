@@ -86,4 +86,38 @@ describe('dispatchAdapterMessageWithHandOffRedirect', () => {
     expect(sourceSend).toHaveBeenCalledWith('source', 'ordinary input', []);
     expect(deps.getSession).not.toHaveBeenCalled();
   });
+
+  it('uses retry-safe enqueue semantics for a keyed source turn', async () => {
+    const sourceSend = vi.fn(async () => undefined);
+    const sourceEnqueue = vi.fn(async () => undefined);
+    const deps: AdapterMessageDispatchDependencies = {
+      successorFor: vi.fn(() => null),
+      unarchiveOnUserSend: vi.fn(async () => undefined),
+      getSession: vi.fn(),
+      getAdapter: vi.fn(),
+    };
+    const enqueueOptions = { idempotencyKey: 'plan-late-decision:plan-1' };
+
+    await dispatchAdapterMessageWithHandOffRedirect(
+      {
+        sourceSessionId: 'source',
+        sourceAdapter: {
+          sendMessage: sourceSend,
+          enqueueMessage: sourceEnqueue,
+        } as unknown as AgentAdapter,
+        text: 'late plan decision',
+        attachments: [],
+        enqueueOptions,
+      },
+      deps,
+    );
+
+    expect(sourceSend).not.toHaveBeenCalled();
+    expect(sourceEnqueue).toHaveBeenCalledWith(
+      'source',
+      'late plan decision',
+      [],
+      enqueueOptions,
+    );
+  });
 });

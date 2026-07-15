@@ -8,15 +8,6 @@ const ROLLBACK_REPLAY_MAX_ATTEMPTS = 6;
 const MAX_BUFFERED_SOURCE_INPUTS = 100;
 const MAX_HANDOFF_ALIAS_DEPTH = 1_024;
 
-function durableSuccessorFor(sourceSessionId: string): string | null {
-  try {
-    return findSessionHandOffSuccessor(sourceSessionId);
-  } catch {
-    // Startup/shutdown and isolated unit tests can call routing while the DB is unavailable.
-    return null;
-  }
-}
-
 function replayDelay(attempt: number): Promise<void> {
   const delay = Math.min(ROLLBACK_REPLAY_MAX_DELAY_MS, 100 * 2 ** Math.min(attempt, 6));
   return new Promise((resolve) => {
@@ -71,7 +62,7 @@ export class HandOffCutoverCoordinator {
 
   constructor(
     private readonly findDurableSuccessor: (sourceSessionId: string) => string | null =
-      durableSuccessorFor,
+      findSessionHandOffSuccessor,
   ) {}
 
   tryAcquire(sourceSessionId: string): HandOffCutoverLease | null {
@@ -277,6 +268,24 @@ export class HandOffCutoverCoordinator {
 
   /** Route IPC work that started before commit but reaches adapter dispatch after source close. */
   successorFor(sourceSessionId: string, now = Date.now()): string | null {
+    try {
+      return this.resolveSuccessorFor(sourceSessionId, now, false);
+    } catch {
+      // Best-effort routing remains available during startup/shutdown when SQLite is unavailable.
+      return null;
+    }
+  }
+
+  /** Authorization resolver: durable lookup failure is distinct from a confirmed no-handoff row. */
+  successorForStrict(sourceSessionId: string, now = Date.now()): string | null {
+    return this.resolveSuccessorFor(sourceSessionId, now, true);
+  }
+
+  private resolveSuccessorFor(
+    sourceSessionId: string,
+    now: number,
+    failOnDurableLookupError: boolean,
+  ): string | null {
     let current = sourceSessionId;
     const seen = new Set([current]);
     for (let depth = 0; depth < MAX_HANDOFF_ALIAS_DEPTH; depth += 1) {
@@ -290,15 +299,22 @@ export class HandOffCutoverCoordinator {
           next = redirect?.successorSessionId ?? null;
         }
       }
-      if (!next) next = this.findDurableSuccessor(current);
+      if (!next) {
+        try {
+          next = this.findDurableSuccessor(current);
+        } catch (error) {
+          if (failOnDurableLookupError) throw error;
+          return current === sourceSessionId ? null : current;
+        }
+      }
       if (!next) return current === sourceSessionId ? null : current;
-      if (seen.has(next)) return null;
+      if (seen.has(next)) throw new Error('handoff alias cycle detected');
       seen.add(next);
       current = next;
     }
     // Never return an arbitrary closed intermediate owner when a corrupt or extreme chain exceeds
     // the safety bound. Normal handoffs path-compress durable aliases during resource transfer.
-    return null;
+    throw new Error('handoff alias chain exceeded the safety bound');
   }
 
   private rememberRedirect(sourceSessionId: string, successorSessionId: string): void {

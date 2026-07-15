@@ -4,7 +4,7 @@ import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import { StreamProcessor } from '../stream-processor';
-import { makeInternalSession } from '../types';
+import { makeInternalSession, type PendingUserMessage } from '../types';
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
@@ -35,7 +35,10 @@ async function waitForNotify(
   return notify!;
 }
 
-function pendingMessage(text: string, materialized: ReturnType<typeof vi.fn>) {
+function pendingMessage(
+  text: string,
+  materialized: ReturnType<typeof vi.fn>,
+): PendingUserMessage {
   return async (): Promise<SDKUserMessage> => {
     materialized();
     return {
@@ -49,6 +52,37 @@ function pendingMessage(text: string, materialized: ReturnType<typeof vi.fn>) {
 }
 
 describe('StreamProcessor deferred handoff retirement', () => {
+  it('emits a deferred correlated user event only when the input stream dequeues it', async () => {
+    const internal = makeInternalSession({
+      cwd: '/tmp/claude-correlated-turn',
+      applicationSid: 'source-sid',
+    });
+    const pending = pendingMessage('internal prompt', vi.fn());
+    pending.deferredUserEvent = {
+      text: 'internal prompt',
+      turnCorrelationId: 'turn-1',
+    };
+    internal.pendingUserMessages.push(pending);
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const processor = new StreamProcessor({
+      sessions: new Map([['source-sid', internal]]),
+      emit,
+    });
+
+    expect(emit).not.toHaveBeenCalled();
+    await processor.createUserMessageStream(internal, 'source-sid')[Symbol.asyncIterator]().next();
+
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'source-sid',
+      kind: 'message',
+      payload: expect.objectContaining({
+        role: 'user',
+        text: 'internal prompt',
+        turnCorrelationId: 'turn-1',
+      }),
+    }));
+  });
+
   it('feeds ordinary queued turns one at a time and releases the next only after result', async () => {
     const internal = makeInternalSession({
       cwd: '/tmp/claude-serialized-input',

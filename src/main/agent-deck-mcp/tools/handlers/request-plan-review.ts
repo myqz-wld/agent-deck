@@ -1,6 +1,5 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { planReviewService } from '@main/plan-review/service';
-import { settingsStore } from '@main/store/settings-store';
 
 import {
   err,
@@ -12,8 +11,13 @@ import type { RequestPlanReviewArgs, RequestPlanReviewResult } from '../schemas'
 
 export function resolvePlanReviewTimeoutMs(
   requestedTimeoutMs: number | undefined,
-  permissionTimeoutMs: number,
+  permissionTimeoutMs?: number,
 ): number | undefined {
+  if (permissionTimeoutMs === undefined) {
+    return requestedTimeoutMs && requestedTimeoutMs > 0
+      ? requestedTimeoutMs
+      : undefined;
+  }
   const settingTimeoutMs = Number.isFinite(permissionTimeoutMs)
     ? Math.max(0, permissionTimeoutMs)
     : 0;
@@ -40,10 +44,7 @@ export const requestPlanReviewHandler = withMcpGuard(
           'Do not retry. Ask the user to start a new Agent Deck session and present the plan there.',
         );
       }
-      const timeoutMs = resolvePlanReviewTimeoutMs(
-        args.timeoutMs,
-        settingsStore.get('permissionTimeoutMs'),
-      );
+      const timeoutMs = resolvePlanReviewTimeoutMs(args.timeoutMs);
 
       const decision = await planReviewService.request({
         sessionId: callerSid,

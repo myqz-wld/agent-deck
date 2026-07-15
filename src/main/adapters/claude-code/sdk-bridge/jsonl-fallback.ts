@@ -42,7 +42,7 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { PermissionMode } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PermissionMode } from '@main/adapters/types';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import { encodeClaudeProjectDir } from '@main/platform';
 import type {
@@ -116,6 +116,7 @@ export interface JsonlFallbackCreateOpts {
    * helper 内 `[...arr]` spread 转 readonly→mutable 时自然降级无副作用。
    */
   attachments?: UploadedAttachmentRef[];
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法**:fresh-cli fallback 路径 createSession 内部也有
    * pre-registration await(loadSdk / buildMcpServersForSession)窗口。helper 把 recover caller 的
@@ -179,6 +180,7 @@ type JsonlFallbackOptsBase = {
   model?: string;
   extraAllowWrite?: readonly string[];
   attachments?: UploadedAttachmentRef[];
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * REVIEW_58 HIGH ✅ (deep-review 双方共识真问题修法):跳过 helper 内 emit 首条 user
    * message — 让 caller 收口 emit 责任避免双气泡。
@@ -423,6 +425,7 @@ export async function maybeJsonlFallback(
     model: opts.model,
     extraAllowWrite: opts.extraAllowWrite,
     attachments: opts.attachments,
+    initialEnqueueOptions: opts.initialEnqueueOptions,
     // **REVIEW_99 R3 cancellation-epoch MED 修法**:透传 recover caller 的 cancelGuard 让 fresh-cli
     // createSession 内部 pre-registration await 后、sessions.set 前再查一次 epoch(覆盖 helper
     // isCancelledFn 检查点与 createSession sessions.set 之间的二段 await 窗口)。recover 路径 isCancelledFn

@@ -29,6 +29,7 @@ import {
 import { checkHandOffSourcePrecondition } from '@main/session/hand-off/source-precondition';
 import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
 import { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
+import { notifySessionHandOffCommitted } from '@main/session/hand-off/ownership';
 import {
   UiHandOffCoordinator,
   type UiHandOffExecutionResult,
@@ -92,7 +93,10 @@ async function executeUiHandOff(input: {
     turn: input.turn,
     transferResources: transferHandOffResources,
     resourceTransferFailed: transferFailed,
-    commitIngress: input.commitIngress,
+    commitIngress: (successorSessionId) => {
+      input.commitIngress(successorSessionId);
+      notifySessionHandOffCommitted(input.source.id, successorSessionId);
+    },
     sourceOwnershipCheck: input.sourceOwnershipCheck,
     closeSuccessor: (sessionId) => sessionManager.close(sessionId),
     finalizeSource: async ({ source }) => {

@@ -306,7 +306,7 @@ export function registerAdaptersIpc(): void {
     const sid = parseStringId('sessionId', sessionId);
     const rid = parseStringId('requestId', requestId);
     if (
-      planReviewService.respond(
+      await planReviewService.respond(
         sid,
         rid,
         response as Parameters<typeof planReviewService.respond>[2],

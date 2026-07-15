@@ -51,6 +51,73 @@ describe('sendClaudeMessage handoff diversion', () => {
     expect(session.pendingUserMessages).toHaveLength(MAX_PENDING_MESSAGES + 1);
   });
 
+  it('preserves a deferred correlation marker through missing-session recovery', async () => {
+    const sourceId = 'claude-missing-correlated-turn';
+    const recoveredId = 'claude-recovered-correlated-turn';
+    const sessions = new Map<string, InternalSession>();
+    const ctx = context(sessions);
+    const recovered = sessionWithPending();
+    ctx.recoverAndSend.mockImplementationOnce(async (
+      _sid,
+      _text,
+      _attachments,
+      options?: { sendAfterRecovery?: (sessionId: string) => Promise<void> },
+    ) => {
+      sessions.set(recoveredId, recovered);
+      await options?.sendAfterRecovery?.(recoveredId);
+      return recoveredId;
+    });
+
+    await sendClaudeMessage(ctx, {
+      sessionId: sourceId,
+      text: 'correlated recovery prompt',
+      enqueueOptions: {
+        deferUserEventUntilTurnStart: true,
+        turnCorrelationId: 'recovered-turn-1',
+      },
+    });
+
+    expect(ctx.recoverAndSend).toHaveBeenCalledWith(
+      sourceId,
+      'correlated recovery prompt',
+      undefined,
+      expect.objectContaining({
+        initialEnqueueOptions: expect.objectContaining({
+          deferUserEventUntilTurnStart: true,
+          turnCorrelationId: 'recovered-turn-1',
+        }),
+        sendAfterRecovery: expect.any(Function),
+      }),
+    );
+    expect(recovered.pendingUserMessages[0]?.deferredUserEvent).toEqual({
+      text: 'correlated recovery prompt',
+      turnCorrelationId: 'recovered-turn-1',
+    });
+    expect(ctx.emit).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges an accepted keyed turn when its event throws and deduplicates retry', async () => {
+    const sessionId = 'claude-idempotent-late-decision';
+    const session = sessionWithPending();
+    const ctx = context(new Map([[sessionId, session]]));
+    ctx.emit.mockImplementationOnce(() => {
+      throw new Error('event sink unavailable');
+    });
+    const input = {
+      sessionId,
+      text: 'approve plan',
+      enqueueOptions: { idempotencyKey: 'plan-late-decision:plan-1' },
+    };
+
+    await expect(sendClaudeMessage(ctx, input)).resolves.toBeUndefined();
+    await expect(sendClaudeMessage(ctx, input)).resolves.toBeUndefined();
+
+    expect(session.pendingUserMessages).toHaveLength(1);
+    expect(session.acceptedEnqueueFingerprints?.size).toBe(1);
+    await expect(sendClaudeMessage(ctx, { ...input, text: 'revise plan' }))
+      .rejects.toThrow('different payload');
+  });
+
   it('bypasses ordinary queue pressure, persists once, and replays without another emit', async () => {
     const sessionId = 'claude-handoff-rollback-overflow';
     const session = sessionWithPending(MAX_PENDING_MESSAGES);

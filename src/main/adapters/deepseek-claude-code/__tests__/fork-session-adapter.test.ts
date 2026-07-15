@@ -78,4 +78,30 @@ describe('Deepseek adapter native fork wiring', () => {
       awaitCanonicalId: true,
     });
   });
+
+  it('forwards correlation and idempotency metadata through the Claude-family bridge', async () => {
+    const bridge = {
+      enqueueMessage: vi.fn(async () => undefined),
+    };
+    (deepseekClaudeCodeAdapter as unknown as { bridge: typeof bridge }).bridge = bridge;
+    const options = {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'deepseek-turn-1',
+      idempotencyKey: 'plan-late-decision:plan-1',
+    };
+
+    await deepseekClaudeCodeAdapter.enqueueMessage(
+      'deepseek-session',
+      'review prompt',
+      [],
+      options,
+    );
+
+    expect(bridge.enqueueMessage).toHaveBeenCalledWith(
+      'deepseek-session',
+      'review prompt',
+      [],
+      options,
+    );
+  });
 });

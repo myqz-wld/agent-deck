@@ -17,11 +17,12 @@
  * Phase 2 Step 2.2 / REVIEW_58 HIGH 等 jsdoc 不删不改）。
  */
 import type { AgentDefinition, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
 import type {
-  HandOffMetadata,
-  UploadedAttachmentRef,
-} from '@shared/types';
-import type { ClaudeCodeEffortLevel, InitialSessionRegistration } from '@main/adapters/types';
+  AgentEnqueueOptions,
+  ClaudeCodeEffortLevel,
+  InitialSessionRegistration,
+} from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
@@ -154,6 +155,8 @@ export interface CreateSessionOpts {
    */
   awaitCanonicalId?: boolean;
   initialSessionRegistration?: InitialSessionRegistration;
+  /** Recovery-only metadata for the first input already being accepted by this create. */
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口)**:recover 路径传 cancelGuard
    * thunk,createSession 内部在 pre-registration await(loadSdk / buildMcpServersForSession)之后、

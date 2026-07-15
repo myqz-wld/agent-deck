@@ -30,6 +30,7 @@ import { registerLogsIpc } from './logs';
 import { registerIssuesIpc } from './issues';
 import { registerTokenUsageIpc } from './token-usage';
 import { registerProviderUsageIpc } from './provider-usage';
+import { registerPlanReviewIpc } from './plan-review';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -37,6 +38,7 @@ export function bootstrapIpc(): void {
   registerHooksIpc();
   registerSettingsIpc();
   registerAdaptersIpc();
+  registerPlanReviewIpc();
   registerPermissionsIpc();
   registerImagesIpc();
   registerTeamsIpc();

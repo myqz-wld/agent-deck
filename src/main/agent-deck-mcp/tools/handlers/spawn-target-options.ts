@@ -18,12 +18,17 @@ export interface SpawnTargetOptionsInput {
   codexConfigOverrides: CodexConfigObject | undefined;
   claudeAgentName: string | undefined;
   claudeAgents: Record<string, AgentDefinition> | undefined;
+  /** Main-only same-adapter inheritance for an internal Codex review fork. */
+  codexRuntimeAccess?: {
+    networkAccessEnabled?: boolean;
+    additionalDirectories?: readonly string[];
+  };
 }
 
 /** Build the adapter-discriminated target options exactly once for fresh and fork dispatch. */
 export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateSessionOptions {
   const { args } = input;
-  return buildCreateSessionOptions(args.adapter, {
+  const target = buildCreateSessionOptions(args.adapter, {
     cwd: args.cwd,
     prompt: input.prompt,
     ...omitUndefined({
@@ -45,6 +50,15 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       ? { extraAllowWrite: input.effectiveExtraAllowWrite }
       : {}),
   });
+  if (target.agentId === 'codex-cli' && input.codexRuntimeAccess) {
+    if (input.codexRuntimeAccess.networkAccessEnabled !== undefined) {
+      target.networkAccessEnabled = input.codexRuntimeAccess.networkAccessEnabled;
+    }
+    if (input.codexRuntimeAccess.additionalDirectories?.length) {
+      target.additionalDirectories = [...input.codexRuntimeAccess.additionalDirectories];
+    }
+  }
+  return target;
 }
 
 /** Replace the provisional prompt after the normal team/reply context is assembled. */

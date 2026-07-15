@@ -96,6 +96,12 @@ export type ExitPlanModeResponse =
   | { decision: 'approve-bypass' }
   | { decision: 'keep-planning'; feedback?: string };
 
+/** Renderer-visible identity of the isolated native fork used for MCP plan review. */
+export interface PlanDeepReviewSession {
+  sessionId: string;
+  agentId: 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+}
+
 // ───────────────────────────────────────────────────────── Diff Review
 
 export type DiffReviewMode = 'pr' | 'merge-conflict';

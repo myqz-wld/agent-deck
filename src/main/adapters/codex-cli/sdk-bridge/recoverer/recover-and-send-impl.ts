@@ -36,6 +36,7 @@ import { isRetryingUniversalDelivery } from './universal-delivery';
 import log from '@main/utils/logger';
 import { isCodexThinkingLevel } from '@shared/session-metadata';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
+import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
 
 const logger = log.scope('codex-recoverer');
 
@@ -55,10 +56,7 @@ export async function recoverAndSendImpl(
   sessionId: string,
   text: string,
   attachments: UploadedAttachmentRef[] | undefined,
-  options: {
-    userEventAlreadyPersisted?: boolean;
-    sendAfterRecovery?: (sessionId: string) => Promise<void>;
-  } | undefined,
+  options: AdapterRecoveryDeliveryOptions | undefined,
   deps: RecoverAndSendDeps,
 ): Promise<string> {
   const inflight = deps.ctx.recovering.get(sessionId);
@@ -89,7 +87,7 @@ export async function recoverAndSendImpl(
     }
     // attachments 透传（与 claude HIGH-1 修法同款）：第二条等待者带的图属于「自己这条 message」
     // 与第一条独立，必须走完整 sendMessage 路径。
-    if (options?.userEventAlreadyPersisted && options.sendAfterRecovery) {
+    if (options?.sendAfterRecovery) {
       await options.sendAfterRecovery(finalId);
     } else {
       await deps.sendThunk(finalId, text, attachments);
@@ -189,7 +187,11 @@ export async function recoverAndSendImpl(
   // 下游 createThunk 显式传 skipFirstUserEmit:true 让 createSession resume path 跳过重复 emit。
   // 等待者 inflight path 无需改 — sendThunk 内部走 sendMessage live 主路径自己 emit。
   try {
-    if (!retryingUniversalDelivery && !options?.userEventAlreadyPersisted) deps.ctx.emit({
+    if (
+      !retryingUniversalDelivery &&
+      !options?.userEventAlreadyPersisted &&
+      !options?.initialEnqueueOptions?.deferUserEventUntilTurnStart
+    ) deps.ctx.emit({
       sessionId,
       agentId: AGENT_ID,
       kind: 'message',
@@ -369,6 +371,7 @@ export async function recoverAndSendImpl(
           networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
           additionalDirectories: rec.additionalDirectories ?? undefined,
           attachments,
+          initialEnqueueOptions: options?.initialEnqueueOptions,
           // **REVIEW_99 R3 cancellation-epoch (替代 R2 isCancelledFn lifecycle 快照,对称 claude)**：
           // await shared continuation preparation 期间用户主动 close 会被 closeImpl 自增
           // close-epoch + 静默设 closed 但不 abort 在途 recovering promise；helper await 后重读本
@@ -426,6 +429,7 @@ export async function recoverAndSendImpl(
         networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
         additionalDirectories: rec.additionalDirectories ?? undefined,
         attachments,
+        initialEnqueueOptions: options?.initialEnqueueOptions,
         // REVIEW_58 HIGH ✅ 收口修法:recoverAndSend 入口已 emit user message,
         // createSession resume path 跳过重复 emit(详 recoverer.recoverAndSend emit user message 段注释)
         skipFirstUserEmit: true,

@@ -133,6 +133,27 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.recoveryCleanupCalls).toHaveLength(1);
   });
 
+  it('first-caller recovery carries correlated/keyed enqueue metadata into createSession', async () => {
+    const bridge = makeBridge();
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-initial-enqueue', agentId: 'claude-code', cwd: '/tmp/work', title: 'work',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1, lastEventAt: 2,
+      endedAt: null, archivedAt: null, permissionMode: 'plan',
+    });
+    const initialEnqueueOptions = {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'turn-recovery',
+      idempotencyKey: 'recovery-key',
+    };
+
+    await bridge.enqueueMessage('sess-initial-enqueue', 'review this', [], initialEnqueueOptions);
+
+    expect(bridge.createCalls[0]?.initialEnqueueOptions).toEqual(initialEnqueueOptions);
+    expect(emits.some((event) =>
+      event.kind === 'message' && (event.payload as { role?: string }).role === 'user'
+    )).toBe(false);
+  });
+
   it('record 不在 → 抛与原行为一致的 not found 错，createSession 不被调', async () => {
     const bridge = makeBridge();
     vi.mocked(sessionRepo.get).mockReturnValue(null);

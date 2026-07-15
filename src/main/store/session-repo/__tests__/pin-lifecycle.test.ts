@@ -18,6 +18,11 @@ vi.mock('../../db', () => ({
 import { sessionRepo, SessionPinStateError } from '../index';
 import * as coreCrud from '../core-crud';
 import { reactivateHandOffSource } from '@main/session/hand-off/source-reactivation';
+import {
+  isCurrentHandOffOwner,
+  sessionOwnershipLineage,
+} from '@main/session/hand-off/ownership';
+import { getRelatedSessionReadAccess } from '@main/agent-deck-mcp/tools/helpers';
 
 function insertSession(
   db: Database.Database,
@@ -71,7 +76,14 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
   });
 
   it('moves alias endpoints while retaining the old durable wire anchor during rename', () => {
+    insertSession(db, 'parent-source');
     insertSession(db, 'old-source');
+    insertSession(db, 'later-successor');
+    insertSession(db, 'predecessor-child');
+    db.prepare(`UPDATE sessions SET spawned_by = ? WHERE id = ?`).run(
+      'parent-source',
+      'predecessor-child',
+    );
     recordSessionHandOffAliasWithDb(db, 'parent-source', 'old-source', 10);
     recordSessionHandOffAliasWithDb(db, 'old-source', 'later-successor', 20);
     recordSessionHandOffAliasWithDb(db, 'renamed-source', 'old-source', 30);
@@ -81,11 +93,18 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
     expect(findSessionHandOffSuccessorWithDb(db, 'parent-source')).toBe('renamed-source');
     expect(findSessionHandOffSuccessorWithDb(db, 'renamed-source')).toBe('later-successor');
     expect(findSessionHandOffSuccessorWithDb(db, 'old-source')).toBe('renamed-source');
+    const lineage = sessionOwnershipLineage('later-successor');
+    expect(lineage.slice(0, 2)).toEqual(['later-successor', 'renamed-source']);
+    expect(new Set(lineage.slice(2))).toEqual(new Set(['old-source', 'parent-source']));
+    expect(getRelatedSessionReadAccess('later-successor', 'predecessor-child'))
+      .toEqual({ allowed: true });
   });
 
   it('reactivates the row and clears its durable successor in one transaction', () => {
     insertSession(db, 'reactivated-source', 'closed');
     recordSessionHandOffAliasWithDb(db, 'reactivated-source', 'old-successor', 10);
+    expect(isCurrentHandOffOwner('reactivated-source', 'old-successor')).toBe(true);
+    expect(isCurrentHandOffOwner('reactivated-source', 'reactivated-source')).toBe(false);
 
     expect(() => reactivateHandOffSource('reactivated-source', () => {
       sessionRepo.setLifecycle('reactivated-source', 'active', 200);
@@ -99,6 +118,8 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
     });
     expect(sessionRepo.get('reactivated-source')?.lifecycle).toBe('active');
     expect(findSessionHandOffSuccessorWithDb(db, 'reactivated-source')).toBeNull();
+    expect(isCurrentHandOffOwner('reactivated-source', 'old-successor')).toBe(false);
+    expect(isCurrentHandOffOwner('reactivated-source', 'reactivated-source')).toBe(true);
   });
 
   it('reactivates dormant rows while pinning and rejects archived or closed rows', () => {
