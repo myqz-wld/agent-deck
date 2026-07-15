@@ -1,6 +1,6 @@
 import { adapterRegistry } from '@main/adapters/registry';
 import { isAgentId } from '@main/adapters/options-builder';
-import type { AgentAdapter } from '@main/adapters/types';
+import type { AgentAdapter, AgentEnqueueOptions } from '@main/adapters/types';
 import { sessionManager } from '@main/session/manager';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { sessionRepo } from '@main/store/session-repo';
@@ -27,6 +27,7 @@ export async function dispatchAdapterMessageWithHandOffRedirect(
     sourceAdapter: AgentAdapter;
     text: string;
     attachments: UploadedAttachmentRef[];
+    enqueueOptions?: AgentEnqueueOptions;
   },
   deps: AdapterMessageDispatchDependencies = productionDependencies,
 ): Promise<void> {
@@ -34,6 +35,15 @@ export async function dispatchAdapterMessageWithHandOffRedirect(
   await deps.unarchiveOnUserSend(initialRedirect ?? input.sourceSessionId);
   const redirect = deps.successorFor(input.sourceSessionId) ?? initialRedirect;
   if (!redirect) {
+    if (input.enqueueOptions && input.sourceAdapter.enqueueMessage) {
+      await input.sourceAdapter.enqueueMessage(
+        input.sourceSessionId,
+        input.text,
+        input.attachments,
+        input.enqueueOptions,
+      );
+      return;
+    }
     if (!input.sourceAdapter.sendMessage) throw new Error('adapter cannot send message');
     await input.sourceAdapter.sendMessage(
       input.sourceSessionId,
@@ -51,9 +61,14 @@ export async function dispatchAdapterMessageWithHandOffRedirect(
   if (!successor || !successorAdapter?.enqueueMessage) {
     throw new Error('handoff successor cannot receive redirected source input');
   }
-  await successorAdapter.enqueueMessage(
-    redirect,
-    input.text,
-    input.attachments,
-  );
+  if (input.enqueueOptions) {
+    await successorAdapter.enqueueMessage(
+      redirect,
+      input.text,
+      input.attachments,
+      input.enqueueOptions,
+    );
+  } else {
+    await successorAdapter.enqueueMessage(redirect, input.text, input.attachments);
+  }
 }

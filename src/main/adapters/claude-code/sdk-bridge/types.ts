@@ -17,6 +17,7 @@ import type {
   ExitPlanModeRequest,
   ExitPlanModeResponse,
   PermissionRequest,
+  UploadedAttachmentRef,
 } from '@shared/types';
 
 export interface SdkSessionHandle {
@@ -73,6 +74,12 @@ export interface PendingExitPlanModeEntry {
 export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
   /** Provider-neutral copy retained while the lazy SDK message still waits in the source queue. */
   handOffMessage?: QueuedAgentMessage;
+  /** Emit this internal user event only when the SDK input stream dequeues the turn. */
+  deferredUserEvent?: {
+    text: string;
+    attachments?: UploadedAttachmentRef[];
+    turnCorrelationId?: string;
+  };
 };
 
 export interface LiveTokenEstimateState {
@@ -161,6 +168,8 @@ export interface InternalSession {
    */
   permissionMode: PermissionMode;
   pendingUserMessages: PendingUserMessage[];
+  /** Bounded in-memory acknowledgements for retry-safe internal provider turns. */
+  acceptedEnqueueFingerprints?: Map<string, string>;
   /** Prevent the SDK input iterable from eagerly handing it more than one provider turn at once. */
   userTurnInFlight?: boolean;
   /** Handoff owns this source; do not consume any more user input before the active turn ends. */

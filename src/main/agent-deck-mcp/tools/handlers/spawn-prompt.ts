@@ -13,6 +13,8 @@ export interface BuildSpawnPromptContextInput {
   promptToUse: string;
   teamIdEarly: string | null;
   handOffMode?: boolean;
+  /** Main-only review forks keep lineage but must not inject a reply anchor into the child. */
+  suppressLeadContext?: boolean;
 }
 
 export interface BuildSpawnPromptContextResult {
@@ -27,7 +29,8 @@ export function buildSpawnPromptContext(
 ): BuildSpawnPromptContextResult {
   const shouldWriteNormalSpawnLink =
     input.callerExists && shouldWriteSpawnLink({ handOffMode: input.handOffMode });
-  const willInjectWirePrefix = shouldWriteNormalSpawnLink;
+  const willInjectWirePrefix =
+    shouldWriteNormalSpawnLink && input.suppressLeadContext !== true;
   let placeholderId: string | null = null;
   let promptForSpawn = input.promptToUse;
 

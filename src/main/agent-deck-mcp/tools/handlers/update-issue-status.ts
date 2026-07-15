@@ -1,13 +1,12 @@
 /**
- * update_issue_status handler — issue 的**源会话或解决会话**自助推进 status。
+ * update_issue_status handler — source / resolution lineage 的**当前逻辑所有者**推进 status。
  *
  * plan issue-tracker 体验改进 20260531 §需求3（打破旧「agent 永不改 status」铁律的受控开口）。
  *
  * 关键行为：
- * 1. **授权边界放宽一档**（比 append_issue_context 严格 source-bound 多认解决会话）：
- *    `issue.sourceSessionId === callerSid || issue.resolutionSessionId === callerSid` 才放行。
- *    第三方 caller（既非 source 又非 resolution）一律 reject + hint「只有源 / 解决会话能改,
- *    其余请走 UI」。两者皆 null（会话被 GC）时 agent 改不了,只能走 UI（合理 fallback）。
+ * 1. **两条 logical-owner lineage**（比 append_issue_context 多认 resolution lineage）：
+ *    未 handoff 时各自的原 session 可写；handoff commit 后仅各自 latest successor 可写，
+ *    predecessor 立即失权。两者皆 null（会话被 GC）时只能走 UI。
  * 2. **软删 reject**（与 append 对称）：已被用户隐藏的 issue 不接受 agent 改 status。
  * 3. **可选 note 留痕**：note 非空时复用 issueRepo.appendContext 写一条补充记录
  *    （body=note, logsRef=null, appendedSessionId=callerSid）— 记录怎么修的 / 为何 reopen,
@@ -20,6 +19,7 @@
 
 import { issueRepo } from '@main/store/issue-repo';
 import { eventBus } from '@main/event-bus';
+import { isCurrentHandOffOwner } from '@main/session/hand-off/ownership';
 
 import {
   err,
@@ -41,9 +41,9 @@ export const updateIssueStatusHandler = withMcpGuard(
           'Verify issueId against the id returned by report_issue. If the issue was removed, call report_issue to create a new issue.',
         );
       }
-      // 授权校验：源会话 OR 解决会话。第三方一律 reject。
-      const isSource = issue.sourceSessionId === callerSid;
-      const isResolution = issue.resolutionSessionId === callerSid;
+      // 授权校验：源 / 解决会话的当前逻辑所有者。provenance 字段保持原 session id。
+      const isSource = isCurrentHandOffOwner(issue.sourceSessionId, callerSid);
+      const isResolution = isCurrentHandOffOwner(issue.resolutionSessionId, callerSid);
       if (!isSource && !isResolution) {
         // MED-1 轻量缓和（plan issue-tracker 体验改进 20260531 review Round 1）：
         // IPC IssuesResolveInNewSession 先 await createSession（启动 SDK + 消费首轮 prompt）
@@ -52,8 +52,8 @@ export const updateIssueStatusHandler = withMcpGuard(
         // createSession 内部固有（return sid 时 SDK 已消费 prompt），外部前置消不掉；故 hint
         // 引导「刚起的解决会话几秒后重试」把 silent reject 变成可理解的一时错（重试即命中）。
         return err(
-          `update_issue_status rejected: caller=${callerSid} is neither source (${issue.sourceSessionId ?? '<null>'}) nor resolution (${issue.resolutionSessionId ?? '<null>'}) session of issue ${args.issueId}`,
-          'Only the source session or resolution session can update this issue. If this is a newly launched resolution session, retry once after initialization completes; otherwise ask the user to update the issue in the Agent Deck UI.',
+          `update_issue_status rejected: caller=${callerSid} is not the current logical owner of source lineage (${issue.sourceSessionId ?? '<null>'}) or resolution lineage (${issue.resolutionSessionId ?? '<null>'}) for issue ${args.issueId}`,
+          "Only a current logical owner of the issue's source or resolution lineage can update it: the original lineage session before handoff, or only that lineage's latest committed successor afterward. A predecessor whose handoff committed no longer has authority. If this is a newly launched resolution session, retry once after initialization completes; otherwise ask the user to update the issue in the Agent Deck UI.",
         );
       }
       // 软删 reject（与 append_issue_context 对称）：用户已隐藏的 issue 不接受 agent 改 status。

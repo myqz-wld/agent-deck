@@ -29,6 +29,8 @@ export interface EventMap {
   'session-removed': [string];
   /** SDK fallback 路径：from=tempKey, to=真实 SDK session_id */
   'session-renamed': [{ from: string; to: string }];
+  /** Mandatory handoff resources and ingress ownership committed before source finalization. */
+  'session-hand-off-committed': [{ sourceSessionId: string; successorSessionId: string }];
   'summary-added': [SummaryRecord];
   /** CLI 子命令新建会话后请求 renderer 切到「实时」并选中该 sessionId。 */
   'session-focus-request': [string];

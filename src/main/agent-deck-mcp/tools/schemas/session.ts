@@ -66,7 +66,7 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
     .max(86_400_000)
     .optional()
     .describe(
-      'Optional timeout in milliseconds. Omit to use the app permission-request timeout; when that setting is 0, omitted timeoutMs waits until the user confirms or asks for revisions.',
+      'Optional compatibility timeout in milliseconds. Omit for an indefinite blocking wait. If an explicit timeout expires, the tool returns timeout but Agent Deck keeps the plan pending; the caller must stop and wait, and a later user decision resumes the current owning session (the latest committed handoff successor, when present) as a new user turn.',
     ),
   callerSessionId: z
     .string()
@@ -272,7 +272,7 @@ export const LIST_SESSION_EVENTS_SCHEMA = {
     .min(1)
     .max(128)
     .describe(
-      'Session id whose normalized Agent Deck event trajectory should be read. The caller may read only itself, spawn ancestors/descendants, or sessions sharing an active team.',
+      'Session id whose normalized Agent Deck event trajectory should be read. The caller may use its current committed handoff ownership chain and may otherwise read only spawn ancestors/descendants or sessions sharing an active team.',
     ),
   limit: z
     .number()

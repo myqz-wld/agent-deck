@@ -11,6 +11,7 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import type { SessionRecord } from '@shared/types';
+import { sessionOwnershipLineages } from '@main/session/hand-off/ownership';
 
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import {
@@ -82,9 +83,17 @@ function filterRelatedForCaller(
   for (const s of sessions) {
     spawnParentCache.set(s.id, s.spawnedBy ?? null);
   }
+  const ownershipLineageCache = sessionOwnershipLineages([
+    caller.id,
+    ...sessions.map((session) => session.id),
+  ]);
 
   return enriched.filter((s) => {
-    return isRelatedSessionVisible(caller, s, { spawnParentCache, callerTeamIds });
+    return isRelatedSessionVisible(caller, s, {
+      spawnParentCache,
+      callerTeamIds,
+      ownershipLineageCache,
+    });
   });
 }
 

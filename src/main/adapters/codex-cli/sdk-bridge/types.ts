@@ -3,7 +3,7 @@
  *
  * 抽自 codex-cli/sdk-bridge.ts 顶部 interface 段。
  */
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexInput } from './input-pack';
@@ -62,8 +62,16 @@ export interface InternalSession {
    *   所以 codex 这边天然没有「base64 常驻队列内存」问题
    */
   pendingMessages: CodexInput[];
+  /** User events intentionally emitted only when the corresponding queued turn is dequeued. */
+  pendingDeferredUserEvents?: Array<{
+    text: string;
+    attachments?: UploadedAttachmentRef[];
+    turnCorrelationId?: string;
+  } | null>;
   /** Provider-neutral metadata kept in FIFO lockstep with production-enqueued pendingMessages. */
   pendingHandOffMessages?: Array<QueuedAgentMessage | null>;
+  /** Bounded in-memory acknowledgements for retry-safe internal provider turns. */
+  acceptedEnqueueFingerprints?: Map<string, string>;
   /** 当前正在跑的 turn 的 AbortController；中断时调用 abort() */
   currentTurn: AbortController | null;
   /** app-server active turn id；turn/steer 的 expectedTurnId 必须匹配它。 */

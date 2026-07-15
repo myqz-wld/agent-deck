@@ -10,11 +10,16 @@ import type {
   PendingUserMessage,
   SdkBridgeOptions,
 } from './types';
+import type { AgentEnqueueOptions } from '@main/adapters/types';
+import {
+  type AdapterRecoveryDeliveryOptions,
+  enqueuePayloadFingerprint,
+  isAcceptedEnqueueRetry,
+  rememberAcceptedEnqueue,
+} from '@main/adapters/enqueue-idempotency';
+import log from '@main/utils/logger';
 
-interface PersistedRecoveryOptions {
-  userEventAlreadyPersisted?: boolean;
-  sendAfterRecovery?: (sessionId: string) => Promise<void>;
-}
+const logger = log.scope('claude-bridge');
 
 export interface ClaudeMessageControllerContext {
   sessions: ReadonlyMap<string, InternalSession>;
@@ -23,7 +28,7 @@ export interface ClaudeMessageControllerContext {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
-    options?: PersistedRecoveryOptions,
+    options?: AdapterRecoveryDeliveryOptions,
   ) => Promise<unknown>;
   makeUserMessage: (
     sessionId: string,
@@ -60,6 +65,7 @@ export async function sendClaudeMessage(
     text: string;
     attachments?: UploadedAttachmentRef[];
     allowQueueOverflow?: boolean;
+    enqueueOptions?: AgentEnqueueOptions;
   },
 ): Promise<void> {
   validateMessageLengthOrThrow(input.text);
@@ -84,7 +90,20 @@ export async function sendClaudeMessage(
 
   const session = ctx.sessions.get(input.sessionId);
   if (!session) {
-    await ctx.recoverAndSend(input.sessionId, input.text, input.attachments);
+    await ctx.recoverAndSend(
+      input.sessionId,
+      input.text,
+      input.attachments,
+      input.enqueueOptions
+        ? {
+            initialEnqueueOptions: input.enqueueOptions,
+            sendAfterRecovery: (recoveredSessionId) => sendClaudeMessage(ctx, {
+              ...input,
+              sessionId: recoveredSessionId,
+            }),
+          }
+        : undefined,
+    );
     return;
   }
   validateSendMessageOrThrow(
@@ -94,22 +113,58 @@ export async function sendClaudeMessage(
     ctx.emit,
     input.allowQueueOverflow,
   );
-  session.pendingUserMessages.push(
-    ctx.makeUserMessage(input.sessionId, input.text, input.attachments),
-  );
-  session.notify?.();
-  ctx.emit({
-    sessionId: input.sessionId,
-    agentId: 'claude-code',
-    kind: 'message',
-    payload: {
+  const idempotencyKey = input.enqueueOptions?.idempotencyKey;
+  const fingerprint = idempotencyKey
+    ? enqueuePayloadFingerprint(input.text, input.attachments)
+    : null;
+  if (idempotencyKey && fingerprint) {
+    const accepted = (session.acceptedEnqueueFingerprints ??= new Map());
+    if (isAcceptedEnqueueRetry(accepted, idempotencyKey, fingerprint)) {
+      session.notify?.();
+      return;
+    }
+  }
+  const pending = ctx.makeUserMessage(input.sessionId, input.text, input.attachments);
+  if (input.enqueueOptions?.deferUserEventUntilTurnStart) {
+    pending.deferredUserEvent = {
       text: input.text,
-      role: 'user',
-      ...(input.attachments && input.attachments.length > 0
-        ? { attachments: input.attachments }
+      ...(input.attachments?.length
+        ? { attachments: input.attachments.map((attachment) => ({ ...attachment })) }
         : {}),
-    },
-    ts: Date.now(),
-    source: 'sdk',
-  });
+      ...(input.enqueueOptions.turnCorrelationId
+        ? { turnCorrelationId: input.enqueueOptions.turnCorrelationId }
+        : {}),
+    };
+  }
+  session.pendingUserMessages.push(pending);
+  if (idempotencyKey && fingerprint) {
+    rememberAcceptedEnqueue(
+      session.acceptedEnqueueFingerprints!,
+      idempotencyKey,
+      fingerprint,
+    );
+  }
+  session.notify?.();
+  try {
+    if (!input.enqueueOptions?.deferUserEventUntilTurnStart) ctx.emit({
+      sessionId: input.sessionId,
+      agentId: 'claude-code',
+      kind: 'message',
+      payload: {
+        text: input.text,
+        role: 'user',
+        ...(input.enqueueOptions?.turnCorrelationId
+          ? { turnCorrelationId: input.enqueueOptions.turnCorrelationId }
+          : {}),
+        ...(input.attachments && input.attachments.length > 0
+          ? { attachments: input.attachments }
+          : {}),
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+  } catch (error) {
+    if (!idempotencyKey) throw error;
+    logger.warn(`[claude-bridge] accepted enqueue event failed key=${idempotencyKey}`, error);
+  }
 }

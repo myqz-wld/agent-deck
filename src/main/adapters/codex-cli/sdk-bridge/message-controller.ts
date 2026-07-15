@@ -7,6 +7,12 @@ import log from '@main/utils/logger';
 import { bufferHandOffSourceInput } from '@main/session/hand-off/input-buffer';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
 import type { AgentEnqueueOptions } from '@main/adapters/types';
+import {
+  type AdapterRecoveryDeliveryOptions,
+  enqueuePayloadFingerprint,
+  isAcceptedEnqueueRetry,
+  rememberAcceptedEnqueue,
+} from '@main/adapters/enqueue-idempotency';
 
 const logger = log.scope('codex-bridge');
 
@@ -17,10 +23,7 @@ export interface MessageControllerContext {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
-    options?: {
-      userEventAlreadyPersisted?: boolean;
-      sendAfterRecovery?: (sessionId: string) => Promise<void>;
-    },
+    options?: AdapterRecoveryDeliveryOptions,
   ) => Promise<unknown>;
   runTurnLoop: (session: InternalSession, sessionId: string) => Promise<void>;
 }
@@ -78,6 +81,7 @@ export class MessageController {
       true,
       true,
       options?.bypassQueueLimit === true,
+      options,
     );
   }
 
@@ -97,14 +101,30 @@ export class MessageController {
     forceQueue: boolean,
     emitEvent: boolean,
     allowQueueOverflow = false,
+    enqueueOptions?: AgentEnqueueOptions,
   ): Promise<void> {
     const session = this.ctx.sessions.get(sessionId);
     if (!session) {
+      const recoverWithEnqueueOptions = enqueueOptions
+        ? {
+            initialEnqueueOptions: enqueueOptions,
+            sendAfterRecovery: (recoveredSessionId: string) =>
+              this.dispatchMessage(
+                recoveredSessionId,
+                text,
+                attachments,
+                true,
+                emitEvent,
+                allowQueueOverflow,
+                enqueueOptions,
+              ),
+          }
+        : null;
       await this.ctx.recoverAndSend(
         sessionId,
         text,
         attachments,
-        emitEvent
+        recoverWithEnqueueOptions ?? (emitEvent
           ? undefined
           : {
               userEventAlreadyPersisted: true,
@@ -117,13 +137,25 @@ export class MessageController {
                   false,
                   true,
                 ),
-            },
+            }),
       );
       return;
     }
 
     assertCodexSessionAcceptsInput(session);
     this.validateMessageLength(text);
+
+    const idempotencyKey = enqueueOptions?.idempotencyKey;
+    const fingerprint = idempotencyKey
+      ? enqueuePayloadFingerprint(text, attachments)
+      : null;
+    if (idempotencyKey && fingerprint) {
+      const accepted = (session.acceptedEnqueueFingerprints ??= new Map());
+      if (isAcceptedEnqueueRetry(accepted, idempotencyKey, fingerprint)) {
+        if (!session.turnLoopRunning) void this.ctx.runTurnLoop(session, sessionId);
+        return;
+      }
+    }
 
     if (!forceQueue && !attachments?.length && session.currentTurn && session.currentTurnId) {
       await this.steerActiveTurn(session, sessionId, text, session.currentTurnId);
@@ -136,6 +168,24 @@ export class MessageController {
 
     const pendingCountBefore = session.pendingMessages.length;
     session.pendingMessages.push(packCodexInput(text, attachments));
+    const deferredUserEvents = (session.pendingDeferredUserEvents ??= Array.from(
+      { length: pendingCountBefore },
+      () => null,
+    ));
+    while (deferredUserEvents.length < pendingCountBefore) deferredUserEvents.push(null);
+    deferredUserEvents.push(
+      emitEvent && enqueueOptions?.deferUserEventUntilTurnStart
+        ? {
+            text,
+            ...(attachments && attachments.length > 0
+              ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+              : {}),
+            ...(enqueueOptions.turnCorrelationId
+              ? { turnCorrelationId: enqueueOptions.turnCorrelationId }
+              : {}),
+          }
+        : null,
+    );
     const handOffMessages = (session.pendingHandOffMessages ??= Array.from(
       { length: pendingCountBefore },
       () => null,
@@ -147,23 +197,38 @@ export class MessageController {
         ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
         : {}),
     });
-    if (emitEvent) {
-      this.ctx.emit({
-        sessionId,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text,
-          role: 'user',
-          ...(attachments && attachments.length > 0 ? { attachments } : {}),
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
+    if (idempotencyKey && fingerprint) {
+      rememberAcceptedEnqueue(
+        session.acceptedEnqueueFingerprints!,
+        idempotencyKey,
+        fingerprint,
+      );
     }
-
-    if (!session.turnLoopRunning) {
-      void this.ctx.runTurnLoop(session, sessionId);
+    try {
+      if (emitEvent && !enqueueOptions?.deferUserEventUntilTurnStart) {
+        this.ctx.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text,
+            role: 'user',
+            ...(enqueueOptions?.turnCorrelationId
+              ? { turnCorrelationId: enqueueOptions.turnCorrelationId }
+              : {}),
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+      }
+    } catch (error) {
+      if (!idempotencyKey) throw error;
+      // Queue acceptance is the commit point. A failed activity-stream projection must not make
+      // the caller retry a provider turn that is already owned by this queue.
+      logger.warn(`[codex-bridge] accepted enqueue event failed key=${idempotencyKey}`, error);
+    } finally {
+      if (!session.turnLoopRunning) void this.ctx.runTurnLoop(session, sessionId);
     }
   }
 

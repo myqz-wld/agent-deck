@@ -70,6 +70,7 @@ import type {
   PreparedContext,
 } from './_deps';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
 
 export async function createSessionImpl(
   opts: CreateSessionOpts,
@@ -212,6 +213,11 @@ export async function createSessionImpl(
     }
 
     const firstInput = opts.resumeOnly ? null : packCodexInput(opts.prompt!, opts.attachments);
+    const initialEnqueue = buildInitialEnqueueState(
+      initialTurn.persistedUserText,
+      opts.attachments,
+      opts.initialEnqueueOptions,
+    );
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 + S7**: applicationSid 双阶段化
     // (initialSid = opts.resume ?? randomUUID() 已是合适 applicationSid 初值,validate phase 同款逻辑):
     // - spawn 主路径(无 opts.resume): ctor 时 applicationSid = initialSid (= randomUUID 即 tempKey),
@@ -240,6 +246,7 @@ export async function createSessionImpl(
       cwd,
       thread,
       pendingMessages: firstInput ? [firstInput] : [],
+      pendingDeferredUserEvents: firstInput ? [initialEnqueue.deferredUserEvent] : [],
       pendingHandOffMessages: firstInput
         ? [{
             text: initialTurn.persistedUserText,
@@ -252,6 +259,9 @@ export async function createSessionImpl(
       currentTurnId: null,
       turnLoopRunning: false,
       intentionallyClosed: false,
+      ...(initialEnqueue.acceptedEnqueueFingerprints
+        ? { acceptedEnqueueFingerprints: initialEnqueue.acceptedEnqueueFingerprints }
+        : {}),
     };
 
     // ctx 打包 prepare phase 输出,传 sub-fn 让其只读消费(子段不动 cwd / sandboxMode / thread / internal

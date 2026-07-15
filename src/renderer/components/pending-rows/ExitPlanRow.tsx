@@ -1,13 +1,11 @@
-import { useMemo, useState, type JSX, type KeyboardEvent } from 'react';
+import { useState, type JSX, type KeyboardEvent } from 'react';
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import log from '@renderer/utils/logger';
-import { MemoizedMarkdownText } from '../MarkdownText';
-import { ChevronDownIcon, ChevronUpIcon } from '../icons';
+import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
+import { PlanMarkdownPanel } from './plan-markdown-panel';
 
 const logger = log.scope('renderer-exit-plan-row');
-const PLAN_COLLAPSE_THRESHOLD_CHARS = 1_800;
-const PLAN_COLLAPSE_THRESHOLD_LINES = 36;
 type TargetMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
 
 const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string }[] = [
@@ -44,6 +42,7 @@ export function ExitPlanRow({
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [targetMode, setTargetMode] = useState<TargetMode>('acceptEdits');
+  const [deepReviewOpen, setDeepReviewOpen] = useState(false);
 
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const plan = payload.plan || '(计划内容为空)';
@@ -58,14 +57,16 @@ export function ExitPlanRow({
     bypassPermissions: '⚠️ 不再询问',
   };
 
-  const respond = async (response: ExitPlanModeResponse): Promise<void> => {
-    if (!isSdk || !stillPending || busy) return;
+  const respond = async (response: ExitPlanModeResponse): Promise<boolean> => {
+    if (!isSdk || !stillPending || busy) return false;
     setBusy(true);
     try {
       await window.api.respondExitPlanMode(agentId, sessionId, payload.requestId, response);
       onResolved(sessionId, payload.requestId);
+      return true;
     } catch (err) {
       logger.error('respondExitPlanMode failed', err);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -159,6 +160,17 @@ export function ExitPlanRow({
                 menuMinWidth={160}
               />
             )}
+            {isMcpPlanReview && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDeepReviewOpen(true)}
+                title="放大计划，引用所选内容，并在隔离的原生 fork 中提问"
+                className="rounded border border-status-waiting/50 bg-status-waiting/10 px-2.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/20 disabled:opacity-50"
+              >
+                深度审阅
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}
@@ -218,51 +230,20 @@ export function ExitPlanRow({
           这次计划展示请求已取消
         </div>
       )}
+
+      {isMcpPlanReview && deepReviewOpen && stillPending && (
+        <PlanDeepReviewDialog
+          open
+          sourceSessionId={sessionId}
+          request={payload}
+          decisionBusy={busy}
+          onClose={() => setDeepReviewOpen(false)}
+          onApprove={() => respond({ decision: 'approve', targetMode: 'default' })}
+          onRevise={(nextFeedback) =>
+            respond({ decision: 'keep-planning', feedback: nextFeedback })}
+          onAutoSubmitted={() => onResolved(sessionId, payload.requestId)}
+        />
+      )}
     </li>
   );
-}
-
-function PlanMarkdownPanel({ plan }: { plan: string }): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const lineCount = plan.split('\n').length;
-  const isLong =
-    plan.length > PLAN_COLLAPSE_THRESHOLD_CHARS ||
-    lineCount > PLAN_COLLAPSE_THRESHOLD_LINES;
-  const renderedPlan = useMemo(
-    () => (isLong && !expanded ? buildCollapsedPlanPreview(plan) : plan),
-    [expanded, isLong, plan],
-  );
-
-  return (
-    <div className="min-w-0 rounded border border-deck-border/40 bg-black/20 p-2">
-      <div
-        className={`min-h-0 ${
-          isLong && !expanded ? 'max-h-[42vh] overflow-auto scrollbar-deck pr-1' : ''
-        }`}
-      >
-        <MemoizedMarkdownText text={renderedPlan} />
-      </div>
-      {isLong && (
-        <div className="mt-1.5 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
-          >
-            {expanded ? <ChevronUpIcon className="mr-1 inline h-3 w-3" /> : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}{expanded ? '收起' : `展开全部（${plan.length} 字）`}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function buildCollapsedPlanPreview(plan: string): string {
-  const byLine = plan.split('\n').slice(0, PLAN_COLLAPSE_THRESHOLD_LINES).join('\n');
-  const clipped =
-    byLine.length > PLAN_COLLAPSE_THRESHOLD_CHARS
-      ? byLine.slice(0, PLAN_COLLAPSE_THRESHOLD_CHARS).replace(/\s+\S*$/, '').trimEnd()
-      : byLine;
-  return clipped.length < plan.length ? `${clipped}\n\n...` : clipped;
 }

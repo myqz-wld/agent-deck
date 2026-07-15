@@ -301,6 +301,48 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
     expect(forkWarns).toHaveLength(0);
   });
 
+  it('binds recovery correlation and idempotency to the first dequeued Codex turn', async () => {
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'app-correlated', agentId: 'codex-cli', cwd: '/repo', title: 't', source: 'sdk',
+      lifecycle: 'dormant', activity: 'idle', startedAt: 1, lastEventAt: 2,
+      endedAt: null, archivedAt: null, codexSandbox: 'workspace-write',
+      cliSessionId: 'cli-correlated',
+    } as unknown as ReturnType<typeof sessionRepo.get>);
+    const thread = new ControlledThread();
+    thread.startedThreadId = 'cli-correlated';
+    appServerClientMock.nextThread = thread;
+    const bridge = makeBridge();
+    const enqueueOptions = {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'correlation-1',
+      idempotencyKey: 'initial-key',
+    };
+
+    await bridge.createSession({
+      cwd: '/repo', prompt: 'review', resume: 'app-correlated',
+      resumeCliSid: 'cli-correlated', skipFirstUserEmit: true,
+      initialEnqueueOptions: enqueueOptions,
+    });
+
+    expect(emits).toContainEqual(expect.objectContaining({
+      sessionId: 'app-correlated',
+      kind: 'message',
+      payload: expect.objectContaining({
+        role: 'user', text: 'review', turnCorrelationId: 'correlation-1',
+      }),
+    }));
+    const sessions = (bridge as unknown as {
+      sessions: Map<string, { pendingMessages: unknown[]; acceptedEnqueueFingerprints?: Map<string, string> }>;
+    }).sessions;
+    expect(sessions.get('app-correlated')?.acceptedEnqueueFingerprints?.has('initial-key'))
+      .toBe(true);
+    await bridge.enqueueMessage('app-correlated', 'review', [], enqueueOptions);
+    expect(sessions.get('app-correlated')?.pendingMessages).toHaveLength(0);
+    await expect(
+      bridge.enqueueMessage('app-correlated', 'different', [], enqueueOptions),
+    ).rejects.toThrow('different payload');
+  });
+
   // ── fresh-cli-reuse-app 保留 case 3（修法不破坏 intended fork 路径）─────────────
   it('fresh-cli-reuse-app：effectiveResumeThreadId=null → internal.threadId=opts.resume(applicationSid) → SDK startThread 返新 id → case 3 调 updateCliSessionId(intended)', async () => {
     vi.mocked(sessionRepo.get).mockReturnValue({

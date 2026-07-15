@@ -11,6 +11,10 @@ import type { SessionRecord } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import {
+  sessionOwnershipLineage,
+  sessionOwnershipLineages,
+} from '@main/session/hand-off/ownership';
+import {
   EXTERNAL_CALLER_ALLOWED,
   EXTERNAL_CALLER_SENTINEL,
   type CallerContext,
@@ -252,10 +256,19 @@ export function isRelatedSessionVisible(
   opts?: {
     spawnParentCache?: Map<string, string | null>;
     callerTeamIds?: Set<string>;
+    ownershipLineageCache?: Map<string, string[]>;
   },
 ): boolean {
   const spawnParentCache = opts?.spawnParentCache ?? new Map<string, string | null>();
-  if (isSpawnRelatedSession(candidate.id, caller.id, spawnParentCache)) return true;
+  const callerLineage = opts?.ownershipLineageCache?.get(caller.id) ?? sessionOwnershipLineage(caller.id);
+  const candidateLineage = opts?.ownershipLineageCache?.get(candidate.id) ?? sessionOwnershipLineage(candidate.id);
+  if (
+    callerLineage.some((callerId) =>
+      candidateLineage.some((candidateId) =>
+        isSpawnRelatedSession(candidateId, callerId, spawnParentCache),
+      ),
+    )
+  ) return true;
   const callerTeamIds = opts?.callerTeamIds ?? new Set((caller.teams ?? []).map((t) => t.teamId));
   return (candidate.teams ?? []).some((t) => callerTeamIds.has(t.teamId));
 }
@@ -313,7 +326,16 @@ export function getRelatedSessionReadAccess(
   const spawnParentCache = new Map<string, string | null>();
   spawnParentCache.set(caller.id, caller.spawnedBy ?? null);
   spawnParentCache.set(target.id, target.spawnedBy ?? null);
-  if (isSpawnRelatedSession(target.id, caller.id, spawnParentCache)) return { allowed: true };
+  const ownershipLineages = sessionOwnershipLineages([caller.id, target.id]);
+  const callerLineage = ownershipLineages.get(caller.id) ?? [caller.id];
+  const targetLineage = ownershipLineages.get(target.id) ?? [target.id];
+  if (
+    callerLineage.some((callerId) =>
+      targetLineage.some((targetId) =>
+        isSpawnRelatedSession(targetId, callerId, spawnParentCache),
+      ),
+    )
+  ) return { allowed: true };
 
   if (agentDeckTeamRepo.findSharedActiveTeams(caller.id, target.id).length > 0) {
     return { allowed: true };
@@ -323,7 +345,7 @@ export function getRelatedSessionReadAccess(
     allowed: false,
     reason: 'unrelated',
     message: `session ${targetSessionId} is not readable from callerSessionId ${callerSessionId}`,
-    hint: 'Trajectory reads are limited to self, spawn ancestors/descendants, or sessions sharing an active team.',
+    hint: 'Trajectory reads are limited to the current handoff ownership chain, spawn ancestors/descendants, or sessions sharing an active team.',
   };
 }
 

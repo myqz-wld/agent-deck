@@ -65,6 +65,7 @@ import type {
   CleanupRecoveryContinuationThunk,
 } from './recoverer/_deps';
 import { recoverAndSendImpl } from './recoverer/recover-and-send-impl';
+import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
 
 // Phase 4 Step 4.3 facade re-export — 保 byte-identical external import path
 // (`import { SessionRecoverer, defaultCodexResumeJsonlExists, defaultCwdExists } from './recoverer'`
@@ -117,10 +118,7 @@ export class SessionRecoverer {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
-    options?: {
-      userEventAlreadyPersisted?: boolean;
-      sendAfterRecovery?: (sessionId: string) => Promise<void>;
-    },
+    options?: AdapterRecoveryDeliveryOptions,
   ): Promise<string> {
     return recoverAndSendImpl(sessionId, text, attachments, options, {
       ctx: this.ctx,

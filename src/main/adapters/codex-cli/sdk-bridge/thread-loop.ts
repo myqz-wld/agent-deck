@@ -276,6 +276,7 @@ export class ThreadLoop {
     try {
       while (!internal.retireAfterCurrentTurn && internal.pendingMessages.length > 0) {
         const input = internal.pendingMessages.shift()!;
+        const deferredUserEvent = internal.pendingDeferredUserEvents?.shift() ?? null;
         internal.pendingHandOffMessages?.shift();
         const controller = new AbortController();
         internal.currentTurn = controller;
@@ -293,6 +294,18 @@ export class ThreadLoop {
             source: 'sdk',
           });
         };
+        if (deferredUserEvent) {
+          emit('message', {
+            text: deferredUserEvent.text,
+            role: 'user',
+            ...(deferredUserEvent.attachments?.length
+              ? { attachments: deferredUserEvent.attachments }
+              : {}),
+            ...(deferredUserEvent.turnCorrelationId
+              ? { turnCorrelationId: deferredUserEvent.turnCorrelationId }
+              : {}),
+          });
+        }
         const translateState = createCodexAppServerTranslateState();
         try {
           const { events } = await internal.thread.runStreamed(toCodexAppServerInput(input), {

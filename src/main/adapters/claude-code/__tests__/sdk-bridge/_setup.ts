@@ -26,6 +26,7 @@ import type {
   RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
+import type { AgentEnqueueOptions } from '@main/adapters/types';
 
 export interface CreateSessionCall {
   cwd: string;
@@ -55,6 +56,7 @@ export interface CreateSessionCall {
    * createThunk 收到 cancelCheck thunk(MED post-guard 窗口收口)。spawn / IPC / restart 路径不传。
    */
   cancelCheck?: () => boolean;
+  initialEnqueueOptions?: AgentEnqueueOptions;
 }
 
 export class TestBridge extends ClaudeSdkBridge {
@@ -125,6 +127,7 @@ export class TestBridge extends ClaudeSdkBridge {
     extraAllowWrite?: readonly string[];
     /** REVIEW_99 R3 cancellation-epoch MED: recover 路径 pre-registration cancel guard thunk */
     cancelCheck?: () => boolean;
+    initialEnqueueOptions?: AgentEnqueueOptions;
   }): Promise<{ sessionId: string; abort: () => void }> {
     this.createCalls.push({
       cwd: opts.cwd,
@@ -136,6 +139,7 @@ export class TestBridge extends ClaudeSdkBridge {
       claudeCodeSandbox: opts.claudeCodeSandbox,
       extraAllowWrite: opts.extraAllowWrite,
       cancelCheck: opts.cancelCheck,
+      initialEnqueueOptions: opts.initialEnqueueOptions,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {

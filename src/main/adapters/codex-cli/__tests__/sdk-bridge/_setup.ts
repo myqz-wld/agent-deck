@@ -76,6 +76,7 @@ export interface CreateSessionCall {
   cancelCheck?: () => boolean;
   resumeOnly?: boolean;
   skipFirstUserEmit?: boolean;
+  initialEnqueueOptions?: CreateSessionOpts['initialEnqueueOptions'];
 }
 
 function preparedRecovery(
@@ -157,6 +158,7 @@ export class TestCodexBridge extends CodexSdkBridge {
       cancelCheck: opts.cancelCheck,
       resumeOnly: opts.resumeOnly,
       skipFirstUserEmit: opts.skipFirstUserEmit,
+      initialEnqueueOptions: opts.initialEnqueueOptions,
     });
     if (this.createBehavior === 'block') {
       await new Promise<void>((res) => {

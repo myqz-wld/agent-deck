@@ -91,6 +91,16 @@ describe('HandOffCutoverCoordinator source ingress buffer', () => {
     expect(restarted.successorFor('source-b')).toBe('source-c');
   });
 
+  it('keeps best-effort routing fail-soft but exposes durable lookup errors to authorization', () => {
+    const lookupError = new Error('alias database unavailable');
+    const coordinator = new HandOffCutoverCoordinator(() => {
+      throw lookupError;
+    });
+
+    expect(coordinator.successorFor('source')).toBeNull();
+    expect(() => coordinator.successorForStrict('source')).toThrow(lookupError);
+  });
+
   it('resolves old anchors through handoff chains longer than the former 16-hop limit', () => {
     const aliases = new Map<string, string>();
     for (let index = 0; index < 64; index += 1) {

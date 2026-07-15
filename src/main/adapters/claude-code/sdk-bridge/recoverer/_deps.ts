@@ -22,6 +22,7 @@ import type {
   RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { AgentEnqueueOptions } from '@main/adapters/types';
 
 /**
  * facade `recoverer.ts` SessionRecoverer ctor 注入的 ctx ref bundle。
@@ -124,6 +125,8 @@ export type CreateSessionThunk = (opts: {
    * 仅控制 emit user message 这一动作。
    */
   skipFirstUserEmit?: boolean;
+  /** Preserve keyed/deferred queue semantics when this prompt is the recovery create's first turn. */
+  initialEnqueueOptions?: AgentEnqueueOptions;
   /**
    * **REVIEW_99 R3 cancellation-epoch MED 修法**:recover 路径透传 cancelGuard,createSession 内部
    * pre-registration await 后 sessions.set 前查一次 epoch,变了 throw RecoveryCancelledError abort。

@@ -36,6 +36,16 @@ export interface QueuedAgentMessage {
 export interface AgentEnqueueOptions {
   /** Reserved for mandatory continuity tails already bounded by the handoff ingress gate. */
   bypassQueueLimit?: boolean;
+  /** Internal consumers can correlate to execution rather than the earlier queue insertion. */
+  deferUserEventUntilTurnStart?: boolean;
+  /** Opaque id copied only into the correlated user event payload. */
+  turnCorrelationId?: string;
+  /**
+   * Stable acceptance key for an internal provider turn. Once one payload is queued under this
+   * key, retries acknowledge that same payload without queueing it again; a different payload is
+   * rejected. This is intentionally adapter-internal and is not exposed through renderer IPC.
+   */
+  idempotencyKey?: string;
 }
 
 export interface AgentAdapter {

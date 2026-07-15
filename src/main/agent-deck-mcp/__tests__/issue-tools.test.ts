@@ -7,7 +7,7 @@
  * 2. kind free-form fallback（非枚举值 'agent-deck-bug' 原样落库）
  * 3. severity enum 严格（'critical' 等非枚举值 zod reject）
  * 4. append_issue_context owner-only reject（跨 caller — D10 hint）
- * 5. append_issue_context owner-only reject（跨 session — hand_off 后新 sid 同款 hint）
+ * 5. append_issue_context allows the current committed handoff successor
  * 6. append_issue_context to non-existent issueId reject
  * 7. append_issue_context to status='resolved' reject + hint 含「create 新 issue」
  * 8. append_issue_context logsRef merge happy path（D17 — 透传到 issueRepo.appendContext + emit）
@@ -24,22 +24,34 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 
 // vi.hoisted 让 mock objects 在 vi.mock factory 执行前就 ready
-const mocks = vi.hoisted(() => ({
-  issueRepo: {
-    create: vi.fn(),
-    get: vi.fn(),
-    update: vi.fn(),
-    appendContext: vi.fn(),
-    listAppendices: vi.fn(),
-  },
-  eventBus: { emit: vi.fn() },
-}));
+const mocks = vi.hoisted(() => {
+  const handoffSuccessors = new Map<string, string>();
+  return {
+    issueRepo: {
+      create: vi.fn(),
+      get: vi.fn(),
+      update: vi.fn(),
+      appendContext: vi.fn(),
+      listAppendices: vi.fn(),
+    },
+    eventBus: { emit: vi.fn() },
+    handoffSuccessors,
+    isCurrentHandOffOwner: vi.fn((owner: string | null, caller: string) =>
+      owner !== null && (handoffSuccessors.get(owner) ?? owner) === caller),
+  };
+});
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({}),
 }));
 vi.mock('@main/store/issue-repo', () => ({ issueRepo: mocks.issueRepo }));
 vi.mock('@main/event-bus', () => ({ eventBus: mocks.eventBus }));
+vi.mock('@main/session/hand-off/ownership', () => ({
+  isCurrentHandOffOwner: mocks.isCurrentHandOffOwner,
+  sessionOwnershipLineage: (sessionId: string) => [sessionId],
+  sessionOwnershipLineages: (sessionIds: string[]) =>
+    new Map(sessionIds.map((sessionId) => [sessionId, [sessionId]])),
+}));
 vi.mock('@main/utils/git-branch', () => ({
   detectGitBranchName: vi.fn(),
 }));
@@ -110,6 +122,8 @@ beforeEach(() => {
   mockIssueRepo.appendContext.mockReset();
   mockIssueRepo.listAppendices.mockReset();
   mockEventBus.emit.mockReset();
+  mocks.handoffSuccessors.clear();
+  mocks.isCurrentHandOffOwner.mockClear();
   mockDetectGitBranchName.mockReset().mockReturnValue(null);
   mockSessions.clear();
   // 默认 caller session 在 sessions 表（cwd 兜底测试用到）
@@ -318,24 +332,43 @@ describe('append_issue_context — owner-only / non-existent / resolved reject (
     expect(parsed.error).toMatch(/append rejected/);
     expect(parsed.error).toMatch(/issue\.sourceSessionId=sess-orig/);
     expect(parsed.error).toMatch(/caller=sess-attacker/);
-    expect(parsed.hint).toBe(
-      'Only the source session can append context. Call report_issue from this session to create a new issue with the additional context; ask the user to merge it in the Agent Deck UI if needed.',
-    );
+    expect(parsed.hint).toMatch(/current logical owner/);
+    expect(parsed.hint).toMatch(/latest committed successor/);
     expect(mockIssueRepo.appendContext).not.toHaveBeenCalled();
     expect(mockEventBus.emit).not.toHaveBeenCalled();
   });
 
-  it('§5 跨 session reject（hand_off 后新 sid 模拟）— 同款 D10 hint', async () => {
-    mockIssueRepo.get.mockReturnValue(makeIssue({ sourceSessionId: 'sess-old-pre-handoff' }));
+  it('§5 已提交 handoff 的当前 successor 可追加，source provenance 保持原 id', async () => {
+    const issue = makeIssue({ sourceSessionId: 'sess-old-pre-handoff' });
+    const updated = makeIssue({
+      sourceSessionId: 'sess-old-pre-handoff',
+      appendices: [],
+    });
+    mocks.handoffSuccessors.set('sess-old-pre-handoff', 'sess-new-after-handoff');
+    mockIssueRepo.get.mockReturnValue(issue);
+    mockIssueRepo.appendContext.mockReturnValue(updated);
     const result = await appendIssueContextHandler(
       { issueId: 'issue-1', additionalContext: 'after-handoff append' },
       makeCtx('sess-new-after-handoff'),
     );
+    expect(result.isError).toBeFalsy();
+    expect(mockIssueRepo.appendContext).toHaveBeenCalledWith(expect.objectContaining({
+      appendedSessionId: 'sess-new-after-handoff',
+    }));
+    expect(JSON.parse(result.content[0].text).sourceSessionId).toBe('sess-old-pre-handoff');
+  });
+
+  it('handoff 提交后旧 source 不再能追加 issue context', async () => {
+    mocks.handoffSuccessors.set('sess-old-pre-handoff', 'sess-new-after-handoff');
+    mockIssueRepo.get.mockReturnValue(makeIssue({ sourceSessionId: 'sess-old-pre-handoff' }));
+
+    const result = await appendIssueContextHandler(
+      { issueId: 'issue-1', additionalContext: 'stale owner append' },
+      makeCtx('sess-old-pre-handoff'),
+    );
+
     expect(result.isError).toBe(true);
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.error).toMatch(/sess-old-pre-handoff/);
-    expect(parsed.error).toMatch(/sess-new-after-handoff/);
-    expect(parsed.hint).toMatch(/Call report_issue from this session/);
+    expect(mockIssueRepo.appendContext).not.toHaveBeenCalled();
   });
 
   it('§6 non-existent issueId reject + 不调 appendContext', async () => {
@@ -722,13 +755,59 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
     );
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.error).toMatch(/neither source/);
+    expect(parsed.error).toMatch(/not the current logical owner of source lineage/);
     expect(parsed.error).toMatch(/caller=sess-third-party/);
-    expect(parsed.hint).toMatch(/Only the source session or resolution session/);
+    expect(parsed.hint).toMatch(/current logical owner/);
+    expect(parsed.hint).toMatch(/latest committed successor/);
     expect(parsed.hint).toMatch(/retry once after initialization completes/);
     expect(parsed.hint).toMatch(/Agent Deck UI/);
     expect(mockIssueRepo.update).not.toHaveBeenCalled();
     expect(mockEventBus.emit).not.toHaveBeenCalled();
+  });
+
+  it('已提交 handoff 的 source successor 可改 status', async () => {
+    mocks.handoffSuccessors.set('sess-orig', 'sess-source-successor');
+    mockIssueRepo.get.mockReturnValue(makeIssue({ sourceSessionId: 'sess-orig' }));
+    mockIssueRepo.update.mockReturnValue(makeIssue({ sourceSessionId: 'sess-orig', status: 'resolved' }));
+    mockIssueRepo.listAppendices.mockReturnValue([]);
+
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-source-successor'),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockIssueRepo.update).toHaveBeenCalledWith('issue-1', { status: 'resolved' });
+  });
+
+  it('handoff 提交后旧 source 不再能修改 issue status', async () => {
+    mocks.handoffSuccessors.set('sess-orig', 'sess-source-successor');
+    mockIssueRepo.get.mockReturnValue(makeIssue({ sourceSessionId: 'sess-orig' }));
+
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-orig'),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(mockIssueRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('已提交 handoff 的 resolution successor 可改 status', async () => {
+    mocks.handoffSuccessors.set('sess-resolver', 'sess-resolution-successor');
+    mockIssueRepo.get.mockReturnValue(makeIssue({
+      sourceSessionId: 'sess-orig',
+      resolutionSessionId: 'sess-resolver',
+    }));
+    mockIssueRepo.update.mockReturnValue(makeIssue({ status: 'resolved' }));
+    mockIssueRepo.listAppendices.mockReturnValue([]);
+
+    const result = await updateIssueStatusHandler(
+      { issueId: 'issue-1', status: 'resolved' },
+      makeCtx('sess-resolution-successor'),
+    );
+
+    expect(result.isError).toBeFalsy();
   });
 
   it('note 留痕：传 note → appendContext 被调（appendedSessionId=callerSid）+ 随后 update', async () => {
@@ -834,8 +913,8 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
     );
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.error).toMatch(/neither source/);
-    expect(parsed.error).toMatch(/source \(<null>\) nor resolution \(<null>\)/);
+    expect(parsed.error).toMatch(/not the current logical owner of source lineage/);
+    expect(parsed.error).toMatch(/source lineage \(<null>\) or resolution lineage \(<null>\)/);
     expect(mockIssueRepo.update).not.toHaveBeenCalled();
     expect(mockEventBus.emit).not.toHaveBeenCalled();
   });

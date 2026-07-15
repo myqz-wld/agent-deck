@@ -16,6 +16,7 @@ import { executePreparedHandOff, HandOffExecutionError } from '@main/session/han
 import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
 import { checkHandOffSourcePrecondition, type HandOffSourceCutoverResult } from '@main/session/hand-off/source-precondition';
 import { HandOffTargetOptionsError, resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
+import { notifySessionHandOffCommitted } from '@main/session/hand-off/ownership';
 import { sessionManager } from '@main/session/manager';
 import log from '@main/utils/logger';
 import type { SessionAdapterId } from '@shared/types';
@@ -354,7 +355,17 @@ export const handOffSessionHandler = withMcpGuard(
           transferResources: handlerDeps?.transferResources ?? transferHandOffResources,
           resourceTransferFailed,
           sourceOwnershipCheck: () => cutoverLease.canCommit(),
-          commitIngress: (successorSessionId) => cutoverLease.commit(successorSessionId),
+          commitIngress: (successorSessionId) => {
+            if (!cutoverLease.commit(successorSessionId)) {
+              // Durable resources and alias are already committed synchronously. A lifecycle
+              // listener may have sealed the source during post-commit notifications; ownership
+              // still belongs to the successor and must be published before finalization.
+              logger.warn(
+                `[mcp hand_off_session] ingress lease was already sealed after durable commit source=${sourceForExecution.id} successor=${successorSessionId}`,
+              );
+            }
+            notifySessionHandOffCommitted(sourceForExecution.id, successorSessionId);
+          },
           closeSuccessor:
             handlerDeps?.closeSuccessor ??
             (async (sessionId: string) => {

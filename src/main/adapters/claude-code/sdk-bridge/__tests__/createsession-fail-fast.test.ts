@@ -168,6 +168,106 @@ afterEach(() => {
 });
 
 describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame', () => {
+  it('emits the recovery correlation marker only when the first Claude turn is dequeued', async () => {
+    const bridge = makeBridge();
+    const mockQuery = new MockSdkQuery();
+    let firstUserMessage: Promise<unknown> | undefined;
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: vi.fn((args: { prompt: AsyncIterable<unknown> }) => {
+        firstUserMessage = args.prompt[Symbol.asyncIterator]().next();
+        return mockQuery;
+      }),
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name, description, inputSchema, handler,
+      })),
+    } as never);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'app-correlated', agentId: 'claude-code', cwd: '/tmp/test', title: 'recovery',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1,
+      lastEventAt: 2, endedAt: null, archivedAt: null, permissionMode: 'plan',
+    });
+    mockQuery.pushFrame({
+      type: 'system', subtype: 'init', session_id: 'cli-correlated', model: 'claude-sonnet-5',
+    });
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test', prompt: 'review', resume: 'app-correlated',
+      skipFirstUserEmit: true,
+      initialEnqueueOptions: {
+        deferUserEventUntilTurnStart: true,
+        turnCorrelationId: 'correlation-1',
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    mockQuery.endStream();
+    await createPromise;
+    await firstUserMessage;
+
+    expect(emits).toContainEqual(expect.objectContaining({
+      sessionId: 'app-correlated',
+      kind: 'message',
+      payload: expect.objectContaining({
+        role: 'user', text: 'review', turnCorrelationId: 'correlation-1',
+      }),
+    }));
+  });
+
+  it('deduplicates a keyed first recovery turn after provider acceptance and finalize failure', async () => {
+    const mockQuery = new MockSdkQuery();
+    let firstUserMessage: Promise<unknown> | undefined;
+    let throwSessionStart = true;
+    const bridge = new ClaudeSdkBridge({
+      emit: (event) => {
+        if (throwSessionStart && event.kind === 'session-start') {
+          throwSessionStart = false;
+          throw new Error('renderer projection failed');
+        }
+      },
+    });
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: vi.fn((args: { prompt: AsyncIterable<unknown> }) => {
+        firstUserMessage = args.prompt[Symbol.asyncIterator]().next();
+        return mockQuery;
+      }),
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name, description, inputSchema, handler,
+      })),
+    } as never);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'app-keyed', agentId: 'claude-code', cwd: '/tmp/test', title: 'recovery',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1,
+      lastEventAt: 2, endedAt: null, archivedAt: null, permissionMode: 'plan',
+    });
+    mockQuery.pushFrame({
+      type: 'system', subtype: 'init', session_id: 'cli-keyed', model: 'claude-sonnet-5',
+    });
+    const enqueueOptions = { idempotencyKey: 'plan-late-decision:request-1' };
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test', prompt: 'approve plan', resume: 'app-keyed',
+      skipFirstUserEmit: true, initialEnqueueOptions: enqueueOptions,
+    });
+    await expect(createPromise).rejects.toThrow('renderer projection failed');
+    expect((await firstUserMessage as { value: { message: { content: string } } })
+      .value.message.content).toBe('approve plan');
+
+    const sessions = (bridge as unknown as {
+      sessions: Map<string, {
+        pendingUserMessages: unknown[];
+        acceptedEnqueueFingerprints?: Map<string, string>;
+      }>;
+    }).sessions;
+    expect(sessions.get('app-keyed')?.acceptedEnqueueFingerprints?.has(
+      'plan-late-decision:request-1',
+    )).toBe(true);
+    await bridge.enqueueMessage('app-keyed', 'approve plan', [], enqueueOptions);
+    expect(sessions.get('app-keyed')?.pendingUserMessages).toHaveLength(0);
+    await expect(
+      bridge.enqueueMessage('app-keyed', 'keep planning', [], enqueueOptions),
+    ).rejects.toThrow('different payload');
+    mockQuery.endStream();
+  });
+
   it('trusted fresh-cli-reuse-app sends provider context, keeps app sid, and skips persisted re-emit', async () => {
     const bridge = makeBridge();
     const mockQuery = new MockSdkQuery();

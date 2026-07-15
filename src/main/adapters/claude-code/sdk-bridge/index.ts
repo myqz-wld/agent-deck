@@ -279,6 +279,7 @@ export class ClaudeSdkBridge {
       text,
       attachments,
       allowQueueOverflow: options?.bypassQueueLimit === true,
+      enqueueOptions: options,
     });
   }
 
@@ -426,6 +427,7 @@ export class ClaudeSdkBridge {
     // and query interruption would suppress or truncate the current turn's result frame.
     internal.retireRequested = true;
     internal.pendingUserMessages.length = 0;
+    internal.acceptedEnqueueFingerprints?.clear();
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {

@@ -61,9 +61,13 @@ export const ARCHIVE_PLAN_SHAPE = {
 // =============== HAND_OFF_SESSION (session baton) ===============
 
 // hand_off_session starts a fresh successor SDK session with a provider-neutral Continuation
-// Context (会话续接上下文), transfers session-owned resources, and closes the caller only after
-// mandatory transfer succeeds. Only the explicit current instruction is persisted as the first
-// user message; checkpoint/history evidence is delivered through the private trusted turn.
+// Context (会话续接上下文), commits one durable logical-ownership move, and closes the caller only
+// after mandatory transfer succeeds. Tasks, active teams, the worktree marker, and in-flight
+// message endpoints move directly; only the latest successor retains issue authority, while
+// pending plan gates and related trajectory visibility follow the handoff chain and historical
+// provenance remains unchanged. Only the
+// explicit current instruction is persisted as the first user message; checkpoint/history evidence
+// is delivered through the private trusted turn.
 export const HAND_OFF_SESSION_SHAPE = {
   prompt: z
     .string()

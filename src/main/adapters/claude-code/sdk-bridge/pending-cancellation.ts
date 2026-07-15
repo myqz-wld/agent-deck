@@ -120,6 +120,7 @@ export function runCloseSessionCleanup(args: {
   const realIdForEmit = internal.applicationSid;
   cancelPendingAndEmit(internal, realIdForEmit, emit);
   internal.pendingUserMessages.length = 0;
+  internal.acceptedEnqueueFingerprints?.clear();
 
   // step 3：从 sessions map 移除
   if (sessions.get(key) === internal) {
