@@ -1,4 +1,9 @@
-import type { AgentEvent, AppSettings, SessionRecord } from '@shared/types';
+import {
+  DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
+  type AgentEvent,
+  type AppSettings,
+  type SessionRecord,
+} from '@shared/types';
 import { eventBus, type TypedEventBus } from '@main/event-bus';
 import { getDb } from '@main/store/db';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
@@ -19,6 +24,7 @@ import {
   CheckpointRefreshScheduler,
   type CheckpointRefreshRequest,
 } from './checkpoint-refresh-scheduler';
+import { CheckpointRefreshQueue } from './checkpoint-refresh-queue';
 
 const EVENT_EVALUATION_THROTTLE_MS = 5_000;
 const SESSION_PAGE_SIZE = 100;
@@ -45,6 +51,12 @@ interface PendingObservation {
   observedAt: number;
 }
 
+type CheckpointRefreshSettings = Pick<
+  AppSettings,
+  'continuationCheckpointAutoRefreshEnabled' |
+  'continuationCheckpointAutoRefreshIntervalMinutes'
+> & Partial<Pick<AppSettings, 'continuationCheckpointMaxConcurrent'>>;
+
 function isProviderActive(session: SessionRecord, event?: AgentEvent): boolean {
   if (event?.kind === 'session-end' || event?.kind === 'finished') return false;
   return (
@@ -67,27 +79,6 @@ function snapshotFromEstimate(
   };
 }
 
-function abortableQueuedRefresh(
-  pending: Promise<void>,
-  signal: AbortSignal,
-  hasStarted: () => boolean,
-): Promise<void> {
-  if (signal.aborted) {
-    return Promise.reject(new Error('Background checkpoint refresh cancelled before execution'));
-  }
-  return new Promise<void>((resolve, reject) => {
-    const onAbort = (): void => {
-      if (!hasStarted()) {
-        reject(new Error('Background checkpoint refresh cancelled before execution'));
-      }
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-    void pending.then(resolve, reject).finally(() => {
-      signal.removeEventListener('abort', onAbort);
-    });
-  });
-}
-
 export class ContinuationCheckpointRefreshService {
   private readonly bus: Pick<TypedEventBus, 'on'>;
   private readonly now: () => number;
@@ -97,16 +88,12 @@ export class ContinuationCheckpointRefreshService {
   private readonly pending = new Map<string, PendingObservation>();
   private readonly foregroundLeases = new Map<string, number>();
   private readonly scheduler: CheckpointRefreshScheduler<ContinuationCheckpointRefreshSnapshot>;
+  private readonly refreshQueue: CheckpointRefreshQueue;
   private backlogEstimator: CheckpointBacklogEstimator | null;
-  private refreshTail: Promise<void> = Promise.resolve();
   private started = false;
 
   constructor(
-    settings: Pick<
-      AppSettings,
-      'continuationCheckpointAutoRefreshEnabled' |
-      'continuationCheckpointAutoRefreshIntervalMinutes'
-    >,
+    settings: CheckpointRefreshSettings,
     private readonly dependencies: CheckpointRefreshServiceDependencies = {},
   ) {
     this.bus = dependencies.bus ?? eventBus;
@@ -114,6 +101,10 @@ export class ContinuationCheckpointRefreshService {
     this.setTimer = dependencies.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = dependencies.clearTimer ?? ((timer) => clearTimeout(timer));
     this.backlogEstimator = dependencies.backlogEstimator ?? null;
+    this.refreshQueue = new CheckpointRefreshQueue(
+      settings.continuationCheckpointMaxConcurrent ??
+        DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
+    );
     this.scheduler = new CheckpointRefreshScheduler<ContinuationCheckpointRefreshSnapshot>(
       {
         loadBacklogSnapshot: (sessionId, signal) => this.loadSnapshot(sessionId, signal),
@@ -164,11 +155,10 @@ export class ContinuationCheckpointRefreshService {
     }
   }
 
-  updateSettings(settings: Pick<
-    AppSettings,
-    'continuationCheckpointAutoRefreshEnabled' |
-    'continuationCheckpointAutoRefreshIntervalMinutes'
-  >): void {
+  updateSettings(settings: CheckpointRefreshSettings): void {
+    if (settings.continuationCheckpointMaxConcurrent !== undefined) {
+      this.refreshQueue.setMaxConcurrent(settings.continuationCheckpointMaxConcurrent);
+    }
     this.scheduler.updatePolicy({
       intervalMs: settings.continuationCheckpointAutoRefreshIntervalMinutes * 60_000,
     });
@@ -204,7 +194,7 @@ export class ContinuationCheckpointRefreshService {
     const estimator = this.backlogEstimator;
     this.backlogEstimator = null;
     const results = await Promise.allSettled([
-      this.refreshTail,
+      this.refreshQueue.whenIdle(),
       estimator?.stop() ?? Promise.resolve(),
     ]);
     const failure = results.find(
@@ -301,9 +291,7 @@ export class ContinuationCheckpointRefreshService {
   private enqueueRefresh(
     request: CheckpointRefreshRequest<ContinuationCheckpointRefreshSnapshot>,
   ): Promise<void> {
-    let started = false;
-    const pending = this.refreshTail.then(async () => {
-      started = true;
+    return this.refreshQueue.enqueue(async () => {
       if (request.signal.aborted || this.foregroundLeases.has(request.sessionId)) {
         throw new Error('Background checkpoint refresh cancelled before execution');
       }
@@ -350,12 +338,7 @@ export class ContinuationCheckpointRefreshService {
           }
         }
       }
-    });
-    this.refreshTail = pending.catch(() => undefined);
-    // The serialized provider queue remains intact, but a foreground hand-off must not wait for
-    // unrelated sessions ahead of its now-cancelled background item. The queued callback checks
-    // the same signal again before it can enter the provider runtime.
-    return abortableQueuedRefresh(pending, request.signal, () => started);
+    }, request.signal);
   }
 
   private removeSession(sessionId: string): void {

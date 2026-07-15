@@ -241,7 +241,8 @@ function applyContinuationCheckpointRefresh(
 ): void {
   if (
     'continuationCheckpointAutoRefreshEnabled' in p ||
-    'continuationCheckpointAutoRefreshIntervalMinutes' in p
+    'continuationCheckpointAutoRefreshIntervalMinutes' in p ||
+    'continuationCheckpointMaxConcurrent' in p
   ) {
     getContinuationCheckpointRefreshService()?.updateSettings(next);
   }

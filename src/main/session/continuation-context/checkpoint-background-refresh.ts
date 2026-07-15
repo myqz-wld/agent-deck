@@ -53,7 +53,7 @@ interface BackgroundCheckpointRefreshDependencies {
   ) => Promise<CheckpointBackgroundChunkSource>;
 }
 
-/** Fold the latest durable revision once this job reaches the serialized provider queue. */
+/** Fold the latest durable revision once this job reaches the bounded provider queue. */
 export async function refreshContinuationCheckpointWithDependencies(
   input: {
     sessionId: string;

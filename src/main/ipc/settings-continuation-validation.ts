@@ -1,7 +1,9 @@
 import {
   MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+  MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   MAX_CONTINUATION_RAW_RETENTION_TOKENS,
   MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
+  MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type AppSettings,
   type ContinuationCheckpointProvider,
@@ -105,6 +107,20 @@ export function validateContinuationAndSummarySettingsPatch(
       throw new IpcInputError(
         'continuationCheckpointAutoRefreshIntervalMinutes',
         `out of range [${MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES}, ${MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES}]`,
+      );
+    }
+  }
+  if ('continuationCheckpointMaxConcurrent' in patch) {
+    const value = patch.continuationCheckpointMaxConcurrent;
+    if (
+      typeof value !== 'number' ||
+      !Number.isSafeInteger(value) ||
+      value < MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT ||
+      value > MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT
+    ) {
+      throw new IpcInputError(
+        'continuationCheckpointMaxConcurrent',
+        `out of range [${MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT}, ${MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT}]`,
       );
     }
   }

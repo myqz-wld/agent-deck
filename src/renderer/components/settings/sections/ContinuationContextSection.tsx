@@ -1,7 +1,9 @@
 import { type JSX } from 'react';
 import {
   MAX_CONTINUATION_RAW_RETENTION_TOKENS,
+  MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
+  MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   type AppSettings,
   type ContinuationCheckpointProvider,
 } from '@shared/types';
@@ -79,6 +81,18 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
           void update({ continuationCheckpointThinking: thinking })
         }
       />
+      <NumberInput
+        label="最多同时整理的会话数"
+        value={settings.continuationCheckpointMaxConcurrent}
+        min={MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT}
+        max={MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT}
+        onChange={(maxConcurrent) =>
+          void update({ continuationCheckpointMaxConcurrent: maxConcurrent })
+        }
+      />
+      <p className="text-[10px] leading-snug text-deck-muted/60">
+        限制后台上下文整理模型的并发调用数。
+      </p>
       <NumberInput
         label="保留最近对话的 token 上限"
         value={settings.continuationRawRetentionTokens}

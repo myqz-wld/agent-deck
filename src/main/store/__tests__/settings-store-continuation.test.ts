@@ -72,13 +72,14 @@ describe('unified continuation settings migration', () => {
       continuationCheckpointThinking: 'medium',
       continuationCheckpointAutoRefreshEnabled: true,
       continuationCheckpointAutoRefreshIntervalMinutes: 30,
+      continuationCheckpointMaxConcurrent: 2,
     });
     expect(mockRawStore.__generatorBlankFallbacks20260714Done).toBe(true);
     expect(callsFor('summaryModel')).toHaveLength(0);
     expect(callsFor('continuationCheckpointModel')).toHaveLength(0);
   });
 
-  it('materializes only the existing blank-model fallbacks whose meaning changed', async () => {
+  it('materializes only the remaining existing blank-model fallback whose meaning changed', async () => {
     mockRawStore = {
       summaryProvider: 'deepseek',
       summaryModel: '',
@@ -91,18 +92,18 @@ describe('unified continuation settings migration', () => {
 
     const all = (await loadSettingsStore()).getAll();
     expect(all).toMatchObject({
-      summaryModel: 'haiku',
+      summaryModel: '',
       summaryReasoning: 'xhigh',
       continuationCheckpointModel: 'opus',
       continuationCheckpointThinking: 'low',
     });
-    expect(mockSet).toHaveBeenCalledWith('summaryModel', 'haiku');
+    expect(callsFor('summaryModel')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
     expect(callsFor('summaryReasoning')).toHaveLength(0);
     expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
   });
 
-  it('treats model keys missing from an existing store as unset legacy fallbacks', async () => {
+  it('keeps a missing summary model blank while preserving the old continuation fallback', async () => {
     mockRawStore = {
       summaryProvider: 'deepseek',
       summaryReasoning: 'high',
@@ -110,10 +111,10 @@ describe('unified continuation settings migration', () => {
     };
 
     const all = (await loadSettingsStore()).getAll();
-    expect(all.summaryModel).toBe('haiku');
+    expect(all.summaryModel).toBe('');
     expect(all.continuationCheckpointProvider).toBe('claude');
     expect(all.continuationCheckpointModel).toBe('opus');
-    expect(mockSet).toHaveBeenCalledWith('summaryModel', 'haiku');
+    expect(callsFor('summaryModel')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
   });
 
@@ -198,6 +199,23 @@ describe('unified continuation settings migration', () => {
     const all = (await loadSettingsStore()).getAll();
     expect(all.continuationCheckpointAutoRefreshIntervalMinutes).toBe(value);
     expect(callsFor('continuationCheckpointAutoRefreshIntervalMinutes')).toHaveLength(0);
+  });
+
+  it.each([0, 11, 2.5, Number.NaN])(
+    'repairs invalid checkpoint concurrency %s',
+    async (value) => {
+      mockRawStore = { continuationCheckpointMaxConcurrent: value };
+      const all = (await loadSettingsStore()).getAll();
+      expect(all.continuationCheckpointMaxConcurrent).toBe(2);
+      expect(mockSet).toHaveBeenCalledWith('continuationCheckpointMaxConcurrent', 2);
+    },
+  );
+
+  it.each([1, 10])('preserves valid checkpoint concurrency %s', async (value) => {
+    mockRawStore = { continuationCheckpointMaxConcurrent: value };
+    const all = (await loadSettingsStore()).getAll();
+    expect(all.continuationCheckpointMaxConcurrent).toBe(value);
+    expect(callsFor('continuationCheckpointMaxConcurrent')).toHaveLength(0);
   });
 
   it('repairs malformed automation switches but preserves valid explicit off values', async () => {

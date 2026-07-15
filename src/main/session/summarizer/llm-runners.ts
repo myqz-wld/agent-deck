@@ -52,9 +52,6 @@ export async function summariseViaLlm(
   const activity = formatEventsForPrompt(events);
   if (!activity && !opts?.evidenceContext) return null;
   const agentName = opts?.agentName ?? 'Claude';
-  const defaultModelAlias = agentName === 'Deepseek' ? 'sonnet' : 'haiku';
-  const defaultModelEnv =
-    agentName === 'Deepseek' ? 'ANTHROPIC_DEFAULT_SONNET_MODEL' : 'ANTHROPIC_DEFAULT_HAIKU_MODEL';
 
   const result = await runClaudeOneshot({
     cwd,
@@ -64,12 +61,11 @@ export async function summariseViaLlm(
       agentName,
       evidenceContext: opts?.evidenceContext,
     }),
-    // Blank model keeps Claude summaries cheap with Haiku, while Deepseek uses Sonnet for enough
-    // quality to maintain a useful periodic brief. Provider-specific env aliases remain authoritative.
+    // Periodic summaries prefer each Claude-family provider's low-cost Haiku alias.
     model:
       settingsStore.get('summaryModel') ||
-      providerEnv(opts, defaultModelEnv) ||
-      defaultModelAlias,
+      providerEnv(opts, 'ANTHROPIC_DEFAULT_HAIKU_MODEL') ||
+      'haiku',
     effort: claudeReasoningSetting(),
     systemPrompt: buildSummarizeSystemPrompt(agentName),
     envOverride: opts?.envOverride,

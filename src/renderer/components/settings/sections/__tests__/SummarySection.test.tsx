@@ -139,7 +139,7 @@ describe('SummarySection provider-specific thinking levels', () => {
           .placeholder,
       ).toBe('模型（可留空）');
     });
-    expect(screen.getByText('留空时使用 Deepseek Sonnet。')).toBeTruthy();
+    expect(screen.getByText('留空时使用 Deepseek Haiku。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryProvider: 'deepseek',
       summaryReasoning: 'xhigh',
