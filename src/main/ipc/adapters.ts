@@ -305,15 +305,12 @@ export function registerAdaptersIpc(): void {
   on(IpcInvoke.AdapterRespondExitPlanMode, async (_e, agentId, sessionId, requestId, response) => {
     const sid = parseStringId('sessionId', sessionId);
     const rid = parseStringId('requestId', requestId);
-    if (
-      await planReviewService.respond(
-        sid,
-        rid,
-        response as Parameters<typeof planReviewService.respond>[2],
-      )
-    ) {
-      return true;
-    }
+    const resolvedSessionId = await planReviewService.respond(
+      sid,
+      rid,
+      response as Parameters<typeof planReviewService.respond>[2],
+    );
+    if (resolvedSessionId) return { resolvedSessionId };
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondExitPlanMode) {
       throw new Error('adapter cannot respond to ExitPlanMode');
@@ -323,7 +320,7 @@ export function registerAdaptersIpc(): void {
       rid,
       response as Parameters<NonNullable<typeof adapter.respondExitPlanMode>>[2],
     );
-    return true;
+    return { resolvedSessionId: sid };
   });
   on(IpcInvoke.AdapterRespondDiffReview, async (_e, _agentId, sessionId, requestId, response) => {
     const sid = parseStringId('sessionId', sessionId);

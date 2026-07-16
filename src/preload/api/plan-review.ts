@@ -14,9 +14,9 @@ export const planReviewApi = {
     question: string,
   ): Promise<boolean> =>
     ipcRenderer.invoke(IpcInvoke.PlanReviewAskDeepReview, sessionId, requestId, question),
-  autoFeedbackPlanDeepReview: (
+  generatePlanDeepReviewFeedback: (
     sessionId: string,
     requestId: string,
   ): Promise<{ feedback: string }> =>
-    ipcRenderer.invoke(IpcInvoke.PlanReviewAutoFeedback, sessionId, requestId),
+    ipcRenderer.invoke(IpcInvoke.PlanReviewGenerateFeedback, sessionId, requestId),
 };

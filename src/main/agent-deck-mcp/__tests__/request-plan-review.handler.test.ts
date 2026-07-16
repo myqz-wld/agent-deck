@@ -89,7 +89,7 @@ describe('present_plan handler', () => {
         decision: 'approve',
         targetMode: 'default',
       }),
-    ).toBe(true);
+    ).toBe('codex-1');
 
     const result = await pending;
     expect(result.isError).toBeFalsy();
@@ -112,7 +112,7 @@ describe('present_plan handler', () => {
         decision: 'keep-planning',
         feedback: '  tighten validation  ',
       }),
-    ).toBe(true);
+    ).toBe('codex-1');
 
     const result = await pending;
     expect(parseResult(result)).toEqual({

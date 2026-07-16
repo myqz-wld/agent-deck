@@ -65,7 +65,7 @@ export const adaptersApi = {
     sessionId: string,
     requestId: string,
     response: ExitPlanModeResponse,
-  ): Promise<void> =>
+  ): Promise<{ resolvedSessionId: string }> =>
     ipcRenderer.invoke(
       IpcInvoke.AdapterRespondExitPlanMode,
       agentId,

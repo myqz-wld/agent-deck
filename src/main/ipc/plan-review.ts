@@ -29,8 +29,8 @@ export function registerPlanReviewIpc(): void {
     return true;
   });
 
-  on(IpcInvoke.PlanReviewAutoFeedback, async (_event, sessionId, requestId) => {
-    const feedback = await planReviewService.generateAndSubmitFeedback(
+  on(IpcInvoke.PlanReviewGenerateFeedback, async (_event, sessionId, requestId) => {
+    const feedback = await planReviewService.generateFeedbackDraft(
       parseStringId('sessionId', sessionId),
       parseStringId('requestId', requestId),
     );
