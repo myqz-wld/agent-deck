@@ -4,7 +4,13 @@ import type {
   CheckpointGeneratorResult,
   ContinuationCheckpointGenerator,
 } from '../checkpoint-generator';
-import type { ContinuationCheckpoint, ContinuationFact } from '../checkpoint-schema';
+import type { ContinuationCheckpointPatch } from '../checkpoint-patch-schema';
+import {
+  CONTINUATION_CHECKPOINT_SECTIONS,
+  type ContinuationCheckpoint,
+  type ContinuationCheckpointSection,
+  type ContinuationFact,
+} from '../checkpoint-schema';
 import { estimateContinuationJsonTokens } from '../token-estimator';
 
 export function emptyCheckpoint(): ContinuationCheckpoint {
@@ -72,6 +78,25 @@ export function largeRequiredFacts(eventId: number, revision: number): Continuat
   );
 }
 
+export function patchAddingFacts(
+  factsBySection: Partial<Record<ContinuationCheckpointSection, ContinuationFact[]>>,
+): ContinuationCheckpointPatch {
+  return {
+    formatVersion: 1,
+    additions: CONTINUATION_CHECKPOINT_SECTIONS.flatMap((section) =>
+      (factsBySection[section] ?? []).map((fact) => ({
+        section,
+        fact: {
+          ...fact,
+          rationale: fact.rationale ?? '',
+          validation: fact.validation ?? '',
+        },
+      })),
+    ),
+    updates: [],
+  };
+}
+
 export function checkpointAtExactTokens(target: number): ContinuationCheckpoint {
   const checkpoint = emptyCheckpoint();
   const facts = Array.from({ length: 96 }, (_, index) =>
@@ -120,7 +145,7 @@ export class StaticGenerator implements ContinuationCheckpointGenerator {
   readonly isolation = 'proven-no-tools' as const;
 
   constructor(
-    private readonly output: ContinuationCheckpoint,
+    private readonly output: ContinuationCheckpointPatch,
     private readonly beforeReturn?: () => void,
   ) {}
 

@@ -22,13 +22,14 @@ const emptyCheckpoint: ContinuationCheckpoint = {
   goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [], currentState: [],
   nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
 };
+const emptyPatch = { formatVersion: 1 as const, additions: [], updates: [] };
 
 class FakeGenerator implements ContinuationCheckpointGenerator {
   readonly isolation = 'proven-no-tools' as const;
   readonly generate = vi.fn(
     async (_request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> => ({
-      output: emptyCheckpoint,
-      rawText: JSON.stringify(emptyCheckpoint),
+      output: emptyPatch,
+      rawText: JSON.stringify(emptyPatch),
       inputTokens: 100,
       outputTokens: 20,
       contextWindowTokens: 128_000,

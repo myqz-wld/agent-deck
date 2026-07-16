@@ -11,7 +11,6 @@ import {
 } from './checkpoint-prompts';
 import { projectContinuationCheckpointForFold } from './checkpoint-projection';
 import {
-  CONTINUATION_CHECKPOINT_SECTIONS,
   type ContinuationCheckpoint,
   type ContinuationFact,
 } from './checkpoint-schema';
@@ -75,23 +74,6 @@ export interface BuildFoldChunkViewInput {
 
 export interface AsyncFoldChunkSource {
   buildNextChunk(input: BuildFoldChunkViewInput): Promise<FoldChunkView | null>;
-}
-
-export function priorCheckpointEvidence(
-  checkpoint: ContinuationCheckpoint | null,
-): Array<{ eventId: number; revision: number }> {
-  if (!checkpoint) return [];
-  const unique = new Map<string, { eventId: number; revision: number }>();
-  for (const section of CONTINUATION_CHECKPOINT_SECTIONS) {
-    for (const fact of checkpoint[section]) {
-      for (const evidence of fact.evidence) {
-        unique.set(`${evidence.eventId}:${evidence.revision}`, evidence);
-      }
-    }
-  }
-  return [...unique.values()].sort(
-    (left, right) => left.revision - right.revision || left.eventId - right.eventId,
-  );
 }
 
 function serializedToolInput(payloadJson: string): string | null {
@@ -211,7 +193,6 @@ export function buildCheckpointFoldChunk(input: {
   finalThroughRevision: number;
   budget: number;
 }): FoldChunk | null {
-  const baseEvidence = priorCheckpointEvidence(input.previous);
   let selected: RevisionGroup[] = [];
   let normalized: unknown[] = [];
   let currentEvidence: Array<{ eventId: number; revision: number }> = [];
@@ -231,7 +212,7 @@ export function buildCheckpointFoldChunk(input: {
       previousCheckpoint: input.previous,
       sourceThroughRevision: throughRevision,
       normalizedDelta: normalized,
-      allowedEvidence: [...baseEvidence, ...currentEvidence],
+      currentDeltaEvidence: currentEvidence,
     });
     if (
       !promptFits(prompt, input.budget) &&
@@ -243,7 +224,7 @@ export function buildCheckpointFoldChunk(input: {
         previousCheckpoint: input.previous,
         sourceThroughRevision: throughRevision,
         normalizedDelta: normalized,
-        allowedEvidence: [...baseEvidence, ...currentEvidence],
+        currentDeltaEvidence: currentEvidence,
       });
     }
     if (!promptFits(prompt, input.budget)) {
@@ -272,12 +253,11 @@ export function buildCheckpointFoldChunk(input: {
           low = midpoint + 1;
           continue;
         }
-        const projectedEvidence = priorCheckpointEvidence(projection.checkpoint);
         const projectedPrompt = buildCheckpointFoldPrompt({
           previousCheckpoint: projection.checkpoint,
           sourceThroughRevision: throughRevision,
           normalizedDelta: normalized,
-          allowedEvidence: [...projectedEvidence, ...currentEvidence],
+          currentDeltaEvidence: currentEvidence,
         });
         if (promptFits(projectedPrompt, input.budget)) {
           projectedBest = {

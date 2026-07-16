@@ -5,25 +5,31 @@ import {
   type ContinuationCheckpointRecord,
 } from '@main/store/continuation-checkpoint-repo';
 import {
+  CONTINUATION_CHECKPOINT_SECTIONS,
   canonicalizeContinuationCheckpoint,
   type ContinuationCheckpoint,
 } from './checkpoint-schema';
 import {
   CheckpointGeneratorError,
+  parseGeneratedContinuationCheckpointPatch,
   rawGeneratorOutput,
-  validateGeneratedContinuationCheckpoint,
   type ContinuationCheckpointGenerator,
 } from './checkpoint-generator';
 import {
   buildCheckpointFoldChunk,
-  priorCheckpointEvidence,
   type FoldChunkView,
 } from './checkpoint-fold-chunk';
 import {
   fitCanonicalCheckpointForPersistence,
   MAX_CANONICAL_CHECKPOINT_TOKENS,
 } from './checkpoint-canonical-fit';
-import { buildCheckpointRepairPrompt, CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from './checkpoint-prompts';
+import {
+  buildCheckpointRepairPrompt,
+  CONTINUATION_CHECKPOINT_SYSTEM_PROMPT,
+  type CheckpointRepairFactIndexEntry,
+} from './checkpoint-prompts';
+import { applyContinuationCheckpointPatch } from './checkpoint-patch-reducer';
+import { checkpointPatchValidationIssues } from './checkpoint-patch-validation';
 import {
   assertActiveCheckpointFactsCarryForward,
   projectContinuationCheckpointWithCoverageMarker,
@@ -83,6 +89,15 @@ function diagnosticDeadlineRemaining(
   now: () => number,
 ): number {
   return Math.max(0, input.deadlineAt - now());
+}
+
+function checkpointRepairFactIndex(
+  checkpoint: ContinuationCheckpoint | null,
+): CheckpointRepairFactIndexEntry[] {
+  if (!checkpoint) return [];
+  return CONTINUATION_CHECKPOINT_SECTIONS.flatMap((section) =>
+    checkpoint[section].map((fact) => ({ section, id: fact.id, status: fact.status })),
+  );
 }
 
 export async function foldContinuationCheckpoint(
@@ -320,13 +335,10 @@ export async function foldContinuationCheckpoint(
 
     let canonical;
     try {
-      canonical = validateGeneratedContinuationCheckpoint({
-        output: generated.output,
-        previousCheckpoint: chunk.previousForFold,
-        allowedEvidence: [
-          ...priorCheckpointEvidence(chunk.previousForFold),
-          ...chunk.currentEvidence,
-        ],
+      const patch = parseGeneratedContinuationCheckpointPatch(generated.output);
+      canonical = applyContinuationCheckpointPatch({
+        previousCheckpoint: current?.checkpoint ?? null,
+        patch,
         currentDeltaEvidence: chunk.currentEvidence,
       });
       assertActiveCheckpointFactsCarryForward({
@@ -351,19 +363,17 @@ export async function foldContinuationCheckpoint(
       try {
         const boundedInvalid = truncateContinuationTextMiddle(
           rawGeneratorOutput(generated.output),
-          Math.max(256, Math.floor(input.generatorFoldInputBudgetTokens / 4)),
+          Math.min(
+            16_000,
+            Math.max(256, Math.floor(input.generatorFoldInputBudgetTokens / 4)),
+          ),
         ).text;
         const repairPrompt = buildCheckpointRepairPrompt({
-          previousCheckpoint: chunk.previousForFold,
           sourceThroughRevision: chunk.throughRevision,
-          normalizedDelta: chunk.normalized,
-          allowedEvidence: [
-            ...priorCheckpointEvidence(chunk.previousForFold),
-            ...chunk.currentEvidence,
-          ],
           invalidOutput: boundedInvalid,
-          validationError:
-            validationError instanceof Error ? validationError.message : String(validationError),
+          validationIssues: checkpointPatchValidationIssues(validationError),
+          previousFactIndex: checkpointRepairFactIndex(current?.checkpoint ?? null),
+          currentDeltaEvidence: chunk.currentEvidence,
         });
         assertContinuationPromptByteLimit(CONTINUATION_CHECKPOINT_SYSTEM_PROMPT + repairPrompt);
         const repaired = await input.generator.generate({
@@ -376,13 +386,10 @@ export async function foldContinuationCheckpoint(
         repairCalls += repaired.providerCalls;
         inputTokens += repaired.inputTokens ?? estimateContinuationTokens(repairPrompt);
         outputTokens += repaired.outputTokens ?? estimateContinuationJsonTokens(repaired.output);
-        canonical = validateGeneratedContinuationCheckpoint({
-          output: repaired.output,
-          previousCheckpoint: chunk.previousForFold,
-          allowedEvidence: [
-            ...priorCheckpointEvidence(chunk.previousForFold),
-            ...chunk.currentEvidence,
-          ],
+        const repairedPatch = parseGeneratedContinuationCheckpointPatch(repaired.output);
+        canonical = applyContinuationCheckpointPatch({
+          previousCheckpoint: current?.checkpoint ?? null,
+          patch: repairedPatch,
           currentDeltaEvidence: chunk.currentEvidence,
         });
         assertActiveCheckpointFactsCarryForward({

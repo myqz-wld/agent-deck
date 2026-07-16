@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-15 | `PLAN_14_checkpoint-patch-reduction.md` | completed | Let the LLM emit semantic patches while code owns checkpoint state | REVIEW_163 |
 | 2026-07-15 | `PLAN_13_history-search-case-insensitive.md` | completed | Rebuild History FTS case-insensitively while fully offline | CHANGELOG_374 |
 | 2026-07-14 | `PLAN_12_handoff-ownership-plan-review-hardening.md` | completed | Preserve current-owner authority and harden plan-review lifecycle | CHANGELOG_366 / REVIEW_161 |
 | 2026-07-14 | `PLAN_11_automatic-continuation-checkpoints.md` | completed | Keep continuation state fresh without unbounded growth | CHANGELOG_365 / REVIEW_160 |

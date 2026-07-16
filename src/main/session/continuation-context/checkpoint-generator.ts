@@ -1,10 +1,11 @@
 import {
-  CONTINUATION_CHECKPOINT_SECTIONS,
-  canonicalizeContinuationCheckpoint,
-  type CanonicalContinuationCheckpoint,
-  type ContinuationCheckpoint,
-  type ContinuationCheckpointSection,
-} from './checkpoint-schema';
+  continuationCheckpointPatchSchema,
+  type ContinuationCheckpointPatch,
+} from './checkpoint-patch-schema';
+import {
+  CheckpointPatchValidationError,
+  checkpointPatchSchemaError,
+} from './checkpoint-patch-validation';
 
 export type CheckpointGeneratorErrorCode =
   | 'timeout'
@@ -49,100 +50,30 @@ export interface ContinuationCheckpointGenerator {
   generate(request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult>;
 }
 
-function evidenceKey(evidence: { eventId: number; revision: number }): string {
-  return `${evidence.eventId}:${evidence.revision}`;
-}
-
-function currentDeltaEvidenceSet(
-  currentDeltaEvidence: Array<{ eventId: number; revision: number }>,
-): Set<string> {
-  return new Set(currentDeltaEvidence.map(evidenceKey));
-}
-
-function assertEvidenceAllowed(
-  checkpoint: ContinuationCheckpoint,
-  allowedEvidence: Set<string>,
-): void {
-  for (const section of CONTINUATION_CHECKPOINT_SECTIONS) {
-    for (const fact of checkpoint[section]) {
-      for (const evidence of fact.evidence) {
-        if (!allowedEvidence.has(evidenceKey(evidence))) {
-          throw new Error(
-            `Checkpoint fact ${fact.id} cites evidence outside the exact fold allowlist`,
-          );
-        }
-      }
-    }
-  }
-}
-
-const PROTECTED_SECTIONS: readonly ContinuationCheckpointSection[] = [
-  'constraints',
-  'openQuestions',
-  'risks',
-];
-
-function assertProtectedFactsCarryForward(
-  previous: ContinuationCheckpoint | null,
-  next: ContinuationCheckpoint,
-  deltaEvidence: Set<string>,
-): void {
-  if (!previous) return;
-  for (const section of PROTECTED_SECTIONS) {
-    const nextById = new Map(next[section].map((fact) => [fact.id, fact]));
-    for (const prior of previous[section]) {
-      if (prior.status !== 'active' && prior.status !== 'blocked') continue;
-      const candidate = nextById.get(prior.id);
-      if (!candidate) {
-        throw new Error(`Active ${section} fact ${prior.id} was removed without explicit evidence`);
-      }
-      const semanticChanged =
-        candidate.text !== prior.text ||
-        candidate.rationale !== prior.rationale ||
-        candidate.validation !== prior.validation ||
-        candidate.status !== prior.status;
-      if (
-        semanticChanged &&
-        !candidate.evidence.some((evidence) => deltaEvidence.has(evidenceKey(evidence)))
-      ) {
-        throw new Error(
-          `Active ${section} fact ${prior.id} changed without current-delta evidence`,
-        );
-      }
-      if (candidate.status === 'resolved' || candidate.status === 'superseded') {
-        if (!candidate.evidence.some((evidence) => deltaEvidence.has(evidenceKey(evidence)))) {
-          throw new Error(
-            `Active ${section} fact ${prior.id} changed status without current-delta evidence`,
-          );
-        }
-      }
-    }
-  }
-}
-
 function parseGeneratorOutput(output: unknown): unknown {
   if (typeof output !== 'string') return output;
-  return JSON.parse(output) as unknown;
+  try {
+    return JSON.parse(output) as unknown;
+  } catch (error) {
+    throw new CheckpointPatchValidationError([
+      {
+        code: 'schema.invalid-json',
+        path: '$',
+        message: error instanceof Error ? error.message : 'Output is not valid JSON.',
+        requiredAction:
+          'Return exactly one valid CheckpointPatch JSON object with no prose or fences.',
+      },
+    ]);
+  }
 }
 
-/** Validate schema, exact evidence membership, and protected active-fact carry-forward. */
-export function validateGeneratedContinuationCheckpoint(input: {
-  output: unknown;
-  previousCheckpoint: ContinuationCheckpoint | null;
-  allowedEvidence: Array<{ eventId: number; revision: number }>;
-  currentDeltaEvidence: Array<{ eventId: number; revision: number }>;
-}): CanonicalContinuationCheckpoint {
-  const canonical = canonicalizeContinuationCheckpoint(parseGeneratorOutput(input.output));
-  assertEvidenceAllowed(
-    canonical.checkpoint,
-    new Set(input.allowedEvidence.map(evidenceKey)),
-  );
-  assertProtectedFactsCarryForward(
-    input.previousCheckpoint,
-    canonical.checkpoint,
-    currentDeltaEvidenceSet(input.currentDeltaEvidence),
-  );
-  return canonical;
+/** Parse all structured-output issues so repair receives precise paths instead of one failure. */
+export function parseGeneratedContinuationCheckpointPatch(
+  output: unknown,
+): ContinuationCheckpointPatch {
+  const parsed = continuationCheckpointPatchSchema.safeParse(parseGeneratorOutput(output));
+  if (!parsed.success) throw checkpointPatchSchemaError(parsed.error);
+  return parsed.data;
 }
 
 export function rawGeneratorOutput(output: unknown): string {

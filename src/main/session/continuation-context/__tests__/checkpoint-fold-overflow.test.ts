@@ -13,6 +13,7 @@ import {
   largeInactiveFacts,
   largeRequiredFacts,
   makeFact,
+  patchAddingFacts,
   StaticGenerator,
 } from './checkpoint-overflow-fixtures';
 
@@ -90,13 +91,12 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint overflow fold', () =
       eventId: deltaEventId,
       revision: 2,
     });
-    const candidate: ContinuationCheckpoint = {
-      ...emptyCheckpoint(),
-      goals: [active],
-      completedWork: largeInactiveFacts(deltaEventId, 2),
-      currentState: [blocked],
-    };
-    const generator = new StaticGenerator(candidate);
+    const generator = new StaticGenerator(
+      patchAddingFacts({
+        completedWork: largeInactiveFacts(deltaEventId, 2),
+        currentState: [blocked],
+      }),
+    );
 
     const fold = await runFold(generator);
 
@@ -120,12 +120,9 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint overflow fold', () =
     const seedEventId = insertMessage('user', 'seed', 1);
     const seeded = seedCheckpoint(seedEventId);
     const deltaEventId = insertMessage('assistant', 'delta', 2);
-    const candidate: ContinuationCheckpoint = {
-      ...emptyCheckpoint(),
-      goals: seeded.checkpoint.goals,
-      currentState: largeRequiredFacts(deltaEventId, 2),
-    };
-    const generator = new StaticGenerator(candidate);
+    const generator = new StaticGenerator(
+      patchAddingFacts({ currentState: largeRequiredFacts(deltaEventId, 2) }),
+    );
 
     const fold = await runFold(generator);
 
@@ -154,27 +151,25 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint overflow fold', () =
       ],
     };
     let concurrentId: number | null = null;
-    const candidate: ContinuationCheckpoint = {
-      ...emptyCheckpoint(),
-      goals: seeded.checkpoint.goals,
-      completedWork: largeInactiveFacts(deltaEventId, 2),
-    };
-    const generator = new StaticGenerator(candidate, () => {
-      const result = createContinuationCheckpointRepo(db).commit({
-        sessionId: 'source',
-        expectedHeadId: seeded.id,
-        expectedRebuildAfterRevision: 0,
-        sourceEventRevision: 2,
-        sourceMaxEventId: deltaEventId,
-        checkpoint: concurrent,
-        generatorAdapter: 'claude-code',
-        generatorModel: 'concurrent',
-        generatorThinking: 'low',
-        trigger: 'test-concurrent',
-      });
-      if (!result.ok) throw new Error(`Concurrent checkpoint failed: ${result.reason}`);
-      concurrentId = result.checkpoint.id;
-    });
+    const generator = new StaticGenerator(
+      patchAddingFacts({ completedWork: largeInactiveFacts(deltaEventId, 2) }),
+      () => {
+        const result = createContinuationCheckpointRepo(db).commit({
+          sessionId: 'source',
+          expectedHeadId: seeded.id,
+          expectedRebuildAfterRevision: 0,
+          sourceEventRevision: 2,
+          sourceMaxEventId: deltaEventId,
+          checkpoint: concurrent,
+          generatorAdapter: 'claude-code',
+          generatorModel: 'concurrent',
+          generatorThinking: 'low',
+          trigger: 'test-concurrent',
+        });
+        if (!result.ok) throw new Error(`Concurrent checkpoint failed: ${result.reason}`);
+        concurrentId = result.checkpoint.id;
+      },
+    );
 
     const fold = await runFold(generator);
 

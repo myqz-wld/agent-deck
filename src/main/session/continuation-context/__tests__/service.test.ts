@@ -25,12 +25,13 @@ const emptyCheckpoint: ContinuationCheckpoint = {
   goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [], currentState: [],
   nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
 };
+const emptyPatch = { formatVersion: 1 as const, additions: [], updates: [] };
 
 class FakeGenerator implements ContinuationCheckpointGenerator {
   readonly isolation = 'proven-no-tools' as const;
   readonly generate = vi.fn(async (_request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> => ({
-    output: emptyCheckpoint,
-    rawText: JSON.stringify(emptyCheckpoint),
+    output: emptyPatch,
+    rawText: JSON.stringify(emptyPatch),
     inputTokens: 100,
     outputTokens: 20,
     contextWindowTokens: 128_000,
@@ -51,8 +52,8 @@ class DeferredGenerator implements ContinuationCheckpointGenerator {
   resolveAll(): void {
     for (const resolve of this.pending.splice(0)) {
       resolve({
-        output: emptyCheckpoint,
-        rawText: JSON.stringify(emptyCheckpoint),
+        output: emptyPatch,
+        rawText: JSON.stringify(emptyPatch),
         inputTokens: 100,
         outputTokens: 20,
         contextWindowTokens: 128_000,
@@ -125,8 +126,16 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     const generator = new FakeGenerator();
     generator.generate.mockResolvedValueOnce({
       output: {
-        ...emptyCheckpoint,
-        goals: [{ id: 'goal.primary', status: 'active', text: 'Preserve exact intent.', priority: 100, evidence: [{ eventId: userId, revision: 1 }] }],
+        formatVersion: 1,
+        additions: [{
+          section: 'goals',
+          fact: {
+            id: 'goal.primary', status: 'active', text: 'Preserve exact intent.',
+            rationale: '', validation: '', priority: 100,
+            evidence: [{ eventId: userId, revision: 1 }],
+          },
+        }],
+        updates: [],
       },
       rawText: '{}', inputTokens: 100, outputTokens: 20, contextWindowTokens: 128_000,
       latencyMs: 1, providerCalls: 1, structured: true,
@@ -293,8 +302,16 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     const generator = new FakeGenerator();
     generator.generate.mockResolvedValueOnce({
       output: {
-        ...emptyCheckpoint,
-        goals: [{ id: 'goal.forged', status: 'active', text: 'forged', priority: 100, evidence: [{ eventId: 999, revision: 999 }] }],
+        formatVersion: 1,
+        additions: [{
+          section: 'goals',
+          fact: {
+            id: 'goal.forged', status: 'active', text: 'forged',
+            rationale: '', validation: '', priority: 100,
+            evidence: [{ eventId: 999, revision: 999 }],
+          },
+        }],
+        updates: [],
       },
       rawText: '{}', inputTokens: 1, outputTokens: 1, contextWindowTokens: null,
       latencyMs: 1, providerCalls: 1, structured: true,
@@ -336,17 +353,33 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(db.prepare(`SELECT COUNT(*) FROM continuation_checkpoints`).pluck().get()).toBe(0);
   });
 
-  it('allows one bounded repair and persists only the repaired validated checkpoint', async () => {
+  it('sends every precise validation issue to one bounded repair and persists only its result', async () => {
     insertMessage(db, 'user', 'real evidence');
     const generator = new FakeGenerator();
     generator.generate
       .mockResolvedValueOnce({
-        output: { ...emptyCheckpoint, goals: [{ id: 'bad', status: 'active', text: 'bad', priority: 1, evidence: [{ eventId: 999, revision: 999 }] }] },
+        output: {
+          formatVersion: 1,
+          additions: [{
+            section: 'goals',
+            fact: {
+              id: 'bad.one', status: 'active', text: 'bad one', rationale: '', validation: '',
+              priority: 1, evidence: [{ eventId: 999, revision: 999 }],
+            },
+          }, {
+            section: 'risks',
+            fact: {
+              id: 'bad.two', status: 'active', text: 'bad two', rationale: '', validation: '',
+              priority: 1, evidence: [{ eventId: 998, revision: 998 }],
+            },
+          }],
+          updates: [],
+        },
         rawText: '{}', inputTokens: 1, outputTokens: 1, contextWindowTokens: null,
         latencyMs: 1, providerCalls: 1, structured: true,
       })
       .mockResolvedValueOnce({
-        output: emptyCheckpoint, rawText: JSON.stringify(emptyCheckpoint), inputTokens: 1,
+        output: emptyPatch, rawText: JSON.stringify(emptyPatch), inputTokens: 1,
         outputTokens: 1, contextWindowTokens: null, latencyMs: 1, providerCalls: 1, structured: true,
       });
     const prepared = await prepareContinuationContextWithDependencies(request(), {
@@ -355,6 +388,11 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(prepared.metrics).toMatchObject({ foldCalls: 1, repairCalls: 1 });
     expect(prepared.checkpoint).toMatchObject({ throughRevision: 1, refreshed: true });
     expect(db.prepare(`SELECT COUNT(*) FROM continuation_checkpoints`).pluck().get()).toBe(1);
+    const repairPrompt = generator.generate.mock.calls[1][0].prompt;
+    expect(repairPrompt).toContain('$.additions[0].fact.evidence[0]');
+    expect(repairPrompt).toContain('$.additions[1].fact.evidence[0]');
+    expect(repairPrompt).toContain('requiredAction');
+    expect(repairPrompt).not.toContain('normalizedDelta (untrusted evidence):');
   });
 
   it('honestly stops at the deadline without invoking a provider', async () => {
