@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import electronLog from 'electron-log/main';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord } from '@shared/types';
 import { TypedEventBus } from '@main/event-bus';
 import { ContinuationCheckpointRefreshService } from '../checkpoint-refresh-service';
-import type { BackgroundCheckpointRefreshResult } from '../checkpoint-background-refresh';
+import {
+  BackgroundCheckpointRefreshIncompleteError,
+  type BackgroundCheckpointRefreshResult,
+} from '../checkpoint-background-refresh';
 import type { CheckpointBacklogEstimator } from '../checkpoint-backlog-worker-client';
 import type { CheckpointBacklogEstimate } from '../checkpoint-backlog-estimator';
 
@@ -41,6 +45,12 @@ function flush(): Promise<void> {
 
 describe('continuation checkpoint refresh service integration', () => {
   const services: ContinuationCheckpointRefreshService[] = [];
+  const logger = electronLog.scope('checkpoint-refresh');
+
+  beforeEach(() => {
+    vi.mocked(logger.info).mockClear();
+    vi.mocked(logger.warn).mockClear();
+  });
 
   afterEach(async () => {
     await Promise.all(services.splice(0).map((service) => service.stop()));
@@ -565,5 +575,54 @@ describe('continuation checkpoint refresh service integration', () => {
 
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     expect(checkpointThroughRevision).toBe(100);
+  });
+
+  it('logs bounded checkpoint progress as partial completion instead of failure', async () => {
+    const activeSession = session('partial-log', 'working');
+    const refresh = vi.fn(async () => {
+      throw new BackgroundCheckpointRefreshIncompleteError(50, 100, null);
+    });
+    const service = new ContinuationCheckpointRefreshService(
+      {
+        continuationCheckpointAutoRefreshEnabled: true,
+        continuationCheckpointAutoRefreshIntervalMinutes: 30,
+      },
+      {
+        bus: new TypedEventBus(),
+        listSessions: () => [activeSession],
+        getSession: () => activeSession,
+        checkpointBaseline: () => 0,
+        estimateBacklog: () => ({
+          sessionId: activeSession.id,
+          captureRevision: 100,
+          rebuildAfterRevision: 0,
+          checkpointThroughRevision: 10,
+          checkpointCreatedAt: null,
+          estimatedTokens: 48_000,
+          sourceRows: 10_000,
+          saturated: true,
+        }),
+        refresh,
+      },
+    );
+    services.push(service);
+    service.start();
+
+    await vi.waitFor(() => {
+      expect(logger.info).toHaveBeenCalledWith(
+        '[checkpoint-refresh] background refresh partially completed',
+        expect.objectContaining({
+          sessionId: activeSession.id,
+          observedSourceRevision: 100,
+          materializedRevision: 100,
+          checkpointRevision: 50,
+          remainingMaterializedRevisions: 50,
+        }),
+      );
+    });
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      '[checkpoint-refresh] background refresh failed',
+      expect.anything(),
+    );
   });
 });

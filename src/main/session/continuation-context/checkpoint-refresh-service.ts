@@ -115,6 +115,28 @@ export class ContinuationCheckpointRefreshService {
             error instanceof BackgroundCheckpointRefreshIncompleteError
               ? error.foldFailure
               : null;
+          const incompleteWithProgress =
+            error instanceof BackgroundCheckpointRefreshIncompleteError &&
+            foldFailure === null &&
+            error.checkpointThroughRevision >
+              (context.snapshot?.checkpointEventRevision ?? 0);
+          if (incompleteWithProgress) {
+            logger.info('[checkpoint-refresh] background refresh partially completed', {
+              sessionId: context.sessionId,
+              schedulerStage: context.stage,
+              trigger: context.trigger,
+              observedSourceRevision: context.snapshot?.sourceEventRevision ?? null,
+              materializedRevision: error.materializedThroughRevision,
+              checkpointRevision: error.checkpointThroughRevision,
+              remainingMaterializedRevisions: Math.max(
+                0,
+                error.materializedThroughRevision - error.checkpointThroughRevision,
+              ),
+              retryDelayMs: context.retryDelayMs,
+              retryAt: context.retryAt,
+            });
+            return;
+          }
           logger.warn('[checkpoint-refresh] background refresh failed', {
             sessionId: context.sessionId,
             schedulerStage: context.stage,

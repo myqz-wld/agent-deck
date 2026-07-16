@@ -10,7 +10,7 @@ skipped_expired: []
 
 ## Scope and method
 
-This review covered the complete issue-resolution worktree: the persistent live storage-maintenance
+The review covered the complete issue-resolution worktree: the persistent live storage-maintenance
 worker and WAL lease, cross-connection event/snapshot safety, lifecycle integration, Codex thinking
 level migration, summary diagnostics, hardened Codex summary/checkpoint execution, structured-output
 compatibility, provider dependency updates, and paired runtime/MCP prompt assets.
