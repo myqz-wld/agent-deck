@@ -61,8 +61,13 @@ export function ExitPlanRow({
     if (!isSdk || !stillPending || busy) return false;
     setBusy(true);
     try {
-      await window.api.respondExitPlanMode(agentId, sessionId, payload.requestId, response);
-      onResolved(sessionId, payload.requestId);
+      const result = await window.api.respondExitPlanMode(
+        agentId,
+        sessionId,
+        payload.requestId,
+        response,
+      );
+      onResolved(result.resolvedSessionId, payload.requestId);
       return true;
     } catch (err) {
       logger.error('respondExitPlanMode failed', err);
@@ -165,7 +170,7 @@ export function ExitPlanRow({
                 type="button"
                 disabled={busy}
                 onClick={() => setDeepReviewOpen(true)}
-                title="放大计划，引用所选内容，并在隔离的原生 fork 中提问"
+                title="放大计划，选中文字后右键引用，并在隔离的原生 fork 中提问"
                 className="rounded border border-status-waiting/50 bg-status-waiting/10 px-2.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/20 disabled:opacity-50"
               >
                 深度审阅
@@ -241,7 +246,6 @@ export function ExitPlanRow({
           onApprove={() => respond({ decision: 'approve', targetMode: 'default' })}
           onRevise={(nextFeedback) =>
             respond({ decision: 'keep-planning', feedback: nextFeedback })}
-          onAutoSubmitted={() => onResolved(sessionId, payload.requestId)}
         />
       )}
     </li>

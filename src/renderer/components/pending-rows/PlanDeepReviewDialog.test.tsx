@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ExitPlanModeRequest } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
@@ -29,7 +29,7 @@ function api(overrides: Record<string, unknown> = {}): Window['api'] {
     })),
     listEvents: vi.fn(async () => []),
     askPlanDeepReview: vi.fn(async () => true),
-    autoFeedbackPlanDeepReview: vi.fn(async () => ({ feedback: 'Revise lifecycle checks.' })),
+    generatePlanDeepReviewFeedback: vi.fn(async () => ({ feedback: 'Revise lifecycle checks.' })),
     ...overrides,
   } as unknown as Window['api'];
 }
@@ -38,7 +38,6 @@ function renderDialog(props: Partial<Parameters<typeof PlanDeepReviewDialog>[0]>
   const onClose = vi.fn();
   const onApprove = vi.fn(async () => true);
   const onRevise = vi.fn(async () => true);
-  const onAutoSubmitted = vi.fn();
   const view = render(
     <PlanDeepReviewDialog
       open
@@ -48,11 +47,10 @@ function renderDialog(props: Partial<Parameters<typeof PlanDeepReviewDialog>[0]>
       onClose={onClose}
       onApprove={onApprove}
       onRevise={onRevise}
-      onAutoSubmitted={onAutoSubmitted}
       {...props}
     />,
   );
-  return { onClose, onApprove, onRevise, onAutoSubmitted, unmount: view.unmount };
+  return { onClose, onApprove, onRevise, unmount: view.unmount };
 }
 
 beforeEach(() => {
@@ -85,10 +83,12 @@ describe('PlanDeepReviewDialog', () => {
     await waitFor(() => expect(
       (screen.getByTestId('plan-review-question') as HTMLTextAreaElement).disabled,
     ).toBe(false));
-    const question = screen.getByTestId('plan-review-question');
-    question.focus();
-    fireEvent.keyDown(question, { key: 'Tab' });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: '批准计划' }));
+    const approve = screen.getByRole('button', { name: '批准计划' });
+    approve.focus();
+    fireEvent.keyDown(approve, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(approve);
 
     fireEvent.keyDown(close, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -99,7 +99,7 @@ describe('PlanDeepReviewDialog', () => {
     trigger.remove();
   });
 
-  it('quotes selected plan text into the dedicated question composer and sends it', async () => {
+  it('opens a quote action from the selected plan text context menu and sends it', async () => {
     renderDialog();
     await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
 
@@ -109,25 +109,28 @@ describe('PlanDeepReviewDialog', () => {
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-    fireEvent.mouseUp(screen.getByTestId('plan-review-plan'));
-    fireEvent.click(screen.getByRole('button', { name: '引用所选' }));
+    const plan = screen.getByTestId('plan-review-plan');
+    fireEvent.contextMenu(plan, { clientX: 120, clientY: 80 });
+    selection?.removeAllRanges();
+    fireEvent.click(screen.getByRole('menuitem', { name: /引用到提问/ }));
 
     const question = screen.getByTestId('plan-review-question') as HTMLTextAreaElement;
-    expect(question.value).toContain('> Selected risk must be validated.');
-    fireEvent.change(question, { target: { value: `${question.value}What should change?` } });
+    expect(question.value).toBe('');
+    expect(screen.getByTestId('plan-review-quote').textContent)
+      .toContain('Selected risk must be validated.');
+    fireEvent.change(question, { target: { value: 'What should change?' } });
     fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
 
     await waitFor(() => expect(window.api.askPlanDeepReview).toHaveBeenCalledWith(
       'source',
       'plan-1',
-      expect.stringContaining('What should change?'),
+      '> Selected risk must be validated.\n\nWhat should change?',
     ));
   });
 
-  it('keeps continue-modifying as a two-step feedback action', async () => {
+  it('keeps manual feedback in the bottom decision tray and submits it explicitly', async () => {
     const { onRevise, onClose } = renderDialog();
-    fireEvent.click(screen.getByRole('button', { name: '继续修改' }));
-    const feedback = screen.getByPlaceholderText('反馈可选；再次点击“继续修改”提交');
+    const feedback = screen.getByRole('textbox', { name: '修改意见（可选）' });
     fireEvent.change(feedback, { target: { value: 'Add a rollback step.' } });
     fireEvent.click(screen.getByRole('button', { name: '继续修改' }));
 
@@ -135,38 +138,114 @@ describe('PlanDeepReviewDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('supports partial plan selection and quoting entirely by keyboard', async () => {
+  it('quotes selected plan text with the platform shortcut without a selection mode', async () => {
     renderDialog();
     await waitFor(() => expect(
       (screen.getByTestId('plan-review-question') as HTMLTextAreaElement).disabled,
     ).toBe(false));
-    fireEvent.click(screen.getByRole('button', { name: '键盘选择' }));
-    const source = screen.getByRole('textbox', { name: '用键盘选择计划文本' }) as HTMLTextAreaElement;
-    const start = source.value.indexOf('Selected risk');
-    const end = start + 'Selected risk must be validated.'.length;
-    source.focus();
-    source.setSelectionRange(start, end);
-    fireEvent.select(source);
-    fireEvent.click(screen.getByRole('button', { name: '引用所选' }));
+    const selected = screen.getByText('Selected risk must be validated.');
+    const range = document.createRange();
+    range.selectNodeContents(selected);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const plan = screen.getByTestId('plan-review-plan');
+    expect(plan.getAttribute('aria-keyshortcuts')).toBe('Meta+Enter');
+    plan.focus();
+    fireEvent.keyDown(plan, { key: 'Enter', ctrlKey: true });
+    expect(screen.queryByTestId('plan-review-quote')).toBeNull();
+    fireEvent.keyDown(plan, { key: 'Enter', metaKey: true });
 
-    expect((screen.getByTestId('plan-review-question') as HTMLTextAreaElement).value)
-      .toContain('> Selected risk must be validated.');
+    expect((screen.getByTestId('plan-review-question') as HTMLTextAreaElement).value).toBe('');
+    expect(screen.getByTestId('plan-review-quote').textContent)
+      .toContain('Selected risk must be validated.');
+    expect(screen.queryByRole('button', { name: '引用所选' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '键盘选择' })).toBeNull();
     await waitFor(() => expect(document.activeElement)
       .toBe(screen.getByTestId('plan-review-question')));
   });
 
-  it('submits context-derived feedback to the original plan gate', async () => {
-    const { onAutoSubmitted, onClose } = renderDialog();
+  it('keeps multiple rendered quotes outside the question and removes them independently', async () => {
+    renderDialog();
     await waitFor(() => expect(
-      screen.getByRole('button', { name: '根据上下文提意见' }).hasAttribute('disabled'),
+      (screen.getByTestId('plan-review-question') as HTMLTextAreaElement).disabled,
     ).toBe(false));
-    fireEvent.click(screen.getByRole('button', { name: '根据上下文提意见' }));
+    const selected = screen.getByText('Selected risk must be validated.');
+    const range = document.createRange();
+    range.selectNodeContents(selected);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const plan = screen.getByTestId('plan-review-plan');
+    fireEvent.contextMenu(plan, { clientX: 120, clientY: 80 });
+    fireEvent.click(screen.getByRole('menuitem', { name: /引用到提问/ }));
+    const second = screen.getByText('Implement the gate.');
+    const secondRange = document.createRange();
+    secondRange.selectNodeContents(second);
+    selection?.removeAllRanges();
+    selection?.addRange(secondRange);
+    fireEvent.contextMenu(plan, { clientX: 120, clientY: 80 });
+    fireEvent.click(screen.getByRole('menuitem', { name: /引用到提问/ }));
+    const question = screen.getByTestId('plan-review-question');
+    fireEvent.change(question, { target: { value: 'Keep this draft.' } });
 
-    await waitFor(() => expect(window.api.autoFeedbackPlanDeepReview).toHaveBeenCalledWith(
+    expect(screen.getAllByTestId('plan-review-quote')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: '移除第 1 条计划引用' }));
+
+    expect(screen.getAllByTestId('plan-review-quote')).toHaveLength(1);
+    expect(screen.getByTestId('plan-review-quote').textContent).toContain('Implement the gate.');
+    expect((question as HTMLTextAreaElement).value).toBe('Keep this draft.');
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
+    await waitFor(() => expect(window.api.askPlanDeepReview).toHaveBeenCalledWith(
+      'source',
+      'plan-1',
+      '> Implement the gate.\n\nKeep this draft.',
+    ));
+  });
+
+  it('does not open the quote menu when no plan text is selected', async () => {
+    renderDialog();
+    await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
+
+    fireEvent.contextMenu(screen.getByTestId('plan-review-plan'), { clientX: 120, clientY: 80 });
+
+    expect(screen.queryByRole('menu', { name: '计划文本引用' })).toBeNull();
+  });
+
+  it('keeps the deep-review title clear of the frameless window controls', () => {
+    renderDialog();
+
+    const header = screen.getByText('计划深度审阅').closest('header');
+    expect(header?.className).toContain('pl-[78px]');
+    expect(within(header!).queryByRole('button', { name: '批准计划' })).toBeNull();
+    const footer = screen.getByTestId('plan-review-decision-footer');
+    expect(within(footer).getByRole('button', { name: '继续修改' })).toBeTruthy();
+    expect(within(footer).getByRole('button', { name: '批准计划' })).toBeTruthy();
+    expect(within(footer).getByRole('button', { name: '根据上下文生成意见' })).toBeTruthy();
+  });
+
+  it('generates an editable feedback draft and waits for explicit confirmation', async () => {
+    const { onRevise, onClose } = renderDialog();
+    await waitFor(() => expect(
+      screen.getByRole('button', { name: '根据上下文生成意见' }).hasAttribute('disabled'),
+    ).toBe(false));
+    const feedback = screen.getByTestId('plan-review-feedback') as HTMLTextAreaElement;
+    fireEvent.change(feedback, { target: { value: 'Keep this manual note.' } });
+    fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
+
+    await waitFor(() => expect(window.api.generatePlanDeepReviewFeedback).toHaveBeenCalledWith(
       'source',
       'plan-1',
     ));
-    expect(onAutoSubmitted).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(feedback.value)
+      .toBe('Keep this manual note.\n\nRevise lifecycle checks.'));
+    await waitFor(() => expect(document.activeElement).toBe(feedback));
+    expect(onRevise).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.change(feedback, { target: { value: 'Reviewed lifecycle checks.' } });
+    fireEvent.click(screen.getByRole('button', { name: '继续修改' }));
+    await waitFor(() => expect(onRevise).toHaveBeenCalledWith('Reviewed lifecycle checks.'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -189,25 +268,98 @@ describe('PlanDeepReviewDialog', () => {
     await waitFor(() => expect(question.disabled).toBe(false));
   });
 
-  it('blocks question submission while automatic feedback is in flight', async () => {
+  it('blocks question submission while a feedback draft is being generated', async () => {
     const automatic = deferred<{ feedback: string }>();
     window.api = api({
-      autoFeedbackPlanDeepReview: vi.fn(() => automatic.promise),
+      generatePlanDeepReviewFeedback: vi.fn(() => automatic.promise),
     });
-    const { onAutoSubmitted } = renderDialog();
+    const { onClose, onRevise } = renderDialog();
     await waitFor(() => expect(
-      screen.getByRole('button', { name: '根据上下文提意见' }).hasAttribute('disabled'),
+      screen.getByRole('button', { name: '根据上下文生成意见' }).hasAttribute('disabled'),
     ).toBe(false));
     const question = screen.getByTestId('plan-review-question') as HTMLTextAreaElement;
     fireEvent.change(question, { target: { value: 'Can this overlap?' } });
 
-    fireEvent.click(screen.getByRole('button', { name: '根据上下文提意见' }));
+    fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
     expect(question.disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
     expect(window.api.askPlanDeepReview).not.toHaveBeenCalled();
 
     automatic.resolve({ feedback: 'No overlap.' });
-    await waitFor(() => expect(onAutoSubmitted).toHaveBeenCalledOnce());
+    await waitFor(() => expect(
+      (screen.getByTestId('plan-review-feedback') as HTMLTextAreaElement).value,
+    ).toBe('No overlap.'));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onRevise).not.toHaveBeenCalled();
+  });
+
+  it('preserves a manual feedback draft when LLM generation fails', async () => {
+    window.api = api({
+      generatePlanDeepReviewFeedback: vi.fn(async () => {
+        throw new Error('generation failed');
+      }),
+    });
+    renderDialog();
+    await waitFor(() => expect(
+      screen.getByRole('button', { name: '根据上下文生成意见' }).hasAttribute('disabled'),
+    ).toBe(false));
+    const feedback = screen.getByTestId('plan-review-feedback') as HTMLTextAreaElement;
+    fireEvent.change(feedback, { target: { value: 'Keep my manual draft.' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('意见草稿生成失败');
+    expect(feedback.value).toBe('Keep my manual draft.');
+  });
+
+  it('closes the quote menu with Escape without closing the dialog', async () => {
+    const { onClose } = renderDialog();
+    await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
+    const selected = screen.getByText('Selected risk must be validated.');
+    const range = document.createRange();
+    range.selectNodeContents(selected);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const plan = screen.getByTestId('plan-review-plan');
+    fireEvent.contextMenu(plan, { clientX: 120, clientY: 80 });
+    const menuitem = screen.getByRole('menuitem', { name: /引用到提问/ });
+
+    fireEvent.keyDown(menuitem, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu', { name: '计划文本引用' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement).toBe(plan));
+  });
+
+  it.each([
+    { shiftKey: false, target: 'question' },
+    { shiftKey: true, target: 'close' },
+  ])('closes the quote menu and moves $target on Tab', async ({ shiftKey, target }) => {
+    const { onClose } = renderDialog();
+    await waitFor(() => expect(
+      (screen.getByTestId('plan-review-question') as HTMLTextAreaElement).disabled,
+    ).toBe(false));
+    const selected = screen.getByText('Selected risk must be validated.');
+    const range = document.createRange();
+    range.selectNodeContents(selected);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const plan = screen.getByTestId('plan-review-plan');
+    fireEvent.contextMenu(plan, { clientX: 120, clientY: 80 });
+
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: /引用到提问/ }), {
+      key: 'Tab',
+      shiftKey,
+    });
+
+    expect(screen.queryByRole('menu', { name: '计划文本引用' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    const expected = target === 'question'
+      ? screen.getByTestId('plan-review-question')
+      : screen.getByRole('button', { name: '关闭深度审阅' });
+    await waitFor(() => expect(document.activeElement).toBe(expected));
   });
 
   it('shows stable Chinese copy while keeping provider fork details out of the UI', async () => {

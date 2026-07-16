@@ -18,7 +18,7 @@ import {
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
 import {
   buildLatePlanDecisionPrompt,
-  buildPlanReviewAutoFeedbackPrompt,
+  buildPlanReviewFeedbackDraftPrompt,
   buildPlanReviewForkPrompt,
 } from './prompts';
 
@@ -181,7 +181,7 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
         throw new Error('审阅会话当前无法生成计划意见。');
       }
       const marker = randomUUID();
-      const prompt = buildPlanReviewAutoFeedbackPrompt({
+      const prompt = buildPlanReviewFeedbackDraftPrompt({
         requestId: input.request.requestId,
         marker,
         plan: input.request.plan,

@@ -11,6 +11,14 @@ const child: PlanReviewChildSession = {
   agentId: 'codex-cli',
 };
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function session(id = 'source'): SessionRecord {
   return {
     id,
@@ -110,7 +118,7 @@ describe('PlanReviewService', () => {
     await expect(service.respond('source', 'request-1', {
       decision: 'approve',
       targetMode: 'default',
-    })).resolves.toBe(true);
+    })).resolves.toBe('source');
     expect(deliverLateDecision).toHaveBeenCalledTimes(2);
     expect(service.listPending('source')).toEqual([]);
   });
@@ -160,7 +168,7 @@ describe('PlanReviewService', () => {
     await expect(service.respond('successor-2', 'request-1', {
       decision: 'approve',
       targetMode: 'default',
-    })).resolves.toBe(true);
+    })).resolves.toBe('successor-2');
     expect(deliverLateDecision).toHaveBeenCalledTimes(2);
     expect(deliverLateDecision).toHaveBeenLastCalledWith(expect.objectContaining({
       sourceSessionId: 'successor-2',
@@ -208,7 +216,7 @@ describe('PlanReviewService', () => {
     await expect(service.respond('successor', 'request-1', {
       decision: 'approve',
       targetMode: 'default',
-    })).resolves.toBe(true);
+    })).resolves.toBe('successor');
     expect(deliverLateDecision).toHaveBeenCalledOnce();
     expect(deliverLateDecision).toHaveBeenCalledWith(expect.objectContaining({
       sourceSessionId: 'successor',
@@ -240,7 +248,7 @@ describe('PlanReviewService', () => {
     })).rejects.toThrow('must use the same decision');
     expect(deliverLateDecision).toHaveBeenCalledTimes(1);
 
-    await expect(service.respond('source', 'request-1', approve)).resolves.toBe(true);
+    await expect(service.respond('source', 'request-1', approve)).resolves.toBe('source');
     expect(deliverLateDecision).toHaveBeenCalledTimes(2);
   });
 
@@ -271,10 +279,37 @@ describe('PlanReviewService', () => {
     expect(service.cancelForSession('source')).toBe(1);
     releaseDelivery();
 
-    await expect(response).resolves.toBe(false);
+    await expect(response).resolves.toBeNull();
     await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
     expect(close).toHaveBeenCalledWith(child);
     expect(service.listPending('source')).toEqual([]);
+  });
+
+  it('returns the successor owner when handoff commits during late-decision delivery', async () => {
+    vi.useFakeTimers();
+    const delivery = deferred<void>();
+    const deliverLateDecision = vi.fn(() => delivery.promise);
+    const { service } = setup({ deliverLateDecision });
+    const decision = service.request({
+      sessionId: 'source',
+      agentId: 'codex-cli',
+      plan: 'Plan',
+      timeoutMs: 10,
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(decision).resolves.toEqual({ decision: 'timeout' });
+
+    const response = service.respond('source', 'request-1', {
+      decision: 'approve',
+      targetMode: 'default',
+    });
+    await vi.waitFor(() => expect(deliverLateDecision).toHaveBeenCalledOnce());
+    expect(service.rehomeForHandOff('source', 'successor')).toBe(1);
+    delivery.resolve(undefined);
+
+    await expect(response).resolves.toBe('successor');
+    expect(service.listPending('source')).toEqual([]);
+    expect(service.listPending('successor')).toEqual([]);
   });
 
   it('uses the cross-adapter successor identity for the migrated card and future review work', async () => {
@@ -339,7 +374,28 @@ describe('PlanReviewService', () => {
     expect(ask).toHaveBeenCalledWith(child, 'What is missing?');
   });
 
-  it('uses the child output as revision feedback and closes the child after submission', async () => {
+  it('rejects every concurrent deep-review opener when the gate resolves during child startup', async () => {
+    const started = deferred<PlanReviewChildSession>();
+    const start = vi.fn(() => started.promise);
+    const close = vi.fn(async () => undefined);
+    const { service } = setup({ start, close });
+    const decision = service.request({
+      sessionId: 'source',
+      agentId: 'codex-cli',
+      plan: 'Plan',
+    });
+    const first = service.startDeepReview('source', 'request-1');
+    const second = service.startDeepReview('source', 'request-1');
+    expect(service.cancelForSession('source')).toBe(1);
+    started.resolve(child);
+
+    await expect(first).rejects.toThrow('resolved while its review session was starting');
+    await expect(second).rejects.toThrow('resolved while its review session was starting');
+    expect(close).toHaveBeenCalledTimes(1);
+    await expect(decision).resolves.toEqual({ decision: 'timeout' });
+  });
+
+  it('returns an editable feedback draft without resolving the plan request', async () => {
     const close = vi.fn(async () => undefined);
     const generateFeedback = vi.fn(async () => '  add rollback validation  ');
     const { service } = setup({ close, generateFeedback });
@@ -350,14 +406,66 @@ describe('PlanReviewService', () => {
     });
 
     await expect(
-      service.generateAndSubmitFeedback('source', 'request-1'),
+      service.generateFeedbackDraft('source', 'request-1'),
     ).resolves.toBe('  add rollback validation  ');
+    expect(service.listPending('source')).toHaveLength(1);
+    expect(close).not.toHaveBeenCalled();
+
+    await service.respond('source', 'request-1', {
+      decision: 'keep-planning',
+      feedback: 'edited rollback validation',
+    });
     await expect(decision).resolves.toEqual({
       decision: 'revise',
-      feedback: 'add rollback validation',
+      feedback: 'edited rollback validation',
     });
     expect(close).toHaveBeenCalledWith(child);
     expect(service.listPending('source')).toEqual([]);
+  });
+
+  it('coalesces concurrent feedback draft requests without resolving the gate', async () => {
+    const generated = deferred<string>();
+    const generateFeedback = vi.fn(() => generated.promise);
+    const { service } = setup({ generateFeedback });
+    const decision = service.request({
+      sessionId: 'source',
+      agentId: 'codex-cli',
+      plan: 'Plan',
+    });
+
+    const first = service.generateFeedbackDraft('source', 'request-1');
+    const second = service.generateFeedbackDraft('source', 'request-1');
+    await vi.waitFor(() => expect(generateFeedback).toHaveBeenCalledTimes(1));
+    generated.resolve('draft');
+
+    await expect(Promise.all([first, second])).resolves.toEqual(['draft', 'draft']);
+    expect(service.listPending('source')).toHaveLength(1);
+    await service.respond('source', 'request-1', { decision: 'keep-planning' });
+    await expect(decision).resolves.toEqual({ decision: 'revise' });
+  });
+
+  it('rejects a stale feedback draft after the plan owner is handed off', async () => {
+    const generated = deferred<string>();
+    const generateFeedback = vi.fn(() => generated.promise);
+    const { service } = setup({ generateFeedback });
+    const decision = service.request({
+      sessionId: 'source',
+      agentId: 'codex-cli',
+      plan: 'Plan',
+    });
+    const draft = service.generateFeedbackDraft('source', 'request-1');
+    await vi.waitFor(() => expect(generateFeedback).toHaveBeenCalledTimes(1));
+
+    expect(service.rehomeForHandOff('source', 'successor')).toBe(1);
+    generated.resolve('stale draft');
+
+    await expect(draft).rejects.toThrow('changed before the feedback draft was ready');
+    expect(service.listPending('successor')).toHaveLength(1);
+    await service.respond('successor', 'request-1', {
+      decision: 'approve',
+      targetMode: 'default',
+    });
+    await expect(decision).resolves.toEqual({ decision: 'approved' });
   });
 
   it('closes a prepared child when the owning session is cancelled', async () => {

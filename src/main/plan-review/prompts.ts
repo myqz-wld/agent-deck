@@ -27,7 +27,7 @@ ${input.plan}
 Reply briefly that the plan review is ready. Do not perform a full review until the user asks.`;
 }
 
-export function buildPlanReviewAutoFeedbackPrompt(input: {
+export function buildPlanReviewFeedbackDraftPrompt(input: {
   requestId: string;
   marker: string;
   plan: string;

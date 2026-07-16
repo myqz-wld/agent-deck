@@ -35,7 +35,7 @@ interface PendingMcpPlanReview {
   child: PlanReviewChildSession | null;
   childPromise: Promise<PlanReviewChildSession> | null;
   childClosePromise: Promise<void> | null;
-  autoFeedbackPromise: Promise<string> | null;
+  feedbackDraftPromise: Promise<string> | null;
 }
 
 export interface RequestPlanReviewInput {
@@ -112,7 +112,7 @@ export class PlanReviewService {
       child: null,
       childPromise: null,
       childClosePromise: null,
-      autoFeedbackPromise: null,
+      feedbackDraftPromise: null,
     };
     if (input.timeoutMs && input.timeoutMs > 0) {
       entry.timer = setTimeout(() => {
@@ -150,18 +150,19 @@ export class PlanReviewService {
     const childPromise = this.deps.coordinator.start({
       sourceSessionId: entry.sessionId,
       request: entry.payload,
-    });
-    entry.childPromise = childPromise;
-    try {
-      const child = await childPromise;
+    }).then(async (child) => {
       if (this.pending.get(requestId) !== entry) {
         await this.deps.coordinator.close(child);
         throw new Error('The plan request was resolved while its review session was starting.');
       }
       entry.child = child;
       return child;
+    });
+    entry.childPromise = childPromise;
+    try {
+      return await childPromise;
     } finally {
-      if (this.pending.get(requestId) === entry) entry.childPromise = null;
+      if (entry.childPromise === childPromise) entry.childPromise = null;
     }
   }
 
@@ -172,15 +173,15 @@ export class PlanReviewService {
     await this.deps.coordinator.ask(child, text);
   }
 
-  async generateAndSubmitFeedback(sessionId: string, requestId: string): Promise<string> {
+  async generateFeedbackDraft(sessionId: string, requestId: string): Promise<string> {
     const entry = this.requireEntry(sessionId, requestId);
-    if (entry.autoFeedbackPromise) return entry.autoFeedbackPromise;
-    const operation = this.generateAndSubmitFeedbackForEntry(entry);
-    entry.autoFeedbackPromise = operation;
+    if (entry.feedbackDraftPromise) return entry.feedbackDraftPromise;
+    const operation = this.generateFeedbackDraftForEntry(entry, sessionId);
+    entry.feedbackDraftPromise = operation;
     try {
       return await operation;
     } finally {
-      if (this.pending.get(requestId) === entry) entry.autoFeedbackPromise = null;
+      if (this.pending.get(requestId) === entry) entry.feedbackDraftPromise = null;
     }
   }
 
@@ -188,9 +189,9 @@ export class PlanReviewService {
     sessionId: string,
     requestId: string,
     response: ExitPlanModeResponse,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     const entry = this.pending.get(requestId);
-    if (!entry || entry.sessionId !== sessionId) return false;
+    if (!entry || entry.sessionId !== sessionId) return null;
     if (entry.resolutionState !== 'pending') {
       throw new Error('This plan decision is already being submitted or is no longer pending.');
     }
@@ -216,12 +217,13 @@ export class PlanReviewService {
       }
       if (wasCancelledDuringResolution(entry)) {
         await this.closeChild(entry);
-        return false;
+        return null;
       }
+      const resolvedSessionId = entry.sessionId;
       entry.resolutionState = 'resolved';
       this.removeEntry(entry);
       await this.closeChild(entry);
-      return true;
+      return resolvedSessionId;
     } catch (error) {
       if (entry.resolutionState === 'resolving') entry.resolutionState = 'pending';
       throw error;
@@ -339,20 +341,22 @@ export class PlanReviewService {
     return out;
   }
 
-  private async generateAndSubmitFeedbackForEntry(entry: PendingMcpPlanReview): Promise<string> {
+  private async generateFeedbackDraftForEntry(
+    entry: PendingMcpPlanReview,
+    expectedSessionId: string,
+  ): Promise<string> {
     const child = await this.startDeepReview(entry.sessionId, entry.payload.requestId);
     const feedback = await this.deps.coordinator.generateFeedback({
       child,
       request: entry.payload,
     });
-    if (this.pending.get(entry.payload.requestId) !== entry) {
-      throw new Error('The plan request was resolved before automatic feedback could be submitted.');
+    if (
+      this.pending.get(entry.payload.requestId) !== entry ||
+      entry.resolutionState !== 'pending' ||
+      entry.sessionId !== expectedSessionId
+    ) {
+      throw new Error('The plan request changed before the feedback draft was ready.');
     }
-    const submitted = await this.respond(entry.sessionId, entry.payload.requestId, {
-      decision: 'keep-planning',
-      feedback,
-    });
-    if (!submitted) throw new Error('The plan request is no longer pending.');
     return feedback;
   }
 
