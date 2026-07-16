@@ -40,6 +40,7 @@ import {
   buildTurnStartParams,
 } from './thread-params';
 import { CodexAppServerThread } from './thread';
+import { logCodexThreadBoundaryReady } from './thread-boundary-logging';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
@@ -163,10 +164,8 @@ export class CodexAppServerClient {
     const thread = readRequestThreadId(params);
     try {
       const response = await this.requestRaw<T>(method, params);
-      logger.info(
-        `[codex-app-server] ${method} ready ` +
-          `(thread=${thread}, durationMs=${Math.round(performance.now() - started)})`,
-      );
+      const durationMs = Math.round(performance.now() - started);
+      logCodexThreadBoundaryReady({ method, thread, durationMs });
       return response;
     } catch (err) {
       const diagnostic = sanitizeMcpDiagnostic(err) ?? 'unknown error';

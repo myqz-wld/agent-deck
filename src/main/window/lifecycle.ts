@@ -1,4 +1,4 @@
-import { BrowserWindow, app, screen } from 'electron';
+import { BrowserWindow, app, screen, shell } from 'electron';
 import { join } from 'node:path';
 import { is } from '@electron-toolkit/utils';
 
@@ -11,6 +11,7 @@ import {
   type FloatingWindowState,
 } from './_deps';
 import { stopInvalidateLoop } from './pin-visual';
+import { installWindowNavigationPolicy } from './navigation-policy';
 import log from '@main/utils/logger';
 
 const logger = log.scope('window-lifecycle');
@@ -99,6 +100,7 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   // 4. clearTimeout fallbackShowTimer 防 1.5s 兜底跨 generation show 新 winB (R2 codex)
   // 5. state.win = null 让 dock activate 重建路径正确触发
   const capturedWin = state.win;
+  installWindowNavigationPolicy(capturedWin.webContents, (url) => shell.openExternal(url));
   capturedWin.once('closed', () => {
     // 已被 dock activate → ensureFocusableOnActivate → create() 重建替换 → 不动新 winB
     if (state.win !== capturedWin) return;

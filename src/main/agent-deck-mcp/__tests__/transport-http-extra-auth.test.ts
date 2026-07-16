@@ -31,7 +31,11 @@ vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({}),
 }));
 
-import { describeMcpHttpRequest, resolveCallerSidForReadOnly } from '../transport-http';
+import {
+  describeMcpHttpRequest,
+  mcpSlowRequestThresholdMs,
+  resolveCallerSidForReadOnly,
+} from '../transport-http';
 import { makeCallerContext, denyExternalIfNotAllowed } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from '../types';
 
@@ -100,6 +104,20 @@ describe('describeMcpHttpRequest', () => {
     });
     expect(describeMcpHttpRequest([])).toEqual({ rpcMethod: 'batch', toolName: null });
     expect(describeMcpHttpRequest('bad')).toEqual({ rpcMethod: 'unknown', toolName: null });
+  });
+});
+
+describe('MCP slow-request thresholds', () => {
+  it('does not classify user-gated presentation waits as server latency', () => {
+    expect(mcpSlowRequestThresholdMs('present_plan')).toBe(Number.POSITIVE_INFINITY);
+    expect(mcpSlowRequestThresholdMs('present_diff')).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('keeps ordinary calls sensitive while allowing provider startup work', () => {
+    expect(mcpSlowRequestThresholdMs('send_message')).toBe(500);
+    expect(mcpSlowRequestThresholdMs(null)).toBe(500);
+    expect(mcpSlowRequestThresholdMs('spawn_session')).toBe(60_000);
+    expect(mcpSlowRequestThresholdMs('hand_off_session')).toBe(180_000);
   });
 });
 

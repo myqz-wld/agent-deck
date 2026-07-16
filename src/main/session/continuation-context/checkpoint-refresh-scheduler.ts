@@ -7,6 +7,12 @@
  * actually starts. This keeps provider turns and their native context untouched.
  */
 
+import {
+  nextCheckpointRefreshFailureBackoff,
+  type CheckpointRefreshErrorContext,
+} from './checkpoint-refresh-backoff';
+export type { CheckpointRefreshErrorContext } from './checkpoint-refresh-backoff';
+
 export const DEFAULT_CHECKPOINT_REFRESH_INTERVAL_MS = 30 * 60 * 1_000;
 export const DEFAULT_CHECKPOINT_REFRESH_QUIET_MS = 60 * 1_000;
 export const DEFAULT_CHECKPOINT_REFRESH_NORMAL_TOKENS = 32_000;
@@ -56,16 +62,6 @@ export interface CheckpointRefreshRequest<
   startedAt: number;
 }
 
-export interface CheckpointRefreshErrorContext<
-  Snapshot extends CheckpointRefreshBacklogSnapshot = CheckpointRefreshBacklogSnapshot,
-> {
-  sessionId: string;
-  stage: 'snapshot' | 'refresh';
-  trigger: CheckpointRefreshTrigger | null;
-  snapshot: Readonly<Snapshot> | null;
-  retryAt: number;
-}
-
 export interface CheckpointRefreshSchedulerDependencies<
   Snapshot extends CheckpointRefreshBacklogSnapshot = CheckpointRefreshBacklogSnapshot,
 > {
@@ -110,6 +106,8 @@ interface SessionState<Snapshot extends CheckpointRefreshBacklogSnapshot> {
   providerActive: boolean;
   paused: boolean;
   retryNotBefore: number;
+  consecutiveFailures: number;
+  lastFailureCheckpointRevision: number | null;
   epoch: number;
   needsEvaluation: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -306,6 +304,8 @@ export class CheckpointRefreshScheduler<
       providerActive: false,
       paused: false,
       retryNotBefore: 0,
+      consecutiveFailures: 0,
+      lastFailureCheckpointRevision: null,
       epoch: 0,
       needsEvaluation: false,
       timer: null,
@@ -412,6 +412,8 @@ export class CheckpointRefreshScheduler<
     if (succeeded) {
       state.lastSuccessAt = this.now();
       state.retryNotBefore = 0;
+      state.consecutiveFailures = 0;
+      state.lastFailureCheckpointRevision = null;
       // A resolved callback owns the source captured at execution time. Activity observed while it
       // was running is evaluated again; already-coalesced rows then produce a zero backlog. Avoid
       // unconditional re-reads because a delayed durable view could otherwise hot-loop.
@@ -431,13 +433,25 @@ export class CheckpointRefreshScheduler<
     signal: AbortSignal,
   ): void {
     if (signal.aborted || !this.isCurrent(state) || state.paused || !this.enabled) return;
-    state.retryNotBefore = this.now() + this.policy.failureRetryMs;
+    const backoff = nextCheckpointRefreshFailureBackoff({
+      baseRetryMs: this.policy.failureRetryMs,
+      consecutiveFailures: state.consecutiveFailures,
+      lastFailureCheckpointRevision: state.lastFailureCheckpointRevision,
+      snapshotCheckpointRevision: snapshot?.checkpointEventRevision ?? 0,
+      error,
+    });
+    state.consecutiveFailures = backoff.consecutiveFailures;
+    state.lastFailureCheckpointRevision = backoff.checkpointRevision;
+    const retryDelayMs = backoff.retryDelayMs;
+    state.retryNotBefore = this.now() + retryDelayMs;
     try {
       this.dependencies.onError?.(error, {
         sessionId: state.sessionId,
         stage,
         trigger,
         snapshot,
+        consecutiveFailures: state.consecutiveFailures,
+        retryDelayMs,
         retryAt: state.retryNotBefore,
       });
     } catch {

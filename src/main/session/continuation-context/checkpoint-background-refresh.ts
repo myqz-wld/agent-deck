@@ -6,6 +6,7 @@ import {
   foldContinuationCheckpoint,
   type FoldContinuationCheckpointResult,
 } from './checkpoint-fold';
+import type { CheckpointFoldFailureDiagnostic } from './checkpoint-fold-failure';
 import type {
   CheckpointRefreshBacklogSnapshot,
   CheckpointRefreshTrigger,
@@ -51,6 +52,21 @@ interface BackgroundCheckpointRefreshDependencies {
   openBackgroundSource?: (
     input: OpenCheckpointBackgroundSourceInput,
   ) => Promise<CheckpointBackgroundChunkSource>;
+}
+
+export class BackgroundCheckpointRefreshIncompleteError extends Error {
+  readonly name = 'BackgroundCheckpointRefreshIncompleteError';
+
+  constructor(
+    readonly checkpointThroughRevision: number,
+    readonly materializedThroughRevision: number,
+    readonly foldFailure: CheckpointFoldFailureDiagnostic | null,
+  ) {
+    super(
+      `Background checkpoint covered revision ${checkpointThroughRevision} ` +
+      `of materialized revision ${materializedThroughRevision}`,
+    );
+  }
 }
 
 /** Fold the latest durable revision once this job reaches the bounded provider queue. */
@@ -122,8 +138,10 @@ export async function refreshContinuationCheckpointWithDependencies(
     const latest = createContinuationCheckpointRepo(db).latest(input.sessionId);
     const checkpointThroughRevision = latest?.sourceEventRevision ?? 0;
     if (checkpointThroughRevision < metadata.materializedThroughRevision) {
-      throw new Error(
-        `Background checkpoint covered revision ${checkpointThroughRevision} of materialized revision ${metadata.materializedThroughRevision}`,
+      throw new BackgroundCheckpointRefreshIncompleteError(
+        checkpointThroughRevision,
+        metadata.materializedThroughRevision,
+        fold.failure,
       );
     }
     return {

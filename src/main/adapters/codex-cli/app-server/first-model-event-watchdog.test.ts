@@ -84,8 +84,8 @@ describe('Codex first-model-event watchdog', () => {
       'server.notification:turn/started',
       'server.notification:error',
     ]);
-    expect(logger.info).toHaveBeenCalledOnce();
-    expect(logger.info).toHaveBeenCalledWith(
+    expect(logger.debug).toHaveBeenCalledOnce();
+    expect(logger.debug).toHaveBeenCalledWith(
       expect.stringContaining('watchdog armed'),
       expect.objectContaining({ phase: 'armed', acceptanceSource: 'notification' }),
     );
@@ -95,7 +95,7 @@ describe('Codex first-model-event watchdog', () => {
       expect.objectContaining({ phase: 'timeout', responsePending: false }),
     );
     expect(logger.error).not.toHaveBeenCalled();
-    expect(JSON.stringify([logger.info.mock.calls, logger.warn.mock.calls]))
+    expect(JSON.stringify([logger.debug.mock.calls, logger.warn.mock.calls]))
       .not.toContain('do work');
   });
 
@@ -159,11 +159,11 @@ describe('Codex first-model-event watchdog', () => {
 
     await vi.advanceTimersByTimeAsync(39);
     expect(client.turnStartCalls).toBe(2);
-    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(logger.info).toHaveBeenCalledTimes(2);
-    expect(logger.info.mock.calls.map((call) => call[1]?.acceptanceSource))
+    expect(logger.debug).toHaveBeenCalledTimes(2);
+    expect(logger.debug.mock.calls.map((call) => call[1]?.acceptanceSource))
       .toEqual(['response', 'response']);
 
     client.emit(completedTurn('thread-1', 'turn-1'));
@@ -202,9 +202,9 @@ describe('Codex first-model-event watchdog', () => {
     expect(client.recycles).toEqual([]);
     expect(events.map(eventName)).toContain('server.notification:item/agentMessage/delta');
     expect(events.map(eventName).at(-1)).toBe('server.notification:turn/completed');
-    expect(logger.info.mock.calls.map((call) => call[1]?.phase))
+    expect(logger.debug.mock.calls.map((call) => call[1]?.phase))
       .toEqual(['first_model_event']);
-    expect(logger.info).toHaveBeenCalledWith(
+    expect(logger.debug).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ notificationCount: 1 }),
     );
@@ -223,7 +223,7 @@ describe('Codex first-model-event watchdog', () => {
 
     expect(client.recycles).toEqual([]);
     expect(events.map(eventName).at(-1)).toBe('server.notification:turn/completed');
-    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -247,7 +247,7 @@ describe('Codex first-model-event watchdog', () => {
     expect(client.recycles).toEqual([]);
     expect(events.map(eventName)).toContain('server.notification:item/started');
     expect(events.map(eventName).at(-1)).toBe('server.notification:turn/completed');
-    expect(logger.info.mock.calls.map((call) => call[1]?.phase))
+    expect(logger.debug.mock.calls.map((call) => call[1]?.phase))
       .toEqual(['armed', 'first_model_event']);
     expect(logger.warn).not.toHaveBeenCalled();
     expect(logger.error).not.toHaveBeenCalled();

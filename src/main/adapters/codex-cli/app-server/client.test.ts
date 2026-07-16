@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { CodexAppServerClient, __testables } from './client';
+import { threadBoundaryReadyLogLevel } from './thread-boundary-logging';
 
 describe('Codex app-server thread params', () => {
+  it('persists only abnormally slow successful thread boundaries', () => {
+    expect(threadBoundaryReadyLogLevel(29_999)).toBe('debug');
+    expect(threadBoundaryReadyLogLevel(30_000)).toBe('warn');
+  });
+
   it('opts new threads into raw response notifications for complete collaboration activity', () => {
     const options = {
       workingDirectory: '/repo',

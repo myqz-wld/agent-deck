@@ -306,17 +306,20 @@ describe('CheckpointRefreshScheduler', () => {
 
   it('backs off and retries refresh failures without leaking diagnostic errors', async () => {
     let current = snapshot('retry', 9, 48_000);
-    const reported: unknown[] = [];
+    const reported: Array<{ consecutiveFailures: number; retryDelayMs: number }> = [];
     const refresh = vi.fn(async () => {
-      if (refresh.mock.calls.length === 1) throw new Error('temporary provider failure');
+      if (refresh.mock.calls.length <= 2) throw new Error('temporary provider failure');
       current = snapshot('retry', 9, 0, 9);
     });
     const scheduler = new CheckpointRefreshScheduler<TestSnapshot>(
       {
         loadBacklogSnapshot: async () => ({ ...current }),
         refresh,
-        onError: (error) => {
-          reported.push(error);
+        onError: (_error, context) => {
+          reported.push({
+            consecutiveFailures: context.consecutiveFailures,
+            retryDelayMs: context.retryDelayMs,
+          });
           throw new Error('diagnostic sink failure must stay handled');
         },
       },
@@ -326,14 +329,56 @@ describe('CheckpointRefreshScheduler', () => {
     scheduler.observePersistedActivity({ sessionId: 'retry', observedAt: 0, baselineAt: 0 });
     await flushBackgroundWork();
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(reported).toHaveLength(1);
+    expect(reported).toEqual([{ consecutiveFailures: 1, retryDelayMs: 100 }]);
 
     await vi.advanceTimersByTimeAsync(99);
     expect(refresh).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     await flushBackgroundWork();
     expect(refresh).toHaveBeenCalledTimes(2);
+    expect(reported.at(-1)).toEqual({ consecutiveFailures: 2, retryDelayMs: 200 });
 
+    await vi.advanceTimersByTimeAsync(199);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushBackgroundWork();
+    expect(refresh).toHaveBeenCalledTimes(3);
+
+    await scheduler.dispose();
+  });
+
+  it('does not amplify backoff when a bounded failed fold made durable progress', async () => {
+    const reported: Array<{ consecutiveFailures: number; retryDelayMs: number }> = [];
+    const refresh = vi.fn(async () => {
+      if (refresh.mock.calls.length > 2) return;
+      throw Object.assign(new Error('remaining materialized backlog'), {
+        checkpointThroughRevision: refresh.mock.calls.length === 1 ? 0 : 5,
+      });
+    });
+    const scheduler = new CheckpointRefreshScheduler<TestSnapshot>(
+      {
+        loadBacklogSnapshot: async () => snapshot('progress', 10, 48_000),
+        refresh,
+        onError: (_error, context) => reported.push({
+          consecutiveFailures: context.consecutiveFailures,
+          retryDelayMs: context.retryDelayMs,
+        }),
+      },
+      { policy: { failureRetryMs: 100 } },
+    );
+
+    scheduler.observePersistedActivity({ sessionId: 'progress', observedAt: 0, baselineAt: 0 });
+    await flushBackgroundWork();
+    await vi.advanceTimersByTimeAsync(100);
+    await flushBackgroundWork();
+    expect(reported).toEqual([
+      { consecutiveFailures: 1, retryDelayMs: 100 },
+      { consecutiveFailures: 1, retryDelayMs: 100 },
+    ]);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await flushBackgroundWork();
+    expect(refresh).toHaveBeenCalledTimes(3);
     await scheduler.dispose();
   });
 });
