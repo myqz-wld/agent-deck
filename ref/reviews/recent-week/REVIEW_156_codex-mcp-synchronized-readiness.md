@@ -19,7 +19,7 @@ explicitly waived reviewer agents, so the lead used direct code inspection,
 deterministic reproduction, and repository validation.
 
 ```review-scope
-ref/reviews/recent-3-days/INDEX.md
+ref/reviews/recent-week/INDEX.md
 src/main/adapters/codex-cli/app-server/client.test.ts
 ```
 

@@ -10,7 +10,7 @@ skipped_expired: []
 
 ## Scope and method
 
-This was a solo, risk-based review of core renderer synchronization, session focus, failure handling,
+This solo, risk-based review covered core renderer synchronization, session focus, failure handling,
 settings accuracy, and user-facing renderer/CLI copy. Per the user's instruction, no `simple-review`,
 `deep-review`, reviewer agent, or discovery agent was used. The audit revalidated seven retained
 candidates against the current baseline, then extended the same race analysis to summary snapshots

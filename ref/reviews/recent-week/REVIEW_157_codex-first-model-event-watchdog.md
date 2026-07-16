@@ -20,7 +20,7 @@ window. Review used deterministic app-server clients, child-generation tests,
 full repository validation, and a separate cross-repository race review.
 
 ```review-scope
-ref/reviews/recent-3-days/INDEX.md
+  ref/reviews/recent-week/INDEX.md
 src/main/adapters/codex-cli/app-server/client-generation-recycle.test.ts
 src/main/adapters/codex-cli/app-server/client.ts
 src/main/adapters/codex-cli/app-server/first-model-event-watchdog.test.ts

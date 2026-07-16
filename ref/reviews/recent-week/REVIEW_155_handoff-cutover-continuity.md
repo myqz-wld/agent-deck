@@ -10,7 +10,7 @@ skipped_expired: []
 
 ## Scope and method
 
-This review started from a reproduced production failure where continuation capture stopped at
+The review started from a reproduced production failure where continuation capture stopped at
 event revision 934, ordinary source telemetry advanced the row to revision 938 during preparation,
 and the old exact-revision predicate rejected the handoff. The audit followed the complete MCP and
 UI ownership transition: capture, source ingress, successor creation, queued and late input,
