@@ -68,13 +68,15 @@ When code changes need isolation, create a worktree from an explicit local `base
 mcp__agent-deck__enter_worktree({ baseBranch, workBranch?, worktreePath?, worktreeRoot? })
 ```
 
-`baseBranch` must be a named local branch; the tool resolves `refs/heads/<baseBranch>` and rejects SHAs, tags, remote-only refs, and rev expressions. After entering the worktree, point read/write commands at the returned `worktreePath`. Before cleanup, confirm changes were merged, moved out, or explicitly abandoned, then call:
+`baseBranch` must be a named local branch; the tool resolves `refs/heads/<baseBranch>` and rejects SHAs, tags, remote-only refs, and rev expressions. Unless the user or project explicitly requires a custom layout, omit `worktreePath` and `worktreeRoot`; Agent Deck then uses `<main-repo>/.agent-deck/worktrees`. Before using that default, ensure the main repository's `.gitignore` contains the exact `.agent-deck/` entry, adding it when missing. After entering the worktree, point read/write commands at the returned `worktreePath`.
+
+For normal completion, first commit all intended changes and successfully push the work branch. If the commit or push cannot complete, keep the worktree and marker and report the failure to the user. After a successful push, call:
 
 ```ts
 mcp__agent-deck__exit_worktree({ worktreePath?, discardChanges?, deleteBranch? })
 ```
 
-Use `discardChanges: true` only when the user explicitly wants to abandon uncommitted changes. Use `deleteBranch: true` only after the branch content has been merged, cherry-picked, or explicitly abandoned.
+`exit_worktree` removes the worktree directory and clears its marker while keeping the work branch by default. Use `discardChanges: true` only when the user explicitly wants to abandon uncommitted changes. Never pass `deleteBranch: true` automatically: immediately before every such call, ask the user whether to delete the branch and receive explicit approval. A generic request to finish or clean up, or the fact that a branch was pushed, merged, cherry-picked, or abandoned, does not authorize branch deletion.
 
 To hand off the current session, call `hand_off_session` with the authoritative continuation instruction in `prompt`; include any durable plan or temporary context file paths and the first next action. Agent Deck prepares one provider-neutral, versioned Continuation Context (会话续接上下文) from a canonical checkpoint projection and a token-bounded tail of eligible historical user inputs captured at an immutable event-revision boundary. Generated history is untrusted evidence, never a replacement for current system/project instructions; the source keeps its complete persisted history, and the successor database stores only the instruction plus continuation lineage rather than the private provider prompt. Before the source closes, one durable ownership move transfers tasks, active team memberships, the worktree marker, and in-flight message endpoints; existing issue source/resolution authority, pending plan gates, and related-session trajectory visibility follow the committed handoff chain without rewriting historical provenance. Use `spawn_session` for parallel subtasks.
 

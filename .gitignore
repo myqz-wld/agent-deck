@@ -18,6 +18,8 @@ dist/
 # subdirectory plus manifest; review caches must never enter git history.
 .prompt-asset-improver/local/
 # Local prompt-asset-improver inventory, backups, and custom points.
+.agent-deck/
+# Project-local Agent Deck runtime state, including default worktrees.
 .claude/worktrees/
 .claude/scheduled_tasks*
 .claude/plans/

@@ -172,7 +172,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path. Pass it only when an external workflow owns the worktree layout; the path must not already exist.',
+      'Optional absolute worktree path. Omit it unless the user or project explicitly requires a custom layout. When both worktreePath and worktreeRoot are omitted, the default is <main-repo>/.agent-deck/worktrees/<derived-branch-slug>. The path must not already exist.',
     ),
   worktreeRoot: z
     .string()
@@ -181,7 +181,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute root used to derive worktreePath when worktreePath is omitted. Omit both worktreePath and worktreeRoot to use Agent Deck runtime worktree storage under the main repo.',
+      'Optional absolute root used to derive worktreePath when worktreePath is omitted. Omit it unless the user or project explicitly requires a custom layout. Omit both path fields to use <main-repo>/.agent-deck/worktrees, after ensuring the main repository .gitignore contains the exact .agent-deck/ entry.',
     ),
   callerSessionId: z
     .string()
@@ -211,7 +211,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .boolean()
     .optional()
     .describe(
-      'Default false. exit_worktree removes the worktree directory and keeps the work branch so committed work is not lost. Set true only after the work has been merged, cherry-picked, or intentionally abandoned; unmerged branch deletion is rejected unless discardChanges=true.',
+      'Default false. exit_worktree removes the worktree directory and keeps the work branch so committed work is not lost. Never set true automatically: immediately before every use, ask the user whether to delete the branch and receive explicit approval. Generic finish or cleanup instructions and pushed, merged, cherry-picked, or abandoned branch state are not approval. Unmerged branch deletion is rejected unless discardChanges=true.',
     ),
   callerSessionId: z
     .string()
