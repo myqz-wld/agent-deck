@@ -37,8 +37,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
     query.mockReturnValueOnce(iterable([
       {
         type: 'result', subtype: 'success', structured_output: {
-          formatVersion: 1, goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [],
-          currentState: [], nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
+          formatVersion: 1, additions: [], updates: [],
         },
         usage: { input_tokens: 12, output_tokens: 3 },
         modelUsage: { model: { contextWindow: 200_000 } },
@@ -54,6 +53,9 @@ describe('isolated Claude-family checkpoint runtime', () => {
       model: 'claude-test', permissionMode: 'dontAsk', settingSources: [], tools: [],
       mcpServers: {}, maxTurns: 1,
       outputFormat: { type: 'json_schema' },
+    });
+    expect(call.options.outputFormat.schema).toMatchObject({
+      required: ['formatVersion', 'additions', 'updates'],
     });
     expect(call.options.cwd).toMatch(/agent-deck-continuation-compactor-/);
     expect(call.options.cwd).not.toContain('Repository/agent-deck');
@@ -74,8 +76,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
 
   it('probes Deepseek structured output once, caches incompatibility, and uses JSON-only fallback', async () => {
     const checkpointJson = JSON.stringify({
-      formatVersion: 1, goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [],
-      currentState: [], nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
+      formatVersion: 1, additions: [], updates: [],
     });
     query
       .mockReturnValueOnce(iterable([{ type: 'result', subtype: 'error_max_structured_output_retries', modelUsage: {} }]))

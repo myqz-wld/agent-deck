@@ -1,5 +1,6 @@
 import log from '@main/utils/logger';
 import { CheckpointGeneratorError } from './checkpoint-generator';
+import { CheckpointPatchValidationError } from './checkpoint-patch-validation';
 import type { ContinuationWarning } from './types';
 
 const logger = log.scope('continuation-context');
@@ -23,6 +24,23 @@ export interface CheckpointFoldFailureDiagnostic {
 
 export function classifyCheckpointFailureReason(error: unknown): string {
   if (error instanceof CheckpointGeneratorError) return error.code;
+  if (error instanceof CheckpointPatchValidationError) {
+    const codes = new Set(error.issues.map((issue) => issue.code));
+    if (codes.has('schema.invalid-json')) return 'invalid-json';
+    if ([...codes].some((code) => code.startsWith('schema.'))) return 'schema-invalid';
+    if (codes.has('evidence.outside-current-delta')) return 'evidence-outside-current-delta';
+    if (codes.has('fact.reserved-id')) return 'coverage-marker-invariant';
+    if (codes.has('addition.section-capacity')) return 'canonical-capacity';
+    if (codes.has('update.no-semantic-change')) return 'patch-no-op';
+    if (
+      codes.has('update.unknown-fact') ||
+      codes.has('update.section-mismatch') ||
+      codes.has('addition.existing-fact')
+    ) {
+      return 'patch-target-invalid';
+    }
+    return 'patch-semantic-invalid';
+  }
   if (error instanceof SyntaxError) return 'invalid-json';
   const message = error instanceof Error ? error.message : String(error);
   if (/cites evidence outside the exact fold allowlist/i.test(message)) {

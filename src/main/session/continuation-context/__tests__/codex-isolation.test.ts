@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { __testables } from '@main/adapters/codex-cli/app-server/client';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
-import { CONTINUATION_CHECKPOINT_JSON_SCHEMA } from '../checkpoint-schema';
+import { CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA } from '../checkpoint-patch-schema';
 import { buildCodexCompactorThreadOptions, codexCompactorIsolationAttestation } from '../codex-isolation';
 import { createCheckpointGeneratorRuntime } from '../runtime';
 
@@ -22,16 +22,12 @@ const generator = {
   configFingerprint: 'codex-test',
 };
 
-const emptyCheckpoint = {
-  formatVersion: 1,
-  goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [], currentState: [],
-  nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
-};
+const emptyPatch = { formatVersion: 1, additions: [], updates: [] };
 
 describe('Codex checkpoint compactor isolation', () => {
   beforeEach(() => {
     harness.run.mockReset().mockResolvedValue({
-      finalResponse: JSON.stringify(emptyCheckpoint),
+      finalResponse: JSON.stringify(emptyPatch),
     });
     harness.startThread.mockReset().mockReturnValue({ run: harness.run });
   });
@@ -48,7 +44,7 @@ describe('Codex checkpoint compactor isolation', () => {
       options,
       null,
       {
-        outputSchema: CONTINUATION_CHECKPOINT_JSON_SCHEMA as JsonObject,
+        outputSchema: CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA as JsonObject,
         environments: [],
         runtimeWorkspaceRoots: [],
       },
@@ -63,7 +59,7 @@ describe('Codex checkpoint compactor isolation', () => {
       features: { shell_tool: false, unified_exec: false, multi_agent: false, browser_use: false },
     });
     expect(turn).toMatchObject({
-      environments: [], runtimeWorkspaceRoots: [], outputSchema: CONTINUATION_CHECKPOINT_JSON_SCHEMA,
+      environments: [], runtimeWorkspaceRoots: [], outputSchema: CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA,
       sandboxPolicy: { type: 'readOnly', networkAccess: false },
     });
   });
@@ -75,7 +71,7 @@ describe('Codex checkpoint compactor isolation', () => {
     await expect(
       runtime.generate({ prompt: 'fold', timeoutMs: 1_000, maxOutputBytes: 10_000, remainingCalls: 1 }),
     ).resolves.toMatchObject({
-      output: JSON.stringify(emptyCheckpoint),
+      output: JSON.stringify(emptyPatch),
       providerCalls: 1,
       structured: true,
     });
@@ -90,7 +86,7 @@ describe('Codex checkpoint compactor isolation', () => {
     expect(harness.startThread.mock.calls[0][0].workingDirectory)
       .toMatch(/agent-deck-codex-continuation-compactor-/);
     expect(harness.run.mock.calls[0][1]).toMatchObject({
-      outputSchema: CONTINUATION_CHECKPOINT_JSON_SCHEMA,
+      outputSchema: CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA,
       environments: [],
       runtimeWorkspaceRoots: [],
       maxOutputBytes: 10_000,

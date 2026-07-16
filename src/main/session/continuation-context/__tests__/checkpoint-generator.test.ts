@@ -1,63 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import type { ContinuationCheckpoint } from '../checkpoint-schema';
-import { validateGeneratedContinuationCheckpoint } from '../checkpoint-generator';
+import { parseGeneratedContinuationCheckpointPatch } from '../checkpoint-generator';
+import { CheckpointPatchValidationError } from '../checkpoint-patch-validation';
 
-const empty: ContinuationCheckpoint = {
-  formatVersion: 1,
-  goals: [], userIntent: [], constraints: [], decisions: [], completedWork: [], currentState: [],
-  nextSteps: [], openQuestions: [], risks: [], keyFiles: [], commands: [], unresolvedErrors: [],
-};
-
-describe('checkpoint generator validation', () => {
-  it('rejects forged evidence pairs', () => {
-    expect(() =>
-      validateGeneratedContinuationCheckpoint({
-        output: {
-          ...empty,
-          goals: [{ id: 'goal.forged', status: 'active', text: 'forged', priority: 1, evidence: [{ eventId: 999, revision: 999 }] }],
-        },
-        previousCheckpoint: null,
-        allowedEvidence: [{ eventId: 1, revision: 1 }],
-        currentDeltaEvidence: [{ eventId: 1, revision: 1 }],
-      }),
-    ).toThrow(/outside the exact fold allowlist/);
+describe('checkpoint generator patch parsing', () => {
+  it('accepts an empty patch from either structured output or JSON text', () => {
+    const empty = { formatVersion: 1, additions: [], updates: [] };
+    expect(parseGeneratedContinuationCheckpointPatch(empty)).toEqual(empty);
+    expect(parseGeneratedContinuationCheckpointPatch(JSON.stringify(empty))).toEqual(empty);
   });
 
-  it('requires active protected facts to carry forward or use current evidence to resolve', () => {
-    const previous: ContinuationCheckpoint = {
-      ...empty,
-      constraints: [{ id: 'constraint.keep', status: 'active', text: 'Keep me', priority: 100, evidence: [{ eventId: 1, revision: 1 }] }],
-    };
-    expect(() =>
-      validateGeneratedContinuationCheckpoint({
-        output: empty,
-        previousCheckpoint: previous,
-        allowedEvidence: [{ eventId: 1, revision: 1 }, { eventId: 2, revision: 2 }],
-        currentDeltaEvidence: [{ eventId: 2, revision: 2 }],
-      }),
-    ).toThrow(/removed without explicit evidence/);
+  it('reports every schema issue with a precise path and required action', () => {
+    let error: unknown;
+    try {
+      parseGeneratedContinuationCheckpointPatch({
+        formatVersion: 1,
+        additions: [{ section: 'not-a-section', fact: { id: '', status: 'active' } }],
+        updates: [{}],
+      });
+    } catch (caught) {
+      error = caught;
+    }
 
-    expect(() =>
-      validateGeneratedContinuationCheckpoint({
-        output: {
-          ...empty,
-          constraints: [{ id: 'constraint.keep', status: 'active', text: 'Silently changed', priority: 100, evidence: [{ eventId: 1, revision: 1 }] }],
-        },
-        previousCheckpoint: previous,
-        allowedEvidence: [{ eventId: 1, revision: 1 }, { eventId: 2, revision: 2 }],
-        currentDeltaEvidence: [{ eventId: 2, revision: 2 }],
-      }),
-    ).toThrow(/changed without current-delta evidence/);
+    expect(error).toBeInstanceOf(CheckpointPatchValidationError);
+    const issues = (error as CheckpointPatchValidationError).issues;
+    expect(issues.length).toBeGreaterThan(3);
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '$.additions[0].section' }),
+        expect.objectContaining({ path: '$.additions[0].fact.id' }),
+        expect.objectContaining({ path: '$.updates[0].id' }),
+      ]),
+    );
+    expect(issues.every((issue) => issue.requiredAction.length > 0)).toBe(true);
+  });
 
-    const resolved = validateGeneratedContinuationCheckpoint({
-      output: {
-        ...empty,
-        constraints: [{ id: 'constraint.keep', status: 'resolved', text: 'Resolved', priority: 100, evidence: [{ eventId: 2, revision: 2 }] }],
-      },
-      previousCheckpoint: previous,
-      allowedEvidence: [{ eventId: 1, revision: 1 }, { eventId: 2, revision: 2 }],
-      currentDeltaEvidence: [{ eventId: 2, revision: 2 }],
-    });
-    expect(resolved.checkpoint.constraints[0].status).toBe('resolved');
+  it('returns an actionable invalid-JSON issue instead of a raw parser failure', () => {
+    expect(() => parseGeneratedContinuationCheckpointPatch('{bad json')).toThrowError(
+      expect.objectContaining({
+        issues: [
+          expect.objectContaining({
+            code: 'schema.invalid-json',
+            path: '$',
+            requiredAction: expect.stringMatching(/valid CheckpointPatch JSON/),
+          }),
+        ],
+      }),
+    );
   });
 });

@@ -3,6 +3,7 @@ import {
   classifyCheckpointFailureReason,
   recordCheckpointFoldFailure,
 } from '../checkpoint-fold-failure';
+import { CheckpointPatchValidationError } from '../checkpoint-patch-validation';
 import { CheckpointGeneratorError } from '../checkpoint-generator';
 import type { ContinuationWarning } from '../types';
 
@@ -16,6 +17,18 @@ describe('checkpoint fold failure diagnostics', () => {
     [new Error('Active risks fact risk.active changed without current-delta evidence'),
       'active-fact-changed-without-evidence'],
     [new Error('Coverage-gap marker marker.1 was rewritten'), 'coverage-marker-invariant'],
+    [new CheckpointPatchValidationError([{
+      code: 'evidence.outside-current-delta',
+      path: '$.updates[0].evidence[0]',
+      message: 'Evidence is not current.',
+      requiredAction: 'Use current evidence.',
+    }]), 'evidence-outside-current-delta'],
+    [new CheckpointPatchValidationError([{
+      code: 'update.unknown-fact',
+      path: '$.updates[0].id',
+      message: 'Unknown id.',
+      requiredAction: 'Use an existing id.',
+    }]), 'patch-target-invalid'],
   ])('classifies %s without persisting raw provider output', (error, expected) => {
     expect(classifyCheckpointFailureReason(error)).toBe(expected);
   });

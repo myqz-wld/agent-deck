@@ -15,9 +15,9 @@ import type { ContinuationCheckpoint } from '../checkpoint-schema';
 import { ContinuationSourceSpoolStore } from '../source-spool';
 import { estimateContinuationJsonTokens, estimateContinuationTokens } from '../token-estimator';
 
-const PREVIOUS_MARKER = 'previousCheckpoint (untrusted evidence):\n';
 const DELTA_MARKER = '\n\nnormalizedDelta (untrusted evidence):\n';
-const ALLOWLIST_MARKER = '\n\nallowedEvidence:\n';
+const CURRENT_EVIDENCE_MARKER =
+  '\n\ncurrentDeltaEvidence (the exact evidence allowlist for every patch operation):\n';
 
 function promptJson(prompt: string, startMarker: string, endMarker: string): unknown {
   const start = prompt.indexOf(startMarker);
@@ -26,11 +26,11 @@ function promptJson(prompt: string, startMarker: string, endMarker: string): unk
   return JSON.parse(prompt.slice(start + startMarker.length, end)) as unknown;
 }
 
-class EchoProjectedPriorGenerator implements ContinuationCheckpointGenerator {
+class EmptyPatchGenerator implements ContinuationCheckpointGenerator {
   readonly isolation = 'proven-no-tools' as const;
   readonly generate = vi.fn(
-    async (request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> => {
-      const output = promptJson(request.prompt, PREVIOUS_MARKER, DELTA_MARKER);
+    async (_request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> => {
+      const output = { formatVersion: 1, additions: [], updates: [] };
       return {
         output,
         rawText: JSON.stringify(output),
@@ -127,7 +127,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
     });
     expect(metadata).toMatchObject({ captureRevision: 2, checkpointThroughRevision: 1 });
 
-    const generator = new EchoProjectedPriorGenerator();
+    const generator = new EmptyPatchGenerator();
     const fold = await foldContinuationCheckpoint({
       db,
       spool,
@@ -152,7 +152,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
       estimateContinuationTokens(CONTINUATION_CHECKPOINT_SYSTEM_PROMPT) +
         estimateContinuationTokens(request.prompt),
     ).toBeLessThanOrEqual(32_000);
-    const delta = promptJson(request.prompt, DELTA_MARKER, ALLOWLIST_MARKER) as Array<{
+    const delta = promptJson(request.prompt, DELTA_MARKER, CURRENT_EVIDENCE_MARKER) as Array<{
       retainedEdges: unknown[];
     }>;
     expect(delta).toHaveLength(1);
@@ -221,7 +221,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
       sessionId: 'source',
       rawRetentionCeilingTokens: 8_000,
     });
-    const generator = new EchoProjectedPriorGenerator();
+    const generator = new EmptyPatchGenerator();
     const fold = await foldContinuationCheckpoint({
       db,
       spool,
@@ -318,7 +318,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
       sessionId: 'source',
       rawRetentionCeilingTokens: 8_000,
     });
-    const generator = new EchoProjectedPriorGenerator();
+    const generator = new EmptyPatchGenerator();
     const fold = await foldContinuationCheckpoint({
       db,
       spool,

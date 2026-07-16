@@ -10,7 +10,7 @@ import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { loadDeepseekClaudeEnv } from '@main/adapters/deepseek-claude-code/config';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import type { ResolvedContinuationGenerator } from './types';
-import { CONTINUATION_CHECKPOINT_JSON_SCHEMA } from './checkpoint-schema';
+import { CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA } from './checkpoint-patch-schema';
 import { CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from './checkpoint-prompts';
 import {
   CheckpointGeneratorError,
@@ -98,7 +98,7 @@ async function runClaudeFamilyCheckpoint(input: {
           ? {
               outputFormat: {
                 type: 'json_schema' as const,
-                schema: CONTINUATION_CHECKPOINT_JSON_SCHEMA,
+                schema: CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA,
               },
             }
           : {}),
@@ -265,7 +265,7 @@ async function runCodexCheckpoint(input: {
     );
     const work = thread.run(toCodexAppServerInput(input.request.prompt), {
       signal: controller.signal,
-      outputSchema: CONTINUATION_CHECKPOINT_JSON_SCHEMA as unknown as JsonObject,
+      outputSchema: CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA as unknown as JsonObject,
       environments: [],
       runtimeWorkspaceRoots: [],
       maxOutputBytes: input.request.maxOutputBytes,
