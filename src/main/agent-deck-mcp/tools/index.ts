@@ -274,7 +274,7 @@ export async function buildAgentDeckTools(
 
   const enterWorktree = tool(
     AGENT_DECK_TOOL_NAMES.enterWorktree,
-    'Create a fresh git worktree for isolated code changes from a required local branch name. `baseBranch` must resolve to `refs/heads/<baseBranch>`; SHA, tag, remote-only refs, and rev syntax are rejected. The tool creates a new work branch, records the caller worktree marker, and returns the worktree path, work branch, and base commit. It does not change the SDK session cwd.',
+    'Create a fresh git worktree for isolated code changes from a required local branch name. `baseBranch` must resolve to `refs/heads/<baseBranch>`; SHA, tag, remote-only refs, and rev syntax are rejected. Unless the user or project explicitly requires a custom layout, omit `worktreePath` and `worktreeRoot` to use `<main-repo>/.agent-deck/worktrees`; before using that default, ensure the main repository `.gitignore` contains the exact `.agent-deck/` entry, adding it when missing. The tool creates a new work branch, records the caller worktree marker, and returns the worktree path, work branch, and base commit. It does not change the SDK session cwd.',
     ENTER_WORKTREE_SCHEMA,
     async (args, extra) => enterWorktreeHandler(args, makeCtx(args, extra)),
     {
@@ -289,7 +289,7 @@ export async function buildAgentDeckTools(
 
   const exitWorktree = tool(
     AGENT_DECK_TOOL_NAMES.exitWorktree,
-    'Remove the worktree owned by the caller marker, or an explicit `worktreePath` when the caller has no marker or the path matches the marker. The tool refuses dirty worktrees unless `discardChanges=true`. It keeps the work branch by default; pass `deleteBranch=true` only after the work is merged, cherry-picked, or intentionally abandoned. Errors may include `markerCleared` to guide retry cleanup.',
+    'Remove the worktree owned by the caller marker, or an explicit `worktreePath` when the caller has no marker or the path matches the marker. For normal completion, commit all intended changes and successfully push the work branch before calling this tool; if commit or push fails, retain the worktree and marker. The tool refuses dirty worktrees unless `discardChanges=true`, removes the worktree directory and marker, and keeps the work branch by default. Never pass `deleteBranch=true` without asking the user immediately before the call and receiving explicit approval; generic finish or cleanup instructions and pushed, merged, cherry-picked, or abandoned branch state do not authorize deletion. Errors may include `markerCleared` to guide retry cleanup.',
     EXIT_WORKTREE_SCHEMA,
     async (args, extra) => exitWorktreeHandler(args, makeCtx(args, extra)),
     {
