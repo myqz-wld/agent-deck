@@ -17,6 +17,7 @@ import {
   type CheckpointBacklogEstimator,
 } from './checkpoint-backlog-worker-client';
 import {
+  BackgroundCheckpointRefreshIncompleteError,
   refreshContinuationCheckpoint,
   type ContinuationCheckpointRefreshSnapshot,
 } from './checkpoint-background-refresh';
@@ -109,13 +110,36 @@ export class ContinuationCheckpointRefreshService {
       {
         loadBacklogSnapshot: (sessionId, signal) => this.loadSnapshot(sessionId, signal),
         refresh: (request) => this.enqueueRefresh(request),
-        onError: (_error, context) => {
+        onError: (error, context) => {
+          const foldFailure =
+            error instanceof BackgroundCheckpointRefreshIncompleteError
+              ? error.foldFailure
+              : null;
           logger.warn('[checkpoint-refresh] background refresh failed', {
             sessionId: context.sessionId,
-            stage: context.stage,
+            schedulerStage: context.stage,
             trigger: context.trigger,
             sourceRevision: context.snapshot?.sourceEventRevision ?? null,
-            checkpointRevision: context.snapshot?.checkpointEventRevision ?? null,
+            checkpointRevision:
+              error instanceof BackgroundCheckpointRefreshIncompleteError
+                ? error.checkpointThroughRevision
+                : context.snapshot?.checkpointEventRevision ?? null,
+            failureStage: foldFailure?.stage ?? null,
+            failureCategory:
+              foldFailure?.category ??
+              (error instanceof BackgroundCheckpointRefreshIncompleteError
+                ? 'incomplete-coverage'
+                : error instanceof Error
+                  ? error.name
+                  : 'unknown-error'),
+            failureReason:
+              foldFailure?.reason ??
+              (error instanceof BackgroundCheckpointRefreshIncompleteError
+                ? 'fold-budget-or-call-limit'
+                : null),
+            providerCalls: foldFailure?.providerCalls ?? null,
+            consecutiveFailures: context.consecutiveFailures,
+            retryDelayMs: context.retryDelayMs,
             retryAt: context.retryAt,
           });
         },

@@ -328,7 +328,9 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(prepared.metrics.includedUserMessages).toBe(1);
     expect(prepared.warnings).toContainEqual({
       code: 'checkpoint-generation-failed',
-      message: 'Checkpoint stage fold-generate failed (category=timeout, providerCalls=1).',
+      message:
+        'Checkpoint stage fold-generate failed ' +
+        '(category=timeout, reason=timeout, providerCalls=1).',
     });
     expect(JSON.stringify(prepared.warnings)).not.toContain('sensitive provider detail');
     expect(db.prepare(`SELECT COUNT(*) FROM continuation_checkpoints`).pluck().get()).toBe(0);

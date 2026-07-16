@@ -1,5 +1,4 @@
 import type { Database } from 'better-sqlite3';
-import log from '@main/utils/logger';
 import { assertContinuationPromptByteLimit } from './budget-policy';
 import {
   createContinuationCheckpointRepo,
@@ -43,57 +42,10 @@ import {
 } from './checkpoint-fold-source';
 import { estimateContinuationJsonTokens, estimateContinuationTokens, truncateContinuationTextMiddle } from './token-estimator';
 import type { ContinuationWarning, ResolvedContinuationGenerator } from './types';
-
-const logger = log.scope('continuation-context');
-
-type CheckpointFailureStage =
-  | 'bounded-marker-commit'
-  | 'fold-generate'
-  | 'fold-validate'
-  | 'fold-commit'
-  | 'repair';
-
-function checkpointFailureDiagnostic(
-  stage: CheckpointFailureStage,
-  error: unknown,
-): { stage: CheckpointFailureStage; category: string; providerCalls: number } {
-  return {
-    stage,
-    category:
-      error instanceof CheckpointGeneratorError
-        ? error.code
-        : stage === 'fold-validate' || stage === 'repair'
-          ? 'checkpoint-validation'
-          : stage === 'fold-commit' || stage === 'bounded-marker-commit'
-            ? 'checkpoint-commit'
-            : 'internal-error',
-    providerCalls: error instanceof CheckpointGeneratorError ? error.providerCalls : 0,
-  };
-}
-
-function addCheckpointFailure(input: {
-  warnings: ContinuationWarning[];
-  code: 'checkpoint-generation-failed' | 'checkpoint-repair-failed';
-  stage: CheckpointFailureStage;
-  error: unknown;
-  checkpointRevision: number;
-  captureRevision: number;
-  deadlineRemainingMs: number;
-}): void {
-  const diagnostic = checkpointFailureDiagnostic(input.stage, input.error);
-  logger.warn('[continuation-context] checkpoint fold failed', {
-    ...diagnostic,
-    checkpointRevision: input.checkpointRevision,
-    captureRevision: input.captureRevision,
-    deadlineRemainingMs: Math.max(0, input.deadlineRemainingMs),
-  });
-  input.warnings.push({
-    code: input.code,
-    message:
-      `Checkpoint stage ${diagnostic.stage} failed ` +
-      `(category=${diagnostic.category}, providerCalls=${diagnostic.providerCalls}).`,
-  });
-}
+import {
+  recordCheckpointFoldFailure,
+  type CheckpointFoldFailureDiagnostic,
+} from './checkpoint-fold-failure';
 
 export interface FoldContinuationCheckpointInput extends CheckpointFoldSourceSelection {
   db: Database;
@@ -117,6 +69,7 @@ export interface FoldContinuationCheckpointResult {
   outputTokens: number;
   observedContextWindowTokens: number | null;
   warnings: ContinuationWarning[];
+  failure: CheckpointFoldFailureDiagnostic | null;
   uncoveredRevisionRange: { from: number; to: number } | null;
 }
 
@@ -155,6 +108,7 @@ export async function foldContinuationCheckpoint(
   let outputTokens = 0;
   let observedContextWindowTokens: number | null = null;
   const warnings: ContinuationWarning[] = [];
+  let failure: CheckpointFoldFailureDiagnostic | null = null;
   let remainingGroups = foregroundRevisionGroups({
     spool: input.spool,
     metadata: input.metadata,
@@ -236,6 +190,7 @@ export async function foldContinuationCheckpoint(
       outputTokens,
       observedContextWindowTokens,
       warnings,
+      failure,
       uncoveredRevisionRange:
         persistentCoverageGap() ??
         calculateUncoveredRevisionRange(current?.sourceEventRevision ?? 0, input.metadata.captureRevision),
@@ -307,11 +262,12 @@ export async function foldContinuationCheckpoint(
           message: `Revision ${chunk.firstRevision} was retained only as a durable bounded digest; full semantic coverage remains unavailable.`,
         });
       } catch (error) {
-        addCheckpointFailure({
+        failure = recordCheckpointFoldFailure({
           warnings,
           code: 'checkpoint-generation-failed',
           stage: 'bounded-marker-commit',
           error,
+          providerCalls: foldCalls + repairCalls,
           checkpointRevision: current?.sourceEventRevision ?? 0,
           captureRevision: input.metadata.captureRevision,
           deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
@@ -349,11 +305,12 @@ export async function foldContinuationCheckpoint(
       }
     } catch (error) {
       if (error instanceof CheckpointGeneratorError) foldCalls += error.providerCalls;
-      addCheckpointFailure({
+      failure = recordCheckpointFoldFailure({
         warnings,
         code: 'checkpoint-generation-failed',
         stage: 'fold-generate',
         error,
+        providerCalls: foldCalls + repairCalls,
         checkpointRevision: current?.sourceEventRevision ?? 0,
         captureRevision: input.metadata.captureRevision,
         deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
@@ -379,11 +336,12 @@ export async function foldContinuationCheckpoint(
       });
     } catch (validationError) {
       if (repairCalls >= input.maxRepairCalls || deadlineRemaining(input, now) <= 0) {
-        addCheckpointFailure({
+        failure = recordCheckpointFoldFailure({
           warnings,
           code: 'checkpoint-repair-failed',
           stage: 'fold-validate',
           error: validationError,
+          providerCalls: foldCalls + repairCalls,
           checkpointRevision: current?.sourceEventRevision ?? 0,
           captureRevision: input.metadata.captureRevision,
           deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
@@ -434,11 +392,12 @@ export async function foldContinuationCheckpoint(
         });
       } catch (repairError) {
         if (repairError instanceof CheckpointGeneratorError) repairCalls += repairError.providerCalls;
-        addCheckpointFailure({
+        failure = recordCheckpointFoldFailure({
           warnings,
           code: 'checkpoint-repair-failed',
           stage: 'repair',
           error: repairError,
+          providerCalls: foldCalls + repairCalls,
           checkpointRevision: current?.sourceEventRevision ?? 0,
           captureRevision: input.metadata.captureRevision,
           deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
@@ -456,11 +415,12 @@ export async function foldContinuationCheckpoint(
         });
       }
     } catch (error) {
-      addCheckpointFailure({
+      failure = recordCheckpointFoldFailure({
         warnings,
         code: 'checkpoint-generation-failed',
         stage: 'fold-commit',
         error,
+        providerCalls: foldCalls + repairCalls,
         checkpointRevision: current?.sourceEventRevision ?? 0,
         captureRevision: input.metadata.captureRevision,
         deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
@@ -494,6 +454,7 @@ export async function foldContinuationCheckpoint(
     outputTokens,
     observedContextWindowTokens,
     warnings,
+    failure,
     uncoveredRevisionRange,
   };
 }

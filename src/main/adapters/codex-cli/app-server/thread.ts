@@ -217,7 +217,7 @@ export class CodexAppServerThread {
         modelActivitySeen = true;
         clearFirstModelEventTimer();
         if (!acceptanceSource || acceptedAtMs === null || deadlineAtMs === null) return;
-        logger.info('[codex-app-server] first model event received',
+        logger.debug('[codex-app-server] first model event received',
           buildCodexTurnWatchdogDiagnostic({
             phase: 'first_model_event',
             threadId,
@@ -259,7 +259,7 @@ export class CodexAppServerThread {
             lastScopedNotificationAtMs,
             process: this.client.getProcessDiagnosticSnapshot(),
           });
-        logger.info('[codex-app-server] turn accepted; first-model watchdog armed',
+        logger.debug('[codex-app-server] turn accepted; first-model watchdog armed',
           diagnostic('armed', nowMs));
         firstModelEventTimer = setTimeout(() => {
           firstModelEventTimer = null;

@@ -51,6 +51,9 @@ import log from '@main/utils/logger';
 
 const logger = log.scope('agent-deck-mcp-http');
 const SLOW_MCP_HTTP_REQUEST_MS = 500;
+const SLOW_SPAWN_SESSION_MS = 60_000;
+const SLOW_HANDOFF_SESSION_MS = 180_000;
+const USER_GATED_TOOLS = new Set(['present_plan', 'present_diff']);
 
 const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
@@ -96,6 +99,13 @@ export function describeMcpHttpRequest(body: unknown): {
   const toolName =
     rpcMethod === 'tools/call' && typeof params?.name === 'string' ? params.name : null;
   return { rpcMethod, toolName };
+}
+
+export function mcpSlowRequestThresholdMs(toolName: string | null): number {
+  if (toolName && USER_GATED_TOOLS.has(toolName)) return Number.POSITIVE_INFINITY;
+  if (toolName === 'spawn_session') return SLOW_SPAWN_SESSION_MS;
+  if (toolName === 'hand_off_session') return SLOW_HANDOFF_SESSION_MS;
+  return SLOW_MCP_HTTP_REQUEST_MS;
 }
 
 /**
@@ -253,7 +263,7 @@ export async function registerAgentDeckMcpHttpRoutes(
         reply.raw.off('finish', logSlowRequest);
         reply.raw.off('close', logSlowRequest);
         const durationMs = performance.now() - requestStartedAt;
-        if (durationMs >= SLOW_MCP_HTTP_REQUEST_MS) {
+        if (durationMs >= mcpSlowRequestThresholdMs(request.toolName)) {
           logger.warn('[performance] slow MCP HTTP request', {
             durationMs: Math.round(durationMs),
             rpcMethod: request.rpcMethod,
