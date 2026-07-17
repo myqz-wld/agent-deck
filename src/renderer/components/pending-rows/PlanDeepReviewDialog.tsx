@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent,
+import { useEffect, useRef, useState, type JSX, type KeyboardEvent,
   type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { AgentEvent, ExitPlanModeRequest, PlanDeepReviewSession } from '@shared/types';
@@ -9,6 +9,7 @@ import { MemoizedMarkdownText } from '../MarkdownText';
 import { CloseIcon } from '../icons';
 import { PlanQuoteContextMenu, type PlanQuoteMenuState } from './PlanQuoteContextMenu';
 import { PlanQuotePreview } from './PlanQuotePreview';
+import { PlanReviewConversation } from './PlanReviewConversation';
 import { PlanReviewDecisionFooter } from './PlanReviewDecisionFooter';
 import {
   PLAN_QUOTE_ARIA_SHORTCUT, PLAN_QUOTE_SHORTCUT, isPlanQuoteShortcut,
@@ -17,7 +18,6 @@ import {
 
 const logger = log.scope('renderer-plan-deep-review');
 const EMPTY_EVENTS: AgentEvent[] = [];
-const INTERNAL_MARKER_PREFIX = '<!-- agent-deck-plan-review-internal:';
 
 interface Props {
   open: boolean;
@@ -29,31 +29,9 @@ interface Props {
   onRevise: (feedback?: string) => Promise<boolean>;
 }
 
-interface ConversationMessage {
-  role: 'user' | 'assistant';
-  text: string;
-  ts: number;
-}
-
 interface AttachedPlanQuote {
   id: number;
   text: string;
-}
-
-function conversationFromEvents(events: AgentEvent[]): ConversationMessage[] {
-  const messages: ConversationMessage[] = [];
-  for (const event of [...events].reverse()) {
-    if (event.kind !== 'message') continue;
-    const payload = event.payload as { role?: unknown; text?: unknown; error?: unknown } | null;
-    if (
-      (payload?.role !== 'user' && payload?.role !== 'assistant') ||
-      typeof payload.text !== 'string' ||
-      payload.error === true ||
-      payload.text.startsWith(INTERNAL_MARKER_PREFIX)
-    ) continue;
-    messages.push({ role: payload.role, text: payload.text, ts: event.ts });
-  }
-  return messages;
 }
 
 export function PlanDeepReviewDialog({
@@ -93,7 +71,6 @@ export function PlanDeepReviewDialog({
   const childEvents = useSessionStore((state) =>
     child ? state.recentEventsBySession.get(child.sessionId) ?? EMPTY_EVENTS : EMPTY_EVENTS,
   );
-  const messages = useMemo(() => conversationFromEvents(childEvents), [childEvents]);
   const busy = decisionBusy || localDecisionBusy || feedbackDraftBusy || questionBusy;
   onCloseRef.current = onClose;
   busyRef.current = busy;
@@ -193,7 +170,7 @@ export function PlanDeepReviewDialog({
   useEffect(() => {
     const node = conversationRef.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [messages]);
+  }, [childEvents, questionBusy]);
 
   useEffect(() => {
     if (feedbackDraftGenerated && !feedbackDraftBusy) feedbackRef.current?.focus();
@@ -263,10 +240,10 @@ export function PlanDeepReviewDialog({
       .join('\n\n');
     setQuestionBusy(true);
     setQuestionError(null);
+    setQuestion('');
+    setPlanQuotes([]);
     try {
       await window.api.askPlanDeepReview(sourceSessionId, request.requestId, submittedText);
-      setQuestion('');
-      setPlanQuotes([]);
     } catch (error) {
       logger.error('askPlanDeepReview failed', error);
       setQuestionError('问题发送失败，请确认计划仍在等待审阅后重试。');
@@ -391,31 +368,13 @@ export function PlanDeepReviewDialog({
               <div className="text-[11px] font-medium text-deck-text">提问与回答</div>
               <div className="text-[9px] text-deck-muted/70">审阅会话默认只读，不会修改其他文件。</div>
             </div>
-            <div ref={conversationRef} className="min-h-0 flex-1 space-y-2 overflow-auto p-3 scrollbar-deck">
-              {startError ? (
-                <div className="rounded border border-status-error/40 bg-status-error/10 p-2 text-[10px] text-status-error">
-                  {startError}
-                </div>
-              ) : !child ? (
-                <div className="text-[10px] text-deck-muted">正在准备隔离的审阅会话…</div>
-              ) : messages.length === 0 ? (
-                <div className="text-[10px] text-deck-muted">审阅会话已创建，正在准备回答…</div>
-              ) : messages.map((message, index) => (
-                <div
-                  key={`${message.ts}-${index}`}
-                  className={`rounded-lg border p-2 text-[11px] ${
-                    message.role === 'user'
-                      ? 'ml-6 border-status-working/30 bg-status-working/10'
-                      : 'mr-6 border-deck-border bg-black/20'
-                  }`}
-                >
-                  <div className="mb-1 text-[9px] text-deck-muted/70">
-                    {message.role === 'user' ? '你' : '审阅会话'}
-                  </div>
-                  <MemoizedMarkdownText text={message.text} />
-                </div>
-              ))}
-            </div>
+            <PlanReviewConversation
+              events={childEvents}
+              childReady={child !== null}
+              startError={startError}
+              waitingForReply={questionBusy}
+              conversationRef={conversationRef}
+            />
             <div className="shrink-0 border-t border-deck-border p-3">
               {selectedPlanText && (
                 <div className="mb-1.5 truncate text-[9px] text-status-working" role="status">

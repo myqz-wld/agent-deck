@@ -203,6 +203,34 @@ describe('PlanDeepReviewDialog', () => {
     ));
   });
 
+  it('clears a sent question, disables sending, and shows a left-side reply bubble', async () => {
+    const reply = deferred<boolean>();
+    window.api = api({
+      askPlanDeepReview: vi.fn(() => reply.promise),
+    });
+    renderDialog();
+    await waitFor(() => expect(
+      (screen.getByTestId('plan-review-question') as HTMLTextAreaElement).disabled,
+    ).toBe(false));
+    const question = screen.getByTestId('plan-review-question') as HTMLTextAreaElement;
+    fireEvent.change(question, { target: { value: 'What happens next?' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
+
+    expect(question.value).toBe('');
+    expect(question.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: '发送中…' }).hasAttribute('disabled')).toBe(true);
+    const loading = screen.getByTestId('plan-review-reply-loading');
+    expect(loading.getAttribute('aria-label')).toBe('审阅会话正在回复');
+    expect(loading.className).toContain('mr-6');
+    expect(loading.className).not.toContain('ml-6');
+
+    reply.resolve(true);
+    await waitFor(() => expect(screen.queryByTestId('plan-review-reply-loading')).toBeNull());
+    expect(question.value).toBe('');
+    expect(screen.getByRole('button', { name: '发送问题' }).hasAttribute('disabled')).toBe(true);
+  });
+
   it('does not open the quote menu when no plan text is selected', async () => {
     renderDialog();
     await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
@@ -219,6 +247,10 @@ describe('PlanDeepReviewDialog', () => {
     expect(header?.className).toContain('pl-[78px]');
     expect(within(header!).queryByRole('button', { name: '批准计划' })).toBeNull();
     const footer = screen.getByTestId('plan-review-decision-footer');
+    const feedback = within(footer).getByTestId('plan-review-feedback');
+    expect(feedback.className).toContain('w-full');
+    const actions = within(footer).getByTestId('plan-review-decision-actions');
+    expect(actions.className).toContain('justify-between');
     expect(within(footer).getByRole('button', { name: '继续修改' })).toBeTruthy();
     expect(within(footer).getByRole('button', { name: '批准计划' })).toBeTruthy();
     expect(within(footer).getByRole('button', { name: '根据上下文生成意见' })).toBeTruthy();
