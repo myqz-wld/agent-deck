@@ -248,6 +248,22 @@ beforeEach(() => {
 });
 
 describe('spawn_session native-fork handler lifecycle', () => {
+  it('marks an internal fork registration as hidden from user-facing History', async () => {
+    seedCaller('codex-cli');
+    const result = await spawnSessionHandler(
+      args('codex-cli', 'fork'),
+      { caller: { callerSessionId: 'caller', parentSessionId: 'caller', transport: 'in-process' } },
+      { hideFromHistory: true, suppressLeadContext: true },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(state.forkCalls).toHaveLength(1);
+    expect(state.forkCalls[0]?.target.initialSessionRegistration).toMatchObject({
+      hiddenFromHistory: true,
+      spawnLink: { parentSessionId: 'caller', depth: 1 },
+    });
+  });
+
   it.each(adapters)('forks the authenticated %s caller and preserves its row', async (adapter) => {
     const source = seedCaller(adapter);
     const before = structuredClone(source);

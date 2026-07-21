@@ -82,5 +82,5 @@ Disposition: all uncertainty fails open, so the failure mode is renewed UI noise
 
 ## Related Records
 
-- [CHANGELOG_355](../../changelogs/recent-week/CHANGELOG_355_filter-desktop-ephemeral-codex-hooks.md)
+- [CHANGELOG_355](../../changelogs/recent-month/CHANGELOG_355_filter-desktop-ephemeral-codex-hooks.md)
 - App issue: `38fdc312-ee81-4ed6-a6b8-6e7e699f2919`

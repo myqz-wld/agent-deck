@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { SessionRecord } from '@shared/types';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { AgentEvent, PendingOutgoingMessage, SessionRecord } from '@shared/types';
 import { ComposerSdk } from '../ComposerSdk';
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -25,12 +25,20 @@ let sendAdapterMessage: ReturnType<typeof vi.fn>;
 let steerAdapterTurn: ReturnType<typeof vi.fn>;
 let interruptAdapterSession: ReturnType<typeof vi.fn>;
 let setSessionModelOptions: ReturnType<typeof vi.fn>;
+let listPendingOutgoingMessages: ReturnType<typeof vi.fn>;
+let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
+let emitAgentEvent: (event: AgentEvent) => void;
 
 beforeEach(() => {
   sendAdapterMessage = vi.fn(() => Promise.resolve());
   steerAdapterTurn = vi.fn(() => Promise.resolve());
   interruptAdapterSession = vi.fn(() => Promise.resolve());
   setSessionModelOptions = vi.fn(() => Promise.resolve());
+  listPendingOutgoingMessages = vi.fn<() => Promise<PendingOutgoingMessage[]>>(
+    () => Promise.resolve([]),
+  );
+  deletePendingOutgoingMessage = vi.fn(() => Promise.resolve(true));
+  emitAgentEvent = () => undefined;
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -38,6 +46,12 @@ beforeEach(() => {
       steerAdapterTurn,
       interruptAdapterSession,
       setSessionModelOptions,
+      listPendingOutgoingMessages,
+      deletePendingOutgoingMessage,
+      onAgentEvent: vi.fn((listener: (event: AgentEvent) => void) => {
+        emitAgentEvent = listener;
+        return vi.fn();
+      }),
     } as unknown as Window['api'],
   });
 });
@@ -48,6 +62,108 @@ afterEach(() => {
 });
 
 describe('ComposerSdk unified input routing', () => {
+  it('keeps the expanded editor synchronized and closes it with Escape', async () => {
+    render(<ComposerSdk session={makeSession()} />);
+    const input = screen.getByPlaceholderText(/给 Codex 发消息/) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'inspect this draft' } });
+    fireEvent.click(screen.getByRole('button', { name: '放大输入框' }));
+
+    const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
+    const expanded = within(dialog).getByPlaceholderText(/给 Codex 发消息/) as HTMLTextAreaElement;
+    expect(expanded.value).toBe('inspect this draft');
+    fireEvent.change(expanded, { target: { value: 'edited in expanded view' } });
+    expect(input.value).toBe('edited in expanded view');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', {
+      name: '放大消息输入框',
+    })).toBeNull());
+    expect(input.value).toBe('edited in expanded view');
+  });
+
+  it('isolates the expanded editor and traps keyboard focus until it closes', async () => {
+    const { container } = render(<ComposerSdk session={makeSession()} />);
+    const expand = screen.getByRole('button', { name: '放大输入框' });
+    expand.focus();
+    fireEvent.click(expand);
+    const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
+    const expanded = within(dialog).getByPlaceholderText(/给 Codex 发消息/);
+    const close = within(dialog).getByRole('button', { name: /关闭/ });
+
+    expect(container.getAttribute('aria-hidden')).toBe('true');
+    expect(document.activeElement).toBe(expanded);
+    close.focus();
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(expanded);
+    expanded.focus();
+    fireEvent.keyDown(expanded, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+
+    fireEvent.click(close);
+    await waitFor(() => expect(document.activeElement).toBe(expand));
+    expect(container.getAttribute('aria-hidden')).toBeNull();
+  });
+
+  it('submits from the expanded editor but ignores IME Enter', async () => {
+    render(<ComposerSdk session={makeSession()} />);
+    fireEvent.change(screen.getByPlaceholderText(/给 Codex 发消息/), {
+      target: { value: 'expanded send' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '放大输入框' }));
+    const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
+    const expanded = within(dialog).getByPlaceholderText(/给 Codex 发消息/);
+
+    fireEvent.keyDown(expanded, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(sendAdapterMessage).not.toHaveBeenCalled();
+    fireEvent.keyDown(expanded, { key: 'Enter', isComposing: false, keyCode: 13 });
+
+    await waitFor(() => expect(sendAdapterMessage).toHaveBeenCalledWith(
+      'codex-cli',
+      'sess-1',
+      { text: 'expanded send' },
+    ));
+    await waitFor(() => expect(screen.queryByRole('dialog', {
+      name: '放大消息输入框',
+    })).toBeNull());
+  });
+
+  it('shows authoritative pending messages and deletes one before consumption', async () => {
+    listPendingOutgoingMessages.mockResolvedValueOnce([
+      { id: 'pending-1', text: 'queued request', attachmentCount: 2 },
+    ]).mockResolvedValueOnce([]);
+    render(<ComposerSdk session={makeSession()} />);
+
+    expect(await screen.findByText(/queued request/)).toBeTruthy();
+    expect(screen.getByText(/2 个附件/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '删除等待消息' }));
+
+    await waitFor(() => expect(deletePendingOutgoingMessage).toHaveBeenCalledWith(
+      'codex-cli',
+      'sess-1',
+      'pending-1',
+    ));
+    await waitFor(() => expect(screen.queryByText(/queued request/)).toBeNull());
+  });
+
+  it('removes a pending row when its correlated user event is consumed', async () => {
+    listPendingOutgoingMessages.mockResolvedValueOnce([
+      { id: 'pending-1', text: 'wait for provider', attachmentCount: 0 },
+    ]).mockResolvedValueOnce([]);
+    render(<ComposerSdk session={makeSession()} />);
+    expect(await screen.findByText('wait for provider')).toBeTruthy();
+
+    emitAgentEvent({
+      sessionId: 'sess-1',
+      agentId: 'codex-cli',
+      kind: 'message',
+      payload: { role: 'user', text: 'wait for provider', turnCorrelationId: 'pending-1' },
+      ts: 1,
+      source: 'sdk',
+    });
+
+    await waitFor(() => expect(screen.queryByText('wait for provider')).toBeNull());
+  });
+
   it('offers handoff only after the active turn finishes or is interrupted', () => {
     const onHandOff = vi.fn();
     const view = render(

@@ -27,7 +27,7 @@ import {
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { registerSessionModelOptionsIpc } from './adapters-session-model-options';
-import { dispatchAdapterMessageWithHandOffRedirect } from './adapters-message-dispatch';
+import { registerAdapterOutgoingIpc } from './adapters-outgoing';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
@@ -40,6 +40,7 @@ function mergePendingRequests<T extends { requestId: string }>(base: T[], extra:
 
 export function registerAdaptersIpc(): void {
   registerSessionModelOptionsIpc();
+  registerAdapterOutgoingIpc();
   // Adapter actions (createSession 在 M9 实现 SDK 通道后才会真正可用)
   on(IpcInvoke.AdapterList, () => {
     return adapterRegistry.list().map((a) => ({
@@ -196,74 +197,6 @@ export function registerAdaptersIpc(): void {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.interruptSession) throw new Error('adapter cannot interrupt');
     await adapter.interruptSession(parseStringId('sessionId', sessionId));
-    return true;
-  });
-  on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, payload) => {
-    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-    if (!adapter?.sendMessage) throw new Error('adapter cannot send message');
-    // 兼容老 IPC 调用方传 `text: string`（向后兼容，避免漏改 break）+
-    // 新 envelope 形式 `{text, attachments?}`（带图）。
-    let text: string;
-    let rawAttachments: unknown = undefined;
-    if (typeof payload === 'string') {
-      text = payload;
-    } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-      const env = payload as { text?: unknown; attachments?: unknown };
-      if (typeof env.text !== 'string') {
-        throw new IpcInputError('payload.text', 'must be string');
-      }
-      text = env.text;
-      rawAttachments = env.attachments;
-    } else {
-      throw new IpcInputError('payload', 'must be string or {text, attachments?}');
-    }
-    // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：单条消息上限 102_400 字符（与 sdk-bridge
-    // MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
-    if (text.length > MAX_USER_MESSAGE_LENGTH) {
-      throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);
-    }
-    // REVIEW_35 R2 HIGH-D codex H1：last-line defense — adapter 不支持 attachments 时直接拒绝，
-    // 不让 attachments 落盘到 image-uploads 占空间。修前 ComposerSdk gate 入口 + send 拦截，
-    // 但 main 进程 IPC 没 enforce → 任意 IPC caller (NewSessionDialog / 测试 / 直接 IPC mock) 都可
-    // 把 attachments 塞给 canAcceptAttachments=false adapter，bridge 静默丢图 + 文件落盘后无清理。
-    if (rawAttachments && Array.isArray(rawAttachments) && rawAttachments.length > 0
-        && !adapter.capabilities.canAcceptAttachments) {
-      throw new IpcInputError(
-        'attachments',
-        `adapter "${agentId}" does not support attachments`,
-      );
-    }
-    // attachments 写盘：失败 throw 已回滚兄弟附件。sendMessage throw 时本 handler 同款回滚。
-    const attachments = await persistAdapterAttachments(rawAttachments, 'attachments');
-    // plan mcp-bug-and-feature-batch-20260513 N bug fix: 用户从历史归档会话「续聊」=
-    // 主动 sendMessage 信号，应自动 unarchive 让会话回到实时面板。区分被动事件流路径
-    //（hook event ingest 走 ensure() 的 archived 不动正交约定，manager.ts:152-156 注释），
-    // 那条路径不应触发自动 unarchive。本入口是用户从 UI / CLI 显式 sendMessage 的桥点
-    // （mcp tool send_message 走 universal-message-watcher 不经过这里）。
-    // 详 sessionManager.unarchiveOnUserSend jsdoc。
-    //
-    // archive-toctou-fix-20260515 plan: unarchiveOnUserSend 内部调 sessionManager.unarchive →
-    // sessionRepo.setArchived(sid, null),修法 A 后 setArchived 撞 race window (probe 后 row 被
-    // 外部删) 会 throw SessionRowMissingError。该 throw 必须挪进 try/catch 块**与** sendMessage
-    // 共享 attachments cleanup,否则 unarchive throw → 跳过 catch → attachments 残留磁盘 leak
-    // (持久化层无清理钩子)。throw 仍冒泡走 IPC reply error → renderer Composer inline error,
-    // 与 reviewer-codex R1 HIGH「row 真不存在让 throw 冒泡更合理」立场一致。
-    const sidParsed = parseStringId('sessionId', sessionId);
-    try {
-      await dispatchAdapterMessageWithHandOffRedirect({
-        sourceSessionId: sidParsed,
-        sourceAdapter: adapter,
-        text,
-        attachments,
-      });
-    } catch (err) {
-      // sendMessage / unarchive throw：path 还没塞进 SDK 队列（adapter 内部入队前 throw），
-      // 安全清干净
-      // ⚠ 关键护栏：成功路径**不**清，因为 adapter 已把 path 塞进 pendingMessages 队列，
-      //   清了 codex 子进程消费时 ENOENT。
-      await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));
-      throw err;
-    }
     return true;
   });
   on(IpcInvoke.AdapterSteerTurn, async (_e, agentId, sessionId, text) => {

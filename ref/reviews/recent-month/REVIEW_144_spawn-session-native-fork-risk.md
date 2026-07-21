@@ -131,5 +131,5 @@ Added first-turn Codex zero-prefix replay semantics to both the field schema and
 
 ## Related Records
 
-- [CHANGELOG_353](../../changelogs/recent-week/CHANGELOG_353_spawn-session-native-fork.md)
-- [PLAN_2](../../plans/recent-week/PLAN_2_spawn-session-native-fork.md)
+- [CHANGELOG_353](../../changelogs/recent-month/CHANGELOG_353_spawn-session-native-fork.md)
+- [PLAN_2](../../plans/recent-month/PLAN_2_spawn-session-native-fork.md)

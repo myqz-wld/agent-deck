@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent,
   type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import type { AgentEvent, ExitPlanModeRequest, PlanDeepReviewSession } from '@shared/types';
+import {
+  NO_PLAN_REVIEW_DIALOGUE_FEEDBACK,
+  type AgentEvent,
+  type ExitPlanModeRequest,
+  type PlanDeepReviewSession,
+} from '@shared/types';
 import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
 import { RECENT_LIMIT, useSessionStore } from '@renderer/stores/session-store';
 import log from '@renderer/utils/logger';
@@ -75,32 +80,6 @@ export function PlanDeepReviewDialog({
   onCloseRef.current = onClose;
   busyRef.current = busy;
   quoteMenuOpenRef.current = quoteMenu !== null;
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setStartError(null);
-    void window.api.startPlanDeepReview(sourceSessionId, request.requestId)
-      .then(async (session) => {
-        if (cancelled) return;
-        setChild(session);
-        await loadStableSnapshot({
-          readVersion: () =>
-            useSessionStore.getState().eventRevisionsBySession.get(session.sessionId) ?? 0,
-          load: () => window.api.listEvents(session.sessionId, RECENT_LIMIT),
-          apply: (events) => setRecentEvents(session.sessionId, events),
-          isCancelled: () => cancelled,
-        });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        logger.error('startPlanDeepReview failed', error);
-        setStartError('无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, request.requestId, setRecentEvents, sourceSessionId]);
 
   useEffect(() => {
     if (!open) return;
@@ -235,17 +214,37 @@ export function PlanDeepReviewDialog({
 
   const submitQuestion = async (): Promise<void> => {
     const text = question.trim();
-    if (!text || !child || !beginOperation('question')) return;
+    if (!text || !beginOperation('question')) return;
     const submittedText = [...planQuotes.map((quote) => quotedPlanText(quote.text)), text]
       .join('\n\n');
+    const submittedQuotes = planQuotes;
+    let forkReady = child !== null;
     setQuestionBusy(true);
     setQuestionError(null);
     setQuestion('');
     setPlanQuotes([]);
     try {
+      let activeChild = child;
+      if (!activeChild) {
+        activeChild = await window.api.startPlanDeepReview(sourceSessionId, request.requestId);
+        forkReady = true;
+        setChild(activeChild);
+        await loadStableSnapshot({
+          readVersion: () =>
+            useSessionStore.getState().eventRevisionsBySession.get(activeChild!.sessionId) ?? 0,
+          load: () => window.api.listEvents(activeChild!.sessionId, RECENT_LIMIT),
+          apply: (events) => setRecentEvents(activeChild!.sessionId, events),
+        });
+      }
       await window.api.askPlanDeepReview(sourceSessionId, request.requestId, submittedText);
+      setStartError(null);
     } catch (error) {
       logger.error('askPlanDeepReview failed', error);
+      setQuestion(text);
+      setPlanQuotes(submittedQuotes);
+      if (!forkReady) {
+        setStartError('无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。');
+      }
       setQuestionError('问题发送失败，请确认计划仍在等待审阅后重试。');
     } finally {
       finishOperation('question');
@@ -260,7 +259,7 @@ export function PlanDeepReviewDialog({
   };
 
   const generateFeedbackDraft = async (): Promise<void> => {
-    if (!child || !beginOperation('feedback')) return;
+    if (!beginOperation('feedback')) return;
     setFeedbackDraftBusy(true);
     setFeedbackDraftError(null);
     setFeedbackDraftGenerated(false);
@@ -270,7 +269,9 @@ export function PlanDeepReviewDialog({
         request.requestId,
       );
       const generated = result.feedback.trim();
-      setFeedback((current) => current.trim()
+      setFeedback((current) => current.trim() === NO_PLAN_REVIEW_DIALOGUE_FEEDBACK
+        ? generated
+        : current.trim()
         ? `${current.trimEnd()}\n\n${generated}`
         : generated);
       setFeedbackDraftGenerated(true);
@@ -322,7 +323,7 @@ export function PlanDeepReviewDialog({
               计划深度审阅
             </h2>
             <div id="plan-deep-review-description" className="max-w-[42rem] truncate text-[10px] text-deck-muted">
-              {request.title ?? '当前计划'} · 隔离的同适配器原生 fork
+              {request.title ?? '当前计划'} · 首次提问时创建隔离的同适配器原生 fork
             </div>
           </div>
           <button
@@ -403,7 +404,7 @@ export function PlanDeepReviewDialog({
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 onKeyDown={onQuestionKeyDown}
-                disabled={!child || busy}
+                disabled={busy}
                 aria-label="向审阅会话提问"
                 placeholder="询问计划；Enter 发送，Shift+Enter 换行"
                 className="min-h-20 w-full resize-y rounded border border-deck-border bg-black/30 px-2 py-1.5 text-[11px] text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25 disabled:opacity-50"
@@ -414,7 +415,7 @@ export function PlanDeepReviewDialog({
                 </span>
                 <button
                   type="button"
-                  disabled={!child || !question.trim() || busy}
+                  disabled={!question.trim() || busy}
                   onClick={() => void submitQuestion()}
                   className="shrink-0 rounded bg-white/10 px-3 py-1 text-[10px] text-deck-text hover:bg-white/15 disabled:opacity-40"
                 >
@@ -428,7 +429,7 @@ export function PlanDeepReviewDialog({
           feedback={feedback}
           feedbackRef={feedbackRef}
           busy={busy}
-          canGenerate={child !== null}
+          canGenerate
           generating={feedbackDraftBusy}
           generated={feedbackDraftGenerated}
           error={feedbackDraftError}

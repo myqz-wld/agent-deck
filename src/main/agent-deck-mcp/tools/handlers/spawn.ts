@@ -280,6 +280,7 @@ export const spawnSessionHandler = withMcpGuard(
           parentSessionId: caller.callerSessionId,
           depth: parentDepth + 1,
         },
+        hiddenFromHistory: opts?.hideFromHistory === true,
         // session-start ingest is synchronous: once this callback runs, listChildren sees the
         // durable row, so the in-flight reservation must be released to avoid double-counting it.
         onRegistered: () => fanOutSlot.release(),

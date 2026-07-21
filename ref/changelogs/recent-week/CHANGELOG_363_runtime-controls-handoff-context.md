@@ -65,5 +65,5 @@ evidence-backed 300-second hand-off deadline.
 
 ## Related records
 
-- [REVIEW_158](../../reviews/recent-3-days/REVIEW_158_handoff-context-coverage.md)
-- [PLAN_9](../../plans/recent-3-days/PLAN_9_runtime-controls-handoff-context.md)
+- [REVIEW_158](../../reviews/recent-week/REVIEW_158_handoff-context-coverage.md)
+- [PLAN_9](../../plans/recent-week/PLAN_9_runtime-controls-handoff-context.md)

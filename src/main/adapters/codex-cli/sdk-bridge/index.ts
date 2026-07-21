@@ -21,7 +21,7 @@ import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
-import type { AgentEnqueueOptions, QueuedAgentMessage } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
 import type { ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
 import {
   SessionRecoverer,
@@ -283,8 +283,9 @@ export class CodexSdkBridge {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
   ): Promise<void> {
-    await this.messageController.sendMessage(sessionId, text, attachments);
+    await this.messageController.sendMessage(sessionId, text, attachments, options);
   }
 
   async enqueueMessage(
@@ -327,6 +328,14 @@ export class CodexSdkBridge {
           }]
         : [],
     );
+  }
+
+  listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
+    return this.messageController.listPendingOutgoingMessages(sessionId);
+  }
+
+  removePendingOutgoingMessage(sessionId: string, messageId: string): PendingAgentMessage | null {
+    return this.messageController.removePendingOutgoingMessage(sessionId, messageId);
   }
 
   /**

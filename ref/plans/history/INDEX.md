@@ -104,6 +104,7 @@ Legacy topic-and-date plan names and nonterminal snapshots remain stable. Missin
 | 2026-05-26 | `session-list-handoff-role-badge-20260526.md` | completed | Plan: SessionList hand_off lead/teammate badge 显示修复 (v4) | CHANGELOG_152 |
 | unknown | `spawn-session-custom-model-20260625.md` | completed | spawn_session Custom Model Names | CHANGELOG_327 |
 | unknown | `spawn-session-model-thinking-20260611.md` | in_progress (legacy snapshot) | spawn_session Model And Thinking Parameters | None |
+| 2026-06-17 | `spawn-teamless-reply-anchor-20260617.md` | completed | Spawn Teamless Reply Anchor | CHANGELOG_279 / REVIEW_119 |
 | 2026-06-01 | `sqlite-tests-no-skip-20260601.md` | completed | 让 SQLite 单测「真跑不 skip」+ 修 4 个真失败文件 | None |
 | 2026-05-14 | `summarizer-split-20260514.md` | completed | summarizer.ts 625 LOC 拆分（档位 1：抽 module-level 纯函数） | None |
 | 2026-05-24 | `task-mcp-merge-into-agent-deck-mcp-20260521.md` | completed | Plan: task mcp 物理合并到 agent-deck-mcp，让 codex 也能用 | CHANGELOG_146 |

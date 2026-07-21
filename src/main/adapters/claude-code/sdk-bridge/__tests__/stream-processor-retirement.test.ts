@@ -83,6 +83,92 @@ describe('StreamProcessor deferred handoff retirement', () => {
     }));
   });
 
+  it('keeps a deferred attachment turn deletable when lazy materialization fails', async () => {
+    const internal = makeInternalSession({
+      cwd: '/tmp/claude-failed-attachment',
+      applicationSid: 'source-sid',
+    });
+    const pending = vi.fn(async () => {
+      throw new Error('attachment disappeared');
+    }) as unknown as PendingUserMessage;
+    pending.deferredUserEvent = {
+      text: 'inspect this image',
+      turnCorrelationId: 'turn-with-missing-image',
+    };
+    internal.pendingUserMessages.push(pending);
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const processor = new StreamProcessor({
+      sessions: new Map([['source-sid', internal]]),
+      emit,
+    });
+    const stream = processor.createUserMessageStream(internal, 'source-sid')[
+      Symbol.asyncIterator
+    ]();
+
+    const next = stream.next();
+    await waitForNotify(internal);
+
+    expect(pending).toHaveBeenCalledOnce();
+    expect(internal.pendingUserMessages).toEqual([pending]);
+    expect(pending.materializationError).toBe('attachment disappeared');
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'message',
+      payload: expect.objectContaining({ error: true }),
+    }));
+
+    internal.pendingUserMessages.splice(0, 1);
+    const notify = internal.notify;
+    internal.notify = null;
+    internal.retireBoundaryReached = true;
+    notify?.();
+    expect(pending).toHaveBeenCalledOnce();
+    await expect(next).resolves.toEqual({ value: undefined, done: true });
+  });
+
+  it('lets deletion win while a deferred attachment is still materializing', async () => {
+    const internal = makeInternalSession({
+      cwd: '/tmp/claude-delete-during-read',
+      applicationSid: 'source-sid',
+    });
+    let finishRead!: (message: SDKUserMessage) => void;
+    const pending = vi.fn(() => new Promise<SDKUserMessage>((resolve) => {
+      finishRead = resolve;
+    })) as unknown as PendingUserMessage;
+    pending.deferredUserEvent = {
+      text: 'delete during image read',
+      turnCorrelationId: 'turn-delete-during-read',
+    };
+    internal.pendingUserMessages.push(pending);
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const processor = new StreamProcessor({
+      sessions: new Map([['source-sid', internal]]),
+      emit,
+    });
+    const stream = processor.createUserMessageStream(internal, 'source-sid')[
+      Symbol.asyncIterator
+    ]();
+
+    const next = stream.next();
+    await vi.waitFor(() => expect(pending).toHaveBeenCalledOnce());
+    expect(internal.pendingUserMessages).toEqual([pending]);
+    internal.pendingUserMessages.splice(0, 1);
+    finishRead({
+      type: 'user',
+      message: { role: 'user', content: 'must not be consumed' },
+      parent_tool_use_id: null,
+      priority: 'now',
+      session_id: 'source-sid',
+    });
+    await waitForNotify(internal);
+
+    expect(emit).not.toHaveBeenCalled();
+    internal.retireBoundaryReached = true;
+    const notify = internal.notify;
+    internal.notify = null;
+    notify?.();
+    await expect(next).resolves.toEqual({ value: undefined, done: true });
+  });
+
   it('feeds ordinary queued turns one at a time and releases the next only after result', async () => {
     const internal = makeInternalSession({
       cwd: '/tmp/claude-serialized-input',

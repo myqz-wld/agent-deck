@@ -63,6 +63,9 @@ export async function runCreateSessionNewPath(
       ...(opts.initialSessionRegistration
         ? { initialSpawnLink: opts.initialSessionRegistration.spawnLink }
         : {}),
+      ...(opts.initialSessionRegistration?.hiddenFromHistory
+        ? { initialHiddenFromHistory: true }
+        : {}),
     },
     ts: Date.now(),
     source: 'sdk',

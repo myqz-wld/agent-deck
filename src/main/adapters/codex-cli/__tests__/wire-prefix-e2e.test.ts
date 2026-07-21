@@ -377,7 +377,10 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
       body: '这条作为运行中修正注入',
     });
 
-    await bridge.sendMessage(sid, wireBody);
+    await bridge.sendMessage(sid, wireBody, undefined, {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'steer-correlation-1',
+    });
 
     expect(internal.pendingMessages).toHaveLength(0);
     expect(steer).toHaveBeenCalledWith(
@@ -390,7 +393,9 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
       text: wireBody,
       role: 'user',
       steer: true,
+      turnCorrelationId: 'steer-correlation-1',
     });
+    expect(bridge.listPendingOutgoingMessages(sid)).toEqual([]);
   });
 
   it('active turn：bridge.enqueueMessage(sid, wireBody) 强制进入 pendingMessages，不调用 steer，并 emit user message', async () => {

@@ -102,6 +102,9 @@ export interface PlanDeepReviewSession {
   agentId: 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
 }
 
+/** Editable soft refusal used when no review dialogue exists and no LLM should be started. */
+export const NO_PLAN_REVIEW_DIALOGUE_FEEDBACK = '尚未进行审阅对话，暂无修改意见。';
+
 // ───────────────────────────────────────────────────────── Diff Review
 
 export type DiffReviewMode = 'pr' | 'merge-conflict';

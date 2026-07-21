@@ -73,5 +73,5 @@ the child to derive and automatically submit focused revision feedback from inhe
 
 ## Related records
 
-- [REVIEW_159](../../reviews/recent-3-days/REVIEW_159_present-plan-lifecycle.md)
-- [PLAN_10](../../plans/recent-3-days/PLAN_10_present-plan-deep-review.md)
+- [REVIEW_159](../../reviews/recent-week/REVIEW_159_present-plan-lifecycle.md)
+- [PLAN_10](../../plans/recent-week/PLAN_10_present-plan-deep-review.md)

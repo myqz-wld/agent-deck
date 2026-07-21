@@ -133,8 +133,8 @@ correctness and a materially bounded responsiveness/WAL result without claiming 
 
 ## Related records
 
-- [CHANGELOG_362](../../changelogs/recent-3-days/CHANGELOG_362_storage-maintenance-worker-provider-compaction.md)
-- [PLAN_7](../../plans/recent-3-days/PLAN_7_storage-maintenance-worker-provider-compaction.md)
+- [CHANGELOG_362](../../changelogs/recent-month/CHANGELOG_362_storage-maintenance-worker-provider-compaction.md)
+- [PLAN_7](../../plans/recent-month/PLAN_7_storage-maintenance-worker-provider-compaction.md)
 - Reproduction harnesses:
-  [built-worker integrity](../../plans/recent-3-days/PLAN_7_storage-maintenance-worker-provider-compaction/spike-reports/verify-maintenance-worker-built.mjs) and
-  [continuous ingress/WAL](../../plans/recent-3-days/PLAN_7_storage-maintenance-worker-provider-compaction/spike-reports/benchmark-maintenance-worker-built.mjs)
+  [built-worker integrity](../../plans/recent-month/PLAN_7_storage-maintenance-worker-provider-compaction/spike-reports/verify-maintenance-worker-built.mjs) and
+  [continuous ingress/WAL](../../plans/recent-month/PLAN_7_storage-maintenance-worker-provider-compaction/spike-reports/benchmark-maintenance-worker-built.mjs)

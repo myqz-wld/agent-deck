@@ -6,6 +6,10 @@ import {
   sendClaudeMessage,
   type ClaudeMessageControllerContext,
 } from '../sdk-bridge/message-controller';
+import {
+  listClaudePendingOutgoingMessages,
+  removeClaudePendingOutgoingMessage,
+} from '../sdk-bridge/pending-outgoing';
 import type { InternalSession, PendingUserMessage } from '../sdk-bridge/types';
 
 function sessionWithPending(count = 0): InternalSession {
@@ -37,6 +41,45 @@ function context(
 }
 
 describe('sendClaudeMessage handoff diversion', () => {
+  it('lists and atomically removes a deferred user message before SDK consumption', async () => {
+    const sessionId = 'claude-visible-pending';
+    const session = sessionWithPending();
+    session.applicationSid = sessionId;
+    session.cliSessionId = sessionId;
+    const sessions = new Map([[sessionId, session]]);
+    const ctx = context(sessions);
+    const attachment = {
+      kind: 'uploaded' as const,
+      path: '/tmp/pending.png',
+      mime: 'image/png',
+      bytes: 10,
+    };
+
+    await sendClaudeMessage(ctx, {
+      sessionId,
+      text: 'wait for Claude',
+      attachments: [attachment],
+      enqueueOptions: {
+        deferUserEventUntilTurnStart: true,
+        turnCorrelationId: 'pending-1',
+      },
+    });
+
+    expect(ctx.emit).not.toHaveBeenCalled();
+    expect(listClaudePendingOutgoingMessages(sessions, sessionId)).toEqual([{
+      id: 'pending-1',
+      text: 'wait for Claude',
+      attachments: [attachment],
+    }]);
+    expect(removeClaudePendingOutgoingMessage(sessions, sessionId, 'pending-1')).toEqual({
+      id: 'pending-1',
+      text: 'wait for Claude',
+      attachments: [attachment],
+    });
+    expect(session.pendingUserMessages).toEqual([]);
+    expect(removeClaudePendingOutgoingMessage(sessions, sessionId, 'pending-1')).toBeNull();
+  });
+
   it('allows successor handoff tails to bypass ordinary queue backpressure', async () => {
     const sessionId = 'claude-successor-tail-overflow';
     const session = sessionWithPending(MAX_PENDING_MESSAGES);

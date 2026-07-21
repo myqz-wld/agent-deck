@@ -28,9 +28,11 @@ export async function dispatchAdapterMessageWithHandOffRedirect(
     text: string;
     attachments: UploadedAttachmentRef[];
     enqueueOptions?: AgentEnqueueOptions;
+    /** Ordinary send metadata that preserves active-turn steering when supported. */
+    sendOptions?: AgentEnqueueOptions;
   },
   deps: AdapterMessageDispatchDependencies = productionDependencies,
-): Promise<void> {
+): Promise<string> {
   const initialRedirect = deps.successorFor(input.sourceSessionId);
   await deps.unarchiveOnUserSend(initialRedirect ?? input.sourceSessionId);
   const redirect = deps.successorFor(input.sourceSessionId) ?? initialRedirect;
@@ -42,15 +44,16 @@ export async function dispatchAdapterMessageWithHandOffRedirect(
         input.attachments,
         input.enqueueOptions,
       );
-      return;
+      return input.sourceSessionId;
     }
     if (!input.sourceAdapter.sendMessage) throw new Error('adapter cannot send message');
     await input.sourceAdapter.sendMessage(
       input.sourceSessionId,
       input.text,
       input.attachments,
+      input.sendOptions,
     );
-    return;
+    return input.sourceSessionId;
   }
 
   const successor = deps.getSession(redirect);
@@ -61,14 +64,16 @@ export async function dispatchAdapterMessageWithHandOffRedirect(
   if (!successor || !successorAdapter?.enqueueMessage) {
     throw new Error('handoff successor cannot receive redirected source input');
   }
-  if (input.enqueueOptions) {
+  const redirectedOptions = input.enqueueOptions ?? input.sendOptions;
+  if (redirectedOptions) {
     await successorAdapter.enqueueMessage(
       redirect,
       input.text,
       input.attachments,
-      input.enqueueOptions,
+      redirectedOptions,
     );
   } else {
     await successorAdapter.enqueueMessage(redirect, input.text, input.attachments);
   }
+  return redirect;
 }

@@ -174,8 +174,14 @@ export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionReco
     event.source === 'sdk' && event.kind === 'session-start'
       ? (event.payload as {
           initialSpawnLink?: { parentSessionId?: unknown; depth?: unknown };
+          initialHiddenFromHistory?: unknown;
         } | null | undefined)?.initialSpawnLink
       : undefined;
+  const hiddenFromHistory =
+    event.source === 'sdk' &&
+    event.kind === 'session-start' &&
+    (event.payload as { initialHiddenFromHistory?: unknown } | null | undefined)
+      ?.initialHiddenFromHistory === true;
   const validRegistration =
     registration &&
     typeof registration.parentSessionId === 'string' &&
@@ -192,6 +198,7 @@ export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionReco
     reviveClosed: shouldReviveClosedSession(event),
     spawnedBy: validRegistration?.parentSessionId,
     spawnDepth: validRegistration?.depth,
+    hiddenFromHistory,
   });
 }
 

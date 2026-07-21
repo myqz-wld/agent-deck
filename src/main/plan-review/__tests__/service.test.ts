@@ -404,6 +404,7 @@ describe('PlanReviewService', () => {
       agentId: 'codex-cli',
       plan: 'Plan',
     });
+    await service.startDeepReview('source', 'request-1');
 
     await expect(
       service.generateFeedbackDraft('source', 'request-1'),
@@ -432,6 +433,7 @@ describe('PlanReviewService', () => {
       agentId: 'codex-cli',
       plan: 'Plan',
     });
+    await service.startDeepReview('source', 'request-1');
 
     const first = service.generateFeedbackDraft('source', 'request-1');
     const second = service.generateFeedbackDraft('source', 'request-1');
@@ -453,6 +455,7 @@ describe('PlanReviewService', () => {
       agentId: 'codex-cli',
       plan: 'Plan',
     });
+    await service.startDeepReview('source', 'request-1');
     const draft = service.generateFeedbackDraft('source', 'request-1');
     await vi.waitFor(() => expect(generateFeedback).toHaveBeenCalledTimes(1));
 

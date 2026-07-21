@@ -37,6 +37,8 @@ export interface SessionRecord {
   archivedAt: number | null;
   /** Real-time session pin timestamp; null/undefined means unpinned. */
   pinnedAt?: number | null;
+  /** Internal runtime rows remain live-addressable but are permanently omitted from History. */
+  hiddenFromHistory?: boolean;
   /** SDK 通道：上次手动选过的权限模式；null/undefined 视为 'default'。CLI 通道字段无意义。 */
   permissionMode?: PermissionMode | null;
   /**

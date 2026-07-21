@@ -79,4 +79,4 @@ None. Every changed first-party source file remains below 500 lines; the largest
 ## Related records
 
 - [CHANGELOG_364](CHANGELOG_364_present-plan-deep-review.md)
-- [PLAN_10](../../plans/recent-3-days/PLAN_10_present-plan-deep-review.md)
+- [PLAN_10](../../plans/recent-week/PLAN_10_present-plan-deep-review.md)

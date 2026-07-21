@@ -45,7 +45,7 @@ export async function runClaudeOneshot(opts: {
   /** 完整 user prompt。caller 用 build-prompt.ts buildSummarizePrompt 组装。 */
   prompt: string;
   /** 模型 id（caller 已组装 settings > env > alias 优先级链，传最终字符串）。 */
-  model: string;
+  model?: string;
   /** Claude Code reasoning effort；undefined 时沿用 SDK/provider 默认。 */
   effort?: ClaudeThinkingLevel;
   /** systemPrompt（caller 从 build-prompt.ts CLAUDE_*_SYSTEM_PROMPT 常量取）。 */
@@ -56,6 +56,8 @@ export async function runClaudeOneshot(opts: {
   timeoutMs: number;
   /** Timer 触发 reject 的 summary-specific errorMessage。 */
   timeoutErrorMessage: string;
+  /** Optional caller-owned cancellation. */
+  signal?: AbortSignal;
 }): Promise<string> {
   const sdk = await loadSdk();
   const runtime = getSdkRuntimeOptions();
@@ -70,7 +72,7 @@ export async function runClaudeOneshot(opts: {
       prompt: opts.prompt,
       options: {
         cwd: isolatedCwd,
-        model: opts.model,
+        ...(opts.model ? { model: opts.model } : {}),
         ...(opts.effort ? { effort: opts.effort } : {}),
         permissionMode: 'dontAsk',
         systemPrompt: opts.systemPrompt,
@@ -99,6 +101,10 @@ export async function runClaudeOneshot(opts: {
       errorMessage: opts.timeoutErrorMessage,
       // 优先优雅中断让 SDK 自己清子进程；interrupt 失败也无所谓（reject 抛错兜底）。
       onTimeout: () => {
+        q.interrupt?.().catch(() => undefined);
+      },
+      signal: opts.signal,
+      onAbort: () => {
         q.interrupt?.().catch(() => undefined);
       },
     });

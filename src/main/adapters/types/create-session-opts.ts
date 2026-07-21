@@ -22,6 +22,8 @@ export interface InitialSessionRegistration {
     parentSessionId: string;
     depth: number;
   };
+  /** Internal sessions stay live-addressable but are omitted from user-facing History. */
+  hiddenFromHistory?: boolean;
   /** Called synchronously after the linked session-start has been durably ingested. */
   onRegistered: (applicationSessionId: string) => void;
 }

@@ -33,6 +33,11 @@ export interface QueuedAgentMessage {
   attachments?: UploadedAttachmentRef[];
 }
 
+export interface PendingAgentMessage extends QueuedAgentMessage {
+  /** Opaque renderer correlation id, present only for explicitly deferred user events. */
+  id: string;
+}
+
 export interface AgentEnqueueOptions {
   /** Reserved for mandatory continuity tails already bounded by the handoff ingress gate. */
   bypassQueueLimit?: boolean;
@@ -89,6 +94,7 @@ export interface AgentAdapter {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
   ): Promise<void>;
   /**
    * Queue a user message for the next provider turn even when the current turn supports steering.
@@ -103,6 +109,10 @@ export interface AgentAdapter {
   ): Promise<void>;
   /** Snapshot queued, not-yet-started provider turns while a handoff ingress lease is held. */
   snapshotQueuedMessagesForHandOff?(sessionId: string): QueuedAgentMessage[];
+  /** User-visible, not-yet-consumed inputs. Excludes internal and already-started turns. */
+  listPendingOutgoingMessages?(sessionId: string): PendingAgentMessage[];
+  /** Remove one message only while it is still in the provider queue. */
+  removePendingOutgoingMessage?(sessionId: string, messageId: string): PendingAgentMessage | null;
   /** Mid-turn steering：只修改当前正在跑的 turn，不进入下一轮 pending message queue。 */
   steerTurn?(sessionId: string, text: string): Promise<void>;
   respondPermission?(

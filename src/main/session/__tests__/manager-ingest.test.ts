@@ -190,6 +190,44 @@ describe('SessionManager.ingest 时序', () => {
     });
   });
 
+  it('only trusted SDK registration can hide a review child from History', () => {
+    sessionManager.claimAsSdk('hidden-review-child');
+    sessionManager.ingest(makeEvent({
+      sessionId: 'hidden-review-child',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: {
+        cwd: '/tmp',
+        initialHiddenFromHistory: true,
+        initialSpawnLink: { parentSessionId: 'lead-session', depth: 1 },
+      },
+    }));
+    expect(mockSessions.get('hidden-review-child')?.hiddenFromHistory).toBe(true);
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'forged-hidden-child',
+      source: 'hook',
+      kind: 'session-start',
+      payload: { cwd: '/tmp', initialHiddenFromHistory: true },
+    }));
+    expect(mockSessions.get('forged-hidden-child')?.hiddenFromHistory).toBe(false);
+
+    sessionManager.claimAsSdk('late-hidden-child');
+    sessionManager.ingest(makeEvent({
+      sessionId: 'late-hidden-child',
+      source: 'sdk',
+      kind: 'message',
+      payload: { role: 'assistant', text: 'provider started first' },
+    }));
+    sessionManager.ingest(makeEvent({
+      sessionId: 'late-hidden-child',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp', initialHiddenFromHistory: true },
+    }));
+    expect(mockSessions.get('late-hidden-child')?.hiddenFromHistory).toBe(true);
+  });
+
   it('可信 SDK registration 可补齐同一启动流程先创建的 flat row', () => {
     sessionManager.claimAsSdk('late-linked-child');
     sessionManager.ingest(

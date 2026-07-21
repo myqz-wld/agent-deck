@@ -155,6 +155,9 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
         ...(initialSessionRegistration
           ? { initialSpawnLink: initialSessionRegistration.spawnLink }
           : {}),
+        ...(initialSessionRegistration?.hiddenFromHistory
+          ? { initialHiddenFromHistory: true }
+          : {}),
       },
       ts: Date.now(),
       source: 'sdk',

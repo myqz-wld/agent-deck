@@ -56,7 +56,7 @@ export async function runCodexOneshot(opts: {
    * Reasoning effort for the periodic summary.
    * 与 settings UI 共用 CodexThinkingLevel：low / medium / high / xhigh / max / ultra。
    */
-  modelReasoningEffort: CodexThinkingLevel;
+  modelReasoningEffort?: CodexThinkingLevel;
   /**
    * prompt-asset-review-optimize-20260527 跟进:可选 model override 透传给 Codex
    * ThreadOptions.model。caller 走 settings/env
@@ -67,6 +67,8 @@ export async function runCodexOneshot(opts: {
   timeoutMs: number;
   /** Timer 触发 reject 的 summary-specific errorMessage。 */
   timeoutErrorMessage: string;
+  /** Optional caller-owned cancellation. */
+  signal?: AbortSignal;
 }): Promise<string> {
   // REVIEW_37 R2 MED-1 修法：timeout race 必须包整个 oneshot 流程（getCodexInstance +
   // startThread + thread.run），而非只 thread.run。修前 getCodexInstance / startThread 卡住
@@ -86,7 +88,9 @@ export async function runCodexOneshot(opts: {
       sandboxMode: 'read-only',
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
-      modelReasoningEffort: opts.modelReasoningEffort,
+      ...(opts.modelReasoningEffort
+        ? { modelReasoningEffort: opts.modelReasoningEffort }
+        : {}),
       modelReasoningSummary: 'none',
       baseInstructions: opts.systemPrompt ?? buildSummarizeSystemPrompt('Agent'),
       configOverrides: {
@@ -115,6 +119,8 @@ export async function runCodexOneshot(opts: {
       // timer 先赢 → abort signal 让 Codex app-server 取消当前 turn。
       // 与 claude runClaudeOneshot q.interrupt() onTimeout 对称，防周期 timeout 累积后台进程。
       onTimeout: () => controller.abort(),
+      signal: opts.signal,
+      onAbort: () => controller.abort(),
     });
     return result.finalResponse;
   } finally {

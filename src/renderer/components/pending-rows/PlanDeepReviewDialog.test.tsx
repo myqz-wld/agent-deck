@@ -68,6 +68,25 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('PlanDeepReviewDialog', () => {
+  it('opens without a fork and fills editable no-op feedback when no question was sent', async () => {
+    window.api = api({
+      generatePlanDeepReviewFeedback: vi.fn(async () => ({
+        feedback: '尚未进行审阅对话，暂无修改意见。',
+      })),
+    });
+    renderDialog();
+
+    expect(window.api.startPlanDeepReview).not.toHaveBeenCalled();
+    expect(screen.getByText('发送第一个问题时才会创建隔离的审阅会话。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
+
+    const feedback = screen.getByTestId('plan-review-feedback') as HTMLTextAreaElement;
+    await waitFor(() => expect(feedback.value).toBe('尚未进行审阅对话，暂无修改意见。'));
+    expect(window.api.startPlanDeepReview).not.toHaveBeenCalled();
+    fireEvent.change(feedback, { target: { value: 'No change needed.' } });
+    expect(feedback.value).toBe('No change needed.');
+  });
+
   it('focuses and traps the modal, hides the background, handles Escape, and restores focus', async () => {
     const trigger = document.createElement('button');
     trigger.textContent = 'Open review';
@@ -101,7 +120,7 @@ describe('PlanDeepReviewDialog', () => {
 
   it('opens a quote action from the selected plan text context menu and sends it', async () => {
     renderDialog();
-    await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
+    expect(window.api.startPlanDeepReview).not.toHaveBeenCalled();
 
     const selected = screen.getByText('Selected risk must be validated.');
     const range = document.createRange();
@@ -121,6 +140,10 @@ describe('PlanDeepReviewDialog', () => {
     fireEvent.change(question, { target: { value: 'What should change?' } });
     fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
 
+    await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledWith(
+      'source',
+      'plan-1',
+    ));
     await waitFor(() => expect(window.api.askPlanDeepReview).toHaveBeenCalledWith(
       'source',
       'plan-1',
@@ -220,7 +243,7 @@ describe('PlanDeepReviewDialog', () => {
     expect(question.value).toBe('');
     expect(question.disabled).toBe(true);
     expect(screen.getByRole('button', { name: '发送中…' }).hasAttribute('disabled')).toBe(true);
-    const loading = screen.getByTestId('plan-review-reply-loading');
+    const loading = await screen.findByTestId('plan-review-reply-loading');
     expect(loading.getAttribute('aria-label')).toBe('审阅会话正在回复');
     expect(loading.className).toContain('mr-6');
     expect(loading.className).not.toContain('ml-6');
@@ -233,11 +256,11 @@ describe('PlanDeepReviewDialog', () => {
 
   it('does not open the quote menu when no plan text is selected', async () => {
     renderDialog();
-    await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
 
     fireEvent.contextMenu(screen.getByTestId('plan-review-plan'), { clientX: 120, clientY: 80 });
 
     expect(screen.queryByRole('menu', { name: '计划文本引用' })).toBeNull();
+    expect(window.api.startPlanDeepReview).not.toHaveBeenCalled();
   });
 
   it('keeps the deep-review title clear of the frameless window controls', () => {
@@ -258,6 +281,10 @@ describe('PlanDeepReviewDialog', () => {
 
   it('generates an editable feedback draft and waits for explicit confirmation', async () => {
     const { onRevise, onClose } = renderDialog();
+    const question = screen.getByTestId('plan-review-question');
+    fireEvent.change(question, { target: { value: 'Review this plan.' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
+    await waitFor(() => expect(window.api.askPlanDeepReview).toHaveBeenCalledOnce());
     await waitFor(() => expect(
       screen.getByRole('button', { name: '根据上下文生成意见' }).hasAttribute('disabled'),
     ).toBe(false));
@@ -306,16 +333,19 @@ describe('PlanDeepReviewDialog', () => {
       generatePlanDeepReviewFeedback: vi.fn(() => automatic.promise),
     });
     const { onClose, onRevise } = renderDialog();
+    const question = screen.getByTestId('plan-review-question') as HTMLTextAreaElement;
+    fireEvent.change(question, { target: { value: 'Create the review dialogue.' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
+    await waitFor(() => expect(window.api.askPlanDeepReview).toHaveBeenCalledOnce());
     await waitFor(() => expect(
       screen.getByRole('button', { name: '根据上下文生成意见' }).hasAttribute('disabled'),
     ).toBe(false));
-    const question = screen.getByTestId('plan-review-question') as HTMLTextAreaElement;
     fireEvent.change(question, { target: { value: 'Can this overlap?' } });
 
     fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
     expect(question.disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
-    expect(window.api.askPlanDeepReview).not.toHaveBeenCalled();
+    expect(window.api.askPlanDeepReview).toHaveBeenCalledTimes(1);
 
     automatic.resolve({ feedback: 'No overlap.' });
     await waitFor(() => expect(
@@ -332,6 +362,10 @@ describe('PlanDeepReviewDialog', () => {
       }),
     });
     renderDialog();
+    const question = screen.getByTestId('plan-review-question');
+    fireEvent.change(question, { target: { value: 'Create the review dialogue.' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
+    await waitFor(() => expect(window.api.askPlanDeepReview).toHaveBeenCalledOnce());
     await waitFor(() => expect(
       screen.getByRole('button', { name: '根据上下文生成意见' }).hasAttribute('disabled'),
     ).toBe(false));
@@ -346,7 +380,6 @@ describe('PlanDeepReviewDialog', () => {
 
   it('closes the quote menu with Escape without closing the dialog', async () => {
     const { onClose } = renderDialog();
-    await waitFor(() => expect(window.api.startPlanDeepReview).toHaveBeenCalledTimes(1));
     const selected = screen.getByText('Selected risk must be validated.');
     const range = document.createRange();
     range.selectNodeContents(selected);
@@ -401,10 +434,14 @@ describe('PlanDeepReviewDialog', () => {
       }),
     });
     renderDialog();
+    const question = screen.getByTestId('plan-review-question');
+    fireEvent.change(question, { target: { value: 'Trigger the fork.' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
 
     expect(await screen.findByText(
       '无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。',
     )).toBeTruthy();
+    expect((question as HTMLTextAreaElement).value).toBe('Trigger the fork.');
     expect(screen.queryByText(/contextMode "fresh"/)).toBeNull();
   });
 });

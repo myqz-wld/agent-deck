@@ -18,6 +18,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentInput,
+  PendingOutgoingMessage,
 } from '@shared/types';
 
 export const adaptersApi = {
@@ -32,8 +33,19 @@ export const adaptersApi = {
     agentId: string,
     sessionId: string,
     payload: string | { text: string; attachments?: UploadedAttachmentInput[] },
-  ): Promise<void> =>
+  ): Promise<{ messageId: string; sessionId: string }> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSendMessage, agentId, sessionId, payload),
+  listPendingOutgoingMessages: (
+    agentId: string,
+    sessionId: string,
+  ): Promise<PendingOutgoingMessage[]> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterListPendingOutgoing, agentId, sessionId),
+  deletePendingOutgoingMessage: (
+    agentId: string,
+    sessionId: string,
+    messageId: string,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterDeletePendingOutgoing, agentId, sessionId, messageId),
   steerAdapterTurn: (
     agentId: string,
     sessionId: string,

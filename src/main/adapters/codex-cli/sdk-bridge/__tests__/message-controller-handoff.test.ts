@@ -20,6 +20,41 @@ function internal(sessionId: string): InternalSession {
 }
 
 describe('MessageController handoff rollback recovery', () => {
+  it('keeps pending metadata aligned when a user deletes a queued turn', async () => {
+    const sessionId = 'codex-visible-pending';
+    const session = internal(sessionId);
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit,
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+    await controller.enqueueMessage(sessionId, 'first', [], {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'pending-1',
+    });
+    await controller.enqueueMessage(sessionId, 'second', [], {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'pending-2',
+    });
+
+    expect(controller.listPendingOutgoingMessages(sessionId).map((message) => message.id))
+      .toEqual(['pending-1', 'pending-2']);
+    expect(controller.removePendingOutgoingMessage(sessionId, 'pending-1')).toMatchObject({
+      id: 'pending-1',
+      text: 'first',
+    });
+    expect(session.pendingMessages).toEqual(['second']);
+    expect(session.pendingDeferredUserEvents).toEqual([{
+      text: 'second',
+      turnCorrelationId: 'pending-2',
+    }]);
+    expect(session.pendingHandOffMessages).toEqual([{ text: 'second' }]);
+    expect(controller.removePendingOutgoingMessage(sessionId, 'pending-1')).toBeNull();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it('defers a correlated user event until the queued turn starts', async () => {
     const sessionId = 'codex-correlated-turn';
     const session = internal(sessionId);

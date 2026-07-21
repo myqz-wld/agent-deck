@@ -108,6 +108,7 @@ describe('claude finalizeSessionStart', () => {
           kind: 'session-start',
           payload: expect.objectContaining({
             initialSpawnLink: { parentSessionId: 'lead', depth: 1 },
+            initialHiddenFromHistory: true,
           }),
         }),
       );
@@ -120,6 +121,7 @@ describe('claude finalizeSessionStart', () => {
       claudeSandboxMode: 'off',
       initialSessionRegistration: {
         spawnLink: { parentSessionId: 'lead', depth: 1 },
+        hiddenFromHistory: true,
         onRegistered,
       },
       emit,

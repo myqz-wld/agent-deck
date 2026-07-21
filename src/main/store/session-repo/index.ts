@@ -22,6 +22,8 @@
 import * as coreCrud from './core-crud';
 import { setArchived, SessionRowMissingError } from './archive';
 import * as lifecycle from './lifecycle';
+import * as history from './history';
+import * as visibility from './visibility';
 import { setPinned, SessionPinStateError } from './pinning';
 import { rename } from './rename';
 import * as spawnChain from './spawn-chain';
@@ -35,6 +37,8 @@ export const sessionRepo = {
   setArchived,
   setPinned,
   ...lifecycle,
+  ...history,
+  ...visibility,
   rename,
   ...spawnChain,
 };
