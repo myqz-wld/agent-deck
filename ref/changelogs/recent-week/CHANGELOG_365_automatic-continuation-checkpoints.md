@@ -86,5 +86,5 @@ budget rather than presenting them as one interchangeable context limit.
 
 ## Related records
 
-- [PLAN_11](../../plans/recent-3-days/PLAN_11_automatic-continuation-checkpoints.md)
-- [REVIEW_160](../../reviews/recent-3-days/REVIEW_160_checkpoint-lifecycle.md)
+- [PLAN_11](../../plans/recent-week/PLAN_11_automatic-continuation-checkpoints.md)
+- [REVIEW_160](../../reviews/recent-week/REVIEW_160_checkpoint-lifecycle.md)

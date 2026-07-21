@@ -114,5 +114,5 @@ manager team enrichment and `session-list-tree`, and marked the finding RESOLVED
 
 ## Related Records
 
-- [CHANGELOG_359](../../changelogs/recent-3-days/CHANGELOG_359_session-pinning-reviewer-model.md)
-- [PLAN_4](../../plans/recent-3-days/PLAN_4_session-pinning-reviewer-model.md)
+- [CHANGELOG_359](../../changelogs/recent-month/CHANGELOG_359_session-pinning-reviewer-model.md)
+- [PLAN_4](../../plans/recent-month/PLAN_4_session-pinning-reviewer-model.md)

@@ -71,7 +71,7 @@ import {
 import { renameSdkSessionImpl, updateCliSessionIdImpl } from './manager/rename';
 import {
   buildInitialSessionRecord,
-  materializeInitialSpawnLink,
+  materializeInitialRegistration,
 } from './manager/session-registration';
 import {
   consumePendingSdkClaim as consumePendingSdkClaimImpl,
@@ -209,7 +209,7 @@ class SessionManagerClass {
   ensure(sessionId: string, opts: UpsertOptions): SessionRecord {
     const existing = sessionRepo.get(sessionId);
     if (existing) {
-      const current = materializeInitialSpawnLink(sessionId, existing, opts);
+      const current = materializeInitialRegistration(sessionId, existing, opts);
       // 收到新事件 → 复活:closed 推回 active。
       // 注意:归档(archivedAt)与 lifecycle 正交,是用户的主动隐藏意图,
       // 不能因为后续事件流就自动 unarchive,否则用户刚归档的 active 会话

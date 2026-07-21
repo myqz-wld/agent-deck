@@ -15,10 +15,4 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-07-16 | `REVIEW_164_checkpoint-partial-progress-logging.md` | Checkpoint partial-progress log classification | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed |
-| 2026-07-15 | `REVIEW_163_checkpoint-patch-reduction.md` | Deterministic checkpoint patch reduction | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-15 | `REVIEW_162_runtime-log-signal-and-recovery.md` | Runtime log signal, checkpoint recovery, and navigation containment | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-14 | `REVIEW_161_handoff-ownership-plan-review-hardening.md` | Current-owner authority and plan-review lifecycle | 0 CRITICAL / 5 HIGH fixed / 13 MEDIUM fixed / 5 LOW fixed |
-| 2026-07-14 | `REVIEW_160_checkpoint-lifecycle.md` | Automatic bounded continuation checkpoints | 0 CRITICAL / 3 HIGH fixed / 5 MEDIUM fixed / 6 LOW fixed |
-| 2026-07-14 | `REVIEW_159_present-plan-lifecycle.md` | Blocking plan gate and isolated review fork | 0 CRITICAL / 0 HIGH / 5 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-14 | `REVIEW_158_handoff-context-coverage.md` | Runtime persistence and hand-off context coverage | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW residual |
+| 2026-07-21 | `REVIEW_165_plan-review-message-consumption.md` | Review isolation and message-consumption boundaries | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed / 1 LOW fixed |

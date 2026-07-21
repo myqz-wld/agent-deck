@@ -191,6 +191,9 @@ export async function createCodexForkedSession(
         ...(target.initialSessionRegistration
           ? { initialSpawnLink: target.initialSessionRegistration.spawnLink }
           : {}),
+        ...(target.initialSessionRegistration?.hiddenFromHistory
+          ? { initialHiddenFromHistory: true }
+          : {}),
       },
       ts: Date.now(),
       source: 'sdk',

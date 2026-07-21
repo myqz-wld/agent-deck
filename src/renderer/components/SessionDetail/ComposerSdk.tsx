@@ -4,7 +4,9 @@ import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import log from '@renderer/utils/logger';
 import { CloseIcon, HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
+import { ComposerInput } from './composer-sdk/ComposerInput';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
+import { PendingOutgoingQueue } from './composer-sdk/PendingOutgoingQueue';
 import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
 import {
   SelectRow,
@@ -64,6 +66,7 @@ export function ComposerSdk({
   // REVIEW_35 MED-D-claude-4：busyRef 同步锁，防超快连点（< 16ms）双 send race
   const busyRef = useRef(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [queueRefreshVersion, setQueueRefreshVersion] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments();
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
@@ -108,15 +111,15 @@ export function ComposerSdk({
   const isSteerMode = canSteerTurn && turnBusy;
   const canUseAttachments = canAcceptAttachments && !isSteerMode;
 
-  const send = async (): Promise<void> => {
+  const send = async (): Promise<boolean> => {
     const t = text.trim();
     const hasAttachments = imgs.attachments.length > 0;
     // 允许「只发图不带文字」：text 空 + 至少一张图 → 走发送
-    if (!t && !hasAttachments) return;
+    if (!t && !hasAttachments) return false;
     // REVIEW_35 MED-D-claude-4：busyRef 同步锁，busy state async 不立即生效，超快连点（< 16ms）
     // 第 2 次闭包仍看 busy=false 重复发同款消息（attachments 已 clear，发空附件 / 空文本）
-    if (busyRef.current) return;
-    if (busy) return;
+    if (busyRef.current) return false;
+    if (busy) return false;
     // REVIEW_35 HIGH-D2：不在白名单的 adapter
     // gate 拒发并保留 attachments（不调 imgs.clear()）让用户能切 adapter 或删图后重发；
     // 静默丢图 + 失去 retry 能力的旧版本回归不可接受
@@ -124,11 +127,11 @@ export function ComposerSdk({
       setSendError(
         '当前会话类型不支持图片附件，请移除图片后再发送，或切换到支持图片的 Claude / Deepseek / Codex 会话',
       );
-      return;
+      return false;
     }
     if (isSteerMode && hasAttachments) {
       setSendError('Codex 当前 turn 的修正只支持文字，请移除图片后再发送。');
-      return;
+      return false;
     }
     busyRef.current = true;
     // 乐观清空：让用户立刻感觉「发出去了」
@@ -144,7 +147,7 @@ export function ComposerSdk({
       setBusy(false);
       setText(t);
       setSendError(`附件读取失败：${(err as Error).message}`);
-      return;
+      return false;
     }
     imgs.clear();
     try {
@@ -157,10 +160,13 @@ export function ComposerSdk({
         text: t,
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
       });
+      setQueueRefreshVersion((version) => version + 1);
+      return true;
     } catch (err) {
       logger.error('sendAdapterMessage failed', err);
       setText(t);
       setSendError((err as Error).message);
+      return false;
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -336,30 +342,25 @@ export function ComposerSdk({
       />
       <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
       <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
+      <PendingOutgoingQueue
+        agentId={agentId}
+        sessionId={sessionId}
+        refreshVersion={queueRefreshVersion}
+      />
+      <ComposerInput
+        text={text}
+        onTextChange={setText}
+        submitLabel={isSteerMode ? '修正' : '发送'}
+        busy={busy}
+        canSubmit={canSubmit}
+        attachmentCount={imgs.attachments.length}
+        onSubmit={send}
         // REVIEW_35 HIGH-D2：仅允许附件入口时才绑 paste/drop/dragover；
         // 不在白名单 / Codex steer 模式不绑，防止用户拖入触发空发送 + 静默丢图。
         onPaste={canUseAttachments ? imgs.onPaste : undefined}
         onDrop={canUseAttachments ? imgs.onDrop : undefined}
         onDragOver={canUseAttachments ? imgs.onDragOver : undefined}
-        onKeyDown={(e) => {
-          // Enter 发送；Shift+Enter 换行（IME 拼写期间不拦，避免吞掉中文上屏的 Enter）
-          if (
-            e.key === 'Enter' &&
-            !e.shiftKey &&
-            !e.nativeEvent.isComposing &&
-            // 兼容旧浏览器：keyCode === 229 表示 IME 仍在拼写
-            e.nativeEvent.keyCode !== 229
-          ) {
-            e.preventDefault();
-            if (canSubmit) void send();
-          }
-        }}
         placeholder={inputPlaceholder}
-        rows={2}
-        className="block w-full resize-none rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
       />
       {/* 下方工具栏：左 = 上传图片 + 缩略图，右 = 中断 / 发送。
           替代了原「右侧三按钮纵向堆叠」+「单独 attachments strip」，让附件操作分组、

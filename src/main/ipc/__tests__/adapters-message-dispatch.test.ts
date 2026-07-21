@@ -44,23 +44,30 @@ describe('dispatchAdapterMessageWithHandOffRedirect', () => {
       ),
     };
 
-    await dispatchAdapterMessageWithHandOffRedirect(
+    const sendOptions = {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'pending-1',
+    };
+    const targetSessionId = await dispatchAdapterMessageWithHandOffRedirect(
       {
         sourceSessionId: 'source',
         sourceAdapter: { sendMessage: sourceSend } as unknown as AgentAdapter,
         text: 'arrived during cutover',
         attachments,
+        sendOptions,
       },
       deps,
     );
 
     expect(deps.successorFor).toHaveBeenCalledTimes(2);
+    expect(targetSessionId).toBe('successor');
     expect(deps.unarchiveOnUserSend).toHaveBeenCalledWith('source');
     expect(sourceSend).not.toHaveBeenCalled();
     expect(successorEnqueue).toHaveBeenCalledWith(
       'successor',
       'arrived during cutover',
       attachments,
+      sendOptions,
     );
   });
 
@@ -73,17 +80,23 @@ describe('dispatchAdapterMessageWithHandOffRedirect', () => {
       getAdapter: vi.fn(),
     };
 
-    await dispatchAdapterMessageWithHandOffRedirect(
+    const sendOptions = {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'pending-2',
+    };
+    const targetSessionId = await dispatchAdapterMessageWithHandOffRedirect(
       {
         sourceSessionId: 'source',
         sourceAdapter: { sendMessage: sourceSend } as unknown as AgentAdapter,
         text: 'ordinary input',
         attachments: [],
+        sendOptions,
       },
       deps,
     );
 
-    expect(sourceSend).toHaveBeenCalledWith('source', 'ordinary input', []);
+    expect(targetSessionId).toBe('source');
+    expect(sourceSend).toHaveBeenCalledWith('source', 'ordinary input', [], sendOptions);
     expect(deps.getSession).not.toHaveBeenCalled();
   });
 

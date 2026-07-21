@@ -44,3 +44,10 @@ export interface AgentEvent<P = unknown> {
    */
   hookOrigin?: 'sdk' | 'cli';
 }
+
+/** Renderer-safe snapshot of a user message still waiting in a provider input queue. */
+export interface PendingOutgoingMessage {
+  id: string;
+  text: string;
+  attachmentCount: number;
+}

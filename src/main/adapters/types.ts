@@ -31,5 +31,6 @@ export type {
 export type {
   AgentAdapter,
   AgentEnqueueOptions,
+  PendingAgentMessage,
   QueuedAgentMessage,
 } from './types/agent-adapter';

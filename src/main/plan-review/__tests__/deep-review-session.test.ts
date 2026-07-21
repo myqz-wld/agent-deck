@@ -104,6 +104,7 @@ describe('DefaultPlanReviewSessionCoordinator', () => {
     expect(context.caller.callerSessionId).toBe('source');
     expect(options).toEqual({
       suppressLeadContext: true,
+      hideFromHistory: true,
       codexRuntimeAccess: {
         networkAccessEnabled: false,
         additionalDirectories: ['/tmp', '/shared'],
@@ -127,201 +128,55 @@ describe('DefaultPlanReviewSessionCoordinator', () => {
     expect(mocks.spawn.mock.calls[0][0].contextMode).toBe('fork');
   });
 
-  it('collects only the assistant output after the matching automatic-feedback turn', async () => {
-    mocks.enqueue.mockImplementationOnce(async (
-      sessionId: string,
-      text: string,
-      _attachments: unknown[],
-      options: { turnCorrelationId: string },
-    ) => {
-      eventBus.emit('agent-event', {
-        sessionId,
-        agentId: 'codex-cli',
-        kind: 'message',
-        payload: { role: 'user', text, turnCorrelationId: options.turnCorrelationId },
-        ts: 1,
-        source: 'sdk',
-      });
-      eventBus.emit('agent-event', {
-        sessionId,
-        agentId: 'codex-cli',
-        kind: 'message',
-        payload: { role: 'assistant', text: 'Add rollback validation.' },
-        ts: 2,
-        source: 'sdk',
-      });
-      eventBus.emit('agent-event', {
-        sessionId,
-        agentId: 'codex-cli',
-        kind: 'finished',
-        payload: {},
-        ts: 3,
-        source: 'sdk',
-      });
-    });
-    const coordinator = new DefaultPlanReviewSessionCoordinator();
+  it('generates feedback in a fresh isolated one-shot without enqueueing into the fork', async () => {
+    const synthesize = vi.fn(async () => 'Add rollback validation.');
+    const coordinator = new DefaultPlanReviewSessionCoordinator(synthesize);
 
     await expect(coordinator.generateFeedback({
       child: { sessionId: 'child', agentId: 'codex-cli' },
       request,
     })).resolves.toBe('Add rollback validation.');
-    expect(mocks.enqueue).toHaveBeenCalledWith(
-      'child',
-      expect.stringContaining('agent-deck-plan-review-internal:auto:'),
-      [],
-      expect.objectContaining({
-        deferUserEventUntilTurnStart: true,
-        turnCorrelationId: expect.any(String),
-      }),
-    );
-    expect(mocks.enqueue.mock.calls[0]?.[1]).toContain(
-      'current plan-owning session in Agent Deck',
-    );
-  });
-
-  it('ignores an already-running turn that finishes after automatic feedback is queued', async () => {
-    let queued: {
-      sessionId: string;
-      text: string;
-      correlationId: string;
-    } | null = null;
-    mocks.enqueue.mockImplementationOnce(async (
-      sessionId: string,
-      text: string,
-      _attachments: unknown[],
-      options: { turnCorrelationId: string },
-    ) => {
-      queued = { sessionId, text, correlationId: options.turnCorrelationId };
-    });
-    const coordinator = new DefaultPlanReviewSessionCoordinator();
-    const feedback = coordinator.generateFeedback({
-      child: { sessionId: 'child', agentId: 'codex-cli' },
+    expect(synthesize).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeSessionId: 'child',
+      dialogueSessionId: 'child',
+      agentId: 'codex-cli',
       request,
-    });
-    await vi.waitFor(() => expect(queued).not.toBeNull());
-
-    eventBus.emit('agent-event', {
-      sessionId: 'child',
-      agentId: 'codex-cli',
-      kind: 'message',
-      payload: { role: 'assistant', text: 'Old turn output must be ignored.' },
-      ts: 1,
-      source: 'sdk',
-    });
-    eventBus.emit('agent-event', {
-      sessionId: 'child',
-      agentId: 'codex-cli',
-      kind: 'finished',
-      payload: {},
-      ts: 2,
-      source: 'sdk',
-    });
-    let settled = false;
-    void feedback.finally(() => {
-      settled = true;
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    const turn = queued!;
-    eventBus.emit('agent-event', {
-      sessionId: turn.sessionId,
-      agentId: 'codex-cli',
-      kind: 'message',
-      payload: {
-        role: 'user',
-        text: turn.text,
-        turnCorrelationId: turn.correlationId,
-      },
-      ts: 3,
-      source: 'sdk',
-    });
-    eventBus.emit('agent-event', {
-      sessionId: 'child',
-      agentId: 'codex-cli',
-      kind: 'message',
-      payload: { role: 'assistant', text: 'Correct feedback.' },
-      ts: 4,
-      source: 'sdk',
-    });
-    eventBus.emit('agent-event', {
-      sessionId: 'child',
-      agentId: 'codex-cli',
-      kind: 'finished',
-      payload: {},
-      ts: 5,
-      source: 'sdk',
-    });
-
-    await expect(feedback).resolves.toBe('Correct feedback.');
+      signal: expect.any(AbortSignal),
+    }));
+    expect(mocks.enqueue).not.toHaveBeenCalled();
   });
 
-  it('serializes a question turn before automatic feedback', async () => {
-    const queued: Array<{
-      sessionId: string;
-      text: string;
-      correlationId: string;
-    }> = [];
-    mocks.enqueue.mockImplementation(async (
-      sessionId: string,
-      text: string,
-      _attachments: unknown[],
-      options: { turnCorrelationId: string },
-    ) => {
-      queued.push({ sessionId, text, correlationId: options.turnCorrelationId });
-    });
-    const coordinator = new DefaultPlanReviewSessionCoordinator();
+  it('waits for a question turn before starting fresh feedback synthesis', async () => {
+    const synthesize = vi.fn(async () => 'Serialized feedback.');
+    const coordinator = new DefaultPlanReviewSessionCoordinator(synthesize);
     const child = { sessionId: 'child', agentId: 'codex-cli' as const };
     const question = coordinator.ask(child, 'What is missing?');
     const feedback = coordinator.generateFeedback({ child, request });
-    await vi.waitFor(() => expect(queued).toHaveLength(1));
+    await vi.waitFor(() => expect(mocks.enqueue).toHaveBeenCalledTimes(1));
+    expect(synthesize).not.toHaveBeenCalled();
 
-    const first = queued[0]!;
+    const [sessionId, text, , options] = mocks.enqueue.mock.calls[0]!;
     eventBus.emit('agent-event', {
-      sessionId: first.sessionId,
+      sessionId,
       agentId: 'codex-cli',
       kind: 'message',
-      payload: { role: 'user', text: first.text, turnCorrelationId: first.correlationId },
+      payload: { role: 'user', text, turnCorrelationId: options.turnCorrelationId },
       ts: 1,
       source: 'sdk',
     });
     eventBus.emit('agent-event', {
-      sessionId: first.sessionId,
+      sessionId,
       agentId: 'codex-cli',
       kind: 'finished',
       payload: {},
       ts: 2,
       source: 'sdk',
     });
-    await expect(question).resolves.toBeUndefined();
-    await vi.waitFor(() => expect(queued).toHaveLength(2));
 
-    const second = queued[1]!;
-    eventBus.emit('agent-event', {
-      sessionId: second.sessionId,
-      agentId: 'codex-cli',
-      kind: 'message',
-      payload: { role: 'user', text: second.text, turnCorrelationId: second.correlationId },
-      ts: 3,
-      source: 'sdk',
-    });
-    eventBus.emit('agent-event', {
-      sessionId: second.sessionId,
-      agentId: 'codex-cli',
-      kind: 'message',
-      payload: { role: 'assistant', text: 'Serialized feedback.' },
-      ts: 4,
-      source: 'sdk',
-    });
-    eventBus.emit('agent-event', {
-      sessionId: second.sessionId,
-      agentId: 'codex-cli',
-      kind: 'finished',
-      payload: {},
-      ts: 5,
-      source: 'sdk',
-    });
+    await expect(question).resolves.toBeUndefined();
     await expect(feedback).resolves.toBe('Serialized feedback.');
+    expect(synthesize).toHaveBeenCalledTimes(1);
+    expect(mocks.enqueue).toHaveBeenCalledTimes(1);
   });
 
   it('closes the child before waiting and aborts an in-flight correlated turn promptly', async () => {

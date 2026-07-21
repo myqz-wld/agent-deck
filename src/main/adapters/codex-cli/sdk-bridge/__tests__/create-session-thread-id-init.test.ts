@@ -479,6 +479,7 @@ describe('codex createSession new path latency', () => {
       awaitCanonicalId: true,
       initialSessionRegistration: {
         spawnLink: { parentSessionId: 'lead-session', depth: 1 },
+        hiddenFromHistory: true,
         onRegistered,
       },
     });
@@ -489,6 +490,7 @@ describe('codex createSession new path latency', () => {
     const provisionalStart = emits.find((event) => event.kind === 'session-start');
     expect(provisionalStart?.payload).toMatchObject({
       initialSpawnLink: { parentSessionId: 'lead-session', depth: 1 },
+      initialHiddenFromHistory: true,
     });
     expect(onRegistered).toHaveBeenCalledWith(provisionalStart?.sessionId);
 

@@ -6,7 +6,7 @@ import type { CodexBridgeOptions, InternalSession } from './types';
 import log from '@main/utils/logger';
 import { bufferHandOffSourceInput } from '@main/session/hand-off/input-buffer';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
-import type { AgentEnqueueOptions } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PendingAgentMessage } from '@main/adapters/types';
 import {
   type AdapterRecoveryDeliveryOptions,
   enqueuePayloadFingerprint,
@@ -35,6 +35,7 @@ export class MessageController {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
   ): Promise<void> {
     this.validateMessageLength(text);
     if (
@@ -50,7 +51,7 @@ export class MessageController {
     ) {
       return;
     }
-    await this.dispatchMessage(sessionId, text, attachments, false, true);
+    await this.dispatchMessage(sessionId, text, attachments, false, true, false, options);
   }
 
   /** Always enqueue behind the current turn; never convert a handoff tail into mid-turn steer. */
@@ -158,7 +159,13 @@ export class MessageController {
     }
 
     if (!forceQueue && !attachments?.length && session.currentTurn && session.currentTurnId) {
-      await this.steerActiveTurn(session, sessionId, text, session.currentTurnId);
+      await this.steerActiveTurn(
+        session,
+        sessionId,
+        text,
+        session.currentTurnId,
+        enqueueOptions?.turnCorrelationId,
+      );
       return;
     }
 
@@ -249,6 +256,47 @@ export class MessageController {
     await this.steerActiveTurn(session, sessionId, text, session.currentTurnId);
   }
 
+  listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
+    const session = this.ctx.sessions.get(sessionId);
+    if (!session) return [];
+    return (session.pendingDeferredUserEvents ?? []).flatMap((deferred) =>
+      deferred?.turnCorrelationId
+        ? [{
+            id: deferred.turnCorrelationId,
+            text: deferred.text,
+            ...(deferred.attachments
+              ? { attachments: deferred.attachments.map((attachment) => ({ ...attachment })) }
+              : {}),
+          }]
+        : [],
+    );
+  }
+
+  removePendingOutgoingMessage(
+    sessionId: string,
+    messageId: string,
+  ): PendingAgentMessage | null {
+    const session = this.ctx.sessions.get(sessionId);
+    if (!session) return null;
+    const deferredEvents = session.pendingDeferredUserEvents ?? [];
+    const index = deferredEvents.findIndex(
+      (deferred) => deferred?.turnCorrelationId === messageId,
+    );
+    if (index < 0) return null;
+    const deferred = deferredEvents[index];
+    if (!deferred?.turnCorrelationId) return null;
+    session.pendingMessages.splice(index, 1);
+    deferredEvents.splice(index, 1);
+    session.pendingHandOffMessages?.splice(index, 1);
+    return {
+      id: deferred.turnCorrelationId,
+      text: deferred.text,
+      ...(deferred.attachments
+        ? { attachments: deferred.attachments.map((attachment) => ({ ...attachment })) }
+        : {}),
+    };
+  }
+
   private validateMessageLength(text: string): void {
     const length = text.length;
     if (length > MAX_MESSAGE_LENGTH) {
@@ -273,13 +321,19 @@ export class MessageController {
     sessionId: string,
     text: string,
     expectedTurnId: string,
+    turnCorrelationId?: string,
   ): Promise<void> {
     await session.thread.steer(toCodexAppServerInput(packCodexInput(text)), expectedTurnId);
     this.ctx.emit({
       sessionId,
       agentId: AGENT_ID,
       kind: 'message',
-      payload: { text, role: 'user', steer: true },
+      payload: {
+        text,
+        role: 'user',
+        steer: true,
+        ...(turnCorrelationId ? { turnCorrelationId } : {}),
+      },
       ts: Date.now(),
       source: 'sdk',
     });

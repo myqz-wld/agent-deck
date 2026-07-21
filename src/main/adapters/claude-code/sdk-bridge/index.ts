@@ -44,7 +44,7 @@ import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
-import type { AgentEnqueueOptions, QueuedAgentMessage } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
@@ -56,6 +56,7 @@ import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 import log from '@main/utils/logger';
 import { closeClaudeSession, setClaudePermissionMode } from './session-lifecycle';
 import { sendClaudeMessage } from './message-controller';
+import * as pendingOutgoing from './pending-outgoing';
 
 const logger = log.scope('claude-bridge');
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
@@ -246,6 +247,7 @@ export class ClaudeSdkBridge {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
   ): Promise<void> {
     await sendClaudeMessage({
       sessions: this.sessions,
@@ -258,6 +260,7 @@ export class ClaudeSdkBridge {
       sessionId,
       text,
       attachments,
+      enqueueOptions: options,
     });
   }
 
@@ -431,21 +434,15 @@ export class ClaudeSdkBridge {
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
-    const internal = [...this.sessions.values()].find(
-      (candidate) =>
-        candidate.applicationSid === sessionId || candidate.cliSessionId === sessionId,
-    );
-    if (!internal) return [];
-    return internal.pendingUserMessages.flatMap((pending) => {
-      const message = pending.handOffMessage;
-      if (!message) return [];
-      return [{
-        text: message.text,
-        ...(message.attachments
-          ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
-          : {}),
-      }];
-    });
+    return pendingOutgoing.snapshotClaudeQueuedMessagesForHandOff(this.sessions, sessionId);
+  }
+
+  listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
+    return pendingOutgoing.listClaudePendingOutgoingMessages(this.sessions, sessionId);
+  }
+
+  removePendingOutgoingMessage(sessionId: string, messageId: string): PendingAgentMessage | null {
+    return pendingOutgoing.removeClaudePendingOutgoingMessage(this.sessions, sessionId, messageId);
   }
 
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */

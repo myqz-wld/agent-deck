@@ -85,6 +85,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     ) =>
       [...sessions.values()]
         .filter((s) => s.lifecycle === 'closed' || s.archivedAt !== null)
+        .filter((s) => s.hiddenFromHistory !== true)
         .filter((s) => (opts.spawnedBy !== undefined ? s.spawnedBy === opts.spawnedBy : true))
         .filter((s) => (opts.agentId !== undefined ? s.agentId === opts.agentId : true))
         .slice(opts.offset ?? 0, (opts.offset ?? 0) + (opts.limit ?? 100)),
@@ -175,6 +176,10 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     // 测试缺 stub 会 "setNetworkAccessEnabled is not a function" crash（load-bearing）。
     setNetworkAccessEnabled: vi.fn(),
     setAdditionalDirectories: vi.fn(),
+    hideFromHistory: (id: string) => {
+      const r = sessions.get(id);
+      if (r) sessions.set(id, { ...r, hiddenFromHistory: true });
+    },
 
     // ─── rename ───
     rename: vi.fn(),

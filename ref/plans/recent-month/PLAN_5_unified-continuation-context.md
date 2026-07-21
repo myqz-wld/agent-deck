@@ -1260,8 +1260,8 @@ The implementation, remediation, and independent review were delivered to `main`
 session-integrity follow-up was committed and pushed as `08f387b`; interactive verification still
 requires a safe application restart because the running instance owns active sessions.
 
-Related records: [CHANGELOG_358](../../changelogs/recent-3-days/CHANGELOG_358_unified-continuation-context.md)
-and [REVIEW_148](../../reviews/recent-3-days/REVIEW_148_unified-continuation-context.md).
+Related records: [CHANGELOG_358](../../changelogs/recent-month/CHANGELOG_358_unified-continuation-context.md)
+and [REVIEW_148](../../reviews/recent-month/REVIEW_148_unified-continuation-context.md).
 The frozen delivery baseline is retained in
 [BASELINE_MANIFEST.txt](PLAN_5_unified-continuation-context/BASELINE_MANIFEST.txt).
 

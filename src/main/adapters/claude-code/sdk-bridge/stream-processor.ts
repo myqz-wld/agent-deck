@@ -18,7 +18,6 @@
  * - 流终止时清 3 个 pending Maps（permission / ask-question / exit-plan）+ resolver 安全回退
  */
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { promises as fsp } from 'node:fs';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
 import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
@@ -27,6 +26,10 @@ import { translateSdkMessage } from './sdk-message-translate';
 import { resetTurnUsageAccounting } from './thinking-token-usage';
 import type { UploadedAttachmentRef } from '@shared/types';
 import log from '@main/utils/logger';
+import {
+  createClaudeUserMessageStream,
+  makeClaudeUserMessage,
+} from './user-message-stream';
 
 const logger = log.scope('claude-stream');
 
@@ -54,118 +57,14 @@ export class StreamProcessor {
     text: string,
     attachments?: UploadedAttachmentRef[],
   ): PendingUserMessage {
-    const handOffMessage = {
-      text,
-      ...(attachments && attachments.length > 0
-        ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
-        : {}),
-    };
-    const retainForHandOff = (
-      materialize: () => Promise<SDKUserMessage>,
-    ): PendingUserMessage => Object.assign(materialize, { handOffMessage });
-    if (!attachments || attachments.length === 0) {
-      // 纯文本快路径：thunk 同步 resolve，无 fs IO，无 base64
-      const msg: SDKUserMessage = {
-        type: 'user',
-        message: { role: 'user', content: text },
-        parent_tool_use_id: null,
-        priority: 'now',
-        session_id: sessionId,
-      };
-      return retainForHandOff(() => Promise.resolve(msg));
-    }
-    // 带图片：thunk 在 yield 前 await readFile + base64
-    return retainForHandOff(async () => {
-      // Anthropic SDK Base64ImageSource.media_type 严格限制 4 种字面量；
-      // IPC 层 ALLOWED_UPLOAD_MIMES 已收口同款集合，这里 cast 安全。
-      type ClaudeImageMime = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
-      const blocks: Array<
-        | { type: 'text'; text: string }
-        | {
-            type: 'image';
-            source: { type: 'base64'; media_type: ClaudeImageMime; data: string };
-          }
-      > = [];
-      for (const ref of attachments) {
-        // 读盘失败让错误冒出去：consumer 端会让 SDK Query 抛错 → consume catch → emit 红字
-        // path 已经在 IPC 层校验过 ext / size / 写盘成功，正常情况下读不到这里失败
-        const buf = await fsp.readFile(ref.path);
-        blocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: ref.mime as ClaudeImageMime,
-            data: buf.toString('base64'),
-          },
-        });
-      }
-      // 文字放最后：与 codex SDK 顺序对齐（local_image 在前 / text 在后），让 LLM 先看到图再读问题
-      if (text.length > 0) {
-        blocks.push({ type: 'text', text });
-      }
-      return {
-        type: 'user',
-        message: { role: 'user', content: blocks },
-        parent_tool_use_id: null,
-        priority: 'now',
-        session_id: sessionId,
-      };
-    });
+    return makeClaudeUserMessage(sessionId, text, attachments);
   }
 
-  async *createUserMessageStream(
+  createUserMessageStream(
     internal: InternalSession,
     _tempKey: string,
   ): AsyncIterable<SDKUserMessage> {
-    while (true) {
-      if (internal.retireBoundaryReached) return;
-      if (
-        !internal.retireRequested &&
-        !internal.userTurnInFlight &&
-        internal.pendingUserMessages.length > 0
-      ) {
-        const thunk = internal.pendingUserMessages.shift()!;
-        // HIGH-2 修法：lazy materialize —— readFile + base64 在 yield 前才发生。
-        // 队列只存 thunk（轻量），SDK consume 完后整条 SDKUserMessage GC，base64 不常驻
-        const message = await thunk();
-        if (internal.retireBoundaryReached) return;
-        if (internal.retireRequested) continue;
-        if (thunk.deferredUserEvent) {
-          this.ctx.emit({
-            sessionId: internal.applicationSid,
-            agentId: 'claude-code',
-            kind: 'message',
-            payload: {
-              text: thunk.deferredUserEvent.text,
-              role: 'user',
-              ...(thunk.deferredUserEvent.attachments?.length
-                ? { attachments: thunk.deferredUserEvent.attachments }
-                : {}),
-              ...(thunk.deferredUserEvent.turnCorrelationId
-                ? { turnCorrelationId: thunk.deferredUserEvent.turnCorrelationId }
-                : {}),
-            },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-        }
-        internal.userTurnInFlight = true;
-        yield message;
-        continue;
-      }
-      await new Promise<void>((resolve) => {
-        internal.notify = resolve;
-      });
-      internal.notify = null;
-      if (internal.retireBoundaryReached) return;
-      // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R4 HIGH-H 修订**:
-      // sessions Map key 是 applicationSid 维度 (S3 修订让 sessions.set 用 applicationSid),
-      // createUserMessageStream 流式 prompt 喂 SDK 主循环必须用 applicationSid 才能命中
-      // (否则反向 rename 后 cliSid != appSid 时 sessions.has(cliSid) miss → 用户 message 断流,
-      // 用户报告 bug 触发场景之一)。
-      const key = internal.applicationSid;
-      if (this.ctx.sessions.get(key) !== internal) return;
-    }
+    return createClaudeUserMessageStream(this.ctx, internal);
   }
 
   /**

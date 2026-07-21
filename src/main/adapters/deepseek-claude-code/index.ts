@@ -242,9 +242,10 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    await this.bridge.sendMessage(sessionId, text, attachments);
+    await this.bridge.sendMessage(sessionId, text, attachments, options);
   }
 
   async enqueueMessage(
@@ -259,6 +260,14 @@ class DeepseekClaudeCodeAdapter implements AgentAdapter {
 
   snapshotQueuedMessagesForHandOff(sessionId: string) {
     return this.bridge?.snapshotQueuedMessagesForHandOff(sessionId) ?? [];
+  }
+
+  listPendingOutgoingMessages(sessionId: string) {
+    return this.bridge?.listPendingOutgoingMessages(sessionId) ?? [];
+  }
+
+  removePendingOutgoingMessage(sessionId: string, messageId: string) {
+    return this.bridge?.removePendingOutgoingMessage(sessionId, messageId) ?? null;
   }
 
   async receiveTeammateMessage(

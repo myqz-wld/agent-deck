@@ -80,6 +80,8 @@ export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
     attachments?: UploadedAttachmentRef[];
     turnCorrelationId?: string;
   };
+  /** A deferred attachment failed lazy materialization and remains deletable in FIFO position. */
+  materializationError?: string;
 };
 
 export interface LiveTokenEstimateState {

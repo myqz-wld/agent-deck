@@ -180,5 +180,5 @@ product-chrome glyphs with lightweight source-owned SVG components.
 
 ## Related Records
 
-- [REVIEW_152](../../reviews/recent-3-days/REVIEW_152_storage-performance-observability-svg-icons.md)
-- [PLAN_6](../../plans/recent-3-days/PLAN_6_storage-performance-observability-svg-icons.md)
+- [REVIEW_152](../../reviews/recent-month/REVIEW_152_storage-performance-observability-svg-icons.md)
+- [PLAN_6](../../plans/recent-month/PLAN_6_storage-performance-observability-svg-icons.md)

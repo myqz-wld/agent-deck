@@ -5,6 +5,7 @@ import type {
   ExitPlanModeResponse,
   SessionRecord,
 } from '@shared/types';
+import { NO_PLAN_REVIEW_DIALOGUE_FEEDBACK } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
@@ -175,6 +176,9 @@ export class PlanReviewService {
 
   async generateFeedbackDraft(sessionId: string, requestId: string): Promise<string> {
     const entry = this.requireEntry(sessionId, requestId);
+    // Opening deep review is intentionally resource-free. No child means no user question and no
+    // post-fork evidence, so fill an editable soft refusal without spawning or calling an LLM.
+    if (!entry.child) return NO_PLAN_REVIEW_DIALOGUE_FEEDBACK;
     if (entry.feedbackDraftPromise) return entry.feedbackDraftPromise;
     const operation = this.generateFeedbackDraftForEntry(entry, sessionId);
     entry.feedbackDraftPromise = operation;
@@ -345,9 +349,8 @@ export class PlanReviewService {
     entry: PendingMcpPlanReview,
     expectedSessionId: string,
   ): Promise<string> {
-    const child = await this.startDeepReview(entry.sessionId, entry.payload.requestId);
     const feedback = await this.deps.coordinator.generateFeedback({
-      child,
+      child: entry.child!,
       request: entry.payload,
     });
     if (

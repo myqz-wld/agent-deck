@@ -114,4 +114,60 @@ describe('raceWithTimeout (Follow-up #10)', () => {
     await delayedResolve(null, 50);
     expect(onTimeout).not.toHaveBeenCalled();
   });
+
+  it('caller abort wins promptly, preserves its reason, and cancels provider work once', async () => {
+    const controller = new AbortController();
+    const onAbort = vi.fn();
+    const result = raceWithTimeout({
+      work: neverResolve<void>(),
+      timeoutMs: 1_000,
+      errorMessage: '__test_timeout__',
+      signal: controller.signal,
+      onAbort,
+    });
+
+    controller.abort(new Error('review closed'));
+
+    await expect(result).rejects.toThrow('review closed');
+    expect(onAbort).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an already-aborted signal without starting a timer', async () => {
+    const controller = new AbortController();
+    const onAbort = vi.fn();
+    controller.abort(new Error('already closed'));
+
+    await expect(raceWithTimeout({
+      work: neverResolve<void>(),
+      timeoutMs: 1_000,
+      errorMessage: '__test_timeout__',
+      signal: controller.signal,
+      onAbort,
+    })).rejects.toThrow('already closed');
+    expect(onAbort).toHaveBeenCalledOnce();
+  });
+
+  it('does not miss an abort that lands immediately before listener registration', async () => {
+    const onAbort = vi.fn();
+    const reason = new Error('closed during subscribe');
+    const state: { aborted: boolean; reason?: Error } = { aborted: false };
+    const signal = {
+      get aborted() { return state.aborted; },
+      get reason() { return state.reason; },
+      addEventListener() {
+        state.aborted = true;
+        state.reason = reason;
+      },
+      removeEventListener: vi.fn(),
+    } as unknown as AbortSignal;
+
+    await expect(raceWithTimeout({
+      work: neverResolve<void>(),
+      timeoutMs: 1_000,
+      errorMessage: '__test_timeout__',
+      signal,
+      onAbort,
+    })).rejects.toThrow('closed during subscribe');
+    expect(onAbort).toHaveBeenCalledOnce();
+  });
 });

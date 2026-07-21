@@ -50,7 +50,11 @@ export function PlanReviewConversation({
           {startError}
         </div>
       ) : !childReady ? (
-        <div className="text-[10px] text-deck-muted">正在准备隔离的审阅会话…</div>
+        <div className="text-[10px] text-deck-muted">
+          {waitingForReply
+            ? '正在创建隔离的审阅会话…'
+            : '发送第一个问题时才会创建隔离的审阅会话。'}
+        </div>
       ) : (
         <>
           {messages.length === 0 && !waitingForReply && (

@@ -75,5 +75,5 @@ actual provider turns, so prior output cannot be submitted as the requested feed
 
 ## Related records
 
-- [PLAN_12](../../plans/recent-3-days/PLAN_12_handoff-ownership-plan-review-hardening.md)
-- [REVIEW_161](../../reviews/recent-3-days/REVIEW_161_handoff-ownership-plan-review-hardening.md)
+- [PLAN_12](../../plans/recent-week/PLAN_12_handoff-ownership-plan-review-hardening.md)
+- [REVIEW_161](../../reviews/recent-week/REVIEW_161_handoff-ownership-plan-review-hardening.md)

@@ -18,9 +18,12 @@ import {
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
 import {
   buildLatePlanDecisionPrompt,
-  buildPlanReviewFeedbackDraftPrompt,
   buildPlanReviewForkPrompt,
 } from './prompts';
+import {
+  synthesizePlanReviewFeedback,
+  type PlanReviewFeedbackSynthesisInput,
+} from './feedback-synthesis';
 
 const logger = log.scope('plan-review-session');
 const AUTO_FEEDBACK_TIMEOUT_MS = 5 * 60_000;
@@ -94,6 +97,12 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
   private readonly operationTails = new Map<string, Promise<void>>();
   private readonly operationAbortControllers = new Map<string, AbortController>();
 
+  constructor(
+    private readonly feedbackSynthesizer: (
+      input: PlanReviewFeedbackSynthesisInput,
+    ) => Promise<string> = synthesizePlanReviewFeedback,
+  ) {}
+
   async start(input: {
     sourceSessionId: string;
     request: ExitPlanModeRequest;
@@ -134,6 +143,7 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
         },
       }, {
         suppressLeadContext: true,
+        hideFromHistory: true,
         codexRuntimeAccess: {
           networkAccessEnabled: source.networkAccessEnabled ?? undefined,
           additionalDirectories: source.additionalDirectories ?? undefined,
@@ -175,28 +185,14 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
     child: PlanReviewChildSession;
     request: ExitPlanModeRequest;
   }): Promise<string> {
-    return this.runSerialized(input.child, async (signal) => {
-      const adapter = adapterRegistry.get(input.child.agentId);
-      if (!adapter?.enqueueMessage) {
-        throw new Error('审阅会话当前无法生成计划意见。');
-      }
-      const marker = randomUUID();
-      const prompt = buildPlanReviewFeedbackDraftPrompt({
-        requestId: input.request.requestId,
-        marker,
-        plan: input.request.plan,
-      });
-      return this.runCorrelatedTurn({
-        child: input.child,
-        correlationId: marker,
-        requireOutput: true,
+    return this.runSerialized(input.child, (signal) =>
+      this.feedbackSynthesizer({
+        runtimeSessionId: input.child.sessionId,
+        agentId: input.child.agentId,
+        dialogueSessionId: input.child.sessionId,
+        request: input.request,
         signal,
-        enqueue: () => adapter.enqueueMessage!(input.child.sessionId, prompt, [], {
-          deferUserEventUntilTurnStart: true,
-          turnCorrelationId: marker,
-        }),
-      });
-    });
+      }));
   }
 
   async deliverLateDecision(input: {

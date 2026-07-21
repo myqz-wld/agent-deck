@@ -62,7 +62,7 @@ commit chain was fast-forwarded to main and `origin/main`, then both redundant i
 worktrees and branches were removed after remote equality verification. The running app must be
 restarted later, at a safe point, before the new schema, preload API, and UI controls become active.
 
-Related records: [CHANGELOG_359](../../changelogs/recent-3-days/CHANGELOG_359_session-pinning-reviewer-model.md)
-and [REVIEW_149](../../reviews/recent-3-days/REVIEW_149_session-pinning-reviewer-model.md).
+Related records: [CHANGELOG_359](../../changelogs/recent-month/CHANGELOG_359_session-pinning-reviewer-model.md)
+and [REVIEW_149](../../reviews/recent-month/REVIEW_149_session-pinning-reviewer-model.md).
 
 Completed At: 2026-07-11

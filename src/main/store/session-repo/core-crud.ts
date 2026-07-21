@@ -9,10 +9,6 @@
 
 import type { PermissionMode, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
-import {
-  buildKeywordPredicate,
-  shouldIncludeLegacyEventIndex,
-} from '../search-predicate';
 import { rowToRecord, type Row } from './types';
 export function upsert(rec: SessionRecord): void {
   // 注意：permission_mode 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
@@ -56,8 +52,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -119,6 +115,8 @@ export function upsert(rec: SessionRecord): void {
       // Pin state has one dedicated setter. It participates in first INSERT, but is deliberately
       // absent from ON CONFLICT so a stale full-record upsert cannot undo a concurrent pin toggle.
       pinned_at: rec.pinnedAt ?? null,
+      // Internal visibility is registration-owned and immutable across stale full-record upserts.
+      hidden_from_history: rec.hiddenFromHistory ? 1 : 0,
     });
 }
 
@@ -220,90 +218,6 @@ export function listLiveForUi(limit = 100): SessionRecord[] {
       .all(effectiveLimit) as Row[];
     return rows.map(rowToRecord);
   })();
-}
-
-/**
- * 历史面板数据源。语义改为：
- * - 默认（archivedOnly=false）：包含 closed + 任何已归档（不论 lifecycle），
- *   也就是「不在实时面板的所有会话」
- * - archivedOnly=true：只看 archived_at IS NOT NULL
- */
-export function listHistory(
-  opts: {
-    agentId?: string;
-    cwd?: string;
-    fromTs?: number;
-    toTs?: number;
-    keyword?: string;
-    archivedOnly?: boolean;
-    spawnedBy?: string;
-    limit?: number;
-    offset?: number;
-  } = {},
-): SessionRecord[] {
-  // **REVIEW_88 LOW (reviewer-codex)**: clamp limit/offset。preload facade 暴露 limit?/offset?，
-  // IPC handler 对 raw filters 类型断言后直传无 zod/clamp（ipc/sessions.ts SessionListHistory），
-  // caller 传 limit=-1 时 SQLite `LIMIT -1` 返回全部匹配历史行绕过分页一次性加载全量 history 卡主线程。
-  // MCP list_sessions 已 clamp 1..200，此缺口只在 IPC history 路径。clamp 到 [1, 500] + offset ≥ 0。
-  const rawLimit = opts.limit ?? 100;
-  const rawOffset = opts.offset ?? 0;
-  const limit = Math.min(Math.max(Math.trunc(rawLimit), 1), 500);
-  const offset = Math.max(Math.trunc(rawOffset), 0);
-  const db = getDb();
-  const conditions: string[] = [];
-  const params: Record<string, unknown> = { limit, offset };
-
-  if (opts.archivedOnly) {
-    conditions.push(`archived_at IS NOT NULL`);
-  } else {
-    conditions.push(`(lifecycle = 'closed' OR archived_at IS NOT NULL)`);
-  }
-  if (opts.agentId) {
-    conditions.push(`agent_id = @agent_id`);
-    params.agent_id = opts.agentId;
-  }
-  if (opts.spawnedBy !== undefined) {
-    conditions.push(`spawned_by = @spawned_by`);
-    params.spawned_by = opts.spawnedBy;
-  }
-  if (opts.cwd) {
-    // **REVIEW_88 LOW (reviewer-claude)**: cwd LIKE 把用户输入直接包进 pattern，`%` `_` `\` 未 escape
-    // → 用户在历史面板按 cwd 过滤输入含 `_`（路径常见，如 `my_project`）时 `_` 被当单字符通配符
-    // 匹配 `myXproject` 等非预期路径。非注入（命名参数挡），是搜索语义错误。与 task-repo-list.ts:44-50
-    // subjectKeyword 同款修法：escape `%` `_` `\` + ESCAPE '\'。
-    conditions.push(`cwd LIKE @cwd ESCAPE '\\'`);
-    const escaped = opts.cwd
-      .replace(/\\/g, '\\\\')
-      .replace(/%/g, '\\%')
-      .replace(/_/g, '\\_');
-    params.cwd = `%${escaped}%`;
-  }
-  if (opts.fromTs) {
-    conditions.push(`last_event_at >= @from_ts`);
-    params.from_ts = opts.fromTs;
-  }
-  if (opts.toTs) {
-    conditions.push(`last_event_at <= @to_ts`);
-    params.to_ts = opts.toTs;
-  }
-  if (opts.keyword) {
-    // 关键词谓词由 search-predicate.ts/buildKeywordPredicate 构造，详见该文件注释。
-    // < 3 字符走 title / cwd LIKE（trigram tokenizer 需要 ≥ 3 gram）；
-    // ≥ 3 字符走 title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH；v43 后四类字段
-    // 对 ASCII 统一大小写不敏感，
-    // FTS5 + trigram 索引 substring 友好，远快于历史的 events.payload_json LIKE 全表扫。
-    // 旧索引退休前双读保 rollback 覆盖；phase=complete 后必须移除空 legacy UNION。生产副本
-    // common-term 实测空 UNION 仍额外消耗 6-8ms，并把 p50 推过 50ms。
-    const pred = buildKeywordPredicate(opts.keyword, {
-      includeLegacyEventIndex: shouldIncludeLegacyEventIndex(db),
-    });
-    conditions.push(pred.sql);
-    Object.assign(params, pred.params);
-  }
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const sql = `SELECT * FROM sessions ${where} ORDER BY last_event_at DESC LIMIT @limit OFFSET @offset`;
-  const rows = db.prepare(sql).all(params) as Row[];
-  return rows.map(rowToRecord);
 }
 
 export function _delete(id: string): void {

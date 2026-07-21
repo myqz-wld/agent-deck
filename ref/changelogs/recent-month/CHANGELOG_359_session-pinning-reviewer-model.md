@@ -83,5 +83,5 @@ fallback now uses `gpt-5.6-sol` with its existing `xhigh` reasoning setting.
 
 ## Related Records
 
-- [REVIEW_149](../../reviews/recent-3-days/REVIEW_149_session-pinning-reviewer-model.md)
-- [PLAN_4](../../plans/recent-3-days/PLAN_4_session-pinning-reviewer-model.md)
+- [REVIEW_149](../../reviews/recent-month/REVIEW_149_session-pinning-reviewer-model.md)
+- [PLAN_4](../../plans/recent-month/PLAN_4_session-pinning-reviewer-model.md)

@@ -32,8 +32,18 @@ export async function raceWithTimeout<T>(opts: {
    * （REVIEW_82 — 两 adapter 都取消，防周期 timeout 累积后台进程）。
    */
   onTimeout?: () => void;
+  /** Optional caller cancellation, used by short-lived UI-owned oneshot work. */
+  signal?: AbortSignal;
+  /** Cancel the provider operation when `signal` aborts. */
+  onAbort?: () => void;
 }): Promise<T> {
-  if (opts.timeoutMs <= 0) return opts.work;
+  if (opts.timeoutMs <= 0 && !opts.signal) return opts.work;
+  if (opts.signal?.aborted) {
+    opts.onAbort?.();
+    throw opts.signal.reason instanceof Error
+      ? opts.signal.reason
+      : new Error('Operation aborted.');
+  }
 
   // 提前订阅 work rejection 防 unhandled。Race 输（timer 先 reject）后 work 仍后台跑，
   // 最终 reject 时无 .catch 监听则触发 unhandledRejection。这里的 .catch 不消费 work
@@ -41,15 +51,40 @@ export async function raceWithTimeout<T>(opts: {
   opts.work.catch(() => undefined);
 
   let timeoutHandle: NodeJS.Timeout | null = null;
+  let abortListener: (() => void) | undefined;
   try {
-    const timer = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        opts.onTimeout?.();
-        reject(new Error(opts.errorMessage));
-      }, opts.timeoutMs);
-    });
-    return await Promise.race([opts.work, timer]);
+    const competitors: Promise<T>[] = [opts.work];
+    if (opts.timeoutMs > 0) {
+      competitors.push(new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          opts.onTimeout?.();
+          reject(new Error(opts.errorMessage));
+        }, opts.timeoutMs);
+      }));
+    }
+    if (opts.signal) {
+      const signal = opts.signal;
+      competitors.push(new Promise<never>((_, reject) => {
+        let abortHandled = false;
+        abortListener = (): void => {
+          if (abortHandled) return;
+          abortHandled = true;
+          opts.onAbort?.();
+          reject(signal.reason instanceof Error
+            ? signal.reason
+            : new Error('Operation aborted.'));
+        };
+        signal.addEventListener('abort', abortListener, { once: true });
+        // Close the check→subscribe race: AbortSignal does not replay an abort that happened just
+        // before addEventListener(), while an abort just after it can hit both paths below.
+        if (signal.aborted) abortListener();
+      }));
+    }
+    return await Promise.race(competitors);
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (abortListener && opts.signal) {
+      opts.signal.removeEventListener('abort', abortListener);
+    }
   }
 }

@@ -134,8 +134,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -165,6 +165,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.network_access_enabled,
         fromRow.additional_directories,
         fromRow.pinned_at,
+        fromRow.hidden_from_history,
       );
     }
     // Derived target checkpoints describe the pre-rename target history and cannot be merged with
@@ -387,6 +388,11 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.pinned_at,
         toId,
       );
+      // Hidden visibility is monotonic: either side being internal must keep the surviving row
+      // out of History. Never clear a hidden target from a stale visible source.
+      if (fromRow.hidden_from_history === 1) {
+        db.prepare(`UPDATE sessions SET hidden_from_history = 1 WHERE id = ?`).run(toId);
+      }
 
       // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法 (toExists 分支):
       // cwd_release_marker 与 permission_mode / codex_sandbox / extra_allow_write / model 行为

@@ -63,6 +63,8 @@ export interface UpsertOptions {
   /** Trusted main-process spawn registration, consumed only while creating the first SDK row. */
   spawnedBy?: string | null;
   spawnDepth?: number;
+  /** Trusted internal-session registration; once true, History visibility cannot be restored. */
+  hiddenFromHistory?: boolean;
 }
 
 /**
