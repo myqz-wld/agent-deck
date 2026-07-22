@@ -41,6 +41,7 @@ import {
 } from './thread-params';
 import { CodexAppServerThread } from './thread';
 import { logCodexThreadBoundaryReady } from './thread-boundary-logging';
+import { prepareNodeReplCompatibility } from './node-repl-compat';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
@@ -74,13 +75,9 @@ export class CodexAppServerClient {
 
   constructor(private readonly opts: CodexAppServerOptions) {}
 
-  get baseConfig(): CodexConfigObject | null {
-    return this.opts.config ?? null;
-  }
+  get baseConfig(): CodexConfigObject | null { return this.opts.config ?? null; }
 
-  get generation(): number {
-    return this.processGeneration;
-  }
+  get generation(): number { return this.processGeneration; }
 
   get firstModelEventTimeoutMs(): number {
     const configured = this.opts.firstModelEventTimeoutMs;
@@ -105,9 +102,7 @@ export class CodexAppServerClient {
    * synthetic error 通知终结，此时再走 request('turn/interrupt') 会经 ensureProcess
    * **重新拉起一个全新 app-server 进程**只为发一条无意义的 interrupt —— 该 guard 避免之。
    */
-  get isProcessAlive(): boolean {
-    return this.child !== null;
-  }
+  get isProcessAlive(): boolean { return this.child !== null; }
 
   /** True after dispose(); used by fork rollback to reopen a target-owned cleanup client. */
   get isDisposed(): boolean { return this.closed; }
@@ -139,13 +134,20 @@ export class CodexAppServerClient {
       this.isProcessAlive ? this.generation : undefined,
     );
   }
+  prepareThreadOptions(options: CodexThreadOptions): Promise<CodexThreadOptions> {
+    return this.opts.nodeReplSandboxMetaCompatibility
+      ? prepareNodeReplCompatibility(this, options, this.baseConfig)
+      : Promise.resolve(options);
+  }
   readThread(threadId: string): Promise<CodexAppServerThreadReadResult> {
     return this.request('thread/read', { threadId, includeTurns: true });
   }
-  startThreadEager(options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
+  async startThreadEager(options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
+    options = await this.prepareThreadOptions(options);
     return this.request('thread/start', buildThreadStartParams(options, this.baseConfig));
   }
-  forkThread(sourceThreadId: string, lastTurnId: string, options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
+  async forkThread(sourceThreadId: string, lastTurnId: string, options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
+    options = await this.prepareThreadOptions(options);
     return this.request(
       'thread/fork',
       buildThreadForkParams(sourceThreadId, lastTurnId, options, this.baseConfig),
