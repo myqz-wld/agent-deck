@@ -1,5 +1,6 @@
 import { useState, type ClipboardEventHandler, type DragEventHandler, type JSX,
   type KeyboardEvent } from 'react';
+import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
 import { ExpandIcon } from '../../icons';
 import { ExpandedComposerOverlay } from './ExpandedComposerOverlay';
 
@@ -9,7 +10,9 @@ interface Props {
   submitLabel: string;
   busy: boolean;
   canSubmit: boolean;
-  attachmentCount: number;
+  attachments: UploadedAttachmentEntry[];
+  getAttachmentPreviewDataUrl: (id: string) => string | null;
+  onRemoveAttachment: (id: string) => void;
   onTextChange: (value: string) => void;
   onSubmit: () => Promise<boolean>;
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
