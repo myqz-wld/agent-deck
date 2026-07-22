@@ -1,6 +1,8 @@
 import { useEffect, useRef, type DragEventHandler, type ClipboardEventHandler,
   type JSX, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
+import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
+import { PendingImageAttachments } from '../../PendingImageAttachments';
 import { CloseIcon, SendIcon } from '../../icons';
 
 interface Props {
@@ -9,7 +11,9 @@ interface Props {
   submitLabel: string;
   busy: boolean;
   canSubmit: boolean;
-  attachmentCount: number;
+  attachments: UploadedAttachmentEntry[];
+  getAttachmentPreviewDataUrl: (id: string) => string | null;
+  onRemoveAttachment: (id: string) => void;
   onTextChange: (value: string) => void;
   onSubmit: () => Promise<boolean>;
   onClose: () => void;
@@ -112,7 +116,7 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
             <div className="text-[12px] font-medium text-deck-text">编辑消息</div>
             <div className="text-[9px] text-deck-muted">
               {props.text.length.toLocaleString()} 字
-              {props.attachmentCount > 0 ? ` · ${props.attachmentCount} 个附件` : ''}
+              {props.attachments.length > 0 ? ` · ${props.attachments.length} 个附件` : ''}
             </div>
           </div>
           <button
@@ -125,6 +129,19 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
           </button>
         </header>
         <main className="flex min-h-0 flex-1 flex-col px-4 py-3">
+          {props.attachments.length > 0 && (
+            <section className="mb-3 shrink-0 rounded-lg border border-deck-border bg-white/[0.025] p-2.5">
+              <div className="mb-2 text-[10px] font-medium text-deck-muted">
+                待发送附件（{props.attachments.length}）
+              </div>
+              <PendingImageAttachments
+                attachments={props.attachments}
+                getPreviewDataUrl={props.getAttachmentPreviewDataUrl}
+                onRemove={props.onRemoveAttachment}
+                variant="detailed"
+              />
+            </section>
+          )}
           <textarea
             ref={textareaRef}
             value={props.text}

@@ -2,8 +2,9 @@ import { useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
 import log from '@renderer/utils/logger';
-import { CloseIcon, HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
+import { HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
 import { ComposerInput } from './composer-sdk/ComposerInput';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { PendingOutgoingQueue } from './composer-sdk/PendingOutgoingQueue';
@@ -302,6 +303,16 @@ export function ComposerSdk({
     ? '修正当前 Codex turn…  (Enter 发送 / Shift+Enter 换行)'
     : `给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 可粘贴或拖放图片)`;
   const submitLabel = isSteerMode ? (busy ? '发送中…' : '修正') : busy ? '发送中…' : '发送';
+  const getAttachmentPreviewDataUrl = (id: string): string | null => {
+    const index = imgs.attachments.findIndex((attachment) => attachment.id === id);
+    if (index < 0) return null;
+    try {
+      const input = imgs.toIpcInputs()[index];
+      return input ? `data:${input.mime};base64,${input.base64}` : null;
+    } catch {
+      return null;
+    }
+  };
 
   return (
     <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
@@ -353,7 +364,9 @@ export function ComposerSdk({
         submitLabel={isSteerMode ? '修正' : '发送'}
         busy={busy}
         canSubmit={canSubmit}
-        attachmentCount={imgs.attachments.length}
+        attachments={imgs.attachments}
+        getAttachmentPreviewDataUrl={getAttachmentPreviewDataUrl}
+        onRemoveAttachment={imgs.remove}
         onSubmit={send}
         // REVIEW_35 HIGH-D2：仅允许附件入口时才绑 paste/drop/dragover；
         // 不在白名单 / Codex steer 模式不绑，防止用户拖入触发空发送 + 静默丢图。
@@ -393,27 +406,11 @@ export function ComposerSdk({
           </>
         )}
         {imgs.attachments.length > 0 && (
-          <div className="flex min-w-0 flex-wrap gap-1.5">
-            {imgs.attachments.map((a) => (
-              <div key={a.id} className="relative shrink-0">
-                <img
-                  src={a.thumbnailDataUrl}
-                  alt={a.name ?? '附件图片'}
-                  title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
-                  className="h-9 w-9 rounded border border-deck-border object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => imgs.remove(a.id)}
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
-                  aria-label="移除附件"
-                  title="移除"
-                >
-                  <CloseIcon className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <PendingImageAttachments
+            attachments={imgs.attachments}
+            getPreviewDataUrl={getAttachmentPreviewDataUrl}
+            onRemove={imgs.remove}
+          />
         )}
         <div className="flex-1" />
         {onHandOff && (

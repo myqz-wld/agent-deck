@@ -5,6 +5,7 @@ import {
   type SessionThinkingChoice,
 } from '@renderer/components/SessionModelFields';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
 import { CloseIcon, FolderOpenIcon, ImageIcon, SendIcon } from './icons';
 import {
   getLastAdapter,
@@ -178,6 +179,17 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     }
   };
 
+  const getAttachmentPreviewDataUrl = (id: string): string | null => {
+    const index = imgs.attachments.findIndex((attachment) => attachment.id === id);
+    if (index < 0) return null;
+    try {
+      const input = imgs.toIpcInputs()[index];
+      return input ? `data:${input.mime};base64,${input.base64}` : null;
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="no-drag w-[340px] max-h-[85%] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
@@ -294,25 +306,11 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               >
                 <ImageIcon className="mr-1 inline h-3 w-3" />添加图片
               </button>
-              {imgs.attachments.map((a) => (
-                <div key={a.id} className="relative">
-                  <img
-                    src={a.thumbnailDataUrl}
-                    alt={a.name ?? '附件图片'}
-                    title={`${a.name ?? ''}\n${(a.bytes / 1024).toFixed(1)}KB · ${a.mime}`}
-                    className="h-10 w-10 rounded border border-deck-border object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => imgs.remove(a.id)}
-                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-deck-bg text-[10px] text-deck-muted shadow hover:text-status-waiting"
-                    aria-label="移除附件"
-                    title="移除"
-                  >
-                    <CloseIcon className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              ))}
+              <PendingImageAttachments
+                attachments={imgs.attachments}
+                getPreviewDataUrl={getAttachmentPreviewDataUrl}
+                onRemove={imgs.remove}
+              />
             </div>
 
             {showPermissionMode && (
