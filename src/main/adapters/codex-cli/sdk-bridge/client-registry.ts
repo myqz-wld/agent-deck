@@ -81,6 +81,7 @@ export function ensureCodexClient({
     config: codexConfig,
     env: envOverride,
     skillExtraRoots: getCodexSkillExtraRootsForSession(),
+    nodeReplSandboxMetaCompatibility: true,
   });
   clients.set(sessionId, client);
   return client;

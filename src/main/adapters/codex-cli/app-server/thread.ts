@@ -431,10 +431,11 @@ export class CodexAppServerThread {
     }
     this.readyGeneration = this.client.generation;
     const attempt = (async () => {
+      const options = await this.client.prepareThreadOptions(this.mode.options);
       if (this.threadId) {
         const result = await this.client.request<{ thread: { id: string } }>(
           'thread/resume',
-          buildThreadResumeParams(this.threadId, this.mode.options, this.client.baseConfig),
+          buildThreadResumeParams(this.threadId, options, this.client.baseConfig),
         );
         this.threadId = result.thread.id;
         return this.threadId;
@@ -442,7 +443,7 @@ export class CodexAppServerThread {
 
       const result = await this.client.request<{ thread: { id: string } }>(
         'thread/start',
-        buildThreadStartParams(this.mode.options, this.client.baseConfig),
+        buildThreadStartParams(options, this.client.baseConfig),
       );
       this.threadId = result.thread.id;
       return this.threadId;
