@@ -229,7 +229,7 @@ export function DataPanel(): JSX.Element {
             </p>
             <p>
               <span className="text-deck-text/85">Grok Build：</span>
-              读取 ACP 的每轮用量；缓存写当前没有独立字段，因此显示为 0。
+              输入、输出、推理、缓存读均取 ACP 每轮用量；缓存写没有独立字段，因此记为 0。
             </p>
           </div>
         </div>
