@@ -219,6 +219,8 @@ function narrowToGrokOpts(raw: CreateSessionOptionsRaw): GrokCreateOpts {
   if (raw.reasoningEffort !== undefined) out.reasoningEffort = raw.reasoningEffort;
   if (raw.sessionMode !== undefined) out.sessionMode = raw.sessionMode;
   if (raw.grokAgentName !== undefined) out.grokAgentName = raw.grokAgentName;
+  if (raw.grokAgentSource !== undefined) out.grokAgentSource = raw.grokAgentSource;
+  if (raw.grokPluginDir !== undefined) out.grokPluginDir = raw.grokPluginDir;
   if (raw.handOff !== undefined) out.handOff = raw.handOff;
   if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
   if (raw.initialSessionRegistration !== undefined) {
@@ -448,6 +450,8 @@ const _GROK_PASSTHROUGH_KEYS = {
   reasoningEffort: 0,
   sessionMode: 0,
   grokAgentName: 0,
+  grokAgentSource: 0,
+  grokPluginDir: 0,
   handOff: 0,
   awaitCanonicalId: 0,
   initialSessionRegistration: 0,

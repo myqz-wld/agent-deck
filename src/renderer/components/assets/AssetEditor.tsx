@@ -4,21 +4,25 @@ import type {
   AssetMeta,
   UserAssetAdapter,
 } from '@shared/types';
-import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
+import {
+  ASSET_LIMITS,
+  ASSET_NAME_REGEX,
+  GROK_ASSET_NAME_REGEX,
+} from '@shared/types';
+import { isGrokThinkingLevel } from '@shared/session-metadata';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
-import { DeckSelect } from '@renderer/components/DeckSelect';
-import { ProviderCombobox } from './ProviderCombobox';
+import { AssetAgentFields } from './AssetAgentFields';
 import { CloseIcon, SaveIcon, TrashIcon } from '../icons';
 
 /**
  * 用户自定义 agent / skill 编辑器（CHANGELOG_57 C3 / plan assets-codex-user-and-ui-unify-20260521
- * §D5 §D7 双 adapter 编辑姿势）。
+ * §D5 §D7 多 adapter 编辑姿势）。
  *
  * 字段（按 kind 分流）：
  * - 共用：name (slug，仅新建时可填) / description (必填) / body (markdown 正文)
- * - agent only：model (必填，fable/opus/sonnet/haiku 下拉) / tools (逗号分隔，可空)
+ * - agent only：model（Claude 必填，Codex/Grok 可空）/ tools（逗号分隔，可空）
  *
- * **plan §D5 升级**:接 `adapter` prop（'claude-code' | 'codex-cli'，必传，由 sub-tab 锁定）
+ * **plan §D5 升级**:接 `adapter` prop（Claude/Codex/Grok，必传，由 sub-tab 锁定）
  * - 新建模式：adapter = 当前 sub-tab 值（在 Codex sub-tab 内点 + 新建则 adapter='codex-cli'）
  * - 编辑模式：adapter = `asset.adapter`（与 name 同款 read-only 不可改;改 adapter = 跨 root mv,
  *   本批不实现）
@@ -44,17 +48,18 @@ interface Props {
   onSaved: () => void;
 }
 
-const CLAUDE_MODEL_OPTIONS = ['fable', 'opus', 'sonnet', 'haiku'];
-const CODEX_MODEL_OPTIONS = ['', 'gpt-5.5', 'gpt-5.4'];
-
 export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): JSX.Element {
   const isEdit = asset !== null;
   const isCodexAgent = adapter === 'codex-cli' && kind === 'agent';
+  const isGrokAgent = adapter === 'grok-build' && kind === 'agent';
   const [name, setName] = useState(asset?.name ?? '');
   const [description, setDescription] = useState(asset?.description ?? '');
   const [tools, setTools] = useState(asset?.tools ?? '');
-  const [model, setModel] = useState(asset?.model ?? (kind === 'agent' && !isCodexAgent ? 'opus' : ''));
+  const [model, setModel] = useState(
+    asset?.model ?? (kind === 'agent' && !isCodexAgent && !isGrokAgent ? 'opus' : ''),
+  );
   const [provider, setProvider] = useState(asset?.provider ?? '');
+  const [thinking, setThinking] = useState(asset?.thinking ?? '');
   const [providerOptions, setProviderOptions] = useState<Array<{ id: string; name?: string }>>([]);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(isEdit); // 编辑模式 mount 时 fetch 加载
@@ -77,7 +82,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
     let cancelled = false;
     void window.api
       // plan §D7：getAssetContent 第 4 参数 adapter 必传（user 资产也按 adapter narrow 派发）
-      .getAssetContent(asset.kind, asset.name, 'user', asset.adapter)
+      .getAssetContent(asset.kind, asset.name, 'user', asset.adapter, asset.absPath)
       .then((r) => {
         if (cancelled) return;
         if (r.ok) {
@@ -113,7 +118,10 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   }, [isEdit, asset]);
 
   useEffect(() => {
-    if (kind !== 'agent') return;
+    if (kind !== 'agent' || adapter === 'grok-build') {
+      setProviderOptions([]);
+      return;
+    }
     let cancelled = false;
     const request =
       adapter === 'claude-code'
@@ -135,13 +143,17 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   // - name slug 用共享 ASSET_NAME_REGEX（首字符 a-z/0-9 + 后续 a-z/0-9/-，长度 1-64）
   // - description / model / tools 单行长字符串：禁含 \n 与 ---（防 F2 round-trip 丢 + F3 frontmatter 注入）
   // - 长度上限来自共享 ASSET_LIMITS
+  const nameRegex = adapter === 'grok-build' ? GROK_ASSET_NAME_REGEX : ASSET_NAME_REGEX;
+  const nameMaxLength = adapter === 'grok-build' ? ASSET_LIMITS.grokName : ASSET_LIMITS.name;
   const nameError = !isEdit
     ? name.length === 0
       ? '名称不能为空'
-      : name.length > ASSET_LIMITS.name
-        ? `名称太长（最多 ${ASSET_LIMITS.name} 字）`
-        : !ASSET_NAME_REGEX.test(name)
-          ? '名称只能用小写字母、数字和短横线，首字符必须是字母或数字'
+      : name.length > nameMaxLength
+        ? `名称太长（最多 ${nameMaxLength} 字）`
+        : !nameRegex.test(name)
+          ? adapter === 'grok-build'
+            ? '名称只能用字母、数字、点、下划线和短横线，首字符必须是字母或数字'
+            : '名称只能用小写字母、数字和短横线，首字符必须是字母或数字'
           : null
     : null;
   const descError = description.trim().length === 0
@@ -155,7 +167,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           : null;
   const modelError = kind === 'agent'
     ? model.trim().length === 0
-      ? isCodexAgent ? null : '模型不能为空'
+      ? isCodexAgent || isGrokAgent ? null : '模型不能为空'
       : model.length > ASSET_LIMITS.model
         ? `模型名太长（最多 ${ASSET_LIMITS.model} 字）`
         : /[\r\n]/.test(model)
@@ -182,6 +194,9 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           ? 'Provider 不能包含「---」字符'
           : null
     : null;
+  const thinkingError = isGrokAgent && thinking.length > 0 && !isGrokThinkingLevel(thinking)
+    ? '思考程度必须是 low、medium、high 或 xhigh'
+    : null;
   const bodyError = body.length > ASSET_LIMITS.body
     ? `正文太长（最多 ${ASSET_LIMITS.body} 字，约 256KB）`
     : !isCodexAgent && body.split('\n', 1)[0].trim() === '---'
@@ -192,6 +207,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
     descError ||
     modelError ||
     providerError ||
+    thinkingError ||
     toolsError ||
     bodyError
   );
@@ -214,6 +230,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
         tools: kind === 'agent' ? tools.trim() || undefined : undefined,
         model: kind === 'agent' ? model.trim() || undefined : undefined,
         provider: kind === 'agent' ? provider.trim() || undefined : undefined,
+        thinking: isGrokAgent ? thinking.trim() || undefined : undefined,
         body,
       });
       if (r.ok) {
@@ -251,7 +268,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
     setBusy(true);
     try {
       // plan §D7 + reviewer-codex MED-D：deleteUserAsset 三参（含 adapter，只删当前 root）
-      const r = await window.api.deleteUserAsset(asset.kind, asset.name, asset.adapter);
+      const r = await window.api.deleteUserAsset(asset.kind, asset.name, asset.adapter, asset.absPath);
       if (r.ok) {
         onSaved();
         onClose();
@@ -281,19 +298,26 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   };
 
   // plan §D5 + reviewer-claude R2 LOW-2：modal header 加 adapter chip,与 ContentViewerModal 对齐
-  const adapterLabel = adapter === 'claude-code' ? '[claude]' : '[codex]';
+  const adapterLabel =
+    adapter === 'claude-code' ? '[claude]' : adapter === 'codex-cli' ? '[codex]' : '[grok]';
   const adapterChipClass =
     adapter === 'claude-code'
       ? 'bg-status-working/20 text-status-working'
-      : 'bg-status-running/20 text-status-running';
+      : adapter === 'codex-cli'
+        ? 'bg-status-running/20 text-status-running'
+        : 'bg-status-waiting/20 text-status-waiting';
 
-  // placeholder 文案 sub-tab 切换：claude → ~/.claude/{agents,skills}/ / codex → ~/.codex/skills/
+  // placeholder 文案 sub-tab 切换：各 adapter 对应其原生 user root。
   const pathHint = !isEdit
     ? adapter === 'claude-code'
       ? `保存后即文件名(Agent → ~/.claude/agents/${name || '<名称>'}.md;Skill → ~/.claude/skills/${name || '<名称>'}/SKILL.md)`
-      : kind === 'agent'
-        ? `保存后即文件名(Agent → ~/.codex/agents/${name || '<名称>'}.toml)`
-        : `保存后即文件名(Skill → ~/.codex/skills/${name || '<名称>'}/SKILL.md)`
+      : adapter === 'codex-cli'
+        ? kind === 'agent'
+          ? `保存后即文件名(Agent → ~/.codex/agents/${name || '<名称>'}.toml)`
+          : `保存后即文件名(Skill → ~/.codex/skills/${name || '<名称>'}/SKILL.md)`
+        : kind === 'agent'
+          ? `保存后即文件名(Agent → ~/.grok/agents/${name || '<名称>'}.md)`
+          : `保存后即文件名(Skill → ~/.grok/skills/${name || '<名称>'}/SKILL.md)`
     : '';
 
   const title = isEdit
@@ -349,54 +373,23 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           </Field>
 
           {kind === 'agent' && (
-            <>
-              <Field label={isCodexAgent ? '模型（可留空）' : '模型'} error={modelError}>
-                <DeckSelect
-                  value={model}
-                  onChange={handleChange(setModel)}
-                  disabled={busy}
-                  options={(isCodexAgent ? CODEX_MODEL_OPTIONS : CLAUDE_MODEL_OPTIONS).map((m) => ({
-                    value: m,
-                    label: m || 'inherit',
-                  }))}
-                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
-                />
-              </Field>
-              <Field
-                label={adapter === 'claude-code' ? 'Gateway（可留空）' : 'Provider（可留空）'}
-                error={providerError}
-              >
-                <ProviderCombobox
-                  value={provider}
-                  options={providerOptions}
-                  disabled={busy}
-                  ariaLabel={adapter === 'claude-code' ? 'Gateway' : 'Provider'}
-                  placeholder={
-                    adapter === 'claude-code'
-                      ? '留空使用 Claude 原生配置'
-                      : '留空跟随 config.toml'
-                  }
-                  emptyMessage={
-                    adapter === 'claude-code'
-                      ? '没有发现 Gateway profile'
-                      : '没有匹配项，可直接输入 provider'
-                  }
-                  onChange={handleChange(setProvider)}
-                />
-              </Field>
-              {!isCodexAgent && (
-                <Field label="工具（逗号分隔，可留空）" error={toolsError}>
-                  <input
-                    type="text"
-                    value={tools}
-                    onChange={(e) => handleChange(setTools)(e.target.value)}
-                    disabled={busy}
-                    placeholder="Read, Grep, Glob, Bash"
-                    className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
-                  />
-                </Field>
-              )}
-            </>
+            <AssetAgentFields
+              adapter={adapter}
+              model={model}
+              provider={provider}
+              providerOptions={providerOptions}
+              thinking={thinking}
+              tools={tools}
+              busy={busy}
+              modelError={modelError}
+              providerError={providerError}
+              thinkingError={thinkingError}
+              toolsError={toolsError}
+              onModelChange={handleChange(setModel)}
+              onProviderChange={handleChange(setProvider)}
+              onThinkingChange={handleChange(setThinking)}
+              onToolsChange={handleChange(setTools)}
+            />
           )}
 
           <Field label={isCodexAgent ? 'developer_instructions' : '正文（Markdown）'} error={bodyError}>

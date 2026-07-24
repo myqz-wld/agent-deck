@@ -63,7 +63,8 @@ export const SPAWN_SESSION_SCHEMA = {
   /**
    * Optional adapter-native agent selection. Claude-family targets use SDK `agent` + `agents`;
    * Codex targets parse official TOML custom-agent files and map supported config fields to
-   * app-server thread/developerInstructions/config options. Unknown names reject.
+   * app-server thread/developerInstructions/config options; Grok targets pass the native profile
+   * name through ACP after checking bundled, project, user, and plugin sources. Unknown names reject.
    */
   agentName: z
     .string()
@@ -72,7 +73,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
-      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then supported project/user agents. Claude starts with SDK agent/agents; Codex maps TOML developer_instructions and supported config fields; Grok Build selects a bundled plugin agent through ACP session metadata. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
+      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then supported project/user agents. Claude starts with SDK agent/agents; Codex maps TOML developer_instructions and supported config fields; Grok Build passes the native profile through ACP and can resolve project/user/plugin agents discovered by Grok. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
     ),
   model: z
     .string()

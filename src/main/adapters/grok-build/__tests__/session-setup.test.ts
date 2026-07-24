@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { GrokRuntime } from '../runtime-types';
 import { buildGrokSessionMeta } from '../session-setup';
@@ -22,6 +22,8 @@ function makeRuntime(overrides: Partial<GrokRuntime> = {}): GrokRuntime {
     thinking: null,
     sessionMode: null,
     agentProfileName: null,
+    agentProfileSource: null,
+    agentPluginDir: null,
     pendingPermissions: new Map(),
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState(),
@@ -31,9 +33,12 @@ function makeRuntime(overrides: Partial<GrokRuntime> = {}): GrokRuntime {
 
 describe('buildGrokSessionMeta', () => {
   it('injects application rules alongside a named agent profile', async () => {
+    const getPluginDirectories = vi.fn(async () => ['/plugin']);
     const meta = await buildGrokSessionMeta(
       makeRuntime({
         agentProfileName: 'reviewer-grok',
+        agentProfileSource: 'plugin',
+        agentPluginDir: '/plugin',
         model: 'grok-4.5',
         thinking: 'xhigh',
       }),
@@ -41,7 +46,7 @@ describe('buildGrokSessionMeta', () => {
         mcpHttpUrl: 'http://127.0.0.1:1234/mcp',
         isAgentDeckMcpEnabled: () => true,
         getAgentProfilePrompt: async () => '# Agent Deck rules',
-        getPluginDirectories: async () => ['/plugin'],
+        getPluginDirectories,
       },
     );
 
@@ -52,16 +57,27 @@ describe('buildGrokSessionMeta', () => {
       modelId: 'grok-4.5',
       reasoningEffort: 'xhigh',
     });
+    expect(getPluginDirectories).toHaveBeenCalledWith({
+      requiresAgent: true,
+      agentSource: 'plugin',
+      agentPluginDir: '/plugin',
+    });
   });
 
   it('omits disabled optional metadata', async () => {
+    const getPluginDirectories = vi.fn(async () => []);
     const meta = await buildGrokSessionMeta(makeRuntime(), {
       mcpHttpUrl: 'http://127.0.0.1:1234/mcp',
       isAgentDeckMcpEnabled: () => false,
       getAgentProfilePrompt: async () => null,
-      getPluginDirectories: async () => [],
+      getPluginDirectories,
     });
 
     expect(meta).toEqual({});
+    expect(getPluginDirectories).toHaveBeenCalledWith({
+      requiresAgent: false,
+      agentSource: null,
+      agentPluginDir: null,
+    });
   });
 });

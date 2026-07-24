@@ -7,7 +7,11 @@ export interface GrokSessionSetupOptions {
   mcpHttpUrl: string;
   isAgentDeckMcpEnabled: () => boolean;
   getAgentProfilePrompt: () => Promise<string | null>;
-  getPluginDirectories: (options: { requiresAgent: boolean }) => Promise<string[]>;
+  getPluginDirectories: (options: {
+    requiresAgent: boolean;
+    agentSource: 'bundled' | 'project' | 'user' | 'plugin' | null;
+    agentPluginDir: string | null;
+  }) => Promise<string[]>;
 }
 
 export async function buildGrokSessionMeta(
@@ -18,6 +22,8 @@ export async function buildGrokSessionMeta(
     options.getAgentProfilePrompt(),
     options.getPluginDirectories({
       requiresAgent: runtime.agentProfileName !== null,
+      agentSource: runtime.agentProfileSource,
+      agentPluginDir: runtime.agentPluginDir,
     }),
   ]);
   return {
