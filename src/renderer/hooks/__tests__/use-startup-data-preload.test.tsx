@@ -24,6 +24,7 @@ function dailyRow(): TokenDailyRow {
     day: '2026-06-19',
     bucketKey: 'opus-4.8',
     inputTokens: 10,
+    inputTotalTokens: 80,
     outputTokens: 20,
     reasoningTokens: 0,
     cacheReadTokens: 30,

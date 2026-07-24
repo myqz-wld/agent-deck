@@ -58,6 +58,7 @@ function tokenDailyRow(over: Partial<TokenDailyRow> = {}): TokenDailyRow {
     day: '2026-06-19',
     bucketKey: 'gpt-5.5',
     inputTokens: 10,
+    inputTotalTokens: 10,
     outputTokens: 30,
     reasoningTokens: 12,
     cacheReadTokens: 5,
@@ -91,23 +92,21 @@ afterEach(() => {
 });
 
 describe('DataPanel quota usage', () => {
-  it('explains token accounting and renders the reasoning token column', async () => {
+  it('shows unified token totals and marks cache/reasoning as included breakdowns', async () => {
     (window.api.tokenUsageDaily as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       tokenDailyRow(),
     ]);
 
     render(<DataPanel />);
 
-    expect(screen.getByText('Token 口径')).toBeTruthy();
-    expect(screen.getByText(/Claude Code：/)).toBeTruthy();
-    expect(screen.getByText(/Codex：/)).toBeTruthy();
-    expect(screen.getByText(/这些列有的互相包含/)).toBeTruthy();
-    expect(screen.getByText(/总输入 = 输入 \+ 缓存读 \+ 缓存写/)).toBeTruthy();
-    expect(screen.getByText(/如果有推理值，它已经包含在输出里/)).toBeTruthy();
-    expect(screen.getByText(/输入已经包含缓存读/)).toBeTruthy();
-    expect(screen.getByText(/推理也已经包含在输出里/)).toBeTruthy();
-    const todaySummary = screen.getByText(/今日汇总/);
-    const accounting = screen.getByText('Token 口径');
+    expect(screen.getByText('今日 Token')).toBeTruthy();
+    expect(screen.getByText('输入总量')).toBeTruthy();
+    expect(screen.getByText('输出总量')).toBeTruthy();
+    expect(screen.getByText(/统计规则：/)).toBeTruthy();
+    expect(screen.getByText(/输入总量已包含缓存读\/写/)).toBeTruthy();
+    expect(screen.getByText(/“其中”已计入左侧总量/)).toBeTruthy();
+    const todaySummary = screen.getByText('今日 Token');
+    const accounting = screen.getByText(/统计规则：/);
     const dailyDetails = screen.getByText('每模型每天明细');
     expect(
       todaySummary.compareDocumentPosition(accounting) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -116,7 +115,8 @@ describe('DataPanel quota usage', () => {
       accounting.compareDocumentPosition(dailyDetails) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(await screen.findByText('2026-06-19')).toBeTruthy();
-    expect(screen.getAllByText('推理').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('推理')).toBeTruthy();
+    expect(screen.getByText('其中推理')).toBeTruthy();
     expect(screen.getByText('12')).toBeTruthy();
   });
 

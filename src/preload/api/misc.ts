@@ -278,7 +278,7 @@ export const miscApi = {
   /** 今日各 model bucket output 总量降序（header Top3 + 数据页今日汇总）。 */
   tokenUsageTopToday: (options?: TokenUsageQueryOptions): Promise<TokenRateRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageTopToday, options),
-  /** model bucket × 本地日期的 5 指标聚合；数据页可按需包含 Grok 历史回填。 */
+  /** model bucket × 本地日期的统一 token 账本；数据页可按需包含 Grok 历史回填。 */
   tokenUsageDaily: (options?: TokenUsageQueryOptions): Promise<TokenDailyRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageDaily, options),
   /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */

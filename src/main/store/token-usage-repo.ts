@@ -9,10 +9,13 @@
  *   codex message_id=NULL 每 turn 独立行）。bucket 在写时经 normalizeModel(model_raw) 算（SSOT）。
  * - **today(startMs)**：今日各 bucket 的 output 总量（Top3 排名 + 数据页今日汇总）。
  * - **ratesSince(sinceMs)**：滑动窗口各 bucket output 总量（token/s = out ÷ 窗口秒数，renderer 算）。
- * - **dailyByModel(fromMs?,toMs?)**：bucket × 本地日期的 5 指标聚合（数据 tab 表格）。
+ * - **dailyByModel(fromMs?,toMs?)**：bucket × 本地日期的统一 token 账本聚合（数据 tab 表格）。
  *
  * **边界参数（startMs/sinceMs/fromMs/toMs）由 caller（IPC handler 层）用本地 tz 算**（plan F6）——
  * repo 只收 epoch ms，仅 dailyByModel 的 day 分组用 SQL date(...,'localtime')。
+ *
+ * dailyByModel 同时返回 inputTotalTokens：Claude 的 input 字段不含 prompt cache，需把两类
+ * cache 加回；Codex / Grok 的 input 字段已经包含缓存读，因此直接沿用原始 input。
  */
 import type { Database } from 'better-sqlite3';
 import type { TokenUsagePayload, TokenRateRow, TokenDailyRow } from '@shared/types';
@@ -32,7 +35,7 @@ export interface TokenUsageRepo {
   today(startMs: number): TokenRateRow[];
   /** 窗口内各 bucket output 总量（sinceMs = now - WINDOW_MS）。 */
   ratesSince(sinceMs: number): TokenRateRow[];
-  /** bucket × 本地日期的 5 指标聚合（fromMs/toMs 可选，默认全量）。 */
+  /** bucket × 本地日期的统一 token 账本聚合（fromMs/toMs 可选，默认全量）。 */
   dailyByModel(fromMs?: number, toMs?: number): TokenDailyRow[];
   /** GC：删 ts < thresholdMs 的行（返回删除行数）。 */
   deleteOlderThan(thresholdMs: number): number;
@@ -112,6 +115,12 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
         `SELECT model_bucket AS bucketKey,
                 date(ts/1000, 'unixepoch', 'localtime') AS day,
                 SUM(input_tokens) AS inputTokens,
+                SUM(
+                  CASE WHEN agent_id = 'claude-code'
+                    THEN input_tokens + cache_read_tokens + cache_creation_tokens
+                    ELSE input_tokens
+                  END
+                ) AS inputTotalTokens,
                 SUM(output_tokens) AS outputTokens,
                 SUM(reasoning_tokens) AS reasoningTokens,
                 SUM(cache_read_tokens) AS cacheReadTokens,
@@ -124,6 +133,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
       bucketKey: string;
       day: string;
       inputTokens: number;
+      inputTotalTokens: number;
       outputTokens: number;
       reasoningTokens: number;
       cacheReadTokens: number;
@@ -133,6 +143,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
       bucketKey: r.bucketKey,
       day: r.day,
       inputTokens: r.inputTokens ?? 0,
+      inputTotalTokens: r.inputTotalTokens ?? r.inputTokens ?? 0,
       outputTokens: r.outputTokens ?? 0,
       reasoningTokens: r.reasoningTokens ?? 0,
       cacheReadTokens: r.cacheReadTokens ?? 0,
