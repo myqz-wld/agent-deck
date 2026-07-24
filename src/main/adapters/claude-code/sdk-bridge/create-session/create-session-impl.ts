@@ -31,7 +31,6 @@ import { resolveClaudeModel } from '../model-resolve';
 import { finalizeSessionStart } from '../session-finalize';
 import { runCreateSessionSdkQuery } from './create-session-sdk-query';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
-import { extractProviderModelAliases } from '../runtime-metadata-sync';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
 import type {
@@ -169,7 +168,7 @@ export async function createSessionImpl(
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
       applicationSid: opts.resume ?? tempKey,
-      providerModelAliases: extractProviderModelAliases(opts.envOverrideExtra),
+      providerModelAliases: opts.providerModelAliases,
     });
     internalForCleanup = internal;
 
@@ -190,9 +189,9 @@ export async function createSessionImpl(
 
     const userMessageIterable = deps.streamProcessor.createUserMessageStream(internal, tempKey);
 
-    // 鉴权 / 模型映射 / 代理地址等都来自 ~/.claude/settings.json 的 env 字段，
-    // 由 main bootstrap 阶段的 applyClaudeSettingsEnv() 注入到 process.env，
-    // SDK spawn 的 CLI 子进程会继承，与终端 `claude` 用同一套配置。
+    // Native Claude may inherit its ordinary runtime environment. A selected Gateway profile,
+    // however, is isolated to this SDK query through opts.settingsPath → options.settings;
+    // never mutate process.env to switch one session's Gateway.
 
     // CHANGELOG_52 Step 3c：canUseTool 巨型 callback (~275 行) 抽到 sdk-bridge/can-use-tool.ts。
     // class state 通过 deps 注入（internal / sessionId getter / emit / 超时阈值 / responder ref）。
@@ -249,6 +248,7 @@ export async function createSessionImpl(
         cwd: opts.cwd,
         prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
+        runtimeProvider: opts.provider,
         claudeModel: internal.runtimeModel ?? claudeModel,
         claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
@@ -272,6 +272,7 @@ export async function createSessionImpl(
             cwd: opts.cwd,
             prompt: initialTurn.persistedUserText,
             claudeSandboxMode,
+            runtimeProvider: opts.provider,
             claudeModel: internal.runtimeModel ?? claudeModel,
             claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
             extraAllowWrite: opts.extraAllowWrite,
@@ -339,6 +340,7 @@ export async function createSessionImpl(
         cwd: opts.cwd,
         prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
+        runtimeProvider: opts.provider,
         claudeModel: internal.runtimeModel ?? claudeModel,
         claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,

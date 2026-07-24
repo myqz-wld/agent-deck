@@ -106,12 +106,12 @@ export function SessionList(): JSX.Element {
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">还没有会话</div>
         <div className="text-[10px] leading-relaxed">
-          点击右上角的 + 即可创建 Claude、Codex 或 Deepseek 会话。
+          点击右上角的 + 即可创建 Claude、Codex 或 Grok 会话；Claude 可选择 Gateway。
           <br />
           <details className="mt-1 inline-block text-left">
             <summary className="cursor-pointer text-deck-muted/70 hover:text-deck-text/85">也可接入终端会话</summary>
             <div className="mt-1 pl-2 text-deck-muted/70">
-              在设置中安装 Hook 后，终端里的 <code className="rounded bg-white/5 px-1">claude</code> 或 <code className="rounded bg-white/5 px-1">codex</code> 会话也会显示在这里。
+              在设置中安装 Hook 后，终端里的 <code className="rounded bg-white/5 px-1">claude</code>、<code className="rounded bg-white/5 px-1">codex</code> 或 <code className="rounded bg-white/5 px-1">grok</code> 会话也会显示在这里。
             </div>
           </details>
         </div>

@@ -68,6 +68,8 @@ export interface CodexJsonlFallbackOpts {
   captureError?: unknown;
   /** rec.codexSandbox ?? undefined (显式透传防静默降默认) */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /** rec.runtimeProvider ?? undefined; fresh fallback must retain model_provider. */
+  provider?: string;
   /** rec.model ?? undefined (Codex runtime v0.131.0+ per-thread override) */
   model?: string;
   /** rec.thinking when it is a valid Codex reasoning level. */
@@ -182,6 +184,7 @@ export async function maybeCodexJsonlFallback(
     resume: opts.sessionId,
     // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
     resumeMode: 'fresh-cli-reuse-app',
+    provider: opts.provider,
     codexSandbox: opts.codexSandbox,
     model: toCodexModelOverride(opts.model),
     modelReasoningEffort: opts.modelReasoningEffort,

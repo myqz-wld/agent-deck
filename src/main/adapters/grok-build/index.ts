@@ -7,9 +7,12 @@ import type {
 } from '../types';
 import type {
   AdapterSessionMode,
+  AgentEvent,
   PermissionResponse,
+  ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
+import { unavailableUsageSnapshot } from '../provider-usage';
 import { settingsStore } from '@main/store/settings-store';
 import log from '@main/utils/logger';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
@@ -20,6 +23,9 @@ import {
   loadGrokBaselinePrompt,
   prepareGrokPluginProfile,
 } from './resources';
+import { summariseGrokSessionViaOneshot } from './summarizer-runner';
+import { buildGrokHookRoutes } from './hook-routes';
+import { GrokHookInstaller } from './hook-installer';
 
 const ADAPTER_ID = 'grok-build';
 const logger = log.scope('grok-build-adapter');
@@ -30,8 +36,17 @@ export class GrokBuildAdapter implements AgentAdapter {
   capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };
 
   private bridge: GrokBuildBridge | null = null;
+  private installer: GrokHookInstaller | null = null;
 
   async init(ctx: AdapterContext): Promise<void> {
+    this.installer = new GrokHookInstaller(
+      ctx.hookServer.listeningPort,
+      ctx.hookServer.bearerToken,
+    );
+    for (const route of buildGrokHookRoutes(ctx.emit)) {
+      ctx.routeRegistry.registerForAdapter(this.id, route);
+    }
+
     this.bridge = new GrokBuildBridge({
       emit: ctx.emit,
       mcpHttpUrl: `http://127.0.0.1:${ctx.hookServer.listeningPort}/mcp`,
@@ -73,6 +88,7 @@ export class GrokBuildAdapter implements AgentAdapter {
   async shutdown(): Promise<void> {
     await this.bridge?.shutdown();
     this.bridge = null;
+    this.installer = null;
   }
 
   async createSession(
@@ -179,7 +195,7 @@ export class GrokBuildAdapter implements AgentAdapter {
 
   async setSessionModelOptions(
     sessionId: string,
-    options: { model: string | null; thinking: string | null },
+    options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
     if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
     await this.bridge.setSessionModelOptions(sessionId, options);
@@ -214,6 +230,54 @@ export class GrokBuildAdapter implements AgentAdapter {
 
   setGrokCliPath(path: string | null): void {
     this.bridge?.setBinaryPath(path);
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    if (!this.bridge) {
+      return unavailableUsageSnapshot(
+        'grok-build',
+        'Grok',
+        'Grok 暂时无法读取额度信息',
+      );
+    }
+    return this.bridge.getUsageSnapshot();
+  }
+
+  async installIntegration(opts: {
+    scope: 'user' | 'project';
+    cwd?: string;
+  }): Promise<unknown> {
+    if (!this.installer) throw new Error('Grok Build adapter is not initialized.');
+    return this.installer.install(opts);
+  }
+
+  async uninstallIntegration(opts: {
+    scope: 'user' | 'project';
+    cwd?: string;
+  }): Promise<unknown> {
+    if (!this.installer) throw new Error('Grok Build adapter is not initialized.');
+    return this.installer.uninstall(opts);
+  }
+
+  async integrationStatus(opts: {
+    scope: 'user' | 'project';
+    cwd?: string;
+  }): Promise<unknown> {
+    if (!this.installer) throw new Error('Grok Build adapter is not initialized.');
+    return this.installer.status(opts);
+  }
+
+  /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
+  async summariseEvents(
+    cwd: string,
+    events: AgentEvent[],
+    evidenceContext?: string,
+    runtime?: { provider?: string; model?: string; thinking?: string },
+  ): Promise<string | null> {
+    if (runtime?.provider) {
+      throw new Error('grok-build does not support a separate runtime provider');
+    }
+    return summariseGrokSessionViaOneshot(cwd, events, evidenceContext, runtime);
   }
 }
 

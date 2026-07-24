@@ -21,6 +21,7 @@ type SpawnAssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
 export type ResolvedSpawnAgent =
   | {
       ok: true;
+      provider?: string;
       developerInstructions?: string;
       model?: string;
       modelReasoningEffort?: SpawnCodexReasoningEffort;
@@ -37,7 +38,6 @@ export type ResolvedSpawnAgent =
 function assetAdapterForSpawn(
   adapter: SpawnSessionArgs['adapter'],
 ): SpawnAssetAdapter | null {
-  if (adapter === 'deepseek-claude-code') return 'claude-code';
   if (
     adapter === 'claude-code' ||
     adapter === 'codex-cli' ||
@@ -58,7 +58,7 @@ export function resolveSpawnAgent(
     return {
       ok: false,
       error: `agentName not supported for adapter "${adapter}"`,
-      hint: 'Drop agentName and pass full prompt directly, or use a supported adapter: claude-code, deepseek-claude-code, codex-cli, or grok-build.',
+      hint: 'Drop agentName and pass full prompt directly, or use a supported adapter: claude-code, codex-cli, or grok-build.',
     };
   }
 
@@ -124,11 +124,13 @@ function resolveClaudeSpawnAgent(
       ? getBundledAgentRuntimeOverride('claude-code', resolved.agent.name)
       : {};
   const model = override.model ?? resolved.agent.model;
+  const provider = override.provider ?? resolved.agent.provider;
   const effort =
     (override.thinking as SpawnClaudeCodeEffortLevel | undefined) ??
     resolved.agent.effortLevel;
   return {
     ok: true,
+    provider,
     model,
     claudeAgentName: resolved.agent.name,
     claudeAgents: {
@@ -152,15 +154,20 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
       ? getBundledAgentRuntimeOverride('codex-cli', resolved.agent.name)
       : {};
   const model = override.model ?? resolved.agent.model;
+  const provider =
+    override.provider ??
+    (typeof resolved.agent.config.model_provider === 'string'
+      ? resolved.agent.config.model_provider.trim() || undefined
+      : undefined);
   const effort =
     (override.thinking as SpawnCodexReasoningEffort | undefined) ??
     resolved.agent.modelReasoningEffort;
   const config: CodexConfigObject = {
     ...(resolved.agent.config as CodexConfigObject),
   };
-  if (override.provider) config.model_provider = override.provider;
   return {
     ok: true,
+    provider,
     developerInstructions: buildCodexCustomAgentInstructions(resolved.agent),
     model,
     modelReasoningEffort: effort,

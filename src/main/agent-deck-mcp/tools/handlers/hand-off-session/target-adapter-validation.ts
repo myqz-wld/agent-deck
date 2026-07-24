@@ -9,7 +9,7 @@ export function validateHandOffTargetAdapter(
   if (!adapter?.createSession || !adapter.capabilities.canCreateSession) {
     return {
       error: `adapter "${adapterId}" does not support session creation`,
-      hint: 'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, codex-cli, or grok-build.',
+      hint: 'Choose an enabled adapter with session-creation capability: claude-code, codex-cli, or grok-build.',
     };
   }
   if (!adapter.createTrustedContinuationSession) {

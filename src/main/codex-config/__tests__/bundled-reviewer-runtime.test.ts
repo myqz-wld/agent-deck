@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import reviewerClaude from '../../../../resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md?raw';
-import reviewerDeepseek from '../../../../resources/claude-config/agent-deck-plugin/agents/reviewer-deepseek.md?raw';
 import reviewerCodex from '../../../../resources/codex-config/agent-deck-plugin/agents/reviewer-codex.toml?raw';
 import codexSimpleReview from '../../../../resources/codex-config/agent-deck-plugin/skills/simple-review/SKILL.md?raw';
 import codexDeepReview from '../../../../resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md?raw';
@@ -25,18 +24,12 @@ describe('bundled reviewer runtime contract', () => {
 
   it('keeps the intentional model and effort settings for all actual reviewer assets', () => {
     const claude = parseFrontmatter(reviewerClaude);
-    const deepseek = parseFrontmatter(reviewerDeepseek);
     const codex = parseCodexAgentToml(reviewerCodex);
 
     expect(claude.name).toBe('reviewer-claude');
     expect(claude.model).toBe('opus');
     expect(claude.effort).toBe('xhigh');
     expect(String(claude.tools)).toContain('Read');
-
-    expect(deepseek.name).toBe('reviewer-deepseek');
-    expect(deepseek.model).toBe('deepseek-v4-pro[1m]');
-    expect(deepseek.effort).toBe('max');
-    expect(String(deepseek.tools)).toContain('Bash');
 
     expect(codex.name).toBe('reviewer-codex');
     expect(codex.model).toBe('gpt-5.6-sol');
@@ -47,7 +40,7 @@ describe('bundled reviewer runtime contract', () => {
   it('loads every actual reviewer body with the same evidence and safety contract', () => {
     const codexInstructions = parseCodexAgentToml(reviewerCodex).developerInstructions ?? '';
 
-    for (const reviewer of [reviewerClaude, reviewerDeepseek, codexInstructions]) {
+    for (const reviewer of [reviewerClaude, codexInstructions]) {
       expect(reviewer).toContain('Coverage: COMPLETE | INCOMPLETE');
       expect(reviewer).toContain('finding_id');
       expect(reviewer).toContain('finding_id_prefix');
@@ -72,8 +65,6 @@ describe('bundled reviewer runtime contract', () => {
   it('preserves adapter-specific reviewer identity and execution wording', () => {
     expect(reviewerClaude).toContain("adapter:'claude-code'");
     expect(reviewerClaude).toContain('/reviewer-claude/');
-    expect(reviewerDeepseek).toContain("adapter:'deepseek-claude-code'");
-    expect(reviewerDeepseek).toContain('/reviewer-deepseek/');
 
     const codexInstructions = parseCodexAgentToml(reviewerCodex).developerInstructions ?? '';
     expect(codexInstructions).toContain("adapter:'codex-cli'");

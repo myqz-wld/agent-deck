@@ -229,8 +229,8 @@ describe('Codex summary runner reasoning settings', () => {
 
   it('runs periodic summary only inside the explicitly relaxed hardened boundary', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('summaryReasoning');
-    settingsStore.set('summaryReasoning', 'max');
+    const previous = settingsStore.get('summaryThinking');
+    settingsStore.set('summaryThinking', 'max');
     try {
       const { summariseCodexSessionViaOneshot } = await import('../summarizer-runner');
       await expect(
@@ -264,7 +264,7 @@ describe('Codex summary runner reasoning settings', () => {
       expect(Object.keys(features).length).toBeGreaterThan(0);
       expect(Object.values(features).every((value) => value === false)).toBe(true);
     } finally {
-      settingsStore.set('summaryReasoning', previous);
+      settingsStore.set('summaryThinking', previous);
     }
   });
 });

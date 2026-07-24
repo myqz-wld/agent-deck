@@ -6,28 +6,56 @@ import {
   MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type AppSettings,
-  type ContinuationCheckpointProvider,
+  type GeneratorAdapterId,
 } from '@shared/types';
-import { isClaudeThinkingLevel, isCodexThinkingLevel } from '@shared/session-metadata';
+import {
+  isClaudeThinkingLevel,
+  isCodexThinkingLevel,
+  isGrokThinkingLevel,
+} from '@shared/session-metadata';
 import { IpcInputError } from './_helpers';
+import { CLAUDE_GATEWAY_PROFILE_ID_PATTERN } from '@main/adapters/claude-code/gateway-profiles';
 
-const GENERATOR_PROVIDERS: readonly ContinuationCheckpointProvider[] = [
-  'claude',
-  'deepseek',
-  'codex',
+const GENERATOR_ADAPTERS: readonly GeneratorAdapterId[] = [
+  'claude-code',
+  'codex-cli',
+  'grok-build',
 ];
 
-function isGeneratorProvider(value: unknown): value is ContinuationCheckpointProvider {
-  return GENERATOR_PROVIDERS.includes(value as ContinuationCheckpointProvider);
+function isGeneratorAdapter(value: unknown): value is GeneratorAdapterId {
+  return GENERATOR_ADAPTERS.includes(value as GeneratorAdapterId);
 }
 
 function isValidGeneratorThinking(
-  provider: ContinuationCheckpointProvider,
+  adapter: GeneratorAdapterId,
   thinking: unknown,
 ): boolean {
-  return provider === 'codex'
-    ? isCodexThinkingLevel(thinking)
-    : isClaudeThinkingLevel(thinking);
+  if (adapter === 'codex-cli') return isCodexThinkingLevel(thinking);
+  if (adapter === 'grok-build') return isGrokThinkingLevel(thinking);
+  return isClaudeThinkingLevel(thinking);
+}
+
+function assertRuntimeProvider(
+  field: string,
+  adapter: GeneratorAdapterId,
+  value: unknown,
+): void {
+  if (typeof value !== 'string') {
+    throw new IpcInputError(field, 'must be string');
+  }
+  if (value.length > 128 || /[\r\n\u0000-\u001f\u007f]/.test(value)) {
+    throw new IpcInputError(field, 'must be a printable string of at most 128 characters');
+  }
+  if (adapter === 'grok-build' && value.trim()) {
+    throw new IpcInputError(field, 'must be empty for grok-build');
+  }
+  if (
+    adapter === 'claude-code' &&
+    value.trim() &&
+    !CLAUDE_GATEWAY_PROFILE_ID_PATTERN.test(value.trim())
+  ) {
+    throw new IpcInputError(field, 'must be a safe Claude Gateway profile id');
+  }
 }
 
 /** Validate the summary and continuation-generator portion of an untrusted settings patch. */
@@ -48,21 +76,30 @@ export function validateContinuationAndSummarySettingsPatch(
     }
   }
 
-  if ('summaryProvider' in patch || 'summaryReasoning' in patch) {
-    const provider =
-      'summaryProvider' in patch ? patch.summaryProvider : current.summaryProvider;
-    if (!isGeneratorProvider(provider)) {
+  if (
+    'summaryAdapter' in patch ||
+    'summaryRuntimeProvider' in patch ||
+    'summaryThinking' in patch
+  ) {
+    const adapter =
+      'summaryAdapter' in patch ? patch.summaryAdapter : current.summaryAdapter;
+    if (!isGeneratorAdapter(adapter)) {
       throw new IpcInputError(
-        'summaryProvider',
-        `must be one of ${GENERATOR_PROVIDERS.join('|')}`,
+        'summaryAdapter',
+        `must be one of ${GENERATOR_ADAPTERS.join('|')}`,
       );
     }
+    const runtimeProvider =
+      'summaryRuntimeProvider' in patch
+        ? patch.summaryRuntimeProvider
+        : current.summaryRuntimeProvider;
+    assertRuntimeProvider('summaryRuntimeProvider', adapter, runtimeProvider);
     const thinking =
-      'summaryReasoning' in patch ? patch.summaryReasoning : current.summaryReasoning;
-    if (!isValidGeneratorThinking(provider, thinking)) {
+      'summaryThinking' in patch ? patch.summaryThinking : current.summaryThinking;
+    if (!isValidGeneratorThinking(adapter, thinking)) {
       throw new IpcInputError(
-        'summaryReasoning',
-        `incompatible with provider ${String(provider)}`,
+        'summaryThinking',
+        `incompatible with adapter ${String(adapter)}`,
       );
     }
   }
@@ -72,16 +109,25 @@ export function validateContinuationAndSummarySettingsPatch(
   );
   if (!continuationChanged) return;
 
-  const provider =
-    'continuationCheckpointProvider' in patch
-      ? patch.continuationCheckpointProvider
-      : current.continuationCheckpointProvider;
-  if (!isGeneratorProvider(provider)) {
+  const adapter =
+    'continuationCheckpointAdapter' in patch
+      ? patch.continuationCheckpointAdapter
+      : current.continuationCheckpointAdapter;
+  if (!isGeneratorAdapter(adapter)) {
     throw new IpcInputError(
-      'continuationCheckpointProvider',
-      `must be one of ${GENERATOR_PROVIDERS.join('|')}`,
+      'continuationCheckpointAdapter',
+      `must be one of ${GENERATOR_ADAPTERS.join('|')}`,
     );
   }
+  const runtimeProvider =
+    'continuationCheckpointRuntimeProvider' in patch
+      ? patch.continuationCheckpointRuntimeProvider
+      : current.continuationCheckpointRuntimeProvider;
+  assertRuntimeProvider(
+    'continuationCheckpointRuntimeProvider',
+    adapter,
+    runtimeProvider,
+  );
   if ('continuationCheckpointModel' in patch) {
     if (typeof patch.continuationCheckpointModel !== 'string') {
       throw new IpcInputError('continuationCheckpointModel', 'must be string');
@@ -128,10 +174,10 @@ export function validateContinuationAndSummarySettingsPatch(
     'continuationCheckpointThinking' in patch
       ? patch.continuationCheckpointThinking
       : current.continuationCheckpointThinking;
-  if (!isValidGeneratorThinking(provider, thinking)) {
+  if (!isValidGeneratorThinking(adapter, thinking)) {
     throw new IpcInputError(
       'continuationCheckpointThinking',
-      `incompatible with provider ${String(provider)}`,
+      `incompatible with adapter ${String(adapter)}`,
     );
   }
   if ('continuationRawRetentionTokens' in patch) {

@@ -1,24 +1,35 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import type { CodexModelProviderOption } from '@shared/types';
 import { ChevronDownIcon } from '../icons';
+
+interface ProviderOption {
+  id: string;
+  name?: string;
+}
 
 interface Props {
   value: string;
-  options: readonly CodexModelProviderOption[];
+  options: readonly ProviderOption[];
   disabled?: boolean;
+  ariaLabel?: string;
+  placeholder?: string;
+  emptyMessage?: string;
   onChange: (value: string) => void;
 }
 
 /**
- * App-styled free-text combobox for Codex provider ids.
+ * App-styled free-text combobox for Claude Gateway and Codex model_provider ids.
  *
  * DeckSelect intentionally accepts only a closed value set. Provider ids are user-defined in
- * config.toml, so this keeps free-text input while replacing the browser-native datalist popup.
+ * the provider's config, so this keeps free-text input while replacing the browser-native
+ * datalist popup.
  */
 export function ProviderCombobox({
   value,
   options,
   disabled = false,
+  ariaLabel = 'provider',
+  placeholder = '留空则跟随 adapter 原生配置',
+  emptyMessage = '没有匹配项，可直接输入自定义 provider',
   onChange,
 }: Props): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -43,7 +54,7 @@ export function ProviderCombobox({
     return () => document.removeEventListener('mousedown', closeOutside);
   }, [open]);
 
-  const choose = (option: CodexModelProviderOption): void => {
+  const choose = (option: ProviderOption): void => {
     onChange(option.id);
     setOpen(false);
   };
@@ -52,7 +63,7 @@ export function ProviderCombobox({
     <div ref={rootRef} className="relative">
       <input
         role="combobox"
-        aria-label="provider"
+        aria-label={ariaLabel}
         aria-autocomplete="list"
         aria-expanded={open}
         value={value}
@@ -81,7 +92,7 @@ export function ProviderCombobox({
           }
         }}
         disabled={disabled}
-        placeholder="留空则跟随 Codex 原生配置"
+        placeholder={placeholder}
         className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 pr-7 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
       />
       <button
@@ -104,7 +115,7 @@ export function ProviderCombobox({
         >
           {filtered.length === 0 ? (
             <div className="px-2 py-1.5 text-deck-muted/70">
-              没有匹配项，可直接输入自定义 provider
+              {emptyMessage}
             </div>
           ) : (
             filtered.map((option, index) => (

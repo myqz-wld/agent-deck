@@ -19,13 +19,15 @@ vi.mock('../store/agent-deck-team-repo', () => ({
 import { parseCliInvocation } from '../cli';
 
 describe('agent-deck new model options', () => {
-  it('parses a free-form model and thinking flag for the lead session', () => {
+  it('parses provider, free-form model, and thinking for the lead session', () => {
     expect(
       parseCliInvocation([
         '/Applications/Agent Deck',
         'new',
         '--adapter',
         'codex',
+        '--provider',
+        'fable',
         '--model',
         'provider/custom-model',
         '--thinking',
@@ -34,8 +36,23 @@ describe('agent-deck new model options', () => {
     ).toMatchObject({
       kind: 'new-session',
       agent: 'codex-cli',
+      provider: 'fable',
       model: 'provider/custom-model',
       thinking: 'ultra',
+    });
+  });
+
+  it('does not alias the retired Deepseek adapter name', () => {
+    expect(
+      parseCliInvocation([
+        '/Applications/Agent Deck',
+        'new',
+        '--adapter',
+        'deepseek',
+      ]),
+    ).toMatchObject({
+      kind: 'new-session',
+      agent: 'deepseek',
     });
   });
 

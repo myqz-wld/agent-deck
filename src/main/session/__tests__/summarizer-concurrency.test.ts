@@ -74,7 +74,9 @@ vi.mock('@main/store/settings-store', () => ({
       if (key === 'summaryIntervalMs') return 300_000;
       if (key === 'summaryEventCount') return 1;
       if (key === 'summaryMaxConcurrent') return 2;
-      if (key === 'summaryProvider') return 'claude';
+      if (key === 'summaryAdapter') return 'claude-code';
+      if (key === 'summaryRuntimeProvider' || key === 'summaryModel') return '';
+      if (key === 'summaryThinking') return 'low';
       return undefined;
     }),
   },

@@ -101,6 +101,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       endedAt: null,
       archivedAt: null,
       permissionMode: 'plan',
+      runtimeProvider: 'deepseek',
     });
 
     await bridge.sendMessage('sess-1', 'hi');
@@ -122,6 +123,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       cwd: '/tmp/work',
       prompt: 'hi',
       resume: 'sess-1',
+      provider: 'deepseek',
       permissionMode: 'plan',
       // REVIEW_36 HIGH-1: 正常 resume 路径也透传（fixture 中 record 没设字段，undefined）
       claudeCodeSandbox: undefined,
@@ -304,6 +306,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       endedAt: 3,
       archivedAt: null,
       permissionMode: 'acceptEdits',
+      runtimeProvider: 'deepseek',
     });
 
     await bridge.sendMessage('sess-no-jsonl', 'hi');
@@ -317,6 +320,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       prompt: undefined,
       resume: 'sess-no-jsonl',
       resumeMode: 'fresh-cli-reuse-app',
+      provider: 'deepseek',
       permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原
       // REVIEW_36 HIGH-1: claudeCodeSandbox 也透传（fixture 中 record 没设此字段，应为 undefined）
       claudeCodeSandbox: undefined,

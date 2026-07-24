@@ -1,8 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 
 const harness = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
+  profiles: {} as Record<string, {
+    id: string;
+    settingsPath: string;
+    modelAliases: {
+      fable?: string;
+      opus?: string;
+      sonnet?: string;
+      haiku?: string;
+    };
+  }>,
   runClaudeOneshot: vi.fn(async () => 'periodic summary'),
 }));
 
@@ -16,6 +26,11 @@ vi.mock('@main/session/oneshot-llm', () => ({
   buildSummarizeSystemPrompt: vi.fn(() => 'system'),
   cleanCompactResult: vi.fn((value: string | null) => value),
   runClaudeOneshot: harness.runClaudeOneshot,
+}));
+vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
+  resolveClaudeGatewayProfile: vi.fn((provider?: string) =>
+    provider ? harness.profiles[provider] ?? null : null,
+  ),
 }));
 
 import { summariseViaLlm } from '../llm-runners';
@@ -31,41 +46,56 @@ const events = [
 
 describe('periodic summary blank-model defaults', () => {
   beforeEach(() => {
+    vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', '');
     harness.values.summaryModel = '';
-    harness.values.summaryReasoning = 'invalid';
+    harness.values.summaryThinking = 'invalid';
     harness.values.summaryTimeoutMs = 10_000;
+    harness.profiles = {};
     harness.runClaudeOneshot.mockClear();
   });
 
-  it.each([
-    ['Claude', 'claude-haiku-from-env'],
-    ['Deepseek', 'deepseek-haiku-from-env'],
-  ] as const)('uses the %s provider-specific env default with low effort', async (agentName, model) => {
-    await summariseViaLlm('/repo', events, {
-      agentName,
-      envOverride: {
-        ANTHROPIC_DEFAULT_HAIKU_MODEL:
-          agentName === 'Deepseek' ? 'deepseek-haiku-from-env' : 'claude-haiku-from-env',
-        ANTHROPIC_DEFAULT_SONNET_MODEL: 'must-not-be-used',
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('uses the selected Gateway Haiku alias and settings file with low effort', async () => {
+    harness.profiles.deepseek = {
+      id: 'deepseek',
+      settingsPath: '/home/test/.claude/gateways/deepseek.json',
+      modelAliases: {
+        haiku: 'deepseek-v4-flash',
+        sonnet: 'must-not-be-used',
       },
+    };
+    await summariseViaLlm('/repo', events, {
+      runtimeProvider: 'deepseek',
     });
 
     expect(harness.runClaudeOneshot).toHaveBeenCalledWith(
-      expect.objectContaining({ model, effort: 'low' }),
+      expect.objectContaining({
+        model: 'deepseek-v4-flash',
+        effort: 'low',
+        settingsPath: '/home/test/.claude/gateways/deepseek.json',
+      }),
     );
   });
 
-  it('falls back to the Haiku alias for a blank Deepseek model', async () => {
+  it('falls back to the Haiku alias when a Gateway does not define one', async () => {
+    harness.profiles.openrouter = {
+      id: 'openrouter',
+      settingsPath: '/home/test/.claude/gateways/openrouter.json',
+      modelAliases: {},
+    };
     await summariseViaLlm('/repo', events, {
-      agentName: 'Deepseek',
-      envOverride: {
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: '',
-        ANTHROPIC_DEFAULT_SONNET_MODEL: 'must-not-be-used',
-      },
+      runtimeProvider: 'openrouter',
     });
 
     expect(harness.runClaudeOneshot).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'haiku', effort: 'low' }),
+      expect.objectContaining({
+        model: 'haiku',
+        effort: 'low',
+        settingsPath: '/home/test/.claude/gateways/openrouter.json',
+      }),
     );
   });
 });

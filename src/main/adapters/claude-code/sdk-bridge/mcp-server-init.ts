@@ -44,7 +44,7 @@ type McpServerConfig = Awaited<ReturnType<typeof getAgentDeckMcpServerForSession
  */
 export async function buildMcpServersForSession(
   internal: InternalSession,
-  adapterId: Extract<SessionAdapterId, 'claude-code' | 'deepseek-claude-code'>,
+  adapterId: Extract<SessionAdapterId, 'claude-code'>,
 ): Promise<{
   agentDeckMcpServer: McpServerConfig | null;
 }> {

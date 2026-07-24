@@ -19,7 +19,7 @@ export function validateSpawnRuntimeControls(
       hint:
         args.adapter === 'grok-build'
           ? 'Remove permissionMode. Grok ACP work modes (default, plan, ask) are distinct from Claude permission modes.'
-          : 'Remove permissionMode or choose claude-code / deepseek-claude-code.',
+          : 'Remove permissionMode or choose claude-code.',
     };
   }
   if (args.sessionMode !== undefined && !capabilities.canSetSessionMode) {

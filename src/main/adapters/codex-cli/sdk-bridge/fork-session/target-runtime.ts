@@ -62,6 +62,7 @@ export function resolveCodexForkTargetRuntime(
       workingDirectory: cwd,
       sandboxMode,
       approvalPolicy: opts.approvalPolicy,
+      provider: opts.provider,
       model: opts.model,
       modelReasoningEffort: reasoning.threadValue,
       developerInstructions: effectiveDeveloperInstructions,

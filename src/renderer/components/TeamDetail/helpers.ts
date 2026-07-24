@@ -51,14 +51,12 @@ export function roleLabel(role: string | null | undefined): string {
   }
 }
 
-/** agentId → 中文显示标签（claude-code → Claude / deepseek-claude-code → Deepseek / codex-cli → Codex / null → 未知）。
+/** agentId → 中文显示标签（claude-code → Claude / codex-cli → Codex / null → 未知）。
  *  统一让会话列表 / 团队成员等所有 user-visible 位置不再露出 raw adapter id。 */
 export function agentIdLabel(agentId: string | null | undefined): string {
   switch (agentId) {
     case 'claude-code':
       return 'Claude';
-    case 'deepseek-claude-code':
-      return 'Deepseek';
     case 'codex-cli':
       return 'Codex';
     case 'grok-build':

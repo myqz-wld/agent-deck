@@ -41,6 +41,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [claudeHookStatus, setClaudeHookStatus] = useState<HookInstallStatus | null>(null);
   const [codexHookStatus, setCodexHookStatus] = useState<HookInstallStatus | null>(null);
+  const [grokHookStatus, setGrokHookStatus] = useState<HookInstallStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** CHANGELOG_160 后续扩为四 tab（通用 / Claude Code / Codex CLI / Grok Build）。
@@ -107,6 +108,20 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
             `Codex Hook 状态读取失败：${errorMessage(err)}`,
         );
       });
+    void window.api
+      .hookStatus('user', undefined, 'grok-build')
+      .then((s) => {
+        if (seq !== openSeqRef.current) return;
+        setGrokHookStatus(s as HookInstallStatus);
+      })
+      .catch((err: unknown) => {
+        if (seq !== openSeqRef.current) return;
+        setLoadError(
+          (prev) =>
+            (prev ? prev + '\n' : '') +
+            `Grok Hook 状态读取失败：${errorMessage(err)}`,
+        );
+      });
   }, [open]);
 
   if (!open) return null;
@@ -129,26 +144,30 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     }
   };
 
-  const installHook = async (adapterId: 'claude-code' | 'codex-cli'): Promise<void> => {
+  type HookAdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
+  const setHookStatus = (adapterId: HookAdapterId, status: HookInstallStatus): void => {
+    if (adapterId === 'claude-code') setClaudeHookStatus(status);
+    else if (adapterId === 'codex-cli') setCodexHookStatus(status);
+    else setGrokHookStatus(status);
+  };
+  const installHook = async (adapterId: HookAdapterId): Promise<void> => {
     setBusy(true);
     setActionError(null);
     try {
       const r = (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus;
-      if (adapterId === 'codex-cli') setCodexHookStatus(r);
-      else setClaudeHookStatus(r);
+      setHookStatus(adapterId, r);
     } catch (err) {
       setActionError(`安装 hook 失败：${(err as Error).message ?? String(err)}`);
     } finally {
       setBusy(false);
     }
   };
-  const uninstallHook = async (adapterId: 'claude-code' | 'codex-cli'): Promise<void> => {
+  const uninstallHook = async (adapterId: HookAdapterId): Promise<void> => {
     setBusy(true);
     setActionError(null);
     try {
       const r = (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus;
-      if (adapterId === 'codex-cli') setCodexHookStatus(r);
-      else setClaudeHookStatus(r);
+      setHookStatus(adapterId, r);
     } catch (err) {
       setActionError(`卸载 hook 失败：${(err as Error).message ?? String(err)}`);
     } finally {
@@ -278,6 +297,15 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
 
             {activeTab === 'grok' && (
               <SectionGroup title="Grok Build 配置">
+                <HookSection
+                  title="Grok Build 终端 Hook"
+                  storageKey="hook-grok"
+                  installLabel="安装到 ~/.grok/hooks/agent-deck.json"
+                  hookStatus={grokHookStatus}
+                  busy={busy}
+                  installHook={() => installHook('grok-build')}
+                  uninstallHook={() => uninstallHook('grok-build')}
+                />
                 <GrokAuthenticationSection />
                 <AdapterConfigHelp adapter="grok" />
               </SectionGroup>

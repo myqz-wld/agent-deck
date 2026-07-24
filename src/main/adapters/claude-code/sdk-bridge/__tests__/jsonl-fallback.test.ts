@@ -134,6 +134,7 @@ function recoverOpts(overrides: Partial<JsonlFallbackOpts> = {}): JsonlFallbackO
     prompt: '继续之前的话题',
     recoveryCapture: capture,
     minHealJsonlMtimeMs: 1_000,
+    provider: 'deepseek',
     emitContext: 'recover',
     cwdFellBack: false,
     ...overrides,
@@ -182,6 +183,7 @@ describe('maybeJsonlFallback unified continuation recovery', () => {
       cwd: '/tmp/test',
       resume: 'app-sid-A',
       resumeMode: 'fresh-cli-reuse-app',
+      provider: 'deepseek',
     });
     expect(createOptions.prompt).toBeUndefined();
     expect(createOptions.resumeCliSid).toBeUndefined();

@@ -25,6 +25,22 @@ export interface CodexAccountRateLimitsResponseLike {
   rateLimitsByLimitId?: Record<string, CodexRateLimitSnapshotLike | undefined> | null;
 }
 
+export interface GrokBillingResponseLike {
+  config?: {
+    creditUsagePercent?: number | null;
+    currentPeriod?: {
+      type?: string | null;
+      start?: string | null;
+      end?: string | null;
+    } | null;
+    monthlyLimit?: { val?: number | null } | null;
+    used?: { val?: number | null } | null;
+    billingPeriodStart?: string | null;
+    billingPeriodEnd?: string | null;
+  } | null;
+  subscription_tier?: string | null;
+}
+
 type ClaudeRateLimitWindow =
   NonNullable<NonNullable<SDKControlGetUsageResponse['rate_limits']>['five_hour']>;
 
@@ -179,6 +195,63 @@ export function buildCodexUsageSnapshot(
   );
 }
 
+export function buildGrokUsageSnapshot(
+  response: GrokBillingResponseLike,
+  updatedAt = Date.now(),
+): ProviderUsageSnapshot {
+  const config = response.config;
+  if (!config) {
+    return unavailableUsageSnapshot(
+      'grok-build',
+      'Grok',
+      'Grok 暂未返回账户额度信息',
+      updatedAt,
+    );
+  }
+
+  const periodType = config.currentPeriod?.type?.toUpperCase() ?? '';
+  const periodStart =
+    normalizeIsoDate(config.currentPeriod?.start) ??
+    normalizeIsoDate(config.billingPeriodStart);
+  const periodEnd =
+    normalizeIsoDate(config.currentPeriod?.end) ??
+    normalizeIsoDate(config.billingPeriodEnd);
+  const usedPercent =
+    normalizePercent(config.creditUsagePercent) ??
+    percentFromAmounts(config.used?.val, config.monthlyLimit?.val);
+  if (usedPercent === null && periodEnd === null) {
+    return unavailableUsageSnapshot(
+      'grok-build',
+      'Grok',
+      'Grok 暂未返回可展示的额度信息',
+      updatedAt,
+    );
+  }
+
+  const weekly = periodType.includes('WEEK');
+  return usageSnapshot(
+    {
+      provider: 'grok-build',
+      label: 'Grok',
+      status: 'ok',
+      updatedAt,
+    },
+    [
+      {
+        id: weekly ? 'weekly' : 'current',
+        label: weekly
+          ? '周用量'
+          : periodType.includes('MONTH')
+            ? '月用量'
+            : '当前周期',
+        usedPercent,
+        resetsAt: periodEnd,
+        windowMinutes: minutesBetween(periodStart, periodEnd),
+      },
+    ],
+  );
+}
+
 export function formatErrorMessage(err: unknown): string {
   void err;
   return '额度信息读取失败，请稍后重试';
@@ -233,6 +306,31 @@ function normalizePercent(value: number | null | undefined): number | null {
 function normalizeWindowMinutes(value: number | null | undefined): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
   return value;
+}
+
+function percentFromAmounts(
+  used: number | null | undefined,
+  limit: number | null | undefined,
+): number | null {
+  if (
+    typeof used !== 'number' ||
+    !Number.isFinite(used) ||
+    typeof limit !== 'number' ||
+    !Number.isFinite(limit) ||
+    limit <= 0
+  ) {
+    return null;
+  }
+  return (used / limit) * 100;
+}
+
+function minutesBetween(
+  start: string | null,
+  end: string | null,
+): number | null {
+  if (!start || !end) return null;
+  const duration = new Date(end).getTime() - new Date(start).getTime();
+  return duration > 0 && Number.isFinite(duration) ? duration / 60_000 : null;
 }
 
 function normalizeIsoDate(value: string | null | undefined): string | null {

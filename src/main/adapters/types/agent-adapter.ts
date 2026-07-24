@@ -18,6 +18,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
   ProviderUsageSnapshot,
+  RuntimeSelection,
   AdapterSessionMode,
   UploadedAttachmentRef,
 } from '@shared/types';
@@ -133,10 +134,10 @@ export interface AgentAdapter {
   ): Promise<void>;
   setPermissionMode?(sessionId: string, mode: PermissionMode): Promise<void>;
   setSessionMode?(sessionId: string, mode: AdapterSessionMode): Promise<void>;
-  /** Persist and apply the model / thinking selection to subsequent turns of an SDK session. */
+  /** Persist and apply the provider / model / thinking selection to subsequent turns. */
   setSessionModelOptions?(
     sessionId: string,
-    options: { model: string | null; thinking: string | null },
+    options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void>;
   /**
    * 冷切：销毁旧 SDK 子进程 + 用新 mode 重建。`handoffPrompt` 必须非空（SDK streaming
@@ -258,5 +259,6 @@ export interface AgentAdapter {
     cwd: string,
     events: AgentEvent[],
     evidenceContext?: string,
+    runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
   ): Promise<string | null>;
 }

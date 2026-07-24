@@ -29,6 +29,7 @@ export const RECOVERY_CONTINUATION_MAX_REPAIR_CALLS = 1;
 
 export interface RecoveryRuntimeOverrides {
   cwd?: string;
+  provider?: string | null;
   permissionMode?: PermissionMode | null;
   sessionMode?: AdapterSessionMode | null;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
@@ -60,6 +61,10 @@ function resolveTarget(
 ): ResolvedSuccessorSpec {
   const adapter = assertSessionAdapterId(session.agentId);
   const cwd = overrides.cwd ?? session.cwd;
+  const provider =
+    overrides.provider !== undefined
+      ? overrides.provider
+      : session.runtimeProvider ?? null;
   const model = overrides.model !== undefined ? overrides.model : session.model ?? null;
   const thinking = overrides.thinking !== undefined ? overrides.thinking : session.thinking ?? null;
   const permissionMode =
@@ -107,6 +112,7 @@ function resolveTarget(
   return resolveContinuationTargetSnapshot({
     adapter,
     cwd,
+    provider,
     model,
     thinking,
     permissionMode,

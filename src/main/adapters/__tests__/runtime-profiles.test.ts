@@ -4,12 +4,13 @@ import type { SessionAdapterId } from '@shared/types';
 import { getAdapterRuntimeProfile, isSessionAdapterId } from '../runtime-profiles';
 
 describe('adapter runtime profiles', () => {
-  it.each<SessionAdapterId>([
+  const runtimeAdapterIds: SessionAdapterId[] = [
     'claude-code',
-    'deepseek-claude-code',
     'codex-cli',
     'grok-build',
-  ])('resolves %s', (adapterId) => {
+  ];
+
+  it.each(runtimeAdapterIds)('resolves %s', (adapterId) => {
     expect(getAdapterRuntimeProfile(adapterId).id).toBe(adapterId);
   });
 
@@ -24,6 +25,7 @@ describe('adapter runtime profiles', () => {
       prompt: { injection: 'grok-acp-agent-profile' },
       capabilities: {
         canForkSession: false,
+        canInstallHooks: true,
         canRespondPermission: true,
         canSetPermissionMode: false,
         canSetSessionMode: true,

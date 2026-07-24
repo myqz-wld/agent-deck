@@ -14,7 +14,7 @@ export class SummaryProviderCapabilityError extends Error {
   readonly code = SUMMARY_PROVIDER_CAPABILITY_UNAVAILABLE;
 
   constructor(
-    readonly provider: AppSettings['summaryProvider'],
+    readonly provider: AppSettings['summaryAdapter'],
     readonly reason: string,
   ) {
     super(`__${provider}_summarizer_tools_unproven__: ${reason}`);
@@ -29,9 +29,9 @@ export function isSummaryProviderCapabilityError(
     typeof error === 'object' &&
     error !== null &&
     'provider' in error &&
-    (error.provider === 'claude' ||
-      error.provider === 'deepseek' ||
-      error.provider === 'codex');
+    (error.provider === 'claude-code' ||
+      error.provider === 'codex-cli' ||
+      error.provider === 'grok-build');
   return (
     error instanceof SummaryProviderCapabilityError ||
     (typeof error === 'object' &&

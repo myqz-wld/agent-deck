@@ -29,12 +29,11 @@ Require exactly two user-confirmed, distinct reviewer slots. If the user has not
 |---|---|
 | `reviewer-claude` | `spawn_session({ adapter: 'claude-code', agentName: 'reviewer-claude', cwd, teamName, displayName, prompt })` |
 | `reviewer-codex` | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
-| `reviewer-deepseek` | `spawn_session({ adapter: 'deepseek-claude-code', agentName: 'reviewer-deepseek', model: 'deepseek-v4-pro[1m]', cwd, teamName, displayName, prompt })` |
 | `reviewer-grok` | `spawn_session({ adapter: 'grok-build', agentName: 'reviewer-grok', cwd, teamName, displayName, prompt })` |
 
 Reject duplicate slots and every selection that is not exactly two slots. Spawn only the selected pair, concurrently. Record the pair in reviewer prompts and the final report. Do not pass permission or sandbox overrides unless the user requested them.
 
-Keep the pair heterogeneous for the whole invocation. If one selected reviewer fails, shut it down and respawn the same adapter, `agentName`, and model slot; never substitute an unselected slot or duplicate the survivor.
+Keep the pair heterogeneous for the whole invocation. If one selected reviewer fails, shut it down and respawn the same adapter, provider, `agentName`, and model slot; never substitute an unselected slot or duplicate the survivor.
 
 ### Shared Review Cache
 

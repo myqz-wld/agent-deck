@@ -112,16 +112,14 @@ export function ComposerSdk({
   const agentDisplayName =
     agentId === 'codex-cli'
       ? 'Codex'
-      : agentId === 'deepseek-claude-code'
-        ? 'Deepseek'
-        : agentId === 'grok-build'
-          ? 'Grok'
-          : 'Claude';
+      : agentId === 'grok-build'
+        ? 'Grok'
+        : 'Claude';
   const supportsPermissionMode = adapterRuntime.canSetPermissionMode;
   const supportsSessionMode =
     adapterRuntime.canSetSessionMode && adapterRuntime.sessionModes.length > 0;
   const supportsCodexSandbox = agentId === 'codex-cli';
-  const supportsClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
+  const supportsClaudeCodeSandbox = agentId === 'claude-code';
   const isSteerMode = canSteerTurn && turnBusy;
   const canUseAttachments = canAcceptAttachments && !isSteerMode;
 

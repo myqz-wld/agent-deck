@@ -13,8 +13,8 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.4',
-  'v4-flash',
-  'v4-pro',
+  'deepseek-v4-flash',
+  'deepseek-v4-pro[1m]',
   'grok-4.5',
 ] as const;
 export type SpawnSessionModelValue = (typeof SPAWN_SESSION_MODEL_VALUES)[number];
@@ -24,9 +24,9 @@ export type SpawnSessionThinkingValue = (typeof SPAWN_SESSION_THINKING_VALUES)[n
 
 export const SPAWN_SESSION_SCHEMA = {
   adapter: z
-    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli', 'grok-build'])
+    .enum(['claude-code', 'codex-cli', 'grok-build'])
     .describe(
-      'Choose the adapter that runs the new session: "claude-code", "deepseek-claude-code", "codex-cli", or "grok-build". Fresh sessions may use a different adapter; contextMode "fork" requires a target adapter with native fork support.',
+      'Choose the adapter that runs the new session: "claude-code", "codex-cli", or "grok-build". Deepseek is a Claude Gateway provider, not an adapter. Fresh sessions may use a different adapter; contextMode "fork" requires the same adapter and runtime provider as the caller.',
     ),
   cwd: z
     .string()
@@ -81,13 +81,22 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(256)
     .optional()
     .describe(
-      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Deepseek — v4-flash, v4-pro; Grok Build — grok-4.5. Suggestions are not an allowlist: any non-empty provider model id is passed to the target provider for validation. Precedence: explicit model > resolved agent model > provider default.',
+      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable, or the selected Gateway model id such as deepseek-v4-pro[1m]; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Grok Build — grok-4.5. Suggestions are not an allowlist. Precedence: explicit model > resolved agent model > same-adapter source session > provider default.',
+    ),
+  provider: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Optional runtime provider for the spawned session. For claude-code this is a Gateway profile id discovered from ~/.claude/gateways (for example deepseek or openrouter); for codex-cli it is a model_provider id from ~/.codex/config.toml. grok-build rejects provider because it keeps model-alias routing. Precedence: explicit provider > resolved Agent runtime/frontmatter > same-adapter source session > application/provider native default.',
     ),
   thinking: z
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking/reasoning override for the spawned session only. Precedence: explicit thinking > resolved agent effort > provider default. Grok Build accepts low, medium, high, and xhigh; Codex accepts low through ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Adapter-invalid values are rejected before session creation.',
+      'Optional thinking/reasoning override for the spawned session only. Precedence: explicit thinking > resolved agent effort > same-adapter source session > provider default. Grok Build accepts low, medium, high, and xhigh; Codex accepts low through ultra; Claude accepts low, medium, high, xhigh, and max. Adapter-invalid values are rejected before session creation.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
@@ -124,7 +133,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'Explicit OS sandbox override for a claude-code or deepseek-claude-code spawned session. Omit unless the user explicitly requests this sandbox mode; omitted values let Agent Deck inherit from a same-adapter caller or use the target adapter default.',
+      'Explicit OS sandbox override for a claude-code spawned session. Omit unless the user explicitly requests this sandbox mode; omitted values let Agent Deck inherit from a same-adapter caller or use the target adapter default.',
     ),
   /**
    * 可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
@@ -202,6 +211,8 @@ export interface SpawnSessionLimits {
 export interface SpawnSessionResult {
   sessionId: string;
   adapter: string;
+  /** Resolved Claude Gateway profile or Codex model_provider; null means provider-native default. */
+  provider: string | null;
   cwd: string;
   teamId: string | null;
   teamName: string | null;

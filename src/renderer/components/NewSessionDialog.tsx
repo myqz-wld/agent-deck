@@ -54,6 +54,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
+  const [provider, setProvider] = useState(
+    () => getLastDefaults(getLastAdapter()).provider ?? '',
+  );
   const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
   const [thinking, setThinking] = useState<SessionThinkingChoice>(
     () => getLastDefaults(getLastAdapter()).thinking ?? '',
@@ -115,6 +118,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
     // model / thinking 对所有 adapter 都有意义；切 adapter 时无历史值必须显式清空，
     // 不能把上一个 provider 的 model id / effort 串到新 provider。
+    setProvider(d.provider ?? '');
     setModel(d.model ?? '');
     setThinking(d.thinking ?? '');
   }, [open, agentId]);
@@ -130,8 +134,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     selectedAdapter.sessionModes.length > 0;
   // Codex 三档 sandbox：仅在 codex-cli adapter 时显示
   const showCodexSandbox = agentId === 'codex-cli';
-  // CHANGELOG_74：Claude OS 沙盒：Claude Code 及 Deepseek(Claude Code) 都走同一 SDK 桥接层
-  const showClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
+  // CHANGELOG_74：Claude OS 沙盒对所有 Claude Gateway profile 使用同一 SDK 桥接层。
+  const showClaudeCodeSandbox = agentId === 'claude-code';
 
   const browse = async (): Promise<void> => {
     if (busy || pickingDirectoryRef.current) return;
@@ -179,6 +183,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
         claudeCodeSandbox:
           showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
+        ...((agentId === 'claude-code' || agentId === 'codex-cli') && provider.trim()
+          ? { provider: provider.trim() }
+          : {}),
         ...(model.trim() ? { model: model.trim() } : {}),
         ...(thinking ? { thinking } : {}),
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
@@ -243,9 +250,15 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
             <SessionModelFields
               adapterId={agentId}
+              provider={provider}
               model={model}
               thinking={thinking}
               disabled={busy}
+              onProviderChange={(next) => {
+                setProvider(next);
+                setModel('');
+                setLastDefaults(agentId, { provider: next, model: '' });
+              }}
               onModelChange={(next) => {
                 setModel(next);
                 setLastDefaults(agentId, { model: next });

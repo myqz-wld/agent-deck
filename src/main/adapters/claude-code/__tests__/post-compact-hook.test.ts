@@ -40,6 +40,10 @@ describe('Claude PostCompact hook support', () => {
       const postCompact = settings.hooks?.PostCompact;
       expect(postCompact).toBeDefined();
       expect(postCompact?.[0]?.hooks[0]?.command).toContain('/hook/postcompact');
+      expect(postCompact?.[0]?.hooks[0]?.command).toContain('GROK_HOOK_EVENT');
+      expect(postCompact?.[0]?.hooks[0]?.command).toContain(
+        '# agent-deck-hook-grok-guard',
+      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

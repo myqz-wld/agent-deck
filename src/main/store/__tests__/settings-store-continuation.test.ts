@@ -66,8 +66,12 @@ describe('unified continuation settings migration', () => {
     const all = (await loadSettingsStore()).getAll();
     expect(all).toMatchObject({
       summaryEnabled: true,
+      summaryAdapter: 'claude-code',
+      summaryRuntimeProvider: '',
       summaryModel: '',
-      summaryReasoning: 'low',
+      summaryThinking: 'low',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: '',
       continuationCheckpointModel: '',
       continuationCheckpointThinking: 'medium',
       continuationCheckpointAutoRefreshEnabled: true,
@@ -83,7 +87,7 @@ describe('unified continuation settings migration', () => {
     mockRawStore = {
       summaryProvider: 'deepseek',
       summaryModel: '',
-      summaryReasoning: 'xhigh',
+      summaryThinking: 'xhigh',
       continuationCheckpointProvider: 'claude',
       continuationCheckpointModel: '',
       continuationCheckpointThinking: 'low',
@@ -93,26 +97,26 @@ describe('unified continuation settings migration', () => {
     const all = (await loadSettingsStore()).getAll();
     expect(all).toMatchObject({
       summaryModel: '',
-      summaryReasoning: 'xhigh',
+      summaryThinking: 'xhigh',
       continuationCheckpointModel: 'opus',
       continuationCheckpointThinking: 'low',
     });
     expect(callsFor('summaryModel')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
-    expect(callsFor('summaryReasoning')).toHaveLength(0);
+    expect(callsFor('summaryThinking')).toHaveLength(0);
     expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
   });
 
   it('keeps a missing summary model blank while preserving the old continuation fallback', async () => {
     mockRawStore = {
       summaryProvider: 'deepseek',
-      summaryReasoning: 'high',
+      summaryThinking: 'high',
       __generatorDefaults20260711Done: true,
     };
 
     const all = (await loadSettingsStore()).getAll();
     expect(all.summaryModel).toBe('');
-    expect(all.continuationCheckpointProvider).toBe('claude');
+    expect(all.continuationCheckpointAdapter).toBe('claude-code');
     expect(all.continuationCheckpointModel).toBe('opus');
     expect(callsFor('summaryModel')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'opus');
@@ -248,11 +252,13 @@ describe('unified continuation settings migration', () => {
     };
 
     const all = (await loadSettingsStore()).getAll() as AppSettings & Record<string, unknown>;
-    expect(all.continuationCheckpointProvider).toBe('codex');
+    expect(all.continuationCheckpointAdapter).toBe('codex-cli');
+    expect(all.continuationCheckpointRuntimeProvider).toBe('');
     expect(all.continuationCheckpointModel).toBe('gpt-continuation');
     expect(all.continuationCheckpointThinking).toBe('ultra');
     expect(all.continuationRawRetentionTokens).toBe(64_000);
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointProvider', 'codex');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointAdapter', 'codex-cli');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointRuntimeProvider', '');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', 'gpt-continuation');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'ultra');
     for (const key of [
@@ -269,7 +275,8 @@ describe('unified continuation settings migration', () => {
 
   it('lets explicitly persisted new keys win and only removes old keys', async () => {
     mockRawStore = {
-      continuationCheckpointProvider: 'deepseek',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: 'deepseek',
       continuationCheckpointModel: 'deepseek-chat',
       continuationCheckpointThinking: 'max',
       continuationRawRetentionTokens: 96_000,
@@ -280,13 +287,15 @@ describe('unified continuation settings migration', () => {
 
     const all = (await loadSettingsStore()).getAll();
     expect(all).toMatchObject({
-      continuationCheckpointProvider: 'deepseek',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: 'deepseek',
       continuationCheckpointModel: 'deepseek-chat',
       continuationCheckpointThinking: 'max',
       continuationRawRetentionTokens: 96_000,
     });
     for (const key of [
-      'continuationCheckpointProvider',
+      'continuationCheckpointAdapter',
+      'continuationCheckpointRuntimeProvider',
       'continuationCheckpointModel',
       'continuationCheckpointThinking',
       'continuationRawRetentionTokens',
@@ -300,7 +309,8 @@ describe('unified continuation settings migration', () => {
 
   it('repairs invalid new values without consulting valid legacy fallbacks', async () => {
     mockRawStore = {
-      continuationCheckpointProvider: 'unknown-provider',
+      continuationCheckpointAdapter: 'unknown-adapter',
+      continuationCheckpointRuntimeProvider: 42,
       continuationCheckpointModel: 42,
       continuationCheckpointThinking: 'minimal',
       continuationRawRetentionTokens: Number.NaN,
@@ -311,14 +321,22 @@ describe('unified continuation settings migration', () => {
 
     const all = (await loadSettingsStore()).getAll();
     expect(all).toMatchObject({
-      continuationCheckpointProvider: 'claude',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: '',
       continuationCheckpointModel: '',
       // Removed Codex minimal always migrates to its nearest supported value, even when the
       // persisted provider is invalid and falls back to Claude.
       continuationCheckpointThinking: 'low',
       continuationRawRetentionTokens: 64_000,
     });
-    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointProvider', 'claude');
+    expect(mockSet).toHaveBeenCalledWith(
+      'continuationCheckpointAdapter',
+      'claude-code',
+    );
+    expect(mockSet).toHaveBeenCalledWith(
+      'continuationCheckpointRuntimeProvider',
+      '',
+    );
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointModel', '');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'low');
     expect(mockSet).toHaveBeenCalledWith('continuationRawRetentionTokens', 64_000);
@@ -359,50 +377,67 @@ describe('unified continuation settings migration', () => {
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'medium');
   });
 
+  it('preserves Grok xhigh and coerces stale higher tiers to its supported ceiling', async () => {
+    mockRawStore = {
+      continuationCheckpointProvider: 'grok',
+      continuationCheckpointThinking: 'xhigh',
+    };
+    let all = (await loadSettingsStore()).getAll();
+    expect(all.continuationCheckpointAdapter).toBe('grok-build');
+    expect(all.continuationCheckpointThinking).toBe('xhigh');
+
+    vi.resetModules();
+    mockSet.mockClear();
+    mockRawStore.continuationCheckpointThinking = 'ultra';
+    all = (await loadSettingsStore()).getAll();
+    expect(all.continuationCheckpointThinking).toBe('xhigh');
+    expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'xhigh');
+  });
+
   it('coerces persisted removed Codex minimal generator settings to low', async () => {
     mockRawStore = {
       summaryProvider: 'codex',
-      summaryReasoning: 'minimal',
+      summaryThinking: 'minimal',
       continuationCheckpointProvider: 'codex',
       continuationCheckpointThinking: 'minimal',
     };
 
     const all = (await loadSettingsStore()).getAll();
-    expect(all.summaryReasoning).toBe('low');
+    expect(all.summaryThinking).toBe('low');
     expect(all.continuationCheckpointThinking).toBe('low');
-    expect(mockSet).toHaveBeenCalledWith('summaryReasoning', 'low');
+    expect(mockSet).toHaveBeenCalledWith('summaryThinking', 'low');
     expect(mockSet).toHaveBeenCalledWith('continuationCheckpointThinking', 'low');
   });
 
   it('retires the obsolete generator-default uplift without rewriting valid choices', async () => {
     mockRawStore = {
-      summaryReasoning: 'low',
+      summaryThinking: 'low',
       continuationCheckpointThinking: 'medium',
     };
 
     const all = (await loadSettingsStore()).getAll();
-    expect(all.summaryReasoning).toBe('low');
+    expect(all.summaryThinking).toBe('low');
     expect(all.continuationCheckpointThinking).toBe('medium');
-    expect(callsFor('summaryReasoning')).toHaveLength(0);
+    expect(callsFor('summaryThinking')).toHaveLength(0);
     expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
     expect(mockSet).toHaveBeenCalledWith('__generatorDefaults20260711Done', true);
   });
 
   it('respects later user choices after the generator-default uplift sentinel is set', async () => {
     mockRawStore = {
-      summaryReasoning: 'low',
+      summaryThinking: 'low',
       continuationCheckpointThinking: 'medium',
     };
     const first = await loadSettingsStore();
-    first.set('summaryReasoning', 'low');
+    first.set('summaryThinking', 'low');
     first.set('continuationCheckpointThinking', 'medium');
 
     vi.resetModules();
     mockSet.mockClear();
     const all = (await loadSettingsStore()).getAll();
-    expect(all.summaryReasoning).toBe('low');
+    expect(all.summaryThinking).toBe('low');
     expect(all.continuationCheckpointThinking).toBe('medium');
-    expect(callsFor('summaryReasoning')).toHaveLength(0);
+    expect(callsFor('summaryThinking')).toHaveLength(0);
     expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
   });
 
@@ -429,11 +464,13 @@ describe('unified continuation settings migration', () => {
     mockDelete.mockClear();
     const all = (await loadSettingsStore()).getAll();
     expect(all).toMatchObject({
-      continuationCheckpointProvider: 'claude',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: '',
       continuationCheckpointModel: 'claude-sonnet',
       continuationCheckpointThinking: 'high',
     });
-    expect(callsFor('continuationCheckpointProvider')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointAdapter')).toHaveLength(0);
+    expect(callsFor('continuationCheckpointRuntimeProvider')).toHaveLength(0);
     expect(callsFor('continuationCheckpointModel')).toHaveLength(0);
     expect(callsFor('continuationCheckpointThinking')).toHaveLength(0);
     expect(mockDelete).not.toHaveBeenCalledWith('handOffProvider');

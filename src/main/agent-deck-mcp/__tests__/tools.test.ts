@@ -194,6 +194,7 @@ const createSessionCalls: Array<{
   permissionMode?: string;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
+  provider?: string;
   model?: string;
   modelReasoningEffort?: string;
   claudeCodeEffortLevel?: string;
@@ -209,14 +210,14 @@ const createSessionCalls: Array<{
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
     get: (id: string) => {
-      if (id !== 'claude-code' && id !== 'codex-cli' && id !== 'deepseek-claude-code') {
+      if (id !== 'claude-code' && id !== 'codex-cli' && id !== 'grok-build') {
         return undefined;
       }
       return {
         id,
         capabilities: {
           canCreateSession: true,
-          canSetPermissionMode: id === 'claude-code' || id === 'deepseek-claude-code',
+          canSetPermissionMode: id === 'claude-code',
         },
         createSession: async (opts: {
           cwd: string;
@@ -225,6 +226,7 @@ vi.mock('@main/adapters/registry', () => ({
           permissionMode?: string;
           codexSandbox?: string;
           claudeCodeSandbox?: string;
+          provider?: string;
           model?: string;
           modelReasoningEffort?: string;
           claudeCodeEffortLevel?: string;
@@ -249,6 +251,7 @@ vi.mock('@main/adapters/registry', () => ({
             permissionMode: opts.permissionMode,
             codexSandbox: opts.codexSandbox,
             claudeCodeSandbox: opts.claudeCodeSandbox,
+            provider: opts.provider,
             model: opts.model,
             modelReasoningEffort: opts.modelReasoningEffort,
             claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
@@ -768,8 +771,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'gpt-5.6-luna',
       'gpt-5.5',
       'gpt-5.4',
-      'v4-flash',
-      'v4-pro',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro[1m]',
       'grok-4.5',
     ]);
     expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('fable-5');
@@ -782,7 +785,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-luna');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('Suggestions are not an allowlist');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain(
-      'explicit model > resolved agent model > provider default',
+      'explicit model > resolved agent model > same-adapter source session > provider default',
     );
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('spawned session only');
     expect(SPAWN_SESSION_SCHEMA.thinking.unwrap().options).toEqual([
@@ -795,10 +798,10 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     ]);
     expect(SPAWN_SESSION_SCHEMA.thinking.safeParse('minimal').success).toBe(false);
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
-      'explicit thinking > resolved agent effort > provider default',
+      'explicit thinking > resolved agent effort > same-adapter source session > provider default',
     );
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
-      'Claude and Deepseek accept low, medium, high, xhigh, and max',
+      'Claude accepts low, medium, high, xhigh, and max',
     );
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
       'Grok Build accepts low, medium, high, and xhigh',
@@ -816,8 +819,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const tools = await getTools({ transport: 'http' });
     const description = tools.get('spawn_session').description as string;
     expect(description).toContain('Required fields: adapter, absolute cwd');
-    expect(description).toContain('target-session-only overrides');
-    expect(description).toContain('field schemas list maintained suggestions');
+    expect(description).toContain('Use provider for a Claude Gateway profile');
+    expect(description).toContain('Runtime precedence is explicit provider/model/thinking');
     expect(description).toContain('follow hint exactly');
     expect(description).toContain('contextMode defaults to fresh');
     expect(description).toContain('safe active-turn boundary');
@@ -1100,21 +1103,23 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].modelReasoningEffort).toBeUndefined();
   });
 
-  it('maps deepseek model aliases to runtime model ids and passes effort', async () => {
+  it('passes an explicit Deepseek Gateway profile and model without adapter aliases', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
     const r = await tools.get('spawn_session').handler({
-      adapter: 'deepseek-claude-code',
+      adapter: 'claude-code',
+      provider: 'deepseek',
       cwd: '/repo',
       prompt: 'deepseek model task',
-      model: 'v4-pro',
+      model: 'deepseek-v4-pro[1m]',
       thinking: 'high',
       callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].adapter).toBe('deepseek-claude-code');
+    expect(createSessionCalls[0].adapter).toBe('claude-code');
+    expect(createSessionCalls[0].provider).toBe('deepseek');
     expect(createSessionCalls[0].model).toBe('deepseek-v4-pro[1m]');
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
   });
@@ -1149,16 +1154,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
         adapter: 'claude-code',
         thinking: 'ultra',
         message: /thinking "ultra" is not valid for adapter "claude-code"/,
-      },
-      {
-        adapter: 'deepseek-claude-code',
-        thinking: 'minimal',
-        message: /thinking "minimal" is not valid for adapter "deepseek-claude-code"/,
-      },
-      {
-        adapter: 'deepseek-claude-code',
-        thinking: 'ultra',
-        message: /thinking "ultra" is not valid for adapter "deepseek-claude-code"/,
       },
     ] as const;
 

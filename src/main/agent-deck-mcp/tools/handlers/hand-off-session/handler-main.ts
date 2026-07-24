@@ -31,6 +31,7 @@ import {
 import { sourceChangeError } from './source-change-copy';
 import { finalizeMcpHandOffSource } from './source-finalization';
 import { validateHandOffTargetAdapter } from './target-adapter-validation';
+import { buildHandOffTargetRequest } from './target-request';
 
 const logger = log.scope('mcp-handoff-main');
 function resourceTransferFailed(result: HandOffResourceTransferResult): boolean {
@@ -43,11 +44,9 @@ function resourceTransferFailed(result: HandOffResourceTransferResult): boolean 
 function cleanupSpool(spoolId: string): void {
   new ContinuationSourceSpoolStore(getDb()).cleanup(spoolId);
 }
-
 function spoolMetadata(spoolId: string) {
   return new ContinuationSourceSpoolStore(getDb()).metadata(spoolId);
 }
-
 function safelyCheckSourcePrecondition(
   check: NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>,
   input: Parameters<NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>>[0],
@@ -101,7 +100,7 @@ export const handOffSessionHandler = withMcpGuard(
       );
       return err(
         `caller session has unsupported adapter: ${callerRow.agentId}`,
-        'Pass adapter explicitly as claude-code, deepseek-claude-code, codex-cli, or grok-build.',
+        'Pass adapter explicitly as claude-code, codex-cli, or grok-build. For Deepseek use adapter="claude-code" with provider="deepseek".',
       );
     }
 
@@ -133,19 +132,7 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
 
-    const targetRequest = {
-      adapter: targetAdapter,
-      cwd: finalCwd,
-      ...(args.model !== undefined ? { model: args.model } : {}),
-      ...(args.thinking !== undefined ? { thinking: args.thinking } : {}),
-      ...(args.permissionMode !== undefined ? { permissionMode: args.permissionMode } : {}),
-      ...(args.sessionMode !== undefined ? { sessionMode: args.sessionMode } : {}),
-      ...(args.codexSandbox !== undefined ? { codexSandbox: args.codexSandbox } : {}),
-      ...(args.claudeCodeSandbox !== undefined
-        ? { claudeCodeSandbox: args.claudeCodeSandbox }
-        : {}),
-      ...(args.extraAllowWrite !== undefined ? { extraAllowWrite: args.extraAllowWrite } : {}),
-    };
+    const targetRequest = buildHandOffTargetRequest(args, targetAdapter, finalCwd);
     let target: ReturnType<typeof resolveHandOffTarget>;
     try {
       const sourceMaxEventId = (
@@ -398,6 +385,7 @@ export const handOffSessionHandler = withMcpGuard(
         response = ok({
           sessionId: execution.successorSessionId,
           adapter: targetAdapter,
+          provider: target.spec.provider ?? null,
           cwd: finalCwd,
           continuationContext: {
             version: prepared.version,

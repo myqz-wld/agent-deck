@@ -89,10 +89,19 @@ export const HAND_OFF_SESSION_SHAPE = {
       'Override cwd for the successor session. Omit it to inherit the caller session cwd. Pass an existing absolute directory when the successor should start somewhere else.',
     ),
   adapter: z
-    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli', 'grok-build'])
+    .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, deepseek-claude-code, codex-cli, and grok-build.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Deepseek is selected with adapter="claude-code" and provider="deepseek".',
+    ),
+  provider: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      'Optional successor runtime provider. For claude-code this is a Gateway profile id from ~/.claude/gateways; for codex-cli it is a model_provider id from ~/.codex/config.toml. grok-build rejects provider. When omitted, same-adapter hand-off inherits the source provider and cross-adapter hand-off uses the target native default.',
     ),
   model: z
     .string()
@@ -101,13 +110,13 @@ export const HAND_OFF_SESSION_SHAPE = {
     .max(256)
     .optional()
     .describe(
-      'Optional free-text model override for the successor only. Suggestions match spawn_session (Claude: haiku/sonnet/opus/fable; Codex: gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna/gpt-5.5/gpt-5.4; Deepseek: v4-flash/v4-pro), but any non-empty provider model id is passed through for provider validation. When omitted, a same-adapter hand-off inherits the caller model and a cross-adapter hand-off uses the target provider default.',
+      'Optional free-text model override for the successor only. Suggestions match spawn_session (Claude: haiku/sonnet/opus/fable or the selected Gateway model id; Codex: gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna/gpt-5.5/gpt-5.4), but any non-empty provider model id is passed through for provider validation. When omitted, a same-adapter hand-off inherits the caller model and a cross-adapter hand-off uses the target provider default.',
     ),
   thinking: z
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking/reasoning override for the successor only. Codex accepts low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. When omitted, a same-adapter hand-off inherits the caller value and a cross-adapter hand-off uses the target provider default. Adapter-invalid values are rejected before creation; retry with an exact value from the returned hint or omit thinking.',
+      'Optional thinking/reasoning override for the successor only. Codex accepts low, medium, high, xhigh, max, and ultra; Claude accepts low, medium, high, xhigh, and max. When omitted, a same-adapter hand-off inherits the caller value and a cross-adapter hand-off uses the target provider default. Adapter-invalid values are rejected before creation; retry with an exact value from the returned hint or omit thinking.',
     ),
   permissionMode: z
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
@@ -131,7 +140,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['off', 'workspace-write', 'strict'])
     .optional()
     .describe(
-      'claude-code / deepseek-claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults: same target adapter as caller inherits caller claudeCodeSandbox; cross-adapter handoff lets target adapter use settings global. Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
+      'claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults: same target adapter as caller inherits caller claudeCodeSandbox; cross-adapter handoff lets target adapter use settings global. Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
     ),
   /**
    * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
@@ -298,7 +307,9 @@ export interface ArchivePlanResult {
  * intentionally absent; callers receive only safe preparation/transfer observability. */
 export interface HandOffSessionResult {
   sessionId: string;
-  adapter: 'claude-code' | 'deepseek-claude-code' | 'codex-cli' | 'grok-build';
+  adapter: 'claude-code' | 'codex-cli' | 'grok-build';
+  /** Resolved Claude Gateway profile or Codex model_provider; null means provider-native default. */
+  provider: string | null;
   cwd: string;
   continuationContext: {
     version: number;

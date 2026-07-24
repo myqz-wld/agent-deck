@@ -12,6 +12,7 @@ export type ContinuationPurpose = 'handoff' | 'recovery';
 
 export interface ResolvedContinuationGenerator {
   adapter: SessionAdapterId;
+  provider?: string | null;
   model: string | null;
   thinking: SessionThinkingLevel;
   contextWindowTokens: number | null;
@@ -20,6 +21,7 @@ export interface ResolvedContinuationGenerator {
 
 export interface ResolvedSuccessorSpec {
   adapter: SessionAdapterId;
+  provider?: string | null;
   model: string | null;
   thinking: SessionThinkingLevel | null;
   sandbox: unknown;

@@ -24,6 +24,7 @@ const logger = log.scope('session-repo');
 export interface Row {
   id: string;
   agent_id: string;
+  runtime_provider: string | null;
   cwd: string;
   title: string;
   source: string;
@@ -71,6 +72,7 @@ export function rowToRecord(r: Row): SessionRecord {
   return {
     id: r.id,
     agentId: r.agent_id,
+    runtimeProvider: r.runtime_provider ?? null,
     cwd: r.cwd,
     title: r.title,
     source: (r.source as SessionSource) ?? 'cli',

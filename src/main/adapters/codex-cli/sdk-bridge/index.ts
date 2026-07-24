@@ -168,9 +168,16 @@ export class CodexSdkBridge {
       operations: this.recovering,
       agentId: AGENT_ID,
       emit: opts.emit,
-      applyLive: async (sessionId, options) => {
+      applyLive: async (sessionId, options, previous) => {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
+        if (options.provider !== previous.provider) {
+          if (internal.currentTurn || internal.turnLoopRunning) {
+            throw new Error('Codex model_provider cannot change during an active turn');
+          }
+          await this.closeSession(sessionId);
+          return true;
+        }
         await internal.thread.updateModelOptions(
           options.model,
           options.thinking as CreateSessionOpts['modelReasoningEffort'] | null,

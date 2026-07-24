@@ -77,7 +77,7 @@ function registerChild(target: CreateSessionOptions): string {
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
     get: (id: string) => {
-      if (!['claude-code', 'deepseek-claude-code', 'codex-cli'].includes(id)) return undefined;
+      if (!['claude-code', 'codex-cli'].includes(id)) return undefined;
       return {
         id,
         capabilities: {
@@ -180,7 +180,7 @@ vi.mock('@main/utils/logger', () => ({
 
 import { spawnSessionHandler } from '../tools/handlers/spawn';
 
-const adapters = ['claude-code', 'deepseek-claude-code', 'codex-cli'] as const;
+const adapters = ['claude-code', 'codex-cli'] as const;
 type AdapterId = typeof adapters[number];
 
 function seedCaller(adapter: AdapterId, overrides: Partial<SessionRecord> = {}): SessionRecord {

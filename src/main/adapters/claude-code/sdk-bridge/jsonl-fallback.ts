@@ -107,6 +107,8 @@ export interface JsonlFallbackCreateOpts {
   resumeMode: 'fresh-cli-reuse-app';
   permissionMode?: PermissionMode;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  /** Persisted Claude Gateway profile; fresh fallback must not switch Gateways. */
+  provider?: string;
   model?: string;
   extraAllowWrite?: readonly string[];
   /**
@@ -175,6 +177,8 @@ type JsonlFallbackOptsBase = {
    * 证据不足时走 fresh fallback，避免真实 fork 的旧 applicationSid.jsonl 被误当成当前历史。
    */
   minHealJsonlMtimeMs: number;
+  /** Persisted Claude Gateway profile; recovery and restart must not switch Gateways. */
+  provider?: string;
   permissionMode?: PermissionMode;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   model?: string;
@@ -420,6 +424,7 @@ export async function maybeJsonlFallback(
     trustedContinuation: recovery.turn,
     resume: opts.sessionId, // applicationSid 复用 (不变量 2)
     resumeMode: 'fresh-cli-reuse-app', // 触发 index.ts:419 createSession finalize guard 跳过 finalizeSessionStart
+    provider: opts.provider,
     permissionMode: opts.permissionMode,
     claudeCodeSandbox: opts.claudeCodeSandbox,
     model: opts.model,

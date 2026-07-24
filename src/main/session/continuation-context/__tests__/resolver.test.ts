@@ -6,25 +6,37 @@ const state = vi.hoisted(() => ({
 const settingsGet = vi.hoisted(() =>
   vi.fn((key: string) => state.settings[key]),
 );
-const deepseekModel = vi.hoisted(() => vi.fn(() => 'deepseek-sonnet-test'));
+const resolveGateway = vi.hoisted(() =>
+  vi.fn((provider: string | null | undefined) =>
+    provider === 'deepseek'
+      ? {
+          id: 'deepseek',
+          settingsPath: '/home/test/.claude/gateways/deepseek.json',
+          modelAliases: { sonnet: 'deepseek-sonnet-test' },
+          defaultModel: 'deepseek-default',
+        }
+      : null,
+  ),
+);
 
 vi.mock('@main/store/settings-store', () => ({
   settingsStore: { get: settingsGet },
 }));
-vi.mock('@main/adapters/deepseek-claude-code/config', () => ({
-  getDeepseekModelForClaudeAlias: deepseekModel,
+vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
+  resolveClaudeGatewayProfile: resolveGateway,
 }));
 
 import { resolveContinuationGeneratorSnapshot } from '../resolver';
 
 beforeEach(() => {
   state.settings = {
-    continuationCheckpointProvider: 'claude',
+    continuationCheckpointAdapter: 'claude-code',
+    continuationCheckpointRuntimeProvider: '',
     continuationCheckpointModel: '',
     continuationCheckpointThinking: 'high',
   };
   settingsGet.mockClear();
-  deepseekModel.mockClear();
+  resolveGateway.mockClear();
 });
 
 afterEach(() => {
@@ -55,7 +67,8 @@ describe('continuation generator defaults', () => {
   it('leaves a blank Codex model unset despite a legacy hand-off environment override', () => {
     vi.stubEnv('CODEX_HANDOFF_MODEL', 'hidden-codex-model');
     state.settings = {
-      continuationCheckpointProvider: 'codex',
+      continuationCheckpointAdapter: 'codex-cli',
+      continuationCheckpointRuntimeProvider: 'openai',
       continuationCheckpointModel: '   ',
       continuationCheckpointThinking: '',
     };
@@ -67,18 +80,35 @@ describe('continuation generator defaults', () => {
     });
   });
 
-  it('keeps the Deepseek Sonnet default and a provider-valid explicit effort', () => {
+  it('uses the selected Claude Gateway Sonnet alias and a provider-valid effort', () => {
     state.settings = {
-      continuationCheckpointProvider: 'deepseek',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: 'deepseek',
       continuationCheckpointModel: '',
       continuationCheckpointThinking: 'medium',
     };
 
     expect(resolveContinuationGeneratorSnapshot()).toMatchObject({
-      adapter: 'deepseek-claude-code',
+      adapter: 'claude-code',
+      provider: 'deepseek',
       model: 'deepseek-sonnet-test',
       thinking: 'medium',
     });
-    expect(deepseekModel).toHaveBeenCalledWith('sonnet');
+    expect(resolveGateway).toHaveBeenCalledWith('deepseek');
+  });
+
+  it('maps Grok to its adapter while leaving a blank model to config.toml', () => {
+    state.settings = {
+      continuationCheckpointAdapter: 'grok-build',
+      continuationCheckpointRuntimeProvider: '',
+      continuationCheckpointModel: '   ',
+      continuationCheckpointThinking: 'xhigh',
+    };
+
+    expect(resolveContinuationGeneratorSnapshot()).toMatchObject({
+      adapter: 'grok-build',
+      model: null,
+      thinking: 'xhigh',
+    });
   });
 });

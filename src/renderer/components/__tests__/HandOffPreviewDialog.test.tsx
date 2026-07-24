@@ -43,7 +43,12 @@ const prepared: SessionHandOffPreparation = {
     elapsedMs: 120,
   },
   warnings: [],
-  target: { adapter: 'codex-cli', model: 'gpt-custom', thinking: 'ultra' },
+  target: {
+    adapter: 'codex-cli',
+    provider: null,
+    model: 'gpt-custom',
+    thinking: 'ultra',
+  },
 };
 
 let handOffPrepare: ReturnType<typeof vi.fn>;
@@ -63,6 +68,8 @@ beforeEach(() => {
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexModelProviders: vi.fn().mockResolvedValue([]),
       listAdapters: vi.fn().mockResolvedValue([
         { id: 'claude-code', displayName: 'Claude', capabilities: { canCreateSession: true } },
         { id: 'codex-cli', displayName: 'Codex', capabilities: { canCreateSession: true } },
@@ -86,6 +93,9 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
     fireEvent.click(await screen.findByLabelText('目标 adapter'));
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
+    fireEvent.change(await screen.findByLabelText('Provider'), {
+      target: { value: 'openai-custom' },
+    });
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
@@ -98,7 +108,12 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       expect(handOffPrepare).toHaveBeenCalledWith({
         sourceSessionId: 'source-1',
         continuationInstruction: '继续完成迁移并运行测试。',
-        target: { adapter: 'codex-cli', model: 'gpt-custom', thinking: 'ultra' },
+        target: {
+          adapter: 'codex-cli',
+          provider: 'openai-custom',
+          model: 'gpt-custom',
+          thinking: 'ultra',
+        },
       });
     });
     const preview = await screen.findByLabelText('续接上下文预览');

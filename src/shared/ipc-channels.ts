@@ -118,7 +118,7 @@ export const IpcInvoke = {
   TokenUsageTopToday: 'token-usage:top-today',
   /** model bucket × 本地日期的 5 指标聚合（数据 tab 表格）。 */
   TokenUsageDaily: 'token-usage:daily',
-  /** Claude / Codex / Deepseek provider 订阅窗口用量快照（数据 tab）。 */
+  /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   ProviderUsageSnapshot: 'provider-usage:snapshot',
 
   // ─────────── R3.E8 — Agent Deck universal team backend (替代老 team:* channel) ───────────
@@ -173,6 +173,7 @@ export const IpcInvoke = {
   AssetsRevealInFolder: 'assets:reveal',
   AssetsSaveBundledAgentRuntime: 'assets:save-bundled-agent-runtime',
   AssetsResetBundledAgentRuntime: 'assets:reset-bundled-agent-runtime',
+  AssetsListClaudeGatewayProfiles: 'assets:list-claude-gateway-profiles',
   AssetsListCodexModelProviders: 'assets:list-codex-model-providers',
 
   // ─────────── Runtime Logging (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2) ───────────

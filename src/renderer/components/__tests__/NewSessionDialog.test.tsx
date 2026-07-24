@@ -28,6 +28,8 @@ beforeEach(() => {
           },
         },
       ]),
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexModelProviders: vi.fn().mockResolvedValue([]),
       chooseDirectory,
       createAdapterSession,
     },
@@ -67,11 +69,14 @@ describe('NewSessionDialog directory picker', () => {
 });
 
 describe('NewSessionDialog model options', () => {
-  it('把自由文本模型与 adapter-aware 思考程度透传给创建 IPC', async () => {
+  it('把 Gateway、自由文本模型与 adapter-aware 思考程度透传给创建 IPC', async () => {
     const onCreated = vi.fn();
     const onClose = vi.fn();
     render(<NewSessionDialog open={true} onClose={onClose} onCreated={onCreated} />);
 
+    fireEvent.change(await screen.findByLabelText('Gateway'), {
+      target: { value: 'deepseek' },
+    });
     fireEvent.change(await screen.findByLabelText('模型'), {
       target: { value: 'claude-custom-preview' },
     });
@@ -87,6 +92,7 @@ describe('NewSessionDialog model options', () => {
         'claude-code',
         expect.objectContaining({
           prompt: '完成这个任务',
+          provider: 'deepseek',
           model: 'claude-custom-preview',
           thinking: 'xhigh',
         }),
@@ -112,6 +118,8 @@ describe('NewSessionDialog model options', () => {
             sessionModes: ['default', 'plan', 'ask'],
           },
         ]),
+        listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+        listCodexModelProviders: vi.fn().mockResolvedValue([]),
         chooseDirectory,
         createAdapterSession,
       },

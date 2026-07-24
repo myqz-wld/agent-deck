@@ -107,6 +107,9 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const [sessionMode, setSessionMode] = useState<AdapterSessionMode>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
+  const [provider, setProvider] = useState(
+    () => getLastDefaults(getLastAdapter()).provider ?? '',
+  );
   const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
   const [thinking, setThinking] = useState<SessionThinkingChoice>(
     () => getLastDefaults(getLastAdapter()).thinking ?? '',
@@ -152,6 +155,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+    setProvider(d.provider ?? '');
     setModel(d.model ?? '');
     setThinking(d.thinking ?? '');
   }, [adapter]);
@@ -163,7 +167,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     selectedAdapter?.capabilities.canSetSessionMode === true &&
     selectedAdapter.sessionModes.length > 0;
   const showCodexSandbox = adapter === 'codex-cli';
-  const showClaudeCodeSandbox = adapter === 'claude-code' || adapter === 'deepseek-claude-code';
+  const showClaudeCodeSandbox = adapter === 'claude-code';
 
   const handleSubmit = async (): Promise<void> => {
     setError(null);
@@ -190,6 +194,9 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         ...(showSessionMode ? { sessionMode } : {}),
         ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
         ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
+        ...((adapter === 'claude-code' || adapter === 'codex-cli') && provider.trim()
+          ? { provider: provider.trim() }
+          : {}),
         ...(model.trim() ? { model: model.trim() } : {}),
         ...(thinking ? { thinking } : {}),
       });
@@ -239,9 +246,15 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           </DialogField>
           <SessionModelFields
             adapterId={adapter}
+            provider={provider}
             model={model}
             thinking={thinking}
             disabled={busy}
+            onProviderChange={(next) => {
+              setProvider(next);
+              setModel('');
+              setLastDefaults(adapter, { provider: next, model: '' });
+            }}
             onModelChange={(next) => {
               setModel(next);
               setLastDefaults(adapter, { model: next });

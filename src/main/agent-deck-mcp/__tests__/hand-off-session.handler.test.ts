@@ -290,14 +290,20 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     const deps = testDeps({ createSuccessor });
 
     const success = await handOffSessionHandler(
-      { prompt: 'continue', adapter: 'deepseek-claude-code', cwd: '/repo' },
+      {
+        prompt: 'continue',
+        adapter: 'claude-code',
+        provider: 'deepseek',
+        cwd: '/repo',
+      },
       ctx(),
       deps,
     );
 
     expect(success.isError).toBeFalsy();
     expect(seenTargets[0]).toMatchObject({
-      agentId: 'deepseek-claude-code',
+      agentId: 'claude-code',
+      provider: 'deepseek',
       cwd: '/repo',
       permissionMode: 'bypassPermissions',
       awaitCanonicalId: true,

@@ -119,7 +119,7 @@ export const adaptersApi = {
   setSessionModelOptions: (
     agentId: string,
     sessionId: string,
-    options: { model: string | null; thinking: string | null },
+    options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetSessionModelOptions, agentId, sessionId, options),
 

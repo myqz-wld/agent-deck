@@ -11,7 +11,8 @@ const state = vi.hoisted(() => ({ db: null as Database.Database | null }));
 const prepareContinuationContext = vi.hoisted(() => vi.fn());
 const settingsGet = vi.hoisted(() =>
   vi.fn((key: string) => {
-    if (key === 'continuationCheckpointProvider') return 'claude';
+    if (key === 'continuationCheckpointAdapter') return 'claude-code';
+    if (key === 'continuationCheckpointRuntimeProvider') return '';
     if (key === 'continuationCheckpointModel') return 'generator-model';
     if (key === 'continuationCheckpointThinking') return 'high';
     if (key === 'continuationRawRetentionTokens') return 64_000;

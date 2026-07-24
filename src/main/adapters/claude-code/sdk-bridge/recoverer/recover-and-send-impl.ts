@@ -29,7 +29,6 @@ import type { RecoverAndSendDeps } from './_deps';
 import { sendAfterInflightRecovery } from './recovery-waiter';
 import log from '@main/utils/logger';
 import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
-
 const logger = log.scope('claude-recoverer');
 
 /**
@@ -335,6 +334,7 @@ export async function recoverAndSendImpl(
           recoveryCapture,
           recoveryCaptureError,
           minHealJsonlMtimeMs: rec.lastEventAt,
+          provider: rec.runtimeProvider ?? undefined,
           permissionMode: rec.permissionMode ?? undefined,
           claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
           model: rec.model ?? undefined,
@@ -392,6 +392,7 @@ export async function recoverAndSendImpl(
         cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
         prompt: text,
         resume: sessionId,
+        provider: rec.runtimeProvider ?? undefined,
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修**:
         // recoverer.ts:486 normal resume caller 显式传 resumeCliSid = rec.cliSessionId ?? sessionId,
         // 防 caller 不传时 S6 fork detect condition 短路让 fork detect 完全跳过 (HIGH-R6-1 真问题)。

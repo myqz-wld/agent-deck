@@ -5,7 +5,7 @@ import {
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   type AppSettings,
-  type ContinuationCheckpointProvider,
+  type GeneratorAdapterId,
 } from '@shared/types';
 import {
   MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
@@ -13,7 +13,7 @@ import {
 } from '@shared/types/settings/defaults';
 import { NumberInput, Section, Toggle } from '../controls';
 import {
-  coerceThinkingForProvider,
+  coerceThinkingForAdapter,
   ProviderModelThinkingFields,
 } from '../ProviderModelThinkingFields';
 
@@ -22,14 +22,16 @@ interface Props {
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }
 
-function modelHint(provider: ContinuationCheckpointProvider): string {
-  if (provider === 'claude') return '留空时使用 Claude Sonnet';
-  if (provider === 'deepseek') return '留空时使用 Deepseek Sonnet';
-  return '留空时使用 Codex 配置默认模型';
+function modelHint(adapter: GeneratorAdapterId, runtimeProvider: string): string {
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex provider 的默认模型';
+  if (adapter === 'grok-build') return '留空时使用 Grok 配置默认模型';
+  return runtimeProvider
+    ? `留空时使用 ${runtimeProvider} Gateway 的 Sonnet 路由`
+    : '留空时使用 Claude Sonnet';
 }
 
 export function ContinuationContextSection({ settings, update }: Props): JSX.Element {
-  const provider = settings.continuationCheckpointProvider;
+  const adapter = settings.continuationCheckpointAdapter;
 
   return (
     <Section
@@ -62,18 +64,32 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
       </p>
       <ProviderModelThinkingFields
         label="上下文整理模型"
-        hint={modelHint(provider) + '。'}
-        provider={provider}
+        hint={
+          modelHint(
+            adapter,
+            settings.continuationCheckpointRuntimeProvider,
+          ) + '。'
+        }
+        adapter={adapter}
+        runtimeProvider={settings.continuationCheckpointRuntimeProvider}
         model={settings.continuationCheckpointModel}
         thinking={settings.continuationCheckpointThinking}
         modelPlaceholder="模型（可留空）"
-        onProviderChange={(nextProvider) =>
+        onAdapterChange={(nextAdapter) =>
           void update({
-            continuationCheckpointProvider: nextProvider,
-            continuationCheckpointThinking: coerceThinkingForProvider(
-              nextProvider,
+            continuationCheckpointAdapter: nextAdapter,
+            continuationCheckpointRuntimeProvider: '',
+            continuationCheckpointModel: '',
+            continuationCheckpointThinking: coerceThinkingForAdapter(
+              nextAdapter,
               settings.continuationCheckpointThinking,
             ),
+          })
+        }
+        onRuntimeProviderChange={(runtimeProvider) =>
+          void update({
+            continuationCheckpointRuntimeProvider: runtimeProvider,
+            continuationCheckpointModel: '',
           })
         }
         onModelChange={(model) => void update({ continuationCheckpointModel: model })}

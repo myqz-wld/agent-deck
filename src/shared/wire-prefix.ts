@@ -24,7 +24,7 @@
 export interface WirePrefixParse {
   /** displayName（来自 team_member.display_name 或 `<adapterId>:<sid 前 8>` fallback）*/
   from: string;
-  /** adapterId（claude-code / deepseek-claude-code / codex-cli / grok-build）*/
+  /** adapterId（claude-code / codex-cli / grok-build）*/
   adapter: string;
   /** messageId — B7 阶段后 buildWireBody 必带；老历史事件可能没有 */
   msgId?: string;

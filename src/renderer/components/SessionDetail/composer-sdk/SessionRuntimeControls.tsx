@@ -20,6 +20,7 @@ interface RuntimeSelection {
   key: string;
   agentId: string;
   sessionId: string;
+  provider: string;
   model: string;
   thinking: SessionThinkingChoice;
   revision: number;
@@ -40,6 +41,7 @@ function selectionFromSession(session: SessionRecord, revision: number): Runtime
     key: sessionKey(session),
     agentId: session.agentId,
     sessionId: session.id,
+    provider: session.runtimeProvider ?? '',
     model: session.model ?? '',
     thinking: normalizeThinking(session),
     revision,
@@ -49,6 +51,7 @@ function selectionFromSession(session: SessionRecord, revision: number): Runtime
 /** Editor for the runtime selection applied to subsequent provider turns. */
 export function SessionRuntimeControls({ session }: { session: SessionRecord }): JSX.Element {
   const [model, setModel] = useState(session.model ?? '');
+  const [provider, setProvider] = useState(session.runtimeProvider ?? '');
   const [thinking, setThinking] = useState<SessionThinkingChoice>(() => normalizeThinking(session));
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef({
@@ -84,6 +87,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
     pending.inFlight = true;
     try {
       await window.api.setSessionModelOptions(selection.agentId, selection.sessionId, {
+        provider: selection.provider.trim() || null,
         model: selection.model.trim() || null,
         thinking: selection.thinking || null,
       });
@@ -123,7 +127,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
   };
 
   const updateSelection = (
-    update: Pick<RuntimeSelection, 'model'> | Pick<RuntimeSelection, 'thinking'>,
+    update: Partial<Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>>,
     immediately: boolean,
   ): void => {
     const key = sessionKey(session);
@@ -136,6 +140,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
     };
     draftRef.current = { selection: next, hasLocalEdits: true };
     setModel(next.model);
+    setProvider(next.provider);
     setThinking(next.thinking);
     setError(null);
     queuePersistence(next, immediately);
@@ -147,6 +152,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
     if (draft.selection.key !== incoming.key) {
       draftRef.current = { selection: incoming, hasLocalEdits: false };
       setModel(incoming.model);
+      setProvider(incoming.provider);
       setThinking(incoming.thinking);
       setError(null);
       return;
@@ -155,8 +161,15 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
     if (draft.hasLocalEdits) return;
     draftRef.current = { selection: incoming, hasLocalEdits: false };
     setModel(incoming.model);
+    setProvider(incoming.provider);
     setThinking(incoming.thinking);
-  }, [session.id, session.model, session.thinking, session.agentId]);
+  }, [
+    session.id,
+    session.runtimeProvider,
+    session.model,
+    session.thinking,
+    session.agentId,
+  ]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -175,21 +188,26 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
   return (
     <details className="mb-2 rounded border border-deck-border/80 bg-white/[0.02] px-2 py-1.5">
       <summary className="cursor-pointer select-none text-[10px] text-deck-muted">
-        模型与思考程度
+        Provider、模型与思考程度
         <span className="ml-1 text-deck-muted/60">（下一轮生效）</span>
       </summary>
       <div className="mt-2 space-y-2">
         <SessionModelFields
           adapterId={session.agentId}
+          provider={provider}
           model={model}
           thinking={thinking}
+          onProviderChange={(next) =>
+            updateSelection({ provider: next, model: '' }, true)
+          }
           onModelChange={(next) => updateSelection({ model: next }, false)}
           onThinkingChange={(next) => updateSelection({ thinking: next }, true)}
         />
         <p className="text-[9px] text-deck-muted/65">
-          当前回复不会中断；修改会自动保存并在下一轮生效。模型名称及其支持的档位由 provider 最终校验。
+          当前回复不会中断；修改会自动保存并在下一轮生效。切换 Gateway/provider
+          会重新建立下一轮运行时，模型名称及思考档位由目标 provider 最终校验。
         </p>
-        <ErrorBanner message={error} prefix="模型设置失败" onDismiss={() => setError(null)} />
+        <ErrorBanner message={error} prefix="运行时设置失败" onDismiss={() => setError(null)} />
       </div>
     </details>
   );

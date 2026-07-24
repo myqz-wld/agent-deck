@@ -361,6 +361,7 @@ export async function recoverAndSendImpl(
           prompt: text,
           capture: recoveryCapture,
           captureError: recoveryCaptureError,
+          provider: rec.runtimeProvider ?? undefined,
           codexSandbox: rec.codexSandbox ?? undefined,
           model: sdkModel,
           modelReasoningEffort: sdkThinking,
@@ -410,6 +411,7 @@ export async function recoverAndSendImpl(
         cwd: effectiveCwd,
         prompt: text,
         resume: sessionId,
+        provider: rec.runtimeProvider ?? undefined,
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修
         // (codex 对称 claude recoverer.ts:486)**:
         // 显式传 resumeCliSid = rec.cliSessionId ?? sessionId 防 caller 不传时 S6 fork detect

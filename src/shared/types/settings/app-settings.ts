@@ -34,7 +34,7 @@ export interface CodexMcpServerConfigShared {
   bearerTokenEnvVar?: string;
 }
 
-export type ContinuationCheckpointProvider = 'claude' | 'deepseek' | 'codex';
+export type GeneratorAdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
 
 export interface AppSettings {
   hookServerPort: number;
@@ -66,62 +66,21 @@ export interface AppSettings {
    * inFlight 槽永不释放，maxConcurrent 个卡死后整个 Summarizer 不再产新总结。
    */
   summaryTimeoutMs: number;
-  /**
-   * 周期性 summarize 走哪个 LLM provider(plan prancy-forging-penguin)。决定 summarizer 在
-   * `adapterRegistry.get(...)` 选 claude-code adapter 还是 codex-cli adapter 出 summary,
-   * **与被总结 session 自身的 adapter 无关**(claude session 也可能由 codex SDK 总结,反之亦然
-   * — 由 user 在 settings 决定)。
-   *
-   * - `'claude'`(默认): 走 Claude Code SDK + settings.summaryModel / summaryReasoning 字段
-   * - `'deepseek'`: 走 Deepseek Claude Code adapter + settings.summaryModel / summaryReasoning 字段
-   * - `'codex'`: 走 Codex SDK + settings.summaryModel 字段 + settings.summaryReasoning 档位
-   *
-   * 切档即时生效:summarizer 每次 scanAll() 重读本字段,无 cache。已在跑的 in-flight LLM
-   * 调用不撤回(也不会回收 — 完成的 summary 落到 summaryRepo 不影响下次 provider 决策)。
-   */
-  summaryProvider: 'claude' | 'deepseek' | 'codex';
-  /**
-   * 周期性 summarize 用的 LLM model id（plan prancy-forging-penguin）。
-   *
-   * 优先级链（provider='claude' 时由 summariseViaLlm 实施）：
-   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ 'haiku' alias 兜底
-   *
-   * 优先级链（provider='deepseek' 时）：
-   *   `settings.summaryModel` ＞ `ANTHROPIC_DEFAULT_HAIKU_MODEL` env ＞ 'haiku' alias 兜底
-   *
-   * 优先级链（provider='codex' 时由 summariseCodexSessionViaOneshot 实施）：
-   *   `settings.summaryModel` ＞ undefined（交给 `~/.codex/config.toml` 顶层 `model`）
-   *
-   * - `''`（默认空）= Claude/Deepseek 用 Haiku；Codex 使用当前配置默认模型
-   *   （不再读取隐藏的 `ANTHROPIC_MODEL` / `CODEX_SUMMARY_MODEL` 覆盖）
-   * - 非空 = 覆盖,直接传给对应 SDK 的 options.model;**填的 model id 必须对当前 provider 可用**
-   *   (Claude/Deepseek 端用所选 Claude-family provider alias,codex 端用 Codex SDK 可用 model id)
-   *
-   * **provider × model 匹配是 user 责任**:settings.summaryProvider='codex' + summaryModel 填
-   * 其他 provider alias 会撞当前 SDK 不识别报错,日志会清楚。
-   */
+  /** 周期简报使用的隔离运行时 adapter，与被总结会话自身的 adapter 无关。 */
+  summaryAdapter: GeneratorAdapterId;
+  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
+  summaryRuntimeProvider: string;
+  /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   summaryModel: string;
-  /**
-   * 周期性 summarize 的 reasoning effort 档位(plan prancy-forging-penguin)。
-   *
-   * provider 对应档位：
-   * - Codex：`low | medium | high | xhigh | max | ultra`
-   * - Claude / Deepseek（Claude Code SDK effort）：`low | medium | high | xhigh | max`
-   *   （具体模型支持子集由 Claude Code 校准）
-   *
-   * UI 切换 provider 时会把 Claude-family 不支持的 `ultra` 收口为 `max`；main 端做同样
-   * 的兼容收口并过滤其他非法值，避免脏配置透传给 SDK。历史 `minimal` 设置迁移为 `low`。
-   *
-   * - default `'low'`：优先降低周期简报的成本与延迟
-   * - `'medium'/'high'/'xhigh'/'max'`: 用户需精度时升档(注意成本与延迟)
-   * - `'ultra'`: codex 最高档；Claude Code 不支持该 effort 名称
-   */
-  summaryReasoning: SessionThinkingLevel;
-  /** 续接检查点由哪个隔离 provider runtime 生成，与 successor adapter 独立。 */
-  continuationCheckpointProvider: ContinuationCheckpointProvider;
-  /** 空字符串：Claude/Deepseek 用 Sonnet，Codex 用当前 config.toml 模型。 */
+  /** adapter 对应的思考等级；历史 minimal 在迁移时收口为 low。 */
+  summaryThinking: SessionThinkingLevel;
+  /** 续接检查点生成器 adapter，与 successor adapter 独立。 */
+  continuationCheckpointAdapter: GeneratorAdapterId;
+  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
+  continuationCheckpointRuntimeProvider: string;
+  /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   continuationCheckpointModel: string;
-  /** 默认 medium。Codex 支持 low..ultra；Claude/Deepseek 仅支持 low..max。 */
+  /** 默认 medium；合法值按 adapter 校验。 */
   continuationCheckpointThinking: SessionThinkingLevel;
   /** 是否在会话增长时后台维护 canonical continuation checkpoint。 */
   continuationCheckpointAutoRefreshEnabled: boolean;

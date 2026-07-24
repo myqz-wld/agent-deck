@@ -202,6 +202,7 @@ export async function createCodexForkedSession(
     (deps.persistTargetFields ?? persistSessionFields)({
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,
+      provider: target.provider,
       model: runtime.persistedModel,
       modelReasoningEffort: runtime.persistedReasoningEffort,
       extraAllowWrite: target.extraAllowWrite,

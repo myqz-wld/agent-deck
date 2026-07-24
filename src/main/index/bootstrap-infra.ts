@@ -34,8 +34,8 @@ import { initDb, closeDb, isDbClosed } from '../store/db';
 import { settingsStore } from '../store/settings-store';
 import { adapterRegistry } from '../adapters/registry';
 import { claudeCodeAdapter } from '../adapters/claude-code';
-import { deepseekClaudeCodeAdapter } from '../adapters/deepseek-claude-code';
 import { applyClaudeSettingsEnv } from '../adapters/claude-code/settings-env';
+import { initializeBuiltInClaudeGatewayProfiles } from '../adapters/claude-code/gateway-profiles';
 import { codexCliAdapter } from '../adapters/codex-cli';
 import { grokBuildAdapter } from '../adapters/grok-build';
 import { sessionManager, setSessionCloseFn, setSessionRenameHookFn } from '../session/manager';
@@ -97,6 +97,14 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
 
   // 0. 把 ~/.claude/settings.json 的 env 注入到主进程
   applyClaudeSettingsEnv();
+  try {
+    initializeBuiltInClaudeGatewayProfiles();
+  } catch (error) {
+    logger.warn(
+      '[claude-gateway] built-in Deepseek profile migration failed; Claude native and other Gateway profiles remain available',
+      error,
+    );
+  }
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
@@ -139,7 +147,6 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
 
   // 4. 注册 adapter
   adapterRegistry.register(claudeCodeAdapter);
-  adapterRegistry.register(deepseekClaudeCodeAdapter);
   adapterRegistry.register(codexCliAdapter);
   adapterRegistry.register(grokBuildAdapter);
 

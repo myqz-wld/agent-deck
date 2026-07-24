@@ -44,6 +44,8 @@ export interface BuildClaudeQueryOptionsArgs {
    * model-resolve.ts fallback 链）。
    */
   model?: string;
+  /** Session-local Claude Gateway settings file. */
+  settingsPath?: string;
   /**
    * Per-session Claude Code effort override. undefined → SDK/user settings choose the effort.
    */
@@ -74,6 +76,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
     claudeBinary,
     mcpServers: { agentDeckMcpServer },
     model,
+    settingsPath,
     effort,
     agentName,
     agents,
@@ -121,6 +124,7 @@ export function buildClaudeQueryOptions(args: BuildClaudeQueryOptionsArgs): Opti
       : {}),
     // 复用本地 Claude Code 配置（hooks / MCP / agents / permissions）
     settingSources: ['user', 'project', 'local'],
+    ...(settingsPath ? { settings: settingsPath } : {}),
     canUseTool,
     // 生成中 tok/s 估算依赖 stream_event(content_block_delta)。summarizer 不经此 builder。
     includePartialMessages: true,

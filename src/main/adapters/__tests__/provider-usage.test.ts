@@ -4,7 +4,7 @@ import type { SDKControlGetUsageResponse } from '@anthropic-ai/claude-agent-sdk'
 import {
   buildClaudeUsageSnapshot,
   buildCodexUsageSnapshot,
-  unsupportedUsageSnapshot,
+  buildGrokUsageSnapshot,
 } from '../provider-usage';
 
 describe('provider usage snapshots', () => {
@@ -172,19 +172,53 @@ describe('provider usage snapshots', () => {
     expect(snapshot.windows[0].usedPercent).toBe(42);
   });
 
-  it('builds unsupported placeholders for Deepseek', () => {
-    const snapshot = unsupportedUsageSnapshot(
-      'deepseek-claude-code',
-      'Deepseek',
-      'Deepseek 暂不支持读取额度信息',
+  it('maps Grok weekly billing usage and reset metadata', () => {
+    const snapshot = buildGrokUsageSnapshot(
+      {
+        config: {
+          creditUsagePercent: 37.5,
+          currentPeriod: {
+            type: 'USAGE_PERIOD_TYPE_WEEKLY',
+            start: '2026-07-22T00:00:00+00:00',
+            end: '2026-07-29T00:00:00+00:00',
+          },
+        },
+      },
       222,
     );
 
     expect(snapshot).toMatchObject({
-      provider: 'deepseek-claude-code',
-      status: 'unsupported',
-      windows: [],
+      provider: 'grok-build',
+      label: 'Grok',
+      status: 'ok',
       updatedAt: 222,
+    });
+    expect(snapshot.windows).toEqual([
+      {
+        id: 'weekly',
+        label: '周用量',
+        usedPercent: 37.5,
+        resetsAt: '2026-07-29T00:00:00.000Z',
+        windowMinutes: 10_080,
+      },
+    ]);
+  });
+
+  it('keeps Grok reset information visible when a free plan omits a percentage', () => {
+    const snapshot = buildGrokUsageSnapshot({
+      config: {
+        currentPeriod: {
+          type: 'USAGE_PERIOD_TYPE_WEEKLY',
+          start: '2026-07-22T00:00:00+00:00',
+          end: '2026-07-29T00:00:00+00:00',
+        },
+      },
+    });
+
+    expect(snapshot.status).toBe('ok');
+    expect(snapshot.windows[0]).toMatchObject({
+      usedPercent: null,
+      resetsAt: '2026-07-29T00:00:00.000Z',
     });
   });
 });

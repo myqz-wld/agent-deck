@@ -7,6 +7,7 @@ import type {
 import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import { ProviderCombobox } from './ProviderCombobox';
 import { CloseIcon, SaveIcon, TrashIcon } from '../icons';
 
 /**
@@ -53,6 +54,8 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
   const [description, setDescription] = useState(asset?.description ?? '');
   const [tools, setTools] = useState(asset?.tools ?? '');
   const [model, setModel] = useState(asset?.model ?? (kind === 'agent' && !isCodexAgent ? 'opus' : ''));
+  const [provider, setProvider] = useState(asset?.provider ?? '');
+  const [providerOptions, setProviderOptions] = useState<Array<{ id: string; name?: string }>>([]);
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(isEdit); // 编辑模式 mount 时 fetch 加载
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +85,11 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
             const parsed = parseCodexAgentToml(r.content);
             setDescription(parsed.description ?? asset.description);
             setModel(parsed.model ?? '');
+            setProvider(
+              typeof parsed.config.model_provider === 'string'
+                ? parsed.config.model_provider
+                : '',
+            );
             setTools('');
             setBody(parsed.developerInstructions ?? '');
             return;
@@ -103,6 +111,25 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
       cancelled = true;
     };
   }, [isEdit, asset]);
+
+  useEffect(() => {
+    if (kind !== 'agent') return;
+    let cancelled = false;
+    const request =
+      adapter === 'claude-code'
+        ? window.api.listClaudeGatewayProfiles()
+        : window.api.listCodexModelProviders();
+    void request
+      .then((options) => {
+        if (!cancelled) setProviderOptions(options);
+      })
+      .catch(() => {
+        if (!cancelled) setProviderOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter, kind]);
 
   // 校验链与 main 端 ipc/assets.ts:parseUserAssetInput 完全对齐（CHANGELOG_57 R1·F8 收口）：
   // - name slug 用共享 ASSET_NAME_REGEX（首字符 a-z/0-9 + 后续 a-z/0-9/-，长度 1-64）
@@ -146,12 +173,28 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
           ? '工具列表不能包含「---」字符'
           : null
     : null;
+  const providerError = kind === 'agent' && provider.length > 0
+    ? provider.length > ASSET_LIMITS.provider
+      ? `Provider 太长（最多 ${ASSET_LIMITS.provider} 字）`
+      : /[\r\n]/.test(provider)
+        ? 'Provider 必须写在一行内'
+        : provider.includes('---')
+          ? 'Provider 不能包含「---」字符'
+          : null
+    : null;
   const bodyError = body.length > ASSET_LIMITS.body
     ? `正文太长（最多 ${ASSET_LIMITS.body} 字，约 256KB）`
     : !isCodexAgent && body.split('\n', 1)[0].trim() === '---'
       ? '正文首行不能是「---」'
       : null;
-  const hasError = !!(nameError || descError || modelError || toolsError || bodyError);
+  const hasError = !!(
+    nameError ||
+    descError ||
+    modelError ||
+    providerError ||
+    toolsError ||
+    bodyError
+  );
 
   const handleChange = <T,>(setter: (v: T) => void) => (v: T): void => {
     setter(v);
@@ -170,6 +213,7 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
         description: description.trim(),
         tools: kind === 'agent' ? tools.trim() || undefined : undefined,
         model: kind === 'agent' ? model.trim() || undefined : undefined,
+        provider: kind === 'agent' ? provider.trim() || undefined : undefined,
         body,
       });
       if (r.ok) {
@@ -316,6 +360,28 @@ export function AssetEditor({ kind, adapter, asset, onClose, onSaved }: Props): 
                     label: m || 'inherit',
                   }))}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
+                />
+              </Field>
+              <Field
+                label={adapter === 'claude-code' ? 'Gateway（可留空）' : 'Provider（可留空）'}
+                error={providerError}
+              >
+                <ProviderCombobox
+                  value={provider}
+                  options={providerOptions}
+                  disabled={busy}
+                  ariaLabel={adapter === 'claude-code' ? 'Gateway' : 'Provider'}
+                  placeholder={
+                    adapter === 'claude-code'
+                      ? '留空使用 Claude 原生配置'
+                      : '留空跟随 config.toml'
+                  }
+                  emptyMessage={
+                    adapter === 'claude-code'
+                      ? '没有发现 Gateway profile'
+                      : '没有匹配项，可直接输入 provider'
+                  }
+                  onChange={handleChange(setProvider)}
                 />
               </Field>
               {!isCodexAgent && (

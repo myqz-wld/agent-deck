@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const query = vi.fn();
+const runGrokOneshot = vi.hoisted(() => vi.fn());
 vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
   loadSdk: vi.fn(async () => ({ query })),
 }));
@@ -10,11 +11,25 @@ vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
 vi.mock('@main/adapters/claude-code/resolve-claude-binary', () => ({
   resolveClaudeBinary: vi.fn(() => '/bin/claude'),
 }));
-vi.mock('@main/adapters/deepseek-claude-code/config', () => ({
-  loadDeepseekClaudeEnv: vi.fn(() => ({ ANTHROPIC_BASE_URL: 'https://example.invalid' })),
+vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
+  resolveClaudeGatewayProfile: vi.fn((provider: string | null | undefined) =>
+    provider === 'deepseek'
+      ? {
+          id: 'deepseek',
+          settingsPath: '/home/test/.claude/gateways/deepseek.json',
+          models: [],
+        }
+      : null,
+  ),
+}));
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: { get: vi.fn(() => '/bin/grok') },
+}));
+vi.mock('@main/session/oneshot-llm', () => ({
+  runGrokOneshot,
 }));
 
-import { clearDeepseekCheckpointCapabilityCache, createCheckpointGeneratorRuntime } from '../runtime';
+import { clearGatewayCheckpointCapabilityCache, createCheckpointGeneratorRuntime } from '../runtime';
 
 function iterable(messages: unknown[]): AsyncIterable<unknown> & { interrupt: () => Promise<void> } {
   return {
@@ -30,7 +45,8 @@ const request = { prompt: 'fold', timeoutMs: 10_000, maxOutputBytes: 10_000, rem
 describe('isolated Claude-family checkpoint runtime', () => {
   beforeEach(() => {
     query.mockReset();
-    clearDeepseekCheckpointCapabilityCache();
+    runGrokOneshot.mockReset();
+    clearGatewayCheckpointCapabilityCache();
   });
 
   it('passes an empty tool/MCP surface, one turn, empty settings sources, and structured output', async () => {
@@ -83,7 +99,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
       .mockReturnValueOnce(iterable([{ type: 'result', subtype: 'success', result: checkpointJson, usage: {}, modelUsage: {} }]))
       .mockReturnValueOnce(iterable([{ type: 'result', subtype: 'success', result: checkpointJson, usage: {}, modelUsage: {} }]));
     const runtime = createCheckpointGeneratorRuntime({
-      adapter: 'deepseek-claude-code', model: 'deepseek-test', thinking: 'max',
+      adapter: 'claude-code', provider: 'deepseek', model: 'deepseek-test', thinking: 'max',
       contextWindowTokens: null, configFingerprint: 'deepseek-runtime',
     });
     const first = await runtime.generate(request);
@@ -91,7 +107,48 @@ describe('isolated Claude-family checkpoint runtime', () => {
     expect(first.providerCalls).toBe(2);
     expect(second.providerCalls).toBe(1);
     expect(query.mock.calls[0][0].options.outputFormat).toBeDefined();
+    expect(query.mock.calls[0][0].options.settings).toBe(
+      '/home/test/.claude/gateways/deepseek.json',
+    );
     expect(query.mock.calls[1][0].options.outputFormat).toBeUndefined();
     expect(query.mock.calls[2][0].options.outputFormat).toBeUndefined();
+  });
+
+  it('runs Grok with the checkpoint schema and hardened-unattested isolation', async () => {
+    runGrokOneshot.mockResolvedValue({
+      text: JSON.stringify({ formatVersion: 1, additions: [], updates: [] }),
+      inputTokens: 17,
+      outputTokens: 4,
+      contextWindowTokens: 1_048_576,
+      stopReason: 'EndTurn',
+    });
+    const runtime = createCheckpointGeneratorRuntime({
+      adapter: 'grok-build',
+      model: 'fable',
+      thinking: 'xhigh',
+      contextWindowTokens: null,
+      configFingerprint: 'grok-runtime',
+    });
+
+    const result = await runtime.generate(request);
+
+    expect(runtime.isolation).toBe('hardened-unattested');
+    expect(runGrokOneshot).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: 'fold',
+      model: 'fable',
+      effort: 'xhigh',
+      binaryPath: '/bin/grok',
+      outputSchema: expect.objectContaining({
+        required: ['formatVersion', 'additions', 'updates'],
+      }),
+      maxOutputBytes: 10_000,
+    }));
+    expect(result).toMatchObject({
+      structured: true,
+      inputTokens: 17,
+      outputTokens: 4,
+      contextWindowTokens: 1_048_576,
+      providerCalls: 1,
+    });
   });
 });

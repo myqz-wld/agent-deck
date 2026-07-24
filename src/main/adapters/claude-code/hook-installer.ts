@@ -14,6 +14,7 @@ const logger = log.scope('claude-hook-installer');
  */
 
 const HOOK_TAG = 'agent-deck-hook';
+const CURRENT_HOOK_TAG = 'agent-deck-hook-grok-guard';
 
 const HOOK_EVENTS = [
   'SessionStart',
@@ -63,7 +64,10 @@ function buildCommand(port: number, token: string, event: HookEvent): string {
   // - 用户独立终端跑 `claude` 无此 env → ${...:-cli} 兜底为 'cli'
   // header 用**双引号**外层让 shell 展开 ${AGENT_DECK_ORIGIN:-cli}；其它 header 仍单引号
   // （token / Content-Type 是写入时已替换的字面量，不需要 shell 展开）。
-  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
+  // Grok Build discovers Claude-compatible hooks by default and exposes GROK_HOOK_EVENT to hook
+  // commands. Consume but do not forward that compatibility invocation: the native Grok hook owns
+  // external Grok reporting, while genuine Claude Code processes do not set this variable.
+  return `if [ -n "\${GROK_HOOK_EVENT:-}" ]; then cat > /dev/null; else cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" --data-binary @- > /dev/null; fi || true # ${CURRENT_HOOK_TAG}`;
 }
 
 function settingsPath(scope: 'user' | 'project', cwd?: string): string {
@@ -112,6 +116,10 @@ function writeSettings(p: string, data: ClaudeSettings): void {
 
 function isOurHookEntry(entry: HookEntry): boolean {
   return entry.type === 'command' && entry.command.includes(HOOK_TAG);
+}
+
+function isCurrentHookEntry(entry: HookEntry): boolean {
+  return entry.type === 'command' && entry.command.includes(CURRENT_HOOK_TAG);
 }
 
 export class HookInstaller {
@@ -226,7 +234,7 @@ export class HookInstaller {
     for (const event of HOOK_EVENTS) {
       const groups = data.hooks?.[event] ?? [];
       for (const g of groups) {
-        if (g.hooks.some(isOurHookEntry)) {
+        if (g.hooks.some(isCurrentHookEntry)) {
           installed.push(event);
           break;
         }

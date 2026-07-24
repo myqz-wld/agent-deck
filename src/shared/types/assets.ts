@@ -51,7 +51,7 @@ export const ASSET_LIMITS = {
 export interface BundledAgentRuntimeOverride {
   model?: string;
   thinking?: string;
-  /** Codex-only `model_provider`; provider definitions remain in native Codex config. */
+  /** Claude Gateway profile id or Codex native `model_provider`. */
   provider?: string;
 }
 
@@ -70,6 +70,13 @@ export interface CodexModelProviderOption {
   name?: string;
   /** True only for the top-level `model_provider`; profile layering remains Codex-owned. */
   configuredAsTopLevelDefault: boolean;
+}
+
+export interface ClaudeGatewayProfileOption {
+  id: string;
+  name?: string;
+  /** Absolute settings file passed only to this Claude SDK child through `options.settings`. */
+  settingsPath: string;
 }
 
 export interface AssetMeta {
@@ -114,7 +121,7 @@ export interface AssetMeta {
   model?: string;
   /** agent only。Claude `effort` / Codex `model_reasoning_effort` 的统一展示值。 */
   thinking?: string;
-  /** agent only。当前仅 Codex 使用，映射到 native `model_provider`。 */
+  /** agent only。Claude 映射到 Gateway profile；Codex 映射到 native `model_provider`。 */
   provider?: string;
   /** bundled agent only。让 UI 展示 effective 值并能删除差异记录恢复 packaged 默认。 */
   bundledAgentRuntime?: BundledAgentRuntimeMeta;
@@ -143,6 +150,8 @@ export interface UserAssetInput {
   tools?: string;
   /** agent 必填；skill 忽略。 */
   model?: string;
+  /** Claude Gateway profile id or Codex native model_provider; skills ignore it. */
+  provider?: string;
   /** markdown 正文（不含 frontmatter）。 */
   body: string;
 }

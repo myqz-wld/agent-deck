@@ -13,20 +13,6 @@ export function isClaudeRuntimeEffort(value: unknown): value is ClaudeCodeEffort
   return isClaudeThinkingLevel(value);
 }
 
-export function extractProviderModelAliases(
-  env: Readonly<Record<string, string>> | undefined,
-): ClaudeProviderModelAliases | undefined {
-  if (!env) return undefined;
-  const fallback = env.ANTHROPIC_MODEL?.trim() || undefined;
-  const aliases: ClaudeProviderModelAliases = {
-    fable: env.ANTHROPIC_DEFAULT_FABLE_MODEL?.trim() || fallback,
-    opus: env.ANTHROPIC_DEFAULT_OPUS_MODEL?.trim() || fallback,
-    sonnet: env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim() || fallback,
-    haiku: env.ANTHROPIC_DEFAULT_HAIKU_MODEL?.trim() || fallback,
-  };
-  return Object.values(aliases).some(Boolean) ? aliases : undefined;
-}
-
 function resolveRuntimeModel(internal: InternalSession, reportedModel: unknown): string | null {
   if (typeof reportedModel !== 'string') return null;
   const trimmed = reportedModel.trim();

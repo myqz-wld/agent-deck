@@ -255,7 +255,12 @@ function buildAgentMeta(
     tools: fm.tools,
     model: fm.model,
     thinking: fm.effort || fm.model_reasoning_effort || undefined,
-    provider: adapter === 'codex-cli' ? fm.model_provider || undefined : undefined,
+    provider:
+      adapter === 'codex-cli'
+        ? fm.model_provider || undefined
+        : adapter === 'claude-code'
+          ? fm.provider || undefined
+          : undefined,
     absPath,
   };
 }

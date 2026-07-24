@@ -17,6 +17,7 @@ import type {
   AgentEvent,
   PermissionRequest,
   PermissionResponse,
+  ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
 
@@ -33,6 +34,8 @@ import type { GrokRuntime } from './runtime-types';
 import { buildGrokMcpServers, buildGrokSessionMeta } from './session-setup';
 import { GrokTurnQueue, type GrokEnqueueOptions } from './turn-queue';
 import { translateGrokUpdate } from './translate';
+import { readGrokUsageSnapshotInBackground } from './usage-snapshot';
+import { probeGrokImageCapability } from './capability-probe';
 
 const AGENT_ID = 'grok-build';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -76,23 +79,18 @@ export class GrokBuildBridge {
     this.permissionController.setTimeoutMs(ms);
   }
 
-  async probeCapabilities(cwd: string): Promise<boolean> {
-    const binary = await resolveGrokBinary(this.binaryPath);
-    const process = await GrokAcpProcess.start({
-      binary,
-      cwd,
-      authenticate: false,
-      onSessionUpdate: () => undefined,
-      onPermissionRequest: async () => ({ outcome: { outcome: 'cancelled' } }),
+  getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    return readGrokUsageSnapshotInBackground({
+      binaryPath: this.binaryPath,
     });
-    try {
-      const image =
-        process.initializeResponse.agentCapabilities?.promptCapabilities?.image === true;
-      this.options.onNegotiatedImageCapability?.(image);
-      return image;
-    } finally {
-      await process.stop();
-    }
+  }
+
+  async probeCapabilities(cwd: string): Promise<boolean> {
+    return probeGrokImageCapability(
+      cwd,
+      this.binaryPath,
+      this.options.onNegotiatedImageCapability,
+    );
   }
 
   async createSession(opts: GrokCreateOpts): Promise<string> {
@@ -279,8 +277,11 @@ export class GrokBuildBridge {
 
   async setSessionModelOptions(
     sessionId: string,
-    options: { model: string | null; thinking: string | null },
+    options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
+    if (options.provider) {
+      throw new Error('Grok Build does not support a separate runtime provider');
+    }
     const runtime = this.requireRuntime(sessionId);
     const targetModel = options.model ?? runtime.model;
     const targetThinking = options.thinking ?? runtime.thinking;
@@ -418,7 +419,6 @@ export class GrokBuildBridge {
       });
       runtime.sessionMode = requestedMode;
     }
-
   }
 
   private async enqueueOrRecover(

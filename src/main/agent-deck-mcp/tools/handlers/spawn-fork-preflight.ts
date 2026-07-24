@@ -69,6 +69,17 @@ export async function validateSpawnForkPreflight(
       `Retry with adapter "${caller.agentId}" or use contextMode "fresh".`,
     );
   }
+  const targetProvider =
+    input.target.agentId === 'grok-build'
+      ? null
+      : input.target.provider?.trim() || null;
+  const callerProvider = caller.runtimeProvider?.trim() || null;
+  if (callerProvider !== targetProvider) {
+    return reject(
+      `contextMode "fork" requires caller runtime provider "${callerProvider ?? 'native default'}", received "${targetProvider ?? 'native default'}".`,
+      `Retry with provider ${callerProvider ? `"${callerProvider}"` : 'omitted'} or use contextMode "fresh".`,
+    );
+  }
   if (
     input.adapter.capabilities.canForkSession !== true ||
     !input.adapter.validateForkSession ||

@@ -15,13 +15,13 @@ const logger = log.scope('provider-usage');
 const PROVIDER_ORDER: ReadonlyArray<ProviderUsageProviderId> = [
   'claude-code',
   'codex-cli',
-  'deepseek-claude-code',
+  'grok-build',
 ];
 
 const PROVIDER_LABELS: Record<ProviderUsageProviderId, string> = {
   'claude-code': 'Claude',
   'codex-cli': 'Codex',
-  'deepseek-claude-code': 'Deepseek',
+  'grok-build': 'Grok',
 };
 
 type ProviderUsageSnapshotOptions = {

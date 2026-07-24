@@ -14,7 +14,6 @@
  *
  * 覆盖:
  * - TC8: agentName='reviewer-codex' → 3 项 reviewer runtime default spread
- * - TC9b: agentName='reviewer-deepseek' → 3 项 reviewer runtime default spread
  * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → **不** spread reviewer
  *   runtime default (不变量 6: 普通 session 不被污染)
  * - TC10b: agentName='reviewer-typescript' (非 REVIEWER_AGENT_NAMES) → 同款不 spread
@@ -91,26 +90,6 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     ]);
 
     // envOverrideExtra 不再被注入 AGENT_DECK_CLAUDE_PATH (wrapper 删除)
-    expect(opts.envOverrideExtra).toBeUndefined();
-  });
-
-  it('TC9b: agentName="reviewer-deepseek" → 3 项 reviewer runtime default spread and preserves caller sandbox', () => {
-    const opts = buildCreateSessionOptions('codex-cli', {
-      cwd: '/repo',
-      prompt: 'review task',
-      agentName: 'reviewer-deepseek',
-      codexSandbox: 'read-only',
-    });
-
-    expect(opts.agentId).toBe('codex-cli');
-    expect(opts.codexSandbox).toBe('read-only');
-    expect(opts.approvalPolicy).toBe('never');
-    expect(opts.networkAccessEnabled).toBe(true);
-    expect(opts.additionalDirectories).toEqual([
-      path.join(os.homedir(), '.claude'),
-      path.join(os.homedir(), '.codex'),
-      '/tmp',
-    ]);
     expect(opts.envOverrideExtra).toBeUndefined();
   });
 

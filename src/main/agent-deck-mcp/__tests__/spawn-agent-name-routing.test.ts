@@ -1,4 +1,4 @@
-/** Spawn handler native Agent routing for Claude, Deepseek, Codex, and generic sessions.
+/** Spawn handler native Agent routing for Claude, Codex, Grok, and generic sessions.
  * Mocks stop at resolver + createSession; downstream wire/placeholder behavior is out of scope. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord, AgentDeckMessage } from '@shared/types';
@@ -22,6 +22,7 @@ const {
     cwd: string;
     prompt?: string;
     agentId?: string;
+    provider?: string;
     model?: string;
     modelReasoningEffort?: string;
     developerInstructions?: string;
@@ -68,12 +69,13 @@ vi.mock('@main/adapters/registry', () => ({
         id,
         capabilities: {
           canCreateSession: true,
-          canSetPermissionMode: id === 'claude-code' || id === 'deepseek-claude-code',
+          canSetPermissionMode: id === 'claude-code',
         },
         createSession: async (opts: {
           agentId?: string;
           cwd: string;
           prompt?: string;
+          provider?: string;
           model?: string;
         }) => {
           const sid = `spawned-${nextSpawnedSid++}`;
@@ -82,6 +84,7 @@ vi.mock('@main/adapters/registry', () => ({
             cwd: opts.cwd,
             prompt: opts.prompt,
             agentId: opts.agentId,
+            provider: opts.provider,
             model: opts.model,
             modelReasoningEffort: (opts as any).modelReasoningEffort,
             developerInstructions: (opts as any).developerInstructions,
@@ -241,18 +244,8 @@ vi.mock('@main/claude-config/custom-agents', () => ({
       agent: {
         name,
         source: 'bundled',
-        model:
-          name === 'reviewer-deepseek'
-            ? 'deepseek-v4-pro[1m]'
-            : name === 'user-claude-agent'
-              ? 'sonnet'
-              : 'opus',
-        effortLevel:
-          name === 'reviewer-deepseek'
-            ? 'max'
-            : name === 'reviewer-claude'
-              ? 'xhigh'
-              : undefined,
+        model: name === 'user-claude-agent' ? 'sonnet' : 'opus',
+        effortLevel: name === 'reviewer-claude' ? 'xhigh' : undefined,
         definition: {
           description: `${adapter}/${name} description`,
           prompt: `# ${adapter}/${name} body (mocked)`,
@@ -416,34 +409,6 @@ describe('spawn handler agentName native routing', () => {
         config: [{ name: 'agent-deck:deep-review' }],
       },
     });
-  });
-
-  it('Deepseek adapter: resolves Claude-family agent assets while target adapter remains deepseek', async () => {
-    const r = await spawn({
-      adapter: 'deepseek-claude-code',
-      agentName: 'reviewer-deepseek',
-      cwd: '/repo',
-      prompt: 'review task',
-    });
-
-    const { isError } = parseToolResult(r as any);
-    expect(isError).toBeFalsy();
-
-    expect(resolveClaudeAgentContentCalls).toEqual([{
-      name: 'reviewer-deepseek',
-      cwd: '/repo',
-      adapter: 'claude-code',
-    }]);
-    expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].adapter).toBe('deepseek-claude-code');
-    expect(createSessionCalls[0].claudeAgentName).toBe('reviewer-deepseek');
-    expect(createSessionCalls[0].claudeAgents).toMatchObject({
-      'reviewer-deepseek': {
-        prompt: '# claude-code/reviewer-deepseek body (mocked)',
-      },
-    });
-    expect(createSessionCalls[0].model).toBe('deepseek-v4-pro[1m]');
-    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('max');
   });
 
   it('explicit model and thinking override both main and active Agent defaults', async () => {

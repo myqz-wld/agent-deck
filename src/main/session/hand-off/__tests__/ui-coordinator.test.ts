@@ -242,6 +242,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
   });
   const selection: SessionHandOffTarget = {
     adapter: 'codex-cli',
+    provider: null,
     model: 'target-model',
     thinking: 'high',
   };

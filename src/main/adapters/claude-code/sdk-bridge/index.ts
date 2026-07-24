@@ -57,6 +57,8 @@ import log from '@main/utils/logger';
 import { closeClaudeSession, setClaudePermissionMode } from './session-lifecycle';
 import { sendClaudeMessage } from './message-controller';
 import * as pendingOutgoing from './pending-outgoing';
+import { resolveClaudeGatewayProfile } from '../gateway-profiles';
+import { withResolvedClaudeGateway } from './create-session/gateway-options';
 
 const logger = log.scope('claude-bridge');
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
@@ -143,9 +145,17 @@ export class ClaudeSdkBridge {
       operations: this.recovering,
       agentId: 'claude-code',
       emit: opts.emit,
-      applyLive: async (sessionId, options) => {
+      applyLive: async (sessionId, options, previous) => {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
+        if (options.provider !== previous.provider) {
+          if (internal.userTurnInFlight) {
+            throw new Error('Claude Gateway cannot change during an active turn');
+          }
+          resolveClaudeGatewayProfile(options.provider);
+          await this.closeSession(sessionId);
+          return true;
+        }
         await internal.query.setModel(options.model ?? undefined);
         const flagSettings = {
           effortLevel: options.thinking,
@@ -220,20 +230,9 @@ export class ClaudeSdkBridge {
    * **decision 矛盾解决**（参照 Step 4.1 同款）：原 §保护清单 jsdoc 标记本文件不拆，
    * user plan §D1 决策强行拆 → 子模块间通过函数 return value 传递派生 state 避免巨型
    * ctx object 闭包污染（详 class 头部 jsdoc decision 矛盾解决记录）。
-   */
+  */
   async createSession(opts: CreateSessionOpts): Promise<SdkSessionHandle> {
-    const providerEnv = this.opts.envProvider?.();
-    const envOverrideExtra =
-      providerEnv || opts.envOverrideExtra
-        ? { ...(providerEnv ?? {}), ...(opts.envOverrideExtra ?? {}) }
-        : undefined;
-    const defaultModel = this.opts.defaultModelProvider?.();
-    const effectiveOpts: CreateSessionOpts = {
-      ...opts,
-      ...(envOverrideExtra ? { envOverrideExtra } : {}),
-      ...(defaultModel ? { profileDefaultModel: defaultModel } : {}),
-    };
-    return createSessionImpl(effectiveOpts, {
+    return createSessionImpl(withResolvedClaudeGateway(opts), {
       sessions: this.sessions,
       emit: this.opts.emit,
       streamProcessor: this.streamProcessor,

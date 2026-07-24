@@ -116,6 +116,7 @@ export function registerAdaptersIpc(): void {
     let sessionModelOptions;
     try {
       sessionModelOptions = resolveCreateSessionModelOptions(validAgentId, {
+        provider: raw.provider,
         model: raw.model,
         thinking: raw.thinking,
       });

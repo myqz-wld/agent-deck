@@ -41,6 +41,8 @@ beforeEach(() => {
           capabilities: { canCreateSession: true, canSetPermissionMode: false },
         },
       ]),
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexModelProviders: vi.fn().mockResolvedValue([]),
       issuesResolveInNewSession,
     },
   });
@@ -52,7 +54,7 @@ afterEach(() => {
 });
 
 describe('ResolveInNewSessionDialog model options', () => {
-  it('把问题解决会话选择的模型与思考程度透传给 IPC', async () => {
+  it('把问题解决会话选择的 provider、模型与思考程度透传给 IPC', async () => {
     const issue = makeIssue();
     const updated = { ...issue, resolutionSessionId: 'resolution-session' };
     issuesResolveInNewSession.mockResolvedValue({
@@ -69,6 +71,9 @@ describe('ResolveInNewSessionDialog model options', () => {
     );
 
     await screen.findByText('Codex');
+    fireEvent.change(await screen.findByLabelText('Provider'), {
+      target: { value: 'openai-custom' },
+    });
     fireEvent.change(screen.getByLabelText('模型'), {
       target: { value: 'gpt-custom-preview' },
     });
@@ -81,6 +86,7 @@ describe('ResolveInNewSessionDialog model options', () => {
         expect.objectContaining({
           issueId: 'issue-1',
           adapter: 'codex-cli',
+          provider: 'openai-custom',
           model: 'gpt-custom-preview',
           thinking: 'ultra',
         }),

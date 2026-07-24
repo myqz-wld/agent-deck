@@ -34,7 +34,6 @@ import type {
  */
 export type CreateSessionOptionsByAdapter = {
   'claude-code': ClaudeCreateOpts;
-  'deepseek-claude-code': ClaudeCreateOpts;
   'codex-cli': CodexCreateOpts;
   'grok-build': GrokCreateOpts;
 };
@@ -54,7 +53,6 @@ export type CreateSessionOptionsByAdapter = {
  */
 export const AGENT_IDS = [
   'claude-code',
-  'deepseek-claude-code',
   'codex-cli',
   'grok-build',
 ] as const;
@@ -86,7 +84,6 @@ export type AgentId = (typeof AGENT_IDS)[number];
 export const REVIEWER_AGENT_NAMES = [
   'reviewer-claude',
   'reviewer-codex',
-  'reviewer-deepseek',
   'reviewer-grok',
 ] as const;
 export type ReviewerAgentName = (typeof REVIEWER_AGENT_NAMES)[number];
@@ -110,6 +107,7 @@ export function isReviewerAgentName(name: string | null | undefined): name is Re
 function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   const out: ClaudeCreateOpts = { cwd: raw.cwd };
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
+  if (raw.provider !== undefined) out.provider = raw.provider;
   if (raw.permissionMode !== undefined) out.permissionMode = raw.permissionMode;
   if (raw.resume !== undefined) out.resume = raw.resume;
   if (raw.teamName !== undefined) out.teamName = raw.teamName;
@@ -155,6 +153,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
+  if (raw.provider !== undefined) out.provider = raw.provider;
   if (raw.resume !== undefined) out.resume = raw.resume;
   if (raw.teamName !== undefined) out.teamName = raw.teamName;
   if (raw.attachments !== undefined) out.attachments = raw.attachments;
@@ -273,8 +272,6 @@ export function buildCreateSessionOptions(
   }
   switch (agentId) {
     case 'claude-code':
-      return { agentId, ...narrowToClaudeOpts(raw) };
-    case 'deepseek-claude-code':
       return { agentId, ...narrowToClaudeOpts(raw) };
     case 'codex-cli':
       return { agentId, ...narrowToCodexOpts(raw) };
@@ -395,6 +392,7 @@ type OmitKey<T, K extends PropertyKey> = { [P in Exclude<keyof T, K>]: unknown }
 /** claude arm 中 narrow 应从 raw 透传的字段（cwd 必填恒挑除外）。漏挑某字段时此清单与 arm key 集不一致 → 报错。 */
 const _CLAUDE_PASSTHROUGH_KEYS = {
   prompt: 0,
+  provider: 0,
   permissionMode: 0,
   resume: 0,
   teamName: 0,
@@ -418,6 +416,7 @@ void _assertClaudePassthroughCoversArm;
 /** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 4 个 reviewer-* spread-only 字段除外）。 */
 const _CODEX_PASSTHROUGH_KEYS = {
   prompt: 0,
+  provider: 0,
   resume: 0,
   teamName: 0,
   attachments: 0,

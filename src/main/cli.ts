@@ -52,6 +52,8 @@ export interface CliNewSession {
   resume?: string;
   /** Free-form provider model id for the lead session only. */
   model?: string;
+  /** Claude Gateway profile id or Codex native model_provider for the lead session. */
+  provider?: string;
   /** Adapter-aware reasoning level for the lead session only. */
   thinking?: string;
   focus: boolean;
@@ -85,7 +87,6 @@ const CODEX_SANDBOXES: ReadonlyArray<'workspace-write' | 'read-only' | 'danger-f
 const AGENT_ALIASES: Record<string, string> = {
   codex: 'codex-cli',
   claude: 'claude-code',
-  deepseek: 'deepseek-claude-code',
   grok: 'grok-build',
 };
 
@@ -119,6 +120,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'resume',
   'codex-sandbox',
   'model',
+  'provider',
   'thinking',
   'team',     // R3.E10
   'member',   // R3.E10
@@ -201,6 +203,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     const prompt = asString(f.get('prompt')) ?? '你好';
     const resume = asString(f.get('resume'));
     const model = asString(f.get('model'));
+    const provider = asString(f.get('provider'));
     const thinking = asString(f.get('thinking'));
 
     const pmRaw = asString(f.get('permission-mode'));
@@ -258,6 +261,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       permissionMode,
       resume,
       ...(model !== undefined ? { model } : {}),
+      ...(provider !== undefined ? { provider } : {}),
       ...(thinking !== undefined ? { thinking } : {}),
       focus,
       ...(codexSandbox !== undefined ? { codexSandbox } : {}),
@@ -295,6 +299,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
   let sessionModelOptions;
   try {
     sessionModelOptions = resolveCreateSessionModelOptions(inv.agent, {
+      provider: inv.provider,
       model: inv.model,
       thinking: inv.thinking,
     });
