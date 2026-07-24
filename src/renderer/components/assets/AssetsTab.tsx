@@ -28,6 +28,7 @@ export function AssetsTab({
 }: Props): JSX.Element {
   const filteredBundled = bundled.filter((asset) => asset.adapter === adapter);
   const filteredUser = user.filter((asset) => asset.adapter === adapter);
+  const pluginHint = adapter === 'grok-build' ? '；原生插件组件只读' : '';
   const userPathHint =
     adapter === 'claude-code'
       ? kind === 'agent'
@@ -35,9 +36,11 @@ export function AssetsTab({
         : '~/.claude/skills/'
       : adapter === 'codex-cli' && kind === 'agent'
         ? '~/.codex/agents/'
-        : adapter === 'codex-cli'
-          ? '~/.codex/skills/'
-          : null;
+      : adapter === 'codex-cli'
+        ? '~/.codex/skills/'
+        : kind === 'agent'
+          ? '~/.grok/agents/'
+          : '~/.grok/skills/';
 
   return (
     <div className="flex flex-col gap-3">
@@ -63,11 +66,11 @@ export function AssetsTab({
         )}
       </section>
 
-      {adapter !== 'grok-build' && userPathHint && (
+      {userPathHint && (
         <section>
           <div className="mb-1 flex items-center justify-between">
             <div className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-              用户自定义（{userPathHint}）
+              用户自定义（{userPathHint}{pluginHint}）
             </div>
             <button
               type="button"
@@ -90,7 +93,7 @@ export function AssetsTab({
                   key={`${asset.adapter}:${asset.qualifiedName}`}
                   asset={asset}
                   onView={onView}
-                  onEdit={onEdit}
+                  onEdit={asset.editable === false ? undefined : onEdit}
                 />
               ))}
             </div>

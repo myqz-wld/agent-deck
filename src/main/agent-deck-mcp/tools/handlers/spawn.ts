@@ -96,6 +96,8 @@ export const spawnSessionHandler = withMcpGuard(
     let claudeAgentNameFromAgent: string | undefined;
     let claudeAgentsFromAgent: Record<string, AgentDefinition> | undefined;
     let grokAgentNameFromAgent: string | undefined;
+    let grokAgentSourceFromAgent: 'bundled' | 'project' | 'user' | 'plugin' | undefined;
+    let grokPluginDirFromAgent: string | undefined;
     if (args.agentName) {
       const agent = resolveSpawnAgent(args.agentName, args.adapter, args.cwd);
       if (!agent.ok) return err(agent.error, agent.hint);
@@ -110,6 +112,8 @@ export const spawnSessionHandler = withMcpGuard(
       claudeAgentNameFromAgent = agent.claudeAgentName;
       claudeAgentsFromAgent = agent.claudeAgents;
       grokAgentNameFromAgent = agent.grokAgentName;
+      grokAgentSourceFromAgent = agent.grokAgentSource;
+      grokPluginDirFromAgent = agent.grokPluginDir;
     }
 
     const leadRecord = sessionRepo.get(caller.callerSessionId);
@@ -184,6 +188,8 @@ export const spawnSessionHandler = withMcpGuard(
       claudeAgentName: claudeAgentNameFromAgent,
       claudeAgents: claudeAgentsFromAgent,
       grokAgentName: grokAgentNameFromAgent,
+      grokAgentSource: grokAgentSourceFromAgent,
+      grokPluginDir: grokPluginDirFromAgent,
       codexRuntimeAccess: opts?.codexRuntimeAccess,
     });
 

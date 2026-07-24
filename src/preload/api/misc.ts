@@ -173,7 +173,7 @@ export const miscApi = {
   /** 列内置 plugin agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
   listBundledAssets: (): Promise<BundledAssetsSnapshot> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListBundled),
-  /** 列用户自定义资产（双 root scan：~/.claude/{agents,skills}/ + ~/.codex/{agents,skills}/）；每次现扫现读。 */
+  /** 列用户自定义资产（Claude/Codex/Grok 原生 root 与 Grok user plugins）；每次现扫现读。 */
   listUserAssets: (): Promise<UserAssetsSnapshot> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListUser),
   /**
@@ -189,8 +189,9 @@ export const miscApi = {
     name: string,
     source: AssetSource,
     adapter: AssetAdapter,
+    pathHint?: string,
   ): Promise<AssetContentResult> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source, adapter),
+    ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source, adapter, pathHint),
   /** 保存用户 asset；main 端拼装 frontmatter/TOML + 原子写。
    *  input 含 `adapter` 字段（plan §D5 sub-tab 锁定）。 */
   saveUserAsset: (input: UserAssetInput): Promise<{ ok: boolean; reason?: string }> =>
@@ -219,14 +220,15 @@ export const miscApi = {
   /** 只读扫描 native Codex config 中的 model_providers，供自由输入提示。 */
   listCodexModelProviders: (): Promise<CodexModelProviderOption[]> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListCodexModelProviders),
-  /** 删除用户 asset。skill 子目录递归 rm，agent 单文件 unlink。
+  /** 删除用户 asset。skill 子目录递归 rm，agent 单文件 unlink；Grok 插件组件只读。
    *  **plan §D7 升级**：第 3 参数 `adapter` 必传（同名跨 adapter 独立资产不变量 #5，只删当前 adapter root）。 */
   deleteUserAsset: (
     kind: AssetKind,
     name: string,
     adapter: UserAssetAdapter,
+    pathHint?: string,
   ): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name, adapter),
+    ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name, adapter, pathHint),
   /**
    * 在 Finder / 资源管理器中显示对应文件，跨平台。
    *
@@ -237,8 +239,9 @@ export const miscApi = {
     name: string,
     source: AssetSource,
     adapter: AssetAdapter,
+    pathHint?: string,
   ): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source, adapter),
+    ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source, adapter, pathHint),
 
   /**
    * 拉取 summarizer 最近一次失败原因（by sessionId），UI 设置面板诊断用。

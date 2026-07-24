@@ -24,10 +24,9 @@ import { errorMessage } from '@renderer/lib/error-message';
  * 端 user 自定义补齐）。
  *
  * 三 Tab，每 tab 内部按 adapter sub-tab 切换：
- * - Skills：sub-tab(Claude/Codex)，bundled + user 各 sub-tab 内独立显示;Codex sub-tab user
- *   skill 落 ~/.codex/skills/<name>/SKILL.md(spike4 实证 codex CLI 自动加载)
- * - Agents：sub-tab(Claude/Codex)，Claude user agents 落 ~/.claude/agents/，Codex custom
- *   agents 落 ~/.codex/agents/*.toml
+ * - Skills：sub-tab(Claude/Codex/Grok)，bundled + user 各 sub-tab 内独立显示；Grok 额外显示
+ *   原生 user plugin 提供的只读组件
+ * - Agents：sub-tab(Claude/Codex/Grok)，Grok user agents 落 ~/.grok/agents/，插件 Agent 只读
  * - 应用约定：sub-tab(Claude/Codex)，子 editor dirty 时切换前 confirm 拦截
  *
  * dirty 拦截契约：
@@ -53,7 +52,7 @@ interface EditorState {
 function isUserAssetMeta(
   asset: AssetMeta,
 ): asset is AssetMeta & { adapter: UserAssetAdapter } {
-  return asset.adapter !== 'grok-build';
+  return asset.source === 'user';
 }
 
 export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | null {
@@ -167,7 +166,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
     const seq = ++viewerSeqRef.current;
     setViewer({ asset, content: null, error: null });
     void window.api
-      .getAssetContent(asset.kind, asset.name, asset.source, asset.adapter)
+      .getAssetContent(asset.kind, asset.name, asset.source, asset.adapter, asset.absPath)
       .then((r) => {
         if (seq !== viewerSeqRef.current) return;
         if (r.ok) setViewer({ asset, content: r.content, error: null });
@@ -268,14 +267,12 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 user={user?.skills ?? []}
                 onView={openViewer}
                 onEdit={(asset) => {
-                  if (skillsAdapter !== 'grok-build' && isUserAssetMeta(asset)) {
+                  if (isUserAssetMeta(asset) && asset.editable !== false) {
                     setEditor({ kind: 'skill', adapter: skillsAdapter, asset });
                   }
                 }}
                 onNew={
-                  skillsAdapter === 'grok-build'
-                    ? undefined
-                    : () => setEditor({ kind: 'skill', adapter: skillsAdapter, asset: null })
+                  () => setEditor({ kind: 'skill', adapter: skillsAdapter, asset: null })
                 }
               />
             </>
@@ -294,14 +291,12 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 onView={openViewer}
                 onConfigureBundledAgent={setBundledAgentEditor}
                 onEdit={(asset) => {
-                  if (agentsAdapter !== 'grok-build' && isUserAssetMeta(asset)) {
+                  if (isUserAssetMeta(asset) && asset.editable !== false) {
                     setEditor({ kind: 'agent', adapter: agentsAdapter, asset });
                   }
                 }}
                 onNew={
-                  agentsAdapter === 'grok-build'
-                    ? undefined
-                    : () => setEditor({ kind: 'agent', adapter: agentsAdapter, asset: null })
+                  () => setEditor({ kind: 'agent', adapter: agentsAdapter, asset: null })
                 }
               />
             </>
@@ -325,6 +320,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 viewer.asset.name,
                 viewer.asset.source,
                 viewer.asset.adapter,
+                viewer.asset.absPath,
               )
               .catch((err: unknown) => {
                 setUpdateError(`无法在文件夹中显示：${errorMessage(err)}`);

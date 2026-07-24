@@ -7,6 +7,8 @@ import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import { getBundledAssetContent } from '@main/bundled-assets';
 import { getBundledAgentRuntimeOverride } from '@main/bundled-agent-runtime-overrides';
+import { resolveGrokUserAgentContent } from '@main/adapters/grok-build/custom-assets';
+import { settingsStore } from '@main/store/settings-store';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { isGrokThinkingLevel } from '@shared/session-metadata';
 import type { SpawnSessionArgs } from '../schemas';
@@ -31,6 +33,8 @@ export type ResolvedSpawnAgent =
       claudeAgents?: Record<string, AgentDefinition>;
       claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
       grokAgentName?: string;
+      grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
+      grokPluginDir?: string;
       grokReasoningEffort?: SpawnGrokReasoningEffort;
     }
   | { ok: false; error: string; hint: string };
@@ -67,7 +71,7 @@ export function resolveSpawnAgent(
       ? resolveClaudeSpawnAgent(agentName, cwd, assetAdapter)
       : assetAdapter === 'codex-cli'
         ? resolveCodexSpawnAgent(agentName, cwd)
-        : resolveGrokSpawnAgent(agentName);
+        : resolveGrokSpawnAgent(agentName, cwd);
   if (agent.ok) return agent;
 
   return {
@@ -76,34 +80,62 @@ export function resolveSpawnAgent(
     hint:
       `${agent.hint}. ` +
       (assetAdapter === 'grok-build'
-        ? 'Grok Build agentName currently resolves bundled Agent Deck plugin agents only. Omit agentName for a generic teammate and use displayName for labels.'
+        ? 'Grok Build agentName resolves bundled, project, user, and plugin agents discovered by Grok. Omit agentName for a generic teammate and use displayName for labels.'
         : 'Available sources are bundled Agent Deck agents, project agents in .claude/agents or .codex/agents, and user agents in ~/.claude/agents or ~/.codex/agents. Omit agentName for generic teammates and use displayName for labels.'),
   };
 }
 
-function resolveGrokSpawnAgent(agentName: string): ResolvedSpawnAgent {
-  const resolved = getBundledAssetContent('agent', agentName, 'grok-build');
-  if (!resolved.ok) {
+function resolveGrokSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAgent {
+  const bundled =
+    settingsStore.get('injectAgentDeckGrokAgents') === false
+      ? {
+          ok: false as const,
+          reason: 'bundled Agent Deck Grok agents disabled by settings.injectAgentDeckGrokAgents=false',
+        }
+      : getBundledAssetContent('agent', agentName, 'grok-build');
+  const custom = bundled.ok ? null : resolveGrokUserAgentContent(agentName, cwd);
+  const source = bundled.ok
+    ? {
+        source: 'bundled' as const,
+        content: bundled.content,
+        frontmatter: parseFrontmatter(bundled.content),
+      }
+    : custom?.ok
+      ? custom.agent
+      : null;
+  if (!source) {
+    const lookupReason =
+      custom?.ok === false
+        ? custom.reason
+        : bundled.ok
+          ? 'Grok agent lookup failed'
+          : bundled.reason;
     return {
       ok: false,
-      error: resolved.reason,
-      hint: `Grok bundled agent lookup failed: ${resolved.reason}`,
+      error: lookupReason,
+      hint: `Grok bundled/project/user/plugin agent lookup failed: ${lookupReason}`,
     };
   }
-  const fm = parseFrontmatter(resolved.content);
-  const rawThinking = fm.effort?.trim();
+  const rawThinking = (source.frontmatter.effort ?? source.frontmatter.model_reasoning_effort)?.trim();
   if (rawThinking && !isGrokThinkingLevel(rawThinking)) {
     return {
       ok: false,
       error: `invalid Grok effort "${rawThinking}"`,
-      hint: 'Use one of: low, medium, high.',
+      hint: 'Use one of: low, medium, high, xhigh.',
     };
   }
-  const override = getBundledAgentRuntimeOverride('grok-build', agentName);
+  const override =
+    source.source === 'bundled'
+      ? getBundledAgentRuntimeOverride('grok-build', agentName)
+      : {};
   return {
     ok: true,
     grokAgentName: agentName,
-    model: (override.model ?? fm.model?.trim()) || undefined,
+    grokAgentSource: source.source,
+    ...(source.source !== 'bundled' && source.pluginDir
+      ? { grokPluginDir: source.pluginDir }
+      : {}),
+    model: (override.model ?? source.frontmatter.model?.trim()) || undefined,
     grokReasoningEffort:
       (override.thinking as SpawnGrokReasoningEffort | undefined) ??
       (rawThinking as SpawnGrokReasoningEffort | undefined),

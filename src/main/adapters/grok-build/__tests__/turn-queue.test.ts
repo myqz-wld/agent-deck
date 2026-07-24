@@ -45,6 +45,8 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
     thinking: null,
     sessionMode: null,
     agentProfileName: null,
+    agentProfileSource: null,
+    agentPluginDir: null,
     pendingPermissions: new Map(),
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState(),

@@ -31,6 +31,11 @@ export function AssetCard({
       <div className="flex items-start justify-between gap-2">
         <code className="text-[11px] font-medium text-deck-text">{asset.qualifiedName}</code>
         <div className="flex shrink-0 items-center gap-1 no-drag">
+          {asset.editable === false && (
+            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-deck-muted/70">
+              插件只读
+            </span>
+          )}
           <button
             type="button"
             onClick={() => onView(asset)}

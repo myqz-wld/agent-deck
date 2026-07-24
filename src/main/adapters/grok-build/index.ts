@@ -57,13 +57,15 @@ export class GrokBuildAdapter implements AgentAdapter {
         settingsStore.get('injectAgentDeckGrokAgentsMd')
           ? loadGrokBaselinePrompt()
           : Promise.resolve(null),
-      getPluginDirectories: async ({ requiresAgent }) => {
+      getPluginDirectories: async ({ agentSource, agentPluginDir }) => {
         const root = await prepareGrokPluginProfile({
           includeSkills: settingsStore.get('injectAgentDeckGrokSkills'),
           includeAgents:
-            requiresAgent || settingsStore.get('injectAgentDeckGrokAgents'),
+            agentSource === 'bundled' ||
+            ((agentSource === null || agentSource === undefined) &&
+              settingsStore.get('injectAgentDeckGrokAgents')),
         });
-        return root ? [root] : [];
+        return [...new Set([...(agentPluginDir ? [agentPluginDir] : []), ...(root ? [root] : [])])];
       },
       onNegotiatedImageCapability: (supported) => {
         this.capabilities.canAcceptAttachments = supported;
@@ -105,6 +107,8 @@ export class GrokBuildAdapter implements AgentAdapter {
       reasoningEffort: opts.reasoningEffort,
       sessionMode: opts.sessionMode,
       grokAgentName: opts.grokAgentName,
+      grokAgentSource: opts.grokAgentSource,
+      grokPluginDir: opts.grokPluginDir,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
       initialSessionRegistration: opts.initialSessionRegistration,

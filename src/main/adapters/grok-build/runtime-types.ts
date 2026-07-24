@@ -60,6 +60,8 @@ export interface GrokRuntime {
   thinking: string | null;
   sessionMode: AdapterSessionMode | null;
   agentProfileName: string | null;
+  agentProfileSource: 'bundled' | 'project' | 'user' | 'plugin' | null;
+  agentPluginDir: string | null;
   pendingPermissions: Map<string, GrokPendingPermission>;
   acceptedEnqueueFingerprints: Map<string, string>;
   translation: GrokTranslationState;

@@ -57,6 +57,8 @@ The Grok Build adapter uses this resource root through the official ACP v1 `sess
 - `GROK_AGENTS.md`: Packaged default appended through ACP `_meta.rules` when the Grok app-conventions switch is enabled. Asset Library edits are stored separately at `<userData>/agent-deck-grok-agents.md`; that app-owned copy wins until **Restore default** deletes it. `_meta.rules` remains independent of `_meta.agentProfile`, so the convention also applies when a bundled Grok Agent is selected.
 - `agent-deck-plugin/`: App-bundled Grok plugin containing `reviewer-grok` and the Agent Deck review skills.
 - Grok accepts a whole plugin directory, while Agent Deck exposes independent Skills and Agents switches. At runtime the selected subdirectories are copied to an app-owned mirror under `<userData>/grok-plugin-profiles/`, and that mirror is passed through ACP `_meta.pluginDirs`.
+- `spawn_session(agentName=...)` resolves Grok's bundled, project (`.grok/agents`), user (`~/.grok/agents`), and native plugin Agents. The selected native profile name is passed through ACP `_meta.agentProfile`; Agent Deck does not copy or rewrite user plugin files.
+- The Assets Library shows `~/.grok/{agents,skills}` plus discoverable user/plugin components. Direct Grok assets can be edited; plugin-owned Agents and Skills are shown for inspection and remain read-only.
 - The mirror and editable application-convention copy contain only Agent Deck-owned resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
 - The Grok binary is not part of `extraResources`; Settings may point to an installed binary, otherwise the adapter resolves `grok` from the user shell `PATH`.
 

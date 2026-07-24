@@ -1,12 +1,12 @@
 /**
  * Agent / Skill 资产元数据（CHANGELOG_57；plan assets-codex-user-and-ui-unify-20260521 §D1-D7
- * 双 adapter user 自定义补齐 + UI sub-tab 统一改造）。
+ * 三 adapter user 自定义补齐 + UI sub-tab 统一改造）。
  *
- * 用于 header「📚 资产库」Dialog 展示「内置（agent-deck plugin，双 adapter root）+ 用户自定义」
+ * 用于 header「📚 资产库」Dialog 展示「内置（agent-deck plugin，多 adapter root）+ 用户自定义」
  * 两类资产。kind/source/adapter 三维度正交：
  *   - kind: 'agent' | 'skill'                —— 文件性质
  *   - source: 'bundled' | 'user'             —— 来源（影响只读/可写）
- *   - adapter: 'claude-code' | 'codex-cli'   —— 所属 adapter scope（user 资产也带,不再 null）
+ *   - adapter: 'claude-code' | 'codex-cli' | 'grok-build'   —— 所属 adapter scope（user 资产也带,不再 null）
  *     - claude-code user → ~/.claude/{agents,skills}/
  *     - codex-cli  user → ~/.codex/{agents/<name>.toml,skills/<name>/SKILL.md}
  *
@@ -19,7 +19,7 @@
 export type AssetKind = 'agent' | 'skill';
 export type AssetSource = 'bundled' | 'user';
 export type AssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
-export type UserAssetAdapter = Exclude<AssetAdapter, 'grok-build'>;
+export type UserAssetAdapter = AssetAdapter;
 
 /**
  * 用户自定义 asset name 的 slug regex（CHANGELOG_57 R1·F8 收口）：
@@ -31,6 +31,8 @@ export type UserAssetAdapter = Exclude<AssetAdapter, 'grok-build'>;
  * AssetEditor.tsx renderer 即时校验都引这一份。
  */
 export const ASSET_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+/** Grok native asset names also allow uppercase letters, dots, and underscores. */
+export const GROK_ASSET_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
  * 用户自定义 asset 字段长度上限（CHANGELOG_57 R1·F4 收口）：
@@ -45,6 +47,7 @@ export const ASSET_LIMITS = {
   runtimeModel: 256,
   provider: 128,
   body: 256 * 1024, // 256 KB
+  grokName: 128,
 } as const;
 
 /** App-owned runtime deltas for one immutable bundled Agent. */
@@ -125,6 +128,8 @@ export interface AssetMeta {
   provider?: string;
   /** bundled agent only。让 UI 展示 effective 值并能删除差异记录恢复 packaged 默认。 */
   bundledAgentRuntime?: BundledAgentRuntimeMeta;
+  /** Native plugin components are visible in the library but remain owned by Grok. */
+  editable?: boolean;
   /** 主进程绝对路径。renderer 显示前可截短，「在 Finder/资源管理器中显示」用。 */
   absPath: string;
 }
@@ -133,8 +138,10 @@ export interface AssetMeta {
  * 用户自定义资产保存入参。main 端拼装 frontmatter（手写 YAML）+ body 写盘：
  *   - claude-code skills → `~/.claude/skills/<name>/SKILL.md`
  *   - claude-code agents → `~/.claude/agents/<name>.md`
- *   - codex-cli  agents → `~/.codex/agents/<name>.toml`
- *   - codex-cli  skills → `~/.codex/skills/<name>/SKILL.md`
+ *   - codex-cli agents → `~/.codex/agents/<name>.toml`
+ *   - codex-cli skills → `~/.codex/skills/<name>/SKILL.md`
+ *   - grok-build agents → `~/.grok/agents/<name>.md`
+ *   - grok-build skills → `~/.grok/skills/<name>/SKILL.md`
  * 走原子写（write tmp + rename），与 saveUserAgentDeckClaudeMd 同模式。
  */
 export interface UserAssetInput {
@@ -143,7 +150,7 @@ export interface UserAssetInput {
    * 资产所属 adapter scope（plan §D5：新建 / 编辑 时随当前 sub-tab 锁定）。
    */
   adapter: UserAssetAdapter;
-  /** slug 见 `ASSET_NAME_REGEX`，长度受 `ASSET_LIMITS.name` 约束。 */
+  /** Claude/Codex 使用 `ASSET_NAME_REGEX`；Grok 使用原生名称规则和对应长度上限。 */
   name: string;
   description: string;
   /** agent 必填；skill 忽略。 */
@@ -152,6 +159,8 @@ export interface UserAssetInput {
   model?: string;
   /** Claude Gateway profile id or Codex native model_provider; skills ignore it. */
   provider?: string;
+  /** Grok native effort (`low` / `medium` / `high` / `xhigh`); other adapters ignore it. */
+  thinking?: string;
   /** markdown 正文（不含 frontmatter）。 */
   body: string;
 }

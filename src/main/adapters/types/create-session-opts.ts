@@ -285,8 +285,12 @@ export interface GrokCreateOpts {
   model?: string;
   reasoningEffort?: GrokReasoningEffort;
   sessionMode?: AdapterSessionMode;
-  /** Validated bundled Grok plugin agent selected by spawn_session(agentName). */
+  /** Validated Grok native agent selected by spawn_session(agentName). */
   grokAgentName?: string;
+  /** Source used to decide whether Agent Deck's bundled agent plugin must be injected. */
+  grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
+  /** Explicit native plugin root for a selected Grok plugin Agent, when needed. */
+  grokPluginDir?: string;
   handOff?: HandOffMetadata;
   awaitCanonicalId?: boolean;
   initialSessionRegistration?: InitialSessionRegistration;
@@ -335,6 +339,8 @@ export interface CreateSessionOptionsRaw {
   reasoningEffort?: GrokReasoningEffort;
   sessionMode?: AdapterSessionMode;
   grokAgentName?: string;
+  grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
+  grokPluginDir?: string;
   developerInstructions?: string;
   codexConfigOverrides?: CodexConfigObject;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';

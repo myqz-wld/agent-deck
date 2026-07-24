@@ -1,7 +1,7 @@
 /**
  * Assets Library IPC handlers（CHANGELOG_57 C2 / plan codex-handoff-team-alignment-20260518
- * §P3 Step 3.4 双 adapter cascade / plan assets-codex-user-and-ui-unify-20260521 §D3 §D5 §D7
- * 双 adapter user 自定义补齐 + UI sub-tab 统一改造）。
+ * §P3 Step 3.4 multi-adapter cascade / plan assets-codex-user-and-ui-unify-20260521 §D3 §D5 §D7
+ * 三 adapter user 自定义补齐 + UI sub-tab 统一改造）。
  *
  * Channels in this module cover bundled/user asset reads, user CRUD, bundled Agent runtime
  * deltas, Codex provider suggestions, and Finder reveal:
@@ -15,11 +15,11 @@
  * 所有失败统一返回 `{ ok: false, reason }`，renderer 透传给用户。
  *
  * **plan assets-codex-user-and-ui-unify-20260521 §D7 升级**：
- * - `AssetMeta.adapter` user 资产也带 ('claude-code' | 'codex-cli')，null 删除
+ * - `AssetMeta.adapter` user 资产也带 ('claude-code' | 'codex-cli' | 'grok-build')，null 删除
  * - `AssetsGetContent` / `AssetsRevealInFolder` / `AssetsDeleteUser` source==='user' 时也必传 adapter
  *   （user 资产现也按 adapter 派发到不同 root：~/.claude/{agents,skills}/ vs ~/.codex/{agents,skills}/）
  * - `AssetsSaveUser` UserAssetInput 加 adapter 字段（必填）
- * - `validateAdapterKind` 保留为 adapter/kind 兼容性收口点；当前 Claude/Codex agent/skill 组合都支持
+ * - `validateAdapterKind` 保留为 adapter/kind 兼容性收口点；当前三种 adapter 的 agent/skill 组合都支持
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
@@ -31,6 +31,7 @@ import type {
   UserAssetInput,
 } from '@shared/types';
 import { ASSET_LIMITS, validateAdapterKind } from '@shared/types';
+import { isGrokThinkingLevel } from '@shared/session-metadata';
 import { on, IpcInputError, parseStringId } from './_helpers';
 import {
   getBundledAssets,
@@ -51,6 +52,7 @@ import {
 } from '@main/bundled-agent-runtime-overrides';
 import { listCodexModelProviders } from '@main/codex-config/model-providers';
 import { listClaudeGatewayProfiles } from '@main/adapters/claude-code/gateway-profiles';
+import { isSafeGrokAssetName } from '@main/adapters/grok-build/custom-assets';
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
@@ -62,6 +64,7 @@ const ADAPTER_VALUES: ReadonlyArray<AssetAdapter> = [
 const USER_ADAPTER_VALUES: ReadonlyArray<UserAssetAdapter> = [
   'claude-code',
   'codex-cli',
+  'grok-build',
 ];
 
 function parseKind(value: unknown): AssetKind {
@@ -110,12 +113,14 @@ function parseUserAdapterRequired(value: unknown): UserAssetAdapter {
   return value as UserAssetAdapter;
 }
 
-function parseAssetName(value: unknown): string {
-  const name = parseStringId('name', value, ASSET_LIMITS.name);
-  if (!isSafeName(name)) {
+function parseAssetName(value: unknown, adapter?: AssetAdapter): string {
+  const maxLength = adapter === 'grok-build' ? ASSET_LIMITS.grokName : ASSET_LIMITS.name;
+  const name = parseStringId('name', value, maxLength);
+  const valid = adapter === 'grok-build' ? isSafeGrokAssetName(name) : isSafeName(name);
+  if (!valid) {
     throw new IpcInputError(
       'name',
-      `must match ASSET_NAME_REGEX (^[a-z0-9][a-z0-9-]*$), length 1-${ASSET_LIMITS.name} (got "${name}")`,
+      `must match the native ${adapter === 'grok-build' ? 'Grok' : 'Agent Deck'} name rule, length 1-${maxLength} (got "${name}")`,
     );
   }
   return name;
@@ -178,7 +183,7 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   if (!valid.ok) {
     throw new IpcInputError('adapter+kind', valid.reason);
   }
-  const name = parseAssetName(v.name);
+  const name = parseAssetName(v.name, adapter);
   const description = parseSingleLineString('description', v.description ?? '', ASSET_LIMITS.description);
   const body = parseAssetBody(v.body ?? '', {
     allowFrontmatterStart: adapter === 'codex-cli' && kind === 'agent',
@@ -192,7 +197,13 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   const provider = v.provider !== undefined && v.provider !== ''
     ? parseSingleLineString('provider', v.provider, ASSET_LIMITS.provider)
     : undefined;
-  return { kind, adapter, name, description, body, tools, model, provider };
+  const thinking = v.thinking !== undefined && v.thinking !== ''
+    ? parseSingleLineString('thinking', v.thinking, ASSET_LIMITS.runtimeModel)
+    : undefined;
+  if (thinking !== undefined && adapter === 'grok-build' && kind === 'agent' && !isGrokThinkingLevel(thinking)) {
+    throw new IpcInputError('thinking', 'must be one of low|medium|high|xhigh for Grok agents');
+  }
+  return { kind, adapter, name, description, body, tools, model, provider, thinking };
 }
 
 export function registerAssetsIpc(): void {
@@ -200,11 +211,12 @@ export function registerAssetsIpc(): void {
 
   on(IpcInvoke.AssetsListUser, () => listUserAssets());
 
-  on(IpcInvoke.AssetsGetContent, (_e, kindArg, nameArg, sourceArg, adapterArg) => {
+  on(IpcInvoke.AssetsGetContent, (_e, kindArg, nameArg, sourceArg, adapterArg, pathArg) => {
     const kind = parseKind(kindArg);
-    const name = parseAssetName(nameArg);
     const source = parseSource(sourceArg);
     const adapter = parseAdapterRequired(adapterArg);
+    const name = parseAssetName(nameArg, adapter);
+    const pathHint = pathArg === undefined || pathArg === null ? undefined : parseStringId('path', pathArg, 4096);
     if (source === 'bundled') {
       const r = getBundledAssetContent(kind, name, adapter);
       if (r.ok) return { ok: true, content: r.content };
@@ -214,7 +226,7 @@ export function registerAssetsIpc(): void {
     const userAdapter = parseUserAdapterRequired(adapter);
     const valid = validateAdapterKind(userAdapter, kind);
     if (!valid.ok) return { ok: false, content: '', reason: valid.reason };
-    const r = getUserAssetContent(kind, name, userAdapter);
+    const r = getUserAssetContent(kind, name, userAdapter, pathHint);
     if (r.ok) return { ok: true, content: r.content };
     return { ok: false, content: '', reason: r.reason };
   });
@@ -226,7 +238,7 @@ export function registerAssetsIpc(): void {
 
   on(IpcInvoke.AssetsSaveBundledAgentRuntime, (_e, adapterArg, nameArg, overrideArg) => {
     const adapter = parseAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg);
+    const name = parseAssetName(nameArg, adapter);
     if (!getBundledAssetPath('agent', name, adapter)) {
       return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
     }
@@ -243,7 +255,7 @@ export function registerAssetsIpc(): void {
 
   on(IpcInvoke.AssetsResetBundledAgentRuntime, (_e, adapterArg, nameArg) => {
     const adapter = parseAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg);
+    const name = parseAssetName(nameArg, adapter);
     if (!getBundledAssetPath('agent', name, adapter)) {
       return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
     }
@@ -254,21 +266,23 @@ export function registerAssetsIpc(): void {
   on(IpcInvoke.AssetsListClaudeGatewayProfiles, () => listClaudeGatewayProfiles());
   on(IpcInvoke.AssetsListCodexModelProviders, () => listCodexModelProviders());
 
-  on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg) => {
+  on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg, pathArg) => {
     const kind = parseKind(kindArg);
-    const name = parseAssetName(nameArg);
     const adapter = parseUserAdapterRequired(adapterArg);
+    const name = parseAssetName(nameArg, adapter);
+    const pathHint = pathArg === undefined || pathArg === null ? undefined : parseStringId('path', pathArg, 4096);
     // adapter/kind 兼容性仍从 shared helper 收口
     const valid = validateAdapterKind(adapter, kind);
     if (!valid.ok) return { ok: false, reason: valid.reason };
-    return deleteUserAsset(kind, name, adapter);
+    return deleteUserAsset(kind, name, adapter, pathHint);
   });
 
-  on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg, adapterArg) => {
+  on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg, adapterArg, pathArg) => {
     const kind = parseKind(kindArg);
-    const name = parseAssetName(nameArg);
     const source = parseSource(sourceArg);
     const adapter = parseAdapterRequired(adapterArg);
+    const name = parseAssetName(nameArg, adapter);
+    const pathHint = pathArg === undefined || pathArg === null ? undefined : parseStringId('path', pathArg, 4096);
     let path: string | null = null;
     if (source === 'bundled') {
       path = getBundledAssetPath(kind, name, adapter);
@@ -276,7 +290,7 @@ export function registerAssetsIpc(): void {
       const userAdapter = parseUserAdapterRequired(adapter);
       const valid = validateAdapterKind(userAdapter, kind);
       if (!valid.ok) return { ok: false, reason: valid.reason };
-      path = getUserAssetPath(kind, name, userAdapter);
+      path = getUserAssetPath(kind, name, userAdapter, pathHint);
     }
     if (!path) return { ok: false, reason: `not found: ${source}/${kind}/${name}` };
     try {

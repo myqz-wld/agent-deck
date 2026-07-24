@@ -21,6 +21,8 @@ export interface SpawnTargetOptionsInput {
   claudeAgentName: string | undefined;
   claudeAgents: Record<string, AgentDefinition> | undefined;
   grokAgentName?: string;
+  grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
+  grokPluginDir?: string;
   /** Main-only same-adapter inheritance for an internal Codex review fork. */
   codexRuntimeAccess?: {
     networkAccessEnabled?: boolean;
@@ -55,6 +57,8 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       claudeAgentName: input.claudeAgentName,
       claudeAgents,
       grokAgentName: input.grokAgentName,
+      grokAgentSource: input.grokAgentSource,
+      grokPluginDir: input.grokPluginDir,
       agentName: args.agentName,
       awaitCanonicalId: true,
     }),
