@@ -308,6 +308,30 @@ describe('PlanDeepReviewDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a non-empty feedback draft recoverable until approval discard is confirmed', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const { onApprove, onClose } = renderDialog();
+    const feedback = screen.getByTestId('plan-review-feedback') as HTMLTextAreaElement;
+    fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
+    await waitFor(() => expect(feedback.value).toBe('Revise lifecycle checks.'));
+
+    fireEvent.click(screen.getByRole('button', { name: '批准计划' }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      '修改意见尚未提交。批准计划将丢弃这些内容，是否仍要批准？',
+    );
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(feedback.value).toBe('Revise lifecycle checks.');
+
+    fireEvent.click(screen.getByRole('button', { name: '批准计划' }));
+
+    await waitFor(() => expect(onApprove).toHaveBeenCalledOnce());
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('blocks question submission while plan approval is in flight', async () => {
     const approval = deferred<boolean>();
     const onApprove = vi.fn(() => approval.promise);
