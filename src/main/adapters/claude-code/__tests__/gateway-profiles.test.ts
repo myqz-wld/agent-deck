@@ -1,10 +1,9 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  initializeBuiltInClaudeGatewayProfiles,
   listClaudeGatewayProfiles,
   resolveClaudeGatewayProfile,
   type ClaudeGatewayPaths,
@@ -14,42 +13,17 @@ function fixturePaths(): ClaudeGatewayPaths {
   const root = mkdtempSync(join(tmpdir(), 'agent-deck-gateway-'));
   return {
     gatewaysDir: join(root, '.claude', 'gateways'),
-    legacyDeepseekSettingsPath: join(
-      root,
-      '.agent-deck',
-      '.deepseek',
-      'settings.json',
-    ),
   };
 }
 
 describe('Claude Gateway profiles', () => {
-  it('migrates the legacy Deepseek settings into the Claude Gateway directory', () => {
+  it('does not create a built-in profile when the Gateway directory is missing', () => {
     const paths = fixturePaths();
-    mkdirSync(join(paths.legacyDeepseekSettingsPath, '..'), { recursive: true });
-    writeFileSync(
-      paths.legacyDeepseekSettingsPath,
-      JSON.stringify({
-        token: 'secret-test-token',
-        model: 'deepseek-v4-pro[1m]',
-        haikuModel: 'deepseek-v4-flash',
-      }),
-    );
-
-    const settingsPath = initializeBuiltInClaudeGatewayProfiles(paths);
-    const migrated = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
-      env: Record<string, string>;
-    };
-    expect(migrated.env.ANTHROPIC_AUTH_TOKEN).toBe('secret-test-token');
-    expect(migrated.env.ANTHROPIC_MODEL).toBe('deepseek-v4-pro[1m]');
-    expect(migrated.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
-      'deepseek-v4-flash',
-    );
+    expect(listClaudeGatewayProfiles(paths)).toEqual([]);
   });
 
   it('discovers JSON profiles and resolves only model metadata plus settings path', () => {
     const paths = fixturePaths();
-    initializeBuiltInClaudeGatewayProfiles(paths);
     mkdirSync(paths.gatewaysDir, { recursive: true });
     writeFileSync(
       join(paths.gatewaysDir, 'openrouter.json'),
@@ -63,7 +37,6 @@ describe('Claude Gateway profiles', () => {
     writeFileSync(join(paths.gatewaysDir, 'ignored.txt'), '{}');
 
     expect(listClaudeGatewayProfiles(paths).map((profile) => profile.id)).toEqual([
-      'deepseek',
       'openrouter',
     ]);
     const resolved = resolveClaudeGatewayProfile('openrouter', paths);
@@ -73,6 +46,20 @@ describe('Claude Gateway profiles', () => {
       defaultModel: 'openrouter/model',
     });
     expect(JSON.stringify(resolved)).not.toContain('must-not-leak');
+  });
+
+  it('sorts discovered profiles without a provider-specific priority', () => {
+    const paths = fixturePaths();
+    mkdirSync(paths.gatewaysDir, { recursive: true });
+    for (const id of ['openrouter', 'deepseek', 'anthropic']) {
+      writeFileSync(join(paths.gatewaysDir, `${id}.json`), '{}');
+    }
+
+    expect(listClaudeGatewayProfiles(paths).map((profile) => profile.id)).toEqual([
+      'anthropic',
+      'deepseek',
+      'openrouter',
+    ]);
   });
 
   it('rejects traversal and missing profile ids', () => {
