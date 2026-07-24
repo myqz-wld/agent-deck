@@ -26,6 +26,7 @@ import { join } from 'node:path';
 const FIXTURE_ROOT = join(tmpdir(), `bundled-assets-multi-root-${process.pid}-${Date.now()}`);
 const CLAUDE_PLUGIN_ROOT = join(FIXTURE_ROOT, 'claude-config', 'agent-deck-plugin');
 const CODEX_PLUGIN_ROOT = join(FIXTURE_ROOT, 'codex-config', 'agent-deck-plugin');
+const GROK_PLUGIN_ROOT = join(FIXTURE_ROOT, 'grok-config', 'agent-deck-plugin');
 
 // fixture 文件内容（TC2 关键：同名 reviewer-claude.md 双 root 内容不同）
 const CLAUDE_REVIEWER_CLAUDE_BODY =
@@ -46,12 +47,20 @@ const CLAUDE_SAMPLE_SKILL =
 const CODEX_SAMPLE_SKILL =
   '---\nname: codex-only-skill\ndescription: codex-config 专有 skill\n---\n# codex-only-skill SKILL';
 
+const GROK_REVIEWER_BODY =
+  '---\nname: reviewer-grok\ndescription: grok-config 原生 plugin agent\neffort: high\n---\n\n# grok reviewer';
+
+const GROK_SAMPLE_SKILL =
+  '---\nname: grok-only-skill\ndescription: grok-config 专有 skill\n---\n# grok-only-skill SKILL';
+
 beforeAll(() => {
   // 建 fixture plugin tree
   mkdirSync(join(CLAUDE_PLUGIN_ROOT, 'agents'), { recursive: true });
   mkdirSync(join(CLAUDE_PLUGIN_ROOT, 'skills', 'claude-only-skill'), { recursive: true });
   mkdirSync(join(CODEX_PLUGIN_ROOT, 'agents'), { recursive: true });
   mkdirSync(join(CODEX_PLUGIN_ROOT, 'skills', 'codex-only-skill'), { recursive: true });
+  mkdirSync(join(GROK_PLUGIN_ROOT, 'agents'), { recursive: true });
+  mkdirSync(join(GROK_PLUGIN_ROOT, 'skills', 'grok-only-skill'), { recursive: true });
 
   writeFileSync(join(CLAUDE_PLUGIN_ROOT, 'agents', 'reviewer-claude.md'), CLAUDE_REVIEWER_CLAUDE_BODY);
   writeFileSync(join(CLAUDE_PLUGIN_ROOT, 'agents', 'reviewer-codex.md'), CLAUDE_REVIEWER_CODEX_BODY);
@@ -60,6 +69,8 @@ beforeAll(() => {
   writeFileSync(join(CODEX_PLUGIN_ROOT, 'agents', 'reviewer-claude.md'), CODEX_REVIEWER_CLAUDE_BODY);
   writeFileSync(join(CODEX_PLUGIN_ROOT, 'agents', 'reviewer-codex.toml'), CODEX_REVIEWER_CODEX_BODY);
   writeFileSync(join(CODEX_PLUGIN_ROOT, 'skills', 'codex-only-skill', 'SKILL.md'), CODEX_SAMPLE_SKILL);
+  writeFileSync(join(GROK_PLUGIN_ROOT, 'agents', 'reviewer-grok.md'), GROK_REVIEWER_BODY);
+  writeFileSync(join(GROK_PLUGIN_ROOT, 'skills', 'grok-only-skill', 'SKILL.md'), GROK_SAMPLE_SKILL);
 });
 
 afterAll(() => {
@@ -112,6 +123,10 @@ vi.mock('@main/adapters/codex-cli/codex-config-paths', () => ({
   getCodexAgentDeckPluginPath: () => CODEX_PLUGIN_ROOT,
 }));
 
+vi.mock('@main/adapters/grok-build/resources', () => ({
+  getGrokPluginRoot: () => GROK_PLUGIN_ROOT,
+}));
+
 // ─── 动态 import 必须放在 mock 之后 ──────────────────────────────────────
 let loadBundledAssets: typeof import('@main/bundled-assets').loadBundledAssets;
 let getBundledAssetContent: typeof import('@main/bundled-assets').getBundledAssetContent;
@@ -125,17 +140,16 @@ beforeAll(async () => {
 });
 
 describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
-  it('TC1: loadBundledAssets() 扫描双 root 合并 snapshot，含 claude-code + codex-cli 各自 agents/skills', () => {
+  it('TC1: loadBundledAssets() 扫描三 root 合并 snapshot，含各 adapter 的 agents/skills', () => {
     const snapshot = loadBundledAssets();
 
-    // ─── agents: 双 root 各 2 = 4 ───
-    expect(snapshot.agents).toHaveLength(4);
+    expect(snapshot.agents).toHaveLength(5);
 
     // adapter 字段必填正确 + bundled source
     for (const a of snapshot.agents) {
       expect(a.source).toBe('bundled');
       expect(a.kind).toBe('agent');
-      expect(['claude-code', 'codex-cli']).toContain(a.adapter);
+      expect(['claude-code', 'codex-cli', 'grok-build']).toContain(a.adapter);
     }
 
     // qualifiedName 形态 `agent-deck:<adapter>:<name>`（plan §P3 Step 3.3 防双 root 同名冲突）
@@ -155,21 +169,31 @@ describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
         (a) => a.adapter === 'codex-cli' && a.name === 'reviewer-codex',
       )?.thinking,
     ).toBe('max');
+    expect(
+      snapshot.agents.find(
+        (a) => a.adapter === 'grok-build' && a.name === 'reviewer-grok',
+      )?.thinking,
+    ).toBe('high');
 
     // 排序 (adapter asc claude→codex, name asc) — claude 4 agents 在前 / codex 在后
     const adapters = snapshot.agents.map((a) => a.adapter);
     const claudeIdx = adapters.lastIndexOf('claude-code');
     const codexIdx = adapters.indexOf('codex-cli');
     expect(claudeIdx).toBeLessThan(codexIdx); // 所有 claude 在所有 codex 之前
+    expect(adapters.lastIndexOf('codex-cli')).toBeLessThan(
+      adapters.indexOf('grok-build'),
+    );
 
-    // ─── skills: claude-only + codex-only = 2 ───
-    expect(snapshot.skills).toHaveLength(2);
+    expect(snapshot.skills).toHaveLength(3);
     const claudeSkill = snapshot.skills.find((s) => s.adapter === 'claude-code');
     const codexSkill = snapshot.skills.find((s) => s.adapter === 'codex-cli');
+    const grokSkill = snapshot.skills.find((s) => s.adapter === 'grok-build');
     expect(claudeSkill?.name).toBe('claude-only-skill');
     expect(codexSkill?.name).toBe('codex-only-skill');
+    expect(grokSkill?.name).toBe('grok-only-skill');
     expect(claudeSkill?.qualifiedName).toBe('agent-deck:claude-code:claude-only-skill');
     expect(codexSkill?.qualifiedName).toBe('agent-deck:codex-cli:codex-only-skill');
+    expect(grokSkill?.qualifiedName).toBe('agent-deck:grok-build:grok-only-skill');
   });
 
   it('TC2: getBundledAssetContent("agent", "reviewer-claude", adapter) 双 adapter 返回不同内容', () => {
@@ -193,13 +217,22 @@ describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
   it('TC2b: getBundledAssetPath narrow 返回各自 root 下绝对路径', () => {
     const claudePath = getBundledAssetPath('agent', 'reviewer-claude', 'claude-code');
     const codexPath = getBundledAssetPath('agent', 'reviewer-claude', 'codex-cli');
+    const grokPath = getBundledAssetPath('agent', 'reviewer-grok', 'grok-build');
 
     expect(claudePath).toBe(join(CLAUDE_PLUGIN_ROOT, 'agents', 'reviewer-claude.md'));
     expect(codexPath).toBe(join(CODEX_PLUGIN_ROOT, 'agents', 'reviewer-claude.md'));
+    expect(grokPath).toBe(join(GROK_PLUGIN_ROOT, 'agents', 'reviewer-grok.md'));
     expect(claudePath).not.toBe(codexPath);
   });
 
-  it('TC2c: getBundledAssetContent 找不到时返回 ok:false + reason 含 adapter narrow 信息', () => {
+  it('TC2c: Grok bundled agent content is read from the Grok plugin root', () => {
+    expect(getBundledAssetContent('agent', 'reviewer-grok', 'grok-build')).toEqual({
+      ok: true,
+      content: GROK_REVIEWER_BODY,
+    });
+  });
+
+  it('TC2d: getBundledAssetContent 找不到时返回 ok:false + reason 含 adapter narrow 信息', () => {
     const res = getBundledAssetContent('agent', 'nonexistent-name', 'codex-cli');
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error('unreachable');

@@ -22,7 +22,13 @@
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
-import type { AssetKind, AssetSource, UserAssetInput } from '@shared/types';
+import type {
+  AssetAdapter,
+  AssetKind,
+  AssetSource,
+  UserAssetAdapter,
+  UserAssetInput,
+} from '@shared/types';
 import { ASSET_LIMITS, validateAdapterKind } from '@shared/types';
 import { on, IpcInputError, parseStringId } from './_helpers';
 import {
@@ -41,8 +47,15 @@ import {
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
-type AdapterKey = 'claude-code' | 'codex-cli';
-const ADAPTER_VALUES: ReadonlyArray<AdapterKey> = ['claude-code', 'codex-cli'];
+const ADAPTER_VALUES: ReadonlyArray<AssetAdapter> = [
+  'claude-code',
+  'codex-cli',
+  'grok-build',
+];
+const USER_ADAPTER_VALUES: ReadonlyArray<UserAssetAdapter> = [
+  'claude-code',
+  'codex-cli',
+];
 
 function parseKind(value: unknown): AssetKind {
   if (typeof value !== 'string' || !KIND_VALUES.includes(value as AssetKind)) {
@@ -67,14 +80,27 @@ function parseSource(value: unknown): AssetSource {
  * 与旧版 `parseBundledAdapterOrNull`（user 路径忽略 adapter）的 breaking change：
  * 老 caller 传 null 时 throw IpcInputError 而非静默接受。
  */
-function parseAdapterRequired(value: unknown): AdapterKey {
-  if (typeof value !== 'string' || !ADAPTER_VALUES.includes(value as AdapterKey)) {
+function parseAdapterRequired(value: unknown): AssetAdapter {
+  if (typeof value !== 'string' || !ADAPTER_VALUES.includes(value as AssetAdapter)) {
     throw new IpcInputError(
       'adapter',
       `must be one of ${ADAPTER_VALUES.join('|')}, got ${String(value)}`,
     );
   }
-  return value as AdapterKey;
+  return value as AssetAdapter;
+}
+
+function parseUserAdapterRequired(value: unknown): UserAssetAdapter {
+  if (
+    typeof value !== 'string' ||
+    !USER_ADAPTER_VALUES.includes(value as UserAssetAdapter)
+  ) {
+    throw new IpcInputError(
+      'adapter',
+      `must be one of ${USER_ADAPTER_VALUES.join('|')} for user assets, got ${String(value)}`,
+    );
+  }
+  return value as UserAssetAdapter;
 }
 
 function parseAssetName(value: unknown): string {
@@ -140,7 +166,7 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   }
   const v = value as Record<string, unknown>;
   const kind = parseKind(v.kind);
-  const adapter = parseAdapterRequired(v.adapter);
+  const adapter = parseUserAdapterRequired(v.adapter);
   const valid = validateAdapterKind(adapter, kind);
   if (!valid.ok) {
     throw new IpcInputError('adapter+kind', valid.reason);
@@ -175,9 +201,10 @@ export function registerAssetsIpc(): void {
       return { ok: false, content: '', reason: r.reason };
     }
     // source === 'user'：adapter/kind 兼容性仍从 shared helper 收口
-    const valid = validateAdapterKind(adapter, kind);
+    const userAdapter = parseUserAdapterRequired(adapter);
+    const valid = validateAdapterKind(userAdapter, kind);
     if (!valid.ok) return { ok: false, content: '', reason: valid.reason };
-    const r = getUserAssetContent(kind, name, adapter);
+    const r = getUserAssetContent(kind, name, userAdapter);
     if (r.ok) return { ok: true, content: r.content };
     return { ok: false, content: '', reason: r.reason };
   });
@@ -190,7 +217,7 @@ export function registerAssetsIpc(): void {
   on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg) => {
     const kind = parseKind(kindArg);
     const name = parseAssetName(nameArg);
-    const adapter = parseAdapterRequired(adapterArg);
+    const adapter = parseUserAdapterRequired(adapterArg);
     // adapter/kind 兼容性仍从 shared helper 收口
     const valid = validateAdapterKind(adapter, kind);
     if (!valid.ok) return { ok: false, reason: valid.reason };
@@ -206,9 +233,10 @@ export function registerAssetsIpc(): void {
     if (source === 'bundled') {
       path = getBundledAssetPath(kind, name, adapter);
     } else {
-      const valid = validateAdapterKind(adapter, kind);
+      const userAdapter = parseUserAdapterRequired(adapter);
+      const valid = validateAdapterKind(userAdapter, kind);
       if (!valid.ok) return { ok: false, reason: valid.reason };
-      path = getUserAssetPath(kind, name, adapter);
+      path = getUserAssetPath(kind, name, userAdapter);
     }
     if (!path) return { ok: false, reason: `not found: ${source}/${kind}/${name}` };
     try {

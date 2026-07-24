@@ -21,6 +21,8 @@ export function getAgentShortName(agentId: string): string {
       return 'Deepseek';
     case 'codex-cli':
       return 'Codex';
+    case 'grok-build':
+      return 'Grok';
     default:
       return 'Claude';
   }

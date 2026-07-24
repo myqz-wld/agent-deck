@@ -770,6 +770,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'gpt-5.4',
       'v4-flash',
       'v4-pro',
+      'grok-4.5',
     ]);
     expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('fable-5');
     expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.6');

@@ -146,6 +146,10 @@ function applyWindowTransparent(p: Partial<AppSettings>, next: AppSettings): voi
 function applyPermissionTimeout(p: Partial<AppSettings>, next: AppSettings): void {
   if ('permissionTimeoutMs' in p) {
     adapterRegistry.get('claude-code')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
+    adapterRegistry.get('deepseek-claude-code')?.setPermissionTimeoutMs?.(
+      next.permissionTimeoutMs,
+    );
+    adapterRegistry.get('grok-build')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
   }
 }
 
@@ -164,6 +168,12 @@ function applyClaudeCliPath(p: Partial<AppSettings>, _next: AppSettings): void {
   // 已 spawn 中的 SDK 子进程已经把 binary path 喂给 cli.js,setting 改了不会回滚已跑会话(N6)。
   if ('claudeCliPath' in p) {
     // 故意 no-op:见上方注释。symmetry-plan 同款思路 — 读者一眼看出 codex 与 claude apply 链对称。
+  }
+}
+
+function applyGrokCliPath(p: Partial<AppSettings>, next: AppSettings): void {
+  if ('grokCliPath' in p) {
+    adapterRegistry.get('grok-build')?.setGrokCliPath?.(next.grokCliPath);
   }
 }
 
@@ -323,6 +333,7 @@ export function registerSettingsIpc(): void {
       applyPermissionTimeout,
       applyCodexCliPath,
       applyClaudeCliPath,
+      applyGrokCliPath,
       applyCodexMcpServers,
       applyCodexAgentsMd,
       applyCodexSkills,

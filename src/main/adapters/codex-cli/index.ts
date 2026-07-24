@@ -16,6 +16,7 @@ import { summariseCodexSessionViaOneshot } from './summarizer-runner';
 import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
 import { unavailableUsageSnapshot } from '../provider-usage';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { getAdapterRuntimeProfile } from '../runtime-profiles';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -39,29 +40,8 @@ const ADAPTER_ID = 'codex-cli';
  */
 class CodexCliAdapter implements AgentAdapter {
   id = ADAPTER_ID;
-  displayName = 'Codex CLI';
-  capabilities = {
-    canCreateSession: true,
-    canSetSessionModelOptions: true,
-    canForkSession: true,
-    canInterrupt: true,
-    canSendMessage: true,
-    canSteerTurn: true,
-    canInstallHooks: true,
-    canRespondPermission: false,
-    canSetPermissionMode: false,
-    canRestartWithPermissionMode: false,
-    // CHANGELOG_<X> A2b：Codex app-server 每个 turn/start 都带 sandboxPolicy；
-    // 兼容旧命名的 restartWithCodexSandbox 实际做 next-turn apply，不冷重启。
-    canRestartWithCodexSandbox: true,
-    // CHANGELOG_74：codex 不支持 claude-code OS 沙盒冷切（claude 专属 capability）。
-    canRestartWithClaudeCodeSandbox: false,
-    canCloseSession: true,
-    // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
-    canCollaborate: true,
-    // REVIEW_35 HIGH-D2：codex SDK 接收 image content blocks
-    canAcceptAttachments: true,
-  };
+  displayName = getAdapterRuntimeProfile(ADAPTER_ID).displayName;
+  capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };
 
   /**
    * codex bridge 实例。

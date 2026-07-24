@@ -99,7 +99,7 @@ export type ExitPlanModeResponse =
 /** Renderer-visible identity of the isolated native fork used for MCP plan review. */
 export interface PlanDeepReviewSession {
   sessionId: string;
-  agentId: 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+  agentId: 'claude-code' | 'deepseek-claude-code' | 'codex-cli' | 'grok-build';
 }
 
 /** Editable soft refusal used when no review dialogue exists and no LLM should be started. */

@@ -101,7 +101,7 @@ export const handOffSessionHandler = withMcpGuard(
       );
       return err(
         `caller session has unsupported adapter: ${callerRow.agentId}`,
-        'Pass adapter explicitly as claude-code, deepseek-claude-code, or codex-cli.',
+        'Pass adapter explicitly as claude-code, deepseek-claude-code, codex-cli, or grok-build.',
       );
     }
 
@@ -139,6 +139,7 @@ export const handOffSessionHandler = withMcpGuard(
       ...(args.model !== undefined ? { model: args.model } : {}),
       ...(args.thinking !== undefined ? { thinking: args.thinking } : {}),
       ...(args.permissionMode !== undefined ? { permissionMode: args.permissionMode } : {}),
+      ...(args.sessionMode !== undefined ? { sessionMode: args.sessionMode } : {}),
       ...(args.codexSandbox !== undefined ? { codexSandbox: args.codexSandbox } : {}),
       ...(args.claudeCodeSandbox !== undefined
         ? { claudeCodeSandbox: args.claudeCodeSandbox }

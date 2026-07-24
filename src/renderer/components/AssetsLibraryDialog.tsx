@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import { DEFAULT_SETTINGS, type AppSettings, type AssetKind, type AssetMeta, type BundledAssetsSnapshot, type UserAssetsSnapshot } from '@shared/types';
+import {
+  DEFAULT_SETTINGS,
+  type AppSettings,
+  type AssetKind,
+  type AssetMeta,
+  type BundledAssetsSnapshot,
+  type UserAssetAdapter,
+  type UserAssetsSnapshot,
+} from '@shared/types';
 import { AdapterSubTab, type AssetAdapter } from './assets/AdapterSubTab';
-import { AssetCard } from './assets/AssetCard';
+import { AssetsTab } from './assets/AssetsTab';
 import { AssetEditor } from './assets/AssetEditor';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
 import { CodexAgentsMdEditor } from './settings/CodexAgentsMdEditor';
-import { CloseIcon, LibraryIcon, PlusIcon } from './icons';
+import { CloseIcon, LibraryIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 
 /**
@@ -38,8 +46,14 @@ type TabKey = 'skills' | 'agents' | 'claude-md';
 
 interface EditorState {
   kind: AssetKind;
-  adapter: AssetAdapter;
-  asset: AssetMeta | null;
+  adapter: UserAssetAdapter;
+  asset: (AssetMeta & { adapter: UserAssetAdapter }) | null;
+}
+
+function isUserAssetMeta(
+  asset: AssetMeta,
+): asset is AssetMeta & { adapter: UserAssetAdapter } {
+  return asset.adapter !== 'grok-build';
 }
 
 export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | null {
@@ -229,7 +243,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
             <>
               <InjectionToggleBar tab="skills" settings={settings} update={updateSettings} />
               <div className="mb-2">
-                <AdapterSubTab current={skillsAdapter} onSelect={setSkillsAdapter} />
+                <AdapterSubTab current={skillsAdapter} onSelect={setSkillsAdapter} showGrok />
               </div>
               <AssetsTab
                 kind="skill"
@@ -237,8 +251,16 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 bundled={bundled?.skills ?? []}
                 user={user?.skills ?? []}
                 onView={openViewer}
-                onEdit={(asset) => setEditor({ kind: 'skill', adapter: skillsAdapter, asset })}
-                onNew={() => setEditor({ kind: 'skill', adapter: skillsAdapter, asset: null })}
+                onEdit={(asset) => {
+                  if (skillsAdapter !== 'grok-build' && isUserAssetMeta(asset)) {
+                    setEditor({ kind: 'skill', adapter: skillsAdapter, asset });
+                  }
+                }}
+                onNew={
+                  skillsAdapter === 'grok-build'
+                    ? undefined
+                    : () => setEditor({ kind: 'skill', adapter: skillsAdapter, asset: null })
+                }
               />
             </>
           )}
@@ -246,7 +268,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
             <>
               <InjectionToggleBar tab="agents" settings={settings} update={updateSettings} />
               <div className="mb-2">
-                <AdapterSubTab current={agentsAdapter} onSelect={setAgentsAdapter} />
+                <AdapterSubTab current={agentsAdapter} onSelect={setAgentsAdapter} showGrok />
               </div>
               <AssetsTab
                 kind="agent"
@@ -254,8 +276,16 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 bundled={bundled?.agents ?? []}
                 user={user?.agents ?? []}
                 onView={openViewer}
-                onEdit={(asset) => setEditor({ kind: 'agent', adapter: agentsAdapter, asset })}
-                onNew={() => setEditor({ kind: 'agent', adapter: agentsAdapter, asset: null })}
+                onEdit={(asset) => {
+                  if (agentsAdapter !== 'grok-build' && isUserAssetMeta(asset)) {
+                    setEditor({ kind: 'agent', adapter: agentsAdapter, asset });
+                  }
+                }}
+                onNew={
+                  agentsAdapter === 'grok-build'
+                    ? undefined
+                    : () => setEditor({ kind: 'agent', adapter: agentsAdapter, asset: null })
+                }
               />
             </>
           )}
@@ -322,84 +352,6 @@ function TabBtn({
 }
 
 /**
- * Skills/Agents tab 内部 adapter filter 视图（plan §D1 §D6）：bundled / user 都按 adapter filter。
- */
-function AssetsTab({
-  kind,
-  adapter,
-  bundled,
-  user,
-  onView,
-  onEdit,
-  onNew,
-}: {
-  kind: AssetKind;
-  adapter: AssetAdapter;
-  bundled: AssetMeta[];
-  user: AssetMeta[];
-  onView: (asset: AssetMeta) => void;
-  onEdit: (asset: AssetMeta) => void;
-  onNew: () => void;
-}): JSX.Element {
-  // plan §D6 删 dedupBundledByName,直接按 adapter filter
-  const filteredBundled = bundled.filter((a) => a.adapter === adapter);
-  const filteredUser = user.filter((a) => a.adapter === adapter);
-  // plan §D2 §D5：user 资产路径 hint 文案 sub-tab 切换
-  const userPathHint =
-    adapter === 'claude-code'
-      ? kind === 'agent'
-        ? '~/.claude/agents/'
-        : '~/.claude/skills/'
-      : kind === 'agent'
-        ? '~/.codex/agents/'
-        : '~/.codex/skills/';
-  return (
-    <div className="flex flex-col gap-3">
-      <section>
-        <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-          内置（只读）
-        </div>
-        {filteredBundled.length === 0 ? (
-          <div className="text-[10px] text-deck-muted/60">（无）</div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {filteredBundled.map((a) => (
-              <AssetCard key={`${a.adapter}:${a.qualifiedName}`} asset={a} onView={onView} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-1 flex items-center justify-between">
-          <div className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-            用户自定义（{userPathHint}）
-          </div>
-          <button
-            type="button"
-            onClick={onNew}
-            className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25"
-          >
-            <PlusIcon className="mr-1 inline h-3 w-3" />新建{kind === 'agent' ? ' Agent' : ' Skill'}
-          </button>
-        </div>
-        {filteredUser.length === 0 ? (
-          <div className="text-[10px] text-deck-muted/60">
-            暂无。点右上「新建」可创建第一个{kind === 'agent' ? ' Agent' : ' Skill'},文件会保存到 {userPathHint}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {filteredUser.map((a) => (
-              <AssetCard key={`${a.adapter}:${a.qualifiedName}`} asset={a} onView={onView} onEdit={onEdit} />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-/**
  * 「应用约定」tab：Claude / Codex sub-tab 切换只切可见性,两个 editor 常驻。
  *
  * **plan assets-codex-user-and-ui-unify-20260521 §D1**：本 tab 改用公共 AdapterSubTab 组件，
@@ -415,18 +367,19 @@ function ClaudeMdTab({
 }: {
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
-  const [adapter, setAdapter] = useState<AssetAdapter>('claude-code');
-  const [resetKeys, setResetKeys] = useState<Record<AssetAdapter, number>>({
+  type ApplicationAdapter = Exclude<AssetAdapter, 'grok-build'>;
+  const [adapter, setAdapter] = useState<ApplicationAdapter>('claude-code');
+  const [resetKeys, setResetKeys] = useState<Record<ApplicationAdapter, number>>({
     'claude-code': 0,
     'codex-cli': 0,
   });
-  const dirtyByAdapterRef = useRef<Record<AssetAdapter, boolean>>({
+  const dirtyByAdapterRef = useRef<Record<ApplicationAdapter, boolean>>({
     'claude-code': false,
     'codex-cli': false,
   });
 
   const onSubDirty = useCallback(
-    (source: AssetAdapter, d: boolean) => {
+    (source: ApplicationAdapter, d: boolean) => {
       dirtyByAdapterRef.current[source] = d;
       onDirtyChange(Object.values(dirtyByAdapterRef.current).some(Boolean));
     },
@@ -456,7 +409,13 @@ function ClaudeMdTab({
 
   return (
     <div className="flex min-h-[310px] flex-col gap-2">
-      <AdapterSubTab current={adapter} onSelect={setAdapter} onSwitch={guardSwitchAdapter} />
+      <AdapterSubTab
+        current={adapter}
+        onSelect={(next) => {
+          if (next !== 'grok-build') setAdapter(next);
+        }}
+        onSwitch={guardSwitchAdapter}
+      />
       <div
         className={adapter === 'claude-code' ? 'flex flex-col gap-2' : 'hidden'}
         aria-hidden={adapter !== 'claude-code'}

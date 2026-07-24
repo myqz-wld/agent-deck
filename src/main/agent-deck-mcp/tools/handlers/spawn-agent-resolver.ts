@@ -5,13 +5,14 @@ import {
 } from '@main/codex-config/custom-agents';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import { getBundledAssetContent } from '@main/bundled-assets';
 import type { SpawnSessionArgs } from '../schemas';
 import type {
   SpawnClaudeCodeEffortLevel,
   SpawnCodexReasoningEffort,
 } from './spawn-model-options';
 
-type SpawnAssetAdapter = 'claude-code' | 'codex-cli';
+type SpawnAssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
 
 export type ResolvedSpawnAgent =
   | {
@@ -24,6 +25,7 @@ export type ResolvedSpawnAgent =
       claudeAgentName?: string;
       claudeAgents?: Record<string, AgentDefinition>;
       claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
+      grokAgentName?: string;
     }
   | { ok: false; error: string; hint: string };
 
@@ -31,7 +33,13 @@ function assetAdapterForSpawn(
   adapter: SpawnSessionArgs['adapter'],
 ): SpawnAssetAdapter | null {
   if (adapter === 'deepseek-claude-code') return 'claude-code';
-  if (adapter === 'claude-code' || adapter === 'codex-cli') return adapter;
+  if (
+    adapter === 'claude-code' ||
+    adapter === 'codex-cli' ||
+    adapter === 'grok-build'
+  ) {
+    return adapter;
+  }
   return null;
 }
 
@@ -45,14 +53,16 @@ export function resolveSpawnAgent(
     return {
       ok: false,
       error: `agentName not supported for adapter "${adapter}"`,
-      hint: 'Drop agentName and pass full prompt directly, or use a supported adapter: claude-code, deepseek-claude-code, or codex-cli.',
+      hint: 'Drop agentName and pass full prompt directly, or use a supported adapter: claude-code, deepseek-claude-code, codex-cli, or grok-build.',
     };
   }
 
   const agent =
     assetAdapter === 'claude-code'
       ? resolveClaudeSpawnAgent(agentName, cwd, assetAdapter)
-      : resolveCodexSpawnAgent(agentName, cwd);
+      : assetAdapter === 'codex-cli'
+        ? resolveCodexSpawnAgent(agentName, cwd)
+        : resolveGrokSpawnAgent(agentName);
   if (agent.ok) return agent;
 
   return {
@@ -60,8 +70,22 @@ export function resolveSpawnAgent(
     error: `agent not found for agentName="${agentName}"`,
     hint:
       `${agent.hint}. ` +
-      'Available sources are bundled Agent Deck agents, project agents in .claude/agents or .codex/agents, and user agents in ~/.claude/agents or ~/.codex/agents. Omit agentName for generic teammates and use displayName for labels.',
+      (assetAdapter === 'grok-build'
+        ? 'Grok Build agentName currently resolves bundled Agent Deck plugin agents only. Omit agentName for a generic teammate and use displayName for labels.'
+        : 'Available sources are bundled Agent Deck agents, project agents in .claude/agents or .codex/agents, and user agents in ~/.claude/agents or ~/.codex/agents. Omit agentName for generic teammates and use displayName for labels.'),
   };
+}
+
+function resolveGrokSpawnAgent(agentName: string): ResolvedSpawnAgent {
+  const resolved = getBundledAssetContent('agent', agentName, 'grok-build');
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      error: resolved.reason,
+      hint: `Grok bundled agent lookup failed: ${resolved.reason}`,
+    };
+  }
+  return { ok: true, grokAgentName: agentName };
 }
 
 function resolveClaudeSpawnAgent(

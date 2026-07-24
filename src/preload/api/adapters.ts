@@ -19,11 +19,17 @@ import type {
   PermissionResponse,
   UploadedAttachmentInput,
   PendingOutgoingMessage,
+  AdapterSessionMode,
 } from '@shared/types';
 
 export const adaptersApi = {
   // Adapter
-  listAdapters: (): Promise<{ id: string; displayName: string; capabilities: Record<string, boolean> }[]> =>
+  listAdapters: (): Promise<Array<{
+    id: string;
+    displayName: string;
+    capabilities: Record<string, boolean>;
+    sessionModes: AdapterSessionMode[];
+  }>> =>
     ipcRenderer.invoke(IpcInvoke.AdapterList),
   createAdapterSession: (agentId: string, opts: Record<string, unknown>): Promise<string> =>
     ipcRenderer.invoke(IpcInvoke.AdapterCreateSession, agentId, opts),
@@ -104,6 +110,12 @@ export const adaptersApi = {
     mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
+  setAdapterSessionMode: (
+    agentId: string,
+    sessionId: string,
+    mode: AdapterSessionMode,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSetSessionMode, agentId, sessionId, mode),
   setSessionModelOptions: (
     agentId: string,
     sessionId: string,

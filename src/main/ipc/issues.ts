@@ -42,6 +42,7 @@ import {
   IpcInputError,
   parseStringId,
   parsePermissionMode,
+  parseAdapterSessionMode,
   parseSandboxMode,
   parseCodexSandboxMode,
 } from './_helpers';
@@ -92,6 +93,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   cwd: z.string().max(4096).optional(), // optional: fallback issue.cwd > homedir
   prompt: z.string().min(1).max(102400),
   permissionMode: z.string().optional(), // parsePermissionMode 内部白名单
+  sessionMode: z.string().optional(),
   codexSandbox: z.string().optional(),
   claudeCodeSandbox: z.string().optional(),
   model: z.string().max(256).optional(),
@@ -110,6 +112,7 @@ interface CreateIssueResolutionSessionInput {
   cwd: string; // 已 fallback + 长度校验完
   prompt: string;
   permissionMode: ReturnType<typeof parsePermissionMode>;
+  sessionMode?: ReturnType<typeof parseAdapterSessionMode>;
   codexSandbox: ReturnType<typeof parseCodexSandboxMode>;
   claudeCodeSandbox: ReturnType<typeof parseSandboxMode>;
   model?: unknown;
@@ -129,6 +132,14 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
   // §3 canCreateSession capability 校验
   if (a.capabilities.canCreateSession !== true) {
     throw new IpcInputError('adapter', `adapter "${validAdapterId}" capabilities.canCreateSession=false`);
+  }
+  if (input.sessionMode != null) {
+    if (!a.capabilities.canSetSessionMode) {
+      throw new IpcInputError(
+        'sessionMode',
+        `adapter "${validAdapterId}" does not support session mode "${input.sessionMode}"`,
+      );
+    }
   }
   // §6 prompt 长度（zod 已 max 102400 守门）
   if (input.prompt.length > MAX_USER_MESSAGE_LENGTH) {
@@ -157,6 +168,7 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
       cwd: input.cwd,
       prompt: input.prompt,
       ...(input.permissionMode !== null ? { permissionMode: input.permissionMode } : {}),
+      ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
       ...(input.codexSandbox !== null ? { codexSandbox: input.codexSandbox } : {}),
       ...(input.claudeCodeSandbox !== null ? { claudeCodeSandbox: input.claudeCodeSandbox } : {}),
       ...sessionModelOptions,
@@ -301,6 +313,7 @@ export async function issuesResolveInNewSessionHandler(
       || homedir();
     // §7 默认 sandbox / permissionMode 走 adapter 默认 + 应用 settings 白名单 — parseXxx 接 unknown
     const permissionMode = parsePermissionMode(args.permissionMode);
+    const sessionMode = parseAdapterSessionMode(args.sessionMode);
     const codexSandbox = parseCodexSandboxMode(args.codexSandbox);
     const claudeCodeSandbox = parseSandboxMode(args.claudeCodeSandbox);
     logger.info('[IssuesResolveInNewSession] spawning resolution session', {
@@ -308,6 +321,7 @@ export async function issuesResolveInNewSessionHandler(
       adapter: args.adapter,
       cwd,
       permissionMode,
+      sessionMode,
       codexSandbox,
       claudeCodeSandbox,
       model: args.model?.trim() || null,
@@ -320,6 +334,7 @@ export async function issuesResolveInNewSessionHandler(
       cwd,
       prompt: args.prompt,
       permissionMode,
+      sessionMode,
       codexSandbox,
       claudeCodeSandbox,
       model: args.model,

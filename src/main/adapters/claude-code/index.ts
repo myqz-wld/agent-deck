@@ -27,31 +27,14 @@ import { createClaudeFamilyForkedSession } from './fork-session';
 import { settingsStore } from '@main/store/settings-store';
 import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { getAdapterRuntimeProfile } from '../runtime-profiles';
 
 const ADAPTER_ID = 'claude-code';
 
 class ClaudeCodeAdapter implements AgentAdapter {
   id = ADAPTER_ID;
-  displayName = 'Claude Code';
-  capabilities = {
-    canCreateSession: true,
-    canSetSessionModelOptions: true,
-    canForkSession: true,
-    canInterrupt: true,
-    canSendMessage: true,
-    canInstallHooks: true,
-    canRespondPermission: true,
-    canSetPermissionMode: true,
-    canRestartWithPermissionMode: true,
-    canRestartWithCodexSandbox: false,
-    // CHANGELOG_74：claude OS 沙盒冷切（query sandbox options 是启动时配置）
-    canRestartWithClaudeCodeSandbox: true,
-    canCloseSession: true,
-    // R3.E4：universal team backend 接收 cross-adapter 消息（receiveTeammateMessage = sendMessage）
-    canCollaborate: true,
-    // REVIEW_35 HIGH-D2：SDK content blocks 接收 image base64
-    canAcceptAttachments: true,
-  };
+  displayName = getAdapterRuntimeProfile(ADAPTER_ID).displayName;
+  capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };
 
   private installer: HookInstaller | null = null;
   private bridge: ClaudeSdkBridge | null = null;
@@ -68,6 +51,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
     this.bridge = new ClaudeSdkBridge({
       emit: ctx.emit,
+      adapterId: ADAPTER_ID,
       permissionTimeoutMs: settingsStore.get('permissionTimeoutMs'),
     });
   }

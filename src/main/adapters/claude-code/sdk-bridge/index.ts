@@ -240,6 +240,7 @@ export class ClaudeSdkBridge {
       responder: this.responder,
       getPermissionTimeoutMs: () => this.permissionTimeoutMs,
       interrupt: (sid) => this.interrupt(sid),
+      adapterId: this.opts.adapterId ?? 'claude-code',
     });
   }
 

@@ -4,17 +4,23 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type {
+  AdapterSessionMode,
   HandOffMetadata,
   UploadedAttachmentRef,
 } from '@shared/types';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
-import type { ClaudeThinkingLevel, CodexThinkingLevel } from '@shared/session-metadata';
+import type {
+  ClaudeThinkingLevel,
+  CodexThinkingLevel,
+  GrokThinkingLevel,
+} from '@shared/session-metadata';
 
 import type { PermissionMode } from './adapter-context';
 
 export type ClaudeCodeEffortLevel = ClaudeThinkingLevel;
 export type CodexModelReasoningEffort = CodexThinkingLevel;
+export type GrokReasoningEffort = GrokThinkingLevel;
 
 /** Main-only registration metadata used to materialize an MCP spawn edge on the first SDK row. */
 export interface InitialSessionRegistration {
@@ -265,6 +271,23 @@ export interface CodexCreateOpts {
   initialSessionRegistration?: InitialSessionRegistration;
 }
 
+/** Grok Build ACP session options. Grok owns authentication, native tools, and session history. */
+export interface GrokCreateOpts {
+  cwd: string;
+  prompt?: string;
+  resume?: string;
+  teamName?: string;
+  attachments?: UploadedAttachmentRef[];
+  model?: string;
+  reasoningEffort?: GrokReasoningEffort;
+  sessionMode?: AdapterSessionMode;
+  /** Validated bundled Grok plugin agent selected by spawn_session(agentName). */
+  grokAgentName?: string;
+  handOff?: HandOffMetadata;
+  awaitCanonicalId?: boolean;
+  initialSessionRegistration?: InitialSessionRegistration;
+}
+
 /**
  * adapter.createSession 入参判别联合（D2 设计）。
  *
@@ -278,7 +301,8 @@ export interface CodexCreateOpts {
 export type CreateSessionOptions =
   | ({ agentId: 'claude-code' } & ClaudeCreateOpts)
   | ({ agentId: 'deepseek-claude-code' } & ClaudeCreateOpts)
-  | ({ agentId: 'codex-cli' } & CodexCreateOpts);
+  | ({ agentId: 'codex-cli' } & CodexCreateOpts)
+  | ({ agentId: 'grok-build' } & GrokCreateOpts);
 
 /**
  * caller 端通用「全字段 raw」入参（buildCreateSessionOptions 的 raw 参数类型）。
@@ -303,6 +327,9 @@ export interface CreateSessionOptionsRaw {
   model?: string;
   claudeCodeEffortLevel?: ClaudeCodeEffortLevel;
   modelReasoningEffort?: CodexModelReasoningEffort;
+  reasoningEffort?: GrokReasoningEffort;
+  sessionMode?: AdapterSessionMode;
+  grokAgentName?: string;
   developerInstructions?: string;
   codexConfigOverrides?: CodexConfigObject;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';

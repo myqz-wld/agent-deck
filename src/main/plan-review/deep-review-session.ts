@@ -108,7 +108,7 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
     request: ExitPlanModeRequest;
   }): Promise<PlanReviewChildSession> {
     const source = sessionRepo.get(input.sourceSessionId);
-    if (!source || !isAgentId(source.agentId)) {
+    if (!source || !isAgentId(source.agentId) || source.agentId === 'grok-build') {
       throw new Error('源会话不可用，无法创建隔离的原生 fork。');
     }
     const thinking = inheritedThinking(source.agentId, source.thinking);

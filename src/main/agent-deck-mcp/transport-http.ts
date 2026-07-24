@@ -21,7 +21,7 @@
  * per-request fresh transport instance**（plan reviewer-codex-cross-adapter-20260519
  * Phase 0 收口结论 + Step 0.4 fix 路径 B 实证）：
  *
- * - 我们的 18 个公开 MCP tool（6 session/messaging + 2 user presentation + 2 worktree + 5 task + 3 issue；详 tools/index.ts SSOT）
+ * - 我们的 19 个公开 MCP tool（7 session/messaging + 2 user presentation + 2 worktree + 5 task + 3 issue；详 tools/index.ts SSOT）
  *   都**无 cross-request session state 需求** — 每条 request 携带 callerSessionId（per-session
  *   token 反查 → resolvedSid），handler 只看单 request 内 args 即可处理，不需要 mcp-sdk
  *   协议层 session lifecycle
@@ -47,6 +47,9 @@ import type { RouteRegistry } from '@main/hook-server/route-registry';
 import { performance } from 'node:perf_hooks';
 import { buildAgentDeckTools } from './tools';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from './types';
+import { isSessionAdapterId } from '@main/adapters/runtime-profiles';
+import { sessionRepo } from '@main/store/session-repo';
+import type { SessionAdapterId } from '@shared/types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('agent-deck-mcp-http');
@@ -135,6 +138,14 @@ export function resolveCallerSidForReadOnly(extra?: unknown): string {
   return authInfo?.resolvedSid ?? EXTERNAL_CALLER_SENTINEL;
 }
 
+export function resolveAuthenticatedAdapterId(
+  authInfo: McpAuthInfo | undefined,
+): SessionAdapterId | null {
+  if (!authInfo?.resolvedSid || authInfo.fallbackToGlobal) return null;
+  const agentId = sessionRepo.get(authInfo.resolvedSid)?.agentId;
+  return agentId && isSessionAdapterId(agentId) ? agentId : null;
+}
+
 async function loadMcpSdk(): Promise<{
   server: McpSdkServerModule;
   http: McpStreamableHttpModule;
@@ -152,10 +163,13 @@ async function loadMcpSdk(): Promise<{
 }
 
 /**
- * 创建 mcp-sdk McpServer 实例并注册 18 个公开 agent-deck tool。
+ * 创建 mcp-sdk McpServer 实例并注册 19 个公开 agent-deck tool。
  * 调用方负责把它 connect 到 transport（HTTP / stdio）。
  */
-async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http' | 'stdio') {
+async function buildAgentDeckMcpServerForExternalTransport(
+  transportName: 'http' | 'stdio',
+  adapterId: SessionAdapterId | null,
+) {
   const { server } = await loadMcpSdk();
   const mcpServer = new server.McpServer({
     name: 'agent-deck',
@@ -190,6 +204,7 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
   const adapted = await buildAgentDeckTools({
     callerSessionIdOverride,
     transport: transportName,
+    adapterId,
   });
   for (const t of adapted) {
     // claude-agent-sdk 的 SdkMcpToolDefinition 字段（参考 sdk.d.ts）：
@@ -230,7 +245,7 @@ async function buildAgentDeckMcpServerForExternalTransport(transportName: 'http'
  *   `Stateless transport cannot be reused` throw, no `Server already initialized` (-32600)
  * - GET /mcp / DELETE /mcp → 405 Method not allowed（stateless 不支持 SSE 长连 / session DELETE）
  *
- * 性能开销:每 request 跑 `buildAgentDeckMcpServerForExternalTransport`（new McpServer + 5
+ * 性能开销:每 request 跑 `buildAgentDeckMcpServerForExternalTransport`（new McpServer + 19
  * tool register）+ McpServer.connect(transport)。loadSdk module cache 命中（V8 dedupe）,
  * 整体毫秒级,production load 可接受。test: transport-http-multi-client-init.test.ts 实证
  * fix 路径 B 两次 init 都 200。
@@ -281,7 +296,10 @@ export async function registerAgentDeckMcpHttpRoutes(
       const transport = new http.StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
-      const mcpServer = await buildAgentDeckMcpServerForExternalTransport('http');
+      const mcpServer = await buildAgentDeckMcpServerForExternalTransport(
+        'http',
+        resolveAuthenticatedAdapterId(authInfo),
+      );
       // McpServer.connect 接受 SDK 自定义 Transport 接口；StreamableHTTPServerTransport 已实现该接口
       await (mcpServer as unknown as { connect: (t: unknown) => Promise<void> }).connect(
         transport,

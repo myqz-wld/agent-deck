@@ -1,7 +1,10 @@
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import type { SessionAdapterId } from '@shared/types';
 import { AGENT_DECK_TOOL_NAMES, type CallerContext } from '../types';
+import { filterAgentDeckTools } from '../tool-policy';
 
 import {
   makeCallerContext,
@@ -16,7 +19,6 @@ import {
   REQUEST_PLAN_REVIEW_SCHEMA,
   SEND_MESSAGE_SCHEMA,
   SHUTDOWN_SESSION_SCHEMA,
-  SPAWN_SESSION_SCHEMA,
   HAND_OFF_SESSION_SHAPE,
   HAND_OFF_SESSION_ARGS_SCHEMA,
   ENTER_WORKTREE_SCHEMA,
@@ -29,6 +31,7 @@ import {
   REPORT_ISSUE_SCHEMA,
   APPEND_ISSUE_CONTEXT_SCHEMA,
   UPDATE_ISSUE_STATUS_SCHEMA,
+  spawnSessionSchemaForCaller,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
 import { sendMessageHandler } from './handlers/send';
@@ -60,6 +63,8 @@ export {
 } from './helpers';
 
 export interface BuildAgentDeckToolsDeps {
+  /** Authenticated caller profile. Omitted only for legacy tests and external/global callers. */
+  adapterId?: SessionAdapterId | null;
   /**
    * callerSessionId 覆盖 lazy provider（plan codex-handoff-team-alignment-20260518
    * P2 Step 2.3 / D1 ADR signature 扩展）。
@@ -93,6 +98,7 @@ export async function buildAgentDeckTools(
 ): Promise<SdkMcpToolDefinition<any>[]> {
   const { tool } = await loadSdk();
   const { transport, callerSessionIdOverride } = deps;
+  const profile = deps.adapterId ? getAdapterRuntimeProfile(deps.adapterId) : null;
 
   /**
    * 把 zod 解析后的 args 字段（含 callerSessionId / parentSessionId）规范成
@@ -122,8 +128,8 @@ export async function buildAgentDeckTools(
 
   const spawnSession = tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a parallel SDK session on claude-code, deepseek-claude-code, or codex-cli. Required fields: adapter, absolute cwd, and a complete non-empty prompt. contextMode defaults to fresh. Use contextMode "fork" only to inherit the authenticated caller\'s provider history through the safe active-turn boundary; fork requires the exact caller adapter and same realpath cwd, accepts no source-session id or turn count, and never silently falls back to fresh. A first-turn Codex fork creates an independent zero-prefix target thread and replays current native UserInput values before the delegated prompt. Successful forks return contextMode and the Agent Deck forkedFromSessionId. Omit agentName for a general-purpose teammate; set it only to resolve an adapter-native bundled, project, or user agent. Optional model and thinking are target-session-only overrides; their field schemas list maintained suggestions, adapter-specific values, precedence, and custom-model passthrough. Pass teamName to create or reuse a shared team; omit it for a standalone session that can still use teamless DM. Returns sessionId, optional teamId, spawnPromptMessageId, and spawnLimits. On failure, follow hint exactly or use contextMode "fresh" when inherited context is unnecessary. Use hand_off_session when replacing the current session; hand-offs always start fresh.',
-    SPAWN_SESSION_SCHEMA,
+    'Spawn a parallel session on claude-code, deepseek-claude-code, codex-cli, or grok-build. Required fields: adapter, absolute cwd, and a complete non-empty prompt. contextMode defaults to fresh. Use contextMode "fork" only when the selected adapter advertises native fork support, to inherit the authenticated caller\'s provider history through the safe active-turn boundary; fork requires the exact caller adapter and same realpath cwd, accepts no source-session id or turn count, and never silently falls back to fresh. A first-turn Codex fork creates an independent zero-prefix target thread and replays current native UserInput values before the delegated prompt. Successful forks return contextMode and the Agent Deck forkedFromSessionId. Omit agentName for a general-purpose teammate; set it only to resolve an adapter-native bundled, project, or user agent. Optional model, thinking, and adapter-native runtime controls are target-session-only overrides; their field schemas list maintained suggestions, adapter-specific values, precedence, and custom-model passthrough. Pass teamName to create or reuse a shared team; omit it for a standalone session that can still use teamless DM. Returns sessionId, optional teamId, spawnPromptMessageId, and spawnLimits. On failure, follow hint exactly or use contextMode "fresh" when inherited context is unnecessary. Use hand_off_session when replacing the current session; hand-offs always start fresh.',
+    spawnSessionSchemaForCaller(profile?.capabilities.canForkSession ?? null),
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
       // plan reviewer-codex-cross-adapter-20260519 Phase 0 Step 0.4-tris: codex CLI 内部 mcp tool
@@ -249,7 +255,7 @@ export async function buildAgentDeckTools(
 
   const handOffSession = tool(
     AGENT_DECK_TOOL_NAMES.handOffSession,
-    'Hand off the current SDK session to a fresh successor when this session should be replaced, such as a context reset or the next work phase. Put the authoritative next instruction in `prompt`; Agent Deck prepares one bounded, provider-neutral Continuation Context (会话续接上下文) from validated checkpoints and retained user inputs. The provider sees that context through a private trusted initial turn, while the database/UI persists only your instruction. Omit adapter to inherit the caller adapter, or choose claude-code, deepseek-claude-code, or codex-cli; model is optional free text and thinking is adapter-aware. Omitted model/thinking and runtime controls inherit on same-adapter hand-offs and use frozen target defaults across adapters. Adapter-incompatible permission/sandbox/write controls and a cwd that is not an existing directory are rejected before continuation generation. Call this tool only after all source-side preparation is complete, as the final tool action of the turn, and never in parallel with another tool. Before closing the caller, the tool commits one durable logical-ownership move: caller-owned tasks, active team memberships, the worktree marker, and in-flight message endpoints move to the successor; existing issue source/resolution authority, pending plan gates, and related-session trajectory visibility continue through the handoff chain without rewriting historical provenance. Any successful result containing a successor `sessionId` is terminal for the source even when `callerClosed` is `"failed"` or warnings are present: immediately end the source turn; do not call another tool, edit files, send messages, retry the hand-off, or continue the task. If assistant text is required, output at most a one-line hand-off acknowledgement. Only an error result without a successor `sessionId` leaves the source usable; follow its hint before retrying or continuing. Transfer failure closes the orphan best-effort and leaves the caller active; source-close failure is returned as a warning without invalidating the successor. Returns only compact checkpoint/revision/token metadata, successor identity, and transfer status—never the provider prompt. Use spawn_session for parallel work.',
+    'Hand off the current session to a fresh successor when this session should be replaced, such as a context reset or the next work phase. Put the authoritative next instruction in `prompt`; Agent Deck prepares one bounded, provider-neutral Continuation Context (会话续接上下文) from validated checkpoints and retained user inputs. The provider sees that context through a private trusted initial turn, while the database/UI persists only your instruction. Omit adapter to inherit the caller adapter, or choose claude-code, deepseek-claude-code, codex-cli, or grok-build; model is optional free text, thinking is adapter-aware, and sessionMode is Grok-specific. Omitted model/thinking and runtime controls inherit on same-adapter hand-offs and use frozen target defaults across adapters. Adapter-incompatible permission/session/sandbox/write controls and a cwd that is not an existing directory are rejected before continuation generation. Call this tool only after all source-side preparation is complete, as the final tool action of the turn, and never in parallel with another tool. Before closing the caller, the tool commits one durable logical-ownership move: caller-owned tasks, active team memberships, the worktree marker, and in-flight message endpoints move to the successor; existing issue source/resolution authority, pending plan gates, and related-session trajectory visibility continue through the handoff chain without rewriting historical provenance. Any successful result containing a successor `sessionId` is terminal for the source even when `callerClosed` is `"failed"` or warnings are present: immediately end the source turn; do not call another tool, edit files, send messages, retry the hand-off, or continue the task. If assistant text is required, output at most a one-line hand-off acknowledgement. Only an error result without a successor `sessionId` leaves the source usable; follow its hint before retrying or continuing. Transfer failure closes the orphan best-effort and leaves the caller active; source-close failure is returned as a warning without invalidating the successor. Returns only compact checkpoint/revision/token metadata, successor identity, and transfer status—never the provider prompt. Use spawn_session for parallel work.',
     HAND_OFF_SESSION_SHAPE,
     async (args, extra) => {
       const parseRes = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse(args);
@@ -448,7 +454,7 @@ export async function buildAgentDeckTools(
     },
   );
 
-  return [
+  const tools = [
     spawnSession,
     sendMessage,
     requestPlanReview,
@@ -469,4 +475,5 @@ export async function buildAgentDeckTools(
     appendIssueContext,
     updateIssueStatus,
   ];
+  return profile ? filterAgentDeckTools(tools, profile.mcpTools) : tools;
 }

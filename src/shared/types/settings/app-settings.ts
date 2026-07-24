@@ -209,6 +209,11 @@ export interface AppSettings {
    */
   claudeCliPath: string | null;
   /**
+   * Grok Build CLI override. null resolves `grok` from the user shell PATH; the app never
+   * bundles the binary or modifies Grok authentication/configuration.
+   */
+  grokCliPath: string | null;
+  /**
    * 是否把 agent-deck 自带的 CLAUDE.md（`resources/claude-config/CLAUDE.md` 或用户副本
    * `userData/agent-deck-claude.md`）注入到 SDK 会话 system prompt 末尾。
    * - true（默认）：注入，让会话遵循 agent-deck 项目内通用约定
@@ -251,6 +256,12 @@ export interface AppSettings {
    * TOML。普通用户 / 项目 Codex custom agents 不受影响。
    */
   injectAgentDeckCodexAgents: boolean;
+  /** Inject the bundled Grok baseline through ACP `_meta.agentProfile`. */
+  injectAgentDeckGrokAgentsMd: boolean;
+  /** Expose the bundled Grok plugin skills through ACP `_meta.pluginDirs`. */
+  injectAgentDeckGrokSkills: boolean;
+  /** Expose the bundled Grok plugin agents through ACP `_meta.pluginDirs`. */
+  injectAgentDeckGrokAgents: boolean;
   /**
    * 是否把 agent-deck 自带 Claude plugin 的 skills 注入到 Claude-family SDK 会话。
    *

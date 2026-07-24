@@ -17,6 +17,8 @@ export type {
   ClaudeCreateOpts,
   CodexModelReasoningEffort,
   CodexCreateOpts,
+  GrokCreateOpts,
+  GrokReasoningEffort,
   CreateSessionOptions,
   CreateSessionOptionsRaw,
   InitialSessionRegistration,

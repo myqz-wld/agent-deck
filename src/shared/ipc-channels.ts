@@ -61,6 +61,7 @@ export const IpcInvoke = {
   PlanReviewAskDeepReview: 'plan-review:ask-deep-review',
   PlanReviewGenerateFeedback: 'plan-review:generate-feedback',
   AdapterSetPermissionMode: 'adapter:set-permission-mode',
+  AdapterSetSessionMode: 'adapter:set-session-mode',
   AdapterSetSessionModelOptions: 'adapter:set-session-model-options',
   AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
   AdapterRestartWithClaudeCodeSandbox: 'adapter:restart-with-claude-code-sandbox',
