@@ -129,12 +129,14 @@ vi.mock('@main/adapters/grok-build/resources', () => ({
 
 // ─── 动态 import 必须放在 mock 之后 ──────────────────────────────────────
 let loadBundledAssets: typeof import('@main/bundled-assets').loadBundledAssets;
+let getBundledAssets: typeof import('@main/bundled-assets').getBundledAssets;
 let getBundledAssetContent: typeof import('@main/bundled-assets').getBundledAssetContent;
 let getBundledAssetPath: typeof import('@main/bundled-assets').getBundledAssetPath;
 
 beforeAll(async () => {
   const mod = await import('@main/bundled-assets');
   loadBundledAssets = mod.loadBundledAssets;
+  getBundledAssets = mod.getBundledAssets;
   getBundledAssetContent = mod.getBundledAssetContent;
   getBundledAssetPath = mod.getBundledAssetPath;
 });
@@ -238,5 +240,36 @@ describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
     if (res.ok) throw new Error('unreachable');
     expect(res.reason).toContain('codex-cli');
     expect(res.reason).toContain('nonexistent-name');
+  });
+
+  it('overlays app-owned runtime deltas while retaining packaged defaults for reset', async () => {
+    const { settingsStore } = await import('@main/store/settings-store');
+    settingsStore.set('bundledAgentRuntimeOverrides', {
+      'codex-cli:reviewer-codex': {
+        model: 'qw-pro-5',
+        thinking: 'high',
+        provider: 'fable',
+      },
+    });
+    try {
+      const agent = getBundledAssets().agents.find(
+        (item) => item.adapter === 'codex-cli' && item.name === 'reviewer-codex',
+      );
+      expect(agent).toMatchObject({
+        model: 'qw-pro-5',
+        thinking: 'high',
+        provider: 'fable',
+        bundledAgentRuntime: {
+          defaults: { model: 'gpt-5', thinking: 'max' },
+          override: {
+            model: 'qw-pro-5',
+            thinking: 'high',
+            provider: 'fable',
+          },
+        },
+      });
+    } finally {
+      settingsStore.set('bundledAgentRuntimeOverrides', {});
+    }
   });
 });

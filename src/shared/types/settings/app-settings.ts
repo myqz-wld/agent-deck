@@ -9,6 +9,7 @@
  */
 
 import type { SessionThinkingLevel } from '../../session-metadata';
+import type { BundledAgentRuntimeOverrideMap } from '../assets';
 
 /**
  * Codex MCP server 配置（CHANGELOG_<X> A4b 起跨进程共享）。
@@ -262,6 +263,11 @@ export interface AppSettings {
   injectAgentDeckGrokSkills: boolean;
   /** Expose the bundled Grok plugin agents through ACP `_meta.pluginDirs`. */
   injectAgentDeckGrokAgents: boolean;
+  /**
+   * Runtime-only deltas for immutable bundled Agents, keyed by `adapter:name`.
+   * User/project Agents and native provider definitions are never copied into this map.
+   */
+  bundledAgentRuntimeOverrides: BundledAgentRuntimeOverrideMap;
   /**
    * 是否把 agent-deck 自带 Claude plugin 的 skills 注入到 Claude-family SDK 会话。
    *

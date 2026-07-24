@@ -11,6 +11,7 @@ interface Props {
   user: AssetMeta[];
   onView: (asset: AssetMeta) => void;
   onEdit: (asset: AssetMeta) => void;
+  onConfigureBundledAgent?: (asset: AssetMeta) => void;
   onNew?: () => void;
 }
 
@@ -22,6 +23,7 @@ export function AssetsTab({
   user,
   onView,
   onEdit,
+  onConfigureBundledAgent,
   onNew,
 }: Props): JSX.Element {
   const filteredBundled = bundled.filter((asset) => asset.adapter === adapter);
@@ -41,7 +43,7 @@ export function AssetsTab({
     <div className="flex flex-col gap-3">
       <section>
         <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-          内置（只读）
+          {kind === 'agent' ? '内置' : '内置（只读）'}
         </div>
         {filteredBundled.length === 0 ? (
           <div className="text-[10px] text-deck-muted/60">（无）</div>
@@ -52,6 +54,9 @@ export function AssetsTab({
                 key={`${asset.adapter}:${asset.qualifiedName}`}
                 asset={asset}
                 onView={onView}
+                onConfigure={
+                  kind === 'agent' ? onConfigureBundledAgent : undefined
+                }
               />
             ))}
           </div>

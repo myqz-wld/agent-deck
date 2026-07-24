@@ -48,6 +48,7 @@ import {
 import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
 import { validateContinuationAndSummarySettingsPatch } from './settings-continuation-validation';
 import { invalidateSessionHandOffPreparationsForSettingsChange } from './session-hand-off';
+import { normalizeBundledAgentRuntimeOverrideMap } from '@main/bundled-agent-runtime-validation';
 
 const logger = log.scope('ipc-settings');
 
@@ -72,6 +73,18 @@ export function validateSettingsPatch(
   }
   if ('codexSandbox' in p) {
     p.codexSandbox = parseCodexSandboxMode(p.codexSandbox) ?? 'workspace-write';
+  }
+  if ('bundledAgentRuntimeOverrides' in raw) {
+    try {
+      p.bundledAgentRuntimeOverrides = normalizeBundledAgentRuntimeOverrideMap(
+        raw.bundledAgentRuntimeOverrides,
+      );
+    } catch (error) {
+      throw new IpcInputError(
+        'bundledAgentRuntimeOverrides',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
   validateContinuationAndSummarySettingsPatch(raw, p, current);
   return p;

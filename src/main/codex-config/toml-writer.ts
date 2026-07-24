@@ -194,6 +194,13 @@ export function readTopLevelModelFromCodexConfig(
   return readTopLevelQuotedStringFromCodexConfig('model', configPath);
 }
 
+/** Read the base Codex provider selection without resolving profile layering. */
+export function readTopLevelModelProviderFromCodexConfig(
+  configPath: string = getCodexConfigPath(),
+): string | null {
+  return readTopLevelQuotedStringFromCodexConfig('model_provider', configPath);
+}
+
 /**
  * Read the top-level Codex `model_reasoning_effort` when it is one of the levels Agent Deck can
  * safely pass to app-server. Unknown future values stay provider-owned and are not persisted as a

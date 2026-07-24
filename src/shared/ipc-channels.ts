@@ -167,6 +167,9 @@ export const IpcInvoke = {
   AssetsSaveUser: 'assets:save-user',
   AssetsDeleteUser: 'assets:delete-user',
   AssetsRevealInFolder: 'assets:reveal',
+  AssetsSaveBundledAgentRuntime: 'assets:save-bundled-agent-runtime',
+  AssetsResetBundledAgentRuntime: 'assets:reset-bundled-agent-runtime',
+  AssetsListCodexModelProviders: 'assets:list-codex-model-providers',
 
   // ─────────── Runtime Logging (Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2) ───────────
   /** Settings LogsSection 「打开日志目录」 — shell.openPath(app.getPath('logs')). */

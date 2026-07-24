@@ -42,8 +42,35 @@ export const ASSET_LIMITS = {
   description: 4096,
   tools: 512,
   model: 64,
+  runtimeModel: 256,
+  provider: 128,
   body: 256 * 1024, // 256 KB
 } as const;
+
+/** App-owned runtime deltas for one immutable bundled Agent. */
+export interface BundledAgentRuntimeOverride {
+  model?: string;
+  thinking?: string;
+  /** Codex-only `model_provider`; provider definitions remain in native Codex config. */
+  provider?: string;
+}
+
+/** Persisted by `adapter:name`; missing fields continue to use the bundled asset default. */
+export type BundledAgentRuntimeOverrideMap = Record<string, BundledAgentRuntimeOverride>;
+
+export interface BundledAgentRuntimeMeta {
+  /** Values parsed from the packaged Agent asset before applying app-owned overrides. */
+  defaults: BundledAgentRuntimeOverride;
+  /** Only fields that differ from the packaged defaults. Empty means no override. */
+  override: BundledAgentRuntimeOverride;
+}
+
+export interface CodexModelProviderOption {
+  id: string;
+  name?: string;
+  /** True only for the top-level `model_provider`; profile layering remains Codex-owned. */
+  configuredAsTopLevelDefault: boolean;
+}
 
 export interface AssetMeta {
   kind: AssetKind;
@@ -87,6 +114,10 @@ export interface AssetMeta {
   model?: string;
   /** agent only。Claude `effort` / Codex `model_reasoning_effort` 的统一展示值。 */
   thinking?: string;
+  /** agent only。当前仅 Codex 使用，映射到 native `model_provider`。 */
+  provider?: string;
+  /** bundled agent only。让 UI 展示 effective 值并能删除差异记录恢复 packaged 默认。 */
+  bundledAgentRuntime?: BundledAgentRuntimeMeta;
   /** 主进程绝对路径。renderer 显示前可截短，「在 Finder/资源管理器中显示」用。 */
   absPath: string;
 }

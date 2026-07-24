@@ -16,12 +16,15 @@ export function AssetCard({
   asset,
   onView,
   onEdit,
+  onConfigure,
 }: {
   /** 单条 AssetMeta（user / bundled 同款，按所在 sub-tab 单 adapter 视图）。 */
   asset: AssetMeta;
   onView: (asset: AssetMeta) => void;
   /** user-only edit；bundled 不传。 */
   onEdit?: (asset: AssetMeta) => void;
+  /** bundled Agent only：只改 app-owned model/thinking/provider 差异。 */
+  onConfigure?: (asset: AssetMeta) => void;
 }): JSX.Element {
   return (
     <div className="rounded-md border border-deck-border bg-white/[0.03] p-2">
@@ -46,14 +49,28 @@ export function AssetCard({
               <PencilIcon className="mr-1 inline h-3 w-3" />编辑
             </button>
           )}
+          {onConfigure && (
+            <button
+              type="button"
+              onClick={() => onConfigure(asset)}
+              title="修改内建 Agent 运行配置"
+              className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
+            >
+              <PencilIcon className="mr-1 inline h-3 w-3" />运行配置
+            </button>
+          )}
         </div>
       </div>
-      {asset.kind === 'agent' && (asset.model || asset.thinking || asset.tools) && (
+      {asset.kind === 'agent' && (asset.model || asset.thinking || asset.provider || asset.tools) && (
         <div className="mt-0.5 text-[10px] text-deck-muted/70">
           {asset.model && <span>模型：<code className="rounded bg-white/5 px-1">{asset.model}</code> </span>}
           {asset.thinking && <span>思考程度：<code className="rounded bg-white/5 px-1">{asset.thinking}</code> </span>}
+          {asset.provider && <span>provider：<code className="rounded bg-white/5 px-1">{asset.provider}</code> </span>}
           {asset.tools && <span>工具：<code className="rounded bg-white/5 px-1">{asset.tools}</code></span>}
         </div>
+      )}
+      {asset.bundledAgentRuntime && Object.keys(asset.bundledAgentRuntime.override).length > 0 && (
+        <div className="mt-1 text-[9px] text-status-working">已覆盖内建运行配置</div>
       )}
       {asset.description && (
         <div className="mt-1 text-[10px] leading-relaxed text-deck-muted line-clamp-3">

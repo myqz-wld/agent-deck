@@ -30,6 +30,11 @@ export interface SpawnTargetOptionsInput {
 /** Build the adapter-discriminated target options exactly once for fresh and fork dispatch. */
 export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateSessionOptions {
   const { args } = input;
+  const claudeAgents = alignActiveClaudeAgentRuntime(
+    input.claudeAgentName,
+    input.claudeAgents,
+    input.modelOptions,
+  );
   const target = buildCreateSessionOptions(args.adapter, {
     cwd: args.cwd,
     prompt: input.prompt,
@@ -46,7 +51,7 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       developerInstructions: input.developerInstructions,
       codexConfigOverrides: input.codexConfigOverrides,
       claudeAgentName: input.claudeAgentName,
-      claudeAgents: input.claudeAgents,
+      claudeAgents,
       grokAgentName: input.grokAgentName,
       agentName: args.agentName,
       awaitCanonicalId: true,
@@ -64,6 +69,25 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
     }
   }
   return target;
+}
+
+function alignActiveClaudeAgentRuntime(
+  agentName: string | undefined,
+  agents: Record<string, AgentDefinition> | undefined,
+  modelOptions: SpawnModelOptions,
+): Record<string, AgentDefinition> | undefined {
+  if (!agentName || !agents?.[agentName]) return agents;
+  const definition = agents[agentName];
+  return {
+    ...agents,
+    [agentName]: {
+      ...definition,
+      ...(modelOptions.model !== undefined ? { model: modelOptions.model } : {}),
+      ...(modelOptions.claudeCodeEffortLevel !== undefined
+        ? { effort: modelOptions.claudeCodeEffortLevel }
+        : {}),
+    },
+  };
 }
 
 /** Replace the provisional prompt after the normal team/reply context is assembled. */

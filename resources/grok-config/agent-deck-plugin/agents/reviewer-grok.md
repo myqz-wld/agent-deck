@@ -3,6 +3,7 @@ name: reviewer-grok
 description: "Grok-side heterogeneous reviewer slot. Use only when selected as one of exactly two reviewer slots; supports full_review and rebuttal and returns evidence through Agent Deck messages."
 promptMode: extend
 tools: Read, Grep, Glob, Bash, mcp__agent-deck__send_message, mcp__agent-deck__list_sessions
+model: grok-4.5
 effort: high
 ---
 

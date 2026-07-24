@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { AssetMeta } from '@shared/types';
 import { AssetCard } from './AssetCard';
 
@@ -51,5 +51,28 @@ describe('AssetCard', () => {
 
     const codeLabels = [...container.querySelectorAll('code')].map((node) => node.textContent);
     expect(codeLabels).toEqual(['agent-deck:claude-code:hello-from-deck']);
+  });
+
+  it('展示 provider、运行配置入口和覆盖状态', () => {
+    const onConfigure = vi.fn();
+    render(
+      <AssetCard
+        asset={asset({
+          adapter: 'codex-cli',
+          provider: 'fable',
+          bundledAgentRuntime: {
+            defaults: { model: 'gpt-5.6-sol', thinking: 'xhigh' },
+            override: { model: 'qw-pro-5', provider: 'fable' },
+          },
+        })}
+        onView={vi.fn()}
+        onConfigure={onConfigure}
+      />,
+    );
+
+    expect(screen.getByText('fable')).toBeTruthy();
+    expect(screen.getByText('已覆盖内建运行配置')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '运行配置' }));
+    expect(onConfigure).toHaveBeenCalledTimes(1);
   });
 });
