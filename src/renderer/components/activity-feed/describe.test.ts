@@ -65,6 +65,29 @@ suite('activity-feed describe user-facing fallbacks', () => {
       ),
     ).toContain('wait_agent · → /root/reviewer · gpt-5.6-codex/xhigh · 超时 30 秒');
   });
+
+  it('Grok tool kind 优先于原始工具名选择图标', () => {
+    expect(
+      describeActivity(
+        ev('tool-use-start', {
+          toolName: 'run_terminal_command',
+          toolKind: 'execute',
+          toolInput: { command: 'pwd' },
+        }),
+      ),
+    ).toBe('💻 run_terminal_command · pwd');
+  });
+
+  it('Grok 工具别名没有 kind 时仍能选择语义图标', () => {
+    expect(
+      formatEventLine(
+        ev('tool-use-start', {
+          toolName: 'read_file',
+          toolInput: { path: '/repo/src/a.ts' },
+        }),
+      ),
+    ).toBe('📖 read_file');
+  });
 });
 
 suite('SessionCard formatEventLine', () => {

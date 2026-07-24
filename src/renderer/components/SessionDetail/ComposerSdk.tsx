@@ -46,6 +46,7 @@ export function ComposerSdk({
   onHandOff,
   turnBusy = false,
   canSteerTurn = false,
+  canSteerTurnAttachments = false,
 }: {
   /** deep-review H3 MED：直接接收 parent 的 session record（= App detailSession，store.sessions
    *  优先 + closed 会话 historySession 兜底），不再自己 `sessions.get(sessionId)`。旧实现自读 store
@@ -61,6 +62,8 @@ export function ComposerSdk({
   turnBusy?: boolean;
   /** Adapter capability: 当前会话是否支持 mid-turn steering。 */
   canSteerTurn?: boolean;
+  /** Adapter capability: mid-turn steering 是否接受图片附件。 */
+  canSteerTurnAttachments?: boolean;
 }): JSX.Element {
   const sessionId = session.id;
   const agentId = session.agentId;
@@ -106,7 +109,7 @@ export function ComposerSdk({
   // - codex sandbox select 仅 codex-cli 显示（claude 没有 codex 那套档位）
   // - claude OS sandbox select 仅 Claude Code 桥接层显示（CHANGELOG_74，与 codex 字面镜像）
   // - 图片附件入口（粘贴 / 拖放 / 上传）按 capabilities.canAcceptAttachments gate；
-  //   Codex busy steer 模式暂时禁用附件入口，因为 turn/steer 只接受文字修正
+  //   Codex busy steer 模式暂时禁用附件入口；支持图片 interjection 的 adapter 可显式放开
   //   （REVIEW_35 HIGH-D2：当前三种 SDK adapter 都 true；白名单 gate 防止未来新
   //   adapter 默认就拿到 attachments 路径，必须显式 opt-in）
   const agentDisplayName =
@@ -121,7 +124,9 @@ export function ComposerSdk({
   const supportsCodexSandbox = agentId === 'codex-cli';
   const supportsClaudeCodeSandbox = agentId === 'claude-code';
   const isSteerMode = canSteerTurn && turnBusy;
-  const canUseAttachments = canAcceptAttachments && !isSteerMode;
+  const steerActionLabel = agentId === 'codex-cli' ? '修正' : '插入';
+  const canUseAttachments =
+    canAcceptAttachments && (!isSteerMode || canSteerTurnAttachments);
 
   const send = async (): Promise<boolean> => {
     const t = text.trim();
@@ -141,8 +146,8 @@ export function ComposerSdk({
       );
       return false;
     }
-    if (isSteerMode && hasAttachments) {
-      setSendError('Codex 当前 turn 的修正只支持文字，请移除图片后再发送。');
+    if (isSteerMode && hasAttachments && !canSteerTurnAttachments) {
+      setSendError(`${agentDisplayName} 当前 turn 的${steerActionLabel}只支持文字，请移除图片后再发送。`);
       return false;
     }
     busyRef.current = true;
@@ -322,11 +327,18 @@ export function ComposerSdk({
   };
 
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
-  const canSubmit = isSteerMode ? text.trim().length > 0 && !busy : canSend;
+  const canSubmit =
+    isSteerMode && !canSteerTurnAttachments ? text.trim().length > 0 && !busy : canSend;
   const inputPlaceholder = isSteerMode
-    ? '修正当前 Codex turn…  (Enter 发送 / Shift+Enter 换行)'
+    ? `${steerActionLabel}当前 ${agentDisplayName} turn…  (Enter 发送 / Shift+Enter 换行)`
     : `给 ${agentDisplayName} 发消息…  (Enter 发送 / Shift+Enter 换行 / 可粘贴或拖放图片)`;
-  const submitLabel = isSteerMode ? (busy ? '发送中…' : '修正') : busy ? '发送中…' : '发送';
+  const submitLabel = isSteerMode
+    ? busy
+      ? '发送中…'
+      : steerActionLabel
+    : busy
+      ? '发送中…'
+      : '发送';
   const getAttachmentPreviewDataUrl = (id: string): string | null => {
     const index = imgs.attachments.findIndex((attachment) => attachment.id === id);
     if (index < 0) return null;
@@ -399,7 +411,7 @@ export function ComposerSdk({
       <ComposerInput
         text={text}
         onTextChange={setText}
-        submitLabel={isSteerMode ? '修正' : '发送'}
+        submitLabel={isSteerMode ? steerActionLabel : '发送'}
         busy={busy}
         canSubmit={canSubmit}
         attachments={imgs.attachments}
@@ -407,7 +419,7 @@ export function ComposerSdk({
         onRemoveAttachment={imgs.remove}
         onSubmit={send}
         // REVIEW_35 HIGH-D2：仅允许附件入口时才绑 paste/drop/dragover；
-        // 不在白名单 / Codex steer 模式不绑，防止用户拖入触发空发送 + 静默丢图。
+        // 不在白名单 / 不支持附件的 steer 模式不绑，防止拖入后静默丢图。
         onPaste={canUseAttachments ? imgs.onPaste : undefined}
         onDrop={canUseAttachments ? imgs.onDrop : undefined}
         onDragOver={canUseAttachments ? imgs.onDragOver : undefined}

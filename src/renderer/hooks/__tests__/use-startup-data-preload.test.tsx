@@ -71,6 +71,7 @@ describe('useStartupDataPreload', () => {
     renderHook(() => useStartupDataPreload());
 
     await waitFor(() => expect(tokenUsageDaily).toHaveBeenCalledTimes(1));
+    expect(tokenUsageDaily).toHaveBeenCalledWith();
     await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(1));
 
     const state = useTokenUsageStore.getState();

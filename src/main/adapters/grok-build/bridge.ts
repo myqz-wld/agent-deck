@@ -21,31 +21,29 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 
-import { GrokAcpProcess, withTimeout } from './acp-process';
 import { GrokPermissionController } from './permission-controller';
-import { currentModelId, currentSessionMode, errorText } from './protocol-utils';
-import { resolveGrokBinary } from './resolve-grok-binary';
+import { errorText } from './protocol-utils';
 import {
   createGrokRuntime,
   persistGrokRuntimeMetadata,
   recoverGrokRuntime,
 } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
-import { buildGrokMcpServers, buildGrokSessionMeta } from './session-setup';
+import type { GrokSessionSetupOptions } from './session-setup';
 import { GrokTurnQueue, type GrokEnqueueOptions } from './turn-queue';
-import { translateGrokUpdate } from './translate';
+import {
+  startGrokRuntime,
+  startGrokRuntimeInBackground,
+  type GrokRuntimeStartContext,
+} from './runtime-start';
+import { clearGrokTurnLiveRate } from './translate';
 import { readGrokUsageSnapshotInBackground } from './usage-snapshot';
 import { probeGrokImageCapability } from './capability-probe';
 
 const AGENT_ID = 'grok-build';
-const REQUEST_TIMEOUT_MS = 15_000;
 
-export interface GrokBuildBridgeOptions {
+export interface GrokBuildBridgeOptions extends GrokSessionSetupOptions {
   emit: (event: AgentEvent) => void;
-  mcpHttpUrl: string;
-  isAgentDeckMcpEnabled: () => boolean;
-  getAgentProfilePrompt: () => Promise<string | null>;
-  getPluginDirectories: (options: { requiresAgent: boolean }) => Promise<string[]>;
   onNegotiatedImageCapability?: (supported: boolean) => void;
   permissionTimeoutMs: number;
   binaryPath?: string | null;
@@ -139,27 +137,25 @@ export class GrokBuildBridge {
     this.runtimes.set(applicationSessionId, runtime);
 
     try {
-      await this.startRuntime(runtime);
-      persistGrokRuntimeMetadata(runtime);
-      if (trustedTurn || opts.prompt !== undefined || opts.attachments?.length) {
-        await this.enqueue(
-          runtime,
-          trustedTurn?.persistedUserText ?? opts.prompt ?? '',
-          opts.attachments,
-          {
-            handOff: opts.handOff,
-            ...(trustedTurn
-              ? {
-                  providerText: trustedTurn.providerPrompt,
-                  continuation: trustedTurn.metadata,
-                }
-              : {}),
-          },
-        );
+      const waitForRuntime = existing !== null || opts.awaitCanonicalId === true;
+      if (!waitForRuntime) {
+        this.enqueueInitialTurn(runtime, opts, trustedTurn);
+        setTimeout(() => {
+          void this.startRuntimeInBackground(runtime);
+        }, 0);
+        return applicationSessionId;
       }
+
+      if (!(await this.startRuntime(runtime))) {
+        throw new Error(`Grok session ${applicationSessionId} closed before startup completed.`);
+      }
+      persistGrokRuntimeMetadata(runtime);
+      this.enqueueInitialTurn(runtime, opts, trustedTurn);
       return applicationSessionId;
     } catch (error) {
-      this.emitError(applicationSessionId, `Grok session startup failed: ${errorText(error)}`);
+      if (this.isCurrentRuntime(runtime) && !runtime.closed) {
+        this.emitError(applicationSessionId, `Grok session startup failed: ${errorText(error)}`);
+      }
       await this.disposeRuntime(runtime);
       throw error;
     }
@@ -179,12 +175,12 @@ export class GrokBuildBridge {
         attachments,
         emit: this.options.emit,
         replay: (sourceSessionId) =>
-          this.enqueueOrRecover(sourceSessionId, text, attachments, enqueueOptions),
+          this.enqueueOrRecover(sourceSessionId, text, attachments, enqueueOptions, true),
       })
     ) {
       return;
     }
-    await this.enqueueOrRecover(sessionId, text, attachments, enqueueOptions);
+    await this.enqueueOrRecover(sessionId, text, attachments, enqueueOptions, false);
   }
 
   async enqueueMessage(
@@ -193,7 +189,12 @@ export class GrokBuildBridge {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): Promise<void> {
-    await this.enqueueOrRecover(sessionId, text, attachments, options);
+    await this.enqueueOrRecover(sessionId, text, attachments, options, true);
+  }
+
+  async steerTurn(sessionId: string, text: string): Promise<void> {
+    const runtime = this.requireRuntime(sessionId);
+    await this.turnQueue.steer(runtime, text);
   }
 
   async interrupt(sessionId: string): Promise<void> {
@@ -331,94 +332,8 @@ export class GrokBuildBridge {
     );
   }
 
-  private async startRuntime(runtime: GrokRuntime): Promise<void> {
-    const requestedMode = runtime.sessionMode;
-    let reportedMode: AdapterSessionMode | null = null;
-    const binary = await resolveGrokBinary(this.binaryPath);
-    const process = await GrokAcpProcess.start({
-      binary,
-      cwd: runtime.cwd,
-      onSessionUpdate: (notification) => {
-        if (
-          runtime.suppressUpdates ||
-          notification.sessionId !== runtime.nativeSessionId
-        ) return;
-        for (const event of translateGrokUpdate(
-          runtime.applicationSessionId,
-          runtime.cwd,
-          notification.update,
-          runtime.translation,
-        )) {
-          this.options.emit(event);
-        }
-      },
-      onPermissionRequest: (request, signal) =>
-        this.permissionController.handle(runtime, request, signal),
-    });
-    runtime.process = process;
-    process.onExit((code, signal) => {
-      if (process.isStopping || runtime.closed) return;
-      const diagnostics = process.diagnostics;
-      this.emitError(
-        runtime.applicationSessionId,
-        `Grok ACP exited unexpectedly (${signal ?? code ?? 'unknown'}).${
-          diagnostics ? `\n${diagnostics}` : ''
-        }`,
-      );
-      void this.disposeRuntime(runtime);
-    });
-    this.options.onNegotiatedImageCapability?.(
-      process.initializeResponse.agentCapabilities?.promptCapabilities?.image === true,
-    );
-
-    const mcpServers = buildGrokMcpServers(runtime.applicationSessionId, this.options);
-    const meta = await buildGrokSessionMeta(runtime, this.options);
-    if (runtime.nativeSessionId) {
-      if (!process.initializeResponse.agentCapabilities?.loadSession) {
-        throw new Error('This Grok ACP version cannot load existing sessions.');
-      }
-      const response = await withTimeout(
-        process.connection.agent.request(methods.agent.session.load, {
-          sessionId: runtime.nativeSessionId,
-          cwd: runtime.cwd,
-          mcpServers,
-          _meta: meta,
-        }),
-        REQUEST_TIMEOUT_MS,
-        'Grok ACP session/load',
-      );
-      runtime.model ??=
-        currentModelId(response) ?? currentModelId(process.initializeResponse);
-      reportedMode = currentSessionMode(response);
-      runtime.sessionMode ??= reportedMode;
-      runtime.suppressUpdates = false;
-    } else {
-      const response = await withTimeout(
-        process.connection.agent.request(methods.agent.session.new, {
-          cwd: runtime.cwd,
-          mcpServers,
-          _meta: meta,
-        }),
-        REQUEST_TIMEOUT_MS,
-        'Grok ACP session/new',
-      );
-      runtime.nativeSessionId = response.sessionId;
-      runtime.model ??=
-        currentModelId(response) ?? currentModelId(process.initializeResponse);
-      reportedMode = currentSessionMode(response) ?? 'default';
-      runtime.sessionMode ??= reportedMode;
-      sessionManager.updateCliSessionId(
-        runtime.applicationSessionId,
-        response.sessionId,
-      );
-    }
-    if (requestedMode && requestedMode !== reportedMode) {
-      await process.connection.agent.request(methods.agent.session.setMode, {
-        sessionId: this.requireNativeSession(runtime),
-        modeId: requestedMode,
-      });
-      runtime.sessionMode = requestedMode;
-    }
+  private async startRuntime(runtime: GrokRuntime): Promise<boolean> {
+    return startGrokRuntime(runtime, this.runtimeStartContext());
   }
 
   private async enqueueOrRecover(
@@ -426,6 +341,7 @@ export class GrokBuildBridge {
     text: string,
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
+    forceQueue = true,
   ): Promise<void> {
     let runtime = this.runtimes.get(sessionId);
     if (!runtime) {
@@ -438,23 +354,75 @@ export class GrokBuildBridge {
       this.runtimes.set(sessionId, recovered);
       sessionManager.claimAsSdk(sessionId);
       try {
-        await this.startRuntime(recovered);
+        if (!(await this.startRuntime(recovered))) {
+          throw new Error(`Grok session ${sessionId} closed before recovery completed.`);
+        }
         persistGrokRuntimeMetadata(recovered);
       } catch (error) {
         await this.disposeRuntime(recovered);
         throw error;
       }
     }
-    await this.enqueue(runtime, text, attachments, options);
+    if (forceQueue) {
+      this.enqueue(runtime, text, attachments, options);
+    } else {
+      await this.turnQueue.send(runtime, text, attachments, options);
+    }
   }
 
-  private async enqueue(
+  private enqueue(
     runtime: GrokRuntime,
     text: string,
     attachments?: UploadedAttachmentRef[],
     options?: GrokEnqueueOptions,
-  ): Promise<void> {
+  ): void {
     this.turnQueue.enqueue(runtime, text, attachments, options);
+  }
+
+  private enqueueInitialTurn(
+    runtime: GrokRuntime,
+    opts: GrokCreateOpts,
+    trustedTurn?: TrustedContinuationInitialTurn,
+  ): void {
+    if (!trustedTurn && opts.prompt === undefined && !opts.attachments?.length) return;
+    this.enqueue(
+      runtime,
+      trustedTurn?.persistedUserText ?? opts.prompt ?? '',
+      opts.attachments,
+      {
+        handOff: opts.handOff,
+        ...(trustedTurn
+          ? {
+              providerText: trustedTurn.providerPrompt,
+              continuation: trustedTurn.metadata,
+            }
+          : {}),
+      },
+    );
+  }
+
+  private async startRuntimeInBackground(runtime: GrokRuntime): Promise<void> {
+    await startGrokRuntimeInBackground(
+      runtime,
+      this.runtimeStartContext(),
+      persistGrokRuntimeMetadata,
+    );
+  }
+
+  private runtimeStartContext(): GrokRuntimeStartContext {
+    return {
+      binaryPath: this.binaryPath,
+      runtimes: this.runtimes,
+      sessionSetup: this.options,
+      permissionController: this.permissionController,
+      emit: (event) => this.options.emit(event),
+      emitError: (sessionId, text) => this.emitError(sessionId, text),
+      isCurrentRuntime: (runtime) => this.isCurrentRuntime(runtime),
+      requireNativeSession: (runtime) => this.requireNativeSession(runtime),
+      onNegotiatedImageCapability: this.options.onNegotiatedImageCapability,
+      drain: (runtime) => this.turnQueue.drain(runtime),
+      dispose: (runtime) => this.disposeRuntime(runtime),
+    };
   }
 
   private emitError(sessionId: string, text: string): void {
@@ -474,18 +442,31 @@ export class GrokBuildBridge {
   }
 
   private async disposeRuntime(runtime: GrokRuntime): Promise<void> {
-    if (runtime.closed && !this.runtimes.has(runtime.applicationSessionId)) return;
+    if (runtime.disposed) return;
+    runtime.disposed = true;
     runtime.closed = true;
+    runtime.ready = false;
+    runtime.sealed = true;
+    clearGrokTurnLiveRate(runtime.translation);
     this.permissionController.cancel(runtime);
-    this.runtimes.delete(runtime.applicationSessionId);
-    mcpSessionTokenMap.release(runtime.applicationSessionId);
-    sessionManager.releaseSdkClaim(runtime.applicationSessionId);
-    if (runtime.process) await runtime.process.stop();
+    const ownsRuntime = this.isCurrentRuntime(runtime);
+    if (ownsRuntime) {
+      this.runtimes.delete(runtime.applicationSessionId);
+      mcpSessionTokenMap.release(runtime.applicationSessionId);
+      sessionManager.releaseSdkClaim(runtime.applicationSessionId);
+    }
+    const process = runtime.process;
+    runtime.process = null;
+    if (process) await process.stop();
+  }
+
+  private isCurrentRuntime(runtime: GrokRuntime): boolean {
+    return this.runtimes.get(runtime.applicationSessionId) === runtime;
   }
 
   private requireRuntime(sessionId: string): GrokRuntime {
     const runtime = this.runtimes.get(sessionId);
-    if (!runtime?.process || runtime.closed) {
+    if (!runtime?.process || !runtime.ready || runtime.closed) {
       throw new Error(`Grok session ${sessionId} is not active.`);
     }
     return runtime;

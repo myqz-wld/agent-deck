@@ -26,6 +26,7 @@ import type {
   ProviderUsageSnapshotResult,
   TokenRateRow,
   TokenDailyRow,
+  TokenUsageQueryOptions,
   UserAssetInput,
   UserAssetAdapter,
   UserAssetsSnapshot,
@@ -271,15 +272,15 @@ export const miscApi = {
     ipcRenderer.invoke(IpcInvoke.LogsTruncateToday),
 
   // ─── Token 使用统计 (plan model-token-stats-and-dashboard-20260602 §Phase 2 Q5) ───
-  /** 最近 60s 窗口各 model bucket output 总量（renderer 算 token/s = out ÷ 60）。 */
-  tokenUsageRates: (): Promise<TokenRateRow[]> =>
-    ipcRenderer.invoke(IpcInvoke.TokenUsageRates),
+  /** 最近 60s 窗口各 model bucket output 总量；数据页可按需包含 Grok 历史回填。 */
+  tokenUsageRates: (options?: TokenUsageQueryOptions): Promise<TokenRateRow[]> =>
+    ipcRenderer.invoke(IpcInvoke.TokenUsageRates, options),
   /** 今日各 model bucket output 总量降序（header Top3 + 数据页今日汇总）。 */
-  tokenUsageTopToday: (): Promise<TokenRateRow[]> =>
-    ipcRenderer.invoke(IpcInvoke.TokenUsageTopToday),
-  /** model bucket × 本地日期的 5 指标聚合（数据 tab 表格）。 */
-  tokenUsageDaily: (): Promise<TokenDailyRow[]> =>
-    ipcRenderer.invoke(IpcInvoke.TokenUsageDaily),
+  tokenUsageTopToday: (options?: TokenUsageQueryOptions): Promise<TokenRateRow[]> =>
+    ipcRenderer.invoke(IpcInvoke.TokenUsageTopToday, options),
+  /** model bucket × 本地日期的 5 指标聚合；数据页可按需包含 Grok 历史回填。 */
+  tokenUsageDaily: (options?: TokenUsageQueryOptions): Promise<TokenDailyRow[]> =>
+    ipcRenderer.invoke(IpcInvoke.TokenUsageDaily, options),
   /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   providerUsageSnapshot: (opts?: { force?: boolean }): Promise<ProviderUsageSnapshotResult> =>
     ipcRenderer.invoke(IpcInvoke.ProviderUsageSnapshot, opts),

@@ -165,6 +165,11 @@ export class GrokBuildAdapter implements AgentAdapter {
     await this.bridge.enqueueMessage(sessionId, text, attachments, options);
   }
 
+  async steerTurn(sessionId: string, text: string): Promise<void> {
+    if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
+    await this.bridge.steerTurn(sessionId, text);
+  }
+
   snapshotQueuedMessagesForHandOff(sessionId: string) {
     return this.bridge?.snapshotQueuedMessagesForHandOff(sessionId) ?? [];
   }

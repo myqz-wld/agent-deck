@@ -37,10 +37,14 @@ export interface GrokRuntime {
   nativeSessionId: string | null;
   cwd: string;
   process: GrokAcpProcess | null;
+  ready: boolean;
   queue: GrokPendingMessage[];
   running: boolean;
+  /** null = not probed, false = this Grok version only supports queued prompts. */
+  interjectionSupported: boolean | null;
   sealed: boolean;
   closed: boolean;
+  disposed: boolean;
   suppressUpdates: boolean;
   model: string | null;
   thinking: string | null;

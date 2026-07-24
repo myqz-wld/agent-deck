@@ -310,7 +310,8 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
 
   const isSdk = session.source === 'sdk';
   const turnBusy = session.activity === 'working';
-  const canSteerTurn = session.agentId === 'codex-cli';
+  const canSteerTurn = session.agentId === 'codex-cli' || session.agentId === 'grok-build';
+  const canSteerTurnAttachments = session.agentId === 'grok-build';
   const canPin =
     session.archivedAt === null &&
     (session.lifecycle === 'active' || session.lifecycle === 'dormant');
@@ -448,6 +449,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           onHandOff={() => setHandOffOpen(true)}
           turnBusy={turnBusy}
           canSteerTurn={canSteerTurn}
+          canSteerTurnAttachments={canSteerTurnAttachments}
         />
       ) : (
         <CliFooter />

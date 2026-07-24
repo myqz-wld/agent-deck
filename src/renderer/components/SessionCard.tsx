@@ -283,7 +283,9 @@ export function formatEventLine(e: AgentEvent): string | null {
     case 'tool-use-start': {
       const tool = textValue(p.toolName) || '工具';
       const detail = summariseToolInput(tool, p.toolInput);
-      return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
+      return detail
+        ? `${toolIcon(tool, p.toolKind)} ${tool} · ${detail}`
+        : `${toolIcon(tool, p.toolKind)} ${tool}`;
     }
     case 'file-changed': {
       const path = textValue(p.filePath);
@@ -338,6 +340,10 @@ function formatWaitingLine(p: Record<string, unknown>): string {
 function summariseToolInput(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null;
   const o = input as Record<string, unknown>;
+  const alias = toolName.trim().toLowerCase();
+  if (alias === 'read_file') return summariseToolInput('Read', input);
+  if (alias === 'run_terminal_command') return summariseToolInput('Bash', input);
+  if (alias === 'grep' || alias === 'search_tool') return summariseToolInput('Grep', input);
   switch (toolName) {
     case 'Edit':
     case 'Write':

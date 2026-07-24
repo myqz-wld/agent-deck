@@ -242,6 +242,35 @@ describe('ComposerSdk unified input routing', () => {
     expect(steerAdapterTurn).not.toHaveBeenCalled();
   });
 
+  it('uses Grok insertion copy while keeping negotiated image input available', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        ...(window.api as object),
+        listAdapters: vi.fn().mockResolvedValue([
+          {
+            id: 'grok-build',
+            displayName: 'Grok Build',
+            capabilities: { canAcceptAttachments: true },
+          },
+        ]),
+      },
+    });
+
+    render(
+      <ComposerSdk
+        session={makeSession({ agentId: 'grok-build', activity: 'working' })}
+        turnBusy
+        canSteerTurn
+        canSteerTurnAttachments
+      />,
+    );
+
+    expect(await screen.findByPlaceholderText(/插入当前 Grok turn/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '插入' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '上传图片' })).toBeTruthy();
+  });
+
   it('restores text into the same composer when busy Codex send fails', async () => {
     sendAdapterMessage.mockRejectedValueOnce(new Error('Codex 当前没有可 steer 的 active turn。'));
     render(<ComposerSdk session={makeSession({ activity: 'working' })} turnBusy canSteerTurn />);

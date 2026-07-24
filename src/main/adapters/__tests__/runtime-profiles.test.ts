@@ -29,6 +29,7 @@ describe('adapter runtime profiles', () => {
         canRespondPermission: true,
         canSetPermissionMode: false,
         canSetSessionMode: true,
+        canSteerTurn: true,
         canAcceptAttachments: false,
       },
       runtimeControls: {

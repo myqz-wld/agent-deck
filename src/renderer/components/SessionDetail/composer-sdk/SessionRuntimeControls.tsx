@@ -204,8 +204,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
           onThinkingChange={(next) => updateSelection({ thinking: next }, true)}
         />
         <p className="text-[9px] text-deck-muted/65">
-          当前回复不会中断；修改会自动保存并在下一轮生效。切换 Gateway/provider
-          会重新建立下一轮运行时，模型名称及思考档位由目标 provider 最终校验。
+          当前回复不会中断，修改会自动保存并在下一轮生效；模型和思考档位以模型提供商的校验为准。
         </p>
         <ErrorBanner message={error} prefix="运行时设置失败" onDismiss={() => setError(null)} />
       </div>

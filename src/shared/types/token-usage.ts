@@ -11,7 +11,8 @@
  */
 
 /**
- * `token-usage` 事件 payload。claude assistant message / codex turn.completed 采集后 emit。
+ * `token-usage` 事件 payload。Claude assistant message / Codex turn.completed / Grok
+ * `_x.ai/session/update` turn_completed 采集后 emit。
  * - messageId：claude assistant 用 BetaMessage.id；claude result correction 用 synthetic id；
  *   codex 无 → null
  * - model：原始 model id（claude BetaMessage.model / result.modelUsage key / codex 取 sessions.model）；
@@ -27,6 +28,11 @@ export interface TokenUsagePayload {
   reasoningTokens?: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+}
+
+/** Token 查询选项；历史 Grok 回填只由数据页按需开启，避免拖慢应用启动。 */
+export interface TokenUsageQueryOptions {
+  includeGrokHistory?: boolean;
 }
 
 /**

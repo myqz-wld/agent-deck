@@ -18,7 +18,16 @@ const TOKEN_USAGE_REFETCH_DEBOUNCE_MS = 500;
  * 多处挂载安全：zustand store 单例，多个组件同时用本 hook 各自起 interval 各自 setRates，
  * 最后写入覆盖（值相同，无害）；正常只 header + 数据页两处，且数据页打开时 header 在 detail 下不显示。
  */
-export function useTokenRatesPoll(intervalMs = 2500): void {
+export function useTokenRatesPoll(
+  includeGrokHistoryOrInterval: boolean | number = false,
+  intervalMs = 2500,
+): void {
+  const includeGrokHistory =
+    typeof includeGrokHistoryOrInterval === 'boolean' ? includeGrokHistoryOrInterval : false;
+  const pollIntervalMs =
+    typeof includeGrokHistoryOrInterval === 'number'
+      ? includeGrokHistoryOrInterval
+      : intervalMs;
   const setRates = useTokenUsageStore((s) => s.setRates);
   const setTopToday = useTokenUsageStore((s) => s.setTopToday);
   const applyLiveTick = useTokenUsageStore((s) => s.applyLiveTick);
@@ -29,13 +38,14 @@ export function useTokenRatesPoll(intervalMs = 2500): void {
     let refetchTimer: ReturnType<typeof setTimeout> | null = null;
     const pull = (): void => {
       const seq = ++requestSeq;
-      void Promise.all([window.api.tokenUsageRates(), window.api.tokenUsageTopToday()]).then(
-        ([rateRows, topRows]) => {
-          if (cancelled || seq !== requestSeq) return;
-          setRates(rateRows);
-          setTopToday(topRows);
-        },
-      );
+      void Promise.all([
+        window.api.tokenUsageRates({ includeGrokHistory }),
+        window.api.tokenUsageTopToday({ includeGrokHistory }),
+      ]).then(([rateRows, topRows]) => {
+        if (cancelled || seq !== requestSeq) return;
+        setRates(rateRows);
+        setTopToday(topRows);
+      });
     };
     const schedulePull = (): void => {
       if (refetchTimer) clearTimeout(refetchTimer);
@@ -43,7 +53,7 @@ export function useTokenRatesPoll(intervalMs = 2500): void {
     };
 
     pull(); // 立即拉一次，不等第一个 interval
-    const timer = setInterval(pull, intervalMs);
+    const timer = setInterval(pull, pollIntervalMs);
     const offTick = window.api.onTokenRateTick(applyLiveTick);
     const offUsage = window.api.onTokenUsageChanged(schedulePull);
     return () => {
@@ -53,5 +63,5 @@ export function useTokenRatesPoll(intervalMs = 2500): void {
       offTick();
       offUsage();
     };
-  }, [applyLiveTick, intervalMs, setRates, setTopToday]);
+  }, [applyLiveTick, includeGrokHistory, pollIntervalMs, setRates, setTopToday]);
 }
