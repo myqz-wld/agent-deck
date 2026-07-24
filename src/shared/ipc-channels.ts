@@ -116,7 +116,7 @@ export const IpcInvoke = {
   TokenUsageRates: 'token-usage:rates',
   /** 今日各 model bucket output 总量降序（Top3 header + 数据页今日汇总）。 */
   TokenUsageTopToday: 'token-usage:top-today',
-  /** model bucket × 本地日期的 5 指标聚合（数据 tab 表格）。 */
+  /** model bucket × 本地日期的统一 token 账本（数据 tab 表格）。 */
   TokenUsageDaily: 'token-usage:daily',
   /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   ProviderUsageSnapshot: 'provider-usage:snapshot',

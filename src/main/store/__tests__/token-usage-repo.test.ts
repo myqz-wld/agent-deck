@@ -167,8 +167,38 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 查询', () => {
     const gpt = rows.find((r) => r.bucketKey === 'gpt-5.5');
     expect(gpt?.day).toBe('2026-06-01');
     expect(gpt?.inputTokens).toBe(17); // 10 + 7
+    expect(gpt?.inputTotalTokens).toBe(47); // Claude 口径：input + 缓存读 + 缓存写
     expect(gpt?.outputTokens).toBe(8); // 5 + 3
     expect(gpt?.reasoningTokens).toBe(6); // 2 + 4
+  });
+
+  it('dailyByModel：按 adapter 统一输入总量，避免重复计算缓存读写', () => {
+    const localNoon = new Date(2026, 5, 2, 12, 0, 0).getTime();
+    repo.insert(
+      claudeUsage({
+        messageId: 'claude-total',
+        model: 'claude-opus-4-8',
+        inputTokens: 10,
+        cacheReadTokens: 30,
+        cacheCreationTokens: 40,
+        ts: localNoon,
+      }),
+    );
+    repo.insert(
+      claudeUsage({
+        messageId: 'codex-total',
+        agentId: 'codex-cli',
+        model: 'gpt-5.5',
+        inputTokens: 80,
+        cacheReadTokens: 30,
+        cacheCreationTokens: 0,
+        ts: localNoon,
+      }),
+    );
+
+    const rows = repo.dailyByModel();
+    expect(rows.find((row) => row.bucketKey === 'opus-4.8')?.inputTotalTokens).toBe(80);
+    expect(rows.find((row) => row.bucketKey === 'gpt-5.5')?.inputTotalTokens).toBe(80);
   });
 });
 

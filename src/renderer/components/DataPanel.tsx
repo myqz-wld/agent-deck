@@ -15,8 +15,8 @@ const logger = log.scope('renderer-data-panel');
  *
  * 需求2 + 追加：
  * - **顶部实时区**：全部 model bucket 的当前 token/s（生成中 fresh live 估算优先，其次 60s 窗口）。
- * - **今日汇总行**：今日各指标合计。
- * - **主体表格**：行 = model bucket（友好名）× 日期，列 = input/output/reasoning/cacheRead/cacheCreation（无费用）。
+ * - **今日账本**：输入/输出总量 + 已包含的缓存/推理分项。
+ * - **主体表格**：行 = model bucket（友好名）× 日期，列 = 输入/输出总量及其分项（无费用）。
  *
  * **刷新**：rates/live 走 useTokenRatesPoll；daily 走 onTokenUsageChanged debounce refetch + mount 拉一次
  * （组件自订阅模式，与 IssuesPanel 同款，use-event-bridge 不动）。
@@ -24,9 +24,9 @@ const logger = log.scope('renderer-data-panel');
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
 
-/** 大数字千分位；0 显示 '·' 弱化（避免满屏 0 干扰）。 */
+/** 大数字千分位；零值也保留，避免把“没有独立字段”和“没有数据”混在一起。 */
 function fmt(n: number): string {
-  return n > 0 ? n.toLocaleString() : '·';
+  return Math.max(0, n).toLocaleString();
 }
 
 export function DataPanel(): JSX.Element {
@@ -203,70 +203,91 @@ export function DataPanel(): JSX.Element {
         )}
       </section>
 
-      {/* 今日汇总行 */}
-      <section className="mb-3">
-        <div className="mb-1 font-medium text-deck-text">今日汇总（{todayStr}）</div>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums text-deck-muted">
-          <span>输入 <span className="text-deck-text">{fmt(todayTotals.input)}</span></span>
-          <span>输出 <span className="text-deck-text">{fmt(todayTotals.output)}</span></span>
-          <span>推理 <span className="text-deck-text">{fmt(todayTotals.reasoning)}</span></span>
-          <span>缓存读 <span className="text-deck-text">{fmt(todayTotals.cacheRead)}</span></span>
-          <span>缓存写 <span className="text-deck-text">{fmt(todayTotals.cacheCreation)}</span></span>
+      {/* 今日 token 账本：总量和分项分层展示，避免把包含关系藏在长文案里 */}
+      <section className="mb-3 rounded border border-white/[0.06] bg-white/[0.025] p-2">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-deck-text">今日 Token</span>
+          <span className="text-[10px] tabular-nums text-deck-muted/70">{todayStr}</span>
+          <span className="ml-auto text-[10px] text-deck-muted/60">总量 / 分项</span>
         </div>
-        <div className="mt-2 border-t border-white/[0.06] pt-2">
-          <div className="mb-1 font-medium text-deck-text">Token 口径</div>
-          <div className="grid gap-1.5 text-[10px] leading-4 text-deck-muted md:grid-cols-2">
-            <p className="md:col-span-2">
-              这些列有的互相包含，按下面关系读，避免重复相加。
-            </p>
-            <p>
-              <span className="text-deck-text/85">Claude Code：</span>
-              总输入 = 输入 + 缓存读 + 缓存写；如果有推理值，它已经包含在输出里。
-            </p>
-            <p>
-              <span className="text-deck-text/85">Codex：</span>
-              输入已经包含缓存读，缓存读只是拆分项，不要再加一次；推理也已经包含在输出里。
-            </p>
-            <p>
-              <span className="text-deck-text/85">Grok Build：</span>
-              输入已经包含缓存读，缓存读只是拆分项，不要再加一次；推理也已经包含在输出里；缓存写没有独立字段，因此显示为 0。
-            </p>
-          </div>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <TokenTotalCard
+            label="输入总量"
+            value={todayTotals.inputTotal}
+            details={[
+              ['缓存读', todayTotals.cacheRead],
+              ['缓存写', todayTotals.cacheCreation],
+            ]}
+          />
+          <TokenTotalCard
+            label="输出总量"
+            value={todayTotals.output}
+            valueClassName="text-status-working"
+            details={[['推理', todayTotals.reasoning]]}
+          />
+        </div>
+        <div className="mt-2 rounded bg-white/[0.03] px-2 py-1.5 text-[10px] leading-4 text-deck-muted">
+          <span className="text-deck-text/85">统计规则：</span>
+          输入总量已包含缓存读/写，输出总量已包含推理；标记为“其中”的分项不要再次相加。
+          provider 没有单独提供的分项按 0 展示。
         </div>
       </section>
 
-      {/* 主体表格：模型 × 日期 × 5 指标 */}
+      {/* 主体表格：模型 × 日期 × 总量 / 分项 */}
       <section>
-        <div className="mb-1 font-medium text-deck-text">每模型每天明细</div>
+        <div className="mb-1 flex items-baseline gap-2">
+          <span className="font-medium text-deck-text">每模型每天明细</span>
+          <span className="text-[10px] text-deck-muted/60">“其中”已计入左侧总量</span>
+        </div>
         {daily.length > 0 ? (
-          <div className="overflow-x-auto scrollbar-deck">
-            <table className="min-w-[640px] w-full border-collapse text-[10px]">
+          <div className="overflow-x-auto rounded border border-white/[0.06] scrollbar-deck">
+            <table className="min-w-[720px] w-full border-collapse text-[10px]">
               <thead>
-                <tr className="border-b border-white/10 text-left text-deck-muted">
-                  <th className="py-1 pr-2 font-medium">日期</th>
-                  <th className="py-1 pr-2 font-medium">模型</th>
-                  <th className="py-1 pr-2 text-right font-medium">输入</th>
-                  <th className="py-1 pr-2 text-right font-medium">输出</th>
-                  <th className="py-1 pr-2 text-right font-medium">推理</th>
-                  <th className="py-1 pr-2 text-right font-medium">缓存读</th>
-                  <th className="py-1 text-right font-medium">缓存写</th>
+                <tr className="border-b border-white/[0.08] text-center text-deck-muted">
+                  <th rowSpan={2} className="py-1.5 pl-2 pr-2 text-left font-medium">
+                    日期
+                  </th>
+                  <th rowSpan={2} className="py-1.5 pr-2 text-left font-medium">
+                    模型
+                  </th>
+                  <th colSpan={3} className="border-l border-white/[0.06] py-1.5 font-medium">
+                    输入总量
+                  </th>
+                  <th colSpan={2} className="border-l border-white/[0.06] py-1.5 font-medium">
+                    输出总量
+                  </th>
+                </tr>
+                <tr className="border-b border-white/10 text-right text-deck-muted">
+                  <th className="border-l border-white/[0.06] px-2 py-1 font-medium">总量</th>
+                  <th className="px-2 py-1 font-medium">其中缓存读</th>
+                  <th className="px-2 py-1 font-medium">其中缓存写</th>
+                  <th className="border-l border-white/[0.06] px-2 py-1 font-medium">总量</th>
+                  <th className="py-1 pl-2 pr-2 font-medium">其中推理</th>
                 </tr>
               </thead>
               <tbody>
                 {daily.map((row) => (
                   <tr
                     key={`${row.day}::${row.bucketKey}`}
-                    className="border-b border-white/[0.04] text-deck-text/90"
+                    className="border-b border-white/[0.04] text-deck-text/90 odd:bg-white/[0.012]"
                   >
-                    <td className="py-1 pr-2 tabular-nums text-deck-muted">{row.day}</td>
-                    <td className="py-1 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.inputTokens)}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums text-status-working">
+                    <td className="py-1.5 pl-2 pr-2 tabular-nums text-deck-muted">{row.day}</td>
+                    <td className="py-1.5 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
+                    <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums">
+                      {fmt(rowInputTotal(row))}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-deck-muted">
+                      {fmt(row.cacheReadTokens)}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-deck-muted">
+                      {fmt(row.cacheCreationTokens)}
+                    </td>
+                    <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums text-status-working">
                       {fmt(row.outputTokens)}
                     </td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.reasoningTokens)}</td>
-                    <td className="py-1 pr-2 text-right tabular-nums">{fmt(row.cacheReadTokens)}</td>
-                    <td className="py-1 text-right tabular-nums">{fmt(row.cacheCreationTokens)}</td>
+                    <td className="py-1.5 pl-2 pr-2 text-right tabular-nums text-deck-muted">
+                      {fmt(row.reasoningTokens)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -330,8 +351,40 @@ function ProviderUsageWindowRow({ window }: { window: ProviderUsageWindow }): JS
   );
 }
 
+function TokenTotalCard({
+  label,
+  value,
+  valueClassName = 'text-deck-text',
+  details,
+}: {
+  label: string;
+  value: number;
+  valueClassName?: string;
+  details: Array<[string, number]>;
+}): JSX.Element {
+  return (
+    <div className="rounded bg-white/[0.04] px-2 py-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-deck-muted">{label}</span>
+        <span className={`text-sm font-medium tabular-nums ${valueClassName}`}>{fmt(value)}</span>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-deck-muted/70">
+        {details.map(([detailLabel, detailValue]) => (
+          <span key={detailLabel}>
+            {detailLabel} <span className="text-deck-text/75">{fmt(detailValue)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function rowInputTotal(row: TokenDailyRow): number {
+  return row.inputTotalTokens ?? row.inputTokens;
+}
+
 function sumRows(rows: TokenDailyRow[]): {
-  input: number;
+  inputTotal: number;
   output: number;
   reasoning: number;
   cacheRead: number;
@@ -339,13 +392,13 @@ function sumRows(rows: TokenDailyRow[]): {
 } {
   return rows.reduce(
     (acc, r) => ({
-      input: acc.input + r.inputTokens,
+      inputTotal: acc.inputTotal + rowInputTotal(r),
       output: acc.output + r.outputTokens,
       reasoning: acc.reasoning + r.reasoningTokens,
       cacheRead: acc.cacheRead + r.cacheReadTokens,
       cacheCreation: acc.cacheCreation + r.cacheCreationTokens,
     }),
-    { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheCreation: 0 },
+    { inputTotal: 0, output: 0, reasoning: 0, cacheRead: 0, cacheCreation: 0 },
   );
 }
 
