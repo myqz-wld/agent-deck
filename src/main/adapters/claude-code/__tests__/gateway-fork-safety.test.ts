@@ -22,7 +22,6 @@ describe('Claude Gateway native fork transcript-root preflight', () => {
     root = mkdtempSync(join(tmpdir(), 'agent-deck-gateway-fork-'));
     paths = {
       gatewaysDir: join(root, '.claude', 'gateways'),
-      legacyDeepseekSettingsPath: join(root, 'legacy', 'deepseek.json'),
     };
     mainClaudeRoot = join(root, 'main-claude');
     mkdirSync(mainClaudeRoot, { recursive: true });

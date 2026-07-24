@@ -72,9 +72,6 @@ vi.mock('../../adapters/registry', () => ({
   },
 }));
 vi.mock('../../adapters/claude-code', () => ({ claudeCodeAdapter: {} }));
-vi.mock('../../adapters/claude-code/gateway-profiles', () => ({
-  initializeBuiltInClaudeGatewayProfiles: vi.fn(),
-}));
 vi.mock('../../adapters/codex-cli', () => ({ codexCliAdapter: {} }));
 vi.mock('../../adapters/claude-code/settings-env', () => ({ applyClaudeSettingsEnv: vi.fn() }));
 vi.mock('../../session/manager', () => ({
