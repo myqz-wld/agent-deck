@@ -7,10 +7,16 @@ export const CODEX_THINKING_LEVELS = [
   'max',
   'ultra',
 ] as const;
+export const GROK_THINKING_LEVELS = ['low', 'medium', 'high'] as const;
 export const SESSION_THINKING_LEVELS = CODEX_THINKING_LEVELS;
 
 export type ClaudeThinkingLevel = (typeof CLAUDE_THINKING_LEVELS)[number];
 export type CodexThinkingLevel = (typeof CODEX_THINKING_LEVELS)[number];
+export type GrokThinkingLevel = (typeof GROK_THINKING_LEVELS)[number];
+
+export function isGrokThinkingLevel(value: unknown): value is GrokThinkingLevel {
+  return GROK_THINKING_LEVELS.includes(value as GrokThinkingLevel);
+}
 /** Retained only to read pre-removal persisted settings and session metadata. */
 export type LegacySessionThinkingLevel = 'minimal';
 export type SessionThinkingLevel =

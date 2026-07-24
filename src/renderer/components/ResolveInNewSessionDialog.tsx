@@ -10,7 +10,7 @@
  */
 
 import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
-import type { IssueRecord } from '@shared/types';
+import type { AdapterSessionMode, IssueRecord } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { CloseIcon, HandOffIcon } from './icons';
 import {
@@ -31,6 +31,7 @@ import {
   type ClaudeSandboxChoice,
   type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
+import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 
 interface Props {
   issue: IssueRecord;
@@ -41,7 +42,12 @@ interface Props {
 interface AdapterInfo {
   id: string;
   displayName: string;
-  capabilities: { canCreateSession?: boolean; canSetPermissionMode?: boolean };
+  capabilities: {
+    canCreateSession?: boolean;
+    canSetPermissionMode?: boolean;
+    canSetSessionMode?: boolean;
+  };
+  sessionModes: AdapterSessionMode[];
 }
 
 function buildDefaultPrompt(issue: IssueRecord): string {
@@ -98,6 +104,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   // 替代 useMemo（去掉每次 issue 变重算但不被用的死计算）。
   const [prompt, setPrompt] = useState(() => buildDefaultPrompt(issue));
   const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
+  const [sessionMode, setSessionMode] = useState<AdapterSessionMode>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
   const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
@@ -142,6 +149,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   useEffect(() => {
     const d = getLastDefaults(adapter);
     if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
+    if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
     setModel(d.model ?? '');
@@ -151,6 +159,9 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   // 与 NewSessionDialog 同款按 adapter capability 决定字段可见性
   const selectedAdapter = adapters.find((a) => a.id === adapter);
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
+  const showSessionMode =
+    selectedAdapter?.capabilities.canSetSessionMode === true &&
+    selectedAdapter.sessionModes.length > 0;
   const showCodexSandbox = adapter === 'codex-cli';
   const showClaudeCodeSandbox = adapter === 'claude-code' || adapter === 'deepseek-claude-code';
 
@@ -176,6 +187,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         // plan pending-tab-resume-and-new-session-default-20260602 §D2：'default' = 跟随默认，
         // 不作为 per-session 覆盖传给主进程（主进程收到 'default' 也等价不传，与历史契约一致）。
         ...(showPermissionMode && permissionMode !== 'default' ? { permissionMode } : {}),
+        ...(showSessionMode ? { sessionMode } : {}),
         ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
         ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
         ...(model.trim() ? { model: model.trim() } : {}),
@@ -271,6 +283,20 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
                 }}
                 disabled={busy}
                 options={PERMISSION_OPTIONS}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+              />
+            </DialogField>
+          )}
+          {showSessionMode && (
+            <DialogField label="工作模式（沿用上次选择）">
+              <DeckSelect
+                value={sessionMode}
+                onChange={(v) => {
+                  setSessionMode(v);
+                  setLastDefaults(adapter, { sessionMode: v });
+                }}
+                disabled={busy}
+                options={adapterSessionModeOptions(selectedAdapter.sessionModes)}
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
               />
             </DialogField>

@@ -6,7 +6,7 @@
  * plan sqlite-tests-no-skip-20260601 D3：import + re-export 让 cwd-release-marker.test 的
  * `import { bindingAvailable } from './_setup'` 0 改动可用）。
  *
- * Migration 范围 v001-v044（latest schema fixture）：
+ * Migration 范围 v001-v045（latest schema fixture）：
  * 原只载到 v020，但 session-repo 的 core-crud.upsert 写 cli_session_id（v021）、rename.ts 迁
  * tasks.owner_session_id（v023）/ issues.*（v026）→ 补齐到 v026；upsert / rename 又新增
  * network_access_enabled + additional_directories（v029）→ 再补 v027-v029 否则撞 `no such column`。
@@ -63,13 +63,14 @@ import v041 from '../../migrations/v041_storage_maintenance_staging.sql?raw';
 import v042 from '../../migrations/v042_session_handoff_aliases.sql?raw';
 import v043 from '../../migrations/v043_history_search_case_insensitive.sql?raw';
 import v044 from '../../migrations/v044_sessions_hidden_from_history.sql?raw';
+import v045 from '../../migrations/v045_sessions_adapter_mode.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让 cwd-release-marker.test 的 `import { bindingAvailable } from './_setup'` 0 改动可用。
 export { bindingAvailable } from '../../__tests__/_binding-probe';
 
 /**
- * In-memory SQLite + 跑 v001-v044 全部 migration 后返回 db 实例。
+ * In-memory SQLite + 跑 v001-v045 全部 migration 后返回 db 实例。
  * 调用方负责 db.close()(beforeEach/afterEach pattern)。
  */
 export function makeMemoryDb(): Database.Database {
@@ -81,6 +82,7 @@ export function makeMemoryDb(): Database.Database {
     v011, v012, v013, v014, v015, v016, v017, v018, v019, v020,
     v021, v022, v023, v024, v025, v026, v027, v028, v029, v030,
     v031, v032, v033, v034, v035, v036, v037, v038, v039, v040, v041, v042, v043, v044,
+    v045,
   ]) {
     db.exec(sql);
   }

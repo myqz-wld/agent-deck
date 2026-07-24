@@ -81,3 +81,33 @@ describe('buildSpawnTargetOptions internal Codex access', () => {
     expect('additionalDirectories' in options).toBe(false);
   });
 });
+
+describe('buildSpawnTargetOptions Grok work mode', () => {
+  it('passes the effective adapter-native mode without a Claude permission mode', () => {
+    const target = buildSpawnTargetOptions({
+      args: {
+        adapter: 'grok-build',
+        cwd: '/repo',
+        prompt: 'Plan this change',
+        sessionMode: 'plan',
+      },
+      prompt: 'Plan this change',
+      effectivePermissionMode: undefined,
+      effectiveSessionMode: 'plan',
+      effectiveCodexSandbox: undefined,
+      effectiveClaudeCodeSandbox: undefined,
+      effectiveExtraAllowWrite: undefined,
+      modelOptions: {},
+      developerInstructions: undefined,
+      codexConfigOverrides: undefined,
+      claudeAgentName: undefined,
+      claudeAgents: undefined,
+    });
+
+    expect(target).toMatchObject({
+      agentId: 'grok-build',
+      sessionMode: 'plan',
+    });
+    expect(target).not.toHaveProperty('permissionMode');
+  });
+});

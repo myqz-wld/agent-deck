@@ -18,6 +18,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
   ProviderUsageSnapshot,
+  AdapterSessionMode,
   UploadedAttachmentRef,
 } from '@shared/types';
 
@@ -131,6 +132,7 @@ export interface AgentAdapter {
     response: ExitPlanModeResponse,
   ): Promise<void>;
   setPermissionMode?(sessionId: string, mode: PermissionMode): Promise<void>;
+  setSessionMode?(sessionId: string, mode: AdapterSessionMode): Promise<void>;
   /** Persist and apply the model / thinking selection to subsequent turns of an SDK session. */
   setSessionModelOptions?(
     sessionId: string,
@@ -190,6 +192,8 @@ export interface AgentAdapter {
   setPermissionTimeoutMs?(ms: number): void;
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath?(path: string | null): void;
+  /** Grok Build ACP binary override; null resolves `grok` from the user shell PATH. */
+  setGrokCliPath?(path: string | null): void;
 
   /** 数据 tab 读取 provider 订阅/限额窗口用量。未实现表示该 adapter 暂无可读来源。 */
   getUsageSnapshot?(): Promise<ProviderUsageSnapshot>;

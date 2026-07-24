@@ -3,7 +3,12 @@ import { resolveCreateSessionModelOptions } from '@main/adapters/session-model-o
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { settingsStore } from '@main/store/settings-store';
 import { omitUndefined } from '@main/utils/optional-fields';
-import type { PermissionMode, SessionAdapterId, SessionRecord } from '@shared/types';
+import type {
+  AdapterSessionMode,
+  PermissionMode,
+  SessionAdapterId,
+  SessionRecord,
+} from '@shared/types';
 import type { ResolvedSuccessorSpec } from '../continuation-context/types';
 import { resolveContinuationTargetSnapshot } from '../continuation-context/resolver';
 
@@ -13,6 +18,7 @@ export interface HandOffTargetRequest {
   model?: unknown;
   thinking?: unknown;
   permissionMode?: PermissionMode;
+  sessionMode?: AdapterSessionMode | null;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   extraAllowWrite?: readonly string[];
@@ -36,7 +42,9 @@ export class HandOffTargetOptionsError extends Error {
 }
 
 function defaultPermissionMode(adapter: SessionAdapterId): PermissionMode | undefined {
-  return adapter === 'codex-cli' ? undefined : 'bypassPermissions';
+  return adapter === 'claude-code' || adapter === 'deepseek-claude-code'
+    ? 'bypassPermissions'
+    : undefined;
 }
 
 export function resolveHandOffTarget(input: {
@@ -65,7 +73,56 @@ export function resolveHandOffTarget(input: {
         'codex-cli does not enforce extraAllowWrite; use additionalDirectories or omit it',
       );
     }
+    if (request.sessionMode != null) {
+      throw new HandOffTargetOptionsError(
+        'sessionMode',
+        'sessionMode is compatible only with grok-build',
+      );
+    }
+  } else if (request.adapter === 'grok-build') {
+    if (request.permissionMode !== undefined) {
+      throw new HandOffTargetOptionsError(
+        'permissionMode',
+        'permissionMode is supported only by Claude-family targets; Grok ACP session modes are a separate capability',
+      );
+    }
+    if (request.codexSandbox !== undefined) {
+      throw new HandOffTargetOptionsError(
+        'codexSandbox',
+        'codexSandbox is incompatible with grok-build',
+      );
+    }
+    if (request.claudeCodeSandbox !== undefined) {
+      throw new HandOffTargetOptionsError(
+        'claudeCodeSandbox',
+        'claudeCodeSandbox is incompatible with grok-build',
+      );
+    }
+    if (request.extraAllowWrite?.length) {
+      throw new HandOffTargetOptionsError(
+        'extraAllowWrite',
+        'grok-build uses Grok native tool permissions and does not accept extraAllowWrite',
+      );
+    }
+    if (request.networkAccessEnabled !== undefined) {
+      throw new HandOffTargetOptionsError(
+        'networkAccessEnabled',
+        'networkAccessEnabled is compatible only with codex-cli',
+      );
+    }
+    if (request.additionalDirectories?.length) {
+      throw new HandOffTargetOptionsError(
+        'additionalDirectories',
+        'additionalDirectories is compatible only with codex-cli',
+      );
+    }
   } else {
+    if (request.sessionMode != null) {
+      throw new HandOffTargetOptionsError(
+        'sessionMode',
+        'sessionMode is compatible only with grok-build',
+      );
+    }
     if (request.codexSandbox !== undefined) {
       throw new HandOffTargetOptionsError(
         'codexSandbox',
@@ -100,10 +157,15 @@ export function resolveHandOffTarget(input: {
   const permissionMode =
     request.permissionMode ??
     (sameAdapter
-      ? request.adapter === 'codex-cli'
-        ? undefined
-        : source.permissionMode ?? 'default'
+      ? request.adapter === 'claude-code' || request.adapter === 'deepseek-claude-code'
+        ? source.permissionMode ?? 'default'
+        : undefined
       : defaultPermissionMode(request.adapter));
+  const sessionMode =
+    request.adapter === 'grok-build'
+      ? request.sessionMode ??
+        (sameAdapter ? source.sessionMode ?? undefined : undefined)
+      : undefined;
   const codexSandbox =
     request.adapter === 'codex-cli'
       ? request.codexSandbox ??
@@ -111,25 +173,31 @@ export function resolveHandOffTarget(input: {
         settingsStore.get('codexSandbox')
       : undefined;
   const claudeCodeSandbox =
-    request.adapter === 'codex-cli'
-      ? undefined
-      : request.claudeCodeSandbox ??
+    request.adapter === 'claude-code' || request.adapter === 'deepseek-claude-code'
+      ? request.claudeCodeSandbox ??
         (sameAdapter ? source.claudeCodeSandbox ?? undefined : undefined) ??
-        settingsStore.get('claudeCodeSandbox');
+        settingsStore.get('claudeCodeSandbox')
+      : undefined;
   const extraAllowWrite =
-    request.extraAllowWrite !== undefined
+    request.adapter === 'grok-build'
+      ? []
+      : request.extraAllowWrite !== undefined
       ? [...request.extraAllowWrite]
       : sameAdapter
         ? [...(source.extraAllowWrite ?? [])]
         : [];
   const networkAccessEnabled =
-    request.networkAccessEnabled !== undefined
+    request.adapter === 'grok-build'
+      ? null
+      : request.networkAccessEnabled !== undefined
       ? request.networkAccessEnabled
       : sameAdapter
         ? source.networkAccessEnabled ?? null
         : null;
   const additionalDirectories =
-    request.additionalDirectories !== undefined
+    request.adapter === 'grok-build'
+      ? []
+      : request.additionalDirectories !== undefined
       ? [...request.additionalDirectories]
       : sameAdapter
         ? [...(source.additionalDirectories ?? [])]
@@ -139,6 +207,7 @@ export function resolveHandOffTarget(input: {
     ...modelOptions,
     ...omitUndefined({
       permissionMode,
+      sessionMode,
       codexSandbox,
       claudeCodeSandbox,
       networkAccessEnabled:
@@ -165,9 +234,14 @@ export function resolveHandOffTarget(input: {
   }
   const model = modelOptions.model ?? null;
   const thinking =
-    modelOptions.modelReasoningEffort ?? modelOptions.claudeCodeEffortLevel ?? null;
+    modelOptions.modelReasoningEffort ??
+    modelOptions.claudeCodeEffortLevel ??
+    modelOptions.reasoningEffort ??
+    null;
   const sandbox =
-    request.adapter === 'codex-cli'
+    request.adapter === 'grok-build'
+      ? { kind: 'grok' }
+      : request.adapter === 'codex-cli'
       ? {
           kind: 'codex',
           mode: codexSandbox ?? null,
@@ -181,6 +255,7 @@ export function resolveHandOffTarget(input: {
     model,
     thinking,
     permissionMode: permissionMode ?? null,
+    sessionMode: sessionMode ?? null,
     sandbox,
     networkAccessEnabled,
     additionalDirectories,

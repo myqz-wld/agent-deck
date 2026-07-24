@@ -4,6 +4,7 @@ import { settingsStore } from '@main/store/settings-store';
 import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
+  isGrokThinkingLevel,
   type SessionThinkingLevel,
 } from '@shared/session-metadata';
 import {
@@ -12,6 +13,7 @@ import {
   MAX_CONTINUATION_RAW_RETENTION_TOKENS,
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type PermissionMode,
+  type AdapterSessionMode,
   type SessionAdapterId,
 } from '@shared/types';
 import { contextCapacityResolver } from './context-capacity-resolver';
@@ -22,7 +24,12 @@ export function continuationFingerprint(value: unknown): string {
 }
 
 export function assertSessionAdapterId(value: string): SessionAdapterId {
-  if (value === 'claude-code' || value === 'deepseek-claude-code' || value === 'codex-cli') {
+  if (
+    value === 'claude-code' ||
+    value === 'deepseek-claude-code' ||
+    value === 'codex-cli' ||
+    value === 'grok-build'
+  ) {
     return value;
   }
   throw new Error(`Unsupported continuation adapter: ${value}`);
@@ -98,6 +105,7 @@ function targetThinking(
   value: string | null | undefined,
 ): SessionThinkingLevel | null {
   if (adapter === 'codex-cli') return isCodexThinkingLevel(value) ? value : null;
+  if (adapter === 'grok-build') return isGrokThinkingLevel(value) ? value : null;
   return isClaudeThinkingLevel(value) ? value : null;
 }
 
@@ -107,6 +115,7 @@ export interface ResolveContinuationTargetInput {
   model: string | null;
   thinking: string | null;
   permissionMode: PermissionMode | null;
+  sessionMode?: AdapterSessionMode | null;
   sandbox: unknown;
   networkAccessEnabled: boolean | null;
   additionalDirectories: readonly string[];
@@ -136,6 +145,7 @@ export function resolveContinuationTargetSnapshot(
     model: input.model,
     thinking,
     permissionMode: input.permissionMode,
+    sessionMode: input.sessionMode ?? null,
     sandbox: input.sandbox,
     networkAccessEnabled: input.networkAccessEnabled,
     additionalDirectories,
@@ -148,6 +158,7 @@ export function resolveContinuationTargetSnapshot(
     thinking,
     sandbox: input.sandbox,
     permissionMode: input.permissionMode,
+    sessionMode: input.sessionMode ?? null,
     networkAccessEnabled: input.networkAccessEnabled,
     additionalDirectories,
     contextWindowTokens: capacity.contextWindowTokens,

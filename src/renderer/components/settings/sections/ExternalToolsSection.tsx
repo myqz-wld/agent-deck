@@ -22,6 +22,12 @@ export function ExternalToolsSection({ settings, update }: Props): JSX.Element {
         path={settings.claudeCliPath}
         onChange={(p) => void update({ claudeCliPath: p })}
       />
+      <ExecutablePicker
+        label="Grok Build 二进制路径"
+        hint="留空会从用户 shell PATH 查找 grok。Agent Deck 不内置 Grok，也不修改其登录和配置。"
+        path={settings.grokCliPath}
+        onChange={(p) => void update({ grokCliPath: p })}
+      />
     </Section>
   );
 }

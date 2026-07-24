@@ -19,6 +19,7 @@
 
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import type { SessionAdapterId } from '@shared/types';
 import { buildAgentDeckTools } from './tools';
 
 /**
@@ -40,11 +41,13 @@ import { buildAgentDeckTools } from './tools';
  */
 export async function getAgentDeckMcpServerForSession(
   callerSessionIdProvider: () => string | null,
+  adapterId: SessionAdapterId,
 ): Promise<McpSdkServerConfigWithInstance> {
   const { createSdkMcpServer } = await loadSdk();
   const tools = await buildAgentDeckTools({
     callerSessionIdOverride: callerSessionIdProvider,
     transport: 'in-process',
+    adapterId,
   });
   return createSdkMcpServer({
     name: 'agent-deck',

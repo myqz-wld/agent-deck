@@ -6,6 +6,10 @@ import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { adapterRegistry } from '@main/adapters/registry';
 import { buildCreateSessionOptions, isAgentId } from '@main/adapters/options-builder';
 import {
+  getAdapterRuntimeProfile,
+  isSessionAdapterId,
+} from '@main/adapters/runtime-profiles';
+import {
   resolveCreateSessionModelOptions,
   SessionModelOptionsError,
 } from '@main/adapters/session-model-options';
@@ -19,6 +23,7 @@ import {
   on,
   IpcInputError,
   parseStringId,
+  parseAdapterSessionMode,
   parsePermissionMode,
   parseTeamName,
   parseCodexSandboxMode,
@@ -47,6 +52,9 @@ export function registerAdaptersIpc(): void {
       id: a.id,
       displayName: a.displayName,
       capabilities: a.capabilities,
+      sessionModes: isSessionAdapterId(a.id)
+        ? [...getAdapterRuntimeProfile(a.id).runtimeControls.sessionModes]
+        : [],
     }));
   });
   on(IpcInvoke.AdapterCreateSession, async (_e, agentId, opts) => {
@@ -69,6 +77,19 @@ export function registerAdaptersIpc(): void {
     }
     // permissionMode 白名单：renderer 可塞任意字符串，必须收口
     const permissionMode = parsePermissionMode(raw.permissionMode);
+    const sessionMode = parseAdapterSessionMode(raw.sessionMode);
+    if (sessionMode !== null) {
+      const allowed = getAdapterRuntimeProfile(validAgentId).runtimeControls.sessionModes;
+      if (
+        !adapter.capabilities.canSetSessionMode ||
+        !allowed.includes(sessionMode)
+      ) {
+        throw new IpcInputError(
+          'opts.sessionMode',
+          `adapter "${validAgentId}" does not support session mode "${sessionMode}"`,
+        );
+      }
+    }
     const prompt = typeof raw.prompt === 'string' ? raw.prompt : undefined;
     // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：首条 prompt 走 102_400 字符上限（与
     // sdk-bridge MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
@@ -127,6 +148,7 @@ export function registerAdaptersIpc(): void {
           cwd,
           prompt,
           ...(permissionMode !== null ? { permissionMode } : {}),
+          ...(sessionMode !== null ? { sessionMode } : {}),
           ...(resume !== undefined ? { resume } : {}),
           ...(teamName !== null ? { teamName } : {}),
           ...(codexSandbox !== null ? { codexSandbox } : {}),
@@ -310,6 +332,51 @@ export function registerAdaptersIpc(): void {
       const reverted = sessionRepo.get(sid);
       if (reverted) eventBus.emit('session-upserted', reverted);
       throw err;
+    }
+    return true;
+  });
+
+  on(IpcInvoke.AdapterSetSessionMode, async (_e, agentId, sessionId, mode) => {
+    const validAgentId = parseStringId('agentId', agentId, 64);
+    if (!isAgentId(validAgentId)) {
+      throw new IpcInputError('agentId', 'unknown adapter');
+    }
+    const adapter = adapterRegistry.get(validAgentId);
+    if (!adapter?.capabilities.canSetSessionMode || !adapter.setSessionMode) {
+      throw new Error('adapter cannot set session mode');
+    }
+    const sid = parseStringId('sessionId', sessionId);
+    const record = sessionRepo.get(sid);
+    if (!record) throw new Error(`session ${sid} not found`);
+    if (record.agentId !== validAgentId) {
+      throw new IpcInputError('agentId', `does not own session ${sid}`);
+    }
+    if (record.source !== 'sdk') {
+      throw new Error('external CLI sessions cannot be reconfigured by Agent Deck');
+    }
+    const next = parseAdapterSessionMode(mode);
+    if (next === null) {
+      throw new IpcInputError('mode', 'required');
+    }
+    const allowed = getAdapterRuntimeProfile(validAgentId).runtimeControls.sessionModes;
+    if (!allowed.includes(next)) {
+      throw new IpcInputError(
+        'mode',
+        `adapter "${validAgentId}" does not support session mode "${next}"`,
+      );
+    }
+
+    const previous = record.sessionMode ?? null;
+    sessionRepo.setSessionMode(sid, next);
+    const updated = sessionRepo.get(sid);
+    if (updated) eventBus.emit('session-upserted', updated);
+    try {
+      await adapter.setSessionMode(sid, next);
+    } catch (error) {
+      sessionRepo.setSessionMode(sid, previous);
+      const reverted = sessionRepo.get(sid);
+      if (reverted) eventBus.emit('session-upserted', reverted);
+      throw error;
     }
     return true;
   });

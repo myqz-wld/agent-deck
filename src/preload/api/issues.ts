@@ -11,7 +11,7 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
-import type { IssueRecord } from '@shared/types';
+import type { AdapterSessionMode, IssueRecord } from '@shared/types';
 import type { SessionThinkingLevel } from '@shared/session-metadata';
 
 export interface IssuesListFilters {
@@ -44,6 +44,7 @@ export interface IssuesResolveInNewSessionArgs {
   prompt: string;
   /** optional — adapter 默认 + settings 白名单 */
   permissionMode?: string;
+  sessionMode?: AdapterSessionMode;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
   /** optional — 空值不传，使用目标 provider 默认模型。 */

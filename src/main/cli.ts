@@ -86,6 +86,7 @@ const AGENT_ALIASES: Record<string, string> = {
   codex: 'codex-cli',
   claude: 'claude-code',
   deepseek: 'deepseek-claude-code',
+  grok: 'grok-build',
 };
 
 function findSubcommand(argv: readonly string[]): { sub: string; args: string[] } | null {

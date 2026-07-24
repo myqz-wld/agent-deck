@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import type { AssetKind, AssetMeta } from '@shared/types';
+import type {
+  AssetKind,
+  AssetMeta,
+  UserAssetAdapter,
+} from '@shared/types';
 import { ASSET_LIMITS, ASSET_NAME_REGEX } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { DeckSelect } from '@renderer/components/DeckSelect';
@@ -31,9 +35,9 @@ import { CloseIcon, SaveIcon, TrashIcon } from '../icons';
 interface Props {
   kind: AssetKind;
   /** plan §D5：adapter 必传（由 sub-tab 锁定）。 */
-  adapter: 'claude-code' | 'codex-cli';
+  adapter: UserAssetAdapter;
   /** null = 新建模式；AssetMeta = 编辑模式（来源固定为 user）。 */
-  asset: AssetMeta | null;
+  asset: (AssetMeta & { adapter: UserAssetAdapter }) | null;
   onClose: () => void;
   /** 保存成功后回调，让父级刷新列表。 */
   onSaved: () => void;
