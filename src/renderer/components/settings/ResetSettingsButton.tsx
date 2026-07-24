@@ -24,7 +24,7 @@ export function ResetSettingsButton({
       title: '重置到默认配置',
       message: '确定要重置 Agent Deck 配置吗？',
       detail:
-        '通用、Claude Code 和 Codex CLI 页的可配置项将恢复默认值。本机鉴权 token 会保留，已安装的终端 Hook 不会被卸载。',
+        '通用、Claude Code、Codex CLI 和 Grok Build 页的可配置项将恢复默认值。本机鉴权 token 会保留，已安装的终端 Hook 不会被卸载。',
       okLabel: '重置配置',
       cancelLabel: '取消',
       destructive: true,

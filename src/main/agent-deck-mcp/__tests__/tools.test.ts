@@ -800,6 +800,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
       'Claude and Deepseek accept low, medium, high, xhigh, and max',
     );
+    expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
+      'Grok Build accepts low, medium, high, and xhigh',
+    );
     expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse(undefined).success).toBe(true);
     expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse('fresh').success).toBe(true);
     expect(SPAWN_SESSION_SCHEMA.contextMode.safeParse('fork').success).toBe(true);

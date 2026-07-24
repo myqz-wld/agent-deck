@@ -257,7 +257,7 @@ export interface AppSettings {
    * TOML。普通用户 / 项目 Codex custom agents 不受影响。
    */
   injectAgentDeckCodexAgents: boolean;
-  /** Inject the bundled Grok baseline through ACP `_meta.agentProfile`. */
+  /** Append the bundled Grok baseline through ACP `_meta.rules`. */
   injectAgentDeckGrokAgentsMd: boolean;
   /** Expose the bundled Grok plugin skills through ACP `_meta.pluginDirs`. */
   injectAgentDeckGrokSkills: boolean;

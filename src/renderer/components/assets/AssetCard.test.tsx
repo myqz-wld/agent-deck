@@ -53,7 +53,7 @@ describe('AssetCard', () => {
     expect(codeLabels).toEqual(['agent-deck:claude-code:hello-from-deck']);
   });
 
-  it('展示 provider、运行配置入口和覆盖状态', () => {
+  it('展示 provider、编辑入口和覆盖状态', () => {
     const onConfigure = vi.fn();
     render(
       <AssetCard
@@ -71,8 +71,8 @@ describe('AssetCard', () => {
     );
 
     expect(screen.getByText('fable')).toBeTruthy();
-    expect(screen.getByText('已覆盖内建运行配置')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '运行配置' }));
+    expect(screen.getByText('已修改内建 Agent')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
     expect(onConfigure).toHaveBeenCalledTimes(1);
   });
 });

@@ -87,7 +87,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking/reasoning override for the spawned session only. Precedence: explicit thinking > resolved agent effort > provider default. Grok Build accepts low, medium, and high; Codex accepts low through ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Adapter-invalid values are rejected before session creation.',
+      'Optional thinking/reasoning override for the spawned session only. Precedence: explicit thinking > resolved agent effort > provider default. Grok Build accepts low, medium, high, and xhigh; Codex accepts low through ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Adapter-invalid values are rejected before session creation.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。

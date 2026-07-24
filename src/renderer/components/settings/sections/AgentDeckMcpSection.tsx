@@ -11,7 +11,7 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
  *
- * 功能：让 claude / deepseek / codex / 第三方 MCP client 通过 19 个 tool 跨 adapter
+ * 功能：让 claude / deepseek / codex / grok / 第三方 MCP client 通过 19 个 tool 跨 adapter
  * 编排其他 coding agent session、向用户展示 plan / diff 并收集确认或反馈、管理结构化任务并上报 issue。
  *
  * UI 布局（自顶向下）：
@@ -35,7 +35,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 Claude、Deepseek、Codex 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
+        让 Claude、Deepseek、Codex、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
         <details className="mt-1">
           <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看全部 19 个工具</summary>
           <div className="mt-1 pl-2 text-deck-muted/80">
@@ -90,7 +90,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             <tr className="border-b border-deck-border/40">
               <td className="py-1 pr-2 align-top font-medium text-deck-text/85">HTTP</td>
               <td className="py-1 text-deck-muted/80">
-                Codex 自动连接；外部客户端可连接
+                Codex 和 Grok Build 自动连接；外部客户端可连接
                 <code className="rounded bg-white/5 px-1">/mcp</code>（需要下方 Token）
               </td>
             </tr>
@@ -171,6 +171,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
           首次启动时自动生成并保存。Codex 会读取环境变量
           <code className="rounded bg-white/5 px-1">AGENT_DECK_MCP_TOKEN</code>；
+          Grok Build 通过 ACP 会话 metadata 接收独立的会话 Token；
           外部 HTTP 客户端将此值用作 Bearer Token。
           <br />
           如 Token 泄漏，请删除应用配置目录中

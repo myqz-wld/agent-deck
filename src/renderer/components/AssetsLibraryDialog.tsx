@@ -12,10 +12,9 @@ import { AdapterSubTab, type AssetAdapter } from './assets/AdapterSubTab';
 import { AssetsTab } from './assets/AssetsTab';
 import { AssetEditor } from './assets/AssetEditor';
 import { BundledAgentRuntimeEditor } from './assets/BundledAgentRuntimeEditor';
+import { ApplicationConventionTab } from './assets/ApplicationConventionTab';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
-import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
-import { CodexAgentsMdEditor } from './settings/CodexAgentsMdEditor';
 import { CloseIcon, LibraryIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 
@@ -310,7 +309,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
           {tab === 'claude-md' && (
             <>
               <InjectionToggleBar tab="claude-md" settings={settings} update={updateSettings} />
-              <ClaudeMdTab onDirtyChange={onClaudeMdDirtyChange} />
+              <ApplicationConventionTab onDirtyChange={onClaudeMdDirtyChange} />
             </>
           )}
         </div>
@@ -373,92 +372,5 @@ function TabBtn({
     >
       {children}
     </button>
-  );
-}
-
-/**
- * 「应用约定」tab：Claude / Codex sub-tab 切换只切可见性,两个 editor 常驻。
- *
- * **plan assets-codex-user-and-ui-unify-20260521 §D1**：本 tab 改用公共 AdapterSubTab 组件，
- * 与 Skills/Agents 三 tab UI paradigm 一致；onSwitch hook 仍保留 dirty 拦截（子 editor 持有
- * 未保存草稿时弹 confirmDialog）。
- *
- * dirty 上报双层:
- * - 子 editor 按 adapter 分桶上报,本组件 forward any-dirty 给父级 onDirtyChange(让父级关闭弹窗时拦截)
- * - 子 adapter 切换时只拦截当前可见 adapter 的 dirty;确认丢弃时才 reset 当前 editor
- */
-function ClaudeMdTab({
-  onDirtyChange,
-}: {
-  onDirtyChange: (dirty: boolean) => void;
-}): JSX.Element {
-  type ApplicationAdapter = Exclude<AssetAdapter, 'grok-build'>;
-  const [adapter, setAdapter] = useState<ApplicationAdapter>('claude-code');
-  const [resetKeys, setResetKeys] = useState<Record<ApplicationAdapter, number>>({
-    'claude-code': 0,
-    'codex-cli': 0,
-  });
-  const dirtyByAdapterRef = useRef<Record<ApplicationAdapter, boolean>>({
-    'claude-code': false,
-    'codex-cli': false,
-  });
-
-  const onSubDirty = useCallback(
-    (source: ApplicationAdapter, d: boolean) => {
-      dirtyByAdapterRef.current[source] = d;
-      onDirtyChange(Object.values(dirtyByAdapterRef.current).some(Boolean));
-    },
-    [onDirtyChange],
-  );
-  const onClaudeDirty = useCallback((d: boolean) => onSubDirty('claude-code', d), [onSubDirty]);
-  const onCodexDirty = useCallback((d: boolean) => onSubDirty('codex-cli', d), [onSubDirty]);
-
-  // dirty 拦截：子 editor 持有未保存草稿时弹 confirmDialog 拦截 sub-tab 切换
-  const guardSwitchAdapter = async (_next: AssetAdapter): Promise<boolean> => {
-    if (!dirtyByAdapterRef.current[adapter]) return true;
-    const ok = await window.api.confirmDialog({
-      title: '切换视角',
-      message: '应用约定有未保存的草稿，确定要丢弃吗？',
-      detail: '切换后改动将丢失，无法恢复。',
-      okLabel: '丢弃并切换',
-      cancelLabel: '继续编辑',
-      destructive: true,
-    });
-    if (ok) {
-      dirtyByAdapterRef.current[adapter] = false;
-      onDirtyChange(Object.values(dirtyByAdapterRef.current).some(Boolean));
-      setResetKeys((prev) => ({ ...prev, [adapter]: prev[adapter] + 1 }));
-    }
-    return ok;
-  };
-
-  return (
-    <div className="flex min-h-[310px] flex-col gap-2">
-      <AdapterSubTab
-        current={adapter}
-        onSelect={(next) => {
-          if (next !== 'grok-build') setAdapter(next);
-        }}
-        onSwitch={guardSwitchAdapter}
-      />
-      <div
-        className={adapter === 'claude-code' ? 'flex flex-col gap-2' : 'hidden'}
-        aria-hidden={adapter !== 'claude-code'}
-      >
-        <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CLAUDE.md，会随新建的 Claude 会话自动加载。改动只对新建会话生效。
-        </div>
-        <ClaudeMdEditor key={resetKeys['claude-code']} onDirtyChange={onClaudeDirty} />
-      </div>
-      <div
-        className={adapter === 'codex-cli' ? 'flex flex-col gap-2' : 'hidden'}
-        aria-hidden={adapter !== 'codex-cli'}
-      >
-        <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CODEX_AGENTS.md，会随新建的 Codex 会话自动加载。改动只对新建 Codex 会话生效。
-        </div>
-        <CodexAgentsMdEditor key={resetKeys['codex-cli']} onDirtyChange={onCodexDirty} />
-      </div>
-    </div>
   );
 }

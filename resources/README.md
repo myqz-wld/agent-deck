@@ -53,10 +53,10 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 
 The Grok Build adapter uses this resource root through the official ACP v1 `session/new` / `session/load` metadata surface.
 
-- `GROK_AGENTS.md`: Injected as an extending ACP `_meta.agentProfile` object when the Grok app-conventions switch is enabled.
+- `GROK_AGENTS.md`: Packaged default appended through ACP `_meta.rules` when the Grok app-conventions switch is enabled. Asset Library edits are stored separately at `<userData>/agent-deck-grok-agents.md`; that app-owned copy wins until **Restore default** deletes it. `_meta.rules` remains independent of `_meta.agentProfile`, so the convention also applies when a bundled Grok Agent is selected.
 - `agent-deck-plugin/`: App-bundled Grok plugin containing `reviewer-grok` and the Agent Deck review skills.
 - Grok accepts a whole plugin directory, while Agent Deck exposes independent Skills and Agents switches. At runtime the selected subdirectories are copied to an app-owned mirror under `<userData>/grok-plugin-profiles/`, and that mirror is passed through ACP `_meta.pluginDirs`.
-- The mirror contains only bundled Agent Deck resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
+- The mirror and editable application-convention copy contain only Agent Deck-owned resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
 - The Grok binary is not part of `extraResources`; Settings may point to an installed binary, otherwise the adapter resolves `grok` from the user shell `PATH`.
 
 ## Paired Boundaries

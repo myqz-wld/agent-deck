@@ -13,6 +13,7 @@ import { HookServerSection } from './settings/sections/HookServerSection';
 import { ExternalToolsSection } from './settings/sections/ExternalToolsSection';
 import { ExperimentalSection } from './settings/sections/ExperimentalSection';
 import { AgentDeckMcpSection } from './settings/sections/AgentDeckMcpSection';
+import { GrokAuthenticationSection } from './settings/sections/GrokAuthenticationSection';
 import { LogsSection } from './settings/sections/LogsSection';
 import { errorMessage } from '@renderer/lib/error-message';
 import { AdapterConfigHelp } from './settings/AdapterConfigHelp';
@@ -42,9 +43,11 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
   const [codexHookStatus, setCodexHookStatus] = useState<HookInstallStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** CHANGELOG_160:三 tab 分组(通用 / claude code / codex cli)。tab state per-open 重置
-   *  到 'general' 让用户每次打开 settings 从总览开始。 */
-  const [activeTab, setActiveTab] = useState<'general' | 'claude' | 'codex'>('general');
+  /** CHANGELOG_160 后续扩为四 tab（通用 / Claude Code / Codex CLI / Grok Build）。
+   *  每次打开都重置到 'general'，让用户从总览开始。 */
+  const [activeTab, setActiveTab] = useState<
+    'general' | 'claude' | 'codex' | 'grok'
+  >('general');
   /** 写设置 / 安装 hook 的异步错误（CHANGELOG_20 / N7：原本 try/finally 无 catch，IPC 失败用户看不到原因）。
    *  与 loadError 分两个 slot 避免互相覆盖；写错误一段时间后会被下一次成功操作清掉。 */
   const [actionError, setActionError] = useState<string | null>(null);
@@ -155,7 +158,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="no-drag w-[340px] max-h-[85%] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
+      <div className="no-drag w-[380px] max-h-[85%] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
         <header className="mb-3 flex items-center justify-between">
           <h2 className="text-[13px] font-medium">设置</h2>
           <button
@@ -194,6 +197,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   { id: 'general', label: '通用' },
                   { id: 'claude', label: 'Claude Code' },
                   { id: 'codex', label: 'Codex CLI' },
+                  { id: 'grok', label: 'Grok Build' },
                 ] as const
               ).map((tab) => (
                 <button
@@ -269,6 +273,13 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                   uninstallHook={() => uninstallHook('codex-cli')}
                 />
                 <AdapterConfigHelp adapter="codex" />
+              </SectionGroup>
+            )}
+
+            {activeTab === 'grok' && (
+              <SectionGroup title="Grok Build 配置">
+                <GrokAuthenticationSection />
+                <AdapterConfigHelp adapter="grok" />
               </SectionGroup>
             )}
           </>

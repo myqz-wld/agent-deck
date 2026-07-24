@@ -7,7 +7,7 @@ export const CODEX_THINKING_LEVELS = [
   'max',
   'ultra',
 ] as const;
-export const GROK_THINKING_LEVELS = ['low', 'medium', 'high'] as const;
+export const GROK_THINKING_LEVELS = ['low', 'medium', 'high', 'xhigh'] as const;
 export const SESSION_THINKING_LEVELS = CODEX_THINKING_LEVELS;
 
 export type ClaudeThinkingLevel = (typeof CLAUDE_THINKING_LEVELS)[number];

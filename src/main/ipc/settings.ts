@@ -26,6 +26,14 @@ import {
   resetUserAgentDeckClaudeMd,
   saveUserAgentDeckClaudeMd,
 } from '@main/adapters/claude-code/sdk-injection';
+import {
+  getActiveGrokAgentsMd,
+  getBuiltinGrokAgentsMd,
+  resetUserGrokAgentsMd,
+  saveUserGrokAgentsMd,
+} from '@main/adapters/grok-build/resources';
+import { probeGrokAuthentication } from '@main/adapters/grok-build/auth-probe';
+import { resolveGrokBinary } from '@main/adapters/grok-build/resolve-grok-binary';
 // NOTE(REVIEW_<X>)：以下三个 codex-config 模块**必须**走 static import，不要改回 dynamic import。
 // 同一模块在多处 dynamic import（settings.ts × 3 + index.ts × 2）会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js，独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
@@ -51,6 +59,17 @@ import { invalidateSessionHandOffPreparationsForSettingsChange } from './session
 import { normalizeBundledAgentRuntimeOverrideMap } from '@main/bundled-agent-runtime-validation';
 
 const logger = log.scope('ipc-settings');
+const APPLICATION_CONVENTION_LIMIT = 2 * 1024 * 1024;
+
+function validateApplicationConventionContent(content: unknown): string {
+  if (typeof content !== 'string') {
+    throw new IpcInputError('content', 'must be string');
+  }
+  if (Buffer.byteLength(content, 'utf8') > APPLICATION_CONVENTION_LIMIT) {
+    throw new IpcInputError('content', '> 2MB');
+  }
+  return content;
+}
 
 /** Validate the untrusted SettingsSet payload before any persistent or runtime side effect. */
 export function validateSettingsPatch(
@@ -392,14 +411,7 @@ export function registerSettingsIpc(): void {
   // 已运行的 SDK 会话已经把 system prompt 固化进 LLM 上下文，不会热改。
   on(IpcInvoke.ClaudeMdGet, () => getActiveAgentDeckClaudeMd());
   on(IpcInvoke.ClaudeMdSave, (_e, content) => {
-    if (typeof content !== 'string') {
-      throw new IpcInputError('content', 'must be string');
-    }
-    // 上限 2MB —— 远超合理 CLAUDE.md 体量（< 100KB），防 renderer 误传二进制 / 巨量 JSON
-    if (Buffer.byteLength(content, 'utf8') > 2 * 1024 * 1024) {
-      throw new IpcInputError('content', '> 2MB');
-    }
-    return saveUserAgentDeckClaudeMd(content);
+    return saveUserAgentDeckClaudeMd(validateApplicationConventionContent(content));
   });
   on(IpcInvoke.ClaudeMdReset, () => {
     resetUserAgentDeckClaudeMd();
@@ -412,16 +424,26 @@ export function registerSettingsIpc(): void {
   // 「下次新建会话」生效(对偶 ClaudeMd 同模式)。
   on(IpcInvoke.CodexAgentsMdGet, () => getActiveCodexAgentsMd());
   on(IpcInvoke.CodexAgentsMdSave, (_e, content) => {
-    if (typeof content !== 'string') {
-      throw new IpcInputError('content', 'must be string');
-    }
-    if (Buffer.byteLength(content, 'utf8') > 2 * 1024 * 1024) {
-      throw new IpcInputError('content', '> 2MB');
-    }
-    return saveUserCodexAgentsMd(content);
+    return saveUserCodexAgentsMd(validateApplicationConventionContent(content));
   });
   on(IpcInvoke.CodexAgentsMdReset, () => {
     resetUserCodexAgentsMd();
     return { ok: true, content: getBuiltinCodexAgentsMd() };
+  });
+
+  // Grok baseline stays app-owned: the editable copy lives under userData and is appended through
+  // ACP _meta.rules. Agent Deck never writes ~/.grok/AGENTS.md.
+  on(IpcInvoke.GrokAgentsMdGet, () => getActiveGrokAgentsMd());
+  on(IpcInvoke.GrokAgentsMdSave, (_e, content) =>
+    saveUserGrokAgentsMd(validateApplicationConventionContent(content)),
+  );
+  on(IpcInvoke.GrokAgentsMdReset, async () => {
+    await resetUserGrokAgentsMd();
+    return { ok: true, content: await getBuiltinGrokAgentsMd() };
+  });
+
+  on(IpcInvoke.GrokAuthProbe, async () => {
+    const binary = await resolveGrokBinary(settingsStore.get('grokCliPath'));
+    return probeGrokAuthentication({ binary, cwd: process.cwd() });
   });
 }

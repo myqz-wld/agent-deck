@@ -9,6 +9,74 @@ const fixture = fileURLToPath(
 );
 
 describe('GrokAcpProcess', () => {
+  it('authenticates before session/new and prefers API key over cached token', async () => {
+    const child = await GrokAcpProcess.start({
+      binary: globalThis.process.execPath,
+      args: [fixture, '--auth=cached_token,xai.api_key'],
+      cwd: globalThis.process.cwd(),
+      onSessionUpdate: () => undefined,
+      onPermissionRequest: vi.fn(async () => ({
+        outcome: { outcome: 'cancelled' as const },
+      })),
+    });
+
+    try {
+      expect(child.authenticatedMethodId).toBe('xai.api_key');
+      await expect(
+        child.connection.agent.request(methods.agent.session.new, {
+          cwd: globalThis.process.cwd(),
+          mcpServers: [],
+        }),
+      ).resolves.toMatchObject({ sessionId: 'fake-native-session' });
+    } finally {
+      await child.stop();
+    }
+  });
+
+  it('uses cached login and rejects an interactive-only ACP child with a next action', async () => {
+    const cached = await GrokAcpProcess.start({
+      binary: globalThis.process.execPath,
+      args: [fixture, '--auth=cached_token'],
+      cwd: globalThis.process.cwd(),
+      onSessionUpdate: () => undefined,
+      onPermissionRequest: vi.fn(async () => ({
+        outcome: { outcome: 'cancelled' as const },
+      })),
+    });
+    expect(cached.authenticatedMethodId).toBe('cached_token');
+    await cached.stop();
+
+    await expect(
+      GrokAcpProcess.start({
+        binary: globalThis.process.execPath,
+        args: [fixture, '--auth=grok.com'],
+        cwd: globalThis.process.cwd(),
+        onSessionUpdate: () => undefined,
+        onPermissionRequest: vi.fn(async () => ({
+          outcome: { outcome: 'cancelled' as const },
+        })),
+      }),
+    ).rejects.toThrow(/grok login --oauth/);
+  });
+
+  it('falls back to cached login when API-key authentication is advertised but unavailable', async () => {
+    const child = await GrokAcpProcess.start({
+      binary: globalThis.process.execPath,
+      args: [
+        fixture,
+        '--auth=xai.api_key,cached_token',
+        '--fail-auth=xai.api_key',
+      ],
+      cwd: globalThis.process.cwd(),
+      onSessionUpdate: () => undefined,
+      onPermissionRequest: vi.fn(async () => ({
+        outcome: { outcome: 'cancelled' as const },
+      })),
+    });
+    expect(child.authenticatedMethodId).toBe('cached_token');
+    await child.stop();
+  });
+
   it('runs initialize/new/prompt/cancel over deterministic ACP stdio', async () => {
     const updates: string[] = [];
     const child = await GrokAcpProcess.start({

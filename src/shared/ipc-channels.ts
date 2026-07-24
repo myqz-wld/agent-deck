@@ -86,6 +86,10 @@ export const IpcInvoke = {
   CodexAgentsMdGet: 'codex-agents-md:get',
   CodexAgentsMdSave: 'codex-agents-md:save',
   CodexAgentsMdReset: 'codex-agents-md:reset',
+  GrokAgentsMdGet: 'grok-agents-md:get',
+  GrokAgentsMdSave: 'grok-agents-md:save',
+  GrokAgentsMdReset: 'grok-agents-md:reset',
+  GrokAuthProbe: 'grok-auth:probe',
   SummarizerLastErrors: 'summarizer:last-errors',
 
   // ─────────── Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.5.4) ───────────

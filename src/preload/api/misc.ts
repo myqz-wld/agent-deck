@@ -19,6 +19,7 @@ import type {
   CodexPermissionScanResult,
   CodexSandboxMode,
   ImageSource,
+  GrokAuthProbeResult,
   LoadImageBlobResult,
   PermissionScanResult,
   ProviderUsageSnapshotResult,
@@ -151,6 +152,20 @@ export const miscApi = {
   /** 删除用户副本回落内置；返回新的内置内容供 UI 同步刷新。 */
   resetCodexAgentsMd: (): Promise<{ ok: boolean; content: string }> =>
     ipcRenderer.invoke(IpcInvoke.CodexAgentsMdReset),
+
+  // GROK_AGENTS.md（通过 ACP session metadata 注入的 Grok Build 视角应用约定）
+  /** 读取 app-owned 自定义副本，缺失时回落到应用内置 GROK_AGENTS.md。 */
+  getGrokAgentsMd: (): Promise<{ content: string; isCustom: boolean }> =>
+    ipcRenderer.invoke(IpcInvoke.GrokAgentsMdGet),
+  /** 保存 app-owned 副本；不会写入 ~/.grok/AGENTS.md 或其他用户级 Grok 文件。 */
+  saveGrokAgentsMd: (content: string): Promise<{ content: string; isCustom: true }> =>
+    ipcRenderer.invoke(IpcInvoke.GrokAgentsMdSave, content),
+  /** 删除 app-owned 副本并回落应用内置内容。 */
+  resetGrokAgentsMd: (): Promise<{ ok: boolean; content: string }> =>
+    ipcRenderer.invoke(IpcInvoke.GrokAgentsMdReset),
+  /** 初始化 ACP 并执行非交互认证，不发送模型 prompt。 */
+  probeGrokAuth: (): Promise<GrokAuthProbeResult> =>
+    ipcRenderer.invoke(IpcInvoke.GrokAuthProbe),
 
   // ─────────── Assets Library (CHANGELOG_57 / plan assets-codex-user-and-ui-unify-20260521 §D7) ───────────
   /** 列内置 plugin agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */

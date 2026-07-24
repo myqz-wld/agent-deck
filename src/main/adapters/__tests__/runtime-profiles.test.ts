@@ -33,6 +33,9 @@ describe('adapter runtime profiles', () => {
         permissionModes: [],
         sessionModes: ['default', 'plan', 'ask'],
       },
+      model: {
+        thinkingLevels: ['low', 'medium', 'high', 'xhigh'],
+      },
     });
   });
 

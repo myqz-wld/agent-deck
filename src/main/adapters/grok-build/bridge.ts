@@ -81,6 +81,7 @@ export class GrokBuildBridge {
     const process = await GrokAcpProcess.start({
       binary,
       cwd,
+      authenticate: false,
       onSessionUpdate: () => undefined,
       onPermissionRequest: async () => ({ outcome: { outcome: 'cancelled' } }),
     });

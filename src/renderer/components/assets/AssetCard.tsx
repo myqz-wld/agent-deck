@@ -53,10 +53,10 @@ export function AssetCard({
             <button
               type="button"
               onClick={() => onConfigure(asset)}
-              title="修改内建 Agent 运行配置"
+              title="编辑内建 Agent 的模型、思考等级和 provider"
               className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
-              <PencilIcon className="mr-1 inline h-3 w-3" />运行配置
+              <PencilIcon className="mr-1 inline h-3 w-3" />编辑
             </button>
           )}
         </div>
@@ -70,7 +70,7 @@ export function AssetCard({
         </div>
       )}
       {asset.bundledAgentRuntime && Object.keys(asset.bundledAgentRuntime.override).length > 0 && (
-        <div className="mt-1 text-[9px] text-status-working">已覆盖内建运行配置</div>
+        <div className="mt-1 text-[9px] text-status-working">已修改内建 Agent</div>
       )}
       {asset.description && (
         <div className="mt-1 text-[10px] leading-relaxed text-deck-muted line-clamp-3">
