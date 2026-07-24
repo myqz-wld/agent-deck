@@ -80,7 +80,7 @@ export function registerAdapterOutgoingIpc(): void {
     if (!adapter) throw new Error('adapter not found');
     const sid = parseStringId('sessionId', sessionId);
     const id = parseStringId('messageId', messageId, 128);
-    const removed = adapter.removePendingOutgoingMessage?.(sid, id) ?? null;
+    const removed = await (adapter.removePendingOutgoingMessage?.(sid, id) ?? null);
     if (!removed) return false;
     const cleanup = await Promise.allSettled((removed.attachments ?? []).map((attachment) =>
       deleteUploadIfExists(attachment.path)));

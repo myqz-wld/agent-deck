@@ -441,7 +441,7 @@ export class ClaudeSdkBridge {
     return pendingOutgoing.listClaudePendingOutgoingMessages(this.sessions, sessionId);
   }
 
-  removePendingOutgoingMessage(sessionId: string, messageId: string): PendingAgentMessage | null {
+  removePendingOutgoingMessage(sessionId: string, messageId: string): Promise<PendingAgentMessage | null> {
     return pendingOutgoing.removeClaudePendingOutgoingMessage(this.sessions, sessionId, messageId);
   }
 

@@ -9,6 +9,19 @@ import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexInput } from './input-pack';
 import type { QueuedAgentMessage } from '@main/adapters/types';
 
+export interface CodexDeferredUserEvent {
+  text: string;
+  attachments?: UploadedAttachmentRef[];
+  turnCorrelationId?: string;
+}
+
+export interface CodexSubmittingUserMessage {
+  event: CodexDeferredUserEvent;
+  cancelled: boolean;
+  kind?: 'turn' | 'steer';
+  requestController?: AbortController;
+}
+
 export interface CodexSessionHandle {
   sessionId: string;
 }
@@ -63,11 +76,9 @@ export interface InternalSession {
    */
   pendingMessages: CodexInput[];
   /** User events intentionally emitted only when the corresponding queued turn is dequeued. */
-  pendingDeferredUserEvents?: Array<{
-    text: string;
-    attachments?: UploadedAttachmentRef[];
-    turnCorrelationId?: string;
-  } | null>;
+  pendingDeferredUserEvents?: Array<CodexDeferredUserEvent | null>;
+  /** Queued turn submitted to app-server but not yet accepted by turn/start. */
+  submittingUserMessage?: CodexSubmittingUserMessage | null;
   /** Provider-neutral metadata kept in FIFO lockstep with production-enqueued pendingMessages. */
   pendingHandOffMessages?: Array<QueuedAgentMessage | null>;
   /** Bounded in-memory acknowledgements for retry-safe internal provider turns. */

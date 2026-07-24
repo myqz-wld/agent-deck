@@ -169,8 +169,10 @@ export interface AppSettings {
    */
   claudeCliPath: string | null;
   /**
-   * Grok Build CLI override. null resolves `grok` from the user shell PATH; the app never
-   * bundles the binary or modifies Grok authentication/configuration.
+   * Grok Build CLI override.
+   * - null：用随应用分发的 Grok 原生二进制
+   * - 绝对路径：覆盖为外部 grok
+   * Agent Deck 不读不写 Grok 鉴权或配置，全由 Grok 原生 CLI 处理。
    */
   grokCliPath: string | null;
   /**

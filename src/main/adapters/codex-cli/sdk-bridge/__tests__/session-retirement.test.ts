@@ -94,7 +94,9 @@ describe('Codex handoff source runtime retirement', () => {
     const sessionId = 'codex-correlated-turn';
     const thread = {
       runStreamed: vi.fn(async () => ({
-        events: (async function* () {})(),
+        events: (async function* () {
+          yield { type: 'turn.accepted', turn_id: 'turn-1' };
+        })(),
       })),
     } as unknown as InternalSession['thread'];
     const internal = makeInternal(sessionId, thread, ['internal prompt']);

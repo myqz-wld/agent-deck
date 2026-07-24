@@ -199,7 +199,9 @@ export class GrokBuildBridge {
 
   async interrupt(sessionId: string): Promise<void> {
     const runtime = this.runtimes.get(sessionId);
-    if (!runtime?.process || !runtime.nativeSessionId) return;
+    if (!runtime) return;
+    this.turnQueue.cancelSubmittingInterjection(runtime);
+    if (!runtime.process || !runtime.nativeSessionId) return;
     await runtime.process.connection.agent.notify(methods.agent.session.cancel, {
       sessionId: runtime.nativeSessionId,
     });
@@ -216,6 +218,8 @@ export class GrokBuildBridge {
     runtime.closed = true;
     runtime.sealed = true;
     runtime.queue.length = 0;
+    runtime.submittingMessage?.requestController?.abort();
+    runtime.submittingMessage = null;
     await this.disposeRuntime(runtime);
   }
 
@@ -237,25 +241,17 @@ export class GrokBuildBridge {
   }
 
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
-    return (this.runtimes.get(sessionId)?.queue ?? []).map((message) => ({
-      id: message.id,
-      text: message.text,
-      ...(message.attachments?.length
-        ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
-        : {}),
-    }));
+    const runtime = this.runtimes.get(sessionId);
+    return runtime ? this.turnQueue.listPendingOutgoingMessages(runtime) : [];
   }
 
-  removePendingOutgoingMessage(
+  async removePendingOutgoingMessage(
     sessionId: string,
     messageId: string,
-  ): PendingAgentMessage | null {
+  ): Promise<PendingAgentMessage | null> {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) return null;
-    const index = runtime.queue.findIndex((message) => message.id === messageId);
-    if (index < 0) return null;
-    const [removed] = runtime.queue.splice(index, 1);
-    return removed ?? null;
+    return this.turnQueue.removePendingOutgoingMessage(runtime, messageId);
   }
 
   respondPermission(
@@ -420,6 +416,7 @@ export class GrokBuildBridge {
       isCurrentRuntime: (runtime) => this.isCurrentRuntime(runtime),
       requireNativeSession: (runtime) => this.requireNativeSession(runtime),
       onNegotiatedImageCapability: this.options.onNegotiatedImageCapability,
+      confirmPromptAccepted: (runtime) => this.turnQueue.confirmPromptAccepted(runtime),
       drain: (runtime) => this.turnQueue.drain(runtime),
       dispose: (runtime) => this.disposeRuntime(runtime),
     };
@@ -447,6 +444,8 @@ export class GrokBuildBridge {
     runtime.closed = true;
     runtime.ready = false;
     runtime.sealed = true;
+    runtime.submittingMessage?.requestController?.abort();
+    runtime.submittingMessage = null;
     clearGrokTurnLiveRate(runtime.translation);
     this.permissionController.cancel(runtime);
     const ownsRuntime = this.isCurrentRuntime(runtime);

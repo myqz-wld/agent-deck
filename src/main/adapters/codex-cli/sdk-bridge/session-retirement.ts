@@ -85,6 +85,8 @@ function discardPendingCodexInputs(
   internal: InternalSession,
   deleteAttachments: boolean,
 ): void {
+  internal.submittingUserMessage?.requestController?.abort();
+  internal.submittingUserMessage = null;
   const orphanPaths = new Set<string>();
   for (const input of internal.pendingMessages) {
     for (const path of extractAttachmentPaths(input)) orphanPaths.add(path);

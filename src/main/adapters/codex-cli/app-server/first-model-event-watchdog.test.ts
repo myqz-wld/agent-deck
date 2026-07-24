@@ -81,6 +81,7 @@ describe('Codex first-model-event watchdog', () => {
     }]);
     expect(events.map(eventName)).toEqual([
       'thread.started',
+      'turn.accepted',
       'server.notification:turn/started',
       'server.notification:error',
     ]);
@@ -114,6 +115,7 @@ describe('Codex first-model-event watchdog', () => {
     expect(client.turnStartCalls).toBe(1);
     expect(events.map(eventName)).toEqual([
       'thread.started',
+      'turn.accepted',
       'server.notification:turn/started',
       'server.notification:error',
     ]);
@@ -147,6 +149,7 @@ describe('Codex first-model-event watchdog', () => {
     expect(client.recycles).toHaveLength(1);
     expect(events.map(eventName)).toEqual([
       'thread.started',
+      'turn.accepted',
       'server.notification:error',
     ]);
   });
@@ -446,7 +449,6 @@ function notify(method: string, params?: unknown): CodexAppServerNotification {
 }
 
 function eventName(event: CodexAppServerStreamEvent): string {
-  return event.type === 'thread.started'
-    ? event.type
-    : `${event.type}:${event.notification.method}`;
+  if (event.type === 'thread.started' || event.type === 'turn.accepted') return event.type;
+  return `${event.type}:${event.notification.method}`;
 }

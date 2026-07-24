@@ -42,6 +42,7 @@ import {
 import { CodexAppServerThread } from './thread';
 import { logCodexThreadBoundaryReady } from './thread-boundary-logging';
 import { prepareNodeReplCompatibility } from './node-repl-compat';
+import { requestCodexRaw, type CodexPendingRequest } from './request-raw';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
@@ -55,17 +56,12 @@ export type {
 } from './protocol';
 export { CodexAppServerThread } from './thread';
 
-interface PendingRequest {
-  resolve: (value: unknown) => void;
-  reject: (err: Error) => void;
-}
-
 type Unsubscribe = () => void;
 
 export class CodexAppServerClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
-  private pending = new Map<number | string, PendingRequest>();
+  private pending = new Map<number | string, CodexPendingRequest>();
   private notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
   private initializePromise: Promise<void> | null = null;
   private closed = false;
@@ -159,13 +155,14 @@ export class CodexAppServerClient {
   }
   deleteThread(threadId: string): Promise<void> { return this.request('thread/delete', { threadId }); }
 
-  async request<T = unknown>(method: string, params: unknown): Promise<T> {
+  async request<T = unknown>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
     await this.ensureInitialized();
-    if (!isThreadBoundaryMethod(method)) return this.requestRaw<T>(method, params);
+    if (signal?.aborted) throw new Error('Codex request cancelled');
+    if (!isThreadBoundaryMethod(method)) return this.requestRaw<T>(method, params, signal);
     const started = performance.now();
     const thread = readRequestThreadId(params);
     try {
-      const response = await this.requestRaw<T>(method, params);
+      const response = await this.requestRaw<T>(method, params, signal);
       const durationMs = Math.round(performance.now() - started);
       logCodexThreadBoundaryReady({ method, thread, durationMs });
       return response;
@@ -345,21 +342,10 @@ export class CodexAppServerClient {
     return child;
   }
 
-  private requestRaw<T = unknown>(method: string, params: unknown): Promise<T> {
+  private requestRaw<T = unknown>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
     const child = this.ensureProcess();
     const id = this.nextId++;
-    const msg = JSON.stringify({ method, id, params });
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
-      });
-      child.stdin.write(`${msg}\n`, (err) => {
-        if (!err) return;
-        this.pending.delete(id);
-        reject(err);
-      });
-    });
+    return requestCodexRaw({ child, pending: this.pending, id, method, params, signal });
   }
 
   private handleLine(sourceChild: ChildProcessWithoutNullStreams, raw: string): void {

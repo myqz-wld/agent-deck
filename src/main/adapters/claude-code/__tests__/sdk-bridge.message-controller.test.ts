@@ -10,6 +10,7 @@ import {
   listClaudePendingOutgoingMessages,
   removeClaudePendingOutgoingMessage,
 } from '../sdk-bridge/pending-outgoing';
+import { confirmClaudeUserMessageAcceptance } from '../sdk-bridge/user-message-acceptance';
 import type { InternalSession, PendingUserMessage } from '../sdk-bridge/types';
 
 function sessionWithPending(count = 0): InternalSession {
@@ -71,13 +72,49 @@ describe('sendClaudeMessage handoff diversion', () => {
       text: 'wait for Claude',
       attachments: [attachment],
     }]);
-    expect(removeClaudePendingOutgoingMessage(sessions, sessionId, 'pending-1')).toEqual({
+    await expect(removeClaudePendingOutgoingMessage(sessions, sessionId, 'pending-1')).resolves.toEqual({
       id: 'pending-1',
       text: 'wait for Claude',
       attachments: [attachment],
     });
     expect(session.pendingUserMessages).toEqual([]);
-    expect(removeClaudePendingOutgoingMessage(sessions, sessionId, 'pending-1')).toBeNull();
+    await expect(removeClaudePendingOutgoingMessage(sessions, sessionId, 'pending-1')).resolves.toBeNull();
+  });
+
+  it('keeps a submitted Claude message cancellable until its user echo wins', async () => {
+    const sessionId = 'claude-submitting-correlation';
+    const session = sessionWithPending();
+    const pending = vi.fn(async () => ({})) as unknown as PendingUserMessage;
+    pending.deferredUserEvent = { text: 'race me', turnCorrelationId: 'race-1' };
+    let resolveCancel!: (cancelled: boolean) => void;
+    const cancelPromise = new Promise<boolean>((resolve) => {
+      resolveCancel = resolve;
+    });
+    session.applicationSid = sessionId;
+    session.query = {
+      cancelAsyncMessage: vi.fn(() => cancelPromise),
+    } as unknown as InternalSession['query'];
+    session.submittingUserMessage = {
+      pending,
+      providerMessageId: 'race-1',
+      status: 'submitting',
+    };
+    session.userTurnInFlight = true;
+    const sessions = new Map([[sessionId, session]]);
+    const removal = removeClaudePendingOutgoingMessage(sessions, sessionId, 'race-1');
+
+    expect(listClaudePendingOutgoingMessages(sessions, sessionId)).toEqual([{
+      id: 'race-1',
+      text: 'race me',
+    }]);
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    confirmClaudeUserMessageAcceptance(emit, sessionId, { type: 'user', uuid: 'race-1' }, session);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'message',
+      payload: expect.objectContaining({ turnCorrelationId: 'race-1' }),
+    }));
+    resolveCancel(true);
+    await expect(removal).resolves.toBeNull();
   });
 
   it('allows successor handoff tails to bypass ordinary queue backpressure', async () => {

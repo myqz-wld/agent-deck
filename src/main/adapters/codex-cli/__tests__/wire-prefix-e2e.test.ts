@@ -386,6 +386,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     expect(steer).toHaveBeenCalledWith(
       [{ type: 'text', text: wireBody, text_elements: [] }],
       'turn-active-1',
+      expect.any(AbortSignal),
     );
     const messageEvents = emits.filter((e) => e.kind === 'message' && e.sessionId === sid);
     expect(messageEvents).toHaveLength(1);

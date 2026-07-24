@@ -4,6 +4,7 @@ import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import { StreamProcessor } from '../stream-processor';
+import { translateSdkMessage } from '../sdk-message-translate';
 import { makeInternalSession, type PendingUserMessage } from '../types';
 
 vi.mock('@main/store/session-repo', () => ({
@@ -52,7 +53,7 @@ function pendingMessage(
 }
 
 describe('StreamProcessor deferred handoff retirement', () => {
-  it('emits a deferred correlated user event only when the input stream dequeues it', async () => {
+  it('emits a deferred correlated user event only after the SDK echoes acceptance', async () => {
     const internal = makeInternalSession({
       cwd: '/tmp/claude-correlated-turn',
       applicationSid: 'source-sid',
@@ -70,8 +71,17 @@ describe('StreamProcessor deferred handoff retirement', () => {
     });
 
     expect(emit).not.toHaveBeenCalled();
-    await processor.createUserMessageStream(internal, 'source-sid')[Symbol.asyncIterator]().next();
+    const result = await processor.createUserMessageStream(internal, 'source-sid')[
+      Symbol.asyncIterator
+    ]().next();
 
+    expect(result.value).toMatchObject({ uuid: 'turn-1' });
+    expect(emit).not.toHaveBeenCalled();
+    translateSdkMessage(emit, 'source-sid', {
+      type: 'user',
+      uuid: 'turn-1',
+      message: { role: 'user', content: 'internal prompt' },
+    }, internal);
     expect(emit).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 'source-sid',
       kind: 'message',

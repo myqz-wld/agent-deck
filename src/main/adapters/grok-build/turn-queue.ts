@@ -6,7 +6,7 @@ import {
   methods,
   type ContentBlock,
 } from '@agentclientprotocol/sdk';
-import type { AgentEnqueueOptions } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PendingAgentMessage } from '@main/adapters/types';
 import {
   enqueuePayloadFingerprint,
   isAcceptedEnqueueRetry,
@@ -21,7 +21,7 @@ import type {
 } from '@shared/types';
 
 import { errorText } from './protocol-utils';
-import type { GrokPendingMessage, GrokRuntime } from './runtime-types';
+import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
 import {
   beginGrokTurn,
   clearGrokTurnLiveRate,
@@ -74,12 +74,13 @@ export class GrokTurnQueue {
     const prepared = this.prepareMessage(runtime, text, attachments, options);
     if (!prepared) return;
 
-    if (runtime.running && runtime.ready && runtime.interjectionSupported !== false) {
-      if (await this.tryInterject(runtime, prepared.message)) {
-        this.rememberAccepted(runtime, prepared);
-        this.emitUserMessage(runtime, prepared.message, true);
-        return;
-      }
+    if (
+      runtime.running &&
+      runtime.ready &&
+      runtime.interjectionSupported !== false &&
+      !runtime.submittingMessage
+    ) {
+      if (this.startInterject(runtime, prepared)) return;
     }
     this.enqueuePrepared(runtime, prepared);
   }
@@ -101,11 +102,78 @@ export class GrokTurnQueue {
     }
     const prepared = this.prepareMessage(runtime, text, undefined);
     if (!prepared) return;
-    if (!(await this.tryInterject(runtime, prepared.message))) {
+    if (runtime.submittingMessage) {
+      throw new Error('当前 Grok 消息仍在提交，请稍后再试。');
+    }
+    if (!this.startInterject(runtime, prepared)) {
       throw new Error('当前 Grok Build 版本不支持 active-turn interjection。');
     }
-    this.rememberAccepted(runtime, prepared);
-    this.emitUserMessage(runtime, prepared.message, true);
+  }
+
+  listPendingOutgoingMessages(runtime: GrokRuntime): PendingAgentMessage[] {
+    const queued = runtime.queue.map((message) => toPendingAgentMessage(message));
+    const submitting = runtime.submittingMessage;
+    return submitting && submitting.status !== 'cancelled'
+      ? [toPendingAgentMessage(submitting.message), ...queued]
+      : queued;
+  }
+
+  async removePendingOutgoingMessage(
+    runtime: GrokRuntime,
+    messageId: string,
+  ): Promise<PendingAgentMessage | null> {
+    const index = runtime.queue.findIndex((message) => pendingMessageId(message) === messageId);
+    if (index >= 0) {
+      const [removed] = runtime.queue.splice(index, 1);
+      return removed ? toPendingAgentMessage(removed) : null;
+    }
+    const submitting = runtime.submittingMessage;
+    if (
+      !submitting ||
+      pendingMessageId(submitting.message) !== messageId ||
+      submitting.status !== 'submitting'
+    ) return null;
+    if (submitting.kind === 'interject') {
+      submitting.status = 'cancelled';
+      submitting.requestController?.abort();
+      if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
+      void this.drain(runtime);
+      return toPendingAgentMessage(submitting.message);
+    }
+    submitting.status = 'cancelling';
+    if (!submitting.promptRequestIssued) {
+      submitting.status = 'cancelled';
+      return toPendingAgentMessage(submitting.message);
+    }
+    try {
+      await runtime.process?.connection.agent.notify(methods.agent.session.cancel, {
+        sessionId: requireNativeSession(runtime),
+      });
+    } catch (error) {
+      if (runtime.submittingMessage === submitting) submitting.status = 'submitting';
+      throw error;
+    }
+    if (runtime.submittingMessage !== submitting || submitting.status !== 'cancelling') {
+      return null;
+    }
+    submitting.status = 'cancelled';
+    return toPendingAgentMessage(submitting.message);
+  }
+
+  confirmPromptAccepted(runtime: GrokRuntime): void {
+    const submitting = runtime.submittingMessage;
+    if (!submitting || submitting.kind !== 'prompt' || submitting.status === 'cancelled') return;
+    runtime.submittingMessage = null;
+    this.emitUserMessage(runtime, submitting.message);
+  }
+
+  cancelSubmittingInterjection(runtime: GrokRuntime): void {
+    const submitting = runtime.submittingMessage;
+    if (!submitting || submitting.kind !== 'interject') return;
+    submitting.status = 'cancelled';
+    submitting.requestController?.abort();
+    if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
+    void this.drain(runtime);
   }
 
   private prepareMessage(
@@ -188,53 +256,101 @@ export class GrokTurnQueue {
     }
   }
 
-  private async tryInterject(
+  private startInterject(runtime: GrokRuntime, prepared: PreparedGrokMessage): boolean {
+    if (runtime.interjectionSupported === false || !runtime.process || runtime.submittingMessage) {
+      return false;
+    }
+    const submission: GrokSubmittingMessage = {
+      message: prepared.message,
+      status: 'submitting',
+      promptRequestIssued: false,
+      kind: 'interject',
+      requestController: new AbortController(),
+    };
+    runtime.submittingMessage = submission;
+    this.rememberAccepted(runtime, prepared);
+    void this.runInterject(runtime, submission);
+    return true;
+  }
+
+  private async runInterject(
     runtime: GrokRuntime,
-    message: GrokPendingMessage,
-  ): Promise<boolean> {
-    if (runtime.interjectionSupported === false || !runtime.process) return false;
-    const content = await promptBlocks(message.providerText ?? message.text, message.attachments);
+    submission: GrokSubmittingMessage,
+  ): Promise<void> {
+    const { message } = submission;
     try {
-      await runtime.process.connection.agent.request<
+      const content = await promptBlocks(message.providerText ?? message.text, message.attachments);
+      if (runtime.submittingMessage !== submission || isCancelled(submission)) return;
+      submission.promptRequestIssued = true;
+      await runtime.process!.connection.agent.request<
         { status?: string },
         GrokInterjectRequest
-      >(GROK_INTERJECT_WIRE_METHOD, {
-        sessionId: requireNativeSession(runtime),
-        text: message.text,
-        interjectionId: message.id,
-        content,
-      });
+      >(
+        GROK_INTERJECT_WIRE_METHOD,
+        {
+          sessionId: requireNativeSession(runtime),
+          text: message.text,
+          interjectionId: message.id,
+          content,
+        },
+        { cancellationSignal: submission.requestController!.signal },
+      );
+      if (runtime.submittingMessage !== submission || isCancelled(submission)) return;
       runtime.interjectionSupported = true;
-      return true;
+      runtime.submittingMessage = null;
+      this.emitUserMessage(runtime, message, true);
+      void this.drain(runtime);
     } catch (error) {
+      if (runtime.submittingMessage !== submission || runtime.closed) return;
+      runtime.submittingMessage = null;
+      if (isCancelled(submission)) return;
       if (isInterjectionUnsupported(error)) {
         runtime.interjectionSupported = false;
-        return false;
+        try {
+          this.enqueuePrepared(runtime, {
+            message,
+            fingerprint: null,
+          });
+        } catch (fallbackError) {
+          this.emitEventError(runtime, fallbackError);
+        }
+        return;
       }
-      throw error;
+      this.emitEventError(runtime, error);
+      void this.drain(runtime);
     }
   }
 
   async drain(runtime: GrokRuntime): Promise<void> {
-    if (runtime.running || runtime.closed || !runtime.ready) return;
+    if (runtime.running || runtime.closed || !runtime.ready || runtime.submittingMessage) return;
     const message = runtime.queue.shift();
     if (!message) {
       if (runtime.sealed) await this.options.closeSession(runtime.applicationSessionId);
       return;
     }
     runtime.running = true;
-    if (message.deferUserEventUntilTurnStart) this.emitUserMessage(runtime, message);
+    const submitting: GrokSubmittingMessage | null = message.deferUserEventUntilTurnStart
+      ? {
+          message,
+          status: 'submitting',
+          promptRequestIssued: false,
+          kind: 'prompt',
+        }
+      : null;
+    runtime.submittingMessage = submitting;
     try {
       const blocks = await promptBlocks(
         message.providerText ?? message.text,
         message.attachments,
       );
+      if (isCancelled(submitting)) return;
       if (message.attachments?.length && !supportsImages(runtime)) {
         throw new Error(
           '当前 Grok ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
         );
       }
       beginGrokTurn(runtime.translation, runtime.applicationSessionId, runtime.model);
+      if (submitting) submitting.promptRequestIssued = true;
       const response = await runtime.process!.connection.agent.request(
         methods.agent.session.prompt,
         {
@@ -242,6 +358,7 @@ export class GrokTurnQueue {
           prompt: blocks,
         },
       );
+      if (isCancelled(submitting)) return;
       this.flushText(runtime);
       const usageEvent = translateGrokUsage(
         runtime.applicationSessionId,
@@ -268,7 +385,7 @@ export class GrokTurnQueue {
       }
     } catch (error) {
       clearGrokTurnLiveRate(runtime.translation);
-      if (!runtime.closed) {
+      if (!runtime.closed && !isCancelled(submitting)) {
         this.flushText(runtime);
         this.options.emitError(
           runtime.applicationSessionId,
@@ -276,6 +393,7 @@ export class GrokTurnQueue {
         );
       }
     } finally {
+      if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
       runtime.running = false;
       if (runtime.sealed) {
         await this.options.closeSession(runtime.applicationSessionId);
@@ -316,6 +434,31 @@ export class GrokTurnQueue {
       this.options.emit(event);
     }
   }
+
+  private emitEventError(runtime: GrokRuntime, error: unknown): void {
+    this.options.emitEvent(runtime.applicationSessionId, 'message', {
+      text: `⚠ Grok 插入失败：${errorText(error)}`,
+      error: true,
+    });
+  }
+}
+
+function isCancelled(submitting: GrokSubmittingMessage | null): boolean {
+  return submitting?.status === 'cancelled';
+}
+
+function toPendingAgentMessage(message: GrokPendingMessage): PendingAgentMessage {
+  return {
+    id: pendingMessageId(message),
+    text: message.text,
+    ...(message.attachments?.length
+      ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+      : {}),
+  };
+}
+
+function pendingMessageId(message: GrokPendingMessage): string {
+  return message.turnCorrelationId ?? message.id;
 }
 
 function supportsImages(runtime: GrokRuntime): boolean {

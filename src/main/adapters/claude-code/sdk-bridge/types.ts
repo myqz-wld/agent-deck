@@ -79,6 +79,12 @@ export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
   materializationError?: string;
 };
 
+export interface ClaudeSubmittingUserMessage {
+  pending: PendingUserMessage;
+  providerMessageId: string;
+  status: 'submitting' | 'cancelling';
+}
+
 export interface LiveTokenEstimateState {
   bucketKey: string;
   estTokensSinceFlush: number;
@@ -165,6 +171,10 @@ export interface InternalSession {
    */
   permissionMode: PermissionMode;
   pendingUserMessages: PendingUserMessage[];
+  /** Deferred composer input handed to the SDK but not yet echoed back as accepted. */
+  submittingUserMessage?: ClaudeSubmittingUserMessage | null;
+  /** Bounded UUID tombstones for successfully cancelled/rejected SDK inputs with late echoes. */
+  ignoredUserMessageIds?: Set<string>;
   /** Bounded in-memory acknowledgements for retry-safe internal provider turns. */
   acceptedEnqueueFingerprints?: Map<string, string>;
   /** Prevent the SDK input iterable from eagerly handing it more than one provider turn at once. */
@@ -335,6 +345,8 @@ export function makeInternalSession(opts: {
     query: undefined as unknown as Query,
     permissionMode: opts.permissionMode ?? 'default',
     pendingUserMessages: [],
+    submittingUserMessage: null,
+    ignoredUserMessageIds: new Set(),
     notify: null,
     pendingPermissions: new Map(),
     pendingAskUserQuestions: new Map(),

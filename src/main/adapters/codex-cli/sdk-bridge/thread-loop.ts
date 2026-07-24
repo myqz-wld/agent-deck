@@ -28,6 +28,7 @@ import type {
   CodexAppServerNotification,
 } from '../app-server/client';
 import { toCodexAppServerInput } from './input-pack';
+import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-thread-loop');
@@ -280,6 +281,10 @@ export class ThreadLoop {
         internal.pendingHandOffMessages?.shift();
         const controller = new AbortController();
         internal.currentTurn = controller;
+        const submittingUserMessage = deferredUserEvent
+          ? { event: deferredUserEvent, cancelled: false, kind: 'turn' as const }
+          : null;
+        internal.submittingUserMessage = submittingUserMessage;
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4 R4 HIGH-H 修订**:
         // emit event sid 用 internal.applicationSid (D7 不变量 3 wire prefix [sid] 100% 写 sessions.id);
         // applicationSid 在 spawn 主路径 first thread.started 到达时切到 realId 后冻结 (S2 + S3
@@ -294,18 +299,6 @@ export class ThreadLoop {
             source: 'sdk',
           });
         };
-        if (deferredUserEvent) {
-          emit('message', {
-            text: deferredUserEvent.text,
-            role: 'user',
-            ...(deferredUserEvent.attachments?.length
-              ? { attachments: deferredUserEvent.attachments }
-              : {}),
-            ...(deferredUserEvent.turnCorrelationId
-              ? { turnCorrelationId: deferredUserEvent.turnCorrelationId }
-              : {}),
-          });
-        }
         const translateState = createCodexAppServerTranslateState();
         try {
           const { events } = await internal.thread.runStreamed(toCodexAppServerInput(input), {
@@ -313,6 +306,10 @@ export class ThreadLoop {
           });
           for await (const ev of events) {
             if (internal.intentionallyClosed) break;
+            if (ev.type === 'turn.accepted') {
+              acceptCodexSubmittingUserMessage(this.ctx.emit, internal, submittingUserMessage);
+              continue;
+            }
             // 拦截 thread.started：拿到真实 thread_id。三种情况处理（symmetry-plan P2 MED-D）：
             // 1. 新建路径（!internal.threadId）：第一次拿到 thread_id，设字段 + 触发 firstIdCb
             // 2. 恢复路径正常 case（internal.threadId === ev.thread_id）：仅触发 firstIdCb
@@ -419,10 +416,16 @@ export class ThreadLoop {
             break;
           }
           const aborted = controller.signal.aborted;
+          const cancelledBeforeAcceptance = Boolean(
+            submittingUserMessage?.cancelled &&
+            internal.submittingUserMessage === submittingUserMessage,
+          );
           const msg = err instanceof Error ? err.message : String(err);
           if (aborted) {
             clearCodexLiveTokenEstimate(internal, internal.applicationSid);
-            emit('finished', { ok: false, subtype: 'interrupted' });
+            if (!cancelledBeforeAcceptance) {
+              emit('finished', { ok: false, subtype: 'interrupted' });
+            }
           } else if (earlyErrCb) {
             // 第一个 turn 在拿到 thread.started 前就挂了（codex spawn 后立即 exit）。
             // 通知 startNewThreadAndAwaitId 用真实 stderr 立即结算外层 promise，
@@ -437,6 +440,9 @@ export class ThreadLoop {
             emit('finished', { ok: false, subtype: 'error' });
           }
         } finally {
+          if (internal.submittingUserMessage === submittingUserMessage) {
+            internal.submittingUserMessage = null;
+          }
           internal.currentTurn = null;
           internal.currentTurnId = null;
         }

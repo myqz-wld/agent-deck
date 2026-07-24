@@ -60,7 +60,7 @@ export interface RunGrokOneshotOptions {
   systemPrompt: string;
   model?: string;
   effort?: GrokThinkingLevel;
-  /** Configured Grok CLI path; null/blank delegates to the login shell PATH. */
+  /** Configured Grok CLI path; null/blank uses the bundled native CLI. */
   binaryPath?: string | null;
   outputSchema?: Record<string, unknown>;
   maxOutputBytes?: number;
