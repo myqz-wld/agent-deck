@@ -23,6 +23,8 @@
  *  - 🤖 Task 已用，Agent 覆盖 Claude subagent 与 Codex collaboration，复用 OK
  *  - mcp__agent-deck__task_create 与 CLI builtin TaskCreate 同 ➕（语义对齐）
  */
+import { inferAgentToolKind, isAgentToolKind } from '@shared/tool-kind';
+
 const ICON_MAP: Record<string, string> = {
   // 文件
   Read: '📖',
@@ -65,7 +67,23 @@ const ICON_MAP: Record<string, string> = {
   'mcp__agent-deck__task_delete': '🗑',
 };
 
-export function toolIcon(tool: string | undefined | null): string {
+const KIND_ICON_MAP: Record<string, string> = {
+  read: '📖',
+  edit: '✍️',
+  delete: '🗑',
+  move: '📦',
+  search: '🔍',
+  execute: '💻',
+  think: '🧠',
+  fetch: '🌐',
+  switch_mode: '🔀',
+  other: '🔧',
+};
+
+export function toolIcon(tool: string | undefined | null, toolKind?: unknown): string {
   if (!tool) return '🔧';
+  if (isAgentToolKind(toolKind)) return KIND_ICON_MAP[toolKind];
+  const inferred = inferAgentToolKind(tool);
+  if (inferred) return KIND_ICON_MAP[inferred];
   return ICON_MAP[tool] ?? '🔧';
 }

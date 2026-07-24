@@ -1,32 +1,41 @@
-import type {
-  AgentEvent,
-} from '@shared/types';
+import type { AgentEvent } from '@shared/types';
+import { normalizeAgentToolKind } from '@shared/tool-kind';
 import type {
   ContentBlock,
   SessionUpdate,
+  ToolCall,
   ToolCallContent,
-  Usage,
+  ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
 
-const AGENT_ID = 'grok-build';
+import { handleGrokTextForLiveRate } from './live-token-rate';
+import type { GrokTranslationState } from './translation-types';
 
-export interface GrokTranslationState {
-  toolNames: Map<string, string>;
-  startedToolIds: Set<string>;
-  pendingText: {
-    kind: 'message' | 'thinking';
-    messageId: string | null;
-    chunks: string[];
-  } | null;
-  lastUsage: Usage | null;
-}
+const AGENT_ID = 'grok-build';
+export type { GrokTranslationState } from './translation-types';
+export {
+  beginGrokTurn,
+  clearGrokTurnLiveRate,
+  completeGrokTurnLiveRate,
+  translateGrokTurnUsage,
+  translateGrokUsage,
+  waitForGrokStandardUsage,
+} from './usage-translate';
 
 export function createGrokTranslationState(): GrokTranslationState {
   return {
     toolNames: new Map(),
+    toolKinds: new Map(),
     startedToolIds: new Set(),
+    thinkingToolIds: new Set(),
     pendingText: null,
     lastUsage: null,
+    standardUsageObservedForCurrentTurn: false,
+    extensionUsageForCurrentTurn: false,
+    usageSource: 'none',
+    pendingStandardUsage: null,
+    turnUsagePromptIds: new Set(),
+    liveRate: null,
   };
 }
 
@@ -66,15 +75,31 @@ export function translateGrokUpdate(
         event,
       );
     case 'user_message_chunk':
-      // Agent Deck already persists accepted user input before the ACP turn starts.
       return [];
     case 'tool_call': {
+      const toolKind = normalizeAgentToolKind(update.kind, update.title);
       state.toolNames.set(update.toolCallId, update.title);
+      state.toolKinds.set(update.toolCallId, toolKind);
+      if (toolKind === 'think') {
+        state.thinkingToolIds.add(update.toolCallId);
+        const text = toolThinkingText(update);
+        const events = [
+          ...flushGrokTextUpdates(sessionId, state),
+          ...(text ? [event('thinking', { text, tool: true })] : []),
+        ];
+        if (update.status === 'completed' || update.status === 'failed') {
+          state.thinkingToolIds.delete(update.toolCallId);
+          state.toolKinds.delete(update.toolCallId);
+          state.toolNames.delete(update.toolCallId);
+        }
+        return events;
+      }
       state.startedToolIds.add(update.toolCallId);
       return [
         ...flushGrokTextUpdates(sessionId, state),
         event('tool-use-start', {
           toolName: update.title,
+          toolKind,
           toolInput: update.rawInput,
           toolUseId: update.toolCallId,
           status: normalizeToolStatus(update.status),
@@ -82,15 +107,32 @@ export function translateGrokUpdate(
       ];
     }
     case 'tool_call_update': {
-      const toolName =
-        update.title ?? state.toolNames.get(update.toolCallId) ?? 'Grok tool';
+      const toolName = update.title ?? state.toolNames.get(update.toolCallId) ?? 'Grok tool';
       if (update.title) state.toolNames.set(update.toolCallId, update.title);
+      const toolKind = normalizeAgentToolKind(
+        update.kind ?? state.toolKinds.get(update.toolCallId),
+        toolName,
+      );
+      state.toolKinds.set(update.toolCallId, toolKind);
+      if (toolKind === 'think' || state.thinkingToolIds.has(update.toolCallId)) {
+        const events = flushGrokTextUpdates(sessionId, state);
+        const text = toolThinkingText(update);
+        if (text) events.push(event('thinking', { text, tool: true }));
+        if (update.status === 'completed' || update.status === 'failed') {
+          state.thinkingToolIds.delete(update.toolCallId);
+          state.toolKinds.delete(update.toolCallId);
+          state.toolNames.delete(update.toolCallId);
+        }
+        return events;
+      }
+
       const events = flushGrokTextUpdates(sessionId, state);
       if (update.status === 'completed' || update.status === 'failed') {
         if (!state.startedToolIds.has(update.toolCallId)) {
           events.push(
             event('tool-use-start', {
               toolName,
+              toolKind,
               toolUseId: update.toolCallId,
               toolInput: update.rawInput,
             }),
@@ -99,18 +141,21 @@ export function translateGrokUpdate(
         events.push(
           event('tool-use-end', {
             toolName,
+            toolKind,
             toolUseId: update.toolCallId,
             toolResult: update.rawOutput ?? toolContentText(update.content),
             status: update.status === 'completed' ? 'success' : 'error',
           }),
         );
         state.startedToolIds.delete(update.toolCallId);
+        state.toolKinds.delete(update.toolCallId);
         state.toolNames.delete(update.toolCallId);
       } else if (!state.startedToolIds.has(update.toolCallId)) {
         state.startedToolIds.add(update.toolCallId);
         events.push(
           event('tool-use-start', {
             toolName,
+            toolKind,
             toolUseId: update.toolCallId,
             toolInput: update.rawInput,
             aggregatedOutput: toolContentText(update.content),
@@ -177,44 +222,11 @@ export function flushGrokTextUpdates(
       sessionId,
       agentId: AGENT_ID,
       kind: pending.kind,
-      payload:
-        pending.kind === 'message'
-          ? { text, role: 'assistant' }
-          : { text },
+      payload: pending.kind === 'message' ? { text, role: 'assistant' } : { text },
       ts: Date.now(),
       source: 'sdk',
     },
   ];
-}
-
-export function translateGrokUsage(
-  sessionId: string,
-  model: string | null,
-  usage: Usage | null | undefined,
-  state: GrokTranslationState,
-): AgentEvent | null {
-  if (!usage) return null;
-  const previous = state.lastUsage;
-  state.lastUsage = usage;
-  return {
-    sessionId,
-    agentId: AGENT_ID,
-    kind: 'token-usage',
-    payload: {
-      messageId: null,
-      model,
-      inputTokens: delta(usage.inputTokens, previous?.inputTokens),
-      outputTokens: delta(usage.outputTokens, previous?.outputTokens),
-      reasoningTokens: delta(usage.thoughtTokens ?? 0, previous?.thoughtTokens ?? 0),
-      cacheReadTokens: delta(usage.cachedReadTokens ?? 0, previous?.cachedReadTokens ?? 0),
-      cacheCreationTokens: delta(
-        usage.cachedWriteTokens ?? 0,
-        previous?.cachedWriteTokens ?? 0,
-      ),
-    },
-    ts: Date.now(),
-    source: 'sdk',
-  };
 }
 
 function contentEvents(
@@ -233,6 +245,7 @@ function contentEvents(
         : [];
     if (!state.pendingText) state.pendingText = { kind, messageId, chunks: [] };
     state.pendingText.chunks.push(content.text);
+    handleGrokTextForLiveRate(state, content.text);
     return flushed;
   }
   if (content.type === 'image') {
@@ -259,6 +272,20 @@ function normalizeToolStatus(status: string | null | undefined): string | undefi
   return status ?? undefined;
 }
 
+function toolThinkingText(update: ToolCall | ToolCallUpdate): string | null {
+  for (const value of [update.rawOutput, update.rawInput]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const record = value as Record<string, unknown>;
+    for (const key of ['text', 'thought', 'thinking', 'reasoning', 'content']) {
+      const text = record[key];
+      if (typeof text === 'string' && text.trim()) return text.trim();
+    }
+  }
+  const contentText = toolContentText(update.content);
+  return typeof contentText === 'string' && contentText.trim() ? contentText.trim() : null;
+}
+
 function toolContentText(content: ToolCallContent[] | null | undefined): unknown {
   if (!content?.length) return undefined;
   const values = content.map((item) => {
@@ -276,8 +303,4 @@ function formatPlanUpdate(update: Extract<SessionUpdate, { sessionUpdate: 'plan_
   return update.plan.entries
     .map((entry) => `- [${entry.status === 'completed' ? 'x' : ' '}] ${entry.content}`)
     .join('\n');
-}
-
-function delta(current: number, previous: number | undefined): number {
-  return Math.max(0, current - (previous ?? 0));
 }

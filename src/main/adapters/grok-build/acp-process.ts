@@ -14,6 +14,11 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { spawnGrokChild } from './launch-child';
+import {
+  GROK_EXTENSION_UPDATE_METHOD,
+  parseGrokExtensionNotification,
+  type GrokExtensionNotification,
+} from './extension';
 
 const STDERR_LIMIT = 64 * 1024;
 const START_TIMEOUT_MS = 15_000;
@@ -25,6 +30,7 @@ export interface GrokAcpProcessOptions {
   args?: string[];
   cwd: string;
   onSessionUpdate: (notification: SessionNotification) => void;
+  onGrokExtensionUpdate?: (notification: GrokExtensionNotification) => void;
   onPermissionRequest: (
     request: RequestPermissionRequest,
     signal: AbortSignal,
@@ -72,6 +78,11 @@ export class GrokAcpProcess {
       .onNotification(methods.client.session.update, ({ params }) => {
         options.onSessionUpdate(params);
       })
+      .onNotification(
+        GROK_EXTENSION_UPDATE_METHOD,
+        parseGrokExtensionNotification,
+        ({ params }) => options.onGrokExtensionUpdate?.(params),
+      )
       .onRequest(methods.client.session.requestPermission, ({ params, signal }) =>
         options.onPermissionRequest(params, signal),
       );

@@ -149,6 +149,35 @@ describe('GrokAcpProcess', () => {
     expect(child.child.exitCode ?? child.child.signalCode).not.toBeNull();
   });
 
+  it('sends ACP extension requests with the underscore wire prefix', async () => {
+    const child = await GrokAcpProcess.start({
+      binary: globalThis.process.execPath,
+      args: [fixture],
+      cwd: globalThis.process.cwd(),
+      onSessionUpdate: () => undefined,
+      onPermissionRequest: vi.fn(async () => ({
+        outcome: { outcome: 'cancelled' as const },
+      })),
+    });
+
+    try {
+      const created = await child.connection.agent.request(
+        methods.agent.session.new,
+        { cwd: globalThis.process.cwd(), mcpServers: [] },
+      );
+      await expect(
+        child.connection.agent.request('_x.ai/interject', {
+          sessionId: created.sessionId,
+          text: 'insert while running',
+          interjectionId: 'interjection-1',
+          content: [{ type: 'text', text: 'insert while running' }],
+        }),
+      ).resolves.toEqual({ status: 'queued' });
+    } finally {
+      await child.stop();
+    }
+  });
+
   it('round-trips permission requests through the client callback', async () => {
     const updates: string[] = [];
     const onPermissionRequest = vi.fn(async () => ({
@@ -180,6 +209,42 @@ describe('GrokAcpProcess', () => {
       });
       expect(onPermissionRequest).toHaveBeenCalledOnce();
       expect(updates).toEqual(['permission:allow']);
+    } finally {
+      await child.stop();
+    }
+  });
+
+  it('delivers Grok extension notifications separately from standard ACP updates', async () => {
+    const updates: unknown[] = [];
+    const child = await GrokAcpProcess.start({
+      binary: globalThis.process.execPath,
+      args: [fixture],
+      cwd: globalThis.process.cwd(),
+      onSessionUpdate: () => undefined,
+      onGrokExtensionUpdate: (notification) => updates.push(notification),
+      onPermissionRequest: vi.fn(async () => ({
+        outcome: { outcome: 'cancelled' as const },
+      })),
+    });
+
+    try {
+      const created = await child.connection.agent.request(methods.agent.session.new, {
+        cwd: globalThis.process.cwd(),
+        mcpServers: [],
+      });
+      await child.connection.agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: 'text', text: 'extension' }],
+      });
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toMatchObject({
+        sessionId: created.sessionId,
+        update: {
+          sessionUpdate: 'turn_completed',
+          prompt_id: 'fake-prompt-1',
+          usage: { inputTokens: 7, outputTokens: 5 },
+        },
+      });
     } finally {
       await child.stop();
     }

@@ -14,11 +14,13 @@ export function describe(e: AgentEvent): string {
       const tool = textValue(p.toolName) || '工具';
       if (tool === 'ExitPlanMode') return '📋 收到一个执行计划';
       const detail = describeToolInput(tool, p.toolInput);
-      return detail ? `${toolIcon(tool)} ${tool} · ${detail}` : `${toolIcon(tool)} ${tool}`;
+      return detail
+        ? `${toolIcon(tool, p.toolKind)} ${tool} · ${detail}`
+        : `${toolIcon(tool, p.toolKind)} ${tool}`;
     }
     case 'tool-use-end': {
       const tool = textValue(p.toolName) || '工具';
-      return `${toolIcon(tool)} ${tool} 完成`;
+      return `${toolIcon(tool, p.toolKind)} ${tool} 完成`;
     }
     case 'file-changed': {
       const filePath = textValue(p.filePath);
@@ -110,6 +112,10 @@ export function translateSessionEndReason(reason: string): string {
 export function describeToolInput(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null;
   const o = input as Record<string, unknown>;
+  const alias = toolName.trim().toLowerCase();
+  if (alias === 'read_file') return describeToolInput('Read', input);
+  if (alias === 'run_terminal_command') return describeToolInput('Bash', input);
+  if (alias === 'grep' || alias === 'search_tool') return describeToolInput('Grep', input);
   switch (toolName) {
     case 'Edit':
     case 'Write':

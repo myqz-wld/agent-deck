@@ -18,6 +18,18 @@ export type AgentEventKind =
   | 'team-teammate-idle'
   | 'token-usage';
 
+export type AgentToolKind =
+  | 'read'
+  | 'edit'
+  | 'delete'
+  | 'move'
+  | 'search'
+  | 'execute'
+  | 'think'
+  | 'fetch'
+  | 'switch_mode'
+  | 'other';
+
 export interface AgentEvent<P = unknown> {
   sessionId: string;
   agentId: string;

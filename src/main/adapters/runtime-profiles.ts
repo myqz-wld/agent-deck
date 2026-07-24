@@ -116,6 +116,7 @@ const profiles = {
       canForkSession: false,
       canInterrupt: true,
       canSendMessage: true,
+      canSteerTurn: true,
       canInstallHooks: true,
       canRespondPermission: true,
       canSetPermissionMode: false,

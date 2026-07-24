@@ -169,7 +169,7 @@ export function ToolStartRow({
           className={`flex min-w-0 items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-status-working/60' : ''}`}
         >
           {hasInput && <span className="text-deck-muted/70">{inputOpen ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>}
-          <span>{toolIcon(tool)}</span>
+          <span>{toolIcon(tool, p.toolKind)}</span>
           <span className="font-mono">{tool}</span>
           {subType && (
             <span
@@ -299,7 +299,7 @@ export function ToolStartRow({
         className={`flex min-w-0 items-center gap-1.5 ${hasInput ? 'cursor-pointer rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-deck-accent/60' : ''}`}
       >
         {hasInput && <span className="text-deck-muted/70">{inputOpen ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>}
-        <span>{toolIcon(tool)}</span>
+        <span>{toolIcon(tool, p.toolKind)}</span>
         <span className="min-w-0 truncate font-mono">{tool}</span>
         {detail && <span className="truncate text-[10px] text-deck-muted">· {detail}</span>}
         {diff && (
@@ -390,7 +390,7 @@ export function ToolEndRow({
       >
         <span>{open ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>
         <span className="min-w-0 truncate">
-          {imageRead ? <><ImageIcon className="mr-1 inline h-3 w-3" />ImageRead</> : `${toolIcon(tool)} ${tool}`}{' '}
+          {imageRead ? <><ImageIcon className="mr-1 inline h-3 w-3" />ImageRead</> : `${toolIcon(tool, p.toolKind ?? startPayload.toolKind)} ${tool}`}{' '}
           {isFailed ? (
             <span className="text-status-error/90">失败</span>
           ) : (

@@ -19,6 +19,7 @@ const failAuthIds = new Set(
     : [],
 );
 let authenticated = authIds.length === 0;
+let promptCounter = 0;
 
 function authMethod(id) {
   return {
@@ -81,6 +82,16 @@ agent({ name: 'fake-grok-acp-agent' })
     sessions.add(params.sessionId);
     return {};
   })
+  .onRequest(
+    '_x.ai/interject',
+    (params) => params,
+    ({ params }) => {
+      if (!sessions.has(params.sessionId)) {
+        throw new Error(`unknown session ${params.sessionId}`);
+      }
+      return { status: 'queued' };
+    },
+  )
   .onRequest(methods.agent.session.prompt, async (context) => {
     if (!sessions.has(context.params.sessionId)) {
       throw new Error(`unknown session ${context.params.sessionId}`);
@@ -134,6 +145,31 @@ agent({ name: 'fake-grok-acp-agent' })
         },
       });
     }
+    const promptId = `fake-prompt-${++promptCounter}`;
+    await context.client.notify('_x.ai/session/update', {
+      sessionId: context.params.sessionId,
+      timestamp: Math.floor(Date.now() / 1000),
+      update: {
+        sessionUpdate: 'turn_completed',
+        prompt_id: promptId,
+        usage: {
+          inputTokens: 7,
+          outputTokens: 5,
+          totalTokens: 12,
+          cachedReadTokens: 2,
+          reasoningTokens: 1,
+          modelUsage: {
+            'fake-model': {
+              inputTokens: 7,
+              outputTokens: 5,
+              totalTokens: 12,
+              cachedReadTokens: 2,
+              reasoningTokens: 1,
+            },
+          },
+        },
+      },
+    });
     return {
       stopReason: 'end_turn',
       usage: {

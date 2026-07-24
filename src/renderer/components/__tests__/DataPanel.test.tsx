@@ -129,6 +129,7 @@ describe('DataPanel quota usage', () => {
     render(<DataPanel />);
 
     await waitFor(() => expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1));
+    expect(window.api.tokenUsageDaily).toHaveBeenCalledWith({ includeGrokHistory: true });
     expect(await screen.findByText('Claude')).toBeTruthy();
     expect(providerUsageSnapshot).not.toHaveBeenCalled();
   });
@@ -176,6 +177,19 @@ describe('DataPanel quota usage', () => {
     expect(await screen.findByText('Grok')).toBeTruthy();
     expect(screen.getByText('周用量')).toBeTruthy();
     expect(screen.getByText(/^重置 /).textContent).not.toBe('重置 未知');
+  });
+
+  it('prefers a fresh Grok live token rate over the persisted 60-second window', () => {
+    useTokenUsageStore.setState({
+      rates: [{ bucketKey: 'grok-4.5', outputTokens: 60 }],
+      liveBySession: {
+        'grok-session': { bucketKey: 'grok-4.5', tps: 42.5, updatedAt: Date.now() },
+      },
+    });
+
+    render(<DataPanel />);
+
+    expect(screen.getByText('43')).toBeTruthy();
   });
 
   it('ignores an older quota response that finishes after a newer refresh', async () => {

@@ -42,7 +42,7 @@ export function DataPanel(): JSX.Element {
   const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
   const setProviderUsageError = useTokenUsageStore((s) => s.setProviderUsageError);
   const mountedRef = useRef(true);
-  useTokenRatesPoll();
+  useTokenRatesPoll(true);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -57,7 +57,7 @@ export function DataPanel(): JSX.Element {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const fetchDaily = (): void => {
       void window.api
-        .tokenUsageDaily()
+        .tokenUsageDaily({ includeGrokHistory: true })
         .then((rows) => {
           if (!cancelled) setDaily(rows);
         })
@@ -226,6 +226,10 @@ export function DataPanel(): JSX.Element {
             <p>
               <span className="text-deck-text/85">Codex：</span>
               输入已经包含缓存读，缓存读只是拆分项，不要再加一次；推理也已经包含在输出里。
+            </p>
+            <p>
+              <span className="text-deck-text/85">Grok Build：</span>
+              读取 ACP 的每轮用量；缓存写当前没有独立字段，因此显示为 0。
             </p>
           </div>
         </div>
