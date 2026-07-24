@@ -217,7 +217,7 @@ export const LIST_SESSIONS_SCHEMA = {
     .default('active')
     .describe('Filter sessions by lifecycle. Defaults to active and, for real session callers, only returns caller-related sessions. Use "all" when recovering old teammates or checking whether a session was closed.'),
   adapterFilter: z
-    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli', 'grok-build'])
+    .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe('Optional adapter filter. Omit it to include all adapters. When set, it is applied in the session query before output pagination.'),
   spawnedByFilter: z
@@ -321,6 +321,7 @@ export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SC
 export interface ProjectedSession {
   sessionId: string;
   adapter: string;
+  provider: string | null;
   cwd: string;
   lifecycle: 'active' | 'dormant' | 'closed';
   title: string | null;

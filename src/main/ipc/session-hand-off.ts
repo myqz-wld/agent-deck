@@ -173,6 +173,13 @@ function parseTarget(value: unknown): SessionHandOffTarget {
   if (raw.model !== null && raw.model !== undefined && typeof raw.model !== 'string') {
     throw new IpcInputError('request.target.model', 'must be a string or null');
   }
+  if (
+    raw.provider !== null &&
+    raw.provider !== undefined &&
+    typeof raw.provider !== 'string'
+  ) {
+    throw new IpcInputError('request.target.provider', 'must be a string or null');
+  }
   if (raw.thinking !== null && raw.thinking !== undefined && typeof raw.thinking !== 'string') {
     throw new IpcInputError('request.target.thinking', 'must be a string or null');
   }
@@ -188,6 +195,7 @@ function parseTarget(value: unknown): SessionHandOffTarget {
   }
   return {
     adapter: raw.adapter,
+    provider: typeof raw.provider === 'string' ? raw.provider : null,
     model: typeof raw.model === 'string' ? raw.model : null,
     thinking: typeof raw.thinking === 'string' ? raw.thinking : null,
     sessionMode: isAdapterSessionMode(raw.sessionMode) ? raw.sessionMode : null,

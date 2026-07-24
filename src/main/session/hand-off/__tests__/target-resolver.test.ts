@@ -15,7 +15,8 @@ function source(): SessionRecord {
     id: 'source', agentId: 'codex-cli', cwd: '/source', title: 'source', source: 'sdk',
     lifecycle: 'active', activity: 'idle', startedAt: 1, lastEventAt: 1,
     endedAt: null, archivedAt: null, permissionMode: null,
-    codexSandbox: 'read-only', model: 'gpt-source', thinking: 'high',
+    codexSandbox: 'read-only', runtimeProvider: 'openai',
+    model: 'gpt-source', thinking: 'high',
     extraAllowWrite: ['/extra'], networkAccessEnabled: true,
     additionalDirectories: ['/tmp'],
   };
@@ -30,14 +31,14 @@ describe('resolveHandOffTarget', () => {
     });
 
     expect(result.createOptions).toMatchObject({
-      agentId: 'codex-cli', cwd: '/target', model: 'gpt-source',
+      agentId: 'codex-cli', cwd: '/target', provider: 'openai', model: 'gpt-source',
       modelReasoningEffort: 'high', codexSandbox: 'read-only',
       extraAllowWrite: ['/extra'], networkAccessEnabled: true,
       additionalDirectories: ['/tmp'], awaitCanonicalId: true,
       handOff: { mode: 'session', fromCallerSid: 'source', sourceMaxEventId: 42 },
     });
     expect(result.spec).toMatchObject({
-      adapter: 'codex-cli', model: 'gpt-source', thinking: 'high',
+      adapter: 'codex-cli', provider: 'openai', model: 'gpt-source', thinking: 'high',
       sandbox: {
         kind: 'codex', mode: 'read-only', extraAllowWriteEffective: false,
         persistedExtraAllowWrite: ['/extra'],
@@ -47,24 +48,33 @@ describe('resolveHandOffTarget', () => {
     expect(result.spec.runtimeFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('uses target defaults across adapters and maps explicit Deepseek aliases', () => {
+  it('uses target defaults across adapters and passes an explicit Claude Gateway profile', () => {
     const result = resolveHandOffTarget({
       source: source(),
       request: {
-        adapter: 'deepseek-claude-code', cwd: '/target', model: 'v4-pro', thinking: 'max',
+        adapter: 'claude-code',
+        provider: 'deepseek',
+        cwd: '/target',
+        model: 'deepseek-v4-pro[1m]',
+        thinking: 'max',
       },
       sourceMaxEventId: null,
     });
 
     expect(result.createOptions).toMatchObject({
-      agentId: 'deepseek-claude-code', model: 'deepseek-v4-pro[1m]',
+      agentId: 'claude-code',
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro[1m]',
       claudeCodeEffortLevel: 'max', permissionMode: 'bypassPermissions',
       claudeCodeSandbox: DEFAULT_SETTINGS.claudeCodeSandbox,
     });
     expect(result.createOptions).not.toHaveProperty('codexSandbox');
     expect(result.createOptions).not.toHaveProperty('extraAllowWrite');
     expect(result.spec).toMatchObject({
-      adapter: 'deepseek-claude-code', model: 'deepseek-v4-pro[1m]', thinking: 'max',
+      adapter: 'claude-code',
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro[1m]',
+      thinking: 'max',
       permissionMode: 'bypassPermissions', networkAccessEnabled: null,
       sandbox: { kind: 'claude', mode: DEFAULT_SETTINGS.claudeCodeSandbox },
     });
@@ -135,8 +145,10 @@ describe('resolveHandOffTarget', () => {
       agentId: 'grok-build',
       sessionMode: 'ask',
     });
+    expect(inherited.createOptions).not.toHaveProperty('provider');
     expect(inherited.spec).toMatchObject({
       adapter: 'grok-build',
+      provider: null,
       sessionMode: 'ask',
       sandbox: { kind: 'grok' },
     });

@@ -23,9 +23,14 @@ describe('bundled Agent runtime override validation', () => {
     expect(
       normalizeBundledAgentRuntimeOverride('grok-build', { thinking: 'xhigh' }),
     ).toEqual({ thinking: 'xhigh' });
+    expect(
+      normalizeBundledAgentRuntimeOverride('claude-code', {
+        provider: ' deepseek ',
+      }),
+    ).toEqual({ provider: 'deepseek' });
     expect(() =>
-      normalizeBundledAgentRuntimeOverride('claude-code', { provider: 'fable' }),
-    ).toThrow('only for codex-cli');
+      normalizeBundledAgentRuntimeOverride('grok-build', { provider: 'fable' }),
+    ).toThrow('only for claude-code or codex-cli');
   });
 
   it('rejects unknown fields and malformed persisted keys', () => {

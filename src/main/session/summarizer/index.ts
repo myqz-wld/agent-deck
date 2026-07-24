@@ -1,4 +1,4 @@
-import type { AppSettings, SummaryRecord } from '@shared/types';
+import type { SummaryRecord } from '@shared/types';
 import { summaryRepo } from '@main/store/summary-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { eventRevisionRepo } from '@main/store/event-revision-repo';
@@ -46,7 +46,7 @@ export class Summarizer {
    * application build/restart constructs a fresh Summarizer and is the reset boundary.
    */
   private providerCapabilityFailures = new Map<
-    AppSettings['summaryProvider'],
+    string,
     { message: string; ts: number }
   >();
   /** event-bus 上 session-removed 监听的解绑函数，stop() 时调一下避免泄漏。 */
@@ -304,34 +304,32 @@ export class Summarizer {
     const events = evidence.events;
     if (events.length === 0 && !evidence.promptContext) return null;
 
-    // 1) 优先：跑一次 LLM oneshot,**dispatch 由 settings.summaryProvider 决定**
-    //    (plan prancy-forging-penguin 改造):
-    //    - settings.summaryProvider='claude' (默认) → claude SDK oneshot(haiku 默认,~/.claude OAuth)
-    //      + settings.summaryReasoning 对应的 Claude Code effort
-    //    - settings.summaryProvider='deepseek' → Deepseek Claude Code adapter oneshot(Deepseek config)
-    //      + 同一组 Claude-family effort
-    //    - settings.summaryProvider='codex' → codex SDK oneshot(read-only sandbox + reasoning 档位
-    //      由 settings.summaryReasoning 决定,默认 'low')
-    //
-    //    **关键 design 决策**:adapter 不再按 session.agentId 选(原 R37 P2-I 路径),改成按
-    //    settings.summaryProvider 选 — claude session 也可能走 codex SDK 总结,反之亦然。
-    //    user 责任:settings.summaryModel 填的 model id 必须对当前 provider 可用(claude/deepseek 端
-    //    用各自 provider alias,codex 端 'haiku' 撞 SDK 不识别会报错并走 fallback 路径)。
+    // Run one isolated LLM call using the independently configured summary runtime.
+    // summaryAdapter selects Claude/Codex/Grok; summaryRuntimeProvider selects a Claude Gateway
+    // profile or Codex model_provider; summaryModel/summaryThinking remain provider-validated.
+    // This selection is intentionally independent from the summarized session's own runtime.
     //
     //    spike-A3 实测 5 codex 并发 oneshot 复用 app-server 单例,资源温和(10s / ~44MB),
     //    与 claude 共用全局 summaryMaxConcurrent 不需分桶。
-    const provider = settingsStore.get('summaryProvider');
-    const blockedProvider = this.providerCapabilityFailures.get(provider);
+    const adapterId = settingsStore.get('summaryAdapter');
+    const runtimeProvider =
+      settingsStore.get('summaryRuntimeProvider').trim() || undefined;
+    const runtimeKey = `${adapterId}:${runtimeProvider ?? ''}`;
+    const blockedProvider = this.providerCapabilityFailures.get(runtimeKey);
     if (!blockedProvider) {
       try {
-        const providerAgentId = providerToAdapterId(provider);
-        const adapter = adapterRegistry.get(providerAgentId);
+        const adapter = adapterRegistry.get(adapterId);
         let llm: string | null = null;
         if (adapter?.summariseEvents) {
           llm = await adapter.summariseEvents(
             session.cwd,
             events,
             evidence.promptContext,
+            {
+              provider: runtimeProvider,
+              model: settingsStore.get('summaryModel').trim() || undefined,
+              thinking: settingsStore.get('summaryThinking'),
+            },
           );
         }
         if (llm) {
@@ -356,13 +354,13 @@ export class Summarizer {
         // OLD 不存在 → 不写 OLD lastErrorBySession 防孤儿(NEW 在 next scanAll 仍失败时会重 set,
         // trade-off: 单次失败 NEW 端诊断丢失,可接受)。
         if (isSummaryProviderCapabilityError(err)) {
-          if (!this.providerCapabilityFailures.has(provider)) {
-            this.providerCapabilityFailures.set(provider, {
+          if (!this.providerCapabilityFailures.has(runtimeKey)) {
+            this.providerCapabilityFailures.set(runtimeKey, {
               message: err.message,
               ts: Date.now(),
             });
             logger.info(
-              `[summarizer] ${provider} provider capability unavailable; ` +
+              `[summarizer] ${runtimeKey} provider capability unavailable; ` +
                 `using local fallback until application restart: ${err.message}`,
             );
           }
@@ -430,17 +428,3 @@ export class Summarizer {
 }
 
 export const summarizer = new Summarizer();
-
-function providerToAdapterId(
-  provider: AppSettings['summaryProvider'],
-): 'claude-code' | 'deepseek-claude-code' | 'codex-cli' {
-  switch (provider) {
-    case 'codex':
-      return 'codex-cli';
-    case 'deepseek':
-      return 'deepseek-claude-code';
-    case 'claude':
-    default:
-      return 'claude-code';
-  }
-}

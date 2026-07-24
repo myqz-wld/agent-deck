@@ -80,6 +80,24 @@ describe('buildCodexThreadOptions', () => {
     expect(opts.additionalDirectories).toEqual(['/a', '/b']);
   });
 
+  it('applies a per-thread model_provider over agent config without cross-thread leakage', () => {
+    const first = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      provider: 'openai',
+      configOverrides: { model_provider: 'agent-default' },
+    });
+    const second = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      provider: 'local',
+      configOverrides: { model_provider: 'agent-default' },
+    });
+
+    expect(first.configOverrides).toMatchObject({ model_provider: 'openai' });
+    expect(second.configOverrides).toMatchObject({ model_provider: 'local' });
+  });
+
   it('model=codex-default 是统计占位 → 不传给 Codex SDK', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',

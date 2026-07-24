@@ -5,3 +5,8 @@ export { cleanCompactResult } from './clean-result';
 export { raceWithTimeout } from './race-with-timeout';
 export { runClaudeOneshot } from './claude-runner';
 export { runCodexOneshot } from './codex-runner';
+export {
+  buildGrokHeadlessArgs,
+  runGrokOneshot,
+  type GrokOneshotResult,
+} from './grok-runner';

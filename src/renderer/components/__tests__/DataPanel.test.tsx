@@ -36,6 +36,23 @@ function claudeSnapshot(usedPercent = 0.4, updatedAt = Date.now()): ProviderUsag
   };
 }
 
+function grokSnapshot(): ProviderUsageSnapshot {
+  return {
+    provider: 'grok-build',
+    label: 'Grok',
+    status: 'ok',
+    windows: [
+      {
+        id: 'weekly',
+        label: '周用量',
+        usedPercent: null,
+        resetsAt: '2026-07-29T00:00:00.000Z',
+      },
+    ],
+    updatedAt: Date.now(),
+  };
+}
+
 function tokenDailyRow(over: Partial<TokenDailyRow> = {}): TokenDailyRow {
   return {
     day: '2026-06-19',
@@ -146,6 +163,19 @@ describe('DataPanel quota usage', () => {
     fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(2));
     expect(providerUsageSnapshot).toHaveBeenLastCalledWith({ force: true });
+  });
+
+  it('renders the Grok quota card and its billing-cycle reset', async () => {
+    useTokenUsageStore.setState({
+      providerUsageSnapshots: [grokSnapshot()],
+      providerUsageFetchedAt: Date.now(),
+    });
+
+    render(<DataPanel />);
+
+    expect(await screen.findByText('Grok')).toBeTruthy();
+    expect(screen.getByText('周用量')).toBeTruthy();
+    expect(screen.getByText(/^重置 /).textContent).not.toBe('重置 未知');
   });
 
   it('ignores an older quota response that finishes after a newer refresh', async () => {

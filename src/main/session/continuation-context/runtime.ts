@@ -7,8 +7,13 @@ import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-b
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
-import { loadDeepseekClaudeEnv } from '@main/adapters/deepseek-claude-code/config';
-import { isClaudeThinkingLevel } from '@shared/session-metadata';
+import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
+import { runGrokOneshot } from '@main/session/oneshot-llm';
+import { settingsStore } from '@main/store/settings-store';
+import {
+  isClaudeThinkingLevel,
+  isGrokThinkingLevel,
+} from '@shared/session-metadata';
 import type { ResolvedContinuationGenerator } from './types';
 import { CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA } from './checkpoint-patch-schema';
 import { CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from './checkpoint-prompts';
@@ -25,7 +30,7 @@ interface ClaudeRuntimeResult extends Omit<CheckpointGeneratorResult, 'providerC
   schemaUnsupported: boolean;
 }
 
-const deepseekStructuredOutputCapability = new Map<string, boolean>();
+const gatewayStructuredOutputCapability = new Map<string, boolean>();
 
 function checkedOutput(value: unknown, maxBytes: number): { output: unknown; rawText: string } {
   const serialized = typeof value === 'string' ? value : JSON.stringify(value);
@@ -59,7 +64,7 @@ async function runClaudeFamilyCheckpoint(input: {
   generator: ResolvedContinuationGenerator;
   request: CheckpointGeneratorRequest;
   structured: boolean;
-  envOverride?: Readonly<Record<string, string>>;
+  settingsPath?: string;
 }): Promise<ClaudeRuntimeResult> {
   if (input.request.remainingCalls < 1) {
     throw new CheckpointGeneratorError('No checkpoint generator calls remain', 'provider-error');
@@ -91,6 +96,7 @@ async function runClaudeFamilyCheckpoint(input: {
         permissionMode: 'dontAsk',
         systemPrompt: CONTINUATION_CHECKPOINT_SYSTEM_PROMPT,
         settingSources: [],
+        ...(input.settingsPath ? { settings: input.settingsPath } : {}),
         tools: [],
         mcpServers: {},
         maxTurns: 1,
@@ -103,7 +109,7 @@ async function runClaudeFamilyCheckpoint(input: {
             }
           : {}),
         executable: runtime.executable,
-        env: { ...runtime.env, ...(input.envOverride ?? {}) },
+        env: { ...runtime.env },
         ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
       },
     });
@@ -201,24 +207,26 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
   constructor(private readonly generator: ResolvedContinuationGenerator) {}
 
   async generate(request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> {
-    const isDeepseek = this.generator.adapter === 'deepseek-claude-code';
+    const profile = resolveClaudeGatewayProfile(this.generator.provider);
+    const usesGateway = profile !== null;
     const fingerprint = this.generator.configFingerprint;
-    const cached = isDeepseek ? deepseekStructuredOutputCapability.get(fingerprint) : undefined;
-    const envOverride = isDeepseek ? loadDeepseekClaudeEnv() : undefined;
+    const cached = usesGateway
+      ? gatewayStructuredOutputCapability.get(fingerprint)
+      : undefined;
     const first = await runClaudeFamilyCheckpoint({
       generator: this.generator,
       request,
       structured: cached !== false,
-      envOverride,
+      settingsPath: profile?.settingsPath,
     });
     if (!first.schemaUnsupported) {
-      if (isDeepseek && cached === undefined && first.structured) {
-        deepseekStructuredOutputCapability.set(fingerprint, true);
+      if (usesGateway && cached === undefined && first.structured) {
+        gatewayStructuredOutputCapability.set(fingerprint, true);
       }
       const { schemaUnsupported: _ignored, ...result } = first;
       return { ...result, providerCalls: 1 };
     }
-    if (isDeepseek) deepseekStructuredOutputCapability.set(fingerprint, false);
+    if (usesGateway) gatewayStructuredOutputCapability.set(fingerprint, false);
     if (request.remainingCalls < 2) {
       throw new CheckpointGeneratorError(
         'Structured output unsupported and no JSON-only fallback call remains',
@@ -230,7 +238,7 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
       generator: this.generator,
       request: { ...request, remainingCalls: request.remainingCalls - 1 },
       structured: false,
-      envOverride,
+      settingsPath: profile?.settingsPath,
     });
     const { schemaUnsupported: _ignored, ...result } = fallback;
     return { ...result, providerCalls: 2 };
@@ -325,14 +333,81 @@ class HardenedCodexCheckpointGenerator implements ContinuationCheckpointGenerato
   }
 }
 
+async function runGrokCheckpoint(input: {
+  generator: ResolvedContinuationGenerator;
+  request: CheckpointGeneratorRequest;
+}): Promise<CheckpointGeneratorResult> {
+  if (input.request.remainingCalls < 1) {
+    throw new CheckpointGeneratorError('No checkpoint generator calls remain', 'provider-error');
+  }
+  if (input.request.signal?.aborted) {
+    throw new CheckpointGeneratorError('Checkpoint generation aborted', 'aborted');
+  }
+  const startedAt = Date.now();
+  try {
+    const result = await runGrokOneshot({
+      prompt: input.request.prompt,
+      systemPrompt: CONTINUATION_CHECKPOINT_SYSTEM_PROMPT,
+      ...(input.generator.model ? { model: input.generator.model } : {}),
+      ...(isGrokThinkingLevel(input.generator.thinking)
+        ? { effort: input.generator.thinking }
+        : {}),
+      binaryPath: settingsStore.get('grokCliPath'),
+      outputSchema: CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA,
+      maxOutputBytes: input.request.maxOutputBytes,
+      timeoutMs: input.request.timeoutMs,
+      timeoutErrorMessage: 'Checkpoint generation timed out',
+      ...(input.request.signal ? { signal: input.request.signal } : {}),
+    });
+    const checked = checkedOutput(result.text, input.request.maxOutputBytes);
+    return {
+      ...checked,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      contextWindowTokens: result.contextWindowTokens,
+      latencyMs: Date.now() - startedAt,
+      providerCalls: 1,
+      structured: true,
+    };
+  } catch (error) {
+    if (error instanceof CheckpointGeneratorError) throw error;
+    if (input.request.signal?.aborted) {
+      throw new CheckpointGeneratorError('Checkpoint generation aborted', 'aborted', 1);
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('timed out')) {
+      throw new CheckpointGeneratorError(message, 'timeout', 1);
+    }
+    if (message.includes('exceeded') && message.includes('bytes')) {
+      throw new CheckpointGeneratorError(message, 'output-too-large', 1);
+    }
+    throw new CheckpointGeneratorError(message, 'provider-error', 1);
+  }
+}
+
+class HardenedGrokCheckpointGenerator implements ContinuationCheckpointGenerator {
+  readonly isolation = 'hardened-unattested' as const;
+
+  constructor(private readonly generator: ResolvedContinuationGenerator) {}
+
+  generate(request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> {
+    return runGrokCheckpoint({ generator: this.generator, request });
+  }
+}
+
 export function createCheckpointGeneratorRuntime(
   generator: ResolvedContinuationGenerator,
 ): ContinuationCheckpointGenerator {
-  return generator.adapter === 'codex-cli'
-    ? new HardenedCodexCheckpointGenerator(generator)
-    : new ClaudeFamilyCheckpointGenerator(generator);
+  switch (generator.adapter) {
+    case 'codex-cli':
+      return new HardenedCodexCheckpointGenerator(generator);
+    case 'grok-build':
+      return new HardenedGrokCheckpointGenerator(generator);
+    default:
+      return new ClaudeFamilyCheckpointGenerator(generator);
+  }
 }
 
-export function clearDeepseekCheckpointCapabilityCache(): void {
-  deepseekStructuredOutputCapability.clear();
+export function clearGatewayCheckpointCapabilityCache(): void {
+  gatewayStructuredOutputCapability.clear();
 }

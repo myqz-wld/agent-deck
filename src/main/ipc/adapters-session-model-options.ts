@@ -38,6 +38,7 @@ export function registerSessionModelOptionsIpc(): void {
       await adapter.setSessionModelOptions(
         sid,
         normalizeSessionModelOptions(validAgentId, {
+          provider: raw.provider,
           model: raw.model,
           thinking: raw.thinking,
         }),

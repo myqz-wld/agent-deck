@@ -15,6 +15,7 @@ import { resolveContinuationTargetSnapshot } from '../continuation-context/resol
 export interface HandOffTargetRequest {
   adapter: SessionAdapterId;
   cwd: string;
+  provider?: unknown;
   model?: unknown;
   thinking?: unknown;
   permissionMode?: PermissionMode;
@@ -42,9 +43,7 @@ export class HandOffTargetOptionsError extends Error {
 }
 
 function defaultPermissionMode(adapter: SessionAdapterId): PermissionMode | undefined {
-  return adapter === 'claude-code' || adapter === 'deepseek-claude-code'
-    ? 'bypassPermissions'
-    : undefined;
+  return adapter === 'claude-code' ? 'bypassPermissions' : undefined;
 }
 
 export function resolveHandOffTarget(input: {
@@ -144,6 +143,12 @@ export function resolveHandOffTarget(input: {
   }
   const requestedModel =
     request.model !== undefined ? request.model : sameAdapter ? source.model ?? null : null;
+  const requestedProvider =
+    request.provider !== undefined
+      ? request.provider
+      : sameAdapter && request.adapter !== 'grok-build'
+        ? source.runtimeProvider ?? null
+        : null;
   const requestedThinking =
     request.thinking !== undefined
       ? request.thinking
@@ -151,13 +156,14 @@ export function resolveHandOffTarget(input: {
         ? source.thinking ?? null
         : null;
   const modelOptions = resolveCreateSessionModelOptions(request.adapter, {
+    provider: requestedProvider,
     model: requestedModel,
     thinking: requestedThinking,
   });
   const permissionMode =
     request.permissionMode ??
     (sameAdapter
-      ? request.adapter === 'claude-code' || request.adapter === 'deepseek-claude-code'
+      ? request.adapter === 'claude-code'
         ? source.permissionMode ?? 'default'
         : undefined
       : defaultPermissionMode(request.adapter));
@@ -173,7 +179,7 @@ export function resolveHandOffTarget(input: {
         settingsStore.get('codexSandbox')
       : undefined;
   const claudeCodeSandbox =
-    request.adapter === 'claude-code' || request.adapter === 'deepseek-claude-code'
+    request.adapter === 'claude-code'
       ? request.claudeCodeSandbox ??
         (sameAdapter ? source.claudeCodeSandbox ?? undefined : undefined) ??
         settingsStore.get('claudeCodeSandbox')
@@ -233,6 +239,7 @@ export function resolveHandOffTarget(input: {
     }
   }
   const model = modelOptions.model ?? null;
+  const provider = modelOptions.provider ?? null;
   const thinking =
     modelOptions.modelReasoningEffort ??
     modelOptions.claudeCodeEffortLevel ??
@@ -252,6 +259,7 @@ export function resolveHandOffTarget(input: {
   const spec = resolveContinuationTargetSnapshot({
     adapter: request.adapter,
     cwd: request.cwd,
+    provider,
     model,
     thinking,
     permissionMode: permissionMode ?? null,

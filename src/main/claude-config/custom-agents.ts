@@ -10,7 +10,7 @@ const CLAUDE_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 const USER_CLAUDE_AGENTS_DIR = join(homedir(), '.claude', 'agents');
 const FRONTMATTER_BLOCK_REGEX = /^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/;
 const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-const CLAUDE_FAMILY_REVIEWER_AGENT_NAMES = ['reviewer-claude', 'reviewer-deepseek'] as const;
+const CLAUDE_FAMILY_REVIEWER_AGENT_NAMES = ['reviewer-claude'] as const;
 const CLAUDE_FAMILY_REVIEWER_REQUIRED_MCP_TOOLS = [
   'mcp__agent-deck__send_message',
   'mcp__agent-deck__list_sessions',
@@ -25,6 +25,8 @@ export interface ClaudeCustomAgentContent {
   source: ClaudeCustomAgentScope;
   sourcePath?: string;
   definition: AgentDefinition;
+  /** Agent Deck runtime-only Claude Gateway profile id; never forwarded inside AgentDefinition. */
+  provider?: string;
   model?: string;
   effortLevel?: ClaudeCustomAgentEffortLevel;
 }
@@ -86,6 +88,7 @@ function buildClaudeAgent(
   const tools = withClaudeFamilyReviewerMessagingTools(agentName, parseCsvList(fm.tools));
   const skills = parseCsvList(fm.skills);
   const model = fm.model?.trim() || undefined;
+  const provider = fm.provider?.trim() || undefined;
   const definition: AgentDefinition = {
     description: fm.description?.trim() || agentName,
     prompt: body,
@@ -101,6 +104,7 @@ function buildClaudeAgent(
       source,
       ...(sourcePath ? { sourcePath } : {}),
       definition,
+      ...(provider ? { provider } : {}),
       ...(model ? { model } : {}),
       ...(effortLevel ? { effortLevel } : {}),
     },

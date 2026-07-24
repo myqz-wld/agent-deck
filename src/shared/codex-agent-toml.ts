@@ -53,6 +53,7 @@ export interface CodexAgentTomlInput {
   description: string;
   developerInstructions: string;
   model?: string;
+  modelProvider?: string;
   modelReasoningEffort?: string;
   sandboxMode?: string;
 }
@@ -64,6 +65,8 @@ export function stringifyCodexAgentToml(input: CodexAgentTomlInput): string {
   ];
   const model = input.model?.trim();
   if (model) lines.push(`model = ${quoteTomlString(model)}`);
+  const modelProvider = input.modelProvider?.trim();
+  if (modelProvider) lines.push(`model_provider = ${quoteTomlString(modelProvider)}`);
   const effort = input.modelReasoningEffort?.trim();
   if (effort) lines.push(`model_reasoning_effort = ${quoteTomlString(effort)}`);
   const sandboxMode = input.sandboxMode?.trim();

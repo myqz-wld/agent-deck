@@ -35,11 +35,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryEventCount: 30,
   summaryMaxConcurrent: 2,
   summaryTimeoutMs: 60 * 1000,
-  // 周期总结与会话续接检查点分开配置；两者的 provider/model/thinking 互不影响。
-  summaryProvider: 'claude',
+  // 周期总结与会话续接检查点分开配置；adapter/provider/model/thinking 互不影响。
+  summaryAdapter: 'claude-code',
+  summaryRuntimeProvider: '',
   summaryModel: '',
-  summaryReasoning: DEFAULT_SUMMARY_REASONING,
-  continuationCheckpointProvider: 'claude',
+  summaryThinking: DEFAULT_SUMMARY_REASONING,
+  continuationCheckpointAdapter: 'claude-code',
+  continuationCheckpointRuntimeProvider: '',
   continuationCheckpointModel: '',
   continuationCheckpointThinking: DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
   continuationCheckpointAutoRefreshEnabled: true,

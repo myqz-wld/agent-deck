@@ -15,6 +15,7 @@ import type {
   AssetKind,
   AssetSource,
   BundledAssetsSnapshot,
+  ClaudeGatewayProfileOption,
   CodexModelProviderOption,
   CodexPermissionScanResult,
   CodexSandboxMode,
@@ -54,17 +55,17 @@ export const miscApi = {
   installHook: (
     scope: 'user' | 'project',
     cwd?: string,
-    adapterId?: 'claude-code' | 'codex-cli',
+    adapterId?: 'claude-code' | 'codex-cli' | 'grok-build',
   ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookInstall, scope, cwd, adapterId),
   uninstallHook: (
     scope: 'user' | 'project',
     cwd?: string,
-    adapterId?: 'claude-code' | 'codex-cli',
+    adapterId?: 'claude-code' | 'codex-cli' | 'grok-build',
   ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookUninstall, scope, cwd, adapterId),
   hookStatus: (
     scope: 'user' | 'project',
     cwd?: string,
-    adapterId?: 'claude-code' | 'codex-cli',
+    adapterId?: 'claude-code' | 'codex-cli' | 'grok-build',
   ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookStatus, scope, cwd, adapterId),
 
   // 设置
@@ -211,6 +212,9 @@ export const miscApi = {
     name: string,
   ): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsResetBundledAgentRuntime, adapter, name),
+  /** 只读扫描 ~/.claude/gateways/*.json，返回 profile id 与 settings 路径。 */
+  listClaudeGatewayProfiles: (): Promise<ClaudeGatewayProfileOption[]> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsListClaudeGatewayProfiles),
   /** 只读扫描 native Codex config 中的 model_providers，供自由输入提示。 */
   listCodexModelProviders: (): Promise<CodexModelProviderOption[]> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListCodexModelProviders),
@@ -276,7 +280,7 @@ export const miscApi = {
   /** model bucket × 本地日期的 5 指标聚合（数据 tab 表格）。 */
   tokenUsageDaily: (): Promise<TokenDailyRow[]> =>
     ipcRenderer.invoke(IpcInvoke.TokenUsageDaily),
-  /** Claude / Codex / Deepseek provider 订阅窗口用量快照（数据 tab）。 */
+  /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   providerUsageSnapshot: (opts?: { force?: boolean }): Promise<ProviderUsageSnapshotResult> =>
     ipcRenderer.invoke(IpcInvoke.ProviderUsageSnapshot, opts),
 };

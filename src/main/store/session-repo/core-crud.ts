@@ -56,9 +56,10 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
+       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
+         runtime_provider = excluded.runtime_provider,
          cwd = excluded.cwd,
          title = excluded.title,
          source = excluded.source,
@@ -85,6 +86,7 @@ export function upsert(rec: SessionRecord): void {
     .run({
       id: rec.id,
       agent_id: rec.agentId,
+      runtime_provider: rec.runtimeProvider ?? null,
       cwd: rec.cwd,
       title: rec.title,
       source: rec.source,
@@ -238,6 +240,11 @@ export function setPermissionMode(id: string, mode: PermissionMode | null): void
 
 export function setSessionMode(id: string, mode: AdapterSessionMode | null): void {
   getDb().prepare(`UPDATE sessions SET session_mode = ? WHERE id = ?`).run(mode, id);
+}
+
+/** Persist a Claude Gateway profile id or Codex model_provider for the session. */
+export function setRuntimeProvider(id: string, provider: string | null): void {
+  getDb().prepare(`UPDATE sessions SET runtime_provider = ? WHERE id = ?`).run(provider, id);
 }
 
 /**

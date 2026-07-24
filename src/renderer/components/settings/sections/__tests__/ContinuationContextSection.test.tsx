@@ -30,11 +30,19 @@ function openSection(): void {
 
 beforeEach(() => {
   window.localStorage.clear();
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: {
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+    },
+  });
 });
 
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  Reflect.deleteProperty(window, 'api');
 });
 
 describe('ContinuationContextSection', () => {
@@ -44,7 +52,7 @@ describe('ContinuationContextSection', () => {
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          continuationCheckpointProvider: 'codex',
+          continuationCheckpointAdapter: 'codex-cli',
           continuationCheckpointThinking: 'ultra',
         }}
         onPatch={onPatch}
@@ -58,7 +66,7 @@ describe('ContinuationContextSection', () => {
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText('留空时使用 Codex 配置默认模型。'),
+      screen.getByText('留空时使用所选 Codex provider 的默认模型。'),
     ).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: '上下文整理模型 model' }) as HTMLInputElement)
@@ -76,8 +84,8 @@ describe('ContinuationContextSection', () => {
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 provider' }));
-    fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
 
     await waitFor(() => {
       expect(
@@ -91,7 +99,9 @@ describe('ContinuationContextSection', () => {
       expect(screen.getByText('留空时使用 Claude Sonnet。')).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
-      continuationCheckpointProvider: 'claude',
+      continuationCheckpointAdapter: 'claude-code',
+      continuationCheckpointRuntimeProvider: '',
+      continuationCheckpointModel: '',
       continuationCheckpointThinking: 'max',
     });
 
@@ -104,14 +114,25 @@ describe('ContinuationContextSection', () => {
       'MAX',
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 provider' }));
-    fireEvent.click(screen.getByRole('option', { name: 'Deepseek' }));
+    fireEvent.change(
+      screen.getByRole('combobox', { name: '上下文整理模型 Gateway' }),
+      {
+        target: { value: 'deepseek' },
+      },
+    );
     await waitFor(() => {
       expect(
         (screen.getByRole('textbox', {
           name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
       ).toBe('模型（可留空）');
+      expect(
+        screen.getByText('留空时使用 deepseek Gateway 的 Sonnet 路由。'),
+      ).not.toBeNull();
+    });
+    expect(onPatch).toHaveBeenCalledWith({
+      continuationCheckpointRuntimeProvider: 'deepseek',
+      continuationCheckpointModel: '',
     });
   });
 
@@ -148,6 +169,44 @@ describe('ContinuationContextSection', () => {
     fireEvent.change(tokenInput, { target: { value: '128001' } });
     fireEvent.blur(tokenInput);
     expect(onPatch).toHaveBeenCalledWith({ continuationRawRetentionTokens: 128000 });
+  });
+
+  it('offers Grok Build as a checkpoint generator with xhigh as its ceiling', async () => {
+    const onPatch = vi.fn();
+    render(
+      <SettingsHarness
+        initial={{
+          ...DEFAULT_SETTINGS,
+          continuationCheckpointAdapter: 'codex-cli',
+          continuationCheckpointThinking: 'max',
+        }}
+        onPatch={onPatch}
+      />,
+    );
+    openSection();
+
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: '上下文整理模型 思考程度' }).textContent,
+      ).toContain('XHIGH');
+      expect(screen.getByText('留空时使用 Grok 配置默认模型。')).not.toBeNull();
+    });
+    expect(onPatch).toHaveBeenCalledWith({
+      continuationCheckpointAdapter: 'grok-build',
+      continuationCheckpointRuntimeProvider: '',
+      continuationCheckpointModel: '',
+      continuationCheckpointThinking: 'xhigh',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 思考程度' }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'LOW',
+      'MEDIUM',
+      'HIGH',
+      'XHIGH',
+    ]);
   });
 
   it('toggles automatic checkpoint maintenance and clamps scheduling controls', async () => {

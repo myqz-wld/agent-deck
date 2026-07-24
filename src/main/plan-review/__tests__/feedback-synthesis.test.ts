@@ -87,7 +87,7 @@ describe('plan review feedback synthesis', () => {
       listEvents,
       runClaude,
       runCodex,
-      loadDeepseekEnv: vi.fn(() => ({})),
+      resolveClaudeGateway: vi.fn(() => null),
     } as unknown as PlanReviewFeedbackSynthesisDeps;
 
     await expect(synthesizePlanReviewFeedback({
@@ -124,7 +124,7 @@ describe('plan review feedback synthesis', () => {
       ]),
       runClaude,
       runCodex,
-      loadDeepseekEnv: vi.fn(() => ({})),
+      resolveClaudeGateway: vi.fn(() => null),
     } as unknown as PlanReviewFeedbackSynthesisDeps;
 
     await expect(synthesizePlanReviewFeedback({
@@ -139,37 +139,42 @@ describe('plan review feedback synthesis', () => {
     expect(getSession).not.toHaveBeenCalled();
   });
 
-  it('uses the matching Deepseek one-shot environment without creating a session', async () => {
+  it('uses the persisted Claude Gateway profile without creating a session', async () => {
     const runClaude = vi.fn<PlanReviewFeedbackSynthesisDeps['runClaude']>(
       async () => 'Keep the rollback explicit.',
     );
     const runCodex = vi.fn<PlanReviewFeedbackSynthesisDeps['runCodex']>(
       async () => 'must not run',
     );
-    const env = { ANTHROPIC_BASE_URL: 'https://example.invalid' };
+    const profile = {
+      id: 'deepseek',
+      settingsPath: '/home/test/.claude/gateways/deepseek.json',
+      models: [],
+    };
     const deps = {
       getSession: () => session({
-        agentId: 'deepseek-claude-code',
+        agentId: 'claude-code',
+        runtimeProvider: 'deepseek',
         model: 'deepseek-v4-pro',
         thinking: 'xhigh',
       }),
       listEvents: () => [event(3, 'user', 'Review rollback.')],
       runClaude,
       runCodex,
-      loadDeepseekEnv: vi.fn(() => env),
+      resolveClaudeGateway: vi.fn(() => profile),
     } as unknown as PlanReviewFeedbackSynthesisDeps;
 
     await expect(synthesizePlanReviewFeedback({
       runtimeSessionId: 'child',
       dialogueSessionId: 'child',
-      agentId: 'deepseek-claude-code',
+      agentId: 'claude-code',
       request,
     }, deps)).resolves.toBe('Keep the rollback explicit.');
     expect(runCodex).not.toHaveBeenCalled();
     expect(runClaude).toHaveBeenCalledWith(expect.objectContaining({
       model: 'deepseek-v4-pro',
       effort: 'xhigh',
-      envOverride: env,
+      settingsPath: profile.settingsPath,
     }));
   });
 });

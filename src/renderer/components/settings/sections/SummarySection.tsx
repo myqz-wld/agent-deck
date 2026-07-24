@@ -2,9 +2,9 @@ import { type JSX } from 'react';
 import type { AppSettings } from '@shared/types';
 import { Section, NumberInput, Toggle } from '../controls';
 import {
-  coerceThinkingForProvider,
+  coerceThinkingForAdapter,
   ProviderModelThinkingFields,
-  type GeneratorProvider,
+  type GeneratorAdapter,
 } from '../ProviderModelThinkingFields';
 import { SummarizerErrorsDiagnostic } from '../SummarizerErrorsDiagnostic';
 
@@ -13,10 +13,12 @@ interface Props {
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }
 
-function buildModelHint(provider: GeneratorProvider): string {
-  if (provider === 'codex') return '留空时使用 Codex 配置默认模型';
-  if (provider === 'deepseek') return '留空时使用 Deepseek Haiku';
-  return '留空时使用 Claude Haiku';
+function buildModelHint(adapter: GeneratorAdapter, runtimeProvider: string): string {
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex provider 的默认模型';
+  if (adapter === 'grok-build') return '留空时使用 Grok 配置默认模型';
+  return runtimeProvider
+    ? `留空时使用 ${runtimeProvider} Gateway 的 Haiku 路由`
+    : '留空时使用 Claude Haiku';
 }
 
 export function SummarySection({ settings, update }: Props): JSX.Element {
@@ -57,19 +59,30 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
       </p>
       <ProviderModelThinkingFields
         label="总结模型"
-        hint={buildModelHint(settings.summaryProvider) + '。'}
-        provider={settings.summaryProvider}
+        hint={
+          buildModelHint(
+            settings.summaryAdapter,
+            settings.summaryRuntimeProvider,
+          ) + '。'
+        }
+        adapter={settings.summaryAdapter}
+        runtimeProvider={settings.summaryRuntimeProvider}
         model={settings.summaryModel}
-        thinking={settings.summaryReasoning}
+        thinking={settings.summaryThinking}
         modelPlaceholder="模型（可留空）"
-        onProviderChange={(v) =>
+        onAdapterChange={(v) =>
           void update({
-            summaryProvider: v,
-            summaryReasoning: coerceThinkingForProvider(v, settings.summaryReasoning),
+            summaryAdapter: v,
+            summaryRuntimeProvider: '',
+            summaryModel: '',
+            summaryThinking: coerceThinkingForAdapter(v, settings.summaryThinking),
           })
         }
+        onRuntimeProviderChange={(v) =>
+          void update({ summaryRuntimeProvider: v, summaryModel: '' })
+        }
         onModelChange={(v) => void update({ summaryModel: v })}
-        onThinkingChange={(v) => void update({ summaryReasoning: v })}
+        onThinkingChange={(v) => void update({ summaryThinking: v })}
       />
       <SummarizerErrorsDiagnostic />
     </Section>

@@ -46,7 +46,8 @@ const CONFIGS: Record<'claude' | 'codex' | 'grok', AdapterHelpConfig> = {
     managedFeatures: '模型别名、推理参数、认证和 MCP',
     terminalIntegration: (
       <>
-        应用内会话通过官方 ACP 连接；Grok Build 当前没有 Agent Deck 终端 Hook，外部终端会话不会自动上报。
+        安装上方 Hook 后，外部终端会话通过{' '}
+        <InlineCode>~/.grok/hooks/agent-deck.json</InlineCode> 上报到 Agent Deck；应用内会话仍通过官方 ACP 连接。
       </>
     ),
     inAppFeatures: (

@@ -27,9 +27,13 @@ describe('SessionModelFields', () => {
       'xhigh',
       'max',
     ]);
-    expect(
-      thinkingOptionsForAdapter('deepseek-claude-code').map((option) => option.value),
-    ).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(thinkingOptionsForAdapter('grok-build').map((option) => option.value)).toEqual([
+      '',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
   });
 
   it('模型使用自由文本，思考程度通过下拉选择', () => {

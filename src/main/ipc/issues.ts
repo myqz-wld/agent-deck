@@ -96,6 +96,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   sessionMode: z.string().optional(),
   codexSandbox: z.string().optional(),
   claudeCodeSandbox: z.string().optional(),
+  provider: z.string().max(128).optional(),
   model: z.string().max(256).optional(),
   thinking: z.string().optional(), // resolveCreateSessionModelOptions 内按 adapter 白名单校验
 }).strict();
@@ -115,6 +116,7 @@ interface CreateIssueResolutionSessionInput {
   sessionMode?: ReturnType<typeof parseAdapterSessionMode>;
   codexSandbox: ReturnType<typeof parseCodexSandboxMode>;
   claudeCodeSandbox: ReturnType<typeof parseSandboxMode>;
+  provider?: unknown;
   model?: unknown;
   thinking?: unknown;
 }
@@ -152,6 +154,7 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
   let sessionModelOptions;
   try {
     sessionModelOptions = resolveCreateSessionModelOptions(validAdapterId as AgentId, {
+      provider: input.provider,
       model: input.model,
       thinking: input.thinking,
     });
@@ -324,6 +327,7 @@ export async function issuesResolveInNewSessionHandler(
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
+      provider: args.provider?.trim() || null,
       model: args.model?.trim() || null,
       thinking: args.thinking ?? null,
       promptLength: args.prompt.length,
@@ -337,6 +341,7 @@ export async function issuesResolveInNewSessionHandler(
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
+      provider: args.provider,
       model: args.model,
       thinking: args.thinking,
     });

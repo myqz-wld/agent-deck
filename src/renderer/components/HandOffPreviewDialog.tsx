@@ -25,9 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-export const DEFAULT_UI_CONTINUATION_INSTRUCTION =
-  '请基于以上会话续接上下文继续完成当前工作。';
-
+export const DEFAULT_UI_CONTINUATION_INSTRUCTION = '请基于以上会话续接上下文继续完成当前工作。';
 // The dialog stays mounted only with one SessionDetail and can be closed to navigate to the orphan.
 // Keep failed-cleanup acknowledgements outside component state so close/reopen and session switches
 // cannot silently re-enable another handoff from the same source.
@@ -103,9 +101,8 @@ function executionFailureLabel(failure: SessionHandOffExecutionFailure): string 
 export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Element | null {
   const sessionId = session.id;
   const [adapters, setAdapters] = useState<AdapterOption[]>([]);
-  const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(
-    session.agentId as SessionAdapterId,
-  );
+  const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(session.agentId as SessionAdapterId);
+  const [targetProvider, setTargetProvider] = useState(session.runtimeProvider ?? '');
   const [targetModel, setTargetModel] = useState(session.model ?? '');
   const [targetThinking, setTargetThinking] = useState<SessionThinkingChoice>(() =>
     sourceThinking(session),
@@ -137,6 +134,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     if (!open) return;
     cancelPreparation();
     setTargetAdapter(session.agentId as SessionAdapterId);
+    setTargetProvider(session.runtimeProvider ?? '');
     setTargetModel(session.model ?? '');
     setTargetThinking(sourceThinking(session));
     setTargetSessionMode(session.sessionMode ?? 'default');
@@ -170,7 +168,6 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               (row): row is typeof row & { id: SessionAdapterId } =>
                 row.capabilities.canCreateSession === true &&
                 (row.id === 'claude-code' ||
-                  row.id === 'deepseek-claude-code' ||
                   row.id === 'codex-cli' ||
                   row.id === 'grok-build'),
             )
@@ -219,6 +216,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
         continuationInstruction: instruction,
         target: {
           adapter: targetAdapter,
+          provider: targetProvider.trim() || null,
           model: targetModel.trim() || null,
           thinking: targetThinking || null,
           ...(adapters.find((adapter) => adapter.value === targetAdapter)
@@ -327,10 +325,12 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                   invalidateAndChange(() => {
                     setTargetAdapter(next);
                     if (next === session.agentId) {
+                      setTargetProvider(session.runtimeProvider ?? '');
                       setTargetModel(session.model ?? '');
                       setTargetThinking(sourceThinking(session));
                       setTargetSessionMode(session.sessionMode ?? 'default');
                     } else {
+                      setTargetProvider('');
                       setTargetModel('');
                       setTargetThinking('');
                       setTargetSessionMode(
@@ -346,9 +346,16 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             </div>
             <SessionModelFields
               adapterId={targetAdapter}
+              provider={targetProvider}
               model={targetModel}
               thinking={targetThinking}
               disabled={busy}
+              onProviderChange={(provider) => {
+                invalidateAndChange(() => {
+                  setTargetProvider(provider);
+                  setTargetModel('');
+                });
+              }}
               onModelChange={(model) => invalidateAndChange(() => setTargetModel(model))}
               onThinkingChange={(thinking) =>
                 invalidateAndChange(() => setTargetThinking(thinking))

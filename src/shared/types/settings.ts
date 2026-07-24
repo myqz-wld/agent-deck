@@ -15,7 +15,7 @@
 export type {
   CodexMcpServerConfigShared,
   AppSettings,
-  ContinuationCheckpointProvider,
+  GeneratorAdapterId,
   HookInstallStatus,
 } from './settings/app-settings';
 

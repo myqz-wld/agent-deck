@@ -3,17 +3,20 @@ import type { AppSettings } from '@shared/types';
 import {
   CLAUDE_THINKING_LEVELS,
   CODEX_THINKING_LEVELS,
+  GROK_THINKING_LEVELS,
   isClaudeThinkingLevel,
+  isGrokThinkingLevel,
   type SessionThinkingLevel,
 } from '@shared/session-metadata';
 import { DeckSelect, type DeckSelectOption } from '@renderer/components/DeckSelect';
+import { ProviderCombobox } from '@renderer/components/assets/ProviderCombobox';
 
-export type GeneratorProvider = AppSettings['summaryProvider'];
+export type GeneratorAdapter = AppSettings['summaryAdapter'];
 
-const PROVIDER_OPTIONS: readonly DeckSelectOption<GeneratorProvider>[] = [
-  { value: 'claude', label: 'Claude' },
-  { value: 'deepseek', label: 'Deepseek' },
-  { value: 'codex', label: 'Codex' },
+const ADAPTER_OPTIONS: readonly DeckSelectOption<GeneratorAdapter>[] = [
+  { value: 'claude-code', label: 'Claude Code' },
+  { value: 'codex-cli', label: 'Codex CLI' },
+  { value: 'grok-build', label: 'Grok Build' },
 ];
 
 function buildThinkingOptions(
@@ -24,27 +27,29 @@ function buildThinkingOptions(
 
 const CLAUDE_THINKING_OPTIONS = buildThinkingOptions(CLAUDE_THINKING_LEVELS);
 const CODEX_THINKING_OPTIONS = buildThinkingOptions(CODEX_THINKING_LEVELS);
+const GROK_THINKING_OPTIONS = buildThinkingOptions(GROK_THINKING_LEVELS);
 
-function thinkingOptionsForProvider(
-  provider: GeneratorProvider,
+function thinkingOptionsForAdapter(
+  adapter: GeneratorAdapter,
 ): readonly DeckSelectOption<SessionThinkingLevel>[] {
-  return provider === 'codex' ? CODEX_THINKING_OPTIONS : CLAUDE_THINKING_OPTIONS;
+  if (adapter === 'codex-cli') return CODEX_THINKING_OPTIONS;
+  if (adapter === 'grok-build') return GROK_THINKING_OPTIONS;
+  return CLAUDE_THINKING_OPTIONS;
 }
 
-export function coerceThinkingForProvider(
-  provider: GeneratorProvider,
+export function coerceThinkingForAdapter(
+  adapter: GeneratorAdapter,
   thinking: SessionThinkingLevel,
 ): SessionThinkingLevel {
-  if (provider === 'codex') {
+  if (adapter === 'codex-cli') {
     return thinking === 'minimal' ? 'low' : thinking;
+  }
+  if (adapter === 'grok-build') {
+    if (isGrokThinkingLevel(thinking)) return thinking;
+    return thinking === 'minimal' ? 'low' : 'xhigh';
   }
   if (isClaudeThinkingLevel(thinking)) return thinking;
   return thinking === 'minimal' ? 'low' : 'max';
-}
-
-function providerLabel(provider: GeneratorProvider): string {
-  const option = PROVIDER_OPTIONS.find((candidate) => candidate.value === provider);
-  return typeof option?.label === 'string' ? option.label : provider;
 }
 
 function ModelInput({
@@ -97,43 +102,95 @@ function ModelInput({
   );
 }
 
-/** provider × model × thinking 三联控件，供周期总结与会话续接生成器共用。 */
+/** Adapter × provider × model × thinking controls shared by both generator settings. */
 export function ProviderModelThinkingFields({
   label,
   hint,
-  provider,
+  adapter,
+  runtimeProvider,
   model,
   thinking,
   modelPlaceholder,
-  onProviderChange,
+  onAdapterChange,
+  onRuntimeProviderChange,
   onModelChange,
   onThinkingChange,
 }: {
   label: string;
   hint: string;
-  provider: GeneratorProvider;
+  adapter: GeneratorAdapter;
+  runtimeProvider: string;
   model: string;
   thinking: SessionThinkingLevel;
   modelPlaceholder: string;
-  onProviderChange: (value: GeneratorProvider) => void;
+  onAdapterChange: (value: GeneratorAdapter) => void;
+  onRuntimeProviderChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onThinkingChange: (value: SessionThinkingLevel) => void;
 }): JSX.Element {
-  const selectedProviderLabel = providerLabel(provider);
+  const [providerOptions, setProviderOptions] = useState<
+    Array<{ id: string; name?: string }>
+  >([]);
+
+  useEffect(() => {
+    if (adapter === 'grok-build') {
+      setProviderOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const request =
+      adapter === 'claude-code'
+        ? window.api.listClaudeGatewayProfiles()
+        : window.api.listCodexModelProviders();
+    void request
+      .then((options) => {
+        if (!cancelled) setProviderOptions(options);
+      })
+      .catch(() => {
+        if (!cancelled) setProviderOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter]);
+
+  const adapterLabel =
+    ADAPTER_OPTIONS.find((candidate) => candidate.value === adapter)?.label ??
+    adapter;
 
   return (
     <div role="group" aria-label={label} className="flex flex-col gap-1 text-[11px]">
       <div>{label}</div>
       <div className="flex items-center gap-2">
         <DeckSelect
-          value={provider}
-          onChange={onProviderChange}
-          options={PROVIDER_OPTIONS}
-          ariaLabel={`${label} provider`}
+          value={adapter}
+          onChange={onAdapterChange}
+          options={ADAPTER_OPTIONS}
+          ariaLabel={`${label} adapter`}
           className="shrink-0"
           buttonClassName="rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
           menuMinWidth={140}
         />
+        {adapter !== 'grok-build' && (
+          <div className="min-w-0 flex-1">
+            <ProviderCombobox
+              value={runtimeProvider}
+              options={providerOptions}
+              ariaLabel={`${label} ${adapter === 'claude-code' ? 'Gateway' : 'provider'}`}
+              placeholder={
+                adapter === 'claude-code'
+                  ? 'Gateway（留空使用原生配置）'
+                  : 'Provider（留空跟随 config.toml）'
+              }
+              emptyMessage={
+                adapter === 'claude-code'
+                  ? '没有发现 Gateway profile'
+                  : '没有匹配项，可直接输入 provider'
+              }
+              onChange={onRuntimeProviderChange}
+            />
+          </div>
+        )}
         <ModelInput
           label={label}
           value={model}
@@ -143,9 +200,9 @@ export function ProviderModelThinkingFields({
         <DeckSelect
           value={thinking}
           onChange={onThinkingChange}
-          title={`${selectedProviderLabel} 思考程度`}
+          title={`${adapterLabel} 思考程度`}
           ariaLabel={`${label} 思考程度`}
-          options={thinkingOptionsForProvider(provider)}
+          options={thinkingOptionsForAdapter(adapter)}
           className="w-20 shrink-0"
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
           menuMinWidth={120}

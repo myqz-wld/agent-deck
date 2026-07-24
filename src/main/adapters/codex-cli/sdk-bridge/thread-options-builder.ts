@@ -31,6 +31,8 @@ export interface BuildCodexThreadOptionsArgs {
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never';
   /** spawn handler custom-agent TOML `model` 字段 */
   model?: string;
+  /** Native model_provider id; explicit selection overrides custom-agent config. */
+  provider?: string;
   /** options-builder 在 reviewer-* 路径下 spread reviewer runtime default;普通 codex session 缺省 */
   networkAccessEnabled?: boolean;
   /** 同上,caller 缺省 → 不写字段 → SDK 走默认值 */
@@ -82,6 +84,10 @@ export interface CodexThreadOptions {
 
 export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): CodexThreadOptions {
   const model = toCodexModelOverride(args.model);
+  const configOverrides =
+    args.provider !== undefined
+      ? { ...(args.configOverrides ?? {}), model_provider: args.provider }
+      : args.configOverrides;
   return {
     workingDirectory: args.workingDirectory,
     sandboxMode: args.sandboxMode,
@@ -98,7 +104,7 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.baseInstructions !== undefined && args.baseInstructions.trim().length > 0
       ? { baseInstructions: args.baseInstructions.trim() }
       : {}),
-    ...(args.configOverrides !== undefined ? { configOverrides: args.configOverrides } : {}),
+    ...(configOverrides !== undefined ? { configOverrides } : {}),
     ...(args.useBaseConfig !== undefined ? { useBaseConfig: args.useBaseConfig } : {}),
     ...(args.dynamicTools !== undefined ? { dynamicTools: [] } : {}),
     ...(args.environments !== undefined ? { environments: [] } : {}),

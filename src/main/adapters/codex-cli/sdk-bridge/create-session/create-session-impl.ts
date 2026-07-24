@@ -132,6 +132,8 @@ export async function createSessionImpl(
     // .codexSandbox) 与 effectiveResumeThreadId(取 .cliSessionId) 各调一次 sessionRepo.get(opts.resume)
     // 同步读同一行(两读间无 await,better-sqlite3 同步单线程值一致无 race,纯冗余)。
     const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
+    const sessionProvider =
+      opts.provider ?? resumeRec?.runtimeProvider ?? undefined;
     const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
@@ -153,9 +155,14 @@ export async function createSessionImpl(
       readConfigured: readTopLevelModelReasoningEffortFromCodexConfig,
     });
     const effectiveOpts =
-      sessionModelReasoningEffort === opts.modelReasoningEffort
+      sessionModelReasoningEffort === opts.modelReasoningEffort &&
+      sessionProvider === opts.provider
         ? opts
-        : { ...opts, modelReasoningEffort: sessionModelReasoningEffort };
+        : {
+            ...opts,
+            provider: sessionProvider,
+            modelReasoningEffort: sessionModelReasoningEffort,
+          };
     const developerInstructions = combineCodexDeveloperInstructions(
       getAgentDeckCodexDeveloperInstructions(),
       opts.developerInstructions,
@@ -188,6 +195,7 @@ export async function createSessionImpl(
           workingDirectory: cwd,
           sandboxMode,
           approvalPolicy: opts.approvalPolicy,
+          provider: sessionProvider,
           model: opts.model,
           modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,
@@ -202,6 +210,7 @@ export async function createSessionImpl(
           workingDirectory: cwd,
           sandboxMode,
           approvalPolicy: opts.approvalPolicy,
+          provider: sessionProvider,
           model: opts.model,
           modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,

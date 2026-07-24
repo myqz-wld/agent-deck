@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getDeepseekModelForClaudeAlias } from '@main/adapters/deepseek-claude-code/config';
+import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
 import { settingsStore } from '@main/store/settings-store';
 import {
   isClaudeThinkingLevel,
@@ -26,7 +26,6 @@ export function continuationFingerprint(value: unknown): string {
 export function assertSessionAdapterId(value: string): SessionAdapterId {
   if (
     value === 'claude-code' ||
-    value === 'deepseek-claude-code' ||
     value === 'codex-cli' ||
     value === 'grok-build'
   ) {
@@ -36,14 +35,7 @@ export function assertSessionAdapterId(value: string): SessionAdapterId {
 }
 
 function configuredGeneratorAdapter(): SessionAdapterId {
-  switch (settingsStore.get('continuationCheckpointProvider')) {
-    case 'codex':
-      return 'codex-cli';
-    case 'deepseek':
-      return 'deepseek-claude-code';
-    default:
-      return 'claude-code';
-  }
+  return settingsStore.get('continuationCheckpointAdapter');
 }
 
 function configuredGeneratorThinking(
@@ -55,19 +47,29 @@ function configuredGeneratorThinking(
       ? configured
       : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
   }
+  if (adapter === 'grok-build') {
+    return isGrokThinkingLevel(configured)
+      ? configured
+      : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
+  }
   return isClaudeThinkingLevel(configured)
     ? configured
     : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
 }
 
-function configuredGeneratorModel(adapter: SessionAdapterId, configured: unknown): string | null {
+function configuredGeneratorModel(
+  adapter: SessionAdapterId,
+  provider: string | null,
+  configured: unknown,
+): string | null {
   const explicit = typeof configured === 'string' ? configured.trim() : '';
   if (explicit) return explicit;
   // Leaving Codex unset delegates to its active config.toml model. Do not let a legacy hidden env
   // override turn an intentionally blank setting into a second, invisible source of truth.
-  if (adapter === 'codex-cli') return null;
-  if (adapter === 'deepseek-claude-code') {
-    return getDeepseekModelForClaudeAlias('sonnet') ?? null;
+  if (adapter === 'codex-cli' || adapter === 'grok-build') return null;
+  const profile = resolveClaudeGatewayProfile(provider);
+  if (profile) {
+    return profile.modelAliases.sonnet ?? profile.defaultModel ?? 'sonnet';
   }
   return (
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim() ||
@@ -77,17 +79,32 @@ function configuredGeneratorModel(adapter: SessionAdapterId, configured: unknown
 
 export function resolveContinuationGeneratorSnapshot(): ResolvedContinuationGenerator {
   const adapter = configuredGeneratorAdapter();
-  const model = configuredGeneratorModel(adapter, settingsStore.get('continuationCheckpointModel'));
+  const provider =
+    adapter === 'grok-build'
+      ? null
+      : settingsStore.get('continuationCheckpointRuntimeProvider').trim() || null;
+  const model = configuredGeneratorModel(
+    adapter,
+    provider,
+    settingsStore.get('continuationCheckpointModel'),
+  );
   const thinking = configuredGeneratorThinking(
     adapter,
     settingsStore.get('continuationCheckpointThinking'),
   );
   return {
     adapter,
+    provider,
     model,
     thinking,
     contextWindowTokens: null,
-    configFingerprint: continuationFingerprint({ version: 1, adapter, model, thinking }),
+    configFingerprint: continuationFingerprint({
+      version: 2,
+      adapter,
+      provider,
+      model,
+      thinking,
+    }),
   };
 }
 
@@ -112,6 +129,7 @@ function targetThinking(
 export interface ResolveContinuationTargetInput {
   adapter: SessionAdapterId;
   cwd: string;
+  provider?: string | null;
   model: string | null;
   thinking: string | null;
   permissionMode: PermissionMode | null;
@@ -142,6 +160,7 @@ export function resolveContinuationTargetSnapshot(
     sourceRuntimeFingerprint: input.sourceRuntimeFingerprint ?? null,
     adapter: input.adapter,
     cwd: input.cwd,
+    provider: input.provider ?? null,
     model: input.model,
     thinking,
     permissionMode: input.permissionMode,
@@ -154,6 +173,7 @@ export function resolveContinuationTargetSnapshot(
   };
   return {
     adapter: input.adapter,
+    provider: input.provider ?? null,
     model: input.model,
     thinking,
     sandbox: input.sandbox,

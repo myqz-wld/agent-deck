@@ -51,6 +51,7 @@ describe('buildSpawnTargetOptions internal Codex access', () => {
     return buildSpawnTargetOptions({
       args: input().args,
       prompt: 'Review this plan',
+      provider: undefined,
       effectivePermissionMode: undefined,
       effectiveCodexSandbox: 'danger-full-access',
       effectiveClaudeCodeSandbox: undefined,
@@ -92,6 +93,7 @@ describe('buildSpawnTargetOptions Grok work mode', () => {
         sessionMode: 'plan',
       },
       prompt: 'Plan this change',
+      provider: undefined,
       effectivePermissionMode: undefined,
       effectiveSessionMode: 'plan',
       effectiveCodexSandbox: undefined,

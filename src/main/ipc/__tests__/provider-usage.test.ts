@@ -27,7 +27,7 @@ function snapshot(
         ? 'Claude'
         : provider === 'codex-cli'
           ? 'Codex'
-          : 'Deepseek',
+          : 'Grok',
     status: 'ok',
     windows: [],
     updatedAt,
@@ -38,7 +38,7 @@ function setupAdapters(): Record<ProviderUsageSnapshot['provider'], ReturnType<t
   const calls = {
     'claude-code': vi.fn().mockResolvedValue(snapshot('claude-code')),
     'codex-cli': vi.fn().mockResolvedValue(snapshot('codex-cli')),
-    'deepseek-claude-code': vi.fn().mockResolvedValue(snapshot('deepseek-claude-code')),
+    'grok-build': vi.fn().mockResolvedValue(snapshot('grok-build')),
   };
   mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
     id,
@@ -73,7 +73,7 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(second).toBe(first);
     expect(calls['claude-code']).toHaveBeenCalledTimes(1);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(1);
-    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(1);
+    expect(calls['grok-build']).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes snapshots after TTL expires', async () => {
@@ -85,7 +85,7 @@ describe('providerUsageSnapshotHandler cache', () => {
 
     expect(calls['claude-code']).toHaveBeenCalledTimes(2);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(2);
-    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(2);
+    expect(calls['grok-build']).toHaveBeenCalledTimes(2);
   });
 
   it('force refresh bypasses fresh cache', async () => {
@@ -97,7 +97,7 @@ describe('providerUsageSnapshotHandler cache', () => {
 
     expect(calls['claude-code']).toHaveBeenCalledTimes(2);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(2);
-    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(2);
+    expect(calls['grok-build']).toHaveBeenCalledTimes(2);
   });
 
   it('dedupes concurrent refreshes behind one provider read', async () => {
@@ -108,7 +108,7 @@ describe('providerUsageSnapshotHandler cache', () => {
     const calls = {
       'claude-code': vi.fn().mockReturnValue(claudePromise),
       'codex-cli': vi.fn().mockResolvedValue(snapshot('codex-cli')),
-      'deepseek-claude-code': vi.fn().mockResolvedValue(snapshot('deepseek-claude-code')),
+      'grok-build': vi.fn().mockResolvedValue(snapshot('grok-build')),
     };
     mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
       id,
@@ -123,7 +123,7 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(a).toEqual(b);
     expect(calls['claude-code']).toHaveBeenCalledTimes(1);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(1);
-    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(1);
+    expect(calls['grok-build']).toHaveBeenCalledTimes(1);
   });
 
   it('force refresh bypasses an older normal in-flight read and keeps the newer cache', async () => {
@@ -141,7 +141,7 @@ describe('providerUsageSnapshotHandler cache', () => {
         .mockReturnValueOnce(oldClaude)
         .mockReturnValueOnce(freshClaude),
       'codex-cli': vi.fn().mockResolvedValue(snapshot('codex-cli')),
-      'deepseek-claude-code': vi.fn().mockResolvedValue(snapshot('deepseek-claude-code')),
+      'grok-build': vi.fn().mockResolvedValue(snapshot('grok-build')),
     };
     mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
       id,
@@ -177,7 +177,7 @@ describe('providerUsageSnapshotHandler cache', () => {
         .mockResolvedValueOnce(snapshot('claude-code', 1_000))
         .mockReturnValueOnce(freshClaude),
       'codex-cli': vi.fn().mockResolvedValue(snapshot('codex-cli')),
-      'deepseek-claude-code': vi.fn().mockResolvedValue(snapshot('deepseek-claude-code')),
+      'grok-build': vi.fn().mockResolvedValue(snapshot('grok-build')),
     };
     mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
       id,
@@ -206,6 +206,6 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(result.snapshots).toHaveLength(3);
     expect(calls['claude-code']).toHaveBeenCalledTimes(1);
     expect(calls['codex-cli']).toHaveBeenCalledTimes(1);
-    expect(calls['deepseek-claude-code']).toHaveBeenCalledTimes(1);
+    expect(calls['grok-build']).toHaveBeenCalledTimes(1);
   });
 });

@@ -33,7 +33,6 @@ import type {
   HandOffSourceCutoverCheck,
   HandOffSourceCutoverResult,
 } from './source-precondition';
-
 export const UI_CONTINUATION_PREVIEW_MAX_BYTES = 32 * 1024;
 export const UI_CONTINUATION_PREVIEW_MAX_TOKENS = 8_000;
 export interface UiHandOffExecutionResult {
@@ -491,6 +490,7 @@ export class UiHandOffCoordinator {
       warnings: entry.prepared.warnings.map(({ code, message }) => ({ code, message })),
       target: {
         adapter: entry.target.adapter,
+        provider: entry.target.provider ?? null,
         model: entry.target.model,
         thinking: entry.target.thinking,
         sessionMode: entry.target.sessionMode ?? null,

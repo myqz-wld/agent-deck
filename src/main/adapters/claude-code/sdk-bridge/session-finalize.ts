@@ -54,6 +54,8 @@ export interface FinalizeSessionStartArgs {
   cwd: string;
   prompt?: string;
   claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
+  /** Claude Gateway profile id; undefined keeps an existing persisted value. */
+  runtimeProvider?: string;
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.2：resolveClaudeModel 算出的 effective model。
    * undefined → 不持久化（保留 sessions.model 原值，resume 路径下保持原 model）；
@@ -131,6 +133,7 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     cwd,
     prompt,
     claudeSandboxMode,
+    runtimeProvider,
     claudeModel,
     claudeCodeEffortLevel,
     extraAllowWrite,
@@ -195,6 +198,17 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
       `[claude-bridge] setClaudeCodeSandbox(${applicationSid}, ${claudeSandboxMode}) 失败`,
       err,
     );
+  }
+
+  if (runtimeProvider !== undefined) {
+    try {
+      sessionRepo.setRuntimeProvider(applicationSid, runtimeProvider);
+    } catch (err) {
+      logger.warn(
+        `[claude-bridge] setRuntimeProvider(${applicationSid}, ${runtimeProvider}) 失败`,
+        err,
+      );
+    }
   }
 
   // 2b. plan model-wiring-and-handoff-20260514 Step 2.2：持久化 model（与 sandbox 同位置同模式）。

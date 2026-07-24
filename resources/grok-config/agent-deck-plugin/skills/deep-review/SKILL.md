@@ -15,12 +15,11 @@ Require exactly two distinct user-confirmed slots:
 |---|---|
 | `reviewer-claude` | `spawn_session({ adapter: 'claude-code', agentName: 'reviewer-claude', cwd, teamName, displayName, prompt })` |
 | `reviewer-codex` | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
-| `reviewer-deepseek` | `spawn_session({ adapter: 'deepseek-claude-code', agentName: 'reviewer-deepseek', model: 'deepseek-v4-pro[1m]', cwd, teamName, displayName, prompt })` |
 | `reviewer-grok` | `spawn_session({ adapter: 'grok-build', agentName: 'reviewer-grok', cwd, teamName, displayName, prompt })` |
 
 Ask the user if the pair is not confirmed. Reject every selection that is not exactly two, then keep the same pair for the whole invocation.
 
-If one selected reviewer fails, shut it down and respawn the same adapter, agent name, and model slot. Do not replace it or duplicate the survivor.
+If one selected reviewer fails, shut it down and respawn the same adapter, provider, agent name, and model slot. Do not replace it or duplicate the survivor.
 
 ## Preparation
 

@@ -7,11 +7,13 @@ import {
 import { getAdapterRuntimeProfile } from './runtime-profiles';
 
 export interface SessionModelOptions {
+  provider: string | null;
   model: string | null;
   thinking: string | null;
 }
 
 export interface CreateSessionModelOptions {
+  provider?: string;
   model?: string;
   claudeCodeEffortLevel?: ClaudeThinkingLevel;
   modelReasoningEffort?: CodexThinkingLevel;
@@ -20,7 +22,7 @@ export interface CreateSessionModelOptions {
 
 export class SessionModelOptionsError extends Error {
   constructor(
-    readonly field: 'model' | 'thinking',
+    readonly field: 'provider' | 'model' | 'thinking',
     message: string,
   ) {
     super(message);
@@ -38,8 +40,38 @@ export function thinkingLevelsForAdapter(adapterId: AgentId): readonly string[] 
  */
 export function normalizeSessionModelOptions(
   adapterId: AgentId,
-  input: { model?: unknown; thinking?: unknown },
+  input: { provider?: unknown; model?: unknown; thinking?: unknown },
 ): SessionModelOptions {
+  let provider: string | null = null;
+  if (input.provider !== undefined && input.provider !== null) {
+    if (typeof input.provider !== 'string') {
+      throw new SessionModelOptionsError('provider', 'must be a string or null');
+    }
+    provider = input.provider.trim() || null;
+    if (provider && provider.length > 128) {
+      throw new SessionModelOptionsError('provider', 'length > 128');
+    }
+    if (provider && /[\u0000-\u001f\u007f]/.test(provider)) {
+      throw new SessionModelOptionsError('provider', 'must not contain control characters');
+    }
+    if (provider && adapterId === 'grok-build') {
+      throw new SessionModelOptionsError(
+        'provider',
+        'is not supported for grok-build; select a Grok model alias instead',
+      );
+    }
+    if (
+      provider &&
+      adapterId === 'claude-code' &&
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(provider)
+    ) {
+      throw new SessionModelOptionsError(
+        'provider',
+        'must be a safe Claude Gateway profile id',
+      );
+    }
+  }
+
   let model: string | null = null;
   if (input.model !== undefined && input.model !== null) {
     if (typeof input.model !== 'string') {
@@ -66,26 +98,19 @@ export function normalizeSessionModelOptions(
     thinking = input.thinking;
   }
 
-  return { model, thinking };
-}
-
-export function mapDeepseekModelAlias(model: string | null): string | null {
-  if (model === 'v4-flash') return 'deepseek-v4-flash';
-  if (model === 'v4-pro') return 'deepseek-v4-pro[1m]';
-  return model;
+  return { provider, model, thinking };
 }
 
 /** Map provider-neutral UI values to the adapter-native createSession option names. */
 export function resolveCreateSessionModelOptions(
   adapterId: AgentId,
-  input: { model?: unknown; thinking?: unknown },
+  input: { provider?: unknown; model?: unknown; thinking?: unknown },
 ): CreateSessionModelOptions {
   const normalized = normalizeSessionModelOptions(adapterId, input);
-  const model = adapterId === 'deepseek-claude-code'
-    ? mapDeepseekModelAlias(normalized.model)
-    : normalized.model;
+  const model = normalized.model;
   if (adapterId === 'codex-cli') {
     return {
+      ...(normalized.provider !== null ? { provider: normalized.provider } : {}),
       ...(model !== null ? { model } : {}),
       ...(normalized.thinking !== null
         ? { modelReasoningEffort: normalized.thinking as CodexThinkingLevel }
@@ -101,6 +126,7 @@ export function resolveCreateSessionModelOptions(
     };
   }
   return {
+    ...(normalized.provider !== null ? { provider: normalized.provider } : {}),
     ...(model !== null ? { model } : {}),
     ...(normalized.thinking !== null
       ? { claudeCodeEffortLevel: normalized.thinking as ClaudeThinkingLevel }

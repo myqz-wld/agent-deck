@@ -194,6 +194,7 @@ export function saveUserAsset(input: UserAssetInput): { ok: true } | { ok: false
           description,
           developerInstructions: body,
           model: input.model,
+          modelProvider: input.provider,
         })
       : buildMarkdownAssetFileText(input, description, body);
 
@@ -325,6 +326,10 @@ function scanUserCodexAgents(): AssetMeta[] {
         description: parsed.description ?? '',
         model: parsed.model ?? '',
         model_reasoning_effort: parsed.modelReasoningEffort ?? '',
+        model_provider:
+          typeof parsed.config.model_provider === 'string'
+            ? parsed.config.model_provider
+            : '',
       }, 'user', 'codex-cli'));
     } catch (err) {
       logger.warn(`[user-assets] skip codex agent ${file}:`, (err as Error).message);
@@ -414,6 +419,9 @@ function buildMarkdownAssetFileText(input: UserAssetInput, description: string, 
   if (input.kind === 'agent') {
     if (input.tools !== undefined && input.tools.trim().length > 0) fm.tools = input.tools.trim();
     if (input.model !== undefined && input.model.trim().length > 0) fm.model = input.model.trim();
+    if (input.provider !== undefined && input.provider.trim().length > 0) {
+      fm.provider = input.provider.trim();
+    }
   }
   return `${stringifyFrontmatter(fm)}\n${body}${body.endsWith('\n') ? '' : '\n'}`;
 }

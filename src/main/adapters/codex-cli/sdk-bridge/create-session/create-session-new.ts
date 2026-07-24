@@ -113,6 +113,7 @@ export async function runCreateSessionNewPath(
   persistSessionFields({
     sessionId: internal.applicationSid,
     sandboxMode,
+    provider: opts.provider,
     model: effectiveModel,
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,

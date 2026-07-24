@@ -63,6 +63,8 @@ export async function runCodexOneshot(opts: {
    * 优先级链解析后传入;undefined → fallback `~/.codex/config.toml` 顶层 model 配置。
    */
   model?: string;
+  /** Native model_provider id selected for this isolated thread. */
+  provider?: string;
   /** Timeout 毫秒；<= 0 不起 timer。 */
   timeoutMs: number;
   /** Timer 触发 reject 的 summary-specific errorMessage。 */
@@ -96,6 +98,7 @@ export async function runCodexOneshot(opts: {
       configOverrides: {
         features: { ...DISABLED_EXECUTABLE_FEATURES },
         mcp_servers: {},
+        ...(opts.provider ? { model_provider: opts.provider } : {}),
       },
       useBaseConfig: false,
       networkAccessEnabled: false,

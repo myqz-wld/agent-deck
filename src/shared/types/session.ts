@@ -35,6 +35,14 @@ export type SessionSource = 'sdk' | 'cli';
 export interface SessionRecord {
   id: string;
   agentId: string;
+  /**
+   * Adapter-scoped runtime provider.
+   *
+   * - claude-code: Gateway profile id resolved from ~/.claude/gateways/<id>.json
+   * - codex-cli: native `model_provider` id from ~/.codex/config.toml
+   * - grok-build: always null; Grok keeps native model-alias routing
+   */
+  runtimeProvider?: string | null;
   cwd: string;
   title: string;
   source: SessionSource;
@@ -105,7 +113,7 @@ export interface SessionRecord {
    *
    * Stored as the adapter-facing level selected at creation time, then calibrated when the
    * provider reports a more authoritative runtime value:
-   * - claude-code / deepseek-claude-code: requested SDK `effort`
+   * - claude-code (including Gateway profiles): requested SDK `effort`
    *   (`low` / `medium` / `high` / `xhigh` / `max`), replaced by the latest actual effort
    *   observed from a completed SDK turn (including provider-side silent downgrade)
    * - codex-cli: app-server `model_reasoning_effort`
@@ -261,14 +269,24 @@ export interface HandOffMetadata {
   sourceMaxEventId?: number | null;
 }
 
-export type SessionAdapterId =
+export type RuntimeAdapterId =
   | 'claude-code'
-  | 'deepseek-claude-code'
   | 'codex-cli'
   | 'grok-build';
 
+export interface RuntimeSelection {
+  adapter: RuntimeAdapterId;
+  provider?: string;
+  model?: string;
+  thinking?: string;
+}
+
+export type SessionAdapterId = RuntimeAdapterId;
+
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
+  /** Claude Gateway profile id or Codex model_provider; null delegates to native defaults. */
+  provider: string | null;
   /** Empty/null delegates model selection to the target provider. */
   model: string | null;
   /** Empty/null delegates thinking selection to the target provider. */

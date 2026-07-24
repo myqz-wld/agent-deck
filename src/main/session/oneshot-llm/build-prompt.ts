@@ -1,9 +1,8 @@
 /** Periodic-summary prompt assets shared by Claude-family and Codex oneshot runners. */
-export type AgentName = 'Claude' | 'Deepseek' | 'Agent';
+export type AgentName = 'Claude' | 'Agent';
 
 function describeSessionIntro(agentName: AgentName): string {
   if (agentName === 'Claude') return 'Claude Code 会话';
-  if (agentName === 'Deepseek') return 'Deepseek 会话';
   return 'AI 助手会话';
 }
 

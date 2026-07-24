@@ -1,6 +1,5 @@
 import type {
   SpawnSessionArgs,
-  SpawnSessionModelValue,
   SpawnSessionThinkingValue,
 } from '../schemas';
 import {
@@ -25,11 +24,6 @@ export type SpawnModelOptionsResult =
   | { ok: true; options: SpawnModelOptions }
   | { ok: false; error: string; hint: string };
 
-const DEEPSEEK_MODEL_RUNTIME = {
-  'v4-flash': 'deepseek-v4-flash',
-  'v4-pro': 'deepseek-v4-pro[1m]',
-} as const satisfies Partial<Record<SpawnSessionModelValue, string>>;
-
 function formatValues(values: readonly string[]): string {
   return values.join(', ');
 }
@@ -39,14 +33,10 @@ function isAllowed<T extends string>(values: readonly T[], value: string): value
 }
 
 function resolveExplicitModel(
-  adapter: SpawnSessionArgs['adapter'],
+  _adapter: SpawnSessionArgs['adapter'],
   model: string,
 ): SpawnModelOptionsResult {
   const normalized = model.trim();
-  if (adapter === 'deepseek-claude-code') {
-    const aliasModel = DEEPSEEK_MODEL_RUNTIME[normalized as SpawnSessionModelValue];
-    return { ok: true, options: { model: aliasModel ?? normalized } };
-  }
   return { ok: true, options: { model: normalized } };
 }
 

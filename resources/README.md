@@ -9,7 +9,7 @@ This document records only resource paths, loading behavior, and paired-boundary
 | Source directory | Packaged directory | Purpose |
 |---|---|---|
 | `resources/bin` | `.app/Contents/Resources/bin` | CLI wrapper and helper scripts |
-| `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek (Claude Code) app conventions and plugin resources |
+| `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code app conventions, Gateway-backed reviewers, and plugin resources |
 | `resources/codex-config` | `.app/Contents/Resources/codex-config` | Codex app conventions, custom-agent TOML, and skill resources |
 | `resources/grok-config` | `.app/Contents/Resources/grok-config` | Grok Build ACP baseline, plugin agents, and skills |
 | `resources/sounds` | `.app/Contents/Resources/sounds` | App notification sounds |
@@ -21,24 +21,25 @@ Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories
 Packaged app conventions, Agents, and Skills are immutable runtime resources. The Assets Library
 may attach an app-owned runtime delta to a bundled Agent without editing this directory:
 
-- Claude/Deepseek, Codex, and Grok bundled Agents may override model and thinking.
-- Codex bundled Agents may additionally override the native `model_provider` identifier.
+- Claude, Codex, and Grok bundled Agents may override model and thinking.
+- Claude and Codex bundled Agents may additionally override a Gateway profile or native `model_provider` identifier.
 - Reset removes the whole app-owned delta and exposes the packaged Agent defaults again.
 - Bundled Skills have no runtime override. User and project Agents remain owned by their native
   adapter directories and do not consume bundled-Agent deltas.
 
 Provider endpoints, credentials, and alias definitions stay in each adapter's native configuration.
-The resource layer neither copies those definitions nor writes user-level Claude, Codex, or Grok
-configuration.
+The resource layer stores only provider ids; it neither copies credentials nor writes user-level
+Claude, Codex, or Grok configuration.
 
 ## claude-config/
 
-The Claude Code adapter uses this resource root. Deepseek (Claude Code) reuses the same agents / skills / `CLAUDE.md` and overlays provider env through `~/.agent-deck/.deepseek/settings.json`.
+The Claude Code adapter uses this resource root. Gateway-backed sessions reuse the same agents,
+skills, and `CLAUDE.md`; their provider id resolves independently to
+`~/.claude/gateways/<provider>.json` and is passed to the SDK child through `options.settings`.
 
 - `CLAUDE.md`: Appended to the end of the preset system prompt through Claude SDK `systemPrompt.append`, after user / project / local `CLAUDE.md`. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
 - `agent-deck-plugin/`: Local plugin source used by the Claude SDK `plugins` field. At runtime it is mirrored to `<userData>/agent-deck-plugin/` and resource placeholders are replaced; the mirror is pruned by `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` for the `skills/` / `agents/` subdirectories before being handed to the SDK scanner.
 - `agent-deck-plugin/agents/reviewer-claude.md`: Claude Code reviewer teammate body.
-- `agent-deck-plugin/agents/reviewer-deepseek.md`: Deepseek reviewer teammate body loaded through the Claude Code resource root.
 - `agent-deck-plugin/skills/*/SKILL.md`: Claude Code-side `agent-deck:*` skills.
 
 ## codex-config/
@@ -62,6 +63,6 @@ The Grok Build adapter uses this resource root through the official ACP v1 `sess
 ## Paired Boundaries
 
 - App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md`, `resources/codex-config/CODEX_AGENTS.md`, and `resources/grok-config/GROK_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
-- Reviewer bodies: `reviewer-claude.md`, `reviewer-deepseek.md`, `reviewer-codex.toml`, and `reviewer-grok.md` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
+- Reviewer bodies: `reviewer-claude.md`, `reviewer-codex.toml`, and `reviewer-grok.md` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
 - Skills: Claude, Codex, and Grok skills live under their adapter resource roots. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's actual tool capabilities.
 - Packaged resources must be self-contained: app conventions, reviewer agents, and skills must remain fully usable when no user-customized agents / skills exist.

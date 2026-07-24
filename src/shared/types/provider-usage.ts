@@ -1,7 +1,7 @@
 export type ProviderUsageProviderId =
   | 'claude-code'
   | 'codex-cli'
-  | 'deepseek-claude-code';
+  | 'grok-build';
 
 export type ProviderUsageStatus =
   | 'ok'

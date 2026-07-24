@@ -74,13 +74,50 @@ describe('SettingsSet continuation validation', () => {
       expect(
         validateSettingsPatch(
           {
-            continuationCheckpointProvider: 'codex',
+            continuationCheckpointAdapter: 'codex-cli',
+            continuationCheckpointRuntimeProvider: 'openai',
             continuationCheckpointModel: 'gpt-continuation',
             continuationCheckpointThinking: thinking,
           },
           current(),
         ),
       ).toMatchObject({ continuationCheckpointThinking: thinking });
+    }
+  });
+
+  it('accepts Grok through xhigh and rejects unsupported higher tiers', () => {
+    for (const thinking of ['low', 'medium', 'high', 'xhigh']) {
+      expect(
+        validateSettingsPatch(
+          {
+            summaryAdapter: 'grok-build',
+            summaryThinking: thinking,
+            continuationCheckpointAdapter: 'grok-build',
+            continuationCheckpointThinking: thinking,
+          },
+          current(),
+        ),
+      ).toMatchObject({
+        summaryAdapter: 'grok-build',
+        continuationCheckpointAdapter: 'grok-build',
+      });
+    }
+    for (const thinking of ['max', 'ultra']) {
+      expect(() =>
+        validateSettingsPatch(
+          { summaryAdapter: 'grok-build', summaryThinking: thinking } as unknown,
+          current(),
+        ),
+      ).toThrow(/summaryThinking/);
+      expect(() =>
+        validateSettingsPatch(
+          {
+            continuationCheckpointAdapter: 'grok-build',
+            continuationCheckpointThinking: thinking,
+          } as unknown,
+          current(),
+        ),
+      ).toThrow(/continuationCheckpointThinking/);
     }
   });
 
@@ -140,7 +177,7 @@ describe('SettingsSet continuation validation', () => {
     expect(() =>
       validateSettingsPatch(
         {
-          continuationCheckpointProvider: 'codex',
+          continuationCheckpointAdapter: 'codex-cli',
           continuationCheckpointThinking: thinking,
         } as unknown,
         current(),
@@ -151,10 +188,10 @@ describe('SettingsSet continuation validation', () => {
   it.each(['minimal', 'bogus'])('rejects removed or unknown Codex summary thinking %s', (thinking) => {
     expect(() =>
       validateSettingsPatch(
-        { summaryProvider: 'codex', summaryReasoning: thinking } as unknown,
+        { summaryAdapter: 'codex-cli', summaryThinking: thinking } as unknown,
         current(),
       ),
-    ).toThrow(/summaryReasoning/);
+    ).toThrow(/summaryThinking/);
   });
 
   it.each(['minimal', 'ultra', 'bogus'])(
@@ -163,7 +200,8 @@ describe('SettingsSet continuation validation', () => {
       expect(() =>
         validateSettingsPatch(
           {
-            continuationCheckpointProvider: 'deepseek',
+            continuationCheckpointAdapter: 'claude-code',
+            continuationCheckpointRuntimeProvider: 'deepseek',
             continuationCheckpointThinking: thinking,
           } as unknown,
           current(),
@@ -172,25 +210,46 @@ describe('SettingsSet continuation validation', () => {
     },
   );
 
+  it('rejects unsafe Claude Gateway profile ids in generator settings', () => {
+    expect(() =>
+      validateSettingsPatch(
+        {
+          summaryAdapter: 'claude-code',
+          summaryRuntimeProvider: '../deepseek',
+        },
+        current(),
+      ),
+    ).toThrow(/summaryRuntimeProvider/);
+    expect(() =>
+      validateSettingsPatch(
+        {
+          continuationCheckpointAdapter: 'claude-code',
+          continuationCheckpointRuntimeProvider: 'gateway/escape',
+        },
+        current(),
+      ),
+    ).toThrow(/continuationCheckpointRuntimeProvider/);
+  });
+
   it('rejects a provider-only switch that would make the retained thinking incompatible', () => {
     expect(() =>
       validateSettingsPatch(
-        { continuationCheckpointProvider: 'claude' },
+        { continuationCheckpointAdapter: 'claude-code' },
         current({
-          continuationCheckpointProvider: 'codex',
+          continuationCheckpointAdapter: 'codex-cli',
           continuationCheckpointThinking: 'ultra',
         }),
       ),
     ).toThrow(/continuationCheckpointThinking/);
   });
 
-  it.each(['unknown', 'claude-code', null, 1])('rejects unknown provider %s', (provider) => {
+  it.each(['unknown', 'claude', null, 1])('rejects unknown adapter %s', (adapter) => {
     expect(() =>
       validateSettingsPatch(
-        { continuationCheckpointProvider: provider } as unknown,
+        { continuationCheckpointAdapter: adapter } as unknown,
         current(),
       ),
-    ).toThrow(/continuationCheckpointProvider/);
+    ).toThrow(/continuationCheckpointAdapter/);
   });
 
   it('accepts an empty or 256-character model and rejects non-string or oversized models', () => {

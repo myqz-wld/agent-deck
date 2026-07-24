@@ -34,8 +34,8 @@ export function normalizeBundledAgentRuntimeOverride(
   if (thinking && !isThinkingValidForAdapter(adapter, thinking)) {
     throw new Error(`thinking "${thinking}" is not valid for ${adapter}`);
   }
-  if (provider && adapter !== 'codex-cli') {
-    throw new Error('provider is supported only for codex-cli bundled Agents');
+  if (provider && adapter === 'grok-build') {
+    throw new Error('provider is supported only for claude-code or codex-cli bundled Agents');
   }
   return {
     ...(model ? { model } : {}),

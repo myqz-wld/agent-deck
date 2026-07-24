@@ -65,14 +65,18 @@ function installSdk(): void {
 
 beforeEach(() => {
   calls.length = 0;
+  vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', '');
   settings.values.summaryModel = '';
-  settings.values.summaryReasoning = 'medium';
+  settings.values.summaryThinking = 'medium';
   settings.values.summaryTimeoutMs = 0;
   vi.clearAllMocks();
   installSdk();
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe('summariseViaLlm periodic reasoning effort', () => {
   it('uses the Haiku alias for a blank Claude model and ignores ANTHROPIC_MODEL', async () => {
@@ -80,30 +84,8 @@ describe('summariseViaLlm periodic reasoning effort', () => {
     const previous = settingsStore.get('summaryModel');
     settingsStore.set('summaryModel', '');
     try {
-      await summariseViaLlm('/tmp/cwd', events, {
-        envOverride: {
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: '',
-          ANTHROPIC_MODEL: 'hidden-generic-model',
-        },
-      });
+      await summariseViaLlm('/tmp/cwd', events);
       expect(calls[0].options.model).toBe('haiku');
-    } finally {
-      settingsStore.set('summaryModel', previous);
-    }
-  });
-
-  it('uses the configured Haiku alias override for a blank Claude model', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('summaryModel');
-    settingsStore.set('summaryModel', '');
-    try {
-      await summariseViaLlm('/tmp/cwd', events, {
-        envOverride: {
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-env',
-          ANTHROPIC_MODEL: 'hidden-generic-model',
-        },
-      });
-      expect(calls[0].options.model).toBe('claude-haiku-env');
     } finally {
       settingsStore.set('summaryModel', previous);
     }
@@ -111,40 +93,37 @@ describe('summariseViaLlm periodic reasoning effort', () => {
 
   it.each(['', 'invalid'])('falls back from summary effort %j to low', async (value) => {
     const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('summaryReasoning');
-    settingsStore.set('summaryReasoning', value as AppSettings['summaryReasoning']);
+    const previous = settingsStore.get('summaryThinking');
+    settingsStore.set('summaryThinking', value as AppSettings['summaryThinking']);
     try {
       await summariseViaLlm('/tmp/cwd', events);
       expect(calls[0].options.effort).toBe('low');
     } finally {
-      settingsStore.set('summaryReasoning', previous);
+      settingsStore.set('summaryThinking', previous);
     }
   });
 
   it('passes a valid Claude-family summary effort', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('summaryReasoning');
-    settingsStore.set('summaryReasoning', 'high');
+    const previous = settingsStore.get('summaryThinking');
+    settingsStore.set('summaryThinking', 'high');
     try {
-      await summariseViaLlm('/tmp/cwd', events, {
-        agentName: 'Deepseek',
-        envOverride: { ANTHROPIC_MODEL: 'deepseek-v4-pro' },
-      });
+      await summariseViaLlm('/tmp/cwd', events);
       expect(calls[0].options.effort).toBe('high');
     } finally {
-      settingsStore.set('summaryReasoning', previous);
+      settingsStore.set('summaryThinking', previous);
     }
   });
 
   it('coerces a retained Codex-only summary effort for Claude', async () => {
     const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('summaryReasoning');
-    settingsStore.set('summaryReasoning', 'ultra');
+    const previous = settingsStore.get('summaryThinking');
+    settingsStore.set('summaryThinking', 'ultra');
     try {
       await summariseViaLlm('/tmp/cwd', events);
       expect(calls[0].options.effort).toBe('max');
     } finally {
-      settingsStore.set('summaryReasoning', previous);
+      settingsStore.set('summaryThinking', previous);
     }
   });
 

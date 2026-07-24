@@ -367,6 +367,7 @@ export function projectSession(s: SessionRecord) {
   return {
     sessionId: s.id,
     adapter: s.agentId,
+    provider: s.runtimeProvider ?? null,
     cwd: s.cwd,
     lifecycle: s.lifecycle,
     title: s.title,

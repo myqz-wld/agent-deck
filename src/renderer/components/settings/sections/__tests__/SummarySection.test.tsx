@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { useState, type JSX } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types';
 import { SummarySection } from '../SummarySection';
 
@@ -28,12 +28,6 @@ function openSection(): void {
   fireEvent.click(button);
 }
 
-function rowButtons(label: string): HTMLButtonElement[] {
-  const row = screen.getByText(label).parentElement;
-  if (!row) throw new Error(`${label} row was not rendered`);
-  return within(row).getAllByRole('button') as HTMLButtonElement[];
-}
-
 function visibleOptionLabels(): string[] {
   return screen.getAllByRole('option').map((option) => option.textContent ?? '');
 }
@@ -44,6 +38,8 @@ beforeEach(() => {
     configurable: true,
     value: {
       summarizerLastErrors: vi.fn().mockResolvedValue({}),
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexModelProviders: vi.fn().mockResolvedValue([]),
     },
   });
 });
@@ -61,24 +57,22 @@ describe('SummarySection provider-specific thinking levels', () => {
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          summaryProvider: 'codex',
-          summaryReasoning: 'low',
+          summaryAdapter: 'codex-cli',
+          summaryThinking: 'low',
         }}
         onPatch={onPatch}
       />,
     );
     openSection();
-    expect(
-      screen.getByText('留空时使用 Codex 配置默认模型。'),
-    ).toBeTruthy();
+    expect(screen.getByText('留空时使用所选 Codex provider 的默认模型。')).toBeTruthy();
     expect(
       (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
         .placeholder,
     ).toBe('模型（可留空）');
 
-    let summaryButtons = rowButtons('总结模型');
-    expect(summaryButtons[1]?.title).toBe('Codex 思考程度');
-    fireEvent.click(summaryButtons[1]!);
+    let thinkingButton = screen.getByRole('button', { name: '总结模型 思考程度' });
+    expect(thinkingButton.title).toBe('Codex CLI 思考程度');
+    fireEvent.click(thinkingButton);
     expect(visibleOptionLabels()).toEqual([
       'LOW',
       'MEDIUM',
@@ -89,13 +83,14 @@ describe('SummarySection provider-specific thinking levels', () => {
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
 
-    summaryButtons = rowButtons('总结模型');
-    fireEvent.click(summaryButtons[0]!);
-    fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
 
     await waitFor(() => {
-      const reasoningButton = rowButtons('总结模型')[1]!;
-      expect(reasoningButton.title).toBe('Claude 思考程度');
+      const reasoningButton = screen.getByRole('button', {
+        name: '总结模型 思考程度',
+      }) as HTMLButtonElement;
+      expect(reasoningButton.title).toBe('Claude Code 思考程度');
       expect(reasoningButton.textContent).toContain('LOW');
       expect(reasoningButton.disabled).toBe(false);
       expect(
@@ -105,11 +100,14 @@ describe('SummarySection provider-specific thinking levels', () => {
     });
     expect(screen.getByText('留空时使用 Claude Haiku。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
-      summaryProvider: 'claude',
-      summaryReasoning: 'low',
+      summaryAdapter: 'claude-code',
+      summaryRuntimeProvider: '',
+      summaryModel: '',
+      summaryThinking: 'low',
     });
 
-    fireEvent.click(rowButtons('总结模型')[1]!);
+    thinkingButton = screen.getByRole('button', { name: '总结模型 思考程度' });
+    fireEvent.click(thinkingButton);
     expect(visibleOptionLabels()).toEqual(['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX']);
     fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
     expect(screen.queryByText('Hand-off 简报')).toBeNull();
@@ -121,28 +119,35 @@ describe('SummarySection provider-specific thinking levels', () => {
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          summaryProvider: 'codex',
-          summaryReasoning: 'xhigh',
+          summaryAdapter: 'codex-cli',
+          summaryThinking: 'xhigh',
         }}
         onPatch={onPatch}
       />,
     );
     openSection();
 
-    fireEvent.click(rowButtons('总结模型')[0]!);
-    fireEvent.click(screen.getByRole('option', { name: 'Deepseek' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
+    fireEvent.change(screen.getByRole('combobox', { name: '总结模型 Gateway' }), {
+      target: { value: 'deepseek' },
+    });
 
     await waitFor(() => {
-      expect(rowButtons('总结模型')[1]?.textContent).toContain('XHIGH');
+      expect(
+        screen.getByRole('button', { name: '总结模型 思考程度' }).textContent,
+      ).toContain('XHIGH');
       expect(
         (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
           .placeholder,
       ).toBe('模型（可留空）');
     });
-    expect(screen.getByText('留空时使用 Deepseek Haiku。')).toBeTruthy();
+    expect(
+      screen.getByText('留空时使用 deepseek Gateway 的 Haiku 路由。'),
+    ).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
-      summaryProvider: 'deepseek',
-      summaryReasoning: 'xhigh',
+      summaryRuntimeProvider: 'deepseek',
+      summaryModel: '',
     });
   });
 
@@ -152,21 +157,23 @@ describe('SummarySection provider-specific thinking levels', () => {
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          summaryProvider: 'codex',
-          summaryReasoning: 'minimal',
+          summaryAdapter: 'codex-cli',
+          summaryThinking: 'minimal',
         }}
         onPatch={onPatch}
       />,
     );
     openSection();
 
-    fireEvent.click(rowButtons('总结模型')[0]!);
-    fireEvent.click(screen.getByRole('option', { name: 'Claude' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
 
     await waitFor(() => {
       expect(onPatch).toHaveBeenCalledWith({
-        summaryProvider: 'claude',
-        summaryReasoning: 'low',
+        summaryAdapter: 'claude-code',
+        summaryRuntimeProvider: '',
+        summaryModel: '',
+        summaryThinking: 'low',
       });
     });
   });
@@ -177,26 +184,63 @@ describe('SummarySection provider-specific thinking levels', () => {
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          summaryProvider: 'claude',
-          summaryReasoning: 'max',
+          summaryAdapter: 'claude-code',
+          summaryThinking: 'max',
         }}
         onPatch={onPatch}
       />,
     );
     openSection();
 
-    fireEvent.click(rowButtons('总结模型')[0]!);
-    fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Codex CLI' }));
 
     await waitFor(() => {
-      expect(rowButtons('总结模型')[1]?.textContent).toContain('MAX');
+      expect(
+        screen.getByRole('button', { name: '总结模型 思考程度' }).textContent,
+      ).toContain('MAX');
     });
     expect(onPatch).toHaveBeenCalledWith({
-      summaryProvider: 'codex',
-      summaryReasoning: 'max',
+      summaryAdapter: 'codex-cli',
+      summaryRuntimeProvider: '',
+      summaryModel: '',
+      summaryThinking: 'max',
     });
-    fireEvent.click(rowButtons('总结模型')[1]!);
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 思考程度' }));
     expect(visibleOptionLabels()).toContain('MAX');
+  });
+
+  it('offers Grok Build with its xhigh ceiling and config.toml model default', async () => {
+    const onPatch = vi.fn();
+    render(
+      <SettingsHarness
+        initial={{
+          ...DEFAULT_SETTINGS,
+          summaryAdapter: 'codex-cli',
+          summaryThinking: 'ultra',
+        }}
+        onPatch={onPatch}
+      />,
+    );
+    openSection();
+
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
+
+    await waitFor(() => {
+      const thinking = screen.getByRole('button', { name: '总结模型 思考程度' });
+      expect(thinking.title).toBe('Grok Build 思考程度');
+      expect(thinking.textContent).toContain('XHIGH');
+      expect(screen.getByText('留空时使用 Grok 配置默认模型。')).toBeTruthy();
+    });
+    expect(onPatch).toHaveBeenCalledWith({
+      summaryAdapter: 'grok-build',
+      summaryRuntimeProvider: '',
+      summaryModel: '',
+      summaryThinking: 'xhigh',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 思考程度' }));
+    expect(visibleOptionLabels()).toEqual(['LOW', 'MEDIUM', 'HIGH', 'XHIGH']);
   });
 
   it('trims a custom summary model before saving it', async () => {
@@ -205,7 +249,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       <SettingsHarness
         initial={{
           ...DEFAULT_SETTINGS,
-          summaryProvider: 'codex',
+          summaryAdapter: 'codex-cli',
         }}
         onPatch={onPatch}
       />,

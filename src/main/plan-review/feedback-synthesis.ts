@@ -1,4 +1,7 @@
-import { loadDeepseekClaudeEnv } from '@main/adapters/deepseek-claude-code/config';
+import {
+  resolveClaudeGatewayProfile,
+  type ResolvedClaudeGatewayProfile,
+} from '@main/adapters/claude-code/gateway-profiles';
 import type { AgentId } from '@main/adapters/options-builder';
 import { runClaudeOneshot, runCodexOneshot } from '@main/session/oneshot-llm';
 import { eventRepo } from '@main/store/event-repo';
@@ -44,7 +47,9 @@ export interface PlanReviewFeedbackSynthesisDeps {
   listEvents: (sessionId: string, limit: number) => AgentEvent[];
   runClaude: typeof runClaudeOneshot;
   runCodex: typeof runCodexOneshot;
-  loadDeepseekEnv: typeof loadDeepseekClaudeEnv;
+  resolveClaudeGateway: (
+    provider: string | null | undefined,
+  ) => ResolvedClaudeGatewayProfile | null;
 }
 
 const defaultDeps: PlanReviewFeedbackSynthesisDeps = {
@@ -52,7 +57,7 @@ const defaultDeps: PlanReviewFeedbackSynthesisDeps = {
   listEvents: (sessionId, limit) => eventRepo.listForSession(sessionId, limit),
   runClaude: runClaudeOneshot,
   runCodex: runCodexOneshot,
-  loadDeepseekEnv: loadDeepseekClaudeEnv,
+  resolveClaudeGateway: resolveClaudeGatewayProfile,
 };
 
 function messageFromEvent(event: AgentEvent): DialogueMessage | null {
@@ -135,18 +140,20 @@ export async function synthesizePlanReviewFeedback(
     raw = await deps.runCodex({
       ...common,
       ...(session.model ? { model: session.model } : {}),
+      ...(session.runtimeProvider
+        ? { provider: session.runtimeProvider }
+        : {}),
       ...(isCodexThinkingLevel(session.thinking)
         ? { modelReasoningEffort: session.thinking }
         : {}),
     });
   } else {
+    const profile = deps.resolveClaudeGateway(session.runtimeProvider);
     raw = await deps.runClaude({
       ...common,
       ...(session.model ? { model: session.model } : {}),
       ...(isClaudeThinkingLevel(session.thinking) ? { effort: session.thinking } : {}),
-      ...(input.agentId === 'deepseek-claude-code'
-        ? { envOverride: deps.loadDeepseekEnv() }
-        : {}),
+      ...(profile ? { settingsPath: profile.settingsPath } : {}),
     });
   }
   const feedback = raw.trim().slice(0, MAX_FEEDBACK_CHARS);

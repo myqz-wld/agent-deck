@@ -51,6 +51,8 @@ beforeEach(() => {
           capabilities: { canAcceptAttachments: true },
         },
       ]),
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexModelProviders: vi.fn().mockResolvedValue([]),
       sendAdapterMessage,
       steerAdapterTurn,
       interruptAdapterSession,
@@ -257,13 +259,14 @@ describe('ComposerSdk unified input routing', () => {
   it('automatically applies a free-form model and dropdown thinking level to the next turn', async () => {
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
 
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        provider: null,
         model: 'gpt-custom',
         thinking: 'ultra',
       });
@@ -274,12 +277,39 @@ describe('ComposerSdk unified input routing', () => {
   it('automatically persists a free-form model without another control change', async () => {
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
 
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        provider: null,
         model: 'gpt-custom',
+        thinking: 'low',
+      });
+    });
+  });
+
+  it('shows and persists the Codex provider from the session runtime controls', async () => {
+    render(
+      <ComposerSdk
+        session={makeSession({
+          runtimeProvider: 'openai',
+          model: 'gpt-old',
+          thinking: 'low',
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
+    const provider = screen.getByLabelText('Provider') as HTMLInputElement;
+    expect(provider.value).toBe('openai');
+    expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('gpt-old');
+    fireEvent.change(provider, { target: { value: 'openai-custom' } });
+
+    await waitFor(() => {
+      expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        provider: 'openai-custom',
+        model: null,
         thinking: 'low',
       });
     });
@@ -297,12 +327,13 @@ describe('ComposerSdk unified input routing', () => {
       .mockResolvedValueOnce(undefined);
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'first-model' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'HIGH' }));
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        provider: null,
         model: 'first-model',
         thinking: 'high',
       });
@@ -316,6 +347,7 @@ describe('ComposerSdk unified input routing', () => {
     rejectFirst(new Error('first selection failed'));
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenLastCalledWith('codex-cli', 'sess-1', {
+        provider: null,
         model: 'latest-model',
         thinking: 'ultra',
       });
@@ -336,12 +368,13 @@ describe('ComposerSdk unified input routing', () => {
       .mockResolvedValueOnce(undefined);
     const view = render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('模型与思考程度'));
+    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'old-session-model' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'HIGH' }));
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
+        provider: null,
         model: 'old-session-model',
         thinking: 'high',
       });
@@ -356,6 +389,7 @@ describe('ComposerSdk unified input routing', () => {
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-2', {
+        provider: null,
         model: 'new-session-model',
         thinking: 'ultra',
       });

@@ -6,6 +6,7 @@ import {
   type ClaudeThinkingLevel,
 } from '@shared/session-metadata';
 import { settingsStore } from '@main/store/settings-store';
+import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
 import {
   buildSummarizePrompt,
   cleanCompactResult,
@@ -17,19 +18,13 @@ import { formatEventsForPrompt } from './event-formatter';
 
 interface ClaudeFamilyRunnerOptions {
   agentName?: AgentName;
-  envOverride?: Readonly<Record<string, string>>;
+  runtimeProvider?: string;
+  model?: string;
+  thinking?: string;
   evidenceContext?: string;
 }
 
-function providerEnv(
-  opts: ClaudeFamilyRunnerOptions | undefined,
-  key: string,
-): string | undefined {
-  return opts?.envOverride?.[key] ?? process.env[key];
-}
-
-function claudeReasoningSetting(): ClaudeThinkingLevel {
-  const value = settingsStore.get('summaryReasoning');
+function claudeReasoningSetting(value: unknown): ClaudeThinkingLevel {
   if (value === 'minimal') return 'low';
   if (value === 'ultra') return 'max';
   return isClaudeThinkingLevel(value) ? value : DEFAULT_SUMMARY_REASONING;
@@ -52,6 +47,8 @@ export async function summariseViaLlm(
   const activity = formatEventsForPrompt(events);
   if (!activity && !opts?.evidenceContext) return null;
   const agentName = opts?.agentName ?? 'Claude';
+  const profile = resolveClaudeGatewayProfile(opts?.runtimeProvider);
+  const explicitModel = opts?.model?.trim();
 
   const result = await runClaudeOneshot({
     cwd,
@@ -63,12 +60,15 @@ export async function summariseViaLlm(
     }),
     // Periodic summaries prefer each Claude-family provider's low-cost Haiku alias.
     model:
-      settingsStore.get('summaryModel') ||
-      providerEnv(opts, 'ANTHROPIC_DEFAULT_HAIKU_MODEL') ||
+      explicitModel ||
+      profile?.modelAliases.haiku ||
+      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||
       'haiku',
-    effort: claudeReasoningSetting(),
+    effort: claudeReasoningSetting(
+      opts?.thinking ?? settingsStore.get('summaryThinking'),
+    ),
     systemPrompt: buildSummarizeSystemPrompt(agentName),
-    envOverride: opts?.envOverride,
+    settingsPath: profile?.settingsPath,
     timeoutMs: settingsStore.get('summaryTimeoutMs'),
     timeoutErrorMessage: '__summarizer_timeout__',
   });

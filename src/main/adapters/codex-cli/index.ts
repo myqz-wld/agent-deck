@@ -7,7 +7,12 @@ import type {
   ForkedSessionHandle,
   ForkSessionSource,
 } from '../types';
-import type { AgentEvent, ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
+import type {
+  AgentEvent,
+  ProviderUsageSnapshot,
+  RuntimeSelection,
+  UploadedAttachmentRef,
+} from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
 import { buildCodexHookRoutes } from './hook-routes';
@@ -81,6 +86,7 @@ class CodexCliAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       prompt: opts.prompt,
+      provider: opts.provider,
       resume: opts.resume,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
@@ -114,6 +120,7 @@ class CodexCliAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
+      provider: opts.provider,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
       model: opts.model,
@@ -154,6 +161,7 @@ class CodexCliAdapter implements AgentAdapter {
     return this.bridge.createForkedSession(source, {
       cwd: target.cwd,
       prompt: target.prompt,
+      provider: target.provider,
       codexSandbox: target.codexSandbox,
       attachments: target.attachments,
       model: target.model,
@@ -224,7 +232,7 @@ class CodexCliAdapter implements AgentAdapter {
 
   async setSessionModelOptions(
     sessionId: string,
-    options: { model: string | null; thinking: string | null },
+    options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
     await this.bridge.setSessionModelOptions(sessionId, options);
@@ -314,12 +322,14 @@ class CodexCliAdapter implements AgentAdapter {
     cwd: string,
     events: AgentEvent[],
     evidenceContext?: string,
+    runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
   ): Promise<string | null> {
     return summariseCodexSessionViaOneshot(
       cwd,
       events,
       formatEventsForPrompt,
       evidenceContext,
+      runtime,
     );
   }
 

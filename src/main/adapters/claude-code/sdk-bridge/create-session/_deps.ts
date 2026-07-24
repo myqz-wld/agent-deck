@@ -24,6 +24,7 @@ import type {
   InitialSessionRegistration,
 } from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
+import type { ClaudeProviderModelAliases } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
@@ -39,6 +40,10 @@ import type { TrustedContinuationInitialTurn } from '@main/session/continuation-
 export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
+  /** Claude Gateway profile id persisted with the session. */
+  provider?: string;
+  /** Resolved profile settings file passed to SDK options.settings for this child only. */
+  settingsPath?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -74,6 +79,8 @@ export interface CreateSessionOpts {
   model?: string;
   /** Bridge profile fallback, applied only after an explicit model and a resumed session model. */
   profileDefaultModel?: string;
+  /** Non-sensitive model alias metadata read from the selected Gateway settings file. */
+  providerModelAliases?: ClaudeProviderModelAliases;
   /**
    * Per-session Claude Code thinking / effort override. Passed to SDK `query({ options.effort })`.
    * Undefined preserves user settings / provider defaults.
@@ -83,11 +90,6 @@ export interface CreateSessionOpts {
   claudeAgentName?: string;
   /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
   claudeAgents?: Record<string, AgentDefinition>;
-  /**
-   * Bridge-internal env overlay for Claude-compatible provider profiles. Not exposed through
-   * IPC/MCP raw opts; adapter profiles inject it at bridge.createSession time.
-   */
-  envOverrideExtra?: Readonly<Record<string, string>>;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
    * bridge 内部 internal 字段(**REVIEW_105 MED-1: 本字段 SSOT 锚点 — facade ClaudeCreateOpts /

@@ -7,7 +7,7 @@ const harness = vi.hoisted(() => {
     currentRevision: 11,
     rebuildAfterRevision: 0,
     summaryEventCount: 1,
-    summaryProvider: 'claude' as AppSettings['summaryProvider'],
+    summaryAdapter: 'claude-code' as AppSettings['summaryAdapter'],
     previous: null as SummaryRecord | null,
     nextId: 10,
     pending,
@@ -19,6 +19,7 @@ const harness = vi.hoisted(() => {
       id: 10,
     })),
     countForSession: vi.fn(() => 1),
+    adapterGet: vi.fn(),
     emit: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
@@ -83,14 +84,16 @@ vi.mock('@main/store/settings-store', () => ({
       if (key === 'summaryIntervalMs') return 300_000;
       if (key === 'summaryEventCount') return harness.summaryEventCount;
       if (key === 'summaryMaxConcurrent') return 2;
-      if (key === 'summaryProvider') return harness.summaryProvider;
+      if (key === 'summaryAdapter') return harness.summaryAdapter;
+      if (key === 'summaryRuntimeProvider' || key === 'summaryModel') return '';
+      if (key === 'summaryThinking') return 'low';
       return undefined;
     }),
   },
 }));
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
-    get: vi.fn(() => ({ summariseEvents: harness.summariseEvents })),
+    get: harness.adapterGet,
   },
 }));
 vi.mock('../summarizer/evidence-snapshot', () => ({
@@ -128,7 +131,7 @@ describe('Summarizer persisted revision cursor', () => {
     harness.currentRevision = 11;
     harness.rebuildAfterRevision = 0;
     harness.summaryEventCount = 1;
-    harness.summaryProvider = 'claude';
+    harness.summaryAdapter = 'claude-code';
     harness.previous = {
       id: 1,
       sessionId: session.id,
@@ -150,6 +153,9 @@ describe('Summarizer persisted revision cursor', () => {
     harness.emit.mockClear();
     harness.info.mockClear();
     harness.warn.mockClear();
+    harness.adapterGet.mockReset().mockReturnValue({
+      summariseEvents: harness.summariseEvents,
+    });
     harness.insert.mockImplementation((input) => ({
       ...input,
       id: harness.nextId++,
@@ -232,9 +238,12 @@ describe('Summarizer persisted revision cursor', () => {
   });
 
   it('aggregates concurrent capability failures and keeps the circuit open until restart', async () => {
-    harness.summaryProvider = 'codex';
+    harness.summaryAdapter = 'codex-cli';
     harness.summariseEvents.mockRejectedValue(
-      new SummaryProviderCapabilityError('codex', 'tool isolation cannot be attested'),
+      new SummaryProviderCapabilityError(
+        'codex-cli',
+        'tool isolation cannot be attested',
+      ),
     );
     const summarizer = new Summarizer();
 
@@ -253,7 +262,7 @@ describe('Summarizer persisted revision cursor', () => {
     expect(harness.info).toHaveBeenCalledTimes(1);
     expect(harness.info).toHaveBeenCalledWith(
       expect.stringContaining(
-        'codex provider capability unavailable; using local fallback until application restart',
+        'codex-cli: provider capability unavailable; using local fallback until application restart',
       ),
     );
     expect(harness.warn).not.toHaveBeenCalled();
@@ -281,5 +290,18 @@ describe('Summarizer persisted revision cursor', () => {
     expect(recovered?.generationSource).toBe('llm');
     expect(harness.warn).toHaveBeenCalledTimes(1);
     expect(summarizer.getLastErrors()[session.id]).toBeUndefined();
+  });
+
+  it('dispatches the Grok summary provider to the grok-build adapter', async () => {
+    harness.summaryAdapter = 'grok-build';
+    const summarizer = new Summarizer();
+    const pending = summarizer.summarizeNow(session.id);
+    expect(harness.adapterGet).toHaveBeenCalledWith('grok-build');
+    harness.pending.shift()!('grok-generated summary');
+
+    await expect(pending).resolves.toMatchObject({
+      content: 'grok-generated summary',
+      generationSource: 'llm',
+    });
   });
 });

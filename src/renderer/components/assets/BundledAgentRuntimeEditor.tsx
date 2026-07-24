@@ -3,7 +3,6 @@ import {
   ASSET_LIMITS,
   type AssetMeta,
   type BundledAgentRuntimeOverride,
-  type CodexModelProviderOption,
 } from '@shared/types';
 import {
   CLAUDE_THINKING_LEVELS,
@@ -36,7 +35,7 @@ export function BundledAgentRuntimeEditor({
   const [model, setModel] = useState(asset.model ?? '');
   const [thinking, setThinking] = useState(asset.thinking ?? '');
   const [provider, setProvider] = useState(asset.provider ?? '');
-  const [providers, setProviders] = useState<CodexModelProviderOption[]>([]);
+  const [providers, setProviders] = useState<Array<{ id: string; name?: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -49,16 +48,20 @@ export function BundledAgentRuntimeEditor({
   }, []);
 
   useEffect(() => {
-    if (asset.adapter !== 'codex-cli') return;
+    if (asset.adapter === 'grok-build') return;
     let cancelled = false;
-    void window.api
-      .listCodexModelProviders()
+    const request =
+      asset.adapter === 'claude-code'
+        ? window.api.listClaudeGatewayProfiles()
+        : window.api.listCodexModelProviders();
+    void request
       .then((items) => {
         if (!cancelled) setProviders(items);
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          setError(`Codex provider 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
+          const runtime = asset.adapter === 'claude-code' ? 'Claude Gateway' : 'Codex provider';
+          setError(`${runtime} 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
         }
       });
     return () => {
@@ -100,7 +103,7 @@ export function BundledAgentRuntimeEditor({
       override.thinking = normalizedThinking;
     }
     if (
-      asset.adapter === 'codex-cli' &&
+      asset.adapter !== 'grok-build' &&
       normalizedProvider &&
       normalizedProvider !== defaults.provider
     ) {
@@ -221,15 +224,36 @@ export function BundledAgentRuntimeEditor({
             <DefaultHint value={defaults.thinking} fallback="跟随 adapter 原生默认" />
           </RuntimeField>
 
-          {asset.adapter === 'codex-cli' && (
-            <RuntimeField label="provider" error={providerError}>
+          {asset.adapter !== 'grok-build' && (
+            <RuntimeField
+              label={asset.adapter === 'claude-code' ? 'Gateway' : 'provider'}
+              error={providerError}
+            >
               <ProviderCombobox
                 value={provider}
                 onChange={setProvider}
                 disabled={busy}
                 options={providers}
+                ariaLabel={asset.adapter === 'claude-code' ? 'Gateway' : 'provider'}
+                placeholder={
+                  asset.adapter === 'claude-code'
+                    ? '留空则使用 Claude 原生配置'
+                    : '留空则跟随 Codex 原生配置'
+                }
+                emptyMessage={
+                  asset.adapter === 'claude-code'
+                    ? '没有匹配的 Gateway profile'
+                    : '没有匹配项，可直接输入自定义 provider'
+                }
               />
-              <DefaultHint value={defaults.provider} fallback="跟随 ~/.codex/config.toml" />
+              <DefaultHint
+                value={defaults.provider}
+                fallback={
+                  asset.adapter === 'claude-code'
+                    ? '使用 ~/.claude/settings.json'
+                    : '跟随 ~/.codex/config.toml'
+                }
+              />
             </RuntimeField>
           )}
 
@@ -304,5 +328,5 @@ function nativeConfigHint(adapter: AssetMeta['adapter']): string {
   if (adapter === 'grok-build') {
     return '自定义模型别名仍由 ~/.grok/config.toml 的 [model.<alias>] 管理。';
   }
-  return 'Claude Code / Deepseek 的 endpoint、鉴权和模型路由仍由各自的原生配置管理。';
+  return 'Claude Gateway profile 由 ~/.claude/gateways/<id>.json 管理；这里只保存 profile ID。';
 }

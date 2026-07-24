@@ -41,6 +41,7 @@ import type {
 export interface CreateSessionCall {
   cwd: string;
   prompt?: string;
+  provider?: string;
   resume?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
@@ -146,6 +147,7 @@ export class TestCodexBridge extends CodexSdkBridge {
     this.createCalls.push({
       cwd: opts.cwd,
       prompt: opts.prompt,
+      provider: opts.provider,
       resume: opts.resume,
       resumeMode: opts.resumeMode,
       codexSandbox: opts.codexSandbox,

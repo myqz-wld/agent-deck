@@ -11,7 +11,7 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
  *
- * 功能：让 claude / deepseek / codex / grok / 第三方 MCP client 通过 19 个 tool 跨 adapter
+ * 功能：让 Claude Gateway / Codex / Grok / 第三方 MCP client 通过 19 个 tool 跨 adapter
  * 编排其他 coding agent session、向用户展示 plan / diff 并收集确认或反馈、管理结构化任务并上报 issue。
  *
  * UI 布局（自顶向下）：
@@ -35,7 +35,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 Claude、Deepseek、Codex、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
+        让 Claude、Codex、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
         <details className="mt-1">
           <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看全部 19 个工具</summary>
           <div className="mt-1 pl-2 text-deck-muted/80">

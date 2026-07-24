@@ -28,16 +28,9 @@ export interface SdkSessionHandle {
 
 export interface SdkBridgeOptions {
   emit: (e: AgentEvent) => void;
-  adapterId?: Extract<SessionAdapterId, 'claude-code' | 'deepseek-claude-code'>;
+  adapterId?: Extract<SessionAdapterId, 'claude-code'>;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。运行时可通过 setPermissionTimeoutMs 改。 */
   permissionTimeoutMs?: number;
-  /**
-   * Profile-specific child env. Used by Claude-compatible providers that reuse the
-   * Claude Code bridge but must not mutate process.env globally.
-   */
-  envProvider?: () => Readonly<Record<string, string>>;
-  /** Optional profile default model when the caller/agent frontmatter did not pass one. */
-  defaultModelProvider?: () => string | undefined;
 }
 
 export interface PendingPermissionEntry {

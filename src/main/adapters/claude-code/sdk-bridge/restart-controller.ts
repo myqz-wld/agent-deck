@@ -180,6 +180,7 @@ export class RestartController {
               recoveryCapture,
               recoveryCaptureError,
               minHealJsonlMtimeMs: rec.lastEventAt,
+              provider: rec.runtimeProvider ?? undefined,
               permissionMode: mode,
               claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
               extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -196,6 +197,7 @@ export class RestartController {
             cwd: rec.cwd,
             prompt: handoffPrompt,
             resume: currentSid,
+            provider: rec.runtimeProvider ?? undefined,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
             // 反向 rename 后 currentSid 是 applicationSid;SDK CLI `--resume` 需 cli sid 找 jsonl。
             // caller 显式传 cliSessionId 兜底,反向 rename 后两者不同时才生效(否则字面等价旧行为)。
@@ -387,6 +389,7 @@ export class RestartController {
               recoveryCapture,
               recoveryCaptureError,
               minHealJsonlMtimeMs: rec.lastEventAt,
+              provider: rec.runtimeProvider ?? undefined,
               permissionMode: rec.permissionMode ?? undefined, // 透传保留用户辛苦切的 mode (不被 sandbox 切档静默重置)
               claudeCodeSandbox: sandbox, // 新 sandbox 档 (与下方 createSession 同款)
               extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -403,6 +406,7 @@ export class RestartController {
             cwd: rec.cwd,
             prompt: handoffPrompt,
             resume: currentSid,
+            provider: rec.runtimeProvider ?? undefined,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订** (同 restartWithPermissionMode):
             // **CHANGELOG_224 幻影 fork 自愈**: healedCliSessionId 命中时切到它(= currentSid),
             // 防 rec.cliSessionId 那个幻影 id 让 CLI `--resume` hard-fail 退 fresh-cli。

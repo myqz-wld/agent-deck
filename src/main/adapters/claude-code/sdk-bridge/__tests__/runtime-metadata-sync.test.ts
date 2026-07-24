@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildClaudeRuntimeMetadataHooks,
-  extractProviderModelAliases,
   syncClaudeRuntimeEffort,
   syncClaudeRuntimeModel,
 } from '../runtime-metadata-sync';
@@ -42,12 +41,13 @@ describe('Claude SDK runtime metadata sync', () => {
     expect(eventBus.emit).not.toHaveBeenCalled();
   });
 
-  it('maps Claude aliases through provider model env without retaining credentials', () => {
-    const aliases = extractProviderModelAliases({
-      ANTHROPIC_MODEL: 'deepseek-v4-pro[1m]',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
-      ANTHROPIC_AUTH_TOKEN: 'must-not-be-retained',
-    });
+  it('maps Claude aliases through non-sensitive Gateway model metadata', () => {
+    const aliases = {
+      fable: 'deepseek-v4-pro[1m]',
+      opus: 'deepseek-v4-pro[1m]',
+      sonnet: 'deepseek-v4-pro[1m]',
+      haiku: 'deepseek-v4-flash',
+    };
     const internal = makeInternalSession({
       cwd: '/repo',
       applicationSid: 'sid-deepseek',
@@ -63,7 +63,6 @@ describe('Claude SDK runtime metadata sync', () => {
       sonnet: 'deepseek-v4-pro[1m]',
       haiku: 'deepseek-v4-flash',
     });
-    expect(internal.providerModelAliases).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN');
   });
 
   it('best-effort persists observed model and effort and emits the updated row', () => {

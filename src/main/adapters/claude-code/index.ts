@@ -17,6 +17,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
   ProviderUsageSnapshot,
+  RuntimeSelection,
   UploadedAttachmentRef,
 } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
@@ -24,6 +25,7 @@ import { buildHookRoutes } from './hook-routes';
 import { HookInstaller } from './hook-installer';
 import { ClaudeSdkBridge } from './sdk-bridge';
 import { createClaudeFamilyForkedSession } from './fork-session';
+import { assertClaudeGatewayForkTranscriptRootCompatible } from './gateway-fork-safety';
 import { settingsStore } from '@main/store/settings-store';
 import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
@@ -62,12 +64,13 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
   async createSession(opts: ClaudeCreateOpts & { agentId: 'claude-code' }): Promise<string> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    // p4-d2-impl R1 reviewer-claude MED follow-up:显式 spread 各字段(与其他 3 adapter 风格一致),
+    // p4-d2-impl R1 reviewer-claude MED follow-up:显式 spread 各字段(与其他 adapter 风格一致),
     // 不整 opts(含 D2 discriminator agentId 字段)塞 bridge — bridge.createSession opts inline
     // type 不接 agentId 字段,TS structural typing 当前接受但 future bridge 加 strict check 会破。
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       prompt: opts.prompt,
+      provider: opts.provider,
       permissionMode: opts.permissionMode,
       resume: opts.resume,
       teamName: opts.teamName,
@@ -97,6 +100,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
+      provider: opts.provider,
       permissionMode: opts.permissionMode,
       teamName: opts.teamName,
       attachments: opts.attachments,
@@ -121,6 +125,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
       throw new Error(`Claude native fork requires target adapter "${ADAPTER_ID}".`);
     }
     if (!this.bridge) throw new Error('adapter not initialized');
+    assertClaudeGatewayForkTranscriptRootCompatible(target.provider);
   }
 
   async createForkedSession(
@@ -235,7 +240,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
   async setSessionModelOptions(
     sessionId: string,
-    options: { model: string | null; thinking: string | null },
+    options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.setSessionModelOptions(sessionId, options);
@@ -320,12 +325,14 @@ class ClaudeCodeAdapter implements AgentAdapter {
     cwd: string,
     events: AgentEvent[],
     evidenceContext?: string,
+    runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
   ): Promise<string | null> {
-    return summariseViaLlm(
-      cwd,
-      events,
-      evidenceContext ? { evidenceContext } : undefined,
-    );
+    return summariseViaLlm(cwd, events, {
+      ...(evidenceContext ? { evidenceContext } : {}),
+      runtimeProvider: runtime?.provider,
+      model: runtime?.model,
+      thinking: runtime?.thinking,
+    });
   }
 }
 

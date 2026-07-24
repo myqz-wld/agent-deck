@@ -19,7 +19,6 @@ import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
 import { persistSpawnLinkFallback } from './spawn-link-registration';
 import {
-  resolveSpawnModelOptions,
   type SpawnClaudeCodeEffortLevel,
   type SpawnCodexReasoningEffort,
   type SpawnGrokReasoningEffort,
@@ -43,6 +42,7 @@ import { createOrdinaryInitialTurn } from '@main/session/continuation-context/in
 import { executeFreshSession } from '@main/session/continuation-context/fresh-session-executor';
 import type { SpawnSessionHandlerOptions } from './spawn-handler-options';
 import { resolveSpawnRuntimeControls, validateSpawnRuntimeControls } from './spawn-runtime-controls';
+import { resolveSpawnRuntimeSelection } from './spawn-runtime-selection';
 
 const logger = log.scope('mcp-spawn');
 
@@ -72,7 +72,7 @@ export const spawnSessionHandler = withMcpGuard(
     if (!adapter.capabilities.canCreateSession) {
       return err(
         `adapter "${args.adapter}" does not support session creation`,
-        'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, codex-cli, or grok-build.',
+        'Choose an enabled adapter with session-creation capability: claude-code, codex-cli, or grok-build.',
       );
     }
     const runtimeControlError = validateSpawnRuntimeControls(args, adapter.capabilities);
@@ -80,24 +80,13 @@ export const spawnSessionHandler = withMcpGuard(
       return err(runtimeControlError.error, runtimeControlError.hint);
     }
 
-    // **REVIEW_85 MED-A (reviewer-claude) + LOW-1 (reviewer-codex)**: applySpawnGuards 下移到
-    // 「所有 createSession 前的纯计算 + 可抛 DB 读」之后。
-    // - MED-A: 旧实现 guard 先同步 inc fanOutSlot,但 release 只在下方 createSession 的 try/finally
-    //   —— 中间 `leadRecord = sessionRepo.get()` 等裸 DB 读抛错(SQLITE_BUSY / I/O)会越过 handler
-    //   永久泄漏 in-flight 计数(dec 仅 release 一条路径,byParent Map 进程级常驻)。下移后 guard 到
-    //   createSession-try 之间无裸 DB 读,泄漏窗口归零。
-    // - LOW-1: agentName body resolve 此时已在 guard 前,拼错 agentName 提前 return err 不再消耗
-    //   app-wide spawn-rate token。
-
-    // agentName 非空 → resolve a real agent config. Bundled Agent Deck agents have priority,
-    // then project agents, then user agents. Claude agents use SDK options.agent/options.agents;
-    // Codex TOML agents use app-server developerInstructions plus thread/config fields.
-    // 找不到（拼写错 / 没安装 / 用户目录无此 agent）→ 直接 err 防止静默落空 fallback。
+    // Resolve every fallible config/DB read before acquiring spawn guards so an exception cannot
+    // leak the in-flight fan-out slot. Invalid agent names also fail before consuming a rate token.
+    // Bundled agents have priority over project and user agents; missing names fail explicitly.
     let promptToUse = args.prompt;
-    // plan model-wiring-and-handoff-20260514 Step 3.1：agent config `model` 提取。
-    // 提取后通过 createSession({ model }) 透传给 SDK，让 reviewer teammate 真正按 frontmatter
-    // 标的 provider model 跑（修前 model 字段死字段，详 plan Context 第 1 项）。
+    // Agent runtime fields flow into createSession after explicit tool arguments take precedence.
     let modelFromAgent: string | undefined;
+    let providerFromAgent: string | undefined;
     let modelReasoningEffortFromAgent: SpawnCodexReasoningEffort | undefined;
     let claudeCodeEffortLevelFromAgent: SpawnClaudeCodeEffortLevel | undefined;
     let grokReasoningEffortFromAgent: SpawnGrokReasoningEffort | undefined;
@@ -110,6 +99,7 @@ export const spawnSessionHandler = withMcpGuard(
     if (args.agentName) {
       const agent = resolveSpawnAgent(args.agentName, args.adapter, args.cwd);
       if (!agent.ok) return err(agent.error, agent.hint);
+      providerFromAgent = agent.provider;
       modelFromAgent = agent.model;
       modelReasoningEffortFromAgent = agent.modelReasoningEffort;
       claudeCodeEffortLevelFromAgent = agent.claudeCodeEffortLevel;
@@ -122,16 +112,25 @@ export const spawnSessionHandler = withMcpGuard(
       grokAgentNameFromAgent = agent.grokAgentName;
     }
 
-    const resolvedModelOptions = resolveSpawnModelOptions(
+    const leadRecord = sessionRepo.get(caller.callerSessionId);
+    const callerExists = leadRecord !== null;
+    const runtimeSelection = resolveSpawnRuntimeSelection({
       args,
-      modelFromAgent,
-      modelReasoningEffortFromAgent,
-      claudeCodeEffortLevelFromAgent,
-      grokReasoningEffortFromAgent,
-    );
-    if (!resolvedModelOptions.ok) {
-      return err(resolvedModelOptions.error, resolvedModelOptions.hint);
-    }
+      leadRecord,
+      agent: {
+        provider: providerFromAgent,
+        model: modelFromAgent,
+        modelReasoningEffort: modelReasoningEffortFromAgent,
+        claudeCodeEffortLevel: claudeCodeEffortLevelFromAgent,
+        grokReasoningEffort: grokReasoningEffortFromAgent,
+      },
+    });
+    if (!runtimeSelection.ok) return err(runtimeSelection.error, runtimeSelection.hint);
+    const {
+      inherit: shouldInheritAdapterSettings,
+      provider: resolvedProvider,
+      modelOptions: resolvedModelOptions,
+    } = runtimeSelection;
 
     // Spawn 权限 / 沙盒默认值：
     // - caller 显式传参永远最高优先级；
@@ -154,9 +153,6 @@ export const spawnSessionHandler = withMcpGuard(
     // anchor 标记 + 校验 `callerExists` 守门。**抽 helper 评估**: 抽 `applyCallerScopedSideEffects`
     // 单入口 helper 反而复杂 (4 个不同 side effect 各自 try/catch + 错误 propagate + 返回闭包),
     // 当前散落 + anchor 注释比抽 helper 维护负担低。
-    const leadRecord = sessionRepo.get(caller.callerSessionId);
-    const callerExists = leadRecord !== null;
-    const shouldInheritAdapterSettings = leadRecord?.agentId === args.adapter;
     const {
       effectivePermissionMode,
       effectiveSessionMode,
@@ -181,7 +177,8 @@ export const spawnSessionHandler = withMcpGuard(
       effectiveCodexSandbox,
       effectiveClaudeCodeSandbox,
       effectiveExtraAllowWrite,
-      modelOptions: resolvedModelOptions.options,
+      provider: resolvedProvider,
+      modelOptions: resolvedModelOptions,
       developerInstructions: developerInstructionsFromAgent,
       codexConfigOverrides: codexConfigOverridesFromAgent,
       claudeAgentName: claudeAgentNameFromAgent,
@@ -475,6 +472,7 @@ export const spawnSessionHandler = withMcpGuard(
     return ok({
       sessionId: sid,
       adapter: args.adapter,
+      provider: created?.runtimeProvider ?? resolvedProvider ?? null,
       cwd: args.cwd,
       teamId,
       teamName: args.teamName ?? null,

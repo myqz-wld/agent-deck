@@ -24,7 +24,7 @@
  * spike-A3 实测：5 codex 并发 oneshot 复用 codex app-server 单例，总耗 10s + 单进程
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
  */
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, RuntimeSelection } from '@shared/types';
 import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
 import { isCodexThinkingLevel, type CodexThinkingLevel } from '@shared/session-metadata';
 import { settingsStore } from '@main/store/settings-store';
@@ -60,6 +60,7 @@ export async function summariseCodexSessionViaOneshot(
   events: AgentEvent[],
   formatEvents: (events: AgentEvent[]) => string,
   evidenceContext?: string,
+  runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
 ): Promise<string | null> {
   const activity = formatEvents(events);
   if (!activity && !evidenceContext) return null;
@@ -81,17 +82,20 @@ export async function summariseCodexSessionViaOneshot(
       evidenceContext,
     }),
     systemPrompt: buildSummarizeSystemPrompt('Agent'),
-    // plan prancy-forging-penguin:reasoning 改读 settings.summaryReasoning(原 hardcoded 'low'
+    // plan prancy-forging-penguin:reasoning 改读 settings.summaryThinking(原 hardcoded 'low'
     // 已下线)。默认值现为 'low'，用户也可选完整 Codex effort 档位。
     modelReasoningEffort: resolveCodexSummaryReasoning(
-      settingsStore.get('summaryReasoning'),
+      runtime?.thinking ?? settingsStore.get('summaryThinking'),
     ),
     // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
     // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。空值保持 undefined，让
     // Codex 直接使用 config.toml 当前模型，不再叠加隐藏的 CODEX_SUMMARY_MODEL env 来源。
     // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用。
     // 填其他 provider 的 alias 会撞 codex SDK 不识别报错并走 caller fallback。
-    model: resolveCodexSummaryModel(settingsStore.get('summaryModel')),
+    model: resolveCodexSummaryModel(
+      runtime?.model ?? settingsStore.get('summaryModel'),
+    ),
+    provider: runtime?.provider?.trim() || undefined,
     // R37 P2-H：runner 自己内置 timeout（同 claude path 走 settings.summaryTimeoutMs；
     // 原 caller summarizer/index.ts 起 Promise.race 已删除）。timer 先赢 → 抛
     // `__codex_summarizer_timeout__` 让 caller catch 走 fallback 路径。

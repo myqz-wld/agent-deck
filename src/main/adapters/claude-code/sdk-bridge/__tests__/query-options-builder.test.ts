@@ -36,6 +36,22 @@ describe('buildClaudeQueryOptions', () => {
     expect(options).not.toHaveProperty('effort');
   });
 
+  it('passes a session-local Gateway settings file without cross-session leakage', () => {
+    const deepseek = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      settingsPath: '/home/test/.claude/gateways/deepseek.json',
+    });
+    const openrouter = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      settingsPath: '/home/test/.claude/gateways/openrouter.json',
+    });
+
+    expect(deepseek.settings).toBe('/home/test/.claude/gateways/deepseek.json');
+    expect(openrouter.settings).toBe('/home/test/.claude/gateways/openrouter.json');
+    expect(deepseek.env).not.toHaveProperty('ANTHROPIC_BASE_URL');
+    expect(openrouter.env).not.toHaveProperty('ANTHROPIC_BASE_URL');
+  });
+
   it('passes session-local runtime metadata hooks to the SDK unchanged', () => {
     const hooks = {
       Stop: [{ hooks: [vi.fn(async () => ({}))] }],

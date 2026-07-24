@@ -2,22 +2,10 @@ import Store from 'electron-store';
 import { randomBytes } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
-  DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
-  DEFAULT_CONTINUATION_CHECKPOINT_THINKING,
-  MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
-  MAX_CONTINUATION_RAW_RETENTION_TOKENS,
-  MIN_CONTINUATION_RAW_RETENTION_TOKENS,
-  MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
   type AppSettings,
-  type ContinuationCheckpointProvider,
 } from '@shared/types';
-import {
-  DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
-  MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
-  MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
-} from '@shared/types/settings/defaults';
-import { isClaudeThinkingLevel, isCodexThinkingLevel } from '@shared/session-metadata';
 import log from '@main/utils/logger';
+import { migrateGeneratorSettings } from './settings-generator-migration';
 
 const logger = log.scope('settings-store');
 
@@ -76,182 +64,12 @@ const REMOVED_KEYS: readonly string[] = [
   'handOffProvider',
   'handOffModel',
   'handOffReasoning',
+  'summaryProvider',
+  'summaryReasoning',
+  'continuationCheckpointProvider',
   'resumeRecentMessagesCount',
   '__resumeRecentMessagesDefault20260710Done',
 ];
-
-const CONTINUATION_PROVIDERS: readonly ContinuationCheckpointProvider[] = [
-  'claude',
-  'deepseek',
-  'codex',
-];
-
-interface LooseStore {
-  set(key: string, value: unknown): void;
-}
-
-function validContinuationProvider(value: unknown): value is ContinuationCheckpointProvider {
-  return CONTINUATION_PROVIDERS.includes(value as ContinuationCheckpointProvider);
-}
-
-function migratedThinking(
-  provider: ContinuationCheckpointProvider,
-  value: unknown,
-  allowLegacyCoercion: boolean,
-): AppSettings['continuationCheckpointThinking'] {
-  // Codex no longer accepts minimal. Preserve a user's nearest lower-cost choice rather than
-  // falling through to the generator default (medium).
-  if (value === 'minimal') return 'low';
-  if (provider === 'codex') {
-    return isCodexThinkingLevel(value) ? value : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
-  }
-  if (allowLegacyCoercion && value === 'ultra') return 'max';
-  return isClaudeThinkingLevel(value)
-    ? value
-    : DEFAULT_CONTINUATION_CHECKPOINT_THINKING;
-}
-
-/** Presence-aware one-time migration; persisted new keys always win over legacy values. */
-function migrateContinuationSettings(
-  persistedRaw: Readonly<Record<string, unknown>>,
-  target: LooseStore,
-): void {
-  const providerSource = 'continuationCheckpointProvider' in persistedRaw
-    ? persistedRaw.continuationCheckpointProvider
-    : persistedRaw.handOffProvider;
-  const hasProviderSource =
-    'continuationCheckpointProvider' in persistedRaw || 'handOffProvider' in persistedRaw;
-  const provider = validContinuationProvider(providerSource)
-    ? providerSource
-    : DEFAULT_SETTINGS.continuationCheckpointProvider;
-  if (
-    hasProviderSource &&
-    (!('continuationCheckpointProvider' in persistedRaw) || providerSource !== provider)
-  ) {
-    target.set('continuationCheckpointProvider', provider);
-  }
-
-  const modelSource = 'continuationCheckpointModel' in persistedRaw
-    ? persistedRaw.continuationCheckpointModel
-    : persistedRaw.handOffModel;
-  const hasModelSource =
-    'continuationCheckpointModel' in persistedRaw || 'handOffModel' in persistedRaw;
-  const model =
-    typeof modelSource === 'string' && modelSource.length <= 256
-      ? modelSource
-      : DEFAULT_SETTINGS.continuationCheckpointModel;
-  if (
-    hasModelSource &&
-    (!('continuationCheckpointModel' in persistedRaw) || modelSource !== model)
-  ) {
-    target.set('continuationCheckpointModel', model);
-  }
-
-  const thinkingSource = 'continuationCheckpointThinking' in persistedRaw
-    ? persistedRaw.continuationCheckpointThinking
-    : persistedRaw.handOffReasoning;
-  const hasThinkingSource =
-    'continuationCheckpointThinking' in persistedRaw || 'handOffReasoning' in persistedRaw;
-  const thinking = migratedThinking(
-    provider,
-    thinkingSource,
-    !('continuationCheckpointThinking' in persistedRaw) && 'handOffReasoning' in persistedRaw,
-  );
-  if (
-    hasThinkingSource &&
-    (!('continuationCheckpointThinking' in persistedRaw) || thinkingSource !== thinking)
-  ) {
-    target.set('continuationCheckpointThinking', thinking);
-  }
-
-  if ('continuationRawRetentionTokens' in persistedRaw) {
-    const rawTokens = persistedRaw.continuationRawRetentionTokens;
-    if (
-      !Number.isSafeInteger(rawTokens) ||
-      (rawTokens as number) < MIN_CONTINUATION_RAW_RETENTION_TOKENS ||
-      (rawTokens as number) > MAX_CONTINUATION_RAW_RETENTION_TOKENS
-    ) {
-      target.set(
-        'continuationRawRetentionTokens',
-        DEFAULT_SETTINGS.continuationRawRetentionTokens,
-      );
-    }
-  }
-
-  if (
-    'continuationCheckpointAutoRefreshEnabled' in persistedRaw &&
-    typeof persistedRaw.continuationCheckpointAutoRefreshEnabled !== 'boolean'
-  ) {
-    target.set('continuationCheckpointAutoRefreshEnabled', true);
-  }
-  if ('continuationCheckpointAutoRefreshIntervalMinutes' in persistedRaw) {
-    const minutes = persistedRaw.continuationCheckpointAutoRefreshIntervalMinutes;
-    if (
-      !Number.isSafeInteger(minutes) ||
-      (minutes as number) < MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES ||
-      (minutes as number) > MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES
-    ) {
-      target.set(
-        'continuationCheckpointAutoRefreshIntervalMinutes',
-        DEFAULT_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES,
-      );
-    }
-  }
-  if ('continuationCheckpointMaxConcurrent' in persistedRaw) {
-    const maxConcurrent = persistedRaw.continuationCheckpointMaxConcurrent;
-    if (
-      !Number.isSafeInteger(maxConcurrent) ||
-      (maxConcurrent as number) < MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT ||
-      (maxConcurrent as number) > MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT
-    ) {
-      target.set(
-        'continuationCheckpointMaxConcurrent',
-        DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
-      );
-    }
-  }
-  if ('summaryEnabled' in persistedRaw && typeof persistedRaw.summaryEnabled !== 'boolean') {
-    target.set('summaryEnabled', true);
-  }
-  if (
-    'summaryModel' in persistedRaw &&
-    (typeof persistedRaw.summaryModel !== 'string' || persistedRaw.summaryModel.length > 256)
-  ) {
-    target.set('summaryModel', DEFAULT_SETTINGS.summaryModel);
-  }
-}
-const GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL = '__generatorBlankFallbacks20260714Done';
-
-function migrateGeneratorBlankFallbacks(
-  persistedRaw: Readonly<Record<string, unknown>>,
-  target: LooseStore,
-): void {
-  if (persistedRaw[GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL] === true) return;
-  const existingStore = Object.keys(persistedRaw).length > 0;
-  const continuationProviderSource = 'continuationCheckpointProvider' in persistedRaw
-    ? persistedRaw.continuationCheckpointProvider
-    : persistedRaw.handOffProvider;
-  const continuationProvider = validContinuationProvider(continuationProviderSource)
-    ? continuationProviderSource
-    : DEFAULT_SETTINGS.continuationCheckpointProvider;
-  const continuationModel = 'continuationCheckpointModel' in persistedRaw
-    ? persistedRaw.continuationCheckpointModel
-    : persistedRaw.handOffModel;
-  const isBlank = (value: unknown): boolean => value === undefined || !String(value).trim();
-  if (existingStore && continuationProvider === 'claude' && isBlank(continuationModel)) {
-    target.set('continuationCheckpointModel', 'opus');
-  }
-  target.set(GENERATOR_BLANK_FALLBACKS_20260714_SENTINEL, true);
-}
-function migrateRemovedCodexMinimalGeneratorSettings(
-  persistedRaw: Readonly<Record<string, unknown>>,
-  target: LooseStore,
-): void {
-  if (persistedRaw.summaryReasoning === 'minimal') {
-    target.set('summaryReasoning', 'low');
-    logger.info('[settings] migrated summaryReasoning minimal → low (Codex effort removal)');
-  }
-}
 
 let store: (Store<AppSettings> & StoreApi<AppSettings>) | null = null;
 
@@ -334,9 +152,7 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       set: (k: string, v: unknown) => void;
       delete: (k: string) => void;
     };
-    migrateContinuationSettings(persistedRaw, looseStore);
-    migrateRemovedCodexMinimalGeneratorSettings(persistedRaw, looseStore);
-    migrateGeneratorBlankFallbacks(persistedRaw, looseStore);
+    migrateGeneratorSettings(persistedRaw, looseStore);
     // The short-lived 2026-07-11 default uplift was superseded before this lifecycle revision:
     // summaries now default to low and checkpoints to medium. Keep its sentinel for installs that
     // skip directly across versions, but never rewrite an existing user's valid thinking choice.

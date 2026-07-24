@@ -44,10 +44,9 @@ When these tools are unavailable, keep durable progress in the plan or handoff p
 
 - `reviewer-claude` on `claude-code`
 - `reviewer-codex` on `codex-cli`
-- `reviewer-deepseek` on `deepseek-claude-code` with `deepseek-v4-pro[1m]`
 - `reviewer-grok` on `grok-build`
 
-If one selected reviewer fails, shut down that session and respawn the same adapter, agent name, and model slot. Never replace it with an unselected reviewer or duplicate the survivor.
+If one selected reviewer fails, shut down that session and respawn the same adapter, provider, agent name, and model slot. Never replace it with an unselected reviewer or duplicate the survivor.
 
 ## Plans, Worktrees, And Handoff
 

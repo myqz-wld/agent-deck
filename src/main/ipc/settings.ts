@@ -178,9 +178,6 @@ function applyWindowTransparent(p: Partial<AppSettings>, next: AppSettings): voi
 function applyPermissionTimeout(p: Partial<AppSettings>, next: AppSettings): void {
   if ('permissionTimeoutMs' in p) {
     adapterRegistry.get('claude-code')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
-    adapterRegistry.get('deepseek-claude-code')?.setPermissionTimeoutMs?.(
-      next.permissionTimeoutMs,
-    );
     adapterRegistry.get('grok-build')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
   }
 }
@@ -295,7 +292,8 @@ function applyContinuationPreparationSettings(
   _next: AppSettings,
 ): void {
   if (
-    'continuationCheckpointProvider' in p ||
+    'continuationCheckpointAdapter' in p ||
+    'continuationCheckpointRuntimeProvider' in p ||
     'continuationCheckpointModel' in p ||
     'continuationCheckpointThinking' in p ||
     'continuationRawRetentionTokens' in p ||

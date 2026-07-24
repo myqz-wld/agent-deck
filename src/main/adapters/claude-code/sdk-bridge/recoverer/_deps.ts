@@ -51,6 +51,8 @@ export type CreateSessionThunk = (opts: {
   cwd: string;
   prompt?: string;
   trustedContinuation?: TrustedContinuationInitialTurn;
+  /** Persisted Claude Gateway profile restored for native resume and fresh-history recovery. */
+  provider?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   resume?: string;
   teamName?: string;

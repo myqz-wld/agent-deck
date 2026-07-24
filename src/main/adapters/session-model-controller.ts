@@ -15,6 +15,7 @@ export interface SessionModelControllerContext {
   applyLive: (
     sessionId: string,
     options: SessionModelOptions,
+    previous: SessionModelOptions,
   ) => Promise<boolean> | boolean;
 }
 
@@ -41,20 +42,28 @@ export class SessionModelController {
     const record = sessionRepo.get(sessionId);
     if (!record) throw new Error(`session ${sessionId} not found`);
     const previous: SessionModelOptions = {
+      provider: record.runtimeProvider ?? null,
       model: record.model ?? null,
       thinking: record.thinking ?? null,
     };
+    if (
+      options.provider !== previous.provider &&
+      (record.activity === 'working' || record.activity === 'waiting')
+    ) {
+      throw new Error('provider cannot be changed while the session is working or waiting');
+    }
 
     const operation = (async () => {
       let liveAttempted = false;
       try {
+        sessionRepo.setRuntimeProvider(sessionId, options.provider);
         sessionRepo.setModel(sessionId, options.model);
         sessionRepo.setThinking(sessionId, options.thinking);
         const updated = sessionRepo.get(sessionId);
         if (updated) eventBus.emit('session-upserted', updated);
 
         liveAttempted = true;
-        const liveApplied = await this.ctx.applyLive(sessionId, options);
+        const liveApplied = await this.ctx.applyLive(sessionId, options, previous);
         if (!liveApplied) {
           logger.info(
             `[${this.ctx.agentId}] persisted model options for dormant session ${sessionId}; ` +
@@ -63,6 +72,7 @@ export class SessionModelController {
         }
       } catch (error) {
         try {
+          sessionRepo.setRuntimeProvider(sessionId, previous.provider);
           sessionRepo.setModel(sessionId, previous.model);
           sessionRepo.setThinking(sessionId, previous.thinking);
           const reverted = sessionRepo.get(sessionId);
@@ -72,7 +82,7 @@ export class SessionModelController {
         }
         if (liveAttempted) {
           try {
-            await this.ctx.applyLive(sessionId, previous);
+            await this.ctx.applyLive(sessionId, previous, options);
           } catch (rollbackError) {
             logger.warn(
               `[${this.ctx.agentId}] live model-option rollback failed for ${sessionId}:`,
@@ -86,7 +96,7 @@ export class SessionModelController {
           kind: 'message',
           payload: {
             text:
-              `⚠ 切换模型或思考程度失败：${error instanceof Error ? error.message : String(error)}。` +
+              `⚠ 切换 provider、模型或思考程度失败：${error instanceof Error ? error.message : String(error)}。` +
               '已恢复原设置。',
             error: true,
           },

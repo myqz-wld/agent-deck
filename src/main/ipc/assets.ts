@@ -50,6 +50,7 @@ import {
   saveBundledAgentRuntimeOverride,
 } from '@main/bundled-agent-runtime-overrides';
 import { listCodexModelProviders } from '@main/codex-config/model-providers';
+import { listClaudeGatewayProfiles } from '@main/adapters/claude-code/gateway-profiles';
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
@@ -188,7 +189,10 @@ function parseUserAssetInput(value: unknown): UserAssetInput {
   const model = v.model !== undefined && v.model !== ''
     ? parseSingleLineString('model', v.model, ASSET_LIMITS.model)
     : undefined;
-  return { kind, adapter, name, description, body, tools, model };
+  const provider = v.provider !== undefined && v.provider !== ''
+    ? parseSingleLineString('provider', v.provider, ASSET_LIMITS.provider)
+    : undefined;
+  return { kind, adapter, name, description, body, tools, model, provider };
 }
 
 export function registerAssetsIpc(): void {
@@ -247,6 +251,7 @@ export function registerAssetsIpc(): void {
     return { ok: true };
   });
 
+  on(IpcInvoke.AssetsListClaudeGatewayProfiles, () => listClaudeGatewayProfiles());
   on(IpcInvoke.AssetsListCodexModelProviders, () => listCodexModelProviders());
 
   on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg) => {
