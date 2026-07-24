@@ -22,6 +22,8 @@ import {
   type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 import { errorMessage } from '@renderer/lib/error-message';
+import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
+import type { AdapterSessionMode } from '@shared/types';
 
 interface AdapterInfo {
   id: string;
@@ -29,8 +31,11 @@ interface AdapterInfo {
   capabilities: {
     canCreateSession?: boolean;
     canSetPermissionMode?: boolean;
+    canSetSessionMode?: boolean;
     canCollaborate?: boolean;
+    canAcceptAttachments?: boolean;
   };
+  sessionModes: AdapterSessionMode[];
 }
 
 interface Props {
@@ -45,6 +50,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
+  const [sessionMode, setSessionMode] = useState<AdapterSessionMode>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
@@ -104,6 +110,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     if (!open) return;
     const d = getLastDefaults(agentId);
     if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
+    if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
     // model / thinking 对所有 adapter 都有意义；切 adapter 时无历史值必须显式清空，
@@ -118,6 +125,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const selectedAdapter = adapters.find((a) => a.id === agentId);
   // permission 模式是 Claude SDK 的 SDK-only feature；codex 没有运行时切权限模式
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
+  const showSessionMode =
+    selectedAdapter?.capabilities.canSetSessionMode === true &&
+    selectedAdapter.sessionModes.length > 0;
   // Codex 三档 sandbox：仅在 codex-cli adapter 时显示
   const showCodexSandbox = agentId === 'codex-cli';
   // CHANGELOG_74：Claude OS 沙盒：Claude Code 及 Deepseek(Claude Code) 都走同一 SDK 桥接层
@@ -140,8 +150,15 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
   const submit = async (): Promise<void> => {
     setError(null);
-    if (!prompt.trim()) {
-      setError('请输入第一条消息');
+    if (!prompt.trim() && imgs.attachments.length === 0) {
+      setError('请输入第一条消息或添加图片');
+      return;
+    }
+    if (
+      imgs.attachments.length > 0 &&
+      selectedAdapter?.capabilities.canAcceptAttachments !== true
+    ) {
+      setError('当前 adapter 的已协商能力不支持图片输入；图片仍保留，可切换 adapter 后重试。');
       return;
     }
     setBusy(true);
@@ -158,6 +175,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         cwd: cwd.trim(),
         prompt: prompt.trim() || undefined,
         permissionMode: showPermissionMode ? permissionMode : undefined,
+        sessionMode: showSessionMode ? sessionMode : undefined,
         codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
         claudeCodeSandbox:
           showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
@@ -263,10 +281,22 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                onPaste={imgs.onPaste}
-                onDrop={imgs.onDrop}
-                onDragOver={imgs.onDragOver}
-                placeholder="输入任务或问题；也可粘贴、拖放图片"
+                onPaste={
+                  selectedAdapter?.capabilities.canAcceptAttachments ? imgs.onPaste : undefined
+                }
+                onDrop={
+                  selectedAdapter?.capabilities.canAcceptAttachments ? imgs.onDrop : undefined
+                }
+                onDragOver={
+                  selectedAdapter?.capabilities.canAcceptAttachments
+                    ? imgs.onDragOver
+                    : undefined
+                }
+                placeholder={
+                  selectedAdapter?.capabilities.canAcceptAttachments
+                    ? '输入任务或问题；也可粘贴、拖放图片'
+                    : '输入任务或问题（当前 adapter 未协商图片输入能力）'
+                }
                 rows={3}
                 className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
               />
@@ -301,6 +331,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={!selectedAdapter?.capabilities.canAcceptAttachments}
                 className="rounded border border-dashed border-deck-border px-2 py-1 text-[10px] text-deck-muted hover:bg-white/5"
                 title="上传图片（也可粘贴或拖放到第一条消息）"
               >
@@ -322,6 +353,20 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                     setLastDefaults(agentId, { permissionMode: v });
                   }}
                   options={PERMISSION_OPTIONS}
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+                />
+              </Field>
+            )}
+
+            {showSessionMode && (
+              <Field label="工作模式">
+                <DeckSelect
+                  value={sessionMode}
+                  onChange={(v) => {
+                    setSessionMode(v);
+                    setLastDefaults(agentId, { sessionMode: v });
+                  }}
+                  options={adapterSessionModeOptions(selectedAdapter.sessionModes)}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
                 />
               </Field>
@@ -373,7 +418,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <button
                 type="button"
                 onClick={() => void submit()}
-                disabled={busy || !prompt.trim()}
+                disabled={busy || (!prompt.trim() && imgs.attachments.length === 0)}
                 className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
               >
                 {!busy && <SendIcon className="mr-1 inline h-3 w-3" />}

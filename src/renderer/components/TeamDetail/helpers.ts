@@ -61,6 +61,8 @@ export function agentIdLabel(agentId: string | null | undefined): string {
       return 'Deepseek';
     case 'codex-cli':
       return 'Codex';
+    case 'grok-build':
+      return 'Grok';
     default:
       return agentId ?? '未知';
   }

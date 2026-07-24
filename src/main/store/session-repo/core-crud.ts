@@ -7,7 +7,11 @@
  * deep-review-and-split-20260513 H2 Step 2.3）。
  */
 
-import type { PermissionMode, SessionRecord } from '@shared/types';
+import type {
+  AdapterSessionMode,
+  PermissionMode,
+  SessionRecord,
+} from '@shared/types';
 import { getDb } from '../db';
 import { rowToRecord, type Row } from './types';
 export function upsert(rec: SessionRecord): void {
@@ -52,8 +56,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
-       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
+       (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
          cwd = excluded.cwd,
          title = excluded.title,
@@ -64,6 +68,7 @@ export function upsert(rec: SessionRecord): void {
          ended_at = excluded.ended_at,
          archived_at = excluded.archived_at,
          permission_mode = excluded.permission_mode,
+         session_mode = excluded.session_mode,
          codex_sandbox = excluded.codex_sandbox,
          claude_code_sandbox = excluded.claude_code_sandbox,
          model = excluded.model,
@@ -90,6 +95,7 @@ export function upsert(rec: SessionRecord): void {
       ended_at: rec.endedAt,
       archived_at: rec.archivedAt,
       permission_mode: rec.permissionMode ?? null,
+      session_mode: rec.sessionMode ?? null,
       codex_sandbox: rec.codexSandbox ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
       model: rec.model ?? null,
@@ -228,6 +234,10 @@ export function _delete(id: string): void {
 /** 写入用户在 UI 上选过的权限模式。null 表示恢复默认（'default'）。 */
 export function setPermissionMode(id: string, mode: PermissionMode | null): void {
   getDb().prepare(`UPDATE sessions SET permission_mode = ? WHERE id = ?`).run(mode, id);
+}
+
+export function setSessionMode(id: string, mode: AdapterSessionMode | null): void {
+  getDb().prepare(`UPDATE sessions SET session_mode = ? WHERE id = ?`).run(mode, id);
 }
 
 /**

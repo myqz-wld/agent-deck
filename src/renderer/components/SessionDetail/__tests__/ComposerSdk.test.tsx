@@ -25,6 +25,7 @@ let sendAdapterMessage: ReturnType<typeof vi.fn>;
 let steerAdapterTurn: ReturnType<typeof vi.fn>;
 let interruptAdapterSession: ReturnType<typeof vi.fn>;
 let setSessionModelOptions: ReturnType<typeof vi.fn>;
+let setAdapterSessionMode: ReturnType<typeof vi.fn>;
 let listPendingOutgoingMessages: ReturnType<typeof vi.fn>;
 let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
 let emitAgentEvent: (event: AgentEvent) => void;
@@ -34,6 +35,7 @@ beforeEach(() => {
   steerAdapterTurn = vi.fn(() => Promise.resolve());
   interruptAdapterSession = vi.fn(() => Promise.resolve());
   setSessionModelOptions = vi.fn(() => Promise.resolve());
+  setAdapterSessionMode = vi.fn(() => Promise.resolve());
   listPendingOutgoingMessages = vi.fn<() => Promise<PendingOutgoingMessage[]>>(
     () => Promise.resolve([]),
   );
@@ -42,10 +44,18 @@ beforeEach(() => {
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
+      listAdapters: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-cli',
+          displayName: 'Codex CLI',
+          capabilities: { canAcceptAttachments: true },
+        },
+      ]),
       sendAdapterMessage,
       steerAdapterTurn,
       interruptAdapterSession,
       setSessionModelOptions,
+      setAdapterSessionMode,
       listPendingOutgoingMessages,
       deletePendingOutgoingMessage,
       onAgentEvent: vi.fn((listener: (event: AgentEvent) => void) => {
@@ -356,5 +366,48 @@ describe('ComposerSdk unified input routing', () => {
       expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('new-session-model');
       expect(screen.queryByText('old session failed')).toBeNull();
     });
+  });
+
+  it('shows Grok work modes from the adapter profile and applies a change', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        ...(window.api as object),
+        listAdapters: vi.fn().mockResolvedValue([
+          {
+            id: 'grok-build',
+            displayName: 'Grok Build',
+            capabilities: {
+              canAcceptAttachments: false,
+              canSetSessionMode: true,
+              canSetPermissionMode: false,
+            },
+            sessionModes: ['default', 'plan', 'ask'],
+          },
+        ]),
+        setAdapterSessionMode,
+      },
+    });
+
+    render(
+      <ComposerSdk
+        session={makeSession({
+          agentId: 'grok-build',
+          title: 'Grok',
+          sessionMode: 'default',
+        })}
+      />,
+    );
+    fireEvent.click(await screen.findByLabelText('工作模式'));
+    fireEvent.click(screen.getByRole('option', { name: '问答模式' }));
+
+    await waitFor(() => {
+      expect(setAdapterSessionMode).toHaveBeenCalledWith(
+        'grok-build',
+        'sess-1',
+        'ask',
+      );
+    });
+    expect(screen.queryByText('权限')).toBeNull();
   });
 });

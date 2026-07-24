@@ -9,6 +9,7 @@ import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type {
   AppSettings,
+  AssetAdapter,
   AssetContentResult,
   AssetKind,
   AssetSource,
@@ -22,6 +23,7 @@ import type {
   TokenRateRow,
   TokenDailyRow,
   UserAssetInput,
+  UserAssetAdapter,
   UserAssetsSnapshot,
 } from '@shared/types';
 
@@ -167,7 +169,7 @@ export const miscApi = {
     kind: AssetKind,
     name: string,
     source: AssetSource,
-    adapter: 'claude-code' | 'codex-cli',
+    adapter: AssetAdapter,
   ): Promise<AssetContentResult> =>
     ipcRenderer.invoke(IpcInvoke.AssetsGetContent, kind, name, source, adapter),
   /** 保存用户 asset；main 端拼装 frontmatter/TOML + 原子写。
@@ -179,7 +181,7 @@ export const miscApi = {
   deleteUserAsset: (
     kind: AssetKind,
     name: string,
-    adapter: 'claude-code' | 'codex-cli',
+    adapter: UserAssetAdapter,
   ): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsDeleteUser, kind, name, adapter),
   /**
@@ -191,7 +193,7 @@ export const miscApi = {
     kind: AssetKind,
     name: string,
     source: AssetSource,
-    adapter: 'claude-code' | 'codex-cli',
+    adapter: AssetAdapter,
   ): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsRevealInFolder, kind, name, source, adapter),
 

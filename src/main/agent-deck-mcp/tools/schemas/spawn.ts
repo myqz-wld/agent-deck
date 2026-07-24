@@ -15,6 +15,7 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'gpt-5.4',
   'v4-flash',
   'v4-pro',
+  'grok-4.5',
 ] as const;
 export type SpawnSessionModelValue = (typeof SPAWN_SESSION_MODEL_VALUES)[number];
 
@@ -23,9 +24,9 @@ export type SpawnSessionThinkingValue = (typeof SPAWN_SESSION_THINKING_VALUES)[n
 
 export const SPAWN_SESSION_SCHEMA = {
   adapter: z
-    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
+    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli', 'grok-build'])
     .describe(
-      'Choose the SDK adapter that runs the new session: "claude-code", "deepseek-claude-code", or "codex-cli". Fresh sessions may use a different adapter; contextMode "fork" requires the exact caller adapter.',
+      'Choose the adapter that runs the new session: "claude-code", "deepseek-claude-code", "codex-cli", or "grok-build". Fresh sessions may use a different adapter; contextMode "fork" requires a target adapter with native fork support.',
     ),
   cwd: z
     .string()
@@ -71,7 +72,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
     .optional()
     .describe(
-      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then project agents (.claude/agents/<name>.md or .codex/agents/*.toml under cwd), then user agents (~/.claude/agents/<name>.md or ~/.codex/agents/*.toml). Claude starts with SDK agent/agents; Codex uses TOML developer_instructions plus supported config fields. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
+      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then supported project/user agents. Claude starts with SDK agent/agents; Codex maps TOML developer_instructions and supported config fields; Grok Build selects a bundled plugin agent through ACP session metadata. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
     ),
   model: z
     .string()
@@ -80,13 +81,13 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(256)
     .optional()
     .describe(
-      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Deepseek — v4-flash, v4-pro. Suggestions are not an allowlist: any non-empty provider model id is passed to the target SDK/provider for validation. Deepseek aliases map to deepseek-v4-flash and deepseek-v4-pro[1m]. Precedence: explicit model > resolved agent model > provider default. This override does not change existing sessions or global defaults.',
+      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Deepseek — v4-flash, v4-pro; Grok Build — grok-4.5. Suggestions are not an allowlist: any non-empty provider model id is passed to the target provider for validation. Precedence: explicit model > resolved agent model > provider default.',
     ),
   thinking: z
     .enum(SPAWN_SESSION_THINKING_VALUES)
     .optional()
     .describe(
-      'Optional thinking/reasoning override for the spawned session only. Codex accepts low, medium, high, xhigh, max, and ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Precedence: explicit thinking > resolved agent effort > provider default. Adapter-invalid values are rejected before session creation; retry with an exact value from the returned hint or omit thinking. The provider remains authoritative for model-specific support. This override does not change existing sessions or global defaults.',
+      'Optional thinking/reasoning override for the spawned session only. Precedence: explicit thinking > resolved agent effort > provider default. Grok Build accepts low, medium, and high; Codex accepts low through ultra; Claude and Deepseek accept low, medium, high, xhigh, and max. Adapter-invalid values are rejected before session creation.',
     ),
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
@@ -105,7 +106,13 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'Explicit permission-mode override for a spawned Claude-family session. Omit unless the user explicitly requests this permission mode; omitted values let Agent Deck inherit from a same-adapter caller or use the target adapter default. codex-cli ignores this field.',
+      'Explicit permission-mode override for a spawned Claude-family session. Omit unless the user explicitly requests it. It is incompatible with codex-cli and grok-build.',
+    ),
+  sessionMode: z
+    .enum(['default', 'plan', 'ask'])
+    .optional()
+    .describe(
+      'Grok Build work mode for the spawned session: default executes normally, plan plans without normal execution, and ask is conversational. It is distinct from Claude permissionMode and incompatible with other adapters.',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
@@ -143,6 +150,26 @@ export const SPAWN_SESSION_SCHEMA = {
     .optional()
     .describe('Internal spawn-link plumbing; direct callers leave unset so the handler uses the caller as parent.'),
 };
+
+const SPAWN_SESSION_FRESH_ONLY_SCHEMA = {
+  ...SPAWN_SESSION_SCHEMA,
+  contextMode: z
+    .literal('fresh')
+    .optional()
+    .describe(
+      'This caller adapter does not provide native context fork. Omit contextMode or set "fresh". To preserve work across adapters, use hand_off_session with an explicit continuation prompt.',
+    ),
+};
+
+/**
+ * Keep spawn_session available for cross-adapter fresh teammates while removing an impossible
+ * native-fork value from callers whose runtime profile cannot implement it.
+ */
+export function spawnSessionSchemaForCaller(canForkSession: boolean | null) {
+  return canForkSession === false
+    ? SPAWN_SESSION_FRESH_ONLY_SCHEMA
+    : SPAWN_SESSION_SCHEMA;
+}
 
 export type SpawnSessionArgs = z.infer<z.ZodObject<typeof SPAWN_SESSION_SCHEMA>>;
 

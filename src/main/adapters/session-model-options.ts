@@ -1,12 +1,10 @@
 import type { AgentId } from './options-builder';
 import {
-  CLAUDE_THINKING_LEVELS,
-  CODEX_THINKING_LEVELS,
-  isClaudeThinkingLevel,
-  isCodexThinkingLevel,
   type ClaudeThinkingLevel,
   type CodexThinkingLevel,
+  type GrokThinkingLevel,
 } from '@shared/session-metadata';
+import { getAdapterRuntimeProfile } from './runtime-profiles';
 
 export interface SessionModelOptions {
   model: string | null;
@@ -17,6 +15,7 @@ export interface CreateSessionModelOptions {
   model?: string;
   claudeCodeEffortLevel?: ClaudeThinkingLevel;
   modelReasoningEffort?: CodexThinkingLevel;
+  reasoningEffort?: GrokThinkingLevel;
 }
 
 export class SessionModelOptionsError extends Error {
@@ -30,7 +29,7 @@ export class SessionModelOptionsError extends Error {
 }
 
 export function thinkingLevelsForAdapter(adapterId: AgentId): readonly string[] {
-  return adapterId === 'codex-cli' ? CODEX_THINKING_LEVELS : CLAUDE_THINKING_LEVELS;
+  return getAdapterRuntimeProfile(adapterId).model.thinkingLevels;
 }
 
 /**
@@ -57,9 +56,7 @@ export function normalizeSessionModelOptions(
     if (typeof input.thinking !== 'string') {
       throw new SessionModelOptionsError('thinking', 'must be a string or null');
     }
-    const valid = adapterId === 'codex-cli'
-      ? isCodexThinkingLevel(input.thinking)
-      : isClaudeThinkingLevel(input.thinking);
+    const valid = thinkingLevelsForAdapter(adapterId).includes(input.thinking);
     if (!valid) {
       throw new SessionModelOptionsError(
         'thinking',
@@ -92,6 +89,14 @@ export function resolveCreateSessionModelOptions(
       ...(model !== null ? { model } : {}),
       ...(normalized.thinking !== null
         ? { modelReasoningEffort: normalized.thinking as CodexThinkingLevel }
+        : {}),
+    };
+  }
+  if (adapterId === 'grok-build') {
+    return {
+      ...(model !== null ? { model } : {}),
+      ...(normalized.thinking !== null
+        ? { reasoningEffort: normalized.thinking as GrokThinkingLevel }
         : {}),
     };
   }

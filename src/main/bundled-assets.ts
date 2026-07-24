@@ -1,32 +1,33 @@
 /**
  * agent-deck plugin 内置 agents/skills 元数据扫描与缓存（CHANGELOG_57 C2 / plan
- * codex-handoff-team-alignment-20260518 §P3 Step 3.3 双 root multi-adapter）。
+ * codex-handoff-team-alignment-20260518 §P3 Step 3.3 multi-adapter）。
  *
- * 数据源：双 root scan（plan §P3 Step 3.3 升级）
+ * 数据源：三 root scan
  *   - claude-code root: `getClaudeAgentDeckPluginSourcePath()` → `resources/claude-config/agent-deck-plugin/`
  *   - codex-cli  root: `getCodexAgentDeckPluginPath()`  → `resources/codex-config/agent-deck-plugin/`
+ *   - grok-build root: `getGrokPluginRoot()` → `resources/grok-config/agent-deck-plugin/`
  *
  * 各 root 下两个子目录：
  *   - Claude agents: `agents/<name>.md` —— frontmatter: name/description/tools/model/effort
  *   - Codex agents: `agents/<name>.toml` —— official Codex custom-agent TOML
  *   - `skills/<name>/SKILL.md`  —— frontmatter: name/description
  *
- * 启动时一次性扫描两 root 全部、合并到同一 snapshot、解析 frontmatter（手写正则，避免引
+ * 启动时一次性扫描三个 root、合并到同一 snapshot、解析 frontmatter（手写正则，避免引
  * YAML 依赖——4 个字段、单行 key:value 模式足够）、缓存到模块级 module variable。
  * `AssetsListBundled` IPC handler 直接读缓存零开销。读单个文件原文（「查看完整内容」/编辑器
  * 打开）走 `getBundledAssetContent(kind, name, adapter)` 现读，避免长文本 + 多文件常驻内存。
  *
  * **adapter narrowing**（plan §P3 Step 3.3 关键修法）：
- * - bundled 同名资产可能在双 root 各有一份内容不同的版本（如 reviewer-claude wrapper 在 claude
+ * - bundled 同名资产可能在多个 root 各有一份内容不同的版本（如 reviewer-claude wrapper 在 claude
  *   视角是 SDK teammate 直接跑 / 在 codex 视角是 Bash spawn 外部 claude CLI）。`getBundledAssetContent`
  *   / `getBundledAssetPath` 必须显式传 adapter narrow 到具体 root，不能 fallback 任意一边。
- * - qualifiedName 升级：`agent-deck:<adapter>:<name>`（替代旧 `agent-deck:<name>`）
+ * - qualifiedName：`agent-deck:<adapter>:<name>`
  *   防同名冲突；user 资产 qualifiedName 不变（`<name>`）。
  *
  * 路径分流：dev `<repo>/resources/<adapter>-config/agent-deck-plugin/`，prod
  * `<resourcesPath>/<adapter>-config/agent-deck-plugin/`，由 sdk-injection.ts (claude) /
- * codex-config-paths.ts (codex) 各自实现 dev/prod 路径解析；本文件直接 import 两个具体 helper
- * 各自 scan claude / codex root（双 root scan 内部已知 adapter，不需 dispatcher 中间层 —
+ * codex-config-paths.ts (codex) 与 Grok resources helper 各自实现 dev/prod 路径解析；本文件
+ * 直接 import 具体 helper，各自扫描 provider root（扫描内部已知 adapter，不需 dispatcher —
  * P5 Round 1 reviewer-claude MED 修法已删 agent-deck-plugin-paths.ts dispatcher 死代码，
  * 0 production caller，违反 user CLAUDE.md §提示词资产维护 约束 2「不写预测未来用例代码」）。
  */
@@ -38,6 +39,7 @@ import { ASSET_NAME_REGEX } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { getClaudeAgentDeckPluginSourcePath } from './adapters/claude-code/sdk-injection';
 import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
+import { getGrokPluginRoot } from './adapters/grok-build/resources';
 import { parseFrontmatter } from './utils/frontmatter';
 import { substituteResourcesPlaceholder } from './utils/resources-placeholder';
 import log from '@main/utils/logger';
@@ -45,7 +47,7 @@ import log from '@main/utils/logger';
 const logger = log.scope('main-bundled-assets');
 
 /** plan §P3 Step 3.3：bundled 资产 adapter narrowing key。user 资产此字段为 null。 */
-export type BundledAdapter = 'claude-code' | 'codex-cli';
+export type BundledAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
 
 let cached: BundledAssetsSnapshot | null = null;
 
@@ -55,10 +57,10 @@ let cached: BundledAssetsSnapshot | null = null;
  * Dev / packaged 缓存策略不同（CHANGELOG_57 R1·F11 收口）：
  * - **packaged**：`process.resourcesPath/<adapter>-config/` 是 read-only 资源，cache 永久有效
  * - **dev (`!app.isPackaged`)**：每次调都重扫，让开发者改 plugin md 后立刻在「资产库」里看到
- *   新 frontmatter，不必重启 Electron。代价：每次 mount AssetsLibraryDialog 重扫双 root
+ *   新 frontmatter，不必重启 Electron。代价：每次 mount AssetsLibraryDialog 重扫三个 root
  *   ~8 文件 frontmatter（毫秒级）。
  *
- * **plan §P3 Step 3.3 升级 — 双 root 合并**：claude-code root + codex-cli root 各自扫，
+ * **多 root 合并**：claude-code、codex-cli 与 grok-build root 各自扫描，
  * agents / skills 数组合并；同 kind 同 name 跨 root 不去重（由 adapter 字段区分）。snapshot
  * 内部 sort 按 (adapter asc, name asc)，UI 渲染顺序稳定。
  */
@@ -66,14 +68,17 @@ export function loadBundledAssets(): BundledAssetsSnapshot {
   if (cached && app.isPackaged) return cached;
   const claudeRoot = getClaudeAgentDeckPluginSourcePath();
   const codexRoot = getCodexAgentDeckPluginPath();
+  const grokRoot = getGrokPluginRoot();
   const snapshot: BundledAssetsSnapshot = {
     agents: [
       ...scanAgents(claudeRoot, 'claude-code'),
       ...scanAgents(codexRoot, 'codex-cli'),
+      ...scanAgents(grokRoot, 'grok-build'),
     ].sort(compareAdapterThenName),
     skills: [
       ...scanSkills(claudeRoot, 'claude-code'),
       ...scanSkills(codexRoot, 'codex-cli'),
+      ...scanSkills(grokRoot, 'grok-build'),
     ].sort(compareAdapterThenName),
   };
   if (app.isPackaged) cached = snapshot;
@@ -122,7 +127,12 @@ export function getBundledAssetPath(
   adapter: BundledAdapter,
 ): string | null {
   if (!isSafeName(name)) return null;
-  const root = adapter === 'claude-code' ? getClaudeAgentDeckPluginSourcePath() : getCodexAgentDeckPluginPath();
+  const root =
+    adapter === 'claude-code'
+      ? getClaudeAgentDeckPluginSourcePath()
+      : adapter === 'codex-cli'
+        ? getCodexAgentDeckPluginPath()
+        : getGrokPluginRoot();
   const path = kind === 'agent' ? getBundledAgentPath(root, name, adapter) : join(root, 'skills', name, 'SKILL.md');
   return existsSync(path) ? path : null;
 }
@@ -269,7 +279,8 @@ export const __metaBuilders = { buildAgentMeta, buildSkillMeta };
  * narrow 不再需要 — 直接读 a.adapter / b.adapter 即可。
  */
 function compareAdapterThenName(a: AssetMeta, b: AssetMeta): number {
-  const adapterRank = (x: 'claude-code' | 'codex-cli'): number => (x === 'claude-code' ? 0 : 1);
+  const adapterRank = (x: BundledAdapter): number =>
+    x === 'claude-code' ? 0 : x === 'codex-cli' ? 1 : 2;
   const ra = adapterRank(a.adapter);
   const rb = adapterRank(b.adapter);
   if (ra !== rb) return ra - rb;

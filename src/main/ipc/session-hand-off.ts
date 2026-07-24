@@ -1,9 +1,10 @@
 import { IpcInvoke } from '@shared/ipc-channels';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
-import type {
-  SessionHandOffPrepareRequest,
-  SessionHandOffTarget,
-  SessionRecord,
+import {
+  isAdapterSessionMode,
+  type SessionHandOffPrepareRequest,
+  type SessionHandOffTarget,
+  type SessionRecord,
 } from '@shared/types';
 import type { CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
 import { adapterRegistry } from '@main/adapters/registry';
@@ -175,10 +176,21 @@ function parseTarget(value: unknown): SessionHandOffTarget {
   if (raw.thinking !== null && raw.thinking !== undefined && typeof raw.thinking !== 'string') {
     throw new IpcInputError('request.target.thinking', 'must be a string or null');
   }
+  if (
+    raw.sessionMode !== null &&
+    raw.sessionMode !== undefined &&
+    !isAdapterSessionMode(raw.sessionMode)
+  ) {
+    throw new IpcInputError(
+      'request.target.sessionMode',
+      'must be default, plan, ask, or null',
+    );
+  }
   return {
     adapter: raw.adapter,
     model: typeof raw.model === 'string' ? raw.model : null,
     thinking: typeof raw.thinking === 'string' ? raw.thinking : null,
+    sessionMode: isAdapterSessionMode(raw.sessionMode) ? raw.sessionMode : null,
   };
 }
 

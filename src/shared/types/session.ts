@@ -17,6 +17,15 @@ export type LifecycleState = 'active' | 'dormant' | 'closed';
  * 切回 detail 或恢复会话时还原。
  */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+/** Adapter-native work mode. Currently negotiated and implemented by Grok Build ACP. */
+export const ADAPTER_SESSION_MODES = ['default', 'plan', 'ask'] as const;
+export type AdapterSessionMode = (typeof ADAPTER_SESSION_MODES)[number];
+export function isAdapterSessionMode(value: unknown): value is AdapterSessionMode {
+  return (
+    typeof value === 'string' &&
+    (ADAPTER_SESSION_MODES as readonly string[]).includes(value)
+  );
+}
 /**
  * 'sdk' = 应用内通过 ＋ 按钮新建的会话（可发消息、可响应权限请求）
  * 'cli' = 外部终端 `claude` 通过 hook 上报的会话（只读，UI 提示用户去终端操作）
@@ -41,6 +50,8 @@ export interface SessionRecord {
   hiddenFromHistory?: boolean;
   /** SDK 通道：上次手动选过的权限模式；null/undefined 视为 'default'。CLI 通道字段无意义。 */
   permissionMode?: PermissionMode | null;
+  /** Adapter-native work mode; separate from Claude permission mode. */
+  sessionMode?: AdapterSessionMode | null;
   /**
    * plan team-cohesion-fix-20260513 Phase A：universal team backend 反查的 active membership 投影。
    *
@@ -250,7 +261,11 @@ export interface HandOffMetadata {
   sourceMaxEventId?: number | null;
 }
 
-export type SessionAdapterId = 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+export type SessionAdapterId =
+  | 'claude-code'
+  | 'deepseek-claude-code'
+  | 'codex-cli'
+  | 'grok-build';
 
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
@@ -258,6 +273,8 @@ export interface SessionHandOffTarget {
   model: string | null;
   /** Empty/null delegates thinking selection to the target provider. */
   thinking: string | null;
+  /** Adapter-native work mode; currently meaningful only for Grok Build. */
+  sessionMode?: AdapterSessionMode | null;
 }
 
 export interface SessionHandOffPrepareRequest {

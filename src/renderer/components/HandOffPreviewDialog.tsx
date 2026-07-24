@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type {
+  AdapterSessionMode,
   SessionAdapterId,
   SessionHandOffExecutionFailure,
   SessionHandOffPreparation,
@@ -12,6 +13,11 @@ import {
   thinkingOptionsForAdapter,
   type SessionThinkingChoice,
 } from './SessionModelFields';
+import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
+
+interface AdapterOption extends DeckSelectOption<SessionAdapterId> {
+  sessionModes: AdapterSessionMode[];
+}
 
 interface Props {
   open: boolean;
@@ -96,13 +102,16 @@ function executionFailureLabel(failure: SessionHandOffExecutionFailure): string 
 
 export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Element | null {
   const sessionId = session.id;
-  const [adapters, setAdapters] = useState<DeckSelectOption<SessionAdapterId>[]>([]);
+  const [adapters, setAdapters] = useState<AdapterOption[]>([]);
   const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(
     session.agentId as SessionAdapterId,
   );
   const [targetModel, setTargetModel] = useState(session.model ?? '');
   const [targetThinking, setTargetThinking] = useState<SessionThinkingChoice>(() =>
     sourceThinking(session),
+  );
+  const [targetSessionMode, setTargetSessionMode] = useState<AdapterSessionMode>(
+    session.sessionMode ?? 'default',
   );
   const [instruction, setInstruction] = useState(DEFAULT_UI_CONTINUATION_INSTRUCTION);
   const [preparation, setPreparation] = useState<SessionHandOffPreparation | null>(null);
@@ -130,6 +139,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     setTargetAdapter(session.agentId as SessionAdapterId);
     setTargetModel(session.model ?? '');
     setTargetThinking(sourceThinking(session));
+    setTargetSessionMode(session.sessionMode ?? 'default');
     setInstruction(DEFAULT_UI_CONTINUATION_INSTRUCTION);
     setPreparing(false);
     setCommitting(false);
@@ -161,9 +171,14 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                 row.capabilities.canCreateSession === true &&
                 (row.id === 'claude-code' ||
                   row.id === 'deepseek-claude-code' ||
-                  row.id === 'codex-cli'),
+                  row.id === 'codex-cli' ||
+                  row.id === 'grok-build'),
             )
-            .map((row) => ({ value: row.id, label: row.displayName })),
+            .map((row) => ({
+              value: row.id,
+              label: row.displayName,
+              sessionModes: row.sessionModes ?? [],
+            })),
         );
       })
       .catch((caught: unknown) => {
@@ -206,6 +221,10 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
           adapter: targetAdapter,
           model: targetModel.trim() || null,
           thinking: targetThinking || null,
+          ...(adapters.find((adapter) => adapter.value === targetAdapter)
+            ?.sessionModes.length
+            ? { sessionMode: targetSessionMode }
+            : {}),
         },
       });
       if (sequence !== requestSequence.current) {
@@ -310,9 +329,14 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                     if (next === session.agentId) {
                       setTargetModel(session.model ?? '');
                       setTargetThinking(sourceThinking(session));
+                      setTargetSessionMode(session.sessionMode ?? 'default');
                     } else {
                       setTargetModel('');
                       setTargetThinking('');
+                      setTargetSessionMode(
+                        adapters.find((adapter) => adapter.value === next)
+                          ?.sessionModes[0] ?? 'default',
+                      );
                     }
                   })
                 }
@@ -330,6 +354,27 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                 invalidateAndChange(() => setTargetThinking(thinking))
               }
             />
+            {(adapters.find((adapter) => adapter.value === targetAdapter)
+              ?.sessionModes.length ?? 0) > 0 && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
+                  工作模式
+                </label>
+                <DeckSelect
+                  value={targetSessionMode}
+                  ariaLabel="目标工作模式"
+                  options={adapterSessionModeOptions(
+                    adapters.find((adapter) => adapter.value === targetAdapter)
+                      ?.sessionModes ?? [],
+                  )}
+                  disabled={busy}
+                  onChange={(next) =>
+                    invalidateAndChange(() => setTargetSessionMode(next))
+                  }
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px]"
+                />
+              </div>
+            )}
           </div>
 
           <label className="flex flex-col gap-1 text-[10px] text-deck-muted">

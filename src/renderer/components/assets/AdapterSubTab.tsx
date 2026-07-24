@@ -11,17 +11,20 @@ import { type JSX } from 'react';
  * onSwitch 返 false 拦截切换 / 返 true 或 undefined 不拦截。
  */
 
-export type AssetAdapter = 'claude-code' | 'codex-cli';
+export type AssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
 
 export function AdapterSubTab({
   current,
   onSelect,
   onSwitch,
+  showGrok = false,
 }: {
   current: AssetAdapter;
   onSelect: (next: AssetAdapter) => void;
   /** 切换前 hook,返 false 拦截切换。Skills/Agents 不传(无 dirty)/应用约定传(子 editor dirty)。 */
   onSwitch?: (next: AssetAdapter) => Promise<boolean>;
+  /** Grok has bundled read-only assets; user assets and baseline editing stay app-owned. */
+  showGrok?: boolean;
 }): JSX.Element {
   const guardedSelect = async (next: AssetAdapter): Promise<void> => {
     if (next === current) return;
@@ -40,6 +43,11 @@ export function AdapterSubTab({
       <SubTabBtn active={current === 'codex-cli'} onClick={() => void guardedSelect('codex-cli')}>
         Codex
       </SubTabBtn>
+      {showGrok && (
+        <SubTabBtn active={current === 'grok-build'} onClick={() => void guardedSelect('grok-build')}>
+          Grok
+        </SubTabBtn>
+      )}
     </div>
   );
 }

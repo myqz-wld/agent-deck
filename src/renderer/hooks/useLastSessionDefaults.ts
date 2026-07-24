@@ -29,11 +29,13 @@ import type {
   PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 import type { SessionThinkingLevel } from '@shared/session-metadata';
+import type { AdapterSessionMode } from '@shared/types';
 
-type AdapterId = 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+type AdapterId = 'claude-code' | 'deepseek-claude-code' | 'codex-cli' | 'grok-build';
 
 type Defaults = {
   permissionMode?: PermissionModeChoice;
+  sessionMode?: AdapterSessionMode;
   codexSandbox?: CodexSandboxChoice;
   claudeCodeSandbox?: ClaudeSandboxChoice;
   /** 自由文本；空串表示明确恢复 provider 默认模型。 */
@@ -46,11 +48,17 @@ const store: Record<AdapterId, Defaults> = {
   'claude-code': { permissionMode: 'bypassPermissions' },
   'deepseek-claude-code': { permissionMode: 'bypassPermissions' },
   'codex-cli': {},
+  'grok-build': { sessionMode: 'default' },
 };
 let lastAdapter: AdapterId = 'claude-code';
 
 function isAdapterId(s: string): s is AdapterId {
-  return s === 'claude-code' || s === 'deepseek-claude-code' || s === 'codex-cli';
+  return (
+    s === 'claude-code' ||
+    s === 'deepseek-claude-code' ||
+    s === 'codex-cli' ||
+    s === 'grok-build'
+  );
 }
 
 export function getLastAdapter(): AdapterId {
@@ -94,11 +102,17 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     if (patch.thinking !== undefined) next.thinking = patch.thinking;
     // 故意忽略 patch.codexSandbox —— 不允许跨 adapter 串味
     store[adapter] = next;
-  } else {
+  } else if (adapter === 'codex-cli') {
     const next: Defaults = { ...store['codex-cli'] };
     if (patch.codexSandbox !== undefined) next.codexSandbox = patch.codexSandbox;
     if (patch.model !== undefined) next.model = patch.model;
     if (patch.thinking !== undefined) next.thinking = patch.thinking;
     store['codex-cli'] = next;
+  } else {
+    const next: Defaults = { ...store['grok-build'] };
+    if (patch.sessionMode !== undefined) next.sessionMode = patch.sessionMode;
+    if (patch.model !== undefined) next.model = patch.model;
+    if (patch.thinking !== undefined) next.thinking = patch.thinking;
+    store['grok-build'] = next;
   }
 }

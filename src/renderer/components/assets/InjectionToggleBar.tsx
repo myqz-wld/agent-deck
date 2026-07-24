@@ -9,26 +9,37 @@ type InjectionSettingKey =
   | 'injectAgentDeckClaudeAgents'
   | 'injectAgentDeckCodexAgents'
   | 'injectAgentDeckClaudeMd'
-  | 'injectAgentDeckCodexAgentsMd';
+  | 'injectAgentDeckCodexAgentsMd'
+  | 'injectAgentDeckGrokSkills'
+  | 'injectAgentDeckGrokAgents'
+  | 'injectAgentDeckGrokAgentsMd';
 
 const INJECTION_CONFIG: Record<
   InjectionTab,
-  { assetLabel: string; claudeKey: InjectionSettingKey; codexKey: InjectionSettingKey }
+  {
+    assetLabel: string;
+    claudeKey: InjectionSettingKey;
+    codexKey: InjectionSettingKey;
+    grokKey: InjectionSettingKey;
+  }
 > = {
   skills: {
     assetLabel: 'Skills',
     claudeKey: 'injectAgentDeckClaudeSkills',
     codexKey: 'injectAgentDeckCodexSkills',
+    grokKey: 'injectAgentDeckGrokSkills',
   },
   agents: {
     assetLabel: 'Agents',
     claudeKey: 'injectAgentDeckClaudeAgents',
     codexKey: 'injectAgentDeckCodexAgents',
+    grokKey: 'injectAgentDeckGrokAgents',
   },
   'claude-md': {
     assetLabel: '应用约定',
     claudeKey: 'injectAgentDeckClaudeMd',
     codexKey: 'injectAgentDeckCodexAgentsMd',
+    grokKey: 'injectAgentDeckGrokAgentsMd',
   },
 };
 
@@ -83,6 +94,11 @@ export function InjectionToggleBar({
           label="注入到 Codex 会话"
           value={settings[config.codexKey]}
           onChange={(value) => void update({ [config.codexKey]: value })}
+        />
+        <Toggle
+          label="注入到 Grok 会话"
+          value={settings[config.grokKey]}
+          onChange={(value) => void update({ [config.grokKey]: value })}
         />
         <div className="text-[10px] leading-snug text-deck-muted/60">
           {description}

@@ -24,7 +24,6 @@ import {
   type SpawnCodexReasoningEffort,
 } from './spawn-model-options';
 import { resolveSpawnAgent } from './spawn-agent-resolver';
-import { defaultPermissionModeForTargetAdapter } from './spawn-defaults';
 import { finalizeSpawnLimits } from './spawn-limits';
 import { buildSpawnPromptContext } from './spawn-prompt';
 import { validateSpawnForkPreflight } from './spawn-fork-preflight';
@@ -42,6 +41,7 @@ import log from '@main/utils/logger';
 import { createOrdinaryInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { executeFreshSession } from '@main/session/continuation-context/fresh-session-executor';
 import type { SpawnSessionHandlerOptions } from './spawn-handler-options';
+import { resolveSpawnRuntimeControls, validateSpawnRuntimeControls } from './spawn-runtime-controls';
 
 const logger = log.scope('mcp-spawn');
 
@@ -71,8 +71,15 @@ export const spawnSessionHandler = withMcpGuard(
     if (!adapter.capabilities.canCreateSession) {
       return err(
         `adapter "${args.adapter}" does not support session creation`,
-        'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, or codex-cli.',
+        'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, codex-cli, or grok-build.',
       );
+    }
+    const runtimeControlError = validateSpawnRuntimeControls(
+      args,
+      adapter.capabilities,
+    );
+    if (runtimeControlError) {
+      return err(runtimeControlError.error, runtimeControlError.hint);
     }
 
     // **REVIEW_85 MED-A (reviewer-claude) + LOW-1 (reviewer-codex)**: applySpawnGuards 下移到
@@ -100,6 +107,7 @@ export const spawnSessionHandler = withMcpGuard(
     let codexConfigOverridesFromAgent: CodexConfigObject | undefined;
     let claudeAgentNameFromAgent: string | undefined;
     let claudeAgentsFromAgent: Record<string, AgentDefinition> | undefined;
+    let grokAgentNameFromAgent: string | undefined;
     if (args.agentName) {
       const agent = resolveSpawnAgent(args.agentName, args.adapter, args.cwd);
       if (!agent.ok) return err(agent.error, agent.hint);
@@ -111,6 +119,7 @@ export const spawnSessionHandler = withMcpGuard(
       codexConfigOverridesFromAgent = agent.codexConfigOverrides;
       claudeAgentNameFromAgent = agent.claudeAgentName;
       claudeAgentsFromAgent = agent.claudeAgents;
+      grokAgentNameFromAgent = agent.grokAgentName;
     }
 
     const resolvedModelOptions = resolveSpawnModelOptions(
@@ -147,24 +156,19 @@ export const spawnSessionHandler = withMcpGuard(
     const leadRecord = sessionRepo.get(caller.callerSessionId);
     const callerExists = leadRecord !== null;
     const shouldInheritAdapterSettings = leadRecord?.agentId === args.adapter;
-    const effectivePermissionMode =
-      args.permissionMode ??
-      (shouldInheritAdapterSettings
-        ? (leadRecord?.permissionMode ?? undefined)
-        : defaultPermissionModeForTargetAdapter(args.adapter));
-    const effectiveCodexSandbox =
-      args.codexSandbox ??
-      codexSandboxFromAgent ??
-      (shouldInheritAdapterSettings ? (leadRecord?.codexSandbox ?? undefined) : undefined);
-    const effectiveClaudeCodeSandbox =
-      args.claudeCodeSandbox ??
-      (shouldInheritAdapterSettings ? (leadRecord?.claudeCodeSandbox ?? undefined) : undefined);
-    const effectiveExtraAllowWrite =
-      args.extraAllowWrite !== undefined
-        ? args.extraAllowWrite
-        : shouldInheritAdapterSettings
-          ? (leadRecord?.extraAllowWrite ?? undefined)
-          : undefined;
+    const {
+      effectivePermissionMode,
+      effectiveSessionMode,
+      effectiveCodexSandbox,
+      effectiveClaudeCodeSandbox,
+      effectiveExtraAllowWrite,
+    } = resolveSpawnRuntimeControls({
+      args,
+      capabilities: adapter.capabilities,
+      leadRecord,
+      inherit: shouldInheritAdapterSettings,
+      codexSandboxFromAgent,
+    });
 
     // Build once before fork preflight. The provisional prompt is replaced in-place after the
     // normal team/reply context is assembled, preserving fresh dispatch field order and values.
@@ -172,6 +176,7 @@ export const spawnSessionHandler = withMcpGuard(
       args,
       prompt: promptToUse,
       effectivePermissionMode,
+      effectiveSessionMode,
       effectiveCodexSandbox,
       effectiveClaudeCodeSandbox,
       effectiveExtraAllowWrite,
@@ -180,6 +185,7 @@ export const spawnSessionHandler = withMcpGuard(
       codexConfigOverrides: codexConfigOverridesFromAgent,
       claudeAgentName: claudeAgentNameFromAgent,
       claudeAgents: claudeAgentsFromAgent,
+      grokAgentName: grokAgentNameFromAgent,
       codexRuntimeAccess: opts?.codexRuntimeAccess,
     });
 

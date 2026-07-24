@@ -2,6 +2,7 @@ import { useId, type JSX } from 'react';
 import {
   CLAUDE_THINKING_LEVELS,
   CODEX_THINKING_LEVELS,
+  GROK_THINKING_LEVELS,
   type SessionThinkingLevel,
 } from '@shared/session-metadata';
 import { DeckSelect, type DeckSelectOption } from '@renderer/components/DeckSelect';
@@ -24,6 +25,7 @@ const DEFAULT_THINKING_OPTION: DeckSelectOption<SessionThinkingChoice> = {
 
 function thinkingLevelsForAdapter(adapterId: string): readonly SessionThinkingLevel[] {
   if (adapterId === 'codex-cli') return CODEX_THINKING_LEVELS;
+  if (adapterId === 'grok-build') return GROK_THINKING_LEVELS;
   if (adapterId === 'claude-code' || adapterId === 'deepseek-claude-code') {
     return CLAUDE_THINKING_LEVELS;
   }

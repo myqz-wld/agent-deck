@@ -19,6 +19,7 @@ import type {
   PermissionRequest,
   UploadedAttachmentRef,
 } from '@shared/types';
+import type { SessionAdapterId } from '@shared/types';
 
 export interface SdkSessionHandle {
   sessionId: string;
@@ -27,6 +28,7 @@ export interface SdkSessionHandle {
 
 export interface SdkBridgeOptions {
   emit: (e: AgentEvent) => void;
+  adapterId?: Extract<SessionAdapterId, 'claude-code' | 'deepseek-claude-code'>;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。运行时可通过 setPermissionTimeoutMs 改。 */
   permissionTimeoutMs?: number;
   /**
