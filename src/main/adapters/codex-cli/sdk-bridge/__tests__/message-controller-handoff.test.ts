@@ -19,6 +19,12 @@ function internal(sessionId: string): InternalSession {
   } as unknown as InternalSession;
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
+}
+
 describe('MessageController handoff rollback recovery', () => {
   it('keeps pending metadata aligned when a user deletes a queued turn', async () => {
     const sessionId = 'codex-visible-pending';
@@ -76,6 +82,103 @@ describe('MessageController handoff rollback recovery', () => {
       text: 'internal prompt',
       turnCorrelationId: 'turn-1',
     }]);
+  });
+
+  it('lists and cancels a Codex turn while turn/start is still submitting', () => {
+    const sessionId = 'codex-submitting-turn';
+    const session = internal(sessionId);
+    const abort = vi.fn();
+    session.currentTurn = { abort } as unknown as AbortController;
+    session.submittingUserMessage = {
+      event: { text: 'cancel before acceptance', turnCorrelationId: 'submitting-1' },
+      cancelled: false,
+    };
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit: vi.fn(),
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    expect(controller.listPendingOutgoingMessages(sessionId).map((message) => message.id))
+      .toEqual(['submitting-1']);
+    expect(controller.removePendingOutgoingMessage(sessionId, 'submitting-1')).toMatchObject({
+      id: 'submitting-1',
+    });
+    expect(abort).toHaveBeenCalledOnce();
+    expect(controller.listPendingOutgoingMessages(sessionId)).toEqual([]);
+  });
+
+  it('keeps an active steer pending until turn/steer is accepted', async () => {
+    const sessionId = 'codex-submitting-steer';
+    const session = internal(sessionId);
+    const steer = deferred<void>();
+    const steerCall = vi.fn<
+      (input: unknown, turnId: string, signal?: AbortSignal) => Promise<void>
+    >(() => steer.promise);
+    session.currentTurn = { abort: vi.fn() } as unknown as AbortController;
+    session.currentTurnId = 'turn-1';
+    session.thread = { steer: steerCall } as unknown as InternalSession['thread'];
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit,
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    await controller.sendMessage(sessionId, 'correct this', undefined, {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'steer-1',
+    });
+    expect(controller.listPendingOutgoingMessages(sessionId).map((message) => message.id))
+      .toEqual(['steer-1']);
+    expect(steerCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'turn-1',
+      expect.any(AbortSignal),
+    );
+
+    steer.resolve();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'message',
+      payload: expect.objectContaining({ text: 'correct this', turnCorrelationId: 'steer-1' }),
+    })));
+    expect(controller.listPendingOutgoingMessages(sessionId)).toEqual([]);
+  });
+
+  it('cancels an active steer without interrupting the running turn', async () => {
+    const sessionId = 'codex-cancel-steer';
+    const session = internal(sessionId);
+    const steer = deferred<void>();
+    const steerCall = vi.fn<
+      (input: unknown, turnId: string, signal?: AbortSignal) => Promise<void>
+    >(() => steer.promise);
+    const turnAbort = vi.fn();
+    session.currentTurn = { abort: turnAbort } as unknown as AbortController;
+    session.currentTurnId = 'turn-1';
+    session.thread = { steer: steerCall } as unknown as InternalSession['thread'];
+    const emit = vi.fn<(event: AgentEvent) => void>();
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit,
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    await controller.sendMessage(sessionId, 'cancel correction', undefined, {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'steer-cancel-1',
+    });
+    const requestSignal = steerCall.mock.calls[0]?.[2] as AbortSignal;
+    expect(controller.removePendingOutgoingMessage(sessionId, 'steer-cancel-1'))
+      .toMatchObject({ id: 'steer-cancel-1' });
+    expect(requestSignal.aborted).toBe(true);
+    expect(turnAbort).not.toHaveBeenCalled();
+
+    steer.resolve();
+    await Promise.resolve();
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it('preserves the execution marker when a correlated turn must recover first', async () => {

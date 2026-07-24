@@ -13,6 +13,10 @@ import {
   isAcceptedEnqueueRetry,
   rememberAcceptedEnqueue,
 } from '@main/adapters/enqueue-idempotency';
+import {
+  acceptCodexSubmittingUserMessage,
+  pendingCodexUserMessage,
+} from './deferred-user-submission';
 
 const logger = log.scope('codex-bridge');
 
@@ -158,13 +162,23 @@ export class MessageController {
       }
     }
 
-    if (!forceQueue && !attachments?.length && session.currentTurn && session.currentTurnId) {
-      await this.steerActiveTurn(
+    if (
+      !forceQueue &&
+      !attachments?.length &&
+      session.currentTurn &&
+      session.currentTurnId &&
+      !session.submittingUserMessage
+    ) {
+      if (idempotencyKey && fingerprint) {
+        rememberAcceptedEnqueue(session.acceptedEnqueueFingerprints!, idempotencyKey, fingerprint);
+      }
+      void this.steerActiveTurn(
         session,
         sessionId,
         text,
         session.currentTurnId,
         enqueueOptions?.turnCorrelationId,
+        true,
       );
       return;
     }
@@ -259,17 +273,15 @@ export class MessageController {
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
     const session = this.ctx.sessions.get(sessionId);
     if (!session) return [];
-    return (session.pendingDeferredUserEvents ?? []).flatMap((deferred) =>
-      deferred?.turnCorrelationId
-        ? [{
-            id: deferred.turnCorrelationId,
-            text: deferred.text,
-            ...(deferred.attachments
-              ? { attachments: deferred.attachments.map((attachment) => ({ ...attachment })) }
-              : {}),
-          }]
-        : [],
-    );
+    const queued = (session.pendingDeferredUserEvents ?? []).flatMap((deferred) => {
+      const pending = pendingCodexUserMessage(deferred);
+      return pending ? [pending] : [];
+    });
+    const submitting = session.submittingUserMessage;
+    const current = !submitting?.cancelled
+      ? pendingCodexUserMessage(submitting?.event)
+      : null;
+    return current ? [current, ...queued] : queued;
   }
 
   removePendingOutgoingMessage(
@@ -282,19 +294,25 @@ export class MessageController {
     const index = deferredEvents.findIndex(
       (deferred) => deferred?.turnCorrelationId === messageId,
     );
-    if (index < 0) return null;
-    const deferred = deferredEvents[index];
-    if (!deferred?.turnCorrelationId) return null;
-    session.pendingMessages.splice(index, 1);
-    deferredEvents.splice(index, 1);
-    session.pendingHandOffMessages?.splice(index, 1);
-    return {
-      id: deferred.turnCorrelationId,
-      text: deferred.text,
-      ...(deferred.attachments
-        ? { attachments: deferred.attachments.map((attachment) => ({ ...attachment })) }
-        : {}),
-    };
+    if (index >= 0) {
+      const pending = pendingCodexUserMessage(deferredEvents[index]);
+      if (!pending) return null;
+      session.pendingMessages.splice(index, 1);
+      deferredEvents.splice(index, 1);
+      session.pendingHandOffMessages?.splice(index, 1);
+      return pending;
+    }
+    const submitting = session.submittingUserMessage;
+    const pending = pendingCodexUserMessage(submitting?.event);
+    if (!submitting || submitting.cancelled || pending?.id !== messageId) return null;
+    submitting.cancelled = true;
+    if (submitting.kind === 'steer') {
+      submitting.requestController?.abort();
+      if (session.submittingUserMessage === submitting) session.submittingUserMessage = null;
+    } else {
+      session.currentTurn?.abort();
+    }
+    return pending;
   }
 
   private validateMessageLength(text: string): void {
@@ -308,8 +326,15 @@ export class MessageController {
 
   async interrupt(sessionId: string): Promise<void> {
     const session = this.ctx.sessions.get(sessionId);
-    if (!session?.currentTurn) return;
+    if (!session) return;
     try {
+      const submitting = session.submittingUserMessage;
+      if (submitting?.kind === 'steer') {
+        submitting.cancelled = true;
+        submitting.requestController?.abort();
+        if (session.submittingUserMessage === submitting) session.submittingUserMessage = null;
+      }
+      if (!session.currentTurn) return;
       session.currentTurn.abort();
     } catch (err) {
       logger.warn('[codex-bridge] interrupt failed', err);
@@ -322,20 +347,45 @@ export class MessageController {
     text: string,
     expectedTurnId: string,
     turnCorrelationId?: string,
+    background = false,
   ): Promise<void> {
-    await session.thread.steer(toCodexAppServerInput(packCodexInput(text)), expectedTurnId);
-    this.ctx.emit({
-      sessionId,
-      agentId: AGENT_ID,
-      kind: 'message',
-      payload: {
-        text,
-        role: 'user',
-        steer: true,
-        ...(turnCorrelationId ? { turnCorrelationId } : {}),
-      },
-      ts: Date.now(),
-      source: 'sdk',
-    });
+    if (session.submittingUserMessage) {
+      throw new Error('Codex 当前已有一条消息正在提交，请稍后再试。');
+    }
+    const submission = {
+      event: { text, ...(turnCorrelationId ? { turnCorrelationId } : {}) },
+      cancelled: false,
+      kind: 'steer' as const,
+      requestController: new AbortController(),
+    };
+    session.submittingUserMessage = submission;
+    try {
+      await session.thread.steer(
+        toCodexAppServerInput(packCodexInput(text)),
+        expectedTurnId,
+        submission.requestController.signal,
+      );
+      if (session.submittingUserMessage !== submission || submission.cancelled) return;
+      acceptCodexSubmittingUserMessage(this.ctx.emit, session, submission);
+    } catch (error) {
+      if (session.submittingUserMessage !== submission) return;
+      session.submittingUserMessage = null;
+      if (submission.cancelled) return;
+      if (background) {
+        this.ctx.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text: `⚠ Codex 修正失败：${error instanceof Error ? error.message : String(error)}`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        return;
+      }
+      throw error;
+    }
   }
 }

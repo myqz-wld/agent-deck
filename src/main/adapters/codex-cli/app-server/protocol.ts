@@ -44,6 +44,7 @@ export type CodexAppServerNotification = { method: string; params?: unknown };
 
 export type CodexAppServerStreamEvent =
   | { type: 'thread.started'; thread_id: string }
+  | { type: 'turn.accepted'; turn_id: string }
   | { type: 'server.notification'; notification: CodexAppServerNotification };
 
 export interface CodexAppServerRunResult {

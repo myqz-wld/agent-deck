@@ -45,10 +45,19 @@ export function PendingOutgoingQueue({
     setMessages([]);
     setError(null);
     const off = window.api.onAgentEvent((event) => {
+      if (event.sessionId !== sessionId) return;
       const messageId = consumedMessageId(event, sessionId);
-      if (!messageId) return;
-      setMessages((current) => current.filter((message) => message.id !== messageId));
-      void refresh();
+      const payload = event.payload as { error?: unknown } | null;
+      if (event.kind === 'message') {
+        if (messageId) {
+          setMessages((current) => current.filter((message) => message.id !== messageId));
+          void refresh();
+        } else if (payload?.error === true) {
+          void refresh();
+        }
+        return;
+      }
+      if (event.kind === 'finished' || event.kind === 'session-end') void refresh();
     });
     return () => {
       requestIdRef.current += 1;
@@ -68,7 +77,7 @@ export function PendingOutgoingQueue({
         sessionId,
         messageId,
       );
-      if (!removed) setError('消息已被会话消费，不能再从等待队列删除。');
+      if (!removed) setError('消息已被供应商接受，不能再取消。');
       await refresh();
     } catch (reason) {
       logger.error('deletePendingOutgoingMessage failed', reason);
@@ -86,7 +95,7 @@ export function PendingOutgoingQueue({
   return (
     <section className="mb-1.5 rounded border border-status-waiting/25 bg-status-waiting/[0.06] p-1.5">
       <div className="mb-1 flex items-center justify-between gap-2 text-[9px] text-deck-muted">
-        <span>等待会话消费 · {messages.length}</span>
+        <span>等待 provider 接受 · {messages.length}</span>
         {error && <span role="alert" className="text-status-error">{error}</span>}
       </div>
       <div className="max-h-28 space-y-1 overflow-y-auto scrollbar-deck" role="list">

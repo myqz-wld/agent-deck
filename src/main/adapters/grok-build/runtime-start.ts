@@ -34,6 +34,7 @@ export interface GrokRuntimeStartContext {
   isCurrentRuntime: (runtime: GrokRuntime) => boolean;
   requireNativeSession: (runtime: GrokRuntime) => string;
   onNegotiatedImageCapability?: (supported: boolean) => void;
+  confirmPromptAccepted: (runtime: GrokRuntime) => void;
   drain: (runtime: GrokRuntime) => Promise<void>;
   dispose: (runtime: GrokRuntime) => Promise<void>;
 }
@@ -58,6 +59,9 @@ export async function startGrokRuntime(
         runtime.suppressUpdates ||
         notification.sessionId !== runtime.nativeSessionId
       ) return;
+      if (notification.update.sessionUpdate === 'user_message_chunk') {
+        context.confirmPromptAccepted(runtime);
+      }
       for (const event of translateGrokUpdate(
         runtime.applicationSessionId,
         runtime.cwd,

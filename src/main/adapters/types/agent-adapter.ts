@@ -111,10 +111,13 @@ export interface AgentAdapter {
   ): Promise<void>;
   /** Snapshot queued, not-yet-started provider turns while a handoff ingress lease is held. */
   snapshotQueuedMessagesForHandOff?(sessionId: string): QueuedAgentMessage[];
-  /** User-visible, not-yet-consumed inputs. Excludes internal and already-started turns. */
+  /** User-visible inputs that have not crossed the provider-acceptance boundary. */
   listPendingOutgoingMessages?(sessionId: string): PendingAgentMessage[];
-  /** Remove one message only while it is still in the provider queue. */
-  removePendingOutgoingMessage?(sessionId: string, messageId: string): PendingAgentMessage | null;
+  /** Cancel one message only before the provider-acceptance boundary wins. */
+  removePendingOutgoingMessage?(
+    sessionId: string,
+    messageId: string,
+  ): PendingAgentMessage | null | Promise<PendingAgentMessage | null>;
   /** Mid-turn steering：只修改当前正在跑的 turn，不进入下一轮 pending message queue。 */
   steerTurn?(sessionId: string, text: string): Promise<void>;
   respondPermission?(
@@ -193,7 +196,7 @@ export interface AgentAdapter {
   setPermissionTimeoutMs?(ms: number): void;
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
   setCodexCliPath?(path: string | null): void;
-  /** Grok Build ACP binary override; null resolves `grok` from the user shell PATH. */
+  /** Grok Build ACP binary override; null resolves the bundled native CLI. */
   setGrokCliPath?(path: string | null): void;
 
   /** 数据 tab 读取 provider 订阅/限额窗口用量。未实现表示该 adapter 暂无可读来源。 */

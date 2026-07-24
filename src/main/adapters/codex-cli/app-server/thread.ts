@@ -143,9 +143,9 @@ export class CodexAppServerThread {
     return threadId;
   }
 
-  async steer(input: CodexAppServerUserInput[], expectedTurnId: string): Promise<void> {
+  async steer(input: CodexAppServerUserInput[], expectedTurnId: string, signal?: AbortSignal): Promise<void> {
     const threadId = await this.ensureThread();
-    await this.client.request('turn/steer', { threadId, expectedTurnId, input });
+    await this.client.request('turn/steer', { threadId, expectedTurnId, input }, signal);
   }
 
   async interrupt(turnId = this.activeTurnId): Promise<void> {
@@ -179,6 +179,7 @@ export class CodexAppServerThread {
       let turnStartSeen = false;
       let turnAccepted = false;
       let turnRequestIssued = false;
+      let cancelledBeforeAcceptance = false;
       let modelActivitySeen = false;
       let terminalSeen = false;
       let firstModelEventWatchdogStarted = false;
@@ -370,6 +371,7 @@ export class CodexAppServerThread {
       const abortPromise = new Promise<never>((_, reject) => {
         if (!signal) return;
         abortListener = () => {
+          cancelledBeforeAcceptance = !turnAccepted;
           void this.interrupt().catch((err) => {
             logger.warn('[codex-app-server] turn interrupt request failed', err);
             // A failed interrupt produces no terminal notification. Throw the local queue so the
@@ -392,6 +394,18 @@ export class CodexAppServerThread {
             : {}),
         }),
       );
+      void turnStartRequest.then(
+        (response) => {
+          if (!cancelledBeforeAcceptance) return;
+          void this.client.request('turn/interrupt', {
+            threadId,
+            turnId: response.turn.id,
+          }).catch((error) => {
+            logger.warn('[codex-app-server] delayed turn interrupt failed', error);
+          });
+        },
+        () => undefined,
+      );
       const responsePromise = turnStartRequest.then<TurnAcceptanceBoundary>(
         (response) => {
           turnStartResponsePending = false;
@@ -412,6 +426,7 @@ export class CodexAppServerThread {
       recordAcceptanceBoundary(acceptance.source);
       consumePreAcceptanceCandidates(acceptance.turnId);
       armFirstModelEventWatchdog(acceptance.turnId, acceptance.source);
+      yield { type: 'turn.accepted', turn_id: acceptance.turnId };
 
       for await (const notification of queue) {
         yield { type: 'server.notification', notification };
@@ -480,7 +495,4 @@ function notificationMatchesTurn(
   return false;
 }
 
-interface TurnAcceptanceBoundary {
-  turnId: string;
-  source: 'notification' | 'response';
-}
+interface TurnAcceptanceBoundary { turnId: string; source: 'notification' | 'response'; }

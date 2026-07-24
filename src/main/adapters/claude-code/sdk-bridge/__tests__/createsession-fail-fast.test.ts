@@ -199,17 +199,24 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
       },
     });
     await new Promise((resolve) => setImmediate(resolve));
-    mockQuery.endStream();
     await createPromise;
-    await firstUserMessage;
+    const first = await firstUserMessage as {
+      value: { uuid?: string };
+    };
+    mockQuery.pushFrame({
+      type: 'user',
+      uuid: first.value.uuid,
+      message: { role: 'user', content: 'review' },
+    });
+    mockQuery.endStream();
 
-    expect(emits).toContainEqual(expect.objectContaining({
+    await vi.waitFor(() => expect(emits).toContainEqual(expect.objectContaining({
       sessionId: 'app-correlated',
       kind: 'message',
       payload: expect.objectContaining({
         role: 'user', text: 'review', turnCorrelationId: 'correlation-1',
       }),
-    }));
+    })));
   });
 
   it('deduplicates a keyed first recovery turn after provider acceptance and finalize failure', async () => {

@@ -38,6 +38,10 @@ import {
 } from './thinking-token-usage';
 import type { InternalSession } from './types';
 import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
+import {
+  confirmClaudeUserMessageAcceptance,
+  discardClaudeSubmittingUserMessage,
+} from './user-message-acceptance';
 
 type EmitFn = (e: AgentEvent) => void;
 type UsageCounts = {
@@ -261,6 +265,7 @@ export function translateSdkMessage(
   const e = (kind: AgentEvent['kind'], payload: unknown): void => {
     emit({ sessionId, agentId: AGENT_ID, kind, payload, ts, source: 'sdk' });
   };
+  confirmClaudeUserMessageAcceptance(emit, sessionId, msg, internal);
 
   // SDK system/init is the authoritative primary-model report for the main session. Keep this
   // separate from assistant.message.model: assistant frames may describe fallback/subagent routing.
@@ -423,6 +428,7 @@ export function translateSdkMessage(
       }
     }
   } else if (msg.type === 'result') {
+    discardClaudeSubmittingUserMessage(internal);
     const r = msg as {
       subtype?: string;
       is_error?: boolean;

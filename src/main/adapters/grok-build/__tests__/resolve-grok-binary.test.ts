@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,9 +6,13 @@ import { describe, expect, it } from 'vitest';
 import { resolveGrokBinary } from '../resolve-grok-binary';
 
 describe('resolveGrokBinary', () => {
-  it('uses PATH when no override is configured', async () => {
-    await expect(resolveGrokBinary(null)).resolves.toBe('grok');
-    await expect(resolveGrokBinary('   ')).resolves.toBe('grok');
+  it('uses the bundled native binary when no override is configured', async () => {
+    const bundled = await resolveGrokBinary(null);
+    const blankOverride = await resolveGrokBinary('   ');
+
+    expect(bundled).not.toBe('grok');
+    expect(blankOverride).toBe(bundled);
+    await expect(access(bundled)).resolves.toBeUndefined();
   });
 
   it('accepts an existing absolute override and rejects invalid paths', async () => {

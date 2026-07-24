@@ -24,7 +24,7 @@ export function ExternalToolsSection({ settings, update }: Props): JSX.Element {
       />
       <ExecutablePicker
         label="Grok Build 二进制路径"
-        hint="留空会从用户 shell PATH 查找 grok。Agent Deck 不内置 Grok，也不修改其登录和配置。"
+        hint="留空会使用应用内置 Grok Build（推荐）。要指定外部程序，可在终端运行 which grok 后填入返回路径。"
         path={settings.grokCliPath}
         onChange={(p) => void update({ grokCliPath: p })}
       />

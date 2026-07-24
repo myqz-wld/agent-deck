@@ -154,6 +154,7 @@ class ControlledThread {
       const events = (async function* () {
         if (startedThreadId !== null) {
           yield { type: 'thread.started', thread_id: startedThreadId } as unknown;
+          yield { type: 'turn.accepted', turn_id: 'turn-correlated' } as unknown;
         }
         // 之后挂起（不结束 stream，模拟 turn 还在跑）
         await new Promise<void>(() => {});

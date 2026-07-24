@@ -25,6 +25,14 @@ export interface GrokPendingMessage extends PendingAgentMessage {
   turnCorrelationId?: string;
 }
 
+export interface GrokSubmittingMessage {
+  message: GrokPendingMessage;
+  status: 'submitting' | 'cancelling' | 'cancelled';
+  promptRequestIssued: boolean;
+  kind: 'prompt' | 'interject';
+  requestController?: AbortController;
+}
+
 export interface GrokPendingPermission {
   request: PermissionRequest;
   options: PermissionOption[];
@@ -39,6 +47,8 @@ export interface GrokRuntime {
   process: GrokAcpProcess | null;
   ready: boolean;
   queue: GrokPendingMessage[];
+  /** Prompt removed from FIFO but not yet acknowledged by a provider session update. */
+  submittingMessage?: GrokSubmittingMessage | null;
   running: boolean;
   /** null = not probed, false = this Grok version only supports queued prompts. */
   interjectionSupported: boolean | null;

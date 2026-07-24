@@ -1,4 +1,5 @@
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import type { UploadedAttachmentRef } from '@shared/types';
 import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
@@ -103,24 +104,16 @@ export async function* createClaudeUserMessageStream(
       internal.pendingUserMessages.shift();
       if (internal.retireBoundaryReached) return;
       if (internal.retireRequested) continue;
-      if (thunk.deferredUserEvent) {
-        ctx.emit({
-          sessionId: internal.applicationSid,
-          agentId: 'claude-code',
-          kind: 'message',
-          payload: {
-            text: thunk.deferredUserEvent.text,
-            role: 'user',
-            ...(thunk.deferredUserEvent.attachments?.length
-              ? { attachments: thunk.deferredUserEvent.attachments }
-              : {}),
-            ...(thunk.deferredUserEvent.turnCorrelationId
-              ? { turnCorrelationId: thunk.deferredUserEvent.turnCorrelationId }
-              : {}),
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
+      const providerMessageId = thunk.deferredUserEvent
+        ? thunk.deferredUserEvent.turnCorrelationId ?? randomUUID()
+        : null;
+      if (providerMessageId) {
+        message.uuid = providerMessageId as NonNullable<SDKUserMessage['uuid']>;
+        internal.submittingUserMessage = {
+          pending: thunk,
+          providerMessageId,
+          status: 'submitting',
+        };
       }
       internal.userTurnInFlight = true;
       yield message;
