@@ -285,6 +285,10 @@ export function PlanDeepReviewDialog({
   };
 
   const submitApprove = async (): Promise<void> => {
+    if (
+      feedback.trim()
+      && !window.confirm('修改意见尚未提交。批准计划将丢弃这些内容，是否仍要批准？')
+    ) return;
     if (!beginOperation('decision')) return;
     setLocalDecisionBusy(true);
     try {
