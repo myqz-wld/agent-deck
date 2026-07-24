@@ -51,3 +51,13 @@ export interface PendingOutgoingMessage {
   text: string;
   attachmentCount: number;
 }
+
+/** Renderer-safe result of a no-prompt Grok ACP initialize/authenticate probe. */
+export interface GrokAuthProbeResult {
+  ok: boolean;
+  methodId: string | null;
+  methods: Array<{ id: string; name: string; type: string }>;
+  /** True when Grok inherited exported variables through the user's supported login shell. */
+  usedLoginShell: boolean;
+  reason?: string;
+}

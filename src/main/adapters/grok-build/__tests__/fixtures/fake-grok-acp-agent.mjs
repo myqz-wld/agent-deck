@@ -8,6 +8,25 @@ import {
 
 const sessions = new Set();
 const sessionModes = new Map();
+const authArg = process.argv.find((arg) => arg.startsWith('--auth='));
+const authIds = authArg
+  ? authArg.slice('--auth='.length).split(',').filter(Boolean)
+  : [];
+const failAuthArg = process.argv.find((arg) => arg.startsWith('--fail-auth='));
+const failAuthIds = new Set(
+  failAuthArg
+    ? failAuthArg.slice('--fail-auth='.length).split(',').filter(Boolean)
+    : [],
+);
+let authenticated = authIds.length === 0;
+
+function authMethod(id) {
+  return {
+    id,
+    name: id,
+    ...(id === 'xai.api_key' ? { type: 'env_var', vars: [] } : {}),
+  };
+}
 
 agent({ name: 'fake-grok-acp-agent' })
   .onRequest(methods.agent.initialize, ({ params }) => ({
@@ -20,10 +39,24 @@ agent({ name: 'fake-grok-acp-agent' })
         embeddedContext: true,
       },
     },
+    ...(authIds.length > 0
+      ? { authMethods: authIds.map(authMethod) }
+      : {}),
     agentInfo: { name: 'fake-grok-acp-agent', version: '1.0.0' },
     _meta: { modelState: { currentModelId: 'fake-model' } },
   }))
+  .onRequest(methods.agent.authenticate, ({ params }) => {
+    if (!authIds.includes(params.methodId)) {
+      throw new Error(`unsupported auth method ${params.methodId}`);
+    }
+    if (failAuthIds.has(params.methodId)) {
+      throw new Error(`rejected auth method ${params.methodId}`);
+    }
+    authenticated = true;
+    return {};
+  })
   .onRequest(methods.agent.session.new, ({ params }) => {
+    if (!authenticated) throw new Error('authenticate must run before session/new');
     const sessionId =
       typeof params._meta?.fakeSessionId === 'string'
         ? params._meta.fakeSessionId
@@ -44,6 +77,7 @@ agent({ name: 'fake-grok-acp-agent' })
     };
   })
   .onRequest(methods.agent.session.load, ({ params }) => {
+    if (!authenticated) throw new Error('authenticate must run before session/load');
     sessions.add(params.sessionId);
     return {};
   })

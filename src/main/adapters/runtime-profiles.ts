@@ -168,7 +168,7 @@ const profiles = {
     },
     nativeTools: { policy: 'provider-defaults' },
     model: {
-      thinkingLevels: ['low', 'medium', 'high'],
+      thinkingLevels: ['low', 'medium', 'high', 'xhigh'],
     },
     runtimeControls: {
       permissionModes: [],

@@ -5,7 +5,14 @@ import {
   type BundledAgentRuntimeOverride,
   type CodexModelProviderOption,
 } from '@shared/types';
+import {
+  CLAUDE_THINKING_LEVELS,
+  CODEX_THINKING_LEVELS,
+  GROK_THINKING_LEVELS,
+} from '@shared/session-metadata';
+import { DeckSelect } from '../DeckSelect';
 import { CloseIcon, RefreshIcon, SaveIcon } from '../icons';
+import { ProviderCombobox } from './ProviderCombobox';
 
 interface Props {
   asset: AssetMeta;
@@ -14,9 +21,9 @@ interface Props {
 }
 
 const THINKING_LEVELS = {
-  'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
-  'codex-cli': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'grok-build': ['low', 'medium', 'high'],
+  'claude-code': CLAUDE_THINKING_LEVELS,
+  'codex-cli': CODEX_THINKING_LEVELS,
+  'grok-build': GROK_THINKING_LEVELS,
 } as const;
 
 export function BundledAgentRuntimeEditor({
@@ -148,7 +155,7 @@ export function BundledAgentRuntimeEditor({
       return;
     }
     const discard = await window.api.confirmDialog({
-      title: '关闭运行配置',
+      title: '关闭编辑',
       message: '有未保存改动，确定要丢弃吗？',
       okLabel: '丢弃并关闭',
       cancelLabel: '继续编辑',
@@ -157,19 +164,18 @@ export function BundledAgentRuntimeEditor({
     if (discard) onClose();
   };
 
-  const providerListId = `codex-model-providers-${asset.name}`;
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="no-drag flex w-[400px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
         <header className="mb-3 flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate text-[13px] font-medium">内建 Agent 运行配置</h3>
+            <h3 className="truncate text-[13px] font-medium">编辑内建 Agent</h3>
             <code className="text-[9px] text-deck-muted/60">{asset.qualifiedName}</code>
           </div>
           <button
             type="button"
             onClick={() => void handleClose()}
-            aria-label="关闭运行配置"
+            aria-label="关闭编辑"
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10"
           >
             <CloseIcon className="h-3.5 w-3.5" />
@@ -196,39 +202,33 @@ export function BundledAgentRuntimeEditor({
           </RuntimeField>
 
           <RuntimeField label="思考等级">
-            <select
-              aria-label="思考等级"
+            <DeckSelect
               value={thinking}
-              onChange={(event) => setThinking(event.target.value)}
+              onChange={setThinking}
               disabled={busy}
-              className="w-full rounded border border-deck-border bg-deck-bg-strong px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
-            >
-              {!defaults.thinking && <option value="">跟随 adapter 原生默认</option>}
-              {THINKING_LEVELS[asset.adapter].map((level) => (
-                <option key={level} value={level}>{level}</option>
-              ))}
-            </select>
+              ariaLabel="思考等级"
+              options={[
+                ...(!defaults.thinking
+                  ? [{ value: '', label: '跟随 adapter 原生默认' }]
+                  : []),
+                ...THINKING_LEVELS[asset.adapter].map((level) => ({
+                  value: level,
+                  label: level,
+                })),
+              ]}
+              menuMinWidth={180}
+            />
             <DefaultHint value={defaults.thinking} fallback="跟随 adapter 原生默认" />
           </RuntimeField>
 
           {asset.adapter === 'codex-cli' && (
             <RuntimeField label="provider" error={providerError}>
-              <input
-                aria-label="provider"
+              <ProviderCombobox
                 value={provider}
-                onChange={(event) => setProvider(event.target.value)}
+                onChange={setProvider}
                 disabled={busy}
-                list={providerListId}
-                placeholder="留空则跟随 Codex 原生配置"
-                className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
+                options={providers}
               />
-              <datalist id={providerListId}>
-                {providers.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name ?? item.id}
-                  </option>
-                ))}
-              </datalist>
               <DefaultHint value={defaults.provider} fallback="跟随 ~/.codex/config.toml" />
             </RuntimeField>
           )}
@@ -241,7 +241,7 @@ export function BundledAgentRuntimeEditor({
 
         <footer className="mt-3 flex items-center justify-between gap-2">
           <span className="text-[10px] text-deck-muted/60">
-            {hasOverride ? '当前有自定义运行配置' : '当前使用内建默认值'}
+            {hasOverride ? '当前已修改内建默认值' : '当前使用内建默认值'}
           </span>
           <div className="flex items-center gap-1">
             <button

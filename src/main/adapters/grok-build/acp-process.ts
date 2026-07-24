@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 
 import {
@@ -7,11 +7,13 @@ import {
   methods,
   ndJsonStream,
   type ClientConnection,
+  type AuthMethod,
   type InitializeResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk';
+import { spawnGrokChild } from './launch-child';
 
 const STDERR_LIMIT = 64 * 1024;
 const START_TIMEOUT_MS = 15_000;
@@ -27,12 +29,16 @@ export interface GrokAcpProcessOptions {
     request: RequestPermissionRequest,
     signal: AbortSignal,
   ) => Promise<RequestPermissionResponse>;
+  /** Capability probes initialize only; real session children authenticate before new/load. */
+  authenticate?: boolean;
 }
 
 export class GrokAcpProcess {
   readonly child: ChildProcessWithoutNullStreams;
   readonly connection: ClientConnection;
   readonly initializeResponse: InitializeResponse;
+  readonly authenticatedMethodId: string | null;
+  readonly usedLoginShell: boolean;
 
   private stderr = '';
   private stopping = false;
@@ -41,22 +47,19 @@ export class GrokAcpProcess {
     child: ChildProcessWithoutNullStreams,
     connection: ClientConnection,
     initializeResponse: InitializeResponse,
+    authenticatedMethodId: string | null,
+    usedLoginShell: boolean,
   ) {
     this.child = child;
     this.connection = connection;
     this.initializeResponse = initializeResponse;
+    this.authenticatedMethodId = authenticatedMethodId;
+    this.usedLoginShell = usedLoginShell;
   }
 
   static async start(options: GrokAcpProcessOptions): Promise<GrokAcpProcess> {
-    const child = spawn(
-      options.binary,
-      options.args ?? ['agent', '--no-leader', 'stdio'],
-      {
-        cwd: options.cwd,
-        env: process.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
+    const launched = spawnGrokChild(options);
+    const { child } = launched;
 
     await new Promise<void>((resolve, reject) => {
       child.once('spawn', resolve);
@@ -75,7 +78,7 @@ export class GrokAcpProcess {
 
     const stream = ndJsonStream(
       Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      Readable.toWeb(launched.protocolOutput) as ReadableStream<Uint8Array>,
     );
     const connection = app.connect(stream);
     child.stderr.setEncoding('utf8');
@@ -86,6 +89,16 @@ export class GrokAcpProcess {
         startupStderr = `${startupStderr}${chunk}`.slice(-STDERR_LIMIT);
       }
     });
+    if (launched.startupOutput) {
+      launched.startupOutput.setEncoding('utf8');
+      launched.startupOutput.on('data', (chunk: string) => {
+        if (instance) {
+          instance.stderr = `${instance.stderr}${chunk}`.slice(-STDERR_LIMIT);
+        } else {
+          startupStderr = `${startupStderr}${chunk}`.slice(-STDERR_LIMIT);
+        }
+      });
+    }
 
     try {
       const initializeResponse = await withTimeout(
@@ -101,7 +114,17 @@ export class GrokAcpProcess {
         START_TIMEOUT_MS,
         'Grok ACP initialize',
       );
-      instance = new GrokAcpProcess(child, connection, initializeResponse);
+      const authenticatedMethodId =
+        options.authenticate === false
+          ? null
+          : await authenticateGrokConnection(connection, initializeResponse);
+      instance = new GrokAcpProcess(
+        child,
+        connection,
+        initializeResponse,
+        authenticatedMethodId,
+        launched.usedLoginShell,
+      );
       instance.stderr = startupStderr;
       return instance;
     } catch (error) {
@@ -144,6 +167,70 @@ export class GrokAcpProcess {
     this.connection.close();
     await stopChild(this.child);
   }
+}
+
+export function selectGrokAuthMethod(
+  authMethods: readonly AuthMethod[] | undefined,
+): AuthMethod | null {
+  return orderedGrokAuthMethods(authMethods)[0] ?? null;
+}
+
+function orderedGrokAuthMethods(
+  authMethods: readonly AuthMethod[] | undefined,
+): AuthMethod[] {
+  if (!authMethods?.length) return [];
+  const preferredIds = ['xai.api_key', 'cached_token'];
+  const ordered = preferredIds.flatMap((id) => {
+    const exact = authMethods.find((method) => method.id === id);
+    return exact ? [exact] : [];
+  });
+  for (const method of authMethods) {
+    if (
+      'type' in method &&
+      method.type === 'env_var' &&
+      !ordered.some((candidate) => candidate.id === method.id)
+    ) {
+      ordered.push(method);
+    }
+  }
+  return ordered;
+}
+
+async function authenticateGrokConnection(
+  connection: ClientConnection,
+  initializeResponse: InitializeResponse,
+): Promise<string | null> {
+  const authMethods = initializeResponse.authMethods ?? [];
+  if (authMethods.length === 0) return null;
+  const candidates = orderedGrokAuthMethods(authMethods);
+  if (candidates.length === 0) {
+    const ids = authMethods.map((method) => method.id).join(', ');
+    throw new Error(
+      `Grok ACP requires interactive authentication (${ids}). Run "grok login --oauth" in a terminal, or configure an API key through ~/.grok/config.toml and an exported environment variable, then restart Agent Deck.`,
+    );
+  }
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      await withTimeout(
+        connection.agent.request(methods.agent.authenticate, {
+          methodId: candidate.id,
+          _meta: { headless: true },
+        }),
+        START_TIMEOUT_MS,
+        `Grok ACP authenticate (${candidate.id})`,
+      );
+      return candidate.id;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(
+    `Grok ACP authentication failed for ${candidates.map((method) => `"${method.id}"`).join(', ')}: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }. Run "grok login --oauth", or verify the API-key env_key configured in ~/.grok/config.toml is exported by your login shell.`,
+    { cause: lastError },
+  );
 }
 
 async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {

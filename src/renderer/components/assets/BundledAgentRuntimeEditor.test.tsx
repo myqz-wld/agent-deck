@@ -35,6 +35,38 @@ function codexAsset(overrides: Partial<AssetMeta> = {}): AssetMeta {
 }
 
 describe('BundledAgentRuntimeEditor', () => {
+  it('offers xhigh for Grok Build built-in Agents', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        saveBundledAgentRuntime: vi.fn(),
+        resetBundledAgentRuntime: vi.fn(),
+        confirmDialog: vi.fn(),
+      },
+    });
+    render(
+      <BundledAgentRuntimeEditor
+        asset={{
+          ...codexAsset(),
+          adapter: 'grok-build',
+          name: 'reviewer-grok',
+          qualifiedName: 'agent-deck:grok-build:reviewer-grok',
+          model: 'grok-4.5',
+          thinking: 'high',
+          bundledAgentRuntime: {
+            defaults: { model: 'grok-4.5', thinking: 'high' },
+            override: {},
+          },
+        }}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '思考等级' }));
+    expect(screen.getByRole('option', { name: 'xhigh' })).toBeTruthy();
+  });
+
   it('saves only runtime deltas and keeps Codex provider definitions native', async () => {
     const saveBundledAgentRuntime = vi.fn().mockResolvedValue({ ok: true });
     Object.defineProperty(window, 'api', {
@@ -64,9 +96,8 @@ describe('BundledAgentRuntimeEditor', () => {
     fireEvent.change(screen.getByLabelText('模型'), {
       target: { value: 'qw-pro-5' },
     });
-    fireEvent.change(screen.getByLabelText('思考等级'), {
-      target: { value: 'high' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: '思考等级' }));
+    fireEvent.click(screen.getByRole('option', { name: 'high' }));
     fireEvent.change(screen.getByLabelText('provider'), {
       target: { value: 'fable' },
     });

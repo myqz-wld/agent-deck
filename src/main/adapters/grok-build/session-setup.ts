@@ -21,18 +21,10 @@ export async function buildGrokSessionMeta(
     }),
   ]);
   return {
+    ...(promptBody ? { rules: promptBody } : {}),
     ...(runtime.agentProfileName
       ? { agentProfile: runtime.agentProfileName }
-      : promptBody
-        ? {
-            agentProfile: {
-              name: 'agent-deck',
-              description: 'Agent Deck runtime integration',
-              promptMode: 'extend',
-              promptBody,
-            },
-          }
-        : {}),
+      : {}),
     ...(pluginDirs.length ? { pluginDirs } : {}),
     ...(runtime.model ? { modelId: runtime.model } : {}),
     ...(runtime.thinking ? { reasoningEffort: runtime.thinking } : {}),

@@ -20,9 +20,9 @@ describe('bundled Agent runtime override validation', () => {
   });
 
   it('keeps adapter-specific thinking levels and provider boundaries', () => {
-    expect(() =>
+    expect(
       normalizeBundledAgentRuntimeOverride('grok-build', { thinking: 'xhigh' }),
-    ).toThrow('not valid for grok-build');
+    ).toEqual({ thinking: 'xhigh' });
     expect(() =>
       normalizeBundledAgentRuntimeOverride('claude-code', { provider: 'fable' }),
     ).toThrow('only for codex-cli');
