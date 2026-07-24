@@ -11,6 +11,7 @@ This document records only resource paths, loading behavior, and paired-boundary
 | `resources/bin` | `.app/Contents/Resources/bin` | CLI wrapper and helper scripts |
 | `resources/claude-config` | `.app/Contents/Resources/claude-config` | Claude Code / Deepseek (Claude Code) app conventions and plugin resources |
 | `resources/codex-config` | `.app/Contents/Resources/codex-config` | Codex app conventions, custom-agent TOML, and skill resources |
+| `resources/grok-config` | `.app/Contents/Resources/grok-config` | Grok Build ACP baseline, plugin agents, and skills |
 | `resources/sounds` | `.app/Contents/Resources/sounds` | App notification sounds |
 
 Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories directly; prod reads the `.app/Contents/Resources/*` copies. `icon.png` / `icon.ico` are electron-builder inputs (`mac.icon`), are not included in extraResources, and are not loaded at runtime.
@@ -33,9 +34,19 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 - `agent-deck-plugin/agents/reviewer-codex.toml`: Official Codex custom-agent TOML. The bundled-assets / spawn loader scans it for `spawn_session(agentName)` routing. When `injectAgentDeckCodexAgents=false`, the spawn loader skips the bundled root, but project / user Codex agents remain available.
 - `agent-deck-plugin/skills/*/SKILL.md`: After resource placeholder replacement, mirrored into the Codex skills extraRoot under app userData and injected into in-app Codex sessions through app-server `skills/extraRoots/set`; it is not written to the user-level `~/.codex/skills/agent-deck/`.
 
+## grok-config/
+
+The Grok Build adapter uses this resource root through the official ACP v1 `session/new` / `session/load` metadata surface.
+
+- `GROK_AGENTS.md`: Injected as an extending ACP `_meta.agentProfile` object when the Grok app-conventions switch is enabled.
+- `agent-deck-plugin/`: App-bundled Grok plugin containing `reviewer-grok` and the Agent Deck review skills.
+- Grok accepts a whole plugin directory, while Agent Deck exposes independent Skills and Agents switches. At runtime the selected subdirectories are copied to an app-owned mirror under `<userData>/grok-plugin-profiles/`, and that mirror is passed through ACP `_meta.pluginDirs`.
+- The mirror contains only bundled Agent Deck resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
+- The Grok binary is not part of `extraResources`; Settings may point to an installed binary, otherwise the adapter resolves `grok` from the user shell `PATH`.
+
 ## Paired Boundaries
 
-- App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md` and `resources/codex-config/CODEX_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
-- Reviewer bodies: `reviewer-claude.md`, `reviewer-deepseek.md`, and `reviewer-codex.toml` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
-- Skills: Claude skills live in `resources/claude-config/agent-deck-plugin/skills/`, and Codex skills live in `resources/codex-config/agent-deck-plugin/skills/`. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's tool capabilities.
+- App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md`, `resources/codex-config/CODEX_AGENTS.md`, and `resources/grok-config/GROK_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
+- Reviewer bodies: `reviewer-claude.md`, `reviewer-deepseek.md`, `reviewer-codex.toml`, and `reviewer-grok.md` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
+- Skills: Claude, Codex, and Grok skills live under their adapter resource roots. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's actual tool capabilities.
 - Packaged resources must be self-contained: app conventions, reviewer agents, and skills must remain fully usable when no user-customized agents / skills exist.

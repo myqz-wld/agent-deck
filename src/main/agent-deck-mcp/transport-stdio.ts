@@ -109,6 +109,7 @@ export async function runAgentDeckMcpStdio(): Promise<void> {
   const adapted = await buildAgentDeckTools({
     callerSessionIdOverride: stdioCallerSessionIdOverride,
     transport: 'stdio',
+    adapterId: null,
   });
   for (const t of adapted) {
     const def = t as unknown as {

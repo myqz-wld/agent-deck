@@ -19,6 +19,7 @@
 import { settingsStore } from '@main/store/settings-store';
 import { getAgentDeckMcpServerForSession } from '@main/agent-deck-mcp/server';
 import type { InternalSession } from './types';
+import type { SessionAdapterId } from '@shared/types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-mcp-init');
@@ -43,12 +44,13 @@ type McpServerConfig = Awaited<ReturnType<typeof getAgentDeckMcpServerForSession
  */
 export async function buildMcpServersForSession(
   internal: InternalSession,
+  adapterId: Extract<SessionAdapterId, 'claude-code' | 'deepseek-claude-code'>,
 ): Promise<{
   agentDeckMcpServer: McpServerConfig | null;
 }> {
   const enableAgentDeckMcp = settingsStore.get('enableAgentDeckMcp') === true;
   const agentDeckMcpServer = enableAgentDeckMcp
-    ? await getAgentDeckMcpServerForSession(() => internal.applicationSid)
+    ? await getAgentDeckMcpServerForSession(() => internal.applicationSid, adapterId)
     : null;
   if (agentDeckMcpServer) {
     logger.info('[agent-deck-mcp] in-process MCP attached for session (19 public tools)');

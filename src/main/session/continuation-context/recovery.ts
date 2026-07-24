@@ -1,5 +1,9 @@
 import { getDb } from '@main/store/db';
-import type { PermissionMode, SessionRecord } from '@shared/types';
+import type {
+  AdapterSessionMode,
+  PermissionMode,
+  SessionRecord,
+} from '@shared/types';
 import {
   createTrustedContinuationInitialTurn,
   type TrustedContinuationInitialTurn,
@@ -26,6 +30,7 @@ export const RECOVERY_CONTINUATION_MAX_REPAIR_CALLS = 1;
 export interface RecoveryRuntimeOverrides {
   cwd?: string;
   permissionMode?: PermissionMode | null;
+  sessionMode?: AdapterSessionMode | null;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
   model?: string | null;
@@ -61,6 +66,10 @@ function resolveTarget(
     overrides.permissionMode !== undefined
       ? overrides.permissionMode
       : session.permissionMode ?? null;
+  const sessionMode =
+    overrides.sessionMode !== undefined
+      ? overrides.sessionMode
+      : session.sessionMode ?? null;
   const extraAllowWrite = [
     ...(overrides.extraAllowWrite !== undefined
       ? overrides.extraAllowWrite ?? []
@@ -76,7 +85,9 @@ function resolveTarget(
       : session.additionalDirectories ?? []),
   ];
   const sandbox =
-    adapter === 'codex-cli'
+    adapter === 'grok-build'
+      ? { kind: 'grok' }
+      : adapter === 'codex-cli'
       ? {
           kind: 'codex',
           mode:
@@ -99,6 +110,7 @@ function resolveTarget(
     model,
     thinking,
     permissionMode,
+    sessionMode,
     sandbox,
     networkAccessEnabled,
     additionalDirectories,

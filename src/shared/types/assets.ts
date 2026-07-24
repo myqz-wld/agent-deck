@@ -18,6 +18,8 @@
 
 export type AssetKind = 'agent' | 'skill';
 export type AssetSource = 'bundled' | 'user';
+export type AssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
+export type UserAssetAdapter = Exclude<AssetAdapter, 'grok-build'>;
 
 /**
  * 用户自定义 asset name 的 slug regex（CHANGELOG_57 R1·F8 收口）：
@@ -64,7 +66,7 @@ export interface AssetMeta {
    *    `saveUserAsset(input)` / `deleteUserAsset(kind, name, adapter)` 都必须的 narrowing key
    * 3. UI 渲染分组（资产库 dialog Skills/Agents/应用约定 三 tab 全 sub-tab 切换）
    */
-  adapter: 'claude-code' | 'codex-cli';
+  adapter: AssetAdapter;
   /** skills: 子目录名；agents: 文件名去后缀。slug 见 `ASSET_NAME_REGEX`。 */
   name: string;
   /**
@@ -102,7 +104,7 @@ export interface UserAssetInput {
   /**
    * 资产所属 adapter scope（plan §D5：新建 / 编辑 时随当前 sub-tab 锁定）。
    */
-  adapter: 'claude-code' | 'codex-cli';
+  adapter: UserAssetAdapter;
   /** slug 见 `ASSET_NAME_REGEX`，长度受 `ASSET_LIMITS.name` 约束。 */
   name: string;
   description: string;
@@ -126,7 +128,7 @@ export interface UserAssetInput {
  * 不依赖 Node / Electron API，纯静态判断，放 shared/types 安全。
  */
 export function validateAdapterKind(
-  adapter: 'claude-code' | 'codex-cli',
+  adapter: UserAssetAdapter,
   kind: AssetKind,
 ): { ok: true } | { ok: false; reason: string } {
   void adapter;

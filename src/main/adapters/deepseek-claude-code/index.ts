@@ -38,6 +38,7 @@ import { sessionManager } from '@main/session/manager';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { getAdapterRuntimeProfile } from '../runtime-profiles';
 
 const ADAPTER_ID = 'deepseek-claude-code';
 
@@ -116,29 +117,15 @@ export function assertDeepseekForkTranscriptRootCompatible(
 
 class DeepseekClaudeCodeAdapter implements AgentAdapter {
   id = ADAPTER_ID;
-  displayName = 'Deepseek (Claude Code)';
-  capabilities = {
-    canCreateSession: true,
-    canSetSessionModelOptions: true,
-    canForkSession: true,
-    canInterrupt: true,
-    canSendMessage: true,
-    canInstallHooks: false,
-    canRespondPermission: true,
-    canSetPermissionMode: true,
-    canRestartWithPermissionMode: true,
-    canRestartWithCodexSandbox: false,
-    canRestartWithClaudeCodeSandbox: true,
-    canCloseSession: true,
-    canCollaborate: true,
-    canAcceptAttachments: true,
-  };
+  displayName = getAdapterRuntimeProfile(ADAPTER_ID).displayName;
+  capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };
 
   private bridge: ClaudeSdkBridge | null = null;
 
   async init(ctx: AdapterContext): Promise<void> {
     this.bridge = new ClaudeSdkBridge({
       emit: (event) => ctx.emit(rewriteDeepseekEvent(event)),
+      adapterId: ADAPTER_ID,
       permissionTimeoutMs: settingsStore.get('permissionTimeoutMs'),
       envProvider: loadDeepseekClaudeEnv,
       defaultModelProvider: getDeepseekDefaultModel,

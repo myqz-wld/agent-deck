@@ -114,6 +114,44 @@ describe('resolveHandOffTarget', () => {
     });
   });
 
+  it('keeps Grok work mode separate and inherits it only for same-adapter handoff', () => {
+    const grokSource: SessionRecord = {
+      ...source(),
+      agentId: 'grok-build',
+      permissionMode: null,
+      sessionMode: 'ask',
+      codexSandbox: null,
+      extraAllowWrite: [],
+      networkAccessEnabled: null,
+      additionalDirectories: [],
+    };
+
+    const inherited = resolveHandOffTarget({
+      source: grokSource,
+      request: { adapter: 'grok-build', cwd: '/target' },
+      sourceMaxEventId: 42,
+    });
+    expect(inherited.createOptions).toMatchObject({
+      agentId: 'grok-build',
+      sessionMode: 'ask',
+    });
+    expect(inherited.spec).toMatchObject({
+      adapter: 'grok-build',
+      sessionMode: 'ask',
+      sandbox: { kind: 'grok' },
+    });
+
+    const explicit = resolveHandOffTarget({
+      source: source(),
+      request: { adapter: 'grok-build', cwd: '/target', sessionMode: 'plan' },
+      sourceMaxEventId: null,
+    });
+    expect(explicit.createOptions).toMatchObject({
+      agentId: 'grok-build',
+      sessionMode: 'plan',
+    });
+  });
+
   it.each([
     ['codex-cli', 'permissionMode', { permissionMode: 'plan' }],
     ['codex-cli', 'claudeCodeSandbox', { claudeCodeSandbox: 'strict' }],
@@ -121,6 +159,7 @@ describe('resolveHandOffTarget', () => {
     ['claude-code', 'codexSandbox', { codexSandbox: 'read-only' }],
     ['claude-code', 'networkAccessEnabled', { networkAccessEnabled: true }],
     ['claude-code', 'additionalDirectories', { additionalDirectories: ['/tmp'] }],
+    ['claude-code', 'sessionMode', { sessionMode: 'ask' }],
   ] as const)(
     'rejects %s-incompatible explicit %s before preparation',
     (adapter, field, incompatible) => {

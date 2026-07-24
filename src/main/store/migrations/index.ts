@@ -55,6 +55,7 @@ import v041 from './v041_storage_maintenance_staging.sql?raw';
 import v042 from './v042_session_handoff_aliases.sql?raw';
 import v043 from './v043_history_search_case_insensitive.sql?raw';
 import v044 from './v044_sessions_hidden_from_history.sql?raw';
+import v045 from './v045_sessions_adapter_mode.sql?raw';
 
 export interface Migration {
   version: number;
@@ -107,4 +108,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 42, name: 'session_handoff_aliases', sql: v042 },
   { version: 43, name: 'history_search_case_insensitive', sql: v043 },
   { version: 44, name: 'sessions_hidden_from_history', sql: v044 },
+  { version: 45, name: 'sessions_adapter_mode', sql: v045 },
 ];

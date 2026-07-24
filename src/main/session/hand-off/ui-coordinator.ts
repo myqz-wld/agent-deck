@@ -467,7 +467,6 @@ export class UiHandOffCoordinator {
       throw new Error('准备内容完整性校验失败。');
     }
   }
-
   private publicPreparation(entry: CachedContinuationPreparation): SessionHandOffPreparation {
     const bounded = boundedContinuationPreview(entry.prepared.providerPrompt);
     return {
@@ -494,6 +493,7 @@ export class UiHandOffCoordinator {
         adapter: entry.target.adapter,
         model: entry.target.model,
         thinking: entry.target.thinking,
+        sessionMode: entry.target.sessionMode ?? null,
       },
     };
   }

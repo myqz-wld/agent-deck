@@ -1,5 +1,5 @@
 import { useRef, useState, type JSX } from 'react';
-import type { SessionRecord } from '@shared/types';
+import type { AdapterSessionMode, SessionRecord } from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
@@ -9,6 +9,8 @@ import { ComposerInput } from './composer-sdk/ComposerInput';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { PendingOutgoingQueue } from './composer-sdk/PendingOutgoingQueue';
 import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
+import { useAdapterRuntimeInfo } from './composer-sdk/useAdapterRuntimeInfo';
+import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import {
   SelectRow,
   PERMISSION_MODE_OPTIONS,
@@ -70,12 +72,17 @@ export function ComposerSdk({
   const [queueRefreshVersion, setQueueRefreshVersion] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments();
+  const adapterRuntime = useAdapterRuntimeInfo(agentId);
+  const canAcceptAttachments = adapterRuntime.canAcceptAttachments;
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
   // permission_mode 列读「用户上次主动选过的值」。这是持久化的（DB），切别的 detail
   // 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。CLI 通道这字段是 null → 默认。
   const permissionMode = (session.permissionMode ?? 'default') as PermissionMode;
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
+  const sessionMode = session.sessionMode ?? 'default';
+  const [sessionModeBusy, setSessionModeBusy] = useState(false);
+  const [sessionModeError, setSessionModeError] = useState<string | null>(null);
 
   // CHANGELOG_<X> A2c：codex 会话独立的 sandbox 切档（与 permissionMode 正交）。
   // app-server Codex 每个 turn/start 都带 sandboxPolicy，切档只需更新下个 turn 的 options；
@@ -103,12 +110,18 @@ export function ComposerSdk({
   //   （REVIEW_35 HIGH-D2：当前三种 SDK adapter 都 true；白名单 gate 防止未来新
   //   adapter 默认就拿到 attachments 路径，必须显式 opt-in）
   const agentDisplayName =
-    agentId === 'codex-cli' ? 'Codex' : agentId === 'deepseek-claude-code' ? 'Deepseek' : 'Claude';
-  const supportsPermissionMode = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
+    agentId === 'codex-cli'
+      ? 'Codex'
+      : agentId === 'deepseek-claude-code'
+        ? 'Deepseek'
+        : agentId === 'grok-build'
+          ? 'Grok'
+          : 'Claude';
+  const supportsPermissionMode = adapterRuntime.canSetPermissionMode;
+  const supportsSessionMode =
+    adapterRuntime.canSetSessionMode && adapterRuntime.sessionModes.length > 0;
   const supportsCodexSandbox = agentId === 'codex-cli';
   const supportsClaudeCodeSandbox = agentId === 'claude-code' || agentId === 'deepseek-claude-code';
-  const canAcceptAttachments =
-    agentId === 'claude-code' || agentId === 'deepseek-claude-code' || agentId === 'codex-cli';
   const isSteerMode = canSteerTurn && turnBusy;
   const canUseAttachments = canAcceptAttachments && !isSteerMode;
 
@@ -126,7 +139,7 @@ export function ComposerSdk({
     // 静默丢图 + 失去 retry 能力的旧版本回归不可接受
     if (!canAcceptAttachments && hasAttachments) {
       setSendError(
-        '当前会话类型不支持图片附件，请移除图片后再发送，或切换到支持图片的 Claude / Deepseek / Codex 会话',
+        '当前会话的 adapter 未协商图片输入能力，请移除图片后发送，或切换到支持图片的会话。',
       );
       return false;
     }
@@ -212,6 +225,19 @@ export function ComposerSdk({
       setPmError((err as Error).message);
     } finally {
       setPmBusy(false);
+    }
+  };
+
+  const changeSessionMode = async (next: AdapterSessionMode): Promise<void> => {
+    if (next === sessionMode || sessionModeBusy) return;
+    setSessionModeBusy(true);
+    setSessionModeError(null);
+    try {
+      await window.api.setAdapterSessionMode(agentId, sessionId, next);
+    } catch (error) {
+      setSessionModeError((error as Error).message);
+    } finally {
+      setSessionModeBusy(false);
     }
   };
 
@@ -326,6 +352,15 @@ export function ComposerSdk({
           onChange={(next) => void changeMode(next)}
         />
       )}
+      {supportsSessionMode && (
+        <SelectRow
+          label="工作模式"
+          value={sessionMode}
+          options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
+          disabled={sessionModeBusy}
+          onChange={(next) => void changeSessionMode(next)}
+        />
+      )}
       {supportsCodexSandbox && (
         <SelectRow
           label="沙盒"
@@ -345,6 +380,11 @@ export function ComposerSdk({
         />
       )}
       <ErrorBanner message={pmError} prefix="权限模式切换失败" onDismiss={() => setPmError(null)} />
+      <ErrorBanner
+        message={sessionModeError}
+        prefix="工作模式切换失败"
+        onDismiss={() => setSessionModeError(null)}
+      />
       <ErrorBanner message={csError} prefix="Codex 沙盒切换失败" onDismiss={() => setCsError(null)} />
       <ErrorBanner
         message={csClaudeError}

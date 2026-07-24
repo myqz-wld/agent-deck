@@ -4,7 +4,12 @@
  * renderer 给到非法输入直接抛 IpcInputError，UI 看到 `setSettings 失败：...`。
  */
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
-import type { PermissionMode } from '@shared/types';
+import {
+  ADAPTER_SESSION_MODES,
+  isAdapterSessionMode,
+  type AdapterSessionMode,
+  type PermissionMode,
+} from '@shared/types';
 import { SANDBOX_MODE_VALUES, type SandboxMode } from '@main/adapters/claude-code/sandbox-config';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
@@ -84,6 +89,17 @@ export function parsePermissionMode(value: unknown): PermissionMode | null {
     );
   }
   return value as PermissionMode;
+}
+
+export function parseAdapterSessionMode(value: unknown): AdapterSessionMode | null {
+  if (value === undefined || value === null) return null;
+  if (!isAdapterSessionMode(value)) {
+    throw new IpcInputError(
+      'sessionMode',
+      `must be one of ${ADAPTER_SESSION_MODES.join('|')}, got ${String(value)}`,
+    );
+  }
+  return value;
 }
 
 /**

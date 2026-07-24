@@ -89,10 +89,10 @@ export const HAND_OFF_SESSION_SHAPE = {
       'Override cwd for the successor session. Omit it to inherit the caller session cwd. Pass an existing absolute directory when the successor should start somewhere else.',
     ),
   adapter: z
-    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli'])
+    .enum(['claude-code', 'deepseek-claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Set "claude-code", "deepseek-claude-code", or "codex-cli" to switch adapters for the successor.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, deepseek-claude-code, codex-cli, and grok-build.',
     ),
   model: z
     .string()
@@ -113,7 +113,13 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
     .optional()
     .describe(
-      'Permission mode for the new SDK session. When omitted, follows spawn_session defaults: same target adapter as caller inherits caller permissionMode; cross-adapter spawn uses target adapter defaults (claude-code / deepseek-claude-code default bypassPermissions; codex-cli has no permissionMode).',
+      'Permission mode for a Claude-family successor. When omitted, same-adapter Claude-family handoff inherits the source and cross-adapter Claude-family handoff uses bypassPermissions. It is incompatible with codex-cli and grok-build.',
+    ),
+  sessionMode: z
+    .enum(['default', 'plan', 'ask'])
+    .optional()
+    .describe(
+      'Grok Build work mode for the successor. When omitted, a same-adapter Grok handoff inherits the source mode and a cross-adapter handoff uses Grok default. It is incompatible with other adapters.',
     ),
   codexSandbox: z
     .enum(['workspace-write', 'read-only', 'danger-full-access'])
@@ -292,7 +298,7 @@ export interface ArchivePlanResult {
  * intentionally absent; callers receive only safe preparation/transfer observability. */
 export interface HandOffSessionResult {
   sessionId: string;
-  adapter: 'claude-code' | 'deepseek-claude-code' | 'codex-cli';
+  adapter: 'claude-code' | 'deepseek-claude-code' | 'codex-cli' | 'grok-build';
   cwd: string;
   continuationContext: {
     version: number;

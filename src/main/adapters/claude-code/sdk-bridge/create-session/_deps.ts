@@ -196,6 +196,7 @@ export interface CreateSessionDeps {
   readonly responder: PermissionResponder;
   readonly getPermissionTimeoutMs: () => number;
   readonly interrupt: (sessionId: string) => Promise<void>;
+  readonly adapterId: NonNullable<SdkBridgeOptions['adapterId']>;
 }
 
 /**

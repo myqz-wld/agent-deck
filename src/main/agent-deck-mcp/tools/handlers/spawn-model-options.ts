@@ -4,30 +4,26 @@ import type {
   SpawnSessionThinkingValue,
 } from '../schemas';
 import {
-  CLAUDE_THINKING_LEVELS,
-  CODEX_THINKING_LEVELS,
   type ClaudeThinkingLevel,
   type CodexThinkingLevel,
+  type GrokThinkingLevel,
 } from '@shared/session-metadata';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 
 export type SpawnCodexReasoningEffort = CodexThinkingLevel;
 export type SpawnClaudeCodeEffortLevel = ClaudeThinkingLevel;
+export type SpawnGrokReasoningEffort = GrokThinkingLevel;
 
 export interface SpawnModelOptions {
   model?: string;
   modelReasoningEffort?: SpawnCodexReasoningEffort;
   claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
+  reasoningEffort?: SpawnGrokReasoningEffort;
 }
 
 export type SpawnModelOptionsResult =
   | { ok: true; options: SpawnModelOptions }
   | { ok: false; error: string; hint: string };
-
-const THINKING_VALUES_BY_ADAPTER = {
-  'claude-code': CLAUDE_THINKING_LEVELS,
-  'codex-cli': CODEX_THINKING_LEVELS,
-  'deepseek-claude-code': CLAUDE_THINKING_LEVELS,
-} as const satisfies Record<SpawnSessionArgs['adapter'], readonly SpawnSessionThinkingValue[]>;
 
 const DEEPSEEK_MODEL_RUNTIME = {
   'v4-flash': 'deepseek-v4-flash',
@@ -58,7 +54,8 @@ function resolveThinking(
   adapter: SpawnSessionArgs['adapter'],
   thinking: SpawnSessionThinkingValue,
 ): SpawnModelOptionsResult {
-  const allowed = THINKING_VALUES_BY_ADAPTER[adapter];
+  const allowed = getAdapterRuntimeProfile(adapter).model
+    .thinkingLevels as readonly SpawnSessionThinkingValue[];
   if (!isAllowed(allowed, thinking)) {
     return {
       ok: false,
@@ -68,6 +65,9 @@ function resolveThinking(
   }
   if (adapter === 'codex-cli') {
     return { ok: true, options: { modelReasoningEffort: thinking as SpawnCodexReasoningEffort } };
+  }
+  if (adapter === 'grok-build') {
+    return { ok: true, options: { reasoningEffort: thinking as SpawnGrokReasoningEffort } };
   }
   return { ok: true, options: { claudeCodeEffortLevel: thinking as SpawnClaudeCodeEffortLevel } };
 }
@@ -97,9 +97,16 @@ export function resolveSpawnModelOptions(
     if (resolved.options.claudeCodeEffortLevel !== undefined) {
       options.claudeCodeEffortLevel = resolved.options.claudeCodeEffortLevel;
     }
+    if (resolved.options.reasoningEffort !== undefined) {
+      options.reasoningEffort = resolved.options.reasoningEffort;
+    }
   } else if (args.adapter === 'codex-cli' && modelReasoningEffortFromAgent !== undefined) {
     options.modelReasoningEffort = modelReasoningEffortFromAgent;
-  } else if (args.adapter !== 'codex-cli' && claudeCodeEffortLevelFromAgent !== undefined) {
+  } else if (
+    args.adapter !== 'codex-cli' &&
+    args.adapter !== 'grok-build' &&
+    claudeCodeEffortLevelFromAgent !== undefined
+  ) {
     options.claudeCodeEffortLevel = claudeCodeEffortLevelFromAgent;
   }
 

@@ -25,6 +25,7 @@ import type {
   CodexCreateOpts,
   CreateSessionOptions,
   CreateSessionOptionsRaw,
+  GrokCreateOpts,
 } from './types';
 
 /**
@@ -35,6 +36,7 @@ export type CreateSessionOptionsByAdapter = {
   'claude-code': ClaudeCreateOpts;
   'deepseek-claude-code': ClaudeCreateOpts;
   'codex-cli': CodexCreateOpts;
+  'grok-build': GrokCreateOpts;
 };
 
 /**
@@ -50,7 +52,12 @@ export type CreateSessionOptionsByAdapter = {
  *
  * 详 §D2 多侧 SSOT 守门 注释表 守门点 (5)。
  */
-export const AGENT_IDS = ['claude-code', 'deepseek-claude-code', 'codex-cli'] as const;
+export const AGENT_IDS = [
+  'claude-code',
+  'deepseek-claude-code',
+  'codex-cli',
+  'grok-build',
+] as const;
 
 export type AgentId = (typeof AGENT_IDS)[number];
 
@@ -76,7 +83,12 @@ export type AgentId = (typeof AGENT_IDS)[number];
  *
  * 加新 reviewer agent 时只需把名字加进本 list, reviewer 主分支 default spread 自动覆盖。
  */
-export const REVIEWER_AGENT_NAMES = ['reviewer-claude', 'reviewer-codex', 'reviewer-deepseek'] as const;
+export const REVIEWER_AGENT_NAMES = [
+  'reviewer-claude',
+  'reviewer-codex',
+  'reviewer-deepseek',
+  'reviewer-grok',
+] as const;
 export type ReviewerAgentName = (typeof REVIEWER_AGENT_NAMES)[number];
 
 /**
@@ -198,6 +210,24 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   return out;
 }
 
+function narrowToGrokOpts(raw: CreateSessionOptionsRaw): GrokCreateOpts {
+  const out: GrokCreateOpts = { cwd: raw.cwd };
+  if (raw.prompt !== undefined) out.prompt = raw.prompt;
+  if (raw.resume !== undefined) out.resume = raw.resume;
+  if (raw.teamName !== undefined) out.teamName = raw.teamName;
+  if (raw.attachments !== undefined) out.attachments = raw.attachments;
+  if (raw.model !== undefined) out.model = raw.model;
+  if (raw.reasoningEffort !== undefined) out.reasoningEffort = raw.reasoningEffort;
+  if (raw.sessionMode !== undefined) out.sessionMode = raw.sessionMode;
+  if (raw.grokAgentName !== undefined) out.grokAgentName = raw.grokAgentName;
+  if (raw.handOff !== undefined) out.handOff = raw.handOff;
+  if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
+  if (raw.initialSessionRegistration !== undefined) {
+    out.initialSessionRegistration = raw.initialSessionRegistration;
+  }
+  return out;
+}
+
 /**
  * D2 核心 builder：按 agentId narrow raw 到对应 union arm + 自动塞 agentId 字段。
  *
@@ -238,7 +268,7 @@ export function buildCreateSessionOptions(
 ): CreateSessionOptions {
   if (!isAgentId(agentId)) {
     throw new Error(
-      `unknown agentId: "${agentId}" (expected: claude-code | deepseek-claude-code | codex-cli)`,
+      `unknown agentId: "${agentId}" (expected: ${AGENT_IDS.join(' | ')})`,
     );
   }
   switch (agentId) {
@@ -248,6 +278,8 @@ export function buildCreateSessionOptions(
       return { agentId, ...narrowToClaudeOpts(raw) };
     case 'codex-cli':
       return { agentId, ...narrowToCodexOpts(raw) };
+    case 'grok-build':
+      return { agentId, ...narrowToGrokOpts(raw) };
     default: {
       const _exhaustive: never = agentId;
       throw new Error(`unknown agentId: ${String(_exhaustive)}`);
@@ -407,3 +439,22 @@ const _assertCodexPassthroughCoversArm: AssertSameKeys<
   >
 > = true;
 void _assertCodexPassthroughCoversArm;
+
+const _GROK_PASSTHROUGH_KEYS = {
+  prompt: 0,
+  resume: 0,
+  teamName: 0,
+  attachments: 0,
+  model: 0,
+  reasoningEffort: 0,
+  sessionMode: 0,
+  grokAgentName: 0,
+  handOff: 0,
+  awaitCanonicalId: 0,
+  initialSessionRegistration: 0,
+} as const;
+const _assertGrokPassthroughCoversArm: AssertSameKeys<
+  typeof _GROK_PASSTHROUGH_KEYS,
+  OmitKey<GrokCreateOpts, 'cwd'>
+> = true;
+void _assertGrokPassthroughCoversArm;

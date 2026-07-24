@@ -95,4 +95,41 @@ describe('NewSessionDialog model options', () => {
     expect(onCreated).toHaveBeenCalledWith('session-new');
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('shows and forwards adapter-native Grok work modes', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        listAdapters: vi.fn().mockResolvedValue([
+          {
+            id: 'grok-build',
+            displayName: 'Grok Build',
+            capabilities: {
+              canCreateSession: true,
+              canSetSessionMode: true,
+              canAcceptAttachments: false,
+            },
+            sessionModes: ['default', 'plan', 'ask'],
+          },
+        ]),
+        chooseDirectory,
+        createAdapterSession,
+      },
+    });
+    render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    fireEvent.click(await screen.findByLabelText('工作模式'));
+    fireEvent.click(screen.getByRole('option', { name: '计划模式' }));
+    fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
+      target: { value: '先制定计划' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    await waitFor(() => {
+      expect(createAdapterSession).toHaveBeenCalledWith(
+        'grok-build',
+        expect.objectContaining({ sessionMode: 'plan' }),
+      );
+    });
+  });
 });

@@ -6,6 +6,7 @@
  */
 
 import type {
+  AdapterSessionMode,
   ActivityState,
   LifecycleState,
   PermissionMode,
@@ -35,6 +36,7 @@ export interface Row {
   pinned_at: number | null;
   hidden_from_history: number;
   permission_mode: string | null;
+  session_mode: string | null;
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，Row 接口不再含
   codex_sandbox: string | null;
   claude_code_sandbox: string | null;
@@ -81,6 +83,7 @@ export function rowToRecord(r: Row): SessionRecord {
     pinnedAt: r.pinned_at ?? null,
     hiddenFromHistory: r.hidden_from_history === 1,
     permissionMode: (r.permission_mode as PermissionMode) ?? null,
+    sessionMode: (r.session_mode as AdapterSessionMode) ?? null,
     // plan team-cohesion-fix-20260513 Phase A Step A9：teamName 字段不在 repo 层投影。
     // sessionManager.enrichWithTeams / enrichWithTeamsBatch 在更高层注入 teams[] 数组 + teamName fallback。
     // 老 sessions.team_name 列已 v014 drop。

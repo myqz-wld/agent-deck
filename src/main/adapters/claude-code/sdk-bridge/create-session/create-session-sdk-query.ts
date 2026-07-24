@@ -99,7 +99,7 @@ export async function runCreateSessionSdkQuery(
     // CHANGELOG_85 Step 3.2：mcp server 拼装抽到 mcp-server-init.ts
     // （plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后单 server，task tools 跟随
     // settings.enableAgentDeckMcp toggle；smart migration 守护老用户 enableTaskManager:true 不丢失能力）
-    const mcpServers = await buildMcpServersForSession(internal);
+    const mcpServers = await buildMcpServersForSession(internal, deps.adapterId);
 
     // **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口收口)**:
     // loadSdk / buildMcpServersForSession 是 createSession 内部最后两个 pre-registration await。

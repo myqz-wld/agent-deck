@@ -10,6 +10,7 @@ export interface SpawnTargetOptionsInput {
   args: SpawnSessionArgs;
   prompt: string;
   effectivePermissionMode: SpawnSessionArgs['permissionMode'];
+  effectiveSessionMode?: SpawnSessionArgs['sessionMode'];
   effectiveCodexSandbox: SpawnSessionArgs['codexSandbox'];
   effectiveClaudeCodeSandbox: SpawnSessionArgs['claudeCodeSandbox'];
   effectiveExtraAllowWrite: readonly string[] | undefined;
@@ -18,6 +19,7 @@ export interface SpawnTargetOptionsInput {
   codexConfigOverrides: CodexConfigObject | undefined;
   claudeAgentName: string | undefined;
   claudeAgents: Record<string, AgentDefinition> | undefined;
+  grokAgentName?: string;
   /** Main-only same-adapter inheritance for an internal Codex review fork. */
   codexRuntimeAccess?: {
     networkAccessEnabled?: boolean;
@@ -33,16 +35,19 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
     prompt: input.prompt,
     ...omitUndefined({
       permissionMode: input.effectivePermissionMode,
+      sessionMode: input.effectiveSessionMode,
       codexSandbox: input.effectiveCodexSandbox,
       claudeCodeSandbox: input.effectiveClaudeCodeSandbox,
       teamName: args.teamName,
       model: input.modelOptions.model,
       modelReasoningEffort: input.modelOptions.modelReasoningEffort,
       claudeCodeEffortLevel: input.modelOptions.claudeCodeEffortLevel,
+      reasoningEffort: input.modelOptions.reasoningEffort,
       developerInstructions: input.developerInstructions,
       codexConfigOverrides: input.codexConfigOverrides,
       claudeAgentName: input.claudeAgentName,
       claudeAgents: input.claudeAgents,
+      grokAgentName: input.grokAgentName,
       agentName: args.agentName,
       awaitCanonicalId: true,
     }),

@@ -1,5 +1,8 @@
 import type { SessionThinkingLevel } from '@shared/session-metadata';
-import type { SessionAdapterId } from '@shared/types/session';
+import type {
+  AdapterSessionMode,
+  SessionAdapterId,
+} from '@shared/types/session';
 import type {
   ContinuationCheckpoint,
   ContinuationFact,
@@ -21,6 +24,7 @@ export interface ResolvedSuccessorSpec {
   thinking: SessionThinkingLevel | null;
   sandbox: unknown;
   permissionMode: string | null;
+  sessionMode?: AdapterSessionMode | null;
   networkAccessEnabled: boolean | null;
   additionalDirectories: string[];
   contextWindowTokens: number | null;
