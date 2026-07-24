@@ -98,6 +98,9 @@ In-app SDK sessions load Agent Deck's packaged app conventions, reviewer agents,
 
 - Claude Code / Deepseek resources are in `resources/claude-config/`; Codex resources are in `resources/codex-config/`; Grok Build resources are in `resources/grok-config/`.
 - Same-name skills, reviewer agents, and app environment conventions are maintained as adapter counterparts. Protocol semantics must remain consistent; tool names, turn boundaries, permissions, modes, and sandbox details are adapter-specific.
+- Packaged assets remain immutable. In the Assets Library, only bundled Agents expose runtime configuration: model and thinking can be overridden for Claude/Deepseek, Codex, and Grok; Codex Agents can additionally select a native `model_provider`. Bundled Skills remain read-only, while user/project Agents retain their existing full native editing behavior.
+- Runtime overrides are stored as app-owned deltas keyed by `adapter:name`. **Restore default** deletes the complete delta and immediately reveals the packaged values again; it never copies or rewrites the packaged Agent file. Spawn precedence is explicit `spawn_session` model/thinking input → bundled Agent runtime delta → packaged Agent metadata → adapter-native default.
+- Every adapter still owns its endpoint, credentials, model aliases, and provider definitions: Claude Code uses its settings/environment chain, Codex uses `~/.codex/config.toml` (including `[model_providers.<id>]`), and Grok uses `~/.grok/config.toml` (including `[model.<alias>]`). Agent Deck passes the selected model/provider identifier to that adapter but does not duplicate these native definitions.
 - Resource paths, packaging locations, and injection methods are defined in [resources/README.md](resources/README.md).
 
 ---
@@ -189,6 +192,12 @@ Claude Code / Codex / Grok Build paths do not read or write API keys. The Deepse
 - **Grok Build**: install the official `grok` CLI and complete its normal login first. Agent Deck uses the configured binary path or resolves `grok` from the user shell `PATH`, then lets the CLI own authentication and session storage. It never writes `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
 
 The `env` field from `~/.claude/settings.json` is injected into the main process at startup through an allowlist (`ANTHROPIC_*` / `CLAUDE_*` / standard proxy variables), so SDK child processes can receive proxy / custom base URL settings. Other keys such as `NODE_OPTIONS` / `PATH` are rejected.
+
+Selecting a custom model on a bundled Agent does not configure its backend. Define the alias and
+credentials in that adapter's native config first. For Codex, the bundled Agent's optional
+`provider` value becomes the per-thread `model_provider`, while the matching
+`[model_providers.<id>]` table remains in `~/.codex/config.toml`. Claude Code and Grok resolve the
+entered model name through their own native routing and config files.
 
 ---
 

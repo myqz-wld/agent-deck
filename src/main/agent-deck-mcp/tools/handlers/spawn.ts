@@ -22,6 +22,7 @@ import {
   resolveSpawnModelOptions,
   type SpawnClaudeCodeEffortLevel,
   type SpawnCodexReasoningEffort,
+  type SpawnGrokReasoningEffort,
 } from './spawn-model-options';
 import { resolveSpawnAgent } from './spawn-agent-resolver';
 import { finalizeSpawnLimits } from './spawn-limits';
@@ -74,10 +75,7 @@ export const spawnSessionHandler = withMcpGuard(
         'Choose an enabled adapter with session-creation capability: claude-code, deepseek-claude-code, codex-cli, or grok-build.',
       );
     }
-    const runtimeControlError = validateSpawnRuntimeControls(
-      args,
-      adapter.capabilities,
-    );
+    const runtimeControlError = validateSpawnRuntimeControls(args, adapter.capabilities);
     if (runtimeControlError) {
       return err(runtimeControlError.error, runtimeControlError.hint);
     }
@@ -102,6 +100,7 @@ export const spawnSessionHandler = withMcpGuard(
     let modelFromAgent: string | undefined;
     let modelReasoningEffortFromAgent: SpawnCodexReasoningEffort | undefined;
     let claudeCodeEffortLevelFromAgent: SpawnClaudeCodeEffortLevel | undefined;
+    let grokReasoningEffortFromAgent: SpawnGrokReasoningEffort | undefined;
     let developerInstructionsFromAgent: string | undefined;
     let codexSandboxFromAgent: SpawnSessionArgs['codexSandbox'] | undefined;
     let codexConfigOverridesFromAgent: CodexConfigObject | undefined;
@@ -114,6 +113,7 @@ export const spawnSessionHandler = withMcpGuard(
       modelFromAgent = agent.model;
       modelReasoningEffortFromAgent = agent.modelReasoningEffort;
       claudeCodeEffortLevelFromAgent = agent.claudeCodeEffortLevel;
+      grokReasoningEffortFromAgent = agent.grokReasoningEffort;
       developerInstructionsFromAgent = agent.developerInstructions;
       codexSandboxFromAgent = agent.codexSandbox;
       codexConfigOverridesFromAgent = agent.codexConfigOverrides;
@@ -127,6 +127,7 @@ export const spawnSessionHandler = withMcpGuard(
       modelFromAgent,
       modelReasoningEffortFromAgent,
       claudeCodeEffortLevelFromAgent,
+      grokReasoningEffortFromAgent,
     );
     if (!resolvedModelOptions.ok) {
       return err(resolvedModelOptions.error, resolvedModelOptions.hint);

@@ -43,6 +43,9 @@ import { getGrokPluginRoot } from './adapters/grok-build/resources';
 import { parseFrontmatter } from './utils/frontmatter';
 import { substituteResourcesPlaceholder } from './utils/resources-placeholder';
 import log from '@main/utils/logger';
+import {
+  getBundledAgentRuntimeOverride,
+} from './bundled-agent-runtime-overrides';
 
 const logger = log.scope('main-bundled-assets');
 
@@ -86,7 +89,11 @@ export function loadBundledAssets(): BundledAssetsSnapshot {
 }
 
 export function getBundledAssets(): BundledAssetsSnapshot {
-  return loadBundledAssets();
+  const snapshot = loadBundledAssets();
+  return {
+    agents: snapshot.agents.map(applyBundledAgentRuntimeOverride),
+    skills: snapshot.skills,
+  };
 }
 
 /**
@@ -152,6 +159,10 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
           description: parsed.description ?? '',
           model: parsed.model ?? '',
           model_reasoning_effort: parsed.modelReasoningEffort ?? '',
+          model_provider:
+            typeof parsed.config.model_provider === 'string'
+              ? parsed.config.model_provider
+              : '',
         }, 'bundled', adapter));
         continue;
       }
@@ -244,7 +255,24 @@ function buildAgentMeta(
     tools: fm.tools,
     model: fm.model,
     thinking: fm.effort || fm.model_reasoning_effort || undefined,
+    provider: adapter === 'codex-cli' ? fm.model_provider || undefined : undefined,
     absPath,
+  };
+}
+
+function applyBundledAgentRuntimeOverride(asset: AssetMeta): AssetMeta {
+  const defaults = {
+    ...(asset.model ? { model: asset.model } : {}),
+    ...(asset.thinking ? { thinking: asset.thinking } : {}),
+    ...(asset.provider ? { provider: asset.provider } : {}),
+  };
+  const override = getBundledAgentRuntimeOverride(asset.adapter, asset.name);
+  return {
+    ...asset,
+    model: override.model ?? defaults.model,
+    thinking: override.thinking ?? defaults.thinking,
+    provider: override.provider ?? defaults.provider,
+    bundledAgentRuntime: { defaults, override },
   };
 }
 

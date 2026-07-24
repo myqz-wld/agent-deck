@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-23 | `CHANGELOG_384_bundled-agent-runtime-overrides.md` | Configure bundled Agent runtime model, thinking, and Codex provider |
 | 2026-07-23 | `CHANGELOG_383_grok-build-adapter-profiles.md` | Add Grok Build ACP and adapter-specific runtime profiles |
 | 2026-07-23 | `CHANGELOG_382_plan-review-feedback-discard-confirmation.md` | Confirm before approval discards plan-review feedback |
 | 2026-07-22 | `CHANGELOG_381_pending-image-previews.md` | Show pending image details and full-size previews in composers |

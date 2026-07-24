@@ -1,16 +1,5 @@
-/**
- * spawn handler 按 args.adapter 解析原生 custom agent 配置。
- *
- * 覆盖：
- * - Claude-family adapter: resolve .claude/bundled agent and pass SDK `agent` + `agents`
- * - Deepseek adapter: use Claude-family agent assets while keeping target adapter id
- * - Codex adapter: resolve official TOML agent and map it to app-server thread fields
- * - no `agentName`: generic spawn, no resolver lookup
- *
- * mock 复用 tools.test.ts 模板（最小化 — adapterRegistry / agent-deck-team-repo / message-repo /
- * sessionManager 全部 stub 让 spawn handler 跑到 resolver 调用 + createSession 调用即可，下游 wire
- * prefix / placeholder enqueue 等不在本测试关注点）。
- */
+/** Spawn handler native Agent routing for Claude, Deepseek, Codex, and generic sessions.
+ * Mocks stop at resolver + createSession; downstream wire/placeholder behavior is out of scope. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord, AgentDeckMessage } from '@shared/types';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
@@ -457,20 +446,22 @@ describe('spawn handler agentName native routing', () => {
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('max');
   });
 
-  it('explicit model overrides bundled agent frontmatter model', async () => {
+  it('explicit model and thinking override both main and active Agent defaults', async () => {
     const r = await spawn({
-      adapter: 'claude-code',
-      agentName: 'reviewer-claude',
-      cwd: '/repo',
-      prompt: 'review task',
-      model: 'sonnet',
+      adapter: 'claude-code', agentName: 'reviewer-claude', cwd: '/repo',
+      prompt: 'review task', model: 'sonnet', thinking: 'high',
     });
 
     const { isError } = parseToolResult(r as any);
     expect(isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    // mock agent frontmatter has `model: opus`; explicit tool param wins.
+    // Mock Agent frontmatter has model=opus/effort=xhigh; explicit tool params win
+    // both at the top level and inside the definition activated by SDK --agent.
     expect(createSessionCalls[0].model).toBe('sonnet');
+    expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
+    expect(createSessionCalls[0].claudeAgents).toMatchObject({
+      'reviewer-claude': { model: 'sonnet', effort: 'high' },
+    });
   });
 
   it('generic spawn does not resolve any custom agent when agentName is omitted', async () => {

@@ -6,10 +6,14 @@ import {
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import { getBundledAssetContent } from '@main/bundled-assets';
+import { getBundledAgentRuntimeOverride } from '@main/bundled-agent-runtime-overrides';
+import { parseFrontmatter } from '@main/utils/frontmatter';
+import { isGrokThinkingLevel } from '@shared/session-metadata';
 import type { SpawnSessionArgs } from '../schemas';
 import type {
   SpawnClaudeCodeEffortLevel,
   SpawnCodexReasoningEffort,
+  SpawnGrokReasoningEffort,
 } from './spawn-model-options';
 
 type SpawnAssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
@@ -26,6 +30,7 @@ export type ResolvedSpawnAgent =
       claudeAgents?: Record<string, AgentDefinition>;
       claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
       grokAgentName?: string;
+      grokReasoningEffort?: SpawnGrokReasoningEffort;
     }
   | { ok: false; error: string; hint: string };
 
@@ -85,7 +90,24 @@ function resolveGrokSpawnAgent(agentName: string): ResolvedSpawnAgent {
       hint: `Grok bundled agent lookup failed: ${resolved.reason}`,
     };
   }
-  return { ok: true, grokAgentName: agentName };
+  const fm = parseFrontmatter(resolved.content);
+  const rawThinking = fm.effort?.trim();
+  if (rawThinking && !isGrokThinkingLevel(rawThinking)) {
+    return {
+      ok: false,
+      error: `invalid Grok effort "${rawThinking}"`,
+      hint: 'Use one of: low, medium, high.',
+    };
+  }
+  const override = getBundledAgentRuntimeOverride('grok-build', agentName);
+  return {
+    ok: true,
+    grokAgentName: agentName,
+    model: (override.model ?? fm.model?.trim()) || undefined,
+    grokReasoningEffort:
+      (override.thinking as SpawnGrokReasoningEffort | undefined) ??
+      (rawThinking as SpawnGrokReasoningEffort | undefined),
+  };
 }
 
 function resolveClaudeSpawnAgent(
@@ -97,14 +119,26 @@ function resolveClaudeSpawnAgent(
   if (!resolved.ok) {
     return { ok: false, error: resolved.reason, hint: `Claude agent lookup failed: ${resolved.reason}` };
   }
+  const override =
+    resolved.agent.source === 'bundled'
+      ? getBundledAgentRuntimeOverride('claude-code', resolved.agent.name)
+      : {};
+  const model = override.model ?? resolved.agent.model;
+  const effort =
+    (override.thinking as SpawnClaudeCodeEffortLevel | undefined) ??
+    resolved.agent.effortLevel;
   return {
     ok: true,
-    model: resolved.agent.model,
+    model,
     claudeAgentName: resolved.agent.name,
     claudeAgents: {
-      [resolved.agent.name]: resolved.agent.definition,
+      [resolved.agent.name]: {
+        ...resolved.agent.definition,
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+      },
     },
-    claudeCodeEffortLevel: resolved.agent.effortLevel,
+    claudeCodeEffortLevel: effort,
   };
 }
 
@@ -113,13 +147,25 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
   if (!resolved.ok) {
     return { ok: false, error: resolved.reason, hint: `Codex custom agent lookup failed: ${resolved.reason}` };
   }
+  const override =
+    resolved.agent.source === 'bundled'
+      ? getBundledAgentRuntimeOverride('codex-cli', resolved.agent.name)
+      : {};
+  const model = override.model ?? resolved.agent.model;
+  const effort =
+    (override.thinking as SpawnCodexReasoningEffort | undefined) ??
+    resolved.agent.modelReasoningEffort;
+  const config: CodexConfigObject = {
+    ...(resolved.agent.config as CodexConfigObject),
+  };
+  if (override.provider) config.model_provider = override.provider;
   return {
     ok: true,
     developerInstructions: buildCodexCustomAgentInstructions(resolved.agent),
-    model: resolved.agent.model,
-    modelReasoningEffort: resolved.agent.modelReasoningEffort,
+    model,
+    modelReasoningEffort: effort,
     codexSandbox: resolved.agent.sandboxMode,
-    codexConfigOverrides: resolved.agent.config as CodexConfigObject,
+    codexConfigOverrides: config,
   };
 }
 

@@ -3,7 +3,8 @@
  * §P3 Step 3.4 双 adapter cascade / plan assets-codex-user-and-ui-unify-20260521 §D3 §D5 §D7
  * 双 adapter user 自定义补齐 + UI sub-tab 统一改造）。
  *
- * 6 个 channel 收口资产库读写：
+ * Channels in this module cover bundled/user asset reads, user CRUD, bundled Agent runtime
+ * deltas, Codex provider suggestions, and Finder reveal:
  *   - AssetsListBundled / AssetsListUser    —— 列表
  *   - AssetsGetContent                      —— 单个 asset 完整 md（含 frontmatter）
  *   - AssetsSaveUser / AssetsDeleteUser     —— 用户自定义 CRUD
@@ -44,6 +45,11 @@ import {
   listUserAssets,
   saveUserAsset,
 } from '@main/user-assets';
+import {
+  resetBundledAgentRuntimeOverride,
+  saveBundledAgentRuntimeOverride,
+} from '@main/bundled-agent-runtime-overrides';
+import { listCodexModelProviders } from '@main/codex-config/model-providers';
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
@@ -213,6 +219,35 @@ export function registerAssetsIpc(): void {
     const input = parseUserAssetInput(inputArg);
     return saveUserAsset(input);
   });
+
+  on(IpcInvoke.AssetsSaveBundledAgentRuntime, (_e, adapterArg, nameArg, overrideArg) => {
+    const adapter = parseAdapterRequired(adapterArg);
+    const name = parseAssetName(nameArg);
+    if (!getBundledAssetPath('agent', name, adapter)) {
+      return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
+    }
+    try {
+      const override = saveBundledAgentRuntimeOverride(adapter, name, overrideArg);
+      return { ok: true, override };
+    } catch (error) {
+      throw new IpcInputError(
+        'override',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  });
+
+  on(IpcInvoke.AssetsResetBundledAgentRuntime, (_e, adapterArg, nameArg) => {
+    const adapter = parseAdapterRequired(adapterArg);
+    const name = parseAssetName(nameArg);
+    if (!getBundledAssetPath('agent', name, adapter)) {
+      return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
+    }
+    resetBundledAgentRuntimeOverride(adapter, name);
+    return { ok: true };
+  });
+
+  on(IpcInvoke.AssetsListCodexModelProviders, () => listCodexModelProviders());
 
   on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg) => {
     const kind = parseKind(kindArg);

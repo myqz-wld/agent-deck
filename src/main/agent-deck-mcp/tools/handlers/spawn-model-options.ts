@@ -77,6 +77,7 @@ export function resolveSpawnModelOptions(
   modelFromFrontmatter: string | undefined,
   modelReasoningEffortFromAgent?: SpawnCodexReasoningEffort,
   claudeCodeEffortLevelFromAgent?: SpawnClaudeCodeEffortLevel,
+  grokReasoningEffortFromAgent?: SpawnGrokReasoningEffort,
 ): SpawnModelOptionsResult {
   const options: SpawnModelOptions = {};
 
@@ -108,6 +109,8 @@ export function resolveSpawnModelOptions(
     claudeCodeEffortLevelFromAgent !== undefined
   ) {
     options.claudeCodeEffortLevel = claudeCodeEffortLevelFromAgent;
+  } else if (args.adapter === 'grok-build' && grokReasoningEffortFromAgent !== undefined) {
+    options.reasoningEffort = grokReasoningEffortFromAgent;
   }
 
   return { ok: true, options };

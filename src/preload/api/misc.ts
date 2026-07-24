@@ -10,10 +10,12 @@ import { IpcInvoke } from '@shared/ipc-channels';
 import type {
   AppSettings,
   AssetAdapter,
+  BundledAgentRuntimeOverride,
   AssetContentResult,
   AssetKind,
   AssetSource,
   BundledAssetsSnapshot,
+  CodexModelProviderOption,
   CodexPermissionScanResult,
   CodexSandboxMode,
   ImageSource,
@@ -176,6 +178,27 @@ export const miscApi = {
    *  input 含 `adapter` 字段（plan §D5 sub-tab 锁定）。 */
   saveUserAsset: (input: UserAssetInput): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AssetsSaveUser, input),
+  /** 保存 immutable bundled Agent 的 app-owned runtime 差异，不改 packaged asset。 */
+  saveBundledAgentRuntime: (
+    adapter: AssetAdapter,
+    name: string,
+    override: BundledAgentRuntimeOverride,
+  ): Promise<{ ok: boolean; override?: BundledAgentRuntimeOverride; reason?: string }> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AssetsSaveBundledAgentRuntime,
+      adapter,
+      name,
+      override,
+    ),
+  /** 删除 bundled Agent 的整条 runtime 差异记录，恢复 packaged 默认值。 */
+  resetBundledAgentRuntime: (
+    adapter: AssetAdapter,
+    name: string,
+  ): Promise<{ ok: boolean; reason?: string }> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsResetBundledAgentRuntime, adapter, name),
+  /** 只读扫描 native Codex config 中的 model_providers，供自由输入提示。 */
+  listCodexModelProviders: (): Promise<CodexModelProviderOption[]> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsListCodexModelProviders),
   /** 删除用户 asset。skill 子目录递归 rm，agent 单文件 unlink。
    *  **plan §D7 升级**：第 3 参数 `adapter` 必传（同名跨 adapter 独立资产不变量 #5，只删当前 adapter root）。 */
   deleteUserAsset: (

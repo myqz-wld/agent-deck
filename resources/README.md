@@ -16,6 +16,21 @@ This document records only resource paths, loading behavior, and paired-boundary
 
 Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories directly; prod reads the `.app/Contents/Resources/*` copies. `icon.png` / `icon.ico` are electron-builder inputs (`mac.icon`), are not included in extraResources, and are not loaded at runtime.
 
+## Immutable assets and runtime overrides
+
+Packaged app conventions, Agents, and Skills are immutable runtime resources. The Assets Library
+may attach an app-owned runtime delta to a bundled Agent without editing this directory:
+
+- Claude/Deepseek, Codex, and Grok bundled Agents may override model and thinking.
+- Codex bundled Agents may additionally override the native `model_provider` identifier.
+- Reset removes the whole app-owned delta and exposes the packaged Agent defaults again.
+- Bundled Skills have no runtime override. User and project Agents remain owned by their native
+  adapter directories and do not consume bundled-Agent deltas.
+
+Provider endpoints, credentials, and alias definitions stay in each adapter's native configuration.
+The resource layer neither copies those definitions nor writes user-level Claude, Codex, or Grok
+configuration.
+
 ## claude-config/
 
 The Claude Code adapter uses this resource root. Deepseek (Claude Code) reuses the same agents / skills / `CLAUDE.md` and overlays provider env through `~/.agent-deck/.deepseek/settings.json`.

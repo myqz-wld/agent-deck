@@ -71,6 +71,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   injectAgentDeckGrokAgentsMd: true,
   injectAgentDeckGrokSkills: true,
   injectAgentDeckGrokAgents: true,
+  bundledAgentRuntimeOverrides: {},
   injectAgentDeckClaudeSkills: true,
   injectAgentDeckClaudeAgents: true,
   // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；

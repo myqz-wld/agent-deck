@@ -11,6 +11,7 @@ import {
 import { AdapterSubTab, type AssetAdapter } from './assets/AdapterSubTab';
 import { AssetsTab } from './assets/AssetsTab';
 import { AssetEditor } from './assets/AssetEditor';
+import { BundledAgentRuntimeEditor } from './assets/BundledAgentRuntimeEditor';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { ClaudeMdEditor } from './settings/ClaudeMdEditor';
@@ -65,6 +66,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewer, setViewer] = useState<ContentViewerState | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [bundledAgentEditor, setBundledAgentEditor] = useState<AssetMeta | null>(null);
   // plan §D1：Skills/Agents 各 tab 独立 sub-tab state（切换其他 tab 不影响其他 tab 的 sub-tab）
   const [skillsAdapter, setSkillsAdapter] = useState<AssetAdapter>('claude-code');
   const [agentsAdapter, setAgentsAdapter] = useState<AssetAdapter>('claude-code');
@@ -86,6 +88,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       ++viewerSeqRef.current;
       setViewer(null);
       setEditor(null);
+      setBundledAgentEditor(null);
       return;
     }
     const seq = ++fetchSeqRef.current;
@@ -122,6 +125,20 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       .catch((err: unknown) => {
         if (seq !== fetchSeqRef.current) return;
         setLoadError(`用户资产刷新失败：${errorMessage(err)}`);
+      });
+  };
+
+  const refreshBundled = (): void => {
+    const seq = ++fetchSeqRef.current;
+    void window.api
+      .listBundledAssets()
+      .then((snapshot) => {
+        if (seq === fetchSeqRef.current) setBundled(snapshot);
+      })
+      .catch((err: unknown) => {
+        if (seq === fetchSeqRef.current) {
+          setLoadError(`内置资产刷新失败：${errorMessage(err)}`);
+        }
       });
   };
 
@@ -276,6 +293,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 bundled={bundled?.agents ?? []}
                 user={user?.agents ?? []}
                 onView={openViewer}
+                onConfigureBundledAgent={setBundledAgentEditor}
                 onEdit={(asset) => {
                   if (agentsAdapter !== 'grok-build' && isUserAssetMeta(asset)) {
                     setEditor({ kind: 'agent', adapter: agentsAdapter, asset });
@@ -323,6 +341,13 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
           asset={editor.asset}
           onClose={() => setEditor(null)}
           onSaved={refreshUser}
+        />
+      )}
+      {bundledAgentEditor && (
+        <BundledAgentRuntimeEditor
+          asset={bundledAgentEditor}
+          onClose={() => setBundledAgentEditor(null)}
+          onSaved={refreshBundled}
         />
       )}
     </div>
