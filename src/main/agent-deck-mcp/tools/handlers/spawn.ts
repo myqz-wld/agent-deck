@@ -80,9 +80,7 @@ export const spawnSessionHandler = withMcpGuard(
       return err(runtimeControlError.error, runtimeControlError.hint);
     }
 
-    // Resolve every fallible config/DB read before acquiring spawn guards so an exception cannot
-    // leak the in-flight fan-out slot. Invalid agent names also fail before consuming a rate token.
-    // Bundled agents have priority over project and user agents; missing names fail explicitly.
+    // Resolve fallible config/DB reads before guards so failures cannot leak a fan-out slot.
     let promptToUse = args.prompt;
     // Agent runtime fields flow into createSession after explicit tool arguments take precedence.
     let modelFromAgent: string | undefined;
@@ -95,6 +93,7 @@ export const spawnSessionHandler = withMcpGuard(
     let codexConfigOverridesFromAgent: CodexConfigObject | undefined;
     let claudeAgentNameFromAgent: string | undefined;
     let claudeAgentsFromAgent: Record<string, AgentDefinition> | undefined;
+    let claudePluginDirFromAgent: string | undefined;
     let grokAgentNameFromAgent: string | undefined;
     let grokAgentSourceFromAgent: 'bundled' | 'project' | 'user' | 'plugin' | undefined;
     let grokPluginDirFromAgent: string | undefined;
@@ -111,6 +110,7 @@ export const spawnSessionHandler = withMcpGuard(
       codexConfigOverridesFromAgent = agent.codexConfigOverrides;
       claudeAgentNameFromAgent = agent.claudeAgentName;
       claudeAgentsFromAgent = agent.claudeAgents;
+      claudePluginDirFromAgent = agent.claudePluginDir;
       grokAgentNameFromAgent = agent.grokAgentName;
       grokAgentSourceFromAgent = agent.grokAgentSource;
       grokPluginDirFromAgent = agent.grokPluginDir;
@@ -187,6 +187,7 @@ export const spawnSessionHandler = withMcpGuard(
       codexConfigOverrides: codexConfigOverridesFromAgent,
       claudeAgentName: claudeAgentNameFromAgent,
       claudeAgents: claudeAgentsFromAgent,
+      claudePluginDir: claudePluginDirFromAgent,
       grokAgentName: grokAgentNameFromAgent,
       grokAgentSource: grokAgentSourceFromAgent,
       grokPluginDir: grokPluginDirFromAgent,
@@ -428,22 +429,10 @@ export const spawnSessionHandler = withMcpGuard(
     }
     const teamId = teamMembership.teamId;
 
-    // plan team-cohesion-fix-20260513 Phase B5：spawn 路径与 send_message 贯通的方案 A 实现 ——
-    // spawn 仍把 prompt 给 adapter（SDK streaming 协议要求 first user message），同时在
-    // messages 表 enqueue 一条 placeholder message（body=promptToUse, status='delivered'，
-    // 不重复投递）作为 lead/teammate 对话链的锚点。lead 不再主动 poll reply（CHANGELOG_100 删旧 tool）；
-    // teammate first turn 完成后调 send_message({replyToMessageId: spawnPromptMessageId, ...})
-    // 回复，reply 自动 dispatch 进 lead conversation（J fix 删，CHANGELOG_100）。
-    // Standalone spawns also get a placeholder with teamId=null. send_message replies then resolve
-    // to teamless DM and pair-scope against this placeholder.
-    // Phase B7：用上面预生成的 placeholderId（与 promptForSpawn 里的 [msg <id>] 一致），
-    // body 仍存原始 promptToUse（不含 wire prefix）。
-    //
-    // 已知 follow-up（REVIEW_32 §Follow-up MED-2）：placeholder enqueue 失败时只 console.warn
-    // 但 prompt 已含 [msg <id>] prefix 发出去，teammate 按规约 send_message → original
-    // 找不到 → reply 100% 失败。真修法需要把 insert 提到 createSession 之前 + messageRepo
-    // 加 initialStatus='delivered' / updateToSessionId helper（scope 较大），留下次 phase。
-    // 当前最小防御：失败时返回 spawnPromptMessageId=null，lead 至少不会等一个不存在的 reply anchor。
+    // The provider receives the first prompt directly; a delivered placeholder preserves the
+    // reply chain without redispatching it. Standalone spawns use the same teamless-DM anchor.
+    // If enqueue fails after provider creation, return a null anchor so the lead will not wait on
+    // an id that the receiver cannot reference.
     let spawnPromptMessageId: string | null = null;
     // **[caller-scoped #3/4]** placeholder message(grep anchor 详 L148-160 callerExists 定义)
     if (willInjectWirePrefix && callerExists && placeholderId) {

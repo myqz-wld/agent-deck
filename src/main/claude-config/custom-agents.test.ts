@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -125,6 +125,58 @@ describe('resolveClaudeAgentContent', () => {
     expect(result.agent.sourcePath).toBe(join(project, '.claude', 'agents', 'patcher.md'));
     expect(result.agent.model).toBe('sonnet');
     expect(result.agent.definition.prompt).toBe('Project prompt.');
+  });
+
+  it('loads a project Plugin Agent before a same-named user direct Agent', () => {
+    const pluginRoot = join(project, '.claude', 'plugins', 'project-tools');
+    writeAgent(
+      join(pluginRoot, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'project-tools', version: '1.0.0' }),
+    );
+    writeAgent(
+      join(pluginRoot, 'agents', 'patcher.md'),
+      '---\nname: patcher\ndescription: plugin patcher\nmodel: sonnet\n---\nPlugin prompt.',
+    );
+    writeAgent(
+      join(mockHome.value, '.claude', 'agents', 'patcher.md'),
+      '---\ndescription: user patcher\nmodel: haiku\n---\nUser prompt.',
+    );
+
+    const result = resolveClaudeAgentContent('patcher', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent).toMatchObject({
+      name: 'project-tools:patcher',
+      source: 'plugin',
+      sourcePath: realpathSync(join(pluginRoot, 'agents', 'patcher.md')),
+      pluginDir: realpathSync(pluginRoot),
+      model: 'sonnet',
+      definition: { prompt: 'Plugin prompt.' },
+    });
+  });
+
+  it('resolves a Claude Plugin Agent by native qualified name', () => {
+    const pluginRoot = join(mockHome.value, '.claude', 'plugins', 'user-tools');
+    writeAgent(
+      join(pluginRoot, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'user-tools', version: '1.0.0' }),
+    );
+    writeAgent(
+      join(pluginRoot, 'agents', 'reviewer.md'),
+      '---\nname: reviewer\ndescription: plugin reviewer\neffort: high\n---\nPlugin review.',
+    );
+
+    const result = resolveClaudeAgentContent('user-tools:reviewer', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent).toMatchObject({
+      name: 'user-tools:reviewer',
+      source: 'plugin',
+      pluginDir: realpathSync(pluginRoot),
+      effortLevel: 'high',
+    });
   });
 
   it('skips bundled agents when the Agent Deck Claude agents toggle is disabled', () => {

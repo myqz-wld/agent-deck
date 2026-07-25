@@ -90,6 +90,28 @@ describe('Grok spawn agent resolution', () => {
     expect(resolveGrokUserAgentContent).toHaveBeenCalledTimes(1);
   });
 
+  it('maps a qualified Grok Plugin selector to the native profile name and Plugin root', () => {
+    getBundledAssetContent.mockReturnValue({ ok: false, reason: 'bundled miss' });
+    resolveGrokUserAgentContent.mockReturnValue({
+      ok: true,
+      agent: {
+        name: 'reviewer',
+        source: 'plugin',
+        sourcePath: '/tmp/demo/agents/reviewer.md',
+        pluginDir: '/tmp/demo',
+        content: '---\neffort: high\n---\nreview',
+        frontmatter: { effort: 'high' },
+      },
+    });
+
+    expect(resolveSpawnAgent('demo:reviewer', 'grok-build', '/repo')).toMatchObject({
+      ok: true,
+      grokAgentName: 'reviewer',
+      grokAgentSource: 'plugin',
+      grokPluginDir: '/tmp/demo',
+    });
+  });
+
   it('allows native custom agents when bundled Grok agents are disabled', () => {
     getSetting.mockReturnValue(false);
     getBundledAssetContent.mockImplementation(() => {

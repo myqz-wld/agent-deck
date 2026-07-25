@@ -1,24 +1,21 @@
 /**
  * Assets Library IPC handlers（CHANGELOG_57 C2 / plan codex-handoff-team-alignment-20260518
  * §P3 Step 3.4 multi-adapter cascade / plan assets-codex-user-and-ui-unify-20260521 §D3 §D5 §D7
- * 三 adapter user 自定义补齐 + UI sub-tab 统一改造）。
+ * 三 adapter user 资产只读发现 + UI sub-tab 统一改造）。
  *
- * Channels in this module cover bundled/user asset reads, user CRUD, bundled Agent runtime
+ * Channels in this module cover bundled/user asset reads, bundled Agent runtime
  * deltas, Codex provider suggestions, and Finder reveal:
  *   - AssetsListBundled / AssetsListUser    —— 列表
- *   - AssetsGetContent                      —— 单个 asset 完整 md（含 frontmatter）
- *   - AssetsSaveUser / AssetsDeleteUser     —— 用户自定义 CRUD
+ *   - AssetsGetContent                      —— 单个 asset 完整内容
  *   - AssetsRevealInFolder                  —— shell.showItemInFolder 跨平台显示
  *
- * 入参校验：name 走 isSafeName（slug `[a-z0-9-]+`，长度 1-64），kind 严格枚举，
- * source 严格枚举，UserAssetInput 委托 user-assets.saveUserAsset 内部校验。
- * 所有失败统一返回 `{ ok: false, reason }`，renderer 透传给用户。
+ * 入参校验：bundled name 走 Agent Deck slug，user name 走各原生 CLI 共用安全字符集；
+ * kind/source/adapter 严格枚举。所有失败统一返回 `{ ok: false, reason }`。
  *
  * **plan assets-codex-user-and-ui-unify-20260521 §D7 升级**：
  * - `AssetMeta.adapter` user 资产也带 ('claude-code' | 'codex-cli' | 'grok-build')，null 删除
- * - `AssetsGetContent` / `AssetsRevealInFolder` / `AssetsDeleteUser` source==='user' 时也必传 adapter
+ * - `AssetsGetContent` / `AssetsRevealInFolder` source==='user' 时也必传 adapter
  *   （user 资产现也按 adapter 派发到不同 root：~/.claude/{agents,skills}/ vs ~/.codex/{agents,skills}/）
- * - `AssetsSaveUser` UserAssetInput 加 adapter 字段（必填）
  * - `validateAdapterKind` 保留为 adapter/kind 兼容性收口点；当前三种 adapter 的 agent/skill 组合都支持
  */
 import { shell } from 'electron';
@@ -28,10 +25,8 @@ import type {
   AssetKind,
   AssetSource,
   UserAssetAdapter,
-  UserAssetInput,
 } from '@shared/types';
-import { ASSET_LIMITS, validateAdapterKind } from '@shared/types';
-import { isGrokThinkingLevel } from '@shared/session-metadata';
+import { ASSET_LIMITS, isNativeAssetName, validateAdapterKind } from '@shared/types';
 import { on, IpcInputError, parseStringId } from './_helpers';
 import {
   getBundledAssets,
@@ -40,11 +35,9 @@ import {
   isSafeName,
 } from '@main/bundled-assets';
 import {
-  deleteUserAsset,
   getUserAssetContent,
   getUserAssetPath,
   listUserAssets,
-  saveUserAsset,
 } from '@main/user-assets';
 import {
   resetBundledAgentRuntimeOverride,
@@ -52,7 +45,6 @@ import {
 } from '@main/bundled-agent-runtime-overrides';
 import { listCodexModelProviders } from '@main/codex-config/model-providers';
 import { listClaudeGatewayProfiles } from '@main/adapters/claude-code/gateway-profiles';
-import { isSafeGrokAssetName } from '@main/adapters/grok-build/custom-assets';
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
@@ -113,97 +105,17 @@ function parseUserAdapterRequired(value: unknown): UserAssetAdapter {
   return value as UserAssetAdapter;
 }
 
-function parseAssetName(value: unknown, adapter?: AssetAdapter): string {
-  const maxLength = adapter === 'grok-build' ? ASSET_LIMITS.grokName : ASSET_LIMITS.name;
+function parseAssetName(value: unknown, source: AssetSource): string {
+  const maxLength = source === 'user' ? ASSET_LIMITS.nativeName : ASSET_LIMITS.name;
   const name = parseStringId('name', value, maxLength);
-  const valid = adapter === 'grok-build' ? isSafeGrokAssetName(name) : isSafeName(name);
+  const valid = source === 'user' ? isNativeAssetName(name) : isSafeName(name);
   if (!valid) {
     throw new IpcInputError(
       'name',
-      `must match the native ${adapter === 'grok-build' ? 'Grok' : 'Agent Deck'} name rule, length 1-${maxLength} (got "${name}")`,
+      `must match the ${source === 'user' ? 'native user asset' : 'Agent Deck bundled asset'} name rule, length 1-${maxLength} (got "${name}")`,
     );
   }
   return name;
-}
-
-/**
- * 校验 frontmatter 单行字段（description / tools / model）：
- * - 长度上限 见 `ASSET_LIMITS.<field>`（CHANGELOG_57 R1·F4 收口防 100MB body 卡 main）
- * - **禁含换行 `\n`**（CHANGELOG_57 R1·F2：手写 stringifyFrontmatter 单行 join，多行 value
- *   写盘后被 parseFrontmatter `(.*)$` 单行 regex 静默截断，下次回读 description 只剩首行）
- * - **禁含 `---`**（CHANGELOG_57 R1·F3：description: "x\n---\nname: hijacked" 串成嵌套
- *   frontmatter 块；同时禁单串 `---` 即可拦死所有变种，包括 `\n---\n`、`---\n`、`\r\n---`）
- *
- * 触发即拒（throw IpcInputError），renderer 透传给用户错误信息让其修正。
- *
- * 不限字符集（中文 / emoji 都允许），仅限结构性危险字符。
- */
-function parseSingleLineString(field: string, value: unknown, maxLen: number): string {
-  if (typeof value !== 'string') {
-    throw new IpcInputError(field, `must be string, got ${typeof value}`);
-  }
-  if (value.length > maxLen) {
-    throw new IpcInputError(field, `length > ${maxLen} (got ${value.length})`);
-  }
-  if (/[\r\n]/.test(value)) {
-    throw new IpcInputError(field, `must be single-line (no \\r / \\n)`);
-  }
-  if (value.includes('---')) {
-    throw new IpcInputError(field, `must not contain "---" (防 frontmatter 注入)`);
-  }
-  return value;
-}
-
-/**
- * 校验 markdown body：长度上限 + 禁起首 `---` 行（防把 body 当二级 frontmatter 解析）。
- * 允许换行（markdown 正文本就多行）；不限字符集。
- */
-function parseAssetBody(value: unknown, opts: { allowFrontmatterStart?: boolean } = {}): string {
-  if (typeof value !== 'string') {
-    throw new IpcInputError('body', `must be string, got ${typeof value}`);
-  }
-  if (value.length > ASSET_LIMITS.body) {
-    throw new IpcInputError('body', `length > ${ASSET_LIMITS.body} (got ${value.length})`);
-  }
-  // body 起首不能再开 frontmatter 块（防写出双 frontmatter 文件）；与 AssetEditor renderer 校验对齐
-  if (!opts.allowFrontmatterStart && value.split('\n', 1)[0].trim() === '---') {
-    throw new IpcInputError('body', `must not start with "---" (防 frontmatter 嵌套)`);
-  }
-  return value;
-}
-
-function parseUserAssetInput(value: unknown): UserAssetInput {
-  if (typeof value !== 'object' || value === null) {
-    throw new IpcInputError('userAssetInput', 'must be object');
-  }
-  const v = value as Record<string, unknown>;
-  const kind = parseKind(v.kind);
-  const adapter = parseUserAdapterRequired(v.adapter);
-  const valid = validateAdapterKind(adapter, kind);
-  if (!valid.ok) {
-    throw new IpcInputError('adapter+kind', valid.reason);
-  }
-  const name = parseAssetName(v.name, adapter);
-  const description = parseSingleLineString('description', v.description ?? '', ASSET_LIMITS.description);
-  const body = parseAssetBody(v.body ?? '', {
-    allowFrontmatterStart: adapter === 'codex-cli' && kind === 'agent',
-  });
-  const tools = v.tools !== undefined && v.tools !== ''
-    ? parseSingleLineString('tools', v.tools, ASSET_LIMITS.tools)
-    : undefined;
-  const model = v.model !== undefined && v.model !== ''
-    ? parseSingleLineString('model', v.model, ASSET_LIMITS.model)
-    : undefined;
-  const provider = v.provider !== undefined && v.provider !== ''
-    ? parseSingleLineString('provider', v.provider, ASSET_LIMITS.provider)
-    : undefined;
-  const thinking = v.thinking !== undefined && v.thinking !== ''
-    ? parseSingleLineString('thinking', v.thinking, ASSET_LIMITS.runtimeModel)
-    : undefined;
-  if (thinking !== undefined && adapter === 'grok-build' && kind === 'agent' && !isGrokThinkingLevel(thinking)) {
-    throw new IpcInputError('thinking', 'must be one of low|medium|high|xhigh for Grok agents');
-  }
-  return { kind, adapter, name, description, body, tools, model, provider, thinking };
 }
 
 export function registerAssetsIpc(): void {
@@ -215,7 +127,7 @@ export function registerAssetsIpc(): void {
     const kind = parseKind(kindArg);
     const source = parseSource(sourceArg);
     const adapter = parseAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg, adapter);
+    const name = parseAssetName(nameArg, source);
     const pathHint = pathArg === undefined || pathArg === null ? undefined : parseStringId('path', pathArg, 4096);
     if (source === 'bundled') {
       const r = getBundledAssetContent(kind, name, adapter);
@@ -231,14 +143,9 @@ export function registerAssetsIpc(): void {
     return { ok: false, content: '', reason: r.reason };
   });
 
-  on(IpcInvoke.AssetsSaveUser, (_e, inputArg) => {
-    const input = parseUserAssetInput(inputArg);
-    return saveUserAsset(input);
-  });
-
   on(IpcInvoke.AssetsSaveBundledAgentRuntime, (_e, adapterArg, nameArg, overrideArg) => {
     const adapter = parseAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg, adapter);
+    const name = parseAssetName(nameArg, 'bundled');
     if (!getBundledAssetPath('agent', name, adapter)) {
       return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
     }
@@ -255,7 +162,7 @@ export function registerAssetsIpc(): void {
 
   on(IpcInvoke.AssetsResetBundledAgentRuntime, (_e, adapterArg, nameArg) => {
     const adapter = parseAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg, adapter);
+    const name = parseAssetName(nameArg, 'bundled');
     if (!getBundledAssetPath('agent', name, adapter)) {
       return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
     }
@@ -266,22 +173,11 @@ export function registerAssetsIpc(): void {
   on(IpcInvoke.AssetsListClaudeGatewayProfiles, () => listClaudeGatewayProfiles());
   on(IpcInvoke.AssetsListCodexModelProviders, () => listCodexModelProviders());
 
-  on(IpcInvoke.AssetsDeleteUser, (_e, kindArg, nameArg, adapterArg, pathArg) => {
-    const kind = parseKind(kindArg);
-    const adapter = parseUserAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg, adapter);
-    const pathHint = pathArg === undefined || pathArg === null ? undefined : parseStringId('path', pathArg, 4096);
-    // adapter/kind 兼容性仍从 shared helper 收口
-    const valid = validateAdapterKind(adapter, kind);
-    if (!valid.ok) return { ok: false, reason: valid.reason };
-    return deleteUserAsset(kind, name, adapter, pathHint);
-  });
-
   on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg, adapterArg, pathArg) => {
     const kind = parseKind(kindArg);
     const source = parseSource(sourceArg);
     const adapter = parseAdapterRequired(adapterArg);
-    const name = parseAssetName(nameArg, adapter);
+    const name = parseAssetName(nameArg, source);
     const pathHint = pathArg === undefined || pathArg === null ? undefined : parseStringId('path', pathArg, 4096);
     let path: string | null = null;
     if (source === 'bundled') {

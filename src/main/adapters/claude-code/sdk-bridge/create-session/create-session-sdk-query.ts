@@ -143,7 +143,7 @@ export async function runCreateSessionSdkQuery(
         canUseTool,
         sandboxOpts,
         systemPromptAppend: getAgentDeckSystemPromptAppend(),
-        plugins: getAgentDeckPluginsForSession(),
+        plugins: getAgentDeckPluginsForSession(opts.claudePluginDir),
         runtime,
         claudeBinary,
         mcpServers,

@@ -2,15 +2,12 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
-  type AssetKind,
   type AssetMeta,
   type BundledAssetsSnapshot,
-  type UserAssetAdapter,
   type UserAssetsSnapshot,
 } from '@shared/types';
 import { AdapterSubTab, type AssetAdapter } from './assets/AdapterSubTab';
 import { AssetsTab } from './assets/AssetsTab';
-import { AssetEditor } from './assets/AssetEditor';
 import { BundledAgentRuntimeEditor } from './assets/BundledAgentRuntimeEditor';
 import { ApplicationConventionTab } from './assets/ApplicationConventionTab';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
@@ -21,12 +18,11 @@ import { errorMessage } from '@renderer/lib/error-message';
 /**
  * 资产库 Dialog（CHANGELOG_57 / CHANGELOG_69 / CHANGELOG_137 / plan
  * assets-codex-user-and-ui-unify-20260521 §D1-D7：三 tab 全 sub-tab 切换 paradigm 统一 + codex
- * 端 user 自定义补齐）。
+ * 端原生资产发现补齐）。
  *
  * 三 Tab，每 tab 内部按 adapter sub-tab 切换：
- * - Skills：sub-tab(Claude/Codex/Grok)，bundled + user 各 sub-tab 内独立显示；Grok 额外显示
- *   原生 user plugin 提供的只读组件
- * - Agents：sub-tab(Claude/Codex/Grok)，Grok user agents 落 ~/.grok/agents/，插件 Agent 只读
+ * - Skills：sub-tab(Claude/Codex/Grok)，直系与 Plugin 资产统一只读展示
+ * - Agents：sub-tab(Claude/Codex/Grok)，直系与 Plugin 资产统一只读展示
  * - 应用约定：sub-tab(Claude/Codex)，子 editor dirty 时切换前 confirm 拦截
  *
  * dirty 拦截契约：
@@ -43,18 +39,6 @@ interface Props {
 
 type TabKey = 'skills' | 'agents' | 'claude-md';
 
-interface EditorState {
-  kind: AssetKind;
-  adapter: UserAssetAdapter;
-  asset: (AssetMeta & { adapter: UserAssetAdapter }) | null;
-}
-
-function isUserAssetMeta(
-  asset: AssetMeta,
-): asset is AssetMeta & { adapter: UserAssetAdapter } {
-  return asset.source === 'user';
-}
-
 export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | null {
   const [tab, setTab] = useState<TabKey>('skills');
   const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
@@ -63,7 +47,6 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewer, setViewer] = useState<ContentViewerState | null>(null);
-  const [editor, setEditor] = useState<EditorState | null>(null);
   const [bundledAgentEditor, setBundledAgentEditor] = useState<AssetMeta | null>(null);
   // plan §D1：Skills/Agents 各 tab 独立 sub-tab state（切换其他 tab 不影响其他 tab 的 sub-tab）
   const [skillsAdapter, setSkillsAdapter] = useState<AssetAdapter>('claude-code');
@@ -85,7 +68,6 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       // -20260519 §Phase 5 Step 5.1 reviewer-codex MED finding fix）
       ++viewerSeqRef.current;
       setViewer(null);
-      setEditor(null);
       setBundledAgentEditor(null);
       return;
     }
@@ -111,20 +93,6 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       setLoadError(errs.length > 0 ? errs.join('\n') : null);
     });
   }, [open]);
-
-  const refreshUser = (): void => {
-    const seq = ++fetchSeqRef.current;
-    void window.api
-      .listUserAssets()
-      .then((u) => {
-        if (seq !== fetchSeqRef.current) return;
-        setUser(u);
-      })
-      .catch((err: unknown) => {
-        if (seq !== fetchSeqRef.current) return;
-        setLoadError(`用户资产刷新失败：${errorMessage(err)}`);
-      });
-  };
 
   const refreshBundled = (): void => {
     const seq = ++fetchSeqRef.current;
@@ -266,14 +234,6 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 bundled={bundled?.skills ?? []}
                 user={user?.skills ?? []}
                 onView={openViewer}
-                onEdit={(asset) => {
-                  if (isUserAssetMeta(asset) && asset.editable !== false) {
-                    setEditor({ kind: 'skill', adapter: skillsAdapter, asset });
-                  }
-                }}
-                onNew={
-                  () => setEditor({ kind: 'skill', adapter: skillsAdapter, asset: null })
-                }
               />
             </>
           )}
@@ -290,14 +250,6 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 user={user?.agents ?? []}
                 onView={openViewer}
                 onConfigureBundledAgent={setBundledAgentEditor}
-                onEdit={(asset) => {
-                  if (isUserAssetMeta(asset) && asset.editable !== false) {
-                    setEditor({ kind: 'agent', adapter: agentsAdapter, asset });
-                  }
-                }}
-                onNew={
-                  () => setEditor({ kind: 'agent', adapter: agentsAdapter, asset: null })
-                }
               />
             </>
           )}
@@ -327,15 +279,6 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
               });
           }}
           onClose={closeViewer}
-        />
-      )}
-      {editor && (
-        <AssetEditor
-          kind={editor.kind}
-          adapter={editor.adapter}
-          asset={editor.asset}
-          onClose={() => setEditor(null)}
-          onSaved={refreshUser}
         />
       )}
       {bundledAgentEditor && (

@@ -2,13 +2,14 @@
  * Codex custom agent loader for `spawn_session(agentName=...)`.
  *
  * Official Codex custom agents are TOML files whose `name` field is the source of
- * truth. Agent Deck resolves them from three native scopes:
+ * truth. Agent Deck resolves them from native roots plus Agent Deck's Plugin Agent extension:
  *   1. bundled Agent Deck Codex agents
  *   2. project-scoped `.codex/agents/*.toml`, closest cwd first
- *   3. user-scoped `~/.codex/agents/*.toml`
+ *   3. project Plugin `agents/*.toml`
+ *   4. user-scoped `${CODEX_HOME:-~/.codex}/agents/*.toml`
+ *   5. user Plugin `agents/*.toml`
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getCodexAgentDeckPluginPath } from '@main/adapters/codex-cli/codex-config-paths';
 import { settingsStore } from '@main/store/settings-store';
@@ -21,21 +22,28 @@ import {
   isCodexThinkingLevel,
   type CodexThinkingLevel,
 } from '@shared/session-metadata';
+import {
+  getCodexHome,
+  resolveCodexProjectPluginAgentContent,
+  resolveCodexUserPluginAgentContent,
+  type CodexPluginAgentContent,
+} from './plugin-assets';
 
 const logger = log.scope('codex-custom-agents');
 
-const USER_CODEX_AGENTS_DIR = join(homedir(), '.codex', 'agents');
-const CODEX_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
+const CODEX_DIRECT_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
+const CODEX_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}(?::[a-zA-Z0-9._-]{1,128})?$/;
 const CODEX_SANDBOX_MODES = ['workspace-write', 'read-only', 'danger-full-access'] as const;
 
 export type CodexCustomAgentReasoningEffort = CodexThinkingLevel;
 export type CodexCustomAgentSandboxMode = (typeof CODEX_SANDBOX_MODES)[number];
-export type CodexCustomAgentScope = 'bundled' | 'project' | 'user';
+export type CodexCustomAgentScope = 'bundled' | 'project' | 'user' | 'plugin';
 
 export interface CodexCustomAgentContent {
   name: string;
   source: CodexCustomAgentScope;
   sourcePath: string;
+  pluginDir?: string;
   description?: string;
   developerInstructions: string;
   model?: string;
@@ -47,6 +55,8 @@ export interface CodexCustomAgentContent {
 interface ParsedCodexAgentFile {
   source: CodexCustomAgentScope;
   sourcePath: string;
+  runtimeName?: string;
+  pluginDir?: string;
   agent: ReturnType<typeof parseCodexAgentToml>;
 }
 
@@ -59,19 +69,32 @@ export function resolveCodexAgentContent(
   }
 
   const includeBundled = settingsStore.get('injectAgentDeckCodexAgents') !== false;
-  if (includeBundled) {
+  if (includeBundled && CODEX_DIRECT_AGENT_NAME_RE.test(agentName)) {
     const bundled = findCodexAgentInDirs(agentName, 'bundled', [getBundledCodexAgentsDir()]);
-    if (bundled.ok || bundled.reason.startsWith('multiple')) return bundled;
+    if (bundled.ok || !bundled.reason.startsWith('not found')) return bundled;
   }
 
   const projectDirs = getProjectCodexAgentDirs(cwd);
-  for (const projectDir of projectDirs) {
-    const project = findCodexAgentInDirs(agentName, 'project', [projectDir]);
-    if (project.ok || project.reason.startsWith('multiple')) return project;
+  if (CODEX_DIRECT_AGENT_NAME_RE.test(agentName)) {
+    for (const projectDir of projectDirs) {
+      const project = findCodexAgentInDirs(agentName, 'project', [projectDir]);
+      if (project.ok || !project.reason.startsWith('not found')) return project;
+    }
   }
 
-  const user = findCodexAgentInDirs(agentName, 'user', [USER_CODEX_AGENTS_DIR]);
-  if (user.ok || user.reason.startsWith('multiple')) return user;
+  const projectPlugin = resolveCodexProjectPluginAgentContent(agentName, cwd);
+  if (projectPlugin.ok) return buildPluginContent(projectPlugin.agent);
+  if (!projectPlugin.reason.startsWith('not found')) return projectPlugin;
+
+  const userAgentsDir = getUserCodexAgentsDir();
+  if (CODEX_DIRECT_AGENT_NAME_RE.test(agentName)) {
+    const user = findCodexAgentInDirs(agentName, 'user', [userAgentsDir]);
+    if (user.ok || !user.reason.startsWith('not found')) return user;
+  }
+
+  const userPlugin = resolveCodexUserPluginAgentContent(agentName);
+  if (userPlugin.ok) return buildPluginContent(userPlugin.agent);
+  if (!userPlugin.reason.startsWith('not found')) return userPlugin;
 
   return {
     ok: false,
@@ -79,7 +102,7 @@ export function resolveCodexAgentContent(
       `not found: Codex agent "${agentName}". Checked ` +
       `${includeBundled ? 'bundled Agent Deck agents, ' : ''}` +
       `${projectDirs.length > 0 ? projectDirs.join(', ') : 'no project .codex/agents directories'}, ` +
-      `and ${USER_CODEX_AGENTS_DIR}.`,
+      `project/user Plugins, and ${userAgentsDir}.`,
   };
 }
 
@@ -89,7 +112,12 @@ export function getUserCodexAgentContent(
   if (!CODEX_AGENT_NAME_RE.test(agentName)) {
     return { ok: false, reason: `invalid Codex agent name: ${agentName}` };
   }
-  return findCodexAgentInDirs(agentName, 'user', [USER_CODEX_AGENTS_DIR]);
+  if (CODEX_DIRECT_AGENT_NAME_RE.test(agentName)) {
+    const direct = findCodexAgentInDirs(agentName, 'user', [getUserCodexAgentsDir()]);
+    if (direct.ok || !direct.reason.startsWith('not found')) return direct;
+  }
+  const plugin = resolveCodexUserPluginAgentContent(agentName);
+  return plugin.ok ? buildPluginContent(plugin.agent) : plugin;
 }
 
 export function getBundledCodexAgentsDir(): string {
@@ -120,7 +148,7 @@ function findCodexAgentInDirs(
 function buildContent(
   parsed: ParsedCodexAgentFile,
 ): { ok: true; agent: CodexCustomAgentContent } | { ok: false; reason: string } {
-  const { source, sourcePath, agent } = parsed;
+  const { source, sourcePath, runtimeName, pluginDir, agent } = parsed;
   if (!agent.name) {
     return { ok: false, reason: `Codex custom agent ${sourcePath} is missing required name` };
   }
@@ -153,9 +181,10 @@ function buildContent(
   return {
     ok: true,
     agent: {
-      name: agent.name,
+      name: runtimeName ?? agent.name,
       source,
       sourcePath,
+      ...(pluginDir ? { pluginDir } : {}),
       description: agent.description,
       developerInstructions: agent.developerInstructions,
       model: agent.model,
@@ -166,6 +195,18 @@ function buildContent(
       config: agent.config,
     },
   };
+}
+
+function buildPluginContent(
+  agent: CodexPluginAgentContent,
+): { ok: true; agent: CodexCustomAgentContent } | { ok: false; reason: string } {
+  return buildContent({
+    source: 'plugin',
+    sourcePath: agent.sourcePath,
+    runtimeName: agent.runtimeName,
+    pluginDir: agent.pluginDir,
+    agent: agent.parsed,
+  });
 }
 
 function scanCodexAgentDir(dir: string, source: CodexCustomAgentScope): ParsedCodexAgentFile[] {
@@ -213,6 +254,10 @@ function getProjectCodexAgentDirs(cwd: string): string[] {
     current = parent;
   }
   return dirs;
+}
+
+function getUserCodexAgentsDir(): string {
+  return join(getCodexHome(), 'agents');
 }
 
 function safeIsFile(path: string): boolean {

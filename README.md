@@ -12,7 +12,7 @@ Use it to run agents side by side, let them communicate, track their work, and r
 - **Human review points** — review plans and diffs before work continues.
 - **Safe isolation** — use worktrees when changes should stay separate.
 - **Multiple runtimes** — Claude Code, Codex CLI, and Grok Build are supported; bundled runtimes are used by default.
-- **Native assets** — the Assets Library exposes Claude/Codex user assets and Grok user/plugin Agents and Skills; Grok plugin-owned files stay read-only.
+- **Native assets** — the Assets Library discovers direct and Plugin Agents/Skills for Claude Code, Codex CLI, and Grok Build as read-only assets; create, edit, delete, install, and enable them through the owning CLI.
 
 ## Typical Workflow
 

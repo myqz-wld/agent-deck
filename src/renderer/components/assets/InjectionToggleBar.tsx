@@ -54,7 +54,7 @@ const INJECTION_CONFIG: Record<
  * - claude-md tab：claude 端 system prompt 注入 + codex 端 developerInstructions 注入
  *
  * 设计：
- * - 「资产编辑 + 注入开关」单一真源（资产库），与设置面板彻底解耦
+ * - 内置资产注入开关的单一真源在资产库，与设置面板彻底解耦
  * - settings null 时显示 placeholder 不报错（mount 期间 fetch 未回）
  * - busy 期不 disable toggle UI（避免 toggle 在等 IPC 时变灰，体验割裂；
  *   update 内部已有 dedup seq 防止旧响应回写）

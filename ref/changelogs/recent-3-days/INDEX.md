@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-25 | `CHANGELOG_395_read-only-plugin-assets.md` | Align read-only direct and Plugin assets across all adapters |
 | 2026-07-24 | `CHANGELOG_394_grok-native-assets.md` | Support Grok native Agents, Skills, and plugin discovery |
 | 2026-07-24 | `CHANGELOG_393_unified-token-accounting.md` | Unify token totals and included breakdowns in the Data tab |
 | 2026-07-24 | `CHANGELOG_392_bundled-grok-cli.md` | Use the bundled Grok CLI by default with external override support |
@@ -30,4 +31,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-07-23 | `CHANGELOG_382_plan-review-feedback-discard-confirmation.md` | Confirm before approval discards plan-review feedback |
 | 2026-07-22 | `CHANGELOG_381_pending-image-previews.md` | Show pending image details and full-size previews in composers |
 | 2026-07-22 | `CHANGELOG_380_node-repl-sandbox-compatibility.md` | Bridge legacy node_repl sandbox metadata and refresh agent runtimes |
-| 2026-07-21 | `CHANGELOG_379_plan-review-pending-queue-composer.md` | Isolate plan review and preserve pending input until consumption |

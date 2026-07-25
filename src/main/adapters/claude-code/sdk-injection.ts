@@ -183,12 +183,20 @@ function substituteMdFilesInPlace(dir: string): void {
  * app-server `developerInstructions`，skills 走 `skills/extraRoots/set`，故本 helper signature
  * 不通用化（plan §P3 Step 3.2 决策）。
  */
-export function getAgentDeckPluginsForSession(): Array<{ type: 'local'; path: string }> {
+export function getAgentDeckPluginsForSession(
+  selectedPluginDir?: string,
+): Array<{ type: 'local'; path: string }> {
   const includeSkills = settingsStore.get('injectAgentDeckClaudeSkills') !== false;
   const includeAgents = settingsStore.get('injectAgentDeckClaudeAgents') !== false;
-  if (!includeSkills && !includeAgents) return [];
-  ensurePluginMirrorInstalled({ includeSkills, includeAgents });
-  return [{ type: 'local', path: getPluginMirrorDir() }];
+  const plugins: Array<{ type: 'local'; path: string }> = [];
+  if (includeSkills || includeAgents) {
+    ensurePluginMirrorInstalled({ includeSkills, includeAgents });
+    plugins.push({ type: 'local', path: getPluginMirrorDir() });
+  }
+  if (selectedPluginDir && !plugins.some((plugin) => plugin.path === selectedPluginDir)) {
+    plugins.push({ type: 'local', path: selectedPluginDir });
+  }
+  return plugins;
 }
 
 /** 内置 CLAUDE.md 在 .app / repo 内的绝对路径（dev/prod 自动分流）。 */

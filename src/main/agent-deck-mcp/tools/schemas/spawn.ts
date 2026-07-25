@@ -61,19 +61,22 @@ export const SPAWN_SESSION_SCHEMA = {
       'Optional team to form or reuse. Omit for a standalone session; standalone sessions can still exchange teamless DMs through send_message but do not appear together in TeamDetail. Set to make the caller a lead and the new session a teammate in that active team.',
     ),
   /**
-   * Optional adapter-native agent selection. Claude-family targets use SDK `agent` + `agents`;
-   * Codex targets parse official TOML custom-agent files and map supported config fields to
-   * app-server thread/developerInstructions/config options; Grok targets pass the native profile
-   * name through ACP after checking bundled, project, user, and plugin sources. Unknown names reject.
+   * Optional adapter-native agent selection. Claude targets use SDK `agent` plus either
+   * programmatic `agents` or a selected native Plugin root; Codex targets parse direct TOML agents
+   * plus Agent Deck's Plugin `agents/*.toml` extension and map supported fields to app-server
+   * thread/developerInstructions/config options; Grok targets pass the native profile through ACP.
    */
   agentName: z
     .string()
     .min(1)
-    .max(128)
-    .regex(/^[a-zA-Z0-9._-]+$/, 'agentName only allows [a-zA-Z0-9._-]')
+    .max(257)
+    .regex(
+      /^[a-zA-Z0-9._-]{1,128}(?::[a-zA-Z0-9._-]{1,128})?$/,
+      'agentName allows a direct name or one plugin-qualified name like plugin-name:agent-name',
+    )
     .optional()
     .describe(
-      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then supported project/user agents. Claude starts with SDK agent/agents; Codex maps TOML developer_instructions and supported config fields; Grok Build passes the native profile through ACP and can resolve project/user/plugin agents discovered by Grok. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown names reject.',
+      'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then project direct agents, project Plugin agents, user direct agents, and user Plugin agents. Claude Plugin Agents use the native plugin-name:agent-name selector and load their Plugin root for the session. Codex Plugin Agents use Agent Deck\'s agents/*.toml extension because Codex Plugins natively expose Skills but not Agent components. Grok Build passes the native profile through ACP and can resolve project/user/plugin agents discovered by Grok. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown or ambiguous names reject.',
     ),
   model: z
     .string()

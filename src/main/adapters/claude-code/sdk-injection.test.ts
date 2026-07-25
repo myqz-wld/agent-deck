@@ -72,4 +72,16 @@ describe('getAgentDeckPluginsForSession', () => {
     expect(getAgentDeckPluginsForSession()).toEqual([]);
     expect(existsSync(mirrorRoot)).toBe(false);
   });
+
+  it('loads an explicitly selected native Plugin even when bundled assets are disabled', async () => {
+    const selectedPlugin = join(userDataPath, 'selected-plugin');
+    const { settingsStore, getAgentDeckPluginsForSession } = await loadModules();
+    settingsStore.set('injectAgentDeckClaudeSkills', false);
+    settingsStore.set('injectAgentDeckClaudeAgents', false);
+
+    expect(getAgentDeckPluginsForSession(selectedPlugin)).toEqual([
+      { type: 'local', path: selectedPlugin },
+    ]);
+    expect(existsSync(mirrorRoot)).toBe(false);
+  });
 });
