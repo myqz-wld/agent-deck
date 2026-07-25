@@ -104,7 +104,9 @@ function findManifest(root: string, manifestPaths: readonly string[]): string | 
 }
 
 function hasPluginContent(root: string): boolean {
-  return safeIsDir(join(root, 'agents')) || safeIsDir(join(root, 'skills'));
+  return safeIsFile(join(root, 'SKILL.md')) ||
+    safeIsDir(join(root, 'agents')) ||
+    safeIsDir(join(root, 'skills'));
 }
 
 function readPluginName(root: string, manifestPath: string | null): string {

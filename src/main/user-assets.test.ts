@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -38,20 +38,28 @@ vi.mock('./bundled-assets', () => ({
   },
 }));
 
-import { getUserAssetPath } from './user-assets';
+import { getUserAssetPath, listUserAssets } from './user-assets';
 
 describe('read-only user asset path resolution', () => {
   let root: string;
   const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousGrokHome = process.env.GROK_HOME;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'agent-deck-user-assets-'));
     process.env.CLAUDE_CONFIG_DIR = join(root, 'claude');
+    process.env.CODEX_HOME = join(root, 'codex');
+    process.env.GROK_HOME = join(root, 'grok');
   });
 
   afterEach(() => {
     if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousGrokHome === undefined) delete process.env.GROK_HOME;
+    else process.env.GROK_HOME = previousGrokHome;
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -63,5 +71,32 @@ describe('read-only user asset path resolution', () => {
 
     expect(getUserAssetPath('agent', name, 'claude-code')).toBe(assetPath);
     expect(getUserAssetPath('agent', name, 'claude-code', join(root, 'missing.md'))).toBeNull();
+  });
+
+  it('classifies a Claude skills-dir plugin root once instead of duplicating it as a direct skill', () => {
+    const pluginRoot = join(process.env.CLAUDE_CONFIG_DIR!, 'skills', 'demo-plugin');
+    mkdirSync(join(pluginRoot, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(pluginRoot, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'demo-plugin' }),
+      'utf8',
+    );
+    writeFileSync(
+      join(pluginRoot, 'SKILL.md'),
+      '---\nname: demo-skill\ndescription: plugin root skill\n---\nBody',
+      'utf8',
+    );
+
+    const normalizedSkillPath = join(realpathSync(pluginRoot), 'SKILL.md');
+    const matches = listUserAssets().skills.filter((asset) =>
+      asset.adapter === 'claude-code' && asset.absPath === normalizedSkillPath
+    );
+    expect(matches).toEqual([
+      expect.objectContaining({
+        origin: 'plugin',
+        pluginName: 'demo-plugin',
+        qualifiedName: 'plugin:demo-plugin/demo-skill',
+      }),
+    ]);
   });
 });

@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
   discoverPluginRoots,
+  isWithinExistingRoot,
   normalizeExistingPath,
   safeIsDir,
   safeIsFile,
@@ -40,6 +41,11 @@ type AgentLookup =
   | { ok: true; agent: ClaudePluginAgentContent }
   | { ok: false; reason: string };
 
+interface ClaudePluginContainer {
+  path: string;
+  allowContentOnly: boolean;
+}
+
 export function listClaudePluginAssets(): UserAssetsSnapshot {
   const assets = getClaudeUserPluginRoots().flatMap(scanClaudePluginAssets);
   return {
@@ -54,13 +60,13 @@ export function resolveClaudeProjectPluginAgentContent(
 ): AgentLookup {
   for (const pluginContainer of getProjectPluginContainers(cwd)) {
     const result = findPluginAgent(
-      discoverClaudePluginRoots([pluginContainer]),
+      discoverClaudePluginRoots([pluginContainer.path], pluginContainer.allowContentOnly),
       agentName,
-      `project plugins under ${pluginContainer}`,
+      `project plugins under ${pluginContainer.path}`,
     );
     if (result.ok || !result.reason.startsWith('not found')) return result;
   }
-  return { ok: false, reason: 'not found in project .claude/plugins directories' };
+  return { ok: false, reason: 'not found in project Claude plugin directories' };
 }
 
 export function resolveClaudeUserPluginAgentContent(agentName: string): AgentLookup {
@@ -92,17 +98,22 @@ export function getClaudeConfigRoot(): string {
 function getClaudeUserPluginRoots(): PluginRoot[] {
   const configRoot = getClaudeConfigRoot();
   const installed = readInstalledPluginPaths(join(configRoot, 'plugins', 'installed_plugins.json'));
-  return discoverClaudePluginRoots(
-    installed.length > 0 ? installed : [join(configRoot, 'plugins')],
-  );
+  return mergePluginRoots([
+    ...discoverClaudePluginRoots(installed, true),
+    ...discoverClaudePluginRoots([join(configRoot, 'plugins')], true),
+    ...discoverClaudePluginRoots([join(configRoot, 'skills')]),
+  ]);
 }
 
-function getProjectPluginContainers(cwd: string): string[] {
-  const containers: string[] = [];
-  let current = resolve(cwd);
+function getProjectPluginContainers(cwd: string): ClaudePluginContainer[] {
+  const containers: ClaudePluginContainer[] = [];
+  const start = resolve(cwd);
+  const skillsDir = join(start, '.claude', 'skills');
+  if (safeIsDir(skillsDir)) containers.push({ path: skillsDir, allowContentOnly: false });
+  let current = start;
   while (true) {
     const candidate = join(current, '.claude', 'plugins');
-    if (safeIsDir(candidate)) containers.push(candidate);
+    if (safeIsDir(candidate)) containers.push({ path: candidate, allowContentOnly: true });
     const parent = dirname(current);
     if (parent === current) break;
     current = parent;
@@ -110,12 +121,27 @@ function getProjectPluginContainers(cwd: string): string[] {
   return containers;
 }
 
-function discoverClaudePluginRoots(searchPaths: string[]): PluginRoot[] {
+function discoverClaudePluginRoots(
+  searchPaths: string[],
+  allowContentOnly = false,
+): PluginRoot[] {
   return discoverPluginRoots({
     searchPaths,
     manifestPaths: ['.claude-plugin/plugin.json', 'plugin.json'],
+    allowContentOnly,
     maxDepth: 6,
   });
+}
+
+function mergePluginRoots(roots: PluginRoot[]): PluginRoot[] {
+  const merged = new Map<string, PluginRoot>();
+  for (const root of roots) merged.set(root.path, root);
+  return [...merged.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export function hasClaudePluginManifest(path: string): boolean {
+  return safeIsFile(join(path, '.claude-plugin', 'plugin.json')) ||
+    safeIsFile(join(path, 'plugin.json'));
 }
 
 function readInstalledPluginPaths(path: string): string[] {
@@ -148,46 +174,100 @@ function collectInstallPaths(value: unknown, found: Set<string>): void {
 
 function scanClaudePluginAssets(plugin: PluginRoot): ClaudePluginAsset[] {
   if (!CLAUDE_PLUGIN_NAME_RE.test(plugin.name)) return [];
-  return [
-    ...scanAgentDir(plugin),
-    ...scanSkillDir(plugin),
+  const assets = [
+    ...pluginComponentPaths(plugin, 'agents').flatMap((path) => scanAgentPath(plugin, path)),
+    ...[join(plugin.path, 'SKILL.md'), ...pluginComponentPaths(plugin, 'skills')]
+      .flatMap((path) => scanSkillPath(plugin, path)),
   ];
+  const unique = new Map<string, ClaudePluginAsset>();
+  for (const asset of assets) {
+    unique.set(`${asset.kind}:${normalizeExistingPath(asset.path) ?? asset.path}`, asset);
+  }
+  return [...unique.values()];
 }
 
-function scanAgentDir(plugin: PluginRoot): ClaudePluginAsset[] {
-  const dir = join(plugin.path, 'agents');
-  if (!safeIsDir(dir)) return [];
+function pluginComponentPaths(plugin: PluginRoot, key: 'agents' | 'skills'): string[] {
+  const configured = readClaudePluginManifest(plugin.path)?.[key];
+  const declared = typeof configured === 'string'
+    ? [configured]
+    : Array.isArray(configured)
+      ? configured.filter((value): value is string => typeof value === 'string')
+      : [];
+  const paths = [join(plugin.path, key), ...declared.map((path) => resolve(plugin.path, path))];
+  const unique = new Set<string>();
+  for (const path of paths) {
+    const normalized = normalizeExistingPath(path);
+    if (normalized && isWithinExistingRoot(normalized, plugin.path)) unique.add(normalized);
+  }
+  return [...unique];
+}
+
+function readClaudePluginManifest(path: string): Record<string, unknown> | null {
+  for (const manifestPath of [
+    join(path, '.claude-plugin', 'plugin.json'),
+    join(path, 'plugin.json'),
+  ]) {
+    if (!safeIsFile(manifestPath)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch (error) {
+      logger.warn(`[claude-plugin-assets] cannot read manifest: ${manifestPath}`, error);
+      return null;
+    }
+  }
+  return null;
+}
+
+function scanAgentPath(plugin: PluginRoot, path: string): ClaudePluginAsset[] {
+  if (safeIsFile(path)) {
+    if (!path.endsWith('.md')) return [];
+    const asset = readMarkdownAsset('agent', plugin, path, basename(path, '.md'));
+    return asset ? [asset] : [];
+  }
+  if (!safeIsDir(path)) return [];
   let entries: string[];
   try {
-    entries = readdirSync(dir);
+    entries = readdirSync(path);
   } catch {
     return [];
   }
   const assets: ClaudePluginAsset[] = [];
   for (const entry of entries.sort()) {
     if (!entry.endsWith('.md')) continue;
-    const path = join(dir, entry);
-    if (!safeIsFile(path)) continue;
-    const asset = readMarkdownAsset('agent', plugin, path, basename(entry, '.md'));
+    const assetPath = join(path, entry);
+    if (!safeIsFile(assetPath)) continue;
+    const asset = readMarkdownAsset('agent', plugin, assetPath, basename(entry, '.md'));
     if (asset) assets.push(asset);
   }
   return assets;
 }
 
-function scanSkillDir(plugin: PluginRoot): ClaudePluginAsset[] {
-  const dir = join(plugin.path, 'skills');
-  if (!safeIsDir(dir)) return [];
+function scanSkillPath(plugin: PluginRoot, path: string): ClaudePluginAsset[] {
+  if (safeIsFile(path)) {
+    if (basename(path) !== 'SKILL.md') return [];
+    const asset = readMarkdownAsset('skill', plugin, path, basename(dirname(path)));
+    return asset ? [asset] : [];
+  }
+  if (!safeIsDir(path)) return [];
+  const assets: ClaudePluginAsset[] = [];
+  const rootSkillPath = join(path, 'SKILL.md');
+  if (safeIsFile(rootSkillPath)) {
+    const asset = readMarkdownAsset('skill', plugin, rootSkillPath, basename(path));
+    if (asset) assets.push(asset);
+  }
   let entries: string[];
   try {
-    entries = readdirSync(dir);
+    entries = readdirSync(path);
   } catch {
-    return [];
+    return assets;
   }
-  const assets: ClaudePluginAsset[] = [];
   for (const entry of entries.sort()) {
-    const path = join(dir, entry, 'SKILL.md');
-    if (!safeIsFile(path)) continue;
-    const asset = readMarkdownAsset('skill', plugin, path, entry);
+    const assetPath = join(path, entry, 'SKILL.md');
+    if (!safeIsFile(assetPath)) continue;
+    const asset = readMarkdownAsset('skill', plugin, assetPath, entry);
     if (asset) assets.push(asset);
   }
   return assets;
