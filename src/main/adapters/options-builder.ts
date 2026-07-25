@@ -118,6 +118,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   }
   if (raw.claudeAgentName !== undefined) out.claudeAgentName = raw.claudeAgentName;
   if (raw.claudeAgents !== undefined) out.claudeAgents = raw.claudeAgents;
+  if (raw.claudePluginDir !== undefined) out.claudePluginDir = raw.claudePluginDir;
   if (raw.claudeCodeSandbox !== undefined) out.claudeCodeSandbox = raw.claudeCodeSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
@@ -403,6 +404,7 @@ const _CLAUDE_PASSTHROUGH_KEYS = {
   claudeCodeEffortLevel: 0,
   claudeAgentName: 0,
   claudeAgents: 0,
+  claudePluginDir: 0,
   claudeCodeSandbox: 0,
   extraAllowWrite: 0,
   handOff: 0,

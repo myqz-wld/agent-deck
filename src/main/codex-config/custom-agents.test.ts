@@ -1,6 +1,6 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHome = vi.hoisted(() => ({ value: '' }));
@@ -155,6 +155,69 @@ describe('resolveCodexAgentContent', () => {
     expect(result.agent.developerInstructions).toContain('Use project instructions.');
   });
 
+  it('loads a project Plugin Agent before a same-named user direct Agent', async () => {
+    const pluginRoot = join(project, '.codex', 'plugins', 'project-tools');
+    mkdirSync(join(pluginRoot, '.codex-plugin'), { recursive: true });
+    writeFileSync(
+      join(pluginRoot, '.codex-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'project-tools', version: '1.0.0' }),
+      'utf8',
+    );
+    writeAgent(join(pluginRoot, 'agents', 'patcher.toml'), {
+      name: 'patcher',
+      description: 'Plugin patcher',
+      body: 'Use Plugin instructions.',
+      model: 'gpt-5.6-sol',
+    });
+    writeAgent(join(mockHome.value, '.codex', 'agents', 'patcher.toml'), {
+      name: 'patcher',
+      description: 'User patcher',
+      body: 'Use user instructions.',
+      model: 'gpt-5.4',
+    });
+
+    const { resolveCodexAgentContent } = await import('./custom-agents');
+    const result = resolveCodexAgentContent('patcher', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent).toMatchObject({
+      name: 'project-tools:patcher',
+      source: 'plugin',
+      pluginDir: realpathSync(pluginRoot),
+      model: 'gpt-5.6-sol',
+    });
+    expect(result.agent.developerInstructions).toContain('Use Plugin instructions.');
+  });
+
+  it('resolves a Codex Plugin Agent by qualified name', async () => {
+    const pluginRoot = join(mockHome.value, '.codex', 'plugins', 'user-tools');
+    mkdirSync(join(pluginRoot, '.codex-plugin'), { recursive: true });
+    writeFileSync(
+      join(pluginRoot, '.codex-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'user-tools', version: '1.0.0' }),
+      'utf8',
+    );
+    writeAgent(join(pluginRoot, 'agents', 'reviewer.toml'), {
+      name: 'reviewer',
+      description: 'Plugin reviewer',
+      body: 'Use Plugin reviewer instructions.',
+      effort: 'high',
+    });
+
+    const { resolveCodexAgentContent } = await import('./custom-agents');
+    const result = resolveCodexAgentContent('user-tools:reviewer', project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.agent).toMatchObject({
+      name: 'user-tools:reviewer',
+      source: 'plugin',
+      pluginDir: realpathSync(pluginRoot),
+      modelReasoningEffort: 'high',
+    });
+  });
+
   it('uses TOML name as source of truth and does not fall back to filename stem', async () => {
     writeAgent(join(mockHome.value, '.codex', 'agents', 'prompt-editor.toml'), {
       name: 'internal-name',
@@ -208,6 +271,7 @@ function writeAgent(
     sandbox?: string;
   },
 ): void {
+  mkdirSync(dirname(path), { recursive: true });
   const lines = [
     `name = "${input.name}"`,
     `description = "${input.description}"`,

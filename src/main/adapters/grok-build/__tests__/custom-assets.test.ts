@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   getGrokUserAssetPath,
-  isEditableGrokUserAssetPath,
   listGrokUserAssets,
   resolveGrokUserAgentContent,
 } from '../custom-assets';
@@ -66,13 +65,17 @@ describe('Grok custom assets', () => {
       ok: true,
       agent: { source: 'plugin', name: 'plugin-agent', pluginDir: expect.stringContaining('project-plugin') },
     });
+    expect(resolveGrokUserAgentContent('project-plugin:plugin-agent', projectRoot)).toMatchObject({
+      ok: true,
+      agent: { source: 'plugin', name: 'plugin-agent', pluginDir: expect.stringContaining('project-plugin') },
+    });
     expect(resolveGrokUserAgentContent('user-agent', projectRoot)).toMatchObject({
       ok: true,
       agent: { source: 'user', name: 'user-agent' },
     });
   });
 
-  it('lists direct user assets and plugin components with plugin components read-only', () => {
+  it('lists direct user assets and plugin components with plugin-qualified names', () => {
     writeFile(join(grokHome, 'agents', 'User.Agent.md'), agent('User.Agent'));
     writeFile(join(grokHome, 'skills', 'user-skill', 'SKILL.md'), skill('user-skill'));
     writeFile(join(grokHome, 'plugins', 'demo', 'plugin.json'), '{"name":"demo"}');
@@ -86,7 +89,7 @@ describe('Grok custom assets', () => {
         expect.objectContaining({
           name: 'plugin-agent',
           qualifiedName: 'plugin:demo/plugin-agent',
-          editable: false,
+          runtimeName: 'demo:plugin-agent',
         }),
       ]),
     );
@@ -96,13 +99,12 @@ describe('Grok custom assets', () => {
         expect.objectContaining({
           name: 'plugin-skill',
           qualifiedName: 'plugin:demo/plugin-skill',
-          editable: false,
         }),
       ]),
     );
   });
 
-  it('accepts plugin path hints for reading but only direct roots are editable', () => {
+  it('accepts direct and plugin path hints for read-only inspection', () => {
     const pluginAgent = join(grokHome, 'plugins', 'demo', 'agents', 'plugin-agent.md');
     const userAgent = join(grokHome, 'agents', 'user-agent.md');
     writeFile(join(grokHome, 'plugins', 'demo', 'plugin.json'), '{"name":"demo"}');
@@ -110,7 +112,21 @@ describe('Grok custom assets', () => {
     writeFile(userAgent, agent('user-agent'));
 
     expect(getGrokUserAssetPath('agent', 'plugin-agent', pluginAgent)).toBe(pluginAgent);
-    expect(isEditableGrokUserAssetPath(pluginAgent, 'agent', 'plugin-agent')).toBe(false);
-    expect(isEditableGrokUserAssetPath(userAgent, 'agent', 'user-agent')).toBe(true);
+    expect(getGrokUserAssetPath('agent', 'user-agent', userAgent)).toBe(userAgent);
+    expect(getGrokUserAssetPath('agent', 'user-agent', join(grokHome, 'missing.md'))).toBeNull();
+  });
+
+  it('rejects ambiguous unqualified Plugin Agent names', () => {
+    writeFile(join(grokHome, 'plugins', 'alpha', 'plugin.json'), '{"name":"alpha"}');
+    writeFile(join(grokHome, 'plugins', 'alpha', 'agents', 'reviewer.md'), agent('reviewer'));
+    writeFile(join(grokHome, 'plugins', 'beta', 'plugin.json'), '{"name":"beta"}');
+    writeFile(join(grokHome, 'plugins', 'beta', 'agents', 'reviewer.md'), agent('reviewer'));
+
+    const result = resolveGrokUserAgentContent('reviewer', projectRoot);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toContain('multiple Grok plugin agents');
+    expect(result.reason).toContain('alpha:reviewer');
+    expect(result.reason).toContain('beta:reviewer');
   });
 });

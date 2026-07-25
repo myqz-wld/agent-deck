@@ -53,7 +53,7 @@ describe('AssetCard', () => {
     expect(codeLabels).toEqual(['agent-deck:claude-code:hello-from-deck']);
   });
 
-  it('展示 provider、编辑入口和覆盖状态', () => {
+  it('展示 provider、配置入口和覆盖状态', () => {
     const onConfigure = vi.fn();
     render(
       <AssetCard
@@ -72,7 +72,28 @@ describe('AssetCard', () => {
 
     expect(screen.getByText('fable')).toBeTruthy();
     expect(screen.getByText('已修改内建 Agent')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    fireEvent.click(screen.getByRole('button', { name: '配置' }));
     expect(onConfigure).toHaveBeenCalledTimes(1);
+  });
+
+  it('把 Plugin Agent 展示为只读并显示原生启动名', () => {
+    render(
+      <AssetCard
+        asset={asset({
+          source: 'user',
+          origin: 'plugin',
+          pluginName: 'demo-plugin',
+          runtimeName: 'demo-plugin:reviewer',
+          name: 'reviewer',
+          qualifiedName: 'plugin:demo-plugin/reviewer',
+        })}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Plugin · demo-plugin')).toBeTruthy();
+    expect(screen.getByText('只读')).toBeTruthy();
+    expect(screen.getByText('demo-plugin:reviewer')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
   });
 });

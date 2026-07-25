@@ -113,3 +113,35 @@ describe('buildSpawnTargetOptions Grok work mode', () => {
     expect(target).not.toHaveProperty('permissionMode');
   });
 });
+
+describe('buildSpawnTargetOptions Claude Plugin Agent', () => {
+  it('passes the selected native Plugin root to the Claude adapter', () => {
+    const target = buildSpawnTargetOptions({
+      args: {
+        adapter: 'claude-code',
+        cwd: '/repo',
+        prompt: 'Review this change',
+        agentName: 'demo:reviewer',
+      },
+      prompt: 'Review this change',
+      provider: undefined,
+      effectivePermissionMode: 'bypassPermissions',
+      effectiveCodexSandbox: undefined,
+      effectiveClaudeCodeSandbox: 'workspace-write',
+      effectiveExtraAllowWrite: undefined,
+      modelOptions: {},
+      developerInstructions: undefined,
+      codexConfigOverrides: undefined,
+      claudeAgentName: 'demo:reviewer',
+      claudeAgents: undefined,
+      claudePluginDir: '/plugins/demo',
+    });
+
+    expect(target).toMatchObject({
+      agentId: 'claude-code',
+      claudeAgentName: 'demo:reviewer',
+      claudePluginDir: '/plugins/demo',
+    });
+    expect(target).not.toHaveProperty('claudeAgents');
+  });
+});

@@ -90,6 +90,8 @@ export interface CreateSessionOpts {
   claudeAgentName?: string;
   /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
   claudeAgents?: Record<string, AgentDefinition>;
+  /** Explicit native Plugin root for a selected Claude Plugin Agent. */
+  claudePluginDir?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R6 HIGH-R6-1 + R7 HIGH-R7-1**:
    * bridge 内部 internal 字段(**REVIEW_105 MED-1: 本字段 SSOT 锚点 — facade ClaudeCreateOpts /

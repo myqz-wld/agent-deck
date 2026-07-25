@@ -97,6 +97,38 @@ describe('spawn Agent bundled runtime overrides', () => {
     expect(mocks.getBundledAgentRuntimeOverride).not.toHaveBeenCalled();
   });
 
+  it('loads a Claude Plugin Agent through its native Plugin root without redefining it', () => {
+    mocks.resolveClaudeAgentContent.mockReturnValue({
+      ok: true,
+      agent: {
+        name: 'demo:reviewer',
+        source: 'plugin',
+        sourcePath: '/plugins/demo/agents/reviewer.md',
+        pluginDir: '/plugins/demo',
+        model: 'sonnet',
+        effortLevel: 'high',
+        definition: {
+          description: 'Plugin reviewer',
+          prompt: 'Review from Plugin.',
+          model: 'sonnet',
+          effort: 'high',
+        },
+      },
+    });
+
+    const result = resolveSpawnAgent('demo:reviewer', 'claude-code', '/repo');
+
+    expect(result).toMatchObject({
+      ok: true,
+      claudeAgentName: 'demo:reviewer',
+      claudePluginDir: '/plugins/demo',
+      model: 'sonnet',
+      claudeCodeEffortLevel: 'high',
+    });
+    expect(result).not.toHaveProperty('claudeAgents');
+    expect(mocks.getBundledAgentRuntimeOverride).not.toHaveBeenCalled();
+  });
+
   it('returns a bundled Codex provider for the native per-thread model_provider layer', () => {
     mocks.resolveCodexAgentContent.mockReturnValue({
       ok: true,

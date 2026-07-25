@@ -31,6 +31,7 @@ export type ResolvedSpawnAgent =
       codexConfigOverrides?: CodexConfigObject;
       claudeAgentName?: string;
       claudeAgents?: Record<string, AgentDefinition>;
+      claudePluginDir?: string;
       claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
       grokAgentName?: string;
       grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
@@ -81,7 +82,7 @@ export function resolveSpawnAgent(
       `${agent.hint}. ` +
       (assetAdapter === 'grok-build'
         ? 'Grok Build agentName resolves bundled, project, user, and plugin agents discovered by Grok. Omit agentName for a generic teammate and use displayName for labels.'
-        : 'Available sources are bundled Agent Deck agents, project agents in .claude/agents or .codex/agents, and user agents in ~/.claude/agents or ~/.codex/agents. Omit agentName for generic teammates and use displayName for labels.'),
+        : 'Available sources are bundled Agent Deck agents, project direct/Plugin agents, and user direct/Plugin agents. Plugin-qualified names use plugin-name:agent-name. Omit agentName for generic teammates and use displayName for labels.'),
   };
 }
 
@@ -130,7 +131,7 @@ function resolveGrokSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAge
       : {};
   return {
     ok: true,
-    grokAgentName: agentName,
+    grokAgentName: source.source === 'bundled' ? agentName : source.name,
     grokAgentSource: source.source,
     ...(source.source !== 'bundled' && source.pluginDir
       ? { grokPluginDir: source.pluginDir }
@@ -165,13 +166,17 @@ function resolveClaudeSpawnAgent(
     provider,
     model,
     claudeAgentName: resolved.agent.name,
-    claudeAgents: {
-      [resolved.agent.name]: {
-        ...resolved.agent.definition,
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
-      },
-    },
+    ...(resolved.agent.source === 'plugin'
+      ? { claudePluginDir: resolved.agent.pluginDir }
+      : {
+          claudeAgents: {
+            [resolved.agent.name]: {
+              ...resolved.agent.definition,
+              ...(model ? { model } : {}),
+              ...(effort ? { effort } : {}),
+            },
+          },
+        }),
     claudeCodeEffortLevel: effort,
   };
 }

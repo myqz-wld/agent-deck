@@ -2,7 +2,6 @@ import type { JSX } from 'react';
 import type { AssetKind, AssetMeta } from '@shared/types';
 import type { AssetAdapter } from './AdapterSubTab';
 import { AssetCard } from './AssetCard';
-import { PlusIcon } from '../icons';
 
 interface Props {
   kind: AssetKind;
@@ -10,9 +9,7 @@ interface Props {
   bundled: AssetMeta[];
   user: AssetMeta[];
   onView: (asset: AssetMeta) => void;
-  onEdit: (asset: AssetMeta) => void;
   onConfigureBundledAgent?: (asset: AssetMeta) => void;
-  onNew?: () => void;
 }
 
 /** Skills/Agents adapter-filtered view for bundled and user assets. */
@@ -22,13 +19,10 @@ export function AssetsTab({
   bundled,
   user,
   onView,
-  onEdit,
   onConfigureBundledAgent,
-  onNew,
 }: Props): JSX.Element {
   const filteredBundled = bundled.filter((asset) => asset.adapter === adapter);
   const filteredUser = user.filter((asset) => asset.adapter === adapter);
-  const pluginHint = adapter === 'grok-build' ? '；原生插件组件只读' : '';
   const userPathHint =
     adapter === 'claude-code'
       ? kind === 'agent'
@@ -54,7 +48,7 @@ export function AssetsTab({
           <div className="flex flex-col gap-1.5">
             {filteredBundled.map((asset) => (
               <AssetCard
-                key={`${asset.adapter}:${asset.qualifiedName}`}
+                key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                 asset={asset}
                 onView={onView}
                 onConfigure={
@@ -68,32 +62,23 @@ export function AssetsTab({
 
       {userPathHint && (
         <section>
-          <div className="mb-1 flex items-center justify-between">
-            <div className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-              用户自定义（{userPathHint}{pluginHint}）
-            </div>
-            <button
-              type="button"
-              onClick={onNew}
-              className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25"
-            >
-              <PlusIcon className="mr-1 inline h-3 w-3" />新建
-              {kind === 'agent' ? ' Agent' : ' Skill'}
-            </button>
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
+            用户与 Plugin（只读）
+          </div>
+          <div className="mb-1.5 text-[9px] text-deck-muted/55">
+            直系目录：<code>{userPathHint}</code>
           </div>
           {filteredUser.length === 0 ? (
             <div className="text-[10px] text-deck-muted/60">
-              暂无。点右上「新建」可创建第一个{kind === 'agent' ? ' Agent' : ' Skill'}
-              ，文件会保存到 {userPathHint}
+              未发现资产。请通过 {adapter === 'claude-code' ? 'Claude Code' : adapter === 'codex-cli' ? 'Codex CLI' : 'Grok'} 原生配置管理。
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
               {filteredUser.map((asset) => (
                 <AssetCard
-                  key={`${asset.adapter}:${asset.qualifiedName}`}
+                  key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                   asset={asset}
                   onView={onView}
-                  onEdit={asset.editable === false ? undefined : onEdit}
                 />
               ))}
             </div>

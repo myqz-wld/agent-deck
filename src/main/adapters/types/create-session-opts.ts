@@ -91,6 +91,8 @@ export interface ClaudeCreateOpts {
   claudeAgentName?: string;
   /** Programmatic Claude Code SDK agent definitions keyed by agent name. */
   claudeAgents?: Record<string, AgentDefinition>;
+  /** Explicit native Plugin root for a selected Claude Plugin Agent. */
+  claudePluginDir?: string;
   /**
    * Claude Code per-session OS 沙盒档位覆盖（CHANGELOG_74）。三档直接复用
    * settings.claudeCodeSandbox 字面量。undefined = 用 settings.claudeCodeSandbox 全局值
@@ -347,6 +349,7 @@ export interface CreateSessionOptionsRaw {
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   claudeAgentName?: string;
   claudeAgents?: Record<string, AgentDefinition>;
+  claudePluginDir?: string;
   extraAllowWrite?: readonly string[];
   // **REVIEW_105 MED-1 (deep-review Batch 7)**: 移除 resumeCliSid / resumeMode —— 修前 Raw 声明
   // 这两字段 + jsdoc 写「builder narrow 时透传给 claude / codex 都消费」, 但 narrowToClaudeOpts /

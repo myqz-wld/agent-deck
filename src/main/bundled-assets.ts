@@ -326,9 +326,8 @@ function compareAdapterThenName(a: AssetMeta, b: AssetMeta): number {
  * - 长度 1-64
  * - 不含 `..` / 路径分隔符 / 隐藏前缀（regex 自带兜底）
  *
- * 跨进程共享单点真值（CHANGELOG_57 R1·F8 收口）：渲染端 `AssetEditor.tsx` 与 IPC 入参
- * `ipc/assets.ts` 都引 `ASSET_NAME_REGEX` 同款 regex；任何「错误信息 / 注释里写错 regex 字面量」
- * 的现象就被消除（F9）。
+ * 跨进程共享单点真值：bundled runtime IPC 与 bundled asset 扫描都使用
+ * `ASSET_NAME_REGEX`，避免原生用户资产的更宽命名规则进入 packaged root。
  */
 export function isSafeName(name: string): boolean {
   if (typeof name !== 'string') return false;

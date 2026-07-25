@@ -15,14 +15,11 @@ import { EyeIcon, PencilIcon } from '../icons';
 export function AssetCard({
   asset,
   onView,
-  onEdit,
   onConfigure,
 }: {
   /** 单条 AssetMeta（user / bundled 同款，按所在 sub-tab 单 adapter 视图）。 */
   asset: AssetMeta;
   onView: (asset: AssetMeta) => void;
-  /** user-only edit；bundled 不传。 */
-  onEdit?: (asset: AssetMeta) => void;
   /** bundled Agent only：只改 app-owned model/thinking/provider 差异。 */
   onConfigure?: (asset: AssetMeta) => void;
 }): JSX.Element {
@@ -31,9 +28,14 @@ export function AssetCard({
       <div className="flex items-start justify-between gap-2">
         <code className="text-[11px] font-medium text-deck-text">{asset.qualifiedName}</code>
         <div className="flex shrink-0 items-center gap-1 no-drag">
-          {asset.editable === false && (
+          {asset.pluginName && (
             <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-deck-muted/70">
-              插件只读
+              Plugin · {asset.pluginName}
+            </span>
+          )}
+          {asset.source === 'user' && (
+            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-deck-muted/70">
+              只读
             </span>
           )}
           <button
@@ -44,24 +46,14 @@ export function AssetCard({
           >
             <EyeIcon className="mr-1 inline h-3 w-3" />查看
           </button>
-          {onEdit && (
-            <button
-              type="button"
-              onClick={() => onEdit(asset)}
-              title="编辑（删除入口在编辑器内）"
-              className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-            >
-              <PencilIcon className="mr-1 inline h-3 w-3" />编辑
-            </button>
-          )}
           {onConfigure && (
             <button
               type="button"
               onClick={() => onConfigure(asset)}
-              title="编辑内建 Agent 的模型、思考等级和 provider"
+              title="配置内置 Agent 的模型、思考等级和 provider"
               className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
-              <PencilIcon className="mr-1 inline h-3 w-3" />编辑
+              <PencilIcon className="mr-1 inline h-3 w-3" />配置
             </button>
           )}
         </div>
@@ -76,6 +68,11 @@ export function AssetCard({
       )}
       {asset.bundledAgentRuntime && Object.keys(asset.bundledAgentRuntime.override).length > 0 && (
         <div className="mt-1 text-[9px] text-status-working">已修改内建 Agent</div>
+      )}
+      {asset.origin === 'plugin' && asset.kind === 'agent' && asset.runtimeName && (
+        <div className="mt-1 text-[9px] text-deck-muted/65">
+          启动名：<code className="rounded bg-white/5 px-1">{asset.runtimeName}</code>
+        </div>
       )}
       {asset.description && (
         <div className="mt-1 text-[10px] leading-relaxed text-deck-muted line-clamp-3">

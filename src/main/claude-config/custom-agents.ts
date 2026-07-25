@@ -1,13 +1,17 @@
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getBundledAssetContent, type BundledAdapter } from '@main/bundled-assets';
 import { settingsStore } from '@main/store/settings-store';
 import { parseFrontmatter } from '@main/utils/frontmatter';
+import {
+  getClaudeConfigRoot,
+  resolveClaudeProjectPluginAgentContent,
+  resolveClaudeUserPluginAgentContent,
+} from './plugin-assets';
 
-const CLAUDE_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
-const USER_CLAUDE_AGENTS_DIR = join(homedir(), '.claude', 'agents');
+const CLAUDE_DIRECT_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
+const CLAUDE_AGENT_NAME_RE = /^[a-zA-Z0-9._-]{1,128}(?::[a-zA-Z0-9._-]{1,128})?$/;
 const FRONTMATTER_BLOCK_REGEX = /^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/;
 const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 const CLAUDE_FAMILY_REVIEWER_AGENT_NAMES = ['reviewer-claude'] as const;
@@ -18,12 +22,14 @@ const CLAUDE_FAMILY_REVIEWER_REQUIRED_MCP_TOOLS = [
 
 export type ClaudeCustomAgentEffortLevel = (typeof CLAUDE_EFFORT_LEVELS)[number];
 
-export type ClaudeCustomAgentScope = 'bundled' | 'project' | 'user';
+export type ClaudeCustomAgentScope = 'bundled' | 'project' | 'user' | 'plugin';
 
 export interface ClaudeCustomAgentContent {
   name: string;
   source: ClaudeCustomAgentScope;
   sourcePath?: string;
+  /** Selected native Plugin root; appended to Claude SDK `plugins` for this session only. */
+  pluginDir?: string;
   definition: AgentDefinition;
   /** Agent Deck runtime-only Claude Gateway profile id; never forwarded inside AgentDefinition. */
   provider?: string;
@@ -41,7 +47,10 @@ export function resolveClaudeAgentContent(
   }
 
   let bundledReason = 'bundled Agent Deck Claude agents disabled by settings.injectAgentDeckClaudeAgents=false';
-  if (settingsStore.get('injectAgentDeckClaudeAgents') !== false) {
+  if (
+    CLAUDE_DIRECT_AGENT_NAME_RE.test(agentName) &&
+    settingsStore.get('injectAgentDeckClaudeAgents') !== false
+  ) {
     const bundled = getBundledAssetContent('agent', agentName, adapter);
     if (bundled.ok) {
       return buildClaudeAgent(agentName, 'bundled', bundled.content);
@@ -49,22 +58,56 @@ export function resolveClaudeAgentContent(
     bundledReason = bundled.reason;
   }
 
-  for (const projectDir of getProjectClaudeAgentDirs(cwd)) {
-    const path = join(projectDir, `${agentName}.md`);
-    if (!safeIsFile(path)) continue;
-    return buildClaudeAgent(agentName, 'project', readFileSync(path, 'utf8'), path);
+  if (CLAUDE_DIRECT_AGENT_NAME_RE.test(agentName)) {
+    for (const projectDir of getProjectClaudeAgentDirs(cwd)) {
+      const path = join(projectDir, `${agentName}.md`);
+      if (!safeIsFile(path)) continue;
+      return buildClaudeAgent(agentName, 'project', readFileSync(path, 'utf8'), path);
+    }
   }
 
-  const userPath = join(USER_CLAUDE_AGENTS_DIR, `${agentName}.md`);
-  if (safeIsFile(userPath)) {
-    return buildClaudeAgent(agentName, 'user', readFileSync(userPath, 'utf8'), userPath);
+  const projectPlugin = resolveClaudeProjectPluginAgentContent(agentName, cwd);
+  if (projectPlugin.ok) {
+    return buildClaudeAgent(
+      projectPlugin.agent.runtimeName,
+      'plugin',
+      projectPlugin.agent.content,
+      projectPlugin.agent.sourcePath,
+      projectPlugin.agent.pluginDir,
+    );
   }
+  if (!projectPlugin.reason.startsWith('not found')) return projectPlugin;
+
+  const userAgentsDir = getUserClaudeAgentsDir();
+  if (CLAUDE_DIRECT_AGENT_NAME_RE.test(agentName)) {
+    const userPath = join(userAgentsDir, `${agentName}.md`);
+    if (safeIsFile(userPath)) {
+      return buildClaudeAgent(agentName, 'user', readFileSync(userPath, 'utf8'), userPath);
+    }
+  }
+
+  const userPlugin = resolveClaudeUserPluginAgentContent(agentName);
+  if (userPlugin.ok) {
+    return buildClaudeAgent(
+      userPlugin.agent.runtimeName,
+      'plugin',
+      userPlugin.agent.content,
+      userPlugin.agent.sourcePath,
+      userPlugin.agent.pluginDir,
+    );
+  }
+  if (!userPlugin.reason.startsWith('not found')) return userPlugin;
 
   return {
     ok: false,
     reason:
-      `${bundledReason}; not found in project .claude/agents directories or ${USER_CLAUDE_AGENTS_DIR}`,
+      `${bundledReason}; not found in project .claude/agents or project Plugins, ` +
+      `${userAgentsDir}, or user Claude Plugins`,
   };
+}
+
+function getUserClaudeAgentsDir(): string {
+  return join(getClaudeConfigRoot(), 'agents');
 }
 
 function buildClaudeAgent(
@@ -72,6 +115,7 @@ function buildClaudeAgent(
   source: ClaudeCustomAgentScope,
   content: string,
   sourcePath?: string,
+  pluginDir?: string,
 ): { ok: true; agent: ClaudeCustomAgentContent } | { ok: false; reason: string } {
   const fm = parseFrontmatter(content);
   const rawEffort = fm.effort?.trim();
@@ -103,6 +147,7 @@ function buildClaudeAgent(
       name: agentName,
       source,
       ...(sourcePath ? { sourcePath } : {}),
+      ...(pluginDir ? { pluginDir } : {}),
       definition,
       ...(provider ? { provider } : {}),
       ...(model ? { model } : {}),

@@ -20,6 +20,7 @@ export interface SpawnTargetOptionsInput {
   codexConfigOverrides: CodexConfigObject | undefined;
   claudeAgentName: string | undefined;
   claudeAgents: Record<string, AgentDefinition> | undefined;
+  claudePluginDir?: string;
   grokAgentName?: string;
   grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
   grokPluginDir?: string;
@@ -56,6 +57,7 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       codexConfigOverrides: input.codexConfigOverrides,
       claudeAgentName: input.claudeAgentName,
       claudeAgents,
+      claudePluginDir: input.claudePluginDir,
       grokAgentName: input.grokAgentName,
       grokAgentSource: input.grokAgentSource,
       grokPluginDir: input.grokPluginDir,

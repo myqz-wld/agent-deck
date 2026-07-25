@@ -168,8 +168,6 @@ export const IpcInvoke = {
   AssetsListBundled: 'assets:list-bundled',
   AssetsListUser: 'assets:list-user',
   AssetsGetContent: 'assets:get-content',
-  AssetsSaveUser: 'assets:save-user',
-  AssetsDeleteUser: 'assets:delete-user',
   AssetsRevealInFolder: 'assets:reveal',
   AssetsSaveBundledAgentRuntime: 'assets:save-bundled-agent-runtime',
   AssetsResetBundledAgentRuntime: 'assets:reset-bundled-agent-runtime',
