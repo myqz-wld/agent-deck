@@ -15,6 +15,7 @@ import { parseFrontmatter } from './utils/frontmatter';
 import {
   getClaudeConfigRoot,
   getClaudePluginAssetPath,
+  hasClaudePluginManifest,
   listClaudePluginAssets,
 } from './claude-config/plugin-assets';
 import {
@@ -202,6 +203,7 @@ function scanSkills(adapter: 'claude-code' | 'codex-cli'): AssetMeta[] {
   const assets: AssetMeta[] = [];
   for (const entry of entries.sort()) {
     if (adapter === 'codex-cli' && entry === 'agent-deck') continue;
+    if (adapter === 'claude-code' && hasClaudePluginManifest(join(root, entry))) continue;
     const path = join(root, entry, 'SKILL.md');
     if (!existsSync(path) || !safeIsFile(path)) continue;
     try {

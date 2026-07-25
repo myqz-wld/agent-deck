@@ -221,7 +221,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto scrollbar-deck pr-1">
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto scrollbar-deck pr-1">
           {tab === 'skills' && (
             <>
               <InjectionToggleBar tab="skills" settings={settings} update={updateSettings} />

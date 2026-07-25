@@ -81,9 +81,53 @@ describe('Claude Plugin assets', () => {
       .toBeNull();
   });
 
+  it('discovers skills-dir plugins, root skills, and custom component paths', () => {
+    const pluginRoot = join(configRoot, 'skills', 'skills-dir-demo');
+    write(
+      join(pluginRoot, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'skills-dir-demo',
+        agents: ['./components/agents'],
+        skills: ['./components/skills'],
+      }),
+    );
+    write(
+      join(pluginRoot, 'SKILL.md'),
+      '---\nname: root-skill\ndescription: >-\n  Root plugin skill\n  description.\n---\nRoot skill body',
+    );
+    write(
+      join(pluginRoot, 'components', 'agents', 'custom-agent.md'),
+      '---\nname: custom-agent\ndescription: custom agent\n---\nCustom agent body',
+    );
+    write(
+      join(pluginRoot, 'components', 'skills', 'custom-skill', 'SKILL.md'),
+      '---\nname: custom-skill\ndescription: custom skill\n---\nCustom skill body',
+    );
+
+    const snapshot = listClaudePluginAssets();
+    expect(snapshot.agents).toEqual([
+      expect.objectContaining({
+        pluginName: 'skills-dir-demo',
+        name: 'custom-agent',
+        runtimeName: 'skills-dir-demo:custom-agent',
+      }),
+    ]);
+    expect(snapshot.skills).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pluginName: 'skills-dir-demo',
+        name: 'root-skill',
+        description: 'Root plugin skill description.',
+      }),
+      expect.objectContaining({
+        pluginName: 'skills-dir-demo',
+        name: 'custom-skill',
+      }),
+    ]));
+  });
+
   it('resolves project and user Plugin Agents by native qualified name', () => {
     const userPlugin = join(configRoot, 'plugins', 'user-demo');
-    const projectPlugin = join(projectRoot, '.claude', 'plugins', 'project-demo');
+    const projectPlugin = join(projectRoot, '.claude', 'skills', 'project-demo');
     writePlugin(userPlugin, 'user-demo', 'reviewer');
     writePlugin(projectPlugin, 'project-demo', 'reviewer');
 

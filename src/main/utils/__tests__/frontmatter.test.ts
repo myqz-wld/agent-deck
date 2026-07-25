@@ -105,6 +105,40 @@ describe('frontmatter round-trip', () => {
     expect(parseFrontmatter('# pure markdown\nno frontmatter here')).toEqual({});
   });
 
+  it('parses folded block scalar descriptions without exposing the marker', () => {
+    const content = [
+      '---',
+      'name: folded',
+      'description: >-',
+      '  Use this skill for complex work',
+      '  across multiple steps.',
+      '',
+      '  Keep the plan current.',
+      '---',
+      'Body',
+      '',
+    ].join('\n');
+
+    expect(parseFrontmatter(content).description).toBe(
+      'Use this skill for complex work across multiple steps.\nKeep the plan current.',
+    );
+  });
+
+  it('parses literal block scalar descriptions with internal newlines', () => {
+    const content = [
+      '---',
+      'name: literal',
+      'description: |',
+      '  First line',
+      '  Second line',
+      '---',
+      'Body',
+      '',
+    ].join('\n');
+
+    expect(parseFrontmatter(content).description).toBe('First line\nSecond line');
+  });
+
   it('handles unknown escape sequence by preserving backslash', () => {
     // \\x 不是支持的 escape；当前实现保留 backslash 不消耗 next 字符。
     // round-trip：input "a\\xb" → quote 写成 "a\\\\xb"（escape backslash）→ unquote 走 \\\\ → \\

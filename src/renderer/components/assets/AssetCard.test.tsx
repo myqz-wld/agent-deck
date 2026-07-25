@@ -96,4 +96,23 @@ describe('AssetCard', () => {
     expect(screen.getByText('demo-plugin:reviewer')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull();
   });
+
+  it('长 Plugin 名称和 qualifiedName 不再撑出横向滚动', () => {
+    const { container } = render(
+      <AssetCard
+        asset={asset({
+          kind: 'skill',
+          source: 'user',
+          origin: 'plugin',
+          pluginName: 'very-long-plugin-name-that-must-not-expand-the-card',
+          qualifiedName: 'plugin:very-long-plugin-name-that-must-not-expand-the-card/very-long-skill-name',
+        })}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(container.firstElementChild?.className).toContain('overflow-hidden');
+    expect(screen.getByText(/plugin:very-long-plugin-name/).className).toContain('break-all');
+    expect(screen.getByTitle(/Plugin · very-long-plugin-name/).className).toContain('truncate');
+  });
 });

@@ -104,6 +104,20 @@ describe('Grok custom assets', () => {
     );
   });
 
+  it('folds multiline descriptions instead of exposing the YAML marker', () => {
+    writeFile(
+      join(grokHome, 'skills', 'folded-skill', 'SKILL.md'),
+      '---\nname: folded-skill\ndescription: >-\n  First description line\n  continues here.\n---\nBody',
+    );
+
+    expect(listGrokUserAssets().skills).toEqual([
+      expect.objectContaining({
+        name: 'folded-skill',
+        description: 'First description line continues here.',
+      }),
+    ]);
+  });
+
   it('accepts direct and plugin path hints for read-only inspection', () => {
     const pluginAgent = join(grokHome, 'plugins', 'demo', 'agents', 'plugin-agent.md');
     const userAgent = join(grokHome, 'agents', 'user-agent.md');

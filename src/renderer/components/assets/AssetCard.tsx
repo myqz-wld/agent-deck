@@ -24,12 +24,17 @@ export function AssetCard({
   onConfigure?: (asset: AssetMeta) => void;
 }): JSX.Element {
   return (
-    <div className="rounded-md border border-deck-border bg-white/[0.03] p-2">
-      <div className="flex items-start justify-between gap-2">
-        <code className="text-[11px] font-medium text-deck-text">{asset.qualifiedName}</code>
-        <div className="flex shrink-0 items-center gap-1 no-drag">
+    <div className="min-w-0 overflow-hidden rounded-md border border-deck-border bg-white/[0.03] p-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <code className="min-w-0 flex-1 break-all text-[11px] font-medium text-deck-text">
+          {asset.qualifiedName}
+        </code>
+        <div className="flex max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-1 no-drag">
           {asset.pluginName && (
-            <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-deck-muted/70">
+            <span
+              className="max-w-32 truncate rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-deck-muted/70"
+              title={`Plugin · ${asset.pluginName}`}
+            >
               Plugin · {asset.pluginName}
             </span>
           )}
@@ -75,7 +80,7 @@ export function AssetCard({
         </div>
       )}
       {asset.description && (
-        <div className="mt-1 text-[10px] leading-relaxed text-deck-muted line-clamp-3">
+        <div className="mt-1 line-clamp-3 break-words text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]">
           {asset.description}
         </div>
       )}
