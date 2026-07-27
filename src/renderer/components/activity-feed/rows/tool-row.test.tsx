@@ -200,4 +200,22 @@ describe('ToolEndRow tool output disclosure', () => {
     fireEvent.click(within(container).getByRole('button', { name: /Agent 完成/ }));
     expect(container.textContent).toContain('gAAAA-encrypted-raw-output');
   });
+
+  it('renders a canonical failed Grok completion with the shared failure treatment', () => {
+    const { container } = render(
+      <ToolEndRow
+        event={ev('tool-use-end', {
+          toolName: 'search_tool',
+          toolKind: 'search',
+          toolUseId: 'grok-search-1',
+          toolResult: 'search unavailable',
+          status: 'failed',
+        })}
+        sessionId="s"
+      />,
+    );
+
+    expect(container.textContent).toContain('search_tool 失败');
+    expect(container.firstElementChild?.className).toContain('border-status-error');
+  });
 });

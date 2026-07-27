@@ -82,6 +82,88 @@ describe('Grok ACP event translation', () => {
       'tool-use-end',
       'file-changed',
     ]);
+    expect(completed[0]?.payload).toMatchObject({
+      toolName: 'Edit',
+      status: 'completed',
+    });
+  });
+
+  it('keeps one stable tool name when ACP updates the human-readable title', () => {
+    const state = createGrokTranslationState();
+    const [started] = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-title-patch',
+        title: 'run_terminal_command',
+        kind: 'execute',
+        status: 'in_progress',
+        rawInput: { command: 'pnpm test' },
+      },
+      state,
+    );
+    const [completed] = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tool-title-patch',
+        title: 'Finished running pnpm test',
+        status: 'completed',
+        rawOutput: 'ok',
+      },
+      state,
+    );
+
+    expect(started).toMatchObject({
+      kind: 'tool-use-start',
+      payload: { toolName: 'run_terminal_command', status: 'inProgress' },
+    });
+    expect(completed).toMatchObject({
+      kind: 'tool-use-end',
+      payload: { toolName: 'run_terminal_command', status: 'completed' },
+    });
+  });
+
+  it('prefers the ACP programmatic name and preserves canonical failed status', () => {
+    const state = createGrokTranslationState();
+    const [started] = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-programmatic-name',
+        name: 'search_tool',
+        title: 'Searching the repository',
+        kind: 'search',
+        status: 'in_progress',
+        rawInput: { pattern: 'toolName' },
+      },
+      state,
+    );
+    const [failed] = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tool-programmatic-name',
+        name: 'search_tool',
+        title: 'Repository search failed',
+        status: 'failed',
+        rawOutput: 'search unavailable',
+      },
+      state,
+    );
+
+    expect(started).toMatchObject({
+      kind: 'tool-use-start',
+      payload: { toolName: 'search_tool', toolKind: 'search' },
+    });
+    expect(failed).toMatchObject({
+      kind: 'tool-use-end',
+      payload: { toolName: 'search_tool', toolKind: 'search', status: 'failed' },
+    });
   });
 
   it('coalesces contiguous ACP chunks into one persisted bubble', () => {

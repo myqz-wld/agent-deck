@@ -160,9 +160,9 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   }
 
   // 关闭 macOS 后台节流：默认 true 时，窗口失焦后 Chromium 会对 webContents 的
-  // paint pipeline / rAF 做降频，pin 模式下窗口失焦是常态（用户在下层 app 操作），
-  // 节流会让 startInvalidateLoop 每 100ms 调的 invalidate 实际频率降到 1-2fps，
-  // 残影压不住。Electron 公开 API，无 hack。
+  // paint pipeline / rAF 做降频，pin 或透明模式下用户常在下层 app 操作，节流会让
+  // startInvalidateLoop 每 100ms 调的 invalidate 实际频率降到 1-2fps，残影压不住。
+  // Electron 公开 API，无 hack。
   state.win.webContents.setBackgroundThrottling(false);
 
   // REVIEW_103 L-B + R2 fix: dock-activate 重建 winB 路径只调 createImpl,不经 bootstrap 的
@@ -170,8 +170,9 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
   // SSOT (windowTransparent / alwaysOnTop),此处再显式 setVibrancy 一次是双保险 (构造期 vibrancy
   // 偶发不立即生效的 Electron 边角),按 state.windowTransparent 不依赖 renderer mount 自愈。
   // bootstrap 路径此调用与随后 setWindowTransparent(settings) idempotent 叠加 (window show:false
-  // 期间,无可见闪)。pin 态 invalidate loop 仍由 bootstrap setAlwaysOnTop(L-A) / renderer
-  // self-heal 收口 (dock recreate 罕见 + loop 缺失会自愈,不在 createImpl 内启避免改 loop 时序)。
+  // 期间,无可见闪)。pin/透明态 invalidate loop 仍由 bootstrap setAlwaysOnTop(L-A) /
+  // renderer self-heal 收口 (dock recreate 罕见 + loop 缺失会自愈,不在 createImpl 内启
+  // 避免改 loop 时序)。
   if (process.platform === 'darwin') {
     state.win.setVibrancy(state.windowTransparent ? null : 'under-window');
   }

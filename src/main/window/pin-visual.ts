@@ -1,15 +1,16 @@
 import type { FloatingWindowState } from './_deps';
 
 /**
- * pin 模式切换 + vibrancy / invalidate loop 联动。
+ * pin / 透明模式切换 + vibrancy / invalidate loop 联动。
  *
  * **vibrancy 决策** (Phase 5 Step 5.6 plan mcp-bug-and-feature-batch-20260513):
  * 透明 / 置顶解耦后 vibrancy 仅由 `state.windowTransparent` 决定,不再 && alwaysOnTop。
  * 四种组合都合法 — pin + 透明 / pin + 不透明 / 不 pin + 透明 / 不 pin + 不透明。
  *
- * **invalidate loop 启动决策** (CHANGELOG_24/35):
- * 只在 `pin + macOS` 时启 100ms 循环触发 `webContents.invalidate()` 让 NSWindow 与桌面
- * 重新合成,顺带把下层 app 最新像素拿进来。
+ * **invalidate loop 启动决策** (CHANGELOG_24/35 + transparent/pin 解耦修复):
+ * 在 macOS 的 `pin || transparent` 状态启 100ms 循环触发 `webContents.invalidate()`，
+ * 让 NSWindow 与桌面重新合成并拿到下层 app 最新像素。透明模式从 pin 解耦后，若仍只
+ * 跟随 pin，`不 pin + 透明` 就不会提交新 surface，文字残影只能靠用户调整窗口大小清掉。
  *
  * **注意**: CHANGELOG_24 当时的认知有误——这里**不是** "CSS backdrop-filter 在模糊下层 app
  * 像素"。pin 态下 backdrop-filter 模糊的是窗口自身 layer 的内容（基本是空的）,下层 app 的
@@ -23,11 +24,12 @@ import type { FloatingWindowState } from './_deps';
  * - 配合 webContents.setBackgroundThrottling(false) (create 时一次性调) 确保
  *   invalidate 在窗口失焦时不被压制
  * - 文字残影的另一个根因(::before mix-blend-mode 的 group surface 缓存)
- *   在 globals.css 端通过 pin 态 display:none ::before 治根了
+ *   在 globals.css 端通过透明态 display:none ::before 治根了
  *
- * 非 macOS / 非 pin 不需要这个机制:vibrancy 由系统层持续刷新。
+ * 非 macOS，或 `不 pin + 不透明`，不需要这个机制：vibrancy 由系统层持续刷新。
  */
 export function setAlwaysOnTopImpl(state: FloatingWindowState, value: boolean): void {
+  const changed = state.alwaysOnTop !== value;
   // REVIEW_103 R2 LOW: 写入 pin SSOT,让 dock-activate 重建路径 createImpl 能 reconcile。
   state.alwaysOnTop = value;
   if (!state.win || state.win.isDestroyed()) return;
@@ -35,11 +37,14 @@ export function setAlwaysOnTopImpl(state: FloatingWindowState, value: boolean): 
   if (process.platform === 'darwin') {
     state.win.setVibrancy(state.windowTransparent ? null : 'under-window');
   }
-  stopInvalidateLoop(state);
-  if (value && process.platform === 'darwin') {
-    kickRepaintAfterPin(state);
-    startInvalidateLoop(state);
+  if (
+    changed &&
+    process.platform === 'darwin' &&
+    (state.alwaysOnTop || state.windowTransparent)
+  ) {
+    kickCompositorRepaint(state);
   }
+  reconcileInvalidateLoop(state);
 }
 
 /**
@@ -49,18 +54,19 @@ export function setAlwaysOnTopImpl(state: FloatingWindowState, value: boolean): 
  * 重命名 + 解耦 alwaysOnTop。透明独立于 pin —— 不 pin 也能切换透明视觉,让用户选择。
  */
 export function setWindowTransparentImpl(state: FloatingWindowState, value: boolean): void {
+  const changed = state.windowTransparent !== value;
   state.windowTransparent = value;
   if (!state.win || state.win.isDestroyed() || process.platform !== 'darwin') return;
-  // 解耦后无论 pin 不 pin 都立即应用 vibrancy 切换。startInvalidateLoop 是 pin 时启的
-  // 100ms 重绘循环,与透明切换正交(不需在此动)。
   state.win.setVibrancy(value ? null : 'under-window');
+  if (changed) kickCompositorRepaint(state);
+  reconcileInvalidateLoop(state);
 }
 
 /**
- * CHANGELOG_35 之后仍有用户反馈:进入 pin 模式那一瞬间的旧帧(含全量文字)会"印"
+ * CHANGELOG_35 之后仍有用户反馈:切入 pin / 透明合成状态时的旧帧(含全量文字)会"印"
  * 在玻璃上,必须人工拖一下窗口大小才消失。根因:
  * - vibrancy 切到 null 是异步生效,前几帧 macOS 系统材质还没真关;
- * - 进入 pin 瞬间的 native surface / Chromium compositor 合成层缓存,单靠
+ * - 状态切换瞬间的 native surface / Chromium compositor 合成层缓存,单靠
  *   webContents.invalidate() 冲不掉(即使 100ms loop 已开也没用);
  * - 拖动窗口 = 触发完整 ViewSizeChanged → relayout/repaint → 旧 surface 必被替换。
  * 解法:模拟一次 resize —— 同步 setContentSize(+1px),下一个 macro task 调回原值,
@@ -68,11 +74,11 @@ export function setWindowTransparentImpl(state: FloatingWindowState, value: bool
  * 防止 Chromium size 去重合并,1px 高度变化在 setImmediate 一个 runloop 内完成,
  * 肉眼难察。
  */
-export function kickRepaintAfterPin(state: FloatingWindowState): void {
+export function kickCompositorRepaint(state: FloatingWindowState): void {
   const w = state.win;
   if (!w || w.isDestroyed()) return;
   // REVIEW_103 L-C fix: 固定 capturedWin,与 lifecycle.ts createImpl 的 generation guard 同款
-  // 不变量 —— 同步段拿 winA content size,若 winA 进 pin 后立刻 close + dock activate 建 winB,
+  // 不变量 —— 同步段拿 winA content size,若 winA 切换视觉状态后立刻 close + dock activate 建 winB,
   // setImmediate 回调重读 state.win 会拿到 winB 把它 size 改成 winA 旧尺寸。改用 capturedWin
   // 比对 (state.win === capturedWin) 守门,保留旧 width/height (by design) 但目标 window 固定。
   const capturedWin = w;
@@ -84,7 +90,7 @@ export function kickRepaintAfterPin(state: FloatingWindowState): void {
   });
 }
 
-/** pin + macOS 100ms invalidate loop 启动 — 已启时幂等 noop。 */
+/** macOS pin/透明态 100ms invalidate loop 启动 — 已启时幂等 noop。 */
 export function startInvalidateLoop(state: FloatingWindowState): void {
   if (state.invalidateTimer) return;
   state.invalidateTimer = setInterval(() => {
@@ -97,7 +103,19 @@ export function startInvalidateLoop(state: FloatingWindowState): void {
   }, 100);
 }
 
-/** 清 invalidate loop timer — pin 解除 / close / 'closed' listener 都调。 */
+/** 按当前 pin/透明状态启动或停止持续重绘。 */
+function reconcileInvalidateLoop(state: FloatingWindowState): void {
+  if (
+    process.platform === 'darwin' &&
+    (state.alwaysOnTop || state.windowTransparent)
+  ) {
+    startInvalidateLoop(state);
+  } else {
+    stopInvalidateLoop(state);
+  }
+}
+
+/** 清 invalidate loop timer — 离开 pin/透明态、close、'closed' listener 都调。 */
 export function stopInvalidateLoop(state: FloatingWindowState): void {
   if (state.invalidateTimer) {
     clearInterval(state.invalidateTimer);
