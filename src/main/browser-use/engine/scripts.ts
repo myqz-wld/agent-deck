@@ -11,7 +11,7 @@
  */
 
 const REF_STATE_KEY = '__agentDeckBrowserRefs__';
-const MAX_OPEN_DOM_SCAN = 20_000;
+export const MAX_OPEN_DOM_SCAN = 20_000;
 
 const REF_LOOKUP = `
   var state = window['${REF_STATE_KEY}'];
@@ -31,7 +31,7 @@ const REF_LOOKUP = `
   }
 `;
 
-const OPEN_DOM_VISIBILITY = `
+export const OPEN_DOM_VISIBILITY = `
   function ownVisible(node) {
     if (!node || !node.isConnected || !node.getBoundingClientRect) return false;
     var rect = node.getBoundingClientRect();
@@ -50,13 +50,15 @@ const OPEN_DOM_VISIBILITY = `
   }
 `;
 
-const OPEN_DOM_TRAVERSAL = `
-  function walkOpenDom(onElement, onDocument) {
+export const OPEN_DOM_TRAVERSAL = `
+  function walkOpenDom(onElement, onDocument, onText) {
     var coverage = {
       documents: 0,
       sameOriginFrames: 0,
       inaccessibleFrames: 0,
       openShadowRoots: 0,
+      closedShadowRoots: 'not-observable',
+      scannedNodes: 0,
       scannedElements: 0,
       scanLimitReached: false,
     };
@@ -74,13 +76,19 @@ const OPEN_DOM_TRAVERSAL = `
         if (onDocument) onDocument(root);
       }
 
-      var walker = ownerDocument.createTreeWalker(root, 1);
+      var walker = ownerDocument.createTreeWalker(root, 5);
       var node = walker.nextNode();
       while (node && !stopped) {
-        if (coverage.scannedElements >= MAX_SCAN_NODES) {
+        if (coverage.scannedNodes >= MAX_SCAN_NODES) {
           coverage.scanLimitReached = true;
           stopped = true;
           break;
+        }
+        coverage.scannedNodes += 1;
+        if (node.nodeType === 3) {
+          if (onText) onText(node, frameHosts, shadowDepth);
+          node = walker.nextNode();
+          continue;
         }
         coverage.scannedElements += 1;
         onElement(node, frameHosts, shadowDepth);
@@ -125,18 +133,42 @@ const SCROLL_REF_TARGET = `
   }
 `;
 
+const BOUNDED_ELEMENT_TEXT = `
+  function boundedElementText(node, limit) {
+    if (!node || !node.ownerDocument || !node.ownerDocument.createTreeWalker) return '';
+    var walker = node.ownerDocument.createTreeWalker(node, 4);
+    var parts = [];
+    var length = 0;
+    var count = 0;
+    var textNode = walker.nextNode();
+    while (textNode && length < limit && count < 64) {
+      var remaining = limit - length;
+      var part = String(textNode.nodeValue || '').slice(0, remaining);
+      if (part) {
+        parts.push(part);
+        length += part.length;
+      }
+      count += 1;
+      textNode = walker.nextNode();
+    }
+    return parts.join(' ').replace(/\\s+/g, ' ').trim().slice(0, limit);
+  }
+`;
+
 const DESCRIBE_ELEMENT = `
+  ${BOUNDED_ELEMENT_TEXT}
   function describe(node) {
-    var text = (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+    var aria = node.getAttribute && node.getAttribute('aria-label');
+    var text = boundedElementText(node, 120);
     return {
       tag: node.tagName ? node.tagName.toLowerCase() : 'unknown',
-      name: (node.getAttribute && node.getAttribute('aria-label')) || text.slice(0, 120) || undefined,
+      name: (aria ? String(aria).slice(0, 120) : '') || text || undefined,
       value: typeof node.value === 'string' ? node.value.slice(0, 200) : undefined,
     };
   }
 `;
 
-const PAGE_STATE = `
+export const PAGE_STATE = `
   function pageState() {
     return { url: location.href, title: document.title };
   }
@@ -159,21 +191,39 @@ export function snapshotScript(options: {
   var SELECTOR = 'a[href],button,input,select,textarea,summary,[role="button"],[role="link"],[role="tab"],[role="checkbox"],[role="radio"],[role="menuitem"],[role="textbox"],[contenteditable="true"],[onclick]';
   ${OPEN_DOM_VISIBILITY}
   ${OPEN_DOM_TRAVERSAL}
+  ${BOUNDED_ELEMENT_TEXT}
   function label(el) {
     var aria = el.getAttribute && el.getAttribute('aria-label');
-    if (aria) return String(aria).trim().slice(0, 120);
-    if (el.labels && el.labels[0] && el.labels[0].innerText) {
-      return String(el.labels[0].innerText).replace(/\\s+/g, ' ').trim().slice(0, 120);
+    if (aria) return String(aria).slice(0, 240).trim().slice(0, 120);
+    if (el.labels && el.labels[0]) {
+      var labelText = boundedElementText(el.labels[0], 120);
+      if (labelText) return labelText;
     }
-    var text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    var text = boundedElementText(el, 120);
     if (text) return text.slice(0, 120);
     var fallback = el.placeholder || el.title || (el.getAttribute && el.getAttribute('alt')) || el.name || '';
-    return String(fallback).trim().slice(0, 120);
+    return String(fallback).slice(0, 240).trim().slice(0, 120);
   }
   var elements = [];
   var eligibleElementCount = 0;
   var textParts = [];
   var textLength = 0;
+  var textTruncated = false;
+  function appendText(rawText) {
+    var text = String(rawText || '').replace(/\\s+/g, ' ').trim();
+    if (!text) return;
+    var separator = textLength > 0 ? ' ' : '';
+    var remaining = TEXT_LIMIT - textLength;
+    if (remaining <= 0) {
+      textTruncated = true;
+      return;
+    }
+    var candidate = separator + text;
+    var part = candidate.slice(0, remaining);
+    textParts.push(part);
+    textLength += part.length;
+    if (part.length < candidate.length) textTruncated = true;
+  }
   var coverage = walkOpenDom(function (el, frameHosts, shadowDepth) {
     if (!el.matches || !el.matches(SELECTOR) || !visible(el, frameHosts)) return;
     eligibleElementCount += 1;
@@ -193,18 +243,13 @@ export function snapshotScript(options: {
       frameDepth: frameHosts.length || undefined,
       shadowDepth: shadowDepth || undefined,
     });
-  }, function (childDocument) {
-    if (!INCLUDE_TEXT || textLength >= TEXT_LIMIT || !childDocument.body) return;
-    var text = String(childDocument.body.innerText || childDocument.body.textContent || '')
-      .replace(/\\n{3,}/g, '\\n\\n')
-      .trim();
-    if (!text) return;
-    var separator = textParts.length > 0 ? '\\n\\n' : '';
-    var remaining = TEXT_LIMIT - textLength;
-    var part = (separator + text).slice(0, remaining);
-    textParts.push(part);
-    textLength += part.length;
+  }, null, function (textNode, frameHosts) {
+    if (!INCLUDE_TEXT) return;
+    var parent = textNode.parentElement;
+    if (!parent || !visible(parent, frameHosts)) return;
+    appendText(textNode.nodeValue);
   });
+  if (INCLUDE_TEXT && coverage.scanLimitReached) textTruncated = true;
   return JSON.stringify({
     refGeneration: state.gen,
     url: location.href,
@@ -215,6 +260,7 @@ export function snapshotScript(options: {
     elements: elements,
     coverage: coverage,
     text: INCLUDE_TEXT ? textParts.join('') : undefined,
+    textTruncated: INCLUDE_TEXT ? textTruncated : undefined,
   });
 })()`;
 }
@@ -260,100 +306,6 @@ export function typeScript(ref: string, text: string, clear: boolean): string {
   el.dispatchEvent(new EventConstructor('input', { bubbles: true }));
   el.dispatchEvent(new EventConstructor('change', { bubbles: true }));
   return JSON.stringify({ typedInto: describe(el), frameDepth: frameHosts.length, page: pageState() });
-})()`;
-}
-
-/**
- * Key press for tabs that cannot take synthesized input events, which is every background tab:
- * Electron delivers `sendInputEvent` only to a focused window.
- *
- * Dispatching a `KeyboardEvent` alone is not enough because untrusted events carry no default
- * behavior, so Enter would never submit and Tab would never move focus. The native effects are
- * therefore reproduced explicitly, and skipped when the page called `preventDefault`, which mirrors
- * what a real key press would do.
- */
-export function pressFallbackScript(key: string): string {
-  return `(() => {
-  var key = ${JSON.stringify(key)};
-  var MAX_SCAN_NODES = ${MAX_OPEN_DOM_SCAN};
-  ${PAGE_STATE}
-  ${OPEN_DOM_VISIBILITY}
-  ${OPEN_DOM_TRAVERSAL}
-  var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
-  function deepActiveElement(rootDocument) {
-    var active = rootDocument.activeElement || rootDocument.body;
-    var depth = 0;
-    while (active && depth < 32) {
-      var next = null;
-      if (active.shadowRoot && active.shadowRoot.activeElement) {
-        next = active.shadowRoot.activeElement;
-      } else if (active.tagName === 'IFRAME' || active.tagName === 'FRAME') {
-        try {
-          var childDocument = active.contentDocument;
-          next = childDocument && (childDocument.activeElement || childDocument.body);
-        } catch (_error) {
-          next = null;
-        }
-      }
-      if (!next || next === active) break;
-      active = next;
-      depth += 1;
-    }
-    return active || rootDocument.body;
-  }
-  var target = deepActiveElement(document);
-  var targetView = target.ownerDocument && target.ownerDocument.defaultView;
-  var KeyboardEventConstructor =
-    targetView && targetView.KeyboardEvent ? targetView.KeyboardEvent : KeyboardEvent;
-  var EventConstructor = targetView && targetView.Event ? targetView.Event : Event;
-  var init = { key: key, bubbles: true, cancelable: true };
-  var allowDefault = target.dispatchEvent(new KeyboardEventConstructor('keydown', init));
-  var effect = 'dispatched';
-
-  if (allowDefault && key.length === 1) {
-    if (target.isContentEditable === true) {
-      target.textContent = (target.textContent || '') + key;
-      target.dispatchEvent(new EventConstructor('input', { bubbles: true }));
-      effect = 'inserted';
-    } else if (typeof target.value === 'string') {
-      var setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target) || {}, 'value');
-      var next = target.value + key;
-      if (setter && setter.set) setter.set.call(target, next);
-      else target.value = next;
-      target.dispatchEvent(new EventConstructor('input', { bubbles: true }));
-      effect = 'inserted';
-    }
-  } else if (allowDefault && key === 'Enter') {
-    if (target.form && target.form.requestSubmit) {
-      target.form.requestSubmit();
-      effect = 'submitted';
-    } else if (
-      target.tagName === 'BUTTON'
-      || target.tagName === 'A'
-      || (target.getAttribute && target.getAttribute('role') === 'button')
-    ) {
-      target.click();
-      effect = 'activated';
-    }
-  } else if (allowDefault && key === 'Tab') {
-    var focusable = [];
-    walkOpenDom(function (el, frameHosts) {
-      if (el.matches && el.matches(FOCUSABLE) && visible(el, frameHosts)) {
-        focusable.push(el);
-      }
-    });
-    if (focusable.length > 0) {
-      var index = focusable.indexOf(target);
-      var next = focusable[(index + 1) % focusable.length];
-      if (next && next.focus) {
-        next.focus();
-        effect = 'focus-moved';
-      }
-    }
-  }
-
-  target.dispatchEvent(new KeyboardEventConstructor('keyup', init));
-  return JSON.stringify({ pressed: key, effect: effect, page: pageState() });
 })()`;
 }
 

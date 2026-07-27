@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BrowserEngine, ownerPartition } from '../registry';
 import { BrowserTabLimitError } from '../types';
@@ -67,6 +67,46 @@ describe('BrowserEngine ownership', () => {
     expect(factory.windows[1]?.focused).toBe(true);
   });
 
+  it('installs one deny-by-default permission policy per owner partition', async () => {
+    const factory = fakeWindowFactory();
+    const engine = new BrowserEngine(factory);
+    const handle = engine.acquire({ kind: 'session', id: 'sid-permissions' });
+
+    await handle.openTab();
+    await handle.openTab();
+
+    const browserSession = factory.sessions.get(handle.partition);
+    expect(browserSession).toBeDefined();
+    expect(browserSession?.setPermissionCheckHandler).toHaveBeenCalledOnce();
+    expect(browserSession?.setPermissionRequestHandler).toHaveBeenCalledOnce();
+    expect(browserSession?.setDevicePermissionHandler).toHaveBeenCalledOnce();
+    expect(browserSession?.setDisplayMediaRequestHandler).toHaveBeenCalledOnce();
+
+    const check = browserSession?.setPermissionCheckHandler.mock.calls[0]?.[0] as
+      | (() => boolean)
+      | undefined;
+    expect(check?.()).toBe(false);
+
+    const request = browserSession?.setPermissionRequestHandler.mock.calls[0]?.[0] as
+      | ((_contents: unknown, _permission: string, callback: (allowed: boolean) => void) => void)
+      | undefined;
+    const permissionCallback = vi.fn();
+    request?.(null, 'media', permissionCallback);
+    expect(permissionCallback).toHaveBeenCalledWith(false);
+
+    const device = browserSession?.setDevicePermissionHandler.mock.calls[0]?.[0] as
+      | (() => boolean)
+      | undefined;
+    expect(device?.()).toBe(false);
+
+    const display = browserSession?.setDisplayMediaRequestHandler.mock.calls[0]?.[0] as
+      | ((_request: unknown, callback: (streams: object) => void) => void)
+      | undefined;
+    const displayCallback = vi.fn();
+    display?.({}, displayCallback);
+    expect(displayCallback).toHaveBeenCalledWith({});
+  });
+
   it('enforces the per-owner tab cap', async () => {
     const engine = new BrowserEngine({ ...fakeWindowFactory(), maxTabsPerOwner: 2 });
     const handle = engine.acquire({ kind: 'session', id: 'sid-1' });
@@ -109,6 +149,22 @@ describe('BrowserEngine ownership', () => {
 
     expect(handle.listTabs().map((tab) => tab.id)).toEqual([keep.id]);
     expect(factory.windows[1]?.destroyed).toBe(true);
+  });
+
+  it('force-closes automation tabs even when a page would cancel close()', async () => {
+    const factory = fakeWindowFactory();
+    const engine = new BrowserEngine(factory);
+    const handle = engine.acquire({ kind: 'session', id: 'sid-beforeunload' });
+    const tab = await handle.openTab();
+    const window = factory.windows[0];
+    if (window == null) throw new Error('expected a fake window');
+    window.cancelClose = true;
+
+    handle.closeTab(tab.id);
+
+    expect(window.close).not.toHaveBeenCalled();
+    expect(window.destroy).toHaveBeenCalledOnce();
+    expect(handle.listTabs()).toEqual([]);
   });
 });
 

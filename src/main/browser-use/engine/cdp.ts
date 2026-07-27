@@ -262,15 +262,14 @@ export class CdpBridge {
       if (pending == null) return;
       pending.status = typeof response.status === 'number' ? response.status : undefined;
       pending.mimeType = asString(response.mimeType);
-      if (!pending.recorded) {
-        this.pushNetwork(this.toNetworkEntry(pending));
-        pending.recorded = true;
-      }
       return;
     }
     if (method === 'Network.loadingFinished') {
       if (!this.networkTrackingEnabled) return;
-      this.finishRequest(asString(params.requestId));
+      const pending = this.finishRequest(asString(params.requestId));
+      if (pending != null && !pending.recorded) {
+        this.pushNetwork(this.toNetworkEntry(pending));
+      }
       return;
     }
     if (method === 'Network.loadingFailed') {
@@ -278,12 +277,10 @@ export class CdpBridge {
       const requestId = asString(params.requestId);
       const pending = this.finishRequest(requestId);
       if (pending == null) return;
-      if (!pending.recorded) {
-        this.pushNetwork({
-          ...this.toNetworkEntry(pending),
-          failure: asString(params.errorText) ?? 'loading failed',
-        });
-      }
+      this.pushNetwork({
+        ...this.toNetworkEntry(pending),
+        failure: asString(params.errorText) ?? 'loading failed',
+      });
     }
   }
 

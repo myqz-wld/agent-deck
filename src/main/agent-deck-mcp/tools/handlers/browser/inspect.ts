@@ -23,6 +23,7 @@ import {
 
 /** Roughly 1.2 MB of PNG data. Larger captures are returned as a file path only. */
 const MAX_INLINE_IMAGE_BASE64 = 1_600_000;
+const MAX_INLINE_IMAGE_BYTES = Math.floor((MAX_INLINE_IMAGE_BASE64 * 3) / 4);
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1_024;
 
 export type ImageHandlerResult = {
@@ -65,7 +66,7 @@ export async function browserScreenshotHandler(
       maxWidth: args.maxWidth ?? DEFAULT_SCREENSHOT_MAX_WIDTH,
     });
     const savedPath = await persistBrowserScreenshot(owner.sessionId, tab.id, png);
-    const base64 = png.toString('base64');
+    const inlineImage = png.byteLength <= MAX_INLINE_IMAGE_BYTES;
     const page = actions.pageState(tab);
     const summary = {
       tabId: tab.id,
@@ -73,14 +74,14 @@ export async function browserScreenshotHandler(
       fullPage,
       bytes: png.byteLength,
       savedPath,
-      inlineImage: base64.length <= MAX_INLINE_IMAGE_BASE64,
+      inlineImage,
       note: UNTRUSTED_PAGE_CONTENT_NOTE,
     };
     const content: ImageHandlerResult['content'] = [
       { type: 'text', text: JSON.stringify(summary, null, 2) },
     ];
     if (summary.inlineImage) {
-      content.push({ type: 'image', data: base64, mimeType: 'image/png' });
+      content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' });
     }
     return { content };
   } catch (error) {

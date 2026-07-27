@@ -4,6 +4,7 @@ import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 
 import { CodexPipeBrowserFront } from '../fronts/codex-pipe';
+import { FakeSession } from '../engine/__tests__/_fakes';
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -30,8 +31,10 @@ class FakeWindow extends EventEmitter {
   focused = false;
   url = '';
   readonly browserDebugger = new FakeDebugger();
+  readonly browserSession = new FakeSession();
   readonly webContents = {
     debugger: this.browserDebugger,
+    session: this.browserSession.asSession(),
     getTitle: vi.fn(() => 'Test page'),
     getURL: vi.fn(() => this.url),
     setWindowOpenHandler: vi.fn(),

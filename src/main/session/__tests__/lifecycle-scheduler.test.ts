@@ -30,6 +30,7 @@ const batchDeleteHistoryCalls: string[][] = [];
 const getCalls: string[] = [];
 const emitCalls: Array<{ name: string; payload: unknown }> = [];
 const leaveTeamsAndAutoArchiveCalls: Array<{ sessionId: string; reason: string }> = [];
+const disposeSessionBrowserCalls: string[] = [];
 
 let nextDormantRows: SessionRecord[] = [];
 let nextActiveRows: SessionRecord[] = [];
@@ -84,6 +85,12 @@ vi.mock('@main/event-bus', () => ({
     emit: (name: string, payload: unknown) => {
       emitCalls.push({ name, payload });
     },
+  },
+}));
+
+vi.mock('@main/browser-use/session-browser', () => ({
+  disposeSessionBrowser: async (sessionId: string) => {
+    disposeSessionBrowserCalls.push(sessionId);
   },
 }));
 
@@ -151,6 +158,7 @@ beforeEach(() => {
   getCalls.length = 0;
   emitCalls.length = 0;
   leaveTeamsAndAutoArchiveCalls.length = 0;
+  disposeSessionBrowserCalls.length = 0;
 
   nextDormantRows = [];
   nextActiveRows = [];
@@ -190,6 +198,7 @@ describe('LifecycleScheduler.scan — R1 codex HIGH-1 修法契约', () => {
       { sessionId: 'sid-A', reason: 'closed' },
       { sessionId: 'sid-B', reason: 'closed' },
     ]);
+    expect(disposeSessionBrowserCalls).toEqual(['sid-A', 'sid-B']);
     // 关键: emit 'session-upserted' 对每个 updated row,**且 payload id 各自匹配 sid**
     const upserts = emitCalls.filter((e) => e.name === 'session-upserted');
     expect(upserts).toHaveLength(2);
@@ -215,6 +224,7 @@ describe('LifecycleScheduler.scan — R1 codex HIGH-1 修法契约', () => {
     // active→dormant 只 emit upserted,不触发 close 副作用
     expect(clearCwdReleaseMarkerCalls).toEqual([]);
     expect(leaveTeamsAndAutoArchiveCalls).toEqual([]);
+    expect(disposeSessionBrowserCalls).toEqual([]);
     const upserts = emitCalls.filter((e) => e.name === 'session-upserted');
     expect(upserts).toHaveLength(1);
   });
@@ -245,6 +255,7 @@ describe('LifecycleScheduler.scan — R2 codex MED-1 修法契约 (purge race fi
     // 关键: batchDeleteHistory 只删 sid-old (排除本轮 dormant→closed 的 sid-A / sid-B)
     expect(batchDeleteHistoryCalls).toHaveLength(1);
     expect(batchDeleteHistoryCalls[0]).toEqual(['sid-old']);
+    expect(disposeSessionBrowserCalls).toEqual(['sid-A', 'sid-B', 'sid-old']);
     // sid-A / sid-B 仍走 leaveTeamsAndAutoArchive (fire-and-forget,microtask 让出),
     // 排除 purge 让 helper 有时间 await import + 跑完
     expect(leaveTeamsAndAutoArchiveCalls.map((c) => c.sessionId)).toEqual(['sid-A', 'sid-B']);
