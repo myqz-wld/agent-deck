@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CodexAppServerClient } from './client';
 
 interface ProxyApi {
+  appendNodeRequireOption: (existing: string | undefined, preloadPath: string) => string;
+  buildTargetEnv: (
+    target: { electronRunAsNode: string | null },
+    sourceEnv: Record<string, string>,
+  ) => Record<string, string>;
   patchLegacySandboxState: (request: Record<string, unknown>) => Record<string, unknown>;
   permissionProfileToLegacySandboxPolicy: (
     profile: Record<string, unknown>,
@@ -25,6 +30,10 @@ interface RpcMessage {
 
 const require = createRequire(import.meta.url);
 const proxyPath = resolve(process.cwd(), 'resources/bin/node-repl-sandbox-meta-proxy.cjs');
+const processCompatPath = resolve(
+  process.cwd(),
+  'resources/bin/node-repl-browser-process-compat.cjs',
+);
 const fixturePath = resolve(
   process.cwd(),
   'src/main/adapters/codex-cli/app-server/__fixtures__/legacy-node-repl-mcp.cjs',
@@ -38,6 +47,91 @@ afterEach(() => {
 });
 
 describe('node_repl sandbox metadata compatibility', () => {
+  it('preloads browser process compatibility without dropping the target environment', () => {
+    expect(proxyApi.appendNodeRequireOption('--trace-warnings', '/Agent Deck/process compat.cjs'))
+      .toBe('--trace-warnings --require="/Agent Deck/process compat.cjs"');
+    expect(proxyApi.buildTargetEnv(
+      { electronRunAsNode: null },
+      {
+        BROWSER_BACKEND: 'iab',
+        ELECTRON_RUN_AS_NODE: '1',
+        NODE_OPTIONS: '--trace-warnings',
+      },
+    )).toEqual({
+      BROWSER_BACKEND: 'iab',
+      NODE_OPTIONS: `--trace-warnings --require=${JSON.stringify(processCompatPath)}`,
+    });
+  });
+
+  it('lets the trusted browser bundle replace the locked safe process facade', () => {
+    const script = String.raw`
+      const vm = require('node:vm');
+      const unrelatedContext = vm.createContext({});
+      Object.defineProperty(unrelatedContext, 'process', {
+        value: Object.freeze({ pid: 1 }),
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      });
+      const context = vm.createContext({});
+      context.globalThis = context;
+      context.global = context;
+      const facade = Object.freeze({
+        arch: process.arch,
+        cwd: () => '/repo',
+        env: Object.freeze({}),
+        off: () => facade,
+        once: () => facade,
+        pid: 1,
+        platform: process.platform,
+      });
+      Object.defineProperty(context, 'process', {
+        value: facade,
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      });
+      const module = new vm.SourceTextModule(
+        'globalThis.process = { pid: 0 }; globalThis.global.process = globalThis.process;',
+        { context },
+      );
+      (async () => {
+        await module.link(() => {});
+        await module.evaluate();
+        process.stdout.write(JSON.stringify({
+          pid: context.process.pid,
+          descriptor: Object.getOwnPropertyDescriptor(context, 'process'),
+          unrelatedDescriptor: Object.getOwnPropertyDescriptor(unrelatedContext, 'process'),
+        }));
+      })().catch((error) => {
+        process.stderr.write(error.stack);
+        process.exitCode = 1;
+      });
+    `;
+    const result = spawnSync(process.execPath, [
+      '--experimental-vm-modules',
+      '--require',
+      processCompatPath,
+      '-e',
+      script,
+    ], { encoding: 'utf8' });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      pid: 0,
+      descriptor: {
+        writable: true,
+        configurable: false,
+        enumerable: false,
+      },
+      unrelatedDescriptor: {
+        writable: false,
+        configurable: false,
+        enumerable: false,
+      },
+    });
+  });
+
   it('maps the standard permission profiles to the exact legacy MCP wire shape', () => {
     const cwd = pathToFileURL('/repo').href;
     expect(proxyApi.permissionProfileToLegacySandboxPolicy(

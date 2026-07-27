@@ -103,6 +103,7 @@ describe('createInitialBootstrapState', () => {
       tokenUsageScheduler: null,
       storageMaintenanceScheduler: null,
       agentDeckMcpHttpShutdown: null,
+      browserUseServerShutdown: null,
       mainEventLoopMonitorStop: null,
     });
   });

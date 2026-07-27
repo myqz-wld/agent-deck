@@ -35,6 +35,14 @@ const mocks = vi.hoisted(() => {
       expect(received).toBe(settings);
       calls.push('checkpoint.start');
     }),
+    browserShutdown: vi.fn(async () => {}),
+    browserStart: vi.fn(async () => {
+      calls.push('browser.start');
+      return {
+        pipePath: '/tmp/codex-browser-use/agent-deck-test',
+        shutdown: mocks.browserShutdown,
+      };
+    }),
     hookStart: vi.fn(async () => calls.push('hook.start')),
     makeScheduler,
   };
@@ -123,6 +131,9 @@ vi.mock('../../utils/user-shell-path', () => ({ unionUserShellPath: vi.fn((path)
 vi.mock('../../utils/main-event-loop-monitor', () => ({
   startMainEventLoopMonitor: vi.fn(() => vi.fn()),
 }));
+vi.mock('../../browser-use/server', () => ({
+  startBrowserUseServer: mocks.browserStart,
+}));
 vi.mock('../../codex-config/agents-md-installer', () => ({ syncAgentDeckSection: vi.fn() }));
 vi.mock('../../codex-config/skills-installer', () => ({ syncSkills: vi.fn() }));
 vi.mock('../../login-item', () => ({ syncLoginItemSetting: vi.fn() }));
@@ -141,7 +152,8 @@ describe('checkpoint refresh bootstrap entry', () => {
   });
 
   it('starts only after the database and settings snapshot are initialized', async () => {
-    const result = await initInfra(createInitialBootstrapState());
+    const state = createInitialBootstrapState();
+    const result = await initInfra(state);
 
     expect(result).toBe(mocks.settings);
     expect(mocks.calls.indexOf('db.init')).toBeGreaterThanOrEqual(0);
@@ -153,5 +165,7 @@ describe('checkpoint refresh bootstrap entry', () => {
     );
     expect(mocks.checkpointStart).toHaveBeenCalledOnce();
     expect(mocks.checkpointStart).toHaveBeenCalledWith(mocks.settings);
+    expect(mocks.browserStart).toHaveBeenCalledOnce();
+    expect(state.browserUseServerShutdown).toBe(mocks.browserShutdown);
   });
 });

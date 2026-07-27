@@ -67,6 +67,7 @@ import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { AGENT_DECK_MCP_TOKEN_ENV } from '../codex-config/agent-deck-mcp-injector';
 import { unionUserShellPath } from '../utils/user-shell-path';
 import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
+import { startBrowserUseServer } from '../browser-use/server';
 // NOTE(REVIEW_<X>):以下两个 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import(index.ts × 2 + ipc/settings.ts × 3)会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js,独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
@@ -341,6 +342,19 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // 8.1 数据 tab provider quota 预热：fire-and-forget 填充 main 端 TTL cache。
   // DataPanel 打开时仍走同一个 IPC handler；若预热未完成则复用 in-flight promise。
   void prefetchProviderUsageSnapshots();
+
+  // 8.2 Browser plugin native-pipe backend：每条连接按首次请求的真实 Codex session_id
+  // 绑定，并在隔离的 Electron partition/window 中执行 CDP。启动失败只降级 Browser visual
+  // QA，不影响 Claude/Codex/Grok 的普通会话；错误会在这里明确落日志。
+  try {
+    const browserUseServer = await startBrowserUseServer({
+      onError: (err) => logger.warn('[browser-use] native-pipe backend error', err),
+    });
+    state.browserUseServerShutdown = browserUseServer.shutdown;
+    logger.info(`[browser-use] session-owned backend listening at ${browserUseServer.pipePath}`);
+  } catch (err) {
+    logger.warn('[browser-use] failed to start session-owned backend', err);
+  }
 
   // 8.5 预热 agent-deck plugin 内置 agents/skills frontmatter 缓存
   try {

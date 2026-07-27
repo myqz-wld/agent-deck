@@ -155,6 +155,15 @@ export function registerLifecycleHooks(
           cleanupSessionHandOffPreparations();
           const adapterShutdown = await adapterRegistry.shutdownAll();
           if (adapterShutdown.some((result) => !result.ok)) allIngressStopped = false;
+          if (state.browserUseServerShutdown) {
+            try {
+              await state.browserUseServerShutdown();
+            } catch (err) {
+              allIngressStopped = false;
+              logger.warn('[browser-use] native-pipe shutdown failed during cleanup', err);
+            }
+            state.browserUseServerShutdown = null;
+          }
           if (state.agentDeckMcpHttpShutdown) {
             try {
               await state.agentDeckMcpHttpShutdown();
