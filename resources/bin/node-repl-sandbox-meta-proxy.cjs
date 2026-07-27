@@ -6,6 +6,10 @@ const { fileURLToPath } = require('node:url');
 
 const SANDBOX_META_KEY = 'codex/sandbox-state-meta';
 const LEGACY_ERROR = /codex\/sandbox-state-meta[\s\S]*missing field [`'\"]sandboxPolicy[`'\"]/i;
+const BROWSER_PROCESS_COMPAT_PRELOAD = path.join(
+  __dirname,
+  'node-repl-browser-process-compat.cjs',
+);
 
 function decodeTarget(encoded) {
   let target;
@@ -208,11 +212,7 @@ function isEligibleToolCall(message) {
 }
 
 function startProxy(target) {
-  const targetEnv = { ...process.env };
-  delete targetEnv.ELECTRON_RUN_AS_NODE;
-  if (typeof target.electronRunAsNode === 'string') {
-    targetEnv.ELECTRON_RUN_AS_NODE = target.electronRunAsNode;
-  }
+  const targetEnv = buildTargetEnv(target, process.env);
   const child = spawn(target.command, target.args, { env: targetEnv, stdio: 'pipe' });
   const pending = new Map();
   let legacyMode = false;
@@ -280,6 +280,28 @@ function startProxy(target) {
       if (!child.killed) child.kill(signal);
     });
   }
+}
+
+function buildTargetEnv(target, sourceEnv) {
+  const targetEnv = { ...sourceEnv };
+  delete targetEnv.ELECTRON_RUN_AS_NODE;
+  if (typeof target.electronRunAsNode === 'string') {
+    targetEnv.ELECTRON_RUN_AS_NODE = target.electronRunAsNode;
+  }
+  // node_repl extracts and launches its JavaScript kernel as a child Node process. NODE_OPTIONS
+  // is the supported pre-kernel seam available without modifying ChatGPT or user Plugin assets.
+  targetEnv.NODE_OPTIONS = appendNodeRequireOption(
+    targetEnv.NODE_OPTIONS,
+    BROWSER_PROCESS_COMPAT_PRELOAD,
+  );
+  return targetEnv;
+}
+
+function appendNodeRequireOption(existing, preloadPath) {
+  const requireOption = `--require=${JSON.stringify(preloadPath)}`;
+  return typeof existing === 'string' && existing.trim() !== ''
+    ? `${existing} ${requireOption}`
+    : requireOption;
 }
 
 function compatibilityError(request, err) {
@@ -393,6 +415,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  appendNodeRequireOption,
+  buildTargetEnv,
   decodeTarget,
   isLegacySandboxPolicyError,
   patchLegacySandboxState,

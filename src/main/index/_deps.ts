@@ -43,6 +43,8 @@ export interface BootstrapState {
   /** Persistent worker controller for resumable FTS/snapshot slices and live WAL checkpoints. */
   storageMaintenanceScheduler: StorageMaintenanceScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
+  /** Stops the session-owned Browser Use native-pipe broker and closes its isolated windows. */
+  browserUseServerShutdown: (() => Promise<void>) | null;
   /** Stops the main-process event-loop drift monitor during orderly shutdown. */
   mainEventLoopMonitorStop: (() => void) | null;
 }
@@ -58,6 +60,7 @@ export function createInitialBootstrapState(): BootstrapState {
     tokenUsageScheduler: null,
     storageMaintenanceScheduler: null,
     agentDeckMcpHttpShutdown: null,
+    browserUseServerShutdown: null,
     mainEventLoopMonitorStop: null,
   };
 }
