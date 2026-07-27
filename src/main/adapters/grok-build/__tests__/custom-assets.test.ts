@@ -29,19 +29,26 @@ function skill(name: string): string {
 
 describe('Grok custom assets', () => {
   let grokHome: string;
+  let userHome: string;
   let projectRoot: string;
   const previousGrokHome = process.env.GROK_HOME;
+  const previousHome = process.env.HOME;
 
   beforeEach(() => {
     grokHome = mkdtempSync(join(tmpdir(), 'agent-deck-grok-assets-home-'));
+    userHome = mkdtempSync(join(tmpdir(), 'agent-deck-grok-assets-user-home-'));
     projectRoot = mkdtempSync(join(tmpdir(), 'agent-deck-grok-assets-project-'));
     process.env.GROK_HOME = grokHome;
+    process.env.HOME = userHome;
   });
 
   afterEach(() => {
     if (previousGrokHome === undefined) delete process.env.GROK_HOME;
     else process.env.GROK_HOME = previousGrokHome;
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
     rmSync(grokHome, { recursive: true, force: true });
+    rmSync(userHome, { recursive: true, force: true });
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
