@@ -30,6 +30,7 @@
  * **测试 seam**: deps 字段 inject mock,跟踪每个 cleanup call site 是否被调 + idempotent 行为
  */
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import { disposeSessionBrowser } from '@main/browser-use/session-browser';
 import { sessionManager } from '@main/session/manager';
 import type { CodexAppServerClient } from '../app-server/client';
 import type { InternalSession } from './types';
@@ -96,6 +97,9 @@ export async function runCreateSessionRollback(args: RunCreateSessionRollbackArg
       cleanupErr,
     );
   }
+  // Symmetric with the token release above: a rolled-back session must not keep browser windows.
+  // Normally a no-op because a failed create never reached a tool call.
+  void disposeSessionBrowser(sessionId);
   try {
     deps.sessions.delete(sessionId);
   } catch (cleanupErr) {

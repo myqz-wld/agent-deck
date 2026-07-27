@@ -31,6 +31,7 @@ import { stopAllSounds } from '../notify/sound';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { handleCliArgv } from '../cli';
 import { cleanupSessionHandOffPreparations } from '../ipc/session-hand-off';
+import { getBrowserEngine } from '../browser-use/engine/registry';
 
 import type { BootstrapState } from './_deps';
 import log from '@main/utils/logger';
@@ -163,6 +164,14 @@ export function registerLifecycleHooks(
               logger.warn('[browser-use] native-pipe shutdown failed during cleanup', err);
             }
             state.browserUseServerShutdown = null;
+          }
+          // Engine-owned windows outlive the native pipe: MCP browser tools open tabs without any
+          // pipe connection, so the pipe shutdown above cannot close them.
+          try {
+            await getBrowserEngine().disposeAll();
+          } catch (err) {
+            allIngressStopped = false;
+            logger.warn('[browser-engine] disposeAll failed during cleanup', err);
           }
           if (state.agentDeckMcpHttpShutdown) {
             try {

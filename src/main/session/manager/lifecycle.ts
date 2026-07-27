@@ -31,6 +31,7 @@ import type { SessionRecord } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import { disposeSessionBrowser } from '@main/browser-use/session-browser';
 import {
   leaveTeamsAndAutoArchive,
   archiveTeamsIfOrphaned,
@@ -176,6 +177,9 @@ export async function closeImpl(
       // entry。codex bridge.closeSession 已经做过一次走 noop fast-path,这里再做一次双保护
       // (手动 close 没经 adapter.closeSession 路径也保证 token map 清干净 → 避免 token leak)。
       mcpSessionTokenMap.release(sessionId);
+      // 会话关闭即释放它自己的浏览器窗口(MCP browser tools 开的 tab 不挂在 native pipe 上,
+      // 不会被 browser-use server shutdown 覆盖)。内部已 try/catch + 从未开过浏览器时是 no-op。
+      void disposeSessionBrowser(sessionId);
     },
   });
 }

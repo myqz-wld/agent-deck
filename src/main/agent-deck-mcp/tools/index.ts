@@ -52,6 +52,7 @@ import { taskDeleteHandler } from './handlers/task-delete';
 import { reportIssueHandler } from './handlers/report-issue';
 import { appendIssueContextHandler } from './handlers/append-issue-context';
 import { updateIssueStatusHandler } from './handlers/update-issue-status';
+import { buildBrowserTools } from './browser-tools';
 
 // helpers 子集 re-export，保持老 caller 兼容（外部对 makeCallerContext / denyExternalIfNotAllowed
 // 的 import 路径 `from './tools'` 仍能 resolve）。
@@ -474,6 +475,14 @@ export async function buildAgentDeckTools(
     reportIssue,
     appendIssueContext,
     updateIssueStatus,
+    // plan cross-adapter-browser-engine-20260727：browser tool 面按 adapter profile 开关
+    // （Codex 走官方 Browser 插件 native pipe，不在这里重复暴露）。profile 缺省（legacy test /
+    // external caller）时不注册 —— external 本来也全 deny。
+    ...buildBrowserTools({
+      tool,
+      makeCtx,
+      enabled: profile?.mcpBrowserTools === true,
+    }),
   ];
   return profile ? filterAgentDeckTools(tools, profile.mcpTools) : tools;
 }
