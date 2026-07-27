@@ -42,7 +42,7 @@ If `enableAgentDeckMcp: false` makes MCP task tools unavailable, Claude Code nat
 
 ### Review Teammate Failure
 
-`simple-review` / `deep-review` must use exactly two confirmed heterogeneous reviewer slots selected from `reviewer-claude` (`claude-code`), `reviewer-codex` (`codex-cli`), and `reviewer-grok` (`grok-build`). If a selected reviewer fails, the lead first calls `shutdown_session` on the failed session, then respawns the same selected adapter / provider / `agentName` / model slot. Do not swap to an unselected slot or duplicate the surviving reviewer.
+`simple-review` / `deep-review` must use exactly two confirmed heterogeneous reviewer types selected from `reviewer-claude` (`claude-code`), `reviewer-codex` (`codex-cli`), and `reviewer-grok` (`grok-build`). For a batched review, each batch gets one worker session of each selected type over the same complete batch scope; independent batches may run concurrently within `spawnLimits`, so one selected type may have multiple batch-specific sessions. If a batch worker fails, the lead first calls `shutdown_session` on the failed session, then respawns the same batch / adapter / provider / `agentName` / model type. Do not swap to an unselected type, split one batch between reviewers, or count the surviving worker as complete batch coverage.
 
 ### In-App Browser
 
