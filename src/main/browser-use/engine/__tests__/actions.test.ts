@@ -141,8 +141,9 @@ describe('page actions', () => {
       count: 2,
       visibleCount: 1,
     });
+    expect(window.webContents.executeJavaScript.mock.calls[0]?.[0]).toContain('walkOpenDom');
     expect(window.webContents.executeJavaScript.mock.calls[0]?.[0]).toContain(
-      'document.querySelectorAll(selector)',
+      'el.matches(selector)',
     );
   });
 

@@ -11,6 +11,7 @@
  */
 
 const REF_STATE_KEY = '__agentDeckBrowserRefs__';
+const MAX_OPEN_DOM_SCAN = 20_000;
 
 const REF_LOOKUP = `
   var state = window['${REF_STATE_KEY}'];
@@ -22,6 +23,106 @@ const REF_LOOKUP = `
   var el = state.els[index - 1];
   if (!el) throw new Error('STALE_REF');
   if (!el.isConnected) throw new Error('DETACHED_REF');
+  var frameHosts = (state.frameHosts && state.frameHosts[index - 1]) || [];
+  for (var hostIndex = 0; hostIndex < frameHosts.length; hostIndex += 1) {
+    if (!frameHosts[hostIndex] || !frameHosts[hostIndex].isConnected) {
+      throw new Error('DETACHED_REF');
+    }
+  }
+`;
+
+const OPEN_DOM_VISIBILITY = `
+  function ownVisible(node) {
+    if (!node || !node.isConnected || !node.getBoundingClientRect) return false;
+    var rect = node.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var view = node.ownerDocument && node.ownerDocument.defaultView;
+    var style = view && view.getComputedStyle ? view.getComputedStyle(node) : null;
+    if (!style) return true;
+    return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) !== 0;
+  }
+  function visible(node, frameHosts) {
+    if (!ownVisible(node)) return false;
+    for (var hostIndex = 0; hostIndex < frameHosts.length; hostIndex += 1) {
+      if (!ownVisible(frameHosts[hostIndex])) return false;
+    }
+    return true;
+  }
+`;
+
+const OPEN_DOM_TRAVERSAL = `
+  function walkOpenDom(onElement, onDocument) {
+    var coverage = {
+      documents: 0,
+      sameOriginFrames: 0,
+      inaccessibleFrames: 0,
+      openShadowRoots: 0,
+      scannedElements: 0,
+      scanLimitReached: false,
+    };
+    var seenRoots = new Set();
+    var stopped = false;
+
+    function visitRoot(root, frameHosts, shadowDepth) {
+      if (!root || stopped || seenRoots.has(root)) return;
+      seenRoots.add(root);
+      var isDocument = root.nodeType === 9;
+      var ownerDocument = isDocument ? root : root.ownerDocument;
+      if (!ownerDocument || !ownerDocument.createTreeWalker) return;
+      if (isDocument) {
+        coverage.documents += 1;
+        if (onDocument) onDocument(root);
+      }
+
+      var walker = ownerDocument.createTreeWalker(root, 1);
+      var node = walker.nextNode();
+      while (node && !stopped) {
+        if (coverage.scannedElements >= MAX_SCAN_NODES) {
+          coverage.scanLimitReached = true;
+          stopped = true;
+          break;
+        }
+        coverage.scannedElements += 1;
+        onElement(node, frameHosts, shadowDepth);
+
+        if (node.shadowRoot) {
+          coverage.openShadowRoots += 1;
+          visitRoot(node.shadowRoot, frameHosts, shadowDepth + 1);
+        }
+        if (node.tagName === 'IFRAME' || node.tagName === 'FRAME') {
+          try {
+            var childDocument = node.contentDocument;
+            if (childDocument && childDocument.documentElement) {
+              coverage.sameOriginFrames += 1;
+              visitRoot(childDocument, frameHosts.concat([node]), shadowDepth);
+            } else {
+              coverage.inaccessibleFrames += 1;
+            }
+          } catch (_error) {
+            coverage.inaccessibleFrames += 1;
+          }
+        }
+        node = walker.nextNode();
+      }
+    }
+
+    visitRoot(document, [], 0);
+    return coverage;
+  }
+`;
+
+const SCROLL_REF_TARGET = `
+  function scrollRefTarget(target, frameHosts) {
+    for (var hostIndex = 0; hostIndex < frameHosts.length; hostIndex += 1) {
+      var host = frameHosts[hostIndex];
+      if (host && host.scrollIntoView) {
+        host.scrollIntoView({ block: 'center', inline: 'center' });
+      }
+    }
+    if (target.scrollIntoView) {
+      target.scrollIntoView({ block: 'center', inline: 'center' });
+    }
+  }
 `;
 
 const DESCRIBE_ELEMENT = `
@@ -50,18 +151,14 @@ export function snapshotScript(options: {
   var LIMIT = ${options.limit};
   var INCLUDE_TEXT = ${options.includeText ? 'true' : 'false'};
   var TEXT_LIMIT = ${options.textLimit};
-  var state = window['${REF_STATE_KEY}'] || (window['${REF_STATE_KEY}'] = { gen: 0, els: [] });
+  var MAX_SCAN_NODES = ${MAX_OPEN_DOM_SCAN};
+  var state = window['${REF_STATE_KEY}'] || (window['${REF_STATE_KEY}'] = { gen: 0, els: [], frameHosts: [] });
   state.gen = (state.gen || 0) + 1;
   state.els = [];
+  state.frameHosts = [];
   var SELECTOR = 'a[href],button,input,select,textarea,summary,[role="button"],[role="link"],[role="tab"],[role="checkbox"],[role="radio"],[role="menuitem"],[role="textbox"],[contenteditable="true"],[onclick]';
-  function visible(el) {
-    if (!el.getBoundingClientRect) return false;
-    var rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    var style = window.getComputedStyle(el);
-    if (!style) return true;
-    return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) !== 0;
-  }
+  ${OPEN_DOM_VISIBILITY}
+  ${OPEN_DOM_TRAVERSAL}
   function label(el) {
     var aria = el.getAttribute && el.getAttribute('aria-label');
     if (aria) return String(aria).trim().slice(0, 120);
@@ -73,13 +170,16 @@ export function snapshotScript(options: {
     var fallback = el.placeholder || el.title || (el.getAttribute && el.getAttribute('alt')) || el.name || '';
     return String(fallback).trim().slice(0, 120);
   }
-  var candidates = Array.prototype.slice.call(document.querySelectorAll(SELECTOR));
   var elements = [];
-  for (var i = 0; i < candidates.length; i += 1) {
-    if (elements.length >= LIMIT) break;
-    var el = candidates[i];
-    if (!visible(el)) continue;
+  var eligibleElementCount = 0;
+  var textParts = [];
+  var textLength = 0;
+  var coverage = walkOpenDom(function (el, frameHosts, shadowDepth) {
+    if (!el.matches || !el.matches(SELECTOR) || !visible(el, frameHosts)) return;
+    eligibleElementCount += 1;
+    if (elements.length >= LIMIT) return;
     state.els.push(el);
+    state.frameHosts.push(frameHosts.slice());
     elements.push({
       ref: state.gen + '-' + state.els.length,
       tag: el.tagName ? el.tagName.toLowerCase() : 'unknown',
@@ -90,17 +190,31 @@ export function snapshotScript(options: {
       checked: el.type === 'checkbox' || el.type === 'radio' ? !!el.checked : undefined,
       disabled: el.disabled === true ? true : undefined,
       href: el.tagName === 'A' && el.getAttribute ? el.getAttribute('href') || undefined : undefined,
+      frameDepth: frameHosts.length || undefined,
+      shadowDepth: shadowDepth || undefined,
     });
-  }
-  var body = document.body;
+  }, function (childDocument) {
+    if (!INCLUDE_TEXT || textLength >= TEXT_LIMIT || !childDocument.body) return;
+    var text = String(childDocument.body.innerText || childDocument.body.textContent || '')
+      .replace(/\\n{3,}/g, '\\n\\n')
+      .trim();
+    if (!text) return;
+    var separator = textParts.length > 0 ? '\\n\\n' : '';
+    var remaining = TEXT_LIMIT - textLength;
+    var part = (separator + text).slice(0, remaining);
+    textParts.push(part);
+    textLength += part.length;
+  });
   return JSON.stringify({
     refGeneration: state.gen,
     url: location.href,
     title: document.title,
     elementCount: elements.length,
-    truncated: candidates.length > elements.length,
+    eligibleElementCount: eligibleElementCount,
+    truncated: eligibleElementCount > elements.length || coverage.scanLimitReached,
     elements: elements,
-    text: INCLUDE_TEXT && body ? String(body.innerText || '').replace(/\\n{3,}/g, '\\n\\n').slice(0, TEXT_LIMIT) : undefined,
+    coverage: coverage,
+    text: INCLUDE_TEXT ? textParts.join('') : undefined,
   });
 })()`;
 }
@@ -111,11 +225,12 @@ export function clickScript(ref: string): string {
   ${REF_LOOKUP}
   ${DESCRIBE_ELEMENT}
   ${PAGE_STATE}
-  if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center' });
+  ${SCROLL_REF_TARGET}
+  scrollRefTarget(el, frameHosts);
   if (el.focus) el.focus();
   var target = describe(el);
   el.click();
-  return JSON.stringify({ clicked: target, page: pageState() });
+  return JSON.stringify({ clicked: target, frameDepth: frameHosts.length, page: pageState() });
 })()`;
 }
 
@@ -127,7 +242,8 @@ export function typeScript(ref: string, text: string, clear: boolean): string {
   ${REF_LOOKUP}
   ${DESCRIBE_ELEMENT}
   ${PAGE_STATE}
-  if (el.scrollIntoView) el.scrollIntoView({ block: 'center', inline: 'center' });
+  ${SCROLL_REF_TARGET}
+  scrollRefTarget(el, frameHosts);
   if (el.focus) el.focus();
   var editable = el.isContentEditable === true;
   if (editable) {
@@ -139,9 +255,11 @@ export function typeScript(ref: string, text: string, clear: boolean): string {
     if (setter && setter.set) setter.set.call(el, next);
     else el.value = next;
   }
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
-  return JSON.stringify({ typedInto: describe(el), page: pageState() });
+  var view = el.ownerDocument && el.ownerDocument.defaultView;
+  var EventConstructor = view && view.Event ? view.Event : Event;
+  el.dispatchEvent(new EventConstructor('input', { bubbles: true }));
+  el.dispatchEvent(new EventConstructor('change', { bubbles: true }));
+  return JSON.stringify({ typedInto: describe(el), frameDepth: frameHosts.length, page: pageState() });
 })()`;
 }
 
@@ -157,24 +275,52 @@ export function typeScript(ref: string, text: string, clear: boolean): string {
 export function pressFallbackScript(key: string): string {
   return `(() => {
   var key = ${JSON.stringify(key)};
+  var MAX_SCAN_NODES = ${MAX_OPEN_DOM_SCAN};
   ${PAGE_STATE}
+  ${OPEN_DOM_VISIBILITY}
+  ${OPEN_DOM_TRAVERSAL}
   var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
-  var target = document.activeElement || document.body;
+  function deepActiveElement(rootDocument) {
+    var active = rootDocument.activeElement || rootDocument.body;
+    var depth = 0;
+    while (active && depth < 32) {
+      var next = null;
+      if (active.shadowRoot && active.shadowRoot.activeElement) {
+        next = active.shadowRoot.activeElement;
+      } else if (active.tagName === 'IFRAME' || active.tagName === 'FRAME') {
+        try {
+          var childDocument = active.contentDocument;
+          next = childDocument && (childDocument.activeElement || childDocument.body);
+        } catch (_error) {
+          next = null;
+        }
+      }
+      if (!next || next === active) break;
+      active = next;
+      depth += 1;
+    }
+    return active || rootDocument.body;
+  }
+  var target = deepActiveElement(document);
+  var targetView = target.ownerDocument && target.ownerDocument.defaultView;
+  var KeyboardEventConstructor =
+    targetView && targetView.KeyboardEvent ? targetView.KeyboardEvent : KeyboardEvent;
+  var EventConstructor = targetView && targetView.Event ? targetView.Event : Event;
   var init = { key: key, bubbles: true, cancelable: true };
-  var allowDefault = target.dispatchEvent(new KeyboardEvent('keydown', init));
+  var allowDefault = target.dispatchEvent(new KeyboardEventConstructor('keydown', init));
   var effect = 'dispatched';
 
   if (allowDefault && key.length === 1) {
     if (target.isContentEditable === true) {
       target.textContent = (target.textContent || '') + key;
-      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new EventConstructor('input', { bubbles: true }));
       effect = 'inserted';
     } else if (typeof target.value === 'string') {
       var setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target) || {}, 'value');
       var next = target.value + key;
       if (setter && setter.set) setter.set.call(target, next);
       else target.value = next;
-      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new EventConstructor('input', { bubbles: true }));
       effect = 'inserted';
     }
   } else if (allowDefault && key === 'Enter') {
@@ -190,12 +336,12 @@ export function pressFallbackScript(key: string): string {
       effect = 'activated';
     }
   } else if (allowDefault && key === 'Tab') {
-    var focusable = Array.prototype.slice.call(document.querySelectorAll(FOCUSABLE)).filter(
-      function (el) {
-        var rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      },
-    );
+    var focusable = [];
+    walkOpenDom(function (el, frameHosts) {
+      if (el.matches && el.matches(FOCUSABLE) && visible(el, frameHosts)) {
+        focusable.push(el);
+      }
+    });
     if (focusable.length > 0) {
       var index = focusable.indexOf(target);
       var next = focusable[(index + 1) % focusable.length];
@@ -206,7 +352,7 @@ export function pressFallbackScript(key: string): string {
     }
   }
 
-  target.dispatchEvent(new KeyboardEvent('keyup', init));
+  target.dispatchEvent(new KeyboardEventConstructor('keyup', init));
   return JSON.stringify({ pressed: key, effect: effect, page: pageState() });
 })()`;
 }
@@ -224,13 +370,9 @@ export function scrollScript(options: {
   var dy = ${options.dy};
   ${PAGE_STATE}
   if (ref) {
-    var state = window['${REF_STATE_KEY}'];
-    if (!state) throw new Error('NO_SNAPSHOT');
-    var parts = String(ref).split('-');
-    if (Number(parts[0]) !== state.gen) throw new Error('STALE_REF');
-    var el = state.els[Number(parts[1]) - 1];
-    if (!el || !el.isConnected) throw new Error('STALE_REF');
-    el.scrollIntoView({ block: 'center', inline: 'center' });
+    ${REF_LOOKUP}
+    ${SCROLL_REF_TARGET}
+    scrollRefTarget(el, frameHosts);
   } else if (to === 'top') {
     window.scrollTo(0, 0);
   } else if (to === 'bottom') {
@@ -238,7 +380,12 @@ export function scrollScript(options: {
   } else {
     window.scrollBy(dx, dy);
   }
-  return JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY, page: pageState() });
+  return JSON.stringify({
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    frameDepth: ref ? frameHosts.length : 0,
+    page: pageState(),
+  });
 })()`;
 }
 
@@ -263,22 +410,21 @@ export function evaluateScript(expression: string): string {
 export function selectorProbeScript(selector: string): string {
   return `(() => {
   var selector = ${JSON.stringify(selector)};
-  var matches;
+  var MAX_SCAN_NODES = ${MAX_OPEN_DOM_SCAN};
   try {
-    matches = Array.prototype.slice.call(document.querySelectorAll(selector));
+    document.createDocumentFragment().querySelector(selector);
   } catch (error) {
     throw new Error('INVALID_SELECTOR:' + (error && error.message ? error.message : String(error)));
   }
-  function visible(el) {
-    if (!el || !el.isConnected || !el.getBoundingClientRect) return false;
-    var rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    var view = el.ownerDocument && el.ownerDocument.defaultView;
-    var style = view && view.getComputedStyle ? view.getComputedStyle(el) : null;
-    if (!style) return true;
-    return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) !== 0;
-  }
-  var visibleCount = matches.filter(visible).length;
-  return JSON.stringify({ count: matches.length, visibleCount: visibleCount });
+  ${OPEN_DOM_VISIBILITY}
+  ${OPEN_DOM_TRAVERSAL}
+  var count = 0;
+  var visibleCount = 0;
+  var coverage = walkOpenDom(function (el, frameHosts) {
+    if (!el.matches || !el.matches(selector)) return;
+    count += 1;
+    if (visible(el, frameHosts)) visibleCount += 1;
+  });
+  return JSON.stringify({ count: count, visibleCount: visibleCount, coverage: coverage });
 })()`;
 }
