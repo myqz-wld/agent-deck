@@ -54,6 +54,8 @@ pnpm dev         # start development mode
 pnpm build       # build the application
 pnpm typecheck   # run TypeScript checks
 pnpm test:node   # run Node-side tests
+pnpm verify:bundled-runtimes  # verify the native Grok package before packaging
+pnpm dist        # build an installer; bundled-runtime verification runs first
 ```
 
 After changing main-process code, restart development mode. Renderer changes can use the development server's hot reload.
