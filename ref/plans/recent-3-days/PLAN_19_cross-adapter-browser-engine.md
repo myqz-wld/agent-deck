@@ -1,14 +1,14 @@
 ---
 plan_id: PLAN_19
 title: Cross-adapter browser engine and MCP browser tools
-status: implemented-pending-real-session-validation
+status: implemented-pending-real-session-validation-and-solo-rereview
 created_at: 2026-07-27
 updated_at: 2026-07-27
 completed_at: 2026-07-27
 base_branch: main
 base_commit: 753bff9a15f11bbeaf2c4d7c6359fe06465ee9e0
 implementation_commit: 98471b111f99515827cb90d8384fab814994bf4f
-hardening_commits: 53830804, 28074a89, e4db8ffd
+hardening_commits: 53830804, 28074a89, e4db8ffd, f965b127, 506a20d9
 related_changelog: CHANGELOG_400, CHANGELOG_401
 related_reviews: REVIEW_175, REVIEW_177
 ---
@@ -34,12 +34,12 @@ related_reviews: REVIEW_175, REVIEW_177
 
 | Area | Files | Note |
 |---|---|---|
-| Engine | `src/main/browser-use/engine/{types,registry,tab,cdp,actions,scripts}.ts` | 1,179 LOC, provider-neutral |
+| Engine | `src/main/browser-use/engine/{types,registry,tab,cdp,actions,scripts,key-script}.ts` | provider-neutral registry, CDP, actions, traversal, and hidden-key fallback |
 | Codex front | `src/main/browser-use/fronts/codex-pipe.ts` | 407 LOC, replaces the deleted 497-LOC `iab-session.ts` |
 | Session helper | `src/main/browser-use/session-browser.ts` | owner key + idempotent disposal |
 | MCP tools | `agent-deck-mcp/tools/browser-tools.ts`, `tools/schemas/browser.ts`, `tools/handlers/browser/{shared,tabs,interact,inspect}.ts` | 14 tools |
 | Wiring | `runtime-profiles.ts`, `agent-deck-mcp/types.ts`, `tools/index.ts`, `tools/schemas.ts` | names, allow-list, per-adapter gating |
-| Lifecycle | `session/manager/lifecycle.ts`, `hand-off-session/source-finalization.ts`, `codex-cli/sdk-bridge/create-session-rollback.ts`, `index/lifecycle-hooks.ts` | disposal on close, hand-off, rollback, quit |
+| Lifecycle | `session/manager/lifecycle.ts`, `session/lifecycle-scheduler.ts`, `hand-off-session/source-finalization.ts`, `codex-cli/sdk-bridge/create-session-rollback.ts`, `index/lifecycle-hooks.ts` | disposal on every terminal close/delete/scheduler/handoff/rollback/quit path |
 | Prompt assets | `resources/{claude-config/CLAUDE.md,grok-config/GROK_AGENTS.md,codex-config/CODEX_AGENTS.md}` | 14 added lines each, identical safety rules |
 | Tests | `browser-use/engine/__tests__/{_fakes,registry,cdp,actions}`, `agent-deck-mcp/__tests__/browser-tools.test.ts` | 725 LOC, +51 tests |
 
@@ -63,8 +63,9 @@ because it already owns the plugin surface.
 7. Readiness uses one bounded `browser_wait` tool with selector and network-idle modes. Selectors
    never become interaction targets.
 8. Same-origin nested frames and open shadow roots keep the existing flat
-   `<generation>-<index>` ref format. Coverage metadata exposes inaccessible frames and scan caps;
-   cross-origin/OOPIF frames and closed shadow roots remain out of scope.
+   `<generation>-<index>` ref format. Coverage metadata exposes inaccessible frames and scan caps.
+   Cross-origin/OOPIF frames remain inaccessible; closed shadow roots cannot be enumerated by page
+   APIs and are explicitly reported as `closedShadowRoots: "not-observable"`.
 9. Generated screenshots have seven-day retention, reaped at startup and opportunistically at most
    once per day. Cleanup skips unknown entries and symlinks instead of assuming ownership.
 
@@ -113,8 +114,9 @@ Nothing in this list is done. Each item needs a human decision because of what i
   identical safety semantics; wording may differ only on adapter-surface facts. Do not leave `.bak`
   files inside `resources/`: that directory is packaged into the app bundle.
 - **Review scope**: the renames under `src/main/browser-use/` mean `REVIEW_177` no longer maps to
-  current paths. The engine, the Codex front, and the MCP browser tools must be treated as unreviewed
-  by the next review.
+  current paths. A fresh standalone `gpt-5.6-sol` / `max` review covered the engine, Codex front,
+  MCP browser tools, lifecycle, prompts, and tests. Its 12 findings were repaired in `506a20d9`;
+  the same reviewer still needs to verify the repairs before the review record is closed.
 
 ## Known functional gaps
 
@@ -123,8 +125,10 @@ concrete use case appears.
 
 - **Open-DOM traversal has explicit boundaries.** Snapshots and selector waits traverse open shadow
   roots and accessible same-origin nested frames, flattening them into the existing ref generation.
-  Cross-origin/OOPIF frames and closed shadow roots remain inaccessible. Every traversal is capped at
-  20,000 elements; coverage metadata reports inaccessible frames and a reached cap.
+  Cross-origin/OOPIF frames remain inaccessible, and closed shadow roots are structurally
+  unobservable from page APIs. Every traversal is capped at 20,000 DOM nodes (elements plus text);
+  coverage metadata reports inaccessible frames, the explicit closed-shadow boundary, and a reached
+  cap.
 - **Ref state lives in the page.** Refs are stored on `window.__agentDeckBrowserRefs__`, so any
   navigation or reload wipes them and the next click reports a stale ref. That is intended, but it
   means "click, then click again after navigation" always needs a re-snapshot.
@@ -153,12 +157,12 @@ Electron delivers `webContents.sendInputEvent` only to a **focused** window
 on every background tab while still reporting success.
 
 `EngineTab.canSendInputEvents()` now gates the input-event path on visible **and** focused, and the
-script fallback reproduces the native effects explicitly instead of only dispatching an untrusted
-`KeyboardEvent`: Enter submits the owning form or activates a button or link, Tab moves focus to the
-next visible focusable element, and a single character is inserted into the focused field. All of it
-is skipped when the page called `preventDefault` on keydown, matching real key semantics. Results now
-carry `delivery: 'input-event' | 'script'` plus the script path's `effect`, so a caller can tell which
-path ran.
+script fallback normalizes aliases and reproduces native effects explicitly instead of only
+dispatching an untrusted `KeyboardEvent`: text insertion/deletion and caret movement, textarea
+newlines, form submission, button/checkbox activation, select movement, Tab focus movement, page
+scrolling, and native-dialog Escape. All of it is skipped when the page called `preventDefault` on
+keydown, matching real key semantics. Results carry `delivery: 'input-event' | 'script'` plus the
+script path's `effect`, so a caller can tell which path ran.
 
 `paintWhenInitiallyHidden: true` is also pinned explicitly in the window options: background tabs must
 keep painting for screenshots and layout reads. Electron already defaults it to true; pinning it
@@ -174,8 +178,25 @@ documents the dependency. A real hidden Electron window returned non-empty pixel
 - Screenshot writes and cleanup are isolated in a guarded store with seven-day retention.
 - Claude and Grok prompt assets describe the MCP wait and coverage contract. Codex guidance remains
   specific to the official Browser plugin and does not claim MCP browser availability.
-- The engine, Codex front, and MCP browser surface still require a fresh heterogeneous review because
-  the earlier path renames invalidated the scope mapping of `REVIEW_177`.
+- A user-requested standalone Codex review completed with full scope coverage. Five HIGH, six MEDIUM,
+  and one LOW finding were repaired; the same reviewer is pending one bounded verification pass.
+
+## Standalone review repairs
+
+`506a20d9` closes all 12 findings from the user-requested `gpt-5.6-sol` / `max` review:
+
+- deny arbitrary remote-page permissions once per owner partition;
+- remove synthetic user activation from snapshots, waits, evaluates, and other probes;
+- force-destroy automation tabs so `beforeunload` cannot make close results dishonest;
+- dispose browser owners on mark-closed, scheduler close/purge, and direct delete;
+- normalize background key aliases and reproduce their target-aware native effects;
+- enforce selector timeouts in the main process even when page evaluation stalls;
+- finalize network history only on finished/failed so post-header resets stay visible;
+- share the 20,000-node traversal budget with bounded text collection;
+- enforce full-page `maxWidth` on HiDPI displays, cap output work, and avoid unused base64 copies;
+- state that closed-shadow coverage is not observable instead of claiming it is counted;
+- pin the Claude/Codex/Grok browser-surface matrix in registration tests; and
+- advertise page mutation, idempotence, and open-world effects accurately per tool.
 
 ## Deferred follow-ups
 
@@ -189,13 +210,18 @@ documents the dependency. A real hidden Electron window returned non-empty pixel
 ## Validation performed
 
 - `pnpm typecheck` passed.
-- `pnpm test` passed 377 files and 3,163 tests, one file skipped.
+- `pnpm test` passed 379 files and 3,196 tests, with one test skipped.
 - `pnpm build` passed; `git diff --check` clean.
 - Hardening-focused engine, generated-script, MCP browser, screenshot-store, and bootstrap tests
   passed; the Node suite also passed 324 files / 2,732 tests with 54 files / 437 tests skipped for the
   expected Electron-versus-Node native SQLite ABI boundary.
 - A real hidden Electron fixture verified non-empty viewport capture plus open shadow roots, two
   nested same-origin frames, continuous refs, frame interactions, and selector waits.
+- A committed real-Electron boundary fixture additionally verified deny-by-default notification and
+  geolocation policy, no user activation during snapshot/wait probes, explicit-click activation,
+  hidden input/textarea/select/Dialog key defaults, force-close through `beforeunload`, a selector
+  wall-clock timeout, and full-page `maxWidth` on a Retina display. It caught and drove the HiDPI
+  screenshot correction before review handoff.
 - `bash scripts/file-level-review-expiry.sh` ran before this record was written.
 - A test caught a real defect pre-merge: the first URL normalizer read `localhost:3000` as a
   `localhost:` scheme and rejected it.
@@ -204,7 +230,9 @@ documents the dependency. A real hidden Electron window returned non-empty pixel
 
 The original prompt-asset content remains recoverable from git history at `9a8cf9aa`. The P0/P1
 prompt edits also have an ignored local backup manifest under
-`.prompt-asset-improver/local/backups/20260727T112438Z/`; no backup is stored in packaged
+`.prompt-asset-improver/local/backups/20260727T112438Z/`. The review-driven prompt/tool-description
+edits have a second ignored manifest under
+`.prompt-asset-improver/local/backups/20260727T121825Z/`; no backup is stored in packaged
 `resources/`. Behavior records are
 `ref/changelogs/recent-3-days/CHANGELOG_400_cross-adapter-browser-engine.md` and
 `ref/changelogs/recent-3-days/CHANGELOG_401_browser-waits-open-dom-retention.md`.
