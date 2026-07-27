@@ -53,6 +53,10 @@ export type CreateSessionThunk = (opts: {
   trustedContinuation?: TrustedContinuationInitialTurn;
   /** Persisted Claude Gateway profile restored for native resume and fresh-history recovery. */
   provider?: string;
+  /** Persisted Claude Agent selection restored for every recovery query. */
+  claudeAgentName?: string;
+  /** Persisted Claude Plugin root restored together with the Agent selection. */
+  claudePluginDir?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   resume?: string;
   teamName?: string;

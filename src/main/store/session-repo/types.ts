@@ -5,6 +5,7 @@
  * deep-review-and-split-20260513 H2 Step 2.3）。所有 sub-module 共享 import 此处。
  */
 
+import { isAgentProfileSource } from '@shared/types';
 import type {
   AdapterSessionMode,
   ActivityState,
@@ -38,6 +39,9 @@ export interface Row {
   hidden_from_history: number;
   permission_mode: string | null;
   session_mode: string | null;
+  agent_profile_name: string | null;
+  agent_profile_source: string | null;
+  agent_plugin_dir: string | null;
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，Row 接口不再含
   codex_sandbox: string | null;
   claude_code_sandbox: string | null;
@@ -86,6 +90,11 @@ export function rowToRecord(r: Row): SessionRecord {
     hiddenFromHistory: r.hidden_from_history === 1,
     permissionMode: (r.permission_mode as PermissionMode) ?? null,
     sessionMode: (r.session_mode as AdapterSessionMode) ?? null,
+    agentProfileName: r.agent_profile_name ?? null,
+    agentProfileSource: isAgentProfileSource(r.agent_profile_source)
+      ? r.agent_profile_source
+      : null,
+    agentPluginDir: r.agent_plugin_dir ?? null,
     // plan team-cohesion-fix-20260513 Phase A Step A9：teamName 字段不在 repo 层投影。
     // sessionManager.enrichWithTeams / enrichWithTeamsBatch 在更高层注入 teams[] 数组 + teamName fallback。
     // 老 sessions.team_name 列已 v014 drop。

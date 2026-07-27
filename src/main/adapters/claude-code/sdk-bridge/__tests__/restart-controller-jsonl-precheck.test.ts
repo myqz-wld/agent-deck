@@ -121,6 +121,9 @@ function makeRec(
     claudeCodeSandbox: overrides?.claudeCodeSandbox ?? 'workspace-write',
     cliSessionId: overrides?.cliSessionId ?? sid,
     runtimeProvider: 'deepseek',
+    agentProfileName: 'reviewer-claude',
+    agentProfileSource: 'plugin',
+    agentPluginDir: '/plugins/reviewer-claude',
     model: null,
     extraAllowWrite: null,
     archivedAt: null,
@@ -207,6 +210,8 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-PM'); // §不变量 8: resumeCliSid: rec.cliSessionId ?? currentSid
     expect(opts.provider).toBe('deepseek');
+    expect(opts.claudeAgentName).toBe('reviewer-claude');
+    expect(opts.claudePluginDir).toBe('/plugins/reviewer-claude');
     expect(opts.permissionMode).toBe('plan');
     // CHANGELOG_223：jsonl 在 → handoffPrompt（= SDK_RESTART_RESUME_PROMPT 内部恢复指令）原样透传，
     // CLI --resume 已从 jsonl 续上完整上下文，**不**再注入 221 的 DB 摘要/原始对话（否则模型把整段历史当新输入）。
@@ -297,6 +302,8 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(opts.resume).toBe(sid);
     expect(opts.resumeMode).toBe('fresh-cli-reuse-app');
     expect(opts.provider).toBe('deepseek');
+    expect(opts.claudeAgentName).toBe('reviewer-claude');
+    expect(opts.claudePluginDir).toBe('/plugins/reviewer-claude');
     expect('resumeCliSid' in opts).toBe(false);
     expect(opts.permissionMode).toBe('bypassPermissions');
     expect(opts.claudeCodeSandbox).toBe('off');
@@ -377,6 +384,8 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-SB');
+    expect(opts.claudeAgentName).toBe('reviewer-claude');
+    expect(opts.claudePluginDir).toBe('/plugins/reviewer-claude');
     expect(opts.claudeCodeSandbox).toBe('strict');
     // CHANGELOG_223：jsonl 在 → handoffPrompt 原样透传，不注入 DB 历史（同 restartWithPermissionMode）。
     expect(opts.prompt).toBe(SDK_RESTART_RESUME_PROMPT);

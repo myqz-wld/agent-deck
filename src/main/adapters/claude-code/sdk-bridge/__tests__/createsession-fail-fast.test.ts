@@ -78,7 +78,8 @@ vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
 vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
   getClaudeAgentDeckPluginPath: () => '/fake/plugin',
   getAgentDeckSystemPromptAppend: () => '',
-  getAgentDeckPluginsForSession: () => undefined,
+  getAgentDeckPluginsForSession: (selectedPluginDir?: string) =>
+    selectedPluginDir ? [{ type: 'local', path: selectedPluginDir }] : undefined,
 }));
 
 vi.mock('@main/agent-deck-mcp/server', () => ({
@@ -161,6 +162,7 @@ beforeEach(() => {
   vi.mocked(sessionManager.updateCliSessionId).mockReset();
   vi.mocked(sessionRepo.setModel).mockClear();
   vi.mocked(sessionRepo.setThinking).mockClear();
+  vi.mocked(sessionRepo.setAgentRuntimeProfile).mockClear();
 });
 
 afterEach(() => {
@@ -168,6 +170,56 @@ afterEach(() => {
 });
 
 describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit first session_id frame', () => {
+  it('restores the persisted Agent and Plugin root for native Claude resume', async () => {
+    const bridge = makeBridge();
+    const mockQuery = new MockSdkQuery();
+    let capturedOptions: Record<string, unknown> | undefined;
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: vi.fn((args: { options: Record<string, unknown> }) => {
+        capturedOptions = args.options;
+        return mockQuery;
+      }),
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name, description, inputSchema, handler,
+      })),
+    } as never);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'app-agent-resume', agentId: 'claude-code', cwd: '/tmp/test', title: 'agent',
+      source: 'sdk', lifecycle: 'dormant', activity: 'idle', startedAt: 1,
+      lastEventAt: 2, endedAt: null, archivedAt: null, permissionMode: 'plan',
+      cliSessionId: 'cli-agent-resume',
+      agentProfileName: 'reviewer-claude',
+      agentProfileSource: 'plugin',
+      agentPluginDir: '/plugins/reviewer-claude',
+    });
+    mockQuery.pushFrame({
+      type: 'system', subtype: 'init', session_id: 'cli-agent-resume',
+      model: 'claude-sonnet-5',
+    });
+
+    const handle = await bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'continue',
+      resume: 'app-agent-resume',
+    });
+
+    expect(handle.sessionId).toBe('app-agent-resume');
+    expect(capturedOptions).toMatchObject({
+      resume: 'cli-agent-resume',
+      agent: 'reviewer-claude',
+      plugins: [{ type: 'local', path: '/plugins/reviewer-claude' }],
+    });
+    expect(sessionRepo.setAgentRuntimeProfile).toHaveBeenCalledWith(
+      'app-agent-resume',
+      {
+        agentProfileName: 'reviewer-claude',
+        agentProfileSource: 'plugin',
+        agentPluginDir: '/plugins/reviewer-claude',
+      },
+    );
+    mockQuery.endStream();
+  });
+
   it('emits the recovery correlation marker only when the first Claude turn is dequeued', async () => {
     const bridge = makeBridge();
     const mockQuery = new MockSdkQuery();

@@ -335,6 +335,8 @@ export async function recoverAndSendImpl(
           recoveryCaptureError,
           minHealJsonlMtimeMs: rec.lastEventAt,
           provider: rec.runtimeProvider ?? undefined,
+          claudeAgentName: rec.agentProfileName ?? undefined,
+          claudePluginDir: rec.agentPluginDir ?? undefined,
           permissionMode: rec.permissionMode ?? undefined,
           claudeCodeSandbox: rec.claudeCodeSandbox ?? undefined,
           model: rec.model ?? undefined,
@@ -376,14 +378,9 @@ export async function recoverAndSendImpl(
       }
       // fellBack=false → fall through 到下面正常 resume 路径 (jsonl 在,行为不变,§不变量 8)
 
-      // plan cross-adapter-parity-20260515 Phase B Step B.1 + REVIEW_41 MED-2 fix:
-      // 用 handle.sessionId(而非固定 return sessionId)反映 createThunk 返回的真实 finalId,
-      // 等待者据此 sendThunk(finalId) 命中 sessions Map 不撞 not found。
-      // **REVIEW_76 INFO (reviewer-claude) 注释订正**:reverse-rename-sid-stability §S6 落地后,
-      // resume 路径(resumeId 非空 → stream-processor.ts:325 `isNewSpawn = !resumeId && ...` = false)
-      // CLI 隐式 fork 走 stream-processor.ts:365 `if (resumeId && resumeId !== realId)` →
-      // L375 **updateCliSessionId(applicationSid, realId)**(仅改 cli_session_id 列,**不** renameSdkSession,
-      // **不**动 sessions.id;renameSdkSession 仅 isNewSpawn 分支 L338 调)→ createSessionImpl resume
+      // Keep handle.sessionId rather than the requested id so future createSession resume semantics
+      // remain safe. Under the current reverse-rename contract, an implicit CLI fork only calls
+      // updateCliSessionId(applicationSid, realId); it never renames the application session row, so
       // 路径 applicationSid 冻结 → handle.sessionId **恒 === sessionId(opts.resume)**。故 recoverer
       // 各路径 handle.sessionId 恒 === sessionId(REVIEW_41 改动在 reverse-rename 后于 recoverer 已等价,
       // 因 recoverer 永远传 resume 永不 isNewSpawn)。保留 handle.sessionId 写法是防御性正确(若未来
@@ -393,6 +390,8 @@ export async function recoverAndSendImpl(
         prompt: text,
         resume: sessionId,
         provider: rec.runtimeProvider ?? undefined,
+        claudeAgentName: rec.agentProfileName ?? undefined,
+        claudePluginDir: rec.agentPluginDir ?? undefined,
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修**:
         // recoverer.ts:486 normal resume caller 显式传 resumeCliSid = rec.cliSessionId ?? sessionId,
         // 防 caller 不传时 S6 fork detect condition 短路让 fork detect 完全跳过 (HIGH-R6-1 真问题)。

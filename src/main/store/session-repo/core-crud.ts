@@ -8,6 +8,7 @@
  */
 
 import type {
+  AgentProfileSource,
   AdapterSessionMode,
   PermissionMode,
   SessionRecord,
@@ -56,8 +57,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
-       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
+       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
          runtime_provider = excluded.runtime_provider,
          cwd = excluded.cwd,
@@ -70,6 +71,9 @@ export function upsert(rec: SessionRecord): void {
          archived_at = excluded.archived_at,
          permission_mode = excluded.permission_mode,
          session_mode = excluded.session_mode,
+         agent_profile_name = excluded.agent_profile_name,
+         agent_profile_source = excluded.agent_profile_source,
+         agent_plugin_dir = excluded.agent_plugin_dir,
          codex_sandbox = excluded.codex_sandbox,
          claude_code_sandbox = excluded.claude_code_sandbox,
          model = excluded.model,
@@ -98,6 +102,9 @@ export function upsert(rec: SessionRecord): void {
       archived_at: rec.archivedAt,
       permission_mode: rec.permissionMode ?? null,
       session_mode: rec.sessionMode ?? null,
+      agent_profile_name: rec.agentProfileName ?? null,
+      agent_profile_source: rec.agentProfileSource ?? null,
+      agent_plugin_dir: rec.agentPluginDir ?? null,
       codex_sandbox: rec.codexSandbox ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
       model: rec.model ?? null,
@@ -240,6 +247,31 @@ export function setPermissionMode(id: string, mode: PermissionMode | null): void
 
 export function setSessionMode(id: string, mode: AdapterSessionMode | null): void {
   getDb().prepare(`UPDATE sessions SET session_mode = ? WHERE id = ?`).run(mode, id);
+}
+
+/** Persist the selected native Agent identity and Plugin mount as one recovery-state update. */
+export function setAgentRuntimeProfile(
+  id: string,
+  profile: {
+    agentProfileName: string | null;
+    agentProfileSource: AgentProfileSource | null;
+    agentPluginDir: string | null;
+  },
+): void {
+  getDb()
+    .prepare(
+      `UPDATE sessions
+       SET agent_profile_name = @agent_profile_name,
+           agent_profile_source = @agent_profile_source,
+           agent_plugin_dir = @agent_plugin_dir
+       WHERE id = @id`,
+    )
+    .run({
+      id,
+      agent_profile_name: profile.agentProfileName,
+      agent_profile_source: profile.agentProfileSource,
+      agent_plugin_dir: profile.agentPluginDir,
+    });
 }
 
 /** Persist a Claude Gateway profile id or Codex model_provider for the session. */
