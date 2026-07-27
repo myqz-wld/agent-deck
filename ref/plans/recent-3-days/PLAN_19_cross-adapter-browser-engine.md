@@ -211,7 +211,8 @@ documents the dependency. A real hidden Electron window returned non-empty pixel
 ## Validation performed
 
 - `pnpm typecheck` passed.
-- `pnpm test` passed 379 files and 3,196 tests, with one test skipped.
+- After integrating current `main`, `pnpm test` passed 389 files and 3,281 tests, with one test
+  skipped.
 - `pnpm build` passed; `git diff --check` clean.
 - Hardening-focused engine, generated-script, MCP browser, screenshot-store, and bootstrap tests
   passed; the Node suite also passed 324 files / 2,732 tests with 54 files / 437 tests skipped for the
