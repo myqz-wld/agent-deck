@@ -33,6 +33,8 @@ export interface CreateSessionCall {
   prompt?: string;
   trustedContinuation?: TrustedContinuationInitialTurn;
   provider?: string;
+  claudeAgentName?: string;
+  claudePluginDir?: string;
   resume?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S1 R3 HIGH-G + R7 HIGH-R7-1**:
@@ -120,6 +122,8 @@ export class TestBridge extends ClaudeSdkBridge {
     prompt?: string;
     trustedContinuation?: TrustedContinuationInitialTurn;
     provider?: string;
+    claudeAgentName?: string;
+    claudePluginDir?: string;
     permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
     resume?: string;
     resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
@@ -136,6 +140,8 @@ export class TestBridge extends ClaudeSdkBridge {
       prompt: opts.prompt,
       trustedContinuation: opts.trustedContinuation,
       provider: opts.provider,
+      claudeAgentName: opts.claudeAgentName,
+      claudePluginDir: opts.claudePluginDir,
       resume: opts.resume,
       resumeMode: opts.resumeMode,
       permissionMode: opts.permissionMode,

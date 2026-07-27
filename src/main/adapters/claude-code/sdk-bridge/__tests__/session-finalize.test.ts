@@ -7,6 +7,7 @@ import { eventBus } from '@main/event-bus';
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
     setClaudeCodeSandbox: vi.fn(),
+    setAgentRuntimeProfile: vi.fn(),
     setModel: vi.fn(),
     setThinking: vi.fn(),
     setExtraAllowWrite: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('@main/event-bus', () => ({
 describe('claude finalizeSessionStart', () => {
   beforeEach(() => {
     vi.mocked(sessionRepo.setClaudeCodeSandbox).mockReset();
+    vi.mocked(sessionRepo.setAgentRuntimeProfile).mockReset();
     vi.mocked(sessionRepo.setModel).mockReset();
     vi.mocked(sessionRepo.setThinking).mockReset();
     vi.mocked(sessionRepo.setExtraAllowWrite).mockReset();
@@ -47,6 +49,8 @@ describe('claude finalizeSessionStart', () => {
       cwd: '/repo',
       prompt: 'hello',
       claudeSandboxMode: 'workspace-write',
+      claudeAgentName: 'reviewer-claude',
+      claudePluginDir: '/plugins/reviewer-claude',
       claudeCodeEffortLevel: 'xhigh',
       emit,
     });
@@ -57,6 +61,11 @@ describe('claude finalizeSessionStart', () => {
       'workspace-write',
     );
     expect(sessionRepo.setThinking).toHaveBeenCalledWith('sid-app', 'xhigh');
+    expect(sessionRepo.setAgentRuntimeProfile).toHaveBeenCalledWith('sid-app', {
+      agentProfileName: 'reviewer-claude',
+      agentProfileSource: 'plugin',
+      agentPluginDir: '/plugins/reviewer-claude',
+    });
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'sid-app',

@@ -137,6 +137,7 @@ export class GrokBuildBridge {
     this.runtimes.set(applicationSessionId, runtime);
 
     try {
+      persistGrokRuntimeMetadata(runtime);
       const waitForRuntime = existing !== null || opts.awaitCanonicalId === true;
       if (!waitForRuntime) {
         this.enqueueInitialTurn(runtime, opts, trustedTurn);

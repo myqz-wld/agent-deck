@@ -18,6 +18,10 @@ export interface RestartCreateOpts {
   trustedContinuation?: TrustedContinuationInitialTurn;
   /** Persisted Claude Gateway profile retained across a cold restart. */
   provider?: string;
+  /** Persisted Claude Agent selection retained across a cold restart. */
+  claudeAgentName?: string;
+  /** Persisted Claude Plugin root retained across a cold restart. */
+  claudePluginDir?: string;
   resume?: string;
   /**
    * **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:

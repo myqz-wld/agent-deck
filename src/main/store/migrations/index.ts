@@ -57,6 +57,7 @@ import v043 from './v043_history_search_case_insensitive.sql?raw';
 import v044 from './v044_sessions_hidden_from_history.sql?raw';
 import v045 from './v045_sessions_adapter_mode.sql?raw';
 import v046 from './v046_sessions_runtime_provider.sql?raw';
+import v047 from './v047_sessions_agent_runtime_profile.sql?raw';
 
 export interface Migration {
   version: number;
@@ -111,4 +112,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 44, name: 'sessions_hidden_from_history', sql: v044 },
   { version: 45, name: 'sessions_adapter_mode', sql: v045 },
   { version: 46, name: 'sessions_runtime_provider', sql: v046 },
+  { version: 47, name: 'sessions_agent_runtime_profile', sql: v047 },
 ];

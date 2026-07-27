@@ -102,6 +102,9 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       archivedAt: null,
       permissionMode: 'plan',
       runtimeProvider: 'deepseek',
+      agentProfileName: 'reviewer-claude',
+      agentProfileSource: 'plugin',
+      agentPluginDir: '/plugins/reviewer-claude',
     });
 
     await bridge.sendMessage('sess-1', 'hi');
@@ -124,6 +127,8 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       prompt: 'hi',
       resume: 'sess-1',
       provider: 'deepseek',
+      claudeAgentName: 'reviewer-claude',
+      claudePluginDir: '/plugins/reviewer-claude',
       permissionMode: 'plan',
       // REVIEW_36 HIGH-1: 正常 resume 路径也透传（fixture 中 record 没设字段，undefined）
       claudeCodeSandbox: undefined,
@@ -307,6 +312,9 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       archivedAt: null,
       permissionMode: 'acceptEdits',
       runtimeProvider: 'deepseek',
+      agentProfileName: 'plugin:auditor',
+      agentProfileSource: 'plugin',
+      agentPluginDir: '/plugins/auditor',
     });
 
     await bridge.sendMessage('sess-no-jsonl', 'hi');
@@ -321,6 +329,8 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       resume: 'sess-no-jsonl',
       resumeMode: 'fresh-cli-reuse-app',
       provider: 'deepseek',
+      claudeAgentName: 'plugin:auditor',
+      claudePluginDir: '/plugins/auditor',
       permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原
       // REVIEW_36 HIGH-1: claudeCodeSandbox 也透传（fixture 中 record 没设此字段，应为 undefined）
       claudeCodeSandbox: undefined,

@@ -56,6 +56,10 @@ export interface FinalizeSessionStartArgs {
   claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
   /** Claude Gateway profile id; undefined keeps an existing persisted value. */
   runtimeProvider?: string;
+  /** Selected Claude Agent name; persisted so every recovery query can restore it. */
+  claudeAgentName?: string;
+  /** Selected Claude Plugin root; persisted together with the Agent selection. */
+  claudePluginDir?: string;
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.2：resolveClaudeModel 算出的 effective model。
    * undefined → 不持久化（保留 sessions.model 原值，resume 路径下保持原 model）；
@@ -134,6 +138,8 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     prompt,
     claudeSandboxMode,
     runtimeProvider,
+    claudeAgentName,
+    claudePluginDir,
     claudeModel,
     claudeCodeEffortLevel,
     extraAllowWrite,
@@ -206,6 +212,21 @@ export function finalizeSessionStart(args: FinalizeSessionStartArgs): void {
     } catch (err) {
       logger.warn(
         `[claude-bridge] setRuntimeProvider(${applicationSid}, ${runtimeProvider}) 失败`,
+        err,
+      );
+    }
+  }
+
+  if (claudeAgentName !== undefined || claudePluginDir !== undefined) {
+    try {
+      sessionRepo.setAgentRuntimeProfile(applicationSid, {
+        agentProfileName: claudeAgentName ?? null,
+        agentProfileSource: claudePluginDir ? 'plugin' : null,
+        agentPluginDir: claudePluginDir ?? null,
+      });
+    } catch (err) {
+      logger.warn(
+        `[claude-bridge] setAgentRuntimeProfile(${applicationSid}) 失败`,
         err,
       );
     }

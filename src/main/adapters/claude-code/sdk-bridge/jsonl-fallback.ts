@@ -99,18 +99,22 @@ function latestConversationMessageTs(
  * - **不**含 `resumeCliSid` 字段 (types.ts:121-133 7 种合法/非法组合表中,fresh + 非空
  *   resumeCliSid 是 runtime guard reject 非法组合)
  */
-export interface JsonlFallbackCreateOpts {
+interface PersistedClaudeRecoveryOptions {
+  provider?: string;
+  claudeAgentName?: string;
+  claudePluginDir?: string;
+  permissionMode?: PermissionMode;
+  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  model?: string;
+  extraAllowWrite?: readonly string[];
+}
+
+export interface JsonlFallbackCreateOpts extends PersistedClaudeRecoveryOptions {
   cwd: string;
   prompt?: string;
   trustedContinuation?: TrustedContinuationInitialTurn;
   resume: string; // applicationSid 复用 (fresh-cli-reuse-app 路径必填)
   resumeMode: 'fresh-cli-reuse-app';
-  permissionMode?: PermissionMode;
-  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
-  /** Persisted Claude Gateway profile; fresh fallback must not switch Gateways. */
-  provider?: string;
-  model?: string;
-  extraAllowWrite?: readonly string[];
   /**
    * **R6 claude HIGH-1 + codex MED-1 双方共识修法**: mutable `UploadedAttachmentRef[]`
    * 与 CreateSessionThunk (recoverer.ts:62) / ClaudeCreateOpts (types.ts:53) 字面对齐,
@@ -151,7 +155,7 @@ export interface JsonlFallbackCtx {
  * 让 TS 编译期阻拦 Step 3d/3e snippet 漏传 restartLabel,同时消除 helper code snippet
  * `opts.restartLabel!` non-null assertion 隐藏的 runtime 错乱。
  */
-type JsonlFallbackOptsBase = {
+type JsonlFallbackOptsBase = PersistedClaudeRecoveryOptions & {
   /** caller 应用 sid (= applicationSid 维度,fresh fallback 后保持不变) */
   sessionId: string;
   /**
@@ -177,12 +181,6 @@ type JsonlFallbackOptsBase = {
    * 证据不足时走 fresh fallback，避免真实 fork 的旧 applicationSid.jsonl 被误当成当前历史。
    */
   minHealJsonlMtimeMs: number;
-  /** Persisted Claude Gateway profile; recovery and restart must not switch Gateways. */
-  provider?: string;
-  permissionMode?: PermissionMode;
-  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
-  model?: string;
-  extraAllowWrite?: readonly string[];
   attachments?: UploadedAttachmentRef[];
   initialEnqueueOptions?: AgentEnqueueOptions;
   /**
@@ -425,6 +423,8 @@ export async function maybeJsonlFallback(
     resume: opts.sessionId, // applicationSid 复用 (不变量 2)
     resumeMode: 'fresh-cli-reuse-app', // 触发 index.ts:419 createSession finalize guard 跳过 finalizeSessionStart
     provider: opts.provider,
+    claudeAgentName: opts.claudeAgentName,
+    claudePluginDir: opts.claudePluginDir,
     permissionMode: opts.permissionMode,
     claudeCodeSandbox: opts.claudeCodeSandbox,
     model: opts.model,

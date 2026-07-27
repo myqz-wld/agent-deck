@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-26 | `CHANGELOG_397_agent-plugin-recovery-state.md` | Preserve Claude and Grok Agent/Plugin state across recovery |
 | 2026-07-26 | `CHANGELOG_396_resumable-plan-deep-review.md` | Keep plan deep-review replies running across close and view changes |
 | 2026-07-25 | `CHANGELOG_395_read-only-plugin-assets.md` | Align read-only direct and Plugin assets across all adapters |
 | 2026-07-24 | `CHANGELOG_394_grok-native-assets.md` | Support Grok native Agents, Skills, and plugin discovery |

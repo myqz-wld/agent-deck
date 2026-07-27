@@ -111,7 +111,15 @@ export async function createSessionImpl(
       'Trusted continuation turns cannot be combined with native Claude resume',
     );
   }
-  opts = { ...opts, prompt: initialTurn.providerPrompt };
+  const persistedProfile = opts.resume ? sessionRepo.get(opts.resume) : null;
+  opts = {
+    ...opts,
+    prompt: initialTurn.providerPrompt,
+    claudeAgentName:
+      opts.claudeAgentName ?? persistedProfile?.agentProfileName ?? undefined,
+    claudePluginDir:
+      opts.claudePluginDir ?? persistedProfile?.agentPluginDir ?? undefined,
+  };
   // === phase 1: validate ===
   // SDK streaming 协议硬性约束：必须有首条 user message 才会启动 CLI 子进程，
   // 否则 stdin 永远等不到数据 → CLI 不动 → SDK 不发 SDKMessage → 30s 兜底超时。
@@ -249,6 +257,8 @@ export async function createSessionImpl(
         prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
         runtimeProvider: opts.provider,
+        claudeAgentName: opts.claudeAgentName,
+        claudePluginDir: opts.claudePluginDir,
         claudeModel: internal.runtimeModel ?? claudeModel,
         claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,
@@ -273,6 +283,8 @@ export async function createSessionImpl(
             prompt: initialTurn.persistedUserText,
             claudeSandboxMode,
             runtimeProvider: opts.provider,
+            claudeAgentName: opts.claudeAgentName,
+            claudePluginDir: opts.claudePluginDir,
             claudeModel: internal.runtimeModel ?? claudeModel,
             claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
             extraAllowWrite: opts.extraAllowWrite,
@@ -341,6 +353,8 @@ export async function createSessionImpl(
         prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
         runtimeProvider: opts.provider,
+        claudeAgentName: opts.claudeAgentName,
+        claudePluginDir: opts.claudePluginDir,
         claudeModel: internal.runtimeModel ?? claudeModel,
         claudeCodeEffortLevel: internal.runtimeEffort ?? claudeCodeEffortLevel,
         extraAllowWrite: opts.extraAllowWrite,

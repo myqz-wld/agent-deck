@@ -26,6 +26,14 @@ export function isAdapterSessionMode(value: unknown): value is AdapterSessionMod
     (ADAPTER_SESSION_MODES as readonly string[]).includes(value)
   );
 }
+export const AGENT_PROFILE_SOURCES = ['bundled', 'project', 'user', 'plugin'] as const;
+export type AgentProfileSource = (typeof AGENT_PROFILE_SOURCES)[number];
+export function isAgentProfileSource(value: unknown): value is AgentProfileSource {
+  return (
+    typeof value === 'string' &&
+    (AGENT_PROFILE_SOURCES as readonly string[]).includes(value)
+  );
+}
 /**
  * 'sdk' = 应用内通过 ＋ 按钮新建的会话（可发消息、可响应权限请求）
  * 'cli' = 外部终端 `claude` 通过 hook 上报的会话（只读，UI 提示用户去终端操作）
@@ -60,6 +68,25 @@ export interface SessionRecord {
   permissionMode?: PermissionMode | null;
   /** Adapter-native work mode; separate from Claude permission mode. */
   sessionMode?: AdapterSessionMode | null;
+  /**
+   * Selected adapter-native Agent identity.
+   *
+   * Claude restores this as SDK `options.agent`; Grok restores it as ACP
+   * `_meta.agentProfile`. null/undefined means the session uses the adapter's generic main agent.
+   */
+  agentProfileName?: string | null;
+  /**
+   * Discovery source for the selected Agent. Grok needs this to decide whether the bundled Agent
+   * plugin or a selected native Plugin root must be mounted again during ACP session/load.
+   * Claude currently records `plugin` when a native Plugin root is selected and otherwise leaves
+   * the source null because user/project/bundled Agents are resolved by SDK settings.
+   */
+  agentProfileSource?: AgentProfileSource | null;
+  /**
+   * Native Plugin root that supplied the selected Agent. Restored into Claude SDK `plugins` or
+   * Grok ACP `pluginDirs` after disconnect, app restart, cold runtime restart, and native resume.
+   */
+  agentPluginDir?: string | null;
   /**
    * plan team-cohesion-fix-20260513 Phase A：universal team backend 反查的 active membership 投影。
    *
