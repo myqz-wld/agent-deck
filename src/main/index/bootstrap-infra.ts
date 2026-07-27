@@ -17,7 +17,7 @@
 // Phase 7.1 开机自启
 // Phase 8   bootstrapIpc
 // Phase 8.5 loadBundledAssets
-// Phase 8.6 reapStaleUploads
+// Phase 8.6 file reapers
 //
 // 返回 AppSettings | null: 非 null = ok 继续 wiring(settings 快照透传 initWiring,REVIEW_104 LOW-E);
 //   null = fatalExit (EADDRINUSE 已 app.exit(1))
@@ -68,6 +68,7 @@ import { AGENT_DECK_MCP_TOKEN_ENV } from '../codex-config/agent-deck-mcp-injecto
 import { unionUserShellPath } from '../utils/user-shell-path';
 import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
 import { startBrowserUseServer } from '../browser-use/server';
+import { reapBrowserScreenshotsAtStartup } from '../browser-use/screenshot-store';
 // NOTE(REVIEW_<X>):以下两个 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import(index.ts × 2 + ipc/settings.ts × 3)会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js,独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
@@ -363,8 +364,9 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
     logger.warn('[main] loadBundledAssets failed:', err);
   }
 
-  // 8.6 image-uploads reaper:清掉 14 天前的孤儿附件文件
+  // 8.6 file reapers: attachments retain 14 days; generated browser screenshots retain 7 days.
   void reapStaleUploads();
+  void reapBrowserScreenshotsAtStartup();
 
   // REVIEW_104 LOW-E: 把 Phase 2 读到的 settings 快照返给 caller 传给 initWiring,省 wiring 段重复读。
   return settings;
