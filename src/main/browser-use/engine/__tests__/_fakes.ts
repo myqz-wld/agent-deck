@@ -73,6 +73,8 @@ export class FakeWindow extends EventEmitter {
     this.emit('focus');
   });
   readonly isDestroyed = vi.fn(() => this.destroyed);
+  readonly isVisible = vi.fn(() => this.shown && !this.destroyed);
+  readonly isFocused = vi.fn(() => this.focused && !this.destroyed);
   readonly close = vi.fn(() => {
     if (this.destroyed) return;
     this.destroyed = true;

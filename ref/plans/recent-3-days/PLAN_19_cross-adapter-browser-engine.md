@@ -130,11 +130,31 @@ concrete use case appears.
   `Page.captureScreenshot` with `captureBeyondViewport`. Harmless today; worth re-checking if the MCP
   tools are ever enabled for Codex sessions that also run the official client on the same tab.
 - **No downloads, file uploads, native dialogs, or auth flows.** Front A keeps `allowDownload` as a
-  stub, and the MCP surface has no equivalent. `browser_press` relies on `sendInputEvent`, whose
-  behavior on hidden windows is unverified; a JavaScript key-event fallback exists only for windows
-  that cannot take synthesized input at all.
+  stub, and the MCP surface has no equivalent.
 - **Caps are shared.** 8 tabs per session and 24 globally, across both fronts. A busy session can
   crowd out others; the error message tells the user to close tabs elsewhere.
+
+## Post-implementation fix: background key delivery
+
+Electron delivers `webContents.sendInputEvent` only to a **focused** window
+(`electron.d.ts`: "The `BrowserWindow` containing the contents needs to be focused for
+`sendInputEvent()` to work"). Since the MCP surface is background-first, the first implementation of
+`browser_press` — and therefore `browser_type` with `submit:true` — would have silently done nothing
+on every background tab while still reporting success.
+
+`EngineTab.canSendInputEvents()` now gates the input-event path on visible **and** focused, and the
+script fallback reproduces the native effects explicitly instead of only dispatching an untrusted
+`KeyboardEvent`: Enter submits the owning form or activates a button or link, Tab moves focus to the
+next visible focusable element, and a single character is inserted into the focused field. All of it
+is skipped when the page called `preventDefault` on keydown, matching real key semantics. Results now
+carry `delivery: 'input-event' | 'script'` plus the script path's `effect`, so a caller can tell which
+path ran.
+
+`paintWhenInitiallyHidden: true` is also pinned explicitly in the window options: background tabs must
+keep painting for screenshots and layout reads. Electron already defaults it to true; pinning it
+documents the dependency. **Still unverified against a real renderer**: whether `capturePage()` returns
+real pixels for a window that was never shown. If it comes back blank, route the viewport path through
+CDP `Page.captureScreenshot` the way `fullPage` already does.
 
 ## Deferred follow-ups
 

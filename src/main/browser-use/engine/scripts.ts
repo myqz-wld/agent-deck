@@ -145,17 +145,69 @@ export function typeScript(ref: string, text: string, clear: boolean): string {
 })()`;
 }
 
-/** JavaScript fallback for key presses when the window cannot take synthesized input events. */
+/**
+ * Key press for tabs that cannot take synthesized input events, which is every background tab:
+ * Electron delivers `sendInputEvent` only to a focused window.
+ *
+ * Dispatching a `KeyboardEvent` alone is not enough because untrusted events carry no default
+ * behavior, so Enter would never submit and Tab would never move focus. The native effects are
+ * therefore reproduced explicitly, and skipped when the page called `preventDefault`, which mirrors
+ * what a real key press would do.
+ */
 export function pressFallbackScript(key: string): string {
   return `(() => {
   var key = ${JSON.stringify(key)};
   ${PAGE_STATE}
+  var FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
   var target = document.activeElement || document.body;
   var init = { key: key, bubbles: true, cancelable: true };
-  target.dispatchEvent(new KeyboardEvent('keydown', init));
+  var allowDefault = target.dispatchEvent(new KeyboardEvent('keydown', init));
+  var effect = 'dispatched';
+
+  if (allowDefault && key.length === 1) {
+    if (target.isContentEditable === true) {
+      target.textContent = (target.textContent || '') + key;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      effect = 'inserted';
+    } else if (typeof target.value === 'string') {
+      var setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(target) || {}, 'value');
+      var next = target.value + key;
+      if (setter && setter.set) setter.set.call(target, next);
+      else target.value = next;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      effect = 'inserted';
+    }
+  } else if (allowDefault && key === 'Enter') {
+    if (target.form && target.form.requestSubmit) {
+      target.form.requestSubmit();
+      effect = 'submitted';
+    } else if (
+      target.tagName === 'BUTTON'
+      || target.tagName === 'A'
+      || (target.getAttribute && target.getAttribute('role') === 'button')
+    ) {
+      target.click();
+      effect = 'activated';
+    }
+  } else if (allowDefault && key === 'Tab') {
+    var focusable = Array.prototype.slice.call(document.querySelectorAll(FOCUSABLE)).filter(
+      function (el) {
+        var rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      },
+    );
+    if (focusable.length > 0) {
+      var index = focusable.indexOf(target);
+      var next = focusable[(index + 1) % focusable.length];
+      if (next && next.focus) {
+        next.focus();
+        effect = 'focus-moved';
+      }
+    }
+  }
+
   target.dispatchEvent(new KeyboardEvent('keyup', init));
-  if (key === 'Enter' && target.form && target.form.requestSubmit) target.form.requestSubmit();
-  return JSON.stringify({ pressed: key, page: pageState() });
+  return JSON.stringify({ pressed: key, effect: effect, page: pageState() });
 })()`;
 }
 

@@ -137,10 +137,19 @@ export async function press(tab: EngineTab, key: string): Promise<Record<string,
       `Unsupported key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
     );
   }
-  const delivered = tab.sendKey(keyCode);
-  if (!delivered) await runScript<string>(tab, pressFallbackScript(key));
+  // A focused window takes real input events; a background tab must go through the script path,
+  // which reproduces the native effect explicitly. Both are reported so a caller can tell them apart.
+  if (tab.sendKey(keyCode)) {
+    await delay(120);
+    return { pressed: key, delivery: 'input-event', page: pageState(tab) };
+  }
+  const raw = await runScript<string>(tab, pressFallbackScript(key));
   await delay(120);
-  return { pressed: key, page: pageState(tab) };
+  return {
+    ...(JSON.parse(raw) as Record<string, unknown>),
+    delivery: 'script',
+    page: pageState(tab),
+  };
 }
 
 export async function scroll(
