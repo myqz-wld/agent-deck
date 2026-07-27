@@ -1,6 +1,7 @@
 import { isAgentId } from '@main/adapters/options-builder';
 import { adapterRegistry } from '@main/adapters/registry';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import { disposeSessionBrowser } from '@main/browser-use/session-browser';
 import { sessionManager } from '@main/session/manager';
 import type { SessionRecord } from '@shared/types';
 
@@ -25,6 +26,9 @@ export function finalizeMcpHandOffSource(source: SessionRecord): void {
   } catch (error) {
     failures.push(`token release failed: ${errorText(error)}`);
   }
+  // Ownership moved to the successor, so the predecessor's browser tabs must not stay alive.
+  // Disposal is best-effort by design and already logs internally.
+  void disposeSessionBrowser(source.id);
   try {
     if (isAgentId(source.agentId)) {
       adapterRegistry.get(source.agentId)?.retireSessionAfterCurrentTurn?.(source.id);

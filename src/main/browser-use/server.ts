@@ -3,7 +3,7 @@ import { unlinkSync } from 'node:fs';
 import { createServer, createConnection, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 
-import { IabBrowserSession, type BrowserUseNotifier } from './iab-session';
+import { CodexPipeBrowserFront, type BrowserUseNotifier } from './fronts/codex-pipe';
 import {
   BrowserUseFrameDecoder,
   encodeBrowserUseFrame,
@@ -131,7 +131,7 @@ export async function startBrowserUseServer(
   const pipePath = options.pipePath ?? defaultBrowserUsePipePath();
   const onError = options.onError ?? (() => {});
   const createHandler =
-    options.createHandler ?? ((notifier) => new IabBrowserSession(notifier));
+    options.createHandler ?? ((notifier) => new CodexPipeBrowserFront(notifier));
 
   await preparePipePath(pipePath);
   const server = createServer();

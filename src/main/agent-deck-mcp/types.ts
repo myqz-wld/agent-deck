@@ -54,7 +54,12 @@ export interface CallerContext {
   transport: AgentDeckMcpTransport;
 }
 
-/** Agent Deck MCP tool names. Public registry exposes 19 tools; archive/teammate cleanup names are retained only as deny-by-default guard keys for old internal handlers. */
+/**
+ * Agent Deck MCP tool names. The public registry exposes 19 core tools everywhere, plus 13
+ * `browser_*` tools on adapters whose runtime profile sets `mcpBrowserTools` (Codex CLI keeps using
+ * the official Browser plugin instead). Archive/teammate cleanup names are retained only as
+ * deny-by-default guard keys for old internal handlers.
+ */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
   sendMessage: 'send_message',
@@ -84,6 +89,23 @@ export const AGENT_DECK_TOOL_NAMES = {
   reportIssue: 'report_issue',
   appendIssueContext: 'append_issue_context',
   updateIssueStatus: 'update_issue_status',
+  // plan cross-adapter-browser-engine-20260727：13 个 browser tool 把 Agent Deck 自己的 in-app
+  // browser 开放给所有 adapter（Codex 侧仍走官方 Browser 插件 native pipe，见 runtime-profiles
+  // mcpBrowserTools）。全部 deny external —— tab 归 caller session 所有，需要真实 in-process /
+  // per-session HTTP caller 身份。
+  browserOpen: 'browser_open',
+  browserTabs: 'browser_tabs',
+  browserNavigate: 'browser_navigate',
+  browserClose: 'browser_close',
+  browserSnapshot: 'browser_snapshot',
+  browserScreenshot: 'browser_screenshot',
+  browserClick: 'browser_click',
+  browserType: 'browser_type',
+  browserPress: 'browser_press',
+  browserScroll: 'browser_scroll',
+  browserReadConsole: 'browser_read_console',
+  browserReadNetwork: 'browser_read_network',
+  browserEvaluate: 'browser_evaluate',
 } as const;
 
 export type AgentDeckToolName =
@@ -123,4 +145,19 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   report_issue: false,
   append_issue_context: false,
   update_issue_status: false,
+  // browser tools: tab 所有权按 caller session 绑定，external caller 没有可归属的 session →
+  // 全 deny（含只读的 browser_tabs / browser_read_* —— 它们读的是「本会话自己的」浏览器状态）。
+  browser_open: false,
+  browser_tabs: false,
+  browser_navigate: false,
+  browser_close: false,
+  browser_snapshot: false,
+  browser_screenshot: false,
+  browser_click: false,
+  browser_type: false,
+  browser_press: false,
+  browser_scroll: false,
+  browser_read_console: false,
+  browser_read_network: false,
+  browser_evaluate: false,
 };

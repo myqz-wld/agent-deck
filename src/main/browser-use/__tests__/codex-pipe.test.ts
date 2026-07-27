@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 
-import { IabBrowserSession } from '../iab-session';
+import { CodexPipeBrowserFront } from '../fronts/codex-pipe';
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -59,9 +59,9 @@ class FakeWindow extends EventEmitter {
   });
 }
 
-describe('IabBrowserSession', () => {
+describe('CodexPipeBrowserFront', () => {
   it('binds metadata to the first real Codex session and rejects connection reuse', async () => {
-    const session = new IabBrowserSession({ notify: vi.fn() }, { appVersion: '1.2.3' });
+    const session = new CodexPipeBrowserFront({ notify: vi.fn() }, { appVersion: '1.2.3' });
 
     await expect(
       session.handleRequest('getInfo', {
@@ -90,7 +90,7 @@ describe('IabBrowserSession', () => {
     const notifier = { notify: vi.fn() };
     const windows: FakeWindow[] = [];
     const optionsSeen: BrowserWindowConstructorOptions[] = [];
-    const session = new IabBrowserSession(notifier, {
+    const session = new CodexPipeBrowserFront(notifier, {
       appVersion: '1.2.3',
       showWindows: true,
       createWindow: (options) => {
@@ -149,7 +149,7 @@ describe('IabBrowserSession', () => {
 
   it('tracks child target sessions and destroys every owned window on dispose', async () => {
     const window = new FakeWindow();
-    const session = new IabBrowserSession(
+    const session = new CodexPipeBrowserFront(
       { notify: vi.fn() },
       {
         appVersion: '1.2.3',

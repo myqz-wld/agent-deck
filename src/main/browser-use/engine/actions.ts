@@ -1,0 +1,222 @@
+/**
+ * Semantic browser actions.
+ *
+ * Fronts call these instead of driving CDP themselves. One call performs the whole orchestration —
+ * resolve the reference, act, let the page settle, and return the cheapest useful state — because
+ * adapters other than Codex have no client-side browser library to do that for them.
+ */
+
+import { EngineTab, delay } from './tab';
+import {
+  clickScript,
+  evaluateScript,
+  pressFallbackScript,
+  scrollScript,
+  snapshotScript,
+  typeScript,
+} from './scripts';
+
+export const ALLOWED_URL_SCHEMES = ['http:', 'https:', 'file:', 'about:'] as const;
+
+const KEY_CODES: Record<string, string> = {
+  enter: 'Return',
+  return: 'Return',
+  tab: 'Tab',
+  escape: 'Escape',
+  esc: 'Escape',
+  backspace: 'Backspace',
+  delete: 'Delete',
+  space: 'Space',
+  arrowup: 'Up',
+  arrowdown: 'Down',
+  arrowleft: 'Left',
+  arrowright: 'Right',
+  up: 'Up',
+  down: 'Down',
+  left: 'Left',
+  right: 'Right',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
+};
+
+export interface PageState {
+  url: string;
+  title: string;
+}
+
+export function normalizeUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  // `localhost:3000` is a host and port, not a `localhost:` scheme. Anything whose colon is followed
+  // by a digit is treated as host:port; everything else keeps its explicit scheme so the allow-list
+  // below can reject it honestly instead of turning `javascript:` into `http://javascript:`.
+  const looksSchemed =
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[a-zA-Z][a-zA-Z0-9.-]*:\d/.test(trimmed);
+  const candidate = looksSchemed ? trimmed : `http://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error(`Not a valid URL: ${rawUrl}`);
+  }
+  if (!ALLOWED_URL_SCHEMES.includes(parsed.protocol as (typeof ALLOWED_URL_SCHEMES)[number])) {
+    throw new Error(
+      `Unsupported URL scheme "${parsed.protocol}". Allowed schemes: ${ALLOWED_URL_SCHEMES.join(', ')}.`,
+    );
+  }
+  return parsed.toString();
+}
+
+export function pageState(tab: EngineTab): PageState {
+  return { url: tab.url(), title: tab.title() };
+}
+
+export async function navigate(tab: EngineTab, rawUrl: string): Promise<PageState> {
+  const url = normalizeUrl(rawUrl);
+  await tab.loadUrl(url);
+  await tab.waitForSettle();
+  return pageState(tab);
+}
+
+export async function reload(tab: EngineTab): Promise<PageState> {
+  await tab.reload();
+  return pageState(tab);
+}
+
+export interface SnapshotResult {
+  refGeneration: number;
+  url: string;
+  title: string;
+  elementCount: number;
+  truncated: boolean;
+  elements: Array<Record<string, unknown>>;
+  text?: string;
+}
+
+export async function snapshot(
+  tab: EngineTab,
+  options: { limit?: number; includeText?: boolean; textLimit?: number } = {},
+): Promise<SnapshotResult> {
+  const raw = await runScript<string>(
+    tab,
+    snapshotScript({
+      limit: options.limit ?? 120,
+      includeText: options.includeText ?? false,
+      textLimit: options.textLimit ?? 4_000,
+    }),
+  );
+  return JSON.parse(raw) as SnapshotResult;
+}
+
+export async function click(tab: EngineTab, ref: string): Promise<Record<string, unknown>> {
+  const result = await runScript<string>(tab, clickScript(ref));
+  await tab.waitForSettle(2_000);
+  return { ...(JSON.parse(result) as Record<string, unknown>), page: pageState(tab) };
+}
+
+export async function typeText(
+  tab: EngineTab,
+  ref: string,
+  text: string,
+  options: { clear?: boolean; submit?: boolean } = {},
+): Promise<Record<string, unknown>> {
+  const result = await runScript<string>(tab, typeScript(ref, text, options.clear ?? true));
+  const parsed = JSON.parse(result) as Record<string, unknown>;
+  if (options.submit === true) {
+    await press(tab, 'Enter');
+    await tab.waitForSettle(2_000);
+  }
+  return { ...parsed, submitted: options.submit === true, page: pageState(tab) };
+}
+
+export async function press(tab: EngineTab, key: string): Promise<Record<string, unknown>> {
+  const keyCode = KEY_CODES[key.trim().toLowerCase()] ?? (key.length === 1 ? key : null);
+  if (keyCode == null) {
+    throw new Error(
+      `Unsupported key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
+    );
+  }
+  const delivered = tab.sendKey(keyCode);
+  if (!delivered) await runScript<string>(tab, pressFallbackScript(key));
+  await delay(120);
+  return { pressed: key, page: pageState(tab) };
+}
+
+export async function scroll(
+  tab: EngineTab,
+  options: { ref?: string; to?: 'top' | 'bottom'; dx?: number; dy?: number } = {},
+): Promise<Record<string, unknown>> {
+  const raw = await runScript<string>(
+    tab,
+    scrollScript({
+      ref: options.ref,
+      to: options.to,
+      dx: options.dx ?? 0,
+      dy: options.dy ?? 600,
+    }),
+  );
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
+export async function evaluate(tab: EngineTab, expression: string): Promise<Record<string, unknown>> {
+  const raw = await runScript<string>(tab, evaluateScript(expression));
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
+export interface ScreenshotResult {
+  png: Buffer;
+  fullPage: boolean;
+}
+
+export async function screenshot(
+  tab: EngineTab,
+  options: { fullPage?: boolean; maxWidth?: number } = {},
+): Promise<ScreenshotResult> {
+  if (options.fullPage === true) {
+    const result = (await tab.cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: true,
+    })) as { data?: string };
+    if (typeof result?.data === 'string') {
+      return { png: Buffer.from(result.data, 'base64'), fullPage: true };
+    }
+  }
+  return { png: await tab.capturePng(options.maxWidth), fullPage: false };
+}
+
+export async function readConsole(tab: EngineTab, limit: number): Promise<unknown[]> {
+  await tab.cdp.enableConsoleCapture();
+  return tab.cdp.readConsole(limit);
+}
+
+export async function readNetwork(tab: EngineTab, limit: number): Promise<unknown[]> {
+  await tab.cdp.enableNetworkCapture();
+  return tab.cdp.readNetwork(limit);
+}
+
+/**
+ * Run an injected script and translate the page-side sentinel errors into guidance an agent can
+ * act on without reading engine internals.
+ */
+async function runScript<T>(tab: EngineTab, script: string): Promise<T> {
+  try {
+    return await tab.executeJs<T>(script);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('NO_SNAPSHOT')) {
+      throw new Error('No element references exist yet for this tab. Take a snapshot first.');
+    }
+    if (message.includes('STALE_REF')) {
+      throw new Error(
+        'That element reference is stale because the page changed or a newer snapshot replaced it. Take a fresh snapshot and use its refs.',
+      );
+    }
+    if (message.includes('DETACHED_REF')) {
+      throw new Error(
+        'That element is no longer attached to the page. Take a fresh snapshot and use its refs.',
+      );
+    }
+    throw error instanceof Error ? error : new Error(message);
+  }
+}

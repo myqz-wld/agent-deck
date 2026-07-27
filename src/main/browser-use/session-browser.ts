@@ -1,0 +1,45 @@
+/**
+ * Session-owned browser helpers shared by the MCP browser tools and the session lifecycle.
+ *
+ * Every Agent Deck session that opens a browser owns its tabs through the `session` owner
+ * namespace, which is what keeps one session from seeing another session's pages, cookies, or
+ * storage. Release is idempotent and never creates a browser, so lifecycle call sites can call it
+ * unconditionally.
+ */
+
+import log from '@main/utils/logger';
+
+import { getBrowserEngine } from './engine/registry';
+import type { BrowserOwnerHandle } from './engine/registry';
+import type { BrowserOwnerKey } from './engine/types';
+
+const logger = log.scope('browser-engine');
+
+export function sessionBrowserOwner(sessionId: string): BrowserOwnerKey {
+  return { kind: 'session', id: sessionId };
+}
+
+/** Acquire (creating on first use) the browser owner handle for an Agent Deck session. */
+export function acquireSessionBrowser(sessionId: string): BrowserOwnerHandle {
+  return getBrowserEngine().acquire(sessionBrowserOwner(sessionId));
+}
+
+/** Existing handle for a session, or null when that session never opened a browser. */
+export function peekSessionBrowser(sessionId: string): BrowserOwnerHandle | null {
+  return getBrowserEngine().peek(sessionBrowserOwner(sessionId));
+}
+
+/**
+ * Close every browser window owned by a session. Safe to call for sessions that never opened one,
+ * and safe to call twice; failures are logged instead of breaking a lifecycle transition.
+ */
+export async function disposeSessionBrowser(sessionId: string): Promise<void> {
+  try {
+    const engine = getBrowserEngine();
+    if (engine.peek(sessionBrowserOwner(sessionId)) == null) return;
+    await engine.disposeOwner(sessionBrowserOwner(sessionId));
+    logger.debug(`[browser-engine] disposed browser tabs owned by session ${sessionId}`);
+  } catch (err) {
+    logger.warn(`[browser-engine] failed to dispose browser tabs for session ${sessionId}`, err);
+  }
+}
