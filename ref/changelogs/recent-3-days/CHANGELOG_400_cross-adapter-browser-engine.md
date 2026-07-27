@@ -51,9 +51,15 @@ request, so tab state parked on a connection would vanish between two tool calls
   images still get a usable artifact.
 - Reject `javascript:` and `data:` navigation while still accepting bare hosts such as
   `localhost:3000`.
+- Deliver key presses correctly on background tabs. Electron sends synthesized input events only to a
+  focused window, so `browser_press` and `browser_type` with `submit:true` now gate that path on
+  visible-and-focused and otherwise reproduce the native effect from a page script: Enter submits the
+  form or activates a button or link, Tab moves focus, and a single character is inserted, all skipped
+  when the page prevented the default. Results report which path ran.
+- Pin `paintWhenInitiallyHidden: true` so background tabs keep painting for screenshots and layout
+  reads.
 
 ### Lifecycle and safety
-
 - Dispose a session's tabs on session close, committed MCP hand-off, and Codex create-session
   rollback; dispose every engine window during application shutdown.
 - Add browser guidance and identical safety rules to the three bundled prompt assets
@@ -78,6 +84,8 @@ request, so tab state parked on a connection would vanish between two tool calls
   gating, cross-session tab isolation, external-caller denial, and stale-ref guidance.
 - A test caught a real defect before it shipped: the first URL normalizer read `localhost:3000` as a
   `localhost:` scheme and rejected it.
+- Reading the Electron typings caught a second one: synthesized key events would have been dropped
+  silently on every background tab, which is the default for this surface.
 
 ### Not yet validated
 
@@ -86,6 +94,9 @@ request, so tab state parked on a connection would vanish between two tool calls
   fresh session, which cannot be done against a running installed application.
 - Inline MCP image content has not been observed in a live client on any adapter; the saved-path
   fallback exists precisely because that is unproven.
+- Whether `capturePage()` returns real pixels for a window that was never shown is unverified against a
+  real renderer. If it returns blank, route the viewport path through CDP `Page.captureScreenshot` the
+  way `fullPage` already does.
 
 ## Do Not Split Protection
 

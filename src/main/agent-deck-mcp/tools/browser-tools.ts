@@ -147,7 +147,7 @@ export function buildBrowserTools(deps: BuildBrowserToolsDeps): SdkMcpToolDefini
     ),
     tool(
       AGENT_DECK_TOOL_NAMES.browserPress,
-      'Press a key on the focused element, such as Enter to submit, Tab to move focus, or Escape to dismiss. Use browser_click or browser_type first when a specific element must be focused.',
+      'Press a key on the focused element, such as Enter to submit, Tab to move focus, or Escape to dismiss. Works on background tabs as well as visible ones. Use browser_click or browser_type first when a specific element must be focused.',
       BROWSER_PRESS_SCHEMA,
       async (args: any, extra: unknown) => browserPressHandler(args, makeCtx(args, extra)),
       { annotations: ACT_ANNOTATIONS },

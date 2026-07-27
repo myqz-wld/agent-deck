@@ -74,13 +74,32 @@ describe('page actions', () => {
     await expect(actions.click(tab, '1-1')).rejects.toThrow(/Take a snapshot first/);
   });
 
-  it('sends real key events when the window supports them', async () => {
+  it('sends real key events only to a focused window', async () => {
     const { tab, window } = await makeTab();
+    tab.show();
 
-    await actions.press(tab, 'Enter');
+    const result = await actions.press(tab, 'Enter');
 
+    expect(result.delivery).toBe('input-event');
     expect(window.inputEvents.map((event) => event.type)).toEqual(['keyDown', 'char', 'keyUp']);
     expect(window.inputEvents[0]?.keyCode).toBe('Return');
+  });
+
+  it('falls back to the script path for a background tab instead of silently doing nothing', async () => {
+    const { tab, window } = await makeTab();
+    let executed = '';
+    window.jsHandler = (code) => {
+      executed = code;
+      return JSON.stringify({ pressed: 'Enter', effect: 'submitted' });
+    };
+
+    // Electron delivers synthesized input only to a focused window, so a never-shown tab must not
+    // report success without doing the work.
+    const result = await actions.press(tab, 'Enter');
+
+    expect(window.inputEvents).toHaveLength(0);
+    expect(result).toMatchObject({ delivery: 'script', effect: 'submitted' });
+    expect(executed).toContain('requestSubmit');
   });
 
   it('rejects unknown keys instead of silently dropping the press', async () => {

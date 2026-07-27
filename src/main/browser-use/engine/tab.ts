@@ -32,6 +32,10 @@ export function buildTabWindowOptions(
     width: 1280,
     height: 900,
     show: false,
+    // Background tabs are the default, so the renderer must still paint for screenshots and layout
+    // reads to work while the window was never shown. Electron defaults this to true; pinning it
+    // documents the dependency.
+    paintWhenInitiallyHidden: true,
     autoHideMenuBar: true,
     title,
     webPreferences: {
@@ -137,8 +141,25 @@ export class EngineTab {
     return image.toPNG();
   }
 
+  /**
+   * Electron only delivers synthesized input events to a focused window, so a background tab must
+   * fall back to script-dispatched keys. Reporting false here is normal, not a failure.
+   */
+  canSendInputEvents(): boolean {
+    if (this.isDestroyed()) return false;
+    const window = this.window as unknown as {
+      isVisible?: () => boolean;
+      isFocused?: () => boolean;
+    };
+    if (typeof window.isVisible !== 'function' || typeof window.isFocused !== 'function') {
+      return false;
+    }
+    return window.isVisible() && window.isFocused();
+  }
+
   sendKey(keyCode: string): boolean {
     this.assertAlive();
+    if (!this.canSendInputEvents()) return false;
     const contents = this.window.webContents as unknown as {
       sendInputEvent?: (event: Record<string, unknown>) => void;
     };
