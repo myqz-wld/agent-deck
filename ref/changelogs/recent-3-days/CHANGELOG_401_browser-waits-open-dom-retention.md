@@ -91,8 +91,8 @@ continues to use the official Browser plugin rather than the MCP browser surface
 - A second committed real-Electron boundary fixture verified remote permission denial, probe versus
   interaction user activation, background key effects, force-close through `beforeunload`, selector
   wall-clock timeout, and Retina-aware full-page width. The user-requested standalone
-  `gpt-5.6-sol` / `max` review completed full scope coverage; its repair verification and live
-  Claude/Grok/Codex client checks remain.
+  `gpt-5.6-sol` / `max` review and same-reviewer repair pass closed all 12 findings with complete
+  coverage and no new finding. Live Claude/Grok/Codex client checks remain.
 
 ## Do Not Split Protection
 
