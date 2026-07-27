@@ -77,8 +77,9 @@ export function translateGrokUpdate(
     case 'user_message_chunk':
       return [];
     case 'tool_call': {
-      const toolKind = normalizeAgentToolKind(update.kind, update.title);
-      state.toolNames.set(update.toolCallId, update.title);
+      const toolName = grokToolName(update);
+      const toolKind = normalizeAgentToolKind(update.kind, toolName);
+      state.toolNames.set(update.toolCallId, toolName);
       state.toolKinds.set(update.toolCallId, toolKind);
       if (toolKind === 'think') {
         state.thinkingToolIds.add(update.toolCallId);
@@ -98,7 +99,7 @@ export function translateGrokUpdate(
       return [
         ...flushGrokTextUpdates(sessionId, state),
         event('tool-use-start', {
-          toolName: update.title,
+          toolName,
           toolKind,
           toolInput: update.rawInput,
           toolUseId: update.toolCallId,
@@ -107,8 +108,11 @@ export function translateGrokUpdate(
       ];
     }
     case 'tool_call_update': {
-      const toolName = update.title ?? state.toolNames.get(update.toolCallId) ?? 'Grok tool';
-      if (update.title) state.toolNames.set(update.toolCallId, update.title);
+      // ACP `title` is a mutable human-readable progress label. Keep the identity chosen for the
+      // start event so the matching completion row cannot drift when Grok patches that title.
+      // ACP 1.3 `name` is the programmatic identity and wins when the initial call has it.
+      const toolName =
+        state.toolNames.get(update.toolCallId) ?? rememberGrokToolName(update, state);
       const toolKind = normalizeAgentToolKind(
         update.kind ?? state.toolKinds.get(update.toolCallId),
         toolName,
@@ -144,7 +148,7 @@ export function translateGrokUpdate(
             toolKind,
             toolUseId: update.toolCallId,
             toolResult: update.rawOutput ?? toolContentText(update.content),
-            status: update.status === 'completed' ? 'success' : 'error',
+            status: update.status,
           }),
         );
         state.startedToolIds.delete(update.toolCallId);
@@ -267,9 +271,23 @@ function contentEvents(
 
 function normalizeToolStatus(status: string | null | undefined): string | undefined {
   if (status === 'in_progress') return 'inProgress';
-  if (status === 'completed') return 'success';
-  if (status === 'failed') return 'error';
   return status ?? undefined;
+}
+
+function grokToolName(update: { name?: string | null; title?: string | null }): string {
+  for (const value of [update.name, update.title]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return 'Grok tool';
+}
+
+function rememberGrokToolName(
+  update: ToolCallUpdate,
+  state: GrokTranslationState,
+): string {
+  const toolName = grokToolName(update);
+  state.toolNames.set(update.toolCallId, toolName);
+  return toolName;
 }
 
 function toolThinkingText(update: ToolCall | ToolCallUpdate): string | null {
