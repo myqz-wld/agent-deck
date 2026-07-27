@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-27 | `PLAN_19_cross-adapter-browser-engine.md` | implemented, real-session validation pending | Open the in-app browser to every adapter through MCP tools | CHANGELOG_400 |
 | 2026-07-23 | `PLAN_18_runtime-provider-gateway-unification.md` | completed | Unify Claude Gateway and Codex runtime providers | CHANGELOG_387 |
 | 2026-07-23 | `PLAN_17_bundled-agent-runtime-overrides.md` | completed | Configure bundled Agent runtimes without editing packaged assets | CHANGELOG_384 / REVIEW_168 |
 | 2026-07-23 | `PLAN_16_grok-build-adapter-profiles.md` | completed | Add Grok Build through ACP and typed adapter runtime profiles | CHANGELOG_383 / REVIEW_167 |

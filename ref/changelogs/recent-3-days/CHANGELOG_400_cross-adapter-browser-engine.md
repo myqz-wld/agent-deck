@@ -94,9 +94,9 @@ why the browser tool definitions live in `tools/browser-tools.ts` instead of bei
 
 ## Notes
 
-The plan for this work is `.ref/plans/cross-adapter-browser-engine-20260727.md`; it stays in the
-non-final workspace until the deferred real-session validation is done, and archives to
-`ref/plans/<bucket>/PLAN_19_cross-adapter-browser-engine.md` at that point. Prompt-asset backups are
-in `.ref/prompt-asset-backups/20260727-browser-tools/`. The file renames under
-`src/main/browser-use/` mean `REVIEW_177`'s scope no longer maps to the current paths, so the next
-review must treat the engine, the Codex front, and the MCP browser tools as unreviewed.
+The plan for this work is archived as `ref/plans/recent-3-days/PLAN_19_cross-adapter-browser-engine.md`
+with the deferred validation, the traps, and the known functional gaps recorded for the next session.
+Prompt-asset backups were discarded on purpose: the pre-change content of all three bundled assets is
+recoverable from git history at `9a8cf9aa`. The file renames under `src/main/browser-use/` mean
+`REVIEW_177`'s scope no longer maps to the current paths, so the next review must treat the engine, the
+Codex front, and the MCP browser tools as unreviewed.
