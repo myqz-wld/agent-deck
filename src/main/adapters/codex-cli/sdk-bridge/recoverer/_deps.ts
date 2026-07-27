@@ -21,7 +21,11 @@
  * - codex jsonl 路径与 claude 不同:`~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TIMESTAMP>-<thread_id>.jsonl`
  *   预检算法见 `jsonl-discovery.defaultCodexResumeJsonlExists`
  */
-import type { UploadedAttachmentRef, SessionRecord } from '@shared/types';
+import type {
+  CodexApprovalPolicy,
+  UploadedAttachmentRef,
+  SessionRecord,
+} from '@shared/types';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { CodexBridgeOptions, CodexSessionHandle } from '../types';
 import type {
@@ -53,6 +57,8 @@ export type CreateSessionThunk = (opts: {
   provider?: string;
   resume?: string;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /** Persisted explicit reviewer/session override; omitted keeps provider ownership. */
+  approvalPolicy?: CodexApprovalPolicy;
   attachments?: UploadedAttachmentRef[];
   /**
    * recoverer fallback / resume 路径显式透传 spawn 时持久化的 model（与 claude

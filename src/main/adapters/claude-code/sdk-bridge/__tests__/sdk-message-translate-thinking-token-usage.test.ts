@@ -106,8 +106,8 @@ describe('translateSdkMessage Claude reasoning usage provenance', () => {
 
     expect(reasoningValues(events)).toEqual([42]);
     expect(reasoningEvents(events)[0].payload).toMatchObject({
-      messageId: 'result:result-1:reasoning',
-      model: 'claude-opus-4-8',
+      messageId: 'result:result-1:model:claude-sonnet-4-6',
+      model: 'claude-sonnet-4-6',
     });
   });
 
@@ -119,13 +119,13 @@ describe('translateSdkMessage Claude reasoning usage provenance', () => {
     expect(reasoningValues(events)).toEqual([18]);
   });
 
-  it('emits only the authoritative result remainder after an assistant detail', () => {
+  it('persists only the authoritative final total after provisional assistant detail', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(emit, 'sid-1', assistantUsage(18), internal);
     translateSdkMessage(emit, 'sid-1', approximateThinking(999), internal);
     translateSdkMessage(emit, 'sid-1', resultMsg(25), internal);
 
-    expect(reasoningValues(events)).toEqual([18, 7]);
+    expect(reasoningValues(events)).toEqual([25]);
   });
 
   it('clears turn accounting without emitting usage during an expected close', () => {
@@ -134,7 +134,7 @@ describe('translateSdkMessage Claude reasoning usage provenance', () => {
     internal.expectedClose = true;
     translateSdkMessage(emit, 'sid-1', resultMsg(25), internal);
 
-    expect(reasoningValues(events)).toEqual([18]);
+    expect(reasoningValues(events)).toEqual([]);
     expect(internal.turnUsageByBucket.size).toBe(0);
   });
 });

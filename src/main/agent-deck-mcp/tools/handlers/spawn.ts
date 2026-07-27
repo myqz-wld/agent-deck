@@ -29,6 +29,7 @@ import { buildSpawnPromptContext } from './spawn-prompt';
 import { validateSpawnForkPreflight } from './spawn-fork-preflight';
 import {
   buildSpawnTargetOptions,
+  inheritCodexForkRuntimeControls,
   setSpawnTargetInitialRegistration,
   setSpawnTargetPrompt,
 } from './spawn-target-options';
@@ -196,6 +197,7 @@ export const spawnSessionHandler = withMcpGuard(
 
     let forkSource: ForkSessionSource | null = null;
     if (contextMode === 'fork') {
+      inheritCodexForkRuntimeControls(targetOptions, leadRecord);
       const preflight = await validateSpawnForkPreflight({
         callerSessionId: caller.callerSessionId,
         caller: leadRecord,

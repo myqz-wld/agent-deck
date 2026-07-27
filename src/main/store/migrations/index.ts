@@ -59,6 +59,9 @@ import v045 from './v045_sessions_adapter_mode.sql?raw';
 import v046 from './v046_sessions_runtime_provider.sql?raw';
 import v047 from './v047_sessions_agent_runtime_profile.sql?raw';
 import v048 from './v048_codex_output_token_totals.sql?raw';
+import v049 from './v049_sessions_codex_approval_policy.sql?raw';
+import v050 from './v050_sessions_grok_usage_watermark.sql?raw';
+import v051 from './v051_token_usage_presence.sql?raw';
 
 export interface Migration {
   version: number;
@@ -115,4 +118,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 46, name: 'sessions_runtime_provider', sql: v046 },
   { version: 47, name: 'sessions_agent_runtime_profile', sql: v047 },
   { version: 48, name: 'codex_output_token_totals', sql: v048 },
+  { version: 49, name: 'sessions_codex_approval_policy', sql: v049 },
+  { version: 50, name: 'sessions_grok_usage_watermark', sql: v050 },
+  { version: 51, name: 'token_usage_presence', sql: v051 },
 ];

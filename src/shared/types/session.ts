@@ -13,16 +13,66 @@ export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 export type LifecycleState = 'active' | 'dormant' | 'closed';
 /**
  * SDK 通道的会话级权限模式。SDK Query 自己持有运行时真值但不暴露 getter，
- * 因此把「用户上次主动选过的值」持久化在 sessions.permission_mode 列里，
- * 切回 detail 或恢复会话时还原。
+ * 因此把用户选择或 provider 上报的当前权威状态持久化在 sessions.permission_mode 列里，
+ * 切回 detail 或恢复会话时精确还原。
  */
-export type PermissionMode =
-  | 'default'
-  | 'acceptEdits'
-  | 'plan'
-  | 'dontAsk'
-  | 'auto'
-  | 'bypassPermissions';
+export const PERMISSION_MODES = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'auto',
+  'bypassPermissions',
+] as const;
+/** Modes users may explicitly choose through Agent Deck's public surfaces. */
+export type SelectablePermissionMode = (typeof PERMISSION_MODES)[number];
+/**
+ * Provider runtime states. `dontAsk` remains intentionally absent from the public selectable
+ * list, but Claude may report or restore it and Agent Deck must preserve that state exactly.
+ */
+export const CLAUDE_RUNTIME_PERMISSION_MODES = [
+  ...PERMISSION_MODES,
+  'dontAsk',
+] as const;
+export type PermissionMode = (typeof CLAUDE_RUNTIME_PERMISSION_MODES)[number];
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return (
+    typeof value === 'string' &&
+    (CLAUDE_RUNTIME_PERMISSION_MODES as readonly string[]).includes(value)
+  );
+}
+export function isSelectablePermissionMode(
+  value: unknown,
+): value is SelectablePermissionMode {
+  return (
+    typeof value === 'string' &&
+    (PERMISSION_MODES as readonly string[]).includes(value)
+  );
+}
+/**
+ * Restore every provider-valid runtime state exactly; ignore only unknown values. Public parsers
+ * use `isSelectablePermissionMode` separately, so preserving `dontAsk` here does not expose it as
+ * a new user choice.
+ */
+export function normalizeStoredPermissionMode(value: unknown): PermissionMode | null {
+  return isPermissionMode(value) ? value : null;
+}
+export const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const;
+export type CodexApprovalPolicy = (typeof CODEX_APPROVAL_POLICIES)[number];
+export function isCodexApprovalPolicy(value: unknown): value is CodexApprovalPolicy {
+  return (
+    typeof value === 'string' &&
+    (CODEX_APPROVAL_POLICIES as readonly string[]).includes(value)
+  );
+}
+/** Exact cumulative ACP counters used only as Grok recovery watermarks. */
+export interface GrokUsageWatermark {
+  totalTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  thoughtTokens: number | null;
+  cachedReadTokens: number | null;
+  cachedWriteTokens: number | null;
+}
 /** Adapter-native work mode. Currently negotiated and implemented by Grok Build ACP. */
 export const ADAPTER_SESSION_MODES = ['default', 'plan', 'ask'] as const;
 export type AdapterSessionMode = (typeof ADAPTER_SESSION_MODES)[number];
@@ -70,7 +120,7 @@ export interface SessionRecord {
   pinnedAt?: number | null;
   /** Internal runtime rows remain live-addressable but are permanently omitted from History. */
   hiddenFromHistory?: boolean;
-  /** SDK 通道：上次手动选过的权限模式；null/undefined 视为 'default'。CLI 通道字段无意义。 */
+  /** Claude SDK 当前权限状态；null/undefined 视为 'default'。其他 adapter 字段无意义。 */
   permissionMode?: PermissionMode | null;
   /** Adapter-native work mode; separate from Claude permission mode. */
   sessionMode?: AdapterSessionMode | null;
@@ -113,6 +163,12 @@ export interface SessionRecord {
    * claude-code 会话该字段始终 null。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
+  /**
+   * Explicit per-session Codex approval override. Null means Agent Deck leaves
+   * approval ownership to Codex config/provider defaults. Reviewer sessions
+   * persist `never` so dormant/app-restart recovery cannot become interactive.
+   */
+  codexApprovalPolicy?: CodexApprovalPolicy | null;
   /**
    * Claude Code OS 沙盒档位（CHANGELOG_74：仅 claude-code adapter 写）。
    * 持久化用户在 NewSessionDialog / ComposerSdk 选过的 OS 沙盒档位
@@ -223,6 +279,13 @@ export interface SessionRecord {
    * 读取端复用 parseStringArrayJson defense-in-depth（与 extraAllowWrite 同款防脏）。
    */
   additionalDirectories?: string[] | null;
+  /**
+   * Last exact cumulative Grok ACP usage snapshot. Persisting this prevents a
+   * recovered runtime from treating the provider's session-wide counters as a
+   * new turn. Null on a legacy recovered session means the first standard
+   * snapshot establishes a baseline and is not emitted as usage.
+   */
+  grokUsageWatermark?: GrokUsageWatermark | null;
   /**
    * mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
    * 不变量 5 + D2）：caller 走 mcp `enter_worktree` 进 worktree 时设为 worktreePath 绝对路径,

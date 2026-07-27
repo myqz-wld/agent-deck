@@ -82,4 +82,20 @@ describe('spawn adapter runtime controls', () => {
     expect(resolved.effectiveSessionMode).toBe('ask');
     expect(resolved.effectivePermissionMode).toBeUndefined();
   });
+
+  it('does not expose a provider-restored dontAsk state to a new spawned session', () => {
+    const claudeCapabilities =
+      getAdapterRuntimeProfile('claude-code').capabilities;
+    const resolved = resolveSpawnRuntimeControls({
+      args: { adapter: 'claude-code', cwd: '/repo', prompt: 'work' },
+      capabilities: claudeCapabilities,
+      leadRecord: {
+        agentId: 'claude-code',
+        permissionMode: 'dontAsk',
+      } as SessionRecord,
+      inherit: true,
+      codexSandboxFromAgent: undefined,
+    });
+    expect(resolved.effectivePermissionMode).toBe('default');
+  });
 });

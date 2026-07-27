@@ -15,7 +15,12 @@ import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
 } from '@shared/session-metadata';
-import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
+import {
+  isSelectablePermissionMode,
+  type AgentEvent,
+  type ExitPlanModeRequest,
+  type ExitPlanModeResponse,
+} from '@shared/types';
 import {
   buildLatePlanDecisionPrompt,
   buildPlanReviewForkPrompt,
@@ -129,7 +134,11 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
           : '计划深度审阅',
         ...(source.model ? { model: source.model } : {}),
         ...(thinking ? { thinking } : {}),
-        ...(source.permissionMode ? { permissionMode: source.permissionMode } : {}),
+        ...(isSelectablePermissionMode(source.permissionMode)
+          ? { permissionMode: source.permissionMode }
+          : source.permissionMode === 'dontAsk'
+            ? { permissionMode: 'default' as const }
+            : {}),
         ...(source.codexSandbox ? { codexSandbox: source.codexSandbox } : {}),
         ...(source.claudeCodeSandbox ? { claudeCodeSandbox: source.claudeCodeSandbox } : {}),
         ...(source.extraAllowWrite?.length

@@ -412,8 +412,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         {tab === 'permissions' && (
           <PermissionsView
             cwd={session.cwd}
+            sessionId={session.id}
             agentId={session.agentId}
-            codexSandbox={session.codexSandbox}
+            sessionMode={session.sessionMode}
           />
         )}
         {tab === 'diff' && (

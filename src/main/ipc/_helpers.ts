@@ -6,9 +6,11 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import {
   ADAPTER_SESSION_MODES,
+  PERMISSION_MODES,
   isAdapterSessionMode,
+  isSelectablePermissionMode,
   type AdapterSessionMode,
-  type PermissionMode,
+  type SelectablePermissionMode,
 } from '@shared/types';
 import { SANDBOX_MODE_VALUES, type SandboxMode } from '@main/adapters/claude-code/sandbox-config';
 
@@ -70,27 +72,18 @@ export function parseHookCwd(scope: 'user' | 'project', cwd: unknown): string | 
   return parseStringId('cwd', cwd, 4096);
 }
 
-const PERMISSION_MODE_VALUES: ReadonlyArray<PermissionMode> = [
-  'default',
-  'acceptEdits',
-  'plan',
-  'dontAsk',
-  'auto',
-  'bypassPermissions',
-];
-
-export function parsePermissionMode(value: unknown): PermissionMode | null {
+export function parsePermissionMode(value: unknown): SelectablePermissionMode | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string') {
     throw new IpcInputError('permissionMode', `not a string: ${String(value)}`);
   }
-  if (!PERMISSION_MODE_VALUES.includes(value as PermissionMode)) {
+  if (!isSelectablePermissionMode(value)) {
     throw new IpcInputError(
       'permissionMode',
-      `must be one of ${PERMISSION_MODE_VALUES.join('|')}, got ${value}`,
+      `must be one of ${PERMISSION_MODES.join('|')}, got ${value}`,
     );
   }
-  return value as PermissionMode;
+  return value;
 }
 
 export function parseAdapterSessionMode(value: unknown): AdapterSessionMode | null {

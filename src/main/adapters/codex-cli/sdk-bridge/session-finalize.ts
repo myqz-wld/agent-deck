@@ -28,6 +28,7 @@
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
+import type { CodexApprovalPolicy } from '@shared/types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-finalize');
@@ -37,6 +38,8 @@ export interface PersistSessionFieldsArgs {
   sessionId: string;
   /** 解析后的 sandboxMode（已通过 opts.codexSandbox > sessionRepo > settingsStore 三级 fallback） */
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /** Explicit override only; undefined preserves provider-owned approval policy. */
+  approvalPolicy?: CodexApprovalPolicy;
   /** Native Codex model_provider; undefined preserves an existing session value. */
   provider?: string;
   /**
@@ -93,14 +96,34 @@ export interface PersistSessionFieldsArgs {
  * console.warn：失败时透出错误，与 claude session-finalize 同款诊断模式。
  */
 export function persistSessionFields(args: PersistSessionFieldsArgs): void {
-  const { sessionId, sandboxMode, provider, model, modelReasoningEffort, extraAllowWrite, networkAccessEnabled, additionalDirectories } =
-    args;
+  const {
+    sessionId,
+    sandboxMode,
+    approvalPolicy,
+    provider,
+    model,
+    modelReasoningEffort,
+    extraAllowWrite,
+    networkAccessEnabled,
+    additionalDirectories,
+  } = args;
 
   // 1. 持久化 sandbox 档位（CHANGELOG_<X> A2a）
   try {
     sessionRepo.setCodexSandbox(sessionId, sandboxMode);
   } catch (err) {
     logger.warn(`[codex-bridge] setCodexSandbox(${sessionId}, ${sandboxMode}) 失败`, err);
+  }
+
+  if (approvalPolicy !== undefined) {
+    try {
+      sessionRepo.setCodexApprovalPolicy(sessionId, approvalPolicy);
+    } catch (err) {
+      logger.warn(
+        `[codex-bridge] setCodexApprovalPolicy(${sessionId}, ${approvalPolicy}) 失败`,
+        err,
+      );
+    }
   }
 
   if (provider !== undefined) {

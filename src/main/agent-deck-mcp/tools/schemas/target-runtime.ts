@@ -5,7 +5,7 @@ import {
 } from '@main/adapters/runtime-control-contracts';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
-import type { SessionAdapterId } from '@shared/types';
+import { PERMISSION_MODES, type SessionAdapterId } from '@shared/types';
 
 const provider = z
   .string()
@@ -35,7 +35,7 @@ const thinking = z
   );
 
 const permissionMode = z
-  .enum(['default', 'acceptEdits', 'plan', 'dontAsk', 'auto', 'bypassPermissions'])
+  .enum(PERMISSION_MODES)
   .optional()
   .describe(
     'Optional Claude Code permission mode. This field is owned only by adapter="claude-code"; omitted same-adapter targets may inherit it, while fresh Claude targets use the Claude target default. Codex approval requests and Grok ACP permissions use their provider-native protocols.',

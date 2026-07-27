@@ -20,6 +20,7 @@ import type {
   UploadedAttachmentInput,
   PendingOutgoingMessage,
   AdapterSessionMode,
+  SelectablePermissionMode,
 } from '@shared/types';
 
 export const adaptersApi = {
@@ -107,7 +108,7 @@ export const adaptersApi = {
   setAdapterPermissionMode: (
     agentId: string,
     sessionId: string,
-    mode: 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions',
+    mode: SelectablePermissionMode,
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
   setAdapterSessionMode: (

@@ -23,16 +23,18 @@ const harness = vi.hoisted(() => {
           return;
         }
         for (const field of [
+          'totalTokens',
           'inputTokens',
           'outputTokens',
           'reasoningTokens',
           'cacheReadTokens',
           'cacheCreationTokens',
         ]) {
-          previous[field] = Math.max(
-            Number(previous[field] ?? 0),
-            Number(input[field] ?? 0),
-          );
+          const incoming = input[field];
+          if (typeof incoming !== 'number') continue;
+          const stored = previous[field];
+          previous[field] =
+            typeof stored === 'number' ? Math.max(stored, incoming) : incoming;
         }
       }),
     },
@@ -133,17 +135,30 @@ describe('Grok history token usage backfill', () => {
             },
           },
         }),
+        JSON.stringify({
+          timestamp: 1_700_000_004,
+          method: '_x.ai/session/update',
+          params: {
+            sessionId: 'native-1',
+            update: {
+              sessionUpdate: 'turn_completed',
+              prompt_id: 'prompt-3',
+              usage: { totalTokens: 77 },
+            },
+          },
+        }),
       ].join('\n'),
     );
 
     const first = await backfillGrokHistoryTokenUsage({ root, now: () => 1_800_000_000_000 });
     const second = await backfillGrokHistoryTokenUsage({ root, now: () => 1_800_000_000_000 });
 
-    expect(first).toMatchObject({ files: 1, matchedSessions: 1, imported: 3 });
-    expect(second).toMatchObject({ files: 1, matchedSessions: 1, imported: 3 });
-    expect(harness.rows.size).toBe(2);
+    expect(first).toMatchObject({ files: 1, matchedSessions: 1, imported: 4 });
+    expect(second).toMatchObject({ files: 1, matchedSessions: 1, imported: 4 });
+    expect(harness.rows.size).toBe(3);
     expect(harness.rows.get('prompt-1')).toMatchObject({
       model: 'claude-fable-5',
+      totalTokens: 14,
       inputTokens: 999,
       outputTokens: 999,
       cacheCreationTokens: 3,
@@ -153,6 +168,14 @@ describe('Grok history token usage backfill', () => {
       inputTokens: 3,
       outputTokens: 2,
       reasoningTokens: 1,
+    });
+    expect(harness.rows.get('prompt-3')).toMatchObject({
+      totalTokens: 77,
+      inputTokens: null,
+      outputTokens: null,
+      reasoningTokens: null,
+      cacheReadTokens: null,
+      cacheCreationTokens: null,
     });
     expect(harness.emits).toHaveLength(2);
     expect(harness.emits[0]).toMatchObject({

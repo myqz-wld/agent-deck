@@ -43,6 +43,7 @@ describe('scanCodexSettings', () => {
       configPath,
       appSettings: baseSettings,
       sessionCodexSandbox: 'read-only',
+      sessionCodexApprovalPolicy: 'never',
     });
 
     expect(result.adapter).toBe('codex-cli');
@@ -56,8 +57,8 @@ describe('scanCodexSettings', () => {
     expect(result.effective).toMatchObject({
       sandboxMode: 'read-only',
       sandboxSource: 'session',
-      approvalPolicy: null,
-      approvalSource: 'codex-config',
+      approvalPolicy: 'never',
+      approvalSource: 'agent-deck',
       skipGitRepoCheck: true,
       agentDeckMcp: {
         enabled: true,
