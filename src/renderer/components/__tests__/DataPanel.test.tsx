@@ -63,7 +63,15 @@ function tokenDailyRow(over: Partial<TokenDailyRow> = {}): TokenDailyRow {
     reasoningTokens: 12,
     cacheReadTokens: 5,
     cacheCreationTokens: 0,
+    providerTotalApplicable: true,
+    inputApplicable: true,
+    inputTotalApplicable: true,
+    outputApplicable: true,
+    reasoningApplicable: true,
+    cacheReadApplicable: true,
+    cacheCreationApplicable: true,
     ...over,
+    providerTotalTokens: over.providerTotalTokens ?? null,
   };
 }
 
@@ -122,6 +130,101 @@ describe('DataPanel quota usage', () => {
     expect(screen.getByText('推理')).toBeTruthy();
     expect(screen.getByText('其中推理')).toBeTruthy();
     expect(screen.getByText('12')).toBeTruthy();
+  });
+
+  it('ignores out-of-scope multi-model rows without treating unknown values as zero', async () => {
+    const now = new Date();
+    const today = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    (window.api.tokenUsageDaily as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      tokenDailyRow({
+        day: today,
+        bucketKey: 'opus-4.8',
+        inputTokens: 20,
+        inputTotalTokens: 25,
+        outputTokens: 8,
+        reasoningTokens: null,
+        reasoningApplicable: false,
+        cacheReadTokens: 5,
+        cacheCreationTokens: 0,
+      }),
+      tokenDailyRow({
+        day: today,
+        bucketKey: 'claude-unattributed-reasoning',
+        providerTotalTokens: null,
+        providerTotalApplicable: false,
+        inputTokens: null,
+        inputApplicable: false,
+        inputTotalTokens: null,
+        inputTotalApplicable: false,
+        outputTokens: null,
+        outputApplicable: false,
+        reasoningTokens: 7,
+        reasoningApplicable: true,
+        cacheReadTokens: null,
+        cacheReadApplicable: false,
+        cacheCreationTokens: null,
+        cacheCreationApplicable: false,
+      }),
+    ]);
+
+    render(<DataPanel />);
+
+    await screen.findByText('claude-unattributed-reasoning');
+    const outputLabel = screen
+      .getAllByText('输出总量')
+      .find((element) => element.tagName === 'SPAN');
+    const outputCard = outputLabel?.parentElement?.parentElement;
+    expect(outputCard?.textContent).toContain('8');
+    expect(outputCard?.textContent).toContain('推理 7');
+    const inputLabel = screen
+      .getAllByText('输入总量')
+      .find((element) => element.tagName === 'SPAN');
+    const inputCard = inputLabel?.parentElement?.parentElement;
+    expect(inputCard?.textContent).toContain('25');
+  });
+
+  it('shows unavailable when every row is out of scope instead of fabricating zero', async () => {
+    const now = new Date();
+    const today = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    (window.api.tokenUsageDaily as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      tokenDailyRow({
+        day: today,
+        bucketKey: 'claude-unattributed-reasoning',
+        providerTotalTokens: null,
+        providerTotalApplicable: false,
+        inputTokens: null,
+        inputApplicable: false,
+        inputTotalTokens: null,
+        inputTotalApplicable: false,
+        outputTokens: null,
+        outputApplicable: false,
+        reasoningTokens: 7,
+        reasoningApplicable: true,
+        cacheReadTokens: null,
+        cacheReadApplicable: false,
+        cacheCreationTokens: null,
+        cacheCreationApplicable: false,
+      }),
+    ]);
+
+    render(<DataPanel />);
+
+    await screen.findByText('claude-unattributed-reasoning');
+    const outputLabel = screen
+      .getAllByText('输出总量')
+      .find((element) => element.tagName === 'SPAN');
+    const outputCard = outputLabel?.parentElement?.parentElement;
+    expect(outputCard?.textContent).toContain('—');
+    expect(outputCard?.textContent).toContain('推理 7');
+    expect(outputCard?.textContent).not.toContain('输出总量0');
   });
 
   it('uses startup-preloaded quota snapshots without a first-open provider read', async () => {

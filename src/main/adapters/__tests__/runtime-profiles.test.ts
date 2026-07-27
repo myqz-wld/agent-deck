@@ -15,12 +15,47 @@ describe('adapter runtime profiles', () => {
   });
 
   it('keeps provider-specific prompt and capability declarations', () => {
-    expect(getAdapterRuntimeProfile('claude-code').prompt.injection).toBe(
-      'claude-system-prompt-append',
-    );
-    expect(getAdapterRuntimeProfile('codex-cli').prompt.injection).toBe(
-      'codex-developer-instructions',
-    );
+    expect(getAdapterRuntimeProfile('claude-code')).toMatchObject({
+      prompt: { injection: 'claude-system-prompt-append' },
+      capabilities: {
+        canRespondPermission: true,
+        canSetPermissionMode: true,
+        canRestartWithPermissionMode: true,
+        canRestartWithClaudeCodeSandbox: true,
+        canRestartWithCodexSandbox: false,
+      },
+      runtimeControls: {
+        permissionModes: [
+          'default',
+          'acceptEdits',
+          'plan',
+          'auto',
+          'bypassPermissions',
+        ],
+        sessionModes: [],
+        providerOverride: 'claude-gateway',
+        sandbox: 'claude',
+        extraAllowWrite: true,
+      },
+    });
+    expect(getAdapterRuntimeProfile('codex-cli')).toMatchObject({
+      prompt: { injection: 'codex-developer-instructions' },
+      capabilities: {
+        canRespondPermission: true,
+        canSetPermissionMode: false,
+        canSetSessionMode: false,
+        canRestartWithPermissionMode: false,
+        canRestartWithCodexSandbox: true,
+        canRestartWithClaudeCodeSandbox: false,
+      },
+      runtimeControls: {
+        permissionModes: [],
+        sessionModes: [],
+        providerOverride: 'codex-model-provider',
+        sandbox: 'codex',
+        extraAllowWrite: true,
+      },
+    });
     expect(getAdapterRuntimeProfile('grok-build')).toMatchObject({
       prompt: { injection: 'grok-acp-agent-profile' },
       capabilities: {
@@ -35,6 +70,9 @@ describe('adapter runtime profiles', () => {
       runtimeControls: {
         permissionModes: [],
         sessionModes: ['default', 'plan', 'ask'],
+        providerOverride: 'none',
+        sandbox: 'provider-native',
+        extraAllowWrite: false,
       },
       model: {
         thinkingLevels: ['low', 'medium', 'high', 'xhigh'],

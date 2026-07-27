@@ -2,8 +2,9 @@
  * 全部 renderer 入口共享的 permission / sandbox 下拉选项。
  * 新建会话使用含 `''` =「跟随设置（默认）」的数组；设置页和会话详情使用具体档位数组。
  */
+import type { SelectablePermissionMode } from '@shared/types';
 
-export type PermissionModeChoice = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+export type PermissionModeChoice = SelectablePermissionMode;
 /** `''` = 跟随设置（不 per-session 覆盖） */
 export type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-full-access';
 /** `''` = 跟随设置（不 per-session 覆盖） */
@@ -12,9 +13,14 @@ export type CodexSandboxMode = Exclude<CodexSandboxChoice, ''>;
 export type ClaudeSandboxMode = Exclude<ClaudeSandboxChoice, ''>;
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
-  { value: 'default', label: '每次询问', title: '每次工具调用前都询问你是否允许' },
+  { value: 'default', label: '手动确认', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
+  {
+    value: 'auto',
+    label: '自动判断',
+    title: '由 Claude 的权限分类器自动允许或拒绝原本需要询问的工具调用',
+  },
   {
     value: 'bypassPermissions',
     label: '⚠️ 不再询问（仍在系统沙盒内）',

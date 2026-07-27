@@ -10,6 +10,7 @@ import type {
 import type {
   AgentEvent,
   ProviderUsageSnapshot,
+  PermissionResponse,
   RuntimeSelection,
   UploadedAttachmentRef,
 } from '@shared/types';
@@ -31,12 +32,12 @@ const ADAPTER_ID = 'codex-cli';
  * 能力边界（与 plan 对齐）：
  * - ✅ createSession / sendMessage / interrupt / resume / 事件流
  * - ✅ hook installer + hook routes for external terminal Codex sessions
- * - ❌ canUseTool 等价回调（Codex approvalPolicy 是字符串枚举一次性配置）
+ * - ✅ app-server native command / file / permission approval requests
  * - ❌ AskUserQuestion / ExitPlanMode（codex 没有这些工具/状态机）
  * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
  *
- * 默认安全策略：approvalPolicy 写死 'never'（Codex 不支持 canUseTool 等价回调，
- * 无法运行时审批）；sandboxMode 默认 'workspace-write' 但**可被 settings.codexSandbox 覆盖**
+ * 普通会话不覆盖 provider 的 approval policy；reviewer 等无人值守内部会话显式使用
+ * `never`。sandboxMode 默认 'workspace-write' 但**可被 settings.codexSandbox 覆盖**
  * （CHANGELOG_54 B-4：补齐 REVIEW_14「双 backend 沙盒对称」目标，让用户能在 read-only /
  * workspace-write / danger-full-access 三档间切）。靠 OS sandbox 兜底。
  *
@@ -66,7 +67,11 @@ class CodexCliAdapter implements AgentAdapter {
   async init(ctx: AdapterContext): Promise<void> {
     // CHANGELOG_<X> R2 / B'4：把 ctx.hookServer 传给 bridge，让 ensureCodex 在 spawn
     // codex CLI 时通过 SDK config 字段注入 mcp_servers.agent-deck（连接到本应用 /mcp）。
-    this.bridge = new CodexSdkBridge({ emit: ctx.emit, hookServer: ctx.hookServer });
+    this.bridge = new CodexSdkBridge({
+      emit: ctx.emit,
+      hookServer: ctx.hookServer,
+      permissionTimeoutMs: settingsStore.get('permissionTimeoutMs'),
+    });
     // 启动时读一次 codexCliPath，给 bridge（codexSandbox 不再透传：bridge createSession
     // 已直接 settingsStore.get('codexSandbox')，与 claude-code adapter 的 sandbox-resolve
     // 同款直读模式 — symmetry-plan P2 MED-B 删 currentSandboxMode in-memory mirror）
@@ -230,6 +235,14 @@ class CodexCliAdapter implements AgentAdapter {
     await this.bridge.steerTurn(sessionId, text);
   }
 
+  async respondPermission(
+    sessionId: string,
+    requestId: string,
+    response: PermissionResponse,
+  ): Promise<void> {
+    this.bridge?.respondPermission(sessionId, requestId, response);
+  }
+
   async setSessionModelOptions(
     sessionId: string,
     options: { provider: string | null; model: string | null; thinking: string | null },
@@ -255,21 +268,18 @@ class CodexCliAdapter implements AgentAdapter {
     await this.bridge.sendMessage(sessionId, body);
   }
 
-  listPending(sessionId: string): {
-    permissions: never[];
-    askQuestions: never[];
-    exitPlanModes: never[];
-  } {
+  listPending(sessionId: string) {
     if (!this.bridge) return { permissions: [], askQuestions: [], exitPlanModes: [] };
     return this.bridge.listPending(sessionId);
   }
 
-  listAllPending(): Record<
-    string,
-    { permissions: never[]; askQuestions: never[]; exitPlanModes: never[] }
-  > {
+  listAllPending() {
     if (!this.bridge) return {};
     return this.bridge.listAllPending();
+  }
+
+  setPermissionTimeoutMs(ms: number): void {
+    this.bridge?.setPermissionTimeoutMs(ms);
   }
 
   /** Codex 专属：设置面板「Codex 二进制路径」变更时即改即生效。 */
@@ -333,8 +343,7 @@ class CodexCliAdapter implements AgentAdapter {
     );
   }
 
-  // 不实现：respondPermission / respondAskUserQuestion / respondExitPlanMode /
-  // setPermissionMode / setPermissionTimeoutMs —— capabilities 已表明不支持
+  // 不实现：respondAskUserQuestion / respondExitPlanMode / setPermissionMode。
 }
 
 /**

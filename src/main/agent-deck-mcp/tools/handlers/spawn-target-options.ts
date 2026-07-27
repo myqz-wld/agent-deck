@@ -5,6 +5,7 @@ import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-inject
 import { omitUndefined } from '@main/utils/optional-fields';
 import type { SpawnSessionArgs } from '../schemas';
 import type { SpawnModelOptions } from './spawn-model-options';
+import type { SessionRecord } from '@shared/types';
 
 export interface SpawnTargetOptionsInput {
   args: SpawnSessionArgs;
@@ -77,6 +78,31 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
     }
   }
   return target;
+}
+
+/**
+ * A native fork inherits the authenticated source thread's non-public Codex runtime controls.
+ *
+ * These fields are intentionally absent from the public MCP schema. Reviewer defaults already
+ * resolved for this target win; otherwise a reviewer that forks itself must not silently become
+ * interactive or lose its network/read roots.
+ */
+export function inheritCodexForkRuntimeControls(
+  target: CreateSessionOptions,
+  source: SessionRecord | null,
+): void {
+  if (
+    target.agentId !== 'codex-cli' ||
+    source?.agentId !== 'codex-cli'
+  ) return;
+  target.approvalPolicy ??= source.codexApprovalPolicy ?? undefined;
+  target.networkAccessEnabled ??= source.networkAccessEnabled ?? undefined;
+  if (
+    (!target.additionalDirectories || target.additionalDirectories.length === 0) &&
+    source.additionalDirectories?.length
+  ) {
+    target.additionalDirectories = [...source.additionalDirectories];
+  }
 }
 
 function alignActiveClaudeAgentRuntime(

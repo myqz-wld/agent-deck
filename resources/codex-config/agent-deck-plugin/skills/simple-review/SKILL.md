@@ -1,6 +1,6 @@
 ---
 name: simple-review
-description: "Run exactly one independent review round followed by one bounded rebuttal round with two confirmed heterogeneous reviewer slots. Use for focused code, plan, prompt-asset, technical-decision, agent-validation, or overall-change checks, including 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Present the evidence and recommendation to the user for final judgment; do not start a fix-and-re-review loop."
+description: "Run exactly one independent adversarial review round followed by one bounded rebuttal round with two confirmed heterogeneous reviewer types, partitioning broad scopes into concurrent paired batches. Use for code, plan, prompt-asset, technical-decision, agent-validation, or overall-change checks, including 简单 review, 轻量 review, 帮我 review, 这个对不对, 对抗一下, 决策评审, and 整体改动是否符合预期. Present the evidence and recommendation to the user for final judgment; do not start a fix-and-re-review loop."
 ---
 
 # Simple Review
@@ -17,13 +17,25 @@ Establish the scope from the user's request:
 
 - Classify the review as code, plan, prompt, technical decision, or a small mixed scope. Ask only when the intent is materially ambiguous.
 - Resolve the requested files or current change set, then place absolute paths in reviewer prompts.
-- Keep one invocation small enough for a single direct pass. Split a broad scope or use `deep-review`.
+- Keep one batch small enough for a single direct pass. When the full scope is too broad, partition it by subsystem or decision boundary and review the batches concurrently as capacity allows. Use `deep-review` instead when the work needs iterative depth or fixes.
+- Keep strongly coupled files, producer-consumer contracts, and one end-to-end state transition in the same batch when practical. When two or more primary batches exist, add one integration batch containing the changed boundary files and cross-batch sequences that need explicit consistency review.
 - Keep reviewed artifacts read-only. Adding the required `.review-cache/` ignore entry is the only review-infrastructure write; findings do not authorize target edits, commits, or external actions.
 - In a worktree, review the worktree copy rather than the base checkout.
 
-### Reviewer Pair
+### Batch Plan
 
-Require exactly two user-confirmed, distinct reviewer slots. If the user has not selected a pair, ask them to choose and stop before spawning.
+Before spawning, create one batch manifest for the invocation. Each entry contains:
+
+- A stable `batch_id`, unique within the invocation.
+- `batch_kind: primary | integration`.
+- Absolute `batch_scope` paths, one boundary or subsystem rationale, dependencies on other batches, and the common baseline.
+- The focus for that batch. An integration batch focuses only on changed interfaces, shared invariants, and cross-batch state or data flow.
+
+Every target path belongs to at least one primary batch. Intentional overlap is allowed and recorded in the manifest. Do not partition by arbitrary file count when it would separate a contract from its callers. A single small scope uses one primary batch and no integration batch.
+
+### Reviewer Pair And Workers
+
+Require exactly two user-confirmed, distinct reviewer types. If the user has not selected a pair, ask them to choose and stop before spawning.
 
 | Reviewer | Spawn |
 |---|---|
@@ -31,9 +43,11 @@ Require exactly two user-confirmed, distinct reviewer slots. If the user has not
 | `reviewer-codex` | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
 | `reviewer-grok` | `spawn_session({ adapter: 'grok-build', agentName: 'reviewer-grok', cwd, teamName, displayName, prompt })` |
 
-Reject duplicate slots and every selection that is not exactly two slots. Spawn only the selected pair, concurrently. Record the pair in reviewer prompts and the final report. Do not pass permission or sandbox overrides unless the user requested them.
+Reject duplicate types and every selection that is not exactly two types. For every batch, spawn one worker session for each selected type, giving both workers the same batch scope and focus. Multiple batches may have separate sessions with the same `agentName`; label each with `displayName: '<reviewer> · <batch_id>'`. Record every worker session in the batch manifest and final report. Do not pass permission or sandbox overrides unless the user requested them.
 
-Keep the pair heterogeneous for the whole invocation. If one selected reviewer fails, shut it down and respawn the same adapter, provider, `agentName`, and model slot; never substitute an unselected slot or duplicate the survivor.
+Keep every batch pair heterogeneous for the whole invocation. Never assign half a batch to each reviewer: both workers independently inspect the entire batch. If one worker fails, shut it down and respawn the same batch, adapter, provider, `agentName`, and model type; never substitute an unselected type or treat the surviving worker as complete coverage.
+
+Use the `spawnLimits` returned by `spawn_session` to maintain a bounded concurrency window. Dispatch as many complete two-worker batch pairs as capacity permits and queue the remaining batches. Do not intentionally start a batch when only one worker slot is available. A partial spawn follows Failure Handling and does not change the selected pair.
 
 ### Shared Review Cache
 
@@ -60,13 +74,13 @@ Check progress only when the user asks or a reviewer has had no reply and no act
 
 The lead classifies evidence; reviewers do not decide the outcome. Give each finding one status:
 
-- `ACCEPTED`: independently reported by both reviewers, or reported by one and verified by a bounded lead-side check.
+- `ACCEPTED`: independently reported by both workers in the same batch, or reported by one and verified by a bounded lead-side check.
 - `REBUTTED`: disproved by the other reviewer or lead-side evidence.
 - `UNVERIFIED`: plausible but unsupported; keep it at MEDIUM or lower.
 
-Track `Coverage: COMPLETE | INCOMPLETE` separately for each reviewer. Incomplete coverage is not evidence that the unreadable surface has no findings and cannot support a `NO_BLOCKING_EVIDENCE` recommendation.
+Track `Coverage: COMPLETE | INCOMPLETE` separately for each reviewer and batch. Invocation coverage is complete only when both workers completed every required primary and integration batch. Incomplete batch coverage is not evidence that the unreadable surface has no findings and cannot support a `NO_BLOCKING_EVIDENCE` recommendation.
 
-CRITICAL and HIGH findings require a rebuttal record even when both reviewers found the issue. Record the supporting evidence, strongest rebuttal, and lead classification. For a single-reviewer MEDIUM, run a small search, read, command, or focused test when possible; otherwise mark it `UNVERIFIED` or lower its severity.
+CRITICAL and HIGH findings require a rebuttal record even when both workers in the batch found the issue. Record the supporting evidence, strongest rebuttal, and lead classification. For a single-worker MEDIUM, run a small search, read, command, or focused test when possible; otherwise mark it `UNVERIFIED` or lower its severity.
 
 Severity follows impact and trigger likelihood:
 
@@ -95,8 +109,8 @@ Mark limited evidence as `*unverified*`. Downgrade or reject findings that lack 
 
 Every independent-review prompt includes:
 
-- A fresh `invocation_id`, `output_mode: full_review`, the selected reviewer pair, `review_type`, and a reviewer-specific `finding_id_prefix` such as `R1-CLAUDE`.
-- Absolute scope paths, a required single-pass `focus`, and `baseline: commit:<hash> | working-tree`.
+- A fresh `invocation_id`, stable `batch_id`, `batch_kind`, absolute `batch_scope`, `output_mode: full_review`, the selected reviewer pair, and `review_type`.
+- A reviewer- and batch-specific `finding_id_prefix` such as `AUTH-R1-CLAUDE`, a required single-pass `focus`, and `baseline: commit:<hash> | working-tree`.
 - The finding contract and the requirement to report `Coverage: COMPLETE | INCOMPLETE`, reviewed paths, and unreadable paths or restricted steps.
 
 For a commit baseline, reviewers compare with `git diff <hash> -- <paths>`. For a working-tree baseline, they inspect both `git diff -- <paths>` and `git diff --cached -- <paths>` when diffs are relevant. Round 1 still requires reading every target file.
@@ -105,22 +119,23 @@ For a commit baseline, reviewers compare with `git diff <hash> -- <paths>`. For 
 
 | Situation | Required action |
 |---|---|
-| Selected reviewer fails to start, loses auth, hits sandbox denial, times out, or loses thread state | Shut down that session and retry the same selected slot at most twice. If it still fails, ask the user to wait, continue with explicitly downgraded single-reviewer evidence, or abort. |
-| Reviewer reports `⚠ FRESH SESSION` | Shut it down, respawn the same slot, and restart the review round with the full scope. |
+| Selected batch worker fails to start, loses auth, hits sandbox denial, times out, or loses thread state | Let unrelated batches continue. Shut down that session and retry the same batch and selected type at most twice. If it still fails, mark that batch incomplete and ask the user to wait, continue with explicitly downgraded evidence, or abort. |
+| Reviewer reports `⚠ FRESH SESSION` | Shut it down, respawn the same batch worker, and restart that batch with its full scope. |
 | Reviewer reports `⚠ SCOPE PATH MISMATCH` | Correct the path list or cache manifest, then shut down and respawn the affected reviewer with the full prompt. |
 | Cache staging fails | Abort before review and report the exact path and reason. |
-| MCP send or spawn fails | Follow the tool error; do not silently change reviewer slots or adapters. |
+| MCP send or spawn fails | Follow the tool error; do not silently change reviewer types or adapters. |
 
 ## One-Pass Workflow
 
-1. Normalize the scope, confirm the reviewer pair, prepare the cache if needed, and build a focused prompt for each reviewer.
-2. Spawn the two reviewers concurrently. Save each `sessionId` and `spawnPromptMessageId`, announce the dispatch, and end the turn.
-3. When both independent reviews arrive, verify that every finding has a unique stable id such as `R1-CLAUDE-001`, classify it, and assemble one rebuttal batch per reviewer. Include all CRITICAL/HIGH findings and any material disagreement; preserve each `finding_id` and ask each reviewer to challenge only the other reviewer's listed findings.
-4. Send both rebuttal batches, save the returned reply-chain anchors, announce the dispatch, and end the turn.
-5. When the rebuttals arrive, finalize evidence classifications. Do not apply fixes, start a second review round, or silently escalate.
-6. Shut down both reviewer sessions, remove this invocation's cache directory, and present the result to the user.
+1. Normalize the scope, confirm the reviewer pair, build the batch manifest, prepare the cache if needed, and create one focused prompt per batch worker.
+2. Spawn complete batch pairs concurrently up to the available capacity. Save each worker's `sessionId` and `spawnPromptMessageId`, announce the dispatched and queued batches, and end the turn.
+3. As complete batch pairs return, dispatch queued pairs into freed capacity on the next turn. Do not adjudicate the invocation as clean until every required batch has returned or failed explicitly.
+4. Verify that every finding has a unique batch-qualified stable id such as `AUTH-R1-CLAUDE-001`, classify it within its batch, and deduplicate only after preserving the original ids. Assemble one rebuttal message per worker containing the other worker's challenged findings from the same batch. Include all CRITICAL/HIGH findings and material disagreements.
+5. Send rebuttals concurrently within the bounded window, save the reply-chain anchors, announce the dispatch, and end the turn. An integration-batch finding may cite primary-batch evidence, but reviewers rebut only findings explicitly supplied by the lead.
+6. When all rebuttals arrive, finalize per-batch classifications, then reconcile duplicates, contradictions, and integration findings across batches. Do not apply fixes, start a second review round, or silently escalate.
+7. Shut down every worker session, remove this invocation's cache directory, and present one aggregated result to the user.
 
-Every rebuttal prompt retains the same `invocation_id`, reviewer pair, and absolute scope paths, uses `output_mode: rebuttal`, contains only challenged findings with their stable `finding_id` values, and requires one verdict per id: an independent `agree`, `disagree`, or `uncertain` judgment with evidence. Never accept one aggregate verdict for a multi-finding batch.
+Every rebuttal prompt retains the same `invocation_id`, `batch_id`, `batch_kind`, reviewer pair, and absolute batch scope, uses `output_mode: rebuttal`, contains only challenged findings with their stable `finding_id` values, and requires one verdict per id: an independent `agree`, `disagree`, or `uncertain` judgment with evidence. Never accept one aggregate verdict for multiple findings.
 
 Use these focus areas as relevant:
 
@@ -134,10 +149,11 @@ Use these focus areas as relevant:
 Simple review does not issue a final merge or acceptance gate. Report:
 
 - Scope and reviewed paths.
-- Per-reviewer coverage, unreadable paths, and validation restrictions.
-- Reviewer pair, session ids, retries, and whether heterogeneity stayed intact.
+- The batch manifest, including primary/integration rationale and queued waves.
+- Per-reviewer, per-batch coverage, unreadable paths, and validation restrictions.
+- Reviewer pair, worker session ids by batch, retries, and whether heterogeneity stayed intact.
 - Findings by severity and `ACCEPTED` / `REBUTTED` / `UNVERIFIED`, including CRITICAL/HIGH support and rebuttal evidence.
-- A lead recommendation: `NO_BLOCKING_EVIDENCE`, `CHANGES_ADVISED`, `INCOMPLETE_REVIEW`, or `ESCALATE_TO_DEEP_REVIEW`. Use `INCOMPLETE_REVIEW` whenever either selected reviewer did not complete the required scope and focus.
+- A lead recommendation: `NO_BLOCKING_EVIDENCE`, `CHANGES_ADVISED`, `INCOMPLETE_REVIEW`, or `ESCALATE_TO_DEEP_REVIEW`. Use `INCOMPLETE_REVIEW` whenever either selected reviewer did not complete any required batch scope and focus.
 - Explicit next choices for the user: accept, request fixes, or start `deep-review`.
 - Reviewer shutdown and cache cleanup status.
 

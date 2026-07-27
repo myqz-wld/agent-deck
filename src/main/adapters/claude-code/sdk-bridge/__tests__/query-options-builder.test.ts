@@ -36,6 +36,16 @@ describe('buildClaudeQueryOptions', () => {
     expect(options).not.toHaveProperty('effort');
   });
 
+  it('passes a provider-restored dontAsk state through recovery without enabling bypass', () => {
+    const options = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      permissionMode: 'dontAsk',
+    });
+
+    expect(options.permissionMode).toBe('dontAsk');
+    expect(options.allowDangerouslySkipPermissions).toBe(false);
+  });
+
   it('passes a session-local Gateway settings file without cross-session leakage', () => {
     const deepseek = buildClaudeQueryOptions({
       ...buildBaseArgs(),

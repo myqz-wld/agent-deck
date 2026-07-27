@@ -15,6 +15,7 @@
 import type { AgentDefinition, EffortLevel, Options } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionMode } from '@shared/types';
 import type { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
 import type {
   getAgentDeckPluginsForSession,
@@ -25,7 +26,7 @@ import { AGENT_DECK_MCP_TOOL_PATTERN } from '@main/agent-deck-mcp/server';
 
 export interface BuildClaudeQueryOptionsArgs {
   cwd: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+  permissionMode?: PermissionMode;
   resume?: string;
   canUseTool: CanUseTool;
   sandboxOpts: ReturnType<typeof buildSandboxOptions>;

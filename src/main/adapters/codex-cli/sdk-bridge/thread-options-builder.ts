@@ -8,7 +8,7 @@
  *
  * **设计要点**:
  * - 纯函数,零闭包,零 side effect — caller 调一次拿一个 fresh ThreadOptions object
- * - approvalPolicy default 'never' (与原 inline 同款,caller 缺省时 bridge 不主动 enforce default)
+ * - approvalPolicy 缺省时不写字段，让 Codex 使用自身 config / provider default
  * - model / networkAccessEnabled / additionalDirectories 用 spread spread 进 object 保持
  *   「caller 缺省 → 不写字段 → runtime 走默认值」的语义 (与 plan §P3 Step 3.5 + §不变量 6 一致)
  * - additionalDirectories 用 [...arr] 浅拷贝防 caller 后续 mutate 入参影响 SDK 内部
@@ -27,8 +27,8 @@ export interface BuildCodexThreadOptionsArgs {
   workingDirectory: string;
   /** opts.codexSandbox ?? sessionRepo.codexSandbox ?? settingsStore default 三层 fallback 链解析后值 */
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
-  /** caller 显式传 / 'never' 默认 (bridge 不主动 enforce) */
-  approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never';
+  /** Optional provider-native approval policy override. */
+  approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /** spawn handler custom-agent TOML `model` 字段 */
   model?: string;
   /** Native model_provider id; explicit selection overrides custom-agent config. */
@@ -37,6 +37,8 @@ export interface BuildCodexThreadOptionsArgs {
   networkAccessEnabled?: boolean;
   /** 同上,caller 缺省 → 不写字段 → SDK 走默认值 */
   additionalDirectories?: readonly string[];
+  /** Provider-neutral writable roots, mapped to Codex workspace writable roots. */
+  extraAllowWrite?: readonly string[];
   /** Resolved per-session reasoning effort; the provider validates model-specific support. */
   modelReasoningEffort?: CodexReasoningEffort;
   /** live session 默认请求 Codex 产出可展示的 reasoning summary；用户 config 可显式覆盖。 */
@@ -64,7 +66,7 @@ export interface BuildCodexThreadOptionsArgs {
 export interface CodexThreadOptions {
   workingDirectory: string;
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
-  approvalPolicy: 'untrusted' | 'on-failure' | 'on-request' | 'never';
+  approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   skipGitRepoCheck: boolean;
   model?: string;
   modelReasoningEffort?: CodexReasoningEffort;
@@ -88,10 +90,16 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     args.provider !== undefined
       ? { ...(args.configOverrides ?? {}), model_provider: args.provider }
       : args.configOverrides;
+  const writableRoots = mergeCodexWritableRoots(
+    args.additionalDirectories,
+    args.extraAllowWrite,
+  );
   return {
     workingDirectory: args.workingDirectory,
     sandboxMode: args.sandboxMode,
-    approvalPolicy: args.approvalPolicy ?? 'never',
+    ...(args.approvalPolicy !== undefined
+      ? { approvalPolicy: args.approvalPolicy }
+      : {}),
     skipGitRepoCheck: true,
     ...(model !== undefined ? { model } : {}),
     ...(args.modelReasoningEffort !== undefined
@@ -116,8 +124,15 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.networkAccessEnabled !== undefined
       ? { networkAccessEnabled: args.networkAccessEnabled }
       : {}),
-    ...(args.additionalDirectories !== undefined
-      ? { additionalDirectories: [...args.additionalDirectories] }
+    ...(writableRoots !== undefined
+      ? { additionalDirectories: writableRoots }
       : {}),
   };
+}
+
+export function mergeCodexWritableRoots(
+  ...groups: Array<readonly string[] | undefined>
+): string[] | undefined {
+  if (groups.every((group) => group === undefined)) return undefined;
+  return [...new Set(groups.flatMap((group) => group ?? []))];
 }

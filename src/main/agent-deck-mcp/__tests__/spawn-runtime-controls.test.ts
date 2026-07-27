@@ -18,7 +18,6 @@ describe('spawn adapter runtime controls', () => {
         prompt: 'work',
         permissionMode: 'plan',
       },
-      grokCapabilities,
     )).toMatchObject({
       error: expect.stringContaining('permissionMode'),
       hint: expect.stringContaining('Grok ACP work modes'),
@@ -33,9 +32,38 @@ describe('spawn adapter runtime controls', () => {
         prompt: 'work',
         codexSandbox: 'workspace-write',
       },
-      grokCapabilities,
     )).toMatchObject({
-      error: expect.stringContaining('sandbox controls'),
+      error: expect.stringContaining('codexSandbox'),
+    });
+  });
+
+  it('rejects cross-wired Claude and Codex sandbox fields instead of filtering them', () => {
+    expect(validateSpawnRuntimeControls({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'work',
+      codexSandbox: 'read-only',
+    })).toMatchObject({
+      error: expect.stringContaining('codexSandbox'),
+    });
+    expect(validateSpawnRuntimeControls({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'work',
+      claudeCodeSandbox: 'strict',
+    })).toMatchObject({
+      error: expect.stringContaining('claudeCodeSandbox'),
+    });
+  });
+
+  it('rejects a Grok provider override at the runtime-control boundary', () => {
+    expect(validateSpawnRuntimeControls({
+      adapter: 'grok-build',
+      cwd: '/repo',
+      prompt: 'work',
+      provider: 'xai',
+    })).toMatchObject({
+      error: expect.stringContaining('provider'),
     });
   });
 
@@ -53,5 +81,21 @@ describe('spawn adapter runtime controls', () => {
     });
     expect(resolved.effectiveSessionMode).toBe('ask');
     expect(resolved.effectivePermissionMode).toBeUndefined();
+  });
+
+  it('does not expose a provider-restored dontAsk state to a new spawned session', () => {
+    const claudeCapabilities =
+      getAdapterRuntimeProfile('claude-code').capabilities;
+    const resolved = resolveSpawnRuntimeControls({
+      args: { adapter: 'claude-code', cwd: '/repo', prompt: 'work' },
+      capabilities: claudeCapabilities,
+      leadRecord: {
+        agentId: 'claude-code',
+        permissionMode: 'dontAsk',
+      } as SessionRecord,
+      inherit: true,
+      codexSandboxFromAgent: undefined,
+    });
+    expect(resolved.effectivePermissionMode).toBe('default');
   });
 });

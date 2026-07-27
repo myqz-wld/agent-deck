@@ -96,11 +96,14 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-      estimatedReasoningByBucket: new Map(),
-      seenThinkingTokenMessageIds: new Set(),
     });
-    internal.estimatedReasoningByBucket.set('opus-4.8', 12);
-    internal.seenThinkingTokenMessageIds.add('thinking-before-resultless-end');
+    internal.turnUsageByBucket.set('opus-4.8', {
+      input: 0,
+      output: 12,
+      reasoning: 12,
+      cacheRead: 0,
+      cacheCreation: 0,
+    });
 
     let firstId: string | null = null;
     // consume 是 private，用 unknown cast 跳过 access check
@@ -126,8 +129,7 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
     const renameCalls = vi.mocked(sessionManager.renameSdkSession).mock.calls;
     const forkRenames = renameCalls.filter(([from, to]) => from === APP_ID && to === NEW_ID);
     expect(forkRenames).toHaveLength(0);
-    expect(internal.estimatedReasoningByBucket.size).toBe(0);
-    expect(internal.seenThinkingTokenMessageIds.size).toBe(0);
+    expect(internal.turnUsageByBucket.size).toBe(0);
   });
 
   it('requested cli sid 是 application sid 且 first realId 是运行 id → 视为幻影 id，不更新 cli_session_id', async () => {
@@ -158,8 +160,6 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-      estimatedReasoningByBucket: new Map(),
-      seenThinkingTokenMessageIds: new Set(),
     });
 
     const { sessionManager } = await import('@main/session/manager');
@@ -208,8 +208,6 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-      estimatedReasoningByBucket: new Map(),
-      seenThinkingTokenMessageIds: new Set(),
     });
 
     const { sessionManager } = await import('@main/session/manager');
@@ -260,8 +258,6 @@ describe('sdk-bridge.consume CLI fork detection（CHANGELOG_27 / REVIEW_6）', (
       pendingFileChangeIntents: new Map(),
       seenUsageMessageIds: new Map(),
       turnUsageByBucket: new Map(),
-      estimatedReasoningByBucket: new Map(),
-      seenThinkingTokenMessageIds: new Set(),
     });
     const newInternal = { marker: 'new-live-internal' };
     const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;

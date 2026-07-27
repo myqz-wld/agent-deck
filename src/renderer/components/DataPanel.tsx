@@ -24,8 +24,9 @@ const logger = log.scope('renderer-data-panel');
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
 
-/** 大数字千分位；零值也保留，避免把“没有独立字段”和“没有数据”混在一起。 */
-function fmt(n: number): string {
+/** 大数字千分位；provider 未返回的字段保留为未知。 */
+function fmt(n: number | null): string {
+  if (n === null) return '—';
   return Math.max(0, n).toLocaleString();
 }
 
@@ -229,7 +230,7 @@ export function DataPanel(): JSX.Element {
         <div className="mt-1.5 text-[10px] leading-4 text-deck-muted/60">
           <span className="text-deck-muted/80">统计规则：</span>
           输入总量已包含缓存读/写，输出总量已包含推理；标记为“其中”的分项不要再次相加。
-          provider 没有单独提供的分项按 0 展示。
+          provider 没有单独提供的字段显示为“—”，不会按 0 计入。
         </div>
       </section>
 
@@ -241,7 +242,7 @@ export function DataPanel(): JSX.Element {
         </div>
         {daily.length > 0 ? (
           <div className="overflow-x-auto rounded border border-white/[0.06] scrollbar-deck">
-            <table className="min-w-[720px] w-full border-collapse text-[10px]">
+            <table className="min-w-[820px] w-full border-collapse text-[10px]">
               <thead>
                 <tr className="border-b border-white/[0.08] text-center text-deck-muted">
                   <th rowSpan={2} className="py-1.5 pl-2 pr-2 text-left font-medium">
@@ -249,6 +250,9 @@ export function DataPanel(): JSX.Element {
                   </th>
                   <th rowSpan={2} className="py-1.5 pr-2 text-left font-medium">
                     模型
+                  </th>
+                  <th rowSpan={2} className="border-l border-white/[0.06] px-2 py-1.5 font-medium">
+                    Provider 总计
                   </th>
                   <th colSpan={3} className="border-l border-white/[0.06] py-1.5 font-medium">
                     输入总量
@@ -273,6 +277,9 @@ export function DataPanel(): JSX.Element {
                   >
                     <td className="py-1.5 pl-2 pr-2 tabular-nums text-deck-muted">{row.day}</td>
                     <td className="py-1.5 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
+                    <td className="border-l border-white/[0.04] px-2 py-1.5 text-right tabular-nums text-deck-muted">
+                      {fmt(row.providerTotalTokens)}
+                    </td>
                     <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums">
                       {fmt(rowInputTotal(row))}
                     </td>
@@ -358,9 +365,9 @@ function TokenTotalCard({
   details,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   valueClassName?: string;
-  details: Array<[string, number]>;
+  details: Array<[string, number | null]>;
 }): JSX.Element {
   return (
     <div className="rounded bg-white/[0.04] px-2 py-2">
@@ -379,27 +386,62 @@ function TokenTotalCard({
   );
 }
 
-function rowInputTotal(row: TokenDailyRow): number {
-  return row.inputTotalTokens ?? row.inputTokens;
+function rowInputTotal(row: TokenDailyRow): number | null {
+  return row.inputTotalTokens;
 }
 
 function sumRows(rows: TokenDailyRow[]): {
-  inputTotal: number;
-  output: number;
-  reasoning: number;
-  cacheRead: number;
-  cacheCreation: number;
+  inputTotal: number | null;
+  output: number | null;
+  reasoning: number | null;
+  cacheRead: number | null;
+  cacheCreation: number | null;
 } {
-  return rows.reduce(
-    (acc, r) => ({
-      inputTotal: acc.inputTotal + rowInputTotal(r),
-      output: acc.output + r.outputTokens,
-      reasoning: acc.reasoning + r.reasoningTokens,
-      cacheRead: acc.cacheRead + r.cacheReadTokens,
-      cacheCreation: acc.cacheCreation + r.cacheCreationTokens,
-    }),
-    { inputTotal: 0, output: 0, reasoning: 0, cacheRead: 0, cacheCreation: 0 },
-  );
+  return {
+    inputTotal: sumExact(
+      rows,
+      rowInputTotal,
+      (row) => row.inputTotalApplicable,
+    ),
+    output: sumExact(
+      rows,
+      (row) => row.outputTokens,
+      (row) => row.outputApplicable,
+    ),
+    reasoning: sumExact(
+      rows,
+      (row) => row.reasoningTokens,
+      (row) => row.reasoningApplicable,
+    ),
+    cacheRead: sumExact(
+      rows,
+      (row) => row.cacheReadTokens,
+      (row) => row.cacheReadApplicable,
+    ),
+    cacheCreation: sumExact(
+      rows,
+      (row) => row.cacheCreationTokens,
+      (row) => row.cacheCreationApplicable,
+    ),
+  };
+}
+
+function sumExact(
+  rows: TokenDailyRow[],
+  select: (row: TokenDailyRow) => number | null,
+  isApplicable: (row: TokenDailyRow) => boolean,
+): number | null {
+  if (rows.length === 0) return 0;
+  let total = 0;
+  let sawApplicable = false;
+  for (const row of rows) {
+    if (!isApplicable(row)) continue;
+    sawApplicable = true;
+    const value = select(row);
+    if (value === null) return null;
+    total += value;
+  }
+  return sawApplicable ? total : null;
 }
 
 function usageStatusText(status: ProviderUsageSnapshot['status']): string {
