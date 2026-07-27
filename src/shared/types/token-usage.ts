@@ -9,6 +9,24 @@
  *
  * 仅依赖标准库；列名 camelCase（DB 层 snake_case 在 token-usage-repo 内转换）。
  */
+import type { GrokUsageWatermark } from './session';
+
+/** Metrics that one logical usage row participates in. Null within the scope means unknown. */
+export const TOKEN_USAGE_METRIC = {
+  total: 1 << 0,
+  input: 1 << 1,
+  output: 1 << 2,
+  reasoning: 1 << 3,
+  cacheRead: 1 << 4,
+  cacheCreation: 1 << 5,
+} as const;
+export const TOKEN_USAGE_ALL_METRICS =
+  TOKEN_USAGE_METRIC.total |
+  TOKEN_USAGE_METRIC.input |
+  TOKEN_USAGE_METRIC.output |
+  TOKEN_USAGE_METRIC.reasoning |
+  TOKEN_USAGE_METRIC.cacheRead |
+  TOKEN_USAGE_METRIC.cacheCreation;
 
 /**
  * `token-usage` 事件 payload。Claude assistant message / Codex turn.completed / Grok
@@ -17,17 +35,48 @@
  *   codex 无 → null
  * - model：原始 model id（claude BetaMessage.model / result.modelUsage key / codex 取 sessions.model）；
  *   归一在写库时算
- * - 指标：cache_* / reasoning 缺省填 0（codex 无 cache_creation；Claude 优先使用
- *   result output details，当 CLI 不提供权威拆分时使用 SDK thinking-token estimate）
+ * - 指标：只记录 provider 明确返回的计数；未返回时保留 null
+ *   （Claude 的近似 thinking-token 事件不进入累计或持久化）
  */
 export interface TokenUsagePayload {
   messageId: string | null;
   model: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens?: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
+  /** Exact provider-reported total; do not synthesize when absent. */
+  totalTokens?: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens?: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  /**
+   * Internal applicability mask. Omitted means every metric participates. This is distinct from
+   * presence: a scoped metric with null is unknown, while an out-of-scope metric is not part of
+   * this additive row (for example exact but unattributed multi-model Claude reasoning).
+   */
+  metricScope?: number;
+  /**
+   * Internal Grok durability metadata. When present, main commits this cumulative accounting
+   * frontier in the same SQLite transaction as the usage row. Historical corrections may carry
+   * only the safely corrected turn-start frontier while a later snapshot is still in flight.
+   */
+  grokUsageWatermark?: GrokUsageWatermark;
+  /**
+   * Internal in-memory correlation metadata. These metrics are present in an exact cumulative ACP
+   * snapshot, but their current-turn delta is unknown because the persisted turn-start was absent.
+   * A matching extension may fill the row without advancing those frontier metrics again.
+   */
+  grokFrontierCoveredMetricScope?: number;
+  /**
+   * Internal Grok late-correlation key. The canonical provider prompt id replaces this provisional
+   * standard-fallback row atomically, so history backfill cannot double-count the turn.
+   */
+  replacesMessageId?: string | null;
+  /**
+   * Internal Grok lifecycle marker. False means this is a correction for an already completed
+   * turn; the runtime must persist it without completing or clearing the currently active tok/s
+   * state.
+   */
+  grokAffectsCurrentTurn?: boolean;
 }
 
 /** Token 查询选项；历史 Grok 回填只由数据页按需开启，避免拖慢应用启动。 */
@@ -57,12 +106,21 @@ export interface TokenRateRow {
 export interface TokenDailyRow {
   bucketKey: string;
   day: string;
-  inputTokens: number;
-  inputTotalTokens: number;
-  outputTokens: number;
-  reasoningTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
+  /** Exact provider total, available only when every row in the bucket/day reports it. */
+  providerTotalTokens: number | null;
+  providerTotalApplicable: boolean;
+  inputTokens: number | null;
+  inputApplicable: boolean;
+  inputTotalTokens: number | null;
+  inputTotalApplicable: boolean;
+  outputTokens: number | null;
+  outputApplicable: boolean;
+  reasoningTokens: number | null;
+  reasoningApplicable: boolean;
+  cacheReadTokens: number | null;
+  cacheReadApplicable: boolean;
+  cacheCreationTokens: number | null;
+  cacheCreationApplicable: boolean;
 }
 
 /** main → renderer push：token_usage 有新数据（renderer 据此 debounce refetch）。 */

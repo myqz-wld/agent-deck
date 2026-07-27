@@ -54,7 +54,15 @@ export function CodexPermissionsPanel({
             value={CODEX_SANDBOX_LABEL[data.effective.sandboxMode]}
             detail={`${data.effective.sandboxMode} · ${data.effective.sandboxSource === 'session' ? '当前会话' : '全局默认'}`}
           />
-          <CodexSummaryRow label="审批策略" value={data.effective.approvalPolicy} detail="Codex SDK 固定值" />
+          <CodexSummaryRow
+            label="审批策略"
+            value={data.effective.approvalPolicy ?? '由 Codex 决定'}
+            detail={
+              data.effective.approvalSource === 'codex-config'
+                ? 'Agent Deck 不覆盖 Codex config'
+                : 'Agent Deck 会话覆盖'
+            }
+          />
           <CodexSummaryRow
             label="Git 仓库检查"
             value={data.effective.skipGitRepoCheck ? '已跳过' : '启用'}

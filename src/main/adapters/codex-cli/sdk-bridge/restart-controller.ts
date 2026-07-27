@@ -12,6 +12,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import log from '@main/utils/logger';
+import { mergeCodexWritableRoots } from './thread-options-builder';
 
 const logger = log.scope('codex-restart');
 
@@ -77,7 +78,10 @@ export class RestartController {
 
         const liveApplied = this.ctx.applyLiveSandbox(sessionId, sandbox, {
           networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
-          additionalDirectories: rec.additionalDirectories ?? undefined,
+          additionalDirectories: mergeCodexWritableRoots(
+            rec.additionalDirectories ?? undefined,
+            rec.extraAllowWrite ?? undefined,
+          ),
         });
         if (!liveApplied) {
           logger.info(
@@ -95,7 +99,10 @@ export class RestartController {
             try {
               this.ctx.applyLiveSandbox(sessionId, oldSandbox, {
                 networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
-                additionalDirectories: rec.additionalDirectories ?? undefined,
+                additionalDirectories: mergeCodexWritableRoots(
+                  rec.additionalDirectories ?? undefined,
+                  rec.extraAllowWrite ?? undefined,
+                ),
               });
             } catch (liveRollbackErr) {
               logger.warn(

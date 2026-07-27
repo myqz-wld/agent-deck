@@ -107,6 +107,7 @@ function makeInternalSession(threadId: string): InternalSession {
     // (本 test 不验证 turn loop 行为,只关心 wire prefix 在 pendingMessages 与 emit 中的保留)
     turnLoopRunning: true,
     intentionallyClosed: false,
+    pendingPermissions: new Map(),
   };
 }
 
@@ -126,6 +127,7 @@ function makeActiveInternalSession(threadId: string): {
       currentTurnId: 'turn-active-1',
       turnLoopRunning: true,
       intentionallyClosed: false,
+      pendingPermissions: new Map(),
     },
     steer,
   };

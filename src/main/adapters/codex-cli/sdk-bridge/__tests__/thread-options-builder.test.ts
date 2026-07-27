@@ -3,12 +3,12 @@
  * reviewer-codex INFO「helper 缺直接单测」+ reviewer-claude MED「thread-options-builder.ts 零 test」）。
  *
  * 覆盖 thread-options-builder.ts `buildCodexThreadOptions` 的字段收口逻辑：
- * - approvalPolicy `?? 'never'` fallback（caller 缺省 → 'never'；caller 显式 → 透传）
+ * - approvalPolicy 缺省时省略（交还 Codex config / provider default）；caller 显式时透传
  * - skipGitRepoCheck 恒 true
  * - model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled /
  *   additionalDirectories 条件 spread（undefined → 字段不出现）
  * - modelReasoningSummary 默认 auto，让应用内 Codex 会话请求可展示的思路摘要
- * - additionalDirectories 浅拷贝（防 caller 后续 mutate 入参影响 SDK 内部）
+ * - additionalDirectories / extraAllowWrite 合并去重并浅拷贝
  *
  * 纯函数零 mock：直接 import + 断言 return object。
  */
@@ -16,14 +16,14 @@ import { describe, expect, it } from 'vitest';
 import { buildCodexThreadOptions } from '@main/adapters/codex-cli/sdk-bridge/thread-options-builder';
 
 describe('buildCodexThreadOptions', () => {
-  it('approvalPolicy 缺省 → fallback "never"；workingDirectory / sandboxMode / skipGitRepoCheck 必出现', () => {
+  it('approvalPolicy 缺省 → 不覆盖 Codex；workingDirectory / sandboxMode / skipGitRepoCheck 必出现', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
     });
     expect(opts.workingDirectory).toBe('/repo/x');
     expect(opts.sandboxMode).toBe('workspace-write');
-    expect(opts.approvalPolicy).toBe('never');
+    expect('approvalPolicy' in opts).toBe(false);
     expect(opts.skipGitRepoCheck).toBe(true);
   });
 
@@ -34,6 +34,37 @@ describe('buildCodexThreadOptions', () => {
       approvalPolicy: 'on-request',
     });
     expect(opts.approvalPolicy).toBe('on-request');
+  });
+
+  it('additionalDirectories 与 extraAllowWrite 合并去重并与 caller 数组隔离', () => {
+    const additionalDirectories = ['/shared', '/additional'];
+    const extraAllowWrite = ['/shared', '/extra'];
+    const opts = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      additionalDirectories,
+      extraAllowWrite,
+    });
+
+    expect(opts.additionalDirectories).toEqual(['/shared', '/additional', '/extra']);
+    additionalDirectories.push('/late-additional');
+    extraAllowWrite.push('/late-extra');
+    expect(opts.additionalDirectories).toEqual(['/shared', '/additional', '/extra']);
+  });
+
+  it('显式空 writable-root 数组仍传空数组，缺省时才省略字段', () => {
+    const explicitEmpty = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      extraAllowWrite: [],
+    });
+    const omitted = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+    });
+
+    expect(explicitEmpty.additionalDirectories).toEqual([]);
+    expect('additionalDirectories' in omitted).toBe(false);
   });
 
   it('model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled / additionalDirectories 全缺省 → 仅 summary 默认出现', () => {

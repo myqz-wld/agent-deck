@@ -26,6 +26,25 @@ describe('Codex app-server thread params', () => {
       .not.toHaveProperty('experimentalRawEvents');
   });
 
+  it('suppresses restored turns and token-usage replay on resume and fork', () => {
+    const options = {
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write' as const,
+      approvalPolicy: 'never' as const,
+      skipGitRepoCheck: true,
+    };
+
+    expect(__testables.buildThreadResumeParams('thread-1', options, null)).toMatchObject({
+      threadId: 'thread-1',
+      excludeTurns: true,
+    });
+    expect(__testables.buildThreadForkParams('source-1', 'turn-1', options, null)).toMatchObject({
+      threadId: 'source-1',
+      lastTurnId: 'turn-1',
+      excludeTurns: true,
+    });
+  });
+
   it('passes developerInstructions to thread/start and thread/resume only at thread scope', () => {
     const options = {
       workingDirectory: '/repo',

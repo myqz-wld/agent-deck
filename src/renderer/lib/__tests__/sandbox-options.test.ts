@@ -4,6 +4,7 @@ import {
   CLAUDE_SANDBOX_OPTIONS,
   CODEX_SANDBOX_MODE_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
+  PERMISSION_OPTIONS,
 } from '../sandbox-options';
 
 describe('sandbox option copy', () => {
@@ -27,5 +28,15 @@ describe('sandbox option copy', () => {
     expect(CLAUDE_SANDBOX_OPTIONS[0]).toEqual(CODEX_SANDBOX_OPTIONS[0]);
     expect(CLAUDE_SANDBOX_OPTIONS.slice(1)).toEqual(CLAUDE_SANDBOX_MODE_OPTIONS);
     expect(CODEX_SANDBOX_OPTIONS.slice(1)).toEqual(CODEX_SANDBOX_MODE_OPTIONS);
+  });
+
+  it('exposes every current Claude Code permission mode', () => {
+    expect(PERMISSION_OPTIONS.map((option) => option.value)).toEqual([
+      'default',
+      'acceptEdits',
+      'plan',
+      'auto',
+      'bypassPermissions',
+    ]);
   });
 });

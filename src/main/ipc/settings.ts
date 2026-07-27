@@ -178,6 +178,7 @@ function applyWindowTransparent(p: Partial<AppSettings>, next: AppSettings): voi
 function applyPermissionTimeout(p: Partial<AppSettings>, next: AppSettings): void {
   if ('permissionTimeoutMs' in p) {
     adapterRegistry.get('claude-code')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
+    adapterRegistry.get('codex-cli')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
     adapterRegistry.get('grok-build')?.setPermissionTimeoutMs?.(next.permissionTimeoutMs);
   }
 }

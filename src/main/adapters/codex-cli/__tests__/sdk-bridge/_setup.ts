@@ -15,13 +15,15 @@
  * - codex 的 `cwdExists` / `codexResumeJsonlExists` 是 protected method（不是 jsonlExists）
  * - recovery uses the shared provider-neutral continuation engine
  * - codex 没有 `claudeCodeSandbox` —— per-session 沙盒字段叫 `codexSandbox`
- * - codex 没有 `permissionMode` —— SDK approvalPolicy 写死 'never'
+ * - codex 没有 `permissionMode` —— 普通会话由 provider/config 决定 approvalPolicy，
+ *   reviewer 的显式 `never` 会按会话持久化并恢复
  * - createSession 接 `attachments` + `model` + `codexSandbox`（不是 claudeCodeSandbox）
  */
 
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import type { CodexApprovalPolicy } from '@shared/types';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { CreateSessionOpts } from '@main/adapters/codex-cli/sdk-bridge/create-session/_deps';
 import {
@@ -54,6 +56,7 @@ export interface CreateSessionCall {
    * 会让 sandbox-resolve 走 settings 全局值静默降级）。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  approvalPolicy?: CodexApprovalPolicy;
   /**
    * codex SDK ThreadOptions.model（v0.131.0+ 支持 per-thread override）— sdk-bridge 已
    * spread 进 ThreadOptions runtime 真切 model；fallback / resume 路径必须显式透传
@@ -151,6 +154,7 @@ export class TestCodexBridge extends CodexSdkBridge {
       resume: opts.resume,
       resumeMode: opts.resumeMode,
       codexSandbox: opts.codexSandbox,
+      approvalPolicy: opts.approvalPolicy,
       model: opts.model,
       modelReasoningEffort: opts.modelReasoningEffort,
       trustedContinuation: opts.trustedContinuation,

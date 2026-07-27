@@ -21,12 +21,14 @@ import type {
 } from '@shared/types';
 
 import { errorText } from './protocol-utils';
+import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
 import {
   beginGrokTurn,
   clearGrokTurnLiveRate,
   completeGrokTurnLiveRate,
   flushGrokTextUpdates,
+  markGrokStandardUsageEmitted,
   translateGrokUsage,
   waitForGrokStandardUsage,
 } from './translate';
@@ -349,7 +351,12 @@ export class GrokTurnQueue {
           '当前 Grok ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
         );
       }
-      beginGrokTurn(runtime.translation, runtime.applicationSessionId, runtime.model);
+      beginGrokTurn(
+        runtime.translation,
+        runtime.applicationSessionId,
+        runtime.model,
+        message.id,
+      );
       if (submitting) submitting.promptRequestIssued = true;
       const response = await runtime.process!.connection.agent.request(
         methods.agent.session.prompt,
@@ -360,6 +367,7 @@ export class GrokTurnQueue {
       );
       if (isCancelled(submitting)) return;
       this.flushText(runtime);
+      const previousWatermark = runtime.translation.lastUsage;
       const usageEvent = translateGrokUsage(
         runtime.applicationSessionId,
         runtime.model,
@@ -367,14 +375,26 @@ export class GrokTurnQueue {
         runtime.translation,
       );
       if (usageEvent) {
-        if (await waitForGrokStandardUsage(runtime.translation) && !runtime.closed) {
+        if (runtime.translation.extensionUsageForCurrentTurn && !runtime.closed) {
           this.options.emit(usageEvent);
           const payload = usageEvent.payload as { outputTokens?: unknown };
           completeGrokTurnLiveRate(
             runtime.translation,
             typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
           );
+        } else if (await waitForGrokStandardUsage(runtime.translation) && !runtime.closed) {
+          this.options.emit(usageEvent);
+          markGrokStandardUsageEmitted(runtime.translation, usageEvent);
+          const payload = usageEvent.payload as { outputTokens?: unknown };
+          completeGrokTurnLiveRate(
+            runtime.translation,
+            typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
+          );
         }
+      } else if (runtime.translation.lastUsage !== previousWatermark) {
+        // Baseline-only observations have no token row to pair with. Persisting just the baseline
+        // is safe; all count-bearing paths carry the watermark inside their atomic token event.
+        persistGrokUsageWatermark(runtime);
       }
       clearGrokTurnLiveRate(runtime.translation);
       if (!runtime.closed) {

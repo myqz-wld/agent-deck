@@ -69,6 +69,7 @@ export function resolveCodexForkTargetRuntime(
       configOverrides: opts.codexConfigOverrides,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
+      extraAllowWrite: opts.extraAllowWrite,
     }),
   };
 }

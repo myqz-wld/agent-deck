@@ -6,7 +6,11 @@ import type { CodexBridgeOptions, InternalSession } from './types';
 import log from '@main/utils/logger';
 import { bufferHandOffSourceInput } from '@main/session/hand-off/input-buffer';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
-import type { AgentEnqueueOptions, PendingAgentMessage } from '@main/adapters/types';
+import type {
+  AgentEnqueueOptions,
+  PendingAgentMessage,
+  QueuedAgentMessage,
+} from '@main/adapters/types';
 import {
   type AdapterRecoveryDeliveryOptions,
   enqueuePayloadFingerprint,
@@ -282,6 +286,21 @@ export class MessageController {
       ? pendingCodexUserMessage(submitting?.event)
       : null;
     return current ? [current, ...queued] : queued;
+  }
+
+  snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
+    const session = this.ctx.sessions.get(sessionId);
+    if (!session) return [];
+    return (session.pendingHandOffMessages ?? []).flatMap((message) =>
+      message
+        ? [{
+            text: message.text,
+            ...(message.attachments
+              ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+              : {}),
+          }]
+        : [],
+    );
   }
 
   removePendingOutgoingMessage(

@@ -62,6 +62,12 @@ describe('Codex native fork lifecycle', () => {
       initialSpawnLink: { parentSessionId: SOURCE_APP_ID, depth: 1 },
     });
     expect(h.onRegistered).toHaveBeenCalledWith(tempId);
+    expect(h.deps.persistTargetFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: tempId,
+        approvalPolicy: 'never',
+      }),
+    );
     expect(h.ops).toEqual(expect.arrayContaining([
       `emit:start:${tempId}`,
       `rename:${tempId}:${CHILD_ID}`,
@@ -259,6 +265,7 @@ function makeHarness(options: HarnessOptions = {}) {
   const target: CreateSessionOpts = {
     cwd: '/repo',
     prompt: 'delegated task',
+    approvalPolicy: 'never',
     model: 'target-model',
     modelReasoningEffort: 'high',
     initialSessionRegistration: {

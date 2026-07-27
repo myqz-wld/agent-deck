@@ -14,8 +14,12 @@
 
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
-import type { SessionRecord } from '@shared/types';
+import type {
+  AgentEvent,
+  PermissionMode,
+  SessionRecord,
+  UploadedAttachmentRef,
+} from '@shared/types';
 import {
   createTrustedContinuationInitialTurn,
   type TrustedContinuationInitialTurn,
@@ -124,7 +128,7 @@ export class TestBridge extends ClaudeSdkBridge {
     provider?: string;
     claudeAgentName?: string;
     claudePluginDir?: string;
-    permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+    permissionMode?: PermissionMode;
     resume?: string;
     resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
     /** REVIEW_36 HIGH-1：fallback 透传 sandbox 档位 */

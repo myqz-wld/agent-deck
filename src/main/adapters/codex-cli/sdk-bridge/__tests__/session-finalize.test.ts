@@ -7,6 +7,7 @@ import { eventBus } from '@main/event-bus';
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
     setCodexSandbox: vi.fn(),
+    setCodexApprovalPolicy: vi.fn(),
     setModel: vi.fn(),
     setThinking: vi.fn(),
     setExtraAllowWrite: vi.fn(),
@@ -42,6 +43,7 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
 describe('codex persistSessionFields', () => {
   beforeEach(() => {
     vi.mocked(sessionRepo.setCodexSandbox).mockReset();
+    vi.mocked(sessionRepo.setCodexApprovalPolicy).mockReset();
     vi.mocked(sessionRepo.setModel).mockReset();
     vi.mocked(sessionRepo.setThinking).mockReset();
     vi.mocked(sessionRepo.setExtraAllowWrite).mockReset();
@@ -76,5 +78,19 @@ describe('codex persistSessionFields', () => {
 
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sid', 'read-only');
     expect(eventBus.emit).not.toHaveBeenCalled();
+  });
+
+  it('persists an explicit reviewer approval override for future recovery', () => {
+    vi.mocked(sessionRepo.get).mockReturnValue(
+      makeSession({ codexApprovalPolicy: 'never' }),
+    );
+
+    persistSessionFields({
+      sessionId: 'sid',
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'never',
+    });
+
+    expect(sessionRepo.setCodexApprovalPolicy).toHaveBeenCalledWith('sid', 'never');
   });
 });
