@@ -25,7 +25,13 @@ import { AGENT_DECK_MCP_TOOL_PATTERN } from '@main/agent-deck-mcp/server';
 
 export interface BuildClaudeQueryOptionsArgs {
   cwd: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+  permissionMode?:
+    | 'default'
+    | 'acceptEdits'
+    | 'plan'
+    | 'dontAsk'
+    | 'auto'
+    | 'bypassPermissions';
   resume?: string;
   canUseTool: CanUseTool;
   sandboxOpts: ReturnType<typeof buildSandboxOptions>;

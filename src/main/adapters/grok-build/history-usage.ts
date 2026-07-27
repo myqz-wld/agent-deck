@@ -80,7 +80,7 @@ export async function backfillGrokHistoryTokenUsage(options: {
           outputTokens: usageEvent.outputTokens,
           reasoningTokens: usageEvent.reasoningTokens,
           cacheReadTokens: usageEvent.cacheReadTokens,
-          cacheCreationTokens: 0,
+          cacheCreationTokens: usageEvent.cacheCreationTokens,
           ts: usageEvent.ts,
         });
         result.imported += 1;
@@ -165,6 +165,7 @@ function historyUsageEvent(
   outputTokens: number;
   reasoningTokens: number;
   cacheReadTokens: number;
+  cacheCreationTokens: number;
   ts: number;
 } | null {
   void sessionId;
@@ -180,6 +181,7 @@ function historyUsageEvent(
     outputTokens: usageNumber(usage.outputTokens),
     reasoningTokens: usageNumber(usage.reasoningTokens ?? usage.thoughtTokens),
     cacheReadTokens: usageNumber(usage.cachedReadTokens),
+    cacheCreationTokens: usageNumber(usage.cachedWriteTokens),
     ts: grokExtensionTimestampMs(notification, fallbackNow),
   };
 }
@@ -194,6 +196,7 @@ function hasUsageValues(usage: GrokTurnUsage): boolean {
     usage.outputTokens,
     usage.totalTokens,
     usage.cachedReadTokens,
+    usage.cachedWriteTokens,
     usage.reasoningTokens,
     usage.thoughtTokens,
   ].some((value) => finiteNumber(value) !== null);

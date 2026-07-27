@@ -61,4 +61,54 @@ describe('agent-deck new model options', () => {
       parseCliInvocation(['/Applications/Agent Deck', 'new', '--thinking']),
     ).toThrow('--thinking 缺少取值');
   });
+
+  it.each(['dontAsk', 'auto'] as const)(
+    'accepts the current Claude permission mode %s',
+    (permissionMode) => {
+      expect(
+        parseCliInvocation([
+          '/Applications/Agent Deck',
+          'new',
+          '--adapter',
+          'claude',
+          '--permission-mode',
+          permissionMode,
+        ]),
+      ).toMatchObject({
+        kind: 'new-session',
+        agent: 'claude-code',
+        permissionMode,
+      });
+    },
+  );
+
+  it('rejects Claude permission modes for Codex and Grok instead of ignoring them', () => {
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'codex',
+      '--permission-mode',
+      'bypassPermissions',
+    ])).toThrow('--permission-mode 与 adapter "codex-cli" 不兼容');
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'grok',
+      '--permission-mode',
+      'plan',
+    ])).toThrow('--permission-mode 与 adapter "grok-build" 不兼容');
+  });
+
+  it('rejects Codex sandbox flags for non-Codex adapters', () => {
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'claude',
+      '--codex-sandbox',
+      'read-only',
+    ])).toThrow('--codex-sandbox 与 adapter "claude-code" 不兼容');
+  });
 });

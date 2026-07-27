@@ -116,7 +116,7 @@ export interface ClaudeCreateOpts {
    * 读回交还 createThunk → SDK sandbox.allowWrite。让 app 重启 / sdk-bridge state lost /
    * recoverer fallback 路径下 SDK 不丢 caller spawn 时透传的 extra writable roots。全链路实装
    * （persist + read-back + buildSandboxOptions 注入 SDK sandbox.allowWrite，workspace-write 档
-   * 真正生效）。codex 端字段持久化保 parity 对称但 runtime 不消费，详 CodexCreateOpts.extraAllowWrite。
+   * 真正生效）。Codex 端同一 provider-neutral 字段映射到 app-server writableRoots。
    */
   extraAllowWrite?: readonly string[];
   // **REVIEW_105 MED-1 (deep-review Batch 7, 双 reviewer + lead 三重独立命中)**:
@@ -147,8 +147,8 @@ export interface ClaudeCreateOpts {
 
 /**
  * Codex CLI adapter 专属 createSession opts。与 ClaudeCreateOpts 字段不同处:
- * 不含 permissionMode（codex SDK 不支持 canUseTool 等价回调,approvalPolicy 是 startThread 字符串
- * 枚举一次性配置）+ 含 codexSandbox（codex SDK 三档 sandboxMode）+ 不含 claudeCodeSandbox。
+ * 不含 Claude permissionMode（Codex 使用 app-server approvalPolicy + server requests）
+ * + 含 codexSandbox（Codex 三档 sandboxMode）+ 不含 claudeCodeSandbox。
  */
 export interface CodexCreateOpts {
   cwd: string;
@@ -198,13 +198,8 @@ export interface CodexCreateOpts {
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
-   * 字段持久化保 parity 对称（与 ClaudeCreateOpts.extraAllowWrite 字面镜像）。
-   * **codex SDK runtime 不消费**（SDK 不支持 extra writable roots, sandboxMode 三档无 allowWrite
-   * 字段）；bridge 内 setExtraAllowWrite 写库保跨 adapter parity 对称（与 model 字段已不同款 —
-   * model 字段 codex-sdk v0.131.0+ ThreadOptions.model 已支持 runtime 真生效,extraAllowWrite
-   * 仍未生效,本字段仅 DB 写库保 SessionRecord 形态一致）。future codex SDK 加支持时零迁移成本。
-   *
-   * 详细持久化路径见 ClaudeCreateOpts.extraAllowWrite jsdoc。
+   * Provider-neutral sandbox writable roots. The bridge merges this list into Codex app-server
+   * workspace-write `writableRoots` and persists it for resume/recovery.
    */
   extraAllowWrite?: readonly string[];
   // **REVIEW_105 MED-1 (deep-review Batch 7)**: resumeCliSid / resumeMode 同 ClaudeCreateOpts —
@@ -214,19 +209,16 @@ export interface CodexCreateOpts {
   // 白名单都不传(死字段)。详 ClaudeCreateOpts extraAllowWrite 下方 REVIEW_105 注释。
   /**
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
-   * codex SDK startThread/resumeThread `approvalPolicy` 透传（caller 显式 / options-builder
-   * spread default）。codex SDK 4 档 `'never' | 'on-request' | 'on-failure' | 'untrusted'`；
-   * 应用层只暴露 `'never' | 'on-request'`（teammate reviewer 默认 never 不阻断；future caller
-   * 想加 on-request 走 PendingTab 兜底）。
+   * codex app-server `approvalPolicy` 透传。当前 provider 支持 `untrusted`、`on-request`
+   * 和 `never`；普通会话缺省时不覆盖 Codex config，teammate reviewer 显式使用 never。
    *
    * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName in REVIEWER_AGENT_NAMES`
    * 路径触发 default spread；**bridge 不主动 hardcode default** —— 让 caller
    * 路径 / 普通 codex session 不被污染（不变量 6）。
    *
-   * spawn-time 一次性透传给 codex.startThread；undefined 时 bridge 沿用现有 default 'never'
-   * （保持现状不污染普通 codex session）。运行时无热切（与 codexSandbox 同款语义）。
+   * spawn-time 一次性透传；app-server 的请求由 PendingTab 应答。运行时无热切。
    */
-  approvalPolicy?: 'never' | 'on-request';
+  approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /**
    * plan §P3 Step 3.5 + §不变量 6：codex SDK startThread `networkAccessEnabled` 透传。
    * codex teammate reviewer 调外部 CLI（reviewer-claude wrapper 跑 `$AGENT_DECK_CLAUDE_PATH -p ...`）

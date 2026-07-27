@@ -1,4 +1,8 @@
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
+import {
+  firstUnsupportedTargetRuntimeField,
+  unsupportedTargetRuntimeFieldMessage,
+} from '@main/adapters/runtime-control-contracts';
 import { resolveCreateSessionModelOptions } from '@main/adapters/session-model-options';
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { settingsStore } from '@main/store/settings-store';
@@ -53,88 +57,21 @@ export function resolveHandOffTarget(input: {
 }): ResolvedHandOffTarget {
   const { source, request } = input;
   const sameAdapter = request.adapter === source.agentId;
-  if (request.adapter === 'codex-cli') {
-    if (request.permissionMode !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'permissionMode',
-        'permissionMode is supported only by Claude-family targets',
-      );
-    }
-    if (request.claudeCodeSandbox !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'claudeCodeSandbox',
-        'claudeCodeSandbox is incompatible with codex-cli',
-      );
-    }
-    if (request.extraAllowWrite !== undefined && request.extraAllowWrite.length > 0) {
-      throw new HandOffTargetOptionsError(
-        'extraAllowWrite',
-        'codex-cli does not enforce extraAllowWrite; use additionalDirectories or omit it',
-      );
-    }
-    if (request.sessionMode != null) {
-      throw new HandOffTargetOptionsError(
-        'sessionMode',
-        'sessionMode is compatible only with grok-build',
-      );
-    }
-  } else if (request.adapter === 'grok-build') {
-    if (request.permissionMode !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'permissionMode',
-        'permissionMode is supported only by Claude-family targets; Grok ACP session modes are a separate capability',
-      );
-    }
-    if (request.codexSandbox !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'codexSandbox',
-        'codexSandbox is incompatible with grok-build',
-      );
-    }
-    if (request.claudeCodeSandbox !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'claudeCodeSandbox',
-        'claudeCodeSandbox is incompatible with grok-build',
-      );
-    }
-    if (request.extraAllowWrite?.length) {
-      throw new HandOffTargetOptionsError(
-        'extraAllowWrite',
-        'grok-build uses Grok native tool permissions and does not accept extraAllowWrite',
-      );
-    }
+  const unsupported = firstUnsupportedTargetRuntimeField(request.adapter, request);
+  if (unsupported !== null) {
+    throw new HandOffTargetOptionsError(
+      unsupported,
+      unsupportedTargetRuntimeFieldMessage(request.adapter, unsupported),
+    );
+  }
+  if (request.adapter !== 'codex-cli') {
     if (request.networkAccessEnabled !== undefined) {
       throw new HandOffTargetOptionsError(
         'networkAccessEnabled',
         'networkAccessEnabled is compatible only with codex-cli',
       );
     }
-    if (request.additionalDirectories?.length) {
-      throw new HandOffTargetOptionsError(
-        'additionalDirectories',
-        'additionalDirectories is compatible only with codex-cli',
-      );
-    }
-  } else {
-    if (request.sessionMode != null) {
-      throw new HandOffTargetOptionsError(
-        'sessionMode',
-        'sessionMode is compatible only with grok-build',
-      );
-    }
-    if (request.codexSandbox !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'codexSandbox',
-        'codexSandbox is compatible only with codex-cli',
-      );
-    }
-    if (request.networkAccessEnabled !== undefined) {
-      throw new HandOffTargetOptionsError(
-        'networkAccessEnabled',
-        'networkAccessEnabled is compatible only with codex-cli',
-      );
-    }
-    if (request.additionalDirectories !== undefined && request.additionalDirectories.length > 0) {
+    if (request.additionalDirectories !== undefined) {
       throw new HandOffTargetOptionsError(
         'additionalDirectories',
         'additionalDirectories is compatible only with codex-cli',
@@ -252,7 +189,7 @@ export function resolveHandOffTarget(input: {
       ? {
           kind: 'codex',
           mode: codexSandbox ?? null,
-          extraAllowWriteEffective: false,
+          extraAllowWriteEffective: true,
           persistedExtraAllowWrite: extraAllowWrite,
         }
       : { kind: 'claude', mode: claudeCodeSandbox ?? null, extraAllowWrite };

@@ -23,6 +23,10 @@ import {
   isAgentId,
 } from './adapters/options-builder';
 import {
+  firstUnsupportedTargetRuntimeField,
+  unsupportedTargetRuntimeFieldMessage,
+} from './adapters/runtime-control-contracts';
+import {
   resolveCreateSessionModelOptions,
   SessionModelOptionsError,
 } from './adapters/session-model-options';
@@ -71,6 +75,8 @@ const PERM_MODES: ReadonlyArray<PermissionMode> = [
   'default',
   'acceptEdits',
   'plan',
+  'dontAsk',
+  'auto',
   'bypassPermissions',
 ];
 const CODEX_SANDBOXES: ReadonlyArray<'workspace-write' | 'read-only' | 'danger-full-access'> = [
@@ -217,7 +223,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       permissionMode = pmRaw as PermissionMode;
     }
 
-    // CHANGELOG_<X> A9：--codex-sandbox 仅 codex-cli adapter 起效；其他 adapter 收下忽略。
+    // Parse the global enum first; adapter ownership is checked below with permissionMode.
     const csRaw = asString(f.get('codex-sandbox'));
     let codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | undefined;
     if (csRaw !== undefined) {
@@ -227,6 +233,21 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
         );
       }
       codexSandbox = csRaw as (typeof CODEX_SANDBOXES)[number];
+    }
+    if (isAgentId(agent)) {
+      const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(agent, {
+        ...(permissionMode !== undefined ? { permissionMode } : {}),
+        ...(codexSandbox !== undefined ? { codexSandbox } : {}),
+      });
+      if (unsupportedRuntimeField !== null) {
+        const flag =
+          unsupportedRuntimeField === 'permissionMode'
+            ? 'permission-mode'
+            : 'codex-sandbox';
+        throw new Error(
+          `agent-deck new: --${flag} 与 adapter "${agent}" 不兼容（${unsupportedTargetRuntimeFieldMessage(agent, unsupportedRuntimeField)}）`,
+        );
+      }
     }
 
     // 默认聚焦；--no-focus 显式关掉

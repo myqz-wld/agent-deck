@@ -3,7 +3,12 @@
  *
  * 抽自 codex-cli/sdk-bridge.ts 顶部 interface 段。
  */
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type {
+  AgentEvent,
+  PermissionRequest,
+  PermissionResponse,
+  UploadedAttachmentRef,
+} from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexInput } from './input-pack';
@@ -22,12 +27,20 @@ export interface CodexSubmittingUserMessage {
   requestController?: AbortController;
 }
 
+export interface CodexPendingPermission {
+  request: PermissionRequest;
+  respond: (response: PermissionResponse) => void;
+  cancel: (reason: 'cancelled' | 'timed-out') => void;
+}
+
 export interface CodexSessionHandle {
   sessionId: string;
 }
 
 export interface CodexBridgeOptions {
   emit: (e: AgentEvent) => void;
+  /** Native app-server approval request timeout. 0 keeps requests pending indefinitely. */
+  permissionTimeoutMs?: number;
   /**
    * HookServer 实例引用（CHANGELOG_<X> R2 / B'4 + R1.A5 + R1.D7）。
    * lazy ref：bridge 构造时存指针，ensureCodex 调用时实时读 isRunning / mcpBearerToken /
@@ -107,6 +120,8 @@ export interface InternalSession {
   intentionallyClosed: boolean;
   /** 生成中 tok/s display-only app-server usage 状态（不写库，turn 末清掉）。 */
   codexLiveTokenEstimate?: CodexLiveTokenEstimateState;
+  /** app-server initiated native approval requests awaiting a response in Agent Deck. */
+  pendingPermissions: Map<string, CodexPendingPermission>;
 }
 
 /** Codex 侧生成中 tok/s usage 状态（仅展示，不落库）。 */

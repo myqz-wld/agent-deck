@@ -32,10 +32,9 @@ import {
   handleStreamEventForLiveRate,
 } from './live-token-rate';
 import {
-  accumulateThinkingTokenEstimate,
-  emitThinkingUsageCorrection,
+  emitAuthoritativeReasoningUsage,
   resetTurnUsageAccounting,
-} from './thinking-token-usage';
+} from './authoritative-reasoning-usage';
 import type { InternalSession } from './types';
 import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
 import {
@@ -478,7 +477,7 @@ export function translateSdkMessage(
     const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
     try {
       emitResultUsageCorrection(e, internal, fallbackModel, r);
-      emitThinkingUsageCorrection(e, internal, fallbackModel, r);
+      emitAuthoritativeReasoningUsage(e, internal, fallbackModel, r);
     } catch {
       // Usage telemetry must never interrupt result/finished translation.
     } finally {
@@ -489,17 +488,6 @@ export function translateSdkMessage(
       e('message', { text: `⚠ ${detail}`, error: true });
     }
     e('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
-  } else if (msg.type === 'system' && msg.subtype === 'thinking_tokens') {
-    // The SDK marks these values as approximate. Keep them turn-local and flush one correction at
-    // result; persisting every stream delta would create synchronous DB/IPC churn and could not be
-    // undone if an authoritative result detail arrives later.
-    accumulateThinkingTokenEstimate(
-      internal,
-      hasExplicitModel(internal.runtimeModel)
-        ? internal.runtimeModel
-        : resolveClaudeFallbackModel(internal, sessionId),
-      msg,
-    );
   } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const metadata = (msg as {
       compact_metadata?: {

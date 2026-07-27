@@ -23,6 +23,7 @@ function makeInternalSession(over: Partial<InternalSession> = {}): InternalSessi
     currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
+    pendingPermissions: new Map(),
     ...over,
   };
 }
@@ -62,7 +63,7 @@ describe('codex app-server live-token-rate', () => {
       {
         sessionId: 'sid-1',
         bucketKey: 'codex-default',
-        tps: 45 / 0.3,
+        tps: 30 / 0.3,
         ts: 1300,
       },
     ]);
@@ -71,7 +72,7 @@ describe('codex app-server live-token-rate', () => {
       {
         sessionId: 'sid-1',
         bucketKey: 'codex-default',
-        tps: 15 / 0.3,
+        tps: 10 / 0.3,
         ts: 1600,
       },
     ]);

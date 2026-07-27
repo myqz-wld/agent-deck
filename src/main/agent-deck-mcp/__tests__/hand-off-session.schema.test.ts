@@ -25,6 +25,17 @@ describe('hand_off_session schema — unified Continuation Context', () => {
     if (result.success) expect(result.data.adapter).toBeUndefined();
   });
 
+  it.each(['dontAsk', 'auto'] as const)(
+    'accepts the current Claude permission mode %s',
+    (permissionMode) => {
+      expect(HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+        prompt: 'continue',
+        adapter: 'claude-code',
+        permissionMode,
+      }).success).toBe(true);
+    },
+  );
+
   it('rejects removed minimal thinking', () => {
     expect(
       HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({

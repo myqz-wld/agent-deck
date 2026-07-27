@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
 import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
+import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
 export const SPAWN_SESSION_MODEL_VALUES = [
   'haiku',
@@ -78,30 +79,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .describe(
       'Optional real agent name. Resolution is adapter-scoped: bundled Agent Deck reviewers first, then project direct agents, project Plugin agents, user direct agents, and user Plugin agents. Claude Plugin Agents use the native plugin-name:agent-name selector and load their Plugin root for the session. Codex Plugin Agents use Agent Deck\'s agents/*.toml extension because Codex Plugins natively expose Skills but not Agent components. Grok Build passes the native profile through ACP and can resolve project/user/plugin agents discovered by Grok. For a normal/general-purpose spawned session, omit agentName and put complete instructions in prompt; use displayName only for labels. Unknown or ambiguous names reject.',
     ),
-  model: z
-    .string()
-    .trim()
-    .min(1)
-    .max(256)
-    .optional()
-    .describe(
-      'Optional model override for the spawned session only. Suggested values by adapter: Claude — haiku, sonnet, opus, fable, or the selected Gateway model id such as deepseek-v4-pro[1m]; Codex — gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4; Grok Build — grok-4.5. Suggestions are not an allowlist. Precedence: explicit model > resolved agent model > same-adapter source session > provider default.',
-    ),
-  provider: z
-    .string()
-    .trim()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'Optional runtime provider for the spawned session. For claude-code this is a Gateway profile id discovered from ~/.claude/gateways (for example deepseek or openrouter); for codex-cli it is a model_provider id from ~/.codex/config.toml. grok-build rejects provider because it keeps model-alias routing. Precedence: explicit provider > resolved Agent runtime/frontmatter > same-adapter source session > application/provider native default.',
-    ),
-  thinking: z
-    .enum(SPAWN_SESSION_THINKING_VALUES)
-    .optional()
-    .describe(
-      'Optional thinking/reasoning override for the spawned session only. Precedence: explicit thinking > resolved agent effort > same-adapter source session > provider default. Grok Build accepts low, medium, high, and xhigh; Codex accepts low through ultra; Claude accepts low, medium, high, xhigh, and max. Adapter-invalid values are rejected before session creation.',
-    ),
+  ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
   /**
    * REVIEW_31 Bug 4：teammate 显示名（覆盖 session.title 默认 cwd-basename）。
    * UI 列表 / SessionCard / TeamDetail / wire format wireBody 全走 displayName 优先级链
@@ -114,41 +92,6 @@ export const SPAWN_SESSION_SCHEMA = {
     .optional()
     .describe(
       'Optional human-readable display name for the spawned session (e.g. "reviewer-claude · batch A", "patch-coder", "prompt-editor"). Use this for naming a generic teammate; do not set `agentName` just to label the session. When omitted, falls back to agentName (if set), otherwise cwd-basename. Becomes session.title (visible in SessionList / TeamDetail) and team_member.displayName (visible in wire format prefix).',
-    ),
-  permissionMode: z
-    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
-    .optional()
-    .describe(
-      'Explicit permission-mode override for a spawned Claude-family session. Omit unless the user explicitly requests it. It is incompatible with codex-cli and grok-build.',
-    ),
-  sessionMode: z
-    .enum(['default', 'plan', 'ask'])
-    .optional()
-    .describe(
-      'Grok Build work mode for the spawned session: default executes normally, plan plans without normal execution, and ask is conversational. It is distinct from Claude permissionMode and incompatible with other adapters.',
-    ),
-  codexSandbox: z
-    .enum(['workspace-write', 'read-only', 'danger-full-access'])
-    .optional()
-    .describe(
-      'Explicit sandbox override for a codex-cli spawned session, including bundled reviewer agents. Omit unless the user explicitly requests this sandbox mode; omitted values let Agent Deck inherit from a same-adapter codex caller or use the codex adapter default.',
-    ),
-  claudeCodeSandbox: z
-    .enum(['off', 'workspace-write', 'strict'])
-    .optional()
-    .describe(
-      'Explicit OS sandbox override for a claude-code spawned session. Omit unless the user explicitly requests this sandbox mode; omitted values let Agent Deck inherit from a same-adapter caller or use the target adapter default.',
-    ),
-  /**
-   * 可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
-   * 目标 Claude session 需要写 cwd 外路径时传；same-adapter spawn 会继承 caller 既有值。
-   */
-  extraAllowWrite: z
-    .array(z.string().min(1).max(4096))
-    .max(16)
-    .optional()
-    .describe(
-      'Extra writable roots for a claude-code workspace-write sandbox. Use only when the spawned Claude-family session must edit paths outside cwd.',
     ),
   callerSessionId: z
     .string()

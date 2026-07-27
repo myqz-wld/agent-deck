@@ -98,7 +98,7 @@ export function translateGrokTurnUsage(
       outputTokens: nonNegativeUsageValue(usage.outputTokens),
       reasoningTokens: nonNegativeUsageValue(usage.reasoningTokens ?? usage.thoughtTokens),
       cacheReadTokens: nonNegativeUsageValue(usage.cachedReadTokens),
-      cacheCreationTokens: 0,
+      cacheCreationTokens: nonNegativeUsageValue(usage.cachedWriteTokens),
     },
     ts: grokExtensionTimestampMs(notification),
     source: 'sdk',
@@ -178,6 +178,7 @@ function hasGrokUsageValues(usage: GrokTurnUsage): boolean {
     usage.outputTokens,
     usage.totalTokens,
     usage.cachedReadTokens,
+    usage.cachedWriteTokens,
     usage.reasoningTokens,
     usage.thoughtTokens,
   ].some((value) => finiteNumber(value) !== null);

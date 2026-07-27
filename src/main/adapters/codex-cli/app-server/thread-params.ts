@@ -57,7 +57,9 @@ function buildThreadCommonParams(
   return {
     cwd: options.workingDirectory,
     sandbox: options.sandboxMode,
-    approvalPolicy: options.approvalPolicy ?? 'never',
+    ...(options.approvalPolicy !== undefined
+      ? { approvalPolicy: options.approvalPolicy }
+      : {}),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.developerInstructions !== undefined
       ? { developerInstructions: options.developerInstructions }
@@ -126,7 +128,9 @@ export function buildTurnStartParams(
     threadId,
     input,
     cwd: options.workingDirectory,
-    approvalPolicy: options.approvalPolicy ?? 'never',
+    ...(options.approvalPolicy !== undefined
+      ? { approvalPolicy: options.approvalPolicy }
+      : {}),
     sandboxPolicy: buildSandboxPolicy(options, effectiveConfig),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.modelReasoningEffort !== undefined

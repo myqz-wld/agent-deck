@@ -343,8 +343,8 @@ export function setThinking(id: string, thinking: string | null): void {
  * - claude-code adapter session-finalize:opts.extraAllowWrite 非空时调,让 SDK resume /
  *   dormant 唤醒 / app 重启 / sdk-bridge state lost 后,recoverer 路径仍能从 sessionRepo
  *   读回交还 SDK sandbox.allowWrite(workspace-write 档生效)
- * - codex-cli adapter session-finalize:opts.extraAllowWrite 非空时也调(parity 对称写库,
- *   runtime 不消费 — codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移
+ * - codex-cli adapter session-finalize:opts.extraAllowWrite 非空时也调；bridge 在恢复时将其
+ *   合并进 app-server workspace-write writableRoots
  *
  * `paths`:绝对路径数组;空数组 / null → 列写 NULL(语义同 caller 不传 extraAllowWrite,
  * sandbox.allowWrite 不增 root)。

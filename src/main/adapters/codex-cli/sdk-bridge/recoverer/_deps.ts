@@ -70,22 +70,14 @@ export type CreateSessionThunk = (opts: {
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
    * recoverer fallback / resume 路径显式透传 spawn 时持久化的 SDK sandbox 额外可写根。
    *
-   * 与 model 字段已不同款(prompt-asset-review-optimize-20260527 修订:Codex runtime v0.131.0+
-   * ThreadOptions.model 已 runtime 真生效,extraAllowWrite 仍未生效):codex SDK 不消费 extra
-   * writable roots(sandboxMode 三档无 allowWrite 字段),但 createSession 内部仍 setExtraAllowWrite
-   * 持久化保 parity 对称 — 保留入参字段对齐 claude 接口形态。**透传到当前不消费的 opts 无副作用**
-   * (persistSessionFields 内 if 卫语句 skip 空数组,setExtraAllowWrite null 也是合法值)。
-   *
-   * 修法理由(plan §4 推荐 ✅ 做):即使 codex bridge 当前不消费,持久化字段 + 读回保 parity 完整,
-   * future codex SDK 加支持时零迁移成本 + 减跨 adapter 漂移。与 codexSandbox / claudeCodeSandbox
-   * 同样走显式透传 + ?? undefined 兜底(rec.extraAllowWrite 历史 NULL 时 undefined 跳过 setter)
-   * — 不同于 model 字段(Codex runtime v0.131.0+ 真生效),本字段 runtime 不消费仅持久化。
+   * createSession 将该列表与 additionalDirectories 合并为 app-server workspace-write
+   * writableRoots；同时保留原字段持久化，确保 resume/fallback 恢复相同策略。
    */
   extraAllowWrite?: readonly string[];
   /**
    * plan codex-recover-network-dirs-parity-20260602：recover 路径显式透传 spawn 时持久化的
-   * `networkAccessEnabled`（rec.networkAccessEnabled ?? undefined）。**与 extraAllowWrite 不同：
-   * codex SDK runtime 真消费** —— recover 重建 thread 时不透传 → SDK 走默认无网络 → reviewer-codex
+   * `networkAccessEnabled`（rec.networkAccessEnabled ?? undefined）。recover 重建 thread 时不透传
+   * → SDK 走默认无网络 → reviewer-codex
    * 失去 web search。这是本字段加进 thunk 的**唯一类型瓶颈**（facade CreateSessionOpts 已有此字段，
    * bridge createSession(opts) 整体透传 createSessionImpl 无白名单丢弃）。
    */

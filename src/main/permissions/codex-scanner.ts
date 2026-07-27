@@ -2,7 +2,8 @@
  * Codex 权限页只读扫描器。
  *
  * Codex CLI 没有 Claude Code 的 allow/deny/ask settings 层；Agent Deck 侧能展示的真实权限面
- * 是 Codex SDK 启动时使用的 sandboxMode、固定 approvalPolicy、Agent Deck MCP 注入状态，以及
+ * 是 Codex app-server 启动时使用的 sandboxMode、approvalPolicy 所有权、Agent Deck MCP
+ * 注入状态，以及
  * `~/.codex/config.toml` 中与 Codex 运行相关的只读配置。
  */
 
@@ -91,7 +92,8 @@ export async function scanCodexSettings(
     effective: {
       sandboxMode,
       sandboxSource: hasSessionSandbox ? 'session' : 'settings',
-      approvalPolicy: 'never',
+      approvalPolicy: null,
+      approvalSource: 'codex-config',
       skipGitRepoCheck: true,
       agentDeckMcp: {
         enabled: settings.enableAgentDeckMcp,

@@ -44,7 +44,7 @@ import { StreamProcessor } from './stream-processor';
 import { RestartController } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
-import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PendingAgentMessage, PermissionMode, QueuedAgentMessage } from '@main/adapters/types';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
@@ -448,7 +448,7 @@ export class ClaudeSdkBridge {
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */
   async setPermissionMode(
     sessionId: string,
-    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+    mode: PermissionMode,
   ): Promise<void> {
     return setClaudePermissionMode({ sessions: this.sessions, sessionId, mode });
   }
@@ -460,7 +460,7 @@ export class ClaudeSdkBridge {
   /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */
   async restartWithPermissionMode(
     sessionId: string,
-    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+    mode: PermissionMode,
     handoffPrompt: string,
   ): Promise<string> {
     return this.restartController.restartWithPermissionMode(sessionId, mode, handoffPrompt);

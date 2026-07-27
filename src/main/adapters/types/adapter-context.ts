@@ -17,4 +17,10 @@ export interface AdapterContext {
   };
 }
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+export type PermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'dontAsk'
+  | 'auto'
+  | 'bypassPermissions';

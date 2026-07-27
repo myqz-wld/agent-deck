@@ -91,6 +91,7 @@ describe('Grok history token usage backfill', () => {
                 outputTokens: 4,
                 totalTokens: 14,
                 cachedReadTokens: 2,
+                cachedWriteTokens: 3,
                 modelUsage: { 'claude-fable-5': {} },
               },
             },
@@ -145,6 +146,7 @@ describe('Grok history token usage backfill', () => {
       model: 'claude-fable-5',
       inputTokens: 999,
       outputTokens: 999,
+      cacheCreationTokens: 3,
       ts: 1_700_000_000_000,
     });
     expect(harness.rows.get('prompt-2')).toMatchObject({
