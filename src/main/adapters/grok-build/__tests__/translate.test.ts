@@ -257,6 +257,7 @@ describe('Grok ACP event translation', () => {
             outputTokens: 2368,
             totalTokens: 623618,
             cachedReadTokens: 287833,
+            cachedWriteTokens: 811,
             reasoningTokens: 4,
             modelUsage: { 'claude-fable-5': {} },
           },
@@ -295,7 +296,7 @@ describe('Grok ACP event translation', () => {
       outputTokens: 2368,
       reasoningTokens: 4,
       cacheReadTokens: 287833,
-      cacheCreationTokens: 0,
+      cacheCreationTokens: 811,
     });
     expect(duplicate).toBeNull();
     expect(second?.payload).toMatchObject({

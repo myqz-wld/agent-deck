@@ -74,6 +74,8 @@ const PERMISSION_MODE_VALUES: ReadonlyArray<PermissionMode> = [
   'default',
   'acceptEdits',
   'plan',
+  'dontAsk',
+  'auto',
   'bypassPermissions',
 ];
 
@@ -189,4 +191,27 @@ export function parseStringIdArray(field: string, value: unknown, maxItems = 500
     throw new IpcInputError(field, `length > ${maxItems} items`);
   }
   return value.map((v, i) => parseStringId(`${field}[${i}]`, v));
+}
+
+export function parseOptionalAbsolutePathArray(
+  field: string,
+  value: unknown,
+  maxItems = 16,
+): string[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) {
+    throw new IpcInputError(field, 'must be array');
+  }
+  if (value.length > maxItems) {
+    throw new IpcInputError(field, `length > ${maxItems} items`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > 4096) {
+      throw new IpcInputError(`${field}[${index}]`, 'must be a non-empty string of at most 4096 chars');
+    }
+    if (!(entry.startsWith('/') || /^[A-Za-z]:[\\/]/.test(entry))) {
+      throw new IpcInputError(`${field}[${index}]`, 'must be an absolute path');
+    }
+    return entry;
+  });
 }

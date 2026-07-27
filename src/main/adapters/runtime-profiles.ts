@@ -33,6 +33,12 @@ export interface AdapterRuntimeProfile {
   runtimeControls: {
     permissionModes: readonly PermissionMode[];
     sessionModes: readonly AdapterSessionMode[];
+    /** Provider selector exposed at session creation, when the provider supports one. */
+    providerOverride: 'claude-gateway' | 'codex-model-provider' | 'none';
+    /** Provider-native sandbox family. `provider-native` has no Agent Deck sandbox override. */
+    sandbox: 'claude' | 'codex' | 'provider-native';
+    /** Whether a session may add writable roots outside cwd. */
+    extraAllowWrite: boolean;
   };
   mcpTools: McpToolPolicy;
   /**
@@ -77,8 +83,18 @@ const profiles = {
       thinkingLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
     runtimeControls: {
-      permissionModes: ['default', 'acceptEdits', 'plan', 'bypassPermissions'],
+      permissionModes: [
+        'default',
+        'acceptEdits',
+        'plan',
+        'dontAsk',
+        'auto',
+        'bypassPermissions',
+      ],
       sessionModes: [],
+      providerOverride: 'claude-gateway',
+      sandbox: 'claude',
+      extraAllowWrite: true,
     },
     mcpTools: { kind: 'all' },
     mcpBrowserTools: true,
@@ -94,7 +110,7 @@ const profiles = {
       canSendMessage: true,
       canSteerTurn: true,
       canInstallHooks: true,
-      canRespondPermission: false,
+      canRespondPermission: true,
       canSetPermissionMode: false,
       canSetSessionMode: false,
       canRestartWithPermissionMode: false,
@@ -115,6 +131,9 @@ const profiles = {
     runtimeControls: {
       permissionModes: [],
       sessionModes: [],
+      providerOverride: 'codex-model-provider',
+      sandbox: 'codex',
+      extraAllowWrite: true,
     },
     mcpTools: { kind: 'all' },
     mcpBrowserTools: false,
@@ -152,6 +171,9 @@ const profiles = {
     runtimeControls: {
       permissionModes: [],
       sessionModes: ['default', 'plan', 'ask'],
+      providerOverride: 'none',
+      sandbox: 'provider-native',
+      extraAllowWrite: false,
     },
     mcpTools: { kind: 'all' },
     mcpBrowserTools: true,

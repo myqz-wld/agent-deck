@@ -176,6 +176,7 @@ export async function createCodexForkedSession(
       currentTurnId: null,
       turnLoopRunning: false,
       intentionallyClosed: false,
+      pendingPermissions: new Map(),
     };
     cleanupState.internal = internal;
     deps.sessions.set(tempId, internal);

@@ -75,7 +75,7 @@ export const spawnSessionHandler = withMcpGuard(
         'Choose an enabled adapter with session-creation capability: claude-code, codex-cli, or grok-build.',
       );
     }
-    const runtimeControlError = validateSpawnRuntimeControls(args, adapter.capabilities);
+    const runtimeControlError = validateSpawnRuntimeControls(args);
     if (runtimeControlError) {
       return err(runtimeControlError.error, runtimeControlError.hint);
     }

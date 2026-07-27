@@ -40,7 +40,8 @@
  * - codex 不支持 implicit fork：spike-A2 实测 codex CLI resume 永远返回同 thread_id（详
  *   restart-controller line 97 注释）。recoverer 仍保留 post-rename 防御（`if newRealId !== sessionId`）
  *   future-proof 防 SDK 升级 / CLI 行为变更。
- * - codex 无 permissionMode：codex SDK approvalPolicy 写死 'never'（详 codex-cli/index.ts:21）。
+ * - codex 无 Claude permissionMode：普通会话沿用 Codex approval policy，并由 app-server
+ *   server request bridge 接入 Agent Deck 权限面板。
  * - codex jsonl 路径与 claude 不同：claude 在 `~/.claude/projects/<encoded-cwd>/<sid>.jsonl`，
  *   codex 在 `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TIMESTAMP>-<thread_id>.jsonl`，
  *   pre-check 算法见 `jsonl-discovery.defaultCodexResumeJsonlExists`。

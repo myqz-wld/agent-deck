@@ -185,8 +185,8 @@ export async function createSessionImpl(
       //
       // plan §P3 Step 3.5 + §不变量 6: 3 个新字段（approvalPolicy / networkAccessEnabled /
       // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。caller 缺省 →
-      // approvalPolicy 沿用 'never'（现状）；networkAccessEnabled / additionalDirectories
-      // 不写字段（codex SDK 走 ThreadOptions 默认）。options-builder 在 reviewer-* 路径下
+      // approvalPolicy / networkAccessEnabled / additionalDirectories 都不写字段，由 Codex
+      // config / provider default 决定。options-builder 在 reviewer-* 路径下
       // 已 spread reviewer runtime defaults（approvalPolicy / networkAccessEnabled /
       // additionalDirectories）,这里直接透传不影响普通 codex session lead 路径。
       thread = codex.resumeThread(
@@ -202,6 +202,7 @@ export async function createSessionImpl(
           configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
           additionalDirectories: opts.additionalDirectories,
+          extraAllowWrite: opts.extraAllowWrite,
         }),
       );
     } else {
@@ -217,6 +218,7 @@ export async function createSessionImpl(
           configOverrides: opts.codexConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
           additionalDirectories: opts.additionalDirectories,
+          extraAllowWrite: opts.extraAllowWrite,
         }),
       );
     }
@@ -268,6 +270,7 @@ export async function createSessionImpl(
       currentTurnId: null,
       turnLoopRunning: false,
       intentionallyClosed: false,
+      pendingPermissions: new Map(),
       ...(initialEnqueue.acceptedEnqueueFingerprints
         ? { acceptedEnqueueFingerprints: initialEnqueue.acceptedEnqueueFingerprints }
         : {}),

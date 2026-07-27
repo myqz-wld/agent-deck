@@ -44,7 +44,6 @@ describe('hand_off_session preflight', () => {
   it.each([
     ['permissionMode', { adapter: 'codex-cli' as const, permissionMode: 'plan' as const }],
     ['claudeCodeSandbox', { adapter: 'codex-cli' as const, claudeCodeSandbox: 'strict' as const }],
-    ['extraAllowWrite', { adapter: 'codex-cli' as const, extraAllowWrite: ['/must-write'] }],
     ['codexSandbox', { adapter: 'claude-code' as const, codexSandbox: 'read-only' as const }],
   ])('rejects adapter-incompatible %s before paid preparation', async (field, targetArgs) => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());

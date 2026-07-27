@@ -107,7 +107,7 @@ export const adaptersApi = {
   setAdapterPermissionMode: (
     agentId: string,
     sessionId: string,
-    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+    mode: 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'auto' | 'bypassPermissions',
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetPermissionMode, agentId, sessionId, mode),
   setAdapterSessionMode: (

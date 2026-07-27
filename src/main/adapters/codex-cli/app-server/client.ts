@@ -27,6 +27,7 @@ import {
 import type {
   CodexAppServerNotification,
   CodexAppServerOptions,
+  CodexAppServerServerRequestHandler,
   CodexAppServerThreadCreateResult,
   CodexAppServerThreadReadResult,
   JsonValue,
@@ -43,6 +44,7 @@ import { CodexAppServerThread } from './thread';
 import { logCodexThreadBoundaryReady } from './thread-boundary-logging';
 import { prepareNodeReplCompatibility } from './node-repl-compat';
 import { requestCodexRaw, type CodexPendingRequest } from './request-raw';
+import { CodexServerRequestHost } from './server-request-host';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
@@ -63,6 +65,7 @@ export class CodexAppServerClient {
   private nextId = 1;
   private pending = new Map<number | string, CodexPendingRequest>();
   private notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
+  private readonly serverRequestHost = new CodexServerRequestHost(() => this.child);
   private initializePromise: Promise<void> | null = null;
   private closed = false;
   private processGeneration = 0;
@@ -183,6 +186,14 @@ export class CodexAppServerClient {
   }
 
   /**
+   * Install the host callback for app-server initiated requests. Codex uses these requests for
+   * native command, file-change, and expanded permission approvals.
+   */
+  setServerRequestHandler(handler: CodexAppServerServerRequestHandler | null): void {
+    this.serverRequestHost.setHandler(handler);
+  }
+
+  /**
    * Best-effort interrupt followed by a fenced process recycle.
    *
    * The interrupt is written only to the currently-owned child and is intentionally not awaited:
@@ -252,6 +263,7 @@ export class CodexAppServerClient {
     if (child && !child.killed) {
       child.kill();
     }
+    this.serverRequestHost.abortAll();
     this.rejectAll(new Error('Codex app-server disposed'));
   }
 
@@ -375,8 +387,15 @@ export class CodexAppServerClient {
       return;
     }
 
-    if (typeof obj.method === 'string' && 'id' in obj) {
-      this.respondUnsupportedServerRequest(obj.id, obj.method);
+    if (
+      typeof obj.method === 'string' &&
+      (typeof obj.id === 'number' || typeof obj.id === 'string')
+    ) {
+      void this.serverRequestHost.handle(sourceChild, {
+        id: obj.id,
+        method: obj.method,
+        params: obj.params,
+      });
       return;
     }
 
@@ -396,20 +415,8 @@ export class CodexAppServerClient {
     pending.resolve(response.result);
   }
 
-  private respondUnsupportedServerRequest(id: unknown, method: string): void {
-    try {
-      this.child?.stdin.write(
-        `${JSON.stringify({
-          id,
-          error: { code: -32601, message: `Unsupported server request: ${method}` },
-        })}\n`,
-      );
-    } catch {
-      // ignore
-    }
-  }
-
   private dispatchNotification(notification: CodexAppServerNotification): void {
+    this.serverRequestHost.observe(notification);
     const mcpStartup = this.mcpStartupObserver.observe(notification);
     if (mcpStartup?.level === 'warn') logger.warn(mcpStartup.message);
     else if (mcpStartup) logger.info(mcpStartup.message);
@@ -438,6 +445,7 @@ export class CodexAppServerClient {
     this.initializePromise = null;
     this.processGeneration++;
     this.mcpStartupObserver.reset();
+    this.serverRequestHost.abortAll();
     this.rejectAll(err);
     this.dispatchNotification({
       method: 'error',
@@ -459,6 +467,7 @@ export class CodexAppServerClient {
     }
     this.pending.clear();
   }
+
 }
 
 function isThreadBoundaryMethod(method: string): boolean {

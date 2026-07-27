@@ -6,8 +6,8 @@
  * **执行序列**(索引线对应 facade index.ts L545-632 修前位置):
  * 1. sessions.set(opts.resume, internal) + claimAsSdk(opts.resume)
  * 2. emit session-start (同步派发到 sessionManager.ingest → sessionRepo.upsert)
- * 3. persistSessionFields (sandboxMode + model + extraAllowWrite UPDATE 字段,model v0.131.0+ 真生效;
- *    extraAllowWrite codex runtime 不消费仅持久化保 cross-adapter parity)
+ * 3. persistSessionFields (sandboxMode + model + extraAllowWrite UPDATE 字段；extraAllowWrite
+ *    已由 ThreadOptions builder 映射到 workspace writableRoots)
  * 4. emit user message (skipFirstUserEmit guard — recoverer 入口已 emit 时跳过避免双气泡;
  *    REVIEW_58 HIGH ✅ 收口修法,详 facade jsdoc)
  * 5. await awaitResumedThreadStart (REVIEW_60 R4 §B 抽法 #1 — 30s timeout + onFirstId + earlyErrCb
@@ -100,10 +100,8 @@ export async function runCreateSessionResumePath(
   // CHANGELOG_<X> A2a：emit session-start 是同步派发到 sessionManager.ingest →
   // sessionRepo.upsert 创建 record（如果不存在）；之后调 setCodexSandbox UPDATE 字段。
   // 后续 advanceState 内 spread record 时会带上最新 codex_sandbox 不会被静默重置。
-  // R37 P2-E Step 3.4b：setSandbox + setModel 收口到 persistSessionFields helper(model 真生效;
-  // extraAllowWrite warn 提示仍 codex runtime 不消费,详 helper 内 try/catch + console.warn)。
-  // plan cross-adapter-parity-20260515 Phase A Step A.7：extraAllowWrite 与 codexSandbox 同样
-  // 持久化(parity 对称写库;不同于 model 字段 v0.131.0+ 真生效,本字段 codex runtime 不消费)。
+  // R37 P2-E Step 3.4b：setSandbox + setModel 收口到 persistSessionFields helper。
+  // extraAllowWrite 与 codexSandbox 同样持久化，并已在 thread options 中映射为 writableRoots。
   persistSessionFields({
     sessionId: resumeId,
     sandboxMode,

@@ -53,7 +53,13 @@ export function SelectRow<T extends string>({
   );
 }
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+export type PermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'dontAsk'
+  | 'auto'
+  | 'bypassPermissions';
 export type CodexSandbox = CodexSandboxMode;
 export type ClaudeCodeSandbox = ClaudeSandboxMode;
 
@@ -61,6 +67,16 @@ export const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; ti
   { value: 'default', label: '每次询问', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
+  {
+    value: 'dontAsk',
+    label: '不询问，未授权则拒绝',
+    title: '不弹出权限询问；未被规则预先允许的工具调用会被拒绝',
+  },
+  {
+    value: 'auto',
+    label: '自动判断',
+    title: '由 Claude 的权限分类器自动允许或拒绝原本需要询问的工具调用',
+  },
   { value: 'bypassPermissions', label: '⚠️ 不再询问（仍在系统沙盒内）', title: 'Claude 全程不再询问任何工具调用；系统沙盒（若启用）仍生效' },
 ];
 

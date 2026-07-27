@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { filterAgentDeckTools } from '../tool-policy';
-import { spawnSessionSchemaForCaller } from '../tools/schemas/spawn';
+import {
+  SPAWN_SESSION_SCHEMA,
+  spawnSessionSchemaForCaller,
+} from '../tools/schemas/spawn';
 
 describe('Agent Deck MCP adapter tool policy', () => {
   const tools = [
@@ -30,4 +33,11 @@ describe('Agent Deck MCP adapter tool policy', () => {
     expect(limited.contextMode.safeParse('fresh').success).toBe(true);
     expect(full.contextMode.safeParse('fork').success).toBe(true);
   });
+
+  it.each(['dontAsk', 'auto'] as const)(
+    'accepts the current Claude permission mode %s in spawn_session',
+    (mode) => {
+      expect(SPAWN_SESSION_SCHEMA.permissionMode.safeParse(mode).success).toBe(true);
+    },
+  );
 });

@@ -74,11 +74,11 @@ export interface CodexJsonlFallbackOpts {
   model?: string;
   /** rec.thinking when it is a valid Codex reasoning level. */
   modelReasoningEffort?: CodexThinkingLevel;
-  /** rec.extraAllowWrite ?? undefined (parity 透传,codex runtime 不消费仅持久化) */
+  /** rec.extraAllowWrite ?? undefined; mapped to app-server workspace writableRoots. */
   extraAllowWrite?: readonly string[];
   /**
    * plan codex-recover-network-dirs-parity-20260602：rec.networkAccessEnabled ?? undefined。
-   * **codex SDK runtime 真消费**（区别 extraAllowWrite）—— fresh thread 起动时透传让 reviewer-codex
+   * fresh thread 起动时透传让 reviewer-codex
    * 保持网络访问。
    */
   networkAccessEnabled?: boolean;

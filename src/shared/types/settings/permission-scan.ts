@@ -88,7 +88,9 @@ export interface CodexAgentDeckMcpStatus {
 export interface CodexEffectivePermissions {
   sandboxMode: CodexSandboxMode;
   sandboxSource: 'session' | 'settings';
-  approvalPolicy: 'never';
+  /** null means Agent Deck did not override the provider-owned policy. */
+  approvalPolicy: 'untrusted' | 'on-request' | 'never' | null;
+  approvalSource: 'agent-deck' | 'codex-config';
   skipGitRepoCheck: true;
   agentDeckMcp: CodexAgentDeckMcpStatus;
 }

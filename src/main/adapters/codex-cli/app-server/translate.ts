@@ -137,10 +137,12 @@ function translateTokenUsage(
     messageId: null,
     model: opts?.model ?? null,
     inputTokens: numberField(last.inputTokens),
-    outputTokens: numberField(last.outputTokens) + numberField(last.reasoningOutputTokens),
+    // Codex outputTokens is the provider's total output count; reasoningOutputTokens is a
+    // breakdown within that total, not an additional count.
+    outputTokens: numberField(last.outputTokens),
     reasoningTokens: numberField(last.reasoningOutputTokens),
     cacheReadTokens: numberField(last.cachedInputTokens),
-    cacheCreationTokens: 0,
+    cacheCreationTokens: numberField(last.cacheWriteInputTokens),
   });
 }
 

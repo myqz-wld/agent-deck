@@ -95,6 +95,7 @@ function makeInternalSession(threadId: string | null = null): InternalSession {
     currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
+    pendingPermissions: new Map(),
   };
 }
 

@@ -11,6 +11,7 @@ import type {
   LatestConversationMessageTsThunk,
 } from './recoverer';
 import type { SdkSessionHandle } from './types';
+import type { PermissionMode } from '@main/adapters/types';
 
 export interface RestartCreateOpts {
   cwd: string;
@@ -42,7 +43,7 @@ export interface RestartCreateOpts {
    * - 'fresh-cli-reuse-app': jsonl-missing fallback 专用 — 仅 helper 内部使用,RestartCreateOpts caller 不直接传
    */
   resumeMode?: 'resume-cli' | 'fresh-cli-reuse-app';
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+  permissionMode?: PermissionMode;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   /**
    * plan cross-adapter-parity-20260515 Phase A + REVIEW_41 MED-3 fix: cold-restart 路径

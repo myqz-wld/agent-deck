@@ -33,6 +33,7 @@ import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { registerSessionModelOptionsIpc } from './adapters-session-model-options';
 import { registerAdapterOutgoingIpc } from './adapters-outgoing';
+import { parseAdapterCreateRuntimeControls } from './adapters-runtime-controls';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
@@ -75,21 +76,13 @@ export function registerAdaptersIpc(): void {
     if (cwd.length > 4096) {
       throw new IpcInputError('opts.cwd', 'length > 4096');
     }
-    // permissionMode 白名单：renderer 可塞任意字符串，必须收口
-    const permissionMode = parsePermissionMode(raw.permissionMode);
-    const sessionMode = parseAdapterSessionMode(raw.sessionMode);
-    if (sessionMode !== null) {
-      const allowed = getAdapterRuntimeProfile(validAgentId).runtimeControls.sessionModes;
-      if (
-        !adapter.capabilities.canSetSessionMode ||
-        !allowed.includes(sessionMode)
-      ) {
-        throw new IpcInputError(
-          'opts.sessionMode',
-          `adapter "${validAgentId}" does not support session mode "${sessionMode}"`,
-        );
-      }
-    }
+    const {
+      permissionMode,
+      sessionMode,
+      codexSandbox,
+      claudeCodeSandbox,
+      extraAllowWrite,
+    } = parseAdapterCreateRuntimeControls(validAgentId, raw);
     const prompt = typeof raw.prompt === 'string' ? raw.prompt : undefined;
     // REVIEW_4 M4 + REVIEW_24 HIGH-2 follow-up：首条 prompt 走 102_400 字符上限（与
     // sdk-bridge MAX_MESSAGE_LENGTH + agent-deck-message-repo MAX_BODY_LENGTH 全局对齐）
@@ -104,15 +97,6 @@ export function registerAdaptersIpc(): void {
     // 应用通过 PreToolUse hook / fs watcher / hook 三层反向同步到 sessions.team_name DB 列。
     // 但 IPC 入口仍接 raw.teamName 兼容 CLI `agent-deck new --team-name` 命令（如有）。
     const teamName = parseTeamName(raw.teamName);
-    // codexSandbox per-session 覆盖（CHANGELOG_<X>）：仅 codex-cli adapter 接收并起效，
-    // 其它 adapter 静默忽略（types.ts CreateSessionOptions 通用接口加字段是约定，
-    // 与 teamName / model 同模式 — 通用接口兜，adapter 自行实现）。
-    // 白名单走 parseCodexSandboxMode；null = 不传 → adapter 用 settings.codexSandbox 全局值。
-    const codexSandbox = parseCodexSandboxMode(raw.codexSandbox);
-    // claudeCodeSandbox per-session 覆盖（CHANGELOG_74）：仅 claude-code adapter 接收并起效，
-    // 其它 adapter 静默忽略。白名单走 parseSandboxMode（_helpers.ts 已有，复用零新增）；
-    // null = 不传 → claude-code adapter 用 settings.claudeCodeSandbox 全局值。
-    const claudeCodeSandbox = parseSandboxMode(raw.claudeCodeSandbox);
     let sessionModelOptions;
     try {
       sessionModelOptions = resolveCreateSessionModelOptions(validAgentId, {
@@ -154,6 +138,7 @@ export function registerAdaptersIpc(): void {
           ...(teamName !== null ? { teamName } : {}),
           ...(codexSandbox !== null ? { codexSandbox } : {}),
           ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
+          ...(extraAllowWrite !== null ? { extraAllowWrite } : {}),
           ...sessionModelOptions,
           ...(attachments.length > 0 ? { attachments } : {}),
         }),
@@ -301,7 +286,10 @@ export function registerAdaptersIpc(): void {
     // 范式对称，REVIEW_108 MED-2）。undefined / null / 非白名单 → IpcInputError 拒绝，
     // 防止 raw cast 漏掉 bypass 冷切分支 + 把非法值直写 DB。
     if (mode === undefined || mode === null) {
-      throw new IpcInputError('mode', 'required (one of default|acceptEdits|plan|bypassPermissions)');
+      throw new IpcInputError(
+        'mode',
+        'required (one of default|acceptEdits|plan|dontAsk|auto|bypassPermissions)',
+      );
     }
     const m = parsePermissionMode(mode) as Parameters<NonNullable<typeof adapter.setPermissionMode>>[1];
     // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在子进程

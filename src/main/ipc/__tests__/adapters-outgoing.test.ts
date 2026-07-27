@@ -14,7 +14,12 @@ vi.mock('@main/adapters/registry', () => ({
     list: () => [],
     get: () => ({
       id: 'codex-cli',
-      capabilities: { canAcceptAttachments: true },
+      capabilities: {
+        canAcceptAttachments: true,
+        canSetPermissionMode: false,
+        canSetSessionMode: false,
+      },
+      createSession: vi.fn(),
       sendMessage: vi.fn(),
       listPendingOutgoingMessages: mocks.listPending,
       removePendingOutgoingMessage: mocks.removePending,
@@ -132,5 +137,28 @@ describe('adapter outgoing queue IPC', () => {
     await expect(handler(IpcInvoke.AdapterDeletePendingOutgoing)(
       {}, 'codex-cli', 'source', 'pending-cleanup-failure',
     )).resolves.toBe(true);
+  });
+
+  it('rejects create-session controls that belong to another adapter', async () => {
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'codex-cli',
+      { cwd: '/repo', permissionMode: 'plan' },
+    )).rejects.toThrow('opts.permissionMode');
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'claude-code',
+      { cwd: '/repo', codexSandbox: 'read-only' },
+    )).rejects.toThrow('opts.codexSandbox');
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'grok-build',
+      { cwd: '/repo', claudeCodeSandbox: 'strict' },
+    )).rejects.toThrow('opts.claudeCodeSandbox');
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'grok-build',
+      { cwd: '/repo', extraAllowWrite: [] },
+    )).rejects.toThrow('opts.extraAllowWrite');
   });
 });

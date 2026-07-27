@@ -40,7 +40,7 @@ describe('resolveHandOffTarget', () => {
     expect(result.spec).toMatchObject({
       adapter: 'codex-cli', provider: 'openai', model: 'gpt-source', thinking: 'high',
       sandbox: {
-        kind: 'codex', mode: 'read-only', extraAllowWriteEffective: false,
+        kind: 'codex', mode: 'read-only', extraAllowWriteEffective: true,
         persistedExtraAllowWrite: ['/extra'],
       },
       networkAccessEnabled: true, additionalDirectories: ['/tmp'],
@@ -164,14 +164,38 @@ describe('resolveHandOffTarget', () => {
     });
   });
 
+  it('accepts explicit Codex writable roots and records them as effective', () => {
+    const result = resolveHandOffTarget({
+      source: source(),
+      request: {
+        adapter: 'codex-cli',
+        cwd: '/target',
+        extraAllowWrite: ['/must-write'],
+      },
+      sourceMaxEventId: 42,
+    });
+
+    expect(result.createOptions).toMatchObject({
+      agentId: 'codex-cli',
+      extraAllowWrite: ['/must-write'],
+    });
+    expect(result.spec.sandbox).toMatchObject({
+      kind: 'codex',
+      extraAllowWriteEffective: true,
+      persistedExtraAllowWrite: ['/must-write'],
+    });
+  });
+
   it.each([
     ['codex-cli', 'permissionMode', { permissionMode: 'plan' }],
     ['codex-cli', 'claudeCodeSandbox', { claudeCodeSandbox: 'strict' }],
-    ['codex-cli', 'extraAllowWrite', { extraAllowWrite: ['/must-write'] }],
     ['claude-code', 'codexSandbox', { codexSandbox: 'read-only' }],
     ['claude-code', 'networkAccessEnabled', { networkAccessEnabled: true }],
     ['claude-code', 'additionalDirectories', { additionalDirectories: ['/tmp'] }],
+    ['claude-code', 'additionalDirectories', { additionalDirectories: [] }],
     ['claude-code', 'sessionMode', { sessionMode: 'ask' }],
+    ['grok-build', 'provider', { provider: 'xai' }],
+    ['grok-build', 'extraAllowWrite', { extraAllowWrite: [] }],
   ] as const)(
     'rejects %s-incompatible explicit %s before preparation',
     (adapter, field, incompatible) => {

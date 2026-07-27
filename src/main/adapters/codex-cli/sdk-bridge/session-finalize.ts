@@ -53,23 +53,19 @@ export interface PersistSessionFieldsArgs {
   modelReasoningEffort?: CodexThinkingLevel;
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
-   * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
-   * (sandboxMode 只接 'workspace-write' / 'read-only' / 'danger-full-access' 三档),
-   * 但本字段仍持久化到 sessions.extra_allow_write 保跨 adapter parity 对称(让 SessionRecord
-   * 字段在 claude / codex 之间形态一致 + future codex SDK 加支持时零迁移成本)。
+   * caller 透传的 sandbox 额外可写根。Codex bridge 将其合并到 app-server
+   * workspace-write writableRoots；这里持久化原始值供 recovery 重建。
    *
    * undefined / 空数组 → 跳过持久化(保留 sessions.extra_allow_write 原值)。非空数组 →
-   * setExtraAllowWrite 写入 + warn 提示 codex runtime 不消费 extra writable roots(本字段
-   * 与 model 字段已不同款:model 字段 Codex runtime v0.131.0+ ThreadOptions.model 已支持
-   * runtime 真生效,extraAllowWrite 仍未生效)。
+   * setExtraAllowWrite 写入。
    */
   extraAllowWrite?: readonly string[];
   /**
    * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
-   * 注入的 `networkAccessEnabled` reviewer runtime default。**与 extraAllowWrite 关键区别：codex SDK
-   * runtime 真消费**（经 buildCodexThreadOptions → startThread/resumeThread 的
+   * 注入的 `networkAccessEnabled` reviewer runtime default。Codex runtime
+   * 真消费（经 buildCodexThreadOptions → startThread/resumeThread 的
    * ThreadOptions.networkAccessEnabled），持久化是为了 recover / restart 路径读回还原 reviewer
-   * 网络访问能力 —— **不是** extraAllowWrite 那种 persist-only no-op，故下方写入**不打 warn**。
+   * 网络访问能力。
    *
    * undefined → 跳过持久化（保留原值）；**用 `!== undefined` 不用 truthy** —— `false` 是合法值
    * （非 reviewer caller 显式关网络），truthy guard 会漏掉显式 false。
@@ -80,7 +76,7 @@ export interface PersistSessionFieldsArgs {
    * 注入的 `additionalDirectories` reviewer runtime default。**codex SDK runtime 真消费**（经
    * buildCodexThreadOptions → startThread/resumeThread 的 ThreadOptions.additionalDirectories
    * 把这些根加入当前 sandbox 可访问范围），持久化为 recover / restart 还原跨目录访问能力。
-   * 与 extraAllowWrite 不同（那个 codex 不消费），故写入**不打 warn**。
+   * 与 extraAllowWrite 一样需要在恢复时重建 live sandbox policy。
    *
    * undefined / 空数组 → 跳过持久化（保留原值）。非空数组 → setAdditionalDirectories 写入。
    */
@@ -141,9 +137,8 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     }
   }
 
-  // 3. plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 MED-F:
-  // opts.extraAllowWrite 持久化(parity 对称写库,runtime 不生效 — codex SDK 不接受 extra
-  // writable roots 字段,sandboxMode 三档只控制根 sandbox profile)。配合下方 warn 提示。
+  // 3. extraAllowWrite 已在 ThreadOptions builder 中映射到 Codex writableRoots；单独持久化
+  // 原始字段，确保 recovery 与跨 adapter handoff 能重建相同策略。
   if (extraAllowWrite !== undefined && extraAllowWrite.length > 0) {
     try {
       // setExtraAllowWrite 接 string[] | null,readonly string[] 转 mutable copy
@@ -154,16 +149,11 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
         err,
       );
     }
-    logger.warn(
-      `[codex-bridge] extraAllowWrite=[${extraAllowWrite.join(', ')}] 仅持久化未生效:` +
-        ` codex SDK 不支持 extra writable roots,sandboxMode 三档(workspace-write / read-only /` +
-        ` danger-full-access)只控根 sandbox profile。本字段持久化保跨 adapter parity 对称。`,
-    );
   }
 
   // 4. plan codex-recover-network-dirs-parity-20260602：networkAccessEnabled 持久化。
-  // **与 extraAllowWrite 不同：codex SDK runtime 真消费**（buildCodexThreadOptions →
-  // startThread/resumeThread），故**不打 warn**（同 setModel）。**用 `!== undefined` 不用 truthy** —
+  // buildCodexThreadOptions → startThread/resumeThread 真消费，故**不打 warn**（同 setModel）。
+  // **用 `!== undefined` 不用 truthy** —
   // false 是合法值（非 reviewer caller 显式关网络），truthy guard 会漏掉显式 false。
   if (networkAccessEnabled !== undefined) {
     try {

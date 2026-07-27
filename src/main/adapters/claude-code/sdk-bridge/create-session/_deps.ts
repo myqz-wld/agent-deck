@@ -46,7 +46,13 @@ export interface CreateSessionOpts {
   settingsPath?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+  permissionMode?:
+    | 'default'
+    | 'acceptEdits'
+    | 'plan'
+    | 'dontAsk'
+    | 'auto'
+    | 'bypassPermissions';
   /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
   resume?: string;
   /**

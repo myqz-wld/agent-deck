@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
-import { SPAWN_SESSION_THINKING_VALUES } from './spawn';
+import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
 // Retired public tool schema. Keep this only so legacy internal handlers/tests and guard
 // keys type-check while buildAgentDeckTools no longer exposes archive_plan to SDK agents.
@@ -94,64 +94,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .describe(
       'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Deepseek is selected with adapter="claude-code" and provider="deepseek".',
     ),
-  provider: z
-    .string()
-    .trim()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      'Optional successor runtime provider. For claude-code this is a Gateway profile id from ~/.claude/gateways; for codex-cli it is a model_provider id from ~/.codex/config.toml. grok-build rejects provider. When omitted, same-adapter hand-off inherits the source provider and cross-adapter hand-off uses the target native default.',
-    ),
-  model: z
-    .string()
-    .trim()
-    .min(1)
-    .max(256)
-    .optional()
-    .describe(
-      'Optional free-text model override for the successor only. Suggestions match spawn_session (Claude: haiku/sonnet/opus/fable or the selected Gateway model id; Codex: gpt-5.6-sol/gpt-5.6-terra/gpt-5.6-luna/gpt-5.5/gpt-5.4), but any non-empty provider model id is passed through for provider validation. When omitted, a same-adapter hand-off inherits the caller model and a cross-adapter hand-off uses the target provider default.',
-    ),
-  thinking: z
-    .enum(SPAWN_SESSION_THINKING_VALUES)
-    .optional()
-    .describe(
-      'Optional thinking/reasoning override for the successor only. Codex accepts low, medium, high, xhigh, max, and ultra; Claude accepts low, medium, high, xhigh, and max. When omitted, a same-adapter hand-off inherits the caller value and a cross-adapter hand-off uses the target provider default. Adapter-invalid values are rejected before creation; retry with an exact value from the returned hint or omit thinking.',
-    ),
-  permissionMode: z
-    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions'])
-    .optional()
-    .describe(
-      'Permission mode for a Claude-family successor. When omitted, same-adapter Claude-family handoff inherits the source and cross-adapter Claude-family handoff uses bypassPermissions. It is incompatible with codex-cli and grok-build.',
-    ),
-  sessionMode: z
-    .enum(['default', 'plan', 'ask'])
-    .optional()
-    .describe(
-      'Grok Build work mode for the successor. When omitted, a same-adapter Grok handoff inherits the source mode and a cross-adapter handoff uses Grok default. It is incompatible with other adapters.',
-    ),
-  codexSandbox: z
-    .enum(['workspace-write', 'read-only', 'danger-full-access'])
-    .optional()
-    .describe(
-      'codex-cli sandbox override for the new SDK session. When omitted, follows spawn_session defaults: same-adapter codex handoff inherits caller codexSandbox; cross-adapter handoff lets codex adapter use settings default. Pass explicitly to override (e.g. baton from claude lead to codex-cli with stricter "read-only" for sensitive task). Mirrors spawn_session.codexSandbox 1:1.',
-    ),
-  claudeCodeSandbox: z
-    .enum(['off', 'workspace-write', 'strict'])
-    .optional()
-    .describe(
-      'claude-code OS sandbox override for the new SDK session. When omitted, follows spawn_session defaults: same target adapter as caller inherits caller claudeCodeSandbox; cross-adapter handoff lets target adapter use settings global. Pass explicitly to override (e.g. baton to a phase that needs "strict" while caller was "workspace-write"). Mirrors spawn_session.claudeCodeSandbox 1:1.',
-    ),
-  /**
-   * REVIEW_36 R2 HIGH-B + MED-C：可选额外 writable roots（仅 claude-code adapter + workspace-write 档生效）。
-   */
-  extraAllowWrite: z
-    .array(z.string().min(1).max(4096))
-    .max(16)
-    .optional()
-    .describe(
-      'Extra writable roots for the successor session sandbox (claude-code adapter + workspace-write only). Use it when the prompt asks the successor to edit paths outside cwd.',
-    ),
+  ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
   callerSessionId: z
     .string()
     .min(1)

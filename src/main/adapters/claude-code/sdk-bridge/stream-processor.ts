@@ -23,7 +23,7 @@ import { AGENT_ID } from './constants';
 import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
 import { clearLiveTokenEstimate } from './live-token-rate';
 import { translateSdkMessage } from './sdk-message-translate';
-import { resetTurnUsageAccounting } from './thinking-token-usage';
+import { resetTurnUsageAccounting } from './authoritative-reasoning-usage';
 import type { UploadedAttachmentRef } from '@shared/types';
 import log from '@main/utils/logger';
 import {

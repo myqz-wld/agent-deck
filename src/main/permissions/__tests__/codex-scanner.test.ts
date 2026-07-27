@@ -56,7 +56,8 @@ describe('scanCodexSettings', () => {
     expect(result.effective).toMatchObject({
       sandboxMode: 'read-only',
       sandboxSource: 'session',
-      approvalPolicy: 'never',
+      approvalPolicy: null,
+      approvalSource: 'codex-config',
       skipGitRepoCheck: true,
       agentDeckMcp: {
         enabled: true,
