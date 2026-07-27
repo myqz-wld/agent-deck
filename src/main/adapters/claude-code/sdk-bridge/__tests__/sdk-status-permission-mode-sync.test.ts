@@ -11,11 +11,12 @@
  * **不变量 2**：DB/UI ↔ internal cache 单一源（跨字段约束）— 凡 internal cache 镜像 sessionRepo
  * 字段，任一方向 update 必同时更新两边。本 step 修 permissionMode 路径。
  *
- * **测试覆盖** (3 case)：
+ * **测试覆盖**：
  * - SDK status frame `permissionMode='bypassPermissions'` → internal.permissionMode 同步 +
  *   sessionRepo.setPermissionMode 调 + emit session-upserted
  * - SDK frame mode 与 DB cur 相同 → internal cache 仍同步 (即使 cur 相同也 set 内部 cache)，
  *   sessionRepo 不写 DB (no-op 跳过 emit)
+ * - init/status 上报 auto 或 provider-only dontAsk → internal/DB 精确同步
  * - SDK frame 非白名单 mode (typo / 不支持) → internal cache 不变 + DB 不写
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -120,6 +121,57 @@ describe('Phase 3 (H3) — translateSdkMessage status frame permissionMode 同�
     );
     expect(upsertedCalls).toHaveLength(0);
   });
+
+  it.each(['init', 'status'] as const)(
+    'SDK %s frame permissionMode=auto → authoritative cache + DB sync',
+    (subtype) => {
+      const internal = makeInternalSession({
+        cwd: '/tmp/h3-auto',
+        permissionMode: 'plan',
+        applicationSid: 'sess-h3-auto',
+      });
+      vi.mocked(sessionRepo.get)
+        .mockReturnValueOnce({ id: 'sid-h3-auto', permissionMode: 'plan' } as never)
+        .mockReturnValueOnce({ id: 'sid-h3-auto', permissionMode: 'auto' } as never);
+
+      translateSdkMessage(
+        () => undefined,
+        'sid-h3-auto',
+        { type: 'system', subtype, permissionMode: 'auto' },
+        internal,
+      );
+
+      expect(internal.permissionMode).toBe('auto');
+      expect(sessionRepo.setPermissionMode).toHaveBeenCalledWith('sid-h3-auto', 'auto');
+    },
+  );
+
+  it.each(['init', 'status'] as const)(
+    'SDK %s frame permissionMode=dontAsk is preserved as an internal provider state',
+    (subtype) => {
+    const internal = makeInternalSession({
+      cwd: '/tmp/h3-legacy',
+      permissionMode: 'bypassPermissions',
+      applicationSid: 'sess-h3-legacy',
+    });
+    vi.mocked(sessionRepo.get)
+      .mockReturnValueOnce({
+        id: 'sid-h3-legacy',
+        permissionMode: 'bypassPermissions',
+      } as never)
+      .mockReturnValueOnce({ id: 'sid-h3-legacy', permissionMode: 'dontAsk' } as never);
+
+    translateSdkMessage(
+      () => undefined,
+      'sid-h3-legacy',
+      { type: 'system', subtype, permissionMode: 'dontAsk' },
+      internal,
+    );
+
+    expect(internal.permissionMode).toBe('dontAsk');
+    expect(sessionRepo.setPermissionMode).toHaveBeenCalledWith('sid-h3-legacy', 'dontAsk');
+    },
+  );
 
   it('SDK frame permissionMode 非白名单 (typo / 不支持) → internal cache 不变 + DB 不写', () => {
     const internal = makeInternalSession({ cwd: '/tmp/h3-3', permissionMode: 'default', applicationSid: 'sess-h3-3' });

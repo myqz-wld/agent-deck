@@ -4,7 +4,10 @@ import {
   targetRuntimeFieldAdapters,
   unsupportedTargetRuntimeFieldMessage,
 } from '@main/adapters/runtime-control-contracts';
-import type { SessionRecord } from '@shared/types';
+import {
+  isSelectablePermissionMode,
+  type SessionRecord,
+} from '@shared/types';
 
 import type { SpawnSessionArgs } from '../schemas';
 import { defaultPermissionModeForTargetAdapter } from './spawn-defaults';
@@ -63,7 +66,11 @@ export function resolveSpawnRuntimeControls(input: {
     effectivePermissionMode: capabilities.canSetPermissionMode
       ? args.permissionMode ??
         (inherit
-          ? (leadRecord?.permissionMode ?? undefined)
+          ? (isSelectablePermissionMode(leadRecord?.permissionMode)
+              ? leadRecord.permissionMode
+              : leadRecord?.permissionMode === 'dontAsk'
+                ? 'default'
+                : undefined)
           : defaultPermissionModeForTargetAdapter(args.adapter))
       : undefined,
     effectiveSessionMode: capabilities.canSetSessionMode

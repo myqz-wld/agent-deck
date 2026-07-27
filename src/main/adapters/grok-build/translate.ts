@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, GrokUsageWatermark } from '@shared/types';
 import { normalizeAgentToolKind } from '@shared/tool-kind';
 import type {
   ContentBlock,
@@ -17,24 +17,42 @@ export {
   beginGrokTurn,
   clearGrokTurnLiveRate,
   completeGrokTurnLiveRate,
+  markGrokStandardUsageEmitted,
   translateGrokTurnUsage,
   translateGrokUsage,
   waitForGrokStandardUsage,
 } from './usage-translate';
 
-export function createGrokTranslationState(): GrokTranslationState {
+export function createGrokTranslationState(options: {
+  lastUsage?: GrokUsageWatermark | null;
+  standardUsageBaselineReady?: boolean;
+} = {}): GrokTranslationState {
   return {
     toolNames: new Map(),
     toolKinds: new Map(),
     startedToolIds: new Set(),
     thinkingToolIds: new Set(),
     pendingText: null,
-    lastUsage: null,
+    lastUsage: options.lastUsage ?? null,
+    standardUsageBaselineReady: options.standardUsageBaselineReady ?? true,
     standardUsageObservedForCurrentTurn: false,
     extensionUsageForCurrentTurn: false,
     usageSource: 'none',
     pendingStandardUsage: null,
-    turnUsagePromptIds: new Set(),
+    turnStartUsage: options.lastUsage ?? null,
+    currentTurnUsageId: null,
+    currentTurnStartedAt: null,
+    currentProviderPromptId: null,
+    currentExtensionPromptId: null,
+    currentExtensionUsage: null,
+    currentStandardUsageEvent: null,
+    currentStandardUsageSnapshot: null,
+    uncorrelatedStandardUsage: [],
+    extensionUsageByPromptId: new Map(),
+    canonicalUsageByPromptId: new Map(),
+    baselineTrackedPromptIds: new Set(),
+    frontierCoveredMetricScopeByPromptId: new Map(),
+    completedProviderPromptIds: new Set(),
     liveRate: null,
   };
 }
@@ -75,6 +93,11 @@ export function translateGrokUpdate(
         event,
       );
     case 'user_message_chunk':
+      // Current Grok builds usually omit this optional ACP id. Preserve it when present as a
+      // same-turn hint, but do not assume ACP messageId and xAI prompt_id are interchangeable.
+      if (typeof update.messageId === 'string' && update.messageId.trim()) {
+        state.currentProviderPromptId = update.messageId;
+      }
       return [];
     case 'tool_call': {
       const toolName = grokToolName(update);

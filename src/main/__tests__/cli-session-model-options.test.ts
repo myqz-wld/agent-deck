@@ -62,7 +62,7 @@ describe('agent-deck new model options', () => {
     ).toThrow('--thinking 缺少取值');
   });
 
-  it.each(['dontAsk', 'auto'] as const)(
+  it.each(['auto', 'bypassPermissions'] as const)(
     'accepts the current Claude permission mode %s',
     (permissionMode) => {
       expect(
@@ -81,6 +81,19 @@ describe('agent-deck new model options', () => {
       });
     },
   );
+
+  it('rejects the retired dontAsk Claude permission mode', () => {
+    expect(() =>
+      parseCliInvocation([
+        '/Applications/Agent Deck',
+        'new',
+        '--adapter',
+        'claude',
+        '--permission-mode',
+        'dontAsk',
+      ]),
+    ).toThrow('--permission-mode 取值无效');
+  });
 
   it('rejects Claude permission modes for Codex and Grok instead of ignoring them', () => {
     expect(() => parseCliInvocation([

@@ -14,6 +14,7 @@ function makeDbAt(version: SchemaVersion): Database.Database {
   db.pragma('trusted_schema = ON');
   for (const migration of MIGRATIONS) {
     if (version === 'pre-v035' && migration.version >= 35) break;
+    if (version === 'post-v035' && migration.version > 35) break;
     db.exec(migration.sql);
   }
   return db;

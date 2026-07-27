@@ -17,7 +17,6 @@ describe('parsePermissionMode', () => {
     'default',
     'acceptEdits',
     'plan',
-    'dontAsk',
     'auto',
     'bypassPermissions',
   ] as const)('accepts the current Claude Code mode %s', (mode) => {
@@ -25,6 +24,7 @@ describe('parsePermissionMode', () => {
   });
 
   it('rejects retired or unknown values', () => {
+    expect(() => parsePermissionMode('dontAsk')).toThrow(/must be one of/);
     expect(() => parsePermissionMode('delegate')).toThrow(/must be one of/);
   });
 });

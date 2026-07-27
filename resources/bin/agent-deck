@@ -4,7 +4,7 @@
 # 用法：
 #   agent-deck new [--cwd <path>] [--prompt "..."] [--agent claude-code]
 #                  [--model <name>] [--thinking <level>]
-#                  [--permission-mode default|acceptEdits|plan|dontAsk|auto|bypassPermissions] # Claude only
+#                  [--permission-mode default|acceptEdits|plan|auto|bypassPermissions] # Claude only
 #                  [--system-prompt "..."] [--resume <sessionId>] [--no-focus]
 #
 # 行为：

@@ -41,7 +41,7 @@ export interface InitialSessionRegistration {
 
 /**
  * Claude Code adapter 专属 createSession opts。与 CodexCreateOpts 字段不同处:
- * 含 permissionMode（claude SDK 支持 default / acceptEdits / plan / bypassPermissions 四档）+
+ * 含 Claude SDK permissionMode（公开五档及 provider-only 恢复态 dontAsk）+
  * claudeCodeSandbox（OS 沙盒档位）+ 不含 codexSandbox。
  */
 export interface ClaudeCreateOpts {

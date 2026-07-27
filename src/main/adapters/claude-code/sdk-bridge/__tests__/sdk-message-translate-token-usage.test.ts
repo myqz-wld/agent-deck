@@ -1,43 +1,36 @@
-/**
- * sdk-message-translate token-usage 采集单测
- * （plan model-token-stats-and-dashboard-20260602 §Phase 1 A2 / 测试矩阵「claude 翻译」行）。
- *
- * 聚焦 assistant 分支的 token-usage 采集 + max-merge 快路径去重（§不变量 5 / G2）：
- * - 同 id 5 指标全相同多帧 → 只 emit 一次（Map 快路径剪枝）
- * - 同 id output 更大 → 重新 emit（F1 max-merge）
- * - 同 id output 相同但 cacheRead/input/reasoning 更大 → 也重新 emit（G2 任一指标更大放行）
- * - 不同 id → 各计一次
- * - cache_* 为 null → 填 0
- * - assistant 无 usage → 不 emit token-usage
- * - 采集 throw 不打断主 message emit（§不变量 3，构造坏 usage 触发）
- *
- * sessionRepo / eventBus mock 掉（assistant token-usage 分支不碰它们，仅 result/system 分支用）。
- */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@main/store/session-repo', () => ({ sessionRepo: { get: vi.fn(), setPermissionMode: vi.fn() } }));
+vi.mock('@main/store/session-repo', () => ({
+  sessionRepo: { get: vi.fn(), setPermissionMode: vi.fn() },
+}));
 vi.mock('@main/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
 
+import { eventBus } from '@main/event-bus';
+import { sessionRepo } from '@main/store/session-repo';
+import {
+  TOKEN_USAGE_ALL_METRICS,
+  TOKEN_USAGE_METRIC,
+  type AgentEvent,
+} from '@shared/types';
 import { translateSdkMessage } from '../sdk-message-translate';
 import { makeInternalSession } from '../types';
-import type { AgentEvent } from '@shared/types';
-import { sessionRepo } from '@main/store/session-repo';
-import { eventBus } from '@main/event-bus';
 
 const sessionGetMock = vi.mocked(sessionRepo.get);
 const eventBusEmitMock = vi.mocked(eventBus.emit);
 
 function setup() {
   const events: AgentEvent[] = [];
-  const emit = (e: AgentEvent): void => {
-    events.push(e);
-  };
   const internal = makeInternalSession({ cwd: '/tmp', applicationSid: 'sid-1' });
-  return { events, emit, internal };
+  return {
+    events,
+    internal,
+    emit: (event: AgentEvent): void => {
+      events.push(event);
+    },
+  };
 }
 
-/** 构造一条 assistant SDKMessage（BetaMessage shape：id/model/usage/content）。 */
-function assistantMsg(opts: {
+function assistantMsg(options: {
   id?: string;
   model?: string;
   usage?: Record<string, unknown>;
@@ -46,16 +39,17 @@ function assistantMsg(opts: {
   return {
     type: 'assistant',
     message: {
-      id: opts.id,
-      model: opts.model,
-      usage: opts.usage,
-      content: opts.content ?? [],
+      id: options.id,
+      model: options.model,
+      usage: options.usage,
+      content: options.content ?? [],
     },
   };
 }
 
-function resultMsg(opts: {
+function resultMsg(options: {
   uuid?: string;
+  usage?: Record<string, unknown>;
   modelUsage?: Record<
     string,
     {
@@ -65,434 +59,289 @@ function resultMsg(opts: {
       cacheCreationInputTokens?: number;
     }
   >;
-  usage?: Record<string, unknown>;
 }) {
   return {
     type: 'result',
     subtype: 'success',
     is_error: false,
-    uuid: opts.uuid ?? 'result-uuid-1',
-    usage: opts.usage ?? {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
-    },
-    modelUsage: opts.modelUsage ?? {},
+    uuid: options.uuid ?? 'result-1',
+    usage: options.usage,
+    modelUsage: options.modelUsage,
   };
 }
 
 function tokenEvents(events: AgentEvent[]): AgentEvent[] {
-  return events.filter((e) => e.kind === 'token-usage');
+  return events.filter((event) => event.kind === 'token-usage');
 }
 
-describe('translateSdkMessage token-usage 采集', () => {
+describe('translateSdkMessage finalized Claude usage', () => {
   beforeEach(() => {
     sessionGetMock.mockReset();
+    sessionGetMock.mockReturnValue({ model: 'claude-opus-4-8' } as never);
     eventBusEmitMock.mockClear();
   });
 
-  it('基本采集：id/model/usage → 一条 token-usage（cache_* 正常）', () => {
+  it('keeps assistant usage provisional and still emits assistant content', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(
       emit,
       'sid-1',
       assistantMsg({
-        id: 'm1',
+        id: 'assistant-1',
         model: 'claude-opus-4-8',
         usage: {
           input_tokens: 100,
           output_tokens: 50,
-          cache_read_input_tokens: 30,
-          cache_creation_input_tokens: 10,
-        },
-      }),
-      internal,
-    );
-    const tu = tokenEvents(events);
-    expect(tu).toHaveLength(1);
-    expect(tu[0].payload).toEqual({
-      messageId: 'm1',
-      model: 'claude-opus-4-8',
-      inputTokens: 100,
-      outputTokens: 50,
-      cacheReadTokens: 30,
-      cacheCreationTokens: 10,
-    });
-  });
-
-  it('assistant usage 带 output_tokens_details.thinking_tokens 时采集 reasoningTokens', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'claude-opus-4-8',
-        usage: {
-          input_tokens: 100,
-          output_tokens: 80,
-          output_tokens_details: { thinking_tokens: 25 },
-        },
-      }),
-      internal,
-    );
-
-    expect(tokenEvents(events)[0].payload).toMatchObject({
-      messageId: 'm1',
-      model: 'claude-opus-4-8',
-      outputTokens: 80,
-      reasoningTokens: 25,
-    });
-  });
-
-  it('assistant usage 缺 model 时归到 claude-default', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        usage: {
-          input_tokens: 5,
-          output_tokens: 3,
-        },
-      }),
-      internal,
-    );
-
-    expect(tokenEvents(events)[0].payload).toMatchObject({
-      messageId: 'm1',
-      model: 'claude-default',
-      inputTokens: 5,
-      outputTokens: 3,
-    });
-  });
-
-  it('cache_* 为 null → 填 0（NOT NULL 列防崩，已知踩坑 2）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'opus',
-        usage: {
-          input_tokens: 5,
-          output_tokens: 3,
           cache_read_input_tokens: null,
           cache_creation_input_tokens: null,
         },
-      }),
-      internal,
-    );
-    expect(tokenEvents(events)[0].payload).toMatchObject({
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-    });
-  });
-
-  it('同 id 5 指标全相同多帧 → 只 emit 一次（Map 快路径剪枝）', () => {
-    const { events, emit, internal } = setup();
-    const u = { input_tokens: 100, output_tokens: 50 };
-    translateSdkMessage(emit, 'sid-1', assistantMsg({ id: 'm1', model: 'opus', usage: u }), internal);
-    translateSdkMessage(emit, 'sid-1', assistantMsg({ id: 'm1', model: 'opus', usage: u }), internal);
-    expect(tokenEvents(events)).toHaveLength(1);
-  });
-
-  it('同 id output 更大 → 重新 emit（F1 max-merge）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({ id: 'm1', model: 'opus', usage: { input_tokens: 100, output_tokens: 50 } }),
-      internal,
-    );
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({ id: 'm1', model: 'opus', usage: { input_tokens: 100, output_tokens: 90 } }),
-      internal,
-    );
-    const tu = tokenEvents(events);
-    expect(tu).toHaveLength(2);
-    expect((tu[1].payload as { outputTokens: number }).outputTokens).toBe(90);
-  });
-
-  it('同 id output 相同但 cacheRead 更大 → 也重新 emit（G2 任一指标更大）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'opus',
-        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10 },
-      }),
-      internal,
-    );
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'opus',
-        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 200 },
-      }),
-      internal,
-    );
-    const tu = tokenEvents(events);
-    expect(tu).toHaveLength(2);
-    expect((tu[1].payload as { cacheReadTokens: number }).cacheReadTokens).toBe(200);
-  });
-
-  it('同 id 只有 reasoning 更大 → 也重新 emit（thinking 拆分可延迟补齐）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'opus',
-        usage: {
-          input_tokens: 100,
-          output_tokens: 80,
-          output_tokens_details: { thinking_tokens: 10 },
-        },
-      }),
-      internal,
-    );
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'opus',
-        usage: {
-          input_tokens: 100,
-          output_tokens: 80,
-          output_tokens_details: { thinking_tokens: 25 },
-        },
+        content: [{ type: 'text', text: 'done' }],
       }),
       internal,
     );
 
-    const tu = tokenEvents(events);
-    expect(tu).toHaveLength(2);
-    expect((tu[1].payload as { reasoningTokens: number }).reasoningTokens).toBe(25);
-  });
-
-  it('不同 id → 各计一次', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({ id: 'm1', model: 'opus', usage: { input_tokens: 1, output_tokens: 1 } }),
-      internal,
-    );
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({ id: 'm2', model: 'opus', usage: { input_tokens: 1, output_tokens: 1 } }),
-      internal,
-    );
-    expect(tokenEvents(events)).toHaveLength(2);
-  });
-
-  it('assistant 无 usage → 不 emit token-usage（但 message 正常）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({ id: 'm1', model: 'opus', content: [{ type: 'text', text: 'hi' }] }),
-      internal,
-    );
-    expect(tokenEvents(events)).toHaveLength(0);
-    expect(events.some((e) => e.kind === 'message')).toBe(true);
-  });
-
-  it('无 id（usage 有但 id 缺）→ 不 emit（去重锚点缺失）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({ model: 'opus', usage: { input_tokens: 1, output_tokens: 1 } }),
-      internal,
-    );
-    expect(tokenEvents(events)).toHaveLength(0);
-  });
-
-  it('采集 throw 不打断主 message emit（§不变量 3）', () => {
-    const { events, emit, internal } = setup();
-    // 用 getter 抛错的 usage 触发采集 try 内异常；message block 应已先 emit
-    const badUsage = {
-      get input_tokens(): number {
-        throw new Error('boom');
-      },
-    };
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'opus',
-        usage: badUsage as unknown as Record<string, number>,
-        content: [{ type: 'text', text: 'hello' }],
+    expect(tokenEvents(events)).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'message',
+        payload: { text: 'done', role: 'assistant' },
       }),
-      internal,
     );
-    // 主 message 不受影响
-    expect(events.some((e) => e.kind === 'message')).toBe(true);
-    // token-usage 因 throw 被 catch 吞，未 emit
-    expect(tokenEvents(events)).toHaveLength(0);
   });
 
-  it('result.modelUsage 补齐 assistant 帧缺失的 output delta（MiniMax-M3 tok/s=0 回归）', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'MiniMax-M3',
-        usage: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_read_input_tokens: 80_242,
-          cache_creation_input_tokens: 0,
-        },
-      }),
-      internal,
-    );
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      resultMsg({
-        uuid: 'result-1',
-        modelUsage: {
-          'MiniMax-M3': {
-            inputTokens: 754,
-            outputTokens: 147,
-            cacheReadInputTokens: 80_242,
-            cacheCreationInputTokens: 0,
-          },
-        },
-      }),
-      internal,
-    );
-
-    const tu = tokenEvents(events);
-    expect(tu).toHaveLength(2);
-    expect(tu[0].payload).toMatchObject({
-      messageId: 'm1',
-      model: 'MiniMax-M3',
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 80_242,
-    });
-    expect(tu[1].payload).toEqual({
-      messageId: 'result:result-1:minimax-m3',
-      model: 'MiniMax-M3',
-      inputTokens: 754,
-      outputTokens: 147,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-    });
-  });
-
-  it('result.modelUsage 与 assistant 已采集值一致时不重复计数', () => {
-    const { events, emit, internal } = setup();
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      assistantMsg({
-        id: 'm1',
-        model: 'claude-opus-4-8',
-        usage: {
-          input_tokens: 100,
-          output_tokens: 50,
-          cache_read_input_tokens: 30,
-          cache_creation_input_tokens: 10,
-        },
-      }),
-      internal,
-    );
-    translateSdkMessage(
-      emit,
-      'sid-1',
-      resultMsg({
-        uuid: 'result-2',
-        modelUsage: {
-          'claude-opus-4-8': {
-            inputTokens: 100,
-            outputTokens: 50,
-            cacheReadInputTokens: 30,
-            cacheCreationInputTokens: 10,
-          },
-        },
-      }),
-      internal,
-    );
-
-    expect(tokenEvents(events)).toHaveLength(1);
-  });
-
-  it('result aggregate usage 带 output_tokens_details.thinking_tokens 时补 reasoningTokens', () => {
+  it('persists one exact aggregate row when modelUsage is absent', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(
       emit,
       'sid-1',
       resultMsg({
-        uuid: 'result-thinking',
+        uuid: 'aggregate',
         usage: {
           input_tokens: 100,
           output_tokens: 70,
           output_tokens_details: { thinking_tokens: 18 },
-          cache_read_input_tokens: 0,
-          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 30,
+          cache_creation_input_tokens: 10,
         },
       }),
       internal,
     );
 
-    expect(tokenEvents(events)[0].payload).toEqual({
-      messageId: 'result:result-thinking:aggregate',
-      model: 'claude-default',
-      inputTokens: 100,
-      outputTokens: 70,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-    });
-    expect(tokenEvents(events)[1].payload).toEqual({
-      messageId: 'result:result-thinking:reasoning',
-      model: 'claude-default',
-      inputTokens: 0,
-      outputTokens: 0,
-      reasoningTokens: 18,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
+    expect(tokenEvents(events)).toEqual([
+      expect.objectContaining({
+        payload: {
+          messageId: 'result:aggregate:aggregate',
+          model: 'claude-opus-4-8',
+          inputTokens: 100,
+          outputTokens: 70,
+          reasoningTokens: 18,
+          cacheReadTokens: 30,
+          cacheCreationTokens: 10,
+        },
+      }),
+    ]);
+  });
+
+  it('preserves omitted aggregate fields as unknown rather than zero', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'partial-aggregate',
+        usage: { input_tokens: 9, output_tokens: 4 },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)[0]?.payload).toEqual({
+      messageId: 'result:partial-aggregate:aggregate',
+      model: 'claude-opus-4-8',
+      inputTokens: 9,
+      outputTokens: 4,
+      reasoningTokens: null,
+      cacheReadTokens: null,
+      cacheCreationTokens: null,
     });
   });
 
-  it('result.modelUsage 校准 tick 使用实际模型 bucket 而不是 session alias', () => {
+  it('uses exact aggregate fields to complete a single modelUsage entry', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'single-model',
+        usage: {
+          input_tokens: 754,
+          output_tokens: 147,
+          output_tokens_details: { thinking_tokens: 25 },
+          cache_read_input_tokens: 80_242,
+          cache_creation_input_tokens: 0,
+        },
+        modelUsage: {
+          'MiniMax-M3': { outputTokens: 147 },
+        },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)).toEqual([
+      expect.objectContaining({
+        payload: {
+          messageId: 'result:single-model:model:MiniMax-M3',
+          model: 'MiniMax-M3',
+          inputTokens: 754,
+          outputTokens: 147,
+          reasoningTokens: 25,
+          cacheReadTokens: 80_242,
+          cacheCreationTokens: 0,
+        },
+      }),
+    ]);
+  });
+
+  it('keeps multi-model metrics provider-attributed and stores positive aggregate reasoning separately', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'multi-model',
+        usage: {
+          input_tokens: 30,
+          output_tokens: 12,
+          output_tokens_details: { thinking_tokens: 7 },
+          cache_read_input_tokens: 5,
+        },
+        modelUsage: {
+          'claude-opus-4-8': {
+            inputTokens: 20,
+            outputTokens: 8,
+            cacheReadInputTokens: 5,
+          },
+          'claude-haiku-4-5': {
+            inputTokens: 10,
+            outputTokens: 4,
+          },
+        },
+      }),
+      internal,
+    );
+
+    const usage = tokenEvents(events);
+    expect(usage).toHaveLength(3);
+    expect(usage[0]?.payload).toMatchObject({
+      model: 'claude-opus-4-8',
+      inputTokens: 20,
+      outputTokens: 8,
+      reasoningTokens: null,
+      cacheReadTokens: 5,
+      cacheCreationTokens: null,
+      metricScope: TOKEN_USAGE_ALL_METRICS & ~TOKEN_USAGE_METRIC.reasoning,
+    });
+    expect(usage[1]?.payload).toMatchObject({
+      model: 'claude-haiku-4-5',
+      inputTokens: 10,
+      outputTokens: 4,
+      reasoningTokens: null,
+      cacheReadTokens: null,
+      cacheCreationTokens: null,
+      metricScope: TOKEN_USAGE_ALL_METRICS & ~TOKEN_USAGE_METRIC.reasoning,
+    });
+    expect(usage[2]?.payload).toEqual({
+      messageId: 'result:multi-model:reasoning:unattributed',
+      model: 'claude-unattributed-reasoning',
+      inputTokens: null,
+      outputTokens: null,
+      reasoningTokens: 7,
+      cacheReadTokens: null,
+      cacheCreationTokens: null,
+      metricScope: TOKEN_USAGE_METRIC.reasoning,
+    });
+  });
+
+  it('can safely attribute an exact aggregate reasoning zero to every model', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        uuid: 'multi-zero',
+        usage: { output_tokens_details: { thinking_tokens: 0 } },
+        modelUsage: {
+          'claude-opus-4-8': { outputTokens: 8 },
+          'claude-haiku-4-5': { outputTokens: 4 },
+        },
+      }),
+      internal,
+    );
+
+    expect(
+      tokenEvents(events).map((event) => (
+        event.payload as { reasoningTokens: number | null }
+      ).reasoningTokens),
+    ).toEqual([0, 0]);
+  });
+
+  it('uses stable final ids so result replay is max-upsertable', () => {
+    const { events, emit, internal } = setup();
+    const result = resultMsg({
+      uuid: 'replay',
+      modelUsage: {
+        'claude-opus-4-8': {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+      },
+    });
+    translateSdkMessage(emit, 'sid-1', result, internal);
+    translateSdkMessage(emit, 'sid-1', result, internal);
+
+    expect(
+      tokenEvents(events).map(
+        (event) => (event.payload as { messageId: string }).messageId,
+      ),
+    ).toEqual([
+      'result:replay:model:claude-opus-4-8',
+      'result:replay:model:claude-opus-4-8',
+    ]);
+  });
+
+  it('does not persist usage or finished state during an expected close', () => {
+    const { events, emit, internal } = setup();
+    internal.expectedClose = true;
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      internal,
+    );
+
+    expect(tokenEvents(events)).toEqual([]);
+    expect(events.some((event) => event.kind === 'finished')).toBe(false);
+  });
+
+  it('calibrates transient tok/s with the exact single model id', () => {
     const { emit, internal } = setup();
     internal.liveTokenEstimate = {
       bucketKey: 'opus',
       estTokensSinceFlush: 0,
-      lastFlushTs: Date.now() - 1000,
+      lastFlushTs: Date.now() - 1_000,
       hasFlushAnchor: true,
-      decodeElapsedMs: 1000,
+      decodeElapsedMs: 1_000,
     };
 
     translateSdkMessage(
       emit,
       'sid-1',
       resultMsg({
-        uuid: 'result-3',
         modelUsage: {
-          'claude-opus-4-8': {
-            outputTokens: 100,
-          },
+          'claude-opus-4-8': { outputTokens: 100 },
         },
       }),
       internal,

@@ -17,7 +17,7 @@
  * Phase 2 Step 2.2 / REVIEW_58 HIGH 等 jsdoc 不删不改）。
  */
 import type { AgentDefinition, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
+import type { HandOffMetadata, PermissionMode, UploadedAttachmentRef } from '@shared/types';
 import type {
   AgentEnqueueOptions,
   ClaudeCodeEffortLevel,
@@ -46,13 +46,7 @@ export interface CreateSessionOpts {
   settingsPath?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
-  permissionMode?:
-    | 'default'
-    | 'acceptEdits'
-    | 'plan'
-    | 'dontAsk'
-    | 'auto'
-    | 'bypassPermissions';
+  permissionMode?: PermissionMode;
   /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
   resume?: string;
   /**

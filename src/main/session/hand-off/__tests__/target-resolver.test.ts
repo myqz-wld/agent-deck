@@ -15,7 +15,7 @@ function source(): SessionRecord {
     id: 'source', agentId: 'codex-cli', cwd: '/source', title: 'source', source: 'sdk',
     lifecycle: 'active', activity: 'idle', startedAt: 1, lastEventAt: 1,
     endedAt: null, archivedAt: null, permissionMode: null,
-    codexSandbox: 'read-only', runtimeProvider: 'openai',
+    codexSandbox: 'read-only', codexApprovalPolicy: 'never', runtimeProvider: 'openai',
     model: 'gpt-source', thinking: 'high',
     extraAllowWrite: ['/extra'], networkAccessEnabled: true,
     additionalDirectories: ['/tmp'],
@@ -33,6 +33,7 @@ describe('resolveHandOffTarget', () => {
     expect(result.createOptions).toMatchObject({
       agentId: 'codex-cli', cwd: '/target', provider: 'openai', model: 'gpt-source',
       modelReasoningEffort: 'high', codexSandbox: 'read-only',
+      approvalPolicy: 'never',
       extraAllowWrite: ['/extra'], networkAccessEnabled: true,
       additionalDirectories: ['/tmp'], awaitCanonicalId: true,
       handOff: { mode: 'session', fromCallerSid: 'source', sourceMaxEventId: 42 },
@@ -122,6 +123,24 @@ describe('resolveHandOffTarget', () => {
     expect(codexResult.spec).toMatchObject({
       sandbox: { kind: 'codex', mode: 'danger-full-access' },
     });
+  });
+
+  it('preserves dontAsk only for recovery and resets a fresh handoff to manual', () => {
+    const claudeSource: SessionRecord = {
+      ...source(),
+      agentId: 'claude-code',
+      permissionMode: 'dontAsk',
+      codexSandbox: null,
+      claudeCodeSandbox: 'workspace-write',
+    };
+    const result = resolveHandOffTarget({
+      source: claudeSource,
+      request: { adapter: 'claude-code', cwd: '/target' },
+      sourceMaxEventId: 42,
+    });
+
+    expect(result.createOptions).toMatchObject({ permissionMode: 'default' });
+    expect(result.spec).toMatchObject({ permissionMode: 'default' });
   });
 
   it('keeps Grok work mode separate and inherits it only for same-adapter handoff', () => {

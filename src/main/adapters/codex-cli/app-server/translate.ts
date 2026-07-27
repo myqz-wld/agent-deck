@@ -136,6 +136,7 @@ function translateTokenUsage(
   emit('token-usage', {
     messageId: null,
     model: opts?.model ?? null,
+    totalTokens: numberField(last.totalTokens),
     inputTokens: numberField(last.inputTokens),
     // Codex outputTokens is the provider's total output count; reasoningOutputTokens is a
     // breakdown within that total, not an additional count.
@@ -404,8 +405,10 @@ function asRecord(value: unknown): AnyRecord | null {
     : null;
 }
 
-function numberField(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+function numberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
 }
 
 function stringField(value: unknown): string {

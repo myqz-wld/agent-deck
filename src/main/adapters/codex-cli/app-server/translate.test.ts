@@ -24,6 +24,7 @@ describe('translateCodexAppServerNotification', () => {
         params: {
           tokenUsage: {
             last: {
+              totalTokens: 28,
               inputTokens: 11,
               outputTokens: 17,
               reasoningOutputTokens: 5,
@@ -43,6 +44,7 @@ describe('translateCodexAppServerNotification', () => {
         payload: {
           messageId: null,
           model: 'gpt-5.5-codex',
+          totalTokens: 28,
           inputTokens: 11,
           outputTokens: 17,
           reasoningTokens: 5,

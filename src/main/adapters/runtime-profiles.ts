@@ -1,7 +1,10 @@
 import type { AgentDeckToolName } from '@main/agent-deck-mcp/types';
+import {
+  PERMISSION_MODES,
+  type SelectablePermissionMode,
+} from '@shared/types';
 import type {
   AdapterSessionMode,
-  PermissionMode,
   SessionAdapterId,
 } from '@shared/types';
 
@@ -31,7 +34,7 @@ export interface AdapterRuntimeProfile {
     thinkingLevels: readonly string[];
   };
   runtimeControls: {
-    permissionModes: readonly PermissionMode[];
+    permissionModes: readonly SelectablePermissionMode[];
     sessionModes: readonly AdapterSessionMode[];
     /** Provider selector exposed at session creation, when the provider supports one. */
     providerOverride: 'claude-gateway' | 'codex-model-provider' | 'none';
@@ -83,14 +86,7 @@ const profiles = {
       thinkingLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
     runtimeControls: {
-      permissionModes: [
-        'default',
-        'acceptEdits',
-        'plan',
-        'dontAsk',
-        'auto',
-        'bypassPermissions',
-      ],
+      permissionModes: PERMISSION_MODES,
       sessionModes: [],
       providerOverride: 'claude-gateway',
       sandbox: 'claude',

@@ -288,7 +288,7 @@ export function registerAdaptersIpc(): void {
     if (mode === undefined || mode === null) {
       throw new IpcInputError(
         'mode',
-        'required (one of default|acceptEdits|plan|dontAsk|auto|bypassPermissions)',
+        'required (one of default|acceptEdits|plan|auto|bypassPermissions)',
       );
     }
     const m = parsePermissionMode(mode) as Parameters<NonNullable<typeof adapter.setPermissionMode>>[1];

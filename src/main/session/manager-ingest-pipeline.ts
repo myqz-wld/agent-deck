@@ -278,11 +278,19 @@ export function persistTokenUsage(event: AgentEvent): void {
       agentId: event.agentId,
       messageId: p.messageId ?? null,
       model: p.model ?? null,
-      inputTokens: p.inputTokens ?? 0,
-      outputTokens: p.outputTokens ?? 0,
-      reasoningTokens: p.reasoningTokens ?? 0,
-      cacheReadTokens: p.cacheReadTokens ?? 0,
-      cacheCreationTokens: p.cacheCreationTokens ?? 0,
+      totalTokens: p.totalTokens ?? null,
+      inputTokens: p.inputTokens ?? null,
+      outputTokens: p.outputTokens ?? null,
+      reasoningTokens: p.reasoningTokens ?? null,
+      cacheReadTokens: p.cacheReadTokens ?? null,
+      cacheCreationTokens: p.cacheCreationTokens ?? null,
+      ...(p.metricScope !== undefined ? { metricScope: p.metricScope } : {}),
+      ...(p.grokUsageWatermark !== undefined
+        ? { grokUsageWatermark: p.grokUsageWatermark }
+        : {}),
+      ...(p.replacesMessageId != null
+        ? { replacesMessageId: p.replacesMessageId }
+        : {}),
       ts: event.ts,
     });
   } catch (err) {

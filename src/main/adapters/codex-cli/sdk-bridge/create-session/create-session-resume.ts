@@ -105,6 +105,7 @@ export async function runCreateSessionResumePath(
   persistSessionFields({
     sessionId: resumeId,
     sandboxMode,
+    approvalPolicy: opts.approvalPolicy,
     provider: opts.provider,
     model: opts.model,
     modelReasoningEffort: opts.modelReasoningEffort,

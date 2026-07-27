@@ -29,7 +29,6 @@ describe('adapter runtime profiles', () => {
           'default',
           'acceptEdits',
           'plan',
-          'dontAsk',
           'auto',
           'bypassPermissions',
         ],

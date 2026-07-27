@@ -1,5 +1,11 @@
 import { useRef, useState, type JSX } from 'react';
-import type { AdapterSessionMode, SessionRecord } from '@shared/types';
+import {
+  isSelectablePermissionMode,
+  type AdapterSessionMode,
+  type PermissionMode as ClaudePermissionMode,
+  type SelectablePermissionMode,
+  type SessionRecord,
+} from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
@@ -16,7 +22,6 @@ import {
   PERMISSION_MODE_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   CLAUDE_CODE_SANDBOX_OPTIONS,
-  type PermissionMode,
   type CodexSandbox,
   type ClaudeCodeSandbox,
 } from './composer-sdk/SandboxSelects';
@@ -78,9 +83,27 @@ export function ComposerSdk({
   const adapterRuntime = useAdapterRuntimeInfo(agentId);
   const canAcceptAttachments = adapterRuntime.canAcceptAttachments;
   // SDK Query 自身持有运行时 permissionMode 但不暴露 getter，所以从 session 记录的
-  // permission_mode 列读「用户上次主动选过的值」。这是持久化的（DB），切别的 detail
-  // 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。CLI 通道这字段是 null → 默认。
-  const permissionMode = (session.permissionMode ?? 'default') as PermissionMode;
+  // permission_mode 列读用户选择或 provider 上报的当前权威状态。这是持久化的（DB），
+  // 切别的 detail 再切回来 / 重启 dev / 恢复会话，下拉都能正确还原。
+  const permissionMode: ClaudePermissionMode = session.permissionMode ?? 'default';
+  const permissionModeOptions: Array<{
+    value: ClaudePermissionMode;
+    label: string;
+    title?: string;
+    disabled?: boolean;
+  }> =
+    permissionMode === 'dontAsk'
+      ? [
+          {
+            value: 'dontAsk',
+            label: '提供方状态：不询问（只读）',
+            title:
+              'Claude 恢复了 dontAsk 状态；Agent Deck 不提供该模式作为新选择，但会准确保留当前状态',
+            disabled: true,
+          },
+          ...PERMISSION_MODE_OPTIONS,
+        ]
+      : [...PERMISSION_MODE_OPTIONS];
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
   const sessionMode = session.sessionMode ?? 'default';
@@ -198,14 +221,18 @@ export function ComposerSdk({
     }
   };
 
-  const changeMode = async (next: PermissionMode): Promise<void> => {
+  const changeMode = async (next: ClaudePermissionMode): Promise<void> => {
     if (next === permissionMode || pmBusy) return;
+    // Provider may restore `dontAsk`, but it is intentionally read-only in Agent Deck. Every
+    // public mutation surface remains restricted to the five product-supported choices.
+    if (!isSelectablePermissionMode(next)) return;
+    const selectableNext: SelectablePermissionMode = next;
     // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在 CLI
     // 子进程启动时锁死，运行时调 setPermissionMode('bypassPermissions') 会被 SDK 静默吞。
     // ipc.ts 的 SetPermissionMode handler 检测到 bypass 时会路由到 restartWithPermissionMode：
     // 销毁旧 SDK 子进程 + 用 flag=true 重建（5-10s busy）。失败会回滚到原 mode + emit error msg。
     // 注：外层已 `next !== permissionMode` early-return，故只判 `next === 'bypassPermissions'`。
-    if (next === 'bypassPermissions') {
+    if (selectableNext === 'bypassPermissions') {
       const ok = await window.api.confirmDialog({
         title: '切换到完全免询问',
         message: '需要重启当前会话',
@@ -223,7 +250,7 @@ export function ComposerSdk({
     try {
       // IPC 主进程会同时调 SDK + 写 sessions.permission_mode + 推 session-upserted，
       // store 的 sessions Map 会自动更新，下拉值跟着 session 记录变。
-      await window.api.setAdapterPermissionMode(agentId, sessionId, next);
+      await window.api.setAdapterPermissionMode(agentId, sessionId, selectableNext);
     } catch (err) {
       setPmError((err as Error).message);
     } finally {
@@ -357,7 +384,7 @@ export function ComposerSdk({
         <SelectRow
           label="权限"
           value={permissionMode}
-          options={PERMISSION_MODE_OPTIONS}
+          options={permissionModeOptions}
           disabled={pmBusy}
           onChange={(next) => void changeMode(next)}
         />

@@ -35,7 +35,6 @@ describe('sandbox option copy', () => {
       'default',
       'acceptEdits',
       'plan',
-      'dontAsk',
       'auto',
       'bypassPermissions',
     ]);

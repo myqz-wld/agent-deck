@@ -18,7 +18,6 @@ import type {
   ClaudeGatewayProfileOption,
   CodexModelProviderOption,
   CodexPermissionScanResult,
-  CodexSandboxMode,
   ImageSource,
   GrokAuthProbeResult,
   LoadImageBlobResult,
@@ -105,10 +104,8 @@ export const miscApi = {
   ): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.PermissionOpenFile, cwd, path),
   /** 扫描 Codex 侧权限/配置展示面：sandbox、固定 approval policy、MCP、config.toml。 */
-  scanCodexSettings: (
-    sessionCodexSandbox?: CodexSandboxMode | null,
-  ): Promise<CodexPermissionScanResult> =>
-    ipcRenderer.invoke(IpcInvoke.PermissionScanCodex, sessionCodexSandbox ?? null),
+  scanCodexSettings: (sessionId: string): Promise<CodexPermissionScanResult> =>
+    ipcRenderer.invoke(IpcInvoke.PermissionScanCodex, sessionId),
   /** 打开 Codex config.toml；main 端校验 path 必须是 ~/.codex/config.toml。 */
   openCodexPermissionFile: (path: string): Promise<{ ok: boolean; reason?: string }> =>
     ipcRenderer.invoke(IpcInvoke.PermissionOpenCodexFile, path),

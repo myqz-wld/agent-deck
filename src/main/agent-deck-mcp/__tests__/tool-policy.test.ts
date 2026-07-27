@@ -34,10 +34,14 @@ describe('Agent Deck MCP adapter tool policy', () => {
     expect(full.contextMode.safeParse('fork').success).toBe(true);
   });
 
-  it.each(['dontAsk', 'auto'] as const)(
+  it.each(['auto', 'bypassPermissions'] as const)(
     'accepts the current Claude permission mode %s in spawn_session',
     (mode) => {
       expect(SPAWN_SESSION_SCHEMA.permissionMode.safeParse(mode).success).toBe(true);
     },
   );
+
+  it('rejects the retired dontAsk mode', () => {
+    expect(SPAWN_SESSION_SCHEMA.permissionMode.safeParse('dontAsk').success).toBe(false);
+  });
 });

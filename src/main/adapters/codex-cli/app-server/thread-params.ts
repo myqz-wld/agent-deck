@@ -33,6 +33,11 @@ export function buildThreadResumeParams(
 ): JsonObject {
   return {
     threadId,
+    // Agent Deck restores its own persisted projection and does not consume
+    // historical turns from this response. Suppress app-server's immediate
+    // restored token-usage replay so previously persisted `last` usage cannot
+    // be inserted a second time after resume/recycle.
+    excludeTurns: true,
     ...buildThreadCommonParams(options, baseConfig),
   };
 }
@@ -46,6 +51,9 @@ export function buildThreadForkParams(
   return {
     threadId,
     lastTurnId,
+    // Fork startup likewise does not consume the restored turn projection.
+    // Excluding it prevents historical token usage from being replayed as live.
+    excludeTurns: true,
     ...buildThreadCommonParams(options, baseConfig),
   };
 }

@@ -9,10 +9,11 @@ import { settingsStore } from '@main/store/settings-store';
 import { omitUndefined } from '@main/utils/optional-fields';
 import type {
   AdapterSessionMode,
-  PermissionMode,
+  SelectablePermissionMode,
   SessionAdapterId,
   SessionRecord,
 } from '@shared/types';
+import { isSelectablePermissionMode } from '@shared/types';
 import type { ResolvedSuccessorSpec } from '../continuation-context/types';
 import { resolveContinuationTargetSnapshot } from '../continuation-context/resolver';
 
@@ -22,7 +23,7 @@ export interface HandOffTargetRequest {
   provider?: unknown;
   model?: unknown;
   thinking?: unknown;
-  permissionMode?: PermissionMode;
+  permissionMode?: SelectablePermissionMode;
   sessionMode?: AdapterSessionMode | null;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
@@ -46,7 +47,9 @@ export class HandOffTargetOptionsError extends Error {
   }
 }
 
-function defaultPermissionMode(adapter: SessionAdapterId): PermissionMode | undefined {
+function defaultPermissionMode(
+  adapter: SessionAdapterId,
+): SelectablePermissionMode | undefined {
   return adapter === 'claude-code' ? 'bypassPermissions' : undefined;
 }
 
@@ -101,7 +104,9 @@ export function resolveHandOffTarget(input: {
     request.permissionMode ??
     (sameAdapter
       ? request.adapter === 'claude-code'
-        ? source.permissionMode ?? 'default'
+        ? isSelectablePermissionMode(source.permissionMode)
+          ? source.permissionMode
+          : 'default'
         : undefined
       : defaultPermissionMode(request.adapter));
   const sessionMode =
@@ -145,6 +150,10 @@ export function resolveHandOffTarget(input: {
       : sameAdapter
         ? [...(source.additionalDirectories ?? [])]
         : [];
+  const codexApprovalPolicy =
+    request.adapter === 'codex-cli' && sameAdapter
+      ? source.codexApprovalPolicy ?? null
+      : null;
   const createOptions = buildCreateSessionOptions(request.adapter, {
     cwd: request.cwd,
     ...modelOptions,
@@ -165,9 +174,12 @@ export function resolveHandOffTarget(input: {
     ...(extraAllowWrite.length > 0 ? { extraAllowWrite } : {}),
     ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
   });
-  // Public spawn deliberately reserves these two fields for reviewer defaults, but authenticated
+  // Public spawn deliberately reserves these fields for reviewer defaults, but authenticated
   // handoff must preserve the already-persisted Codex runtime exactly across replacement.
   if (createOptions.agentId === 'codex-cli') {
+    if (codexApprovalPolicy !== null) {
+      createOptions.approvalPolicy = codexApprovalPolicy;
+    }
     if (networkAccessEnabled !== null) {
       createOptions.networkAccessEnabled = networkAccessEnabled;
     }

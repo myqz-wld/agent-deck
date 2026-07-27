@@ -134,6 +134,8 @@ export async function createSessionImpl(
     const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
     const sessionProvider =
       opts.provider ?? resumeRec?.runtimeProvider ?? undefined;
+    const sessionApprovalPolicy =
+      opts.approvalPolicy ?? resumeRec?.codexApprovalPolicy ?? undefined;
     const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
@@ -156,11 +158,13 @@ export async function createSessionImpl(
     });
     const effectiveOpts =
       sessionModelReasoningEffort === opts.modelReasoningEffort &&
-      sessionProvider === opts.provider
+      sessionProvider === opts.provider &&
+      sessionApprovalPolicy === opts.approvalPolicy
         ? opts
         : {
             ...opts,
             provider: sessionProvider,
+            approvalPolicy: sessionApprovalPolicy,
             modelReasoningEffort: sessionModelReasoningEffort,
           };
     const developerInstructions = combineCodexDeveloperInstructions(
@@ -194,7 +198,7 @@ export async function createSessionImpl(
         buildCodexThreadOptions({
           workingDirectory: cwd,
           sandboxMode,
-          approvalPolicy: opts.approvalPolicy,
+          approvalPolicy: sessionApprovalPolicy,
           provider: sessionProvider,
           model: opts.model,
           modelReasoningEffort: threadModelReasoningEffort,
@@ -210,7 +214,7 @@ export async function createSessionImpl(
         buildCodexThreadOptions({
           workingDirectory: cwd,
           sandboxMode,
-          approvalPolicy: opts.approvalPolicy,
+          approvalPolicy: sessionApprovalPolicy,
           provider: sessionProvider,
           model: opts.model,
           modelReasoningEffort: threadModelReasoningEffort,

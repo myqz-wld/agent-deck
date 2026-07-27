@@ -10,6 +10,7 @@
 import { promises as fs } from 'node:fs';
 import type {
   AppSettings,
+  CodexApprovalPolicy,
   CodexPermissionScanResult,
   CodexSandboxMode,
 } from '@shared/types';
@@ -30,6 +31,7 @@ interface ScanCodexSettingsOptions {
   configPath?: string;
   appSettings?: CodexScanSettings;
   sessionCodexSandbox?: CodexSandboxMode | null;
+  sessionCodexApprovalPolicy?: CodexApprovalPolicy | null;
 }
 
 const CODEX_SANDBOX_MODES = new Set<CodexSandboxMode>([
@@ -69,6 +71,7 @@ export async function scanCodexSettings(
   const configPath = options.configPath ?? getCodexConfigPath();
   const sessionSandbox = options.sessionCodexSandbox;
   const hasSessionSandbox = isCodexSandboxMode(sessionSandbox);
+  const approvalPolicy = options.sessionCodexApprovalPolicy ?? null;
   const sandboxMode = hasSessionSandbox ? sessionSandbox : settings.codexSandbox;
   const agentDeckMcpEnabled = settings.enableAgentDeckMcp && settings.mcpHttpEnabled;
 
@@ -92,8 +95,8 @@ export async function scanCodexSettings(
     effective: {
       sandboxMode,
       sandboxSource: hasSessionSandbox ? 'session' : 'settings',
-      approvalPolicy: null,
-      approvalSource: 'codex-config',
+      approvalPolicy,
+      approvalSource: approvalPolicy === null ? 'codex-config' : 'agent-deck',
       skipGitRepoCheck: true,
       agentDeckMcp: {
         enabled: settings.enableAgentDeckMcp,
