@@ -48,7 +48,8 @@ When MCP task tools are unavailable, write progress into the plan file, handoff 
 
 Browser work in this session goes through the official Codex Browser plugin, whose in-app browser (`iab`) backend is served by Agent Deck. Agent Deck deliberately exposes no `browser_*` MCP tools to Codex sessions, so do not look for or ask for them; drive pages with the plugin's own browser tools. The tabs it opens belong to this session, share no cookies or storage with other sessions, and are closed automatically when the session closes or hands off.
 
-- Target elements through the references the plugin's page snapshot returns, never hand-written CSS selectors. After the page changes, take a fresh snapshot instead of reusing a reference from an older one.
+- Target elements through the references the plugin's page snapshot returns, never hand-written CSS selectors. Treat every navigation or reload as invalidating earlier references; take a fresh snapshot immediately afterward instead of guessing or reusing a ref.
+- Use only the document, frame, and shadow-root elements that the plugin's snapshot actually returns. If embedded or encapsulated content is absent, report that coverage boundary instead of inventing a selector or target.
 - A page snapshot answers most questions more cheaply than a screenshot. Screenshot only when visual confirmation is the actual question, and do not request both for the same question.
 - Keep browser work in the background unless the user wants to watch the page or asked for it to be put in front of them.
 - Local development targets come first: `localhost`, `127.0.0.1`, `::1`, and `file://` pages. After significant frontend changes to a local app, open the relevant local target when it is obvious. When the framework has no hot reload, reload the page after code changes, then take a fresh snapshot or screenshot.

@@ -8,7 +8,8 @@ completed_at: 2026-07-27
 base_branch: main
 base_commit: 753bff9a15f11bbeaf2c4d7c6359fe06465ee9e0
 implementation_commit: 98471b111f99515827cb90d8384fab814994bf4f
-related_changelog: CHANGELOG_400
+hardening_commits: 53830804, 28074a89, e4db8ffd
+related_changelog: CHANGELOG_400, CHANGELOG_401
 related_reviews: REVIEW_175, REVIEW_177
 ---
 
@@ -36,14 +37,14 @@ related_reviews: REVIEW_175, REVIEW_177
 | Engine | `src/main/browser-use/engine/{types,registry,tab,cdp,actions,scripts}.ts` | 1,179 LOC, provider-neutral |
 | Codex front | `src/main/browser-use/fronts/codex-pipe.ts` | 407 LOC, replaces the deleted 497-LOC `iab-session.ts` |
 | Session helper | `src/main/browser-use/session-browser.ts` | owner key + idempotent disposal |
-| MCP tools | `agent-deck-mcp/tools/browser-tools.ts`, `tools/schemas/browser.ts`, `tools/handlers/browser/{shared,tabs,interact,inspect}.ts` | 13 tools |
+| MCP tools | `agent-deck-mcp/tools/browser-tools.ts`, `tools/schemas/browser.ts`, `tools/handlers/browser/{shared,tabs,interact,inspect}.ts` | 14 tools |
 | Wiring | `runtime-profiles.ts`, `agent-deck-mcp/types.ts`, `tools/index.ts`, `tools/schemas.ts` | names, allow-list, per-adapter gating |
 | Lifecycle | `session/manager/lifecycle.ts`, `hand-off-session/source-finalization.ts`, `codex-cli/sdk-bridge/create-session-rollback.ts`, `index/lifecycle-hooks.ts` | disposal on close, hand-off, rollback, quit |
 | Prompt assets | `resources/{claude-config/CLAUDE.md,grok-config/GROK_AGENTS.md,codex-config/CODEX_AGENTS.md}` | 14 added lines each, identical safety rules |
 | Tests | `browser-use/engine/__tests__/{_fakes,registry,cdp,actions}`, `agent-deck-mcp/__tests__/browser-tools.test.ts` | 725 LOC, +51 tests |
 
 Tool surface: `browser_open`, `browser_tabs`, `browser_navigate`, `browser_close`,
-`browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_press`,
+`browser_wait`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_press`,
 `browser_scroll`, `browser_read_console`, `browser_read_network`, `browser_evaluate`. Enabled for
 `claude-code` and `grok-build` through `AdapterRuntimeProfile.mcpBrowserTools`; `codex-cli` is false
 because it already owns the plugin surface.
@@ -59,6 +60,13 @@ because it already owns the plugin surface.
    plugin is active for that session.
 5. `browser_evaluate` shipped.
 6. The attached in-app view stayed out of scope.
+7. Readiness uses one bounded `browser_wait` tool with selector and network-idle modes. Selectors
+   never become interaction targets.
+8. Same-origin nested frames and open shadow roots keep the existing flat
+   `<generation>-<index>` ref format. Coverage metadata exposes inaccessible frames and scan caps;
+   cross-origin/OOPIF frames and closed shadow roots remain out of scope.
+9. Generated screenshots have seven-day retention, reaped at startup and opportunistically at most
+   once per day. Cleanup skips unknown entries and symlinks instead of assuming ownership.
 
 ## Remaining validation
 
@@ -96,9 +104,10 @@ Nothing in this list is done. Each item needs a human decision because of what i
   `setBrowserEngine(new BrowserEngine({ createWindow }))` and must reset with `setBrowserEngine(null)`.
   A front that receives an injected `createWindow` builds its own private engine, which is how the
   Codex front tests stay isolated from global caps.
-- **CDP domains are enabled lazily on purpose.** A Codex session that never reads logs keeps exactly
-  the CDP surface the official client enabled itself. Do not move `Runtime.enable` / `Network.enable`
-  into attach.
+- **Do not broaden Codex's CDP ownership.** Codex sessions keep exactly the domains the official
+  client enables itself until a Codex operation explicitly needs more. MCP tabs arm Network request
+  lifecycle tracking in `browser_open`, before their first navigation, so `browser_wait` can observe
+  network idle; this does not make `browser_read_network` history retroactive.
 - **Prompt assets are edited in triples.** `resources/claude-config/CLAUDE.md`,
   `resources/grok-config/GROK_AGENTS.md`, and `resources/codex-config/CODEX_AGENTS.md` must keep
   identical safety semantics; wording may differ only on adapter-surface facts. Do not leave `.bak`
@@ -112,20 +121,21 @@ Nothing in this list is done. Each item needs a human decision because of what i
 These are real limitations of the shipped surface, not bugs to file blindly. Pick them up only when a
 concrete use case appears.
 
-- **No iframe or shadow-DOM traversal.** `browser_snapshot` walks the top document with
-  `querySelectorAll`, so elements inside iframes or shadow roots have no refs. Front A can still reach
-  child targets through raw CDP; the MCP surface cannot. Fixing this means per-frame snapshot state
-  and a frame-qualified ref format.
+- **Open-DOM traversal has explicit boundaries.** Snapshots and selector waits traverse open shadow
+  roots and accessible same-origin nested frames, flattening them into the existing ref generation.
+  Cross-origin/OOPIF frames and closed shadow roots remain inaccessible. Every traversal is capped at
+  20,000 elements; coverage metadata reports inaccessible frames and a reached cap.
 - **Ref state lives in the page.** Refs are stored on `window.__agentDeckBrowserRefs__`, so any
   navigation or reload wipes them and the next click reports a stale ref. That is intended, but it
   means "click, then click again after navigation" always needs a re-snapshot.
-- **No wait primitives.** `waitForSettle` polls `webContents.isLoading()`, which says nothing about
-  SPA route transitions or async data. There is no wait-for-selector or network-idle tool, so agents
-  must re-snapshot in a loop for slow UIs.
+- **Waits cover readiness, not arbitrary page predicates.** `browser_wait` handles bounded selector
+  states and network idle, but does not expose arbitrary JavaScript predicates, navigation events,
+  or long-running watches.
 - **Log capture is not retroactive.** Console and network buffers start filling at the first
   `browser_read_console` / `browser_read_network` call for that tab, and hold 200 entries each.
-- **Screenshots accumulate.** Files land in `os.tmpdir()/agent-deck-browser/<session>/` with no
-  reaper. The existing `reapStaleUploads` pattern is the obvious model if this ever matters.
+- **Screenshot cleanup is time-based.** Generated PNGs older than seven days are removed at startup
+  and at most once per day thereafter. Current-session screenshots are not quota-limited before the
+  retention window expires.
 - **`fullPage` screenshots attach the debugger** because they go through
   `Page.captureScreenshot` with `captureBeyondViewport`. Harmless today; worth re-checking if the MCP
   tools are ever enabled for Codex sessions that also run the official client on the same tab.
@@ -152,9 +162,20 @@ path ran.
 
 `paintWhenInitiallyHidden: true` is also pinned explicitly in the window options: background tabs must
 keep painting for screenshots and layout reads. Electron already defaults it to true; pinning it
-documents the dependency. **Still unverified against a real renderer**: whether `capturePage()` returns
-real pixels for a window that was never shown. If it comes back blank, route the viewport path through
-CDP `Page.captureScreenshot` the way `fullPage` already does.
+documents the dependency. A real hidden Electron window returned non-empty pixels through
+`capturePage()`. Full-page capture still intentionally uses CDP `Page.captureScreenshot`.
+
+## P0/P1 hardening follow-up
+
+- `browser_wait` provides one bounded readiness surface: selector states
+  (`attached` / `visible` / `hidden` / `detached`) and network idle.
+- Snapshots, selector waits, and ref interactions share a bounded traversal across the top document,
+  open shadow roots, and same-origin nested frames. Ref syntax remains backward-compatible.
+- Screenshot writes and cleanup are isolated in a guarded store with seven-day retention.
+- Claude and Grok prompt assets describe the MCP wait and coverage contract. Codex guidance remains
+  specific to the official Browser plugin and does not claim MCP browser availability.
+- The engine, Codex front, and MCP browser surface still require a fresh heterogeneous review because
+  the earlier path renames invalidated the scope mapping of `REVIEW_177`.
 
 ## Deferred follow-ups
 
@@ -170,12 +191,20 @@ CDP `Page.captureScreenshot` the way `fullPage` already does.
 - `pnpm typecheck` passed.
 - `pnpm test` passed 377 files and 3,163 tests, one file skipped.
 - `pnpm build` passed; `git diff --check` clean.
+- Hardening-focused engine, generated-script, MCP browser, screenshot-store, and bootstrap tests
+  passed; the Node suite also passed 324 files / 2,732 tests with 54 files / 437 tests skipped for the
+  expected Electron-versus-Node native SQLite ABI boundary.
+- A real hidden Electron fixture verified non-empty viewport capture plus open shadow roots, two
+  nested same-origin frames, continuous refs, frame interactions, and selector waits.
 - `bash scripts/file-level-review-expiry.sh` ran before this record was written.
 - A test caught a real defect pre-merge: the first URL normalizer read `localhost:3000` as a
   `localhost:` scheme and rejected it.
 
 ## Support materials
 
-Prompt-asset backups were intentionally discarded after the change landed: the pre-change content of
-all three bundled assets is recoverable from git history at `9a8cf9aa`. The behavior record for this
-plan is `ref/changelogs/recent-3-days/CHANGELOG_400_cross-adapter-browser-engine.md`.
+The original prompt-asset content remains recoverable from git history at `9a8cf9aa`. The P0/P1
+prompt edits also have an ignored local backup manifest under
+`.prompt-asset-improver/local/backups/20260727T112438Z/`; no backup is stored in packaged
+`resources/`. Behavior records are
+`ref/changelogs/recent-3-days/CHANGELOG_400_cross-adapter-browser-engine.md` and
+`ref/changelogs/recent-3-days/CHANGELOG_401_browser-waits-open-dom-retention.md`.
