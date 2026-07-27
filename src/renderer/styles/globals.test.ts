@@ -10,4 +10,16 @@ describe('renderer global theme', () => {
   it('defines the error color token used by red diff utilities', () => {
     expect(css).toMatch(/--color-status-error:\s*rgb\(255,\s*80,\s*80\);/);
   });
+
+  it('keeps transparent windows out of the full-frame backdrop-filter compositor path', () => {
+    const transparentRule = css.match(
+      /\.frosted-frame\[data-transparent='true'\]\s*\{(?<body>[^}]*)\}/,
+    )?.groups?.body;
+
+    expect(transparentRule).toBeDefined();
+    expect(transparentRule).toMatch(/(?:^|\s)backdrop-filter:\s*none;/);
+    expect(transparentRule).toMatch(/-webkit-backdrop-filter:\s*none;/);
+    expect(transparentRule).not.toMatch(/backdrop-filter:[^;]*blur\(/);
+    expect(transparentRule).not.toMatch(/transition:[^;]*backdrop-filter/);
+  });
 });
