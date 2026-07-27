@@ -93,6 +93,8 @@ describe('CdpBridge log capture', () => {
       requestId: 'r1',
       response: { status: 200, mimeType: 'application/json' },
     });
+    expect(bridge.networkActivityState().inFlight).toBe(1);
+    target.emit('message', {}, 'Network.loadingFinished', { requestId: 'r1' });
     target.emit('message', {}, 'Network.requestWillBeSent', {
       requestId: 'r2',
       request: { method: 'POST', url: 'http://127.0.0.1:3456/api/save' },
@@ -106,6 +108,28 @@ describe('CdpBridge log capture', () => {
       { method: 'GET', url: 'http://127.0.0.1:3456/api/list', status: 200, mimeType: 'application/json' },
       { method: 'POST', url: 'http://127.0.0.1:3456/api/save', failure: 'net::ERR_CONNECTION_REFUSED' },
     ]);
+    expect(bridge.networkActivityState().inFlight).toBe(0);
+  });
+
+  it('tracks lifecycle before capture without recording requests retroactively', async () => {
+    const { bridge, target } = makeBridge();
+    await bridge.enableNetworkTracking();
+
+    target.emit('message', {}, 'Network.requestWillBeSent', {
+      requestId: 'early',
+      request: { method: 'GET', url: 'http://127.0.0.1/early' },
+    });
+    expect(bridge.networkActivityState().inFlight).toBe(1);
+
+    await bridge.enableNetworkCapture();
+    target.emit('message', {}, 'Network.responseReceived', {
+      requestId: 'early',
+      response: { status: 200 },
+    });
+    target.emit('message', {}, 'Network.loadingFinished', { requestId: 'early' });
+
+    expect(bridge.readNetwork(10)).toEqual([]);
+    expect(target.sent.filter((entry) => entry.method === 'Network.enable')).toHaveLength(1);
   });
 
   it('re-enables capture after a detach', async () => {

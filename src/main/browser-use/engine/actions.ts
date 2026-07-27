@@ -12,6 +12,7 @@ import {
   evaluateScript,
   pressFallbackScript,
   scrollScript,
+  selectorProbeScript,
   snapshotScript,
   typeScript,
 } from './scripts';
@@ -204,6 +205,120 @@ export async function readNetwork(tab: EngineTab, limit: number): Promise<unknow
   return tab.cdp.readNetwork(limit);
 }
 
+export type SelectorWaitState = 'attached' | 'visible' | 'hidden' | 'detached';
+
+export interface SelectorWaitResult {
+  kind: 'selector';
+  selector: string;
+  state: SelectorWaitState;
+  count: number;
+  visibleCount: number;
+  elapsedMs: number;
+  page: PageState;
+}
+
+export interface NetworkIdleWaitResult {
+  kind: 'network-idle';
+  idleMs: number;
+  inFlight: number;
+  elapsedMs: number;
+  page: PageState;
+}
+
+interface SelectorProbe {
+  count: number;
+  visibleCount: number;
+}
+
+export async function armNetworkTracking(tab: EngineTab): Promise<void> {
+  await tab.cdp.enableNetworkTracking();
+}
+
+export async function waitForSelector(
+  tab: EngineTab,
+  selector: string,
+  state: SelectorWaitState,
+  timeoutMs: number,
+): Promise<SelectorWaitResult> {
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let lastProbe: SelectorProbe = { count: 0, visibleCount: 0 };
+  let lastTransientError = '';
+
+  while (Date.now() <= deadline) {
+    try {
+      const raw = await runScript<string>(tab, selectorProbeScript(selector));
+      lastProbe = JSON.parse(raw) as SelectorProbe;
+      lastTransientError = '';
+      if (selectorStateMatches(lastProbe, state)) {
+        return {
+          kind: 'selector',
+          selector,
+          state,
+          ...lastProbe,
+          elapsedMs: Date.now() - startedAt,
+          page: pageState(tab),
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Invalid CSS selector') || message.includes('is closed')) throw error;
+      // A navigation can replace the execution context between polls. Keep waiting until the
+      // caller's deadline instead of turning that expected transition into an immediate failure.
+      lastTransientError = message;
+    }
+    await delay(Math.min(100, Math.max(1, deadline - Date.now())));
+  }
+
+  const detail =
+    lastTransientError.length > 0
+      ? ` Last page error: ${lastTransientError}`
+      : ` Last observed ${lastProbe.count} matching element(s), ${lastProbe.visibleCount} visible.`;
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for selector ${JSON.stringify(selector)} to be ${state}.${detail}`,
+  );
+}
+
+export async function waitForNetworkIdle(
+  tab: EngineTab,
+  timeoutMs: number,
+  idleMs: number,
+): Promise<NetworkIdleWaitResult> {
+  await armNetworkTracking(tab);
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let lastState = tab.cdp.networkActivityState();
+
+  while (Date.now() <= deadline) {
+    lastState = tab.cdp.networkActivityState();
+    const now = Date.now();
+    if (
+      lastState.inFlight === 0
+      && now - Math.max(lastState.lastActivityAt, startedAt - idleMs) >= idleMs
+    ) {
+      return {
+        kind: 'network-idle',
+        idleMs,
+        inFlight: 0,
+        elapsedMs: now - startedAt,
+        page: pageState(tab),
+      };
+    }
+    await delay(Math.min(50, Math.max(1, deadline - Date.now())));
+  }
+
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for ${idleMs}ms of network idle; ${lastState.inFlight} request(s) are still in flight.`,
+  );
+}
+
+function selectorStateMatches(probe: SelectorProbe, state: SelectorWaitState): boolean {
+  if (state === 'attached') return probe.count > 0;
+  if (state === 'visible') return probe.visibleCount > 0;
+  if (state === 'detached') return probe.count === 0;
+  return probe.visibleCount === 0;
+}
+
 /**
  * Run an injected script and translate the page-side sentinel errors into guidance an agent can
  * act on without reading engine internals.
@@ -225,6 +340,10 @@ async function runScript<T>(tab: EngineTab, script: string): Promise<T> {
       throw new Error(
         'That element is no longer attached to the page. Take a fresh snapshot and use its refs.',
       );
+    }
+    if (message.includes('INVALID_SELECTOR:')) {
+      const detail = message.split('INVALID_SELECTOR:').slice(1).join('INVALID_SELECTOR:').trim();
+      throw new Error(`Invalid CSS selector: ${detail}`);
     }
     throw error instanceof Error ? error : new Error(message);
   }

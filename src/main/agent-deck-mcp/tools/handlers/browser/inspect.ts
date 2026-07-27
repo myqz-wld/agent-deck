@@ -147,6 +147,51 @@ export async function browserReadNetworkHandler(
   }
 }
 
+export async function browserWaitHandler(
+  args: BrowserToolArgs & {
+    kind: 'selector' | 'network-idle';
+    selector?: string;
+    state?: actions.SelectorWaitState;
+    timeoutMs?: number;
+    idleMs?: number;
+  },
+  ctx: HandlerContext,
+): Promise<HandlerResult> {
+  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserWait, ctx);
+  if (isHandlerResult(owner)) return owner;
+  const tab = requireTab(owner.handle, args.tabId);
+  if (isHandlerResult(tab)) return tab;
+
+  try {
+    const timeoutMs = args.timeoutMs ?? 10_000;
+    if (args.kind === 'selector') {
+      if (args.selector == null || args.selector.trim().length === 0) {
+        return browserErr(new Error('selector is required when kind is "selector".'));
+      }
+      if (args.idleMs != null) {
+        return browserErr(new Error('idleMs is only valid when kind is "network-idle".'));
+      }
+      const result = await actions.waitForSelector(
+        tab,
+        args.selector,
+        args.state ?? 'visible',
+        timeoutMs,
+      );
+      return pageOk({ tabId: tab.id, ...result });
+    }
+
+    if (args.selector != null || args.state != null) {
+      return browserErr(
+        new Error('selector and state are only valid when kind is "selector".'),
+      );
+    }
+    const result = await actions.waitForNetworkIdle(tab, timeoutMs, args.idleMs ?? 500);
+    return pageOk({ tabId: tab.id, ...result });
+  } catch (error) {
+    return browserErr(error);
+  }
+}
+
 async function persistScreenshot(sessionId: string, tabId: number, png: Buffer): Promise<string> {
   const directory = join(tmpdir(), 'agent-deck-browser', sanitizeSegment(sessionId));
   await mkdir(directory, { recursive: true, mode: 0o700 });

@@ -22,7 +22,7 @@
  * Phase 0 收口结论 + Step 0.4 fix 路径 B 实证）：
  *
  * - 我们的 19 个核心 MCP tool（7 session/messaging + 2 user presentation + 2 worktree + 5 task + 3 issue；详 tools/index.ts SSOT）
- *   加上按 adapter profile 开关的 13 个 browser tool（plan cross-adapter-browser-engine-20260727；
+ *   加上按 adapter profile 开关的 14 个 browser tool（plan cross-adapter-browser-engine-20260727；
  *   浏览器状态存在 browser engine registry 的 session 维度注册表里，**不**放 transport / request 上）
  *   都**无 cross-request session state 需求** — 每条 request 携带 callerSessionId（per-session
  *   token 反查 → resolvedSid），handler 只看单 request 内 args 即可处理，不需要 mcp-sdk
@@ -165,7 +165,7 @@ async function loadMcpSdk(): Promise<{
 }
 
 /**
- * 创建 mcp-sdk McpServer 实例并注册公开 agent-deck tool（19 核心 + 按 adapter 开关的 13 browser tool）。
+ * 创建 mcp-sdk McpServer 实例并注册公开 agent-deck tool（19 核心 + 按 adapter 开关的 14 browser tool）。
  * 调用方负责把它 connect 到 transport（HTTP / stdio）。
  */
 async function buildAgentDeckMcpServerForExternalTransport(

@@ -18,6 +18,7 @@ export const BROWSER_TOOL_NAMES: readonly AgentDeckToolName[] = [
   AGENT_DECK_TOOL_NAMES.browserOpen,
   AGENT_DECK_TOOL_NAMES.browserTabs,
   AGENT_DECK_TOOL_NAMES.browserNavigate,
+  AGENT_DECK_TOOL_NAMES.browserWait,
   AGENT_DECK_TOOL_NAMES.browserClose,
   AGENT_DECK_TOOL_NAMES.browserSnapshot,
   AGENT_DECK_TOOL_NAMES.browserScreenshot,

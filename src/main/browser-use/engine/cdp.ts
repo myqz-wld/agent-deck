@@ -4,8 +4,11 @@
  *
  * Two consumers with different needs share this file. The Codex pipe front needs raw command
  * pass-through plus every event, including child-target traffic. The MCP browser tools need cheap
- * console and network history. Domain enabling is therefore lazy: a Codex session that never asks
- * for logs keeps exactly the CDP surface the official Browser client enabled itself.
+ * console and network history. MCP tabs arm lightweight network lifecycle tracking before their
+ * first navigation so `browser_wait(kind:"network-idle")` can observe the whole request. Network
+ * history remains independently lazy and starts only at the first `browser_read_network` call.
+ * Codex tabs never call that MCP-only arming path, so the official Browser client still owns their
+ * CDP domains.
  */
 
 import type { Debugger, Event } from 'electron';
@@ -33,15 +36,34 @@ export interface NetworkEntry {
 
 type UnknownRecord = Record<string, unknown>;
 
+interface PendingNetworkRequest {
+  method: string;
+  url: string;
+  at: number;
+  status?: number;
+  mimeType?: string;
+  recorded: boolean;
+}
+
+export interface NetworkActivityState {
+  inFlight: number;
+  lastActivityAt: number;
+}
+
 export class CdpBridge {
   private readonly messageListeners = new Set<CdpMessageListener>();
   private readonly detachListeners = new Set<CdpDetachListener>();
   private readonly consoleEntries: ConsoleEntry[] = [];
   private readonly networkEntries: NetworkEntry[] = [];
-  private readonly pendingRequests = new Map<string, { method: string; url: string; at: number }>();
+  private readonly pendingRequests = new Map<string, PendingNetworkRequest>();
+  private readonly inFlightRequestIds = new Set<string>();
   private listenersInstalled = false;
   private consoleEnabled = false;
-  private networkEnabled = false;
+  private networkDomainEnabled = false;
+  private networkTrackingEnabled = false;
+  private networkCaptureEnabled = false;
+  private networkEnablePromise: Promise<void> | null = null;
+  private lastNetworkActivityAt = 0;
 
   constructor(private readonly getDebugger: () => Debugger) {}
 
@@ -61,8 +83,7 @@ export class CdpBridge {
   detach(): void {
     const target = this.getDebugger();
     if (target.isAttached()) target.detach();
-    this.consoleEnabled = false;
-    this.networkEnabled = false;
+    this.resetDomainState();
   }
 
   isAttached(): boolean {
@@ -98,9 +119,54 @@ export class CdpBridge {
   }
 
   async enableNetworkCapture(): Promise<void> {
-    if (this.networkEnabled) return;
-    this.networkEnabled = true;
-    await this.send('Network.enable');
+    this.networkCaptureEnabled = true;
+    try {
+      await this.enableNetworkTracking();
+    } catch (error) {
+      this.networkCaptureEnabled = false;
+      throw error;
+    }
+  }
+
+  /**
+   * Enable request lifecycle tracking without starting network-history recording.
+   *
+   * MCP calls this before navigation. Keeping it separate from `enableNetworkCapture` preserves
+   * the documented "history starts at first read" behavior while making network-idle deterministic.
+   */
+  async enableNetworkTracking(): Promise<void> {
+    if (this.networkDomainEnabled) {
+      this.networkTrackingEnabled = true;
+      return;
+    }
+    if (this.networkEnablePromise != null) {
+      await this.networkEnablePromise;
+      this.networkTrackingEnabled = true;
+      return;
+    }
+
+    this.networkTrackingEnabled = true;
+    this.lastNetworkActivityAt = Date.now();
+    const enabling = this.send('Network.enable')
+      .then(() => {
+        this.networkDomainEnabled = true;
+      })
+      .catch((error) => {
+        this.networkTrackingEnabled = false;
+        throw error;
+      })
+      .finally(() => {
+        if (this.networkEnablePromise === enabling) this.networkEnablePromise = null;
+      });
+    this.networkEnablePromise = enabling;
+    await enabling;
+  }
+
+  networkActivityState(): NetworkActivityState {
+    return {
+      inFlight: this.inFlightRequestIds.size,
+      lastActivityAt: this.lastNetworkActivityAt,
+    };
   }
 
   readConsole(limit: number): ConsoleEntry[] {
@@ -133,8 +199,7 @@ export class CdpBridge {
       },
     );
     target.on('detach', (_event: Event, reason: string) => {
-      this.consoleEnabled = false;
-      this.networkEnabled = false;
+      this.resetDomainState();
       for (const listener of this.detachListeners) listener(reason);
     });
   }
@@ -169,43 +234,109 @@ export class CdpBridge {
       return;
     }
     if (method === 'Network.requestWillBeSent') {
+      if (!this.networkTrackingEnabled) return;
       const request = asRecord(params.request);
       const requestId = asString(params.requestId);
       if (requestId == null) return;
-      this.pendingRequests.set(requestId, {
-        method: asString(request.method) ?? 'GET',
-        url: asString(request.url) ?? '',
-        at: Date.now(),
-      });
+      const at = this.noteNetworkActivity();
+      this.inFlightRequestIds.add(requestId);
+      if (this.networkCaptureEnabled) {
+        this.recordRedirectIfPresent(requestId, params);
+        this.pendingRequests.set(requestId, {
+          method: asString(request.method) ?? 'GET',
+          url: asString(request.url) ?? '',
+          at,
+          recorded: false,
+        });
+      } else {
+        // A request that began before history capture was enabled must not appear retroactively.
+        this.pendingRequests.delete(requestId);
+      }
       return;
     }
     if (method === 'Network.responseReceived') {
+      if (!this.networkTrackingEnabled) return;
+      this.noteNetworkActivity();
       const response = asRecord(params.response);
-      const pending = this.takePending(asString(params.requestId));
+      const pending = this.getPending(asString(params.requestId));
       if (pending == null) return;
-      this.pushNetwork({
-        ...pending,
-        status: typeof response.status === 'number' ? response.status : undefined,
-        mimeType: asString(response.mimeType),
-      });
+      pending.status = typeof response.status === 'number' ? response.status : undefined;
+      pending.mimeType = asString(response.mimeType);
+      if (!pending.recorded) {
+        this.pushNetwork(this.toNetworkEntry(pending));
+        pending.recorded = true;
+      }
+      return;
+    }
+    if (method === 'Network.loadingFinished') {
+      if (!this.networkTrackingEnabled) return;
+      this.finishRequest(asString(params.requestId));
       return;
     }
     if (method === 'Network.loadingFailed') {
-      const pending = this.takePending(asString(params.requestId));
+      if (!this.networkTrackingEnabled) return;
+      const requestId = asString(params.requestId);
+      const pending = this.finishRequest(requestId);
       if (pending == null) return;
-      this.pushNetwork({
-        ...pending,
-        failure: asString(params.errorText) ?? 'loading failed',
-      });
+      if (!pending.recorded) {
+        this.pushNetwork({
+          ...this.toNetworkEntry(pending),
+          failure: asString(params.errorText) ?? 'loading failed',
+        });
+      }
     }
   }
 
-  private takePending(requestId: string | undefined): NetworkEntry | null {
+  private getPending(requestId: string | undefined): PendingNetworkRequest | null {
     if (requestId == null) return null;
-    const pending = this.pendingRequests.get(requestId);
-    if (pending == null) return null;
+    return this.pendingRequests.get(requestId) ?? null;
+  }
+
+  private finishRequest(requestId: string | undefined): PendingNetworkRequest | null {
+    this.noteNetworkActivity();
+    if (requestId == null) return null;
+    this.inFlightRequestIds.delete(requestId);
+    const pending = this.pendingRequests.get(requestId) ?? null;
     this.pendingRequests.delete(requestId);
-    return { at: pending.at, method: pending.method, url: pending.url };
+    return pending;
+  }
+
+  private recordRedirectIfPresent(requestId: string, params: UnknownRecord): void {
+    const previous = this.pendingRequests.get(requestId);
+    if (previous == null || previous.recorded) return;
+    const redirect = asRecord(params.redirectResponse);
+    if (Object.keys(redirect).length === 0) return;
+    previous.status = typeof redirect.status === 'number' ? redirect.status : undefined;
+    previous.mimeType = asString(redirect.mimeType);
+    this.pushNetwork(this.toNetworkEntry(previous));
+    previous.recorded = true;
+  }
+
+  private toNetworkEntry(pending: PendingNetworkRequest): NetworkEntry {
+    return {
+      at: pending.at,
+      method: pending.method,
+      url: pending.url,
+      status: pending.status,
+      mimeType: pending.mimeType,
+    };
+  }
+
+  private noteNetworkActivity(): number {
+    const at = Date.now();
+    this.lastNetworkActivityAt = at;
+    return at;
+  }
+
+  private resetDomainState(): void {
+    this.consoleEnabled = false;
+    this.networkDomainEnabled = false;
+    this.networkTrackingEnabled = false;
+    this.networkCaptureEnabled = false;
+    this.networkEnablePromise = null;
+    this.lastNetworkActivityAt = 0;
+    this.inFlightRequestIds.clear();
+    this.pendingRequests.clear();
   }
 
   private pushConsole(entry: ConsoleEntry): void {
