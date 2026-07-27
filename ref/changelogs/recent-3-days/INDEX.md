@@ -15,7 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
-| 2026-07-27 | `CHANGELOG_401_browser-waits-open-dom-retention.md` | Add browser waits, open-DOM refs, and seven-day screenshot retention |
+| 2026-07-27 | `CHANGELOG_403_browser-waits-open-dom-retention.md` | Add browser waits, open-DOM refs, and seven-day screenshot retention |
 | 2026-07-27 | `CHANGELOG_400_cross-adapter-browser-engine.md` | Open the in-app browser to every adapter through MCP browser tools |
 | 2026-07-27 | `CHANGELOG_399_data-token-summary-alignment.md` | Align the daily token summary with neighboring Data sections |
 | 2026-07-26 | `CHANGELOG_398_session-owned-iab-dependency-refresh.md` | Add session-owned IAB and refresh provider dependencies |

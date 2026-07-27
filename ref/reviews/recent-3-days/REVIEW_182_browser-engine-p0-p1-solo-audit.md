@@ -1,5 +1,5 @@
 ---
-review_id: 181
+review_id: 182
 reviewed_at: 2026-07-27
 baseline_commit: abc9f8180a9e1e4b828a06c7ae5fff99a6af47a2
 expired: false
@@ -8,7 +8,7 @@ skipped_expired:
     reason: "Review-record routing and index maintenance are mechanical archive work."
 ---
 
-# REVIEW_181_browser-engine-p0-p1-solo-audit: Browser P0/P1 standalone Codex audit
+# REVIEW_182_browser-engine-p0-p1-solo-audit: Browser P0/P1 standalone Codex audit
 
 ## Scope and method
 
@@ -78,7 +78,7 @@ src/main/session/__tests__/lifecycle-scheduler.test.ts
 src/main/index/bootstrap-infra.ts
 src/main/index/lifecycle-hooks.ts
 ref/plans/recent-3-days/PLAN_19_cross-adapter-browser-engine.md
-ref/changelogs/recent-3-days/CHANGELOG_401_browser-waits-open-dom-retention.md
+ref/changelogs/recent-3-days/CHANGELOG_403_browser-waits-open-dom-retention.md
 ```
 
 ## Findings and resolutions
