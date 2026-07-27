@@ -3,10 +3,16 @@ import { parseFrontmatter } from '@main/utils/frontmatter';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import reviewerClaude from '../../../../resources/claude-config/agent-deck-plugin/agents/reviewer-claude.md?raw';
 import reviewerCodex from '../../../../resources/codex-config/agent-deck-plugin/agents/reviewer-codex.toml?raw';
+import reviewerGrok from '../../../../resources/grok-config/agent-deck-plugin/agents/reviewer-grok.md?raw';
+import claudeRuntime from '../../../../resources/claude-config/CLAUDE.md?raw';
+import codexRuntime from '../../../../resources/codex-config/CODEX_AGENTS.md?raw';
+import grokRuntime from '../../../../resources/grok-config/GROK_AGENTS.md?raw';
 import codexSimpleReview from '../../../../resources/codex-config/agent-deck-plugin/skills/simple-review/SKILL.md?raw';
 import codexDeepReview from '../../../../resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md?raw';
 import claudeSimpleReview from '../../../../resources/claude-config/agent-deck-plugin/skills/simple-review/SKILL.md?raw';
 import claudeDeepReview from '../../../../resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md?raw';
+import grokSimpleReview from '../../../../resources/grok-config/agent-deck-plugin/skills/simple-review/SKILL.md?raw';
+import grokDeepReview from '../../../../resources/grok-config/agent-deck-plugin/skills/deep-review/SKILL.md?raw';
 
 describe('bundled reviewer runtime contract', () => {
   it('keeps valid trigger metadata on every paired review skill', () => {
@@ -15,6 +21,8 @@ describe('bundled reviewer runtime contract', () => {
       [claudeSimpleReview, 'simple-review'],
       [codexDeepReview, 'deep-review'],
       [claudeDeepReview, 'deep-review'],
+      [grokSimpleReview, 'simple-review'],
+      [grokDeepReview, 'deep-review'],
     ] as const) {
       const frontmatter = parseFrontmatter(skill);
       expect(frontmatter.name).toBe(expectedName);
@@ -35,6 +43,11 @@ describe('bundled reviewer runtime contract', () => {
     expect(codex.model).toBe('gpt-5.6-sol');
     expect(codex.modelReasoningEffort).toBe('xhigh');
     expect(codex.developerInstructions).toContain('Use `shell` to validate issues.');
+
+    const grok = parseFrontmatter(reviewerGrok);
+    expect(grok.name).toBe('reviewer-grok');
+    expect(grok.model).toBe('grok-4.5');
+    expect(grok.effort).toBe('high');
   });
 
   it('loads every actual reviewer body with the same evidence and safety contract', () => {
@@ -74,13 +87,22 @@ describe('bundled reviewer runtime contract', () => {
 
   it('keeps paired review skills aligned on the named Codex reviewer slot', () => {
     expect(codexSimpleReview).toBe(claudeSimpleReview);
+    expect(codexSimpleReview).toBe(grokSimpleReview);
     expect(codexDeepReview).toBe(claudeDeepReview);
+    expect(codexDeepReview).toBe(grokDeepReview);
     expect(codexSimpleReview).toContain("agentName: 'reviewer-codex'");
     expect(codexDeepReview).toContain("agentName: 'reviewer-codex'");
   });
 
   it('uses one shared ignored cache contract without an acknowledgement bypass', () => {
-    for (const skill of [codexSimpleReview, codexDeepReview, claudeSimpleReview, claudeDeepReview]) {
+    for (const skill of [
+      codexSimpleReview,
+      codexDeepReview,
+      claudeSimpleReview,
+      claudeDeepReview,
+      grokSimpleReview,
+      grokDeepReview,
+    ]) {
       expect(skill).toContain('.review-cache/');
       expect(skill).not.toContain('.deep-review-cache');
       expect(skill).not.toContain('ack_cache_unignored');
@@ -89,7 +111,14 @@ describe('bundled reviewer runtime contract', () => {
   });
 
   it('keeps prompt, coverage, and batched rebuttal contracts aligned across review skills', () => {
-    for (const skill of [codexSimpleReview, codexDeepReview, claudeSimpleReview, claudeDeepReview]) {
+    for (const skill of [
+      codexSimpleReview,
+      codexDeepReview,
+      claudeSimpleReview,
+      claudeDeepReview,
+      grokSimpleReview,
+      grokDeepReview,
+    ]) {
       expect(skill).toContain('invocation_id');
       expect(skill).toContain('stable `finding_id`');
       expect(skill).toContain('finding_id_prefix');
@@ -97,12 +126,19 @@ describe('bundled reviewer runtime contract', () => {
       expect(skill).toContain('baseline: commit:<hash> | working-tree');
       expect(skill).toContain('git diff --cached -- <paths>');
       expect(skill).toContain('Decision impact: routine | major');
+      expect(skill).toContain('batch_id');
+      expect(skill).toContain('batch_kind');
+      expect(skill).toContain('batch_scope');
+      expect(skill).toContain('integration batch');
+      expect(skill).toContain('spawnLimits');
+      expect(skill).toContain("displayName: '<reviewer> · <batch_id>'");
+      expect(skill).toContain('both workers');
     }
 
     expect(codexSimpleReview).toContain('one verdict per id');
     expect(codexSimpleReview).toContain('INCOMPLETE_REVIEW');
     expect(codexDeepReview).toContain('require one verdict per id');
-    expect(codexDeepReview).toContain('both reviewers report `Coverage: COMPLETE`');
+    expect(codexDeepReview).toContain('both workers report `Coverage: COMPLETE`');
   });
 
   it('keeps the simple and deep review lifecycles intentionally distinct', () => {
@@ -113,5 +149,33 @@ describe('bundled reviewer runtime contract', () => {
     expect(codexDeepReview).toContain('## Multi-Round Workflow');
     expect(codexDeepReview).toContain('## User Review Boundary');
     expect(codexDeepReview).toContain('Do not request intermediate user review for routine in-scope remediation.');
+  });
+
+  it('keeps concurrent batch identity and isolation aligned across reviewer types', () => {
+    const codexInstructions = parseCodexAgentToml(reviewerCodex).developerInstructions ?? '';
+
+    for (const reviewer of [reviewerClaude, codexInstructions, reviewerGrok]) {
+      expect(reviewer).toContain('batch_id');
+      expect(reviewer).toContain('batch_kind');
+      expect(reviewer).toContain('batch_scope');
+      expect(reviewer).toContain('<invocation_id>/<batch_id>/');
+      expect(reviewer).toContain('Batch: <batch_id> (<primary | integration>)');
+      expect(reviewer).toContain('two selected reviewer types');
+    }
+  });
+
+  it('keeps the Claude, Codex, and Grok runtime batch-worker protocol aligned', () => {
+    const sharedContract =
+      'For a batched review, each batch gets one worker session of each selected type over the same complete batch scope';
+
+    expect(codexRuntime).toContain(sharedContract);
+    expect(claudeRuntime).toContain(sharedContract);
+    expect(grokRuntime).toContain(sharedContract);
+    expect(codexRuntime).toContain('independent batches may run concurrently within `spawnLimits`');
+    expect(claudeRuntime).toContain('independent batches may run concurrently within `spawnLimits`');
+    expect(grokRuntime).toContain('Independent batches may run concurrently within `spawnLimits`');
+    expect(codexRuntime).toContain('count the surviving worker as complete batch coverage');
+    expect(claudeRuntime).toContain('count the surviving worker as complete batch coverage');
+    expect(grokRuntime).toContain('count the surviving worker as complete batch coverage');
   });
 });

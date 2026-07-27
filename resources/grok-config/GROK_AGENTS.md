@@ -54,13 +54,15 @@ When these tools are unavailable, keep durable progress in the plan or handoff p
 
 ## Review Pair
 
-`simple-review` and `deep-review` use exactly two user-confirmed heterogeneous slots selected from:
+`simple-review` and `deep-review` use exactly two user-confirmed heterogeneous reviewer types selected from:
 
 - `reviewer-claude` on `claude-code`
 - `reviewer-codex` on `codex-cli`
 - `reviewer-grok` on `grok-build`
 
-If one selected reviewer fails, shut down that session and respawn the same adapter, provider, agent name, and model slot. Never replace it with an unselected reviewer or duplicate the survivor.
+For a batched review, each batch gets one worker session of each selected type over the same complete batch scope. Independent batches may run concurrently within `spawnLimits`, so one selected type may have multiple batch-specific sessions.
+
+If a batch worker fails, shut down that session and respawn the same batch, adapter, provider, agent name, and model type. Never replace it with an unselected type, split one batch between reviewers, or count the surviving worker as complete batch coverage.
 
 ## Plans, Worktrees, And Handoff
 
