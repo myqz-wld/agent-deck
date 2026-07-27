@@ -10,7 +10,7 @@ base_commit: 753bff9a15f11bbeaf2c4d7c6359fe06465ee9e0
 implementation_commit: 98471b111f99515827cb90d8384fab814994bf4f
 hardening_commits: 53830804, 28074a89, e4db8ffd, f965b127, 506a20d9
 related_changelog: CHANGELOG_400, CHANGELOG_401
-related_reviews: REVIEW_175, REVIEW_177, REVIEW_180
+related_reviews: REVIEW_175, REVIEW_177, REVIEW_181
 ---
 
 # PLAN_19_cross-adapter-browser-engine: One browser for every adapter
@@ -116,7 +116,7 @@ Nothing in this list is done. Each item needs a human decision because of what i
 - **Review scope**: the renames under `src/main/browser-use/` mean `REVIEW_177` no longer maps to
   current paths. A fresh standalone `gpt-5.6-sol` / `max` review covered the engine, Codex front,
   MCP browser tools, lifecycle, prompts, and tests. Its 12 findings were repaired in `506a20d9` and
-  the same reviewer verified all 12 closed with `Coverage: COMPLETE` in `REVIEW_180`.
+  the same reviewer verified all 12 closed with `Coverage: COMPLETE` in `REVIEW_181`.
 
 ## Known functional gaps
 
@@ -223,7 +223,7 @@ documents the dependency. A real hidden Electron window returned non-empty pixel
   hidden input/textarea/select/Dialog key defaults, force-close through `beforeunload`, a selector
   wall-clock timeout, and full-page `maxWidth` on a Retina display. It caught and drove the HiDPI
   screenshot correction before review handoff.
-- `REVIEW_180` records the standalone `gpt-5.6-sol` / `max` audit and bounded repair pass: all 12
+- `REVIEW_181` records the standalone `gpt-5.6-sol` / `max` audit and bounded repair pass: all 12
   findings are FIXED, no new finding was opened, and coverage is complete.
 - `bash scripts/file-level-review-expiry.sh` ran before this record was written.
 - A test caught a real defect pre-merge: the first URL normalizer read `localhost:3000` as a
