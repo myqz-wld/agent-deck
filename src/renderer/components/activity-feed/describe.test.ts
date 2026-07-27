@@ -1,7 +1,7 @@
 import { describe as suite, expect, it } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 import { formatEventLine } from '../SessionCard';
-import { describe as describeActivity } from './describe';
+import { describe as describeActivity, describeToolInput } from './describe';
 
 function ev(kind: AgentEvent['kind'], payload: unknown): AgentEvent {
   return { sessionId: 's', agentId: '', kind, payload, ts: 0 };
@@ -87,6 +87,29 @@ suite('activity-feed describe user-facing fallbacks', () => {
         }),
       ),
     ).toBe('📖 read_file');
+  });
+});
+
+suite('tool input alias normalization', () => {
+  const grepToolNames = ['Grep', 'grep', 'search_tool'];
+
+  it('describes canonical and aliased Grep inputs without recursive overflow', () => {
+    for (const toolName of grepToolNames) {
+      expect(describeToolInput(toolName, { pattern: 'sessionId' })).toBe('sessionId');
+    }
+  });
+
+  it('summarises canonical and aliased Grep inputs on session cards', () => {
+    for (const toolName of grepToolNames) {
+      expect(
+        formatEventLine(
+          ev('tool-use-start', {
+            toolName,
+            toolInput: { pattern: 'sessionId' },
+          }),
+        ),
+      ).toContain(' · sessionId');
+    }
   });
 });
 

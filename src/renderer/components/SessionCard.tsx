@@ -4,7 +4,7 @@ import { isImageTool } from '@shared/mcp-tools';
 import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { toolIcon } from './activity-feed/tool-icons';
-import { describeAgentToolInput } from './activity-feed/describe';
+import { describeAgentToolInput, resolveToolNameAlias } from './activity-feed/describe';
 import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
 import { SessionPinButton } from './SessionPinButton';
@@ -340,11 +340,8 @@ function formatWaitingLine(p: Record<string, unknown>): string {
 function summariseToolInput(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null;
   const o = input as Record<string, unknown>;
-  const alias = toolName.trim().toLowerCase();
-  if (alias === 'read_file') return summariseToolInput('Read', input);
-  if (alias === 'run_terminal_command') return summariseToolInput('Bash', input);
-  if (alias === 'grep' || alias === 'search_tool') return summariseToolInput('Grep', input);
-  switch (toolName) {
+  const resolvedToolName = resolveToolNameAlias(toolName);
+  switch (resolvedToolName) {
     case 'Edit':
     case 'Write':
     case 'Read':

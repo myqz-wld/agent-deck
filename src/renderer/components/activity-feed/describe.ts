@@ -112,11 +112,8 @@ export function translateSessionEndReason(reason: string): string {
 export function describeToolInput(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null;
   const o = input as Record<string, unknown>;
-  const alias = toolName.trim().toLowerCase();
-  if (alias === 'read_file') return describeToolInput('Read', input);
-  if (alias === 'run_terminal_command') return describeToolInput('Bash', input);
-  if (alias === 'grep' || alias === 'search_tool') return describeToolInput('Grep', input);
-  switch (toolName) {
+  const resolvedToolName = resolveToolNameAlias(toolName);
+  switch (resolvedToolName) {
     case 'Edit':
     case 'Write':
     case 'Read':
@@ -241,6 +238,25 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       }
       return null;
     }
+  }
+}
+
+/**
+ * Map adapter-specific tool aliases to the canonical names used by renderer summaries.
+ * Keep this non-recursive: canonical `Grep` lowercases to `grep`, so recursive alias
+ * resolution would call itself forever and crash the renderer.
+ */
+export function resolveToolNameAlias(toolName: string): string {
+  switch (toolName.trim().toLowerCase()) {
+    case 'read_file':
+      return 'Read';
+    case 'run_terminal_command':
+      return 'Bash';
+    case 'grep':
+    case 'search_tool':
+      return 'Grep';
+    default:
+      return toolName;
   }
 }
 
