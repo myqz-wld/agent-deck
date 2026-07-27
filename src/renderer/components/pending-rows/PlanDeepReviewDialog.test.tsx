@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ExitPlanModeRequest } from '@shared/types';
+import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
 
@@ -54,6 +55,7 @@ function renderDialog(props: Partial<Parameters<typeof PlanDeepReviewDialog>[0]>
 }
 
 beforeEach(() => {
+  usePlanDeepReviewStore.setState({ drafts: new Map() });
   useSessionStore.setState({
     recentEventsBySession: new Map(),
     eventRevisionsBySession: new Map(),
