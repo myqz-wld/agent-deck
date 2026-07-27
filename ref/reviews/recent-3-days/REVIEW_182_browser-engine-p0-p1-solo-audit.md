@@ -116,8 +116,8 @@ ref/changelogs/recent-3-days/CHANGELOG_403_browser-waits-open-dom-retention.md
 - Repair-verification pass: all 12 findings FIXED, no new finding ids, `Coverage: COMPLETE`.
 - Reviewer reran `pnpm typecheck`, 12 focused files / 108 tests,
   `pnpm test:browser-electron`, and `git diff --check abc9f818..HEAD`; all passed.
-- Lead validation passed `pnpm typecheck`, the full Electron-ABI suite
-  (379 files / 3,196 tests, one skipped), `pnpm test:browser-electron`, `pnpm build`,
+- Lead validation after integrating current `main` passed `pnpm typecheck`, the full Electron-ABI
+  suite (389 files / 3,281 tests, one skipped), `pnpm test:browser-electron`, `pnpm build`,
   `pnpm logger:check`, and `git diff --check`.
 - The real-Electron fixture verifies remote permission denial, probe/click activation boundaries,
   hidden-window key defaults, force-close, selector wall-clock timeout, and Retina-aware full-page

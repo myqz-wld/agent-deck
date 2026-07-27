@@ -84,7 +84,8 @@ continues to use the official Browser plugin rather than the MCP browser surface
 ## Validation
 
 - `pnpm typecheck` passed.
-- `pnpm test` passed 379 files / 3,196 tests, with one test skipped.
+- After integrating current `main`, `pnpm test` passed 389 files / 3,281 tests, with one test
+  skipped.
 - `pnpm build`, `pnpm logger:check`, and `git diff --check` passed.
 - A real Electron hidden-window fixture verified open shadow roots, two nested same-origin frames,
   continuous refs, frame-depth metadata, frame clicks, frame input, and selector waits.
