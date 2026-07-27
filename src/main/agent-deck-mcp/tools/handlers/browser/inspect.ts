@@ -6,11 +6,8 @@
  * small enough. Clients that cannot render inline images still get a usable artifact.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import * as actions from '@main/browser-use/engine/actions';
+import { persistBrowserScreenshot } from '@main/browser-use/screenshot-store';
 import { AGENT_DECK_TOOL_NAMES } from '@main/agent-deck-mcp/types';
 
 import type { HandlerContext, HandlerResult } from '../../helpers';
@@ -67,7 +64,7 @@ export async function browserScreenshotHandler(
       fullPage: args.fullPage,
       maxWidth: args.maxWidth ?? DEFAULT_SCREENSHOT_MAX_WIDTH,
     });
-    const savedPath = await persistScreenshot(owner.sessionId, tab.id, png);
+    const savedPath = await persistBrowserScreenshot(owner.sessionId, tab.id, png);
     const base64 = png.toString('base64');
     const page = actions.pageState(tab);
     const summary = {
@@ -190,16 +187,4 @@ export async function browserWaitHandler(
   } catch (error) {
     return browserErr(error);
   }
-}
-
-async function persistScreenshot(sessionId: string, tabId: number, png: Buffer): Promise<string> {
-  const directory = join(tmpdir(), 'agent-deck-browser', sanitizeSegment(sessionId));
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const path = join(directory, `tab-${tabId}-${Date.now()}.png`);
-  await writeFile(path, png, { mode: 0o600 });
-  return path;
-}
-
-function sanitizeSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'session';
 }

@@ -6,8 +6,10 @@
  * covered by the engine tests under `src/main/browser-use/engine/__tests__/`.
  */
 
-import { rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
@@ -16,6 +18,14 @@ import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo'
 // agent-deck-mcp handler tests do.
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: makeSessionRepoMock({}),
+}));
+
+const screenshotMocks = vi.hoisted(() => ({
+  persist: vi.fn(),
+}));
+
+vi.mock('@main/browser-use/screenshot-store', () => ({
+  persistBrowserScreenshot: screenshotMocks.persist,
 }));
 
 import { BrowserEngine, setBrowserEngine } from '@main/browser-use/engine/registry';
@@ -75,6 +85,11 @@ let factory: ReturnType<typeof fakeWindowFactory>;
 beforeEach(() => {
   factory = fakeWindowFactory();
   setBrowserEngine(new BrowserEngine(factory));
+  screenshotMocks.persist.mockImplementation(async (_sessionId, _tabId, png: Buffer) => {
+    const path = join(tmpdir(), `agent-deck-browser-test-${randomUUID()}.png`);
+    await writeFile(path, png);
+    return path;
+  });
 });
 
 afterEach(() => {

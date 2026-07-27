@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => {
         shutdown: mocks.browserShutdown,
       };
     }),
+    browserScreenshotReap: vi.fn(),
     hookStart: vi.fn(async () => calls.push('hook.start')),
     makeScheduler,
   };
@@ -134,6 +135,9 @@ vi.mock('../../utils/main-event-loop-monitor', () => ({
 vi.mock('../../browser-use/server', () => ({
   startBrowserUseServer: mocks.browserStart,
 }));
+vi.mock('../../browser-use/screenshot-store', () => ({
+  reapBrowserScreenshotsAtStartup: mocks.browserScreenshotReap,
+}));
 vi.mock('../../codex-config/agents-md-installer', () => ({ syncAgentDeckSection: vi.fn() }));
 vi.mock('../../codex-config/skills-installer', () => ({ syncSkills: vi.fn() }));
 vi.mock('../../login-item', () => ({ syncLoginItemSetting: vi.fn() }));
@@ -166,6 +170,7 @@ describe('checkpoint refresh bootstrap entry', () => {
     expect(mocks.checkpointStart).toHaveBeenCalledOnce();
     expect(mocks.checkpointStart).toHaveBeenCalledWith(mocks.settings);
     expect(mocks.browserStart).toHaveBeenCalledOnce();
+    expect(mocks.browserScreenshotReap).toHaveBeenCalledOnce();
     expect(state.browserUseServerShutdown).toBe(mocks.browserShutdown);
   });
 });
