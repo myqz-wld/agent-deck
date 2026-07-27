@@ -21,11 +21,13 @@ import {
 const reactivateHandOffSource = vi.hoisted(() =>
   vi.fn((_sessionId: string, persist: () => void) => persist()),
 );
+const disposeSessionBrowser = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: makeFileChangeRepoMock() }));
 vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
+vi.mock('@main/browser-use/session-browser', () => ({ disposeSessionBrowser }));
 vi.mock('@main/session/hand-off/source-reactivation', () => ({
   reactivateHandOffSource,
 }));
@@ -41,6 +43,7 @@ import { sessionManager } from '@main/session/manager';
 beforeEach(async () => {
   await resetMocks();
   reactivateHandOffSource.mockClear();
+  disposeSessionBrowser.mockClear();
 });
 
 afterEach(() => {
@@ -214,6 +217,22 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
       'sess-reactivate',
       expect.any(Function),
     );
+  });
+
+  it('markClosed() disposes browser tabs owned by the terminal session', () => {
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'sess-browser-close',
+        source: 'sdk',
+        kind: 'session-start',
+        payload: { cwd: '/tmp' },
+      }),
+    );
+
+    sessionManager.markClosed('sess-browser-close');
+
+    expect(mockSessions.get('sess-browser-close')?.lifecycle).toBe('closed');
+    expect(disposeSessionBrowser).toHaveBeenCalledWith('sess-browser-close');
   });
 
   it('setPinned() persists committed state, reactivates dormant, and emits the fresh record', () => {

@@ -2,6 +2,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { applyClosedSideEffects } from '@main/session/manager-team-coordinator';
 import { sessionManager } from '@main/session/manager';
+import { disposeSessionBrowser } from '@main/browser-use/session-browser';
 import log from '@main/utils/logger';
 
 const logger = log.scope('lifecycle-scheduler');
@@ -110,6 +111,7 @@ export class LifecycleScheduler {
         // 顺序: sync clearMarker (含 try/catch 错误隔离) → sync onClearedBeforeLeave callback
         // (refresh + emit upserted) → async fire-and-forget leave。详
         // manager-team-coordinator.ts §applyClosedSideEffects jsdoc。
+        void disposeSessionBrowser(rec.id);
         void applyClosedSideEffects(rec.id, {
           awaitLeave: false,
           logPrefix: '[lifecycle-scheduler]',
@@ -146,6 +148,7 @@ export class LifecycleScheduler {
         // closeEpoch.delete → 显式清 entry 防 Map 随 purge 会话无界累积(与 recentlyDeleted TTL 同款
         // 防泄漏纪律)。purged sid randomUUID 不复用,清后无 correctness 影响纯内存回收。
         for (const id of removed) {
+          void disposeSessionBrowser(id);
           sessionManager.forgetCloseEpoch(id);
           eventBus.emit('session-removed', id);
         }

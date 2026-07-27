@@ -11,12 +11,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   clickScript,
-  pressFallbackScript,
   scrollScript,
   selectorProbeScript,
   snapshotScript,
   typeScript,
 } from '../scripts';
+import { pressFallbackScript } from '../key-script';
 
 function makeVisible(element: HappyElement): void {
   const htmlElement = element as HappyHtmlElement;
@@ -136,9 +136,14 @@ describe('open-DOM browser scripts', () => {
       sameOriginFrames: 2,
       inaccessibleFrames: 1,
       openShadowRoots: 1,
+      closedShadowRoots: 'not-observable',
       scanLimitReached: false,
     });
+    expect(snapshot.coverage.scannedNodes).toBeGreaterThan(
+      snapshot.coverage.scannedElements,
+    );
     expect(snapshot.text).toContain('Frame action');
+    expect(snapshot.textTruncated).toBe(false);
   });
 
   it('clicks, types, and scrolls through a frame ref without changing its format', () => {
@@ -234,5 +239,114 @@ describe('open-DOM browser scripts', () => {
 
     expect(frameInput.value).toBe('x');
     expect(result).toMatchObject({ pressed: 'x', effect: 'inserted' });
+  });
+
+  it('bounds returned text without reading whole-document innerText', () => {
+    const { window } = fixture();
+
+    const snapshot = parseScript(
+      window,
+      snapshotScript({ limit: 20, includeText: true, textLimit: 8 }),
+    );
+
+    expect(snapshot.text.length).toBeLessThanOrEqual(8);
+    expect(snapshot.textTruncated).toBe(true);
+    expect(snapshot.coverage.scannedNodes).toBeGreaterThan(0);
+  });
+
+  it('reproduces editing defaults for background text controls', () => {
+    const window = new Window({ url: 'http://localhost/form' });
+    const input = window.document.createElement('input');
+    input.value = 'abcd';
+    window.document.body.append(input);
+    input.focus();
+    input.setSelectionRange(2, 2);
+
+    expect(parseScript(window, pressFallbackScript('Backspace')).effect).toBe('deleted');
+    expect(input.value).toBe('acd');
+    expect(input.selectionStart).toBe(1);
+
+    expect(parseScript(window, pressFallbackScript('Delete')).effect).toBe('deleted');
+    expect(input.value).toBe('ad');
+
+    input.setSelectionRange(1, 1);
+    expect(parseScript(window, pressFallbackScript('ArrowRight')).effect).toBe('caret-moved');
+    expect(input.selectionStart).toBe(2);
+    expect(parseScript(window, pressFallbackScript('Home')).effect).toBe('caret-moved');
+    expect(input.selectionStart).toBe(0);
+    expect(parseScript(window, pressFallbackScript('End')).effect).toBe('caret-moved');
+    expect(input.selectionStart).toBe(2);
+  });
+
+  it('inserts a newline in textarea instead of submitting its form', () => {
+    const window = new Window({ url: 'http://localhost/form' });
+    const form = window.document.createElement('form');
+    const textarea = window.document.createElement('textarea');
+    const submit = vi.fn();
+    form.requestSubmit = submit;
+    form.append(textarea);
+    window.document.body.append(form);
+    textarea.focus();
+
+    const result = parseScript(window, pressFallbackScript('Enter'));
+
+    expect(result.effect).toBe('inserted');
+    expect(textarea.value).toBe('\n');
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('reproduces select, activation, and form-submit defaults', () => {
+    const window = new Window({ url: 'http://localhost/form' });
+    const select = window.document.createElement('select');
+    select.append(
+      window.document.createElement('option'),
+      window.document.createElement('option'),
+    );
+    window.document.body.append(select);
+    select.focus();
+    expect(parseScript(window, pressFallbackScript('ArrowDown')).effect).toBe(
+      'selection-changed',
+    );
+    expect(select.selectedIndex).toBe(1);
+
+    const checkbox = window.document.createElement('input');
+    checkbox.type = 'checkbox';
+    window.document.body.append(checkbox);
+    checkbox.focus();
+    expect(parseScript(window, pressFallbackScript(' ')).effect).toBe('activated');
+    expect(checkbox.checked).toBe(true);
+
+    const form = window.document.createElement('form');
+    const input = window.document.createElement('input');
+    const submit = vi.fn();
+    form.requestSubmit = submit;
+    form.append(input);
+    window.document.body.append(form);
+    input.focus();
+    expect(parseScript(window, pressFallbackScript('Enter')).effect).toBe('submitted');
+    expect(submit).toHaveBeenCalledOnce();
+  });
+
+  it('dismisses a native dialog with background Escape', () => {
+    const window = new Window({ url: 'http://localhost/dialog' });
+    const dialog = window.document.createElement('dialog');
+    const button = window.document.createElement('button');
+    dialog.setAttribute('open', '');
+    dialog.append(button);
+    window.document.body.append(dialog);
+    Object.defineProperty(dialog, 'open', {
+      configurable: true,
+      get: () => dialog.hasAttribute('open'),
+    });
+    Object.defineProperty(dialog, 'close', {
+      configurable: true,
+      value: () => dialog.removeAttribute('open'),
+    });
+    button.focus();
+
+    const result = parseScript(window, pressFallbackScript('Escape'));
+
+    expect(result.effect).toBe('dismissed');
+    expect(dialog.hasAttribute('open')).toBe(false);
   });
 });

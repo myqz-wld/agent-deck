@@ -111,6 +111,33 @@ describe('CdpBridge log capture', () => {
     expect(bridge.networkActivityState().inFlight).toBe(0);
   });
 
+  it('records a failure that arrives after response headers', async () => {
+    const { bridge, target } = makeBridge();
+    await bridge.enableNetworkCapture();
+
+    target.emit('message', {}, 'Network.requestWillBeSent', {
+      requestId: 'stream-reset',
+      request: { method: 'GET', url: 'http://127.0.0.1/stream' },
+    });
+    target.emit('message', {}, 'Network.responseReceived', {
+      requestId: 'stream-reset',
+      response: { status: 200, mimeType: 'application/json' },
+    });
+    expect(bridge.readNetwork(10)).toEqual([]);
+    target.emit('message', {}, 'Network.loadingFailed', {
+      requestId: 'stream-reset',
+      errorText: 'net::ERR_CONNECTION_RESET',
+    });
+
+    expect(bridge.readNetwork(10)).toEqual([
+      expect.objectContaining({
+        url: 'http://127.0.0.1/stream',
+        status: 200,
+        failure: 'net::ERR_CONNECTION_RESET',
+      }),
+    ]);
+  });
+
   it('tracks lifecycle before capture without recording requests retroactively', async () => {
     const { bridge, target } = makeBridge();
     await bridge.enableNetworkTracking();

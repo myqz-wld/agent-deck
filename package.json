@@ -16,6 +16,7 @@
     "icon:gen": "node scripts/gen-icon-ico.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/test-electron.mjs",
+    "test:browser-electron": "node scripts/verify-browser-engine-electron.mjs",
     "test:node": "vitest run",
     "test:watch": "vitest",
     "test:fts5": "scripts/verify-fts5.sh",

@@ -116,6 +116,7 @@ export function markClosedImpl(
   handOffCutoverCoordinator.revokeSource(sessionId);
   bumpCloseEpochImpl(state, sessionId);
   sessionRepo.setLifecycle(sessionId, 'closed', Date.now(), { clearPinned: true });
+  void disposeSessionBrowser(sessionId);
   void applyClosedSideEffects(sessionId, {
     awaitLeave: false,
     logPrefix: '[session-mgr] markClosed',
@@ -167,6 +168,7 @@ export async function closeImpl(
     }
   }
   sessionRepo.setLifecycle(sessionId, 'closed', Date.now(), { clearPinned: true });
+  await disposeSessionBrowser(sessionId);
   await applyClosedSideEffects(sessionId, {
     awaitLeave: true,
     logPrefix: '[session-mgr] close',
@@ -177,9 +179,6 @@ export async function closeImpl(
       // entry。codex bridge.closeSession 已经做过一次走 noop fast-path,这里再做一次双保护
       // (手动 close 没经 adapter.closeSession 路径也保证 token map 清干净 → 避免 token leak)。
       mcpSessionTokenMap.release(sessionId);
-      // 会话关闭即释放它自己的浏览器窗口(MCP browser tools 开的 tab 不挂在 native pipe 上,
-      // 不会被 browser-use server shutdown 覆盖)。内部已 try/catch + 从未开过浏览器时是 no-op。
-      void disposeSessionBrowser(sessionId);
     },
   });
 }
@@ -363,6 +362,7 @@ export async function deleteImpl(
       logger.warn(`[session-mgr] close on delete failed: ${sessionId}`, err);
     }
   }
+  await disposeSessionBrowser(sessionId);
   // R5 MED-R5-1 双写:applicationSid + cliSessionId 双 key 入黑名单
   const recBeforeDelete = sessionRepo.get(sessionId);
   const cliSidBeforeDelete = recBeforeDelete?.cliSessionId;

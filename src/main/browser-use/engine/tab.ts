@@ -12,10 +12,47 @@
  * window double does not provide them.
  */
 
-import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
+import {
+  screen,
+  type BrowserWindow,
+  type BrowserWindowConstructorOptions,
+  type Session,
+} from 'electron';
 
-import { CdpBridge } from './cdp';
-import { DEFAULT_WINDOW_TITLE, INITIAL_URL, type TabInfo } from './types';
+import { CdpBridge, withTimeout } from './cdp';
+import { CDP_TIMEOUT_MS, DEFAULT_WINDOW_TITLE, INITIAL_URL, type TabInfo } from './types';
+
+const hardenedBrowserSessions = new WeakSet<Session>();
+
+/**
+ * Browser partitions load arbitrary remote content, so Electron's default permission policy is too
+ * broad. Install one deny-by-default policy per partition session before the first navigation.
+ */
+export function hardenBrowserSession(browserSession: Session): void {
+  if (hardenedBrowserSessions.has(browserSession)) return;
+  hardenedBrowserSessions.add(browserSession);
+
+  browserSession.setPermissionCheckHandler(() => false);
+  browserSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  browserSession.setDevicePermissionHandler(() => false);
+  browserSession.setDisplayMediaRequestHandler((_request, callback) => {
+    callback({});
+  });
+  browserSession.on('select-hid-device', (event, _details, callback) => {
+    event.preventDefault();
+    callback();
+  });
+  browserSession.on('select-serial-port', (event, _ports, _webContents, callback) => {
+    event.preventDefault();
+    callback('');
+  });
+  browserSession.on('select-usb-device', (event, _details, callback) => {
+    event.preventDefault();
+    callback();
+  });
+}
 
 export interface EngineTabDeps {
   id: number;
@@ -59,6 +96,7 @@ export class EngineTab {
     this.window = deps.window;
     this.cdp = new CdpBridge(() => this.window.webContents.debugger);
 
+    hardenBrowserSession(this.window.webContents.session);
     this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.window.on('focus', () => deps.onActivated(this.id));
     this.window.on('closed', () => deps.onClosed(this.id));
@@ -93,7 +131,10 @@ export class EngineTab {
   }
 
   close(): void {
-    if (!this.isDestroyed()) this.window.close();
+    // Automation owns these hidden tabs outright. BrowserWindow.close() can be cancelled by a
+    // hostile beforeunload handler, which would leave the renderer alive while both fronts report
+    // success. destroy() is synchronous and cannot be vetoed by page content.
+    if (!this.isDestroyed()) this.window.destroy();
   }
 
   destroy(): void {
@@ -111,7 +152,10 @@ export class EngineTab {
     await this.waitForSettle();
   }
 
-  async executeJs<T = unknown>(expression: string): Promise<T> {
+  async executeJs<T = unknown>(
+    expression: string,
+    options: { userGesture?: boolean; timeoutMs?: number } = {},
+  ): Promise<T> {
     this.assertAlive();
     const contents = this.window.webContents as unknown as {
       executeJavaScript?: (code: string, userGesture?: boolean) => Promise<T>;
@@ -119,7 +163,11 @@ export class EngineTab {
     if (typeof contents.executeJavaScript !== 'function') {
       throw new Error('This browser tab cannot evaluate JavaScript.');
     }
-    return contents.executeJavaScript(expression, true);
+    return withTimeout(
+      contents.executeJavaScript(expression, options.userGesture === true),
+      options.timeoutMs ?? CDP_TIMEOUT_MS,
+      'Browser page JavaScript timed out.',
+    );
   }
 
   async capturePng(maxWidth?: number): Promise<Buffer> {
@@ -139,6 +187,20 @@ export class EngineTab {
       return image.resize({ width: maxWidth }).toPNG();
     }
     return image.toPNG();
+  }
+
+  /**
+   * CDP screenshot clip sizes are CSS pixels, while encoded PNG dimensions include the display's
+   * device scale factor. Account for Retina/HiDPI output so `maxWidth` remains a physical-pixel
+   * bound consistent with `nativeImage.resize()` in the viewport path.
+   */
+  deviceScaleFactor(): number {
+    const window = this.window as unknown as {
+      getBounds?: () => { x: number; y: number; width: number; height: number };
+    };
+    if (typeof window.getBounds !== 'function') return 1;
+    const value = screen.getDisplayMatching(window.getBounds()).scaleFactor;
+    return Number.isFinite(value) && value > 0 ? value : 1;
   }
 
   /**

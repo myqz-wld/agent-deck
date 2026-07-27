@@ -53,6 +53,10 @@ describe('page actions', () => {
 
     expect(snapshot.refGeneration).toBe(3);
     expect(snapshot.elements[0]).toMatchObject({ ref: '3-1', name: 'Sign in' });
+    expect(window.webContents.executeJavaScript).toHaveBeenLastCalledWith(
+      expect.any(String),
+      false,
+    );
   });
 
   it('turns a stale reference into actionable guidance', async () => {
@@ -100,6 +104,24 @@ describe('page actions', () => {
     expect(window.inputEvents).toHaveLength(0);
     expect(result).toMatchObject({ delivery: 'script', effect: 'submitted' });
     expect(executed).toContain('requestSubmit');
+    expect(window.webContents.executeJavaScript).toHaveBeenLastCalledWith(
+      expect.any(String),
+      true,
+    );
+  });
+
+  it('normalizes key aliases before background dispatch', async () => {
+    const { tab, window } = await makeTab();
+    let executed = '';
+    window.jsHandler = (code) => {
+      executed = code;
+      return JSON.stringify({ pressed: 'Enter', effect: 'submitted' });
+    };
+
+    const result = await actions.press(tab, 'return');
+
+    expect(result).toMatchObject({ pressed: 'Enter', effect: 'submitted' });
+    expect(executed).toContain('var key = "Enter"');
   });
 
   it('rejects unknown keys instead of silently dropping the press', async () => {
@@ -109,16 +131,22 @@ describe('page actions', () => {
   });
 
   it('captures the viewport by default and the full page through CDP', async () => {
-    const { tab } = await makeTab();
+    const { tab, window } = await makeTab();
 
     const viewport = await actions.screenshot(tab);
     expect(viewport.fullPage).toBe(false);
     // 1600px wide double downscaled to the requested width.
     expect((await actions.screenshot(tab, { maxWidth: 1024 })).png.toString()).toBe('resized-png');
 
-    const full = await actions.screenshot(tab, { fullPage: true });
+    const full = await actions.screenshot(tab, { fullPage: true, maxWidth: 1_024 });
     expect(full).toMatchObject({ fullPage: true });
     expect(full.png.toString()).toBe('full');
+    expect(
+      window.browserDebugger.sent.find((entry) => entry.method === 'Page.captureScreenshot')?.params,
+    ).toMatchObject({
+      captureBeyondViewport: true,
+      clip: { width: 1_600, height: 2_400, scale: 0.64 },
+    });
   });
 
   it('enables capture lazily when logs are first read', async () => {
@@ -156,6 +184,17 @@ describe('page actions', () => {
     await expect(actions.waitForSelector(tab, '[[', 'attached', 500)).rejects.toThrow(
       /Invalid CSS selector/,
     );
+  });
+
+  it('bounds a selector probe even when page JavaScript never settles', async () => {
+    const { tab, window } = await makeTab();
+    window.jsHandler = () => new Promise<never>(() => {});
+    const startedAt = Date.now();
+
+    await expect(actions.waitForSelector(tab, '.stuck', 'visible', 30)).rejects.toThrow(
+      /Timed out after 30ms/,
+    );
+    expect(Date.now() - startedAt).toBeLessThan(500);
   });
 
   it('waits for the configured network quiet window after requests finish', async () => {

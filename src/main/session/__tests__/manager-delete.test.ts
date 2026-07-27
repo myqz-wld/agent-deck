@@ -24,10 +24,13 @@ import {
   resetMocks,
 } from './manager-test-setup';
 
+const disposeSessionBrowser = vi.hoisted(() => vi.fn(async () => {}));
+
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
 vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: makeFileChangeRepoMock() }));
 vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
+vi.mock('@main/browser-use/session-browser', () => ({ disposeSessionBrowser }));
 // REVIEW_31 Bug 5：见 manager-public-api.test.ts 同源注释
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: makeAgentDeckTeamRepoMock(),
@@ -39,6 +42,7 @@ import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordi
 
 beforeEach(async () => {
   await resetMocks();
+  disposeSessionBrowser.mockClear();
 });
 
 afterEach(() => {
@@ -72,6 +76,7 @@ describe('SessionManager.delete + H1 删除后尾包不复活幽灵（REVIEW_4 H
     await sessionManager.delete('sess-del-1');
 
     expect(closeCalls).toContain('sess-del-1');
+    expect(disposeSessionBrowser).toHaveBeenCalledWith('sess-del-1');
     expect(mockSessions.has('sess-del-1')).toBe(false);
     expect(mockEmits.some((e) => e.name === 'session-removed' && e.payload === 'sess-del-1')).toBe(
       true,
@@ -108,6 +113,7 @@ describe('SessionManager.delete + H1 删除后尾包不复活幽灵（REVIEW_4 H
       expect(handOffCutoverCoordinator.tryAcquire(sessionId)).toBeNull();
       finishClose();
       await closing;
+      expect(disposeSessionBrowser).toHaveBeenCalledWith(sessionId);
     } finally {
       finishClose();
       lease.release();

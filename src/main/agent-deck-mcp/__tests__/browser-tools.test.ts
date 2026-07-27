@@ -29,6 +29,7 @@ vi.mock('@main/browser-use/screenshot-store', () => ({
 }));
 
 import { BrowserEngine, setBrowserEngine } from '@main/browser-use/engine/registry';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import {
   fakeWindowFactory,
   type FakeWindow,
@@ -115,6 +116,41 @@ describe('browser tool registration', () => {
 
   it('registers nothing for adapters that own a native browser surface', () => {
     expect(buildBrowserTools({ tool, makeCtx, enabled: false })).toEqual([]);
+  });
+
+  it.each([
+    ['claude-code', EXPECTED_TOOL_NAMES],
+    ['codex-cli', []],
+    ['grok-build', EXPECTED_TOOL_NAMES],
+  ] as const)('pins the actual %s runtime-profile browser surface', (adapterId, expected) => {
+    const profile = getAdapterRuntimeProfile(adapterId);
+    const tools = buildBrowserTools({ tool, makeCtx, enabled: profile.mcpBrowserTools });
+
+    expect(tools.map((entry) => entry.name)).toEqual(expected);
+  });
+
+  it('advertises snapshot and screenshot mutation plus interaction open-world effects honestly', () => {
+    const tools = buildBrowserTools({ tool, makeCtx, enabled: true });
+    const annotations = (name: string) =>
+      (
+        tools.find((entry) => entry.name === name) as unknown as
+          | { options?: { annotations?: Record<string, boolean> } }
+          | undefined
+      )?.options?.annotations;
+
+    expect(annotations('browser_snapshot')).toMatchObject({
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+    expect(annotations('browser_screenshot')).toMatchObject({
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+    expect(annotations('browser_click')).toMatchObject({ openWorldHint: true });
+    expect(annotations('browser_evaluate')).toMatchObject({ openWorldHint: true });
+    expect(annotations('browser_close')).toMatchObject({ openWorldHint: false });
   });
 
   it('denies every browser tool to external callers', () => {
@@ -216,6 +252,25 @@ describe('browser tool handlers', () => {
     expect(summary.savedPath.startsWith(tmpdir())).toBe(true);
     expect(summary.inlineImage).toBe(true);
     expect(result.content.some((block) => block.type === 'image')).toBe(true);
+    await rm(summary.savedPath, { force: true });
+  });
+
+  it('skips base64 delivery for screenshots above the inline byte budget', async () => {
+    await browserOpenHandler({ url: 'localhost:3000' }, sessionCtx('sid-1'));
+    const window = factory.windows[0];
+    if (window == null) throw new Error('expected a fake window');
+    const largePng = Buffer.alloc(1_200_001);
+    window.webContents.capturePage.mockResolvedValueOnce({
+      toPNG: () => largePng,
+      getSize: () => ({ width: 1_024, height: 2_000 }),
+      resize: () => ({ toPNG: () => largePng }),
+    });
+
+    const result = await browserScreenshotHandler({}, sessionCtx('sid-1'));
+    const summary = payload(result);
+
+    expect(summary.inlineImage).toBe(false);
+    expect(result.content.some((block) => block.type === 'image')).toBe(false);
     await rm(summary.savedPath, { force: true });
   });
 

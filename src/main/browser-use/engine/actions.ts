@@ -7,10 +7,10 @@
  */
 
 import { EngineTab, delay } from './tab';
+import { pressFallbackScript } from './key-script';
 import {
   clickScript,
   evaluateScript,
-  pressFallbackScript,
   scrollScript,
   selectorProbeScript,
   snapshotScript,
@@ -19,28 +19,35 @@ import {
 
 export const ALLOWED_URL_SCHEMES = ['http:', 'https:', 'file:', 'about:'] as const;
 
-const KEY_CODES: Record<string, string> = {
-  enter: 'Return',
-  return: 'Return',
-  tab: 'Tab',
-  escape: 'Escape',
-  esc: 'Escape',
-  backspace: 'Backspace',
-  delete: 'Delete',
-  space: 'Space',
-  arrowup: 'Up',
-  arrowdown: 'Down',
-  arrowleft: 'Left',
-  arrowright: 'Right',
-  up: 'Up',
-  down: 'Down',
-  left: 'Left',
-  right: 'Right',
-  home: 'Home',
-  end: 'End',
-  pageup: 'PageUp',
-  pagedown: 'PageDown',
+interface NormalizedBrowserKey {
+  domKey: string;
+  electronKey: string;
+}
+
+const SPECIAL_KEYS: Record<string, NormalizedBrowserKey> = {
+  enter: { domKey: 'Enter', electronKey: 'Return' },
+  return: { domKey: 'Enter', electronKey: 'Return' },
+  tab: { domKey: 'Tab', electronKey: 'Tab' },
+  escape: { domKey: 'Escape', electronKey: 'Escape' },
+  esc: { domKey: 'Escape', electronKey: 'Escape' },
+  backspace: { domKey: 'Backspace', electronKey: 'Backspace' },
+  delete: { domKey: 'Delete', electronKey: 'Delete' },
+  space: { domKey: ' ', electronKey: 'Space' },
+  arrowup: { domKey: 'ArrowUp', electronKey: 'Up' },
+  arrowdown: { domKey: 'ArrowDown', electronKey: 'Down' },
+  arrowleft: { domKey: 'ArrowLeft', electronKey: 'Left' },
+  arrowright: { domKey: 'ArrowRight', electronKey: 'Right' },
+  up: { domKey: 'ArrowUp', electronKey: 'Up' },
+  down: { domKey: 'ArrowDown', electronKey: 'Down' },
+  left: { domKey: 'ArrowLeft', electronKey: 'Left' },
+  right: { domKey: 'ArrowRight', electronKey: 'Right' },
+  home: { domKey: 'Home', electronKey: 'Home' },
+  end: { domKey: 'End', electronKey: 'End' },
+  pageup: { domKey: 'PageUp', electronKey: 'PageUp' },
+  pagedown: { domKey: 'PageDown', electronKey: 'PageDown' },
 };
+
+const MAX_FULL_PAGE_PIXELS = 16_000_000;
 
 export interface PageState {
   url: string;
@@ -95,6 +102,7 @@ export interface SnapshotResult {
   elements: Array<Record<string, unknown>>;
   coverage: OpenDomCoverage;
   text?: string;
+  textTruncated?: boolean;
 }
 
 export interface OpenDomCoverage {
@@ -102,6 +110,8 @@ export interface OpenDomCoverage {
   sameOriginFrames: number;
   inaccessibleFrames: number;
   openShadowRoots: number;
+  closedShadowRoots: 'not-observable';
+  scannedNodes: number;
   scannedElements: number;
   scanLimitReached: boolean;
 }
@@ -122,7 +132,7 @@ export async function snapshot(
 }
 
 export async function click(tab: EngineTab, ref: string): Promise<Record<string, unknown>> {
-  const result = await runScript<string>(tab, clickScript(ref));
+  const result = await runScript<string>(tab, clickScript(ref), { userGesture: true });
   await tab.waitForSettle(2_000);
   return { ...(JSON.parse(result) as Record<string, unknown>), page: pageState(tab) };
 }
@@ -133,7 +143,9 @@ export async function typeText(
   text: string,
   options: { clear?: boolean; submit?: boolean } = {},
 ): Promise<Record<string, unknown>> {
-  const result = await runScript<string>(tab, typeScript(ref, text, options.clear ?? true));
+  const result = await runScript<string>(tab, typeScript(ref, text, options.clear ?? true), {
+    userGesture: true,
+  });
   const parsed = JSON.parse(result) as Record<string, unknown>;
   if (options.submit === true) {
     await press(tab, 'Enter');
@@ -143,19 +155,16 @@ export async function typeText(
 }
 
 export async function press(tab: EngineTab, key: string): Promise<Record<string, unknown>> {
-  const keyCode = KEY_CODES[key.trim().toLowerCase()] ?? (key.length === 1 ? key : null);
-  if (keyCode == null) {
-    throw new Error(
-      `Unsupported key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
-    );
-  }
+  const normalized = normalizeBrowserKey(key);
   // A focused window takes real input events; a background tab must go through the script path,
   // which reproduces the native effect explicitly. Both are reported so a caller can tell them apart.
-  if (tab.sendKey(keyCode)) {
+  if (tab.sendKey(normalized.electronKey)) {
     await delay(120);
-    return { pressed: key, delivery: 'input-event', page: pageState(tab) };
+    return { pressed: normalized.domKey, delivery: 'input-event', page: pageState(tab) };
   }
-  const raw = await runScript<string>(tab, pressFallbackScript(key));
+  const raw = await runScript<string>(tab, pressFallbackScript(normalized.domKey), {
+    userGesture: true,
+  });
   await delay(120);
   return {
     ...(JSON.parse(raw) as Record<string, unknown>),
@@ -195,9 +204,33 @@ export async function screenshot(
   options: { fullPage?: boolean; maxWidth?: number } = {},
 ): Promise<ScreenshotResult> {
   if (options.fullPage === true) {
+    const metrics = (await tab.cdp.send('Page.getLayoutMetrics')) as {
+      cssContentSize?: { width?: number; height?: number };
+      contentSize?: { width?: number; height?: number };
+    };
+    const contentSize = metrics.cssContentSize ?? metrics.contentSize;
+    const width = contentSize?.width;
+    const height = contentSize?.height;
+    if (
+      typeof width !== 'number'
+      || !Number.isFinite(width)
+      || width <= 0
+      || typeof height !== 'number'
+      || !Number.isFinite(height)
+      || height <= 0
+    ) {
+      throw new Error('The page did not report a valid full-page screenshot size.');
+    }
+    const deviceScaleFactor = tab.deviceScaleFactor();
+    const physicalWidth = width * deviceScaleFactor;
+    const physicalHeight = height * deviceScaleFactor;
+    const widthScale = options.maxWidth == null ? 1 : options.maxWidth / physicalWidth;
+    const pixelScale = Math.sqrt(MAX_FULL_PAGE_PIXELS / (physicalWidth * physicalHeight));
+    const scale = Math.min(1, widthScale, pixelScale);
     const result = (await tab.cdp.send('Page.captureScreenshot', {
       format: 'png',
       captureBeyondViewport: true,
+      clip: { x: 0, y: 0, width, height, scale },
     })) as { data?: string };
     if (typeof result?.data === 'string') {
       return { png: Buffer.from(result.data, 'base64'), fullPage: true };
@@ -259,7 +292,9 @@ export async function waitForSelector(
 
   while (Date.now() <= deadline) {
     try {
-      const raw = await runScript<string>(tab, selectorProbeScript(selector));
+      const raw = await runScript<string>(tab, selectorProbeScript(selector), {
+        timeoutMs: Math.max(1, deadline - Date.now()),
+      });
       lastProbe = JSON.parse(raw) as SelectorProbe;
       lastTransientError = '';
       if (selectorStateMatches(lastProbe, state)) {
@@ -337,9 +372,13 @@ function selectorStateMatches(probe: SelectorProbe, state: SelectorWaitState): b
  * Run an injected script and translate the page-side sentinel errors into guidance an agent can
  * act on without reading engine internals.
  */
-async function runScript<T>(tab: EngineTab, script: string): Promise<T> {
+async function runScript<T>(
+  tab: EngineTab,
+  script: string,
+  options: { userGesture?: boolean; timeoutMs?: number } = {},
+): Promise<T> {
   try {
-    return await tab.executeJs<T>(script);
+    return await tab.executeJs<T>(script, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('NO_SNAPSHOT')) {
@@ -361,4 +400,15 @@ async function runScript<T>(tab: EngineTab, script: string): Promise<T> {
     }
     throw error instanceof Error ? error : new Error(message);
   }
+}
+
+function normalizeBrowserKey(key: string): NormalizedBrowserKey {
+  const trimmed = key.trim();
+  const special = SPECIAL_KEYS[trimmed.toLowerCase()];
+  if (special != null) return special;
+  const character = key.length === 1 ? key : trimmed.length === 1 ? trimmed : null;
+  if (character != null) return { domKey: character, electronKey: character };
+  throw new Error(
+    `Unsupported key "${key}". Use a single character or one of: ${Object.keys(SPECIAL_KEYS).join(', ')}.`,
+  );
 }
