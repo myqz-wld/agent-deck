@@ -90,9 +90,20 @@ export interface SnapshotResult {
   url: string;
   title: string;
   elementCount: number;
+  eligibleElementCount: number;
   truncated: boolean;
   elements: Array<Record<string, unknown>>;
+  coverage: OpenDomCoverage;
   text?: string;
+}
+
+export interface OpenDomCoverage {
+  documents: number;
+  sameOriginFrames: number;
+  inaccessibleFrames: number;
+  openShadowRoots: number;
+  scannedElements: number;
+  scanLimitReached: boolean;
 }
 
 export async function snapshot(
@@ -228,6 +239,7 @@ export interface NetworkIdleWaitResult {
 interface SelectorProbe {
   count: number;
   visibleCount: number;
+  coverage?: OpenDomCoverage;
 }
 
 export async function armNetworkTracking(tab: EngineTab): Promise<void> {
@@ -273,7 +285,7 @@ export async function waitForSelector(
   const detail =
     lastTransientError.length > 0
       ? ` Last page error: ${lastTransientError}`
-      : ` Last observed ${lastProbe.count} matching element(s), ${lastProbe.visibleCount} visible.`;
+      : ` Last observed ${lastProbe.count} matching element(s), ${lastProbe.visibleCount} visible.${lastProbe.coverage?.scanLimitReached === true ? ' The bounded open-DOM scan limit was reached.' : ''}`;
   throw new Error(
     `Timed out after ${timeoutMs}ms waiting for selector ${JSON.stringify(selector)} to be ${state}.${detail}`,
   );
@@ -315,6 +327,8 @@ export async function waitForNetworkIdle(
 function selectorStateMatches(probe: SelectorProbe, state: SelectorWaitState): boolean {
   if (state === 'attached') return probe.count > 0;
   if (state === 'visible') return probe.visibleCount > 0;
+  // Absence cannot be proven when the bounded traversal stopped before covering the whole tree.
+  if (probe.coverage?.scanLimitReached === true) return false;
   if (state === 'detached') return probe.count === 0;
   return probe.visibleCount === 0;
 }

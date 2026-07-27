@@ -124,7 +124,9 @@ export const BROWSER_SNAPSHOT_SCHEMA = {
   includeText: z
     .boolean()
     .optional()
-    .describe('Include the page visible text. Defaults to false; enable when you must read content, not act on it.'),
+    .describe(
+      'Include visible text from the top document and accessible same-origin frames. Defaults to false; enable when you must read content, not act on it.',
+    ),
   limit: z
     .number()
     .int()
