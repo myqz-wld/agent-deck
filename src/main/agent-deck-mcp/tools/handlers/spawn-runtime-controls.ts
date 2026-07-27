@@ -1,5 +1,13 @@
 import type { AdapterCapabilities } from '@main/adapters/types';
-import type { SessionRecord } from '@shared/types';
+import {
+  firstUnsupportedTargetRuntimeField,
+  targetRuntimeFieldAdapters,
+  unsupportedTargetRuntimeFieldMessage,
+} from '@main/adapters/runtime-control-contracts';
+import {
+  isSelectablePermissionMode,
+  type SessionRecord,
+} from '@shared/types';
 
 import type { SpawnSessionArgs } from '../schemas';
 import { defaultPermissionModeForTargetAdapter } from './spawn-defaults';
@@ -11,35 +19,39 @@ interface RuntimeControlError {
 
 export function validateSpawnRuntimeControls(
   args: SpawnSessionArgs,
-  capabilities: AdapterCapabilities,
 ): RuntimeControlError | null {
-  if (args.permissionMode !== undefined && !capabilities.canSetPermissionMode) {
+  const unsupported = firstUnsupportedTargetRuntimeField(args.adapter, args);
+  if (unsupported === null) return null;
+  const owners = targetRuntimeFieldAdapters(unsupported).join(' or ');
+  if (unsupported === 'permissionMode') {
     return {
-      error: `permissionMode is incompatible with adapter "${args.adapter}"`,
+      error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
       hint:
         args.adapter === 'grok-build'
-          ? 'Remove permissionMode. Grok ACP work modes (default, plan, ask) are distinct from Claude permission modes.'
-          : 'Remove permissionMode or choose claude-code.',
+          ? 'Remove permissionMode. Grok ACP work modes (default, plan, ask) are distinct from Claude Code permission modes.'
+          : `Remove permissionMode or choose ${owners}.`,
     };
   }
-  if (args.sessionMode !== undefined && !capabilities.canSetSessionMode) {
+  if (unsupported === 'sessionMode') {
     return {
-      error: `sessionMode is incompatible with adapter "${args.adapter}"`,
-      hint: 'Remove sessionMode or choose grok-build. Grok work modes are distinct from Claude permission modes.',
+      error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
+      hint: 'Remove sessionMode or choose grok-build. Grok work modes are distinct from Claude Code permission modes.',
     };
   }
   if (
-    args.adapter === 'grok-build' &&
-    (args.codexSandbox !== undefined ||
-      args.claudeCodeSandbox !== undefined ||
-      (args.extraAllowWrite?.length ?? 0) > 0)
+    unsupported === 'codexSandbox' ||
+    unsupported === 'claudeCodeSandbox' ||
+    unsupported === 'extraAllowWrite'
   ) {
     return {
-      error: 'Claude/Codex sandbox controls are incompatible with adapter "grok-build"',
-      hint: 'Remove codexSandbox, claudeCodeSandbox, and extraAllowWrite. Grok Build keeps its native tool and permission policy.',
+      error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
+      hint: `Remove ${unsupported} or choose ${owners}. Grok Build keeps ACP-native tool permissions.`,
     };
   }
-  return null;
+  return {
+    error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
+    hint: `Remove ${unsupported} or choose ${owners}.`,
+  };
 }
 
 export function resolveSpawnRuntimeControls(input: {
@@ -54,7 +66,11 @@ export function resolveSpawnRuntimeControls(input: {
     effectivePermissionMode: capabilities.canSetPermissionMode
       ? args.permissionMode ??
         (inherit
-          ? (leadRecord?.permissionMode ?? undefined)
+          ? (isSelectablePermissionMode(leadRecord?.permissionMode)
+              ? leadRecord.permissionMode
+              : leadRecord?.permissionMode === 'dontAsk'
+                ? 'default'
+                : undefined)
           : defaultPermissionModeForTargetAdapter(args.adapter))
       : undefined,
     effectiveSessionMode: capabilities.canSetSessionMode

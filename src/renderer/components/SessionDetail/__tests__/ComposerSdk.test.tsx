@@ -26,6 +26,7 @@ let steerAdapterTurn: ReturnType<typeof vi.fn>;
 let interruptAdapterSession: ReturnType<typeof vi.fn>;
 let setSessionModelOptions: ReturnType<typeof vi.fn>;
 let setAdapterSessionMode: ReturnType<typeof vi.fn>;
+let setAdapterPermissionMode: ReturnType<typeof vi.fn>;
 let listPendingOutgoingMessages: ReturnType<typeof vi.fn>;
 let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
 let emitAgentEvent: (event: AgentEvent) => void;
@@ -36,6 +37,7 @@ beforeEach(() => {
   interruptAdapterSession = vi.fn(() => Promise.resolve());
   setSessionModelOptions = vi.fn(() => Promise.resolve());
   setAdapterSessionMode = vi.fn(() => Promise.resolve());
+  setAdapterPermissionMode = vi.fn(() => Promise.resolve());
   listPendingOutgoingMessages = vi.fn<() => Promise<PendingOutgoingMessage[]>>(
     () => Promise.resolve([]),
   );
@@ -58,6 +60,7 @@ beforeEach(() => {
       interruptAdapterSession,
       setSessionModelOptions,
       setAdapterSessionMode,
+      setAdapterPermissionMode,
       listPendingOutgoingMessages,
       deletePendingOutgoingMessage,
       onAgentEvent: vi.fn((listener: (event: AgentEvent) => void) => {
@@ -472,5 +475,44 @@ describe('ComposerSdk unified input routing', () => {
       );
     });
     expect(screen.queryByText('权限')).toBeNull();
+  });
+
+  it('shows provider-restored dontAsk exactly but keeps it read-only', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        ...(window.api as object),
+        listAdapters: vi.fn().mockResolvedValue([
+          {
+            id: 'claude-code',
+            displayName: 'Claude Code',
+            capabilities: {
+              canAcceptAttachments: true,
+              canSetPermissionMode: true,
+            },
+          },
+        ]),
+      },
+    });
+
+    render(
+      <ComposerSdk
+        session={makeSession({
+          agentId: 'claude-code',
+          title: 'Claude',
+          permissionMode: 'dontAsk',
+        })}
+      />,
+    );
+
+    const permission = await screen.findByLabelText('权限');
+    expect(permission.textContent).toContain('提供方状态：不询问（只读）');
+    fireEvent.click(permission);
+    const restored = screen.getByRole('option', {
+      name: '提供方状态：不询问（只读）',
+    }) as HTMLButtonElement;
+    expect(restored.disabled).toBe(true);
+    expect(screen.getAllByRole('option')).toHaveLength(6);
+    expect(setAdapterPermissionMode).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@
 # 用法：
 #   agent-deck new [--cwd <path>] [--prompt "..."] [--agent claude-code]
 #                  [--model <name>] [--thinking <level>]
-#                  [--permission-mode default|acceptEdits|plan|bypassPermissions]
+#                  [--permission-mode default|acceptEdits|plan|auto|bypassPermissions] # Claude only
 #                  [--system-prompt "..."] [--resume <sessionId>] [--no-focus]
 #
 # 行为：
@@ -173,6 +173,7 @@ NEW_ARGS=()
 HAS_CWD=0
 HAS_NEW=0
 HAS_PERMISSION_MODE=0
+TARGET_ADAPTER="claude-code"
 
 i=1
 while (( i <= $# )); do
@@ -190,6 +191,21 @@ while (( i <= $# )); do
       ;;
     --permission-mode=*)
       HAS_PERMISSION_MODE=1
+      NEW_ARGS+=("$cur")
+      ;;
+    --adapter|--agent)
+      NEW_ARGS+=("$cur")
+      ((i++))
+      val="${!i}"
+      if [[ -z "$val" ]]; then
+        echo "agent-deck: $cur 缺少值" >&2
+        exit 2
+      fi
+      TARGET_ADAPTER="$val"
+      NEW_ARGS+=("$val")
+      ;;
+    --adapter=*|--agent=*)
+      TARGET_ADAPTER="${cur#*=}"
       NEW_ARGS+=("$cur")
       ;;
     --cwd)
@@ -219,8 +235,10 @@ if (( HAS_NEW == 1 && HAS_CWD == 0 )); then
   NEW_ARGS+=("--cwd" "$PWD")
 fi
 
-# new 子命令但用户没传 --permission-mode → 默认 bypassPermissions
-if (( HAS_NEW == 1 && HAS_PERMISSION_MODE == 0 )); then
+# Claude new 子命令但用户没传 --permission-mode → 默认 bypassPermissions。
+# Codex/Grok 使用各自原生审批协议，不注入 Claude 字段。
+if (( HAS_NEW == 1 && HAS_PERMISSION_MODE == 0 )) &&
+   [[ "$TARGET_ADAPTER" == "claude" || "$TARGET_ADAPTER" == "claude-code" ]]; then
   NEW_ARGS+=("--permission-mode" "bypassPermissions")
 fi
 

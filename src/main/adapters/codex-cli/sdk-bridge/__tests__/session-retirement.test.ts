@@ -80,6 +80,7 @@ function makeInternal(
     currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
+    pendingPermissions: new Map(),
   };
 }
 

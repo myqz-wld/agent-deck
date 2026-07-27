@@ -23,12 +23,20 @@ function dailyRow(): TokenDailyRow {
   return {
     day: '2026-06-19',
     bucketKey: 'opus-4.8',
+    providerTotalTokens: null,
     inputTokens: 10,
     inputTotalTokens: 80,
     outputTokens: 20,
     reasoningTokens: 0,
     cacheReadTokens: 30,
     cacheCreationTokens: 40,
+    providerTotalApplicable: true,
+    inputApplicable: true,
+    inputTotalApplicable: true,
+    outputApplicable: true,
+    reasoningApplicable: true,
+    cacheReadApplicable: true,
+    cacheCreationApplicable: true,
   };
 }
 

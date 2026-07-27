@@ -136,11 +136,14 @@ function translateTokenUsage(
   emit('token-usage', {
     messageId: null,
     model: opts?.model ?? null,
+    totalTokens: numberField(last.totalTokens),
     inputTokens: numberField(last.inputTokens),
-    outputTokens: numberField(last.outputTokens) + numberField(last.reasoningOutputTokens),
+    // Codex outputTokens is the provider's total output count; reasoningOutputTokens is a
+    // breakdown within that total, not an additional count.
+    outputTokens: numberField(last.outputTokens),
     reasoningTokens: numberField(last.reasoningOutputTokens),
     cacheReadTokens: numberField(last.cachedInputTokens),
-    cacheCreationTokens: 0,
+    cacheCreationTokens: numberField(last.cacheWriteInputTokens),
   });
 }
 
@@ -402,8 +405,10 @@ function asRecord(value: unknown): AnyRecord | null {
     : null;
 }
 
-function numberField(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+function numberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
 }
 
 function stringField(value: unknown): string {

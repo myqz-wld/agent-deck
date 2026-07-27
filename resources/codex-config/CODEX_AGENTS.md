@@ -42,7 +42,7 @@ When MCP task tools are unavailable, write progress into the plan file, handoff 
 
 ### Review Teammate Failure
 
-`simple-review` / `deep-review` must use exactly two confirmed heterogeneous reviewer slots selected from `reviewer-claude` (`claude-code`), `reviewer-codex` (`codex-cli`), and `reviewer-grok` (`grok-build`). If a selected reviewer fails, the lead first calls `shutdown_session` on the failed session, then respawns the same selected adapter / provider / `agentName` / model slot. Do not swap to an unselected slot or duplicate the surviving reviewer.
+`simple-review` / `deep-review` must use exactly two confirmed heterogeneous reviewer types selected from `reviewer-claude` (`claude-code`), `reviewer-codex` (`codex-cli`), and `reviewer-grok` (`grok-build`). For a batched review, each batch gets one worker session of each selected type over the same complete batch scope; independent batches may run concurrently within `spawnLimits`, so one selected type may have multiple batch-specific sessions. If a batch worker fails, the lead first calls `shutdown_session` on the failed session, then respawns the same batch / adapter / provider / `agentName` / model type. Do not swap to an unselected type, split one batch between reviewers, or count the surviving worker as complete batch coverage.
 
 ### Browser Work
 
@@ -154,10 +154,10 @@ The reviewer first uses `list_sessions({ statusFilter: 'active' })` to find a un
 Codex teammate spawn uses the app-level default app-server thread options unless the caller passes an explicit override or a same-adapter Codex caller has a persisted sandbox to inherit. Reviewer-codex follows the same `codexSandbox` inheritance and override rules as any other Codex spawn.
 
 - `sandboxMode` follows `codexSandbox`: explicit argument, same-adapter inheritance, then Codex adapter default.
-- `approvalPolicy: 'never'`, so SDK sessions do not wait for invisible approvals.
-- For reviewer-codex, `networkAccessEnabled: true` and `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` are injected so reviewers can read required context and temporary files.
+- Ordinary Codex sessions do not force an `approvalPolicy`; Codex config and provider defaults remain authoritative. Native app-server approval requests are surfaced in Agent Deck Pending and answered with the exact Codex decision vocabulary.
+- Reviewer-codex is an internal non-interactive exception: it explicitly uses `approvalPolicy: 'never'`, `networkAccessEnabled: true`, and `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` so review sessions cannot stall on an invisible approval and can read required context and temporary files.
 
-MCP `spawn_session` exposes only allowlisted fields such as `codexSandbox`; it cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
+MCP target runtime field ownership is adapter-scoped. Claude accepts `permissionMode`, `claudeCodeSandbox`, and `extraAllowWrite`; Codex accepts `codexSandbox` and `extraAllowWrite`; Grok accepts `sessionMode` and keeps ACP-native tool permissions. The current flat MCP call shape documents each owner, and runtime validation rejects incompatible fields instead of silently ignoring them. MCP cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
 
 Agent Deck injects `AGENT_DECK_MCP_TOKEN` into every Codex app-server session. The Codex MCP client uses that token to connect to the streamable HTTP MCP server; the server resolves the caller session and fills it into tool handlers automatically. External global tokens allow only read-only capability; session, worktree, task, and issue write tools are rejected.
 

@@ -176,6 +176,7 @@ export async function createCodexForkedSession(
       currentTurnId: null,
       turnLoopRunning: false,
       intentionallyClosed: false,
+      pendingPermissions: new Map(),
     };
     cleanupState.internal = internal;
     deps.sessions.set(tempId, internal);
@@ -202,6 +203,7 @@ export async function createCodexForkedSession(
     (deps.persistTargetFields ?? persistSessionFields)({
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,
+      approvalPolicy: target.approvalPolicy,
       provider: target.provider,
       model: runtime.persistedModel,
       modelReasoningEffort: runtime.persistedReasoningEffort,

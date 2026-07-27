@@ -5,12 +5,16 @@
  * deep-review-and-split-20260513 H2 Step 2.3）。所有 sub-module 共享 import 此处。
  */
 
-import { isAgentProfileSource } from '@shared/types';
+import {
+  isAgentProfileSource,
+  isCodexApprovalPolicy,
+  normalizeStoredPermissionMode,
+} from '@shared/types';
 import type {
   AdapterSessionMode,
   ActivityState,
+  GrokUsageWatermark,
   LifecycleState,
-  PermissionMode,
   SessionRecord,
   SessionSource,
 } from '@shared/types';
@@ -44,6 +48,7 @@ export interface Row {
   agent_plugin_dir: string | null;
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，Row 接口不再含
   codex_sandbox: string | null;
+  codex_approval_policy: string | null;
   claude_code_sandbox: string | null;
   // plan model-wiring-and-handoff-20260514 Step 1.3：SDK / agent model per-session 持久化
   model: string | null;
@@ -57,6 +62,7 @@ export interface Row {
   // extra_allow_write persist-only no-op）。详 SessionRecord jsdoc。
   network_access_enabled: number | null;
   additional_directories: string | null;
+  grok_usage_watermark: string | null;
   // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：mcp enter_worktree marker
   // 标记 caller 显式持有的 worktreePath（archive_plan 预检 4 态分流用），NULL = 未持有 marker。
   cwd_release_marker: string | null;
@@ -88,7 +94,7 @@ export function rowToRecord(r: Row): SessionRecord {
     archivedAt: r.archived_at,
     pinnedAt: r.pinned_at ?? null,
     hiddenFromHistory: r.hidden_from_history === 1,
-    permissionMode: (r.permission_mode as PermissionMode) ?? null,
+    permissionMode: normalizeStoredPermissionMode(r.permission_mode),
     sessionMode: (r.session_mode as AdapterSessionMode) ?? null,
     agentProfileName: r.agent_profile_name ?? null,
     agentProfileSource: isAgentProfileSource(r.agent_profile_source)
@@ -100,6 +106,9 @@ export function rowToRecord(r: Row): SessionRecord {
     // 老 sessions.team_name 列已 v014 drop。
     codexSandbox:
       (r.codex_sandbox as 'workspace-write' | 'read-only' | 'danger-full-access' | null) ?? null,
+    codexApprovalPolicy: isCodexApprovalPolicy(r.codex_approval_policy)
+      ? r.codex_approval_policy
+      : null,
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
     model: r.model ?? null,
@@ -116,11 +125,47 @@ export function rowToRecord(r: Row): SessionRecord {
       sessionId: r.id,
       field: 'additional_directories',
     }),
+    grokUsageWatermark: parseGrokUsageWatermarkJson(r.grok_usage_watermark, r.id),
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
     cliSessionId: r.cli_session_id ?? null,
   };
+}
+
+function parseGrokUsageWatermarkJson(
+  raw: string | null,
+  sessionId: string,
+): GrokUsageWatermark | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const value = parsed as Record<string, unknown>;
+    const metric = (key: keyof GrokUsageWatermark): number | null => {
+      const candidate = value[key];
+      return typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
+        ? candidate
+        : null;
+    };
+    const watermark: GrokUsageWatermark = {
+      totalTokens: metric('totalTokens'),
+      inputTokens: metric('inputTokens'),
+      outputTokens: metric('outputTokens'),
+      thoughtTokens: metric('thoughtTokens'),
+      cachedReadTokens: metric('cachedReadTokens'),
+      cachedWriteTokens: metric('cachedWriteTokens'),
+    };
+    return Object.values(watermark).some((candidate) => candidate !== null)
+      ? watermark
+      : null;
+  } catch (err) {
+    logger.warn('[session-repo] Grok usage watermark JSON parse failed', {
+      sessionId,
+      rawLength: raw.length,
+    }, err);
+    return null;
+  }
 }
 
 /**

@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import type {
+  AdapterSessionMode,
   CodexPermissionScanResult,
-  CodexSandboxMode,
   PermissionScanResult,
 } from '@shared/types';
 import { RefreshIcon } from './icons';
 import { CodexPermissionsPanel } from './permissions/CodexPermissionsPanel';
+import { GrokPermissionsPanel } from './permissions/GrokPermissionsPanel';
 import { LayerPanel, MergedPanel } from './permissions/ClaudePermissionsPanels';
 
 interface Props {
   cwd: string;
+  sessionId: string;
   agentId: string;
-  codexSandbox?: CodexSandboxMode | null;
+  sessionMode?: AdapterSessionMode | null;
 }
 
 type PermissionsData =
@@ -19,8 +21,14 @@ type PermissionsData =
   | { adapter: 'codex'; value: CodexPermissionScanResult };
 
 /** Read-only effective permission viewer for Claude settings layers and Codex config. */
-export function PermissionsView({ cwd, agentId, codexSandbox }: Props): JSX.Element {
+export function PermissionsView({
+  cwd,
+  sessionId,
+  agentId,
+  sessionMode = null,
+}: Props): JSX.Element {
   const isCodex = agentId === 'codex-cli';
+  const isGrok = agentId === 'grok-build';
   const [data, setData] = useState<PermissionsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -29,8 +37,10 @@ export function PermissionsView({ cwd, agentId, codexSandbox }: Props): JSX.Elem
     setLoading(true);
     setErr(null);
     try {
-      if (isCodex) {
-        const result = await window.api.scanCodexSettings(codexSandbox ?? null);
+      if (isGrok) {
+        setData(null);
+      } else if (isCodex) {
+        const result = await window.api.scanCodexSettings(sessionId);
         setData({ adapter: 'codex', value: result });
       } else {
         const result = await window.api.scanCwdSettings(cwd);
@@ -41,13 +51,14 @@ export function PermissionsView({ cwd, agentId, codexSandbox }: Props): JSX.Elem
     } finally {
       setLoading(false);
     }
-  }, [codexSandbox, cwd, isCodex]);
+  }, [cwd, isCodex, isGrok, sessionId]);
 
   useEffect(() => {
     setData(null);
     void refresh();
   }, [refresh]);
 
+  if (isGrok) return <GrokPermissionsPanel sessionMode={sessionMode} />;
   if (loading && !data) return <div className="text-[11px] text-deck-muted">扫描中…</div>;
   if (err) {
     return <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">扫描失败：{err}</div>;

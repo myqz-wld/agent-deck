@@ -15,7 +15,12 @@
  * - CHANGELOG_47 — maybeEmitImageFileChanged 内 internal.toolUseNames.delete 提到所有 tool_result 顶层
  * - thinking-prelude 启发式（紧邻另一个 text 的 当前 block 是 thinking-prelude）
  */
-import type { AgentEvent } from '@shared/types';
+import {
+  normalizeStoredPermissionMode,
+  TOKEN_USAGE_ALL_METRICS,
+  TOKEN_USAGE_METRIC,
+  type AgentEvent,
+} from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import {
@@ -23,7 +28,7 @@ import {
   parseImageToolResult,
 } from '@main/adapters/claude-code/translate';
 import { isImageTool } from '@shared/mcp-tools';
-import { CLAUDE_DEFAULT_BUCKET, normalizeModel } from '@shared/model-normalize';
+import { CLAUDE_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { buildClaudeCompactMessageText } from '../compact-message';
 import { AGENT_ID } from './constants';
 import {
@@ -31,11 +36,7 @@ import {
   completeLiveTokenEstimate,
   handleStreamEventForLiveRate,
 } from './live-token-rate';
-import {
-  accumulateThinkingTokenEstimate,
-  emitThinkingUsageCorrection,
-  resetTurnUsageAccounting,
-} from './thinking-token-usage';
+import { resetTurnUsageAccounting } from './authoritative-reasoning-usage';
 import type { InternalSession } from './types';
 import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
 import {
@@ -44,31 +45,7 @@ import {
 } from './user-message-acceptance';
 
 type EmitFn = (e: AgentEvent) => void;
-type UsageCounts = {
-  input: number;
-  output: number;
-  reasoning: number;
-  cacheRead: number;
-  cacheCreation: number;
-};
-
-const ZERO_USAGE: UsageCounts = {
-  input: 0,
-  output: 0,
-  reasoning: 0,
-  cacheRead: 0,
-  cacheCreation: 0,
-};
-
-function hasUsage(c: UsageCounts): boolean {
-  return (
-    c.input > 0 ||
-    c.output > 0 ||
-    c.reasoning > 0 ||
-    c.cacheRead > 0 ||
-    c.cacheCreation > 0
-  );
-}
+const CLAUDE_UNATTRIBUTED_REASONING_MODEL = 'claude-unattributed-reasoning';
 
 function hasExplicitModel(model: string | null | undefined): model is string {
   return model != null && model.trim() !== '';
@@ -84,60 +61,29 @@ function resolveClaudeFallbackModel(internal: InternalSession, sessionId: string
   }
 }
 
-function maxUsage(a: UsageCounts | undefined, b: UsageCounts): UsageCounts {
-  return {
-    input: Math.max(a?.input ?? 0, b.input),
-    output: Math.max(a?.output ?? 0, b.output),
-    reasoning: Math.max(a?.reasoning ?? 0, b.reasoning),
-    cacheRead: Math.max(a?.cacheRead ?? 0, b.cacheRead),
-    cacheCreation: Math.max(a?.cacheCreation ?? 0, b.cacheCreation),
-  };
+function reportedUsageValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value)
+    : null;
 }
 
-function positiveDelta(next: UsageCounts, prev: UsageCounts | undefined): UsageCounts {
-  return {
-    input: Math.max(0, next.input - (prev?.input ?? 0)),
-    output: Math.max(0, next.output - (prev?.output ?? 0)),
-    reasoning: Math.max(0, next.reasoning - (prev?.reasoning ?? 0)),
-    cacheRead: Math.max(0, next.cacheRead - (prev?.cacheRead ?? 0)),
-    cacheCreation: Math.max(0, next.cacheCreation - (prev?.cacheCreation ?? 0)),
-  };
+function hasReportedUsage(values: readonly (number | null)[]): boolean {
+  return values.some((value) => value !== null);
 }
 
-function addTurnUsage(internal: InternalSession, model: string | null, delta: UsageCounts): void {
-  if (!hasUsage(delta)) return;
-  const bucket = normalizeModel(model).bucketKey;
-  const prev = internal.turnUsageByBucket.get(bucket) ?? ZERO_USAGE;
-  internal.turnUsageByBucket.set(bucket, {
-    input: prev.input + delta.input,
-    output: prev.output + delta.output,
-    reasoning: prev.reasoning + delta.reasoning,
-    cacheRead: prev.cacheRead + delta.cacheRead,
-    cacheCreation: prev.cacheCreation + delta.cacheCreation,
-  });
-}
-
-function sumTurnUsage(internal: InternalSession): UsageCounts {
-  const total = { ...ZERO_USAGE };
-  for (const usage of internal.turnUsageByBucket.values()) {
-    total.input += usage.input;
-    total.output += usage.output;
-    total.reasoning += usage.reasoning;
-    total.cacheRead += usage.cacheRead;
-    total.cacheCreation += usage.cacheCreation;
-  }
-  return total;
-}
-
-function reasoningTokensFromOutputDetails(
-  details: { thinking_tokens?: number | null } | null | undefined,
-): number {
-  return details?.thinking_tokens ?? 0;
-}
-
-function emitResultUsageCorrection(
+/**
+ * Persist only the SDK result's finalized usage snapshot.
+ *
+ * Assistant BetaUsage is useful for live UI feedback but its cache fields are nullable and a later
+ * result may provide the authoritative turn/model totals. Persisting the assistant row and then a
+ * separate correction row leaves the nullable provisional row in the daily completeness set, so
+ * the final exact result can never repair presence. Delaying durable usage until result
+ * finalization keeps one logical row per model (or one aggregate fallback row) and never turns a
+ * provider null into a measured zero. If a process dies before result, the turn remains absent
+ * rather than becoming fabricated history; display-only tok/s continues independently.
+ */
+function emitFinalResultUsage(
   e: (kind: AgentEvent['kind'], payload: unknown) => void,
-  internal: InternalSession,
   fallbackModel: string,
   r: {
     uuid?: string;
@@ -162,61 +108,122 @@ function emitResultUsageCorrection(
   try {
     const entries = Object.entries(r.modelUsage ?? {});
     if (entries.length > 0) {
+      const aggregate = r.usage;
+      const aggregateReasoning = reportedUsageValue(
+        aggregate?.output_tokens_details?.thinking_tokens,
+      );
+      const singleModel = entries.length === 1;
       for (const [model, usage] of entries) {
-        const finalUsage = {
-          input: usage.inputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          reasoning: 0,
-          cacheRead: usage.cacheReadInputTokens ?? 0,
-          cacheCreation: usage.cacheCreationInputTokens ?? 0,
-        };
-        const bucket = normalizeModel(model).bucketKey;
-        const delta = positiveDelta(finalUsage, internal.turnUsageByBucket.get(bucket));
-        if (hasUsage(delta)) {
-          e('token-usage', {
-            messageId: r.uuid ? `result:${r.uuid}:${bucket}` : null,
-            model,
-            inputTokens: delta.input,
-            outputTokens: delta.output,
-            ...(delta.reasoning > 0 ? { reasoningTokens: delta.reasoning } : {}),
-            cacheReadTokens: delta.cacheRead,
-            cacheCreationTokens: delta.cacheCreation,
-          });
-        }
+        // With exactly one model, aggregate result fields are attributable to that model and can
+        // safely fill an optional modelUsage field. With multiple models, never manufacture an
+        // allocation: retain null unless modelUsage itself reports the dimension.
+        const inputTokens =
+          reportedUsageValue(usage.inputTokens) ??
+          (singleModel ? reportedUsageValue(aggregate?.input_tokens) : null);
+        const outputTokens =
+          reportedUsageValue(usage.outputTokens) ??
+          (singleModel ? reportedUsageValue(aggregate?.output_tokens) : null);
+        const cacheReadTokens =
+          reportedUsageValue(usage.cacheReadInputTokens) ??
+          (singleModel
+            ? reportedUsageValue(aggregate?.cache_read_input_tokens)
+            : null);
+        const cacheCreationTokens =
+          reportedUsageValue(usage.cacheCreationInputTokens) ??
+          (singleModel
+            ? reportedUsageValue(aggregate?.cache_creation_input_tokens)
+            : null);
+        // A positive aggregate cannot be split across multiple models. Aggregate zero is safe to
+        // attribute to every non-negative component; a single-model aggregate is fully exact.
+        const reasoningTokens =
+          singleModel || aggregateReasoning === 0 ? aggregateReasoning : null;
+        if (
+          !hasReportedUsage([
+            inputTokens,
+            outputTokens,
+            reasoningTokens,
+            cacheReadTokens,
+            cacheCreationTokens,
+          ])
+        ) continue;
+        e('token-usage', {
+          messageId: r.uuid
+            ? `result:${r.uuid}:model:${encodeURIComponent(model)}`
+            : null,
+          model,
+          inputTokens,
+          outputTokens,
+          reasoningTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          ...(!singleModel && aggregateReasoning !== null && aggregateReasoning > 0
+            ? {
+                metricScope:
+                  TOKEN_USAGE_ALL_METRICS & ~TOKEN_USAGE_METRIC.reasoning,
+              }
+            : {}),
+        });
+      }
+      if (!singleModel && aggregateReasoning !== null && aggregateReasoning > 0) {
+        emitUnattributedReasoningUsage(e, r.uuid, aggregateReasoning);
       }
       return;
     }
 
-    // Older / unusual SDK builds may omit modelUsage. Fall back to aggregate usage and subtract
-    // everything already seen in this turn; use Claude default so UI does not show generic unknown
-    // for a Claude-family session with no explicit model override.
+    // Older / unusual SDK builds may omit modelUsage. Its aggregate result usage is still a
+    // provider-finalized snapshot, so keep every reported field under the Claude fallback bucket.
     const u = r.usage;
     if (u) {
-      const finalUsage = {
-        input: u.input_tokens ?? 0,
-        output: u.output_tokens ?? 0,
-        // Reasoning is reconciled separately so non-empty modelUsage cannot hide an aggregate
-        // authoritative detail and SDK estimates never get added to an exact value.
-        reasoning: 0,
-        cacheRead: u.cache_read_input_tokens ?? 0,
-        cacheCreation: u.cache_creation_input_tokens ?? 0,
-      };
-      const delta = positiveDelta(finalUsage, sumTurnUsage(internal));
-      if (hasUsage(delta)) {
-        e('token-usage', {
-          messageId: r.uuid ? `result:${r.uuid}:aggregate` : null,
-          model: fallbackModel,
-          inputTokens: delta.input,
-          outputTokens: delta.output,
-          ...(delta.reasoning > 0 ? { reasoningTokens: delta.reasoning } : {}),
-          cacheReadTokens: delta.cacheRead,
-          cacheCreationTokens: delta.cacheCreation,
-        });
-      }
+      const inputTokens = reportedUsageValue(u.input_tokens);
+      const outputTokens = reportedUsageValue(u.output_tokens);
+      const reasoningTokens = reportedUsageValue(
+        u.output_tokens_details?.thinking_tokens,
+      );
+      const cacheReadTokens = reportedUsageValue(u.cache_read_input_tokens);
+      const cacheCreationTokens = reportedUsageValue(
+        u.cache_creation_input_tokens,
+      );
+      if (
+        !hasReportedUsage([
+          inputTokens,
+          outputTokens,
+          reasoningTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+        ])
+      ) return;
+      e('token-usage', {
+        messageId: r.uuid ? `result:${r.uuid}:aggregate` : null,
+        model: fallbackModel,
+        inputTokens,
+        outputTokens,
+        reasoningTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+      });
     }
   } catch {
-    // token usage 是旁路统计，result correction 失败不应影响 finished / UI 主流程。
+    // token usage 是旁路统计，result finalization 失败不应影响 finished / UI 主流程。
   }
+}
+
+function emitUnattributedReasoningUsage(
+  e: (kind: AgentEvent['kind'], payload: unknown) => void,
+  uuid: string | undefined,
+  reasoningTokens: number,
+): void {
+  e('token-usage', {
+    messageId: uuid ? `result:${uuid}:reasoning:unattributed` : null,
+    model: CLAUDE_UNATTRIBUTED_REASONING_MODEL,
+    // The aggregate is provider-exact but cannot be assigned to one of several models. Keep all
+    // unrelated dimensions unknown instead of inserting synthetic zeroes.
+    inputTokens: null,
+    outputTokens: null,
+    reasoningTokens,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+    metricScope: TOKEN_USAGE_METRIC.reasoning,
+  });
 }
 
 function resultOutputTokens(r: {
@@ -345,51 +352,10 @@ export function translateSdkMessage(
         pushFileChangeIntent(internal, block.name, block.input, block.id);
       }
     }
-    // token-usage 采集（plan §Phase 1 A2 / §不变量 3/5）。整体 try/catch：采集失败绝不打断
-    // 上面已 emit 的 message/thinking/tool-use 主事件流（不变量 3）。
-    // 去重快路径（不变量 5 / G2）：同 turn 多 tool_use 拆成多条 assistant message 共享同一 id +
-    // 正常携带 identical usage；存完整 5 指标，新帧任一指标 > 已见才放行 emit（rare discrepancy
-    // 取最大值，DB ON CONFLICT max-merge 收口），全 ≤ 已见则 skip 省 IPC/DB。
-    try {
-      const u = m.usage;
-      if (m.id && u) {
-        const usage = {
-          input: u.input_tokens ?? 0,
-          output: u.output_tokens ?? 0,
-          reasoning: reasoningTokensFromOutputDetails(u.output_tokens_details),
-          cacheRead: u.cache_read_input_tokens ?? 0,
-          cacheCreation: u.cache_creation_input_tokens ?? 0,
-        };
-        const prev = internal.seenUsageMessageIds.get(m.id);
-        const merged = maxUsage(prev, usage);
-        const grew =
-          !prev ||
-          usage.input > prev.input ||
-          usage.output > prev.output ||
-          usage.reasoning > prev.reasoning ||
-          usage.cacheRead > prev.cacheRead ||
-          usage.cacheCreation > prev.cacheCreation;
-        if (grew) {
-          const delta = positiveDelta(merged, prev);
-          internal.seenUsageMessageIds.set(m.id, merged);
-          const model = hasExplicitModel(m.model)
-            ? m.model
-            : resolveClaudeFallbackModel(internal, sessionId);
-          addTurnUsage(internal, model, delta);
-          e('token-usage', {
-            messageId: m.id,
-            model,
-            inputTokens: usage.input,
-            outputTokens: usage.output,
-            ...(usage.reasoning > 0 ? { reasoningTokens: usage.reasoning } : {}),
-            cacheReadTokens: usage.cacheRead,
-            cacheCreationTokens: usage.cacheCreation,
-          });
-        }
-      }
-    } catch {
-      // 采集是旁路统计，任何异常都不应影响主翻译流程（不变量 3）。
-    }
+    // Assistant BetaUsage may contain nullable cache fields and is only a provisional view of the
+    // turn. Durable accounting waits for the finalized SDK result below. Live tok/s continues to
+    // use stream events and the result calibration path, so this does not make display feedback
+    // wait for persistence.
   } else if (msg.type === 'user') {
     const m = msg.message as {
       content?: { type: string; tool_use_id?: string; content?: unknown; is_error?: boolean }[];
@@ -477,8 +443,7 @@ export function translateSdkMessage(
     completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
     const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
     try {
-      emitResultUsageCorrection(e, internal, fallbackModel, r);
-      emitThinkingUsageCorrection(e, internal, fallbackModel, r);
+      emitFinalResultUsage(e, fallbackModel, r);
     } catch {
       // Usage telemetry must never interrupt result/finished translation.
     } finally {
@@ -489,17 +454,6 @@ export function translateSdkMessage(
       e('message', { text: `⚠ ${detail}`, error: true });
     }
     e('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
-  } else if (msg.type === 'system' && msg.subtype === 'thinking_tokens') {
-    // The SDK marks these values as approximate. Keep them turn-local and flush one correction at
-    // result; persisting every stream delta would create synchronous DB/IPC churn and could not be
-    // undone if an authoritative result detail arrives later.
-    accumulateThinkingTokenEstimate(
-      internal,
-      hasExplicitModel(internal.runtimeModel)
-        ? internal.runtimeModel
-        : resolveClaudeFallbackModel(internal, sessionId),
-      msg,
-    );
   } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const metadata = (msg as {
       compact_metadata?: {
@@ -541,13 +495,8 @@ export function translateSdkMessage(
     // 不变量 2: DB/UI ↔ internal cache 单一源（跨字段约束）— 凡 internal cache 镜像 sessionRepo
     // 字段，任一方向 update 必同时更新两边。本 step 修 permissionMode 路径；其他字段 cache split
     // 风险作为后续 review focus 立项 (cwd / claudeCodeSandbox / extraAllowWrite / model)。
-    const next = msg.permissionMode;
-    if (
-      next === 'default' ||
-      next === 'acceptEdits' ||
-      next === 'plan' ||
-      next === 'bypassPermissions'
-    ) {
+    const next = normalizeStoredPermissionMode(msg.permissionMode);
+    if (next) {
       // Phase 3 修法：先同步 internal cache（让 canUseTool bypass 短路立刻按新 mode 判断），
       // 再走 DB 比对路径。internal.permissionMode 与 sessionRepo.permissionMode 同步更新。
       //
@@ -557,7 +506,10 @@ export function translateSdkMessage(
       // 条件：当前已是 bypassPermissions 且 SDK 报 'default' → 跳过（保留 bypass 语义）。
       // 用户通过下拉切换时，setPermissionMode 先 optimistic 写 s.permissionMode，之后
       // SDK system.status 到达时 internal 已不是 bypassPermissions，不受此保护影响。
-      if (internal.permissionMode === 'bypassPermissions' && next === 'default') {
+      if (
+        internal.permissionMode === 'bypassPermissions' &&
+        next === 'default'
+      ) {
         // 跳过：SDK 回报的 'default' 是 allowDangerouslySkipPermissions 的底层 mode，非真实切换
       } else {
         internal.permissionMode = next;

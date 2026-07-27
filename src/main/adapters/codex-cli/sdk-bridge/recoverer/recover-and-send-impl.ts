@@ -363,6 +363,7 @@ export async function recoverAndSendImpl(
           captureError: recoveryCaptureError,
           provider: rec.runtimeProvider ?? undefined,
           codexSandbox: rec.codexSandbox ?? undefined,
+          approvalPolicy: rec.codexApprovalPolicy ?? undefined,
           model: sdkModel,
           modelReasoningEffort: sdkThinking,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -422,6 +423,7 @@ export async function recoverAndSendImpl(
         // 反查到（详 codex-cli/sdk-bridge/index.ts:185-188 fallback chain），但显式透传更清晰
         // 一致 + 与 claude HIGH-1 处理方式对称 + 防 sessionRepo 边界 race。
         codexSandbox: rec.codexSandbox ?? undefined,
+        approvalPolicy: rec.codexApprovalPolicy ?? undefined,
         model: sdkModel,
         modelReasoningEffort: sdkThinking,
         extraAllowWrite: rec.extraAllowWrite ?? undefined,

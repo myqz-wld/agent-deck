@@ -2,6 +2,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import log from '@main/utils/logger';
 import { runCloseSessionCleanup } from './pending-cancellation';
 import type { InternalSession, SdkBridgeOptions } from './types';
+import type { PermissionMode } from '@main/adapters/types';
 
 const logger = log.scope('claude-bridge');
 const CLOSE_STREAM_DRAIN_TIMEOUT_MS = 1_000;
@@ -70,7 +71,7 @@ export async function closeClaudeSession(input: {
 export async function setClaudePermissionMode(input: {
   sessions: Map<string, InternalSession>;
   sessionId: string;
-  mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+  mode: PermissionMode;
 }): Promise<void> {
   const session = input.sessions.get(input.sessionId);
   if (!session) {

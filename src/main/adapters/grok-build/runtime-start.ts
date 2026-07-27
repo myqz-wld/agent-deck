@@ -10,6 +10,7 @@ import type { GrokExtensionNotification } from './extension';
 import { GrokPermissionController } from './permission-controller';
 import { currentModelId, currentSessionMode, errorText } from './protocol-utils';
 import { resolveGrokBinary } from './resolve-grok-binary';
+import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import {
   buildGrokMcpServers,
@@ -79,21 +80,33 @@ export async function startGrokRuntime(
           runtime.suppressUpdates ||
           notification.sessionId !== runtime.nativeSessionId
         ) return;
+        const previousWatermark = runtime.translation.lastUsage;
         const usageEvent = translateGrokTurnUsage(
           runtime.applicationSessionId,
           runtime.model,
           notification,
           runtime.translation,
         );
+        if (!usageEvent && runtime.translation.lastUsage !== previousWatermark) {
+          persistGrokUsageWatermark(runtime);
+        }
         if (!usageEvent) return;
+        // Current-turn events carry their matching cumulative watermark so session manager commits
+        // both atomically. A completed-turn correction may carry only the safely advanced historical
+        // frontier; it never exposes an in-flight current standard snapshot.
         context.emit(usageEvent);
-        const payload = usageEvent.payload as { outputTokens?: unknown };
+        const payload = usageEvent.payload as {
+          outputTokens?: unknown;
+          grokAffectsCurrentTurn?: unknown;
+        };
         const usage = notification.update?.usage;
-        completeGrokTurnLiveRate(
-          runtime.translation,
-          typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
-          typeof usage?.apiDurationMs === 'number' ? usage.apiDurationMs : undefined,
-        );
+        if (payload.grokAffectsCurrentTurn !== false) {
+          completeGrokTurnLiveRate(
+            runtime.translation,
+            typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
+            typeof usage?.apiDurationMs === 'number' ? usage.apiDurationMs : undefined,
+          );
+        }
       } catch {
         return;
       }

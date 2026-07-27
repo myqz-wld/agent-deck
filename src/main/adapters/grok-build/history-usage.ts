@@ -76,11 +76,15 @@ export async function backfillGrokHistoryTokenUsage(options: {
           agentId: AGENT_ID,
           messageId: usageEvent.messageId,
           model: usageEvent.model,
+          totalTokens: usageEvent.totalTokens,
           inputTokens: usageEvent.inputTokens,
           outputTokens: usageEvent.outputTokens,
           reasoningTokens: usageEvent.reasoningTokens,
           cacheReadTokens: usageEvent.cacheReadTokens,
-          cacheCreationTokens: 0,
+          cacheCreationTokens: usageEvent.cacheCreationTokens,
+          // A live standard fallback may have been persisted before this provider prompt id was
+          // available. Reconcile the nearest metric-compatible provisional row atomically.
+          matchGrokStandardFallback: true,
           ts: usageEvent.ts,
         });
         result.imported += 1;
@@ -161,10 +165,12 @@ function historyUsageEvent(
 ): {
   messageId: string;
   model: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens: number;
-  cacheReadTokens: number;
+  totalTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  reasoningTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
   ts: number;
 } | null {
   void sessionId;
@@ -176,10 +182,12 @@ function historyUsageEvent(
   return {
     messageId,
     model: sessionModel?.trim() || firstModelUsageKey(usage),
+    totalTokens: usageNumber(usage.totalTokens),
     inputTokens: usageNumber(usage.inputTokens),
     outputTokens: usageNumber(usage.outputTokens),
     reasoningTokens: usageNumber(usage.reasoningTokens ?? usage.thoughtTokens),
     cacheReadTokens: usageNumber(usage.cachedReadTokens),
+    cacheCreationTokens: usageNumber(usage.cachedWriteTokens),
     ts: grokExtensionTimestampMs(notification, fallbackNow),
   };
 }
@@ -194,13 +202,14 @@ function hasUsageValues(usage: GrokTurnUsage): boolean {
     usage.outputTokens,
     usage.totalTokens,
     usage.cachedReadTokens,
+    usage.cachedWriteTokens,
     usage.reasoningTokens,
     usage.thoughtTokens,
   ].some((value) => finiteNumber(value) !== null);
 }
 
-function usageNumber(value: unknown): number {
-  return finiteNumber(value) ?? 0;
+function usageNumber(value: unknown): number | null {
+  return finiteNumber(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -2,13 +2,15 @@
  * Codex 权限页只读扫描器。
  *
  * Codex CLI 没有 Claude Code 的 allow/deny/ask settings 层；Agent Deck 侧能展示的真实权限面
- * 是 Codex SDK 启动时使用的 sandboxMode、固定 approvalPolicy、Agent Deck MCP 注入状态，以及
+ * 是 Codex app-server 启动时使用的 sandboxMode、approvalPolicy 所有权、Agent Deck MCP
+ * 注入状态，以及
  * `~/.codex/config.toml` 中与 Codex 运行相关的只读配置。
  */
 
 import { promises as fs } from 'node:fs';
 import type {
   AppSettings,
+  CodexApprovalPolicy,
   CodexPermissionScanResult,
   CodexSandboxMode,
 } from '@shared/types';
@@ -29,6 +31,7 @@ interface ScanCodexSettingsOptions {
   configPath?: string;
   appSettings?: CodexScanSettings;
   sessionCodexSandbox?: CodexSandboxMode | null;
+  sessionCodexApprovalPolicy?: CodexApprovalPolicy | null;
 }
 
 const CODEX_SANDBOX_MODES = new Set<CodexSandboxMode>([
@@ -68,6 +71,7 @@ export async function scanCodexSettings(
   const configPath = options.configPath ?? getCodexConfigPath();
   const sessionSandbox = options.sessionCodexSandbox;
   const hasSessionSandbox = isCodexSandboxMode(sessionSandbox);
+  const approvalPolicy = options.sessionCodexApprovalPolicy ?? null;
   const sandboxMode = hasSessionSandbox ? sessionSandbox : settings.codexSandbox;
   const agentDeckMcpEnabled = settings.enableAgentDeckMcp && settings.mcpHttpEnabled;
 
@@ -91,7 +95,8 @@ export async function scanCodexSettings(
     effective: {
       sandboxMode,
       sandboxSource: hasSessionSandbox ? 'session' : 'settings',
-      approvalPolicy: 'never',
+      approvalPolicy,
+      approvalSource: approvalPolicy === null ? 'codex-config' : 'agent-deck',
       skipGitRepoCheck: true,
       agentDeckMcp: {
         enabled: settings.enableAgentDeckMcp,

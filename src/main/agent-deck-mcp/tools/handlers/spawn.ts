@@ -29,6 +29,7 @@ import { buildSpawnPromptContext } from './spawn-prompt';
 import { validateSpawnForkPreflight } from './spawn-fork-preflight';
 import {
   buildSpawnTargetOptions,
+  inheritCodexForkRuntimeControls,
   setSpawnTargetInitialRegistration,
   setSpawnTargetPrompt,
 } from './spawn-target-options';
@@ -75,7 +76,7 @@ export const spawnSessionHandler = withMcpGuard(
         'Choose an enabled adapter with session-creation capability: claude-code, codex-cli, or grok-build.',
       );
     }
-    const runtimeControlError = validateSpawnRuntimeControls(args, adapter.capabilities);
+    const runtimeControlError = validateSpawnRuntimeControls(args);
     if (runtimeControlError) {
       return err(runtimeControlError.error, runtimeControlError.hint);
     }
@@ -196,6 +197,7 @@ export const spawnSessionHandler = withMcpGuard(
 
     let forkSource: ForkSessionSource | null = null;
     if (contextMode === 'fork') {
+      inheritCodexForkRuntimeControls(targetOptions, leadRecord);
       const preflight = await validateSpawnForkPreflight({
         callerSessionId: caller.callerSessionId,
         caller: leadRecord,

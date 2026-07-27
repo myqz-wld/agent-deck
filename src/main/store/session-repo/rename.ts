@@ -134,8 +134,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -155,6 +155,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.agent_profile_source,
         fromRow.agent_plugin_dir,
         fromRow.codex_sandbox,
+        fromRow.codex_approval_policy,
         fromRow.claude_code_sandbox,
         fromRow.model,
         fromRow.thinking,
@@ -169,6 +170,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         // 与 extra_allow_write / codex_sandbox 同款直接复制）。
         fromRow.network_access_enabled,
         fromRow.additional_directories,
+        fromRow.grok_usage_watermark,
         fromRow.pinned_at,
         fromRow.hidden_from_history,
       );
@@ -315,6 +317,14 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         toId,
       );
     }
+    if (toExists) {
+      // Explicit approval ownership is session identity state. OLD wins even
+      // when NULL, which clears a stale target reviewer override.
+      db.prepare(`UPDATE sessions SET codex_approval_policy = ? WHERE id = ?`).run(
+        fromRow.codex_approval_policy,
+        toId,
+      );
+    }
     if (toExists && fromRow.claude_code_sandbox) {
       // CHANGELOG_74：与 codex_sandbox 同款 — recoverAndSend / SDK fallback rename 时
       // 必须从 fromRow 覆盖到 NEW 行，否则用户在 NewSessionDialog / ComposerSdk 选过的
@@ -412,6 +422,12 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 定性同上：防御性 parity 非 spawn 救命。
       db.prepare(`UPDATE sessions SET additional_directories = ? WHERE id = ?`).run(
         fromRow.additional_directories,
+        toId,
+      );
+    }
+    if (toExists) {
+      db.prepare(`UPDATE sessions SET grok_usage_watermark = ? WHERE id = ?`).run(
+        fromRow.grok_usage_watermark,
         toId,
       );
     }

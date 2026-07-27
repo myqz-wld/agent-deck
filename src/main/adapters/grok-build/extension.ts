@@ -49,11 +49,17 @@ export function grokExtensionTimestampMs(
   notification: GrokExtensionNotification,
   fallback = Date.now(),
 ): number {
+  return explicitGrokExtensionTimestampMs(notification) ?? fallback;
+}
+
+export function explicitGrokExtensionTimestampMs(
+  notification: GrokExtensionNotification,
+): number | null {
   const agentTimestamp = finiteNumber(notification._meta?.agentTimestampMs);
   if (agentTimestamp !== null) return agentTimestamp;
   const timestamp = finiteNumber(notification.timestamp);
   if (timestamp !== null) return timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000;
-  return fallback;
+  return null;
 }
 
 export function finiteNumber(value: unknown): number | null {

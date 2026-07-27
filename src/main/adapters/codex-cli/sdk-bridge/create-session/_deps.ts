@@ -77,13 +77,9 @@ export interface CreateSessionOpts {
   codexConfigOverrides?: CodexConfigObject;
   /**
    * plan cross-adapter-parity-20260515 Phase A Step A.7 / REVIEW_40 R1 reviewer-codex MED-F:
-   * caller 透传的 SDK sandbox 额外可写根。**codex SDK 不消费 extra writable roots**
-   * (sandboxMode 三档 'workspace-write' / 'read-only' / 'danger-full-access' 控根 sandbox
-   * profile,无 extra allowWrite 字段),但本字段仍持久化到 sessions.extra_allow_write 保跨
-   * adapter parity 对称(让 SessionRecord 字段在 claude / codex 之间形态一致 + future codex
-   * SDK 加支持时零迁移成本)。
-   *
-   * 与 model 字段语义已差异: model 字段 codex SDK runtime 真生效,extraAllowWrite 仅持久化未生效。
+   * Provider-neutral sandbox writable roots. Codex maps these to app-server workspace-write
+   * `writableRoots` together with `additionalDirectories`, and persists the original field so
+   * recovery can rebuild the same policy.
    */
   extraAllowWrite?: readonly string[];
   /**
@@ -103,22 +99,11 @@ export interface CreateSessionOpts {
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
    * codex SDK startThread/resumeThread `approvalPolicy` 透传。
    *
-   * **P5 Round 1 reviewer-codex M1 修法 (clarify 不变量 6 边界)**：
-   * bridge 层 fallback `?? 'never'` 是 **in-process 安全基线**(主进程跑 codex SDK 无 UI 应答
-   * approval 弹窗,'on-request' 会让子进程挂死等审批)— 与 networkAccessEnabled /
-   * additionalDirectories 这两个 reviewer-* runtime default **语义不同**。sandboxMode 不再是
-   * reviewer 专属 default,而是走普通 caller 显式 / same-adapter 继承 / target default 链。
-   *
-   * **不变量 6 修订理解**：
-   * - 2 字段 `networkAccessEnabled / additionalDirectories` reviewer-* 专属 spread
-   *   (普通 codex session lead 路径**不**应注入,options-builder narrowToCodexOpts 守门)
-   * - 1 字段 `approvalPolicy` **所有 codex session 共享**'never' 基线,bridge 兜底 + options-builder
-   *   reviewer-* 路径冗余设置(都为 'never',无 contention)。caller 显式传 'on-request' 仅在 codex CLI
-   *   外部进程上下文有意义,本 in-process bridge 不支持。
-   *
-   * options-builder 端 reviewer-* 仍写 'never'(与 bridge fallback 一致,显式 + 防 caller 误传)。
+   * Undefined is intentionally omitted so normal sessions inherit Codex config. Internal
+   * unattended reviewers still pass `never` explicitly. Agent Deck handles provider-initiated
+   * approval requests for interactive policies.
    */
-  approvalPolicy?: 'never' | 'on-request';
+  approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /**
    * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `networkAccessEnabled` 透传。
    * bridge 不主动 enforce default — undefined 沿用 SDK 默认；options-builder 在 reviewer-*

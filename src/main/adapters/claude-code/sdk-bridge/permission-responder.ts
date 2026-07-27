@@ -25,6 +25,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import type { InternalSession, SdkBridgeOptions } from './types';
+import type { PermissionMode } from '@main/adapters/types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('claude-permission-responder');
@@ -41,7 +42,7 @@ export interface ResponderCtx {
 /** 冷切到 bypass 的 thunk：avoid responder → lifecycle 循环依赖（F1 修法） */
 type RestartThunk = (
   sessionId: string,
-  mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+  mode: PermissionMode,
   handoffPrompt: string,
 ) => Promise<string>;
 
