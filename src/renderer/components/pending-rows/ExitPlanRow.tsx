@@ -1,5 +1,10 @@
 import { useEffect, useState, type JSX, type KeyboardEvent } from 'react';
-import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
+import type {
+  AgentEvent,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
+  SelectablePermissionMode,
+} from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
 import log from '@renderer/utils/logger';
@@ -7,12 +12,13 @@ import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
 import { PlanMarkdownPanel } from './plan-markdown-panel';
 
 const logger = log.scope('renderer-exit-plan-row');
-type TargetMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+type TargetMode = SelectablePermissionMode;
 
 const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string }[] = [
-  { value: 'default', label: '每次询问', title: '每次工具调用前都询问' },
+  { value: 'default', label: '手动确认', title: '每次工具调用前都询问' },
   { value: 'acceptEdits', label: '自动接受编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '继续计划模式', title: '保持计划模式，不执行任何工具' },
+  { value: 'auto', label: '自动判断', title: '由 Claude 的权限分类器自动允许或拒绝' },
   { value: 'bypassPermissions', label: '⚠️ 不再询问', title: '不再询问任何工具调用；需要重启会话' },
 ];
 
@@ -66,9 +72,10 @@ export function ExitPlanRow({
   }, [clearDeepReviewDraft, payload.requestId, stillPending]);
 
   const targetModeLabel: Record<typeof targetMode, string> = {
-    default: '每次询问',
+    default: '手动确认',
     acceptEdits: '自动接受编辑',
     plan: '继续计划模式',
+    auto: '自动判断',
     bypassPermissions: '⚠️ 不再询问',
   };
 

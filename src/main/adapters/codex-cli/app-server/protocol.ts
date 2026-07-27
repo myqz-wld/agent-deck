@@ -42,6 +42,23 @@ export interface CodexAppServerThreadCreateResult {
 
 export type CodexAppServerNotification = { method: string; params?: unknown };
 
+export interface CodexAppServerServerRequest {
+  id: number | string;
+  method: string;
+  params?: unknown;
+}
+
+export type CodexAppServerServerRequestDisposition =
+  | { handled: false }
+  | { handled: true; result: unknown };
+
+export type CodexAppServerServerRequestHandler = (
+  request: CodexAppServerServerRequest,
+  signal: AbortSignal,
+) =>
+  | CodexAppServerServerRequestDisposition
+  | Promise<CodexAppServerServerRequestDisposition>;
+
 export type CodexAppServerStreamEvent =
   | { type: 'thread.started'; thread_id: string }
   | { type: 'turn.accepted'; turn_id: string }

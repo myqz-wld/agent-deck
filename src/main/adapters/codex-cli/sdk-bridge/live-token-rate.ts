@@ -98,8 +98,9 @@ function emitAppServerUsageTick(
   const tokenUsage = readObjectField(params, 'tokenUsage');
   const last = readObjectField(tokenUsage, 'last');
   if (!last) return;
-  const outputTokens =
-    readNumberField(last, 'outputTokens') + readNumberField(last, 'reasoningOutputTokens');
+  // Codex reports reasoningOutputTokens as a subset of outputTokens. Use the provider total
+  // directly so the display-only rate does not double-count reasoning.
+  const outputTokens = readNumberField(last, 'outputTokens');
   if (outputTokens <= 0) return;
   const elapsedMs = Math.max(now - state.lastUsageTickTs, THROTTLE_MS);
   state.lastUsageTickTs = now;

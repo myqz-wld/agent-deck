@@ -16,6 +16,7 @@ import { maybeJsonlFallback } from './jsonl-fallback';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
 import type { RestartCtx } from './restart-controller-types';
 import log from '@main/utils/logger';
+import type { PermissionMode } from '@main/adapters/types';
 
 export type { RestartCreateOpts, RestartCtx } from './restart-controller-types';
 
@@ -47,7 +48,7 @@ export class RestartController {
    */
   async restartWithPermissionMode(
     sessionId: string,
-    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+    mode: PermissionMode,
     handoffPrompt: string,
   ): Promise<string> {
     if (!handoffPrompt.trim()) {
@@ -110,8 +111,7 @@ export class RestartController {
 
       const rec = sessionRepo.get(currentSid);
       if (!rec) throw new Error(`session ${currentSid} not found in repo`);
-      const oldMode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' =
-        rec.permissionMode ?? 'default';
+      const oldMode: PermissionMode = rec.permissionMode ?? 'default';
 
       // Freeze the old conversation before the restart placeholder/close events mutate history.
       // Capture failure is deferred so a valid native jsonl can still resume normally.

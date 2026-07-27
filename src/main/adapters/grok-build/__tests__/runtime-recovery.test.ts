@@ -13,6 +13,7 @@ const sessionRepoMock = vi.hoisted(() => ({
   setModel: vi.fn(),
   setThinking: vi.fn(),
   setSessionMode: vi.fn(),
+  setGrokUsageWatermark: vi.fn(),
   get: vi.fn(),
 }));
 
@@ -39,6 +40,7 @@ vi.mock('@main/session/manager', () => ({
 import {
   createGrokRuntime,
   persistGrokRuntimeMetadata,
+  persistGrokUsageWatermark,
   recoverGrokRuntime,
 } from '../runtime-factory';
 import { startGrokRuntime } from '../runtime-start';
@@ -148,6 +150,38 @@ describe('Grok runtime recovery profile', () => {
       agentProfileName: 'reviewer-grok',
       agentProfileSource: 'plugin',
       agentPluginDir: '/plugins/reviewer-grok',
+    });
+  });
+
+  it('restores and persists the cumulative usage watermark across recovery', () => {
+    const watermark = {
+      totalTokens: 120,
+      inputTokens: 90,
+      outputTokens: 30,
+      thoughtTokens: 6,
+      cachedReadTokens: 20,
+      cachedWriteTokens: null,
+    };
+    const record = { ...makeRecord(), grokUsageWatermark: watermark };
+    const runtime = recoverGrokRuntime(record);
+
+    expect(runtime.translation).toMatchObject({
+      lastUsage: watermark,
+      standardUsageBaselineReady: true,
+    });
+
+    persistGrokUsageWatermark(runtime);
+    expect(sessionRepoMock.setGrokUsageWatermark).toHaveBeenCalledWith(
+      record.id,
+      watermark,
+    );
+  });
+
+  it('treats the first standard usage snapshot as baseline for legacy recovered rows', () => {
+    const runtime = recoverGrokRuntime(makeRecord());
+    expect(runtime.translation).toMatchObject({
+      lastUsage: null,
+      standardUsageBaselineReady: false,
     });
   });
 });

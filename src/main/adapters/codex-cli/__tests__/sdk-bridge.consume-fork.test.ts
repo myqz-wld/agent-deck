@@ -135,6 +135,7 @@ function makeInternalSession(
     currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
+    pendingPermissions: new Map(),
   };
 }
 

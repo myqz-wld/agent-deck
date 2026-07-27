@@ -153,10 +153,10 @@ The reviewer first uses `list_sessions({ statusFilter: 'active' })` to find a un
 Codex teammate spawn uses the app-level default app-server thread options unless the caller passes an explicit override or a same-adapter Codex caller has a persisted sandbox to inherit. Reviewer-codex follows the same `codexSandbox` inheritance and override rules as any other Codex spawn.
 
 - `sandboxMode` follows `codexSandbox`: explicit argument, same-adapter inheritance, then Codex adapter default.
-- `approvalPolicy: 'never'`, so SDK sessions do not wait for invisible approvals.
-- For reviewer-codex, `networkAccessEnabled: true` and `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` are injected so reviewers can read required context and temporary files.
+- Ordinary Codex sessions do not force an `approvalPolicy`; Codex config and provider defaults remain authoritative. Native app-server approval requests are surfaced in Agent Deck Pending and answered with the exact Codex decision vocabulary.
+- Reviewer-codex is an internal non-interactive exception: it explicitly uses `approvalPolicy: 'never'`, `networkAccessEnabled: true`, and `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` so review sessions cannot stall on an invisible approval and can read required context and temporary files.
 
-MCP `spawn_session` exposes only allowlisted fields such as `codexSandbox`; it cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
+MCP target runtime field ownership is adapter-scoped. Claude accepts `permissionMode`, `claudeCodeSandbox`, and `extraAllowWrite`; Codex accepts `codexSandbox` and `extraAllowWrite`; Grok accepts `sessionMode` and keeps ACP-native tool permissions. The current flat MCP call shape documents each owner, and runtime validation rejects incompatible fields instead of silently ignoring them. MCP cannot override arbitrary `additionalDirectories` or `networkAccessEnabled`. When a file outside the readable scope is needed, copy it into the worktree, repo cwd, `~/.claude`, `~/.codex`, or `/tmp` before passing the scope.
 
 Agent Deck injects `AGENT_DECK_MCP_TOKEN` into every Codex app-server session. The Codex MCP client uses that token to connect to the streamable HTTP MCP server; the server resolves the caller session and fills it into tool handlers automatically. External global tokens allow only read-only capability; session, worktree, task, and issue write tools are rejected.
 

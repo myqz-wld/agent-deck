@@ -29,7 +29,11 @@
  * createSession 验透传字段。`recoverer-jsonl-exists.test.ts` 不受影响 (jsonlExistsThunk 实现仍在
  * recoverer.ts 中定义)。
  */
-import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type {
+  AgentEvent,
+  CodexApprovalPolicy,
+  UploadedAttachmentRef,
+} from '@shared/types';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import { toCodexModelOverride } from '../sdk-model';
 import { AGENT_ID } from './constants';
@@ -68,17 +72,19 @@ export interface CodexJsonlFallbackOpts {
   captureError?: unknown;
   /** rec.codexSandbox ?? undefined (显式透传防静默降默认) */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  /** rec.codexApprovalPolicy ?? undefined; reviewer fallback must remain unattended. */
+  approvalPolicy?: CodexApprovalPolicy;
   /** rec.runtimeProvider ?? undefined; fresh fallback must retain model_provider. */
   provider?: string;
   /** rec.model ?? undefined (Codex runtime v0.131.0+ per-thread override) */
   model?: string;
   /** rec.thinking when it is a valid Codex reasoning level. */
   modelReasoningEffort?: CodexThinkingLevel;
-  /** rec.extraAllowWrite ?? undefined (parity 透传,codex runtime 不消费仅持久化) */
+  /** rec.extraAllowWrite ?? undefined; mapped to app-server workspace writableRoots. */
   extraAllowWrite?: readonly string[];
   /**
    * plan codex-recover-network-dirs-parity-20260602：rec.networkAccessEnabled ?? undefined。
-   * **codex SDK runtime 真消费**（区别 extraAllowWrite）—— fresh thread 起动时透传让 reviewer-codex
+   * fresh thread 起动时透传让 reviewer-codex
    * 保持网络访问。
    */
   networkAccessEnabled?: boolean;
@@ -186,6 +192,7 @@ export async function maybeCodexJsonlFallback(
     resumeMode: 'fresh-cli-reuse-app',
     provider: opts.provider,
     codexSandbox: opts.codexSandbox,
+    approvalPolicy: opts.approvalPolicy,
     model: toCodexModelOverride(opts.model),
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,

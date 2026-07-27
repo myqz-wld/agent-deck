@@ -100,7 +100,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       lastEventAt: 2,
       endedAt: null,
       archivedAt: null,
-      permissionMode: 'plan',
+      permissionMode: 'dontAsk',
       runtimeProvider: 'deepseek',
       agentProfileName: 'reviewer-claude',
       agentProfileSource: 'plugin',
@@ -129,7 +129,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       provider: 'deepseek',
       claudeAgentName: 'reviewer-claude',
       claudePluginDir: '/plugins/reviewer-claude',
-      permissionMode: 'plan',
+      permissionMode: 'dontAsk',
       // REVIEW_36 HIGH-1: 正常 resume 路径也透传（fixture 中 record 没设字段，undefined）
       claudeCodeSandbox: undefined,
     });

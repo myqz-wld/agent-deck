@@ -22,7 +22,7 @@ import type {
   RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
-import type { AgentEnqueueOptions } from '@main/adapters/types';
+import type { AgentEnqueueOptions, PermissionMode } from '@main/adapters/types';
 
 /**
  * facade `recoverer.ts` SessionRecoverer ctor 注入的 ctx ref bundle。
@@ -57,7 +57,7 @@ export type CreateSessionThunk = (opts: {
   claudeAgentName?: string;
   /** Persisted Claude Plugin root restored together with the Agent selection. */
   claudePluginDir?: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+  permissionMode?: PermissionMode;
   resume?: string;
   teamName?: string;
   attachments?: UploadedAttachmentRef[];

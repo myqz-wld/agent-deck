@@ -1,10 +1,13 @@
 import type { GrokCreateOpts } from '@main/adapters/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
+import log from '@main/utils/logger';
 import type { SessionRecord } from '@shared/types';
 
 import type { GrokRuntime } from './runtime-types';
 import { createGrokTranslationState } from './translate';
+
+const logger = log.scope('grok-runtime');
 
 export function createGrokRuntime(
   applicationSessionId: string,
@@ -33,7 +36,11 @@ export function createGrokRuntime(
     agentPluginDir: opts.grokPluginDir ?? existing?.agentPluginDir ?? null,
     pendingPermissions: new Map(),
     acceptedEnqueueFingerprints: new Map(),
-    translation: createGrokTranslationState(),
+    translation: createGrokTranslationState({
+      lastUsage: existing?.grokUsageWatermark ?? null,
+      standardUsageBaselineReady:
+        existing === null || existing.grokUsageWatermark != null,
+    }),
   };
 }
 
@@ -60,7 +67,10 @@ export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
     agentPluginDir: record.agentPluginDir ?? null,
     pendingPermissions: new Map(),
     acceptedEnqueueFingerprints: new Map(),
-    translation: createGrokTranslationState(),
+    translation: createGrokTranslationState({
+      lastUsage: record.grokUsageWatermark ?? null,
+      standardUsageBaselineReady: record.grokUsageWatermark != null,
+    }),
   };
 }
 
@@ -79,4 +89,19 @@ export function persistGrokRuntimeMetadata(runtime: GrokRuntime): void {
   }
   const updated = sessionRepo.get(runtime.applicationSessionId);
   if (updated) eventBus.emit('session-upserted', updated);
+}
+
+/** Best-effort durability for cumulative ACP usage; accounting must not break the turn. */
+export function persistGrokUsageWatermark(runtime: GrokRuntime): void {
+  try {
+    sessionRepo.setGrokUsageWatermark(
+      runtime.applicationSessionId,
+      runtime.translation.lastUsage,
+    );
+  } catch (err) {
+    logger.warn(
+      `[grok-runtime] failed to persist usage watermark for ${runtime.applicationSessionId}`,
+      err,
+    );
+  }
 }

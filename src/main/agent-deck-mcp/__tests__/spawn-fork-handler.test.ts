@@ -285,6 +285,30 @@ describe('spawn_session native-fork handler lifecycle', () => {
     expect(state.sessions.get('caller')).toEqual(before);
   });
 
+  it('inherits hidden reviewer Codex approval and access controls into a native fork', async () => {
+    seedCaller('codex-cli', {
+      agentProfileName: 'reviewer-codex',
+      codexApprovalPolicy: 'never',
+      networkAccessEnabled: true,
+      additionalDirectories: ['~/.claude', '~/.codex', '/tmp'],
+    });
+
+    const { raw } = await call('codex-cli', 'fork');
+
+    expect(raw.isError).toBeUndefined();
+    expect(state.validateCalls[0]?.target).toMatchObject({
+      agentId: 'codex-cli',
+      approvalPolicy: 'never',
+      networkAccessEnabled: true,
+      additionalDirectories: ['~/.claude', '~/.codex', '/tmp'],
+    });
+    expect(state.forkCalls[0]?.target).toMatchObject({
+      approvalPolicy: 'never',
+      networkAccessEnabled: true,
+      additionalDirectories: ['~/.claude', '~/.codex', '/tmp'],
+    });
+  });
+
   it.each([undefined, 'fresh'] as const)('%s mode uses only the ordinary create path', async (mode) => {
     seedCaller('claude-code');
     const { raw, data } = await call('claude-code', mode);

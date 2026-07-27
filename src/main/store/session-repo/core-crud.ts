@@ -10,6 +10,8 @@
 import type {
   AgentProfileSource,
   AdapterSessionMode,
+  CodexApprovalPolicy,
+  GrokUsageWatermark,
   PermissionMode,
   SessionRecord,
 } from '@shared/types';
@@ -57,8 +59,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, pinned_at, hidden_from_history)
-       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @pinned_at, @hidden_from_history)
+       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @codex_approval_policy, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @grok_usage_watermark, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
          runtime_provider = excluded.runtime_provider,
          cwd = excluded.cwd,
@@ -75,6 +77,7 @@ export function upsert(rec: SessionRecord): void {
          agent_profile_source = excluded.agent_profile_source,
          agent_plugin_dir = excluded.agent_plugin_dir,
          codex_sandbox = excluded.codex_sandbox,
+         codex_approval_policy = excluded.codex_approval_policy,
          claude_code_sandbox = excluded.claude_code_sandbox,
          model = excluded.model,
          thinking = excluded.thinking,
@@ -85,7 +88,8 @@ export function upsert(rec: SessionRecord): void {
          generic_pty_config = excluded.generic_pty_config,
          cli_session_id = excluded.cli_session_id,
          network_access_enabled = excluded.network_access_enabled,
-         additional_directories = excluded.additional_directories`,
+         additional_directories = excluded.additional_directories,
+         grok_usage_watermark = excluded.grok_usage_watermark`,
     )
     .run({
       id: rec.id,
@@ -106,6 +110,7 @@ export function upsert(rec: SessionRecord): void {
       agent_profile_source: rec.agentProfileSource ?? null,
       agent_plugin_dir: rec.agentPluginDir ?? null,
       codex_sandbox: rec.codexSandbox ?? null,
+      codex_approval_policy: rec.codexApprovalPolicy ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
       model: rec.model ?? null,
       thinking: rec.thinking ?? null,
@@ -127,6 +132,9 @@ export function upsert(rec: SessionRecord): void {
         rec.additionalDirectories && rec.additionalDirectories.length > 0
           ? JSON.stringify(rec.additionalDirectories)
           : null,
+      grok_usage_watermark: rec.grokUsageWatermark
+        ? JSON.stringify(rec.grokUsageWatermark)
+        : null,
       // Pin state has one dedicated setter. It participates in first INSERT, but is deliberately
       // absent from ON CONFLICT so a stale full-record upsert cannot undo a concurrent pin toggle.
       pinned_at: rec.pinnedAt ?? null,
@@ -301,6 +309,14 @@ export function setCodexSandbox(
   getDb().prepare(`UPDATE sessions SET codex_sandbox = ? WHERE id = ?`).run(sandbox, id);
 }
 
+/** Persist an explicit Codex approval override; null delegates to Codex config/provider defaults. */
+export function setCodexApprovalPolicy(
+  id: string,
+  policy: CodexApprovalPolicy | null,
+): void {
+  getDb().prepare(`UPDATE sessions SET codex_approval_policy = ? WHERE id = ?`).run(policy, id);
+}
+
 /**
  * 写入 claude OS sandbox 档位（CHANGELOG_74：仅 claude-code adapter 调用）。
  * null 表示恢复用 settings.claudeCodeSandbox 全局值（与 createSession 路径 fallback 同模式）。
@@ -343,8 +359,8 @@ export function setThinking(id: string, thinking: string | null): void {
  * - claude-code adapter session-finalize:opts.extraAllowWrite 非空时调,让 SDK resume /
  *   dormant 唤醒 / app 重启 / sdk-bridge state lost 后,recoverer 路径仍能从 sessionRepo
  *   读回交还 SDK sandbox.allowWrite(workspace-write 档生效)
- * - codex-cli adapter session-finalize:opts.extraAllowWrite 非空时也调(parity 对称写库,
- *   runtime 不消费 — codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移
+ * - codex-cli adapter session-finalize:opts.extraAllowWrite 非空时也调；bridge 在恢复时将其
+ *   合并进 app-server workspace-write writableRoots
  *
  * `paths`:绝对路径数组;空数组 / null → 列写 NULL(语义同 caller 不传 extraAllowWrite,
  * sandbox.allowWrite 不增 root)。
@@ -385,6 +401,16 @@ export function setNetworkAccessEnabled(id: string, enabled: boolean | null): vo
 export function setAdditionalDirectories(id: string, dirs: string[] | null): void {
   const json = dirs && dirs.length > 0 ? JSON.stringify(dirs) : null;
   getDb().prepare(`UPDATE sessions SET additional_directories = ? WHERE id = ?`).run(json, id);
+}
+
+/** Persist the exact cumulative ACP usage snapshot used to resume Grok deltas. */
+export function setGrokUsageWatermark(
+  id: string,
+  watermark: GrokUsageWatermark | null,
+): void {
+  getDb()
+    .prepare(`UPDATE sessions SET grok_usage_watermark = ? WHERE id = ?`)
+    .run(watermark ? JSON.stringify(watermark) : null, id);
 }
 
 /**

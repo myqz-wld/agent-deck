@@ -3,8 +3,8 @@
 -- 镜像 v019 extra_allow_write / v008 codex_sandbox 同款 per-session resilience 模式）。
 --
 -- 问题：options-builder.ts narrowToCodexOpts 在 reviewer-* 分支注入 reviewer runtime defaults。
--- 其中 codexSandbox 已 v008 持久化、approvalPolicy 有 buildCodexThreadOptions `?? 'never'`
--- fallback，唯独 networkAccessEnabled + additionalDirectories **既不持久化也无 fallback** →
+-- 其中 codexSandbox 已 v008 持久化；当时唯独 networkAccessEnabled +
+-- additionalDirectories **既不持久化也无 fallback** →
 -- app 重启 / dev hot reload / main crash 后 sessions Map miss → recover 路径 createSession
 -- 不重传这俩 → SDK 走默认（无网络访问 + 无额外可读写目录）→ recover 后的 reviewer-codex
 -- 失去 web search + 跨目录读 plan/config + /tmp 中间文件能力。

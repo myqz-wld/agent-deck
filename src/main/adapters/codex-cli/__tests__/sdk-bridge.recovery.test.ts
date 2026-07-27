@@ -2,7 +2,8 @@
  * codex sdk-bridge.recoverAndSend 单测（codex-tests-plan P1 Step 1.2）。
  *
  * 镜像 claude `__tests__/sdk-bridge.recovery.test.ts` 同款覆盖矩阵但适配 codex 形态：
- * - codex 没有 permissionMode（SDK approvalPolicy 写死 'never'）
+ * - codex 没有 permissionMode（普通会话不覆盖 provider/config；reviewer 的显式
+ *   approvalPolicy='never' 必须跨 dormant/restart 恢复）
  * - codex per-session 沙盒字段 = `codexSandbox`（不是 claudeCodeSandbox）
  * - codex 还有 `model` 字段（fallback 路径需透传 sessionRepo.model 否则 DB / spawn 不一致）
  * - codex jsonl missing emit text = "Codex 内部对话历史 (jsonl) 已不存在"（不是 claude 的「CLI 内部对话历史(jsonl)已丢失」）
@@ -1376,6 +1377,7 @@ describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', 
       endedAt: null,
       archivedAt: null,
       codexSandbox: 'workspace-write',
+      codexApprovalPolicy: 'never',
       networkAccessEnabled: true,
       additionalDirectories: REVIEWER_DIRS,
     });
@@ -1383,6 +1385,7 @@ describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', 
     await bridge.sendMessage('sess-net-resume', 'hi');
 
     expect(bridge.createCalls).toHaveLength(1);
+    expect(bridge.createCalls[0].approvalPolicy).toBe('never');
     expect(bridge.createCalls[0].networkAccessEnabled).toBe(true);
     expect(bridge.createCalls[0].additionalDirectories).toEqual(REVIEWER_DIRS);
   });
@@ -1451,6 +1454,7 @@ describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', 
       endedAt: 3,
       archivedAt: null,
       codexSandbox: 'workspace-write',
+      codexApprovalPolicy: 'never',
       networkAccessEnabled: true,
       additionalDirectories: REVIEWER_DIRS,
     });
@@ -1459,6 +1463,7 @@ describe('plan codex-recover-network-dirs-parity: network/dirs recover 透传', 
 
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0].resumeMode).toBe('fresh-cli-reuse-app');
+    expect(bridge.createCalls[0].approvalPolicy).toBe('never');
     expect(bridge.createCalls[0].networkAccessEnabled).toBe(true);
     expect(bridge.createCalls[0].additionalDirectories).toEqual(REVIEWER_DIRS);
   });

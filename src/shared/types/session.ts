@@ -13,10 +13,66 @@ export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 export type LifecycleState = 'active' | 'dormant' | 'closed';
 /**
  * SDK 通道的会话级权限模式。SDK Query 自己持有运行时真值但不暴露 getter，
- * 因此把「用户上次主动选过的值」持久化在 sessions.permission_mode 列里，
- * 切回 detail 或恢复会话时还原。
+ * 因此把用户选择或 provider 上报的当前权威状态持久化在 sessions.permission_mode 列里，
+ * 切回 detail 或恢复会话时精确还原。
  */
-export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+export const PERMISSION_MODES = [
+  'default',
+  'acceptEdits',
+  'plan',
+  'auto',
+  'bypassPermissions',
+] as const;
+/** Modes users may explicitly choose through Agent Deck's public surfaces. */
+export type SelectablePermissionMode = (typeof PERMISSION_MODES)[number];
+/**
+ * Provider runtime states. `dontAsk` remains intentionally absent from the public selectable
+ * list, but Claude may report or restore it and Agent Deck must preserve that state exactly.
+ */
+export const CLAUDE_RUNTIME_PERMISSION_MODES = [
+  ...PERMISSION_MODES,
+  'dontAsk',
+] as const;
+export type PermissionMode = (typeof CLAUDE_RUNTIME_PERMISSION_MODES)[number];
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return (
+    typeof value === 'string' &&
+    (CLAUDE_RUNTIME_PERMISSION_MODES as readonly string[]).includes(value)
+  );
+}
+export function isSelectablePermissionMode(
+  value: unknown,
+): value is SelectablePermissionMode {
+  return (
+    typeof value === 'string' &&
+    (PERMISSION_MODES as readonly string[]).includes(value)
+  );
+}
+/**
+ * Restore every provider-valid runtime state exactly; ignore only unknown values. Public parsers
+ * use `isSelectablePermissionMode` separately, so preserving `dontAsk` here does not expose it as
+ * a new user choice.
+ */
+export function normalizeStoredPermissionMode(value: unknown): PermissionMode | null {
+  return isPermissionMode(value) ? value : null;
+}
+export const CODEX_APPROVAL_POLICIES = ['untrusted', 'on-request', 'never'] as const;
+export type CodexApprovalPolicy = (typeof CODEX_APPROVAL_POLICIES)[number];
+export function isCodexApprovalPolicy(value: unknown): value is CodexApprovalPolicy {
+  return (
+    typeof value === 'string' &&
+    (CODEX_APPROVAL_POLICIES as readonly string[]).includes(value)
+  );
+}
+/** Exact cumulative ACP counters used only as Grok recovery watermarks. */
+export interface GrokUsageWatermark {
+  totalTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  thoughtTokens: number | null;
+  cachedReadTokens: number | null;
+  cachedWriteTokens: number | null;
+}
 /** Adapter-native work mode. Currently negotiated and implemented by Grok Build ACP. */
 export const ADAPTER_SESSION_MODES = ['default', 'plan', 'ask'] as const;
 export type AdapterSessionMode = (typeof ADAPTER_SESSION_MODES)[number];
@@ -64,7 +120,7 @@ export interface SessionRecord {
   pinnedAt?: number | null;
   /** Internal runtime rows remain live-addressable but are permanently omitted from History. */
   hiddenFromHistory?: boolean;
-  /** SDK 通道：上次手动选过的权限模式；null/undefined 视为 'default'。CLI 通道字段无意义。 */
+  /** Claude SDK 当前权限状态；null/undefined 视为 'default'。其他 adapter 字段无意义。 */
   permissionMode?: PermissionMode | null;
   /** Adapter-native work mode; separate from Claude permission mode. */
   sessionMode?: AdapterSessionMode | null;
@@ -107,6 +163,12 @@ export interface SessionRecord {
    * claude-code 会话该字段始终 null。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
+  /**
+   * Explicit per-session Codex approval override. Null means Agent Deck leaves
+   * approval ownership to Codex config/provider defaults. Reviewer sessions
+   * persist `never` so dormant/app-restart recovery cannot become interactive.
+   */
+  codexApprovalPolicy?: CodexApprovalPolicy | null;
   /**
    * Claude Code OS 沙盒档位（CHANGELOG_74：仅 claude-code adapter 写）。
    * 持久化用户在 NewSessionDialog / ComposerSdk 选过的 OS 沙盒档位
@@ -167,8 +229,8 @@ export interface SessionRecord {
    *
    * - claude-code adapter:值通过 finalizeSessionStart → buildSandboxConfig 真正注入
    *   SDK options.sandbox.allowWrite(workspace-write 档生效;strict / off 忽略)
-   * - codex-cli adapter:字段持久化(parity 对称),但 codex bridge createSession opts
-   *   不消费(codex SDK 不支持 extra writable roots);future codex SDK 加支持时零迁移成本
+   * - codex-cli adapter:与 additionalDirectories 合并后写入 app-server workspace-write
+   *   writableRoots
    *
    * null/undefined:不指定,sandbox.allowWrite 仅含 cwd + /tmp + cache(与 caller 不传
    * extraAllowWrite 行为同款)。
@@ -184,10 +246,10 @@ export interface SessionRecord {
    * main crash 后 sessions Map miss 时 recover / restart 路径能从 sessionRepo 读回交还
    * codex SDK，与 codexSandbox / model 同款 per-session resilience 模式。
    *
-   * **与 extraAllowWrite 关键区别**：本字段 codex SDK runtime **真消费**——经
+   * 本字段由 codex SDK runtime **真消费**——经
    * `buildCodexThreadOptions` → `startThread`/`resumeThread` 的 ThreadOptions.networkAccessEnabled
-   * 真正控制 codex 子进程能否访问网络（reviewer-codex 依赖 web search）。**不是** extraAllowWrite
-   * 那种 persist-only no-op，future 维护者勿因「codex 持久化字段都不生效」误判而删 recover 透传。
+   * 真正控制 codex 子进程能否访问网络（reviewer-codex 依赖 web search）。与
+   * `extraAllowWrite` / `additionalDirectories` 一样，recover 链上的透传不可删除。
    *
    * - 仅 codex reviewer-* spawn 写（options-builder 注入 → persistSessionFields 持久化）；
    *   普通 codex session（非 reviewer-*）+ claude-code 会话该字段始终 null（不读不写）。
@@ -204,11 +266,11 @@ export interface SessionRecord {
    * 注入的 `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` reviewer runtime default，让
    * recover / restart 路径能从 sessionRepo 读回交还 codex SDK（与 networkAccessEnabled 配套）。
    *
-   * **与 extraAllowWrite 关键区别**：本字段 codex SDK runtime **真消费**——经
+   * 本字段由 codex SDK runtime **真消费**——经
    * `buildCodexThreadOptions` → `startThread`/`resumeThread` 的 ThreadOptions.additionalDirectories
    * 真正把这些根加入当前 codex sandbox 可访问范围（实际读写能力仍受 sandboxMode 档位约束；
-   * reviewer-codex 依赖跨目录读 plan / claude config / codex config + /tmp 中间文件）。**不是** extraAllowWrite 那种 codex
-   * 不消费的 persist-only 字段，future 维护者勿误判而删 recover 透传。
+   * reviewer-codex 依赖跨目录读 plan / claude config / codex config + /tmp 中间文件）。
+   * `extraAllowWrite` 也会合并进 workspace-write writableRoots；两条 recover 透传都不可删除。
    *
    * - 仅 codex reviewer-* spawn 写；普通 codex session + claude-code 会话始终 null。
    * - null/undefined：不指定，recover 时 `?? undefined` 跳过 → codex SDK 走默认（无额外路径）。
@@ -217,6 +279,13 @@ export interface SessionRecord {
    * 读取端复用 parseStringArrayJson defense-in-depth（与 extraAllowWrite 同款防脏）。
    */
   additionalDirectories?: string[] | null;
+  /**
+   * Last exact cumulative Grok ACP usage snapshot. Persisting this prevents a
+   * recovered runtime from treating the provider's session-wide counters as a
+   * new turn. Null on a legacy recovered session means the first standard
+   * snapshot establishes a baseline and is not emitted as usage.
+   */
+  grokUsageWatermark?: GrokUsageWatermark | null;
   /**
    * mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
    * 不变量 5 + D2）：caller 走 mcp `enter_worktree` 进 worktree 时设为 worktreePath 绝对路径,

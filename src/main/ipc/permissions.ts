@@ -7,6 +7,7 @@ import type { CodexSandboxMode } from '@shared/types';
 import { scanCwdSettings, getCandidatePaths } from '@main/permissions/scanner';
 import { scanCodexSettings } from '@main/permissions/codex-scanner';
 import { getCodexConfigPath } from '@main/codex-config/toml-writer';
+import { sessionRepo } from '@main/store/session-repo';
 import { on } from './_helpers';
 
 export function registerPermissionsIpc(): void {
@@ -35,9 +36,11 @@ export function registerPermissionsIpc(): void {
   });
 
   // Codex: 扫描 ~/.codex/config.toml + app-owned Codex runtime knobs，纯只读。
-  on(IpcInvoke.PermissionScanCodex, async (_e, sessionCodexSandbox) => {
+  on(IpcInvoke.PermissionScanCodex, async (_e, sessionId) => {
+    const session = sessionRepo.get(String(sessionId ?? ''));
     return scanCodexSettings({
-      sessionCodexSandbox: sessionCodexSandbox as CodexSandboxMode | null,
+      sessionCodexSandbox: session?.codexSandbox as CodexSandboxMode | null,
+      sessionCodexApprovalPolicy: session?.codexApprovalPolicy ?? null,
     });
   });
 

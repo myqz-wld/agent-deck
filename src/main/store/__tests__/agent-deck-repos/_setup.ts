@@ -55,6 +55,10 @@ import v044 from '../../migrations/v044_sessions_hidden_from_history.sql?raw';
 import v045 from '../../migrations/v045_sessions_adapter_mode.sql?raw';
 import v046 from '../../migrations/v046_sessions_runtime_provider.sql?raw';
 import v047 from '../../migrations/v047_sessions_agent_runtime_profile.sql?raw';
+import v048 from '../../migrations/v048_codex_output_token_totals.sql?raw';
+import v049 from '../../migrations/v049_sessions_codex_approval_policy.sql?raw';
+import v050 from '../../migrations/v050_sessions_grok_usage_watermark.sql?raw';
+import v051 from '../../migrations/v051_token_usage_presence.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
@@ -114,6 +118,10 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
     v045,
     v046,
     v047,
+    v048,
+    v049,
+    v050,
+    v051,
   ]) {
     db.exec(sql);
   }

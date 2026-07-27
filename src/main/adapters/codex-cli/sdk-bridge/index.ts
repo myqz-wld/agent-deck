@@ -11,18 +11,19 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 // R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
 // R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持 sandbox switch method)。
 import { AGENT_ID } from './constants';
-import type {
-  CodexBridgeOptions,
-  CodexSessionHandle,
-  InternalSession,
-} from './types';
+import type { CodexBridgeOptions, CodexSessionHandle, InternalSession } from './types';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
-import type { ProviderUsageSnapshot, UploadedAttachmentRef } from '@shared/types';
+import type {
+  PermissionRequest,
+  PermissionResponse,
+  ProviderUsageSnapshot,
+  UploadedAttachmentRef,
+} from '@shared/types';
 import {
   SessionRecoverer,
   defaultCodexResumeJsonlExists,
@@ -52,10 +53,8 @@ import {
   type RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { SessionRecord } from '@shared/types';
-import {
-  armCodexSessionRetirement,
-  finalizeCodexSessionRetirement,
-} from './session-retirement';
+import { armCodexSessionRetirement, finalizeCodexSessionRetirement } from './session-retirement';
+import { CodexPermissionHost } from './permission-host';
 
 const logger = log.scope('codex-bridge');
 
@@ -64,7 +63,8 @@ export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
  *
- * - 无 canUseTool / AskUserQuestion / ExitPlanMode（codex SDK 不支持，capabilities 已 false）
+ * - app-server native approval requests bridge into Agent Deck's permission UI
+ * - 无 AskUserQuestion / ExitPlanMode（codex 不使用 Claude 工具状态机）
  * - 无 setPermissionMode（同上）
  * - 无 hook 通道时序竞争（codex 无 hook），不调 sessionManager.expectSdkSession
  * - 同一 thread 不能并发 turn（codex CLI 共享 ~/.codex/sessions 文件），用 pendingMessages 串行
@@ -113,6 +113,7 @@ export class CodexSdkBridge {
   private restartController: RestartController;
   private sessionModelController: SessionModelController;
   private messageController: MessageController;
+  private permissionHost: CodexPermissionHost;
 
   /**
    * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
@@ -124,6 +125,12 @@ export class CodexSdkBridge {
   private recoverer: SessionRecoverer;
 
   constructor(private opts: CodexBridgeOptions) {
+    this.permissionHost = new CodexPermissionHost({
+      sessions: this.sessions,
+      clients: this.codexBySession,
+      timeoutMs: Math.max(0, opts.permissionTimeoutMs ?? 0),
+      emit: opts.emit,
+    });
     const ctx: ThreadLoopCtx = {
       sessions: this.sessions,
       emit: opts.emit,
@@ -221,13 +228,15 @@ export class CodexSdkBridge {
     sessionToken: string,
     envOverrideExtra?: Readonly<Record<string, string>>,
   ): Promise<CodexAppServerClient> {
-    return ensureCodexClient({
+    const client = ensureCodexClient({
       clients: this.codexBySession,
       sessionId,
       sessionToken,
       hookServer: this.opts.hookServer,
       envOverrideExtra,
     });
+    this.permissionHost.bindClient(client);
+    return client;
   }
 
   renameCodexInstance(oldId: string, newId: string): void {
@@ -323,18 +332,7 @@ export class CodexSdkBridge {
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
-    const internal = this.sessions.get(sessionId);
-    if (!internal) return [];
-    return (internal.pendingHandOffMessages ?? []).flatMap((message) =>
-      message
-        ? [{
-            text: message.text,
-            ...(message.attachments
-              ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
-              : {}),
-          }]
-        : [],
-    );
+    return this.messageController.snapshotQueuedMessagesForHandOff(sessionId);
   }
 
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
@@ -374,12 +372,13 @@ export class CodexSdkBridge {
    * ensureRecord 把已删 session 复活成 lifecycle:active 的幽灵 record + 多通知一条「Agent 完成」。
    */
   async closeSession(sessionId: string): Promise<void> {
-    const internal = this.sessions.get(sessionId);
+    const internal = this.findSession(sessionId);
     if (!internal) return;
 
     // 关键：标记必须在 abort 之前置位，否则 runTurnLoop 的 catch 微任务会先看到 aborted 跑常规分支
     internal.intentionallyClosed = true;
     armCodexSessionRetirement(internal, true);
+    this.permissionHost.cancel(internal);
 
     if (internal.currentTurn) {
       try {
@@ -394,6 +393,7 @@ export class CodexSdkBridge {
   }
 
   private finalizeSessionRetirement(internal: InternalSession): void {
+    this.permissionHost.cancel(internal);
     finalizeCodexSessionRetirement(
       {
         sessions: this.sessions,
@@ -405,23 +405,44 @@ export class CodexSdkBridge {
     );
   }
 
-  /**
-   * Codex 没有 SDK 层 pending 概念（无权限请求 / 无主动提问 / 无 plan mode），
-   * 但 IPC handler 期望 listPending 返回结构化对象。返回空数组保持接口一致。
-   */
-  listPending(_sessionId: string): {
-    permissions: never[];
+  respondPermission(
+    sessionId: string,
+    requestId: string,
+    response: PermissionResponse,
+  ): void {
+    this.permissionHost.respond(sessionId, requestId, response);
+  }
+
+  listPending(sessionId: string): {
+    permissions: PermissionRequest[];
     askQuestions: never[];
     exitPlanModes: never[];
   } {
-    return { permissions: [], askQuestions: [], exitPlanModes: [] };
+    return {
+      permissions: this.permissionHost.list(sessionId),
+      askQuestions: [],
+      exitPlanModes: [],
+    };
   }
 
   listAllPending(): Record<
     string,
-    { permissions: never[]; askQuestions: never[]; exitPlanModes: never[] }
+    { permissions: PermissionRequest[]; askQuestions: never[]; exitPlanModes: never[] }
   > {
-    return {};
+    return this.permissionHost.listAll();
+  }
+
+  setPermissionTimeoutMs(ms: number): void {
+    this.permissionHost.setTimeoutMs(ms);
+  }
+
+  private findSession(sessionId: string): InternalSession | null {
+    const direct = this.sessions.get(sessionId);
+    if (direct) return direct;
+    for (const internal of this.sessions.values()) {
+      if (internal.applicationSid === sessionId || internal.threadId === sessionId) return internal;
+    }
+    return null;
   }
 
   /**

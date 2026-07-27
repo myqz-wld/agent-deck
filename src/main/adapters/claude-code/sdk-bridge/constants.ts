@@ -40,7 +40,7 @@ export const MAX_PENDING_MESSAGES = 20;
  * 包括只读 / 元数据类工具。应用必须在 canUseTool 顶部主动放行这些工具，否则 default mode
  * 下用户会被 Read / Grep 等无害操作反复弹询问。MCP 图片读取类工具靠 `__ImageRead` 后缀匹配。
  *
- * 加白名单不依赖 permissionMode：plan / acceptEdits / bypass / default 任何模式下，
+ * 加白名单不依赖 permissionMode：default / acceptEdits / plan / auto / dontAsk / bypass 任何模式下，
  * 这些工具语义上都不该被拦（plan mode 本意只拦 mutation；其他 mode 也只该拦危险操作）。
  *
  * **CHANGELOG_56 B1：定义抽到 `@shared/constants/read-only-tools.ts`** 让 lead canUseTool
