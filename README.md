@@ -43,7 +43,8 @@ The Agent Deck MCP server provides tools for:
 - messages and team coordination;
 - tasks and issue tracking;
 - plan and diff review;
-- worktree management.
+- worktree management;
+- session-private in-app browser snapshots, bounded waits, interactions, and visual checks.
 
 These tools give agents a shared collaboration environment while keeping each agent's own runtime and permissions intact.
 
