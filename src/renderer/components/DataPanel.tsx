@@ -203,14 +203,14 @@ export function DataPanel(): JSX.Element {
         )}
       </section>
 
-      {/* 今日 token 账本：总量和分项分层展示，避免把包含关系藏在长文案里 */}
-      <section className="mb-3 rounded border border-white/[0.06] bg-white/[0.025] p-2">
-        <div className="flex items-center gap-2">
+      {/* 今日 token 账本：沿用其他数据区块的开放式标题和轻量内容卡片 */}
+      <section className="mb-3">
+        <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">今日 Token</span>
           <span className="text-[10px] tabular-nums text-deck-muted/70">{todayStr}</span>
           <span className="ml-auto text-[10px] text-deck-muted/60">总量 / 分项</span>
         </div>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <TokenTotalCard
             label="输入总量"
             value={todayTotals.inputTotal}
@@ -226,8 +226,8 @@ export function DataPanel(): JSX.Element {
             details={[['推理', todayTotals.reasoning]]}
           />
         </div>
-        <div className="mt-2 rounded bg-white/[0.03] px-2 py-1.5 text-[10px] leading-4 text-deck-muted">
-          <span className="text-deck-text/85">统计规则：</span>
+        <div className="mt-1.5 text-[10px] leading-4 text-deck-muted/60">
+          <span className="text-deck-muted/80">统计规则：</span>
           输入总量已包含缓存读/写，输出总量已包含推理；标记为“其中”的分项不要再次相加。
           provider 没有单独提供的分项按 0 展示。
         </div>
@@ -363,7 +363,7 @@ function TokenTotalCard({
   details: Array<[string, number]>;
 }): JSX.Element {
   return (
-    <div className="rounded bg-white/[0.04] px-2 py-1.5">
+    <div className="rounded bg-white/[0.04] px-2 py-2">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-deck-muted">{label}</span>
         <span className={`text-sm font-medium tabular-nums ${valueClassName}`}>{fmt(value)}</span>

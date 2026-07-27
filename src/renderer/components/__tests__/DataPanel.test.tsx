@@ -108,6 +108,10 @@ describe('DataPanel quota usage', () => {
     const todaySummary = screen.getByText('今日 Token');
     const accounting = screen.getByText(/统计规则：/);
     const dailyDetails = screen.getByText('每模型每天明细');
+    const todaySection = todaySummary.closest('section');
+    expect(todaySection?.classList.contains('rounded')).toBe(false);
+    expect(todaySection?.classList.contains('border')).toBe(false);
+    expect(todaySummary.parentElement?.classList.contains('mb-1')).toBe(true);
     expect(
       todaySummary.compareDocumentPosition(accounting) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
