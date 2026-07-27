@@ -5,9 +5,12 @@ import {
   NO_PLAN_REVIEW_DIALOGUE_FEEDBACK,
   type AgentEvent,
   type ExitPlanModeRequest,
-  type PlanDeepReviewSession,
 } from '@shared/types';
 import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
+import {
+  EMPTY_PLAN_DEEP_REVIEW_DRAFT,
+  usePlanDeepReviewStore,
+} from '@renderer/stores/plan-deep-review-store';
 import { RECENT_LIMIT, useSessionStore } from '@renderer/stores/session-store';
 import log from '@renderer/utils/logger';
 import { MemoizedMarkdownText } from '../MarkdownText';
@@ -34,11 +37,6 @@ interface Props {
   onRevise: (feedback?: string) => Promise<boolean>;
 }
 
-interface AttachedPlanQuote {
-  id: number;
-  text: string;
-}
-
 export function PlanDeepReviewDialog({
   open,
   sourceSessionId,
@@ -48,19 +46,25 @@ export function PlanDeepReviewDialog({
   onApprove,
   onRevise,
 }: Props): JSX.Element | null {
-  const [child, setChild] = useState<PlanDeepReviewSession | null>(null);
-  const [startError, setStartError] = useState<string | null>(null);
-  const [question, setQuestion] = useState('');
-  const [questionBusy, setQuestionBusy] = useState(false);
-  const [questionError, setQuestionError] = useState<string | null>(null);
+  const draft = usePlanDeepReviewStore((state) =>
+    state.drafts.get(request.requestId) ?? EMPTY_PLAN_DEEP_REVIEW_DRAFT);
+  const patchDraft = usePlanDeepReviewStore((state) => state.patchDraft);
+  const clearDraft = usePlanDeepReviewStore((state) => state.clearDraft);
+  const {
+    child,
+    startError,
+    question,
+    questionBusy,
+    questionError,
+    planQuotes,
+    feedback,
+    feedbackDraftBusy,
+    feedbackDraftError,
+    feedbackDraftGenerated,
+  } = draft;
   const [selectedPlanText, setSelectedPlanText] = useState('');
-  const [planQuotes, setPlanQuotes] = useState<AttachedPlanQuote[]>([]);
   const [quoteMenu, setQuoteMenu] = useState<PlanQuoteMenuState | null>(null);
-  const [feedback, setFeedback] = useState('');
-  const [feedbackDraftBusy, setFeedbackDraftBusy] = useState(false);
   const [localDecisionBusy, setLocalDecisionBusy] = useState(false);
-  const [feedbackDraftError, setFeedbackDraftError] = useState<string | null>(null);
-  const [feedbackDraftGenerated, setFeedbackDraftGenerated] = useState(false);
   const planRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -69,16 +73,19 @@ export function PlanDeepReviewDialog({
   const conversationRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const busyRef = useRef(false);
+  const closeBlockedRef = useRef(false);
   const quoteMenuOpenRef = useRef(false);
-  const nextQuoteIdRef = useRef(1);
   const operationRef = useRef<'question' | 'feedback' | 'decision' | null>(null);
+  const patchExistingDraft = usePlanDeepReviewStore((state) => state.patchExistingDraft);
   const setRecentEvents = useSessionStore((state) => state.setRecentEvents);
   const childEvents = useSessionStore((state) =>
     child ? state.recentEventsBySession.get(child.sessionId) ?? EMPTY_EVENTS : EMPTY_EVENTS,
   );
   const busy = decisionBusy || localDecisionBusy || feedbackDraftBusy || questionBusy;
+  const closeBlocked = decisionBusy || localDecisionBusy;
   onCloseRef.current = onClose;
   busyRef.current = busy;
+  closeBlockedRef.current = closeBlocked;
   quoteMenuOpenRef.current = quoteMenu !== null;
 
   useEffect(() => {
@@ -112,7 +119,7 @@ export function PlanDeepReviewDialog({
         return;
       }
       if (event.key === 'Escape') {
-        if (!busyRef.current) onCloseRef.current();
+        if (!closeBlockedRef.current) onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !dialog) return;
@@ -163,11 +170,13 @@ export function PlanDeepReviewDialog({
 
   const attachQuote = (text: string): void => {
     if (!text) return;
-    setPlanQuotes((quotes) => {
+    patchDraft(request.requestId, (current) => {
+      const quotes = current.planQuotes;
       const remaining = 8_000 - quotes.reduce((total, quote) => total + quote.text.length, 0);
       const nextText = text.slice(0, Math.max(0, remaining));
-      if (!nextText) return quotes;
-      return [...quotes, { id: nextQuoteIdRef.current++, text: nextText }];
+      if (!nextText) return {};
+      const nextId = quotes.reduce((largest, quote) => Math.max(largest, quote.id), 0) + 1;
+      return { planQuotes: [...quotes, { id: nextId, text: nextText }] };
     });
     setSelectedPlanText('');
     setQuoteMenu(null);
@@ -219,16 +228,18 @@ export function PlanDeepReviewDialog({
       .join('\n\n');
     const submittedQuotes = planQuotes;
     let forkReady = child !== null;
-    setQuestionBusy(true);
-    setQuestionError(null);
-    setQuestion('');
-    setPlanQuotes([]);
+    patchDraft(request.requestId, {
+      questionBusy: true,
+      questionError: null,
+      question: '',
+      planQuotes: [],
+    });
     try {
       let activeChild = child;
       if (!activeChild) {
         activeChild = await window.api.startPlanDeepReview(sourceSessionId, request.requestId);
         forkReady = true;
-        setChild(activeChild);
+        patchExistingDraft(request.requestId, { child: activeChild });
         await loadStableSnapshot({
           readVersion: () =>
             useSessionStore.getState().eventRevisionsBySession.get(activeChild!.sessionId) ?? 0,
@@ -237,18 +248,20 @@ export function PlanDeepReviewDialog({
         });
       }
       await window.api.askPlanDeepReview(sourceSessionId, request.requestId, submittedText);
-      setStartError(null);
+      patchExistingDraft(request.requestId, { startError: null });
     } catch (error) {
       logger.error('askPlanDeepReview failed', error);
-      setQuestion(text);
-      setPlanQuotes(submittedQuotes);
-      if (!forkReady) {
-        setStartError('无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。');
-      }
-      setQuestionError('问题发送失败，请确认计划仍在等待审阅后重试。');
+      patchExistingDraft(request.requestId, {
+        question: text,
+        planQuotes: submittedQuotes,
+        ...(!forkReady
+          ? { startError: '无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。' }
+          : {}),
+        questionError: '问题发送失败，请确认计划仍在等待审阅后重试。',
+      });
     } finally {
       finishOperation('question');
-      setQuestionBusy(false);
+      patchExistingDraft(request.requestId, { questionBusy: false });
     }
   };
 
@@ -260,27 +273,33 @@ export function PlanDeepReviewDialog({
 
   const generateFeedbackDraft = async (): Promise<void> => {
     if (!beginOperation('feedback')) return;
-    setFeedbackDraftBusy(true);
-    setFeedbackDraftError(null);
-    setFeedbackDraftGenerated(false);
+    patchDraft(request.requestId, {
+      feedbackDraftBusy: true,
+      feedbackDraftError: null,
+      feedbackDraftGenerated: false,
+    });
     try {
       const result = await window.api.generatePlanDeepReviewFeedback(
         sourceSessionId,
         request.requestId,
       );
       const generated = result.feedback.trim();
-      setFeedback((current) => current.trim() === NO_PLAN_REVIEW_DIALOGUE_FEEDBACK
-        ? generated
-        : current.trim()
-        ? `${current.trimEnd()}\n\n${generated}`
-        : generated);
-      setFeedbackDraftGenerated(true);
+      patchExistingDraft(request.requestId, (current) => ({
+        feedback: current.feedback.trim() === NO_PLAN_REVIEW_DIALOGUE_FEEDBACK
+          ? generated
+          : current.feedback.trim()
+          ? `${current.feedback.trimEnd()}\n\n${generated}`
+          : generated,
+        feedbackDraftGenerated: true,
+      }));
     } catch (error) {
       logger.error('generatePlanDeepReviewFeedback failed', error);
-      setFeedbackDraftError('意见草稿生成失败，请重试或手动填写。');
+      patchExistingDraft(request.requestId, {
+        feedbackDraftError: '意见草稿生成失败，请重试或手动填写。',
+      });
     } finally {
       finishOperation('feedback');
-      setFeedbackDraftBusy(false);
+      patchExistingDraft(request.requestId, { feedbackDraftBusy: false });
     }
   };
 
@@ -292,7 +311,10 @@ export function PlanDeepReviewDialog({
     if (!beginOperation('decision')) return;
     setLocalDecisionBusy(true);
     try {
-      if (await onApprove()) onClose();
+      if (await onApprove()) {
+        clearDraft(request.requestId);
+        onClose();
+      }
     } finally {
       finishOperation('decision');
       setLocalDecisionBusy(false);
@@ -303,7 +325,10 @@ export function PlanDeepReviewDialog({
     if (!beginOperation('decision')) return;
     setLocalDecisionBusy(true);
     try {
-      if (await onRevise(feedback.trim() || undefined)) onClose();
+      if (await onRevise(feedback.trim() || undefined)) {
+        clearDraft(request.requestId);
+        onClose();
+      }
     } finally {
       finishOperation('decision');
       setLocalDecisionBusy(false);
@@ -327,15 +352,20 @@ export function PlanDeepReviewDialog({
               计划深度审阅
             </h2>
             <div id="plan-deep-review-description" className="max-w-[42rem] truncate text-[10px] text-deck-muted">
-              {request.title ?? '当前计划'} · 首次提问时创建隔离的同适配器原生 fork
+              {request.title ?? '当前计划'} · 回复期间可关闭窗口，稍后返回继续审阅
             </div>
           </div>
           <button
             ref={closeButtonRef}
             type="button"
-            disabled={busy}
+            disabled={closeBlocked}
             onClick={onClose}
             aria-label="关闭深度审阅"
+            title={
+              questionBusy || feedbackDraftBusy
+                ? '关闭窗口；正在进行的审阅会继续'
+                : '关闭深度审阅'
+            }
             className="ml-1 flex h-6 w-6 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text disabled:opacity-40"
           >
             <CloseIcon className="h-4 w-4" />
@@ -397,8 +427,9 @@ export function PlanDeepReviewDialog({
                     key={quote.id}
                     text={quote.text}
                     removeLabel={`移除第 ${index + 1} 条计划引用`}
-                    onRemove={() => setPlanQuotes((quotes) =>
-                      quotes.filter((item) => item.id !== quote.id))}
+                    onRemove={() => patchDraft(request.requestId, (current) => ({
+                      planQuotes: current.planQuotes.filter((item) => item.id !== quote.id),
+                    }))}
                   />
                 ))}
               </div>
@@ -406,7 +437,9 @@ export function PlanDeepReviewDialog({
                 ref={questionRef}
                 data-testid="plan-review-question"
                 value={question}
-                onChange={(event) => setQuestion(event.target.value)}
+                onChange={(event) => patchDraft(request.requestId, {
+                  question: event.target.value,
+                })}
                 onKeyDown={onQuestionKeyDown}
                 disabled={busy}
                 aria-label="向审阅会话提问"
@@ -438,8 +471,10 @@ export function PlanDeepReviewDialog({
           generated={feedbackDraftGenerated}
           error={feedbackDraftError}
           onFeedbackChange={(value) => {
-            setFeedback(value);
-            setFeedbackDraftError(null);
+            patchDraft(request.requestId, {
+              feedback: value,
+              feedbackDraftError: null,
+            });
           }}
           onGenerate={() => void generateFeedbackDraft()}
           onRevise={() => void continueModifying()}

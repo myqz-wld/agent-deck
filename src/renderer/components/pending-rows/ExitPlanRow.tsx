@@ -1,6 +1,7 @@
-import { useState, type JSX, type KeyboardEvent } from 'react';
+import { useEffect, useState, type JSX, type KeyboardEvent } from 'react';
 import type { AgentEvent, ExitPlanModeRequest, ExitPlanModeResponse } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
 import log from '@renderer/utils/logger';
 import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
 import { PlanMarkdownPanel } from './plan-markdown-panel';
@@ -43,12 +44,26 @@ export function ExitPlanRow({
   const [feedback, setFeedback] = useState('');
   const [targetMode, setTargetMode] = useState<TargetMode>('acceptEdits');
   const [deepReviewOpen, setDeepReviewOpen] = useState(false);
+  const clearDeepReviewDraft = usePlanDeepReviewStore((state) => state.clearDraft);
+  const deepReviewDraft = usePlanDeepReviewStore((state) =>
+    state.drafts.get(payload.requestId));
 
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const plan = payload.plan || '(计划内容为空)';
   const isMcpPlanReview = payload.reviewSource === 'mcp';
   const actorName = isMcpPlanReview ? '模型' : 'Claude';
   const keepPlanningLabel = '继续规划';
+  const deepReviewRunning =
+    deepReviewDraft?.questionBusy === true || deepReviewDraft?.feedbackDraftBusy === true;
+  const deepReviewLabel = deepReviewRunning
+    ? '审阅进行中…'
+    : deepReviewDraft
+      ? '返回审阅'
+      : '深度审阅';
+
+  useEffect(() => {
+    if (!stillPending) clearDeepReviewDraft(payload.requestId);
+  }, [clearDeepReviewDraft, payload.requestId, stillPending]);
 
   const targetModeLabel: Record<typeof targetMode, string> = {
     default: '每次询问',
@@ -68,6 +83,7 @@ export function ExitPlanRow({
         response,
       );
       onResolved(result.resolvedSessionId, payload.requestId);
+      clearDeepReviewDraft(payload.requestId);
       return true;
     } catch (err) {
       logger.error('respondExitPlanMode failed', err);
@@ -170,10 +186,16 @@ export function ExitPlanRow({
                 type="button"
                 disabled={busy}
                 onClick={() => setDeepReviewOpen(true)}
-                title="放大计划，选中文字后右键引用，并在隔离的原生 fork 中提问"
+                title={
+                  deepReviewRunning
+                    ? '审阅正在后台继续；点击返回查看进度'
+                    : deepReviewDraft
+                      ? '返回之前的深度审阅'
+                      : '放大计划，选中文字后右键引用，并在隔离的原生 fork 中提问'
+                }
                 className="rounded border border-status-waiting/50 bg-status-waiting/10 px-2.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/20 disabled:opacity-50"
               >
-                深度审阅
+                {deepReviewLabel}
               </button>
             )}
             <button

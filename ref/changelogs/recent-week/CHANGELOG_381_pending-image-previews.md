@@ -7,8 +7,8 @@ changed_at: 2026-07-22
 
 ## Summary
 
-Pending image attachments are now visible with metadata in the expanded session composer, and
-unsent image thumbnails can be opened in a full-size preview before sending.
+Pending image attachments are now visible with metadata in the expanded session composer,
+and unsent image thumbnails can be opened in a full-size preview before sending.
 
 ## Changes
 
