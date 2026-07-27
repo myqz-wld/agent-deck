@@ -127,6 +127,7 @@ describe('DataPanel quota usage', () => {
       accounting.compareDocumentPosition(dailyDetails) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(await screen.findByText('2026-06-19')).toBeTruthy();
+    expect(screen.queryByText('Provider 总计')).toBeNull();
     expect(screen.getByText('推理')).toBeTruthy();
     expect(screen.getByText('其中推理')).toBeTruthy();
     expect(screen.getByText('12')).toBeTruthy();
@@ -136,7 +137,7 @@ describe('DataPanel quota usage', () => {
     const outputValue = outputLabel?.parentElement?.querySelector('.text-sm');
     expect(outputValue?.classList.contains('text-status-working')).toBe(false);
     const detailRow = screen.getByText('2026-06-19').closest('tr');
-    const detailOutput = detailRow?.querySelectorAll('td').item(6);
+    const detailOutput = detailRow?.querySelectorAll('td').item(5);
     expect(detailOutput?.classList.contains('text-status-working')).toBe(false);
   });
 

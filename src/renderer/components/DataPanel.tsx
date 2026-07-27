@@ -239,7 +239,7 @@ export function DataPanel(): JSX.Element {
         </div>
         {daily.length > 0 ? (
           <div className="overflow-x-auto rounded border border-white/[0.06] scrollbar-deck">
-            <table className="min-w-[820px] w-full border-collapse text-[10px]">
+            <table className="min-w-[720px] w-full border-collapse text-[10px]">
               <thead>
                 <tr className="border-b border-white/[0.08] text-center text-deck-muted">
                   <th rowSpan={2} className="py-1.5 pl-2 pr-2 text-left font-medium">
@@ -247,9 +247,6 @@ export function DataPanel(): JSX.Element {
                   </th>
                   <th rowSpan={2} className="py-1.5 pr-2 text-left font-medium">
                     模型
-                  </th>
-                  <th rowSpan={2} className="border-l border-white/[0.06] px-2 py-1.5 font-medium">
-                    Provider 总计
                   </th>
                   <th colSpan={3} className="border-l border-white/[0.06] py-1.5 font-medium">
                     输入总量
@@ -274,9 +271,6 @@ export function DataPanel(): JSX.Element {
                   >
                     <td className="py-1.5 pl-2 pr-2 tabular-nums text-deck-muted">{row.day}</td>
                     <td className="py-1.5 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
-                    <td className="border-l border-white/[0.04] px-2 py-1.5 text-right tabular-nums text-deck-muted">
-                      {formatTokenCount(row.providerTotalTokens)}
-                    </td>
                     <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums">
                       {formatTokenCount(rowInputTotal(row))}
                     </td>
