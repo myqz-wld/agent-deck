@@ -9,22 +9,19 @@ import type { FloatingWindowState } from './_deps';
  *
  * **invalidate loop 启动决策** (CHANGELOG_24/35 + transparent/pin 解耦修复):
  * 在 macOS 的 `pin || transparent` 状态启 100ms 循环触发 `webContents.invalidate()`，
- * 让 NSWindow 与桌面重新合成并拿到下层 app 最新像素。透明模式从 pin 解耦后，若仍只
- * 跟随 pin，`不 pin + 透明` 就不会提交新 surface，文字残影只能靠用户调整窗口大小清掉。
+ * 作为 native surface 活性兜底。透明模式从 pin 解耦后，loop 也必须跟随透明状态，不能
+ * 只跟随 pin。
  *
- * **注意**: CHANGELOG_24 当时的认知有误——这里**不是** "CSS backdrop-filter 在模糊下层 app
- * 像素"。pin 态下 backdrop-filter 模糊的是窗口自身 layer 的内容（基本是空的）,下层 app 的
- * 像素是 NSWindow 在 surface 提交后做的 source-over 合成,根本没经过 blur。invalidate 的
- * 真实作用:触发 Chromium 提交一帧 surface → NSWindow 顺带与桌面背景重新合成 → 顺便取下层
- * app 最新像素。所以**这个频率 = 下层桌面感知 fps**,5fps 的 CHANGELOG_24 设置在动态场景
- * (滚动 / 视频 / 切 app)下肉眼能瞥到旧帧 —— 用户实测有"残影"。
+ * **注意**: `invalidate()` 不是滚动残影的根治。它能要求 Chromium 重绘，但不会重建 macOS
+ * transparent NSWindow 的完整 surface；若 renderer 根节点带 backdrop-filter，滚动内容会
+ * 位于独立 filter render pass 中，旧 native surface 仍可能持续显示，只有 resize 才清掉。
+ * globals.css 的透明态因此直接禁用 backdrop-filter，让滚动层通过普通 alpha surface 提交。
  *
  * CHANGELOG_35 调整:
  * - 200ms (5fps) → 100ms (10fps):动态场景几乎察觉不到延迟,GPU 开销仍可忽略
  * - 配合 webContents.setBackgroundThrottling(false) (create 时一次性调) 确保
  *   invalidate 在窗口失焦时不被压制
- * - 文字残影的另一个根因(::before mix-blend-mode 的 group surface 缓存)
- *   在 globals.css 端通过透明态 display:none ::before 治根了
+ * - 透明态隐藏 ::before 噪点并禁用 backdrop-filter，避免额外的离屏 compositor surface
  *
  * 非 macOS，或 `不 pin + 不透明`，不需要这个机制：vibrancy 由系统层持续刷新。
  */

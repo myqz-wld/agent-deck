@@ -16,7 +16,7 @@
   --color-status-closed: rgb(80, 80, 90);
 }
 
-/* 默认（非 pin）：富层次 Acrylic 磨砂质感。
+/* 默认（非透明）：富层次 Acrylic 磨砂质感。
    分层：① 表面光泽渐变（135° 扫过反光） ② 深色玻璃底（略透）
    叠加：vibrancy + backdrop-filter(blur+saturate+brightness) + 噪点 + 多向高光 */
 .frosted-frame {
@@ -47,17 +47,27 @@
 }
 
 /* 透明态：主进程会同步关掉 macOS vibrancy（去掉浅灰基底），
-   CSS 层用极透明深色 + 弱模糊，达到"看穿到下方应用"的效果。
+   CSS 层只保留极透明深色，让 WindowServer 直接做 source-over 合成。
    Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）解耦后：由 App.tsx 直接按
    windowTransparent 单字段切到 data-transparent='true'，不再 && pinned —— 透明独立于 pin
-   状态（CHANGELOG_30 历史 (pinned && transparentWhenPinned) 双条件已废）。 */
+   状态（CHANGELOG_30 历史 (pinned && transparentWhenPinned) 双条件已废）。
+
+   透明态必须同步关掉 CSS backdrop-filter：
+   - 下方桌面 / 其他 app 在 Chromium surface 之外，不是 CSS 可采样的 backdrop；这里的 blur
+     不会模糊它们，只会把整个 frame 提升成独立的 BackdropFilter compositor layer。
+   - 滚动内容再以独立 accelerated layers 更新时，macOS transparent NSWindow 偶发只提交旧的
+     filter render pass，形成持续残影；webContents.invalidate() 仍只重绘该 render pass，
+     只有 resize 触发完整 native surface 重建才会清掉。
+   - `none` 移除这层无视觉收益的离屏 render pass；transition 也排除 backdrop-filter，确保
+     进入透明态时立即拆层，不留下 180ms 的 filter 合成窗口。 */
 .frosted-frame[data-transparent='true'] {
   background: rgba(18, 18, 24, 0.2);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.25),
     inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  transition: background 180ms ease, box-shadow 180ms ease;
 }
 
 /* Acrylic 噪点纹理层：极轻量 SVG turbulence，赋予玻璃颗粒感 */
@@ -73,12 +83,10 @@
   z-index: 0;
 }
 
-/* 透明态隐藏噪点 ::before（CHANGELOG_35 修文字残影根因）：
-   ::before 的 mix-blend-mode: overlay + 父层 isolation: isolate + backdrop-filter
-   三件套强制 Chromium 把文字层与噪点合成进 offscreen group surface，该 group
-   surface 被 Blink 缓存且 webContents.invalidate() 不能让它失效 →
-   切下层 app 时文字"印"在玻璃上，与下方画面错位 = 用户看到的"文字残影"。
-   透明态 0.2 alpha 下噪点本来就几乎不可见，干脆 display:none 根治这个 group 缓存。 */
+/* 透明态继续隐藏噪点 ::before（CHANGELOG_35）：
+   旧透明样式中的 mix-blend-mode + isolation + backdrop-filter 会额外创建 group surface，
+   加剧切换下层 app 时的背景错位。当前透明态已禁用 backdrop-filter；仍隐藏几乎不可见的
+   噪点，避免单独保留 blend surface。 */
 .frosted-frame[data-transparent='true']::before {
   display: none;
 }
