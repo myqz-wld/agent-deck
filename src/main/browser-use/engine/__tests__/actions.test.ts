@@ -130,4 +130,62 @@ describe('page actions', () => {
     expect(window.browserDebugger.attached).toBe(true);
     expect(window.browserDebugger.sent.map((entry) => entry.method)).toContain('Runtime.enable');
   });
+
+  it('waits for selector states without creating element refs', async () => {
+    const { tab, window } = await makeTab();
+    window.jsHandler = () => JSON.stringify({ count: 2, visibleCount: 1 });
+
+    await expect(actions.waitForSelector(tab, '.row', 'visible', 500)).resolves.toMatchObject({
+      kind: 'selector',
+      selector: '.row',
+      count: 2,
+      visibleCount: 1,
+    });
+    expect(window.webContents.executeJavaScript.mock.calls[0]?.[0]).toContain(
+      'document.querySelectorAll(selector)',
+    );
+  });
+
+  it('reports invalid selectors immediately', async () => {
+    const { tab, window } = await makeTab();
+    window.jsHandler = () => {
+      throw new Error("Error: INVALID_SELECTOR:Failed to execute 'querySelectorAll'");
+    };
+
+    await expect(actions.waitForSelector(tab, '[[', 'attached', 500)).rejects.toThrow(
+      /Invalid CSS selector/,
+    );
+  });
+
+  it('waits for the configured network quiet window after requests finish', async () => {
+    const { tab, window } = await makeTab();
+    await actions.armNetworkTracking(tab);
+    window.browserDebugger.emit('message', {}, 'Network.requestWillBeSent', {
+      requestId: 'slow',
+      request: { method: 'GET', url: 'http://localhost/api' },
+    });
+    setTimeout(() => {
+      window.browserDebugger.emit('message', {}, 'Network.loadingFinished', {
+        requestId: 'slow',
+      });
+    }, 20);
+
+    const result = await actions.waitForNetworkIdle(tab, 1_000, 100);
+
+    expect(result).toMatchObject({ kind: 'network-idle', idleMs: 100, inFlight: 0 });
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(100);
+  });
+
+  it('times out while a tracked request remains in flight', async () => {
+    const { tab, window } = await makeTab();
+    await actions.armNetworkTracking(tab);
+    window.browserDebugger.emit('message', {}, 'Network.requestWillBeSent', {
+      requestId: 'never-finishes',
+      request: { method: 'GET', url: 'http://localhost/events' },
+    });
+
+    await expect(actions.waitForNetworkIdle(tab, 100, 100)).rejects.toThrow(
+      /1 request\(s\) are still in flight/,
+    );
+  });
 });

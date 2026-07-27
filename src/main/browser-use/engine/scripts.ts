@@ -259,3 +259,26 @@ export function evaluateScript(expression: string): string {
   }
 })()`;
 }
+
+export function selectorProbeScript(selector: string): string {
+  return `(() => {
+  var selector = ${JSON.stringify(selector)};
+  var matches;
+  try {
+    matches = Array.prototype.slice.call(document.querySelectorAll(selector));
+  } catch (error) {
+    throw new Error('INVALID_SELECTOR:' + (error && error.message ? error.message : String(error)));
+  }
+  function visible(el) {
+    if (!el || !el.isConnected || !el.getBoundingClientRect) return false;
+    var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    var view = el.ownerDocument && el.ownerDocument.defaultView;
+    var style = view && view.getComputedStyle ? view.getComputedStyle(el) : null;
+    if (!style) return true;
+    return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) !== 0;
+  }
+  var visibleCount = matches.filter(visible).length;
+  return JSON.stringify({ count: matches.length, visibleCount: visibleCount });
+})()`;
+}

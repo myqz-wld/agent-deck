@@ -55,7 +55,7 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool names. The public registry exposes 19 core tools everywhere, plus 13
+ * Agent Deck MCP tool names. The public registry exposes 19 core tools everywhere, plus 14
  * `browser_*` tools on adapters whose runtime profile sets `mcpBrowserTools` (Codex CLI keeps using
  * the official Browser plugin instead). Archive/teammate cleanup names are retained only as
  * deny-by-default guard keys for old internal handlers.
@@ -89,13 +89,14 @@ export const AGENT_DECK_TOOL_NAMES = {
   reportIssue: 'report_issue',
   appendIssueContext: 'append_issue_context',
   updateIssueStatus: 'update_issue_status',
-  // plan cross-adapter-browser-engine-20260727：13 个 browser tool 把 Agent Deck 自己的 in-app
+  // plan cross-adapter-browser-engine-20260727：14 个 browser tool 把 Agent Deck 自己的 in-app
   // browser 开放给所有 adapter（Codex 侧仍走官方 Browser 插件 native pipe，见 runtime-profiles
   // mcpBrowserTools）。全部 deny external —— tab 归 caller session 所有，需要真实 in-process /
   // per-session HTTP caller 身份。
   browserOpen: 'browser_open',
   browserTabs: 'browser_tabs',
   browserNavigate: 'browser_navigate',
+  browserWait: 'browser_wait',
   browserClose: 'browser_close',
   browserSnapshot: 'browser_snapshot',
   browserScreenshot: 'browser_screenshot',
@@ -150,6 +151,7 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   browser_open: false,
   browser_tabs: false,
   browser_navigate: false,
+  browser_wait: false,
   browser_close: false,
   browser_snapshot: false,
   browser_screenshot: false,

@@ -28,6 +28,9 @@ export async function browserOpenHandler(
         ? await owner.handle.openTab({ show })
         : await owner.handle.ensureTab({ show });
     if (show) tab.show();
+    // Arm lifecycle tracking before the optional first navigation. This is deliberately separate
+    // from network-history recording, which still starts only at browser_read_network.
+    await actions.armNetworkTracking(tab);
     const page = args.url == null ? actions.pageState(tab) : await actions.navigate(tab, args.url);
     owner.handle.markActive(tab.id);
     return pageOk({ tabId: tab.id, ...page, visible: show });
@@ -58,6 +61,7 @@ export async function browserNavigateHandler(
     return browserErr(new Error('Pass a url to navigate to, or reload:true to reload the page.'));
   }
   try {
+    await actions.armNetworkTracking(tab);
     const page = args.url == null ? await actions.reload(tab) : await actions.navigate(tab, args.url);
     return pageOk({ tabId: tab.id, ...page, reloaded: args.url == null });
   } catch (error) {

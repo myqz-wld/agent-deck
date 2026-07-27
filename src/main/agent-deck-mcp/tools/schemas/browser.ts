@@ -77,6 +77,42 @@ export const BROWSER_NAVIGATE_SCHEMA = {
   callerSessionId,
 };
 
+export const BROWSER_WAIT_SCHEMA = {
+  kind: z
+    .enum(['selector', 'network-idle'])
+    .describe(
+      'Condition to wait for. selector waits for CSS readiness; network-idle waits until tracked in-flight requests stay at zero for idleMs.',
+    ),
+  selector: z
+    .string()
+    .min(1)
+    .max(1_024)
+    .optional()
+    .describe('CSS selector. Required only when kind is "selector". This does not create an interaction ref.'),
+  state: z
+    .enum(['attached', 'visible', 'hidden', 'detached'])
+    .optional()
+    .describe(
+      'Selector readiness state. Defaults to visible. hidden also succeeds when no matching element exists; detached requires no match.',
+    ),
+  timeoutMs: z
+    .number()
+    .int()
+    .min(100)
+    .max(30_000)
+    .optional()
+    .describe('Maximum wait in milliseconds. Defaults to 10000 and is capped at 30000.'),
+  idleMs: z
+    .number()
+    .int()
+    .min(100)
+    .max(5_000)
+    .optional()
+    .describe('Required quiet window for network-idle. Defaults to 500ms; valid only for that kind.'),
+  tabId,
+  callerSessionId,
+};
+
 export const BROWSER_CLOSE_SCHEMA = {
   tabId,
   all: z.boolean().optional().describe('Close every tab owned by this session.'),

@@ -37,12 +37,14 @@ import {
   browserReadConsoleHandler,
   browserScreenshotHandler,
   browserSnapshotHandler,
+  browserWaitHandler,
 } from '../tools/handlers/browser/inspect';
 
 const EXPECTED_TOOL_NAMES = [
   'browser_open',
   'browser_tabs',
   'browser_navigate',
+  'browser_wait',
   'browser_close',
   'browser_snapshot',
   'browser_screenshot',
@@ -110,13 +112,18 @@ describe('browser tool registration', () => {
 describe('browser tool handlers', () => {
   it('opens a background tab and reports the loaded page', async () => {
     const result = await browserOpenHandler({ url: 'localhost:3456/health' }, sessionCtx('sid-1'));
+    const window = factory.windows[0] as unknown as FakeWindow;
 
     expect(payload(result)).toMatchObject({
       tabId: 1,
       url: 'http://localhost:3456/health',
       visible: false,
     });
-    expect(factory.windows[0]?.shown).toBe(false);
+    expect(window.shown).toBe(false);
+    expect(window.browserDebugger.sent[0]?.method).toBe('Network.enable');
+    expect(window.browserDebugger.sendCommand.mock.invocationCallOrder[0]).toBeLessThan(
+      window.loadURL.mock.invocationCallOrder.at(-1) as number,
+    );
     expect(payload(result).note).toMatch(/untrusted data/);
   });
 
@@ -204,6 +211,41 @@ describe('browser tool handlers', () => {
 
     expect(payload(result).entries).toEqual([]);
     expect((factory.windows[0] as unknown as FakeWindow).browserDebugger.attached).toBe(true);
+  });
+
+  it('waits for selector readiness and validates kind-specific arguments', async () => {
+    await browserOpenHandler({ url: 'localhost:3000' }, sessionCtx('sid-1'));
+    const window = factory.windows[0] as unknown as FakeWindow;
+    window.jsHandler = () => JSON.stringify({ count: 1, visibleCount: 1 });
+
+    const ready = await browserWaitHandler(
+      { kind: 'selector', selector: '#ready', state: 'visible', timeoutMs: 500 },
+      sessionCtx('sid-1'),
+    );
+    expect(payload(ready)).toMatchObject({
+      kind: 'selector',
+      selector: '#ready',
+      state: 'visible',
+      count: 1,
+    });
+
+    const invalid = await browserWaitHandler(
+      { kind: 'network-idle', selector: '#ready' },
+      sessionCtx('sid-1'),
+    );
+    expect(invalid.isError).toBe(true);
+    expect(payload(invalid).error).toMatch(/only valid when kind is "selector"/);
+  });
+
+  it('rejects browser_wait for external callers before resolving a tab', async () => {
+    const result = await browserWaitHandler(
+      { kind: 'selector', selector: '#ready' },
+      externalCtx(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(payload(result).error).toMatch(/not allowed for external caller/);
+    expect(factory.windows).toHaveLength(0);
   });
 
   it('closes every tab of the session on request', async () => {
