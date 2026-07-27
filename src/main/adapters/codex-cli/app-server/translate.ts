@@ -16,6 +16,7 @@ import {
   translateRawCollabResponseItem,
 } from './translate-collab';
 import log from '@main/utils/logger';
+import { translateCodexTokenUsage } from './token-usage-translate';
 
 const logger = log.scope('codex-app-server-translate');
 const GENERIC_SKILL_TOOL_NAMES = new Set(['skill', 'invoke', 'invoke_skill', 'skill.invoke']);
@@ -54,7 +55,7 @@ export function translateCodexAppServerNotification(
     }
 
     case 'thread/tokenUsage/updated': {
-      translateTokenUsage(notification.params, emit, opts);
+      translateCodexTokenUsage(notification.params, emit, opts);
       return;
     }
 
@@ -123,28 +124,6 @@ function translateTurnCompleted(params: unknown, emit: EmitFn): void {
     return;
   }
   emit('finished', { ok: false, subtype: 'error' });
-}
-
-function translateTokenUsage(
-  params: unknown,
-  emit: EmitFn,
-  opts?: { model?: string | null },
-): void {
-  const usage = asRecord(asRecord(params)?.tokenUsage);
-  const last = asRecord(usage?.last);
-  if (!last) return;
-  emit('token-usage', {
-    messageId: null,
-    model: opts?.model ?? null,
-    totalTokens: numberField(last.totalTokens),
-    inputTokens: numberField(last.inputTokens),
-    // Codex outputTokens is the provider's total output count; reasoningOutputTokens is a
-    // breakdown within that total, not an additional count.
-    outputTokens: numberField(last.outputTokens),
-    reasoningTokens: numberField(last.reasoningOutputTokens),
-    cacheReadTokens: numberField(last.cachedInputTokens),
-    cacheCreationTokens: numberField(last.cacheWriteInputTokens),
-  });
 }
 
 function translateErrorNotification(params: unknown, emit: EmitFn): void {
@@ -402,12 +381,6 @@ function getItem(params: unknown): AnyRecord | null {
 function asRecord(value: unknown): AnyRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as AnyRecord)
-    : null;
-}
-
-function numberField(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value
     : null;
 }
 

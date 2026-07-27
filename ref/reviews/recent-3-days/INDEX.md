@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-27 | `REVIEW_183_token-usage-visibility-regression.md` | Daily token aggregate visibility regression | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
 | 2026-07-27 | `REVIEW_182_browser-engine-p0-p1-solo-audit.md` | Browser P0/P1 standalone Codex audit | 0 CRITICAL / 5 HIGH fixed / 6 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-27 | `REVIEW_181_provider-usage-runtime-control-fidelity.md` | Provider usage and runtime-control fidelity | Final PASS; AFR-001–012 closed |
 | 2026-07-27 | `REVIEW_180_bundled-grok-package-preflight.md` | Bundled Grok package completeness | 0 CRITICAL / 1 HIGH fixed |

@@ -130,6 +130,14 @@ describe('DataPanel quota usage', () => {
     expect(screen.getByText('推理')).toBeTruthy();
     expect(screen.getByText('其中推理')).toBeTruthy();
     expect(screen.getByText('12')).toBeTruthy();
+    const outputLabel = screen
+      .getAllByText('输出总量')
+      .find((element) => element.tagName === 'SPAN');
+    const outputValue = outputLabel?.parentElement?.querySelector('.text-sm');
+    expect(outputValue?.classList.contains('text-status-working')).toBe(false);
+    const detailRow = screen.getByText('2026-06-19').closest('tr');
+    const detailOutput = detailRow?.querySelectorAll('td').item(6);
+    expect(detailOutput?.classList.contains('text-status-working')).toBe(false);
   });
 
   it('ignores out-of-scope multi-model rows without treating unknown values as zero', async () => {
