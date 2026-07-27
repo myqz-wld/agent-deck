@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-27 | `CHANGELOG_404_token-usage-presence-repair.md` | Restore daily token totals without weakening strict provider totals |
 | 2026-07-27 | `CHANGELOG_403_browser-waits-open-dom-retention.md` | Add browser waits, open-DOM refs, and seven-day screenshot retention |
 | 2026-07-27 | `CHANGELOG_402_provider-usage-runtime-control-fidelity.md` | Preserve provider usage and adapter-owned runtime controls |
 | 2026-07-27 | `CHANGELOG_401_concurrent-batch-review.md` | Preserve adversarial review across concurrent scope batches |

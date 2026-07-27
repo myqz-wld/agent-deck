@@ -7,6 +7,10 @@ import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '@shared/types';
 import { RefreshIcon } from './icons';
 import log from '@renderer/utils/logger';
+import {
+  formatTokenCount,
+  TokenTotalCard,
+} from './data-panel/TokenTotalCard';
 
 const logger = log.scope('renderer-data-panel');
 
@@ -23,12 +27,6 @@ const logger = log.scope('renderer-data-panel');
  */
 
 const DAILY_REFETCH_DEBOUNCE_MS = 500;
-
-/** 大数字千分位；provider 未返回的字段保留为未知。 */
-function fmt(n: number | null): string {
-  if (n === null) return '—';
-  return Math.max(0, n).toLocaleString();
-}
 
 export function DataPanel(): JSX.Element {
   const rates = useTokenUsageStore((s) => s.rates);
@@ -223,7 +221,6 @@ export function DataPanel(): JSX.Element {
           <TokenTotalCard
             label="输出总量"
             value={todayTotals.output}
-            valueClassName="text-status-working"
             details={[['推理', todayTotals.reasoning]]}
           />
         </div>
@@ -278,22 +275,22 @@ export function DataPanel(): JSX.Element {
                     <td className="py-1.5 pl-2 pr-2 tabular-nums text-deck-muted">{row.day}</td>
                     <td className="py-1.5 pr-2">{normalizeModel(row.bucketKey).displayName}</td>
                     <td className="border-l border-white/[0.04] px-2 py-1.5 text-right tabular-nums text-deck-muted">
-                      {fmt(row.providerTotalTokens)}
+                      {formatTokenCount(row.providerTotalTokens)}
                     </td>
                     <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums">
-                      {fmt(rowInputTotal(row))}
+                      {formatTokenCount(rowInputTotal(row))}
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-deck-muted">
-                      {fmt(row.cacheReadTokens)}
+                      {formatTokenCount(row.cacheReadTokens)}
                     </td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-deck-muted">
-                      {fmt(row.cacheCreationTokens)}
+                      {formatTokenCount(row.cacheCreationTokens)}
                     </td>
-                    <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums text-status-working">
-                      {fmt(row.outputTokens)}
+                    <td className="border-l border-white/[0.04] px-2 py-1.5 text-right font-medium tabular-nums">
+                      {formatTokenCount(row.outputTokens)}
                     </td>
                     <td className="py-1.5 pl-2 pr-2 text-right tabular-nums text-deck-muted">
-                      {fmt(row.reasoningTokens)}
+                      {formatTokenCount(row.reasoningTokens)}
                     </td>
                   </tr>
                 ))}
@@ -353,34 +350,6 @@ function ProviderUsageWindowRow({ window }: { window: ProviderUsageWindow }): JS
       </div>
       <div className="mt-0.5 text-[10px] tabular-nums text-deck-muted/60">
         重置 {formatResetTime(window.resetsAt)}
-      </div>
-    </div>
-  );
-}
-
-function TokenTotalCard({
-  label,
-  value,
-  valueClassName = 'text-deck-text',
-  details,
-}: {
-  label: string;
-  value: number | null;
-  valueClassName?: string;
-  details: Array<[string, number | null]>;
-}): JSX.Element {
-  return (
-    <div className="rounded bg-white/[0.04] px-2 py-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-deck-muted">{label}</span>
-        <span className={`text-sm font-medium tabular-nums ${valueClassName}`}>{fmt(value)}</span>
-      </div>
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-deck-muted/70">
-        {details.map(([detailLabel, detailValue]) => (
-          <span key={detailLabel}>
-            {detailLabel} <span className="text-deck-text/75">{fmt(detailValue)}</span>
-          </span>
-        ))}
       </div>
     </div>
   );

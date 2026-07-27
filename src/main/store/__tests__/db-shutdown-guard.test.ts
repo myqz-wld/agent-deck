@@ -13,14 +13,37 @@
  * **binding 守门**:init-never / closeDb-sets-flag 两个核心断言不碰真 SQLite(binding-free);
  * 完整生命周期 it 需 initDb 建真 db → bindingAvailable 守门(用错 runtime ABI 时 skip)。
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+const paths = vi.hoisted(() => ({ userData: '' }));
+vi.mock('electron', () => ({
+  app: {
+    getPath: (name: string) => {
+      if (name === 'logs') return '/tmp';
+      if (name === 'userData') return paths.userData;
+      throw new Error(`Unexpected Electron path: ${name}`);
+    },
+    setName: vi.fn(),
+    isPackaged: false,
+    exit: vi.fn(),
+  },
+}));
+
 import { getDb, initDb, closeDb, isDbClosed } from '../db';
 import { bindingAvailable } from './_binding-probe';
 
 describe('db.ts shutdown guard / isDbClosed 区分 init-never vs closed', () => {
+  beforeAll(() => {
+    paths.userData = mkdtempSync(join(tmpdir(), 'agent-deck-db-shutdown-'));
+  });
+
   afterAll(() => {
     // 收尾:确保不把 closed 态泄漏给后续(per-file 隔离已兜底,这里显式更稳)。
     closeDb();
+    rmSync(paths.userData, { recursive: true, force: true });
   });
 
   it('init-never: isDbClosed()=false 且 getDb() 仍 loud throw（不掩盖漏 initDb 启动 bug）', () => {

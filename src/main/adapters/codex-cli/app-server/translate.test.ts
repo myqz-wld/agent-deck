@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { CodexAppServerNotification } from './client';
 import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import {
+  TOKEN_USAGE_ALL_METRICS,
+  TOKEN_USAGE_METRIC,
+} from '@shared/types';
+import {
   createCodexAppServerTranslateState,
   translateCodexAppServerNotification,
 } from './translate';
@@ -50,9 +54,65 @@ describe('translateCodexAppServerNotification', () => {
           reasoningTokens: 5,
           cacheReadTokens: 7,
           cacheCreationTokens: 3,
+          metricScope: TOKEN_USAGE_ALL_METRICS,
         },
       },
     ]);
+  });
+
+  it('scopes partial token deltas to reported metrics and keeps provider total strict', () => {
+    const { emit, events } = collect();
+
+    translateCodexAppServerNotification(
+      {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          tokenUsage: {
+            last: {
+              inputTokens: 11,
+              cachedInputTokens: 7,
+            },
+          },
+        },
+      } as CodexAppServerNotification,
+      emit,
+      { model: 'gpt-5.6-sol' },
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'token-usage',
+        payload: {
+          messageId: null,
+          model: 'gpt-5.6-sol',
+          totalTokens: null,
+          inputTokens: 11,
+          outputTokens: null,
+          reasoningTokens: null,
+          cacheReadTokens: 7,
+          cacheCreationTokens: null,
+          metricScope:
+            TOKEN_USAGE_METRIC.total |
+            TOKEN_USAGE_METRIC.input |
+            TOKEN_USAGE_METRIC.cacheRead,
+        },
+      },
+    ]);
+  });
+
+  it('ignores empty app-server token deltas', () => {
+    const { emit, events } = collect();
+
+    translateCodexAppServerNotification(
+      {
+        method: 'thread/tokenUsage/updated',
+        params: { tokenUsage: { last: {} } },
+      } as CodexAppServerNotification,
+      emit,
+      { model: 'gpt-5.6-sol' },
+    );
+
+    expect(events).toEqual([]);
   });
 
   it('keeps transient app-server stream errors open and finishes fatal stream errors', () => {
