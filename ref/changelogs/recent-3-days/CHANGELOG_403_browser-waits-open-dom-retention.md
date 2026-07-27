@@ -1,9 +1,9 @@
 ---
-changelog_id: 401
+changelog_id: 403
 changed_at: 2026-07-27
 ---
 
-# CHANGELOG_401_browser-waits-open-dom-retention: Harden browser readiness and artifacts
+# CHANGELOG_403_browser-waits-open-dom-retention: Harden browser readiness and artifacts
 
 ## Summary
 
