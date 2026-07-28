@@ -163,6 +163,19 @@ export const adaptersApi = {
       handoffPrompt,
     ),
 
+  /** Restart an idle Grok ACP child with a requested native sandbox profile. */
+  restartWithGrokSandbox: (
+    agentId: string,
+    sessionId: string,
+    sandbox: string | null,
+  ): Promise<string> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterRestartWithGrokSandbox,
+      agentId,
+      sessionId,
+      sandbox,
+    ),
+
   /** 拉取主进程 SDK 当前还在等的 pending 请求；renderer HMR / 重启后用来重建 store。 */
   listAdapterPending: (
     agentId: string,

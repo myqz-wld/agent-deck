@@ -20,6 +20,7 @@ export function buildHandOffTargetRequest(
     ...(args.claudeCodeSandbox !== undefined
       ? { claudeCodeSandbox: args.claudeCodeSandbox }
       : {}),
+    ...(args.grokSandbox !== undefined ? { grokSandbox: args.grokSandbox } : {}),
     ...(args.extraAllowWrite !== undefined ? { extraAllowWrite: args.extraAllowWrite } : {}),
   };
 }

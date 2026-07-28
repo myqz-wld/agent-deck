@@ -113,6 +113,9 @@ describe.skipIf(!bindingAvailable)('v049-v051 adapter fidelity migrations', () =
          VALUES ('session-2', 'codex-cli', '/repo', 'target', 'sdk',
                  'active', 'idle', 2, 2)`,
       ).run();
+      // renameWithDb follows the current latest-schema contract. Add the independent nullable
+      // sessions column introduced after this historical migration range before exercising rename.
+      db.exec(migration(53, 'sessions_grok_sandbox'));
       renameWithDb(db, 'session-1', 'session-2');
       const renamed = db.prepare(
         `SELECT * FROM sessions WHERE id = 'session-2'`,

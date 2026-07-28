@@ -38,6 +38,7 @@ import type { SelectablePermissionMode } from '@shared/types';
 import { unwrapCliArgvPayload } from './cli-argv-payload';
 import log from '@main/utils/logger';
 import { PERMISSION_MODES } from '@shared/types';
+import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 
 const logger = log.scope('main-cli');
 
@@ -63,6 +64,7 @@ export interface CliNewSession {
   thinking?: string;
   focus: boolean;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  grokSandbox?: string;
   /** R3.E10：填了表示创建 / 加入指定 team（lead 角色） */
   team?: string;
   /** R3.E10：lead spawn 后再 spawn 这些 teammate sessions，全部加入 team（teammate 角色） */
@@ -119,6 +121,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'permission-mode',
   'resume',
   'codex-sandbox',
+  'grok-sandbox',
   'model',
   'provider',
   'thinking',
@@ -228,16 +231,34 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       }
       codexSandbox = csRaw as (typeof CODEX_SANDBOXES)[number];
     }
+    const gsRaw = asString(f.get('grok-sandbox'));
+    let grokSandbox: string | undefined;
+    if (gsRaw !== undefined) {
+      try {
+        grokSandbox = normalizeGrokSandboxProfile(gsRaw);
+      } catch (error) {
+        throw new Error(
+          `agent-deck new: --grok-sandbox 取值无效（${
+            error instanceof Error ? error.message : String(error)
+          }）`,
+        );
+      }
+    }
     if (isAgentId(agent)) {
       const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(agent, {
         ...(permissionMode !== undefined ? { permissionMode } : {}),
         ...(codexSandbox !== undefined ? { codexSandbox } : {}),
+        ...(grokSandbox !== undefined ? { grokSandbox } : {}),
       });
       if (unsupportedRuntimeField !== null) {
         const flag =
           unsupportedRuntimeField === 'permissionMode'
             ? 'permission-mode'
-            : 'codex-sandbox';
+            : unsupportedRuntimeField === 'codexSandbox'
+              ? 'codex-sandbox'
+              : unsupportedRuntimeField === 'grokSandbox'
+                ? 'grok-sandbox'
+                : unsupportedRuntimeField;
         throw new Error(
           `agent-deck new: --${flag} 与 adapter "${agent}" 不兼容（${unsupportedTargetRuntimeFieldMessage(agent, unsupportedRuntimeField)}）`,
         );
@@ -280,6 +301,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       ...(thinking !== undefined ? { thinking } : {}),
       focus,
       ...(codexSandbox !== undefined ? { codexSandbox } : {}),
+      ...(grokSandbox !== undefined ? { grokSandbox } : {}),
       ...(team ? { team } : {}),
       members,
     };
@@ -336,6 +358,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
       resume: inv.resume,
       ...sessionModelOptions,
       ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
+      ...(inv.grokSandbox !== undefined ? { grokSandbox: inv.grokSandbox } : {}),
     }),
   );
   if (adapter.capabilities.canSetPermissionMode) {
@@ -386,6 +409,9 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
                 prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent-deck__send_message 给你发消息。`,
                 ...(inv.codexSandbox !== undefined && m.adapter === 'codex-cli'
                   ? { codexSandbox: inv.codexSandbox }
+                  : {}),
+                ...(inv.grokSandbox !== undefined && m.adapter === 'grok-build'
+                  ? { grokSandbox: inv.grokSandbox }
                   : {}),
               }),
             );

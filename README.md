@@ -35,6 +35,20 @@ Authenticate each agent through its normal CLI workflow before first use. Agent 
 
 Leave runtime paths empty to use the app's bundled versions. Configure an external path only when you need a different installation.
 
+### Grok Build sandbox profiles
+
+Agent Deck can request Grok Build's native `off`, `workspace`, `devbox`, `read-only`, or `strict`
+sandbox when creating, handing off, or resolving work in a Grok session. Named custom profiles
+from user or project `sandbox.toml` files are also accepted. Existing idle Grok sessions can switch
+profiles without changing their Agent Deck or native session identity.
+
+Leave the setting unset to follow Grok's native configuration, environment, and managed policy, or
+use `agent-deck new --adapter grok-build --grok-sandbox strict` for an explicit CLI request. Agent
+Deck displays the requested profile because organization-managed requirements may override it.
+Sandbox constraints and ACP tool-permission decisions remain separate. On macOS, Grok documents
+child-network blocking in `read-only` and `strict` as unenforced even though filesystem isolation
+still applies.
+
 ## MCP Collaboration Areas
 
 The Agent Deck MCP server provides tools for:

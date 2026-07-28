@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { buildGrokChildEnv, buildGrokLaunchSpec } from '../launch-child';
+import {
+  buildGrokAgentArgs,
+  buildGrokChildEnv,
+  buildGrokLaunchSpec,
+} from '../launch-child';
 
 describe('Grok login-shell launch', () => {
+  it('places the native sandbox global option before the agent subcommand', () => {
+    expect(buildGrokAgentArgs('strict')).toEqual([
+      '--sandbox',
+      'strict',
+      'agent',
+      '--no-leader',
+      'stdio',
+    ]);
+    expect(buildGrokAgentArgs(null)).toEqual([
+      'agent',
+      '--no-leader',
+      'stdio',
+    ]);
+  });
+
   it('passes the binary and args positionally and reserves fd 3 for ACP output', () => {
     expect(
       buildGrokLaunchSpec('/Applications/Grok Build/grok', [

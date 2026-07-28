@@ -15,9 +15,6 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-27 | `PLAN_21_grok-native-sandbox-controls.md` | completed | Control Grok Build's native process sandbox across session paths | CHANGELOG_405 |
 | 2026-07-27 | `PLAN_20_provider-usage-runtime-control-fidelity.md` | completed | Preserve provider usage and adapter-owned runtime controls | CHANGELOG_402 |
 | 2026-07-27 | `PLAN_19_cross-adapter-browser-engine.md` | implemented, real-session validation pending | Open and harden the cross-adapter in-app browser | CHANGELOG_400 / CHANGELOG_403 |
-| 2026-07-23 | `PLAN_18_runtime-provider-gateway-unification.md` | completed | Unify Claude Gateway and Codex runtime providers | CHANGELOG_387 |
-| 2026-07-23 | `PLAN_17_bundled-agent-runtime-overrides.md` | completed | Configure bundled Agent runtimes without editing packaged assets | CHANGELOG_384 / REVIEW_168 |
-| 2026-07-23 | `PLAN_16_grok-build-adapter-profiles.md` | completed | Add Grok Build through ACP and typed adapter runtime profiles | CHANGELOG_383 / REVIEW_167 |
-| 2026-07-21 | `PLAN_15_plan-review-pending-queue-composer.md` | completed | Isolate review, queue pending input, and expand the composer | CHANGELOG_379 / REVIEW_165 |

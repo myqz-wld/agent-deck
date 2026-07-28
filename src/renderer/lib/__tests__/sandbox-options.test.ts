@@ -4,6 +4,7 @@ import {
   CLAUDE_SANDBOX_OPTIONS,
   CODEX_SANDBOX_MODE_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
+  GROK_SANDBOX_MODE_OPTIONS,
   PERMISSION_OPTIONS,
 } from '../sandbox-options';
 
@@ -37,6 +38,16 @@ describe('sandbox option copy', () => {
       'plan',
       'auto',
       'bypassPermissions',
+    ]);
+  });
+
+  it('exposes all Grok built-ins in restrictive-to-open order', () => {
+    expect(GROK_SANDBOX_MODE_OPTIONS.map((option) => option.value)).toEqual([
+      'strict',
+      'read-only',
+      'workspace',
+      'devbox',
+      'off',
     ]);
   });
 });

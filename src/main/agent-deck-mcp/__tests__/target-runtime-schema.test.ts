@@ -47,17 +47,27 @@ describe('MCP target runtime schemas', () => {
     }).success).toBe(false);
   });
 
-  it('keeps Grok on ACP-native mode and rejects provider/sandbox controls', () => {
+  it('accepts only Grok-owned mode and native sandbox controls', () => {
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
       model: 'grok-4.5',
       thinking: 'xhigh',
       sessionMode: 'ask',
+      grokSandbox: 'strict',
     }).success).toBe(true);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].parse({
+      grokSandbox: ' project-locked ',
+    })).toMatchObject({ grokSandbox: 'project-locked' });
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
       provider: 'xai',
     }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
+      codexSandbox: 'read-only',
+    }).success).toBe(false);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
       extraAllowWrite: [],
+    }).success).toBe(false);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
+      grokSandbox: 'strict\nworkspace',
     }).success).toBe(false);
   });
 });

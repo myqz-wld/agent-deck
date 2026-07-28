@@ -30,6 +30,10 @@ import {
   type AgentId,
 } from '@main/adapters/options-builder';
 import {
+  firstUnsupportedTargetRuntimeField,
+  unsupportedTargetRuntimeFieldMessage,
+} from '@main/adapters/runtime-control-contracts';
+import {
   resolveCreateSessionModelOptions,
   SessionModelOptionsError,
 } from '@main/adapters/session-model-options';
@@ -45,6 +49,7 @@ import {
   parseAdapterSessionMode,
   parseSandboxMode,
   parseCodexSandboxMode,
+  parseGrokSandboxProfile,
 } from './_helpers';
 import type { IssueRecord } from '@shared/types';
 
@@ -96,6 +101,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   sessionMode: z.string().optional(),
   codexSandbox: z.string().optional(),
   claudeCodeSandbox: z.string().optional(),
+  grokSandbox: z.string().optional(),
   provider: z.string().max(128).optional(),
   model: z.string().max(256).optional(),
   thinking: z.string().optional(), // resolveCreateSessionModelOptions 内按 adapter 白名单校验
@@ -116,6 +122,7 @@ interface CreateIssueResolutionSessionInput {
   sessionMode?: ReturnType<typeof parseAdapterSessionMode>;
   codexSandbox: ReturnType<typeof parseCodexSandboxMode>;
   claudeCodeSandbox: ReturnType<typeof parseSandboxMode>;
+  grokSandbox?: ReturnType<typeof parseGrokSandboxProfile>;
   provider?: unknown;
   model?: unknown;
   thinking?: unknown;
@@ -134,6 +141,33 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
   // §3 canCreateSession capability 校验
   if (a.capabilities.canCreateSession !== true) {
     throw new IpcInputError('adapter', `adapter "${validAdapterId}" capabilities.canCreateSession=false`);
+  }
+  const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(
+    validAdapterId as AgentId,
+    {
+      ...(input.permissionMode !== null
+        ? { permissionMode: input.permissionMode }
+        : {}),
+      ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
+      ...(input.codexSandbox !== null
+        ? { codexSandbox: input.codexSandbox }
+        : {}),
+      ...(input.claudeCodeSandbox !== null
+        ? { claudeCodeSandbox: input.claudeCodeSandbox }
+        : {}),
+      ...(input.grokSandbox != null
+        ? { grokSandbox: input.grokSandbox }
+        : {}),
+    },
+  );
+  if (unsupportedRuntimeField !== null) {
+    throw new IpcInputError(
+      unsupportedRuntimeField,
+      unsupportedTargetRuntimeFieldMessage(
+        validAdapterId as AgentId,
+        unsupportedRuntimeField,
+      ),
+    );
   }
   if (input.sessionMode != null) {
     if (!a.capabilities.canSetSessionMode) {
@@ -174,6 +208,7 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
       ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
       ...(input.codexSandbox !== null ? { codexSandbox: input.codexSandbox } : {}),
       ...(input.claudeCodeSandbox !== null ? { claudeCodeSandbox: input.claudeCodeSandbox } : {}),
+      ...(input.grokSandbox != null ? { grokSandbox: input.grokSandbox } : {}),
       ...sessionModelOptions,
     }),
   );
@@ -319,6 +354,7 @@ export async function issuesResolveInNewSessionHandler(
     const sessionMode = parseAdapterSessionMode(args.sessionMode);
     const codexSandbox = parseCodexSandboxMode(args.codexSandbox);
     const claudeCodeSandbox = parseSandboxMode(args.claudeCodeSandbox);
+    const grokSandbox = parseGrokSandboxProfile(args.grokSandbox);
     logger.info('[IssuesResolveInNewSession] spawning resolution session', {
       issueId: args.issueId,
       adapter: args.adapter,
@@ -327,6 +363,7 @@ export async function issuesResolveInNewSessionHandler(
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
+      grokSandbox,
       provider: args.provider?.trim() || null,
       model: args.model?.trim() || null,
       thinking: args.thinking ?? null,
@@ -341,6 +378,7 @@ export async function issuesResolveInNewSessionHandler(
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
+      grokSandbox,
       provider: args.provider,
       model: args.model,
       thinking: args.thinking,

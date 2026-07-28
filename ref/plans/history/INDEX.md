@@ -102,6 +102,7 @@ Legacy topic-and-date plan names and nonterminal snapshots remain stable. Missin
 | 2026-05-29 | `sdk-spawn-shell-path-20260529.md` | completed | SDK Spawn Shell PATH 修复 plan | CHANGELOG_176 |
 | unknown | `send-message-session-not-found-20260629.md` | completed | send_message Session Not Found Fix | CHANGELOG_334 / REVIEW_142 |
 | 2026-05-26 | `session-list-handoff-role-badge-20260526.md` | completed | Plan: SessionList hand_off lead/teammate badge 显示修复 (v4) | CHANGELOG_152 |
+| 2026-06-26 | `session-trajectory-mcp-tool-20260626.md` | completed | Session Trajectory MCP Tool | CHANGELOG_328 |
 | unknown | `spawn-session-custom-model-20260625.md` | completed | spawn_session Custom Model Names | CHANGELOG_327 |
 | unknown | `spawn-session-model-thinking-20260611.md` | in_progress (legacy snapshot) | spawn_session Model And Thinking Parameters | None |
 | 2026-06-17 | `spawn-teamless-reply-anchor-20260617.md` | completed | Spawn Teamless Reply Anchor | CHANGELOG_279 / REVIEW_119 |

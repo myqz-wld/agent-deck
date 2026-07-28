@@ -29,6 +29,15 @@ export interface GrokLaunchSpec {
   useLoginShell: boolean;
 }
 
+export function buildGrokAgentArgs(sandboxProfile: string | null): string[] {
+  return [
+    ...(sandboxProfile ? ['--sandbox', sandboxProfile] : []),
+    'agent',
+    '--no-leader',
+    'stdio',
+  ];
+}
+
 /**
  * Use the user's login shell only for the real Grok child. This lets a GUI-launched app pass
  * exported API-key variables to Grok without reading, persisting, or logging their values.
@@ -75,13 +84,15 @@ export function spawnGrokChild(options: {
   binary: string;
   args?: string[];
   cwd: string;
+  sandboxProfile?: string | null;
 }): {
   child: ChildProcessWithoutNullStreams;
   protocolOutput: Readable;
   startupOutput: Readable | null;
   usedLoginShell: boolean;
 } {
-  const grokArgs = options.args ?? ['agent', '--no-leader', 'stdio'];
+  const grokArgs =
+    options.args ?? buildGrokAgentArgs(options.sandboxProfile ?? null);
   const spec = buildGrokLaunchSpec(options.binary, grokArgs, {
     explicitTestArgs: options.args !== undefined,
   });

@@ -38,8 +38,8 @@ export interface AdapterRuntimeProfile {
     sessionModes: readonly AdapterSessionMode[];
     /** Provider selector exposed at session creation, when the provider supports one. */
     providerOverride: 'claude-gateway' | 'codex-model-provider' | 'none';
-    /** Provider-native sandbox family. `provider-native` has no Agent Deck sandbox override. */
-    sandbox: 'claude' | 'codex' | 'provider-native';
+    /** Provider-native sandbox family. */
+    sandbox: 'claude' | 'codex' | 'grok';
     /** Whether a session may add writable roots outside cwd. */
     extraAllowWrite: boolean;
   };
@@ -73,6 +73,7 @@ const profiles = {
       canRestartWithPermissionMode: true,
       canRestartWithCodexSandbox: false,
       canRestartWithClaudeCodeSandbox: true,
+      canRestartWithGrokSandbox: false,
       canCloseSession: true,
       canCollaborate: true,
       canAcceptAttachments: true,
@@ -112,6 +113,7 @@ const profiles = {
       canRestartWithPermissionMode: false,
       canRestartWithCodexSandbox: true,
       canRestartWithClaudeCodeSandbox: false,
+      canRestartWithGrokSandbox: false,
       canCloseSession: true,
       canCollaborate: true,
       canAcceptAttachments: true,
@@ -151,6 +153,7 @@ const profiles = {
       canRestartWithPermissionMode: false,
       canRestartWithCodexSandbox: false,
       canRestartWithClaudeCodeSandbox: false,
+      canRestartWithGrokSandbox: true,
       canCloseSession: true,
       canCollaborate: true,
       // Updated from ACP initialize during adapter init.
@@ -168,7 +171,7 @@ const profiles = {
       permissionModes: [],
       sessionModes: ['default', 'plan', 'ask'],
       providerOverride: 'none',
-      sandbox: 'provider-native',
+      sandbox: 'grok',
       extraAllowWrite: false,
     },
     mcpTools: { kind: 'all' },

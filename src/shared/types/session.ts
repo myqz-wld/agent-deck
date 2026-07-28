@@ -179,6 +179,11 @@ export interface SessionRecord {
    */
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
   /**
+   * Grok Build native sandbox profile requested when its ACP child starts.
+   * null delegates to Grok's native configuration precedence.
+   */
+  grokSandbox?: string | null;
+  /**
    * Agent / SDK model（plan model-wiring-and-handoff-20260514 Step 1.3）。
    *
    * 初始值来自 spawn/session 配置，并在 provider 给出更权威的 runtime identity 时校准，让
@@ -389,6 +394,8 @@ export interface SessionHandOffTarget {
   thinking: string | null;
   /** Adapter-native work mode; currently meaningful only for Grok Build. */
   sessionMode?: AdapterSessionMode | null;
+  /** Optional Grok native sandbox request; omitted follows hand-off inheritance/default rules. */
+  grokSandbox?: string | null;
 }
 
 export interface SessionHandOffPrepareRequest {

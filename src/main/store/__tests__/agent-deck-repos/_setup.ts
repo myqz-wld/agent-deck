@@ -60,6 +60,7 @@ import v049 from '../../migrations/v049_sessions_codex_approval_policy.sql?raw';
 import v050 from '../../migrations/v050_sessions_grok_usage_watermark.sql?raw';
 import v051 from '../../migrations/v051_token_usage_presence.sql?raw';
 import v052 from '../../migrations/v052_token_usage_metric_scope_repair.sql?raw';
+import v053 from '../../migrations/v053_sessions_grok_sandbox.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
@@ -124,6 +125,7 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
     v050,
     v051,
     v052,
+    v053,
   ]) {
     db.exec(sql);
   }
