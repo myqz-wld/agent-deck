@@ -19,12 +19,14 @@ describe('Claude adapter native fork wiring', () => {
     const bridge = {
       createSession: vi.fn(async () => ({ sessionId: 'child-app-id' })),
       closeSession: vi.fn(async () => undefined),
+      closeSessionForRollback: vi.fn(async () => undefined),
     };
     (claudeCodeAdapter as unknown as { bridge: typeof bridge }).bridge = bridge;
     const discard = vi.fn(async () => undefined);
     createForkMock.mockImplementationOnce(async (args) => {
       expect(args.deleteChild).toEqual(expect.any(Function));
       const childId = await args.createChild('fork-native-id');
+      await args.closeChild(childId);
       expect(childId).toBe('child-app-id');
       return { sessionId: childId, discard } satisfies ForkedSessionHandle;
     });
@@ -73,5 +75,7 @@ describe('Claude adapter native fork wiring', () => {
       handOff: undefined,
       awaitCanonicalId: true,
     });
+    expect(bridge.closeSessionForRollback).toHaveBeenCalledWith('child-app-id');
+    expect(bridge.closeSession).not.toHaveBeenCalled();
   });
 });

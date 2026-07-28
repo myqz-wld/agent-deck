@@ -48,19 +48,19 @@ import type { AgentEnqueueOptions, PendingAgentMessage, PermissionMode, QueuedAg
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
+import { readClaudeBridgeUsageSnapshot, readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 import {
-  buildClaudeUsageSnapshot,
-  errorUsageSnapshot,
-} from '../../provider-usage';
-import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
-import log from '@main/utils/logger';
-import { closeClaudeSession, setClaudePermissionMode } from './session-lifecycle';
+  closeClaudeSession,
+  closeClaudeSessionForRollback,
+  interruptClaudeSession,
+  retireClaudeSessionAfterCurrentTurn,
+  setClaudePermissionMode,
+} from './session-lifecycle';
 import { sendClaudeMessage } from './message-controller';
 import * as pendingOutgoing from './pending-outgoing';
 import { resolveClaudeGatewayProfile } from '../gateway-profiles';
 import { withResolvedClaudeGateway } from './create-session/gateway-options';
 
-const logger = log.scope('claude-bridge');
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
 /**
@@ -79,7 +79,7 @@ export type { SdkSessionHandle, SdkBridgeOptions } from './types';
  * 拆完后本文件作 thin facade（≤ 500 LOC 满足护栏）：
  * - class shell + ctor（11 sub-module ref 装配）
  * - createSession 改 thin delegate → `./create-session/create-session-impl.ts:createSessionImpl`
- * - sendMessage / interrupt / closeSession / setPermissionMode / 2 restartWith* 不拆
+ * - sendMessage / setPermissionMode / 2 restartWith* remain thin public delegates
  * - provider-history and cwd probes remain protected test seams
  * - 6 responder thin wrapper / consume protected wrapper 不拆
  *
@@ -203,23 +203,7 @@ export class ClaudeSdkBridge {
   }
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
-    const session = [...this.sessions.values()]
-      .reverse()
-      .find(
-        (s) =>
-          !s.expectedClose &&
-          typeof s.query?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET ===
-            'function',
-      );
-    if (!session) return readClaudeUsageSnapshotInBackground();
-
-    try {
-      const usage = await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
-      return buildClaudeUsageSnapshot(usage);
-    } catch (err) {
-      logger.warn('[claude-bridge] usage snapshot failed:', err);
-      return errorUsageSnapshot('claude-code', 'Claude', err);
-    }
+    return readClaudeBridgeUsageSnapshot(this.sessions, readClaudeUsageSnapshotInBackground);
   }
 
   /**
@@ -396,20 +380,10 @@ export class ClaudeSdkBridge {
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    if (!s) return;
-    try {
-      await s.query.interrupt();
-    } catch (err) {
-      logger.warn(`[sdk-bridge] interrupt failed`, err);
-    }
+    await interruptClaudeSession(this.sessions, sessionId);
   }
 
-  /**
-   * 删会话清理：abort live query + 兜底清 pending timer + 移除 internal session 记录。
-   * 与 interrupt 区别：interrupt 允许 resume / 继续同 session；close 是永久关闭，
-   * 由 SessionManager.delete 调用，确保 SDK 子进程不继续跑（CHANGELOG_20 / N2）。
-   */
+  /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */
   async closeSession(sessionId: string, opts: { markRecentlyDeleted?: boolean } = {}): Promise<void> {
     await closeClaudeSession({
       sessions: this.sessions,
@@ -419,18 +393,15 @@ export class ClaudeSdkBridge {
     });
   }
 
-  /** Let the current MCP turn return its handoff result, then end the source query before next input. */
+  async closeSessionForRollback(sessionId: string): Promise<void> {
+    return closeClaudeSessionForRollback({
+      sessions: this.sessions,
+      emit: this.opts.emit,
+      sessionId,
+    });
+  }
   retireSessionAfterCurrentTurn(sessionId: string): void {
-    const internal = [...this.sessions.values()].find(
-      (candidate) =>
-        candidate.applicationSid === sessionId || candidate.cliSessionId === sessionId,
-    );
-    if (!internal) return;
-    // This method runs before the MCP handler returns. Only seal future input here: expectedClose
-    // and query interruption would suppress or truncate the current turn's result frame.
-    internal.retireRequested = true;
-    internal.pendingUserMessages.length = 0;
-    internal.acceptedEnqueueFingerprints?.clear();
+    retireClaudeSessionAfterCurrentTurn(this.sessions, sessionId);
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {

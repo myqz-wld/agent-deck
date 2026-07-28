@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeSdkBridge } from '../sdk-bridge';
 import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 
-vi.mock('../usage-snapshot', () => ({
+vi.mock('../usage-snapshot', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../usage-snapshot')>()),
   readClaudeUsageSnapshotInBackground: vi.fn().mockResolvedValue({
     provider: 'claude-code',
     label: 'Claude',

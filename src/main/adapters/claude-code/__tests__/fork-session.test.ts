@@ -10,6 +10,7 @@ import {
   selectClaudeForkBoundary,
   type ClaudeTranscriptEntry,
 } from '../fork-session';
+import { ClaudeForkDiscardError } from '../fork-session-cleanup';
 
 const SOURCE_APP_ID = '11111111-1111-4111-8111-111111111111';
 const SOURCE_NATIVE_ID = '22222222-2222-4222-8222-222222222222';
@@ -247,6 +248,44 @@ describe('Claude native fork lifecycle', () => {
     expect(await readFile(transcriptPath, 'utf8')).toBe(sourceTranscript);
   });
 
+  it('attempts every child cleanup phase and rejects an idempotent incomplete discard', async () => {
+    const sdk = makeSdk();
+    sdk.deleteSession.mockRejectedValueOnce(new Error('native delete failed'));
+    let reads = 0;
+    const childSessionStore = {
+      get: vi.fn(() => {
+        reads += 1;
+        if (reads > 1) throw new Error('row inspection failed');
+        return { cliSessionId: FORK_NATIVE_ID };
+      }),
+      delete: vi.fn(),
+    };
+    const closeChild = vi.fn(async () => {
+      throw new Error('provider close failed');
+    });
+    const deleteChild = vi.fn(async () => {
+      throw new Error('row delete failed');
+    });
+    const handle = await createClaudeFamilyForkedSession({
+      source: { applicationSessionId: SOURCE_APP_ID, nativeSessionId: SOURCE_NATIVE_ID, cwd },
+      providerName: 'Claude',
+      createChild: vi.fn(async () => FORK_NATIVE_ID),
+      closeChild,
+      deleteChild,
+      sdk,
+      configRoot,
+      childSessionStore,
+    });
+
+    await expect(handle.discard()).rejects.toBeInstanceOf(ClaudeForkDiscardError);
+    await expect(handle.discard()).rejects.toBeInstanceOf(ClaudeForkDiscardError);
+
+    expect(closeChild).toHaveBeenCalledTimes(1);
+    expect(deleteChild).toHaveBeenCalledTimes(1);
+    expect(sdk.deleteSession).toHaveBeenCalledTimes(1);
+    expect(childSessionStore.delete).not.toHaveBeenCalled();
+  });
+
   it('accepts a complete current user when the active assistant JSONL tail is partial', async () => {
     const partialAssistant = JSON.stringify({
       type: 'assistant',
@@ -331,8 +370,9 @@ describe('Claude native fork lifecycle', () => {
       delete: vi.fn(),
     };
 
-    await expect(
-      createClaudeFamilyForkedSession({
+    let thrown: unknown;
+    try {
+      await createClaudeFamilyForkedSession({
         source: {
           applicationSessionId: SOURCE_APP_ID,
           nativeSessionId: SOURCE_NATIVE_ID,
@@ -346,8 +386,16 @@ describe('Claude native fork lifecycle', () => {
         sdk,
         configRoot,
         childSessionStore,
-      }),
-    ).rejects.toBe(failure);
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([
+      failure,
+      expect.any(ClaudeForkDiscardError),
+    ]);
 
     expect(childSessionStore.delete).toHaveBeenCalledWith(FORK_NATIVE_ID);
     expect(sdk.deleteSession).toHaveBeenCalledWith(FORK_NATIVE_ID, { dir: cwd });

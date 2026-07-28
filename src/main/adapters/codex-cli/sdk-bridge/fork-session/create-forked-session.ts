@@ -252,7 +252,14 @@ export async function createCodexForkedSession(
       },
     };
   } catch (err) {
-    await cleanupCodexFork(cleanupState, deps);
+    try {
+      await cleanupCodexFork(cleanupState, deps);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [err, cleanupError],
+        'Codex fork creation failed and child cleanup was incomplete',
+      );
+    }
     throw err;
   }
 }

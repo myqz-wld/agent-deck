@@ -7,10 +7,26 @@ import type { PermissionMode } from '@main/adapters/types';
 const logger = log.scope('claude-bridge');
 const CLOSE_STREAM_DRAIN_TIMEOUT_MS = 1_000;
 
+function findClaudeSession(
+  sessions: Map<string, InternalSession>,
+  sessionId: string,
+): { key: string; internal: InternalSession } | null {
+  for (const [key, internal] of sessions) {
+    if (
+      key === sessionId ||
+      internal.cliSessionId === sessionId ||
+      internal.applicationSid === sessionId
+    ) {
+      return { key, internal };
+    }
+  }
+  return null;
+}
+
 async function waitForStreamDrained(
   internal: InternalSession,
   sessionId: string,
-): Promise<void> {
+): Promise<boolean> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   const timeoutToken = Symbol('timeout');
   const result = await Promise.race([
@@ -24,6 +40,21 @@ async function waitForStreamDrained(
     logger.warn(
       `[sdk-bridge] closeSession stream drain timed out after ${CLOSE_STREAM_DRAIN_TIMEOUT_MS}ms: ${sessionId}`,
     );
+    return false;
+  }
+  return true;
+}
+
+export async function interruptClaudeSession(
+  sessions: Map<string, InternalSession>,
+  sessionId: string,
+): Promise<void> {
+  const resolved = findClaudeSession(sessions, sessionId);
+  if (!resolved) return;
+  try {
+    await resolved.internal.query.interrupt();
+  } catch (error) {
+    logger.warn('[sdk-bridge] interrupt failed', error);
   }
 }
 
@@ -33,20 +64,9 @@ export async function closeClaudeSession(input: {
   sessionId: string;
   options: { markRecentlyDeleted?: boolean };
 }): Promise<void> {
-  let key: string | null = null;
-  let internal: InternalSession | null = null;
-  for (const [candidateKey, candidate] of input.sessions.entries()) {
-    if (
-      candidateKey === input.sessionId ||
-      candidate.cliSessionId === input.sessionId ||
-      candidate.applicationSid === input.sessionId
-    ) {
-      key = candidateKey;
-      internal = candidate;
-      break;
-    }
-  }
-  if (!internal || !key) return;
+  const resolved = findClaudeSession(input.sessions, input.sessionId);
+  if (!resolved) return;
+  const { internal, key } = resolved;
 
   // Abort wakes pending permission handlers. Marking the close as expected keeps this intentional
   // lifecycle transition from producing a red provider-stream error in the session timeline.
@@ -66,6 +86,50 @@ export async function closeClaudeSession(input: {
     markRecentlyDeleted: input.options.markRecentlyDeleted,
   });
   await waitForStreamDrained(internal, input.sessionId);
+}
+
+export async function closeClaudeSessionForRollback(input: {
+  sessions: Map<string, InternalSession>;
+  emit: SdkBridgeOptions['emit'];
+  sessionId: string;
+}): Promise<void> {
+  const resolved = findClaudeSession(input.sessions, input.sessionId);
+  if (!resolved) {
+    throw new Error(`Claude rollback close cannot prove a live target runtime for ${input.sessionId}`);
+  }
+  const { internal, key } = resolved;
+  const expectedCloseBefore = internal.expectedClose;
+  internal.expectedClose = true;
+  try {
+    await internal.query?.interrupt?.();
+  } catch (error) {
+    logger.warn(`[sdk-bridge] strict interrupt during close failed: ${input.sessionId}`, error);
+  }
+
+  if (!(await waitForStreamDrained(internal, input.sessionId))) {
+    internal.expectedClose = expectedCloseBefore;
+    throw new Error(`Claude rollback close could not prove provider stream termination for ${input.sessionId}`);
+  }
+
+  runCloseSessionCleanup({
+    sessions: input.sessions,
+    internal,
+    key,
+    sessionId: input.sessionId,
+    emit: input.emit,
+  });
+}
+
+export function retireClaudeSessionAfterCurrentTurn(
+  sessions: Map<string, InternalSession>,
+  sessionId: string,
+): void {
+  const resolved = findClaudeSession(sessions, sessionId);
+  if (!resolved) return;
+  const { internal } = resolved;
+  internal.retireRequested = true;
+  internal.pendingUserMessages.length = 0;
+  internal.acceptedEnqueueFingerprints?.clear();
 }
 
 export async function setClaudePermissionMode(input: {

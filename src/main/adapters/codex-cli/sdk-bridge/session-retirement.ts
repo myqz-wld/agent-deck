@@ -4,6 +4,7 @@ import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { extractAttachmentPaths } from './input-pack';
 import type { InternalSession } from './types';
 import log from '@main/utils/logger';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
 
 const logger = log.scope('codex-bridge');
 
@@ -12,6 +13,26 @@ export interface CodexSessionRetirementContext {
   clients: Map<string, CodexAppServerClient>;
   releaseClaim: (sessionId: string) => void;
   releaseToken: (sessionId: string) => void;
+}
+
+export interface CodexStrictRetirementIssue {
+  phase: 'missing-client' | 'client-dispose' | 'claim-release' | 'token-release';
+  sessionId: string;
+}
+
+export class CodexStrictRetirementError extends Error {
+  readonly issues: readonly CodexStrictRetirementIssue[];
+  readonly residualState = ['codex-runtime-ownership'] as const;
+
+  constructor(issues: readonly CodexStrictRetirementIssue[]) {
+    super(
+      `Codex rollback close incomplete during ${[
+        ...new Set(issues.map((issue) => issue.phase)),
+      ].join(', ')}`,
+    );
+    this.name = 'CodexStrictRetirementError';
+    this.issues = issues;
+  }
 }
 
 /**
@@ -79,6 +100,76 @@ export function finalizeCodexSessionRetirement(
       logger.warn(`[codex-bridge] MCP token release during retirement failed: ${sessionId}`, err);
     }
   }
+}
+
+export function finalizeCodexSessionRetirementForRollback(
+  ctx: CodexSessionRetirementContext,
+  internal: InternalSession,
+): void {
+  if (internal.retirementFinalized) return;
+  internal.retireAfterCurrentTurn = true;
+  discardPendingCodexInputs(
+    internal,
+    internal.deletePendingAttachmentsOnRetirement === true,
+  );
+  const runtimeIds = collectRuntimeIds(ctx.sessions, internal);
+  const clients = new Set<CodexAppServerClient>();
+  for (const sessionId of runtimeIds) {
+    const client = ctx.clients.get(sessionId);
+    if (client) clients.add(client);
+  }
+  const issues: CodexStrictRetirementIssue[] = [];
+  const recordIssue = (
+    phase: CodexStrictRetirementIssue['phase'],
+    sessionId: string,
+    error?: unknown,
+  ): void => {
+    issues.push({ phase, sessionId });
+    logger.warn('[codex-bridge] strict retirement step failed', safeDiagnostic({
+      phase,
+      outcome: 'failed',
+      sessionId,
+      ...(error === undefined ? {} : { error }),
+    }));
+  };
+  if (clients.size === 0) recordIssue('missing-client', internal.applicationSid);
+  for (const client of clients) {
+    try {
+      client.dispose();
+    } catch (error) {
+      recordIssue('client-dispose', internal.applicationSid, error);
+    }
+  }
+  for (const sessionId of runtimeIds) {
+    try {
+      ctx.releaseClaim(sessionId);
+    } catch (error) {
+      recordIssue('claim-release', sessionId, error);
+    }
+    try {
+      ctx.releaseToken(sessionId);
+    } catch (error) {
+      recordIssue('token-release', sessionId, error);
+    }
+  }
+  if (issues.length > 0) throw new CodexStrictRetirementError(issues);
+  for (const sessionId of runtimeIds) {
+    if (ctx.sessions.get(sessionId) === internal) ctx.sessions.delete(sessionId);
+    ctx.clients.delete(sessionId);
+  }
+  internal.retirementFinalized = true;
+}
+
+function collectRuntimeIds(
+  sessions: ReadonlyMap<string, InternalSession>,
+  internal: InternalSession,
+): Set<string> {
+  const runtimeIds = new Set<string>([internal.applicationSid]);
+  if (internal.threadId) runtimeIds.add(internal.threadId);
+  for (const [sessionId, candidate] of sessions) {
+    if (candidate === internal) runtimeIds.add(sessionId);
+  }
+  return runtimeIds;
 }
 
 function discardPendingCodexInputs(

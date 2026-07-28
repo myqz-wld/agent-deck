@@ -54,8 +54,8 @@ import {
   type RecoveryRuntimeOverrides,
 } from '@main/session/continuation-context/recovery';
 import type { SessionRecord } from '@shared/types';
-import { armCodexSessionRetirement, finalizeCodexSessionRetirement } from './session-retirement';
 import { CodexPermissionHost } from './permission-host';
+import { CodexSessionLifecycleCoordinator } from './session-lifecycle-coordinator';
 
 const logger = log.scope('codex-bridge');
 
@@ -116,6 +116,7 @@ export class CodexSdkBridge {
   private sessionModelController: SessionModelController;
   private messageController: MessageController;
   private permissionHost: CodexPermissionHost;
+  private sessionLifecycle: CodexSessionLifecycleCoordinator;
 
   /**
    * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
@@ -133,6 +134,17 @@ export class CodexSdkBridge {
       timeoutMs: Math.max(0, opts.permissionTimeoutMs ?? 0),
       emit: opts.emit,
     });
+    this.sessionLifecycle = new CodexSessionLifecycleCoordinator(
+      this.sessions,
+      this.codexBySession,
+      (internal) => this.permissionHost.cancel(internal),
+      {
+        sessions: this.sessions,
+        clients: this.codexBySession,
+        releaseClaim: (sid) => sessionManager.releaseSdkClaim(sid),
+        releaseToken: (sid) => mcpSessionTokenMap.release(sid),
+      },
+    );
     const ctx: ThreadLoopCtx = {
       sessions: this.sessions,
       emit: opts.emit,
@@ -159,7 +171,7 @@ export class CodexSdkBridge {
           );
         }
       },
-      finalizeRetirement: (internal) => this.finalizeSessionRetirement(internal),
+      finalizeRetirement: (internal) => this.sessionLifecycle.finalizeOrdinary(internal),
     };
     this.threadLoop = new ThreadLoop(ctx);
     const restartCtx: RestartCtx = {
@@ -266,18 +278,7 @@ export class CodexSdkBridge {
   }
 
   validateForkSession(source: ForkSessionSource): void {
-    const sourceClient = this.codexBySession.get(source.applicationSessionId);
-    const sourceInternal = this.sessions.get(source.applicationSessionId);
-    if (
-      !sourceClient ||
-      !sourceClient.isProcessAlive ||
-      !sourceInternal ||
-      sourceInternal.threadId !== source.nativeSessionId
-    ) {
-      throw new Error(
-        'Codex native fork requires caller-owned live app-server state matching the caller native thread. Retry while the caller turn is active or use contextMode "fresh".',
-      );
-    }
+    this.sessionLifecycle.validateForkSource(source);
   }
 
   createForkedSession(
@@ -331,12 +332,7 @@ export class CodexSdkBridge {
 
   /** Finish the current provider turn, but never start queued work on a handed-off source. */
   retireSessionAfterCurrentTurn(sessionId: string): void {
-    const internal = this.sessions.get(sessionId);
-    if (!internal) return;
-    armCodexSessionRetirement(internal);
-    if (!internal.currentTurn && !internal.turnLoopRunning) {
-      this.finalizeSessionRetirement(internal);
-    }
+    this.sessionLifecycle.retireAfterCurrentTurn(sessionId);
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
@@ -377,47 +373,13 @@ export class CodexSdkBridge {
     await this.sessionModelController.setOptions(sessionId, options);
   }
 
-  /**
-   * 删会话清理：abort 当前 turn + 清 pendingMessages + 移除 internal session 记录。
-   * 由 SessionManager.delete 调用，确保 codex 子进程不继续跑（CHANGELOG_20 / N2）。
-   *
-   * REVIEW_4 H1：必须先设 `intentionallyClosed = true` 再 abort，让 runTurnLoop catch
-   * 看到标记后**静默退出**（不发 finished/message）。否则 abort 触发 catch → emit
-   * `finished{subtype:interrupted}` → manager.dedupOrClaim 不丢这条 sdk 事件 →
-   * ensureRecord 把已删 session 复活成 lifecycle:active 的幽灵 record + 多通知一条「Agent 完成」。
-   */
+  /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */
   async closeSession(sessionId: string): Promise<void> {
-    const internal = this.findSession(sessionId);
-    if (!internal) return;
-
-    // 关键：标记必须在 abort 之前置位，否则 runTurnLoop 的 catch 微任务会先看到 aborted 跑常规分支
-    internal.intentionallyClosed = true;
-    armCodexSessionRetirement(internal, true);
-    this.permissionHost.cancel(internal);
-
-    if (internal.currentTurn) {
-      try {
-        internal.currentTurn.abort();
-      } catch (err) {
-        logger.warn(`[codex-bridge] abort during close failed: ${sessionId}`, err);
-      }
-      internal.currentTurn = null;
-      internal.currentTurnId = null;
-    }
-    this.finalizeSessionRetirement(internal);
+    await this.sessionLifecycle.closeOrdinary(sessionId);
   }
 
-  private finalizeSessionRetirement(internal: InternalSession): void {
-    this.permissionHost.cancel(internal);
-    finalizeCodexSessionRetirement(
-      {
-        sessions: this.sessions,
-        clients: this.codexBySession,
-        releaseClaim: (sid) => sessionManager.releaseSdkClaim(sid),
-        releaseToken: (sid) => mcpSessionTokenMap.release(sid),
-      },
-      internal,
-    );
+  async closeSessionForRollback(sessionId: string): Promise<void> {
+    await this.sessionLifecycle.closeForRollback(sessionId);
   }
 
   respondPermission(
@@ -449,15 +411,6 @@ export class CodexSdkBridge {
 
   setPermissionTimeoutMs(ms: number): void {
     this.permissionHost.setTimeoutMs(ms);
-  }
-
-  private findSession(sessionId: string): InternalSession | null {
-    const direct = this.sessions.get(sessionId);
-    if (direct) return direct;
-    for (const internal of this.sessions.values()) {
-      if (internal.applicationSid === sessionId || internal.threadId === sessionId) return internal;
-    }
-    return null;
   }
 
   /**

@@ -6,9 +6,11 @@ import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ForkedSessionHandle, ForkSessionSource } from '../types';
 import { loadSdk } from './sdk-loader';
 import { sessionRepo } from '@main/store/session-repo';
-import log from '@main/utils/logger';
-
-const logger = log.scope('claude-native-fork');
+import {
+  createClaudeForkCleanup,
+  type ClaudeForkChildStore,
+  type ClaudeForkCleanupSdk,
+} from './fork-session-cleanup';
 const MAX_PROJECT_KEY_LENGTH = 200;
 
 type JsonObject = Record<string, unknown>;
@@ -19,7 +21,7 @@ export interface ClaudeTranscriptEntry extends JsonObject {
   message?: unknown;
 }
 
-interface ClaudeForkSdk {
+interface ClaudeForkSdk extends ClaudeForkCleanupSdk {
   getSessionMessages(
     sessionId: string,
     options: { dir: string },
@@ -28,12 +30,6 @@ interface ClaudeForkSdk {
     sessionId: string,
     options: { dir: string; upToMessageId: string; title: string },
   ): Promise<{ sessionId: string }>;
-  deleteSession(sessionId: string, options: { dir: string }): Promise<void>;
-}
-
-interface ChildSessionStore {
-  get(sessionId: string): { cliSessionId?: string | null } | null;
-  delete(sessionId: string): void;
 }
 
 export interface CreateClaudeFamilyForkArgs {
@@ -48,7 +44,7 @@ export interface CreateClaudeFamilyForkArgs {
   /** Test seam for an isolated Claude config root. */
   configRoot?: string;
   /** Test seam for child-only application-row cleanup. */
-  childSessionStore?: ChildSessionStore;
+  childSessionStore?: ClaudeForkChildStore;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -389,55 +385,17 @@ export async function createClaudeFamilyForkedSession(
     args.source.applicationSessionId,
     args.source.nativeSessionId,
   ]);
-  let cleanupPromise: Promise<void> | null = null;
-  const cleanup = (): Promise<void> => {
-    if (cleanupPromise) return cleanupPromise;
-    cleanupPromise = (async () => {
-      for (const childId of applicationChildIds) {
-        if (childId === args.source.applicationSessionId) continue;
-        try {
-          const record = store.get(childId);
-          if (
-            record?.cliSessionId &&
-            !sourceIds.has(record.cliSessionId)
-          ) {
-            nativeChildIds.add(record.cliSessionId);
-          }
-        } catch (error) {
-          logger.warn(`[${args.providerName}] failed to inspect fork child row ${childId}`, error);
-        }
-      }
-      for (const childId of applicationChildIds) {
-        if (childId === args.source.applicationSessionId) continue;
-        try {
-          await args.closeChild(childId);
-        } catch (error) {
-          logger.warn(`[${args.providerName}] failed to close fork child ${childId}`, error);
-        }
-      }
-      for (const childId of applicationChildIds) {
-        if (childId === args.source.applicationSessionId) continue;
-        try {
-          if (args.deleteChild) {
-            await args.deleteChild(childId);
-          } else {
-            store.delete(childId);
-          }
-        } catch (error) {
-          logger.warn(`[${args.providerName}] failed to delete fork child row ${childId}`, error);
-        }
-      }
-      for (const nativeId of nativeChildIds) {
-        if (sourceIds.has(nativeId)) continue;
-        try {
-          await sdk.deleteSession(nativeId, { dir: args.source.cwd });
-        } catch (error) {
-          logger.warn(`[${args.providerName}] failed to delete fork transcript ${nativeId}`, error);
-        }
-      }
-    })();
-    return cleanupPromise;
-  };
+  const cleanup = createClaudeForkCleanup({
+    providerName: args.providerName,
+    cwd: args.source.cwd,
+    sourceIds,
+    applicationChildIds,
+    nativeChildIds,
+    closeChild: args.closeChild,
+    deleteChild: args.deleteChild,
+    store,
+    sdk,
+  });
 
   try {
     const childId = await args.createChild(forkedNativeId);
@@ -461,7 +419,14 @@ export async function createClaudeFamilyForkedSession(
     }
     return { sessionId: childId, discard: cleanup };
   } catch (error) {
-    await cleanup();
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `${args.providerName} fork creation failed and child cleanup was incomplete`,
+      );
+    }
     throw error;
   }
 }

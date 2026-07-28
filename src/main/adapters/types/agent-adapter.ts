@@ -87,6 +87,12 @@ export interface AgentAdapter {
    */
   closeSession?(sessionId: string): Promise<void>;
   /**
+   * Transaction rollback close with a stronger success contract than closeSession().
+   * Resolve only after provider work has stopped and adapter runtime/client ownership, SDK claims,
+   * and MCP tokens are released. Reject when that state cannot be proved.
+   */
+  closeSessionForRollback?(sessionId: string): Promise<void>;
+  /**
    * Seal queued work immediately, but let the provider finish the turn that is currently returning
    * an MCP handoff result before disposing its live runtime. This method must return without waiting
    * for the active turn, otherwise hand_off_session would deadlock on its own tool response.
