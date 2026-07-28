@@ -11,8 +11,9 @@ interface Props {
 /**
  * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
  *
- * 功能：让 Claude Gateway / Codex / Grok / 第三方 MCP client 通过 19 个 tool 跨 adapter
- * 编排其他 coding agent session、向用户展示 plan / diff 并收集确认或反馈、管理结构化任务并上报 issue。
+ * 功能：让 Claude Gateway / Codex / Grok / 第三方 MCP client 通过 19 个核心 tool 跨
+ * adapter 编排其他 coding agent session、向用户展示 plan / diff 并收集确认或反馈、
+ * 管理结构化任务并上报 issue；Claude / Grok 还会获得 14 个 Browser MCP tool。
  *
  * UI 布局（自顶向下）：
  * 1. 总开关 enableAgentDeckMcp + 描述
@@ -37,7 +38,9 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
       <div className="text-[10px] leading-snug text-deck-muted/70">
         让 Claude、Codex、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
         <details className="mt-1">
-          <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">查看全部 19 个工具</summary>
+          <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">
+            查看工具清单（19 个核心 + 14 个 Browser）
+          </summary>
           <div className="mt-1 pl-2 text-deck-muted/80">
             <strong className="text-deck-text/85">会话编排</strong>：
             <code className="rounded bg-white/5 px-1">spawn_session</code> /
@@ -67,6 +70,27 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             <code className="rounded bg-white/5 px-1">report_issue</code> /
             <code className="rounded bg-white/5 px-1">append_issue_context</code> /
             <code className="rounded bg-white/5 px-1">update_issue_status</code>
+            <br />
+            <strong className="text-deck-text/85">Browser（Claude / Grok Build）</strong>：
+            <code className="rounded bg-white/5 px-1">browser_open</code> /
+            <code className="rounded bg-white/5 px-1">browser_tabs</code> /
+            <code className="rounded bg-white/5 px-1">browser_navigate</code> /
+            <code className="rounded bg-white/5 px-1">browser_wait</code> /
+            <code className="rounded bg-white/5 px-1">browser_close</code> /
+            <code className="rounded bg-white/5 px-1">browser_snapshot</code> /
+            <code className="rounded bg-white/5 px-1">browser_screenshot</code> /
+            <code className="rounded bg-white/5 px-1">browser_click</code> /
+            <code className="rounded bg-white/5 px-1">browser_type</code> /
+            <code className="rounded bg-white/5 px-1">browser_press</code> /
+            <code className="rounded bg-white/5 px-1">browser_scroll</code> /
+            <code className="rounded bg-white/5 px-1">browser_read_console</code> /
+            <code className="rounded bg-white/5 px-1">browser_read_network</code> /
+            <code className="rounded bg-white/5 px-1">browser_evaluate</code>
+            <div className="mt-1">
+              Codex 通过官方 Browser 插件连接同一个 Agent Deck 浏览器引擎，不暴露
+              <code className="rounded bg-white/5 px-1">browser_*</code> MCP 工具。Browser
+              工具仅供有真实会话身份的应用内客户端使用，外部客户端不可调用。
+            </div>
           </div>
         </details>
         <div className="mt-1">
