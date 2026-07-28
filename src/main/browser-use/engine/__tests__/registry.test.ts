@@ -169,6 +169,48 @@ describe('BrowserEngine ownership', () => {
 });
 
 describe('BrowserEngine disposal', () => {
+  it('keeps a leased owner alive until the final connection releases it', async () => {
+    const factory = fakeWindowFactory();
+    const engine = new BrowserEngine(factory);
+    const owner = { kind: 'codex-pipe', id: 'codex-shared' } as const;
+    const first = engine.acquireLease(owner);
+    const second = engine.acquireLease(owner);
+    await first.handle.openTab();
+
+    expect(second.handle).toBe(first.handle);
+    await first.release();
+    expect(factory.windows[0]?.destroyed).toBe(false);
+    expect(engine.peek(owner)).toBe(second.handle);
+
+    await second.release();
+    expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
+    expect(engine.peek(owner)).toBeNull();
+
+    await second.release();
+    expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('fences old leases when lifecycle force-disposes an owner', async () => {
+    const factory = fakeWindowFactory();
+    const engine = new BrowserEngine(factory);
+    const owner = { kind: 'codex-pipe', id: 'codex-fenced' } as const;
+    const stale = engine.acquireLease(owner);
+    await stale.handle.openTab();
+
+    await engine.disposeOwner(owner);
+    expect(stale.handle.isDisposed).toBe(true);
+    expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
+
+    const replacement = engine.acquireLease(owner);
+    await replacement.handle.openTab();
+    await stale.release();
+    expect(factory.windows[1]?.destroyed).toBe(false);
+    expect(engine.peek(owner)).toBe(replacement.handle);
+
+    await replacement.release();
+    expect(factory.windows[1]?.destroy).toHaveBeenCalledOnce();
+  });
+
   it('disposes one owner without touching another and stays idempotent', async () => {
     const factory = fakeWindowFactory();
     const engine = new BrowserEngine(factory);

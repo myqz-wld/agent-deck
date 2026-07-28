@@ -157,11 +157,31 @@ export class BrowserOwnerHandle {
   }
 }
 
+interface BrowserOwnerRecord {
+  readonly handle: BrowserOwnerHandle;
+  leases: number;
+}
+
+export class BrowserOwnerLease {
+  private released = false;
+
+  constructor(
+    readonly handle: BrowserOwnerHandle,
+    private readonly releaseRecord: () => Promise<void>,
+  ) {}
+
+  async release(): Promise<void> {
+    if (this.released) return;
+    this.released = true;
+    await this.releaseRecord();
+  }
+}
+
 export class BrowserEngine {
   readonly showWindows: boolean;
   readonly windowTitle: string;
   readonly createWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
-  private readonly owners = new Map<string, BrowserOwnerHandle>();
+  private readonly owners = new Map<string, BrowserOwnerRecord>();
   private readonly maxTabsPerOwner: number;
   private readonly maxTotalTabs: number;
 
@@ -174,35 +194,40 @@ export class BrowserEngine {
   }
 
   acquire(owner: BrowserOwnerKey): BrowserOwnerHandle {
+    return this.ensureOwner(owner).handle;
+  }
+
+  acquireLease(owner: BrowserOwnerKey & { kind: 'codex-pipe' }): BrowserOwnerLease {
     const cacheKey = ownerCacheKey(owner);
-    const existing = this.owners.get(cacheKey);
-    if (existing != null && !existing.isDisposed) return existing;
-    const handle = new BrowserOwnerHandle(owner, this);
-    this.owners.set(cacheKey, handle);
-    return handle;
+    const record = this.ensureOwner(owner);
+    record.leases += 1;
+    return new BrowserOwnerLease(
+      record.handle,
+      () => this.releaseLease(cacheKey, record),
+    );
   }
 
   peek(owner: BrowserOwnerKey): BrowserOwnerHandle | null {
-    const handle = this.owners.get(ownerCacheKey(owner));
-    return handle == null || handle.isDisposed ? null : handle;
+    const record = this.owners.get(ownerCacheKey(owner));
+    return record == null || record.handle.isDisposed ? null : record.handle;
   }
 
   async disposeOwner(owner: BrowserOwnerKey): Promise<void> {
     const cacheKey = ownerCacheKey(owner);
-    const handle = this.owners.get(cacheKey);
+    const record = this.owners.get(cacheKey);
     this.owners.delete(cacheKey);
-    await handle?.dispose();
+    await record?.handle.dispose();
   }
 
   async disposeAll(): Promise<void> {
-    const handles = [...this.owners.values()];
+    const records = [...this.owners.values()];
     this.owners.clear();
-    for (const handle of handles) await handle.dispose();
+    await Promise.all(records.map((record) => record.handle.dispose()));
   }
 
   totalTabs(): number {
     let total = 0;
-    for (const handle of this.owners.values()) total += handle.tabCount();
+    for (const record of this.owners.values()) total += record.handle.tabCount();
     return total;
   }
 
@@ -218,6 +243,28 @@ export class BrowserEngine {
         `Agent Deck reached its global limit of ${this.maxTotalTabs} browser tabs. Close tabs in other sessions first.`,
       );
     }
+  }
+
+  private ensureOwner(owner: BrowserOwnerKey): BrowserOwnerRecord {
+    const cacheKey = ownerCacheKey(owner);
+    const existing = this.owners.get(cacheKey);
+    if (existing != null && !existing.handle.isDisposed) return existing;
+    const record = {
+      handle: new BrowserOwnerHandle(owner, this),
+      leases: 0,
+    };
+    this.owners.set(cacheKey, record);
+    return record;
+  }
+
+  private async releaseLease(
+    cacheKey: string,
+    record: BrowserOwnerRecord,
+  ): Promise<void> {
+    record.leases = Math.max(0, record.leases - 1);
+    if (record.leases !== 0 || this.owners.get(cacheKey) !== record) return;
+    this.owners.delete(cacheKey);
+    await record.handle.dispose();
   }
 }
 

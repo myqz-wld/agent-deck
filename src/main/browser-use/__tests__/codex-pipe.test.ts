@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CodexPipeBrowserFront } from '../fronts/codex-pipe';
 import { FakeSession } from '../engine/__tests__/_fakes';
+import { BrowserEngine } from '../engine/registry';
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -78,7 +79,6 @@ describe('CodexPipeBrowserFront', () => {
       metadata: {
         codexAppBuildFlavor: 'prod',
         codexSessionId: 'codex-session-a',
-        agentDeckSessionOwned: 'true',
       },
     });
     await expect(
@@ -183,6 +183,38 @@ describe('CodexPipeBrowserFront', () => {
     await session.dispose();
     expect(window.destroy).toHaveBeenCalledOnce();
     await session.dispose();
+    expect(window.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('releases only its own lease when two connections use one claimed owner', async () => {
+    const window = new FakeWindow();
+    const engine = new BrowserEngine({
+      createWindow: () => window as unknown as BrowserWindow,
+    });
+    const options = {
+      appVersion: '1.2.3',
+      showWindows: false,
+      engine,
+    };
+    const firstNotify = vi.fn();
+    const secondNotify = vi.fn();
+    const first = new CodexPipeBrowserFront({ notify: firstNotify }, options);
+    const second = new CodexPipeBrowserFront({ notify: secondNotify }, options);
+    const params = { session_id: 'codex-session-shared', turn_id: 'turn-1' };
+
+    await first.handleRequest('createTab', params);
+    await expect(second.handleRequest('getTabs', params)).resolves.toHaveLength(1);
+    await first.handleRequest('attach', { ...params, tabId: 1 });
+    await second.handleRequest('attach', { ...params, tabId: 1 });
+
+    await first.dispose();
+    expect(window.destroyed).toBe(false);
+    await expect(second.handleRequest('getTabs', params)).resolves.toHaveLength(1);
+    window.browserDebugger.emit('message', {}, 'Page.loadEventFired', {}, '');
+    expect(firstNotify).not.toHaveBeenCalled();
+    expect(secondNotify).toHaveBeenCalledOnce();
+
+    await second.dispose();
     expect(window.destroy).toHaveBeenCalledOnce();
   });
 });

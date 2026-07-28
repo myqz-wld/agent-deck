@@ -1,9 +1,12 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { createConnection, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const loggerMock = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('@main/utils/logger', () => ({ default: { scope: () => loggerMock } }));
 
 import {
   BrowserUseFrameDecoder,
@@ -22,6 +25,7 @@ afterEach(async () => {
   await Promise.allSettled(
     cleanupPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
+  loggerMock.warn.mockClear();
 });
 
 describe('browser-use native-pipe server', () => {
@@ -97,7 +101,7 @@ describe('browser-use native-pipe server', () => {
       {
         jsonrpc: '2.0',
         id: 3,
-        error: { code: 1, message: 'session mismatch' },
+        error: { code: 1, message: 'Browser request failed.' },
       },
     ]);
     expect(socket.destroyed).toBe(false);
@@ -106,6 +110,7 @@ describe('browser-use native-pipe server', () => {
   it('refuses to replace a live backend and removes its own pipe on shutdown', async () => {
     const root = await makeTestRoot();
     const pipePath = join(root, 'browser.sock');
+    const onError = vi.fn();
     const first = await startBrowserUseServer({
       pipePath,
       createHandler: () => ({
@@ -115,13 +120,55 @@ describe('browser-use native-pipe server', () => {
     });
     handles.push(first);
 
-    await expect(startBrowserUseServer({ pipePath })).rejects.toThrow(
-      `Browser-use pipe is already active: ${pipePath}`,
+    await expect(startBrowserUseServer({ pipePath, onError })).rejects.toMatchObject({
+      message: 'Browser server failed to start.',
+    });
+    expect(onError).toHaveBeenCalledOnce();
+    expect(loggerMock.warn).toHaveBeenCalledOnce();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'server state changed',
+      expect.objectContaining({ reason: 'server-error' }),
     );
 
     await first.shutdown();
     handles.splice(handles.indexOf(first), 1);
     await expect(stat(pipePath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports one sanitized diagnostic when pipe preparation fails', async () => {
+    const root = await makeTestRoot();
+    const blocker = join(root, 'private-blocker');
+    const pipePath = join(blocker, 'private-browser.sock');
+    const onError = vi.fn();
+    await writeFile(blocker, 'not a directory');
+
+    await expect(startBrowserUseServer({ pipePath, onError })).rejects.toMatchObject({
+      message: 'Browser server failed to start.',
+    });
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'browser-transport',
+      outcome: 'closed',
+      reason: 'server-error',
+      runId: expect.any(String),
+    }));
+    expect(loggerMock.warn).toHaveBeenCalledOnce();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'server state changed',
+      expect.objectContaining({ reason: 'server-error' }),
+    );
+    const diagnostics = JSON.stringify([onError.mock.calls, loggerMock.warn.mock.calls]);
+    for (const forbidden of [
+      '[browser-transport]',
+      'EEXIST',
+      'ENOTDIR',
+      'not a directory',
+      blocker,
+      pipePath,
+    ]) {
+      expect(diagnostics).not.toContain(forbidden);
+    }
   });
 });
 
