@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   AdapterSessionMode,
   SessionCreationDefaults,
@@ -74,6 +74,7 @@ export function useSessionCreationOptions({
   const [model, setModelState] = useState(initial.model);
   const [thinking, setThinkingState] = useState<SessionThinkingChoice>(initial.thinking);
   const [selectionRevision, setSelectionRevision] = useState(0);
+  const defaultsRequestGeneration = useRef(0);
 
   useEffect(() => {
     if (!active) return;
@@ -84,8 +85,10 @@ export function useSessionCreationOptions({
   }, [active, adapterId]);
 
   useEffect(() => {
-    if (!active || typeof window.api.getAdapterSessionCreationDefaults !== 'function') return;
-    let cancelled = false;
+    const generation = ++defaultsRequestGeneration.current;
+    if (!active || typeof window.api.getAdapterSessionCreationDefaults !== 'function') {
+      return;
+    }
     const timer = window.setTimeout(() => {
       const remembered = getLastDefaults(adapterId);
       void window.api
@@ -94,7 +97,9 @@ export function useSessionCreationOptions({
           ...(remembered.provider ? { provider: remembered.provider } : {}),
         })
         .then((resolved) => {
-          if (!cancelled) applyState(mergeRemembered(adapterId, resolved));
+          if (defaultsRequestGeneration.current === generation) {
+            applyState(mergeRemembered(adapterId, resolved));
+          }
         })
         .catch(() => {
           // Defaults are convenience UI metadata. Session creation still validates natively.
@@ -102,7 +107,9 @@ export function useSessionCreationOptions({
     }, 120);
 
     return () => {
-      cancelled = true;
+      if (defaultsRequestGeneration.current === generation) {
+        defaultsRequestGeneration.current += 1;
+      }
       window.clearTimeout(timer);
     };
     // selectionRevision is incremented when provider changes so its config is re-resolved.

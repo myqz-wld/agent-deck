@@ -6,8 +6,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { resolveSessionCreationDefaults } from '../session-creation-defaults';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  CODEX_CREATION_DEFAULTS_TIMEOUT_MS,
+  resolveSessionCreationDefaults,
+} from '../session-creation-defaults';
 
 const roots: string[] = [];
 const settings = {
@@ -23,6 +26,7 @@ function tempRoot(): string {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -82,6 +86,25 @@ describe('resolveSessionCreationDefaults', () => {
       provider: 'deepseek',
       model: 'deepseek-chat',
       thinking: 'max',
+    });
+  });
+
+  it('keeps user settings as the fallback while a Gateway profile is missing', async () => {
+    const root = tempRoot();
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(
+      join(root, '.claude', 'settings.json'),
+      JSON.stringify({ model: 'user-fallback', effortLevel: 'medium' }),
+    );
+
+    await expect(resolveSessionCreationDefaults(
+      'claude-code',
+      { cwd: root, provider: 'unfinished-profile' },
+      { settings, userHome: root },
+    )).resolves.toMatchObject({
+      provider: 'unfinished-profile',
+      model: 'user-fallback',
+      thinking: 'medium',
     });
   });
 
@@ -148,6 +171,52 @@ describe('resolveSessionCreationDefaults', () => {
         readCodexConfig: async () => ({}),
       },
     )).resolves.toMatchObject({
+      approvalPolicy: 'on-request',
+    });
+  });
+
+  it('bounds a stuck Codex config/read and lets the next request recover', async () => {
+    vi.useFakeTimers();
+    const root = tempRoot();
+    const diagnostics: unknown[] = [];
+    let attempts = 0;
+    let firstSignal: AbortSignal | undefined;
+    const readCodexConfig = (_cwd: string, signal?: AbortSignal) => {
+      attempts += 1;
+      if (attempts === 1) {
+        firstSignal = signal;
+        return new Promise<Record<string, unknown>>(() => undefined);
+      }
+      return Promise.resolve({
+        model_provider: 'openai',
+        model: 'gpt-recovered',
+        approval_policy: 'on-request',
+      });
+    };
+    const deps = {
+      settings,
+      codexConfigPath: join(root, 'missing.toml'),
+      readCodexConfig,
+      onDiagnostic: (diagnostic: unknown) => diagnostics.push(diagnostic),
+    };
+
+    const first = resolveSessionCreationDefaults('codex-cli', { cwd: root }, deps);
+    await vi.advanceTimersByTimeAsync(CODEX_CREATION_DEFAULTS_TIMEOUT_MS);
+    await expect(first).resolves.toMatchObject({
+      model: '',
+      approvalPolicy: 'on-request',
+    });
+    expect(firstSignal?.aborted).toBe(true);
+    expect(diagnostics).toContainEqual({
+      resolutionSource: 'codex-app-server',
+      failureCategory: 'timeout',
+    });
+
+    await expect(
+      resolveSessionCreationDefaults('codex-cli', { cwd: root }, deps),
+    ).resolves.toMatchObject({
+      provider: 'openai',
+      model: 'gpt-recovered',
       approvalPolicy: 'on-request',
     });
   });

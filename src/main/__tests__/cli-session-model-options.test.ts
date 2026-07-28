@@ -19,6 +19,83 @@ vi.mock('../store/agent-deck-team-repo', () => ({
 import { parseCliInvocation } from '../cli';
 
 describe('agent-deck new model options', () => {
+  it('owns the Claude Code default in TypeScript and preserves an explicit override', () => {
+    expect(parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'claude',
+    ])).toMatchObject({
+      kind: 'new-session',
+      agent: 'claude-code',
+      permissionMode: 'bypassPermissions',
+    });
+    expect(parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'claude-code',
+      '--permission-mode',
+      'plan',
+    ])).toMatchObject({
+      permissionMode: 'plan',
+    });
+  });
+
+  it('owns the Codex approval default and preserves explicit approval and sandbox overrides', () => {
+    expect(parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'codex',
+    ])).toMatchObject({
+      kind: 'new-session',
+      agent: 'codex-cli',
+      approvalPolicy: 'on-request',
+    });
+    expect(parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'codex-cli',
+      '--approval-policy',
+      'never',
+      '--codex-sandbox',
+      'read-only',
+    ])).toMatchObject({
+      approvalPolicy: 'never',
+      codexSandbox: 'read-only',
+    });
+  });
+
+  it('delegates the Grok Build default and preserves its explicit sandbox override', () => {
+    const delegated = parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'grok',
+    ]);
+    expect(delegated).toMatchObject({
+      kind: 'new-session',
+      agent: 'grok-build',
+    });
+    expect(delegated).toMatchObject({
+      permissionMode: undefined,
+      approvalPolicy: undefined,
+    });
+    expect(delegated).not.toHaveProperty('grokSandbox');
+    expect(parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'grok-build',
+      '--grok-sandbox',
+      'read-only',
+    ])).toMatchObject({
+      grokSandbox: 'read-only',
+    });
+  });
+
   it('parses provider, free-form model, and thinking for the lead session', () => {
     expect(
       parseCliInvocation([
@@ -123,6 +200,25 @@ describe('agent-deck new model options', () => {
       '--codex-sandbox',
       'read-only',
     ])).toThrow('--codex-sandbox 与 adapter "claude-code" 不兼容');
+  });
+
+  it('rejects approval flags for non-Codex adapters', () => {
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'claude',
+      '--approval-policy',
+      'never',
+    ])).toThrow('--approval-policy 与 adapter "claude-code" 不兼容');
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'codex',
+      '--approval-policy',
+      'automatic',
+    ])).toThrow('--approval-policy 取值无效');
   });
 
   it('parses built-in and custom Grok sandbox profiles only for Grok', () => {

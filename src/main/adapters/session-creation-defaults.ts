@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -14,17 +13,18 @@ import {
   type SessionCreationDefaults,
 } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
+import { getCodexConfigPath } from '@main/codex-config/toml-writer';
 import {
-  getCodexConfigPath,
-  readTopLevelModelFromCodexConfig,
-  readTopLevelModelProviderFromCodexConfig,
-  readTopLevelModelReasoningEffortFromCodexConfig,
-} from '@main/codex-config/toml-writer';
-import {
-  resolveClaudeGatewayProfile,
+  claudeGatewaySettingsPath,
   type ResolvedClaudeGatewayProfile,
 } from './claude-code/gateway-profiles';
 import { getCodexInstance } from './codex-cli/codex-instance-pool';
+import log from '@main/utils/logger';
+import {
+  readBoundedConfigText,
+  type SessionConfigDiagnostic,
+  type SessionConfigResolutionSource,
+} from './session-creation-config-reader';
 
 type ConfigRecord = Record<string, unknown>;
 type CreationSettings = Pick<
@@ -40,13 +40,23 @@ interface ResolveOptions {
 interface ResolveDeps {
   settings?: CreationSettings;
   userHome?: string;
-  readCodexConfig?: (cwd: string) => Promise<ConfigRecord>;
+  readCodexConfig?: (cwd: string, signal?: AbortSignal) => Promise<ConfigRecord>;
   resolveClaudeProfile?: (
     provider: string | null | undefined,
   ) => ResolvedClaudeGatewayProfile | null;
   codexConfigPath?: string;
   grokConfigPath?: string;
+  readConfigFile?: (
+    path: string,
+    signal: AbortSignal,
+  ) => Promise<string | Uint8Array>;
+  configReadTimeoutMs?: number;
+  configMaxBytes?: number;
+  onDiagnostic?: (diagnostic: SessionConfigDiagnostic) => void;
 }
+
+const logger = log.scope('session-creation-defaults');
+export const CODEX_CREATION_DEFAULTS_TIMEOUT_MS = 1_000;
 
 const BASE_DEFAULTS: SessionCreationDefaults = {
   provider: '',
@@ -87,36 +97,75 @@ export async function resolveSessionCreationDefaults(
   return resolveGrokDefaults(base, deps);
 }
 
-function resolveClaudeDefaults(
+async function resolveClaudeDefaults(
   base: SessionCreationDefaults,
   options: ResolveOptions,
   deps: ResolveDeps,
-): SessionCreationDefaults {
+): Promise<SessionCreationDefaults> {
   const userHome = deps.userHome ?? homedir();
   const requestedProvider = options.provider?.trim() ?? '';
   let profile: ResolvedClaudeGatewayProfile | null = null;
-  if (requestedProvider) {
+  if (requestedProvider && deps.resolveClaudeProfile) {
     try {
-      profile = (deps.resolveClaudeProfile ?? resolveClaudeGatewayProfile)(requestedProvider);
+      profile = deps.resolveClaudeProfile(requestedProvider);
     } catch {
-      // Keep a just-entered provider visible while its profile is incomplete or being edited.
+      emitDiagnostic(deps, {
+        resolutionSource: 'claude-gateway',
+        failureCategory: 'invalid',
+      });
     }
   }
 
-  const settingsPaths = profile
-    ? [
-        profile.settingsPath,
-        join(options.cwd, '.claude', 'settings.json'),
-        join(options.cwd, '.claude', 'settings.local.json'),
-      ]
-    : [
-        join(userHome, '.claude', 'settings.json'),
-        join(options.cwd, '.claude', 'settings.json'),
-        join(options.cwd, '.claude', 'settings.local.json'),
-      ];
-  const configured = readClaudeSettings(settingsPaths);
+  let gatewaySettingsPath = profile?.settingsPath;
+  if (requestedProvider && !gatewaySettingsPath) {
+    try {
+      gatewaySettingsPath = claudeGatewaySettingsPath(requestedProvider, {
+        gatewaysDir: join(userHome, '.claude', 'gateways'),
+      });
+    } catch {
+      emitDiagnostic(deps, {
+        resolutionSource: 'claude-gateway',
+        failureCategory: 'invalid',
+      });
+    }
+  }
+  const userSettingsPath = join(userHome, '.claude', 'settings.json');
+  const projectSettingsPath = join(options.cwd, '.claude', 'settings.json');
+  const localSettingsPath = join(options.cwd, '.claude', 'settings.local.json');
+  const pathSpecs = [
+    ...(gatewaySettingsPath
+      ? [{ path: gatewaySettingsPath, source: 'claude-gateway' as const }]
+      : []),
+    { path: userSettingsPath, source: 'claude-settings' as const },
+    { path: projectSettingsPath, source: 'claude-settings' as const },
+    { path: localSettingsPath, source: 'claude-settings' as const },
+  ];
+  const uniquePaths = pathSpecs.filter(
+    ({ path }, index) => pathSpecs.findIndex((entry) => entry.path === path) === index,
+  );
+  const records = await Promise.all(
+    uniquePaths.map(async ({ path, source }) => ({
+      path,
+      record: await readJsonRecord(path, source, deps),
+    })),
+  );
+  const gatewayRecord = gatewaySettingsPath
+    ? records.find(({ path }) => path === gatewaySettingsPath)?.record
+    : null;
+  const useGatewaySettings = profile !== null || gatewayRecord !== null;
+  const configuredPaths =
+    useGatewaySettings && gatewaySettingsPath
+      ? [gatewaySettingsPath, projectSettingsPath, localSettingsPath]
+      : [userSettingsPath, projectSettingsPath, localSettingsPath];
+  const configured = readClaudeSettings(
+    configuredPaths.map(
+      (path) => records.find((entry) => entry.path === path)?.record ?? null,
+    ),
+  );
+  const gatewayEnv = isRecord(gatewayRecord?.env) ? gatewayRecord.env : {};
   const model =
     profile?.defaultModel ??
+    nonBlank(gatewayEnv.ANTHROPIC_MODEL) ??
     configured.model ??
     nonBlank(process.env.ANTHROPIC_MODEL) ??
     'sonnet';
@@ -135,34 +184,34 @@ async function resolveCodexDefaults(
   deps: ResolveDeps,
 ): Promise<SessionCreationDefaults> {
   const configPath = deps.codexConfigPath ?? getCodexConfigPath();
-  let config: ConfigRecord = {};
-  try {
-    config = await (deps.readCodexConfig ?? readEffectiveCodexConfig)(options.cwd);
-  } catch {
-    // File readers below preserve the useful top-level values if app-server is unavailable.
-  }
+  const [config, fileContent] = await Promise.all([
+    readBoundedCodexConfig(options.cwd, deps),
+    readConfigText(configPath, 'codex-config', deps),
+  ]);
 
   const requestedProvider = options.provider?.trim();
   const provider =
     requestedProvider ||
     nonBlank(config.model_provider) ||
-    readTopLevelModelProviderFromCodexConfig(configPath) ||
+    readTopLevelQuotedString(fileContent, 'model_provider') ||
     '';
   const model =
     nonBlank(config.model) ??
-    readTopLevelModelFromCodexConfig(configPath) ??
+    readTopLevelQuotedString(fileContent, 'model') ??
     '';
   const configuredThinking = config.model_reasoning_effort;
-  const fileThinking = readTopLevelModelReasoningEffortFromCodexConfig(configPath);
+  const fileThinking = readTopLevelQuotedString(fileContent, 'model_reasoning_effort');
   const thinking = isCodexThinkingLevel(configuredThinking)
     ? configuredThinking
-    : fileThinking ?? 'high';
+    : isCodexThinkingLevel(fileThinking)
+      ? fileThinking
+      : 'high';
   const configuredApproval = config.approval_policy;
   // If app-server config/read is temporarily unavailable, retain the top-level global policy.
   // An active profile may override it, so do not present the base value as effective in that case.
   const fileApproval =
-    readTopLevelQuotedString(configPath, 'profile') === null
-      ? readTopLevelQuotedString(configPath, 'approval_policy')
+    readTopLevelQuotedString(fileContent, 'profile') === null
+      ? readTopLevelQuotedString(fileContent, 'approval_policy')
       : null;
 
   return {
@@ -178,16 +227,17 @@ async function resolveCodexDefaults(
   };
 }
 
-function resolveGrokDefaults(
+async function resolveGrokDefaults(
   base: SessionCreationDefaults,
   deps: ResolveDeps,
-): SessionCreationDefaults {
+): Promise<SessionCreationDefaults> {
   const configPath =
     deps.grokConfigPath ?? join(deps.userHome ?? homedir(), '.grok', 'config.toml');
-  const model = readTopLevelQuotedString(configPath, 'model') ?? 'grok-4.5';
+  const content = await readConfigText(configPath, 'grok-config', deps);
+  const model = readTopLevelQuotedString(content, 'model') ?? 'grok-4.5';
   const configuredThinking =
-    readTopLevelQuotedString(configPath, 'reasoning_effort') ??
-    readTopLevelQuotedString(configPath, 'effort');
+    readTopLevelQuotedString(content, 'reasoning_effort') ??
+    readTopLevelQuotedString(content, 'effort');
   return {
     ...base,
     model,
@@ -195,24 +245,27 @@ function resolveGrokDefaults(
   };
 }
 
-async function readEffectiveCodexConfig(cwd: string): Promise<ConfigRecord> {
+async function readEffectiveCodexConfig(
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<ConfigRecord> {
   const client = await getCodexInstance();
   const response = await client.request<{ config?: unknown }>(
     'config/read',
     { includeLayers: false, cwd },
+    signal,
   );
   return isRecord(response.config) ? response.config : {};
 }
 
-function readClaudeSettings(paths: string[]): {
+function readClaudeSettings(records: Array<ConfigRecord | null>): {
   model?: string;
   thinking?: SessionThinkingLevel;
 } {
   let model: string | undefined;
   let envModel: string | undefined;
   let thinking: SessionThinkingLevel | undefined;
-  for (const path of [...new Set(paths)]) {
-    const parsed = readJsonRecord(path);
+  for (const parsed of records) {
     if (!parsed) continue;
     model = nonBlank(parsed.model) ?? model;
     const env = isRecord(parsed.env) ? parsed.env : {};
@@ -227,24 +280,25 @@ function readClaudeSettings(paths: string[]): {
   };
 }
 
-function readJsonRecord(path: string): ConfigRecord | null {
-  if (!existsSync(path)) return null;
+async function readJsonRecord(
+  path: string,
+  resolutionSource: SessionConfigResolutionSource,
+  deps: ResolveDeps,
+): Promise<ConfigRecord | null> {
+  const content = await readConfigText(path, resolutionSource, deps);
+  if (content === null) return null;
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-    return isRecord(parsed) ? parsed : null;
+    const parsed = JSON.parse(content) as unknown;
+    if (isRecord(parsed)) return parsed;
   } catch {
-    return null;
+    // Report below with the same path-free allowlisted diagnostic.
   }
+  emitDiagnostic(deps, { resolutionSource, failureCategory: 'invalid' });
+  return null;
 }
 
-function readTopLevelQuotedString(path: string, key: string): string | null {
-  if (!existsSync(path)) return null;
-  let content: string;
-  try {
-    content = readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
+function readTopLevelQuotedString(content: string | null, key: string): string | null {
+  if (content === null) return null;
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const assignment = new RegExp(
     `^${escapedKey}[ \\t]*=[ \\t]*("(?:[^"\\\\]|\\\\.)*"|'[^']*')`,
@@ -263,6 +317,91 @@ function readTopLevelQuotedString(path: string, key: string): string | null {
     }
   }
   return null;
+}
+
+async function readConfigText(
+  path: string,
+  resolutionSource: SessionConfigResolutionSource,
+  deps: ResolveDeps,
+): Promise<string | null> {
+  const result = await readBoundedConfigText(path, {
+    resolutionSource,
+    ...(deps.readConfigFile ? { readFile: deps.readConfigFile } : {}),
+    ...(deps.configReadTimeoutMs !== undefined
+      ? { timeoutMs: deps.configReadTimeoutMs }
+      : {}),
+    ...(deps.configMaxBytes !== undefined ? { maxBytes: deps.configMaxBytes } : {}),
+    onDiagnostic: (diagnostic) => emitDiagnostic(deps, diagnostic),
+  });
+  return result.ok ? result.text : null;
+}
+
+async function readBoundedCodexConfig(
+  cwd: string,
+  deps: ResolveDeps,
+): Promise<ConfigRecord> {
+  // The race fences pre-client acquisition and injected readers. The same deadline controller is
+  // threaded into B6's client.request, so an active provider RPC is aborted and its generation is
+  // retired instead of surviving behind this terminal fallback.
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<ConfigRecord>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      emitDiagnostic(deps, {
+        resolutionSource: 'codex-app-server',
+        failureCategory: 'timeout',
+      });
+      controller.abort();
+      resolve({});
+    }, CODEX_CREATION_DEFAULTS_TIMEOUT_MS);
+    timer.unref?.();
+  });
+  try {
+    const config = await Promise.race([
+      (deps.readCodexConfig ?? readEffectiveCodexConfig)(cwd, controller.signal),
+      timeout,
+    ]);
+    if (!isRecord(config)) {
+      emitDiagnostic(deps, {
+        resolutionSource: 'codex-app-server',
+        failureCategory: 'invalid',
+      });
+      return {};
+    }
+    return config;
+  } catch {
+    if (!timedOut) {
+      emitDiagnostic(deps, {
+        resolutionSource: 'codex-app-server',
+        failureCategory: 'unreadable',
+      });
+    }
+    return {};
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function emitDiagnostic(
+  deps: ResolveDeps,
+  diagnostic: SessionConfigDiagnostic,
+): void {
+  try {
+    if (deps.onDiagnostic) {
+      deps.onDiagnostic(diagnostic);
+      return;
+    }
+    const message = '[session-creation-defaults] config fallback';
+    if (diagnostic.failureCategory === 'not-found') {
+      logger.debug(message, diagnostic);
+    } else {
+      logger.warn(message, diagnostic);
+    }
+  } catch {
+    // Logging and test diagnostics cannot make default resolution fail.
+  }
 }
 
 function normalizeGrokSandbox(value: string | null): string {
