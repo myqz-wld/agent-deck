@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CLAUDE_SANDBOX_MODE_OPTIONS,
   CLAUDE_SANDBOX_OPTIONS,
+  CODEX_APPROVAL_POLICY_OPTIONS,
   CODEX_SANDBOX_MODE_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   GROK_SANDBOX_MODE_OPTIONS,
@@ -38,6 +39,14 @@ describe('sandbox option copy', () => {
       'acceptEdits',
       'auto',
       'bypassPermissions',
+    ]);
+  });
+
+  it('orders Codex approval policies from strict interaction to no prompts', () => {
+    expect(CODEX_APPROVAL_POLICY_OPTIONS.map((option) => option.value)).toEqual([
+      'untrusted',
+      'on-request',
+      'never',
     ]);
   });
 

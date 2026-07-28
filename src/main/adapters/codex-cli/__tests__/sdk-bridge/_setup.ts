@@ -15,8 +15,8 @@
  * - codex 的 `cwdExists` / `codexResumeJsonlExists` 是 protected method（不是 jsonlExists）
  * - recovery uses the shared provider-neutral continuation engine
  * - codex 没有 `claudeCodeSandbox` —— per-session 沙盒字段叫 `codexSandbox`
- * - codex 没有 `permissionMode` —— 普通会话由 provider/config 决定 approvalPolicy，
- *   reviewer 的显式 `never` 会按会话持久化并恢复
+ * - codex 没有 `permissionMode` —— approvalPolicy 按显式值、同 adapter 继承值或
+ *   `on-request` target default 解析并按会话持久化
  * - createSession 接 `attachments` + `model` + `codexSandbox`（不是 claudeCodeSandbox）
  */
 
@@ -66,9 +66,8 @@ export interface CreateSessionCall {
   modelReasoningEffort?: CodexThinkingLevel;
   trustedContinuation?: TrustedContinuationInitialTurn;
   /**
-   * plan codex-recover-network-dirs-parity-20260602：recover / restart 透传校验 —— reviewer-codex
-   * spawn-time 持久化的 network/dirs 必须经 recover createSession 重新交还 codex SDK，否则
-   * recover 后 reviewer 失去 web search + 跨目录访问。recovery test 断言这俩字段透传。
+   * recover 透传校验：session 已持久化的 network/dirs 必须经 createSession 重新交还
+   * Codex SDK。recovery test 断言这两个字段透传。
    */
   networkAccessEnabled?: boolean;
   additionalDirectories?: readonly string[];

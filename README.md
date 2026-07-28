@@ -52,13 +52,16 @@ permissive.
 
 When creating a Codex session—or starting a new Codex session from an issue—choose its thread-wide
 approval policy: `untrusted`, `on-request`, or `never`. The initial value is resolved from the
-effective Codex configuration (falling back to `never`), and Agent Deck forwards the concrete
-selection to Codex app-server and preserves it when the session resumes or recovers.
+effective Codex configuration (falling back to `on-request`), and Agent Deck forwards the concrete
+selection to Codex app-server and preserves it when the session resumes or recovers. The session
+page exposes the same strict-to-permissive selector; a change applies to the next turn without
+interrupting the response already in progress.
 
 Approval policy and sandbox access are separate. Choosing `never` stops approval prompts but does
 not widen filesystem or network access; operations outside the selected sandbox fail instead.
-The creation form keeps this distinction in the option tooltips without adding a separate
-description below the picker.
+In particular, Codex `workspace-write` intentionally keeps the repository's `.git` metadata
+read-only. With `on-request`, a Git write such as staging or committing can request approval to
+cross that boundary; with `never`, the same operation fails immediately.
 
 ### Grok Build sandbox profiles
 
@@ -92,7 +95,7 @@ For `spawn_session` and `hand_off_session`, explicit runtime controls win. Omitt
 the persisted source values only when source and target use the same adapter; cross-adapter targets
 use their own defaults. This includes provider/model/thinking plus adapter-owned permission, work
 mode, sandbox, writable-root, and Codex approval/network/read-root state. When no inherited or
-explicit Codex approval applies, the target defaults to `never`.
+explicit Codex approval applies, the target defaults to `on-request`.
 
 These tools give agents a shared collaboration environment while keeping each agent's own runtime and permissions intact.
 

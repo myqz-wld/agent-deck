@@ -1,9 +1,34 @@
 import { describe, expect, it } from 'vitest';
 
 import { CodexAppServerClient, __testables } from './client';
+import { CodexAppServerThread } from './thread';
 import { threadBoundaryReadyLogLevel } from './thread-boundary-logging';
 
 describe('Codex app-server thread params', () => {
+  it('patches approval policy for subsequent turns and can clear the override', () => {
+    const thread = new CodexAppServerThread(
+      {} as CodexAppServerClient,
+      {
+        mode: 'start',
+        options: {
+          workingDirectory: '/repo',
+          sandboxMode: 'workspace-write',
+          approvalPolicy: 'never',
+          skipGitRepoCheck: true,
+        },
+      },
+    );
+    const options = () =>
+      (thread as unknown as {
+        mode: { options: { approvalPolicy?: string } };
+      }).mode.options;
+
+    thread.updateApprovalPolicy('on-request');
+    expect(options().approvalPolicy).toBe('on-request');
+    thread.updateApprovalPolicy(null);
+    expect(options()).not.toHaveProperty('approvalPolicy');
+  });
+
   it('persists only abnormally slow successful thread boundaries', () => {
     expect(threadBoundaryReadyLogLevel(29_999)).toBe('debug');
     expect(threadBoundaryReadyLogLevel(30_000)).toBe('warn');

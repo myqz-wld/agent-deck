@@ -210,33 +210,27 @@ export interface CodexCreateOpts {
   /**
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
    * codex app-server `approvalPolicy` 透传。当前 provider 支持 `untrusted`、`on-request`
-   * 和 `never`；普通会话缺省时使用 `never`，caller 显式值和同 adapter 继承值优先。
+   * 和 `never`。caller 显式值和同 adapter 继承值优先；否则 Codex target 默认
+   * `on-request`。Reviewer Agent 名称不会隐式改变该策略。
    *
-   * **enforce 点** = `options-builder.ts narrowToCodexOpts`。bridge 不再另设默认值，
-   * recovery / resume 继续优先透传已持久化的会话值。
-   *
-   * spawn-time 一次性透传；app-server 的请求由 PendingTab 应答。运行时无热切。
+   * app-server 在每次 turn/start 读取该值，因此会话页可持久化并热更新下一轮策略。
    */
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /**
    * plan §P3 Step 3.5 + §不变量 6：codex SDK startThread `networkAccessEnabled` 透传。
-   * codex teammate reviewer 调外部 CLI（reviewer-claude wrapper 跑 `$AGENT_DECK_CLAUDE_PATH -p ...`）
-   * 不需要 codex 本身访网；但 reviewer-codex 内可能 web search → 默认 true 让 codex SDK 内置
-   * networking 走通（不被 sandbox 网络层拦），与 `webSearchEnabled` 解耦。
+   * 该字段只由可信 lifecycle caller 显式设置或从同 adapter source 继承；`agentName`
+   * 不会注入默认值。它与 `webSearchEnabled` 解耦。
    *
-   * undefined → 沿用 codex SDK 默认（false）。reviewer-* 路径 options-builder spread 为 true。
+   * undefined → 沿用 Codex config / runtime 默认。
    */
   networkAccessEnabled?: boolean;
   /**
    * plan §P3 Step 3.5 + §不变量 6：codex SDK startThread `additionalDirectories` 透传，
    * 让 codex sandbox=workspace-write 档位下额外允许的可读写根。
+   * 该字段只由可信 lifecycle caller 显式设置或从同 adapter source 继承；`agentName`
+   * 不会注入默认路径。
    *
-   * reviewer-* 路径 options-builder spread 为 `['~/.claude', '~/.codex', '/tmp']`，让 reviewer
-   * 端跨目录访问 plan 文件 / claude config / codex config（review 阶段 cp 临时副本到 worktree
-   * 内仍依赖这两路径作 fallback 源）；`/tmp` 是 reviewer-codex 端 shell 工具调用 / sandbox-exec
-   * 中间文件路由需求（spike4 实证不含 /tmp 时 codex sandbox-exec 拒读中间文件输出）。
-   *
-   * undefined → 沿用 codex SDK 默认（不加额外路径）。普通 codex session 不被污染（不变量 6）。
+   * undefined → 沿用 codex SDK 默认（不加额外路径）。
    */
   additionalDirectories?: readonly string[];
   /**
@@ -311,13 +305,8 @@ export type CreateSessionOptions =
  * 含所有 adapter 字段并集 + 都为 optional（caller 不挑 adapter 透传）；builder 内 switch
  * 按 agentId 把字段 narrow 到对应 union arm（filter 掉不属于该 adapter 的字段）。
  *
- * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §D7（v4 信号源约定）**:
- * `agentName` 透传通道 — caller (spawn handler) 把 `args.agentName` 透到本字段；
- * `narrowToCodexOpts` 按 `agentName in REVIEWER_AGENT_NAMES` 触发 codex
- * teammate spawn default spread（不变量 6: enforce 点 = options-builder 层，**禁** bridge
- * hardcode default 污染普通 codex session）。
- *
- * `narrowToClaudeOpts` filter 掉本字段（claude adapter 没 codex teammate default 概念）。
+ * Runtime policy fields are adapter-owned and explicit. `agentName` is resolved before this
+ * builder and never changes permission or sandbox fields implicitly.
  */
 export interface CreateSessionOptionsRaw {
   cwd: string;
@@ -339,6 +328,7 @@ export interface CreateSessionOptionsRaw {
   developerInstructions?: string;
   codexConfigOverrides?: CodexConfigObject;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
+  approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
   grokSandbox?: string | null;
   claudeAgentName?: string;
@@ -352,12 +342,6 @@ export interface CreateSessionOptionsRaw {
   // 时显式传), 按 cancelCheck / skipFirstUserEmit 同款分层只活在 bridge CreateSessionOpts。Raw 是
   // 「caller 经 builder 透传的字段并集」, internal 字段本不该在此声明。SSOT 不变量表见 bridge
   // create-session/_deps.ts。field 级守门 _assertNarrowCoversArmFields 防此类漏挑复发(见 options-builder.ts)。
-  /**
-   * plan §P3 Step 3.5 信号源（v4 D7）：spawn handler 透传 `args.agentName` 让
-   * `narrowToCodexOpts` 按 reviewer-* 路径触发 codex teammate spawn default spread。
-   * 仅 codex-cli adapter 消费；claude-code adapter narrow 时 filter 掉。
-   */
-  agentName?: string | null;
   /**
    * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
    * hand_off_session handler 透传给 spawn handler args.hand_off,builder 透传给 adapter narrow。

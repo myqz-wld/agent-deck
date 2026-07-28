@@ -82,7 +82,8 @@ describe('bundled reviewer runtime contract', () => {
     const codexInstructions = parseCodexAgentToml(reviewerCodex).developerInstructions ?? '';
     expect(codexInstructions).toContain("adapter:'codex-cli'");
     expect(codexInstructions).toContain('/reviewer-codex/');
-    expect(codexInstructions).toContain('sandboxMode');
+    expect(codexInstructions).toContain('approvalPolicy: on-request');
+    expect(codexInstructions).toContain('configured Codex sandbox default');
   });
 
   it('keeps paired review skills aligned on the named Codex reviewer slot', () => {
@@ -92,6 +93,34 @@ describe('bundled reviewer runtime contract', () => {
     expect(codexDeepReview).toBe(grokDeepReview);
     expect(codexSimpleReview).toContain("agentName: 'reviewer-codex'");
     expect(codexDeepReview).toContain("agentName: 'reviewer-codex'");
+  });
+
+  it('keeps reviewer runtime access explicit and allows isolated spikes', () => {
+    const codexInstructions = parseCodexAgentToml(reviewerCodex).developerInstructions ?? '';
+    for (const skill of [
+      codexSimpleReview,
+      codexDeepReview,
+      claudeSimpleReview,
+      claudeDeepReview,
+      grokSimpleReview,
+      grokDeepReview,
+    ]) {
+      expect(skill).toContain(
+        'Do not pass permission, approval, or sandbox overrides unless the user explicitly requested',
+      );
+      expect(skill).toContain('same-adapter worker inherits');
+      expect(skill).toContain('cross-adapter worker uses the target adapter');
+      expect(skill).toContain('isolated spikes are allowed');
+      expect(skill).toContain('agentName` never grants or restricts runtime access');
+    }
+    for (const reviewer of [reviewerClaude, codexInstructions, reviewerGrok]) {
+      expect(reviewer).toContain('You are a review worker, not a fix worker.');
+      expect(reviewer).toContain('Focused tests, builds, package validation scripts, and isolated spikes are allowed');
+      expect(reviewer).not.toContain('You are a read-only reviewer.');
+      expect(reviewer).not.toContain('non-mutating commands only');
+    }
+    expect(codexInstructions).toContain('approvalPolicy: on-request');
+    expect(codexInstructions).not.toContain('approvalPolicy` defaults to `never`');
   });
 
   it('uses one shared ignored cache contract without an acknowledgement bypass', () => {

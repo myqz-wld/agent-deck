@@ -52,10 +52,10 @@ export function upsert(rec: SessionRecord): void {
   // toId / toExists=true 分支保留 NEW 行已有 cli_session_id 不覆盖(详 rename.ts)。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
-  // plan codex-recover-network-dirs-parity-20260602：network_access_enabled +
-  // additional_directories 同款（v029）— reviewer-codex spawn-time default 持久化让 recover /
-  // restart 路径还原 codex SDK 网络访问 + 额外可读写目录；upsert 必须参与否则 lifecycle 复活
-  // 路径丢字段。**boolean→int 手转**（better-sqlite3 拒绝 raw boolean bind）。
+  // network_access_enabled + additional_directories 同款（v029）— 持久化 caller 显式或
+  // same-adapter 继承的 per-session 选择，让 recover / restart 还原 Codex runtime；
+  // upsert 必须参与否则 lifecycle 复活路径丢字段。**boolean→int 手转**
+  // （better-sqlite3 拒绝 raw boolean bind）。
   getDb()
     .prepare(
       `INSERT INTO sessions
@@ -380,10 +380,9 @@ export function setExtraAllowWrite(id: string, paths: string[] | null): void {
 /**
  * 写入 Codex SDK 网络访问开关（plan codex-recover-network-dirs-parity-20260602）。
  *
- * 调用方：codex-cli adapter session-finalize persistSessionFields —— reviewer-codex spawn 时
- * options-builder 注入的 `networkAccessEnabled: true` 持久化，让 recover / restart 路径还原
- * codex SDK 网络访问能力（与 setCodexSandbox / setModel 同款 per-session resilience）。
- * 普通 codex session（非 reviewer-*）+ claude session 不调（字段对它们无意义）。
+ * 调用方：codex-cli adapter session-finalize persistSessionFields。仅持久化 caller 显式或
+ * same-adapter 继承的值，让 recover / restart 还原 Codex 网络选择（与 setCodexSandbox /
+ * setModel 同款 per-session resilience）；reviewer 名称不产生值。
  *
  * **boolean→int 手转**：better-sqlite3 拒绝 raw boolean bind。`enabled=null` → 列写 NULL
  * （恢复「不指定，recover ?? undefined 跳过走 SDK 默认」语义）；true→1 / false→0。
@@ -397,10 +396,9 @@ export function setNetworkAccessEnabled(id: string, enabled: boolean | null): vo
 /**
  * 写入 Codex SDK 额外可读写目录（plan codex-recover-network-dirs-parity-20260602）。
  *
- * 调用方：codex-cli adapter session-finalize persistSessionFields —— reviewer-codex spawn 时
- * options-builder 注入的 `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` 持久化，
- * 让 recover / restart 路径还原 codex SDK 额外可读写根（配合 setNetworkAccessEnabled）。
- * 普通 codex session + claude session 不调。
+ * 调用方：codex-cli adapter session-finalize persistSessionFields。仅持久化 caller 显式或
+ * same-adapter 继承的值，让 recover / restart 还原 Codex 额外目录选择（配合
+ * setNetworkAccessEnabled）；reviewer 名称不产生值。
  *
  * `dirs`：绝对路径数组；空数组 / null → 列写 NULL（语义同 caller 不传，codex SDK 走默认无额外
  * 目录）。与 setExtraAllowWrite 完全对称的字面镜像（JSON.stringify string[]）。

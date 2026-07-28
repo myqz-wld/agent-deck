@@ -33,9 +33,9 @@ export interface BuildCodexThreadOptionsArgs {
   model?: string;
   /** Native model_provider id; explicit selection overrides custom-agent config. */
   provider?: string;
-  /** options-builder 在 reviewer-* 路径下 spread reviewer runtime default;普通 codex session 缺省 */
+  /** Explicit caller/session value only; reviewer agent names never change this field. */
   networkAccessEnabled?: boolean;
-  /** 同上,caller 缺省 → 不写字段 → SDK 走默认值 */
+  /** Caller 缺省 → 不写字段 → SDK 走默认值。 */
   additionalDirectories?: readonly string[];
   /** Provider-neutral writable roots, mapped to Codex workspace writable roots. */
   extraAllowWrite?: readonly string[];

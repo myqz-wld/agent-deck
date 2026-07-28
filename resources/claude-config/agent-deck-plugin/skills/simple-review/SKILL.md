@@ -19,7 +19,7 @@ Establish the scope from the user's request:
 - Resolve the requested files or current change set, then place absolute paths in reviewer prompts.
 - Keep one batch small enough for a single direct pass. When the full scope is too broad, partition it by subsystem or decision boundary and review the batches concurrently as capacity allows. Use `deep-review` instead when the work needs iterative depth or fixes.
 - Keep strongly coupled files, producer-consumer contracts, and one end-to-end state transition in the same batch when practical. When two or more primary batches exist, add one integration batch containing the changed boundary files and cross-batch sequences that need explicit consistency review.
-- Keep reviewed artifacts read-only. Adding the required `.review-cache/` ignore entry is the only review-infrastructure write; findings do not authorize target edits, commits, or external actions.
+- Keep reviewed target artifacts unchanged. Review workers may run focused validations and isolated spikes, including commands that create caches or build output, but must not edit scoped source, the Git index, commits, or user changes. Disposable fixtures belong under `/tmp/agent-deck-review/<invocation_id>/<batch_id>/<reviewer>/`; workers report generated paths and clean them when practical. Adding the required `.review-cache/` ignore entry is the only lead-side review-infrastructure write.
 - In a worktree, review the worktree copy rather than the base checkout.
 
 ### Batch Plan
@@ -43,7 +43,9 @@ Require exactly two user-confirmed, distinct reviewer types. If the user has not
 | `reviewer-codex` | `spawn_session({ adapter: 'codex-cli', agentName: 'reviewer-codex', cwd, teamName, displayName, prompt })` |
 | `reviewer-grok` | `spawn_session({ adapter: 'grok-build', agentName: 'reviewer-grok', cwd, teamName, displayName, prompt })` |
 
-Reject duplicate types and every selection that is not exactly two types. For every batch, spawn one worker session for each selected type, giving both workers the same batch scope and focus. Multiple batches may have separate sessions with the same `agentName`; label each with `displayName: '<reviewer> · <batch_id>'`. Record every worker session in the batch manifest and final report. Do not pass permission or sandbox overrides unless the user requested them.
+Reject duplicate types and every selection that is not exactly two types. For every batch, spawn one worker session for each selected type, giving both workers the same batch scope and focus. Multiple batches may have separate sessions with the same `agentName`; label each with `displayName: '<reviewer> · <batch_id>'`. Record every worker session in the batch manifest and final report.
+
+Do not pass permission, approval, or sandbox overrides unless the user explicitly requested the exact value. Omission is intentional: a same-adapter worker inherits the lead's persisted runtime, while a cross-adapter worker uses the target adapter's default. A `reviewer-*` `agentName` never grants or restricts runtime access. On respawn, repeat only overrides that came from the user's explicit request.
 
 Keep every batch pair heterogeneous for the whole invocation. Never assign half a batch to each reviewer: both workers independently inspect the entire batch. If one worker fails, shut it down and respawn the same batch, adapter, provider, `agentName`, and model type; never substitute an unselected type or treat the surviving worker as complete coverage.
 
@@ -112,6 +114,7 @@ Every independent-review prompt includes:
 - A fresh `invocation_id`, stable `batch_id`, `batch_kind`, absolute `batch_scope`, `output_mode: full_review`, the selected reviewer pair, and `review_type`.
 - A reviewer- and batch-specific `finding_id_prefix` such as `AUTH-R1-CLAUDE`, a required single-pass `focus`, and `baseline: commit:<hash> | working-tree`.
 - The finding contract and the requirement to report `Coverage: COMPLETE | INCOMPLETE`, reviewed paths, and unreadable paths or restricted steps.
+- The validation boundary: focused tests, builds, and isolated spikes are allowed; disposable artifacts go under that worker's `/tmp/agent-deck-review/...` directory, while scoped source, the Git index, commits, and user changes remain untouched.
 
 For a commit baseline, reviewers compare with `git diff <hash> -- <paths>`. For a working-tree baseline, they inspect both `git diff -- <paths>` and `git diff --cached -- <paths>` when diffs are relevant. Round 1 still requires reading every target file.
 

@@ -33,6 +33,7 @@ function adapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
       canInstallHooks: true,
       canRespondPermission: true,
       canSetPermissionMode: true,
+      canSetCodexApprovalPolicy: false,
       canSetSessionMode: false,
       canRestartWithPermissionMode: true,
       canRestartWithCodexSandbox: false,

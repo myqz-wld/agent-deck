@@ -19,6 +19,8 @@ export interface AdapterCapabilities {
   canInstallHooks: boolean;
   canRespondPermission: boolean;
   canSetPermissionMode: boolean;
+  /** Supports persisting a Codex approval policy and applying it to the next provider turn. */
+  canSetCodexApprovalPolicy: boolean;
   /** Supports an adapter-native work mode distinct from Claude permission modes. */
   canSetSessionMode: boolean;
   /**

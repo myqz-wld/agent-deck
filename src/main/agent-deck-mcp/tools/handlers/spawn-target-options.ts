@@ -26,7 +26,7 @@ export interface SpawnTargetOptionsInput {
   grokAgentName?: string;
   grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
   grokPluginDir?: string;
-  /** Main-only Codex runtime fields absent from the public MCP schema. */
+  /** Codex approval plus main-only network/read-root runtime fields. */
   codexRuntimeAccess?: {
     approvalPolicy?: 'untrusted' | 'on-request' | 'never';
     networkAccessEnabled?: boolean;
@@ -47,6 +47,7 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
     prompt: input.prompt,
     ...omitUndefined({
       permissionMode: input.effectivePermissionMode,
+      approvalPolicy: args.approvalPolicy,
       sessionMode: input.effectiveSessionMode,
       codexSandbox: input.effectiveCodexSandbox,
       claudeCodeSandbox: input.effectiveClaudeCodeSandbox,
@@ -65,7 +66,6 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       grokAgentName: input.grokAgentName,
       grokAgentSource: input.grokAgentSource,
       grokPluginDir: input.grokPluginDir,
-      agentName: args.agentName,
       awaitCanonicalId: true,
     }),
     ...(input.effectiveExtraAllowWrite !== undefined && input.effectiveExtraAllowWrite.length > 0
@@ -91,10 +91,12 @@ export function resolveSpawnCodexRuntimeAccess(
   inherit: boolean,
   source: SessionRecord | null,
   override: SpawnTargetOptionsInput['codexRuntimeAccess'],
+  explicitApprovalPolicy: SpawnSessionArgs['approvalPolicy'],
 ): SpawnTargetOptionsInput['codexRuntimeAccess'] {
   if (adapter !== 'codex-cli') return undefined;
   return {
     approvalPolicy:
+      explicitApprovalPolicy ??
       override?.approvalPolicy ??
       (inherit ? source?.codexApprovalPolicy ?? undefined : undefined),
     networkAccessEnabled:

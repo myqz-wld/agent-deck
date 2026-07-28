@@ -7,7 +7,7 @@
  * thread options so the next turn uses it, without aborting the current turn or clearing
  * queued messages.
  */
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, CodexApprovalPolicy } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
@@ -36,6 +36,11 @@ export interface RestartCtx {
       networkAccessEnabled?: boolean;
       additionalDirectories?: readonly string[];
     },
+  ) => boolean;
+  /** Same next-turn projection as applyLiveSandbox, for Codex approval policy. */
+  applyLiveApprovalPolicy: (
+    sessionId: string,
+    policy: CodexApprovalPolicy | null,
   ) => boolean;
 }
 
@@ -137,6 +142,89 @@ export class RestartController {
     this.ctx.recovering.set(sessionId, p);
     try {
       return await p;
+    } finally {
+      this.ctx.recovering.delete(sessionId);
+    }
+  }
+
+  /**
+   * Persist and apply the Codex approval policy used by subsequent `turn/start` requests.
+   * The active turn is left alone; dormant sessions consume the persisted choice on recovery.
+   */
+  async setCodexApprovalPolicy(
+    sessionId: string,
+    policy: CodexApprovalPolicy,
+  ): Promise<void> {
+    let inflight = this.ctx.recovering.get(sessionId);
+    while (inflight) {
+      try {
+        await inflight;
+      } catch {
+        // A failed previous recovery/switch should not prevent the user's newer selection.
+      }
+      inflight = this.ctx.recovering.get(sessionId);
+    }
+
+    const rec = sessionRepo.get(sessionId);
+    if (!rec) throw new Error(`session ${sessionId} not found in repo`);
+    const oldPolicy: CodexApprovalPolicy | null =
+      rec.codexApprovalPolicy ?? null;
+
+    const operation = (async (): Promise<void> => {
+      try {
+        sessionRepo.setCodexApprovalPolicy(sessionId, policy);
+        const updatedRec = sessionRepo.get(sessionId);
+        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+
+        const liveApplied = this.ctx.applyLiveApprovalPolicy(sessionId, policy);
+        if (!liveApplied) {
+          logger.info(
+            `[codex-bridge] persisted approval policy ${policy} for dormant session ` +
+              `${sessionId}; next recovery/createSession will apply it`,
+          );
+        }
+      } catch (error) {
+        try {
+          sessionRepo.setCodexApprovalPolicy(sessionId, oldPolicy);
+          const rolled = sessionRepo.get(sessionId);
+          if (rolled) eventBus.emit('session-upserted', rolled);
+          try {
+            this.ctx.applyLiveApprovalPolicy(sessionId, oldPolicy);
+          } catch (liveRollbackError) {
+            logger.warn(
+              `[codex-bridge] live approval-policy rollback failed for ${sessionId}; ` +
+                'DB rollback still completed:',
+              liveRollbackError,
+            );
+          }
+        } catch (rollbackError) {
+          logger.warn(
+            `[codex-bridge] setCodexApprovalPolicy rollback ` +
+              `(${sessionId}, ${oldPolicy}) failed; original error is preserved:`,
+            rollbackError,
+          );
+        }
+        this.ctx.emit({
+          sessionId,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text:
+              `⚠ 切换审批策略到 ${policy} 失败：` +
+              `${(error as Error)?.message ?? String(error)}。` +
+              `策略已回退到 ${oldPolicy ?? '(默认)'}。`,
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+        throw error;
+      }
+    })();
+
+    this.ctx.recovering.set(sessionId, operation);
+    try {
+      await operation;
     } finally {
       this.ctx.recovering.delete(sessionId);
     }

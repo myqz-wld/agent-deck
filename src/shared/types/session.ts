@@ -260,18 +260,17 @@ export interface SessionRecord {
   /**
    * Codex SDK 网络访问开关（plan codex-recover-network-dirs-parity-20260602）。
    *
-   * 持久化 reviewer-codex spawn 时 options-builder.ts narrowToCodexOpts 在 reviewer-* 分支
-   * 注入的 `networkAccessEnabled: true` reviewer runtime default，让 app 重启 / dev hot reload /
-   * main crash 后 sessions Map miss 时 recover / restart 路径能从 sessionRepo 读回交还
-   * codex SDK，与 codexSandbox / model 同款 per-session resilience 模式。
+   * 持久化可信 lifecycle caller 显式提供或同 adapter 继承的网络设置，让 app 重启 /
+   * dev hot reload / main crash 后 sessions Map miss 时 recover 路径能从 sessionRepo
+   * 读回交还 codex SDK，与 codexSandbox / model 同款 per-session resilience 模式。
+   * `reviewer-*` 名称本身不注入此字段。
    *
    * 本字段由 codex SDK runtime **真消费**——经
    * `buildCodexThreadOptions` → `startThread`/`resumeThread` 的 ThreadOptions.networkAccessEnabled
-   * 真正控制 codex 子进程能否访问网络（reviewer-codex 依赖 web search）。与
+   * 真正控制 codex 子进程能否访问网络。与
    * `extraAllowWrite` / `additionalDirectories` 一样，recover 链上的透传不可删除。
    *
-   * - 仅 codex reviewer-* spawn 写（options-builder 注入 → persistSessionFields 持久化）；
-   *   普通 codex session（非 reviewer-*）+ claude-code 会话该字段始终 null（不读不写）。
+   * - 仅 codex-cli 消费；显式值或同 adapter 继承值由 persistSessionFields 持久化。
    * - null/undefined：不指定，recover 时 `?? undefined` 跳过 → codex SDK 走默认网络策略。
    *
    * 持久化层：sessions.network_access_enabled INTEGER 列（v029），3 态 NULL/0/1。
@@ -281,17 +280,17 @@ export interface SessionRecord {
   /**
    * Codex SDK 额外可读写目录（plan codex-recover-network-dirs-parity-20260602）。
    *
-   * 持久化 reviewer-codex spawn 时 options-builder.ts narrowToCodexOpts 在 reviewer-* 分支
-   * 注入的 `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']` reviewer runtime default，让
-   * recover / restart 路径能从 sessionRepo 读回交还 codex SDK（与 networkAccessEnabled 配套）。
+   * 持久化可信 lifecycle caller 显式提供或同 adapter 继承的额外目录，让 recover
+   * 路径能从 sessionRepo 读回交还 codex SDK（与 networkAccessEnabled 配套）。
+   * `reviewer-*` 名称本身不注入路径。
    *
    * 本字段由 codex SDK runtime **真消费**——经
    * `buildCodexThreadOptions` → `startThread`/`resumeThread` 的 ThreadOptions.additionalDirectories
    * 真正把这些根加入当前 codex sandbox 可访问范围（实际读写能力仍受 sandboxMode 档位约束；
-   * reviewer-codex 依赖跨目录读 plan / claude config / codex config + /tmp 中间文件）。
+   * 具体可访问范围仍由当前 session runtime 决定）。
    * `extraAllowWrite` 也会合并进 workspace-write writableRoots；两条 recover 透传都不可删除。
    *
-   * - 仅 codex reviewer-* spawn 写；普通 codex session + claude-code 会话始终 null。
+   * - 仅 codex-cli 消费；显式值或同 adapter 继承值由 persistSessionFields 持久化。
    * - null/undefined：不指定，recover 时 `?? undefined` 跳过 → codex SDK 走默认（无额外路径）。
    *
    * 持久化层：sessions.additional_directories TEXT 列（v029），JSON.stringify(string[]) 全绝对路径。

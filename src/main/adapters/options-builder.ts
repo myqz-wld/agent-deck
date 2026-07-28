@@ -18,8 +18,6 @@
  * (3) registry.ts AdapterIdMap 加映射。漏任一 TS 编译期报错。
  */
 
-import os from 'node:os';
-import path from 'node:path';
 import type {
   ClaudeCreateOpts,
   CodexCreateOpts,
@@ -60,46 +58,6 @@ export const AGENT_IDS = [
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
- * **reviewer-* SSOT list**(plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法,
- * A1-MED-2 (claude) — 修前 reviewer agent hardcode 散布在多处 runtime
- * 分支与文档)。
- *
- * **覆盖 runtime 分支**(本文件):
- * - `narrowToCodexOpts` `isReviewerAgentName(raw.agentName)` 主分支 — codex teammate spawn
- *   reviewer runtime default spread enforce 点(所有 reviewer slot 同款 spread
- *   approvalPolicy / networkAccessEnabled / additionalDirectories；codexSandbox 走普通 spawn 继承链)
- *
- * **REVIEW_105 R2 INFO 订正(reviewer-codex 单方)**: 删除旧「reviewer-claude 子分支注入
- * AGENT_DECK_CLAUDE_PATH」描述 —— 该子分支已随 plan reviewer-codex-cross-adapter-20260519
- * Phase 2 删除(reviewer-claude 改 cross-adapter native, 不再走 wrapper Bash 起外部 codex CLI,
- * 不再注入 envOverrideExtra: AGENT_DECK_CLAUDE_PATH)。当前 reviewer 分支所有 slot 行为对称无子分支。
- *
- * **不 SSOT 化的位置**(by design):
- * - jsdoc / 注释里的字面量字符串(说明文档可读性优先,引用 const 名反而绕)
- * - 测试 fixture / mock data(测试就是要 hardcode 字面量验证 runtime 分支)
- * - schema description / hint 文案(给 caller LLM 看的英文文档)
- *
- * 加新 reviewer agent 时只需把名字加进本 list, reviewer 主分支 default spread 自动覆盖。
- */
-export const REVIEWER_AGENT_NAMES = [
-  'reviewer-claude',
-  'reviewer-codex',
-  'reviewer-grok',
-] as const;
-export type ReviewerAgentName = (typeof REVIEWER_AGENT_NAMES)[number];
-
-/**
- * runtime guard:`raw.agentName` 是否属于 reviewer-* SSOT list。narrow 也用作 type predicate
- * 让 TS 在分支里把 `raw.agentName` narrow 到 `ReviewerAgentName` union。
- *
- * **签名**:接收 `string | null | undefined`(`CreateSessionOptionsRaw.agentName` 的精确类型),
- * null / undefined 全 narrow 为 false。
- */
-export function isReviewerAgentName(name: string | null | undefined): name is ReviewerAgentName {
-  return name != null && (REVIEWER_AGENT_NAMES as readonly string[]).includes(name);
-}
-
-/**
  * raw → ClaudeCreateOpts narrow：从 raw 中挑 claude-code adapter 接受的字段（filter 掉
  * codexSandbox 等 codex 专属字段）。undefined 字段被剔除（避免 spread 进 opts 后变成显式
  * undefined 字段污染 caller spread 链）。
@@ -136,18 +94,9 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  * raw → CodexCreateOpts narrow：从 raw 中挑 codex-cli adapter 接受的字段（filter 掉
  * permissionMode / claudeCodeSandbox 等 claude 专属字段）。
  *
- * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7**:
- * 按 `raw.agentName in REVIEWER_AGENT_NAMES` 触发 codex teammate spawn
- * default spread —— reviewer runtime access（`networkAccessEnabled: true` /
- * `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`）。
- *
- * **enforce 点 = 本函数（options-builder 层）**。普通 Codex 会话缺省审批策略为
- * `never`；入口在 builder 返回后覆盖 caller 显式值或 same-adapter 继承值。reviewer-* 只额外补
- * 网络与读取根，codexSandbox 仍沿用 caller 显式值 / same-adapter 继承 / target adapter 默认值。
- *
- * **信号源 = `raw.agentName`**（v4 D7）：禁用 spawn-link 反向信号源。reviewer runtime 只由
- * agentName 决定；initialSessionRegistration 是 UI/限流所需的父子关系注册，不代表 reviewer，
- * hand-off 路径也不会携带它。
+ * Reviewer runtime policy is intentionally not inferred from `agentName`. Review skills omit
+ * approval and sandbox controls unless the user explicitly requested them, so a custom agent
+ * name never grants hidden runtime access.
  */
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
@@ -167,8 +116,8 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
     out.codexConfigOverrides = raw.codexConfigOverrides;
   }
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
+  out.approvalPolicy = raw.approvalPolicy ?? 'on-request';
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
-  out.approvalPolicy = 'never';
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
   // 给 codex-cli adapter,bridge createSession → thread-loop / resume emit first user message
   // 时 spread 进 events.payload(3 处 emit:thread-loop fallback + thread-loop success +
@@ -177,29 +126,6 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   if (raw.awaitCanonicalId !== undefined) out.awaitCanonicalId = raw.awaitCanonicalId;
   if (raw.initialSessionRegistration !== undefined) {
     out.initialSessionRegistration = raw.initialSessionRegistration;
-  }
-
-  // plan §P3 Step 3.5 + §不变量 6: codex reviewer teammate spawn (REVIEWER_AGENT_NAMES
-  // SSOT) runtime access default spread enforce 点。普通 Codex 的审批默认已在上方统一解析。
-  // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法(A1-MED-2 claude):用
-  // isReviewerAgentName SSOT guard 替代 reviewer agent hardcode。
-  if (isReviewerAgentName(raw.agentName)) {
-    // codexSandbox 不在 reviewer 分支强制覆盖。spawn handler 已在本函数前完成
-    // caller explicit > same-adapter inherit > target default 的 effective 计算；这里保留该值。
-    // networkAccessEnabled=true 让 reviewer-codex 能 web search / 调外部资源(spike 3 实证 codex
-    // sandbox=workspace-write 默认 networkAccessEnabled 在某些 platform 受限,显式打开稳)
-    out.networkAccessEnabled = true;
-    // additionalDirectories: ['~/.claude', '~/.codex', '/tmp'] 让 codex sandbox 允许跨目录访
-    // plan / claude config / codex config 文件 + reviewer 走 /tmp 中间文件
-    // (REVIEW_105 R2 INFO 订正: 旧叙述「reviewer-claude wrapper 走 /tmp」已过时 —— cross-adapter
-    // native 后 reviewer-claude 不再走 wrapper Bash 路径; /tmp 仍必需 = reviewer-codex 端 shell
-    // 工具调用 / sandbox-exec 中间文件路由需求(spike4 实证不含 /tmp 时 codex sandbox-exec 拒读
-    // 中间文件输出); 详 spike-reports/spike4-claude-nested-sandbox.md)。
-    out.additionalDirectories = [
-      path.join(os.homedir(), '.claude'),
-      path.join(os.homedir(), '.codex'),
-      '/tmp',
-    ];
   }
 
   return out;
@@ -373,16 +299,12 @@ void _assertAgentIdsListMatchesOptions;
  *
  * **by-design 例外**（不算 narrow 该挑、故从对比集排除）：
  * - `cwd`：必填字段，narrow 起手 `{ cwd: raw.cwd }` 恒挑，不进 optional 清单
- * - codex `approvalPolicy`：普通 Codex 会话由 builder 统一设为 `never`，入口可在 builder 返回后
- *   应用显式 human selection 或 same-adapter 继承值；不是 Raw 直传字段
- * - codex `networkAccessEnabled` / `additionalDirectories`：仅 reviewer-* 分支 spread 产出
- *   （不变量 6），**不是** caller 经 Raw 透传字段，故不在 Raw、也不该被主分支 narrow 挑
- * - codex `envOverrideExtra`：**性质不同于上 3 个**（REVIEW_105 R2 双 reviewer 独立命中 LOW 订正）——
- *   它**不是** reviewer-* spread 字段（reviewer 分支 L163-180 实际只 spread 上 3 个 + codexSandbox,
- *   无 envOverrideExtra；TC8/TC9 显式断言 reviewer 路径下它 undefined），而是「facade 声明 + bridge
- *   消费但当前零 producer」的 internal 直传字段（create-session-opts.ts CodexCreateOpts.envOverrideExtra
- *   jsdoc 明说「目前无 hot caller，字段保留供未来 caller 重用」, 不在 Raw → narrow 挑不到）。与刚修的
- *   resumeCliSid / resumeMode 同 bug 类(facade 死字段), 仅因「故意保留未接线」而非缺陷。**维护警告**:
+ * - codex `networkAccessEnabled` / `additionalDirectories`：trusted lifecycle callers set
+ *   these after builder narrowing; they are not public Raw passthrough fields
+ * - codex `envOverrideExtra`：是「facade 声明 + bridge 消费但当前零 producer」的 internal
+ *   直传字段（create-session-opts.ts CodexCreateOpts.envOverrideExtra jsdoc 明说「目前无 hot
+ *   caller，字段保留供未来 caller 重用」, 不在 Raw → narrow 挑不到）。与刚修的 resumeCliSid /
+ *   resumeMode 同 bug 类(facade 死字段), 仅因「故意保留未接线」而非缺陷。**维护警告**:
  *   未来若给 envOverrideExtra 接 caller(经 Raw 透传), 必须把它移出本排除集 + 加进 _CODEX_PASSTHROUGH_KEYS,
  *   否则守门不会提醒「Raw 加了但 narrow 漏挑」→ MED-1 同款漏挑复发(根治方向 = 同 resumeCliSid 归位
  *   bridge _deps.ts, 牵动 codex index.ts 透传链, 见 REVIEW_105 follow-up)。
@@ -414,7 +336,7 @@ const _assertClaudePassthroughCoversArm: AssertSameKeys<
 > = true;
 void _assertClaudePassthroughCoversArm;
 
-/** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 4 个 reviewer-* spread-only 字段除外）。 */
+/** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 3 个 main-only 字段除外）。 */
 const _CODEX_PASSTHROUGH_KEYS = {
   prompt: 0,
   provider: 0,
@@ -426,6 +348,7 @@ const _CODEX_PASSTHROUGH_KEYS = {
   developerInstructions: 0,
   codexConfigOverrides: 0,
   codexSandbox: 0,
+  approvalPolicy: 0,
   extraAllowWrite: 0,
   handOff: 0,
   awaitCanonicalId: 0,
@@ -435,7 +358,7 @@ const _assertCodexPassthroughCoversArm: AssertSameKeys<
   typeof _CODEX_PASSTHROUGH_KEYS,
   OmitKey<
     CodexCreateOpts,
-    'cwd' | 'approvalPolicy' | 'networkAccessEnabled' | 'additionalDirectories' | 'envOverrideExtra'
+    'cwd' | 'networkAccessEnabled' | 'additionalDirectories' | 'envOverrideExtra'
   >
 > = true;
 void _assertCodexPassthroughCoversArm;

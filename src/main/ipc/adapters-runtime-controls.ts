@@ -40,6 +40,7 @@ export function parseAdapterCreateRuntimeControls(
   );
   const controls = {
     ...(permissionMode !== null ? { permissionMode } : {}),
+    ...(approvalPolicy !== null ? { approvalPolicy } : {}),
     ...(sessionMode !== null ? { sessionMode } : {}),
     ...(codexSandbox !== null ? { codexSandbox } : {}),
     ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
@@ -51,12 +52,6 @@ export function parseAdapterCreateRuntimeControls(
     throw new IpcInputError(
       `opts.${unsupported}`,
       unsupportedTargetRuntimeFieldMessage(adapterId, unsupported),
-    );
-  }
-  if (approvalPolicy !== null && adapterId !== 'codex-cli') {
-    throw new IpcInputError(
-      'opts.approvalPolicy',
-      `owned by codex-cli and incompatible with target adapter "${adapterId}"`,
     );
   }
   return {
@@ -71,6 +66,28 @@ export function parseAdapterCreateRuntimeControls(
 }
 
 export function registerAdapterSandboxRestartIpc(): void {
+  on(
+    IpcInvoke.AdapterSetCodexApprovalPolicy,
+    async (_e, agentId, sessionId, policy) => {
+      const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
+      if (
+        !adapter?.capabilities.canSetCodexApprovalPolicy ||
+        !adapter.setCodexApprovalPolicy
+      ) {
+        throw new Error('adapter does not support Codex approval-policy changes');
+      }
+      const sid = parseStringId('sessionId', sessionId);
+      const parsed = parseCodexApprovalPolicy(policy);
+      if (parsed === null) {
+        throw new IpcInputError(
+          'policy',
+          'required (one of untrusted|on-request|never)',
+        );
+      }
+      return adapter.setCodexApprovalPolicy(sid, parsed);
+    },
+  );
+
   on(
     IpcInvoke.AdapterRestartWithCodexSandbox,
     async (_e, agentId, sessionId, sandbox, handoffPrompt) => {

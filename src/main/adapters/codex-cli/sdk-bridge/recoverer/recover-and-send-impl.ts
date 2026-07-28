@@ -368,7 +368,7 @@ export async function recoverAndSendImpl(
           modelReasoningEffort: sdkThinking,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
           // plan codex-recover-network-dirs-parity-20260602：jsonl-missing fallback 起 fresh thread
-          // 时透传 reviewer-codex spawn-time 持久化的 network/dirs（codex SDK runtime 真消费）。
+          // 时透传该 session 已持久化的 network/dirs（codex SDK runtime 真消费）。
           // `?? undefined`：false 保留 / null 跳过走 SDK 默认（与 codexSandbox/model 同款）。
           networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
           additionalDirectories: rec.additionalDirectories ?? undefined,
@@ -428,8 +428,8 @@ export async function recoverAndSendImpl(
         modelReasoningEffort: sdkThinking,
         extraAllowWrite: rec.extraAllowWrite ?? undefined,
         // plan codex-recover-network-dirs-parity-20260602：正常 resume 重建 thread 时透传
-        // reviewer-codex spawn-time 持久化的 network/dirs（codex SDK runtime 真消费 — 不透传则
-        // recover 后 reviewer 失去 web search + 跨目录访问）。`?? undefined` false 保留 / null 跳过。
+        // 该 session 已持久化的 network/dirs（codex SDK runtime 真消费）。
+        // `?? undefined` false 保留 / null 跳过。
         networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
         additionalDirectories: rec.additionalDirectories ?? undefined,
         attachments,

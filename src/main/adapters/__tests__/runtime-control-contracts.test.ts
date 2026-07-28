@@ -18,6 +18,7 @@ describe('adapter target runtime control contracts', () => {
       'provider',
       'model',
       'thinking',
+      'approvalPolicy',
       'codexSandbox',
       'extraAllowWrite',
     ]);

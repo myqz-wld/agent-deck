@@ -72,7 +72,7 @@ export interface CodexJsonlFallbackOpts {
   captureError?: unknown;
   /** rec.codexSandbox ?? undefined (显式透传防静默降默认) */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
-  /** rec.codexApprovalPolicy ?? undefined; reviewer fallback must remain unattended. */
+  /** rec.codexApprovalPolicy ?? undefined; recovery preserves the session's resolved policy. */
   approvalPolicy?: CodexApprovalPolicy;
   /** rec.runtimeProvider ?? undefined; fresh fallback must retain model_provider. */
   provider?: string;
@@ -83,14 +83,12 @@ export interface CodexJsonlFallbackOpts {
   /** rec.extraAllowWrite ?? undefined; mapped to app-server workspace writableRoots. */
   extraAllowWrite?: readonly string[];
   /**
-   * plan codex-recover-network-dirs-parity-20260602：rec.networkAccessEnabled ?? undefined。
-   * fresh thread 起动时透传让 reviewer-codex
-   * 保持网络访问。
+   * rec.networkAccessEnabled ?? undefined；fresh thread 起动时保留该 session 的持久化选择。
    */
   networkAccessEnabled?: boolean;
   /**
-   * plan codex-recover-network-dirs-parity-20260602：rec.additionalDirectories ?? undefined。
-   * codex SDK runtime 真消费 —— fresh thread 起动时透传让 reviewer 保持跨目录读写能力。
+   * rec.additionalDirectories ?? undefined；Codex runtime 真消费，fresh thread 起动时保留
+   * 该 session 的持久化选择。
    */
   additionalDirectories?: readonly string[];
   /** 首条恢复消息带图 attachments 透传 */
@@ -196,8 +194,8 @@ export async function maybeCodexJsonlFallback(
     model: toCodexModelOverride(opts.model),
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,
-    // plan codex-recover-network-dirs-parity-20260602：fresh thread 起动透传 network/dirs
-    // （codex SDK runtime 真消费）让 reviewer-codex jsonl-missing fallback 后保持网络 + 跨目录能力。
+    // fresh thread 起动透传 network/dirs（Codex runtime 真消费），让 jsonl-missing
+    // fallback 保留该 session 的持久化选择。
     networkAccessEnabled: opts.networkAccessEnabled,
     additionalDirectories: opts.additionalDirectories,
     attachments: opts.attachments,

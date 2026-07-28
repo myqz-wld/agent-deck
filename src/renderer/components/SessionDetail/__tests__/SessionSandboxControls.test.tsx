@@ -23,15 +23,21 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 let restartWithGrokSandbox: ReturnType<typeof vi.fn>;
+let restartWithCodexSandbox: ReturnType<typeof vi.fn>;
+let setCodexApprovalPolicy: ReturnType<typeof vi.fn>;
 let confirmDialog: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   restartWithGrokSandbox = vi.fn().mockResolvedValue('grok-session');
+  restartWithCodexSandbox = vi.fn().mockResolvedValue('codex-session');
+  setCodexApprovalPolicy = vi.fn().mockResolvedValue(undefined);
   confirmDialog = vi.fn().mockResolvedValue(true);
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
       restartWithGrokSandbox,
+      restartWithCodexSandbox,
+      setCodexApprovalPolicy,
       confirmDialog,
     } as unknown as Window['api'],
   });
@@ -40,6 +46,53 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, 'api');
+});
+
+describe('Codex live approval control', () => {
+  it('shows strict-to-loose policies and applies the choice to the next turn', async () => {
+    const view = render(
+      <SessionSandboxControls
+        session={session({
+          id: 'codex-session',
+          agentId: 'codex-cli',
+          codexApprovalPolicy: null,
+          codexSandbox: 'workspace-write',
+        })}
+        turnBusy={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('审批'));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      '非可信命令前询问',
+      '按需询问',
+      '从不询问',
+    ]);
+    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+
+    await waitFor(() => {
+      expect(setCodexApprovalPolicy).toHaveBeenCalledWith(
+        'codex-cli',
+        'codex-session',
+        'never',
+      );
+    });
+
+    view.rerender(
+      <SessionSandboxControls
+        session={session({
+          id: 'codex-session',
+          agentId: 'codex-cli',
+          codexApprovalPolicy: 'never',
+          codexSandbox: 'workspace-write',
+        })}
+        turnBusy
+      />,
+    );
+    expect(
+      (screen.getByLabelText('审批') as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
 });
 
 describe('Grok live sandbox control', () => {

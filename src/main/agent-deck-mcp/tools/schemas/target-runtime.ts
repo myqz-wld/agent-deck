@@ -5,7 +5,11 @@ import {
 } from '@main/adapters/runtime-control-contracts';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
-import { PERMISSION_MODES, type SessionAdapterId } from '@shared/types';
+import {
+  CODEX_APPROVAL_POLICIES,
+  PERMISSION_MODES,
+  type SessionAdapterId,
+} from '@shared/types';
 import { MAX_GROK_SANDBOX_PROFILE_LENGTH } from '@shared/grok-sandbox';
 
 const provider = z
@@ -40,6 +44,13 @@ const permissionMode = z
   .optional()
   .describe(
     'Optional Claude Code permission mode. This field is owned only by adapter="claude-code"; omitted same-adapter targets may inherit it, while fresh Claude targets use the Claude target default. Codex approval requests and Grok ACP permissions use their provider-native protocols.',
+  );
+
+const approvalPolicy = z
+  .enum(CODEX_APPROVAL_POLICIES)
+  .optional()
+  .describe(
+    'Optional Codex app-server approval policy override. This field is owned only by adapter="codex-cli". Values run from stricter to looser interaction: untrusted, on-request, never. Explicit values win; omission inherits a persisted same-adapter value or uses the Codex target default on-request.',
   );
 
 const sessionMode = z
@@ -104,6 +115,7 @@ export const MCP_TARGET_RUNTIME_SUPERSET_SHAPE = {
   model,
   thinking,
   permissionMode,
+  approvalPolicy,
   sessionMode,
   codexSandbox,
   claudeCodeSandbox,
