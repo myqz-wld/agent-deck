@@ -1,5 +1,6 @@
 import type { GrokCreateOpts } from '@main/adapters/types';
 import { eventBus } from '@main/event-bus';
+import { getDb } from '@main/store/db';
 import { sessionRepo } from '@main/store/session-repo';
 import log from '@main/utils/logger';
 import type { SessionRecord } from '@shared/types';
@@ -29,13 +30,17 @@ export function createGrokRuntime(
     disposed: false,
     suppressUpdates: Boolean(existing?.cliSessionId),
     model: opts.model ?? existing?.model ?? null,
+    modelOverride: opts.model ?? existing?.model ?? null,
+    nativeDefaultModel: null,
     thinking: opts.reasoningEffort ?? existing?.thinking ?? null,
+    thinkingOverride: opts.reasoningEffort ?? existing?.thinking ?? null,
     sessionMode: opts.sessionMode ?? existing?.sessionMode ?? null,
     grokSandbox:
       opts.grokSandbox !== undefined
         ? opts.grokSandbox
         : existing?.grokSandbox ?? null,
     restartingSandbox: false,
+    runtimeMutationInProgress: false,
     agentProfileName: opts.grokAgentName ?? existing?.agentProfileName ?? null,
     agentProfileSource: opts.grokAgentSource ?? existing?.agentProfileSource ?? null,
     agentPluginDir: opts.grokPluginDir ?? existing?.agentPluginDir ?? null,
@@ -65,10 +70,14 @@ export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
     disposed: false,
     suppressUpdates: true,
     model: record.model ?? null,
+    modelOverride: record.model ?? null,
+    nativeDefaultModel: null,
     thinking: record.thinking ?? null,
+    thinkingOverride: record.thinking ?? null,
     sessionMode: record.sessionMode ?? null,
     grokSandbox: record.grokSandbox ?? null,
     restartingSandbox: false,
+    runtimeMutationInProgress: false,
     agentProfileName: record.agentProfileName ?? null,
     agentProfileSource: record.agentProfileSource ?? null,
     agentPluginDir: record.agentPluginDir ?? null,
@@ -82,20 +91,59 @@ export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
 }
 
 export function persistGrokRuntimeMetadata(runtime: GrokRuntime): void {
-  sessionRepo.setAgentRuntimeProfile(runtime.applicationSessionId, {
-    agentProfileName: runtime.agentProfileName,
-    agentProfileSource: runtime.agentProfileSource,
-    agentPluginDir: runtime.agentPluginDir,
+  const model =
+    runtime.modelOverride === undefined ? runtime.model : runtime.modelOverride;
+  const thinking =
+    runtime.thinkingOverride === undefined
+      ? runtime.thinking
+      : runtime.thinkingOverride;
+  const persist = getDb().transaction(() => {
+    sessionRepo.setAgentRuntimeProfile(runtime.applicationSessionId, {
+      agentProfileName: runtime.agentProfileName,
+      agentProfileSource: runtime.agentProfileSource,
+      agentPluginDir: runtime.agentPluginDir,
+    });
+    sessionRepo.setRuntimeProvider(runtime.applicationSessionId, null);
+    sessionRepo.setModel(runtime.applicationSessionId, model);
+    sessionRepo.setThinking(runtime.applicationSessionId, thinking);
+    sessionRepo.setSessionMode(
+      runtime.applicationSessionId,
+      runtime.sessionMode,
+    );
+    sessionRepo.setGrokSandbox(
+      runtime.applicationSessionId,
+      runtime.grokSandbox,
+    );
   });
-  if (runtime.model) sessionRepo.setModel(runtime.applicationSessionId, runtime.model);
-  if (runtime.thinking) {
-    sessionRepo.setThinking(runtime.applicationSessionId, runtime.thinking);
-  }
-  if (runtime.sessionMode) {
-    sessionRepo.setSessionMode(runtime.applicationSessionId, runtime.sessionMode);
-  }
-  sessionRepo.setGrokSandbox(runtime.applicationSessionId, runtime.grokSandbox);
-  const updated = sessionRepo.get(runtime.applicationSessionId);
+  persist();
+  emitRuntimeUpsert(runtime.applicationSessionId);
+}
+
+/** Commit the three persisted Grok model-selection columns as one SQLite transaction. */
+export function persistGrokModelOptions(
+  sessionId: string,
+  model: string | null,
+  thinking: string | null,
+): void {
+  const persist = getDb().transaction(() => {
+    sessionRepo.setModel(sessionId, model);
+    sessionRepo.setThinking(sessionId, thinking);
+    sessionRepo.setRuntimeProvider(sessionId, null);
+  });
+  persist();
+  emitRuntimeUpsert(sessionId);
+}
+
+export function persistGrokSessionMode(
+  sessionId: string,
+  mode: GrokRuntime['sessionMode'],
+): void {
+  sessionRepo.setSessionMode(sessionId, mode);
+  emitRuntimeUpsert(sessionId);
+}
+
+function emitRuntimeUpsert(sessionId: string): void {
+  const updated = sessionRepo.get(sessionId);
   if (updated) eventBus.emit('session-upserted', updated);
 }
 

@@ -1,13 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { methods } from '@agentclientprotocol/sdk';
 import type {
   AgentEnqueueOptions,
   GrokCreateOpts,
   PendingAgentMessage,
   QueuedAgentMessage,
 } from '@main/adapters/types';
-import { bufferHandOffSourceInput } from '@main/session/hand-off/input-buffer';
 import { sessionManager } from '@main/session/manager';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { sessionRepo } from '@main/store/session-repo';
@@ -24,7 +22,9 @@ import { GrokPermissionController } from './permission-controller';
 import { errorText } from './protocol-utils';
 import {
   createGrokRuntime,
+  persistGrokModelOptions,
   persistGrokRuntimeMetadata,
+  persistGrokSessionMode,
   recoverGrokRuntime,
 } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
@@ -39,6 +39,8 @@ import { readGrokUsageSnapshotInBackground } from './usage-snapshot';
 import { probeGrokImageCapability } from './capability-probe';
 import { GrokSandboxRestartController } from './sandbox-restart-controller';
 import { GrokRuntimeLifecycleCoordinator } from './runtime-lifecycle-coordinator';
+import { GrokMessageController } from './message-controller';
+import { GrokRuntimeMutationController } from './runtime-mutation-controller';
 
 const AGENT_ID = 'grok-build';
 
@@ -55,6 +57,8 @@ export class GrokBuildBridge {
   private readonly turnQueue: GrokTurnQueue;
   private readonly sandboxRestartController: GrokSandboxRestartController;
   private readonly lifecycle: GrokRuntimeLifecycleCoordinator;
+  private readonly messageController: GrokMessageController;
+  private readonly runtimeMutationController: GrokRuntimeMutationController;
   private binaryPath: string | null;
 
   constructor(private readonly options: GrokBuildBridgeOptions) {
@@ -74,6 +78,37 @@ export class GrokBuildBridge {
       this.permissionController,
       (runtime) => this.turnQueue.cancelSubmittingInterjection(runtime),
     );
+    this.messageController = new GrokMessageController({
+      emit: options.emit,
+      dispatch: (sessionId, text, attachments, enqueueOptions, forceQueue) =>
+        this.enqueueOrRecover(
+          sessionId,
+          text,
+          attachments,
+          enqueueOptions,
+          forceQueue,
+        ),
+      steer: async (sessionId, text) => {
+        const runtime = this.requireRuntime(sessionId);
+        await this.turnQueue.steer(runtime, text);
+      },
+    });
+    this.runtimeMutationController = new GrokRuntimeMutationController({
+      getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
+      getPersistedOptions: (sessionId) => {
+        const record = sessionRepo.get(sessionId);
+        if (!record || record.agentId !== AGENT_ID) return null;
+        return {
+          model: record.model ?? null,
+          thinking: record.thinking ?? null,
+          sessionMode: record.sessionMode ?? null,
+        };
+      },
+      persistModelOptions: persistGrokModelOptions,
+      persistSessionMode: (sessionId, mode) =>
+        persistGrokSessionMode(sessionId, mode),
+      dispose: (runtime) => this.disposeRuntime(runtime),
+    });
     this.sandboxRestartController = new GrokSandboxRestartController({
       getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
       start: (runtime) => this.startRuntime(runtime),
@@ -182,20 +217,12 @@ export class GrokBuildBridge {
     attachments?: UploadedAttachmentRef[],
     enqueueOptions?: AgentEnqueueOptions,
   ): Promise<void> {
-    if (
-      bufferHandOffSourceInput({
-        sourceSessionId: sessionId,
-        agentId: AGENT_ID,
-        text,
-        attachments,
-        emit: this.options.emit,
-        replay: (sourceSessionId) =>
-          this.enqueueOrRecover(sourceSessionId, text, attachments, enqueueOptions, true),
-      })
-    ) {
-      return;
-    }
-    await this.enqueueOrRecover(sessionId, text, attachments, enqueueOptions, false);
+    await this.messageController.sendMessage(
+      sessionId,
+      text,
+      attachments,
+      enqueueOptions,
+    );
   }
 
   async enqueueMessage(
@@ -204,12 +231,16 @@ export class GrokBuildBridge {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): Promise<void> {
-    await this.enqueueOrRecover(sessionId, text, attachments, options, true);
+    await this.messageController.enqueueMessage(
+      sessionId,
+      text,
+      attachments,
+      options,
+    );
   }
 
   async steerTurn(sessionId: string, text: string): Promise<void> {
-    const runtime = this.requireRuntime(sessionId);
-    await this.turnQueue.steer(runtime, text);
+    await this.messageController.steerTurn(sessionId, text);
   }
 
   async interrupt(sessionId: string): Promise<void> {
@@ -273,50 +304,14 @@ export class GrokBuildBridge {
     sessionId: string,
     options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
-    if (options.provider) {
-      throw new Error('Grok Build does not support a separate runtime provider');
-    }
-    const runtime = this.requireRuntime(sessionId);
-    const targetModel = options.model ?? runtime.model;
-    const targetThinking = options.thinking ?? runtime.thinking;
-    if (targetModel === runtime.model && targetThinking === runtime.thinking) return;
-    if (!targetModel) {
-      throw new Error(
-        'Grok ACP requires a concrete model before changing model or reasoning effort.',
-      );
-    }
-
-    await runtime.process!.connection.agent.request<
-      Record<string, never>,
-      {
-        sessionId: string;
-        modelId: string;
-        _meta?: { reasoningEffort: string };
-      }
-    >('session/set_model', {
-      sessionId: this.requireNativeSession(runtime),
-      modelId: targetModel,
-      ...(targetThinking
-        ? { _meta: { reasoningEffort: targetThinking } }
-        : {}),
-    });
-    runtime.model = targetModel;
-    runtime.thinking = targetThinking;
-    sessionRepo.setModel(sessionId, targetModel);
-    if (targetThinking) sessionRepo.setThinking(sessionId, targetThinking);
+    await this.runtimeMutationController.setModelOptions(sessionId, options);
   }
 
   async setSessionMode(
     sessionId: string,
     mode: AdapterSessionMode,
   ): Promise<void> {
-    const runtime = this.requireRuntime(sessionId);
-    await runtime.process!.connection.agent.request(methods.agent.session.setMode, {
-      sessionId: this.requireNativeSession(runtime),
-      modeId: mode,
-    });
-    runtime.sessionMode = mode;
-    sessionRepo.setSessionMode(sessionId, mode);
+    await this.runtimeMutationController.setSessionMode(sessionId, mode);
   }
 
   restartWithGrokSandbox(

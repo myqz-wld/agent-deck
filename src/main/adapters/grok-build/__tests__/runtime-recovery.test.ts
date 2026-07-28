@@ -5,11 +5,13 @@ import type { GrokCreateOpts } from '@main/adapters/types';
 import type { SessionRecord } from '@shared/types';
 import type { GrokAcpProcess } from '../acp-process';
 import type { GrokRuntimeStartContext } from '../runtime-start';
+import type { GrokRuntime } from '../runtime-types';
 
 const acpStartMock = vi.hoisted(() => vi.fn());
 const resolveGrokBinaryMock = vi.hoisted(() => vi.fn(async () => '/fake/grok'));
 const sessionRepoMock = vi.hoisted(() => ({
   setAgentRuntimeProfile: vi.fn(),
+  setRuntimeProvider: vi.fn(),
   setModel: vi.fn(),
   setThinking: vi.fn(),
   setSessionMode: vi.fn(),
@@ -17,6 +19,9 @@ const sessionRepoMock = vi.hoisted(() => ({
   setGrokUsageWatermark: vi.fn(),
   get: vi.fn(),
 }));
+const transactionMock = vi.hoisted(() =>
+  vi.fn((work: () => void) => work),
+);
 
 vi.mock('../acp-process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../acp-process')>();
@@ -36,6 +41,9 @@ vi.mock('@main/event-bus', () => ({
 }));
 vi.mock('@main/session/manager', () => ({
   sessionManager: { updateCliSessionId: vi.fn() },
+}));
+vi.mock('@main/store/db', () => ({
+  getDb: () => ({ transaction: transactionMock }),
 }));
 
 import {
@@ -133,6 +141,7 @@ describe('Grok runtime recovery profile', () => {
         reasoningEffort: 'xhigh',
       },
     });
+    expect(runtime.nativeDefaultModel).toBeNull();
   });
 
   it('restores profile fields for explicit resume and persists them atomically', () => {
@@ -157,6 +166,31 @@ describe('Grok runtime recovery profile', () => {
       agentPluginDir: '/plugins/reviewer-grok',
     });
     expect(sessionRepoMock.setGrokSandbox).toHaveBeenCalledWith(record.id, 'strict');
+  });
+
+  it('persists null overrides instead of coercing the effective native model into DB', () => {
+    const runtime = recoverGrokRuntime(makeRecord());
+    runtime.model = 'native-default';
+    runtime.modelOverride = null;
+    runtime.thinking = null;
+    runtime.thinkingOverride = null;
+    sessionRepoMock.get.mockReturnValue(makeRecord());
+
+    persistGrokRuntimeMetadata(runtime);
+
+    expect(sessionRepoMock.setRuntimeProvider).toHaveBeenCalledWith(
+      runtime.applicationSessionId,
+      null,
+    );
+    expect(sessionRepoMock.setModel).toHaveBeenCalledWith(
+      runtime.applicationSessionId,
+      null,
+    );
+    expect(sessionRepoMock.setThinking).toHaveBeenCalledWith(
+      runtime.applicationSessionId,
+      null,
+    );
+    expect(transactionMock).toHaveBeenCalled();
   });
 
   it('restores and persists the cumulative usage watermark across recovery', () => {
@@ -189,5 +223,62 @@ describe('Grok runtime recovery profile', () => {
       lastUsage: null,
       standardUsageBaselineReady: false,
     });
+  });
+
+  it('bounds startup setMode and disposes instead of assuming a timeout was not applied', async () => {
+    const runtime = recoverGrokRuntime(makeRecord());
+    const request = vi.fn((method: unknown) => {
+      if (method === methods.agent.session.load) {
+        return Promise.resolve({
+          modes: { currentModeId: 'default', availableModes: [] },
+        });
+      }
+      return new Promise(() => undefined);
+    });
+    const process = {
+      connection: { agent: { request, notify: vi.fn() } },
+      initializeResponse: {
+        agentCapabilities: { loadSession: true },
+        _meta: { modelState: { currentModelId: 'native-default' } },
+      },
+      onExit: vi.fn(),
+      stop: vi.fn(async () => undefined),
+      isStopping: false,
+      diagnostics: '',
+    } as unknown as GrokAcpProcess;
+    acpStartMock.mockResolvedValue(process);
+    const runtimes = new Map([[runtime.applicationSessionId, runtime]]);
+    const dispose = vi.fn(async (candidate: GrokRuntime) => {
+      candidate.closed = true;
+      candidate.disposed = true;
+      candidate.process = null;
+    });
+    const context = {
+      binaryPath: null,
+      runtimes,
+      sessionSetup: {
+        mcpHttpUrl: 'http://127.0.0.1:1234/mcp',
+        isAgentDeckMcpEnabled: () => false,
+        getAgentProfilePrompt: async () => null,
+        getPluginDirectories: async () => [],
+      },
+      permissionController: { handle: vi.fn() },
+      emit: vi.fn(),
+      emitError: vi.fn(),
+      isCurrentRuntime: (candidate: GrokRuntime) => candidate === runtime,
+      requireNativeSession: () => 'native-grok',
+      confirmPromptAccepted: vi.fn(),
+      drain: vi.fn(async () => undefined),
+      dispose,
+      requestTimeoutMs: 5,
+    } as unknown as GrokRuntimeStartContext;
+
+    await expect(startGrokRuntime(runtime, context)).rejects.toThrow(
+      '结果无法确认',
+    );
+
+    expect(runtime.nativeDefaultModel).toBe('native-default');
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(runtime.disposed).toBe(true);
   });
 });
