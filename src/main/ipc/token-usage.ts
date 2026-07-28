@@ -20,8 +20,12 @@ import type {
   TokenRateRow,
   TokenUsageQueryOptions,
 } from '@shared/types';
+import {
+  AppShutdownError,
+} from '@shared/shutdown';
 import { on } from './_helpers';
 import { ensureGrokHistoryTokenUsage } from '@main/adapters/grok-build/history-usage';
+import { hasAppShutdownBegun } from '@main/index/shutdown-state';
 
 /** 本地午夜的 epoch ms（今日起点）。用本地 tz 而非 UTC，与 SQL date(...,'localtime') 对齐。 */
 function startOfTodayLocalMs(): number {
@@ -33,24 +37,24 @@ function startOfTodayLocalMs(): number {
 export async function tokenUsageRatesHandler(
   options?: TokenUsageQueryOptions,
 ): Promise<TokenRateRow[]> {
-  if (options?.includeGrokHistory) await ensureGrokHistoryTokenUsage();
-  return tokenUsageRepo.ratesSince(Date.now() - WINDOW_MS);
+  return runTokenUsageQuery(
+    options,
+    () => tokenUsageRepo.ratesSince(Date.now() - WINDOW_MS),
+  );
 }
 
 /** 今日各 bucket output 总量降序（Top3 / 今日汇总）。 */
 export async function tokenUsageTopTodayHandler(
   options?: TokenUsageQueryOptions,
 ): Promise<TokenRateRow[]> {
-  if (options?.includeGrokHistory) await ensureGrokHistoryTokenUsage();
-  return tokenUsageRepo.today(startOfTodayLocalMs());
+  return runTokenUsageQuery(options, () => tokenUsageRepo.today(startOfTodayLocalMs()));
 }
 
 /** bucket × 本地日期的统一 token 账本聚合（数据 tab 表格）。无参 = 全量历史。 */
 export async function tokenUsageDailyHandler(
   options?: TokenUsageQueryOptions,
 ): Promise<TokenDailyRow[]> {
-  if (options?.includeGrokHistory) await ensureGrokHistoryTokenUsage();
-  return tokenUsageRepo.dailyByModel();
+  return runTokenUsageQuery(options, () => tokenUsageRepo.dailyByModel());
 }
 
 export function registerTokenUsageIpc(): void {
@@ -71,4 +75,22 @@ function parseTokenUsageQueryOptions(value: unknown): TokenUsageQueryOptions | u
     includeGrokHistory:
       (value as { includeGrokHistory?: unknown }).includeGrokHistory === true,
   };
+}
+
+async function runTokenUsageQuery<T>(
+  options: TokenUsageQueryOptions | undefined,
+  readRepository: () => T,
+): Promise<T> {
+  assertTokenUsageIngressOpen();
+  if (options?.includeGrokHistory) {
+    await ensureGrokHistoryTokenUsage();
+    // History backfill is asynchronous. Fence the prepared-statement read if before-quit crossed
+    // the boundary while the backfill was already in flight.
+    assertTokenUsageIngressOpen();
+  }
+  return readRepository();
+}
+
+function assertTokenUsageIngressOpen(): void {
+  if (hasAppShutdownBegun()) throw new AppShutdownError();
 }

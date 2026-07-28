@@ -35,6 +35,8 @@ import { getBrowserEngine } from '../browser-use/engine/registry';
 
 import type { BootstrapState } from './_deps';
 import log from '@main/utils/logger';
+import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
+import { beginAppShutdown } from './shutdown-state';
 
 const logger = log.scope('lifecycle-hooks');
 
@@ -66,9 +68,14 @@ export function registerLifecycleHooks(
     // bootstrap() 完成前触发 → handleCliArgv 调 adapterRegistry.get 拿不到 adapter → CLI new
     // 被当作 adapter 不可用处理。修法:把 bootstrap 完成 promise 抓回来,second-instance handler
     // 等 bootstrap 完成再投递 argv。
-    void bootstrappedPromise.then(() => handleCliArgv(rawArgv)).catch((err) =>
-      logger.warn('[second-instance] handleCliArgv failed', err),
-    );
+    void bootstrappedPromise.then(() => handleCliArgv(rawArgv)).catch((err) => {
+      logger.warn('second-instance CLI handling failed', safeDiagnostic({
+        event: 'app_lifecycle',
+        phase: 'second-instance-cli',
+        outcome: 'failed',
+        error: safeErrorSummary(err),
+      }));
+    });
   });
 
   app.on('window-all-closed', () => {
@@ -86,6 +93,7 @@ export function registerLifecycleHooks(
     // in-flight cleanup(adapterRegistry.shutdownAll / hookServer.stop / closeDb)被硬截断 → WAL
     // 不 checkpoint。修法:重入也 preventDefault,挡住默认退出;最终退出统一走下方 app.exit(0)
     // (app.exit 不触发 before-quit,不会卡在本 guard,electron.d.ts 实测确认)。
+    beginAppShutdown();
     if (cleaningUp) {
       event.preventDefault();
       return;
@@ -120,6 +128,27 @@ export function registerLifecycleHooks(
         setMessageLifecycleScheduler(null);
         state.tokenUsageScheduler?.stop();
         setTokenUsageLifecycleScheduler(null);
+        const messageWatcherStop = universalMessageWatcher.stop()
+          .then((result) => {
+            if (!result.drained) {
+              logger.warn(
+                'message watcher drain did not complete during cleanup',
+                lifecycleDiagnostic('message-watcher', 'degraded', undefined, {
+                  activeDeliveries: result.activeDeliveries,
+                  durableDelivering: result.durableDelivering,
+                  timedOut: result.timedOut,
+                }),
+              );
+            }
+            return result.drained;
+          })
+          .catch((err) => {
+            logger.warn(
+              'message watcher stop failed during cleanup',
+              lifecycleDiagnostic('message-watcher', 'failed', err),
+            );
+            return false;
+          });
         const storageMaintenanceScheduler = state.storageMaintenanceScheduler;
         state.storageMaintenanceScheduler = null;
         // Begin the staged-worker drain immediately, but keep it inside the existing bounded quit
@@ -129,25 +158,30 @@ export function registerLifecycleHooks(
         const storageMaintenanceStop = storageMaintenanceScheduler?.stop()
           .then(() => true)
           .catch((err) => {
-            logger.warn('[storage-maintenance] staged worker stop failed during cleanup', err);
+            logger.warn(
+              'staged storage worker stop failed during cleanup',
+              lifecycleDiagnostic('storage-worker-stop', 'failed', err),
+            );
             return false;
           }) ?? Promise.resolve(true);
         const checkpointRefreshStop = stopContinuationCheckpointRefreshService()
           .then(() => true)
           .catch((err) => {
-            logger.warn('[checkpoint-refresh] stop failed during cleanup', err);
+            logger.warn(
+              'checkpoint refresh stop failed during cleanup',
+              lifecycleDiagnostic('checkpoint-refresh-stop', 'failed', err),
+            );
             return false;
           });
         summarizer.stop();
         stopAllSounds();
-        // R3.E5:universal-message-watcher shutdown
-        universalMessageWatcher.stop();
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底,防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程(codex CLI
         // 卡死等场景)。10s 超时降级 process.exit(1) 强退。
         const cleanupSteps = (async (): Promise<'ok' | 'degraded'> => {
           let allIngressStopped = true;
           if (!await checkpointRefreshStop) allIngressStopped = false;
+          if (!await messageWatcherStop) allIngressStopped = false;
           // Background checkpoint folds and foreground hand-off preparations share the
           // connection-local continuation spool. Do not clear it until the refresh queue has
           // fully drained; otherwise shutdown can delete a frozen source underneath a running
@@ -161,7 +195,10 @@ export function registerLifecycleHooks(
               await state.browserUseServerShutdown();
             } catch (err) {
               allIngressStopped = false;
-              logger.warn('[browser-use] native-pipe shutdown failed during cleanup', err);
+              logger.warn(
+                'browser native-pipe shutdown failed during cleanup',
+                lifecycleDiagnostic('browser-native-pipe-stop', 'failed', err),
+              );
             }
             state.browserUseServerShutdown = null;
           }
@@ -171,14 +208,20 @@ export function registerLifecycleHooks(
             await getBrowserEngine().disposeAll();
           } catch (err) {
             allIngressStopped = false;
-            logger.warn('[browser-engine] disposeAll failed during cleanup', err);
+            logger.warn(
+              'browser engine disposal failed during cleanup',
+              lifecycleDiagnostic('browser-engine-dispose', 'failed', err),
+            );
           }
           if (state.agentDeckMcpHttpShutdown) {
             try {
               await state.agentDeckMcpHttpShutdown();
             } catch (err) {
               allIngressStopped = false;
-              logger.warn('[agent-deck-mcp] HTTP shutdown failed during cleanup', err);
+              logger.warn(
+                'Agent Deck MCP HTTP shutdown failed during cleanup',
+                lifecycleDiagnostic('agent-deck-mcp-stop', 'failed', err),
+              );
             }
             state.agentDeckMcpHttpShutdown = null;
           }
@@ -186,7 +229,10 @@ export function registerLifecycleHooks(
             await state.hookServer?.stop();
           } catch (err) {
             allIngressStopped = false;
-            logger.warn('[hook-server] shutdown failed during cleanup', err);
+            logger.warn(
+              'hook server shutdown failed during cleanup',
+              lifecycleDiagnostic('hook-server-stop', 'failed', err),
+            );
           }
           if (!await storageMaintenanceStop) allIngressStopped = false;
           return allIngressStopped ? 'ok' : 'degraded';
@@ -198,7 +244,10 @@ export function registerLifecycleHooks(
         // 保证控制流必到下方,closeDb(finally)必跑。reject 不再静默绕过 closeDb + timeout 保护。
         const result = await Promise.race([
           cleanupSteps.catch((err) => {
-            logger.warn('[before-quit] cleanup steps error', err);
+            logger.warn(
+              'cleanup steps failed',
+              lifecycleDiagnostic('cleanup-steps', 'failed', err),
+            );
             return 'err' as const;
           }),
           cleanupTimeout,
@@ -206,7 +255,10 @@ export function registerLifecycleHooks(
         timedOut = result === '__timeout__';
         ingressDrained = result === 'ok';
       } catch (err) {
-        logger.warn('[before-quit] cleanup error', err);
+        logger.warn(
+          'before-quit cleanup failed',
+          lifecycleDiagnostic('before-quit-cleanup', 'failed', err),
+        );
       } finally {
         // Cold copy gates measured 0.84s snapshot-index creation and 5.8-6.0s legacy FTS DROP.
         // Run both on an isolated SQLite worker only after every ingress owner drained. The main
@@ -219,7 +271,10 @@ export function registerLifecycleHooks(
               logStorageShutdownResults(results);
             }
           } catch (err) {
-            logger.warn('[storage-maintenance] shutdown worker failed; tasks remain retryable', err);
+            logger.warn(
+              'shutdown storage maintenance failed; tasks remain retryable',
+              lifecycleDiagnostic('storage-shutdown-maintenance', 'failed', err),
+            );
           }
         }
         // closeDb 在 finally 中**无条件**跑（sync 操作 + WAL checkpoint 关键），所有可选存储
@@ -227,10 +282,16 @@ export function registerLifecycleHooks(
         try {
           closeDb();
         } catch (err) {
-          logger.warn('[before-quit] closeDb error', err);
+          logger.warn(
+            'database close failed during cleanup',
+            lifecycleDiagnostic('database-close', 'failed', err),
+          );
         }
         if (timedOut) {
-          logger.warn('[before-quit] cleanup timeout (10s), forcing exit (closeDb 已跑保证 WAL checkpoint)');
+          logger.warn(
+            'cleanup timed out; forcing exit after database checkpoint',
+            lifecycleDiagnostic('cleanup-race', 'timeout', undefined, { timeoutMs: 10_000 }),
+          );
           process.exit(1);
         }
         app.exit(0);
@@ -244,28 +305,53 @@ function logStorageShutdownResults(
 ): void {
   if (results.snapshotIndexes.ok) {
     if (results.snapshotIndexes.result.prepared) {
-      logger.info('[storage-maintenance] snapshot GC indexes prepared on shutdown worker', {
+      logger.info('snapshot GC indexes prepared on shutdown worker', safeDiagnostic({
+        event: 'app_shutdown',
+        phase: 'snapshot-indexes',
+        outcome: 'prepared',
         durationMs: Math.round(results.snapshotIndexes.result.durationMs),
-      });
+      }));
     }
   } else {
-    logger.warn(
-      `[storage-maintenance] snapshot GC index preparation deferred: ` +
-        results.snapshotIndexes.error,
-    );
+    logger.warn('snapshot GC index preparation deferred', safeDiagnostic({
+      event: 'app_shutdown',
+      phase: 'snapshot-indexes',
+      outcome: 'deferred',
+      reason: results.snapshotIndexes.error,
+    }));
   }
 
   if (results.eventSearchRetirement.ok) {
     if (results.eventSearchRetirement.result.retired) {
-      logger.info('[storage-maintenance] legacy event search index retired on shutdown worker', {
+      logger.info('legacy event search index retired on shutdown worker', safeDiagnostic({
+        event: 'app_shutdown',
+        phase: 'event-search-retirement',
+        outcome: 'retired',
         durationMs: Math.round(results.eventSearchRetirement.result.durationMs),
         freedPages: results.eventSearchRetirement.result.freedPages,
-      });
+      }));
     }
   } else {
-    logger.warn(
-      `[storage-maintenance] legacy event search retirement deferred: ` +
-        results.eventSearchRetirement.error,
-    );
+    logger.warn('legacy event search retirement deferred', safeDiagnostic({
+      event: 'app_shutdown',
+      phase: 'event-search-retirement',
+      outcome: 'deferred',
+      reason: results.eventSearchRetirement.error,
+    }));
   }
+}
+
+function lifecycleDiagnostic(
+  phase: string,
+  outcome: string,
+  error?: unknown,
+  details: Record<string, string | number | boolean> = {},
+): ReturnType<typeof safeDiagnostic> {
+  return safeDiagnostic({
+    event: 'app_shutdown',
+    phase,
+    outcome,
+    ...details,
+    ...(error === undefined ? {} : { error: safeErrorSummary(error) }),
+  });
 }

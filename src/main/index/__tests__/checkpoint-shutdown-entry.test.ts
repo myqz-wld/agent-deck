@@ -6,6 +6,10 @@ const mocks = vi.hoisted(() => {
   const calls: string[] = [];
   const handlers = new Map<string, AppHandler>();
   const checkpointState: { resolve: (() => void) | null } = { resolve: null };
+  const watcherState: {
+    mode: 'resolve' | 'reject' | 'drain-timeout' | 'pending';
+    resolve: (() => void) | null;
+  } = { mode: 'resolve', resolve: null };
   const checkpointStop = vi.fn(() => {
     calls.push('checkpoint.stop.begin');
     return new Promise<void>((resolve) => {
@@ -15,7 +19,47 @@ const mocks = vi.hoisted(() => {
       };
     });
   });
-  return { calls, handlers, checkpointState, checkpointStop };
+  const watcherStop = vi.fn(() => {
+    calls.push('watcher.stop.begin');
+    if (watcherState.mode === 'reject') {
+      return Promise.reject(new Error('watcher drain failed'));
+    }
+    if (watcherState.mode === 'drain-timeout') {
+      return Promise.resolve({
+        drained: false,
+        timedOut: true,
+        activeDeliveries: 1,
+        durableDelivering: 1,
+      });
+    }
+    if (watcherState.mode === 'pending') {
+      return new Promise((resolve) => {
+        watcherState.resolve = () => {
+          calls.push('watcher.stop.end');
+          resolve({
+            drained: true,
+            timedOut: false,
+            activeDeliveries: 0,
+            durableDelivering: 0,
+          });
+        };
+      });
+    }
+    return Promise.resolve({
+      drained: true,
+      timedOut: false,
+      activeDeliveries: 0,
+      durableDelivering: 0,
+    });
+  });
+  return {
+    calls,
+    handlers,
+    checkpointState,
+    checkpointStop,
+    watcherState,
+    watcherStop,
+  };
 });
 
 vi.mock('electron', () => ({
@@ -40,7 +84,12 @@ vi.mock('../../store/storage-maintenance/shutdown-runner', () => ({
   runStorageShutdownMaintenance: vi.fn(),
 }));
 vi.mock('../../adapters/registry', () => ({
-  adapterRegistry: { shutdownAll: vi.fn(async () => []) },
+  adapterRegistry: {
+    shutdownAll: vi.fn(async () => {
+      mocks.calls.push('adapters.shutdown');
+      return [];
+    }),
+  },
 }));
 vi.mock('../../session/lifecycle-scheduler', () => ({ setLifecycleScheduler: vi.fn() }));
 vi.mock('../../teams/team-lifecycle-scheduler', () => ({ setTeamLifecycleScheduler: vi.fn() }));
@@ -53,7 +102,10 @@ vi.mock('../../session/continuation-context/checkpoint-refresh-service', () => (
 }));
 vi.mock('../../notify/sound', () => ({ stopAllSounds: vi.fn() }));
 vi.mock('../../teams/universal-message-watcher', () => ({
-  universalMessageWatcher: { stop: vi.fn() },
+  universalMessageWatcher: { stop: mocks.watcherStop },
+}));
+vi.mock('../../browser-use/engine/registry', () => ({
+  getBrowserEngine: vi.fn(() => ({ disposeAll: vi.fn(async () => undefined) })),
 }));
 vi.mock('../../cli', () => ({ handleCliArgv: vi.fn() }));
 vi.mock('../../ipc/session-hand-off', () => ({
@@ -68,9 +120,13 @@ vi.mock('@main/utils/logger', () => ({
 
 import { app } from 'electron';
 import { cleanupSessionHandOffPreparations } from '../../ipc/session-hand-off';
-import { closeDb } from '../../store/db';
+import { closeDb, getDb } from '../../store/db';
 import { createInitialBootstrapState } from '../_deps';
 import { registerLifecycleHooks } from '../lifecycle-hooks';
+import {
+  hasAppShutdownBegun,
+  resetAppShutdownForTests,
+} from '../shutdown-state';
 
 async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();
@@ -84,6 +140,9 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.calls.length = 0;
     mocks.handlers.clear();
     mocks.checkpointState.resolve = null;
+    mocks.watcherState.mode = 'resolve';
+    mocks.watcherState.resolve = null;
+    resetAppShutdownForTests();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code) => {
       mocks.calls.push(`process.exit.${code ?? ''}`);
@@ -102,6 +161,7 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.handlers.get('before-quit')?.({ preventDefault });
 
     expect(preventDefault).toHaveBeenCalledOnce();
+    expect(hasAppShutdownBegun()).toBe(true);
     expect(mocks.checkpointStop).toHaveBeenCalledOnce();
     expect(cleanupSessionHandOffPreparations).not.toHaveBeenCalled();
     expect(closeDb).not.toHaveBeenCalled();
@@ -112,10 +172,13 @@ describe('checkpoint refresh shutdown entry', () => {
 
     expect(cleanupSessionHandOffPreparations).toHaveBeenCalledOnce();
     expect(closeDb).toHaveBeenCalledOnce();
+    expect(getDb).toHaveBeenCalledOnce();
     expect(mocks.calls).toEqual([
+      'watcher.stop.begin',
       'checkpoint.stop.begin',
       'checkpoint.stop.end',
       'handoff-spool.cleanup',
+      'adapters.shutdown',
       'db.close',
       'app.exit',
     ]);
@@ -156,5 +219,61 @@ describe('checkpoint refresh shutdown entry', () => {
       mocks.calls.indexOf('db.close'),
     );
     expect(state.browserUseServerShutdown).toBeNull();
+  });
+
+  it('awaits the watcher drain before adapter shutdown and closeDb', async () => {
+    mocks.watcherState.mode = 'pending';
+    mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+    mocks.checkpointState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mocks.watcherStop).toHaveBeenCalledOnce();
+    expect(mocks.calls).not.toContain('adapters.shutdown');
+    expect(closeDb).not.toHaveBeenCalled();
+
+    mocks.watcherState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mocks.calls.indexOf('watcher.stop.end')).toBeLessThan(
+      mocks.calls.indexOf('adapters.shutdown'),
+    );
+    expect(mocks.calls.indexOf('adapters.shutdown')).toBeLessThan(
+      mocks.calls.indexOf('db.close'),
+    );
+  });
+
+  it.each(['reject', 'drain-timeout'] as const)(
+    'marks watcher %s as degraded and still closes SQLite',
+    async (mode) => {
+      mocks.watcherState.mode = mode;
+      vi.mocked(getDb).mockClear();
+
+      mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+      mocks.checkpointState.resolve?.();
+      await vi.advanceTimersByTimeAsync(0);
+      await flushMicrotasks();
+
+      expect(getDb).not.toHaveBeenCalled();
+      expect(closeDb).toHaveBeenCalledOnce();
+      expect(app.exit).toHaveBeenCalledWith(0);
+    },
+  );
+
+  it('keeps a pending watcher drain inside the existing 10s cleanup bound', async () => {
+    mocks.watcherState.mode = 'pending';
+    mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+    mocks.checkpointState.resolve?.();
+    await vi.advanceTimersByTimeAsync(9_999);
+    await flushMicrotasks();
+
+    expect(closeDb).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks();
+
+    expect(closeDb).toHaveBeenCalledOnce();
+    expect(mocks.calls).toContain('process.exit.1');
   });
 });
