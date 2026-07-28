@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { TaskRecord } from '@shared/types';
+import log from '@renderer/utils/logger';
 import { relativeTime } from '../TeamDetail/helpers';
+import { TaskDetailViewer } from '../TeamDetail/viewers/TaskDetailViewer';
+import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
 
 interface Props {
   sessionId: string;
@@ -9,6 +12,7 @@ interface Props {
 type TaskTab = 'unfinished' | 'completed';
 
 const EMPTY: TaskRecord[] = [];
+const logger = log.scope('renderer-session-tasks');
 const STATUS_ORDER: TaskRecord['status'][] = [
   'active',
   'pending',
@@ -27,6 +31,10 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let req = 0;
+    let cachedCount = 0;
+    setTasks(EMPTY);
+    setLoaded(false);
+    setError(null);
 
     const sync = (): void => {
       const cur = ++req;
@@ -34,14 +42,27 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
         .listSessionTasks(sessionId)
         .then((res) => {
           if (disposed || cur !== req) return;
+          cachedCount = res.tasks.length;
           setTasks(res.tasks);
           setLoaded(true);
           setError(null);
         })
         .catch((err: unknown) => {
-          if (disposed) return;
-          const message = err instanceof Error ? err.message : String(err);
-          setError(`加载任务失败：${message}`);
+          if (disposed || cur !== req) return;
+          logger.warn('session tasks load failed', {
+            action: cachedCount > 0 ? 'refresh-session-tasks' : 'list-session-tasks',
+            agentId: null,
+            sessionId,
+            teamId: null,
+            source: 'session-detail-tasks',
+            count: cachedCount,
+            ...safeErrorData(err),
+          });
+          setError(
+            cachedCount > 0
+              ? '刷新失败，当前显示上次结果。'
+              : '读取任务失败，请稍后重试。',
+          );
           setLoaded(true);
         });
     };
@@ -85,7 +106,7 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
     <div className="flex flex-col gap-3">
       {error && (
         <div className="text-[10px] text-status-waiting/80">
-          刷新任务失败（显示的是上次结果）：{error}
+          {error}
         </div>
       )}
       <div
@@ -173,12 +194,13 @@ function TaskRow({ task, muted }: { task: TaskRecord; muted: boolean }): JSX.Ele
   const status = statusMeta(task.status);
   return (
     <li
-      className={`rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1.5 text-[11px] ${
+      className={`relative rounded border border-deck-border/40 bg-white/[0.02] py-1.5 pl-2 pr-12 text-[11px] ${
         muted ? 'opacity-75' : ''
       }`}
       title={task.description ?? task.subject}
     >
-      <div className="flex items-start justify-between gap-2">
+      <TaskDetailViewer task={task} sessionId={task.ownerSessionId} />
+      <div className="flex min-h-11 items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`} />
@@ -198,8 +220,8 @@ function TaskRow({ task, muted }: { task: TaskRecord; muted: boolean }): JSX.Ele
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] text-deck-muted/65">
         <span>{task.teamId ? '团队任务' : '个人任务'}</span>
         {task.priority !== 5 && <span className="tabular-nums">P{task.priority}</span>}
-        {task.labels.slice(0, 3).map((label) => (
-          <span key={label} className="rounded bg-white/[0.05] px-1 py-px">
+        {task.labels.slice(0, 3).map((label, index) => (
+          <span key={`${label}-${index}`} className="rounded bg-white/[0.05] px-1 py-px">
             {label}
           </span>
         ))}
