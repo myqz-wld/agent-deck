@@ -13,32 +13,25 @@
  * R3.E10：新增 `--team <name>` + `--member <slug:adapter>` repeatable，
  * 用于跨 adapter team 一键创建 lead + N teammate（详 docs/agent-deck-team-protocol.md §10.2 / §10.3）。
  */
-import { app, dialog } from 'electron';
-import { realpath } from 'node:fs/promises';
+import { dialog } from 'electron';
 import { homedir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
-import { adapterRegistry } from './adapters/registry';
-import {
-  buildCreateSessionOptions,
-  isAgentId,
-} from './adapters/options-builder';
+import { isAgentId } from './adapters/options-builder';
 import {
   firstUnsupportedTargetRuntimeField,
   unsupportedTargetRuntimeFieldMessage,
 } from './adapters/runtime-control-contracts';
-import {
-  resolveCreateSessionModelOptions,
-  SessionModelOptionsError,
-} from './adapters/session-model-options';
-import { eventBus } from './event-bus';
-import { getFloatingWindow } from './window';
-import { sessionManager } from './session/manager';
-import { agentDeckTeamRepo, TeamInvariantError } from './store/agent-deck-team-repo';
-import type { SelectablePermissionMode } from '@shared/types';
+import type {
+  CodexApprovalPolicy,
+  SelectablePermissionMode,
+} from '@shared/types';
 import { unwrapCliArgvPayload } from './cli-argv-payload';
 import log from '@main/utils/logger';
-import { PERMISSION_MODES } from '@shared/types';
+import {
+  CODEX_APPROVAL_POLICIES,
+  PERMISSION_MODES,
+} from '@shared/types';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
+import { applyCliInvocation } from './cli-session-creation';
 
 const logger = log.scope('main-cli');
 
@@ -55,10 +48,11 @@ export interface CliNewSession {
   cwd: string;
   prompt: string;
   permissionMode?: SelectablePermissionMode;
+  approvalPolicy?: CodexApprovalPolicy;
   resume?: string;
   /** Free-form provider model id for the lead session only. */
   model?: string;
-  /** Claude Gateway profile id or Codex native model_provider for the lead session. */
+  /** Claude Code Gateway profile id or Codex CLI native model_provider for the lead session. */
   provider?: string;
   /** Adapter-aware reasoning level for the lead session only. */
   thinking?: string;
@@ -119,6 +113,7 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'adapter',
   'prompt',
   'permission-mode',
+  'approval-policy',
   'resume',
   'codex-sandbox',
   'grok-sandbox',
@@ -219,8 +214,25 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       }
       permissionMode = pmRaw as SelectablePermissionMode;
     }
+    if (agent === 'claude-code' && permissionMode === undefined) {
+      permissionMode = 'bypassPermissions';
+    }
 
-    // Parse the global enum first; adapter ownership is checked below with permissionMode.
+    const approvalRaw = asString(f.get('approval-policy'));
+    let approvalPolicy: CodexApprovalPolicy | undefined;
+    if (approvalRaw !== undefined) {
+      if (!CODEX_APPROVAL_POLICIES.includes(approvalRaw as CodexApprovalPolicy)) {
+        throw new Error(
+          `agent-deck new: --approval-policy 取值无效（应为 ${CODEX_APPROVAL_POLICIES.join(' | ')}）`,
+        );
+      }
+      approvalPolicy = approvalRaw as CodexApprovalPolicy;
+    }
+    if (agent === 'codex-cli' && approvalPolicy === undefined) {
+      approvalPolicy = 'on-request';
+    }
+
+    // Parse global enums first; adapter ownership is checked below.
     const csRaw = asString(f.get('codex-sandbox'));
     let codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access' | undefined;
     if (csRaw !== undefined) {
@@ -247,6 +259,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     if (isAgentId(agent)) {
       const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(agent, {
         ...(permissionMode !== undefined ? { permissionMode } : {}),
+        ...(approvalPolicy !== undefined ? { approvalPolicy } : {}),
         ...(codexSandbox !== undefined ? { codexSandbox } : {}),
         ...(grokSandbox !== undefined ? { grokSandbox } : {}),
       });
@@ -254,11 +267,13 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
         const flag =
           unsupportedRuntimeField === 'permissionMode'
             ? 'permission-mode'
-            : unsupportedRuntimeField === 'codexSandbox'
-              ? 'codex-sandbox'
-              : unsupportedRuntimeField === 'grokSandbox'
-                ? 'grok-sandbox'
-                : unsupportedRuntimeField;
+            : unsupportedRuntimeField === 'approvalPolicy'
+              ? 'approval-policy'
+              : unsupportedRuntimeField === 'codexSandbox'
+                ? 'codex-sandbox'
+                : unsupportedRuntimeField === 'grokSandbox'
+                  ? 'grok-sandbox'
+                  : unsupportedRuntimeField;
         throw new Error(
           `agent-deck new: --${flag} 与 adapter "${agent}" 不兼容（${unsupportedTargetRuntimeFieldMessage(agent, unsupportedRuntimeField)}）`,
         );
@@ -295,6 +310,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       cwd,
       prompt,
       permissionMode,
+      approvalPolicy,
       resume,
       ...(model !== undefined ? { model } : {}),
       ...(provider !== undefined ? { provider } : {}),
@@ -310,146 +326,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
   return { kind: 'noop' };
 }
 
-async function resolveCwd(input: string): Promise<string> {
-  // 相对路径按主进程 process.cwd() 解析 —— 不可靠（second-instance 的主实例
-  // cwd 不是用户 shell 的 PWD），所以 wrapper 脚本应该把 --cwd 在 shell 端
-  // 转成绝对路径再传进来。这里只是兜底。
-  const abs = isAbsolute(input) ? input : resolve(process.cwd(), input);
-  try {
-    return await realpath(abs);
-  } catch {
-    // realpath 失败（路径不存在）就原样返回，让 SDK 抛出更明确的 ENOENT
-    return abs;
-  }
-}
-
-export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
-  if (inv.kind !== 'new-session') return;
-  const adapter = adapterRegistry.get(inv.agent);
-  if (!adapter?.createSession) {
-    throw new Error(`agent-deck new: adapter "${inv.agent}" 不支持创建会话`);
-  }
-  const cwd = await resolveCwd(inv.cwd);
-  if (!isAgentId(inv.agent)) {
-    throw new Error(`agent-deck new: adapter "${inv.agent}" 不受支持`);
-  }
-  let sessionModelOptions;
-  try {
-    sessionModelOptions = resolveCreateSessionModelOptions(inv.agent, {
-      provider: inv.provider,
-      model: inv.model,
-      thinking: inv.thinking,
-    });
-  } catch (error) {
-    if (error instanceof SessionModelOptionsError) {
-      throw new Error(`agent-deck new: --${error.field} ${error.message}`);
-    }
-    throw error;
-  }
-  // p4-d2-impl Step 2.1：用 buildCreateSessionOptions builder helper 按 inv.agent narrow
-  // 到对应 union arm。inv.agent 是 string（CliInvocation.agent: string）走 string overload
-  // 内部 isAgentId guard，invalid throw（caller 已 line 263-266 验过 adapter 存在 +
-  // capabilities.canCreateSession，到此 inv.agent 应都是合法 union 成员）。
-  const sid = await adapter.createSession(
-    buildCreateSessionOptions(inv.agent, {
-      cwd,
-      prompt: inv.prompt,
-      permissionMode: inv.permissionMode,
-      resume: inv.resume,
-      ...sessionModelOptions,
-      ...(inv.codexSandbox !== undefined ? { codexSandbox: inv.codexSandbox } : {}),
-      ...(inv.grokSandbox !== undefined ? { grokSandbox: inv.grokSandbox } : {}),
-    }),
-  );
-  if (adapter.capabilities.canSetPermissionMode) {
-    sessionManager.recordCreatedPermissionMode(sid, inv.permissionMode);
-  }
-
-  // R3.E10 universal team backend：--team 把 lead 加入指定 team；--member 再 spawn N teammate
-  if (inv.team) {
-    try {
-      const team = agentDeckTeamRepo.ensureByName(inv.team, { source: 'cli' });
-      // lead 自动加入（已 active 时 invariant，幂等吞掉）
-      try {
-        agentDeckTeamRepo.addMember({
-          teamId: team.id,
-          sessionId: sid,
-          role: 'lead',
-          displayName: null,
-        });
-        // REVIEW_35 MED-A7：emit `agent-deck-team-member-changed` 让 universal-message-watcher
-        // dispatcher 收到 → fan-out member-joined adapter event 给同 team active member。
-        // 修前 cli/spawn/ipc.adapters 只调 sessionManager.notifyTeamMembershipChanged 触发
-        // session-upserted（renderer UI chip 刷新），但**不**emit member-changed → dispatcher
-        // 永远收不到 member-joined，adapter notifyTeammateEvent 永远不被通知。
-        eventBus.emit('agent-deck-team-member-changed', {
-          teamId: team.id,
-          sessionId: sid,
-          kind: 'joined',
-        });
-      } catch (e) {
-        if (!(e instanceof TeamInvariantError)) throw e;
-      }
-      // teammate spawn —— 并发以加快总耗时
-      await Promise.all(
-        inv.members.map(async (m) => {
-          const memberAdapter = adapterRegistry.get(m.adapter);
-          if (!memberAdapter?.createSession) {
-            logger.warn(
-              `[cli] team member adapter "${m.adapter}" cannot create session; skip ${m.slug}`,
-            );
-            return;
-          }
-          try {
-            // p4-d2-impl Step 2.1：team member spawn 也走 buildCreateSessionOptions narrow。
-            // m.adapter 是 string（CliMemberSpec.adapter: string）走 string overload。
-            const memberSid = await memberAdapter.createSession(
-              buildCreateSessionOptions(m.adapter, {
-                cwd,
-                prompt: `你被 lead 加入了 team "${inv.team}"，等待 lead 通过 mcp__agent-deck__send_message 给你发消息。`,
-                ...(inv.codexSandbox !== undefined && m.adapter === 'codex-cli'
-                  ? { codexSandbox: inv.codexSandbox }
-                  : {}),
-                ...(inv.grokSandbox !== undefined && m.adapter === 'grok-build'
-                  ? { grokSandbox: inv.grokSandbox }
-                  : {}),
-              }),
-            );
-            agentDeckTeamRepo.addMember({
-              teamId: team.id,
-              sessionId: memberSid,
-              role: 'teammate',
-              displayName: m.slug,
-            });
-            // REVIEW_35 MED-A7：同 lead 路径，补 emit 让 dispatcher 看到 teammate 加入。
-            eventBus.emit('agent-deck-team-member-changed', {
-              teamId: team.id,
-              sessionId: memberSid,
-              kind: 'joined',
-            });
-          } catch (e) {
-            logger.warn(
-              `[cli] failed to spawn team member ${m.slug}:${m.adapter}:`,
-              e instanceof Error ? e.message : String(e),
-            );
-          }
-        }),
-      );
-    } catch (e) {
-      logger.warn(`[cli] team setup failed for "${inv.team}":`, e);
-    }
-  }
-
-  if (inv.focus) {
-    const win = getFloatingWindow().window;
-    win?.show();
-    win?.focus();
-    if (process.platform === 'darwin') {
-      app.focus({ steal: true });
-    }
-    eventBus.emit('session-focus-request', sid);
-  }
-}
+export { applyCliInvocation };
 
 /** 包一层 try/catch + 报错弹框，给 second-instance / 首启两个入口共用。 */
 export async function handleCliArgv(argv: readonly string[]): Promise<void> {

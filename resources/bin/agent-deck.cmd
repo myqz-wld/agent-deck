@@ -42,7 +42,7 @@ if /I "%~1"=="check-installed" goto check_installed
 REM 2. 简化形式判断 + spawn
 REM    无参数：补 'new --cwd "%CD%"'
 REM    首参 --xxx：补 'new --cwd "%CD%"' 在前
-REM    首参 'new'：透传（main/cli.ts 内会兜底 cwd ?? homedir）
+REM    首参 'new'：透传（TypeScript CLI 负责 adapter 默认与显式覆盖）
 REM    其他：透传
 if "%~1"=="" (
   start "" "%APP_EXE%" new --cwd "%CD%"
