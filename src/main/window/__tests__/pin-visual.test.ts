@@ -13,16 +13,19 @@ const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
 function makeWindow(): {
   win: BrowserWindow;
   invalidate: ReturnType<typeof vi.fn>;
+  invalidateShadow: ReturnType<typeof vi.fn>;
   setAlwaysOnTop: ReturnType<typeof vi.fn>;
   setContentSize: ReturnType<typeof vi.fn>;
   setVibrancy: ReturnType<typeof vi.fn>;
 } {
   const invalidate = vi.fn();
+  const invalidateShadow = vi.fn();
   const setAlwaysOnTop = vi.fn();
   const setContentSize = vi.fn();
   const setVibrancy = vi.fn();
   const win = {
     isDestroyed: vi.fn(() => false),
+    invalidateShadow,
     setAlwaysOnTop,
     setVibrancy,
     getContentSize: vi.fn(() => [520, 680]),
@@ -32,7 +35,7 @@ function makeWindow(): {
       invalidate,
     },
   } as unknown as BrowserWindow;
-  return { win, invalidate, setAlwaysOnTop, setContentSize, setVibrancy };
+  return { win, invalidate, invalidateShadow, setAlwaysOnTop, setContentSize, setVibrancy };
 }
 
 function makeState(
@@ -74,7 +77,7 @@ afterEach(() => {
 
 describe('window compositor invalidation', () => {
   it('keeps repainting after pin is disabled while transparent mode remains enabled', async () => {
-    const { win, invalidate, setContentSize } = makeWindow();
+    const { win, invalidate, invalidateShadow, setContentSize } = makeWindow();
     const state = makeState(win, { alwaysOnTop: true, windowTransparent: true });
 
     setAlwaysOnTopImpl(state, false);
@@ -85,17 +88,19 @@ describe('window compositor invalidation', () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(setContentSize).toHaveBeenLastCalledWith(520, 680);
     expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidateShadow).toHaveBeenCalledTimes(3);
     stopInvalidateLoop(state);
   });
 
   it('starts repainting and forces a full compositor refresh when transparency is enabled unpinned', () => {
-    const { win, setContentSize, setVibrancy } = makeWindow();
+    const { win, invalidateShadow, setContentSize, setVibrancy } = makeWindow();
     const state = makeState(win, { alwaysOnTop: false, windowTransparent: false });
 
     setWindowTransparentImpl(state, true);
 
     expect(setVibrancy).toHaveBeenCalledWith(null);
     expect(setContentSize).toHaveBeenCalledWith(520, 681);
+    expect(invalidateShadow).toHaveBeenCalledTimes(1);
     expect(state.invalidateTimer).not.toBeNull();
     stopInvalidateLoop(state);
   });
@@ -118,12 +123,14 @@ describe('window compositor invalidation', () => {
   });
 
   it('keeps the repaint loop active for an opaque pinned window', () => {
-    const { win } = makeWindow();
+    const { win, invalidateShadow } = makeWindow();
     const state = makeState(win, { alwaysOnTop: true, windowTransparent: true });
 
     setWindowTransparentImpl(state, false);
 
     expect(state.invalidateTimer).not.toBeNull();
+    vi.advanceTimersByTime(100);
+    expect(invalidateShadow).toHaveBeenCalledTimes(2);
     stopInvalidateLoop(state);
   });
 });
