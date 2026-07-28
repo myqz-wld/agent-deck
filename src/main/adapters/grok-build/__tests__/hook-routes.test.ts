@@ -2,6 +2,10 @@ import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import { GROK_HOOK_EVENTS } from '../hook-installer';
 import { buildGrokHookRoutes } from '../hook-routes';
+import {
+  HOOK_PROCESSING_FAILED_RESPONSE,
+  INVALID_HOOK_BODY_RESPONSE,
+} from '@main/hook-server/route-diagnostics';
 
 function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn> } {
   const send = vi.fn();
@@ -9,7 +13,7 @@ function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof 
   return { code, send };
 }
 
-describe('Grok hook routes', () => {
+describe('Grok Build hook routes', () => {
   it('keeps every installed event routable', () => {
     const urls = buildGrokHookRoutes(() => undefined).map((route) => route.url);
     expect(urls).toEqual(
@@ -17,7 +21,7 @@ describe('Grok hook routes', () => {
     );
   });
 
-  it('accepts camelCase Grok payloads and tags external process identity', async () => {
+  it('accepts camelCase Grok Build payloads and tags external process identity', async () => {
     const events: AgentEvent[] = [];
     const route = buildGrokHookRoutes((event) => events.push(event)).find(
       (candidate) => candidate.url === '/hook/grok/sessionstart',
@@ -66,7 +70,7 @@ describe('Grok hook routes', () => {
     expect(events[0]).toMatchObject({ source: 'hook', hookOrigin: 'sdk' });
   });
 
-  it('removes the Grok harness envelope before emitting a visible user message', async () => {
+  it('removes the Grok Build harness envelope before emitting a visible user message', async () => {
     const events: AgentEvent[] = [];
     const route = buildGrokHookRoutes((event) => events.push(event)).find(
       (candidate) => candidate.url === '/hook/grok/userpromptsubmit',
@@ -108,9 +112,28 @@ describe('Grok hook routes', () => {
 
     expect(events).toHaveLength(0);
     expect(reply.code).toHaveBeenCalledWith(400);
-    expect(reply.send).toHaveBeenCalledWith({
-      ok: false,
-      error: 'missing sessionId',
-    });
+    expect(reply.send).toHaveBeenCalledWith(INVALID_HOOK_BODY_RESPONSE);
+  });
+
+  it('returns a stable non-sensitive body when the event sink throws', async () => {
+    const route = buildGrokHookRoutes(() => {
+      throw new Error('private Grok Build sink detail');
+    })[0];
+    const reply = replyStub();
+
+    await (route.handler as (request: unknown, reply: unknown) => Promise<void>)(
+      {
+        body: {
+          sessionId: 'grok-session',
+          cwd: '/private/project',
+          hookEventName: 'SessionStart',
+        },
+        headers: {},
+      },
+      reply,
+    );
+
+    expect(reply.code).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith(HOOK_PROCESSING_FAILED_RESPONSE);
   });
 });

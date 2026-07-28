@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
 import log from '@main/utils/logger';
+import { buildHookCurlCommand } from '@main/hook-server/curl-command';
 
 const logger = log.scope('codex-hook-installer');
 
@@ -53,7 +54,12 @@ function routeName(event: CodexHookEvent): string {
 }
 
 function buildCommand(port: number, token: string, event: CodexHookEvent): string {
-  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/codex/${routeName(event)} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" -H "X-Agent-Deck-Parent-Pid: \${PPID:-}" --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
+  return buildHookCurlCommand({
+    port,
+    token,
+    route: `/hook/codex/${routeName(event)}`,
+    tag: HOOK_TAG,
+  });
 }
 
 function readHooksJson(path: string): CodexHooksJson {
@@ -63,7 +69,7 @@ function readHooksJson(path: string): CodexHooksJson {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `${path} parse failed (${detail}). Aborted to avoid overwriting existing Codex hook config.`,
+      `${path} parse failed (${detail}). Aborted to avoid overwriting existing Codex CLI hook config.`,
     );
   }
 }

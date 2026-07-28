@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
 import log from '@main/utils/logger';
+import { buildHookCurlCommand } from '@main/hook-server/curl-command';
 
 const logger = log.scope('grok-hook-installer');
 const HOOK_TAG = 'agent-deck-grok-hook';
@@ -55,7 +56,12 @@ function hooksPath(scope: 'user' | 'project', cwd?: string): string {
 }
 
 function buildCommand(port: number, token: string, event: GrokHookEvent): string {
-  return `cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/grok/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" -H "X-Agent-Deck-Parent-Pid: \${PPID:-}" --data-binary @- > /dev/null || true # ${HOOK_TAG}`;
+  return buildHookCurlCommand({
+    port,
+    token,
+    route: `/hook/grok/${event.toLowerCase()}`,
+    tag: HOOK_TAG,
+  });
 }
 
 function readHooksJson(path: string): GrokHooksJson {
@@ -65,7 +71,7 @@ function readHooksJson(path: string): GrokHooksJson {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `${path} parse failed (${detail}). Aborted to avoid overwriting existing Grok hook config.`,
+      `${path} parse failed (${detail}). Aborted to avoid overwriting existing Grok Build hook config.`,
     );
   }
 }

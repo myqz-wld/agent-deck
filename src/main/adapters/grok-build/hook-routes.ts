@@ -1,6 +1,12 @@
 import type { RouteOptions } from 'fastify';
 import type { AgentEvent } from '@shared/types';
 import {
+  createHookRoute,
+  hookRouteDiagnostics,
+  type HookOrigin,
+  type HookRouteDiagnostics,
+} from '@main/hook-server/route-diagnostics';
+import {
   type BaseGrokHookPayload,
   translateGrokNotification,
   translateGrokPermissionDenied,
@@ -19,80 +25,55 @@ type HookTranslator = (
   body: BaseGrokHookPayload & Record<string, unknown>,
 ) => AgentEvent | AgentEvent[];
 
-function firstHeaderValue(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
-}
-
-function parsePidHeader(value: string | string[] | undefined): number | null {
-  const raw = firstHeaderValue(value).trim();
-  if (!/^\d+$/.test(raw)) return null;
-  const pid = Number(raw);
-  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
-}
-
-function attachExternalProcessPid(event: AgentEvent, pid: number | null): AgentEvent {
-  if (pid === null) return event;
-  const payload =
-    event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
-      ? { ...(event.payload as Record<string, unknown>), externalProcessPid: pid }
-      : { value: event.payload, externalProcessPid: pid };
-  return { ...event, payload };
-}
-
 function makeRoute(
+  event: string,
   url: string,
   translate: HookTranslator,
-  emit: (event: AgentEvent, origin: 'sdk' | 'cli') => void,
+  emit: (event: AgentEvent, origin: HookOrigin) => void,
+  diagnostics: HookRouteDiagnostics,
 ): RouteOptions {
-  return {
-    method: 'POST',
+  return createHookRoute({
+    adapter: 'grok-build',
+    event,
     url,
-    handler: async (request, reply) => {
-      try {
-        const body = (request.body ?? {}) as BaseGrokHookPayload & Record<string, unknown>;
-        if (!body || typeof body.sessionId !== 'string' || !body.sessionId.trim()) {
-          reply.code(400).send({ ok: false, error: 'missing sessionId' });
-          return;
-        }
-        const origin =
-          firstHeaderValue(request.headers['x-agent-deck-origin']) === 'sdk'
-            ? 'sdk'
-            : 'cli';
-        const pid = parsePidHeader(request.headers['x-agent-deck-parent-pid']);
-        const output = translate(body);
-        const events = Array.isArray(output) ? output : [output];
-        for (const event of events) emit(attachExternalProcessPid(event, pid), origin);
-        reply.code(200).send({ ok: true });
-      } catch (error) {
-        reply.code(500).send({
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+    extractSessionId: (body) => {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+      const sessionId = (body as { sessionId?: unknown }).sessionId;
+      return typeof sessionId === 'string' && sessionId.trim()
+        ? sessionId.trim()
+        : null;
     },
-  };
+    translate,
+    emit,
+    diagnostics,
+  });
 }
 
 export function buildGrokHookRoutes(
   emit: (event: AgentEvent) => void,
+  diagnostics: HookRouteDiagnostics = hookRouteDiagnostics,
 ): RouteOptions[] {
-  const taggedEmit = (event: AgentEvent, origin: 'sdk' | 'cli'): void => {
+  const taggedEmit = (event: AgentEvent, origin: HookOrigin): void => {
     emit({ ...event, source: 'hook', hookOrigin: origin });
   };
-  const route = (path: string, translate: HookTranslator): RouteOptions =>
-    makeRoute(`/hook/grok/${path}`, translate, taggedEmit);
+  const route = (
+    event: string,
+    path: string,
+    translate: HookTranslator,
+  ): RouteOptions =>
+    makeRoute(event, `/hook/grok/${path}`, translate, taggedEmit, diagnostics);
 
   return [
-    route('sessionstart', translateGrokSessionStart),
-    route('userpromptsubmit', translateGrokUserPrompt),
-    route('pretooluse', translateGrokPreToolUse),
-    route('posttooluse', translateGrokPostToolUse),
-    route('posttoolusefailure', translateGrokPostToolUseFailure),
-    route('permissiondenied', translateGrokPermissionDenied),
-    route('postcompact', translateGrokPostCompact),
-    route('notification', translateGrokNotification),
-    route('stop', translateGrokStop),
-    route('stopfailure', translateGrokStopFailure),
-    route('sessionend', translateGrokSessionEnd),
+    route('SessionStart', 'sessionstart', translateGrokSessionStart),
+    route('UserPromptSubmit', 'userpromptsubmit', translateGrokUserPrompt),
+    route('PreToolUse', 'pretooluse', translateGrokPreToolUse),
+    route('PostToolUse', 'posttooluse', translateGrokPostToolUse),
+    route('PostToolUseFailure', 'posttoolusefailure', translateGrokPostToolUseFailure),
+    route('PermissionDenied', 'permissiondenied', translateGrokPermissionDenied),
+    route('PostCompact', 'postcompact', translateGrokPostCompact),
+    route('Notification', 'notification', translateGrokNotification),
+    route('Stop', 'stop', translateGrokStop),
+    route('StopFailure', 'stopfailure', translateGrokStopFailure),
+    route('SessionEnd', 'sessionend', translateGrokSessionEnd),
   ];
 }

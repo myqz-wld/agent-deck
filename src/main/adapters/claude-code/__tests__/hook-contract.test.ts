@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CLAUDE_HOOK_EVENTS, HookInstaller } from '../hook-installer';
 import { buildHookRoutes } from '../hook-routes';
 
-describe('Claude hook install/route contract', () => {
+describe('Claude Code hook install/route contract', () => {
   it('keeps every active installed event routable', () => {
     const urls = buildHookRoutes(vi.fn()).map((route) => route.url);
     expect(urls).toEqual(
@@ -72,6 +72,12 @@ describe('Claude hook install/route contract', () => {
       );
       expect(settings.hooks.PostToolUseFailure[0].hooks[0].command).toContain(
         'X-Agent-Deck-Parent-Pid: ${PPID:-}',
+      );
+      expect(settings.hooks.PostToolUseFailure[0].hooks[0].command).toContain(
+        '--fail-with-body',
+      );
+      expect(settings.hooks.PostToolUseFailure[0].hooks[0].command).toContain(
+        '> /dev/null',
       );
       expect(settings.hooks.StopFailure[0].hooks[0].command).toContain(
         '/hook/stopfailure',
