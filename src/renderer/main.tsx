@@ -12,6 +12,191 @@ import './styles/globals.css';
 
 const logger = log.scope('renderer-main');
 
+interface RendererErrorDetails {
+  name: string;
+  message: string;
+  stack?: string;
+}
+
+type RendererDiagnosticValue =
+  | null
+  | boolean
+  | number
+  | string
+  | RendererDiagnosticValue[]
+  | { [key: string]: RendererDiagnosticValue };
+
+interface RendererDiagnosticLimits {
+  maxString: number;
+  maxDepth: number;
+  maxKeys: number;
+  maxArray: number;
+}
+
+// The renderer TypeScript project deliberately cannot import main-process modules. Keep this
+// renderer transport facade aligned with the canonical serializer in main/utils/safe-diagnostic:
+// main sanitizes persisted/terminal output again, while this copy protects DevTools before IPC.
+function safeRendererString(value: string, maxLength = 512): string {
+  const redacted = value
+    .replace(
+      /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi,
+      '$1 [REDACTED]',
+    )
+    .replace(
+      /\b(auth|authentication|authorization|proxy-authorization|credential|cookie|set-cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|passwd|secret|client[_-]?secret)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi,
+      '$1$2[REDACTED]',
+    )
+    .replace(
+      /\b(?:sk|rk|pk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/gi,
+      '[REDACTED]',
+    )
+    .replace(
+      /(?:file:\/\/)?\/(?:Users|home)\/[^/\s"'`),;\]}]+(?:\/[^\s"'`),;\]}]*)?/g,
+      '<home-path>',
+    )
+    .replace(
+      /[A-Za-z]:\\Users\\[^\\\s"'`),;\]}]+(?:\\[^\s"'`),;\]}]*)?/g,
+      '<home-path>',
+    )
+    .replace(
+      /(?:file:\/\/)?\/(?:private\/tmp|tmp|var\/tmp|private\/var\/folders|var\/folders)(?:\/[^\s"'`),;\]}]*)?/g,
+      '<temp-path>',
+    )
+    .replace(
+      /(?:file:\/\/)?\/(?:workspace|workspaces|repo|Volumes)(?:\/[^\s"'`),;\]}]*)?/g,
+      '<local-path>',
+    )
+    .replace(
+      /[A-Za-z]:\\(?!Users\\)[^\\\s"'`),;\]}]+(?:\\[^\s"'`),;\]}]*)?/g,
+      '<local-path>',
+    );
+  return redacted.length <= maxLength
+    ? redacted
+    : `${redacted.slice(0, maxLength)}…[truncated:${redacted.length - maxLength}]`;
+}
+
+function safeRendererErrorDetails(value: unknown): RendererErrorDetails {
+  let isError = false;
+  try {
+    isError = value instanceof Error;
+  } catch {
+    return { name: 'Error', message: 'Non-Error rejection (uninspectable)' };
+  }
+  if (isError) {
+    const error = value as Error;
+    let name = 'Error';
+    let message = 'Unknown error';
+    let stack: string | undefined;
+    try {
+      name = error.name || name;
+      message = error.message || message;
+      stack = error.stack;
+    } catch {
+      return { name: 'Error', message: 'Uninspectable Error' };
+    }
+    return {
+      name: safeRendererString(name, 80),
+      message: safeRendererString(message),
+      ...(stack ? { stack: safeRendererString(stack, 2_048) } : {}),
+    };
+  }
+  if (typeof value === 'string') {
+    return { name: 'Error', message: safeRendererString(value) };
+  }
+  const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  return { name: 'Error', message: `Non-Error rejection (${type})` };
+}
+
+function safeRendererDisplayText(value: string): string {
+  return safeRendererString(value, 3_072);
+}
+
+function rendererRedactedKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return /(?:authorization|authentication|credential|password|passwd|cookie|secret|privatekey|signingkey|apikey|accesskey|cardnumber|creditcard|cvv|ssn|prompt|input|payload|rawresult|rawresponse|rawoutput|providertext)$/.test(
+    normalized,
+  ) || /token$/.test(normalized) || normalized === 'auth';
+}
+
+function safeRendererDiagnostic(
+  value: unknown,
+  limits: RendererDiagnosticLimits,
+  seen: WeakSet<object>,
+  depth = 0,
+): RendererDiagnosticValue {
+  if (value === null) return null;
+  if (typeof value === 'string') return safeRendererString(value, limits.maxString);
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value === 'bigint') return `${value.toString()}n`;
+  if (typeof value === 'undefined') return '[undefined]';
+  if (typeof value === 'symbol' || typeof value === 'function') {
+    return `[${typeof value}]`;
+  }
+  if (depth >= limits.maxDepth) return '[MaxDepth]';
+  if (value instanceof Error) {
+    return safeRendererErrorDetails(value) as unknown as RendererDiagnosticValue;
+  }
+  if (seen.has(value as object)) return '[Circular]';
+  seen.add(value as object);
+  if (Array.isArray(value)) {
+    const selected = value.slice(0, limits.maxArray).map(
+      (item) => safeRendererDiagnostic(item, limits, seen, depth + 1),
+    );
+    if (value.length > selected.length) {
+      selected.push(`[TruncatedItems:${value.length - selected.length}]`);
+    }
+    return selected;
+  }
+  const output: Record<string, RendererDiagnosticValue> = {};
+  const keys = Object.keys(value as object);
+  for (const key of keys.slice(0, limits.maxKeys)) {
+    const safeKey = safeRendererString(key, 80);
+    if (rendererRedactedKey(key)) {
+      output[safeKey] = '[REDACTED]';
+      continue;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor && !('value' in descriptor)) {
+      output[safeKey] = '[Accessor]';
+      continue;
+    }
+    output[safeKey] = safeRendererDiagnostic(
+      (value as Record<string, unknown>)[key],
+      limits,
+      seen,
+      depth + 1,
+    );
+  }
+  if (keys.length > limits.maxKeys) {
+    output.__truncatedKeys = keys.length - limits.maxKeys;
+  }
+  return output;
+}
+
+const rendererDiagnosticHook = (
+  message: { data: unknown[]; [key: string]: unknown },
+  _transport: unknown,
+  transportName?: string,
+): { data: unknown[]; [key: string]: unknown } => {
+  const limits: RendererDiagnosticLimits =
+    transportName === 'console' && import.meta.env.MODE === 'development'
+      ? { maxString: 2_048, maxDepth: 5, maxKeys: 40, maxArray: 20 }
+      : { maxString: 512, maxDepth: 4, maxKeys: 24, maxArray: 12 };
+  try {
+    return {
+      ...message,
+      data: message.data.map(
+        (item) => safeRendererDiagnostic(item, limits, new WeakSet<object>()),
+      ),
+    };
+  } catch {
+    return { ...message, data: ['[DiagnosticSerializationFailed]'] };
+  }
+};
+
+(log.hooks as unknown as (typeof rendererDiagnosticHook)[]).push(rendererDiagnosticHook);
+
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null }
@@ -21,11 +206,16 @@ class RootErrorBoundary extends React.Component<
     return { error };
   }
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    logger.error('[renderer] uncaught render error', error, info);
+    const details = safeRendererErrorDetails(error);
+    logger.error(
+      '[renderer] uncaught render error',
+      details,
+      { componentStack: safeRendererString(info.componentStack ?? '', 2_048) },
+    );
   }
   render(): React.ReactNode {
     if (!this.state.error) return this.props.children;
-    const e = this.state.error;
+    const details = safeRendererErrorDetails(this.state.error);
     return (
       <div
         style={{
@@ -40,9 +230,9 @@ class RootErrorBoundary extends React.Component<
         }}
       >
         <div style={{ marginBottom: 6, fontWeight: 600 }}>
-          界面崩溃：{e.name}：{e.message}
+          界面崩溃：{details.name}：{details.message}
         </div>
-        <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8 }}>{e.stack}</pre>
+        <pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8 }}>{details.stack}</pre>
       </div>
     );
   }
@@ -52,7 +242,10 @@ class RootErrorBoundary extends React.Component<
 window.addEventListener('error', (ev) => {
   // 资源加载失败（img/script/link 的 onerror 也会冒泡到 window）：只 console，不遮 UI
   if (ev.target && ev.target !== window) {
-    logger.error('[renderer] resource load error', (ev.target as HTMLElement).tagName, ev);
+    logger.error('[renderer] resource load error', {
+      tagName: (ev.target as HTMLElement).tagName,
+      eventType: ev.type,
+    });
     return;
   }
   // 跨源脚本错误：浏览器出于 CORS 只给空壳 "Script error." src=:0:0，
@@ -62,11 +255,18 @@ window.addEventListener('error', (ev) => {
     return;
   }
   if (typeof ev.message === 'string' && isMonacoUnmountRaceNoise(ev.message)) {
-    logger.debug('[renderer] monaco unmount race (suppressed):', ev.message);
+    logger.debug(
+      '[renderer] monaco unmount race (suppressed):',
+      safeRendererString(ev.message),
+    );
     return;
   }
-  logger.error('[renderer] window.onerror', ev.error ?? ev.message);
-  showFatal(`界面错误：${ev.message}\n位置：${ev.filename}:${ev.lineno}:${ev.colno}`);
+  const details = safeRendererErrorDetails(ev.error ?? ev.message);
+  logger.error('[renderer] window.onerror', details);
+  showFatal(
+    `界面错误：${details.name}：${details.message}\n` +
+    `位置：${safeRendererDisplayText(`${ev.filename}:${ev.lineno}:${ev.colno}`)}`,
+  );
 });
 window.addEventListener('unhandledrejection', (ev) => {
   // 跟 window.onerror 同套白名单 —— monaco DiffEditor 卸载 race 抛错有两条路径：
@@ -78,12 +278,13 @@ window.addEventListener('unhandledrejection', (ev) => {
   if (isMonacoUnmountRaceNoise(ev.reason)) {
     logger.debug(
       '[renderer] monaco unmount race (suppressed):',
-      (ev.reason as { message?: string })?.message ?? ev.reason,
+      safeRendererErrorDetails(ev.reason),
     );
     return;
   }
-  logger.error('[renderer] unhandledrejection', ev.reason);
-  showFatal(`异步操作失败：${(ev.reason as { message?: string })?.message ?? ev.reason}`);
+  const details = safeRendererErrorDetails(ev.reason);
+  logger.error('[renderer] unhandledrejection', details);
+  showFatal(`异步操作失败：${details.name}：${details.message}`);
 });
 
 /**
@@ -133,7 +334,7 @@ function showFatal(text: string): void {
     zIndex: '999',
     transition: 'opacity 400ms ease',
   });
-  el.textContent = text;
+  el.textContent = safeRendererDisplayText(text);
 
   const close = document.createElement('button');
   close.type = 'button';
@@ -183,8 +384,9 @@ if (!container) {
       </React.StrictMode>,
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack ?? '' : '';
-    showFatal(`界面启动失败：${message}\n${stack}`);
+    const details = safeRendererErrorDetails(err);
+    showFatal(
+      `界面启动失败：${details.name}：${details.message}\n${details.stack ?? ''}`,
+    );
   }
 }

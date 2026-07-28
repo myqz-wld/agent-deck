@@ -26,6 +26,7 @@ import {
   shouldDropClaudeCanUseToolShadowedNoise,
   shouldDropWebFrameMainDisposedNoise,
 } from '../logger';
+import { installSafeDiagnosticLogHook } from '../safe-diagnostic';
 
 // electron-log/node 是真包(不依赖 electron),hook 装到 log.hooks 模拟生产链
 // (Logger.js:177 `this.hooks.reduce(...)`)。FilterLogMessage 与 LogMessage 结构子集
@@ -44,6 +45,9 @@ const webFrameMainDisposedNoiseHook = (
 
 describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)', () => {
   let tmpLogFile: string;
+  let safeDiagnosticHookRef: unknown;
+  let originalConsoleWrite: unknown;
+  let originalConsoleFormat: unknown;
   const webFrameMainDisposedNoiseHookRef = webFrameMainDisposedNoiseHook;
 
   beforeEach(() => {
@@ -53,6 +57,8 @@ describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)'
     );
     // swap file transport 路径到 tmp + 关 console noise
     realLog.transports.file.resolvePathFn = () => tmpLogFile;
+    originalConsoleWrite = realLog.transports.console.writeFn;
+    originalConsoleFormat = realLog.transports.console.format;
     realLog.transports.console.level = false; // 测试期间关掉 console 噪声
     realLog.transports.file.level = 'silly'; // 让所有 level 都进 file transport
     // 装 hook 到 Logger 实例级 log.hooks (与生产 logger.ts 装的位置一致)
@@ -60,6 +66,9 @@ describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)'
     if (!hooks.includes(webFrameMainDisposedNoiseHookRef)) {
       hooks.push(webFrameMainDisposedNoiseHookRef);
     }
+    safeDiagnosticHookRef = installSafeDiagnosticLogHook(realLog, {
+      developmentConsoleDetail: true,
+    });
   });
 
   afterEach(() => {
@@ -67,9 +76,13 @@ describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)'
     const hooks = realLog.hooks as unknown as ((m: { data: unknown[] }, t: unknown, n?: string) => { data: unknown[] } | false)[];
     const idx = hooks.indexOf(webFrameMainDisposedNoiseHookRef);
     if (idx >= 0) hooks.splice(idx, 1);
+    const safeIdx = hooks.indexOf(safeDiagnosticHookRef as typeof webFrameMainDisposedNoiseHookRef);
+    if (safeIdx >= 0) hooks.splice(safeIdx, 1);
     realLog.transports.file.level = 'info';
     // 清掉 resolvePathFn 重置回 electron-log/node default(os.tmpdir() path)
     delete (realLog.transports.file as { resolvePathFn?: unknown }).resolvePathFn;
+    realLog.transports.console.writeFn = originalConsoleWrite as typeof realLog.transports.console.writeFn;
+    realLog.transports.console.format = originalConsoleFormat as typeof realLog.transports.console.format;
     realLog.transports.console.level = 'silly';
     if (fs.existsSync(tmpLogFile)) fs.unlinkSync(tmpLogFile);
   });
@@ -100,6 +113,42 @@ describe('logger hook 端到端 (electron-log/node 真包 + tmp file transport)'
       const content = fs.existsSync(tmpLogFile) ? fs.readFileSync(tmpLogFile, 'utf8') : '';
       expect(content).toContain('plain business log message');
     });
+  });
+
+  it('真实 file transport 只写 bounded post-redaction diagnostics', () => {
+    realLog.error({
+      password: 'real-file-secret',
+      payload: 'provider-payload-secret',
+      note: `Authorization: Bearer bearer-secret ${'x'.repeat(20_000)}`,
+    });
+    return new Promise<void>((resolve) => setTimeout(resolve, 50)).then(() => {
+      const content = fs.existsSync(tmpLogFile) ? fs.readFileSync(tmpLogFile, 'utf8') : '';
+      expect(content).not.toContain('real-file-secret');
+      expect(content).not.toContain('provider-payload-secret');
+      expect(content).not.toContain('bearer-secret');
+      expect(content).toContain('[REDACTED]');
+      expect(content.length).toBeLessThan(3_000);
+    });
+  });
+
+  it('真实 console transport 只接收 bounded post-redaction diagnostics', () => {
+    const writes: unknown[] = [];
+    realLog.transports.console.level = 'silly';
+    realLog.transports.console.format = '{text}';
+    realLog.transports.console.writeFn = (output) => writes.push(output.message.data);
+
+    realLog.error({
+      apiKey: 'real-console-secret',
+      prompt: 'customer-console-prompt',
+      note: `cookie=console-cookie-secret ${'y'.repeat(20_000)}`,
+    });
+
+    const content = JSON.stringify(writes);
+    expect(content).not.toContain('real-console-secret');
+    expect(content).not.toContain('customer-console-prompt');
+    expect(content).not.toContain('console-cookie-secret');
+    expect(content).toContain('[REDACTED]');
+    expect(content.length).toBeLessThan(6_000);
   });
 
   it('Claude bypass canUseTool 固定 SDK warning → file transport 不占 error channel', () => {

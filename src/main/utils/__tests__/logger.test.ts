@@ -35,6 +35,7 @@ import {
   shouldDropClaudeCanUseToolShadowedNoise,
   installClaudeCanUseToolShadowedFileFilter,
 } from '../logger';
+import { emitProcessStartupRecord } from '../process-startup';
 
 const mockedLog = log as unknown as {
   initialize: ReturnType<typeof vi.fn>;
@@ -81,6 +82,37 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
     expect(mockedLog.transports.console.level).toBe('silly');
     // 复位避免影响其他 test
     setFileLevel('info');
+  });
+
+  it('emits exactly one process startup record even when bootstrap calls it twice', () => {
+    const startupLogger = log.scope('process-startup') as unknown as {
+      info: ReturnType<typeof vi.fn>;
+    };
+    startupLogger.info.mockClear();
+    expect(emitProcessStartupRecord({
+      schemaUserVersion: 43,
+      configuredFileLogLevel: 'warn',
+    })).toBe(true);
+    expect(emitProcessStartupRecord({
+      schemaUserVersion: 44,
+      configuredFileLogLevel: 'error',
+    })).toBe(false);
+
+    expect(startupLogger.info).toHaveBeenCalledTimes(1);
+    expect(startupLogger.info).toHaveBeenCalledWith(
+      '[startup]',
+      expect.objectContaining({
+        event: 'process-startup',
+        runId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+        pid: process.pid,
+        appVersion: '0.0.0-test',
+        isPackaged: false,
+        platform: process.platform,
+        arch: process.arch,
+        schemaUserVersion: 43,
+        configuredFileLogLevel: 'warn',
+      }),
+    );
   });
 
   describe('cleanupOldLogs (D3) — 不依赖 electron-log mock, 纯 fs 行为测试', () => {
