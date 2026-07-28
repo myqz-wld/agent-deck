@@ -30,12 +30,16 @@ describe('MCP target runtime schemas', () => {
     }).success).toBe(false);
   });
 
-  it('accepts Codex writable roots but not Claude permission or sandbox fields', () => {
+  it('accepts Codex approval and writable roots but not Claude controls', () => {
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
+      approvalPolicy: 'on-request',
       codexSandbox: 'workspace-write',
       extraAllowWrite: ['/repo-2'],
       thinking: 'ultra',
     }).success).toBe(true);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
+      approvalPolicy: 'always',
+    }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
       permissionMode: 'plan',
     }).success).toBe(false);
@@ -62,6 +66,9 @@ describe('MCP target runtime schemas', () => {
     }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
       codexSandbox: 'read-only',
+    }).success).toBe(false);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
+      approvalPolicy: 'never',
     }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
       extraAllowWrite: [],

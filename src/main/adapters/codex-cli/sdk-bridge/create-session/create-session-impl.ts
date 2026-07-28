@@ -189,9 +189,9 @@ export async function createSessionImpl(
       //
       // plan §P3 Step 3.5 + §不变量 6: 3 个新字段（approvalPolicy / networkAccessEnabled /
       // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。新建 facade
-      // 已把普通 Codex 缺省审批解析为 never；同 adapter spawn/handoff 则传入持久值。
+      // 已把普通 Codex 缺省审批解析为 on-request；同 adapter spawn/handoff 则传入持久值。
       // 只有旧的无记录 resume/recovery 仍可省略 approvalPolicy 并交回 Codex config。
-      // reviewer-* 另由 options-builder 补 networkAccessEnabled / additionalDirectories。
+      // reviewer 名称不补 networkAccessEnabled / additionalDirectories；仅显式或继承值透传。
       thread = codex.resumeThread(
         effectiveResumeThreadId,
         buildCodexThreadOptions({

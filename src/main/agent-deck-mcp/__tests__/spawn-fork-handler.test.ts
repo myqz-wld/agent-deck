@@ -285,9 +285,8 @@ describe('spawn_session native-fork handler lifecycle', () => {
     expect(state.sessions.get('caller')).toEqual(before);
   });
 
-  it('inherits hidden reviewer Codex approval and access controls into a native fork', async () => {
+  it('inherits persisted Codex approval and access controls into a native fork', async () => {
     seedCaller('codex-cli', {
-      agentProfileName: 'reviewer-codex',
       codexApprovalPolicy: 'never',
       networkAccessEnabled: true,
       additionalDirectories: ['~/.claude', '~/.codex', '/tmp'],

@@ -165,6 +165,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       if (r) sessions.set(id, { ...r, title });
     },
     setCodexSandbox: vi.fn(),
+    setCodexApprovalPolicy: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
     setModel: vi.fn(),
     setThinking: vi.fn(),

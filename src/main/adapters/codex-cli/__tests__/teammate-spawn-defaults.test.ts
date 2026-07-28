@@ -1,152 +1,75 @@
 /**
- * plan codex-handoff-team-alignment-20260518 §P3 Step 3.9 测试矩阵 —
- * options-builder.narrowToCodexOpts agentName-based reviewer runtime default spread 验证
- * (plan §不变量 6 + §D7).
- *
- * **plan reviewer-codex-cross-adapter-20260519 Phase 2 Step 2.4 修订**:
- * cross-adapter native 改造后,reviewer-claude 不再走 wrapper 路径(claude SDK 子 + Bash
- * 起外部 codex CLI),改 cross-adapter native (claude-code adapter 直起 claude SDK)。
- * 删除 reviewer-claude wrapper 专用 envOverrideExtra: AGENT_DECK_CLAUDE_PATH 注入分支
- * + 对应测试 case (TC9 / TC11)。所有 Codex session 共享 `approvalPolicy='never'` 默认；
- * reviewer-* slot 另加 networkAccessEnabled / additionalDirectories。codexSandbox 走
- * 普通 spawn 语义：caller 显式 / same-adapter 继承
- * 透传到本 builder,reviewer 分支不再覆盖。
- *
- * 覆盖:
- * - TC8: agentName='reviewer-codex' → approval 默认 + 2 项 reviewer runtime access
- * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → approvalPolicy 默认 never，
- *   不 spread reviewer network/read roots
- * - TC10b: agentName='reviewer-typescript' (非 REVIEWER_AGENT_NAMES) → 同款行为
- * - TC11b: claude-code adapter narrow 不消费 agentName 字段 (filter 掉 —
- *   narrowToClaudeOpts 不 spread codex default)
- *
- * Codex default + 2 项 reviewer runtime access:
- *   - approvalPolicy: 'never'（所有普通/Reviewer Codex 会话）
- *   - networkAccessEnabled: true
- *   - additionalDirectories: ['<home>/.claude', '<home>/.codex', '/tmp']
- *
- * 测试策略: 直接调 buildCreateSessionOptions('codex-cli', raw) 单测 narrowToCodexOpts
- * 行为(不过 spawn handler 链路,最直接验证 v4 D7 信号源 + 不变量 6 enforce 点 =
- * options-builder 层)。
+ * Codex option narrowing must be independent of `agentName`. The public builder provides the
+ * ordinary `on-request` target default, preserves explicit approval/sandbox values, and never
+ * injects reviewer network or path access. Same-adapter inheritance is resolved by spawn/handoff
+ * before this boundary.
  */
 import { describe, expect, it } from 'vitest';
-import os from 'node:os';
-import path from 'node:path';
 
 import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 
-describe('options-builder narrowToCodexOpts agentName-based default spread (plan §P3 Step 3.9)', () => {
-  it('TC8: agentName="reviewer-codex" → 3 项 reviewer runtime default spread, sandbox 不强制覆盖', () => {
-    const opts = buildCreateSessionOptions('codex-cli', {
+describe('options-builder Codex runtime defaults', () => {
+  it('does not infer runtime access from a historical reviewer agentName field', () => {
+    const raw = {
       cwd: '/repo',
       prompt: 'review task',
       agentName: 'reviewer-codex',
-    });
+    } as Parameters<typeof buildCreateSessionOptions>[1];
+    const opts = buildCreateSessionOptions('codex-cli', raw);
 
-    // narrow 后 agentId 字段已塞
     expect(opts.agentId).toBe('codex-cli');
-
-    // 3 项 reviewer runtime default spread；sandbox 由 caller 显式 / same-adapter 继承 /
-    // target adapter 默认链路决定，本层不强塞 workspace-write。
     expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBe('never');
-    expect(opts.networkAccessEnabled).toBe(true);
-    // additionalDirectories 含 /tmp(spike4 实证 reviewer 必需,所有 reviewer-* 同款 spread 保持不分叉)
-    expect(opts.additionalDirectories).toEqual([
-      path.join(os.homedir(), '.claude'),
-      path.join(os.homedir(), '.codex'),
-      '/tmp',
-    ]);
-
-    // envOverrideExtra 不被注入(reviewer-claude wrapper 路径已删,reviewer-codex 本来
-    // 也不走 wrapper Bash 路径 — 字段保留 generic 透传机制供未来 caller 重用)
+    expect(opts.approvalPolicy).toBe('on-request');
+    expect(opts.networkAccessEnabled).toBeUndefined();
+    expect(opts.additionalDirectories).toBeUndefined();
     expect(opts.envOverrideExtra).toBeUndefined();
+    expect('agentName' in opts).toBe(false);
   });
 
-  it('TC9: agentName="reviewer-claude" → 3 项 reviewer runtime default spread and preserves caller sandbox', () => {
-    // **plan reviewer-codex-cross-adapter-20260519 Phase 2 Step 2.4 修订**:
-    // 旧 wrapper 路径 (claude-code adapter wrapper Bash 起外部 codex CLI) 删除,
-    // reviewer-claude 改 cross-adapter native (claude-code adapter 直起 claude SDK)。
-    // 但 codex-cli adapter 仍可能 spawn reviewer-claude(理论上 cross-adapter 反向场景
-    // 无,因 lead 起 reviewer-claude 总用 adapter:'claude-code') — 留此 case 验证
-    // codex-cli adapter narrow 时所有 REVIEWER_AGENT_NAMES 都触发 3 项 runtime default。
+  it('preserves explicit approval and sandbox values without adding reviewer access', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'review task',
-      agentName: 'reviewer-claude',
+      approvalPolicy: 'never',
       codexSandbox: 'danger-full-access',
     });
 
-    expect(opts.agentId).toBe('codex-cli');
-
-    // caller/effective sandbox 透传,reviewer 分支不再 clamp 到 workspace-write。
     expect(opts.codexSandbox).toBe('danger-full-access');
     expect(opts.approvalPolicy).toBe('never');
-    expect(opts.networkAccessEnabled).toBe(true);
-    expect(opts.additionalDirectories).toEqual([
-      path.join(os.homedir(), '.claude'),
-      path.join(os.homedir(), '.codex'),
-      '/tmp',
-    ]);
-
-    // envOverrideExtra 不再被注入 AGENT_DECK_CLAUDE_PATH (wrapper 删除)
-    expect(opts.envOverrideExtra).toBeUndefined();
+    expect(opts.networkAccessEnabled).toBeUndefined();
+    expect(opts.additionalDirectories).toBeUndefined();
   });
 
-  it('TC10: ordinary Codex defaults approval to never without reviewer access', () => {
+  it('defaults ordinary Codex targets to on-request without hidden access', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'lead chat',
-      // agentName 缺省 → 走普通 codex session 分支
     });
 
-    expect(opts.agentId).toBe('codex-cli');
-
     expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBe('never');
+    expect(opts.approvalPolicy).toBe('on-request');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
     expect(opts.envOverrideExtra).toBeUndefined();
 
-    // caller 显式传 codexSandbox 仍透传(caller 路径不被 default 覆盖)
     const optsWithCallerSandbox = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'lead chat',
       codexSandbox: 'read-only',
     });
     expect(optsWithCallerSandbox.codexSandbox).toBe('read-only');
-    expect(optsWithCallerSandbox.approvalPolicy).toBe('never');
-    // reviewer network/read roots 仍不 spread(caller 没明确要 reviewer 行为)
+    expect(optsWithCallerSandbox.approvalPolicy).toBe('on-request');
     expect(optsWithCallerSandbox.networkAccessEnabled).toBeUndefined();
     expect(optsWithCallerSandbox.additionalDirectories).toBeUndefined();
   });
 
-  it('TC10b: a non-reviewer Codex agent keeps the ordinary approval default', () => {
-    const opts = buildCreateSessionOptions('codex-cli', {
-      cwd: '/repo',
-      prompt: 'custom agent',
-      agentName: 'reviewer-typescript', // 非 REVIEWER_AGENT_NAMES
-    });
-
-    expect(opts.agentId).toBe('codex-cli');
-    expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBe('never');
-    expect(opts.networkAccessEnabled).toBeUndefined();
-    expect(opts.additionalDirectories).toBeUndefined();
-    expect(opts.envOverrideExtra).toBeUndefined();
-  });
-
-  it('TC11b: claude-code adapter narrow 不消费 agentName 字段 (filter 掉 — narrowToClaudeOpts 不 spread codex default)', () => {
+  it('filters Codex approval fields from a Claude target', () => {
     const opts = buildCreateSessionOptions('claude-code', {
       cwd: '/repo',
       prompt: 'review task',
-      agentName: 'reviewer-claude', // claude adapter 不消费此字段
+      approvalPolicy: 'never',
     });
 
-    expect(opts.agentId).toBe('claude-code');
-
-    // claude adapter opts 不含 codex 专属字段 — TS 类型层 ClaudeCreateOpts 字面没这些字段,
-    // narrow 后 runtime 也不 spread(避免污染)
     expect('codexSandbox' in opts).toBe(false);
     expect('approvalPolicy' in opts).toBe(false);
     expect('networkAccessEnabled' in opts).toBe(false);
@@ -189,7 +112,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       handOff: HANDOFF_FIXTURE,
       // codex-only 字段(应被 filter)
       codexSandbox: 'read-only',
-      agentName: 'reviewer-claude',
+      approvalPolicy: 'never',
     });
     // 全 claude-passthrough 字段透传
     expect(opts.cwd).toBe('/repo');
@@ -205,7 +128,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     expect(opts.handOff).toBe(HANDOFF_FIXTURE); // INFO-1: 防 narrow 漏 handOff 赋值
     // codex-only 字段被 filter
     expect('codexSandbox' in opts).toBe(false);
-    expect('agentName' in opts).toBe(false);
+    expect('approvalPolicy' in opts).toBe(false);
   });
 
   it('codex arm: 全 caller-passthrough 字段透传 + claude-only 字段 filter', () => {
@@ -218,6 +141,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       model: 'gpt-5',
       modelReasoningEffort: 'xhigh',
       codexSandbox: 'read-only',
+      approvalPolicy: 'untrusted',
       extraAllowWrite: ['/main-repo'],
       handOff: HANDOFF_FIXTURE,
       // claude-only 字段(应被 filter)
@@ -233,6 +157,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     expect(opts.modelReasoningEffort).toBe('xhigh');
     // 普通 codex session(非 reviewer-*) caller 显式 codexSandbox 透传不被覆盖
     expect(opts.codexSandbox).toBe('read-only');
+    expect(opts.approvalPolicy).toBe('untrusted');
     expect(opts.extraAllowWrite).toEqual(['/main-repo']);
     expect(opts.handOff).toBe(HANDOFF_FIXTURE); // INFO-1: 防 narrow 漏 handOff 赋值
     // claude-only 字段被 filter

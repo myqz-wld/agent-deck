@@ -64,21 +64,18 @@ export interface PersistSessionFieldsArgs {
    */
   extraAllowWrite?: readonly string[];
   /**
-   * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
-   * 注入的 `networkAccessEnabled` reviewer runtime default。Codex runtime
-   * 真消费（经 buildCodexThreadOptions → startThread/resumeThread 的
-   * ThreadOptions.networkAccessEnabled），持久化是为了 recover / restart 路径读回还原 reviewer
-   * 网络访问能力。
+   * Codex runtime 真消费的显式/继承 `networkAccessEnabled`（经 buildCodexThreadOptions →
+   * startThread/resumeThread）。持久化是为了 recover 路径读回并保持该 session 设置；
+   * reviewer 名称不产生隐式默认。
    *
    * undefined → 跳过持久化（保留原值）；**用 `!== undefined` 不用 truthy** —— `false` 是合法值
-   * （非 reviewer caller 显式关网络），truthy guard 会漏掉显式 false。
+   * truthy guard 会漏掉显式 false。
    */
   networkAccessEnabled?: boolean;
   /**
-   * plan codex-recover-network-dirs-parity-20260602：reviewer-codex spawn 时 options-builder
-   * 注入的 `additionalDirectories` reviewer runtime default。**codex SDK runtime 真消费**（经
+   * Codex runtime 真消费的显式/继承 `additionalDirectories`（经
    * buildCodexThreadOptions → startThread/resumeThread 的 ThreadOptions.additionalDirectories
-   * 把这些根加入当前 sandbox 可访问范围），持久化为 recover / restart 还原跨目录访问能力。
+   * 把这些根加入当前 sandbox 可访问范围），持久化为 recover 还原跨目录访问能力。
    * 与 extraAllowWrite 一样需要在恢复时重建 live sandbox policy。
    *
    * undefined / 空数组 → 跳过持久化（保留原值）。非空数组 → setAdditionalDirectories 写入。

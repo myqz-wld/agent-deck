@@ -20,6 +20,7 @@ import type {
   UploadedAttachmentInput,
   PendingOutgoingMessage,
   AdapterSessionMode,
+  CodexApprovalPolicy,
   SessionCreationDefaults,
   SelectablePermissionMode,
 } from '@shared/types';
@@ -129,6 +130,22 @@ export const adaptersApi = {
     options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSetSessionModelOptions, agentId, sessionId, options),
+
+  /**
+   * Persist a Codex approval policy and apply it to the next app-server turn. The active turn is
+   * not interrupted; failures roll the session record and live thread options back.
+   */
+  setCodexApprovalPolicy: (
+    agentId: string,
+    sessionId: string,
+    policy: CodexApprovalPolicy,
+  ): Promise<void> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterSetCodexApprovalPolicy,
+      agentId,
+      sessionId,
+      policy,
+    ),
 
   /**
    * Codex sandbox 切换。IPC 名称沿用 restartWithCodexSandbox 兼容旧调用方；app-server

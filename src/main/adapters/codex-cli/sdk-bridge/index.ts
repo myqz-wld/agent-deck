@@ -19,6 +19,7 @@ import { SessionModelController } from '@main/adapters/session-model-controller'
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
 import type {
+  CodexApprovalPolicy,
   PermissionRequest,
   PermissionResponse,
   ProviderUsageSnapshot,
@@ -168,6 +169,12 @@ export class CodexSdkBridge {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
         internal.thread.updateSandboxMode(sandbox, sandboxOpts);
+        return true;
+      },
+      applyLiveApprovalPolicy: (sessionId, policy) => {
+        const internal = this.sessions.get(sessionId);
+        if (!internal) return false;
+        internal.thread.updateApprovalPolicy(policy);
         return true;
       },
     };
@@ -357,6 +364,13 @@ export class CodexSdkBridge {
     handoffPrompt: string,
   ): Promise<string> {
     return this.restartController.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
+  }
+
+  async setCodexApprovalPolicy(
+    sessionId: string,
+    policy: CodexApprovalPolicy,
+  ): Promise<void> {
+    await this.restartController.setCodexApprovalPolicy(sessionId, policy);
   }
 
   async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {

@@ -99,24 +99,22 @@ export interface CreateSessionOpts {
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
    * codex SDK startThread/resumeThread `approvalPolicy` 透传。
    *
-   * Undefined is intentionally omitted so normal sessions inherit Codex config. Internal
-   * unattended reviewers still pass `never` explicitly. Agent Deck handles provider-initiated
-   * approval requests for interactive policies.
+   * Ordinary targets resolve to `on-request` before this boundary. An explicit caller value or
+   * persisted same-adapter value may replace it; reviewer names do not affect the result.
+   * Agent Deck handles provider-initiated approval requests for interactive policies.
    */
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /**
-   * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `networkAccessEnabled` 透传。
-   * bridge 不主动 enforce default — undefined 沿用 SDK 默认；options-builder 在 reviewer-*
-   * 路径下 spread true 让 reviewer 跨网络访问稳定（reviewer-codex web search /
-   * Claude-family reviewer SDK fetch 工具）。
+   * codex SDK startThread `networkAccessEnabled` 透传。bridge 不主动 enforce default；
+   * undefined 沿用 SDK 默认。只有 trusted lifecycle caller 的显式值或持久化值会到达这里，
+   * reviewer 名称不注入网络权限。
    */
   networkAccessEnabled?: boolean;
   /**
-   * plan §P3 Step 3.5 + §不变量 6: codex SDK startThread `additionalDirectories` 透传，
-   * 让 codex sandbox=workspace-write 档位额外允许的可读写根。bridge 不主动 enforce default —
-   * undefined 沿用 SDK 默认（无额外路径）；options-builder 在 reviewer-* 路径下 spread
-   * `['~/.claude', '~/.codex', '/tmp']`（options-builder.ts SSOT;`/tmp` 供 reviewer shell
-   * 工具调用 / sandbox-exec 中间文件路由，spike4 实证缺 `/tmp` 时 codex sandbox-exec 拒读）。
+   * codex SDK startThread `additionalDirectories` 透传，让 codex sandbox=workspace-write
+   * 档位额外允许指定根。bridge 不主动 enforce default；undefined 沿用 SDK 默认（无额外
+   * 路径）。只有 trusted lifecycle caller 的显式值或持久化值会到达这里，reviewer 名称
+   * 不注入额外目录。
    */
   additionalDirectories?: readonly string[];
   /**

@@ -9,6 +9,7 @@ import { settingsStore } from '@main/store/settings-store';
 import { omitUndefined } from '@main/utils/optional-fields';
 import type {
   AdapterSessionMode,
+  CodexApprovalPolicy,
   SelectablePermissionMode,
   SessionAdapterId,
   SessionRecord,
@@ -25,6 +26,7 @@ export interface HandOffTargetRequest {
   model?: unknown;
   thinking?: unknown;
   permissionMode?: SelectablePermissionMode;
+  approvalPolicy?: CodexApprovalPolicy;
   sessionMode?: AdapterSessionMode | null;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
@@ -171,14 +173,17 @@ export function resolveHandOffTarget(input: {
         ? [...(source.additionalDirectories ?? [])]
         : [];
   const codexApprovalPolicy =
-    request.adapter === 'codex-cli' && sameAdapter
-      ? source.codexApprovalPolicy ?? null
+    request.adapter === 'codex-cli'
+      ? request.approvalPolicy ??
+        (sameAdapter ? source.codexApprovalPolicy ?? undefined : undefined) ??
+        'on-request'
       : null;
   const createOptions = buildCreateSessionOptions(request.adapter, {
     cwd: request.cwd,
     ...modelOptions,
     ...omitUndefined({
       permissionMode,
+      approvalPolicy: codexApprovalPolicy ?? undefined,
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
@@ -195,12 +200,8 @@ export function resolveHandOffTarget(input: {
     ...(extraAllowWrite.length > 0 ? { extraAllowWrite } : {}),
     ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
   });
-  // Public spawn deliberately reserves these fields for reviewer defaults, but authenticated
-  // handoff must preserve the already-persisted Codex runtime exactly across replacement.
+  // Preserve trusted Codex runtime access fields that are not part of the generic builder.
   if (createOptions.agentId === 'codex-cli') {
-    if (codexApprovalPolicy !== null) {
-      createOptions.approvalPolicy = codexApprovalPolicy;
-    }
     if (networkAccessEnabled !== null) {
       createOptions.networkAccessEnabled = networkAccessEnabled;
     }

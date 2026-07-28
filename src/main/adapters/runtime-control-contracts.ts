@@ -6,6 +6,7 @@ export const ADAPTER_TARGET_RUNTIME_FIELDS = [
   'model',
   'thinking',
   'permissionMode',
+  'approvalPolicy',
   'sessionMode',
   'codexSandbox',
   'claudeCodeSandbox',
@@ -35,6 +36,7 @@ export function targetRuntimeFieldsForAdapter(
   if (profile.runtimeControls.providerOverride !== 'none') fields.push('provider');
   if (profile.capabilities.canSetSessionModelOptions) fields.push('model', 'thinking');
   if (profile.capabilities.canSetPermissionMode) fields.push('permissionMode');
+  if (profile.runtimeControls.sandbox === 'codex') fields.push('approvalPolicy');
   if (profile.capabilities.canSetSessionMode) fields.push('sessionMode');
   if (profile.runtimeControls.sandbox === 'codex') fields.push('codexSandbox');
   if (profile.runtimeControls.sandbox === 'claude') fields.push('claudeCodeSandbox');

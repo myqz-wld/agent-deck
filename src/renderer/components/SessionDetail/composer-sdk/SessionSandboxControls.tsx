@@ -3,8 +3,10 @@ import type { SessionRecord } from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { isGrokBuiltinSandboxProfile } from '@shared/grok-sandbox';
 import {
+  CODEX_APPROVAL_POLICY_OPTIONS,
   GROK_SANDBOX_MODE_OPTIONS,
   type ClaudeSandboxMode,
+  type CodexApprovalPolicyChoice,
   type CodexSandboxMode,
 } from '@renderer/lib/sandbox-options';
 import { DeckSelect } from '@renderer/components/DeckSelect';
@@ -27,6 +29,16 @@ export function SessionSandboxControls({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const disabled = busy || turnBusy || session.activity === 'waiting';
+
+  const changeCodexApproval = async (
+    next: CodexApprovalPolicyChoice,
+  ): Promise<void> => {
+    const current = session.codexApprovalPolicy ?? 'on-request';
+    if (next === current || busy) return;
+    await run(() =>
+      window.api.setCodexApprovalPolicy(session.agentId, session.id, next),
+    );
+  };
 
   const changeCodex = async (next: CodexSandboxMode): Promise<void> => {
     const current = session.codexSandbox ?? 'workspace-write';
@@ -95,13 +107,25 @@ export function SessionSandboxControls({
   return (
     <>
       {session.agentId === 'codex-cli' && (
-        <SelectRow
-          label="沙盒"
-          value={(session.codexSandbox ?? 'workspace-write') as CodexSandboxMode}
-          options={CODEX_SANDBOX_OPTIONS}
-          disabled={busy}
-          onChange={(next) => void changeCodex(next)}
-        />
+        <>
+          <SelectRow
+            label="审批"
+            value={
+              (session.codexApprovalPolicy ??
+                'on-request') as CodexApprovalPolicyChoice
+            }
+            options={CODEX_APPROVAL_POLICY_OPTIONS}
+            disabled={busy}
+            onChange={(next) => void changeCodexApproval(next)}
+          />
+          <SelectRow
+            label="沙盒"
+            value={(session.codexSandbox ?? 'workspace-write') as CodexSandboxMode}
+            options={CODEX_SANDBOX_OPTIONS}
+            disabled={busy}
+            onChange={(next) => void changeCodex(next)}
+          />
+        </>
       )}
       {session.agentId === 'claude-code' && (
         <SelectRow
@@ -121,7 +145,7 @@ export function SessionSandboxControls({
       )}
       <ErrorBanner
         message={error}
-        prefix={`${session.agentId === 'grok-build' ? 'Grok ' : ''}沙盒切换失败`}
+        prefix="运行时设置切换失败"
         onDismiss={() => setError(null)}
       />
     </>

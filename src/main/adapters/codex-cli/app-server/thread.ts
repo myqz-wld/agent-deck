@@ -84,6 +84,19 @@ export class CodexAppServerThread {
         : { mode: 'start', options };
   }
 
+  /** Apply an approval policy to subsequent turns without interrupting an active turn. */
+  updateApprovalPolicy(
+    approvalPolicy: CodexThreadOptions['approvalPolicy'] | null,
+  ): void {
+    const options: CodexThreadOptions = { ...this.mode.options };
+    if (approvalPolicy === null) delete options.approvalPolicy;
+    else options.approvalPolicy = approvalPolicy;
+    this.mode =
+      this.mode.mode === 'resume'
+        ? { mode: 'resume', threadId: this.mode.threadId, options }
+        : { mode: 'start', options };
+  }
+
   /** Apply model / effort to subsequent turns without interrupting an active turn. */
   async updateModelOptions(
     model: CodexThreadOptions['model'] | null,

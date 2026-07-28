@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import type {
   AgentEvent,
+  CodexApprovalPolicy,
   ProviderUsageSnapshot,
   PermissionResponse,
   RuntimeSelection,
@@ -35,10 +36,11 @@ const ADAPTER_ID = 'codex-cli';
  * - ✅ app-server native command / file / permission / MCP tool approval requests
  * - ❌ 通用 AskUserQuestion / ExitPlanMode（MCP tool approval 的 requestUserInput
  *   compatibility path 由 permission queue 单独承接）
- * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
+ * - ❌ 通用 setPermissionMode
+ * - ✅ Codex approvalPolicy 可持久化热切，下一次 turn/start 生效
  *
- * 新建会话的 approval policy 默认 `never`；caller 显式值和同 adapter 继承值优先。
- * reviewer 另加无人值守所需的网络与读取根。sandboxMode 默认 'workspace-write' 但
+ * 新建会话的 approval policy 默认 `on-request`；caller 显式值和同 adapter 继承值优先。
+ * reviewer 名称不隐式改变权限、审批或沙盒。sandboxMode 默认 'workspace-write' 但
  * **可被 settings.codexSandbox 覆盖**
  * （CHANGELOG_54 B-4：补齐 REVIEW_14「双 backend 沙盒对称」目标，让用户能在 read-only /
  * workspace-write / danger-full-access 三档间切）。靠 OS sandbox 兜底。
@@ -329,6 +331,15 @@ class CodexCliAdapter implements AgentAdapter {
     return this.bridge.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
   }
 
+  /** Persist a Codex approval policy and apply it to the next app-server turn. */
+  async setCodexApprovalPolicy(
+    sessionId: string,
+    policy: CodexApprovalPolicy,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    await this.bridge.setCodexApprovalPolicy(sessionId, policy);
+  }
+
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
   async summariseEvents(
     cwd: string,
@@ -351,7 +362,8 @@ class CodexCliAdapter implements AgentAdapter {
 
 /**
  * Typed export（D2）：caller `adapterRegistry.get('codex-cli')` 拿到本 class 实例后,
- * 自动暴露 codex 专属方法（restartWithCodexSandbox / setCodexCliPath 等）TS visible。
+ * 自动暴露 codex 专属方法（setCodexApprovalPolicy / restartWithCodexSandbox /
+ * setCodexCliPath 等）TS visible。
  */
 export type { CodexCliAdapter };
 export const codexCliAdapter: CodexCliAdapter = new CodexCliAdapter();

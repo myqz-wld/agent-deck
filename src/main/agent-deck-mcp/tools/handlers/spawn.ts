@@ -175,6 +175,7 @@ export const spawnSessionHandler = withMcpGuard(
       shouldInheritAdapterSettings,
       leadRecord,
       opts?.codexRuntimeAccess,
+      args.approvalPolicy,
     );
 
     // Build once before fork preflight. The provisional prompt is replaced in-place after the

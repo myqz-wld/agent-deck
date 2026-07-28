@@ -835,7 +835,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(description).toContain('Explicit runtime values and resolved Agent runtime values win');
     expect(description).toContain('persisted same-adapter caller');
     expect(description).toContain('cross-adapter targets use their own defaults');
-    expect(description).toContain('no explicit or inherited approval uses never');
+    expect(description).toContain('no explicit or inherited approval uses on-request');
+    expect(description).toContain('approvalPolicy is a public Codex-only override');
+    expect(description).toContain('agentName never injects runtime access');
     expect(description).toContain('grokSandbox belongs only to grok-build');
     expect(description).toContain('Managed requirements may override');
     expect(description).toContain('follow hint exactly');
@@ -1017,9 +1019,28 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       callerSessionId: 'lead',
     }, {});
     expect(parseResult(r).isError).toBeFalsy();
-    expect(createSessionCalls[0].approvalPolicy).toBe('never');
+    expect(createSessionCalls[0].approvalPolicy).toBe('on-request');
     expect(createSessionCalls[0].networkAccessEnabled).toBeUndefined();
     expect(createSessionCalls[0].additionalDirectories).toBeUndefined();
+  });
+
+  it('lets an explicit Codex approval policy override same-adapter inheritance', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'codex-cli',
+      codexApprovalPolicy: 'never',
+    });
+    const result = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'explicit approval task',
+      approvalPolicy: 'untrusted',
+      callerSessionId: 'lead',
+    }, {});
+
+    expect(parseResult(result).isError).toBeFalsy();
+    expect(createSessionCalls[0].approvalPolicy).toBe('untrusted');
   });
 
   it('same Grok adapter spawn inherits its requested native sandbox profile', async () => {

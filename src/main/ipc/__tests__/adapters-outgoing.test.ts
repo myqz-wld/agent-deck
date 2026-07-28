@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listPending: vi.fn(),
   removePending: vi.fn(),
   createSession: vi.fn(),
+  setCodexApprovalPolicy: vi.fn(),
   restartWithGrokSandbox: vi.fn(),
   resolveCreationDefaults: vi.fn(),
 }));
@@ -20,6 +21,7 @@ vi.mock('@main/adapters/registry', () => ({
       capabilities: {
         canAcceptAttachments: true,
         canSetPermissionMode: false,
+        canSetCodexApprovalPolicy: true,
         canSetSessionMode: false,
         canRestartWithGrokSandbox: true,
       },
@@ -27,6 +29,7 @@ vi.mock('@main/adapters/registry', () => ({
       sendMessage: vi.fn(),
       listPendingOutgoingMessages: mocks.listPending,
       removePendingOutgoingMessage: mocks.removePending,
+      setCodexApprovalPolicy: mocks.setCodexApprovalPolicy,
       restartWithGrokSandbox: mocks.restartWithGrokSandbox,
     }),
   },
@@ -73,6 +76,7 @@ describe('adapter outgoing queue IPC', () => {
     mocks.listPending.mockReturnValue([]);
     mocks.removePending.mockReturnValue(null);
     mocks.createSession.mockResolvedValue('codex-created');
+    mocks.setCodexApprovalPolicy.mockResolvedValue(undefined);
     mocks.restartWithGrokSandbox.mockResolvedValue('source');
     mocks.resolveCreationDefaults.mockResolvedValue({
       provider: 'openai',
@@ -211,15 +215,35 @@ describe('adapter outgoing queue IPC', () => {
     })).toThrow('approvalPolicy');
   });
 
-  it('defaults approvalPolicy to never when a non-UI caller supplies no override', async () => {
+  it('defaults approvalPolicy to on-request when a non-UI caller supplies no override', async () => {
     await expect(handler(IpcInvoke.AdapterCreateSession)(
       {},
       'codex-cli',
       { cwd: '/repo' },
     )).resolves.toBe('codex-created');
     expect(mocks.createSession).toHaveBeenCalledWith(
-      expect.objectContaining({ approvalPolicy: 'never' }),
+      expect.objectContaining({ approvalPolicy: 'on-request' }),
     );
+  });
+
+  it('validates and applies a live Codex approval-policy change', async () => {
+    await expect(handler(IpcInvoke.AdapterSetCodexApprovalPolicy)(
+      {},
+      'codex-cli',
+      'source',
+      'untrusted',
+    )).resolves.toBeUndefined();
+    expect(mocks.setCodexApprovalPolicy).toHaveBeenCalledWith(
+      'source',
+      'untrusted',
+    );
+
+    await expect(handler(IpcInvoke.AdapterSetCodexApprovalPolicy)(
+      {},
+      'codex-cli',
+      'source',
+      'always',
+    )).rejects.toThrow('approvalPolicy');
   });
 
   it('validates and resolves concrete new-session defaults at the IPC boundary', async () => {

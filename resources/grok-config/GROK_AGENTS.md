@@ -74,7 +74,7 @@ For complex or isolated changes, keep a durable plan containing the goal, invari
 
 Use Agent Deck's worktree tools when the task needs isolation. Work against the returned absolute path because entering a worktree does not change the current process directory.
 
-`hand_off_session` starts a fresh successor with a provider-neutral continuation context. Explicit runtime values win; omitted values inherit the complete persisted same-adapter runtime, while cross-adapter targets use their own defaults. A Codex target with no explicit or inherited approval uses `never`. Call hand-off only after source-side preparation is complete and as the final tool action. A successful result containing a successor session id transfers ownership; end the source turn immediately.
+`hand_off_session` starts a fresh successor with a provider-neutral continuation context. Explicit runtime values win; omitted values inherit the complete persisted same-adapter runtime, while cross-adapter targets use their own defaults. A Codex target with no explicit or inherited approval uses `on-request`. A `reviewer-*` agent name never injects runtime permissions; review skills pass an override only when the user explicitly requested it. Call hand-off only after source-side preparation is complete and as the final tool action. A successful result containing a successor session id transfers ownership; end the source turn immediately.
 
 ## Message Anchors And Recovery
 

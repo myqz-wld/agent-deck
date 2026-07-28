@@ -15,6 +15,7 @@ export function buildHandOffTargetRequest(
     ...(args.model !== undefined ? { model: args.model } : {}),
     ...(args.thinking !== undefined ? { thinking: args.thinking } : {}),
     ...(args.permissionMode !== undefined ? { permissionMode: args.permissionMode } : {}),
+    ...(args.approvalPolicy !== undefined ? { approvalPolicy: args.approvalPolicy } : {}),
     ...(args.sessionMode !== undefined ? { sessionMode: args.sessionMode } : {}),
     ...(args.codexSandbox !== undefined ? { codexSandbox: args.codexSandbox } : {}),
     ...(args.claudeCodeSandbox !== undefined

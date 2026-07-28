@@ -2,7 +2,7 @@
 // Phase 4 Step 4.9 拆分:AgentAdapter 主接口 declaration(纯 declaration)。
 // 收纳:AgentAdapter (init/shutdown/createSession/interruptSession/closeSession/
 // sendMessage/respondPermission/respondAskUserQuestion/respondExitPlanMode/
-// setPermissionMode/restartWithPermissionMode/restartWithCodexSandbox/
+// setPermissionMode/setCodexApprovalPolicy/restartWithPermissionMode/restartWithCodexSandbox/
 // restartWithClaudeCodeSandbox/listPending/listAllPending/setPermissionTimeoutMs/
 // setCodexCliPath/installIntegration/uninstallIntegration/integrationStatus/
 // receiveTeammateMessage/notifyTeammateEvent/summariseEvents)。
@@ -168,6 +168,15 @@ export interface AgentAdapter {
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
     handoffPrompt: string,
   ): Promise<string>;
+
+  /**
+   * Codex approval-policy next-turn apply. Persist the per-session choice and patch live thread
+   * options without interrupting the active turn. Failures must roll back both projections.
+   */
+  setCodexApprovalPolicy?(
+    sessionId: string,
+    policy: 'untrusted' | 'on-request' | 'never',
+  ): Promise<void>;
 
   /**
    * Claude Code OS 沙盒冷切（CHANGELOG_74）：销毁旧 SDK 子进程 + 用新档位 createSession

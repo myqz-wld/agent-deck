@@ -119,10 +119,27 @@ describe('resolveHandOffTarget', () => {
     });
     expect(codexResult.createOptions).toMatchObject({
       codexSandbox: 'danger-full-access',
-      approvalPolicy: 'never',
+      approvalPolicy: 'on-request',
     });
     expect(codexResult.spec).toMatchObject({
       sandbox: { kind: 'codex', mode: 'danger-full-access' },
+    });
+  });
+
+  it('lets an explicit Codex approval policy override same-adapter inheritance', () => {
+    const result = resolveHandOffTarget({
+      source: source(),
+      request: {
+        adapter: 'codex-cli',
+        cwd: '/target',
+        approvalPolicy: 'untrusted',
+      },
+      sourceMaxEventId: 42,
+    });
+
+    expect(result.createOptions).toMatchObject({
+      approvalPolicy: 'untrusted',
+      codexSandbox: 'read-only',
     });
   });
 
