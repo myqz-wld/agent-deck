@@ -8,14 +8,14 @@ import type { FloatingWindowState } from './_deps';
  * 四种组合都合法 — pin + 透明 / pin + 不透明 / 不 pin + 透明 / 不 pin + 不透明。
  *
  * **invalidate loop 启动决策** (CHANGELOG_24/35 + transparent/pin 解耦修复):
- * 在 macOS 的 `pin || transparent` 状态启 100ms 循环触发 `webContents.invalidate()`，
- * 作为 native surface 活性兜底。透明模式从 pin 解耦后，loop 也必须跟随透明状态，不能
- * 只跟随 pin。
+ * 在 macOS 的 `pin || transparent` 状态启 100ms 循环触发 Chromium 重绘；透明态额外
+ * 调 Electron 的 `BrowserWindow.invalidateShadow()` 清理 macOS 透明窗口动画期间可能
+ * 留下的原生残影。透明模式从 pin 解耦后，loop 也必须跟随透明状态，不能只跟随 pin。
  *
- * **注意**: `invalidate()` 不是滚动残影的根治。它能要求 Chromium 重绘，但不会重建 macOS
- * transparent NSWindow 的完整 surface；若 renderer 根节点带 backdrop-filter，滚动内容会
- * 位于独立 filter render pass 中，旧 native surface 仍可能持续显示，只有 resize 才清掉。
- * globals.css 的透明态因此直接禁用 backdrop-filter，让滚动层通过普通 alpha surface 提交。
+ * **注意**: `webContents.invalidate()` 只要求 Chromium 重绘，`invalidateShadow()` 则处理
+ * macOS 透明窗口的 native 残影，两者负责不同层级。globals.css 的透明态仍需禁用
+ * backdrop-filter，让滚动层通过普通 alpha surface 提交；状态切换时的 1px resize 继续
+ * 作为完整 ViewSizeChanged 兜底。
  *
  * CHANGELOG_35 调整:
  * - 200ms (5fps) → 100ms (10fps):动态场景几乎察觉不到延迟,GPU 开销仍可忽略
@@ -80,10 +80,12 @@ export function kickCompositorRepaint(state: FloatingWindowState): void {
   // 比对 (state.win === capturedWin) 守门,保留旧 width/height (by design) 但目标 window 固定。
   const capturedWin = w;
   const [width, height] = capturedWin.getContentSize();
+  capturedWin.invalidateShadow();
   capturedWin.setContentSize(width, height + 1);
   setImmediate(() => {
     if (state.win !== capturedWin || capturedWin.isDestroyed()) return;
     capturedWin.setContentSize(width, height);
+    capturedWin.invalidateShadow();
   });
 }
 
@@ -97,6 +99,7 @@ export function startInvalidateLoop(state: FloatingWindowState): void {
       return;
     }
     w.webContents.invalidate();
+    if (state.windowTransparent) w.invalidateShadow();
   }, 100);
 }
 
