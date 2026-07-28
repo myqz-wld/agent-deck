@@ -11,7 +11,9 @@ import { AGENT_ID } from './constants';
 type ApprovalMethod =
   | 'item/commandExecution/requestApproval'
   | 'item/fileChange/requestApproval'
+  | 'item/tool/requestUserInput'
   | 'item/permissions/requestApproval'
+  | 'mcpServer/elicitation/request'
   | 'execCommandApproval'
   | 'applyPatchApproval';
 
@@ -27,10 +29,19 @@ interface ParsedApproval {
 const APPROVAL_METHODS = new Set<ApprovalMethod>([
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
+  'item/tool/requestUserInput',
   'item/permissions/requestApproval',
+  'mcpServer/elicitation/request',
   'execCommandApproval',
   'applyPatchApproval',
 ]);
+
+const MCP_TOOL_APPROVAL_QUESTION_PREFIX = 'mcp_tool_call_approval_';
+const MCP_TOOL_APPROVAL_KIND = 'mcp_tool_call';
+const MCP_TOOL_ALLOW = 'Allow';
+const MCP_TOOL_ALLOW_FOR_SESSION = 'Allow for this session';
+const MCP_TOOL_DECLINE = '__codex_mcp_decline__';
+const MCP_TOOL_CANCEL = 'Cancel';
 
 export class CodexPermissionController {
   constructor(
@@ -170,6 +181,8 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
         deny: () => ({ decision: 'decline' }),
         cancel: () => ({ decision: 'cancel' }),
       };
+    case 'item/tool/requestUserInput':
+      return parseMcpToolRequestUserInput(params);
     case 'item/permissions/requestApproval': {
       const requested = asRecord(params.permissions);
       const granted = compactGrantedPermissions(requested);
@@ -185,11 +198,108 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
         cancel: () => ({ permissions: {}, scope: 'turn' }),
       };
     }
+    case 'mcpServer/elicitation/request':
+      return parseMcpToolElicitation(params);
     case 'execCommandApproval':
       return legacyApproval('Codex command', params);
     case 'applyPatchApproval':
       return legacyApproval('Codex file change', params);
   }
+}
+
+interface McpToolApprovalQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options: Array<{ label: string; description: string }>;
+  supportsSession: boolean;
+}
+
+function parseMcpToolRequestUserInput(
+  params: Record<string, unknown>,
+): ParsedApproval | null {
+  if (!Array.isArray(params.questions) || params.questions.length === 0) return null;
+  const questions: McpToolApprovalQuestion[] = [];
+  for (const rawQuestion of params.questions) {
+    const question = asRecord(rawQuestion);
+    const id = typeof question.id === 'string' ? question.id : '';
+    if (!id.startsWith(MCP_TOOL_APPROVAL_QUESTION_PREFIX)) return null;
+    if (!Array.isArray(question.options)) return null;
+    const options = question.options.flatMap((rawOption) => {
+      const option = asRecord(rawOption);
+      if (typeof option.label !== 'string') return [];
+      return [{
+        label: option.label,
+        description: typeof option.description === 'string' ? option.description : '',
+      }];
+    });
+    const labels = new Set(options.map((option) => option.label));
+    if (!labels.has(MCP_TOOL_ALLOW) || !labels.has(MCP_TOOL_CANCEL)) return null;
+    questions.push({
+      id,
+      header: typeof question.header === 'string' ? question.header : '',
+      question: typeof question.question === 'string' ? question.question : '',
+      options,
+      supportsSession: labels.has(MCP_TOOL_ALLOW_FOR_SESSION),
+    });
+  }
+
+  const answers = (labelFor: (question: McpToolApprovalQuestion) => string) => ({
+    answers: Object.fromEntries(
+      questions.map((question) => [
+        question.id,
+        { answers: [labelFor(question)] },
+      ]),
+    ),
+  });
+  const supportsAlways = questions.every((question) => question.supportsSession);
+  return {
+    toolName: 'Codex MCP 工具调用',
+    toolInput: {
+      itemId: params.itemId,
+      questions: questions.map(({ header, question, options }) => ({
+        header,
+        question,
+        options,
+      })),
+    },
+    supportsAlways,
+    allow: (always) =>
+      answers((question) =>
+        always && question.supportsSession
+          ? MCP_TOOL_ALLOW_FOR_SESSION
+          : MCP_TOOL_ALLOW),
+    deny: () => answers(() => MCP_TOOL_DECLINE),
+    cancel: () => ({ answers: {} }),
+  };
+}
+
+function parseMcpToolElicitation(
+  params: Record<string, unknown>,
+): ParsedApproval | null {
+  if (params.mode !== 'form' && params.mode !== 'openai/form') return null;
+  const meta = asRecord(params._meta ?? params.meta);
+  if (meta.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND) return null;
+  const persist = meta.persist;
+  const supportsAlways =
+    persist === 'session' ||
+    (Array.isArray(persist) && persist.includes('session'));
+  return {
+    toolName: 'Codex MCP 工具调用',
+    toolInput: {
+      serverName: params.serverName,
+      message: params.message,
+      _meta: meta,
+    },
+    supportsAlways,
+    allow: (always) => ({
+      action: 'accept',
+      content: null,
+      _meta: always && supportsAlways ? { persist: 'session' } : null,
+    }),
+    deny: () => ({ action: 'decline', content: null, _meta: null }),
+    cancel: () => ({ action: 'cancel', content: null, _meta: null }),
+  };
 }
 
 function legacyApproval(

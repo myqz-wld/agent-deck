@@ -125,6 +125,154 @@ describe('CodexPermissionController', () => {
     });
   });
 
+  it('routes MCP requestUserInput approvals through the permission queue', async () => {
+    const active = makeSession();
+    const { controller } = makeController();
+    const question = {
+      id: 'mcp_tool_call_approval_call-1',
+      header: 'Approve app tool call?',
+      question: 'Allow the agent-deck MCP server to run tool "shutdown_session"?',
+      isOther: false,
+      isSecret: false,
+      options: [
+        { label: 'Allow', description: 'Run the tool and continue.' },
+        {
+          label: 'Allow for this session',
+          description: 'Run the tool and remember this choice for this session.',
+        },
+        { label: 'Cancel', description: 'Cancel this tool call.' },
+      ],
+    };
+    const request = {
+      id: 'mcp-approval-1',
+      method: 'item/tool/requestUserInput',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'call-1',
+        questions: [question],
+        autoResolutionMs: null,
+      },
+    };
+
+    const once = controller.handle(active, request, new AbortController().signal);
+    const [onceRequest] = controller.list(active);
+    expect(onceRequest).toMatchObject({
+      type: 'permission-request',
+      toolName: 'Codex MCP 工具调用',
+      toolInput: {
+        itemId: 'call-1',
+        questions: [{
+          header: 'Approve app tool call?',
+          question: 'Allow the agent-deck MCP server to run tool "shutdown_session"?',
+        }],
+      },
+      suggestions: { scope: 'session' },
+    });
+    controller.respond(active, onceRequest.requestId, { decision: 'allow' });
+    await expect(Promise.resolve(once)).resolves.toEqual({
+      handled: true,
+      result: {
+        answers: {
+          [question.id]: { answers: ['Allow'] },
+        },
+      },
+    });
+
+    const session = controller.handle(
+      active,
+      { ...request, id: 'mcp-approval-2' },
+      new AbortController().signal,
+    );
+    const [sessionRequest] = controller.list(active);
+    controller.respond(active, sessionRequest.requestId, {
+      decision: 'allow',
+      updatedPermissions: sessionRequest.suggestions,
+    });
+    await expect(Promise.resolve(session)).resolves.toEqual({
+      handled: true,
+      result: {
+        answers: {
+          [question.id]: { answers: ['Allow for this session'] },
+        },
+      },
+    });
+
+    const denied = controller.handle(
+      active,
+      { ...request, id: 'mcp-approval-3' },
+      new AbortController().signal,
+    );
+    const [deniedRequest] = controller.list(active);
+    controller.respond(active, deniedRequest.requestId, { decision: 'deny' });
+    await expect(Promise.resolve(denied)).resolves.toEqual({
+      handled: true,
+      result: {
+        answers: {
+          [question.id]: { answers: ['__codex_mcp_decline__'] },
+        },
+      },
+    });
+
+    const aborter = new AbortController();
+    const cancelled = controller.handle(
+      active,
+      { ...request, id: 'mcp-approval-4' },
+      aborter.signal,
+    );
+    aborter.abort();
+    await expect(Promise.resolve(cancelled)).resolves.toEqual({
+      handled: true,
+      result: { answers: {} },
+    });
+  });
+
+  it('routes MCP approval elicitations and preserves session-scoped approval', async () => {
+    const active = makeSession();
+    const { controller } = makeController();
+    const request = {
+      id: 'mcp-elicitation-1',
+      method: 'mcpServer/elicitation/request',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        serverName: 'agent-deck',
+        mode: 'form',
+        _meta: {
+          codex_approval_kind: 'mcp_tool_call',
+          persist: ['session', 'always'],
+          tool_name: 'hand_off_session',
+        },
+        message: 'Allow the agent-deck MCP server to run tool "hand_off_session"?',
+        requestedSchema: { type: 'object', properties: {} },
+      },
+    };
+
+    const pending = controller.handle(active, request, new AbortController().signal);
+    const [permission] = controller.list(active);
+    expect(permission).toMatchObject({
+      toolName: 'Codex MCP 工具调用',
+      toolInput: {
+        serverName: 'agent-deck',
+        message: 'Allow the agent-deck MCP server to run tool "hand_off_session"?',
+      },
+      suggestions: { scope: 'session' },
+    });
+    controller.respond(active, permission.requestId, {
+      decision: 'allow',
+      updatedPermissions: permission.suggestions,
+    });
+
+    await expect(Promise.resolve(pending)).resolves.toEqual({
+      handled: true,
+      result: {
+        action: 'accept',
+        content: null,
+        _meta: { persist: 'session' },
+      },
+    });
+  });
+
   it('maps legacy denial and timeout to the exact app-server response vocabulary', async () => {
     const active = makeSession();
     const { controller } = makeController();
@@ -198,6 +346,19 @@ describe('CodexPermissionController', () => {
     expect(controller.handle(
       active,
       { id: 6, method: 'item/tool/requestUserInput', params: {} },
+      new AbortController().signal,
+    )).toEqual({ handled: false });
+    expect(controller.handle(
+      active,
+      {
+        id: 7,
+        method: 'mcpServer/elicitation/request',
+        params: {
+          mode: 'form',
+          _meta: { purpose: 'collect-project-name' },
+          message: 'Project name?',
+        },
+      },
       new AbortController().signal,
     )).toEqual({ handled: false });
     expect(controller.list(active)).toEqual([]);

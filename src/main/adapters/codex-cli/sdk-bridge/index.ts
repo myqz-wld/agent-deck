@@ -64,7 +64,8 @@ export type { CodexSessionHandle, CodexBridgeOptions } from './types';
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
  *
  * - app-server native approval requests bridge into Agent Deck's permission UI
- * - 无 AskUserQuestion / ExitPlanMode（codex 不使用 Claude 工具状态机）
+ * - 无通用 AskUserQuestion / ExitPlanMode；MCP tool approval 的 requestUserInput
+ *   compatibility path 复用 permission queue
  * - 无 setPermissionMode（同上）
  * - 无 hook 通道时序竞争（codex 无 hook），不调 sessionManager.expectSdkSession
  * - 同一 thread 不能并发 turn（codex CLI 共享 ~/.codex/sessions 文件），用 pendingMessages 串行
