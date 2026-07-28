@@ -8,6 +8,7 @@ import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { sessionManager } from '@main/session/manager';
 import { getProviderUsageProbeCwd } from '@main/paths';
 import log from '@main/utils/logger';
+import type { InternalSession } from './sdk-bridge/types';
 
 const logger = log.scope('claude-usage');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
@@ -22,6 +23,30 @@ export interface ClaudeUsageProbeDeps {
   cwd?: string;
   timeoutMs?: number;
   hookClaimHoldMs?: number;
+}
+
+export async function readClaudeBridgeUsageSnapshot(
+  sessions: ReadonlyMap<string, InternalSession>,
+  readBackground: () => Promise<ProviderUsageSnapshot> =
+    readClaudeUsageSnapshotInBackground,
+): Promise<ProviderUsageSnapshot> {
+  const session = [...sessions.values()]
+    .reverse()
+    .find(
+      (candidate) =>
+        !candidate.expectedClose &&
+        typeof candidate.query?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET ===
+          'function',
+    );
+  if (!session) return readBackground();
+  try {
+    const usage =
+      await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
+    return buildClaudeUsageSnapshot(usage);
+  } catch (error) {
+    logger.warn('[claude-bridge] usage snapshot failed:', error);
+    return errorUsageSnapshot('claude-code', 'Claude', error);
+  }
 }
 
 /**

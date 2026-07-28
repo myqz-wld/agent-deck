@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { methods } from '@agentclientprotocol/sdk';
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import type {
   AgentEnqueueOptions,
   GrokCreateOpts,
@@ -36,10 +35,10 @@ import {
   startGrokRuntimeInBackground,
   type GrokRuntimeStartContext,
 } from './runtime-start';
-import { clearGrokTurnLiveRate } from './translate';
 import { readGrokUsageSnapshotInBackground } from './usage-snapshot';
 import { probeGrokImageCapability } from './capability-probe';
 import { GrokSandboxRestartController } from './sandbox-restart-controller';
+import { GrokRuntimeLifecycleCoordinator } from './runtime-lifecycle-coordinator';
 
 const AGENT_ID = 'grok-build';
 
@@ -55,6 +54,7 @@ export class GrokBuildBridge {
   private readonly permissionController: GrokPermissionController;
   private readonly turnQueue: GrokTurnQueue;
   private readonly sandboxRestartController: GrokSandboxRestartController;
+  private readonly lifecycle: GrokRuntimeLifecycleCoordinator;
   private binaryPath: string | null;
 
   constructor(private readonly options: GrokBuildBridgeOptions) {
@@ -69,6 +69,11 @@ export class GrokBuildBridge {
       emitError: (sessionId, text) => this.emitError(sessionId, text),
       closeSession: (sessionId) => this.closeSession(sessionId),
     });
+    this.lifecycle = new GrokRuntimeLifecycleCoordinator(
+      this.runtimes,
+      this.permissionController,
+      (runtime) => this.turnQueue.cancelSubmittingInterjection(runtime),
+    );
     this.sandboxRestartController = new GrokSandboxRestartController({
       getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
       start: (runtime) => this.startRuntime(runtime),
@@ -208,37 +213,19 @@ export class GrokBuildBridge {
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    const runtime = this.runtimes.get(sessionId);
-    if (!runtime) return;
-    this.turnQueue.cancelSubmittingInterjection(runtime);
-    if (!runtime.process || !runtime.nativeSessionId) return;
-    await runtime.process.connection.agent.notify(methods.agent.session.cancel, {
-      sessionId: runtime.nativeSessionId,
-    });
-    this.permissionController.cancel(runtime);
+    await this.lifecycle.interrupt(sessionId);
   }
 
   async closeSession(sessionId: string): Promise<void> {
-    const runtime = this.runtimes.get(sessionId);
-    if (!runtime) {
-      mcpSessionTokenMap.release(sessionId);
-      sessionManager.releaseSdkClaim(sessionId);
-      return;
-    }
-    runtime.closed = true;
-    runtime.sealed = true;
-    runtime.queue.length = 0;
-    runtime.submittingMessage?.requestController?.abort();
-    runtime.submittingMessage = null;
-    await this.disposeRuntime(runtime);
+    await this.lifecycle.closeOrdinary(sessionId);
+  }
+
+  async closeSessionForRollback(sessionId: string): Promise<void> {
+    await this.lifecycle.closeForRollback(sessionId);
   }
 
   retireSessionAfterCurrentTurn(sessionId: string): void {
-    const runtime = this.runtimes.get(sessionId);
-    if (!runtime) return;
-    runtime.sealed = true;
-    runtime.queue.length = 0;
-    if (!runtime.running) void this.closeSession(sessionId);
+    this.lifecycle.retireAfterCurrentTurn(sessionId);
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
@@ -340,9 +327,7 @@ export class GrokBuildBridge {
   }
 
   async shutdown(): Promise<void> {
-    await Promise.allSettled(
-      [...this.runtimes.values()].map((runtime) => this.disposeRuntime(runtime)),
-    );
+    await this.lifecycle.shutdownAll();
   }
 
   private async startRuntime(runtime: GrokRuntime): Promise<boolean> {
@@ -456,28 +441,11 @@ export class GrokBuildBridge {
   }
 
   private async disposeRuntime(runtime: GrokRuntime): Promise<void> {
-    if (runtime.disposed) return;
-    runtime.disposed = true;
-    runtime.closed = true;
-    runtime.ready = false;
-    runtime.sealed = true;
-    runtime.submittingMessage?.requestController?.abort();
-    runtime.submittingMessage = null;
-    clearGrokTurnLiveRate(runtime.translation);
-    this.permissionController.cancel(runtime);
-    const ownsRuntime = this.isCurrentRuntime(runtime);
-    if (ownsRuntime) {
-      this.runtimes.delete(runtime.applicationSessionId);
-      mcpSessionTokenMap.release(runtime.applicationSessionId);
-      sessionManager.releaseSdkClaim(runtime.applicationSessionId);
-    }
-    const process = runtime.process;
-    runtime.process = null;
-    if (process) await process.stop();
+    await this.lifecycle.disposeOrdinary(runtime);
   }
 
   private isCurrentRuntime(runtime: GrokRuntime): boolean {
-    return this.runtimes.get(runtime.applicationSessionId) === runtime;
+    return this.lifecycle.isCurrent(runtime);
   }
 
   private requireRuntime(sessionId: string): GrokRuntime {

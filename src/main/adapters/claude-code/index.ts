@@ -143,7 +143,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
       providerName: 'Claude',
       createChild: (forkedNativeSessionId) =>
         this.createSession({ ...target, resume: forkedNativeSessionId }),
-      closeChild: (sessionId) => bridge.closeSession(sessionId),
+      closeChild: (sessionId) => bridge.closeSessionForRollback(sessionId),
       deleteChild: (sessionId) => sessionManager.delete(sessionId),
     });
   }
@@ -156,6 +156,11 @@ class ClaudeCodeAdapter implements AgentAdapter {
   async closeSession(sessionId: string): Promise<void> {
     if (!this.bridge) return;
     await this.bridge.closeSession(sessionId);
+  }
+
+  async closeSessionForRollback(sessionId: string): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.closeSessionForRollback(sessionId);
   }
 
   retireSessionAfterCurrentTurn(sessionId: string): void {

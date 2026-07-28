@@ -177,6 +177,54 @@ describe('Codex native fork lifecycle', () => {
     assertSourceUntouched(h);
   });
 
+  it('attempts every cleanup phase and rejects an idempotent incomplete discard', async () => {
+    const h = makeHarness();
+    const handle = await createCodexForkedSession(h.source, h.target, h.deps);
+    vi.mocked(h.targetClient.deleteThread).mockRejectedValueOnce(
+      new Error('native delete failed'),
+    );
+    vi.mocked(h.deps.lifecycle.deleteSession).mockRejectedValueOnce(
+      new Error('application delete failed'),
+    );
+    h.deps.lifecycle.releaseClaim = vi.fn(() => {
+      throw new Error('claim release failed');
+    });
+    h.deps.lifecycle.releaseToken = vi.fn(() => {
+      throw new Error('token release failed');
+    });
+    vi.mocked(h.targetClient.dispose).mockImplementationOnce(() => {
+      throw new Error('client dispose failed');
+    });
+
+    await expect(handle.discard()).rejects.toThrow(/discard incomplete/);
+    await expect(handle.discard()).rejects.toThrow(/discard incomplete/);
+
+    expect(h.targetClient.deleteThread).toHaveBeenCalledTimes(1);
+    expect(h.deps.lifecycle.deleteSession).toHaveBeenCalled();
+    expect(h.deps.lifecycle.releaseClaim).toHaveBeenCalled();
+    expect(h.deps.lifecycle.releaseToken).toHaveBeenCalled();
+    expect(h.targetClient.dispose).toHaveBeenCalledTimes(1);
+    assertSourceUntouched(h);
+  });
+
+  it('preserves both creation and cleanup failures', async () => {
+    const h = makeHarness({ faultPhase: 'after-native-creation' });
+    vi.mocked(h.targetClient.deleteThread).mockRejectedValueOnce(
+      new Error('native delete failed'),
+    );
+
+    let thrown: unknown;
+    try {
+      await createCodexForkedSession(h.source, h.target, h.deps);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toHaveLength(2);
+    assertSourceUntouched(h);
+  });
+
   it.each([
     'before-native-creation',
     'after-native-creation',

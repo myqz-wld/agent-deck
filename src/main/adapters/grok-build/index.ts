@@ -160,6 +160,11 @@ export class GrokBuildAdapter implements AgentAdapter {
     await this.bridge?.closeSession(sessionId);
   }
 
+  async closeSessionForRollback(sessionId: string): Promise<void> {
+    if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
+    await this.bridge.closeSessionForRollback(sessionId);
+  }
+
   retireSessionAfterCurrentTurn(sessionId: string): void {
     this.bridge?.retireSessionAfterCurrentTurn(sessionId);
   }

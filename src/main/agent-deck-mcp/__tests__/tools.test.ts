@@ -122,6 +122,7 @@ vi.mock('@main/session/hand-off/ownership', () => ({
 }));
 
 const closeCalls: string[] = [];
+const strictRollbackCloseCalls: string[] = [];
 let closeThrow: Error | null = null;
 const recordPermCalls: Array<{ sid: string; mode: string | undefined }> = [];
 const notifyTeamCalls: string[] = [];
@@ -296,6 +297,9 @@ vi.mock('@main/adapters/registry', () => ({
         },
         sendMessage: async (sid: string, text: string) => {
           sendMessageCalls.push({ sid, text });
+        },
+        closeSessionForRollback: async (sid: string) => {
+          strictRollbackCloseCalls.push(sid);
         },
       };
     },
@@ -590,6 +594,7 @@ beforeEach(async () => {
   listActiveAndDormantCalls.length = 0;
   addMemberCalls.length = 0;
   closeCalls.length = 0;
+  strictRollbackCloseCalls.length = 0;
   closeThrow = null;
   notifyTeamCalls.length = 0;
   recordPermCalls.length = 0;
@@ -1361,7 +1366,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/team setup failed/);
-    // 孤儿 session 被 close
+    // provider strict close 与 durable sessionManager.close 两层证明都发生。
+    expect(strictRollbackCloseCalls).toContain('spawned-1');
     expect(closeCalls).toContain('spawned-1');
     // 本次新建空 team 被 hardDelete（teamCreatedNow=true，lead 已加成功后 teammate 失败，
     // 但 cleanup 前 re-verify listAllMembers — lead 在表里所以实际不删；改测「未撞 cleanup 错」

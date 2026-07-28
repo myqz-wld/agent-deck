@@ -16,7 +16,7 @@ const state = vi.hoisted(() => ({
   ensureTeamCalls: [] as Array<string | undefined>,
   membershipCalls: [] as string[],
   cleanupCalls: [] as string[],
-  linkCalls: [] as Array<{ sid: string; parent: string; depth: number }>,
+  linkCalls: [] as Array<{ sid: string; parent: string | null; depth: number }>,
   placeholders: [] as Array<{ id: string; teamId: string | null; fromSessionId: string; toSessionId: string; body: string }>,
   order: [] as string[],
   nextChild: 1,
@@ -28,7 +28,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
     get: (sid: string) => state.sessions.get(sid) ?? null,
-    setSpawnLink: (sid: string, parent: string, depth: number) => {
+    setSpawnLink: (sid: string, parent: string | null, depth: number) => {
       state.linkCalls.push({ sid, parent, depth });
       const child = state.sessions.get(sid);
       if (child) state.sessions.set(sid, { ...child, spawnedBy: parent, spawnDepth: depth });
@@ -40,6 +40,11 @@ vi.mock('@main/store/session-repo', () => ({
 vi.mock('@main/session/manager', () => ({
   sessionManager: {
     recordCreatedPermissionMode: vi.fn(),
+    close: async (sid: string) => {
+      state.order.push(`close:${sid}`);
+      const session = state.sessions.get(sid);
+      if (session) state.sessions.set(sid, { ...session, lifecycle: 'closed' });
+    },
   },
 }));
 
@@ -49,7 +54,20 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
       state.placeholders.push(input);
       return { ...input };
     },
-    markDelivered: vi.fn(),
+    get: (id: string) => state.placeholders.find((message) => message.id === id) ?? null,
+    markDelivered: (id: string) => ({ id, status: 'delivered' }),
+    cancel: vi.fn(),
+    batchHardDelete: (ids: readonly string[]) => {
+      const removed: string[] = [];
+      for (const id of ids) {
+        const index = state.placeholders.findIndex((message) => message.id === id);
+        if (index >= 0) {
+          state.placeholders.splice(index, 1);
+          removed.push(id);
+        }
+      }
+      return removed;
+    },
   },
 }));
 
@@ -88,6 +106,9 @@ vi.mock('@main/adapters/registry', () => ({
         createSession: async (target: CreateSessionOptions) => {
           state.createCalls.push({ ...target } as CreateSessionOptions);
           return registerChild(target);
+        },
+        closeSessionForRollback: async (sid: string) => {
+          state.order.push(`strict-close:${sid}`);
         },
         validateForkSession: async (source: ForkSessionSource, target: CreateSessionOptions) => {
           state.validateCalls.push({ source: { ...source }, target: { ...target } as CreateSessionOptions });
@@ -141,28 +162,40 @@ vi.mock('../tools/handlers/spawn-team', () => ({
   ensureSpawnTeam: (teamName: string | undefined) => {
     state.ensureTeamCalls.push(teamName);
     return {
+      ok: true,
       teamIdEarly: teamName ? `team-${teamName}` : null,
       teamCreatedNow: Boolean(teamName),
     };
   },
   cleanupEmptySpawnTeam: (input: { failureLabel: string }) => {
     state.cleanupCalls.push(input.failureLabel);
+    return { ok: true, removed: true, issues: [] };
   },
   completeSpawnTeamMembership: async (input: { sid: string; teamIdEarly: string | null }) => {
     state.membershipCalls.push(input.sid);
+    const teamState = {
+      teamId: input.teamIdEarly,
+      teamCreatedNow: input.teamIdEarly !== null,
+      callerSessionId: 'caller',
+      targetSessionId: input.sid,
+      callerMembershipWasActive: false,
+      targetMembershipWasActive: false,
+      callerMembershipAttempted: input.teamIdEarly !== null,
+      targetMembershipAttempted: input.teamIdEarly !== null,
+      callerMembershipIntroduced: input.teamIdEarly !== null,
+      targetMembershipIntroduced: input.teamIdEarly !== null,
+    };
     if (state.teamFailure) {
-      state.order.push(`close:${input.sid}`);
-      state.sessions.delete(input.sid);
       return {
         ok: false,
-        result: {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: 'team setup failed', hint: 'retry' }) }],
-        },
+        phase: 'team-membership',
+        error: new Error('team setup failed'),
+        teamState,
       };
     }
-    return { ok: true, teamId: input.teamIdEarly };
+    return { ok: true, teamId: input.teamIdEarly, teamState };
   },
+  rollbackSpawnTeamMembership: () => ({ ok: true, removed: true, issues: [] }),
 }));
 
 vi.mock('../tools/handlers/spawn-limits', () => ({
@@ -359,7 +392,11 @@ describe('spawn_session native-fork handler lifecycle', () => {
     const { raw } = await call('claude-code', 'fork', 'fork-team');
 
     expect(raw.isError).toBe(true);
-    expect(state.order).toEqual(['close:child-1', 'discard:child-1']);
+    expect(state.order).toEqual([
+      'strict-close:child-1',
+      'close:child-1',
+      'discard:child-1',
+    ]);
     expect(state.discardCalls).toEqual(['child-1']);
     expect(state.sessions.has('child-1')).toBe(false);
     expect(state.sessions.has('caller')).toBe(true);

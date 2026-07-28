@@ -1,6 +1,7 @@
 import type { CodexAppServerClient } from '../../app-server/client';
 import type { InternalSession } from '../types';
 import log from '@main/utils/logger';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
 
 const logger = log.scope('codex-fork-rollback');
 
@@ -32,17 +33,57 @@ export interface CodexForkCleanupDeps {
   lifecycle: CodexForkLifecycleOps;
 }
 
+export interface CodexForkCleanupIssue {
+  phase:
+    | 'child-abort'
+    | 'native-delete'
+    | 'application-delete'
+    | 'claim-release'
+    | 'token-release'
+    | 'client-dispose';
+  targetId: string;
+}
+
+export class CodexForkDiscardError extends Error {
+  readonly issues: readonly CodexForkCleanupIssue[];
+  readonly residualState = ['codex-fork-child-artifacts'] as const;
+
+  constructor(issues: readonly CodexForkCleanupIssue[]) {
+    super(
+      `Codex fork discard incomplete during ${[
+        ...new Set(issues.map((issue) => issue.phase)),
+      ].join(', ')}`,
+    );
+    this.name = 'CodexForkDiscardError';
+    this.issues = issues;
+  }
+}
+
 export async function cleanupCodexFork(
   state: CodexForkCleanupState,
   deps: CodexForkCleanupDeps,
 ): Promise<void> {
+  const issues: CodexForkCleanupIssue[] = [];
+  const recordIssue = (
+    phase: CodexForkCleanupIssue['phase'],
+    targetId: string,
+    error: unknown,
+  ): void => {
+    issues.push({ phase, targetId });
+    logger.warn('[codex-fork] cleanup step failed', safeDiagnostic({
+      phase,
+      outcome: 'failed',
+      targetId,
+      error,
+    }));
+  };
   const canonicalId = state.nativeChildId;
   if (state.internal) {
     state.internal.intentionallyClosed = true;
     try {
       state.internal.currentTurn?.abort();
     } catch (err) {
-      logger.warn('[codex-fork] child abort failed during cleanup', err);
+      recordIssue('child-abort', canonicalId ?? state.tempId, err);
     }
   }
 
@@ -54,7 +95,7 @@ export async function cleanupCodexFork(
     try {
       await deleteNativeChild(state.targetClient, canonicalId);
     } catch (err) {
-      logger.warn(`[codex-fork] thread/delete failed for child ${canonicalId}`, err);
+      recordIssue('native-delete', canonicalId, err);
     }
   }
 
@@ -65,7 +106,7 @@ export async function cleanupCodexFork(
       try {
         await deps.lifecycle.deleteSession(id);
       } catch (err) {
-        logger.warn(`[codex-fork] application session delete failed for ${id}`, err);
+        recordIssue('application-delete', id, err);
       }
     }
   }
@@ -78,12 +119,12 @@ export async function cleanupCodexFork(
     try {
       deps.lifecycle.releaseClaim(id);
     } catch (err) {
-      logger.warn(`[codex-fork] SDK claim release failed for ${id}`, err);
+      recordIssue('claim-release', id, err);
     }
     try {
       deps.lifecycle.releaseToken(id);
     } catch (err) {
-      logger.warn(`[codex-fork] MCP token release failed for ${id}`, err);
+      recordIssue('token-release', id, err);
     }
   }
 
@@ -91,9 +132,10 @@ export async function cleanupCodexFork(
     try {
       state.targetClient.dispose();
     } catch (err) {
-      logger.warn('[codex-fork] target client dispose failed during cleanup', err);
+      recordIssue('client-dispose', canonicalId ?? state.tempId, err);
     }
   }
+  if (issues.length > 0) throw new CodexForkDiscardError(issues);
 }
 
 /**
