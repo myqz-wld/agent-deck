@@ -73,6 +73,12 @@ beforeEach(() => {
       listAdapters: vi.fn().mockResolvedValue([
         { id: 'claude-code', displayName: 'Claude', capabilities: { canCreateSession: true } },
         { id: 'codex-cli', displayName: 'Codex', capabilities: { canCreateSession: true } },
+        {
+          id: 'grok-build',
+          displayName: 'Grok Build',
+          capabilities: { canCreateSession: true, canSetSessionMode: true },
+          sessionModes: ['default', 'plan', 'ask'],
+        },
       ]),
       handOffPrepare,
       handOffCommit,
@@ -139,6 +145,32 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     expect(
       (screen.getByRole('button', { name: '打开新会话接力' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it('prepares a Grok handoff with its own requested sandbox profile', async () => {
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByLabelText('目标 adapter'));
+    fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
+    fireEvent.click(screen.getByLabelText('Grok 沙盒请求档位'));
+    fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
+    fireEvent.change(screen.getByLabelText('Grok 自定义沙盒 profile'), {
+      target: { value: 'project-locked' },
+    });
+    fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {
+      target: { value: '由 Grok 继续。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成续接上下文' }));
+
+    await waitFor(() => {
+      expect(handOffPrepare).toHaveBeenCalledWith({
+        sourceSessionId: 'source-1',
+        continuationInstruction: '由 Grok 继续。',
+        target: expect.objectContaining({
+          adapter: 'grok-build',
+          grokSandbox: 'project-locked',
+        }),
+      });
+    });
   });
 
   it('keeps the dialog visible when the successor exists but source finalization failed', async () => {

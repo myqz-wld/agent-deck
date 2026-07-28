@@ -161,4 +161,35 @@ describe.skipIf(!bindingAvailable)('recovery continuation coordinator', () => {
     cleanupRecoveryContinuation(capture);
     expect(() => new ContinuationSourceSpoolStore(db).metadata(capture.spoolId)).toThrow(/not found/);
   });
+
+  it('includes a Grok requested sandbox profile in the recovery target fingerprint', () => {
+    const grokSession: SessionRecord = {
+      ...session(),
+      agentId: 'grok-build',
+      permissionMode: null,
+      sessionMode: 'ask',
+      claudeCodeSandbox: null,
+      grokSandbox: 'project-locked',
+      extraAllowWrite: [],
+    };
+    const inherited = captureRecoveryContinuation({ session: grokSession });
+    const overridden = captureRecoveryContinuation({
+      session: grokSession,
+      overrides: { grokSandbox: 'strict' },
+    });
+
+    expect(inherited.target.sandbox).toEqual({
+      kind: 'grok',
+      profile: 'project-locked',
+    });
+    expect(overridden.target.sandbox).toEqual({
+      kind: 'grok',
+      profile: 'strict',
+    });
+    expect(overridden.target.runtimeFingerprint).not.toBe(
+      inherited.target.runtimeFingerprint,
+    );
+    cleanupRecoveryContinuation(inherited);
+    cleanupRecoveryContinuation(overridden);
+  });
 });

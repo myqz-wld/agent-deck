@@ -32,6 +32,7 @@ import {
   type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
+import { GrokSandboxPicker } from './GrokSandboxPicker';
 
 interface Props {
   issue: IssueRecord;
@@ -107,6 +108,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const [sessionMode, setSessionMode] = useState<AdapterSessionMode>('default');
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
+  const [grokSandbox, setGrokSandbox] = useState('');
   const [provider, setProvider] = useState(
     () => getLastDefaults(getLastAdapter()).provider ?? '',
   );
@@ -155,6 +157,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+    if (d.grokSandbox !== undefined) setGrokSandbox(d.grokSandbox);
     setProvider(d.provider ?? '');
     setModel(d.model ?? '');
     setThinking(d.thinking ?? '');
@@ -168,6 +171,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     selectedAdapter.sessionModes.length > 0;
   const showCodexSandbox = adapter === 'codex-cli';
   const showClaudeCodeSandbox = adapter === 'claude-code';
+  const showGrokSandbox = adapter === 'grok-build';
 
   const handleSubmit = async (): Promise<void> => {
     setError(null);
@@ -194,6 +198,9 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         ...(showSessionMode ? { sessionMode } : {}),
         ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
         ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
+        ...(showGrokSandbox && grokSandbox.trim()
+          ? { grokSandbox: grokSandbox.trim() }
+          : {}),
         ...((adapter === 'claude-code' || adapter === 'codex-cli') && provider.trim()
           ? { provider: provider.trim() }
           : {}),
@@ -339,6 +346,18 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
                 disabled={busy}
                 options={CLAUDE_SANDBOX_OPTIONS}
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+              />
+            </DialogField>
+          )}
+          {showGrokSandbox && (
+            <DialogField label="Grok 沙盒请求档位（沿用上次选择）">
+              <GrokSandboxPicker
+                value={grokSandbox}
+                onChange={(value) => {
+                  setGrokSandbox(value);
+                  setLastDefaults(adapter, { grokSandbox: value });
+                }}
+                disabled={busy}
               />
             </DialogField>
           )}

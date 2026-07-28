@@ -17,6 +17,8 @@ Agent Deck selects tools and instructions from the authenticated caller session'
 - Use only the tools actually exposed in this session.
 - If a requested operation is unavailable, explain the missing capability and give the next supported action.
 - Grok's native tools remain owned by Grok Build. Agent Deck adds cross-session MCP tools without replacing the native toolset.
+- Grok ACP tool permissions and the native OS sandbox are separate controls: permissions decide whether a tool may run, while the sandbox limits resources available to an allowed tool.
+- For a `grok-build` target, `grokSandbox` requests the profile used to start its ACP child. Accept built-ins `off`, `workspace`, `devbox`, `read-only`, and `strict`, or a custom profile from user/project `sandbox.toml`; reject Claude/Codex sandbox fields. Omission delegates through Agent Deck defaults to Grok-native configuration. Managed requirements may override the request, so never report it as a verified effective profile.
 - Image input is capability-negotiated. Accept attachments only when the current ACP session advertises image support; otherwise tell the user that upgrading Grok Build may enable it.
 
 ## In-App Browser

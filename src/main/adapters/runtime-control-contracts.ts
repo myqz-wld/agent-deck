@@ -9,6 +9,7 @@ export const ADAPTER_TARGET_RUNTIME_FIELDS = [
   'sessionMode',
   'codexSandbox',
   'claudeCodeSandbox',
+  'grokSandbox',
   'extraAllowWrite',
 ] as const;
 
@@ -37,6 +38,7 @@ export function targetRuntimeFieldsForAdapter(
   if (profile.capabilities.canSetSessionMode) fields.push('sessionMode');
   if (profile.runtimeControls.sandbox === 'codex') fields.push('codexSandbox');
   if (profile.runtimeControls.sandbox === 'claude') fields.push('claudeCodeSandbox');
+  if (profile.runtimeControls.sandbox === 'grok') fields.push('grokSandbox');
   if (profile.runtimeControls.extraAllowWrite) fields.push('extraAllowWrite');
   return fields;
 }

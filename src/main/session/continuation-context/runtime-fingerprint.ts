@@ -9,6 +9,7 @@ export function continuationSessionRuntimeFingerprint(
   const runtimeRow = db
     .prepare(
       `SELECT agent_id, runtime_provider, cwd, permission_mode, codex_sandbox, claude_code_sandbox,
+              grok_sandbox,
               model, thinking, extra_allow_write, network_access_enabled,
               additional_directories
          FROM sessions

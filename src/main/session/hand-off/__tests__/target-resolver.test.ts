@@ -150,6 +150,7 @@ describe('resolveHandOffTarget', () => {
       permissionMode: null,
       sessionMode: 'ask',
       codexSandbox: null,
+      grokSandbox: 'project-locked',
       extraAllowWrite: [],
       networkAccessEnabled: null,
       additionalDirectories: [],
@@ -163,24 +164,59 @@ describe('resolveHandOffTarget', () => {
     expect(inherited.createOptions).toMatchObject({
       agentId: 'grok-build',
       sessionMode: 'ask',
+      grokSandbox: 'project-locked',
     });
     expect(inherited.createOptions).not.toHaveProperty('provider');
     expect(inherited.spec).toMatchObject({
       adapter: 'grok-build',
       provider: null,
       sessionMode: 'ask',
-      sandbox: { kind: 'grok' },
+      sandbox: { kind: 'grok', profile: 'project-locked' },
     });
 
     const explicit = resolveHandOffTarget({
       source: source(),
-      request: { adapter: 'grok-build', cwd: '/target', sessionMode: 'plan' },
+      request: {
+        adapter: 'grok-build',
+        cwd: '/target',
+        sessionMode: 'plan',
+        grokSandbox: 'read-only',
+      },
       sourceMaxEventId: null,
     });
     expect(explicit.createOptions).toMatchObject({
       agentId: 'grok-build',
       sessionMode: 'plan',
+      grokSandbox: 'read-only',
     });
+    expect(explicit.spec.sandbox).toEqual({
+      kind: 'grok',
+      profile: 'read-only',
+    });
+  });
+
+  it('uses the Grok global request only across adapters and keeps explicit native delegation', () => {
+    getSetting.mockImplementation(((key: keyof typeof DEFAULT_SETTINGS) =>
+      key === 'grokSandbox' ? 'strict' : DEFAULT_SETTINGS[key]) as typeof settingsStore.get);
+
+    const crossAdapter = resolveHandOffTarget({
+      source: source(),
+      request: { adapter: 'grok-build', cwd: '/target' },
+      sourceMaxEventId: 42,
+    });
+    expect(crossAdapter.createOptions).toMatchObject({ grokSandbox: 'strict' });
+    expect(crossAdapter.spec.sandbox).toEqual({
+      kind: 'grok',
+      profile: 'strict',
+    });
+
+    const native = resolveHandOffTarget({
+      source: source(),
+      request: { adapter: 'grok-build', cwd: '/target', grokSandbox: null },
+      sourceMaxEventId: 42,
+    });
+    expect(native.createOptions).toHaveProperty('grokSandbox', null);
+    expect(native.spec.sandbox).toEqual({ kind: 'grok', profile: null });
   });
 
   it('accepts explicit Codex writable roots and records them as effective', () => {
@@ -213,6 +249,7 @@ describe('resolveHandOffTarget', () => {
     ['claude-code', 'additionalDirectories', { additionalDirectories: ['/tmp'] }],
     ['claude-code', 'additionalDirectories', { additionalDirectories: [] }],
     ['claude-code', 'sessionMode', { sessionMode: 'ask' }],
+    ['codex-cli', 'grokSandbox', { grokSandbox: 'strict' }],
     ['grok-build', 'provider', { provider: 'xai' }],
     ['grok-build', 'extraAllowWrite', { extraAllowWrite: [] }],
   ] as const)(

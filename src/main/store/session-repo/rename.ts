@@ -134,8 +134,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -157,6 +157,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.codex_sandbox,
         fromRow.codex_approval_policy,
         fromRow.claude_code_sandbox,
+        fromRow.grok_sandbox,
         fromRow.model,
         fromRow.thinking,
         fromRow.extra_allow_write,
@@ -331,6 +332,12 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // OS 沙盒档位被 NEW 行 createSession 时写的全局默认值「淹没」掉。
       db.prepare(`UPDATE sessions SET claude_code_sandbox = ? WHERE id = ?`).run(
         fromRow.claude_code_sandbox,
+        toId,
+      );
+    }
+    if (toExists) {
+      db.prepare(`UPDATE sessions SET grok_sandbox = ? WHERE id = ?`).run(
+        fromRow.grok_sandbox,
         toId,
       );
     }

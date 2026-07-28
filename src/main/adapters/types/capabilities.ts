@@ -42,6 +42,8 @@ export interface AdapterCapabilities {
    * Claude Code 桥接层 adapter 置 true；其他 adapter 置 false。
    */
   canRestartWithClaudeCodeSandbox: boolean;
+  /** Supports an idle-only Grok ACP child restart with a different native sandbox profile. */
+  canRestartWithGrokSandbox: boolean;
   /**
    * 删会话时 SessionManager 是否调 closeSession 彻底关闭 SDK 侧 live query/turn 与 pending Maps。
    * 与 canInterrupt 区别：interrupt 允许 resume / 复用 session；close 表示永久关闭。

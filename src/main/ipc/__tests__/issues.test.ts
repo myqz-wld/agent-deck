@@ -543,6 +543,45 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
     expect(opts).not.toHaveProperty('claudeCodeEffortLevel');
   });
 
+  it('把规范化后的 Grok sandbox profile 透传给问题解决会话', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({
+      id: 'grok-build',
+      capabilities: {
+        canCreateSession: true,
+        canAcceptAttachments: false,
+        canSetSessionMode: true,
+      },
+    }));
+    mockIssueRepo.update.mockReturnValue(makeIssue());
+
+    await issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'grok-build',
+      prompt: 'p',
+      grokSandbox: ' project-locked ',
+    });
+
+    expect(mocks.buildCreateSessionOptions).toHaveBeenCalledWith(
+      'grok-build',
+      expect.objectContaining({ grokSandbox: 'project-locked' }),
+    );
+  });
+
+  it('rejects a Grok sandbox field for another adapter instead of filtering it', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    const adapter = makeAdapter({ id: 'codex-cli' });
+    mockAdapterRegistry.get.mockReturnValue(adapter);
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'codex-cli',
+      prompt: 'p',
+      grokSandbox: 'strict',
+    })).rejects.toThrow(/grokSandbox.*incompatible/);
+    expect(adapter.createSession).not.toHaveBeenCalled();
+  });
+
   it('在创建会话前拒绝与 adapter 不匹配的思考程度', async () => {
     mockIssueRepo.get.mockReturnValue(makeIssue());
     const adapter = makeAdapter();

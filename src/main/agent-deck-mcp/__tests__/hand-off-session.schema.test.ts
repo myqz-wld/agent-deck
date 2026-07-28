@@ -54,6 +54,21 @@ describe('hand_off_session schema — unified Continuation Context', () => {
     ).toBe(false);
   });
 
+  it('accepts a trimmed Grok native or custom sandbox profile', () => {
+    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      prompt: 'continue',
+      adapter: 'grok-build',
+      grokSandbox: ' project-locked ',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.grokSandbox).toBe('project-locked');
+    expect(HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      prompt: 'continue',
+      adapter: 'grok-build',
+      grokSandbox: 'strict\nworkspace',
+    }).success).toBe(false);
+  });
+
   it('requires a continuation instruction', () => {
     expect(
       HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({ adapter: 'claude-code' }).success,

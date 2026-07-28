@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   deleteUpload: vi.fn(),
   listPending: vi.fn(),
   removePending: vi.fn(),
+  restartWithGrokSandbox: vi.fn(),
 }));
 
 vi.mock('@main/adapters/registry', () => ({
@@ -18,11 +19,13 @@ vi.mock('@main/adapters/registry', () => ({
         canAcceptAttachments: true,
         canSetPermissionMode: false,
         canSetSessionMode: false,
+        canRestartWithGrokSandbox: true,
       },
       createSession: vi.fn(),
       sendMessage: vi.fn(),
       listPendingOutgoingMessages: mocks.listPending,
       removePendingOutgoingMessage: mocks.removePending,
+      restartWithGrokSandbox: mocks.restartWithGrokSandbox,
     }),
   },
 }));
@@ -50,6 +53,7 @@ vi.mock('@main/utils/logger', () => ({
 }));
 
 import { registerAdaptersIpc } from '../adapters';
+import { parseAdapterCreateRuntimeControls } from '../adapters-runtime-controls';
 
 function handler(channel: string): (...args: unknown[]) => unknown {
   const registered = vi.mocked(ipcMain.handle).mock.calls.find(([name]) => name === channel)?.[1];
@@ -63,6 +67,7 @@ describe('adapter outgoing queue IPC', () => {
     mocks.dispatch.mockResolvedValue('successor');
     mocks.listPending.mockReturnValue([]);
     mocks.removePending.mockReturnValue(null);
+    mocks.restartWithGrokSandbox.mockResolvedValue('source');
     mocks.deleteUpload.mockResolvedValue(undefined);
     registerAdaptersIpc();
   });
@@ -160,5 +165,40 @@ describe('adapter outgoing queue IPC', () => {
       'grok-build',
       { cwd: '/repo', extraAllowWrite: [] },
     )).rejects.toThrow('opts.extraAllowWrite');
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'codex-cli',
+      { cwd: '/repo', grokSandbox: 'strict' },
+    )).rejects.toThrow('opts.grokSandbox');
+  });
+
+  it('normalizes built-in and custom Grok profiles at the IPC trust boundary', () => {
+    expect(parseAdapterCreateRuntimeControls('grok-build', {
+      grokSandbox: ' project-locked ',
+    })).toMatchObject({ grokSandbox: 'project-locked' });
+    expect(() => parseAdapterCreateRuntimeControls('grok-build', {
+      grokSandbox: 'strict\nworkspace',
+    })).toThrow('grokSandbox');
+  });
+
+  it('normalizes live Grok restart profiles and preserves null native delegation', async () => {
+    await expect(handler(IpcInvoke.AdapterRestartWithGrokSandbox)(
+      {},
+      'grok-build',
+      'source',
+      ' project-locked ',
+    )).resolves.toBe('source');
+    expect(mocks.restartWithGrokSandbox).toHaveBeenLastCalledWith(
+      'source',
+      'project-locked',
+    );
+
+    await expect(handler(IpcInvoke.AdapterRestartWithGrokSandbox)(
+      {},
+      'grok-build',
+      'source',
+      null,
+    )).resolves.toBe('source');
+    expect(mocks.restartWithGrokSandbox).toHaveBeenLastCalledWith('source', null);
   });
 });

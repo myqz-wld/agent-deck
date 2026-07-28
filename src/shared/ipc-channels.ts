@@ -65,6 +65,7 @@ export const IpcInvoke = {
   AdapterSetSessionModelOptions: 'adapter:set-session-model-options',
   AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
   AdapterRestartWithClaudeCodeSandbox: 'adapter:restart-with-claude-code-sandbox',
+  AdapterRestartWithGrokSandbox: 'adapter:restart-with-grok-sandbox',
   AdapterListPending: 'adapter:list-pending',
   AdapterListPendingAll: 'adapter:list-pending-all',
   AdapterList: 'adapter:list',

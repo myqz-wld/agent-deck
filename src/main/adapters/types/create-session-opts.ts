@@ -279,6 +279,8 @@ export interface GrokCreateOpts {
   model?: string;
   reasoningEffort?: GrokReasoningEffort;
   sessionMode?: AdapterSessionMode;
+  /** Native Grok sandbox profile. Undefined delegates to the configured Grok default. */
+  grokSandbox?: string | null;
   /** Validated Grok native agent selected by spawn_session(agentName). */
   grokAgentName?: string;
   /** Source used to decide whether Agent Deck's bundled agent plugin must be injected. */
@@ -339,6 +341,7 @@ export interface CreateSessionOptionsRaw {
   codexConfigOverrides?: CodexConfigObject;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  grokSandbox?: string | null;
   claudeAgentName?: string;
   claudeAgents?: Record<string, AgentDefinition>;
   claudePluginDir?: string;

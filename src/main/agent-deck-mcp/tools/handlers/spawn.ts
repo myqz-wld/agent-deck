@@ -163,6 +163,7 @@ export const spawnSessionHandler = withMcpGuard(
       effectiveSessionMode,
       effectiveCodexSandbox,
       effectiveClaudeCodeSandbox,
+      effectiveGrokSandbox,
       effectiveExtraAllowWrite,
     } = resolveSpawnRuntimeControls({
       args,
@@ -181,6 +182,7 @@ export const spawnSessionHandler = withMcpGuard(
       effectiveSessionMode,
       effectiveCodexSandbox,
       effectiveClaudeCodeSandbox,
+      effectiveGrokSandbox,
       effectiveExtraAllowWrite,
       provider: resolvedProvider,
       modelOptions: resolvedModelOptions,

@@ -53,6 +53,7 @@ export async function startGrokRuntime(
   const process = await GrokAcpProcess.start({
     binary,
     cwd: runtime.cwd,
+    sandboxProfile: runtime.grokSandbox,
     onSessionUpdate: (notification) => {
       if (
         context.runtimes.get(runtime.applicationSessionId) !== runtime ||

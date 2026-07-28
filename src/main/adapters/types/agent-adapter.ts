@@ -181,6 +181,15 @@ export interface AgentAdapter {
     handoffPrompt: string,
   ): Promise<string>;
 
+  /**
+   * Restart an idle Grok ACP child with another native sandbox profile and load the same
+   * provider session. null delegates to Grok's own config precedence.
+   */
+  restartWithGrokSandbox?(
+    sessionId: string,
+    sandbox: string | null,
+  ): Promise<string>;
+
   /** 重启 / HMR 后 renderer store 会丢 pending 列表；这里给一次快照重建 UI。 */
   listPending?(sessionId: string): {
     permissions: PermissionRequest[];

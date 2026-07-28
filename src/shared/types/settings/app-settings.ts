@@ -296,6 +296,11 @@ export interface AppSettings {
    */
   codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
+   * Grok Build native sandbox profile requested for newly started ACP children.
+   * null delegates completely to Grok user/project/env/managed configuration.
+   */
+  grokSandbox: string | null;
+  /**
    * Codex MCP servers 配置（CHANGELOG_<X> A4b）。Agent Deck 自管的 mcp_servers 段
    * 写入 `~/.codex/config.toml` 用 marker 包裹，**不破坏**用户手写的其他段。
    * 详见 `src/main/codex-config/toml-writer.ts`。

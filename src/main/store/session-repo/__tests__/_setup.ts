@@ -71,6 +71,7 @@ import v049 from '../../migrations/v049_sessions_codex_approval_policy.sql?raw';
 import v050 from '../../migrations/v050_sessions_grok_usage_watermark.sql?raw';
 import v051 from '../../migrations/v051_token_usage_presence.sql?raw';
 import v052 from '../../migrations/v052_token_usage_metric_scope_repair.sql?raw';
+import v053 from '../../migrations/v053_sessions_grok_sandbox.sql?raw';
 
 // binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
 // 让 cwd-release-marker.test 的 `import { bindingAvailable } from './_setup'` 0 改动可用。
@@ -89,7 +90,7 @@ export function makeMemoryDb(): Database.Database {
     v011, v012, v013, v014, v015, v016, v017, v018, v019, v020,
     v021, v022, v023, v024, v025, v026, v027, v028, v029, v030,
     v031, v032, v033, v034, v035, v036, v037, v038, v039, v040, v041, v042, v043, v044,
-    v045, v046, v047, v048, v049, v050, v051, v052,
+    v045, v046, v047, v048, v049, v050, v051, v052, v053,
   ]) {
     db.exec(sql);
   }

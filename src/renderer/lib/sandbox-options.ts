@@ -3,6 +3,7 @@
  * 新建会话使用含 `''` =「跟随设置（默认）」的数组；设置页和会话详情使用具体档位数组。
  */
 import type { SelectablePermissionMode } from '@shared/types';
+import type { GrokBuiltinSandboxProfile } from '@shared/grok-sandbox';
 
 export type PermissionModeChoice = SelectablePermissionMode;
 /** `''` = 跟随设置（不 per-session 覆盖） */
@@ -11,6 +12,8 @@ export type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-
 export type ClaudeSandboxChoice = '' | 'off' | 'workspace-write' | 'strict';
 export type CodexSandboxMode = Exclude<CodexSandboxChoice, ''>;
 export type ClaudeSandboxMode = Exclude<ClaudeSandboxChoice, ''>;
+/** Empty means follow the Agent Deck/Grok default; other strings may name custom profiles. */
+export type GrokSandboxChoice = string;
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
   { value: 'default', label: '手动确认', title: '每次工具调用前都询问你是否允许' },
@@ -85,3 +88,35 @@ export const CLAUDE_SANDBOX_OPTIONS: {
   label: string;
   title?: string;
 }[] = [FOLLOW_SETTINGS_OPTION, ...CLAUDE_SANDBOX_MODE_OPTIONS];
+
+export const GROK_SANDBOX_MODE_OPTIONS: {
+  value: GrokBuiltinSandboxProfile;
+  label: string;
+  title?: string;
+}[] = [
+  {
+    value: 'strict',
+    label: '严格隔离',
+    title: '限制到工作目录和系统文件；子进程网络受限（macOS 网络限制除外）',
+  },
+  {
+    value: 'read-only',
+    label: '广泛只读',
+    title: '可读取系统文件，仅 Grok 配置和临时目录可写；子进程网络受限',
+  },
+  {
+    value: 'workspace',
+    label: '工作目录可写',
+    title: '工作目录、Grok 配置和临时目录可写；允许子进程联网',
+  },
+  {
+    value: 'devbox',
+    label: '开发机宽松',
+    title: '除受保护目录外允许广泛写入，并允许子进程联网',
+  },
+  {
+    value: 'off',
+    label: '⚠️ 完全开放',
+    title: '不启用 Grok 系统沙盒；仍受 Grok 工具授权规则约束',
+  },
+];

@@ -26,14 +26,15 @@ import {
   parseAdapterSessionMode,
   parsePermissionMode,
   parseTeamName,
-  parseCodexSandboxMode,
-  parseSandboxMode,
 } from './_helpers';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { registerSessionModelOptionsIpc } from './adapters-session-model-options';
 import { registerAdapterOutgoingIpc } from './adapters-outgoing';
-import { parseAdapterCreateRuntimeControls } from './adapters-runtime-controls';
+import {
+  parseAdapterCreateRuntimeControls,
+  registerAdapterSandboxRestartIpc,
+} from './adapters-runtime-controls';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-adapters');
@@ -47,6 +48,7 @@ function mergePendingRequests<T extends { requestId: string }>(base: T[], extra:
 export function registerAdaptersIpc(): void {
   registerSessionModelOptionsIpc();
   registerAdapterOutgoingIpc();
+  registerAdapterSandboxRestartIpc();
   // Adapter actions (createSession 在 M9 实现 SDK 通道后才会真正可用)
   on(IpcInvoke.AdapterList, () => {
     return adapterRegistry.list().map((a) => ({
@@ -81,6 +83,7 @@ export function registerAdaptersIpc(): void {
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
+      grokSandbox,
       extraAllowWrite,
     } = parseAdapterCreateRuntimeControls(validAgentId, raw);
     const prompt = typeof raw.prompt === 'string' ? raw.prompt : undefined;
@@ -138,6 +141,7 @@ export function registerAdaptersIpc(): void {
           ...(teamName !== null ? { teamName } : {}),
           ...(codexSandbox !== null ? { codexSandbox } : {}),
           ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
+          ...(grokSandbox !== null ? { grokSandbox } : {}),
           ...(extraAllowWrite !== null ? { extraAllowWrite } : {}),
           ...sessionModelOptions,
           ...(attachments.length > 0 ? { attachments } : {}),
@@ -413,71 +417,4 @@ export function registerAdaptersIpc(): void {
     return out;
   });
 
-  /**
-   * CHANGELOG_<X> A2b：codex 专属 sandbox 档位切换。
-   *
-   * app-server Codex 每次 turn/start 都带 sandboxPolicy，adapter 内部只需持久化
-   * sessions.codex_sandbox 并 patch live thread options；当前 turn 不重启，pending 队列保留。
-   *
-   * 校验：adapter 必须存在 + capabilities.canRestartWithCodexSandbox === true +
-   * 实现了 restartWithCodexSandbox 方法（典型 = codex-cli adapter）。sandbox 字段走
-   * 既有 parseCodexSandboxMode helper（REVIEW_108 LOW-1 整改：消除重复 if + 裸 cast）。
-   */
-  on(
-    IpcInvoke.AdapterRestartWithCodexSandbox,
-    async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
-      const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-      if (!adapter?.capabilities.canRestartWithCodexSandbox || !adapter.restartWithCodexSandbox) {
-        throw new Error('adapter does not support codex sandbox restart');
-      }
-      const sid = parseStringId('sessionId', sessionId);
-      // parseCodexSandboxMode 走与 SetPermissionMode 同款「白名单 + IpcInputError 透传」范式，
-      // 替手写 String(x) as union + 三路 if。undefined/null 返 null 时给明确报错（与 mode required 一致）。
-      const sbRaw = parseCodexSandboxMode(sandbox);
-      if (sbRaw === null) {
-        throw new IpcInputError('sandbox', 'required (one of workspace-write|read-only|danger-full-access)');
-      }
-      const prompt =
-        typeof handoffPrompt === 'string' && handoffPrompt.trim()
-          ? handoffPrompt
-          : SDK_RESTART_RESUME_PROMPT;
-      // adapter.restartWithCodexSandbox 名称保留兼容旧 preload；内部已 emit error / 回滚 DB。
-      // 返回值仍为 sessionId（与旧 cold-restart 接口签名对齐）。
-      return adapter.restartWithCodexSandbox(sid, sbRaw, prompt);
-    },
-  );
-
-  /**
-   * CHANGELOG_74：claude-code OS 沙盒冷切（与 AdapterRestartWithCodexSandbox 字面镜像）。
-   *
-   * SDK 的 sandbox options 是 query() spawn-time 锁定，无法热切。adapter 内部走
-   * close → createSession({resume, claudeCodeSandbox}) → handoffPrompt 触发首条 turn。
-   * 失败回滚 sessionRepo.claudeCodeSandbox。
-   *
-   * 校验：adapter 必须存在 + capabilities.canRestartWithClaudeCodeSandbox === true +
-   * 实现了 restartWithClaudeCodeSandbox 方法（典型 = claude-code adapter）。sandbox 字段
-   * 走既有 parseSandboxMode helper（与 codex sandbox 同款整改，REVIEW_108 LOW-1）。
-   */
-  on(
-    IpcInvoke.AdapterRestartWithClaudeCodeSandbox,
-    async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
-      const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-      if (
-        !adapter?.capabilities.canRestartWithClaudeCodeSandbox ||
-        !adapter.restartWithClaudeCodeSandbox
-      ) {
-        throw new Error('adapter does not support claude-code sandbox restart');
-      }
-      const sid = parseStringId('sessionId', sessionId);
-      const sbRaw = parseSandboxMode(sandbox);
-      if (sbRaw === null) {
-        throw new IpcInputError('sandbox', 'required (one of off|workspace-write|strict)');
-      }
-      const prompt =
-        typeof handoffPrompt === 'string' && handoffPrompt.trim()
-          ? handoffPrompt
-          : SDK_RESTART_RESUME_PROMPT;
-      return adapter.restartWithClaudeCodeSandbox(sid, sbRaw, prompt);
-    },
-  );
 }
