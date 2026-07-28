@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import { isAppShutdownError } from '@shared/shutdown';
+import type { TokenRateRow } from '@shared/types';
 import { useTokenUsageStore } from '../stores/token-usage-store';
 
 const TOKEN_USAGE_REFETCH_DEBOUNCE_MS = 500;
@@ -34,34 +36,71 @@ export function useTokenRatesPoll(
 
   useEffect(() => {
     let cancelled = false;
+    let pollingStopped = false;
     let requestSeq = 0;
     let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+    let intervalTimer: ReturnType<typeof setInterval> | null = null;
+    const stopPolling = (): void => {
+      if (pollingStopped) return;
+      pollingStopped = true;
+      requestSeq += 1;
+      if (refetchTimer) {
+        clearTimeout(refetchTimer);
+        refetchTimer = null;
+      }
+      if (intervalTimer) {
+        clearInterval(intervalTimer);
+        intervalTimer = null;
+      }
+    };
     const pull = (): void => {
+      if (cancelled || pollingStopped) return;
       const seq = ++requestSeq;
-      void Promise.all([
+      const requests: [Promise<unknown>, Promise<unknown>] = [
         window.api.tokenUsageRates({ includeGrokHistory }),
         window.api.tokenUsageTopToday({ includeGrokHistory }),
-      ]).then(([rateRows, topRows]) => {
-        if (cancelled || seq !== requestSeq) return;
-        setRates(rateRows);
-        setTopToday(topRows);
+      ];
+      const observe = async (request: Promise<unknown>): Promise<ObservedPollResult> => {
+        try {
+          return { status: 'fulfilled', value: await request };
+        } catch (error) {
+          if (isAppShutdownError(error)) stopPolling();
+          return { status: 'rejected' };
+        }
+      };
+      void Promise.all(requests.map(observe)).then(([ratesResult, topResult]) => {
+        if (cancelled || pollingStopped || seq !== requestSeq) return;
+        // Ordinary IPC failures and malformed transient responses are intentionally absorbed.
+        // The next bounded interval retries; no rejection reaches the renderer global fatal path.
+        if (ratesResult.status !== 'fulfilled' || topResult.status !== 'fulfilled') return;
+        if (!isTokenRateRows(ratesResult.value) || !isTokenRateRows(topResult.value)) return;
+        setRates(ratesResult.value);
+        setTopToday(topResult.value);
       });
     };
     const schedulePull = (): void => {
+      if (cancelled || pollingStopped) return;
       if (refetchTimer) clearTimeout(refetchTimer);
       refetchTimer = setTimeout(pull, TOKEN_USAGE_REFETCH_DEBOUNCE_MS);
     };
 
     pull(); // 立即拉一次，不等第一个 interval
-    const timer = setInterval(pull, pollIntervalMs);
+    intervalTimer = setInterval(pull, pollIntervalMs);
     const offTick = window.api.onTokenRateTick(applyLiveTick);
     const offUsage = window.api.onTokenUsageChanged(schedulePull);
     return () => {
       cancelled = true;
-      if (refetchTimer) clearTimeout(refetchTimer);
-      clearInterval(timer);
+      stopPolling();
       offTick();
       offUsage();
     };
   }, [applyLiveTick, includeGrokHistory, pollIntervalMs, setRates, setTopToday]);
 }
+
+function isTokenRateRows(value: unknown): value is TokenRateRow[] {
+  return Array.isArray(value);
+}
+
+type ObservedPollResult =
+  | { status: 'fulfilled'; value: unknown }
+  | { status: 'rejected' };
