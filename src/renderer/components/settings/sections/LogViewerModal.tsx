@@ -5,8 +5,7 @@ import { CloseIcon, RefreshIcon } from '../../icons';
 
 const logger = log.scope('log-viewer');
 
-// Monaco 体积大，懒加载（与 diff/renderers/TextDiffRenderer.tsx 同款 lazy import 模式，
-// 但这里用单文件 Editor 而非 DiffEditor）。
+// Monaco 体积大，仅在日志内容真正显示时加载。
 const Editor = lazy(async () => {
   const { configureLocalMonaco } = await import('@renderer/lib/monaco-local');
   configureLocalMonaco();
@@ -14,26 +13,12 @@ const Editor = lazy(async () => {
   return { default: mod.Editor };
 });
 
-/**
- * Monaco lazy import 专用 local ErrorBoundary（REVIEW simple-review log+asset [MED reviewer-claude] 修法）。
- *
- * **为何需要**：`<Suspense>` 只接 pending promise，**不接 rejection**（React 语义）。dynamic
- * import('@monaco-editor/react') 失败（chunk 404 / hash 对不上 / 网络）时 lazy 组件 render 期
- * re-throw → 无 local boundary 时冒泡到 main.tsx 唯一的 RootErrorBoundary → 整 app 渲染持久
- * 「Renderer crashed」全屏崩溃屏（无 auto-dismiss，须 remount 才恢复）。一个日志查看小功能的
- * chunk 失败不应打死整 app。本 boundary 把失败收敛成模态内 localized 提示，引导用户改用
- * 「打开日志目录」。（sibling TextDiffRenderer 当前无 local boundary，是既有 tradeoff，本次不一并改。）
- */
+/** Monaco chunk 失败只降级当前模态，不能让设置页进入根级崩溃态。 */
 class MonacoErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
   }
-  // REVIEW (simple-review log+asset) [LOW reviewer-claude] 修法：补 componentDidCatch 落 logger。
-  // 没有它则 lazy import reject 被本 boundary 抢先接住后静默吞掉（改前是冒泡到 main.tsx
-  // RootErrorBoundary.componentDidCatch 落 logger.error）→ Monaco chunk 真失败（stale deploy /
-  // hash 对不上，项目打包踩坑有先例）时开发侧日志查无线索。getDerivedStateFromError 已够触发
-  // fallback render，componentDidCatch 仅补可观测性（正交）。
   componentDidCatch(error: Error): void {
     logger.error('monaco editor lazy load failed', error);
   }
@@ -65,23 +50,8 @@ interface Props {
 }
 
 /**
- * 应用内日志查看 modal（替代原「在 Finder 中显示」外部跳转）。
- *
- * - 通过 `window.api.logsReadToday()` 读当天 main-YYYY-MM-DD.log，用只读 Monaco Editor 展示。
- * - **定位**：根 div 用 `fixed inset-0 z-[60]` 全屏覆盖 + `createPortal` 到 `document.body`。
- *   两点缺一不可，否则 modal 不可见（本 bug 曾误判为「被裁切」/「打包没生效」）：
- *   1. **根 div 不能叠 `.frosted-frame`**：globals.css 的 `.frosted-frame{position:relative}` 是
- *      **unlayered**，Tailwind 的 `.fixed{position:fixed}` 在 `@layer utilities` 内。CSS 级联中
- *      unlayered 永远胜 layered（早于 specificity / 源码顺序），故同元素叠 `frosted-frame fixed`
- *      时 position 实为 `relative`、`fixed` 被静默顶掉 → 退回文档流被设置面板 overflow 裁成一条；
- *      改 portal 后又被排到占满视口的 #root 之后、`body{overflow:hidden}` 挤出视口 → 完全不可见。
- *      frosted-frame 是窗口玻璃面板用的，overlay 只需 `bg-black/60 backdrop-blur-sm` 遮罩。
- *   2. **必须 `createPortal` 到 body**：祖先链里 FloatingFrame(.frosted-frame) 与 SettingsDialog
- *      外层 `backdrop-blur-sm` 的 backdrop-filter 会把后代 `fixed` 的 containing block 从 viewport
- *      改成该祖先（CSS 规范，同 transform / filter）。portal 脱离整条祖先链，fixed 才相对 viewport。
- *   z-[60] 高于 SettingsDialog(z-40) 与 ContentViewerModal(z-50)。
- * - 刷新按钮重新拉取（日志是滚动写入的，查看期间可能有新行）。
- * - 空态（existed:false）/ 截断 banner（truncated:true，main 端 > 2MB 只返尾部 2MB）。
+ * 当天日志只读视图。Portal 保证 fixed overlay 不受设置页 backdrop/filter containing block
+ * 影响；单调请求序号保证关闭、重开或刷新后，旧响应不能覆盖当前状态。
  */
 export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
   const [result, setResult] = useState<LogReadResult | null>(null);
@@ -101,7 +71,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
       setResult({
         ok: false,
         existed: true,
-        error: `读取日志失败：${(err as Error).message ?? String(err)}`,
+        error: '读取日志失败，请重试。',
       });
     } finally {
       if (seq === seqRef.current) setLoading(false);
@@ -117,9 +87,19 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
       return;
     }
     void load();
+    return () => {
+      ++seqRef.current;
+    };
   }, [open, load]);
 
   if (!open) return null;
+
+  const handleClose = (): void => {
+    ++seqRef.current;
+    setResult(null);
+    setLoading(false);
+    onClose();
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -144,7 +124,7 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               aria-label="关闭日志查看"
               className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
             >
