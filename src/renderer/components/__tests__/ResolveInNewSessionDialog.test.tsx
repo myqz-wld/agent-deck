@@ -94,4 +94,52 @@ describe('ResolveInNewSessionDialog model options', () => {
     });
     expect(onResolved).toHaveBeenCalledWith(updated);
   });
+
+  it('forwards a custom Grok sandbox profile for issue resolution', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        listAdapters: vi.fn().mockResolvedValue([
+          {
+            id: 'grok-build',
+            displayName: 'Grok Build',
+            capabilities: {
+              canCreateSession: true,
+              canSetSessionMode: true,
+            },
+            sessionModes: ['default', 'plan', 'ask'],
+          },
+        ]),
+        listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        issuesResolveInNewSession,
+      },
+    });
+    const issue = makeIssue();
+    issuesResolveInNewSession.mockResolvedValue({
+      sessionId: 'resolution-session',
+      issue: { ...issue, resolutionSessionId: 'resolution-session' },
+    });
+    render(
+      <ResolveInNewSessionDialog
+        issue={issue}
+        onClose={vi.fn()}
+        onResolved={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByLabelText('Grok 沙盒请求档位'));
+    fireEvent.click(screen.getByRole('option', { name: '严格隔离' }));
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+
+    await waitFor(() => {
+      expect(issuesResolveInNewSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issueId: 'issue-1',
+          adapter: 'grok-build',
+          grokSandbox: 'strict',
+        }),
+      );
+    });
+  });
 });

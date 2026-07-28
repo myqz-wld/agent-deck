@@ -29,6 +29,7 @@ export interface GrokAcpProcessOptions {
   /** Test seam for a deterministic fake ACP child. Production always uses Grok's fixed args. */
   args?: string[];
   cwd: string;
+  sandboxProfile?: string | null;
   onSessionUpdate: (notification: SessionNotification) => void;
   onGrokExtensionUpdate?: (notification: GrokExtensionNotification) => void;
   onPermissionRequest: (

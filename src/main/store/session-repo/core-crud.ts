@@ -59,8 +59,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
-       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @codex_approval_policy, @claude_code_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @grok_usage_watermark, @pinned_at, @hidden_from_history)
+       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @codex_approval_policy, @claude_code_sandbox, @grok_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @grok_usage_watermark, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
          runtime_provider = excluded.runtime_provider,
          cwd = excluded.cwd,
@@ -79,6 +79,7 @@ export function upsert(rec: SessionRecord): void {
          codex_sandbox = excluded.codex_sandbox,
          codex_approval_policy = excluded.codex_approval_policy,
          claude_code_sandbox = excluded.claude_code_sandbox,
+         grok_sandbox = excluded.grok_sandbox,
          model = excluded.model,
          thinking = excluded.thinking,
          extra_allow_write = excluded.extra_allow_write,
@@ -112,6 +113,7 @@ export function upsert(rec: SessionRecord): void {
       codex_sandbox: rec.codexSandbox ?? null,
       codex_approval_policy: rec.codexApprovalPolicy ?? null,
       claude_code_sandbox: rec.claudeCodeSandbox ?? null,
+      grok_sandbox: rec.grokSandbox ?? null,
       model: rec.model ?? null,
       thinking: rec.thinking ?? null,
       extra_allow_write:
@@ -328,6 +330,11 @@ export function setClaudeCodeSandbox(
   sandbox: 'off' | 'workspace-write' | 'strict' | null,
 ): void {
   getDb().prepare(`UPDATE sessions SET claude_code_sandbox = ? WHERE id = ?`).run(sandbox, id);
+}
+
+/** Persist the Grok native sandbox profile requested for this session. */
+export function setGrokSandbox(id: string, sandbox: string | null): void {
+  getDb().prepare(`UPDATE sessions SET grok_sandbox = ? WHERE id = ?`).run(sandbox, id);
 }
 
 /**

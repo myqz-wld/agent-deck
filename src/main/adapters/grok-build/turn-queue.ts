@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
 
 import {
   methods,
@@ -32,6 +30,15 @@ import {
   translateGrokUsage,
   waitForGrokStandardUsage,
 } from './translate';
+import {
+  isCancelled,
+  isInterjectionUnsupported,
+  pendingMessageId,
+  promptBlocks,
+  requireNativeSession,
+  supportsImages,
+  toPendingAgentMessage,
+} from './turn-queue-helpers';
 
 const MAX_PENDING_MESSAGES = 20;
 const GROK_INTERJECT_METHOD = 'x.ai/interject';
@@ -324,7 +331,13 @@ export class GrokTurnQueue {
   }
 
   async drain(runtime: GrokRuntime): Promise<void> {
-    if (runtime.running || runtime.closed || !runtime.ready || runtime.submittingMessage) return;
+    if (
+      runtime.running ||
+      runtime.closed ||
+      runtime.restartingSandbox ||
+      !runtime.ready ||
+      runtime.submittingMessage
+    ) return;
     const message = runtime.queue.shift();
     if (!message) {
       if (runtime.sealed) await this.options.closeSession(runtime.applicationSessionId);
@@ -461,58 +474,4 @@ export class GrokTurnQueue {
       error: true,
     });
   }
-}
-
-function isCancelled(submitting: GrokSubmittingMessage | null): boolean {
-  return submitting?.status === 'cancelled';
-}
-
-function toPendingAgentMessage(message: GrokPendingMessage): PendingAgentMessage {
-  return {
-    id: pendingMessageId(message),
-    text: message.text,
-    ...(message.attachments?.length
-      ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
-      : {}),
-  };
-}
-
-function pendingMessageId(message: GrokPendingMessage): string {
-  return message.turnCorrelationId ?? message.id;
-}
-
-function supportsImages(runtime: GrokRuntime): boolean {
-  if (!runtime.ready) return true;
-  return (
-    runtime.process?.initializeResponse.agentCapabilities?.promptCapabilities?.image === true
-  );
-}
-
-function isInterjectionUnsupported(error: unknown): boolean {
-  const candidate = error as { code?: unknown } | null;
-  return candidate?.code === -32601 || /method not found/i.test(errorText(error));
-}
-
-function requireNativeSession(runtime: GrokRuntime): string {
-  if (!runtime.nativeSessionId) {
-    throw new Error(`Grok session ${runtime.applicationSessionId} has no native session id.`);
-  }
-  return runtime.nativeSessionId;
-}
-
-async function promptBlocks(
-  text: string,
-  attachments?: UploadedAttachmentRef[],
-): Promise<ContentBlock[]> {
-  const blocks: ContentBlock[] = [];
-  if (text) blocks.push({ type: 'text', text });
-  for (const attachment of attachments ?? []) {
-    blocks.push({
-      type: 'image',
-      data: (await readFile(attachment.path)).toString('base64'),
-      mimeType: attachment.mime,
-      uri: pathToFileURL(attachment.path).href,
-    });
-  }
-  return blocks;
 }

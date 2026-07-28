@@ -73,4 +73,17 @@ describe('GrokPermissionController', () => {
       { type: 'permission-cancelled', requestId: permission.requestId },
     );
   });
+
+  it('cancels a stale request that races with an ACP sandbox restart', async () => {
+    const emit = vi.fn();
+    const controller = new GrokPermissionController(10_000, emit);
+    const active = runtime();
+    active.restartingSandbox = true;
+
+    await expect(
+      controller.handle(active, request, new AbortController().signal),
+    ).resolves.toEqual({ outcome: { outcome: 'cancelled' } });
+    expect(controller.list(active)).toEqual([]);
+    expect(emit).not.toHaveBeenCalled();
+  });
 });

@@ -13,6 +13,7 @@ const sessionRepoMock = vi.hoisted(() => ({
   setModel: vi.fn(),
   setThinking: vi.fn(),
   setSessionMode: vi.fn(),
+  setGrokSandbox: vi.fn(),
   setGrokUsageWatermark: vi.fn(),
   get: vi.fn(),
 }));
@@ -62,6 +63,7 @@ function makeRecord(): SessionRecord {
     model: 'grok-4.5',
     thinking: 'xhigh',
     sessionMode: 'plan',
+    grokSandbox: 'strict',
     agentProfileName: 'reviewer-grok',
     agentProfileSource: 'plugin',
     agentPluginDir: '/plugins/reviewer-grok',
@@ -110,6 +112,9 @@ describe('Grok runtime recovery profile', () => {
     } as unknown as GrokRuntimeStartContext;
 
     await expect(startGrokRuntime(runtime, context)).resolves.toBe(true);
+    expect(acpStartMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sandboxProfile: 'strict' }),
+    );
 
     expect(getPluginDirectories).toHaveBeenCalledWith({
       requiresAgent: true,
@@ -151,6 +156,7 @@ describe('Grok runtime recovery profile', () => {
       agentProfileSource: 'plugin',
       agentPluginDir: '/plugins/reviewer-grok',
     });
+    expect(sessionRepoMock.setGrokSandbox).toHaveBeenCalledWith(record.id, 'strict');
   });
 
   it('restores and persists the cumulative usage watermark across recovery', () => {

@@ -26,6 +26,7 @@
 import type {
   ClaudeSandboxChoice,
   CodexSandboxChoice,
+  GrokSandboxChoice,
   PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 import type { SessionThinkingLevel } from '@shared/session-metadata';
@@ -38,6 +39,7 @@ type Defaults = {
   sessionMode?: AdapterSessionMode;
   codexSandbox?: CodexSandboxChoice;
   claudeCodeSandbox?: ClaudeSandboxChoice;
+  grokSandbox?: GrokSandboxChoice;
   /** Claude Gateway profile id or Codex model_provider. */
   provider?: string;
   /** 自由文本；空串表示明确恢复 provider 默认模型。 */
@@ -113,6 +115,7 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
   } else {
     const next: Defaults = { ...store['grok-build'] };
     if (patch.sessionMode !== undefined) next.sessionMode = patch.sessionMode;
+    if (patch.grokSandbox !== undefined) next.grokSandbox = patch.grokSandbox;
     if (patch.model !== undefined) next.model = patch.model;
     if (patch.thinking !== undefined) next.thinking = patch.thinking;
     store['grok-build'] = next;

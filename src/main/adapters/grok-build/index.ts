@@ -106,6 +106,12 @@ export class GrokBuildAdapter implements AgentAdapter {
       model: opts.model,
       reasoningEffort: opts.reasoningEffort,
       sessionMode: opts.sessionMode,
+      grokSandbox:
+        opts.grokSandbox !== undefined
+          ? opts.grokSandbox
+          : opts.resume
+            ? undefined
+            : settingsStore.get('grokSandbox'),
       grokAgentName: opts.grokAgentName,
       grokAgentSource: opts.grokAgentSource,
       grokPluginDir: opts.grokPluginDir,
@@ -129,6 +135,12 @@ export class GrokBuildAdapter implements AgentAdapter {
         model: opts.model,
         reasoningEffort: opts.reasoningEffort,
         sessionMode: opts.sessionMode,
+        grokSandbox:
+          opts.grokSandbox !== undefined
+            ? opts.grokSandbox
+            : opts.resume
+              ? undefined
+              : settingsStore.get('grokSandbox'),
         grokAgentName: opts.grokAgentName,
         grokAgentSource: opts.grokAgentSource,
         grokPluginDir: opts.grokPluginDir,
@@ -216,6 +228,14 @@ export class GrokBuildAdapter implements AgentAdapter {
   async setSessionMode(sessionId: string, mode: AdapterSessionMode): Promise<void> {
     if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
     await this.bridge.setSessionMode(sessionId, mode);
+  }
+
+  async restartWithGrokSandbox(
+    sessionId: string,
+    sandbox: string | null,
+  ): Promise<string> {
+    if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
+    return this.bridge.restartWithGrokSandbox(sessionId, sandbox);
   }
 
   listPending(sessionId: string) {

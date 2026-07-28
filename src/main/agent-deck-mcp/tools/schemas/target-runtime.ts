@@ -6,6 +6,7 @@ import {
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
 import { PERMISSION_MODES, type SessionAdapterId } from '@shared/types';
+import { MAX_GROK_SANDBOX_PROFILE_LENGTH } from '@shared/grok-sandbox';
 
 const provider = z
   .string()
@@ -62,6 +63,20 @@ const claudeCodeSandbox = z
     'Optional Claude Code OS sandbox override. This field is owned only by adapter="claude-code"; omission uses same-adapter inheritance or the Claude adapter default as applicable.',
   );
 
+const grokSandbox = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_GROK_SANDBOX_PROFILE_LENGTH)
+  .refine(
+    (profile) => !/[\u0000-\u001f\u007f]/.test(profile),
+    'Grok sandbox profile must not contain control characters',
+  )
+  .optional()
+  .describe(
+    'Optional Grok Build native sandbox profile requested when its ACP child starts. This field is owned only by adapter="grok-build". Input is trimmed and must contain 1-128 characters with no control characters. Built-ins are off, workspace, devbox, read-only, and strict; custom names from user/project sandbox.toml are accepted. Omission inherits the same-adapter source or uses the Agent Deck Grok default, which may delegate to Grok native configuration. Managed requirements may override the request, so the value is not an effective-policy attestation. Grok ACP tool permissions remain separate.',
+  );
+
 const extraAllowWrite = z
   .array(
     z
@@ -92,6 +107,7 @@ export const MCP_TARGET_RUNTIME_SUPERSET_SHAPE = {
   sessionMode,
   codexSandbox,
   claudeCodeSandbox,
+  grokSandbox,
   extraAllowWrite,
 };
 

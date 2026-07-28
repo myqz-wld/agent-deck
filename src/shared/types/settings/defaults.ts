@@ -83,6 +83,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // REMOVED_KEYS + smart migration 自动清历史 + 守护老用户 ON 值（详 settings-store.ts）
   claudeCodeSandbox: 'workspace-write',
   codexSandbox: 'workspace-write',
+  grokSandbox: null,
   codexMcpServers: [],
   // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史
   // B'0 ADR §7：Agent Deck MCP server 默认 ON（task tools 跟随，详 enableAgentDeckMcp jsdoc）

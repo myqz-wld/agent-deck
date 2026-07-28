@@ -24,6 +24,7 @@ import {
 import { errorMessage } from '@renderer/lib/error-message';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import type { AdapterSessionMode } from '@shared/types';
+import { GrokSandboxPicker } from './GrokSandboxPicker';
 
 interface AdapterInfo {
   id: string;
@@ -54,6 +55,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
   // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
   const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
+  const [grokSandbox, setGrokSandbox] = useState('');
   const [provider, setProvider] = useState(
     () => getLastDefaults(getLastAdapter()).provider ?? '',
   );
@@ -116,6 +118,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
     if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
     if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
+    if (d.grokSandbox !== undefined) setGrokSandbox(d.grokSandbox);
     // model / thinking 对所有 adapter 都有意义；切 adapter 时无历史值必须显式清空，
     // 不能把上一个 provider 的 model id / effort 串到新 provider。
     setProvider(d.provider ?? '');
@@ -136,6 +139,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const showCodexSandbox = agentId === 'codex-cli';
   // CHANGELOG_74：Claude OS 沙盒对所有 Claude Gateway profile 使用同一 SDK 桥接层。
   const showClaudeCodeSandbox = agentId === 'claude-code';
+  const showGrokSandbox = agentId === 'grok-build';
 
   const browse = async (): Promise<void> => {
     if (busy || pickingDirectoryRef.current) return;
@@ -183,6 +187,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
         claudeCodeSandbox:
           showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
+        grokSandbox: showGrokSandbox && grokSandbox.trim() ? grokSandbox.trim() : undefined,
         ...((agentId === 'claude-code' || agentId === 'codex-cli') && provider.trim()
           ? { provider: provider.trim() }
           : {}),
@@ -409,6 +414,19 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
                   }}
                   options={CLAUDE_SANDBOX_OPTIONS}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+                />
+              </Field>
+            )}
+
+            {showGrokSandbox && (
+              <Field label="Grok 沙盒（请求档位）">
+                <GrokSandboxPicker
+                  value={grokSandbox}
+                  onChange={(value) => {
+                    setGrokSandbox(value);
+                    setLastDefaults(agentId, { grokSandbox: value });
+                  }}
+                  disabled={busy}
                 />
               </Field>
             )}

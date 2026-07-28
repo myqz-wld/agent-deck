@@ -34,6 +34,7 @@ export interface RecoveryRuntimeOverrides {
   sessionMode?: AdapterSessionMode | null;
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
+  grokSandbox?: string | null;
   model?: string | null;
   thinking?: string | null;
   extraAllowWrite?: readonly string[] | null;
@@ -91,7 +92,13 @@ function resolveTarget(
   ];
   const sandbox =
     adapter === 'grok-build'
-      ? { kind: 'grok' }
+      ? {
+          kind: 'grok',
+          profile:
+            overrides.grokSandbox !== undefined
+              ? overrides.grokSandbox
+              : session.grokSandbox ?? null,
+        }
       : adapter === 'codex-cli'
       ? {
           kind: 'codex',

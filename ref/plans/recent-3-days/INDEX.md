@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-27 | `PLAN_22_grok-native-sandbox-controls.md` | completed | Control Grok Build's native process sandbox across session paths | CHANGELOG_406 |
 | 2026-07-27 | `PLAN_21_browser-p0-p1-hardening.md` | completed | Harden browser readiness, DOM coverage, and screenshot retention | CHANGELOG_403 / REVIEW_182 |
 | 2026-07-27 | `PLAN_20_provider-usage-runtime-control-fidelity.md` | completed | Preserve provider usage and adapter-owned runtime controls | CHANGELOG_402 |
 | 2026-07-27 | `PLAN_19_cross-adapter-browser-engine.md` | implemented, real-session validation pending | Open and harden the cross-adapter in-app browser | CHANGELOG_400 / CHANGELOG_403 |

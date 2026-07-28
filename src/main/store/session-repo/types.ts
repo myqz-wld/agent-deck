@@ -19,6 +19,7 @@ import type {
   SessionSource,
 } from '@shared/types';
 import log from '@main/utils/logger';
+import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 
 const logger = log.scope('session-repo');
 
@@ -50,6 +51,7 @@ export interface Row {
   codex_sandbox: string | null;
   codex_approval_policy: string | null;
   claude_code_sandbox: string | null;
+  grok_sandbox: string | null;
   // plan model-wiring-and-handoff-20260514 Step 1.3：SDK / agent model per-session 持久化
   model: string | null;
   thinking: string | null;
@@ -111,6 +113,7 @@ export function rowToRecord(r: Row): SessionRecord {
       : null,
     claudeCodeSandbox:
       (r.claude_code_sandbox as 'off' | 'workspace-write' | 'strict' | null) ?? null,
+    grokSandbox: normalizeStoredGrokSandbox(r.grok_sandbox, r.id),
     model: r.model ?? null,
     thinking: r.thinking ?? null,
     extraAllowWrite: parseStringArrayJson(r.extra_allow_write, {
@@ -131,6 +134,25 @@ export function rowToRecord(r: Row): SessionRecord {
     spawnDepth: r.spawn_depth ?? 0,
     cliSessionId: r.cli_session_id ?? null,
   };
+}
+
+function normalizeStoredGrokSandbox(
+  raw: string | null | undefined,
+  sessionId: string,
+): string | null {
+  // Older migration fixtures and compatibility projections may not yet select the v053 column.
+  // Treat a missing property exactly like the nullable database default.
+  if (raw == null) return null;
+  try {
+    return normalizeGrokSandboxProfile(raw);
+  } catch (error) {
+    logger.warn('[session-repo] invalid Grok sandbox profile ignored', {
+      sessionId,
+      rawLength: raw.length,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 function parseGrokUsageWatermarkJson(

@@ -23,6 +23,7 @@ describe('adapter runtime profiles', () => {
         canRestartWithPermissionMode: true,
         canRestartWithClaudeCodeSandbox: true,
         canRestartWithCodexSandbox: false,
+        canRestartWithGrokSandbox: false,
       },
       runtimeControls: {
         permissionModes: [
@@ -47,6 +48,7 @@ describe('adapter runtime profiles', () => {
         canRestartWithPermissionMode: false,
         canRestartWithCodexSandbox: true,
         canRestartWithClaudeCodeSandbox: false,
+        canRestartWithGrokSandbox: false,
       },
       runtimeControls: {
         permissionModes: [],
@@ -64,6 +66,7 @@ describe('adapter runtime profiles', () => {
         canRespondPermission: true,
         canSetPermissionMode: false,
         canSetSessionMode: true,
+        canRestartWithGrokSandbox: true,
         canSteerTurn: true,
         canAcceptAttachments: false,
       },
@@ -71,7 +74,7 @@ describe('adapter runtime profiles', () => {
         permissionModes: [],
         sessionModes: ['default', 'plan', 'ask'],
         providerOverride: 'none',
-        sandbox: 'provider-native',
+        sandbox: 'grok',
         extraAllowWrite: false,
       },
       model: {

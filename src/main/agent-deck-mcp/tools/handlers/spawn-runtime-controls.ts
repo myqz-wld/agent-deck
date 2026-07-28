@@ -41,11 +41,12 @@ export function validateSpawnRuntimeControls(
   if (
     unsupported === 'codexSandbox' ||
     unsupported === 'claudeCodeSandbox' ||
+    unsupported === 'grokSandbox' ||
     unsupported === 'extraAllowWrite'
   ) {
     return {
       error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
-      hint: `Remove ${unsupported} or choose ${owners}. Grok Build keeps ACP-native tool permissions.`,
+      hint: `Remove ${unsupported} or choose ${owners}. Each adapter owns a distinct sandbox control; Grok permissions remain ACP-native and separate from grokSandbox.`,
     };
   }
   return {
@@ -84,6 +85,12 @@ export function resolveSpawnRuntimeControls(input: {
     effectiveClaudeCodeSandbox:
       args.claudeCodeSandbox ??
       (inherit ? (leadRecord?.claudeCodeSandbox ?? undefined) : undefined),
+    effectiveGrokSandbox:
+      args.grokSandbox !== undefined
+        ? args.grokSandbox
+        : inherit && leadRecord?.agentId === 'grok-build'
+          ? leadRecord.grokSandbox ?? null
+          : undefined,
     effectiveExtraAllowWrite:
       args.extraAllowWrite !== undefined
         ? args.extraAllowWrite

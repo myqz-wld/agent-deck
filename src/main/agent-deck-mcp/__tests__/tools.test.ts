@@ -194,6 +194,7 @@ const createSessionCalls: Array<{
   permissionMode?: string;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
+  grokSandbox?: string | null;
   provider?: string;
   model?: string;
   modelReasoningEffort?: string;
@@ -226,6 +227,7 @@ vi.mock('@main/adapters/registry', () => ({
           permissionMode?: string;
           codexSandbox?: string;
           claudeCodeSandbox?: string;
+          grokSandbox?: string | null;
           provider?: string;
           model?: string;
           modelReasoningEffort?: string;
@@ -251,6 +253,7 @@ vi.mock('@main/adapters/registry', () => ({
             permissionMode: opts.permissionMode,
             codexSandbox: opts.codexSandbox,
             claudeCodeSandbox: opts.claudeCodeSandbox,
+            grokSandbox: opts.grokSandbox,
             provider: opts.provider,
             model: opts.model,
             modelReasoningEffort: opts.modelReasoningEffort,
@@ -820,7 +823,9 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const description = tools.get('spawn_session').description as string;
     expect(description).toContain('Required fields: adapter, absolute cwd');
     expect(description).toContain('Use provider for a Claude Gateway profile');
-    expect(description).toContain('Runtime precedence is explicit provider/model/thinking');
+    expect(description).toContain('Provider/model/thinking precedence is explicit value');
+    expect(description).toContain('grokSandbox belongs only to grok-build');
+    expect(description).toContain('Managed requirements may override');
     expect(description).toContain('follow hint exactly');
     expect(description).toContain('contextMode defaults to fresh');
     expect(description).toContain('safe active-turn boundary');
@@ -976,6 +981,35 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].codexSandbox).toBe('read-only');
     expect(createSessionCalls[0].permissionMode).toBeUndefined();
     expect(recordPermCalls).toEqual([]);
+  });
+
+  it('same Grok adapter spawn inherits its requested native sandbox profile', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'grok-build',
+      grokSandbox: 'project-locked',
+    });
+    const inherited = await tools.get('spawn_session').handler({
+      adapter: 'grok-build',
+      cwd: '/repo',
+      prompt: 'same Grok task',
+      callerSessionId: 'lead',
+    }, {});
+    expect(parseResult(inherited).isError).toBeFalsy();
+    expect(createSessionCalls[0].grokSandbox).toBe('project-locked');
+
+    createSessionCalls.length = 0;
+    nextSpawnedSid = 'spawned-2';
+    const explicit = await tools.get('spawn_session').handler({
+      adapter: 'grok-build',
+      cwd: '/repo',
+      prompt: 'stricter Grok task',
+      grokSandbox: 'strict',
+      callerSessionId: 'lead',
+    }, {});
+    expect(parseResult(explicit).isError).toBeFalsy();
+    expect(createSessionCalls[0].grokSandbox).toBe('strict');
   });
 
   it('codex spawn returns a canonical id that remains usable by follow-up send_message', async () => {
