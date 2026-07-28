@@ -22,17 +22,8 @@ const LEVEL_OPTIONS: { value: LogLevel; label: string; description: string }[] =
 ];
 
 /**
- * 「日志」section — Plan runtime-logging-electron-log-20260529 §D9 §Step 3.2.1.
- *
- * 包含 4 个交互元素:
- * - 日志级别下拉 (logLevel: error / warn / info / verbose / debug / silly, 默认 info; 只控
- *   file transport, console 永远 silly 保 dev terminal 全输出 — D4 修订; IPC SettingsSet
- *   handler 调 applyLogLevel(next.logLevel) 即改即生效 — Step 3.1.3)
- * - 打开日志目录按钮 — main 端 shell.openPath(app.getPath('logs'))
- * - 查看日志按钮 — 打开应用内 Monaco 只读 modal 展示当天 main-YYYY-MM-DD.log
- *   (window.api.logsReadToday(); 文件不存在 → 空态; > 2MB → 尾部 2MB + truncated banner)
- * - 清空今天日志按钮 — main 端 fs.truncateSync 当天 log 文件; 文件不存在时弹 toast「今天还
- *   没有日志可清空」
+ * 日志设置：文件级别、日志目录、当天日志查看与清空。
+ * 所有日志 IPC 都在本组件边界收敛 transport rejection，避免事件处理器产生未处理 Promise。
  */
 export function LogsSection({ settings, update }: Props): JSX.Element {
   const [toast, setToast] = useState<{ msg: string; kind: 'info' | 'error' } | null>(null);
@@ -43,20 +34,36 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
     setTimeout(() => setToast(null), 3000);
   }
 
+  async function handleLevelChange(next: LogLevel): Promise<void> {
+    try {
+      await update({ logLevel: next });
+    } catch {
+      flashToast('更新日志级别失败，请重试。', 'error');
+    }
+  }
+
   async function handleOpenDirectory(): Promise<void> {
-    const res = await window.api.logsOpenDirectory();
-    if (!res.ok) {
-      flashToast(`打开失败: ${res.error ?? 'unknown'}`, 'error');
+    try {
+      const res = await window.api.logsOpenDirectory();
+      if (!res.ok) {
+        flashToast(`打开失败：${res.error ?? '未知错误'}`, 'error');
+      }
+    } catch {
+      flashToast('打开日志目录失败，请重试。', 'error');
     }
   }
 
   async function handleTruncateToday(): Promise<void> {
-    const res = await window.api.logsTruncateToday();
-    if (!res.ok) {
-      flashToast(`清空失败: ${res.error ?? 'unknown'}`, 'error');
-      return;
+    try {
+      const res = await window.api.logsTruncateToday();
+      if (!res.ok) {
+        flashToast(`清空失败：${res.error ?? '未知错误'}`, 'error');
+        return;
+      }
+      flashToast(res.existed ? '已清空今天日志' : '今天还没有日志可清空');
+    } catch {
+      flashToast('清空今天日志失败，请重试。', 'error');
     }
-    flashToast(res.existed ? '已清空今天日志' : '今天还没有日志可清空');
   }
 
   return (
@@ -65,7 +72,7 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
         <div>日志详细程度（仅影响写入文件的日志）</div>
         <DeckSelect
           value={settings.logLevel}
-          onChange={(next) => void update({ logLevel: next })}
+          onChange={(next) => void handleLevelChange(next)}
           options={LEVEL_OPTIONS}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
         />
