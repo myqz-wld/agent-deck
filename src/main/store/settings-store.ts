@@ -215,6 +215,21 @@ function ensure(): Store<AppSettings> & StoreApi<AppSettings> {
       }
       looseStore.set(CLAUDE_SANDBOX_DEFAULT_20260604_SENTINEL, true);
     }
+    // Simplify the global Grok sandbox setting to concrete, commonly useful profiles. Existing
+    // native-follow, strict, and devbox values move to their closest conservative supported choice;
+    // custom sandbox.toml profiles remain untouched.
+    const GROK_SANDBOX_DEFAULT_20260727_SENTINEL = '__grokSandboxDefault20260727Done';
+    if (persistedRaw[GROK_SANDBOX_DEFAULT_20260727_SENTINEL] !== true) {
+      const previous = persistedRaw['grokSandbox'];
+      if (previous === null || previous === undefined || previous === 'devbox') {
+        store.set('grokSandbox', 'workspace');
+        logger.info(`[settings] migrated grokSandbox=${String(previous)} → workspace`);
+      } else if (previous === 'strict') {
+        store.set('grokSandbox', 'read-only');
+        logger.info('[settings] migrated grokSandbox=strict → read-only');
+      }
+      looseStore.set(GROK_SANDBOX_DEFAULT_20260727_SENTINEL, true);
+    }
     // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D2 R1 F11 + R3-claude-MED-1:
     // smart migration 守护老用户 enableTaskManager:true 不丢失能力。在 REMOVED_KEYS
     // delete loop 之前 (line 74) 读 persistedRaw.enableTaskManager 决定是否 carry 到 enableAgentDeckMcp。

@@ -1,24 +1,23 @@
 /**
  * 全部 renderer 入口共享的 permission / sandbox 下拉选项。
- * 新建会话使用含 `''` =「跟随设置（默认）」的数组；设置页和会话详情使用具体档位数组。
+ * 选项统一按限制从严格到宽松排列；新建会话直接显示解析后的具体值。
  */
-import type { SelectablePermissionMode } from '@shared/types';
+import type { CodexApprovalPolicy, SelectablePermissionMode } from '@shared/types';
 import type { GrokBuiltinSandboxProfile } from '@shared/grok-sandbox';
 
 export type PermissionModeChoice = SelectablePermissionMode;
-/** `''` = 跟随设置（不 per-session 覆盖） */
-export type CodexSandboxChoice = '' | 'workspace-write' | 'read-only' | 'danger-full-access';
-/** `''` = 跟随设置（不 per-session 覆盖） */
-export type ClaudeSandboxChoice = '' | 'off' | 'workspace-write' | 'strict';
-export type CodexSandboxMode = Exclude<CodexSandboxChoice, ''>;
-export type ClaudeSandboxMode = Exclude<ClaudeSandboxChoice, ''>;
+export type CodexApprovalPolicyChoice = CodexApprovalPolicy;
+export type CodexSandboxChoice = 'workspace-write' | 'read-only' | 'danger-full-access';
+export type ClaudeSandboxChoice = 'off' | 'workspace-write' | 'strict';
+export type CodexSandboxMode = CodexSandboxChoice;
+export type ClaudeSandboxMode = ClaudeSandboxChoice;
 /** Empty means follow the Agent Deck/Grok default; other strings may name custom profiles. */
 export type GrokSandboxChoice = string;
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
+  { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
   { value: 'default', label: '手动确认', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
-  { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
   {
     value: 'auto',
     label: '自动判断',
@@ -28,6 +27,28 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
     value: 'bypassPermissions',
     label: '⚠️ 不再询问（仍在系统沙盒内）',
     title: 'Claude 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
+  },
+];
+
+export const CODEX_APPROVAL_POLICY_OPTIONS: {
+  value: CodexApprovalPolicyChoice;
+  label: string;
+  title?: string;
+}[] = [
+  {
+    value: 'untrusted',
+    label: '非可信命令前询问',
+    title: '已知安全的读取操作可直接运行，其他命令先请求批准',
+  },
+  {
+    value: 'on-request',
+    label: '按需询问',
+    title: '默认在沙盒内执行，需要越过边界或确认副作用时请求批准',
+  },
+  {
+    value: 'never',
+    label: '从不询问',
+    title: '不暂停请求批准；沙盒仍生效，超出权限的操作会直接失败',
   },
 ];
 
@@ -71,23 +92,17 @@ export const CLAUDE_SANDBOX_MODE_OPTIONS: {
   },
 ];
 
-const FOLLOW_SETTINGS_OPTION = {
-  value: '' as const,
-  label: '跟随设置（默认）',
-  title: '使用「实验功能」中的全局设置',
-};
-
 export const CODEX_SANDBOX_OPTIONS: {
   value: CodexSandboxChoice;
   label: string;
   title?: string;
-}[] = [FOLLOW_SETTINGS_OPTION, ...CODEX_SANDBOX_MODE_OPTIONS];
+}[] = CODEX_SANDBOX_MODE_OPTIONS;
 
 export const CLAUDE_SANDBOX_OPTIONS: {
   value: ClaudeSandboxChoice;
   label: string;
   title?: string;
-}[] = [FOLLOW_SETTINGS_OPTION, ...CLAUDE_SANDBOX_MODE_OPTIONS];
+}[] = CLAUDE_SANDBOX_MODE_OPTIONS;
 
 export const GROK_SANDBOX_MODE_OPTIONS: {
   value: GrokBuiltinSandboxProfile;
@@ -120,3 +135,8 @@ export const GROK_SANDBOX_MODE_OPTIONS: {
     title: '不启用 Grok 系统沙盒；仍受 Grok 工具授权规则约束',
   },
 ];
+
+/** Simplified global setting choices; per-session and live controls retain every native profile. */
+export const GROK_SETTINGS_SANDBOX_MODE_OPTIONS = GROK_SANDBOX_MODE_OPTIONS.filter(
+  (option) => option.value !== 'strict' && option.value !== 'devbox',
+);

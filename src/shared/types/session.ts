@@ -3,6 +3,7 @@
  */
 
 import type { SessionTeamMembership } from './agent-deck-team';
+import type { SessionThinkingLevel } from '../session-metadata';
 
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 /**
@@ -81,6 +82,18 @@ export function isAdapterSessionMode(value: unknown): value is AdapterSessionMod
     typeof value === 'string' &&
     (ADAPTER_SESSION_MODES as readonly string[]).includes(value)
   );
+}
+/** Concrete defaults shown by new-session surfaces after resolving native config and app settings. */
+export interface SessionCreationDefaults {
+  provider: string;
+  model: string;
+  thinking: SessionThinkingLevel;
+  permissionMode: SelectablePermissionMode;
+  sessionMode: AdapterSessionMode;
+  approvalPolicy: CodexApprovalPolicy;
+  codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
+  claudeCodeSandbox: 'off' | 'workspace-write' | 'strict';
+  grokSandbox: string;
 }
 export const AGENT_PROFILE_SOURCES = ['bundled', 'project', 'user', 'plugin'] as const;
 export type AgentProfileSource = (typeof AGENT_PROFILE_SOURCES)[number];

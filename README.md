@@ -35,6 +35,29 @@ Authenticate each agent through its normal CLI workflow before first use. Agent 
 
 Leave runtime paths empty to use the app's bundled versions. Configure an external path only when you need a different installation.
 
+### New-session defaults
+
+New-session dialogs resolve concrete model and thinking values before creation. Claude Code reads
+the selected Gateway plus layered user, project, and local `settings.json` files; Codex reads the
+effective `config.toml` through app-server. These controls are collapsed under **Model
+configuration** until you need to change them. Clearing the model field omits the override, so the
+runtime configuration remains authoritative.
+
+Agent Deck remembers the most recent choices for each adapter during the current app run. Those
+choices take precedence when the dialog is reopened. Permission, approval, work-mode, and sandbox
+selectors show concrete values and are ordered from the most restrictive option to the most
+permissive.
+
+### Codex session approvals
+
+When creating a Codex session—or starting a new Codex session from an issue—choose its thread-wide
+approval policy: `untrusted`, `on-request`, or `never`. The initial value is resolved from the
+effective Codex configuration (falling back to `on-request`), and Agent Deck forwards the concrete
+selection to Codex app-server and preserves it when the session resumes or recovers.
+
+Approval policy and sandbox access are separate. Choosing `never` stops approval prompts but does
+not widen filesystem or network access; operations outside the selected sandbox fail instead.
+
 ### Grok Build sandbox profiles
 
 Agent Deck can request Grok Build's native `off`, `workspace`, `devbox`, `read-only`, or `strict`
@@ -42,12 +65,14 @@ sandbox when creating, handing off, or resolving work in a Grok session. Named c
 from user or project `sandbox.toml` files are also accepted. Existing idle Grok sessions can switch
 profiles without changing their Agent Deck or native session identity.
 
-Leave the setting unset to follow Grok's native configuration, environment, and managed policy, or
-use `agent-deck new --adapter grok-build --grok-sandbox strict` for an explicit CLI request. Agent
-Deck displays the requested profile because organization-managed requirements may override it.
-Sandbox constraints and ACP tool-permission decisions remain separate. On macOS, Grok documents
-child-network blocking in `read-only` and `strict` as unenforced even though filesystem isolation
-still applies.
+The global setting defaults to `workspace`. Its settings-page choices are `read-only`, `workspace`,
+`off`, or a custom profile; legacy unset and `devbox` settings migrate to `workspace`, while
+`strict` migrates to `read-only`. Session-specific controls and
+`agent-deck new --adapter grok-build --grok-sandbox strict` can still request every native profile.
+Agent Deck displays the requested profile because organization-managed requirements may override
+it. Sandbox constraints and ACP tool-permission decisions remain separate. On macOS, Grok
+documents child-network blocking in `read-only` and `strict` as unenforced even though filesystem
+isolation still applies.
 
 ## MCP Collaboration Areas
 

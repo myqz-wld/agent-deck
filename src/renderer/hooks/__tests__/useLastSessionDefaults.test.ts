@@ -16,19 +16,23 @@ describe('useLastSessionDefaults', () => {
     const { getLastDefaults, setLastDefaults } = await loadDefaultsModule();
 
     setLastDefaults('claude-code', { permissionMode: 'plan', claudeCodeSandbox: 'strict' });
-    setLastDefaults('codex-cli', { codexSandbox: 'read-only' });
+    setLastDefaults('codex-cli', { approvalPolicy: 'on-request', codexSandbox: 'read-only' });
 
     expect(getLastDefaults('claude-code')).toEqual({
       permissionMode: 'plan',
       claudeCodeSandbox: 'strict',
     });
-    expect(getLastDefaults('codex-cli')).toEqual({ codexSandbox: 'read-only' });
+    expect(getLastDefaults('codex-cli')).toEqual({
+      approvalPolicy: 'on-request',
+      codexSandbox: 'read-only',
+    });
   });
 
-  it('按 adapter 分桶记住模型与思考程度，空串保留 provider 默认语义', async () => {
+  it('按 adapter 分桶记住模型与思考程度，空串恢复配置文件默认值', async () => {
     const { getLastDefaults, setLastDefaults } = await loadDefaultsModule();
 
     setLastDefaults('claude-code', { model: 'sonnet', thinking: 'max' });
+    setLastDefaults('codex-cli', { model: 'gpt-5.6-sol', thinking: 'high' });
     setLastDefaults('codex-cli', { model: '', thinking: '' });
 
     expect(getLastDefaults('claude-code')).toEqual({
@@ -36,7 +40,7 @@ describe('useLastSessionDefaults', () => {
       model: 'sonnet',
       thinking: 'max',
     });
-    expect(getLastDefaults('codex-cli')).toEqual({ model: '', thinking: '' });
+    expect(getLastDefaults('codex-cli')).toEqual({});
   });
 
   it('记住上次选择的 adapter，非法值不会污染记忆', async () => {

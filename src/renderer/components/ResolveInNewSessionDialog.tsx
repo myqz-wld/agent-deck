@@ -3,7 +3,7 @@
  *
  * - 三必填字段: adapter / cwd / prompt
  * - cwd 默认 = issue.cwd（issue 无 cwd 时空）;prompt 默认按 §D8 template 拼（null 字段整段省略）
- * - permissionMode / codexSandbox / claudeCodeSandbox 三 optional 字段
+ * - permissionMode / approvalPolicy / sandbox 等 optional 字段
  * - submit 调 `window.api.issuesResolveInNewSession`，spawn 成功后回写 issue + emit kind=updated
  * - **UI throttle**: submit 期间 button disabled 防 React 双 click;IPC handler 内部 in-flight Promise
  *   dedupe 兜底（§D14 UI throttle 兜底）
@@ -13,26 +13,20 @@ import { cloneElement, useEffect, useId, useState, type JSX } from 'react';
 import type { AdapterSessionMode, IssueRecord } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { CloseIcon, HandOffIcon } from './icons';
-import {
-  SessionModelFields,
-  type SessionThinkingChoice,
-} from '@renderer/components/SessionModelFields';
+import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclosure';
+import { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
 import {
   getLastAdapter,
-  getLastDefaults,
   setLastAdapter,
-  setLastDefaults,
 } from '@renderer/hooks/useLastSessionDefaults';
 import {
   PERMISSION_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   CLAUDE_SANDBOX_OPTIONS,
-  type CodexSandboxChoice,
-  type ClaudeSandboxChoice,
-  type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import { GrokSandboxPicker } from './GrokSandboxPicker';
+import { CodexApprovalPolicyPicker } from './CodexApprovalPolicyPicker';
 
 interface Props {
   issue: IssueRecord;
@@ -104,18 +98,18 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   // deep-review H1 INFO：buildDefaultPrompt 只需作 useState 初值（mount 后不再消费），用惰性初始化
   // 替代 useMemo（去掉每次 issue 变重算但不被用的死计算）。
   const [prompt, setPrompt] = useState(() => buildDefaultPrompt(issue));
-  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
-  const [sessionMode, setSessionMode] = useState<AdapterSessionMode>('default');
-  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
-  const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
-  const [grokSandbox, setGrokSandbox] = useState('');
-  const [provider, setProvider] = useState(
-    () => getLastDefaults(getLastAdapter()).provider ?? '',
-  );
-  const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
-  const [thinking, setThinking] = useState<SessionThinkingChoice>(
-    () => getLastDefaults(getLastAdapter()).thinking ?? '',
-  );
+  const sessionOptions = useSessionCreationOptions({ adapterId: adapter, cwd });
+  const {
+    permissionMode,
+    sessionMode,
+    approvalPolicy,
+    codexSandbox,
+    claudeCodeSandbox,
+    grokSandbox,
+    provider,
+    model,
+    thinking,
+  } = sessionOptions;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // deep-review H1 R2 LOW：adapter 列表加载失败 / 为空时禁止提交（否则用默认 'claude-code' 发起，
@@ -148,21 +142,6 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // plan pending-tab-resume-and-new-session-default-20260602 §D2 BUG 2：与 NewSessionDialog
-  // 共享 last-used 记忆。dialog mount 时 + adapter 切换时从 useLastSessionDefaults store 读回
-  // 上次值；不要在「adapters 还没加载好」时跑（adapter 切到合法值后再跑）。
-  useEffect(() => {
-    const d = getLastDefaults(adapter);
-    if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
-    if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
-    if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
-    if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
-    if (d.grokSandbox !== undefined) setGrokSandbox(d.grokSandbox);
-    setProvider(d.provider ?? '');
-    setModel(d.model ?? '');
-    setThinking(d.thinking ?? '');
-  }, [adapter]);
-
   // 与 NewSessionDialog 同款按 adapter capability 决定字段可见性
   const selectedAdapter = adapters.find((a) => a.id === adapter);
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
@@ -192,15 +171,11 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         adapter,
         cwd: cwd.trim() || undefined,
         prompt,
-        // plan pending-tab-resume-and-new-session-default-20260602 §D2：'default' = 跟随默认，
-        // 不作为 per-session 覆盖传给主进程（主进程收到 'default' 也等价不传，与历史契约一致）。
-        ...(showPermissionMode && permissionMode !== 'default' ? { permissionMode } : {}),
+        ...(showPermissionMode ? { permissionMode } : {}),
         ...(showSessionMode ? { sessionMode } : {}),
-        ...(showCodexSandbox && codexSandbox ? { codexSandbox } : {}),
-        ...(showClaudeCodeSandbox && claudeCodeSandbox ? { claudeCodeSandbox } : {}),
-        ...(showGrokSandbox && grokSandbox.trim()
-          ? { grokSandbox: grokSandbox.trim() }
-          : {}),
+        ...(showCodexSandbox ? { approvalPolicy, codexSandbox } : {}),
+        ...(showClaudeCodeSandbox ? { claudeCodeSandbox } : {}),
+        ...(showGrokSandbox ? { grokSandbox: grokSandbox.trim() } : {}),
         ...((adapter === 'claude-code' || adapter === 'codex-cli') && provider.trim()
           ? { provider: provider.trim() }
           : {}),
@@ -251,25 +226,15 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
               buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
             />
           </DialogField>
-          <SessionModelFields
+          <SessionModelDisclosure
             adapterId={adapter}
             provider={provider}
             model={model}
             thinking={thinking}
             disabled={busy}
-            onProviderChange={(next) => {
-              setProvider(next);
-              setModel('');
-              setLastDefaults(adapter, { provider: next, model: '' });
-            }}
-            onModelChange={(next) => {
-              setModel(next);
-              setLastDefaults(adapter, { model: next });
-            }}
-            onThinkingChange={(next) => {
-              setThinking(next);
-              setLastDefaults(adapter, { thinking: next });
-            }}
+            onProviderChange={sessionOptions.setProvider}
+            onModelChange={sessionOptions.setModel}
+            onThinkingChange={sessionOptions.setThinking}
           />
           <DialogField label="工作目录（留空则沿用来源目录或主目录）">
             <input
@@ -297,10 +262,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             <DialogField label="权限模式（沿用上次选择）">
               <DeckSelect
                 value={permissionMode}
-                onChange={(v) => {
-                  setPermissionMode(v);
-                  setLastDefaults(adapter, { permissionMode: v });
-                }}
+                onChange={sessionOptions.setPermissionMode}
                 disabled={busy}
                 options={PERMISSION_OPTIONS}
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
@@ -311,12 +273,20 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             <DialogField label="工作模式（沿用上次选择）">
               <DeckSelect
                 value={sessionMode}
-                onChange={(v) => {
-                  setSessionMode(v);
-                  setLastDefaults(adapter, { sessionMode: v });
-                }}
+                onChange={sessionOptions.setSessionMode}
                 disabled={busy}
                 options={adapterSessionModeOptions(selectedAdapter.sessionModes)}
+                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
+              />
+            </DialogField>
+          )}
+          {showCodexSandbox && (
+            <DialogField label="审批策略（沿用上次选择）">
+              <CodexApprovalPolicyPicker
+                ariaLabel="审批策略（沿用上次选择）"
+                value={approvalPolicy}
+                onChange={sessionOptions.setApprovalPolicy}
+                disabled={busy}
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
               />
             </DialogField>
@@ -325,10 +295,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             <DialogField label="沙盒（沿用上次选择）">
               <DeckSelect
                 value={codexSandbox}
-                onChange={(v) => {
-                  setCodexSandbox(v);
-                  setLastDefaults(adapter, { codexSandbox: v });
-                }}
+                onChange={sessionOptions.setCodexSandbox}
                 disabled={busy}
                 options={CODEX_SANDBOX_OPTIONS}
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
@@ -339,10 +306,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             <DialogField label="系统沙盒（沿用上次选择）">
               <DeckSelect
                 value={claudeCodeSandbox}
-                onChange={(v) => {
-                  setClaudeCodeSandbox(v);
-                  setLastDefaults(adapter, { claudeCodeSandbox: v });
-                }}
+                onChange={sessionOptions.setClaudeCodeSandbox}
                 disabled={busy}
                 options={CLAUDE_SANDBOX_OPTIONS}
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-xs text-deck-text outline-none disabled:opacity-50"
@@ -353,10 +317,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
             <DialogField label="Grok 沙盒请求档位（沿用上次选择）">
               <GrokSandboxPicker
                 value={grokSandbox}
-                onChange={(value) => {
-                  setGrokSandbox(value);
-                  setLastDefaults(adapter, { grokSandbox: value });
-                }}
+                onChange={sessionOptions.setGrokSandbox}
+                allowUnset={false}
                 disabled={busy}
               />
             </DialogField>

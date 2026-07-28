@@ -448,6 +448,47 @@ describe('2026-06-04 — Claude Code sandbox default uplift', () => {
   });
 });
 
+describe('2026-07-27 — Grok sandbox setting simplification', () => {
+  it.each([
+    [null, 'workspace'],
+    ['devbox', 'workspace'],
+    ['strict', 'read-only'],
+  ])('migrates legacy %s to %s and records a sentinel', async (legacy, expected) => {
+    mockRawStore = { grokSandbox: legacy };
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll();
+
+    expect(mockSet).toHaveBeenCalledWith('grokSandbox', expected);
+    expect(mockSet).toHaveBeenCalledWith('__grokSandboxDefault20260727Done', true);
+    expect(all.grokSandbox).toBe(expected);
+  });
+
+  it('preserves custom profiles and does not expose the sentinel', async () => {
+    mockRawStore = { grokSandbox: 'project-locked' };
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll() as unknown as Record<string, unknown>;
+
+    expect(mockSet.mock.calls.filter((call) => call[0] === 'grokSandbox')).toHaveLength(0);
+    expect(all.grokSandbox).toBe('project-locked');
+    expect('__grokSandboxDefault20260727Done' in all).toBe(false);
+  });
+
+  it('does not remigrate a value after the sentinel is set', async () => {
+    mockRawStore = {
+      grokSandbox: 'devbox',
+      __grokSandboxDefault20260727Done: true,
+    };
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll();
+
+    expect(mockSet.mock.calls.filter((call) => call[0] === 'grokSandbox')).toHaveLength(0);
+    expect(all.grokSandbox).toBe('devbox');
+  });
+});
+
 describe('REVIEW_92 — token canonical 格式校验（reviewer-codex LOW）', () => {
   it('malformed 64-char token（64 个空格）→ 重生成 canonical hex', async () => {
     mockRawStore = {

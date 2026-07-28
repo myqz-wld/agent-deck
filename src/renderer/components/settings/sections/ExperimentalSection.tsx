@@ -6,6 +6,7 @@ import { IS_DARWIN, IS_LINUX } from '@renderer/lib/platform';
 import {
   CLAUDE_SANDBOX_MODE_OPTIONS,
   CODEX_SANDBOX_MODE_OPTIONS,
+  GROK_SETTINGS_SANDBOX_MODE_OPTIONS,
 } from '@renderer/lib/sandbox-options';
 import { GrokSandboxPicker } from '@renderer/components/GrokSandboxPicker';
 
@@ -95,17 +96,19 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
       <div className="mt-3 flex flex-col gap-1 text-[11px]">
         <div>Grok Build 沙盒（请求档位）</div>
         <GrokSandboxPicker
-          value={settings.grokSandbox ?? ''}
+          value={settings.grokSandbox}
           onChange={(profile) =>
-            void update({ grokSandbox: profile.trim() || null })
+            void update({ grokSandbox: profile.trim() })
           }
-          followLabel="跟随 Grok 原生（默认）"
+          allowUnset={false}
+          profileOptions={GROK_SETTINGS_SANDBOX_MODE_OPTIONS}
         />
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        不指定时保留 Grok 用户配置、环境变量和企业托管策略。
-        <br />内置档位与自定义 <code className="rounded bg-white/5 px-1">sandbox.toml</code>
-        profile 均可使用；企业 managed requirements 可能覆盖这里的请求。
+        默认档位为<strong>工作目录可写</strong>。
+        <br />可选广泛只读、工作目录可写、完全开放，或输入自定义{' '}
+        <code className="rounded bg-white/5 px-1">sandbox.toml</code> profile；企业 managed
+        requirements 仍可能覆盖这里的请求。
         <br />权限弹窗决定工具是否执行，沙盒限制获准工具能够访问的系统资源。
         {IS_DARWIN && (
           <>

@@ -47,6 +47,7 @@ import {
   parseStringId,
   parsePermissionMode,
   parseAdapterSessionMode,
+  parseCodexApprovalPolicy,
   parseSandboxMode,
   parseCodexSandboxMode,
   parseGrokSandboxProfile,
@@ -99,6 +100,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   prompt: z.string().min(1).max(102400),
   permissionMode: z.string().optional(), // parsePermissionMode 内部白名单
   sessionMode: z.string().optional(),
+  approvalPolicy: z.string().optional(),
   codexSandbox: z.string().optional(),
   claudeCodeSandbox: z.string().optional(),
   grokSandbox: z.string().optional(),
@@ -120,6 +122,7 @@ interface CreateIssueResolutionSessionInput {
   prompt: string;
   permissionMode: ReturnType<typeof parsePermissionMode>;
   sessionMode?: ReturnType<typeof parseAdapterSessionMode>;
+  approvalPolicy?: ReturnType<typeof parseCodexApprovalPolicy>;
   codexSandbox: ReturnType<typeof parseCodexSandboxMode>;
   claudeCodeSandbox: ReturnType<typeof parseSandboxMode>;
   grokSandbox?: ReturnType<typeof parseGrokSandboxProfile>;
@@ -141,6 +144,13 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
   // §3 canCreateSession capability 校验
   if (a.capabilities.canCreateSession !== true) {
     throw new IpcInputError('adapter', `adapter "${validAdapterId}" capabilities.canCreateSession=false`);
+  }
+  const approvalPolicy = input.approvalPolicy ?? null;
+  if (approvalPolicy !== null && validAdapterId !== 'codex-cli') {
+    throw new IpcInputError(
+      'approvalPolicy',
+      `owned by codex-cli and incompatible with target adapter "${validAdapterId}"`,
+    );
   }
   const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(
     validAdapterId as AgentId,
@@ -200,18 +210,20 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
   }
   // §9 调 adapter.createSession（§8 不支持 attachments — buildCreateSessionOptions 不传 attachments
   // 字段 → builder 走 attachments=[] 默认；helper signature 无 attachments 字段保接口最小）
-  const sid = await a.createSession(
-    buildCreateSessionOptions(validAdapterId, {
-      cwd: input.cwd,
-      prompt: input.prompt,
-      ...(input.permissionMode !== null ? { permissionMode: input.permissionMode } : {}),
-      ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
-      ...(input.codexSandbox !== null ? { codexSandbox: input.codexSandbox } : {}),
-      ...(input.claudeCodeSandbox !== null ? { claudeCodeSandbox: input.claudeCodeSandbox } : {}),
-      ...(input.grokSandbox != null ? { grokSandbox: input.grokSandbox } : {}),
-      ...sessionModelOptions,
-    }),
-  );
+  const createOptions = buildCreateSessionOptions(validAdapterId, {
+    cwd: input.cwd,
+    prompt: input.prompt,
+    ...(input.permissionMode !== null ? { permissionMode: input.permissionMode } : {}),
+    ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
+    ...(input.codexSandbox !== null ? { codexSandbox: input.codexSandbox } : {}),
+    ...(input.claudeCodeSandbox !== null ? { claudeCodeSandbox: input.claudeCodeSandbox } : {}),
+    ...(input.grokSandbox != null ? { grokSandbox: input.grokSandbox } : {}),
+    ...sessionModelOptions,
+  });
+  if (createOptions.agentId === 'codex-cli' && approvalPolicy !== null) {
+    createOptions.approvalPolicy = approvalPolicy;
+  }
+  const sid = await a.createSession(createOptions);
   // §10 关键:recordCreatedPermissionMode 持久化（与 ipc/adapters.ts:182 同款 — 保证后续 SDK session
   // resume / recoverAndSend 从 sessionRepo 拿回用户主动选的 permissionMode 复原；漏调 = 项目
   // CLAUDE.md §会话恢复 / 断连 UX 硬约束破坏「用户上次主动选过的 acceptEdits / plan / bypassPermissions
@@ -352,6 +364,7 @@ export async function issuesResolveInNewSessionHandler(
     // §7 默认 sandbox / permissionMode 走 adapter 默认 + 应用 settings 白名单 — parseXxx 接 unknown
     const permissionMode = parsePermissionMode(args.permissionMode);
     const sessionMode = parseAdapterSessionMode(args.sessionMode);
+    const approvalPolicy = parseCodexApprovalPolicy(args.approvalPolicy);
     const codexSandbox = parseCodexSandboxMode(args.codexSandbox);
     const claudeCodeSandbox = parseSandboxMode(args.claudeCodeSandbox);
     const grokSandbox = parseGrokSandboxProfile(args.grokSandbox);
@@ -361,6 +374,7 @@ export async function issuesResolveInNewSessionHandler(
       cwd,
       permissionMode,
       sessionMode,
+      approvalPolicy,
       codexSandbox,
       claudeCodeSandbox,
       grokSandbox,
@@ -376,6 +390,7 @@ export async function issuesResolveInNewSessionHandler(
       prompt: args.prompt,
       permissionMode,
       sessionMode,
+      approvalPolicy,
       codexSandbox,
       claudeCodeSandbox,
       grokSandbox,

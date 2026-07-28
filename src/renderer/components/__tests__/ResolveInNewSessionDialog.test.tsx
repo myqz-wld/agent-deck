@@ -6,6 +6,22 @@ import { ResolveInNewSessionDialog } from '../ResolveInNewSessionDialog';
 
 let issuesResolveInNewSession: ReturnType<typeof vi.fn>;
 
+function sessionCreationDefaults(
+  approvalPolicy: 'untrusted' | 'on-request' | 'never' = 'on-request',
+) {
+  return {
+    provider: '',
+    model: '',
+    thinking: 'high' as const,
+    permissionMode: 'bypassPermissions' as const,
+    sessionMode: 'default' as const,
+    approvalPolicy,
+    codexSandbox: 'workspace-write' as const,
+    claudeCodeSandbox: 'workspace-write' as const,
+    grokSandbox: 'workspace',
+  };
+}
+
 function makeIssue(): IssueRecord {
   const now = Date.now();
   return {
@@ -41,6 +57,9 @@ beforeEach(() => {
           capabilities: { canCreateSession: true, canSetPermissionMode: false },
         },
       ]),
+      getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(
+        sessionCreationDefaults('untrusted'),
+      ),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
       listCodexModelProviders: vi.fn().mockResolvedValue([]),
       issuesResolveInNewSession,
@@ -71,6 +90,10 @@ describe('ResolveInNewSessionDialog model options', () => {
     );
 
     await screen.findByText('Codex');
+    const disclosure = screen.getByText('模型配置').closest('details');
+    expect(disclosure?.open).toBe(false);
+    fireEvent.click(screen.getByText('模型配置'));
+    expect(disclosure?.open).toBe(true);
     fireEvent.change(await screen.findByLabelText('Provider'), {
       target: { value: 'openai-custom' },
     });
@@ -79,6 +102,12 @@ describe('ResolveInNewSessionDialog model options', () => {
     });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
+    const approvalPicker = screen.getByLabelText('审批策略（沿用上次选择）');
+    await waitFor(() => {
+      expect(approvalPicker.textContent).toContain('非可信命令前询问');
+    });
+    fireEvent.click(approvalPicker);
+    fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
 
     await waitFor(() => {
@@ -89,6 +118,7 @@ describe('ResolveInNewSessionDialog model options', () => {
           provider: 'openai-custom',
           model: 'gpt-custom-preview',
           thinking: 'ultra',
+          approvalPolicy: 'on-request',
         }),
       );
     });
@@ -110,6 +140,7 @@ describe('ResolveInNewSessionDialog model options', () => {
             sessionModes: ['default', 'plan', 'ask'],
           },
         ]),
+        getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
         listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
         listCodexModelProviders: vi.fn().mockResolvedValue([]),
         issuesResolveInNewSession,

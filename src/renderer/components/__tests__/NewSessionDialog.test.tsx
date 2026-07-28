@@ -7,6 +7,22 @@ let chooseDirectory: ReturnType<typeof vi.fn>;
 let createAdapterSession: ReturnType<typeof vi.fn>;
 let resolveChooseDirectory: (value: string | null) => void;
 
+function sessionCreationDefaults(
+  approvalPolicy: 'untrusted' | 'on-request' | 'never' = 'on-request',
+) {
+  return {
+    provider: '',
+    model: '',
+    thinking: 'high' as const,
+    permissionMode: 'bypassPermissions' as const,
+    sessionMode: 'default' as const,
+    approvalPolicy,
+    codexSandbox: 'workspace-write' as const,
+    claudeCodeSandbox: 'workspace-write' as const,
+    grokSandbox: 'workspace',
+  };
+}
+
 beforeEach(() => {
   chooseDirectory = vi.fn(
     () =>
@@ -28,6 +44,7 @@ beforeEach(() => {
           },
         },
       ]),
+      getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
       listCodexModelProviders: vi.fn().mockResolvedValue([]),
       chooseDirectory,
@@ -69,11 +86,50 @@ describe('NewSessionDialog directory picker', () => {
 });
 
 describe('NewSessionDialog model options', () => {
+  it('显示配置文件的具体模型与思考值，清空模型后仍交给配置文件决定', async () => {
+    const defaultsReader = vi.fn().mockResolvedValue({
+      ...sessionCreationDefaults(),
+      model: 'claude-config-model',
+      thinking: 'max',
+    });
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        ...window.api,
+        getAdapterSessionCreationDefaults: defaultsReader,
+      },
+    });
+    render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/模型：claude-config-model/)).toBeTruthy();
+      expect(screen.getByText(/思考：MAX/)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText('模型配置'));
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: '' } });
+    fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
+      target: { value: '使用配置模型' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    await waitFor(() => {
+      expect(createAdapterSession).toHaveBeenCalledWith(
+        'claude-code',
+        expect.objectContaining({ thinking: 'max' }),
+      );
+    });
+    expect(createAdapterSession.mock.calls[0]?.[1]).not.toHaveProperty('model');
+  });
+
   it('把 Gateway、自由文本模型与 adapter-aware 思考程度透传给创建 IPC', async () => {
     const onCreated = vi.fn();
     const onClose = vi.fn();
     render(<NewSessionDialog open={true} onClose={onClose} onCreated={onCreated} />);
 
+    const disclosure = (await screen.findByText('模型配置')).closest('details');
+    expect(disclosure?.open).toBe(false);
+    fireEvent.click(screen.getByText('模型配置'));
+    expect(disclosure?.open).toBe(true);
     fireEvent.change(await screen.findByLabelText('Gateway'), {
       target: { value: 'deepseek' },
     });
@@ -118,6 +174,7 @@ describe('NewSessionDialog model options', () => {
             sessionModes: ['default', 'plan', 'ask'],
           },
         ]),
+        getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
         listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
         listCodexModelProviders: vi.fn().mockResolvedValue([]),
         chooseDirectory,
@@ -126,7 +183,10 @@ describe('NewSessionDialog model options', () => {
     });
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
-    fireEvent.click(await screen.findByLabelText('工作模式'));
+    const workMode = await screen.findByLabelText('工作模式');
+    expect(workMode.textContent).toContain('可执行');
+    expect(workMode.textContent).not.toContain('默认');
+    fireEvent.click(workMode);
     fireEvent.click(screen.getByRole('option', { name: '计划模式' }));
     fireEvent.click(screen.getByLabelText('Grok 沙盒请求档位'));
     fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
@@ -145,6 +205,51 @@ describe('NewSessionDialog model options', () => {
           sessionMode: 'plan',
           grokSandbox: 'project-locked',
         }),
+      );
+    });
+  });
+
+  it('把 Codex 会话级审批策略透传给创建 IPC', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        listAdapters: vi.fn().mockResolvedValue([
+          {
+            id: 'codex-cli',
+            displayName: 'Codex',
+            capabilities: {
+              canCreateSession: true,
+              canSetPermissionMode: false,
+              canAcceptAttachments: true,
+            },
+          },
+        ]),
+        getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(
+          sessionCreationDefaults('untrusted'),
+        ),
+        listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        chooseDirectory,
+        createAdapterSession,
+      },
+    });
+    render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    const approvalPicker = await screen.findByLabelText('审批策略');
+    await waitFor(() => {
+      expect(approvalPicker.textContent).toContain('非可信命令前询问');
+    });
+    fireEvent.click(approvalPicker);
+    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
+      target: { value: '检查审批策略' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    await waitFor(() => {
+      expect(createAdapterSession).toHaveBeenCalledWith(
+        'codex-cli',
+        expect.objectContaining({ approvalPolicy: 'never' }),
       );
     });
   });

@@ -5,6 +5,7 @@ import {
   type GrokSandboxChoice,
 } from '@renderer/lib/sandbox-options';
 import { isGrokBuiltinSandboxProfile } from '@shared/grok-sandbox';
+import type { DeckSelectOption } from './DeckSelect';
 
 const CUSTOM_VALUE = '__agent_deck_custom_grok_sandbox__';
 
@@ -12,7 +13,9 @@ interface Props {
   value: GrokSandboxChoice;
   onChange: (value: GrokSandboxChoice) => void;
   disabled?: boolean;
+  allowUnset?: boolean;
   followLabel?: string;
+  profileOptions?: readonly DeckSelectOption<string>[];
   buttonClassName?: string;
   ariaLabel?: string;
 }
@@ -22,7 +25,9 @@ export function GrokSandboxPicker({
   value,
   onChange,
   disabled = false,
+  allowUnset = true,
   followLabel = '跟随设置（默认）',
+  profileOptions = GROK_SANDBOX_MODE_OPTIONS,
   buttonClassName,
   ariaLabel = 'Grok 沙盒请求档位',
 }: Props): JSX.Element {
@@ -34,14 +39,18 @@ export function GrokSandboxPicker({
     else if (value !== '') setCustomActive(false);
   }, [value, valueIsCustom]);
 
-  const selected = customActive ? CUSTOM_VALUE : value;
+  const selected = customActive
+    ? CUSTOM_VALUE
+    : value || (allowUnset ? '' : 'workspace');
   const options = [
-    {
-      value: '',
-      label: followLabel,
-      title: '不添加会话级覆盖，使用 Agent Deck 设置或 Grok 原生配置',
-    },
-    ...GROK_SANDBOX_MODE_OPTIONS,
+    ...(allowUnset
+      ? [{
+          value: '',
+          label: followLabel,
+          title: '不添加会话级覆盖，使用 Agent Deck 设置或 Grok 原生配置',
+        }]
+      : []),
+    ...profileOptions,
     {
       value: CUSTOM_VALUE,
       label: '自定义 profile…',
@@ -56,7 +65,6 @@ export function GrokSandboxPicker({
         onChange={(next) => {
           if (next === CUSTOM_VALUE) {
             setCustomActive(true);
-            if (!valueIsCustom) onChange('');
           } else {
             setCustomActive(false);
             onChange(next);

@@ -20,6 +20,7 @@ import type {
   UploadedAttachmentInput,
   PendingOutgoingMessage,
   AdapterSessionMode,
+  SessionCreationDefaults,
   SelectablePermissionMode,
 } from '@shared/types';
 
@@ -34,6 +35,11 @@ export const adaptersApi = {
     ipcRenderer.invoke(IpcInvoke.AdapterList),
   createAdapterSession: (agentId: string, opts: Record<string, unknown>): Promise<string> =>
     ipcRenderer.invoke(IpcInvoke.AdapterCreateSession, agentId, opts),
+  getAdapterSessionCreationDefaults: (
+    agentId: string,
+    options: { cwd?: string; provider?: string } = {},
+  ): Promise<SessionCreationDefaults> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterSessionCreationDefaults, agentId, options),
   interruptAdapterSession: (agentId: string, sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterInterrupt, agentId, sessionId),
   sendAdapterMessage: (

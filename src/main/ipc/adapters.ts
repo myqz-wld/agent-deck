@@ -30,6 +30,7 @@ import {
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { registerSessionModelOptionsIpc } from './adapters-session-model-options';
+import { registerAdapterSessionCreationDefaultsIpc } from './adapters-session-creation-defaults';
 import { registerAdapterOutgoingIpc } from './adapters-outgoing';
 import {
   parseAdapterCreateRuntimeControls,
@@ -47,6 +48,7 @@ function mergePendingRequests<T extends { requestId: string }>(base: T[], extra:
 
 export function registerAdaptersIpc(): void {
   registerSessionModelOptionsIpc();
+  registerAdapterSessionCreationDefaultsIpc();
   registerAdapterOutgoingIpc();
   registerAdapterSandboxRestartIpc();
   // Adapter actions (createSession 在 M9 实现 SDK 通道后才会真正可用)
@@ -81,6 +83,7 @@ export function registerAdaptersIpc(): void {
     const {
       permissionMode,
       sessionMode,
+      approvalPolicy,
       codexSandbox,
       claudeCodeSandbox,
       grokSandbox,
@@ -131,22 +134,26 @@ export function registerAdaptersIpc(): void {
       // 到对应 union arm。agentId 是 parseStringId 后的 string,走 string overload 内部
       // isAgentId guard,invalid throw（caller 已 line 107 验过 adapter 存在 +
       // line 161-169 验 attachments capability,到此 agentId 应都是合法 union 成员）。
-      sid = await adapter.createSession(
-        buildCreateSessionOptions(validAgentId, {
-          cwd,
-          prompt,
-          ...(permissionMode !== null ? { permissionMode } : {}),
-          ...(sessionMode !== null ? { sessionMode } : {}),
-          ...(resume !== undefined ? { resume } : {}),
-          ...(teamName !== null ? { teamName } : {}),
-          ...(codexSandbox !== null ? { codexSandbox } : {}),
-          ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
-          ...(grokSandbox !== null ? { grokSandbox } : {}),
-          ...(extraAllowWrite !== null ? { extraAllowWrite } : {}),
-          ...sessionModelOptions,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        }),
-      );
+      const createOptions = buildCreateSessionOptions(validAgentId, {
+        cwd,
+        prompt,
+        ...(permissionMode !== null ? { permissionMode } : {}),
+        ...(sessionMode !== null ? { sessionMode } : {}),
+        ...(resume !== undefined ? { resume } : {}),
+        ...(teamName !== null ? { teamName } : {}),
+        ...(codexSandbox !== null ? { codexSandbox } : {}),
+        ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
+        ...(grokSandbox !== null ? { grokSandbox } : {}),
+        ...(extraAllowWrite !== null ? { extraAllowWrite } : {}),
+        ...sessionModelOptions,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
+      // Human UI creation may override Codex's thread-wide approval policy. Keep this out of the
+      // public MCP builder contract; the bridge persists the explicit value for resume/recovery.
+      if (createOptions.agentId === 'codex-cli' && approvalPolicy !== null) {
+        createOptions.approvalPolicy = approvalPolicy;
+      }
+      sid = await adapter.createSession(createOptions);
     } catch (err) {
       // createSession 失败：path 还没塞进 SDK 队列，安全清干净
       await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));

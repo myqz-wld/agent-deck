@@ -350,14 +350,24 @@ describe('SettingsSet continuation validation', () => {
     expect(invalidatePreparations).not.toHaveBeenCalled();
   });
 
-  it('accepts nullable custom Grok profiles and rejects unsafe names', () => {
-    expect(validateSettingsPatch({ grokSandbox: null }, current())).toMatchObject({
-      grokSandbox: null,
-    });
+  it('accepts simplified concrete Grok profiles and rejects removed or unsafe values', () => {
+    for (const profile of ['read-only', 'workspace', 'off', 'project-locked']) {
+      expect(
+        validateSettingsPatch({ grokSandbox: profile }, current()),
+      ).toMatchObject({ grokSandbox: profile });
+    }
     expect(
       validateSettingsPatch({ grokSandbox: ' project-locked ' }, current()),
     ).toMatchObject({ grokSandbox: 'project-locked' });
-    for (const profile of ['', 'x'.repeat(129), 'strict\nworkspace', 42]) {
+    for (const profile of [
+      null,
+      '',
+      'strict',
+      'devbox',
+      'x'.repeat(129),
+      'strict\nworkspace',
+      42,
+    ]) {
       expect(() =>
         validateSettingsPatch({ grokSandbox: profile } as unknown, current()),
       ).toThrow(/grokSandbox/);
