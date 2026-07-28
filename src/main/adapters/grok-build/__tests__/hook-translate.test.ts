@@ -22,8 +22,8 @@ const base = {
   modelId: 'grok-4.5',
 };
 
-describe('Grok hook translation', () => {
-  it('maps session start and user prompts to grok-build events', () => {
+describe('Grok Build hook translation', () => {
+  it('maps session start and user prompts to Grok Build events', () => {
     expect(translateGrokSessionStart({ ...base, source: 'startup' })).toMatchObject({
       sessionId: 'grok-external-1',
       agentId: 'grok-build',
@@ -51,7 +51,7 @@ describe('Grok hook translation', () => {
     });
   });
 
-  it('strips exactly one canonical Grok user_query envelope and preserves raw text', () => {
+  it('strips exactly one canonical Grok Build user_query envelope and preserves raw text', () => {
     const wrapped =
       '<user_query>\n带我检查这个分支\n每段保留原文\n</user_query>';
     expect(
@@ -195,7 +195,7 @@ describe('Grok hook translation', () => {
     });
   });
 
-  it('emits the final assistant text before the Grok turn terminal event', () => {
+  it('emits the final assistant text before the Grok Build turn terminal event', () => {
     expect(
       translateGrokStop({
         ...base,

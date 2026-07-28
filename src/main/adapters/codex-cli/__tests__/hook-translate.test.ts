@@ -10,8 +10,8 @@ import {
   translateCodexUserPrompt,
 } from '../hook-translate';
 
-describe('codex hook translation', () => {
-  it('translates SessionStart as a codex-cli session-start event', () => {
+describe('Codex CLI hook translation', () => {
+  it('translates SessionStart as a Codex CLI session-start event', () => {
     const event = translateCodexSessionStart({
       session_id: 'codex-sid-1',
       cwd: '/repo',

@@ -36,7 +36,7 @@ describe('GrokHookInstaller', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('installs native Grok hooks into a private dedicated file', async () => {
+  it('installs native Grok Build hooks into a private dedicated file', async () => {
     const { GrokHookInstaller, GROK_HOOK_EVENTS } = await import('../hook-installer');
     const installer = new GrokHookInstaller(47821, 'token-abc');
 
@@ -61,6 +61,9 @@ describe('GrokHookInstaller', () => {
     expect(data.hooks.StopFailure[0].hooks[0].command).toContain(
       'X-Agent-Deck-Parent-Pid: ${PPID:-}',
     );
+    expect(data.hooks.StopFailure[0].hooks[0].command).toContain('--fail-with-body');
+    expect(data.hooks.StopFailure[0].hooks[0].command).toContain('> /dev/null');
+    expect(data.hooks.StopFailure[0].hooks[0].command).toContain('|| true');
     expect(data.hooks.SessionEnd[0].hooks[0].command).toContain(
       '# agent-deck-grok-hook',
     );

@@ -3,28 +3,30 @@ import { timingSafeEqual } from 'node:crypto';
 
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import type { McpAuthInfo } from '@main/agent-deck-mcp/types';
-import log from '@main/utils/logger';
-
-const logger = log.scope('hook-server');
+import {
+  HOOK_PROCESSING_FAILED_RESPONSE,
+  INVALID_HOOK_BODY_RESPONSE,
+  hookOriginFromHeaders,
+  hookRouteDiagnostics,
+  type HookAdapterId,
+} from './route-diagnostics';
 
 /**
  * 共享内嵌 HTTP server。Adapter 在初始化时通过 RouteRegistry.registerRoute()
  * 申请挂载自己的路由，HookServer 不知道任何具体 adapter 的存在。
  *
- * 鉴权（CHANGELOG_<X> R2 / B'0 ADR §5）：构造时传入两个独立 token：
+ * 鉴权使用两个独立 token：
  * - hookToken：所有 `/hook/*` 路由前置校验 `Authorization: Bearer <hookToken>`
  *   嵌进 CLI 子进程的 hook 命令，泄漏面广
- * - mcpToken：所有 `/mcp` 路由前置校验。**plan codex-handoff-team-alignment-20260518
- *   P2 Step 2.2 升级**：先优先反查 `mcpSessionTokenMap.get(token)`（per-session
- *   token），命中 → 写 `request.raw.auth = {resolvedSid, fallbackToGlobal: false}`
- *   让 mcp-sdk 把 sid 注入到 tool handler `extra.authInfo`；不命中但等于
- *   `mcpToken`（应用全局 token）→ 写 `{resolvedSid: null, fallbackToGlobal: true}`
- *   handler 视为 external caller（EXTERNAL_CALLER_ALLOWED 表 spawn/send/shutdown
- *   全 deny，仅 list/get 允许）；都不命中 → 401。详见 D1 ADR §(b) fallback 命中策略。
+ * - mcpToken：所有 `/mcp` 路由前置校验。先反查 per-session token，命中时把
+ *   `{resolvedSid, fallbackToGlobal: false}` 写入 `request.raw.auth`，供 mcp-sdk
+ *   作为 tool handler 的 `extra.authInfo`；不命中但等于应用全局 token 时写入
+ *   `{resolvedSid: null, fallbackToGlobal: true}`，把 caller 限定为 external read-only；
+ *   其余 token 一律返回 401。
  *
  * 监听只在 127.0.0.1，但本机任何进程（多用户 / 容器 / 恶意 npm post-install）都能
  * 直接 curl，没有 token 就能伪造 AgentEvent 污染 SQLite / 调 MCP tool 起会话。
- * token 不为空时强制校验；为空时仅日志告警放行（防止 token 系统出问题导致整个链路停摆）。
+ * 两个 token 都是 authority boundary：构造时任一为空都拒绝启动，绝不按请求降级放行。
  */
 export class HookServer {
   private app: FastifyInstance;
@@ -41,6 +43,12 @@ export class HookServer {
   private started = false;
 
   constructor(port: number, hookToken: string, mcpToken: string) {
+    if (typeof hookToken !== 'string' || !hookToken.trim()) {
+      throw new Error('HookServer requires a non-empty hookToken');
+    }
+    if (typeof mcpToken !== 'string' || !mcpToken.trim()) {
+      throw new Error('HookServer requires a non-empty mcpToken');
+    }
     this.port = port;
     this.hookToken = hookToken;
     this.mcpToken = mcpToken;
@@ -54,10 +62,8 @@ export class HookServer {
       if (request.url.startsWith('/hook/')) {
         this.checkAuth(
           request.headers['authorization'],
-          this.hookToken,
           this.expectedHookAuthBuf,
           reply,
-          'hook-server',
         );
         return;
       }
@@ -66,28 +72,56 @@ export class HookServer {
         return;
       }
     });
+
+    // Fastify rejects malformed JSON before an adapter handler runs. Normalize that boundary too,
+    // so parser details and raw input never escape through the hook HTTP response.
+    this.app.setErrorHandler((error, request, reply) => {
+      if (!request.url.startsWith('/hook/')) {
+        reply.send(error);
+        return;
+      }
+      const statusCode =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? (error as { statusCode?: unknown }).statusCode
+          : undefined;
+      const status =
+        typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500
+          ? 400
+          : 500;
+      const route = safeHookRoute(request.routeOptions.url ?? request.url);
+      const metadata = hookRouteMetadata(request.routeOptions.config);
+      hookRouteDiagnostics.reportFailure({
+        adapter: metadata?.adapter ?? 'unknown',
+        route,
+        event: metadata?.event ?? 'unknown',
+        origin: hookOriginFromHeaders(
+          request.headers as Record<string, string | string[] | undefined>,
+        ),
+        sessionId: null,
+        phase: status === 400 ? 'validate' : 'preprocess',
+        errorCategory: status === 400 ? 'invalid-body' : 'error',
+      });
+      reply
+        .code(status)
+        .send(
+          status === 400
+            ? INVALID_HOOK_BODY_RESPONSE
+            : HOOK_PROCESSING_FAILED_RESPONSE,
+        );
+    });
   }
 
   /**
    * 共享的 token 校验逻辑：长度短路 + timingSafeEqual 常量时间比较。
    * @param authHeader Authorization 请求头原始值
-   * @param expectedToken 期望 token（用于空值时打 warn 标识）
    * @param expectedAuthBuf 预拼好的 `Bearer <token>` Buffer
    * @param reply fastify reply（401 直发）
-   * @param tag 日志前缀
    */
   private checkAuth(
     authHeader: unknown,
-    expectedToken: string,
     expectedAuthBuf: Buffer,
     reply: { code: (status: number) => { send: (body: unknown) => unknown } },
-    tag: string,
   ): void {
-    if (!expectedToken) {
-      // token 异常缺失（不应发生）：放行但每次都打 warn，让用户能从日志注意到
-      logger.warn(`[${tag}] WARN: empty token, request not authenticated`);
-      return;
-    }
     const auth = typeof authHeader === 'string' ? authHeader : '';
     // 用 timingSafeEqual 做常量时间比较：普通 `!==` 在比较过程中遇到第一个不同字节
     // 就立刻返回，本机其他低权限进程理论上可以通过测量 401 时延逐字猜 token
@@ -105,17 +139,17 @@ export class HookServer {
   }
 
   /**
-   * /mcp 分支专用 auth 逻辑（plan codex-handoff-team-alignment-20260518 P2 Step 2.2）。
+   * /mcp 分支专用 auth 逻辑。
    *
    * 与 /hook/ 不同，/mcp 鉴权除了校验 token 还要把 caller_session_id 反查结果通过
-   * `request.raw.auth` 透传给 mcp-sdk transport（spike-p2-fastify5-mini 端到端实证：
-   * fastify request.raw.auth → mcp-sdk extra.authInfo 通路 OK）。
+   * `request.raw.auth` 透传给 mcp-sdk transport；该字段会成为 handler 的
+   * `extra.authInfo`。
    *
    * 三态分流：
    * 1. token 反查 mcpSessionTokenMap 命中 → 写 `{resolvedSid, fallbackToGlobal:false}`,
-   *    handler 把 resolvedSid 当真正 caller（per-session 路径，应用 spawn 的 codex teammate）
+   *    handler 把 resolvedSid 当真正 caller（per-session 路径，应用 spawn 的 Codex CLI teammate）
    * 2. token 不命中但等于 mcpToken（全局）→ 写 `{resolvedSid:null, fallbackToGlobal:true}`,
-   *    handler 视为 external caller（D1 §(b) — 外部 codex CLI / 非应用 spawn 路径只读不写）
+   *    handler 视为 external caller（外部 Codex CLI / 非应用 spawn 路径只读不写）
    * 3. token 既不在 sessionTokenMap 也不等于 globalToken → 401
    *
    * timingSafeEqual：global token fallback 路径仍走常量时间比对（与 /hook/ 对称）；
@@ -125,13 +159,6 @@ export class HookServer {
     request: { headers: { authorization?: string | string[] }; raw: unknown },
     reply: { code: (status: number) => { send: (body: unknown) => unknown } },
   ): void {
-    if (!this.mcpToken) {
-      // 全局 token 异常缺失（不应发生）：放行但每次都打 warn。
-      // per-session 路径仍可能命中（mcpSessionTokenMap），但本分支为简单起见跳过 token 校验。
-      logger.warn('[mcp-server] WARN: empty mcpToken, request not authenticated');
-      return;
-    }
-
     const rawAuth = request.headers['authorization'];
     const auth = typeof rawAuth === 'string' ? rawAuth : '';
     const BEARER_PREFIX = 'Bearer ';
@@ -166,11 +193,9 @@ export class HookServer {
   }
 
   /**
-   * 路由注册必须在 `start()` 之前完成。fastify 5.x lib/route.js:208 已有等价检查
-   * （listen 后再 addRoute 抛 FST_ERR_INSTANCE_ALREADY_LISTENING，错误位置在
-   * fastify 内层）。这里加应用层 invariant 把契约固定在 HookServer 边界，
-   * 错误文案直接指向修法（详见 REVIEW_27 / CHANGELOG_70：bootstrap 5.5 PRE_LISTEN
-   * vs 6 POST_LISTEN 分水岭，所有 routeRegistry 调用必须在 5.5 阶段完成）。
+   * 路由注册必须在 `start()` 之前完成。应用层 guard 把顺序契约固定在
+   * HookServer 边界，并让违规调用直接得到可操作的错误，而不是依赖 Fastify
+   * listen 后的内部异常。所有 RouteRegistry 调用都属于启动前注册阶段。
    */
   registerRoute(options: RouteOptions): void {
     if (this.started) {
@@ -206,8 +231,32 @@ export class HookServer {
     return this.hookToken;
   }
 
-  /** MCP transport（HTTP /mcp + stdio）Bearer token，B'4 codex 自动注入用 + Settings UI 复制按钮用。 */
+  /** MCP transport（HTTP /mcp + stdio）Bearer token，B'4 Codex CLI 自动注入用 + Settings UI 复制按钮用。 */
   get mcpBearerToken(): string {
     return this.mcpToken;
   }
+}
+
+function safeHookRoute(url: string): string {
+  const route = url.split('?', 1)[0] ?? '';
+  return /^\/hook\/[a-z0-9/-]+$/.test(route) ? route : '/hook/unknown';
+}
+
+function hookRouteMetadata(config: unknown): {
+  adapter: HookAdapterId;
+  event: string;
+} | null {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+  const metadata = (config as { hookDiagnostics?: unknown }).hookDiagnostics;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const adapter = (metadata as { adapter?: unknown }).adapter;
+  const event = (metadata as { event?: unknown }).event;
+  if (
+    adapter !== 'claude-code' &&
+    adapter !== 'codex-cli' &&
+    adapter !== 'grok-build'
+  ) {
+    return null;
+  }
+  return typeof event === 'string' && event ? { adapter, event } : null;
 }

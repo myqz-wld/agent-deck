@@ -22,7 +22,7 @@ const base = {
   effort: { level: 'high' },
 };
 
-describe('Claude hook translation contract', () => {
+describe('Claude Code hook translation contract', () => {
   it('preserves tool ids and common context across successful tool lifecycle events', () => {
     expect(
       translatePreToolUse({

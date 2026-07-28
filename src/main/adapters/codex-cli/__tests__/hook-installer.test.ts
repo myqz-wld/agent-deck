@@ -52,6 +52,9 @@ describe('CodexHookInstaller', () => {
     expect(data.hooks.SessionStart[0].hooks[0].command).toContain(
       'X-Agent-Deck-Parent-Pid: ${PPID:-}',
     );
+    expect(data.hooks.SessionStart[0].hooks[0].command).toContain('--fail-with-body');
+    expect(data.hooks.SessionStart[0].hooks[0].command).toContain('> /dev/null');
+    expect(data.hooks.SessionStart[0].hooks[0].command).toContain('|| true');
     expect(data.hooks.PreToolUse[0].hooks[0].command).toContain('# agent-deck-hook');
   });
 
