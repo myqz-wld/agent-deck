@@ -32,7 +32,12 @@ vi.mock('@main/ipc/adapters-message-dispatch', () => ({
 }));
 
 import { eventBus } from '@main/event-bus';
+import log from 'electron-log/main';
 import { DefaultPlanReviewSessionCoordinator } from '../deep-review-session';
+
+const planReviewLogger = log.scope('plan-review-session') as unknown as {
+  warn: ReturnType<typeof vi.fn>;
+};
 
 function source(): SessionRecord {
   return {
@@ -71,6 +76,7 @@ beforeEach(() => {
   mocks.close.mockReset().mockResolvedValue(undefined);
   mocks.enqueue.mockReset().mockResolvedValue(undefined);
   mocks.dispatch.mockReset().mockResolvedValue(undefined);
+  planReviewLogger.warn.mockReset();
   mocks.spawn.mockResolvedValue({
     content: [{ type: 'text', text: JSON.stringify({
       sessionId: 'child',
@@ -126,6 +132,45 @@ describe('DefaultPlanReviewSessionCoordinator', () => {
       .rejects.toThrow('无法创建隔离的原生 fork');
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(mocks.spawn.mock.calls[0][0].contextMode).toBe('fork');
+    const logged = JSON.stringify(planReviewLogger.warn.mock.calls);
+    expect(logged).not.toContain('native fork unavailable');
+    expect(logged).not.toContain('wait for the source turn boundary');
+    expect(logged).toContain('"errorLength":23');
+    expect(logged).toContain('"hintLength":33');
+  });
+
+  it('does not log invalid native-fork provider text or JSON parser excerpts', async () => {
+    const providerText = `provider-secret:${'x'.repeat(20_000)}`;
+    mocks.spawn.mockResolvedValueOnce({
+      content: [{ type: 'text', text: providerText }],
+    });
+    const coordinator = new DefaultPlanReviewSessionCoordinator();
+
+    await expect(coordinator.start({ sourceSessionId: 'source', request }))
+      .rejects.toThrow('无法创建隔离的原生 fork');
+    const logged = JSON.stringify(planReviewLogger.warn.mock.calls);
+    expect(logged).not.toContain('provider-secret');
+    expect(logged.length).toBeLessThan(1_000);
+    expect(logged).toContain(`"responseLength":${providerText.length}`);
+  });
+
+  it('summarizes thrown arbitrary provider failures without logging prompt or payload content', async () => {
+    mocks.spawn.mockRejectedValueOnce(Object.assign(new Error('provider request failed'), {
+      prompt: 'customer-plan-secret',
+      payload: { rawResult: 'provider-raw-secret' },
+      authorization: 'Bearer auth-secret',
+    }));
+    const coordinator = new DefaultPlanReviewSessionCoordinator();
+
+    await expect(coordinator.start({ sourceSessionId: 'source', request }))
+      .rejects.toThrow('无法创建隔离的原生 fork');
+    const logged = JSON.stringify(planReviewLogger.warn.mock.calls);
+    expect(logged).not.toContain('customer-plan-secret');
+    expect(logged).not.toContain('provider-raw-secret');
+    expect(logged).not.toContain('auth-secret');
+    expect(logged).not.toContain('provider request failed');
+    expect(logged).toContain('"name":"Error"');
+    expect(logged).toContain('"messageLength":23');
   });
 
   it('generates feedback in a fresh isolated one-shot without enqueueing into the fork', async () => {

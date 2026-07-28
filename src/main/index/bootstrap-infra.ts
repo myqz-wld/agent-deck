@@ -82,6 +82,8 @@ import type { AppSettings } from '@shared/types/settings/app-settings';
 
 import type { BootstrapState } from './_deps';
 import log, { setFileLevel } from '@main/utils/logger';
+import { emitProcessStartupRecord } from '@main/utils/process-startup';
+import { readSchemaUserVersion } from '@main/utils/run-context';
 
 const logger = log.scope('bootstrap-infra');
 
@@ -120,10 +122,19 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   }
 
   // 1. 数据库
-  initDb();
+  const database = initDb();
 
   // 2. 设置
   const settings = settingsStore.getAll();
+  // Emit while the logger's startup default is still "info"; reversing these two calls would make
+  // a configured warn/error level suppress the startup identity record from the file transport.
+  // The record itself carries the configured level, which is applied immediately afterward.
+  emitProcessStartupRecord({
+    schemaUserVersion: readSchemaUserVersion(
+      () => database.pragma('user_version', { simple: true }),
+    ),
+    configuredFileLogLevel: settings.logLevel,
+  });
   // REVIEW_68 batch-2 [MED reviewer-codex]: logger.ts 模块加载把 file transport 固定 'info'，持久化
   // settings.logLevel 仅在后续 SettingsSet patch 含 logLevel 时经 applyLogLevel 生效 → 重启后运行时
   // 回退 'info' 与 UI 显示的持久化值不一致。启动读 settings 后补一次 setFileLevel 应用持久化级别。

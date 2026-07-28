@@ -11,6 +11,7 @@ import { dispatchAdapterMessageWithHandOffRedirect } from '@main/ipc/adapters-me
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import log from '@main/utils/logger';
+import { safeErrorSummary } from '@main/utils/safe-diagnostic';
 import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
@@ -62,14 +63,19 @@ function parseSpawnResult(result: Awaited<ReturnType<typeof spawnSessionHandler>
   let body: Record<string, unknown> = {};
   try {
     body = text ? JSON.parse(text) as Record<string, unknown> : {};
-  } catch (error) {
-    logger.warn('[plan-review] native fork returned invalid JSON', { text }, error);
+  } catch {
+    logger.warn('[plan-review] native fork returned invalid JSON', {
+      responseLength: text?.length ?? 0,
+    });
     throw new Error(NATIVE_FORK_ERROR);
   }
   if (result.isError || typeof body.sessionId !== 'string') {
     const error = typeof body.error === 'string' ? body.error : 'The native plan-review fork failed.';
     const hint = typeof body.hint === 'string' ? body.hint : null;
-    logger.warn('[plan-review] native fork failed', { error, hint });
+    logger.warn('[plan-review] native fork failed', {
+      errorLength: error.length,
+      hintLength: hint?.length ?? 0,
+    });
     throw new Error(NATIVE_FORK_ERROR);
   }
   return body as unknown as SpawnSessionResult;
@@ -160,7 +166,10 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
         },
       });
     } catch (error) {
-      logger.warn('[plan-review] native fork threw before returning a result', error);
+      logger.warn(
+        '[plan-review] native fork threw before returning a result',
+        safeErrorSummary(error),
+      );
       throw new Error(NATIVE_FORK_ERROR);
     }
     const parsed = parseSpawnResult(result);
@@ -238,7 +247,10 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
     try {
       await sessionManager.close(child.sessionId);
     } catch (error) {
-      logger.warn(`[plan-review] close child ${child.sessionId} failed:`, error);
+      logger.warn(
+        `[plan-review] close child ${child.sessionId} failed:`,
+        safeErrorSummary(error),
+      );
     } finally {
       await tail?.catch(() => undefined);
       if (this.operationAbortControllers.get(child.sessionId) === controller) {

@@ -14,6 +14,8 @@
  * 守门跑 false 不接管 console (D5 + §不变量 2 vi.spyOn 兼容); test side effect import 安全.
  */
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { shouldCaptureRendererConsole } from '../logger';
 
 describe('shouldCaptureRendererConsole — D5 console capture 守门 (Plan §Step 3.5.1.5)', () => {
@@ -31,5 +33,21 @@ describe('shouldCaptureRendererConsole — D5 console capture 守门 (Plan §Ste
 
   it('undefined → true (vite env 未注入兜底默认接管)', () => {
     expect(shouldCaptureRendererConsole(undefined)).toBe(true);
+  });
+
+  it('renderer entry keeps fatal and rejection paths behind the bounded diagnostic hook', () => {
+    const entry = fs.readFileSync(
+      path.join(process.cwd(), 'src', 'renderer', 'main.tsx'),
+      'utf8',
+    );
+    expect(entry).toContain('rendererDiagnosticHook');
+    expect(entry).toContain('safeRendererErrorDetails(ev.reason)');
+    expect(entry).not.toContain(
+      "logger.error('[renderer] unhandledrejection', ev.reason)",
+    );
+    expect(entry).not.toContain(
+      "logger.error('[renderer] window.onerror', ev.error ?? ev.message)",
+    );
+    expect(entry).not.toContain('el.textContent = text');
   });
 });

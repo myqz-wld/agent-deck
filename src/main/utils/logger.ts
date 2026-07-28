@@ -19,6 +19,7 @@ import { app } from 'electron';
 import log from 'electron-log/main';
 import path from 'node:path';
 import fs from 'node:fs';
+import { installSafeDiagnosticLogHook } from './safe-diagnostic';
 
 // electron-log v5 LogLevel(无 fatal,有 verbose): 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
 // 注: 原 plan §D4 写「silly|debug|info|warn|error|fatal」是错的(electron-log type defs 实证)
@@ -232,6 +233,14 @@ export function installClaudeCanUseToolShadowedFileFilter(): void {
 }
 
 installClaudeCanUseToolShadowedFileFilter();
+
+// Keep persisted logs and the development console on the same redaction boundary. The hook is
+// intentionally installed after the narrow noise filters so those filters still inspect the native
+// electron-log message shape. Renderer IPC messages are sanitized in the renderer entry and again
+// when main receives them, keeping both renderer DevTools and persisted output inside the boundary.
+installSafeDiagnosticLogHook(log, {
+  developmentConsoleDetail: !app.isPackaged,
+});
 
 // Settings UI 显示日志路径 + 「在 Finder 中显示」用
 export { LOG_DIR };
