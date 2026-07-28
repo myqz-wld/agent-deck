@@ -26,6 +26,17 @@ const otherSource: SessionRecord = {
   title: 'Other source',
 };
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 const prepared: SessionHandOffPreparation = {
   preparationId: 'prep-1',
   preview: '只读的会话续接上下文',
@@ -97,7 +108,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     const onClose = vi.fn();
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
 
-    fireEvent.click(await screen.findByLabelText('目标 adapter'));
+    fireEvent.click(await screen.findByLabelText('目标运行时'));
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
     fireEvent.change(await screen.findByLabelText('Provider'), {
       target: { value: 'openai-custom' },
@@ -122,7 +133,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
         },
       });
     });
-    const preview = await screen.findByLabelText('续接上下文预览');
+    const preview = await screen.findByLabelText('续接上下文摘录');
     expect(preview).toHaveProperty('readOnly', true);
 
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
@@ -134,37 +145,37 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
   it('cancels and clears a preparation when the instruction changes', async () => {
     render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
-    await screen.findByLabelText('续接上下文预览');
+    await screen.findByLabelText('续接上下文摘录');
 
     fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {
       target: { value: '修正后的指令' },
     });
 
     await waitFor(() => expect(handOffCancel).toHaveBeenCalledWith('prep-1'));
-    expect(screen.queryByLabelText('续接上下文预览')).toBeNull();
+    expect(screen.queryByLabelText('续接上下文摘录')).toBeNull();
     expect(
       (screen.getByRole('button', { name: '打开新会话接力' }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
-  it('prepares a Grok handoff with its own requested sandbox profile', async () => {
+  it('prepares a Grok Build handoff with its own requested sandbox profile', async () => {
     render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
-    fireEvent.click(await screen.findByLabelText('目标 adapter'));
+    fireEvent.click(await screen.findByLabelText('目标运行时'));
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
-    fireEvent.click(screen.getByLabelText('Grok 沙盒请求档位'));
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒请求档位'));
     fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
-    fireEvent.change(screen.getByLabelText('Grok 自定义沙盒 profile'), {
+    fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox profile 名'), {
       target: { value: 'project-locked' },
     });
     fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {
-      target: { value: '由 Grok 继续。' },
+      target: { value: '由 Grok Build 继续。' },
     });
     fireEvent.click(screen.getByRole('button', { name: '生成续接上下文' }));
 
     await waitFor(() => {
       expect(handOffPrepare).toHaveBeenCalledWith({
         sourceSessionId: 'source-1',
-        continuationInstruction: '由 Grok 继续。',
+        continuationInstruction: '由 Grok Build 继续。',
         target: expect.objectContaining({
           adapter: 'grok-build',
           grokSandbox: 'project-locked',
@@ -184,16 +195,17 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
-    await screen.findByLabelText('续接上下文预览');
+    await screen.findByLabelText('续接上下文摘录');
 
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
 
     expect(
-      await screen.findByText(/新会话 target-warning 已创建，但源会话收尾失败/),
+      await screen.findByText(/新会话已创建，但源会话收尾失败/),
     ).toBeTruthy();
     expect(screen.getByText(/新会话不会回滚；请检查源会话状态/)).toBeTruthy();
+    expect(screen.queryByText(/关闭源会话失败/)).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('续接上下文预览')).toBeNull();
+    expect(screen.queryByLabelText('续接上下文摘录')).toBeNull();
   });
 
   it('retains orphan identity and blocks blind retry when successor cleanup fails', async () => {
@@ -207,16 +219,18 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
-    await screen.findByLabelText('续接上下文预览');
+    await screen.findByLabelText('续接上下文摘录');
 
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
 
     const warning = await screen.findByRole('alert');
-    expect(warning.textContent).toContain('orphan-successor-42');
-    expect(warning.textContent).toContain('阶段：源会话切换前检查');
-    expect(warning.textContent).toContain('清理状态：自动关闭失败');
-    expect(warning.textContent).toContain('请先找到并关闭会话 orphan-successor-42');
-    expect(screen.queryByLabelText('续接上下文预览')).toBeNull();
+    expect(warning.textContent).not.toContain('orphan-successor-42');
+    expect(warning.textContent).toContain('源会话切换未完成');
+    expect(warning.textContent).toContain('未能自动关闭');
+    expect(warning.textContent).not.toContain('阶段：');
+    expect(warning.textContent).not.toContain('清理状态：');
+    expect(warning.textContent).toContain('请先在会话列表中找到并关闭刚创建的续接会话');
+    expect(screen.queryByLabelText('续接上下文摘录')).toBeNull();
     expect(
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -242,12 +256,13 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     });
     render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
-    await screen.findByLabelText('续接上下文预览');
+    await screen.findByLabelText('续接上下文摘录');
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
 
     const warning = await screen.findByRole('alert');
-    expect(warning.textContent).toContain('新增消息转交失败');
-    expect(warning.textContent).toContain('目标 adapter 的消息队列容量和附件可读性');
+    expect(warning.textContent).toContain('新增消息未能转交');
+    expect(warning.textContent).toContain('请重新生成续接上下文后再试');
+    expect(warning.textContent).not.toContain('消息队列');
   });
 
   it('retains the orphan interlock across close, session navigation, and reopen', async () => {
@@ -261,9 +276,9 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     const onClose = vi.fn();
     const view = render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
-    await screen.findByLabelText('续接上下文预览');
+    await screen.findByLabelText('续接上下文摘录');
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('orphan-persistent-7');
+    expect((await screen.findByRole('alert')).textContent).not.toContain('orphan-persistent-7');
 
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(onClose).toHaveBeenCalled();
@@ -274,7 +289,8 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     view.rerender(<HandOffPreviewDialog open session={source} onClose={onClose} />);
 
     const restored = await screen.findByRole('alert');
-    expect(restored.textContent).toContain('orphan-persistent-7');
+    expect(restored.textContent).toContain('刚创建的续接会话');
+    expect(restored.textContent).not.toContain('orphan-persistent-7');
     expect(
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -289,13 +305,115 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       ...prepared,
       previewTruncated: true,
       quality: 'coverage-gap',
-      warnings: [{ code: 'coverage-gap', message: 'internal provider-neutral warning' }],
+      warnings: [
+        { code: 'coverage-gap', message: 'internal provider-neutral warning' },
+        { code: 'raw-boundary-truncated', message: 'internal byte boundary' },
+        { code: 'raw-history-omitted', message: 'internal retention budget' },
+        { code: 'checkpoint-omitted', message: 'internal projection budget' },
+        { code: 'spool-resource-guard', message: 'internal snapshot cap' },
+        { code: 'future-warning-code', message: 'future internal detail' },
+      ],
     });
     render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
 
-    expect(await screen.findByText(/预览已截断/)).toBeTruthy();
-    expect(screen.getByText('部分事件修订未被续接检查点覆盖。')).toBeTruthy();
-    expect(screen.getByText(/部分历史未覆盖/)).toBeTruthy();
+    expect(await screen.findByText(/节选已截短/)).toBeTruthy();
+    expect(screen.getAllByText(/实际发送给模型提供方的内容可能更完整/)).toHaveLength(2);
+    expect(screen.getByText('部分历史内容未包含在本次续接上下文中。')).toBeTruthy();
+    expect(screen.getByText('最早保留的一条用户消息只包含末尾部分。')).toBeTruthy();
+    expect(screen.getByText('较早的部分消息未包含在本次续接上下文中。')).toBeTruthy();
+    expect(screen.getByText('续接摘要过长，未能包含在本次上下文中。')).toBeTruthy();
+    expect(screen.getByText('历史内容超过处理上限，节选中已标出未覆盖范围。')).toBeTruthy();
+    expect(screen.getByText(/部分历史未包含/)).toBeTruthy();
+    expect(screen.queryByText(/future-warning-code/)).toBeNull();
+    expect(screen.queryByText(/future internal detail/)).toBeNull();
+  });
+
+  it('keeps the full next-step draft across compact and expanded editing', async () => {
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    await screen.findByLabelText('目标运行时');
+    const longInstruction = `先检查迁移\n${'继续执行并验证。'.repeat(500)}`;
+    fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {
+      target: { value: longInstruction },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '展开编辑下一步指令' }));
+    const expanded = screen.getByLabelText(
+      '下一步指令 / 补充与修正（展开编辑）',
+    ) as HTMLTextAreaElement;
+    expect(expanded.value).toBe(longInstruction);
+    fireEvent.change(expanded, {
+      target: { value: `${longInstruction}\n最后运行完整测试。` },
+    });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '编辑下一步指令' })).toBeNull();
+    });
+    expect(
+      (screen.getByLabelText('下一步指令 / 补充与修正') as HTMLTextAreaElement).value,
+    ).toBe(`${longInstruction}\n最后运行完整测试。`);
+
+    fireEvent.click(screen.getByRole('button', { name: '生成续接上下文' }));
+    await waitFor(() => {
+      expect(handOffPrepare).toHaveBeenCalledWith(expect.objectContaining({
+        continuationInstruction: `${longInstruction}\n最后运行完整测试。`,
+      }));
+    });
+  });
+
+  it('labels the bounded preview as an excerpt and expands the exact excerpt', async () => {
+    handOffPrepare.mockResolvedValueOnce({
+      ...prepared,
+      preview: '受限摘录第一行\n受限摘录第二行',
+    });
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+
+    expect(await screen.findByText('会话续接上下文摘录（只读）')).toBeTruthy();
+    expect(screen.getByText(
+      '这里仅展示有长度上限的节选；实际发送给模型提供方的内容可能更完整。',
+    )).toBeTruthy();
+    expect(screen.getByText(
+      /上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的运行时、模型提供方和思考程度/,
+    )).toBeTruthy();
+    expect(screen.queryByText(/renderer|主进程|prompt/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开查看续接上下文摘录' }));
+    const excerpt = screen.getByLabelText(
+      '续接上下文摘录（展开查看）',
+    ) as HTMLTextAreaElement;
+    expect(excerpt.readOnly).toBe(true);
+    expect(excerpt.value).toBe('受限摘录第一行\n受限摘录第二行');
+  });
+
+  it('locks close and cancel during commit and reconciles the successful transfer', async () => {
+    const pending = deferred<Awaited<ReturnType<typeof window.api.handOffCommit>>>();
+    handOffCommit.mockReturnValueOnce(pending.promise);
+    const onClose = vi.fn();
+    render(
+      <HandOffPreviewDialog open session={source} onClose={onClose} />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+    await screen.findByLabelText('续接上下文摘录');
+    const commit = screen.getByRole('button', { name: '打开新会话接力' });
+    fireEvent.click(commit);
+    fireEvent.click(commit);
+    expect(handOffCommit).toHaveBeenCalledTimes(1);
+    const close = screen.getByRole('button', { name: '关闭接力窗口' }) as HTMLButtonElement;
+    const cancel = screen.getByRole('button', { name: '取消' }) as HTMLButtonElement;
+    expect(close.disabled).toBe(true);
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(close);
+    fireEvent.click(cancel);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(handOffCancel).not.toHaveBeenCalled();
+
+    pending.resolve({
+      status: 'success',
+      successorSessionId: 'stale-target',
+      cutoverEventRevision: 44,
+      lateMessagesDelivered: 0,
+      sourceFinalizationWarning: null,
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

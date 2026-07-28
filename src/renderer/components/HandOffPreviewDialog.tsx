@@ -6,24 +6,24 @@ import type {
   SessionHandOffPreparation,
   SessionRecord,
 } from '@shared/types';
-import { DeckSelect, type DeckSelectOption } from './DeckSelect';
 import { CloseIcon, HandOffIcon, RefreshIcon } from './icons';
 import {
-  SessionModelFields,
   thinkingOptionsForAdapter,
   type SessionThinkingChoice,
 } from './SessionModelFields';
-import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
-import { GrokSandboxPicker } from './GrokSandboxPicker';
 import {
   executionFailureLabel,
   qualityLabel,
   warningLabel,
 } from './hand-off/labels';
-
-interface AdapterOption extends DeckSelectOption<SessionAdapterId> {
-  sessionModes: AdapterSessionMode[];
-}
+import {
+  ExpandableAuthoringField,
+  ExpandableTextViewer,
+} from './hand-off/ExpandableTextSurface';
+import {
+  TargetRuntimeFields,
+  type HandOffAdapterOption,
+} from './hand-off/TargetRuntimeFields';
 
 interface Props {
   open: boolean;
@@ -32,9 +32,7 @@ interface Props {
 }
 
 export const DEFAULT_UI_CONTINUATION_INSTRUCTION = '请基于以上会话续接上下文继续完成当前工作。';
-// The dialog stays mounted only with one SessionDetail and can be closed to navigate to the orphan.
-// Keep failed-cleanup acknowledgements outside component state so close/reopen and session switches
-// cannot silently re-enable another handoff from the same source.
+// Failed successor cleanup must remain acknowledged across close/reopen and source navigation.
 const pendingOrphanAcknowledgements = new Map<string, SessionHandOffExecutionFailure>();
 
 function sourceThinking(session: SessionRecord): SessionThinkingChoice {
@@ -46,7 +44,7 @@ function sourceThinking(session: SessionRecord): SessionThinkingChoice {
 
 export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Element | null {
   const sessionId = session.id;
-  const [adapters, setAdapters] = useState<AdapterOption[]>([]);
+  const [adapters, setAdapters] = useState<HandOffAdapterOption[]>([]);
   const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(session.agentId as SessionAdapterId);
   const [targetProvider, setTargetProvider] = useState(session.runtimeProvider ?? '');
   const [targetModel, setTargetModel] = useState(session.model ?? '');
@@ -101,7 +99,9 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       requestSequence.current += 1;
       const id = preparationId.current;
       preparationId.current = null;
-      if (id) void window.api.handOffCancel(id).catch(() => undefined);
+      if (id && !commitInFlight.current) {
+        void window.api.handOffCancel(id).catch(() => undefined);
+      }
     };
     // sessionId is the reset boundary; other session fields are frozen again by main during prepare.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,7 +132,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
-          setError(`加载 adapter 失败：${caught instanceof Error ? caught.message : String(caught)}`);
+          setError(`加载运行时失败：${caught instanceof Error ? caught.message : String(caught)}`);
         }
       });
     return () => {
@@ -191,8 +191,10 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
         setError(`生成续接上下文失败：${caught instanceof Error ? caught.message : String(caught)}`);
       }
     } finally {
-      prepareInFlight.current = false;
-      if (sequence === requestSequence.current) setPreparing(false);
+      if (sequence === requestSequence.current) {
+        prepareInFlight.current = false;
+        setPreparing(false);
+      }
     }
   };
 
@@ -200,10 +202,20 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     const id = preparationId.current;
     if (!id || commitInFlight.current) return;
     commitInFlight.current = true;
+    const sequence = requestSequence.current;
     setCommitting(true);
     setError(null);
     try {
       const response = await window.api.handOffCommit(id);
+      if (sequence !== requestSequence.current) {
+        if (
+          response.status === 'execution-error'
+          && response.successorCleanup === 'failed'
+        ) {
+          pendingOrphanAcknowledgements.set(sessionId, response);
+        }
+        return;
+      }
       preparationId.current = null;
       setPreparation(null);
       if (response.status === 'execution-error') {
@@ -216,13 +228,14 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       const result = response;
       if (result.sourceFinalizationWarning) {
         setError(
-          `新会话 ${result.successorSessionId} 已创建，但源会话收尾失败：${result.sourceFinalizationWarning}。` +
-            '新会话不会回滚；请检查源会话状态并按提示处理后，再切换继续。',
+          '新会话已创建，但源会话收尾失败。' +
+            '新会话不会回滚；请检查源会话状态并按界面提示处理后，再切换继续。',
         );
         return;
       }
       onClose();
     } catch (caught) {
+      if (sequence !== requestSequence.current) return;
       const message = caught instanceof Error ? caught.message : String(caught);
       if (/已过期|not found|not authorized|already been consumed/i.test(message)) {
         preparationId.current = null;
@@ -230,14 +243,25 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       }
       setError(`创建续接会话失败：${message}`);
     } finally {
-      commitInFlight.current = false;
-      setCommitting(false);
+      if (sequence === requestSequence.current) {
+        commitInFlight.current = false;
+        setCommitting(false);
+      }
     }
   };
 
   const busy = preparing || committing;
+  const visibleWarnings = preparation?.warnings.flatMap((warning) => {
+    const label = warningLabel(warning.code);
+    return label ? [{ key: `${warning.code}:${warning.message}`, label }] : [];
+  }) ?? [];
   const close = (): void => {
+    if (commitInFlight.current) return;
     cancelPreparation();
+    prepareInFlight.current = false;
+    commitInFlight.current = false;
+    setPreparing(false);
+    setCommitting(false);
     onClose();
   };
 
@@ -247,15 +271,15 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
           <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
             <HandOffIcon className="h-4 w-4 text-status-working" />
-            <span>接力到新会话{preparing ? '（正在压缩会话上下文…）' : committing ? '（正在创建…）' : ''}</span>
+            <span>接力到新会话{preparing ? '（正在整理会话上下文…）' : committing ? '（正在创建…）' : ''}</span>
           </h2>
           <button
             type="button"
             onClick={close}
-            disabled={busy}
-            aria-label={busy ? '请等待当前操作完成' : '关闭接力窗口'}
-            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10 disabled:opacity-30"
-            title={busy ? '请等待当前操作完成' : '取消'}
+            disabled={committing}
+            aria-label="关闭接力窗口"
+            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10 disabled:opacity-50"
+            title="取消"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
@@ -263,119 +287,81 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
 
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
           <p className="text-[10px] leading-relaxed text-deck-muted">
-            续接检查点生成器由“会话续接上下文”设置控制，与下方目标会话的 adapter、模型和思考程度相互独立。
+            上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的运行时、模型提供方和思考程度。
           </p>
 
-          <div className="space-y-3 rounded border border-deck-border/80 bg-white/[0.02] p-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-                目标 adapter
-              </label>
-              <DeckSelect
-                value={targetAdapter}
-                ariaLabel="目标 adapter"
-                options={adapters}
-                disabled={busy || adapters.length === 0}
-                onChange={(next) =>
-                  invalidateAndChange(() => {
-                    setTargetAdapter(next);
-                    if (next === session.agentId) {
-                      setTargetProvider(session.runtimeProvider ?? '');
-                      setTargetModel(session.model ?? '');
-                      setTargetThinking(sourceThinking(session));
-                      setTargetSessionMode(session.sessionMode ?? 'default');
-                      setTargetGrokSandbox(
-                        session.agentId === 'grok-build'
-                          ? session.grokSandbox ?? ''
-                          : '',
-                      );
-                    } else {
-                      setTargetProvider('');
-                      setTargetModel('');
-                      setTargetThinking('');
-                      setTargetSessionMode(
-                        adapters.find((adapter) => adapter.value === next)
-                          ?.sessionModes[0] ?? 'default',
-                      );
-                      setTargetGrokSandbox('');
-                    }
-                  })
-                }
-                buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px]"
-                menuMinWidth={220}
-              />
-            </div>
-            <SessionModelFields
-              adapterId={targetAdapter}
-              provider={targetProvider}
-              model={targetModel}
-              thinking={targetThinking}
-              disabled={busy}
-              onProviderChange={(provider) => {
-                invalidateAndChange(() => {
-                  setTargetProvider(provider);
+          <TargetRuntimeFields
+            adapters={adapters}
+            busy={busy}
+            targetAdapter={targetAdapter}
+            targetProvider={targetProvider}
+            targetModel={targetModel}
+            targetThinking={targetThinking}
+            targetSessionMode={targetSessionMode}
+            targetGrokSandbox={targetGrokSandbox}
+            onAdapterChange={(next) =>
+              invalidateAndChange(() => {
+                setTargetAdapter(next);
+                if (next === session.agentId) {
+                  setTargetProvider(session.runtimeProvider ?? '');
+                  setTargetModel(session.model ?? '');
+                  setTargetThinking(sourceThinking(session));
+                  setTargetSessionMode(session.sessionMode ?? 'default');
+                  setTargetGrokSandbox(
+                    session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
+                  );
+                } else {
+                  setTargetProvider('');
                   setTargetModel('');
-                });
-              }}
-              onModelChange={(model) => invalidateAndChange(() => setTargetModel(model))}
-              onThinkingChange={(thinking) =>
-                invalidateAndChange(() => setTargetThinking(thinking))
-              }
-            />
-            {(adapters.find((adapter) => adapter.value === targetAdapter)
-              ?.sessionModes.length ?? 0) > 0 && (
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-                  工作模式
-                </label>
-                <DeckSelect
-                  value={targetSessionMode}
-                  ariaLabel="目标工作模式"
-                  options={adapterSessionModeOptions(
-                    adapters.find((adapter) => adapter.value === targetAdapter)
-                      ?.sessionModes ?? [],
-                  )}
-                  disabled={busy}
-                  onChange={(next) =>
-                    invalidateAndChange(() => setTargetSessionMode(next))
-                  }
-                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px]"
-                />
-              </div>
-            )}
-            {targetAdapter === 'grok-build' && (
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-                  Grok 沙盒请求档位
-                </label>
-                <GrokSandboxPicker
-                  value={targetGrokSandbox}
-                  onChange={(next) =>
-                    invalidateAndChange(() => setTargetGrokSandbox(next))
-                  }
-                  disabled={busy}
-                  followLabel="按同 adapter 继承 / Grok 全局设置"
-                />
-              </div>
-            )}
-          </div>
+                  setTargetThinking('');
+                  setTargetSessionMode(
+                    adapters.find((adapter) => adapter.value === next)?.sessionModes[0]
+                      ?? 'default',
+                  );
+                  setTargetGrokSandbox('');
+                }
+              })
+            }
+            onProviderChange={(next) =>
+              invalidateAndChange(() => {
+                setTargetProvider(next);
+                setTargetModel('');
+              })
+            }
+            onModelChange={(next) => invalidateAndChange(() => setTargetModel(next))}
+            onThinkingChange={(next) =>
+              invalidateAndChange(() => setTargetThinking(next))
+            }
+            onSessionModeChange={(next) =>
+              invalidateAndChange(() => setTargetSessionMode(next))
+            }
+            onGrokSandboxChange={(next) =>
+              invalidateAndChange(() => setTargetGrokSandbox(next))
+            }
+          />
 
-          <label className="flex flex-col gap-1 text-[10px] text-deck-muted">
+          <div className="flex flex-col gap-1 text-[10px] text-deck-muted">
             <span className="uppercase tracking-wider text-deck-muted/70">
               下一步指令 / 补充与修正
             </span>
-            <textarea
-              aria-label="下一步指令 / 补充与修正"
+            <ExpandableAuthoringField
+              identity={{
+                sessionId,
+                kind: 'payload',
+                payloadId: 'handoff-continuation-instruction',
+              }}
+              title="编辑下一步指令"
+              ariaLabel="下一步指令 / 补充与修正"
+              triggerLabel="展开编辑下一步指令"
               value={instruction}
               disabled={busy}
               maxLength={102_400}
               rows={4}
-              onChange={(event) =>
-                invalidateAndChange(() => setInstruction(event.target.value))
+              onChange={(value) =>
+                invalidateAndChange(() => setInstruction(value))
               }
-              className="resize-y rounded border border-deck-border bg-white/[0.04] px-3 py-2 text-[11px] leading-relaxed text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
             />
-          </label>
+          </div>
 
           <button
             type="button"
@@ -389,7 +375,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
           >
             {!preparing && preparation ? <RefreshIcon className="mr-1 inline h-3 w-3" /> : null}
             {preparing
-              ? '正在压缩会话上下文…'
+              ? '正在整理会话上下文…'
               : preparation
                 ? '重新生成续接上下文'
                 : '生成续接上下文'}
@@ -398,25 +384,36 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
           {preparation && (
             <section className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-deck-muted">
-                <h3 className="font-medium text-deck-text">续接上下文预览</h3>
+                <h3 className="font-medium text-deck-text">会话续接上下文摘录（只读）</h3>
                 <span>
                   {qualityLabel(preparation.quality)} · 约{' '}
                   {preparation.metrics.estimatedPromptTokens.toLocaleString()} tokens · 保留{' '}
                   {preparation.metrics.includedUserMessages} 条用户输入
                 </span>
               </div>
-              <textarea
-                aria-label="续接上下文预览"
-                readOnly
+              <ExpandableTextViewer
+                identity={{
+                  sessionId,
+                  kind: 'payload',
+                  payloadId: `handoff-preview:${preparation.preparationId}`,
+                }}
+                title="查看续接上下文摘录"
+                ariaLabel="续接上下文摘录"
                 value={preparation.preview}
                 rows={16}
-                className="min-h-[260px] w-full resize-y rounded border border-deck-border bg-white/[0.04] px-3 py-2 font-mono text-[11px] leading-relaxed text-deck-text outline-none"
+                maxLength={32_768}
+                monospace
+                excerptNotice="这里仅展示有长度上限的节选；实际发送给模型提供方的内容可能更完整。"
               />
-              {(preparation.previewTruncated || preparation.warnings.length > 0) && (
+              {(preparation.previewTruncated || visibleWarnings.length > 0) && (
                 <div className="rounded bg-status-waiting/10 px-3 py-2 text-[10px] text-status-waiting">
-                  {preparation.previewTruncated && <div>预览已截断；目标会话仍会收到完整上下文。</div>}
-                  {preparation.warnings.map((warning) => (
-                    <div key={`${warning.code}:${warning.message}`}>{warningLabel(warning.code)}</div>
+                  {preparation.previewTruncated && (
+                    <div>
+                      节选已截短，未展示全部内容；实际发送给模型提供方的内容可能更完整。
+                    </div>
+                  )}
+                  {visibleWarnings.map((warning) => (
+                    <div key={warning.key}>{warning.label}</div>
                   ))}
                 </div>
               )}
@@ -455,7 +452,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
           <button
             type="button"
             onClick={close}
-            disabled={busy}
+            disabled={committing}
             className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5 disabled:opacity-50"
           >
             取消

@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useId, useRef, useState, type JSX } from 'react';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclosure';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
-import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
-import { CloseIcon, FolderOpenIcon, ImageIcon, SendIcon } from './icons';
+import { CloseIcon, FolderOpenIcon, SendIcon } from './icons';
 import {
   getLastAdapter,
   setLastAdapter,
@@ -19,6 +18,7 @@ import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import type { AdapterSessionMode } from '@shared/types';
 import { GrokSandboxPicker } from './GrokSandboxPicker';
 import { CodexApprovalPolicyPicker } from './CodexApprovalPolicyPicker';
+import { FirstMessageAuthoring } from './new-session/FirstMessageAuthoring';
 
 interface AdapterInfo {
   id: string;
@@ -60,19 +60,33 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
     model,
     thinking,
   } = sessionOptions;
-  // R3.E7：删 agentTeamsEnabled / canJoinTeam 路径（老 inbox 协议下线）。
-  // 新 universal team backend 不需要在新建会话对话框里预选 team —— 用户在 TeamHub
-  // 单独建 team / 加 member。
   const [busy, setBusy] = useState(false);
   const [pickingDirectory, setPickingDirectory] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pickingDirectoryRef = useRef(false);
   const openRef = useRef(open);
+  const previousOpenRef = useRef(open);
+  const dialogEpochRef = useRef(0);
+  const createSequenceRef = useRef(0);
+  const createInFlightRef = useRef(false);
+  const authoringInstanceId = useId();
   const imgs = useImageAttachments();
 
+  openRef.current = open;
+  if (previousOpenRef.current !== open) {
+    previousOpenRef.current = open;
+    dialogEpochRef.current += 1;
+    createSequenceRef.current += 1;
+    createInFlightRef.current = false;
+  }
+
   useEffect(() => {
-    openRef.current = open;
+    if (!open) {
+      createInFlightRef.current = false;
+      pickingDirectoryRef.current = false;
+      setBusy(false);
+      setPickingDirectory(false);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -97,7 +111,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(`执行器读取失败：${errorMessage(err)}`);
+        if (!cancelled) setError(`运行时读取失败：${errorMessage(err)}`);
       });
     return () => {
       cancelled = true;
@@ -106,35 +120,37 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
   if (!open) return null;
 
-  // 当前选中 adapter 的 capabilities，用来按需隐藏对该 agent 无意义的字段
   const selectedAdapter = adapters.find((a) => a.id === agentId);
-  // permission 模式是 Claude SDK 的 SDK-only feature；codex 没有运行时切权限模式
   const showPermissionMode = selectedAdapter?.capabilities.canSetPermissionMode ?? false;
   const showSessionMode =
     selectedAdapter?.capabilities.canSetSessionMode === true &&
     selectedAdapter.sessionModes.length > 0;
-  // Codex 三档 sandbox：仅在 codex-cli adapter 时显示
   const showCodexSandbox = agentId === 'codex-cli';
-  // CHANGELOG_74：Claude OS 沙盒对所有 Claude Gateway profile 使用同一 SDK 桥接层。
   const showClaudeCodeSandbox = agentId === 'claude-code';
   const showGrokSandbox = agentId === 'grok-build';
 
   const browse = async (): Promise<void> => {
     if (busy || pickingDirectoryRef.current) return;
+    const epoch = dialogEpochRef.current;
     pickingDirectoryRef.current = true;
     setPickingDirectory(true);
     try {
       const r = await window.api.chooseDirectory(cwd.trim() ? cwd : undefined);
-      if (r && openRef.current) setCwd(r);
+      if (r && openRef.current && epoch === dialogEpochRef.current) setCwd(r);
     } catch (err) {
-      if (openRef.current) setError(`目录选择失败：${(err as Error).message}`);
+      if (openRef.current && epoch === dialogEpochRef.current) {
+        setError(`目录选择失败：${(err as Error).message}`);
+      }
     } finally {
-      pickingDirectoryRef.current = false;
-      setPickingDirectory(false);
+      if (epoch === dialogEpochRef.current) {
+        pickingDirectoryRef.current = false;
+        setPickingDirectory(false);
+      }
     }
   };
 
   const submit = async (): Promise<void> => {
+    if (createInFlightRef.current) return;
     setError(null);
     if (!prompt.trim() && imgs.attachments.length === 0) {
       setError('请输入第一条消息或添加图片');
@@ -144,16 +160,22 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
       imgs.attachments.length > 0 &&
       selectedAdapter?.capabilities.canAcceptAttachments !== true
     ) {
-      setError('当前 adapter 的已协商能力不支持图片输入；图片仍保留，可切换 adapter 后重试。');
+      setError('当前运行时的已协商能力不支持图片输入；图片仍保留，可切换运行时后重试。');
       return;
     }
+    createInFlightRef.current = true;
+    const requestSequence = ++createSequenceRef.current;
+    const dialogEpoch = dialogEpochRef.current;
     setBusy(true);
     let attachmentInputs: ReturnType<typeof imgs.toIpcInputs>;
     try {
       attachmentInputs = imgs.toIpcInputs();
     } catch (err) {
-      setBusy(false);
-      setError(`附件读取失败：${(err as Error).message}`);
+      createInFlightRef.current = false;
+      if (requestSequence === createSequenceRef.current) {
+        setBusy(false);
+        setError(`附件读取失败：${(err as Error).message}`);
+      }
       return;
     }
     try {
@@ -173,29 +195,47 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         ...(thinking ? { thinking } : {}),
         ...(attachmentInputs.length > 0 ? { attachments: attachmentInputs } : {}),
       });
+      if (
+        requestSequence !== createSequenceRef.current
+        || dialogEpoch !== dialogEpochRef.current
+        || !openRef.current
+      ) {
+        return;
+      }
       onCreated(id);
-      // 重置部分字段，留下 cwd / 设置便于连开多个会话
       setPrompt('');
       imgs.clear();
+      dialogEpochRef.current += 1;
+      createSequenceRef.current += 1;
+      createInFlightRef.current = false;
       onClose();
     } catch (e) {
-      setError((e as Error).message);
-      // attachments 失败时不清，让用户能 retry（unlike ComposerSdk，这里失败更可能是
-      // 临时网络错而非永久错；用户重点击「创建会话」即可重发同图）
+      if (
+        requestSequence === createSequenceRef.current
+        && dialogEpoch === dialogEpochRef.current
+        && openRef.current
+      ) {
+        setError((e as Error).message);
+      }
     } finally {
-      setBusy(false);
+      if (
+        requestSequence === createSequenceRef.current
+        && dialogEpoch === dialogEpochRef.current
+      ) {
+        createInFlightRef.current = false;
+        setBusy(false);
+      }
     }
   };
 
-  const getAttachmentPreviewDataUrl = (id: string): string | null => {
-    const index = imgs.attachments.findIndex((attachment) => attachment.id === id);
-    if (index < 0) return null;
-    try {
-      const input = imgs.toIpcInputs()[index];
-      return input ? `data:${input.mime};base64,${input.base64}` : null;
-    } catch {
-      return null;
-    }
+  const close = (): void => {
+    dialogEpochRef.current += 1;
+    createSequenceRef.current += 1;
+    createInFlightRef.current = false;
+    pickingDirectoryRef.current = false;
+    setBusy(false);
+    setPickingDirectory(false);
+    onClose();
   };
 
   return (
@@ -205,7 +245,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
           <h2 className="text-[13px] font-medium">新建会话</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             aria-label="关闭新建会话"
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
           >
@@ -215,11 +255,11 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
 
         {adapters.length === 0 ? (
           <div className={error ? 'text-[11px] text-status-waiting' : 'text-[11px] text-deck-muted'}>
-            {error ?? '没有可用的执行器'}
+            {error ?? '没有可用的运行时'}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <Field label="执行器">
+            <Field label="运行时">
               <DeckSelect
                 value={agentId}
                 onChange={(next) => {
@@ -263,72 +303,16 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               </div>
             </Field>
 
-            <Field label="第一条消息（必填）">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onPaste={
-                  selectedAdapter?.capabilities.canAcceptAttachments ? imgs.onPaste : undefined
-                }
-                onDrop={
-                  selectedAdapter?.capabilities.canAcceptAttachments ? imgs.onDrop : undefined
-                }
-                onDragOver={
-                  selectedAdapter?.capabilities.canAcceptAttachments
-                    ? imgs.onDragOver
-                    : undefined
-                }
-                placeholder={
-                  selectedAdapter?.capabilities.canAcceptAttachments
-                    ? '输入任务或问题；也可粘贴、拖放图片'
-                    : '输入任务或问题（当前 adapter 未协商图片输入能力）'
-                }
-                rows={3}
-                className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-              />
-            </Field>
-
-            {imgs.error && (
-              <div className="rounded bg-status-waiting/10 px-2 py-1 text-[11px] text-status-waiting">
-                ⚠️ {imgs.error}{' '}
-                <button
-                  type="button"
-                  onClick={imgs.dismissError}
-                  className="ml-1 underline hover:no-underline"
-                >
-                  关闭
-                </button>
-              </div>
-            )}
-
-            {/* 缩略图 strip + 上传按钮：单独一行，避免挤压首条消息区 */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  void imgs.add(e.target.files);
-                  if (fileInputRef.current) fileInputRef.current.value = '';
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!selectedAdapter?.capabilities.canAcceptAttachments}
-                className="rounded border border-dashed border-deck-border px-2 py-1 text-[10px] text-deck-muted hover:bg-white/5"
-                title="上传图片（也可粘贴或拖放到第一条消息）"
-              >
-                <ImageIcon className="mr-1 inline h-3 w-3" />添加图片
-              </button>
-              <PendingImageAttachments
-                attachments={imgs.attachments}
-                getPreviewDataUrl={getAttachmentPreviewDataUrl}
-                onRemove={imgs.remove}
-              />
-            </div>
+            <FirstMessageAuthoring
+              identitySessionId={`new-session:${authoringInstanceId}`}
+              prompt={prompt}
+              onPromptChange={setPrompt}
+              images={imgs}
+              acceptsAttachments={
+                selectedAdapter?.capabilities.canAcceptAttachments === true
+              }
+              busy={busy}
+            />
 
             {showPermissionMode && (
               <Field label="权限模式">
@@ -386,12 +370,13 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
             )}
 
             {showGrokSandbox && (
-              <Field label="Grok 沙盒（请求档位）">
+              <Field label="Grok Build 沙盒（请求档位）">
                 <GrokSandboxPicker
                   value={grokSandbox}
                   onChange={sessionOptions.setGrokSandbox}
                   allowUnset={false}
                   disabled={busy}
+                  ariaLabel="Grok Build 沙盒请求档位"
                 />
               </Field>
             )}
@@ -405,9 +390,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
             <div className="mt-1 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={onClose}
-                disabled={busy}
-                className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5 disabled:opacity-50"
+                onClick={close}
+                className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5"
               >
                 取消
               </button>
