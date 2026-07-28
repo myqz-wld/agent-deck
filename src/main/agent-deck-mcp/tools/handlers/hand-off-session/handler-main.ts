@@ -1,16 +1,9 @@
-import { statSync } from 'node:fs';
-
 import { isAgentId } from '@main/adapters/options-builder';
 import { SessionModelOptionsError } from '@main/adapters/session-model-options';
-import { getDb } from '@main/store/db';
 import { eventRepo } from '@main/store/event-repo';
 import { sessionRepo } from '@main/store/session-repo';
 import { prepareHandOffContinuation } from '@main/session/continuation-context/handoff';
 import { continuationFingerprint } from '@main/session/continuation-context/resolver';
-import {
-  ContinuationSourceSpoolStore,
-  continuationSessionRuntimeFingerprint,
-} from '@main/session/continuation-context/source-spool';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { executePreparedHandOff, HandOffExecutionError } from '@main/session/hand-off/executor';
 import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
@@ -28,8 +21,15 @@ import {
   transferHandOffResources,
   type HandOffResourceTransferResult,
 } from './resource-transfer-coordinator';
-import { sourceChangeError } from './source-change-copy';
+import { executionCutoverError, sourceChangeError } from './source-change-copy';
 import { finalizeMcpHandOffSource } from './source-finalization';
+import {
+  cleanupHandOffSpool,
+  drainHandOffMessageDeliveries,
+  handOffCwdIsDirectory,
+  handOffSourceRuntimeFingerprint,
+  handOffSpoolMetadata,
+} from './runtime-dependencies';
 import { validateHandOffTargetAdapter } from './target-adapter-validation';
 import { buildHandOffTargetRequest } from './target-request';
 
@@ -41,12 +41,6 @@ function resourceTransferFailed(result: HandOffResourceTransferResult): boolean 
     result.worktreeMarker.status === 'failed'
   );
 }
-function cleanupSpool(spoolId: string): void {
-  new ContinuationSourceSpoolStore(getDb()).cleanup(spoolId);
-}
-function spoolMetadata(spoolId: string) {
-  return new ContinuationSourceSpoolStore(getDb()).metadata(spoolId);
-}
 function safelyCheckSourcePrecondition(
   check: NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>,
   input: Parameters<NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>>[0],
@@ -55,14 +49,6 @@ function safelyCheckSourcePrecondition(
     return check(input);
   } catch {
     return { ok: false, reason: 'check-failed', currentEventRevision: null };
-  }
-}
-
-function isExistingDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
   }
 }
 
@@ -105,7 +91,7 @@ export const handOffSessionHandler = withMcpGuard(
     }
 
     const finalCwd = args.cwd ?? callerRow.cwd;
-    const cwdIsDirectory = handlerDeps?.cwdIsDirectory ?? isExistingDirectory;
+    const cwdIsDirectory = handlerDeps?.cwdIsDirectory ?? handOffCwdIsDirectory;
     if (!cwdIsDirectory(finalCwd)) {
       logger.warn(
         `[mcp hand_off_session] cwd is not a directory before prepare: caller=${callerSessionId} cwd=${finalCwd}`,
@@ -123,7 +109,7 @@ export const handOffSessionHandler = withMcpGuard(
 
     const frozenSourceRuntimeFingerprint = (
       handlerDeps?.sourceRuntimeFingerprint ??
-      ((sessionId: string) => continuationSessionRuntimeFingerprint(getDb(), sessionId))
+      handOffSourceRuntimeFingerprint
     )(callerSessionId);
     if (!frozenSourceRuntimeFingerprint) {
       return err(
@@ -210,9 +196,10 @@ export const handOffSessionHandler = withMcpGuard(
       }
 
       const { prepared } = continuation;
-      let preparedSpoolMetadata: ReturnType<typeof spoolMetadata>;
+      let preparedSpoolMetadata: ReturnType<typeof handOffSpoolMetadata>;
       try {
-        preparedSpoolMetadata = (handlerDeps?.spoolMetadata ?? spoolMetadata)(prepared.spoolId);
+        preparedSpoolMetadata =
+          (handlerDeps?.spoolMetadata ?? handOffSpoolMetadata)(prepared.spoolId);
         if (
           preparedSpoolMetadata.captureRevision !== prepared.source.eventRevision ||
           preparedSpoolMetadata.rebuildAfterRevision !== prepared.source.rebuildAfterRevision ||
@@ -227,7 +214,7 @@ export const handOffSessionHandler = withMcpGuard(
           error,
         );
         try {
-          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+          (handlerDeps?.cleanupSpool ?? cleanupHandOffSpool)(prepared.spoolId);
         } catch (cleanupError) {
           logger.warn(
             `[mcp hand_off_session] failed to clean invalid continuation spool caller=${callerSessionId}:`,
@@ -246,7 +233,7 @@ export const handOffSessionHandler = withMcpGuard(
         sourceForExecution.archivedAt !== null
       ) {
         try {
-          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+          (handlerDeps?.cleanupSpool ?? cleanupHandOffSpool)(prepared.spoolId);
         } catch (error) {
           logger.warn(
             `[mcp hand_off_session] failed to clean stale continuation spool caller=${callerSessionId}:`,
@@ -274,7 +261,7 @@ export const handOffSessionHandler = withMcpGuard(
       } catch (error) {
         logger.warn(`[mcp hand_off_session] frozen target drifted caller=${callerSessionId}:`, error);
         try {
-          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+          (handlerDeps?.cleanupSpool ?? cleanupHandOffSpool)(prepared.spoolId);
         } catch (cleanupError) {
           logger.warn('[mcp hand_off_session] stale-target spool cleanup failed:', cleanupError);
         }
@@ -297,7 +284,7 @@ export const handOffSessionHandler = withMcpGuard(
       });
       if (!preparedSourceCheck.ok) {
         try {
-          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+          (handlerDeps?.cleanupSpool ?? cleanupHandOffSpool)(prepared.spoolId);
         } catch (error) {
           logger.warn(
             `[mcp hand_off_session] failed to clean stale continuation spool caller=${callerSessionId}:`,
@@ -309,7 +296,7 @@ export const handOffSessionHandler = withMcpGuard(
       }
       if (!cutoverLease.canCommit()) {
         try {
-          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+          (handlerDeps?.cleanupSpool ?? cleanupHandOffSpool)(prepared.spoolId);
         } catch (error) {
           logger.warn(
             `[mcp hand_off_session] failed to clean revoked continuation spool caller=${callerSessionId}:`,
@@ -340,6 +327,15 @@ export const handOffSessionHandler = withMcpGuard(
           ...(handlerDeps?.deliverLateMessages
             ? { deliverLateMessages: handlerDeps.deliverLateMessages }
             : {}),
+          ...(
+            handlerDeps
+              ? handlerDeps.drainMessageDeliveries
+                ? { drainMessageDeliveries: handlerDeps.drainMessageDeliveries }
+                : {}
+              : {
+                  drainMessageDeliveries: drainHandOffMessageDeliveries,
+                }
+          ),
           transferResources: handlerDeps?.transferResources ?? transferHandOffResources,
           resourceTransferFailed,
           sourceOwnershipCheck: () => cutoverLease.canCommit(),
@@ -427,12 +423,14 @@ export const handOffSessionHandler = withMcpGuard(
             logger.warn(
               `[mcp hand_off_session] source drifted during successor creation caller=${callerSessionId} successor=${error.successorSessionId} cleanup=${error.successorCleanup}`,
             );
-            const deliveryFailed = error.cutoverReason === 'late-message-delivery-failed';
+            const copy = executionCutoverError(
+              error.cutoverReason,
+              error.successorSessionId,
+              error.successorCleanup,
+            );
             response = err(
-              deliveryFailed
-                ? 'failed to deliver late source messages to the handoff successor'
-                : 'source session changed while creating the handoff successor',
-              `No resources moved. Orphan successor ${error.successorSessionId} cleanup: ${error.successorCleanup}. ${deliveryFailed ? 'The source remains active; retry after the target adapter can accept the queued messages.' : 'Prepare a fresh continuation context and retry.'}`,
+              copy.error,
+              copy.hint,
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,
@@ -466,7 +464,7 @@ export const handOffSessionHandler = withMcpGuard(
         }
       } finally {
         try {
-          (handlerDeps?.cleanupSpool ?? cleanupSpool)(prepared.spoolId);
+          (handlerDeps?.cleanupSpool ?? cleanupHandOffSpool)(prepared.spoolId);
         } catch (error) {
           logger.warn(
             `[mcp hand_off_session] failed to clean continuation spool caller=${callerSessionId}:`,

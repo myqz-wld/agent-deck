@@ -11,10 +11,10 @@
  *
  * 域职责：
  * - claim：pending → delivering 原子化抢占（UPDATE ... RETURNING *）
- * - markDelivered：pending/delivering → delivered（spawn_session 路径捷径 mark）
- * - markFailed：pending/delivering → failed（caller 主动放弃）
+ * - markDelivered：pending shortcut 或 matching delivering lease → delivered
+ * - markFailed：pending caller failure 或 matching delivering lease → failed
  * - retryAfterFail：delivering → pending 退避后重试，到 MAX_RETRY → failed
- * - cancel：pending/delivering → cancelled（lead 撤回 / team archive 兜底）
+ * - cancel：pending → cancelled；claimed adapter calls must finish or drain
  * - resetDeliveringOnStartup：crash recovery，把卡 delivering 的行重置 pending（不 ++attempt_count）
  *
  * 4 method（markDelivered/markFailed/retryAfterFail/cancel）UPDATE 后调 _deps.getById 反查最新 row。
@@ -22,7 +22,50 @@
 import type { Database } from 'better-sqlite3';
 import type { AgentDeckMessage } from '@shared/types';
 import { MAX_RETRY } from '@main/store/message-delivery-state';
-import { getById, rowToRecord, type MessageRow } from './_deps';
+import {
+  getById,
+  rowToRecord,
+  type MessageDeliveryLease,
+  type MessageRow,
+} from './_deps';
+
+/** Transaction-compatible pending-only ownership move used by handoff resource transfer. */
+export function retargetPendingMessagesForHandOffWithDb(
+  db: Database,
+  sourceSessionId: string,
+  successorSessionId: string,
+): number {
+  if (sourceSessionId === successorSessionId) return 0;
+  return db.prepare(
+    `UPDATE agent_deck_messages
+        SET from_session_id = CASE WHEN from_session_id = ? THEN ? ELSE from_session_id END,
+            to_session_id = CASE WHEN to_session_id = ? THEN ? ELSE to_session_id END,
+            delivery_generation = delivery_generation + 1,
+            delivery_lease_to_session_id = NULL
+      WHERE (from_session_id = ? OR to_session_id = ?)
+        AND status = 'pending'`,
+  ).run(
+    sourceSessionId,
+    successorSessionId,
+    sourceSessionId,
+    successorSessionId,
+    sourceSessionId,
+    sourceSessionId,
+  ).changes;
+}
+
+export function countDeliveringMessagesForSessionWithDb(
+  db: Database,
+  sessionId: string,
+): number {
+  const row = db.prepare(
+    `SELECT count(*) AS c
+       FROM agent_deck_messages
+      WHERE status = 'delivering'
+        AND (from_session_id = ? OR to_session_id = ?)`,
+  ).get(sessionId, sessionId) as { c: number };
+  return row.c;
+}
 
 export function createStateMachine(db: Database) {
   function claim(messageId: string, now: number): AgentDeckMessage | null {
@@ -30,7 +73,9 @@ export function createStateMachine(db: Database) {
     const updated = db
       .prepare(
         `UPDATE agent_deck_messages
-         SET status = 'delivering', delivering_since = ?, last_attempt_at = ?
+         SET status = 'delivering', delivering_since = ?, last_attempt_at = ?,
+             delivery_generation = delivery_generation + 1,
+             delivery_lease_to_session_id = to_session_id
          WHERE id = ? AND status = 'pending'
          RETURNING *`,
       )
@@ -38,45 +83,91 @@ export function createStateMachine(db: Database) {
     return updated ? rowToRecord(updated) : null;
   }
 
-  function markDelivered(messageId: string, now: number): AgentDeckMessage | null {
-    // REVIEW_32 HIGH-1：接纳 status='pending' OR 'delivering'。
+  function markDelivered(
+    messageIdOrLease: string | MessageDeliveryLease,
+    now: number,
+  ): AgentDeckMessage | null {
+    // Spawn placeholders still need a pending shortcut; watcher completions require a lease.
     // spawn_session 路径在 SDK createSession 已经投过 prompt，紧接着 insert placeholder
     // (status='pending') + markDelivered 做「捷径 mark 为 delivered，watcher 不再重投」。
     // 旧 SQL 仅匹配 'delivering' → spawn 路径 100% no-op → universal-message-watcher 250ms
     // poll 命中 (pending, last_attempt_at IS NULL) → 二次投递（teammate 跑完首条 prompt 后立刻
-    // 又收到一份 wireBody = `[from <name>][msg <id>]\n` + 原 body）。fix：放宽 status 集合。
-    const result = db
-      .prepare(
+    // 又收到一份 wireBody = `[from <name>][msg <id>]\n` + 原 body）。字符串路径仅匹配 pending，
+    // 防止 delivering row 绕过 destination + generation CAS。
+    const lease = typeof messageIdOrLease === 'string' ? null : messageIdOrLease;
+    const result = lease
+      ? db.prepare(
         `UPDATE agent_deck_messages
          SET status = 'delivered', delivered_at = ?, status_reason = NULL,
-             delivering_since = NULL
-         WHERE id = ? AND status IN ('pending', 'delivering')`,
+             delivering_since = NULL, delivery_lease_to_session_id = NULL
+         WHERE id = ? AND status = 'delivering'
+           AND to_session_id = ? AND delivery_lease_to_session_id = ?
+           AND delivery_generation = ?`,
+      ).run(
+        now,
+        lease.messageId,
+        lease.toSessionId,
+        lease.toSessionId,
+        lease.generation,
       )
-      .run(now, messageId);
-    if (result.changes === 0) return null;
-    return getById(db, messageId);
-  }
-
-  function markFailed(messageId: string, reason: string): AgentDeckMessage | null {
-    // 允许从 delivering / pending 任一态进 failed（caller 主动放弃）
-    const result = db
-      .prepare(
+      : db.prepare(
         `UPDATE agent_deck_messages
-         SET status = 'failed', status_reason = ?, delivering_since = NULL
-         WHERE id = ? AND status IN ('pending', 'delivering')`,
-      )
-      .run(reason, messageId);
+         SET status = 'delivered', delivered_at = ?, status_reason = NULL,
+             delivering_since = NULL, delivery_lease_to_session_id = NULL
+         WHERE id = ? AND status = 'pending'`,
+      ).run(now, messageIdOrLease);
     if (result.changes === 0) return null;
+    const messageId = lease ? lease.messageId : messageIdOrLease as string;
     return getById(db, messageId);
   }
 
-  function retryAfterFail(messageId: string, reason: string, now: number): AgentDeckMessage | null {
+  function markFailed(
+    messageIdOrLease: string | MessageDeliveryLease,
+    reason: string,
+  ): AgentDeckMessage | null {
+    const lease = typeof messageIdOrLease === 'string' ? null : messageIdOrLease;
+    const result = lease
+      ? db.prepare(
+        `UPDATE agent_deck_messages
+         SET status = 'failed', status_reason = ?, delivering_since = NULL,
+             delivery_lease_to_session_id = NULL
+         WHERE id = ? AND status = 'delivering'
+           AND to_session_id = ? AND delivery_lease_to_session_id = ?
+           AND delivery_generation = ?`,
+      ).run(
+        reason,
+        lease.messageId,
+        lease.toSessionId,
+        lease.toSessionId,
+        lease.generation,
+      )
+      : db.prepare(
+        `UPDATE agent_deck_messages
+         SET status = 'failed', status_reason = ?, delivering_since = NULL,
+             delivery_lease_to_session_id = NULL
+         WHERE id = ? AND status = 'pending'`,
+      ).run(reason, messageIdOrLease);
+    if (result.changes === 0) return null;
+    const messageId = lease ? lease.messageId : messageIdOrLease as string;
+    return getById(db, messageId);
+  }
+
+  function retryAfterFail(
+    lease: MessageDeliveryLease,
+    reason: string,
+    now: number,
+  ): AgentDeckMessage | null {
     // 只能从 delivering 退回 pending（claim 后失败）
     const cur = db
       .prepare(`SELECT * FROM agent_deck_messages WHERE id = ?`)
-      .get(messageId) as MessageRow | undefined;
+      .get(lease.messageId) as MessageRow | undefined;
     if (!cur) return null;
-    if (cur.status !== 'delivering') return null;
+    if (
+      cur.status !== 'delivering' ||
+      cur.to_session_id !== lease.toSessionId ||
+      cur.delivery_lease_to_session_id !== lease.toSessionId ||
+      (cur.delivery_generation ?? 0) !== lease.generation
+    ) return null;
 
     const newAttemptCount = cur.attempt_count + 1;
     if (newAttemptCount >= MAX_RETRY) {
@@ -89,29 +180,51 @@ export function createStateMachine(db: Database) {
         .prepare(
           `UPDATE agent_deck_messages
            SET status = 'failed', status_reason = ?,
-               attempt_count = ?, delivering_since = NULL
-           WHERE id = ? AND status IN ('pending', 'delivering')`,
+               attempt_count = ?, delivering_since = NULL,
+               delivery_lease_to_session_id = NULL
+           WHERE id = ? AND status = 'delivering'
+             AND to_session_id = ? AND delivery_lease_to_session_id = ?
+             AND delivery_generation = ?`,
         )
-        .run(`retry-exhausted (attempt=${newAttemptCount}): ${reason}`, newAttemptCount, messageId);
+        .run(
+          `retry-exhausted (attempt=${newAttemptCount}): ${reason}`,
+          newAttemptCount,
+          lease.messageId,
+          lease.toSessionId,
+          lease.toSessionId,
+          lease.generation,
+        );
       if (result.changes === 0) return null;
-      return getById(db, messageId);
+      return getById(db, lease.messageId);
     }
-    db.prepare(
+    const result = db.prepare(
       `UPDATE agent_deck_messages
        SET status = 'pending', attempt_count = ?, last_attempt_at = ?,
-           status_reason = ?, delivering_since = NULL
-       WHERE id = ? AND status = 'delivering'`,
-    ).run(newAttemptCount, now, reason, messageId);
-    return getById(db, messageId);
+           status_reason = ?, delivering_since = NULL,
+           delivery_lease_to_session_id = NULL
+       WHERE id = ? AND status = 'delivering'
+         AND to_session_id = ? AND delivery_lease_to_session_id = ?
+         AND delivery_generation = ?`,
+    ).run(
+      newAttemptCount,
+      now,
+      reason,
+      lease.messageId,
+      lease.toSessionId,
+      lease.toSessionId,
+      lease.generation,
+    );
+    return result.changes > 0 ? getById(db, lease.messageId) : null;
   }
 
   function cancel(messageId: string, reason: string): AgentDeckMessage | null {
-    // 仅可从 pending / delivering 进 cancelled；terminal 态拒
+    // Pending-only: never cancel underneath an active adapter call.
     const result = db
       .prepare(
         `UPDATE agent_deck_messages
          SET status = 'cancelled', status_reason = ?, delivering_since = NULL
-         WHERE id = ? AND status IN ('pending', 'delivering')`,
+             , delivery_lease_to_session_id = NULL
+         WHERE id = ? AND status = 'pending'`,
       )
       .run(reason, messageId);
     if (result.changes === 0) return null;
@@ -124,11 +237,23 @@ export function createStateMachine(db: Database) {
         `UPDATE agent_deck_messages
          SET status = 'pending',
              status_reason = 'recovered-from-delivering (process restart)',
-             delivering_since = NULL
+             delivering_since = NULL,
+             delivery_lease_to_session_id = NULL
          WHERE status = 'delivering'`,
       )
       .run();
     return result.changes;
+  }
+
+  function retargetPendingForHandOff(
+    sourceSessionId: string,
+    successorSessionId: string,
+  ): number {
+    return retargetPendingMessagesForHandOffWithDb(db, sourceSessionId, successorSessionId);
+  }
+
+  function countDeliveringForSession(sessionId: string): number {
+    return countDeliveringMessagesForSessionWithDb(db, sessionId);
   }
 
   return {
@@ -138,5 +263,7 @@ export function createStateMachine(db: Database) {
     retryAfterFail,
     cancel,
     resetDeliveringOnStartup,
+    retargetPendingForHandOff,
+    countDeliveringForSession,
   };
 }

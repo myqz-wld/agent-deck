@@ -162,6 +162,14 @@ export interface AgentDeckMessage {
    */
   deliveringSince: number | null;
   /**
+   * Monotonic durable claim epoch. A claim increments this value before adapter dispatch; every
+   * claimed terminal/retry transition must compare the returned generation.
+   */
+  /** Optional only for pre-v054 serialized/test fixtures. Repository reads always materialize it. */
+  deliveryGeneration?: number;
+  /** Destination snapshotted by the active claim; optional only for pre-v054 fixtures. */
+  deliveryLeaseToSessionId?: string | null;
+  /**
    * plan team-cohesion-fix-20260513 Phase B Step B1：对话链关联（v015 加列）。
    * - NULL：普通消息（不是某条的 reply）
    * - 非 NULL：指向另一条 messages.id；wait_reply(message_id) 通过 `WHERE reply_to_message_id = ?` 查 reply

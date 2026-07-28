@@ -4,7 +4,7 @@ import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants'
 import { packCodexInput, toCodexAppServerInput } from './input-pack';
 import type { CodexBridgeOptions, InternalSession } from './types';
 import log from '@main/utils/logger';
-import { bufferHandOffSourceInput } from '@main/session/hand-off/input-buffer';
+import { guardHandOffSourceIngress } from '@main/session/hand-off/ingress-guard';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
 import type {
   AgentEnqueueOptions,
@@ -47,7 +47,7 @@ export class MessageController {
   ): Promise<void> {
     this.validateMessageLength(text);
     if (
-      bufferHandOffSourceInput({
+      guardHandOffSourceIngress({
         sourceSessionId: sessionId,
         agentId: AGENT_ID,
         text,
@@ -71,7 +71,7 @@ export class MessageController {
   ): Promise<void> {
     this.validateMessageLength(text);
     if (
-      bufferHandOffSourceInput({
+      guardHandOffSourceIngress({
         sourceSessionId: sessionId,
         agentId: AGENT_ID,
         text,

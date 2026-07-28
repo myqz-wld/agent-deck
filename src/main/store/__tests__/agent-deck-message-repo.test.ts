@@ -20,10 +20,12 @@ import {
 } from '../agent-deck-team-repo';
 import {
   createAgentDeckMessageRepo,
+  deliveryLeaseOf,
   MessageInvariantError,
   MAX_BODY_LENGTH,
   type AgentDeckMessageRepo,
 } from '../agent-deck-message-repo';
+import v054 from '../migrations/v054_message_delivery_generation.sql?raw';
 import { LIST_EXPIRED_FOR_GC_SQL } from '../agent-deck-message-repo/gc';
 import { bindingAvailable, makeMemoryDb, insertSession } from './agent-deck-repos/_setup';
 
@@ -34,6 +36,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / insert + invariant
   let teamId: string;
   beforeEach(() => {
     db = makeMemoryDb();
+    db.exec(v054);
     teamRepo = createAgentDeckTeamRepo(db);
     msgRepo = createAgentDeckMessageRepo(db);
     insertSession(db, 'sA');
@@ -82,6 +85,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
   let teamId: string;
   beforeEach(() => {
     db = makeMemoryDb();
+    db.exec(v054);
     const teamRepo = createAgentDeckTeamRepo(db);
     msgRepo = createAgentDeckMessageRepo(db);
     insertSession(db, 'sA');
@@ -99,13 +103,64 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(claimed?.status).toBe('delivering');
     expect(claimed?.deliveringSince).not.toBeNull();
     expect(claimed?.lastAttemptAt).not.toBeNull();
+    expect(claimed?.deliveryGeneration).toBe(1);
+    expect(claimed?.deliveryLeaseToSessionId).toBe('sB');
     expect(msgRepo.claim(m.id, Date.now())).toBeNull();
+  });
+
+  it('rejects a stale completion after crash recovery creates a new generation', () => {
+    const m = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
+    const firstClaim = msgRepo.claim(m.id, 100)!;
+    const firstLease = deliveryLeaseOf(firstClaim);
+
+    expect(msgRepo.resetDeliveringOnStartup()).toBe(1);
+    const secondClaim = msgRepo.claim(m.id, 200)!;
+    expect(secondClaim.deliveryGeneration).toBe(2);
+    expect(msgRepo.markDelivered(firstLease, 300)).toBeNull();
+
+    const delivered = msgRepo.markDelivered(deliveryLeaseOf(secondClaim), 301);
+    expect(delivered?.status).toBe('delivered');
+    expect(delivered?.deliveryGeneration).toBe(2);
+  });
+
+  it('retargets pending envelopes but never mutates an active delivery lease', () => {
+    insertSession(db, 'successor');
+    const pending = msgRepo.insert({
+      teamId,
+      fromSessionId: 'sA',
+      toSessionId: 'sB',
+      body: 'pending',
+    });
+    const active = msgRepo.insert({
+      teamId,
+      fromSessionId: 'sB',
+      toSessionId: 'sA',
+      body: 'active',
+    });
+    const activeClaim = msgRepo.claim(active.id, 100)!;
+
+    expect(msgRepo.countDeliveringForSession('sA')).toBe(1);
+    expect(msgRepo.retargetPendingForHandOff('sA', 'successor')).toBe(1);
+    expect(msgRepo.get(pending.id)).toMatchObject({
+      fromSessionId: 'successor',
+      toSessionId: 'sB',
+      status: 'pending',
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
+    });
+    expect(msgRepo.get(active.id)).toMatchObject({
+      fromSessionId: 'sB',
+      toSessionId: 'sA',
+      status: 'delivering',
+      deliveryGeneration: activeClaim.deliveryGeneration,
+      deliveryLeaseToSessionId: 'sA',
+    });
   });
 
   it('markDelivered: delivering → delivered（terminal）', () => {
     const m = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
-    msgRepo.claim(m.id, Date.now());
-    const delivered = msgRepo.markDelivered(m.id, Date.now() + 100);
+    const claimed = msgRepo.claim(m.id, Date.now())!;
+    const delivered = msgRepo.markDelivered(deliveryLeaseOf(claimed), Date.now() + 100);
     expect(delivered?.status).toBe('delivered');
     expect(delivered?.deliveredAt).toBeGreaterThan(0);
     expect(delivered?.deliveringSince).toBeNull();
@@ -118,21 +173,21 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     const m = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
     let now = Date.now();
     // attempt 1
-    msgRepo.claim(m.id, now);
-    let r = msgRepo.retryAfterFail(m.id, 'err1', now + 100);
+    let claimed = msgRepo.claim(m.id, now)!;
+    let r = msgRepo.retryAfterFail(deliveryLeaseOf(claimed), 'err1', now + 100);
     expect(r?.status).toBe('pending');
     expect(r?.attemptCount).toBe(1);
     expect(r?.lastAttemptAt).toBe(now + 100);
     // attempt 2
     now += 5_000;
-    msgRepo.claim(m.id, now);
-    r = msgRepo.retryAfterFail(m.id, 'err2', now + 100);
+    claimed = msgRepo.claim(m.id, now)!;
+    r = msgRepo.retryAfterFail(deliveryLeaseOf(claimed), 'err2', now + 100);
     expect(r?.status).toBe('pending');
     expect(r?.attemptCount).toBe(2);
     // attempt 3 → failed（attempt_count >= MAX_RETRY 触发 markFailed）
     now += 10_000;
-    msgRepo.claim(m.id, now);
-    r = msgRepo.retryAfterFail(m.id, 'err3', now + 100);
+    claimed = msgRepo.claim(m.id, now)!;
+    r = msgRepo.retryAfterFail(deliveryLeaseOf(claimed), 'err3', now + 100);
     expect(r?.status).toBe('failed');
     expect(r?.statusReason).toContain('retry-exhausted');
     // REVIEW_61 R2 INFO (codex) regression: final retry 必须把 attempt_count 持久化到 DB
@@ -151,8 +206,8 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(msgRepo.findEligible({ now: t0 })).toHaveLength(2);
 
     // m1 进 attempt_count=1, last_attempt_at=t0+100
-    msgRepo.claim(m1.id, t0);
-    msgRepo.retryAfterFail(m1.id, 'err', t0 + 100);
+    const claimed = msgRepo.claim(m1.id, t0)!;
+    msgRepo.retryAfterFail(deliveryLeaseOf(claimed), 'err', t0 + 100);
 
     // 此时 m1 attempt=1, last_attempt_at=t0+100, backoff(1)=1000ms
     // 在 t0+200（< t0+100+1000）时 m1 不 eligible，只有 m2
@@ -180,11 +235,11 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(msgRepo.countPendingForTarget('sB')).toBe(3);
 
     // claim m1 → delivering：仍计入
-    msgRepo.claim(m1.id, Date.now());
+    const claimed = msgRepo.claim(m1.id, Date.now())!;
     expect(msgRepo.countPendingForTarget('sB')).toBe(3);
 
     // markDelivered m1 → 不计入
-    msgRepo.markDelivered(m1.id, Date.now() + 100);
+    msgRepo.markDelivered(deliveryLeaseOf(claimed), Date.now() + 100);
     expect(msgRepo.countPendingForTarget('sB')).toBe(2);
   });
 
@@ -207,8 +262,8 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     const m1 = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'a' });
     await new Promise((r) => setTimeout(r, 5)); // 保证 sentAt 不同
     const m2 = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'b' });
-    msgRepo.claim(m2.id, Date.now());
-    msgRepo.markDelivered(m2.id, Date.now() + 100);
+    const claimed = msgRepo.claim(m2.id, Date.now())!;
+    msgRepo.markDelivered(deliveryLeaseOf(claimed), Date.now() + 100);
 
     expect(msgRepo.listByTeam(teamId).map((m) => m.id)).toEqual([m2.id, m1.id]);
     expect(msgRepo.listByTeam(teamId, { status: 'delivered' })).toHaveLength(1);
@@ -230,8 +285,8 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(sBView.map((m) => m.id)).toEqual([m2.id, m1.id]);
 
     // status 过滤生效
-    msgRepo.claim(m1.id, Date.now());
-    msgRepo.markDelivered(m1.id, Date.now() + 100);
+    const claimed = msgRepo.claim(m1.id, Date.now())!;
+    msgRepo.markDelivered(deliveryLeaseOf(claimed), Date.now() + 100);
     expect(msgRepo.listBySession('sB', { status: 'delivered' }).map((m) => m.id)).toEqual([m1.id]);
     expect(msgRepo.listBySession('sB', { status: 'pending' }).map((m) => m.id)).toEqual([m2.id]);
 

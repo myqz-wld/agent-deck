@@ -79,7 +79,13 @@ export type {
   InsertMessageInput,
   ListExpiredForGcOptions,
   ListMessagesByTeamOptions,
+  MessageDeliveryLease,
 } from './agent-deck-message-repo/_deps';
+export { deliveryLeaseOf } from './agent-deck-message-repo/_deps';
+export {
+  countDeliveringMessagesForSessionWithDb,
+  retargetPendingMessagesForHandOffWithDb,
+} from './agent-deck-message-repo/state-machine';
 
 import type { AgentDeckMessageRepo } from './agent-deck-message-repo/_deps';
 
@@ -117,6 +123,10 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   cancel: (messageId, reason) => defaultRepo().cancel(messageId, reason),
   countPendingForTarget: (toSessionId) => defaultRepo().countPendingForTarget(toSessionId),
   resetDeliveringOnStartup: () => defaultRepo().resetDeliveringOnStartup(),
+  retargetPendingForHandOff: (sourceSessionId, successorSessionId) =>
+    defaultRepo().retargetPendingForHandOff(sourceSessionId, successorSessionId),
+  countDeliveringForSession: (sessionId) =>
+    defaultRepo().countDeliveringForSession(sessionId),
   listExpiredForGc: (opts) => defaultRepo().listExpiredForGc(opts),
   batchHardDelete: (ids) => defaultRepo().batchHardDelete(ids),
 };

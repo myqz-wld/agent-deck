@@ -59,6 +59,11 @@ export interface ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResul
   cleanupLateMessageAttachments?: (
     attachments: HandOffLateMessageDeliveryError['createdAttachments'],
   ) => Promise<void>;
+  /**
+   * Wait for claims that crossed the ingress/cutover boundary before this execution started.
+   * The hook must not start a new claim and returns false on its bounded timeout.
+   */
+  drainMessageDeliveries?: (sourceSessionId: string) => Promise<boolean>;
   transferResources: (input: {
     callerSessionId: string;
     callerRow: SessionRecord;
@@ -182,6 +187,40 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
           ? {
               afterClose: () => cleanupLateMessageAttachments(failedAttachments),
             }
+          : {}),
+      });
+    }
+  }
+  if (input.drainMessageDeliveries) {
+    if (!ownershipIsHeld()) {
+      return failAfterSuccessor({
+        stage: 'cutover',
+        successorSessionId,
+        closeSuccessor: input.closeSuccessor,
+        resourceTransfer: null,
+        transferError: null,
+        cutoverReason: 'source-not-open',
+        ...(createdLateAttachments.length > 0
+          ? { afterClose: cleanupCreatedAttachments }
+          : {}),
+      });
+    }
+    let drained = false;
+    try {
+      drained = await input.drainMessageDeliveries(input.source.id);
+    } catch {
+      drained = false;
+    }
+    if (!drained) {
+      return failAfterSuccessor({
+        stage: 'cutover',
+        successorSessionId,
+        closeSuccessor: input.closeSuccessor,
+        resourceTransfer: null,
+        transferError: null,
+        cutoverReason: 'message-delivery-drain-timeout',
+        ...(createdLateAttachments.length > 0
+          ? { afterClose: cleanupCreatedAttachments }
           : {}),
       });
     }

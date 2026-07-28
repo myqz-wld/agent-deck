@@ -39,6 +39,7 @@ export interface HandOffSessionHandlerDeps {
   deliverLateMessages?: (
     input: DeliverHandOffLateMessagesInput,
   ) => Promise<UploadedAttachmentRef[]>;
+  drainMessageDeliveries?: (sourceSessionId: string) => Promise<boolean>;
   transferResources?: typeof transferHandOffResources;
   closeSuccessor?: (sessionId: string) => Promise<void>;
   finalizeSource?: (input: {

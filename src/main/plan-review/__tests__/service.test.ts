@@ -171,7 +171,7 @@ describe('PlanReviewService', () => {
     })).resolves.toBe('successor-2');
     expect(deliverLateDecision).toHaveBeenCalledTimes(2);
     expect(deliverLateDecision).toHaveBeenLastCalledWith(expect.objectContaining({
-      sourceSessionId: 'successor-2',
+      sourceSessionId: 'source',
     }));
     expect(close).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledWith(child);
@@ -219,7 +219,7 @@ describe('PlanReviewService', () => {
     })).resolves.toBe('successor');
     expect(deliverLateDecision).toHaveBeenCalledOnce();
     expect(deliverLateDecision).toHaveBeenCalledWith(expect.objectContaining({
-      sourceSessionId: 'successor',
+      sourceSessionId: 'source',
     }));
   });
 
@@ -335,6 +335,7 @@ describe('PlanReviewService', () => {
     });
 
     expect(service.rehomeForHandOff('codex-source', 'claude-successor')).toBe(1);
+    await expect(decision).resolves.toEqual({ decision: 'timeout' });
     expect(events.at(-1)).toMatchObject({
       sessionId: 'claude-successor',
       agentId: 'claude-code',
@@ -349,7 +350,9 @@ describe('PlanReviewService', () => {
       decision: 'approve',
       targetMode: 'default',
     });
-    await expect(decision).resolves.toEqual({ decision: 'approved' });
+    expect(reviewCoordinator.deliverLateDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceSessionId: 'codex-source' }),
+    );
   });
 
   it('creates only one child for concurrent deep-review opens and serializes questions through it', async () => {
@@ -460,6 +463,7 @@ describe('PlanReviewService', () => {
     await vi.waitFor(() => expect(generateFeedback).toHaveBeenCalledTimes(1));
 
     expect(service.rehomeForHandOff('source', 'successor')).toBe(1);
+    await expect(decision).resolves.toEqual({ decision: 'timeout' });
     generated.resolve('stale draft');
 
     await expect(draft).rejects.toThrow('changed before the feedback draft was ready');
@@ -468,7 +472,6 @@ describe('PlanReviewService', () => {
       decision: 'approve',
       targetMode: 'default',
     });
-    await expect(decision).resolves.toEqual({ decision: 'approved' });
   });
 
   it('closes a prepared child when the owning session is cancelled', async () => {

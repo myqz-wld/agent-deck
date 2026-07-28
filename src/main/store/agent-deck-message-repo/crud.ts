@@ -116,7 +116,7 @@ export function createCrud(db: Database) {
         .prepare(
           `SELECT id, team_id, from_session_id, to_session_id, body, status, status_reason,
                   sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since,
-                  reply_to_message_id
+                  reply_to_message_id, delivery_generation, delivery_lease_to_session_id
            FROM (
              SELECT *, rowid AS _rid FROM agent_deck_messages
                WHERE from_session_id = ? AND status = ?
@@ -133,7 +133,7 @@ export function createCrud(db: Database) {
       .prepare(
         `SELECT id, team_id, from_session_id, to_session_id, body, status, status_reason,
                 sent_at, delivered_at, attempt_count, last_attempt_at, delivering_since,
-                reply_to_message_id
+                reply_to_message_id, delivery_generation, delivery_lease_to_session_id
          FROM (
            SELECT *, rowid AS _rid FROM agent_deck_messages WHERE from_session_id = ?
            UNION ALL

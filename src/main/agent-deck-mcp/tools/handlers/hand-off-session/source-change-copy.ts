@@ -16,3 +16,30 @@ export function sourceChangeError(reason: HandOffSourceCutoverRejectionReason): 
     hint: 'No successor was created and no resources moved. Prepare a fresh handoff from the current source state.',
   };
 }
+
+export function executionCutoverError(
+  reason: HandOffSourceCutoverRejectionReason | null,
+  successorSessionId: string,
+  successorCleanup: 'ok' | 'failed',
+): { error: string; hint: string } {
+  const prefix =
+    `No resources moved. Orphan successor ${successorSessionId} cleanup: ${successorCleanup}.`;
+  if (reason === 'late-message-delivery-failed') {
+    return {
+      error: 'failed to deliver late source messages to the handoff successor',
+      hint:
+        `${prefix} The source remains active; retry after the target adapter can accept the queued messages.`,
+    };
+  }
+  if (reason === 'message-delivery-drain-timeout') {
+    return {
+      error: 'source message delivery did not drain before handoff cutover',
+      hint:
+        `${prefix} The source remains active; retry after its active cross-session delivery reaches a durable terminal or retry state.`,
+    };
+  }
+  return {
+    error: 'source session changed while creating the handoff successor',
+    hint: `${prefix} Prepare a fresh continuation context and retry.`,
+  };
+}

@@ -64,6 +64,7 @@ import v050 from './v050_sessions_grok_usage_watermark.sql?raw';
 import v051 from './v051_token_usage_presence.sql?raw';
 import v052 from './v052_token_usage_metric_scope_repair.sql?raw';
 import v053 from './v053_sessions_grok_sandbox.sql?raw';
+import v054 from './v054_message_delivery_generation.sql?raw';
 
 export interface Migration {
   version: number;
@@ -125,4 +126,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 51, name: 'token_usage_presence', sql: v051 },
   { version: 52, name: 'token_usage_metric_scope_repair', sql: v052 },
   { version: 53, name: 'sessions_grok_sandbox', sql: v053 },
+  { version: 54, name: 'message_delivery_generation', sql: v054 },
 ];
