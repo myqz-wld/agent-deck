@@ -65,8 +65,18 @@ export class GrokSandboxRestartController {
       runtime.restartingSandbox = false;
       throw new Error(`Grok session ${runtime.applicationSessionId} lost its ACP process.`);
     }
-    runtime.process = null;
-    await oldProcess.stop();
+    try {
+      await oldProcess.stop();
+      if (runtime.process === oldProcess) runtime.process = null;
+    } catch (stopError) {
+      await this.disposeAfterUnprovenStop(runtime);
+      throw new Error(
+        `旧 Grok ACP 进程停止失败，无法安全切换沙盒；会话已释放：${errorText(
+          stopError,
+        )}`,
+        { cause: stopError },
+      );
+    }
 
     let targetError: unknown;
     try {
@@ -80,7 +90,16 @@ export class GrokSandboxRestartController {
       return runtime.applicationSessionId;
     } catch (error) {
       targetError = error;
-      await this.stopCurrentProcess(runtime);
+      try {
+        await this.stopCurrentProcess(runtime);
+      } catch (stopError) {
+        await this.disposeAfterUnprovenStop(runtime);
+        throw new Error(
+          `目标 Grok ACP 进程停止失败，无法安全启动旧档位；会话已释放。` +
+            `切换错误：${errorText(targetError)}；停止错误：${errorText(stopError)}`,
+          { cause: targetError },
+        );
+      }
     }
 
     try {
@@ -96,7 +115,18 @@ export class GrokSandboxRestartController {
       if (rollbackError instanceof GrokSandboxSwitchRolledBackError) {
         throw rollbackError;
       }
-      await this.stopCurrentProcess(runtime);
+      try {
+        await this.stopCurrentProcess(runtime);
+      } catch (stopError) {
+        await this.disposeAfterUnprovenStop(runtime);
+        throw new Error(
+          `回滚 Grok ACP 进程停止失败，运行状态无法确认；会话已释放。` +
+            `切换错误：${errorText(targetError)}；恢复错误：${errorText(
+              rollbackError,
+            )}；停止错误：${errorText(stopError)}`,
+          { cause: targetError },
+        );
+      }
       runtime.restartingSandbox = false;
       await this.context.dispose(runtime);
       throw new Error(
@@ -112,17 +142,29 @@ export class GrokSandboxRestartController {
     if (
       runtime.running ||
       runtime.submittingMessage != null ||
-      runtime.pendingPermissions.size > 0
+      runtime.pendingPermissions.size > 0 ||
+      runtime.runtimeMutationInProgress
     ) {
-      throw new Error('当前 Grok turn 或授权请求尚未结束，请等待会话空闲后再切换沙盒。');
+      throw new Error(
+        '当前 Grok turn 或授权请求尚未结束，或 runtime 设置事务仍在进行；请等待会话空闲后再切换沙盒。',
+      );
     }
   }
 
   private async stopCurrentProcess(runtime: GrokRuntime): Promise<void> {
     runtime.ready = false;
     const process = runtime.process;
-    runtime.process = null;
     if (process) await process.stop();
+    if (runtime.process === process) runtime.process = null;
+  }
+
+  private async disposeAfterUnprovenStop(runtime: GrokRuntime): Promise<void> {
+    runtime.restartingSandbox = false;
+    try {
+      await this.context.dispose(runtime);
+    } catch {
+      // The lifecycle coordinator marks the runtime disposed before awaiting process.stop().
+    }
   }
 }
 

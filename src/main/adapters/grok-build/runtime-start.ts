@@ -38,6 +38,8 @@ export interface GrokRuntimeStartContext {
   confirmPromptAccepted: (runtime: GrokRuntime) => void;
   drain: (runtime: GrokRuntime) => Promise<void>;
   dispose: (runtime: GrokRuntime) => Promise<void>;
+  /** Test seam; production uses the fixed bounded ACP request timeout. */
+  requestTimeoutMs?: number;
 }
 
 export async function startGrokRuntime(
@@ -120,6 +122,7 @@ export async function startGrokRuntime(
     return false;
   }
   runtime.process = process;
+  runtime.nativeDefaultModel = currentModelId(process.initializeResponse);
   process.onExit((code, signal) => {
     if (
       context.runtimes.get(runtime.applicationSessionId) !== runtime ||
@@ -167,8 +170,7 @@ export async function startGrokRuntime(
       await process.stop();
       return false;
     }
-    runtime.model ??=
-      currentModelId(response) ?? currentModelId(process.initializeResponse);
+    applyReportedModel(runtime, currentModelId(response));
     reportedMode = currentSessionMode(response);
     runtime.sessionMode ??= reportedMode;
     runtime.suppressUpdates = false;
@@ -187,8 +189,7 @@ export async function startGrokRuntime(
       return false;
     }
     runtime.nativeSessionId = response.sessionId;
-    runtime.model ??=
-      currentModelId(response) ?? currentModelId(process.initializeResponse);
+    applyReportedModel(runtime, currentModelId(response));
     reportedMode = currentSessionMode(response) ?? 'default';
     runtime.sessionMode ??= reportedMode;
     sessionManager.updateCliSessionId(
@@ -197,10 +198,38 @@ export async function startGrokRuntime(
     );
   }
   if (requestedMode && requestedMode !== reportedMode) {
-    await process.connection.agent.request(methods.agent.session.setMode, {
-      sessionId: context.requireNativeSession(runtime),
-      modeId: requestedMode,
-    });
+    const controller = new AbortController();
+    try {
+      await withTimeout(
+        process.connection.agent.request(
+          methods.agent.session.setMode,
+          {
+            sessionId: context.requireNativeSession(runtime),
+            modeId: requestedMode,
+          },
+          { cancellationSignal: controller.signal },
+        ),
+        context.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+        'Grok ACP session/setMode during startup',
+      );
+    } catch (error) {
+      let disposeError: unknown;
+      try {
+        await context.dispose(runtime);
+      } catch (disposeFailure) {
+        disposeError = disposeFailure;
+      }
+      throw new Error(
+        `Grok ACP 启动 setMode 结果无法确认：${errorText(error)}。${
+          disposeError
+            ? ` Runtime 释放也失败：${errorText(disposeError)}`
+            : ''
+        }`,
+        { cause: error },
+      );
+    } finally {
+      controller.abort();
+    }
     if (!context.isCurrentRuntime(runtime) || runtime.closed) {
       await process.stop();
       return false;
@@ -214,6 +243,18 @@ export async function startGrokRuntime(
   runtime.ready = true;
   void context.drain(runtime);
   return true;
+}
+
+function applyReportedModel(
+  runtime: GrokRuntime,
+  reportedModel: string | null,
+): void {
+  if (runtime.modelOverride === undefined) {
+    runtime.model ??= reportedModel ?? runtime.nativeDefaultModel ?? null;
+    return;
+  }
+  runtime.model =
+    runtime.modelOverride ?? reportedModel ?? runtime.nativeDefaultModel ?? null;
 }
 
 export async function startGrokRuntimeInBackground(

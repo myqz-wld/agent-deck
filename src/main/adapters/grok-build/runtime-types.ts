@@ -56,11 +56,20 @@ export interface GrokRuntime {
   closed: boolean;
   disposed: boolean;
   suppressUpdates: boolean;
+  /** Effective provider model used by the live ACP session. */
   model: string | null;
+  /** Persisted explicit override; null delegates to the ACP-reported native default. */
+  modelOverride?: string | null;
+  /** Native default reported by ACP initialize, never guessed by Agent Deck. */
+  nativeDefaultModel?: string | null;
   thinking: string | null;
+  /** Persisted explicit reasoning override; null delegates to Grok. */
+  thinkingOverride?: string | null;
   sessionMode: AdapterSessionMode | null;
   grokSandbox: string | null;
   restartingSandbox: boolean;
+  /** Serializes model/mode transactions against sandbox child replacement. */
+  runtimeMutationInProgress?: boolean;
   agentProfileName: string | null;
   agentProfileSource: 'bundled' | 'project' | 'user' | 'plugin' | null;
   agentPluginDir: string | null;
