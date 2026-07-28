@@ -44,7 +44,7 @@ export function GrokPermissionsPanel({
         </div>
       </section>
       <div className="rounded border border-white/10 bg-black/20 p-2 text-[10px] leading-relaxed text-deck-muted">
-        Grok 会话不读取 Claude settings.json，也不套用 Codex sandbox/approval policy。
+        Grok Build 会话不读取 Claude Code settings.json，也不套用 Codex CLI sandbox/approval policy。
         Agent Deck 只呈现并响应 ACP permission request，不合成跨提供方权限规则。
       </div>
     </div>

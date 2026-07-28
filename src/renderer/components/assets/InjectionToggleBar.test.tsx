@@ -17,16 +17,17 @@ describe('InjectionToggleBar', () => {
       const update = vi.fn().mockResolvedValue(undefined);
       render(<InjectionToggleBar tab={tab} settings={DEFAULT_SETTINGS} update={update} />);
 
-      expect(screen.getByLabelText('注入到 Claude 会话')).toBeTruthy();
-      expect(screen.getByLabelText('注入到 Codex 会话')).toBeTruthy();
+      expect(screen.getByLabelText('注入到 Claude Code 会话')).toBeTruthy();
+      expect(screen.getByLabelText('注入到 Codex CLI 会话')).toBeTruthy();
+      expect(screen.getByLabelText('注入到 Grok Build 会话')).toBeTruthy();
       expect(
         screen.getByText(
           `只控制 Agent Deck 内置 ${assetLabel}；用户和项目中的同类资产不受影响。仅对新建会话生效，已运行的会话不受影响。`,
         ),
       ).toBeTruthy();
 
-      fireEvent.click(screen.getByLabelText('注入到 Claude 会话'));
-      fireEvent.click(screen.getByLabelText('注入到 Codex 会话'));
+      fireEvent.click(screen.getByLabelText('注入到 Claude Code 会话'));
+      fireEvent.click(screen.getByLabelText('注入到 Codex CLI 会话'));
       expect(update).toHaveBeenNthCalledWith(1, { [claudeKey]: false });
       expect(update).toHaveBeenNthCalledWith(2, { [codexKey]: false });
     },

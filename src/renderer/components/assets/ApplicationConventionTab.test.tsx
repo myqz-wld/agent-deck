@@ -27,7 +27,7 @@ describe('ApplicationConventionTab', () => {
     });
 
     render(<ApplicationConventionTab onDirtyChange={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Grok' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Grok Build' }));
 
     expect(await screen.findByDisplayValue('# grok')).toBeTruthy();
     expect(screen.getByText(/GROK_AGENTS\.md/)).toBeTruthy();

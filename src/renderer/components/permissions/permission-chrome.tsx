@@ -1,5 +1,7 @@
 import { useMemo, type JSX, type ReactNode } from 'react';
 import type { SettingsSource } from '@shared/types';
+import type { DiagnosticContentPayload } from '../expandable-content';
+import { ExpandablePermissionSurface } from './b18/ExpandablePermissionSurface';
 
 export const SOURCE_LABEL: Record<SettingsSource, string> = {
   user: '全局设置',
@@ -33,19 +35,83 @@ export function SourceBadge({ source }: { source: SettingsSource }): JSX.Element
   );
 }
 
-export function RawTextBlock({ raw }: { raw: string }): JSX.Element {
+interface RawBlockProps {
+  raw: string;
+  title?: string;
+  sessionId?: string;
+  contentId?: string;
+}
+
+function rawPayload(raw: string, format: 'text' | 'json'): DiagnosticContentPayload {
+  return {
+    kind: 'diagnostic',
+    text: raw,
+    severity: 'info',
+    metadata: { format },
+  };
+}
+
+function expandLabel(title: string): string {
+  return /^[A-Za-z]/.test(title) ? `展开查看 ${title}` : `展开查看${title}`;
+}
+
+export function RawTextBlock({
+  raw,
+  title = '配置原文',
+  sessionId = 'permission-settings',
+  contentId = title,
+}: RawBlockProps): JSX.Element {
+  const payload = rawPayload(raw, 'text');
   return (
-    <pre className="max-h-72 overflow-auto scrollbar-deck rounded bg-black/30 p-2 font-mono text-[10px] leading-snug text-deck-text/90">
-      {raw}
-    </pre>
+    <ExpandablePermissionSurface
+      identity={{ sessionId, kind: 'diagnostic', diagnosticId: contentId }}
+      payload={payload}
+      title={title}
+      triggerLabel={expandLabel(title)}
+      compact={<RawPre className="max-h-72 pr-12">{raw}</RawPre>}
+      expanded={({ payload: expandedPayload }) => (
+        <RawPre className="min-h-full text-xs leading-relaxed">
+          {expandedPayload.text}
+        </RawPre>
+      )}
+    />
   );
 }
 
-export function RawJsonBlock({ raw }: { raw: string }): JSX.Element {
+export function RawJsonBlock({
+  raw,
+  title = 'JSON 原文',
+  sessionId = 'permission-settings',
+  contentId = title,
+}: RawBlockProps): JSX.Element {
   const fragments = useMemo(() => highlightJson(raw), [raw]);
+  const payload = rawPayload(raw, 'json');
   return (
-    <pre className="max-h-72 overflow-auto scrollbar-deck rounded bg-black/30 p-2 font-mono text-[10px] leading-snug text-deck-text/90">
-      {fragments}
+    <ExpandablePermissionSurface
+      identity={{ sessionId, kind: 'diagnostic', diagnosticId: contentId }}
+      payload={payload}
+      title={title}
+      triggerLabel={expandLabel(title)}
+      compact={<RawPre className="max-h-72 pr-12">{fragments}</RawPre>}
+      expanded={({ payload: expandedPayload }) => (
+        <RawPre className="min-h-full text-xs leading-relaxed">
+          {highlightJson(expandedPayload.text)}
+        </RawPre>
+      )}
+    />
+  );
+}
+
+function RawPre({
+  className,
+  children,
+}: {
+  className: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <pre className={`overflow-auto scrollbar-deck whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-[10px] leading-snug text-deck-text/90 ${className}`}>
+      {children}
     </pre>
   );
 }
