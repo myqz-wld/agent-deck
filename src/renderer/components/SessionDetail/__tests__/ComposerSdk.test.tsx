@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AgentEvent, PendingOutgoingMessage, SessionRecord } from '@shared/types';
+import { useSessionStore } from '@renderer/stores/session-store';
+import {
+  imageAttachmentSidecarStats,
+  resetImageAttachmentSidecarForTests,
+  storeAttachmentPayload,
+} from '@renderer/hooks/image-attachments/payload-sidecar';
+import type { UploadedAttachmentEntry } from '@renderer/hooks/image-attachments/types';
 import { ComposerSdk } from '../ComposerSdk';
 
 function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -29,6 +36,7 @@ let setAdapterSessionMode: ReturnType<typeof vi.fn>;
 let setAdapterPermissionMode: ReturnType<typeof vi.fn>;
 let listPendingOutgoingMessages: ReturnType<typeof vi.fn>;
 let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
+let loadPendingOutgoingAttachment: ReturnType<typeof vi.fn>;
 let emitAgentEvent: (event: AgentEvent) => void;
 
 beforeEach(() => {
@@ -42,6 +50,17 @@ beforeEach(() => {
     () => Promise.resolve([]),
   );
   deletePendingOutgoingMessage = vi.fn(() => Promise.resolve(true));
+  loadPendingOutgoingAttachment = vi.fn(() => Promise.resolve({
+    ok: false,
+    reason: 'not_found',
+  }));
+  resetImageAttachmentSidecarForTests();
+  useSessionStore.setState({
+    sessions: new Map(),
+    composerBySession: new Map(),
+    composerAliases: new Map(),
+    composerRequestSequence: 0,
+  });
   emitAgentEvent = () => undefined;
   Object.defineProperty(window, 'api', {
     configurable: true,
@@ -63,6 +82,7 @@ beforeEach(() => {
       setAdapterPermissionMode,
       listPendingOutgoingMessages,
       deletePendingOutgoingMessage,
+      loadPendingOutgoingAttachment,
       onAgentEvent: vi.fn((listener: (event: AgentEvent) => void) => {
         emitAgentEvent = listener;
         return vi.fn();
@@ -77,14 +97,149 @@ afterEach(() => {
 });
 
 describe('ComposerSdk unified input routing', () => {
+  it('isolates and restores text, image descriptors, and errors by logical session', async () => {
+    const view = render(<ComposerSdk session={makeSession({ id: 'session-A' })} />);
+    const inputA = screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;
+    fireEvent.change(inputA, { target: { value: 'draft A' } });
+    const image: UploadedAttachmentEntry = {
+      id: 'image-A',
+      thumbnailDataUrl: 'data:image/gif;base64,R0lGODlhAQABAAD/ACw=',
+      mime: 'image/png',
+      bytes: 4,
+    };
+    storeAttachmentPayload('session-A', image.id, {
+      base64: 'QUFBQQ==',
+      mime: 'image/png',
+      bytes: 4,
+    });
+    act(() => {
+      useSessionStore.getState().updateComposer('session-A', (current) => ({
+        ...current,
+        attachments: [image],
+        sendError: 'A send failed',
+      }));
+    });
+    expect(screen.getByText(/A send failed/)).toBeTruthy();
+    expect(screen.getByRole('img', { name: '附件图片 1' })).toBeTruthy();
+
+    view.rerender(<ComposerSdk session={makeSession({ id: 'session-B' })} />);
+    const inputB = screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;
+    expect(inputB.value).toBe('');
+    expect(screen.queryByText(/A send failed/)).toBeNull();
+    expect(screen.queryByRole('img', { name: '附件图片 1' })).toBeNull();
+    fireEvent.change(inputB, { target: { value: 'draft B' } });
+
+    view.rerender(<ComposerSdk session={makeSession({ id: 'session-A' })} />);
+    expect((screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement).value)
+      .toBe('draft A');
+    expect(screen.getByText(/A send failed/)).toBeTruthy();
+    expect(screen.getByRole('img', { name: '附件图片 1' })).toBeTruthy();
+
+    view.rerender(<ComposerSdk session={makeSession({ id: 'session-B' })} />);
+    expect((screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement).value)
+      .toBe('draft B');
+  });
+
+  it('restores a failed send only to its originating logical session', async () => {
+    let rejectSend: (error: Error) => void = () => undefined;
+    sendAdapterMessage.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => {
+        rejectSend = reject;
+      }),
+    );
+    const view = render(<ComposerSdk session={makeSession({ id: 'session-A' })} />);
+    const inputA = screen.getByPlaceholderText(/给 Codex CLI 发消息/);
+    fireEvent.change(inputA, { target: { value: 'send from A' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => expect(sendAdapterMessage).toHaveBeenCalledWith(
+      'codex-cli',
+      'session-A',
+      { text: 'send from A' },
+    ));
+
+    view.rerender(<ComposerSdk session={makeSession({ id: 'session-B' })} />);
+    const inputB = screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;
+    fireEvent.change(inputB, { target: { value: 'newer B draft' } });
+    rejectSend(new Error('A failed'));
+    await waitFor(() => expect(
+      useSessionStore.getState().composerBySession.get('session-A')?.sendError,
+    ).toBe('A failed'));
+    expect(inputB.value).toBe('newer B draft');
+    expect(screen.queryByText(/A failed/)).toBeNull();
+
+    view.rerender(<ComposerSdk session={makeSession({ id: 'session-A' })} />);
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement).value)
+        .toBe('send from A');
+      expect(screen.getByText(/A failed/)).toBeTruthy();
+    });
+  });
+
+  it('releases an ignored temp-send snapshot after a newer target generation wins rename', async () => {
+    let rejectSend: (error: Error) => void = () => undefined;
+    sendAdapterMessage.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => {
+        rejectSend = reject;
+      }),
+    );
+    render(<ComposerSdk session={makeSession({ id: 'TEMP' })} />);
+    act(() => useSessionStore.getState().ensureComposerSession('TEMP'));
+    const image: UploadedAttachmentEntry = {
+      id: 'temp-image',
+      thumbnailDataUrl: 'data:image/gif;base64,R0lGODlhAQABAAD/ACw=',
+      mime: 'image/png',
+      bytes: 4,
+    };
+    storeAttachmentPayload('TEMP', image.id, {
+      base64: 'VEVNUA==',
+      mime: 'image/png',
+      bytes: 4,
+    });
+    act(() => {
+      useSessionStore.getState().updateComposer('TEMP', (current) => ({
+        ...current,
+        text: 'temporary send',
+        attachments: [image],
+      }));
+    });
+    await screen.findByRole('button', { name: '上传图片' });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => expect(sendAdapterMessage).toHaveBeenCalledTimes(1));
+
+    let targetGeneration = 0;
+    act(() => {
+      const state = useSessionStore.getState();
+      state.ensureComposerSession('REAL');
+      state.updateComposer('REAL', (current) => ({
+        ...current,
+        text: 'newer target draft',
+      }));
+      targetGeneration = state.beginComposerRequest('REAL', 'send')!;
+      state.renameSession('TEMP', 'REAL');
+    });
+    expect(imageAttachmentSidecarStats().payloads).toBe(1);
+
+    await act(async () => {
+      rejectSend(new Error('stale source failure'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(imageAttachmentSidecarStats().payloads).toBe(0));
+    expect(useSessionStore.getState().composerBySession.get('REAL')).toMatchObject({
+      text: 'newer target draft',
+      attachments: [],
+      sendError: null,
+      requests: { send: { generation: targetGeneration, busy: true } },
+    });
+  });
+
   it('keeps the expanded editor synchronized and closes it with Escape', async () => {
     render(<ComposerSdk session={makeSession()} />);
-    const input = screen.getByPlaceholderText(/给 Codex 发消息/) as HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'inspect this draft' } });
     fireEvent.click(screen.getByRole('button', { name: '放大输入框' }));
 
     const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
-    const expanded = within(dialog).getByPlaceholderText(/给 Codex 发消息/) as HTMLTextAreaElement;
+    const expanded = within(dialog).getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;
     expect(expanded.value).toBe('inspect this draft');
     fireEvent.change(expanded, { target: { value: 'edited in expanded view' } });
     expect(input.value).toBe('edited in expanded view');
@@ -102,7 +257,7 @@ describe('ComposerSdk unified input routing', () => {
     expand.focus();
     fireEvent.click(expand);
     const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
-    const expanded = within(dialog).getByPlaceholderText(/给 Codex 发消息/);
+    const expanded = within(dialog).getByPlaceholderText(/给 Codex CLI 发消息/);
     const close = within(dialog).getByRole('button', { name: /关闭/ });
 
     expect(container.getAttribute('aria-hidden')).toBe('true');
@@ -121,12 +276,12 @@ describe('ComposerSdk unified input routing', () => {
 
   it('submits from the expanded editor but ignores IME Enter', async () => {
     render(<ComposerSdk session={makeSession()} />);
-    fireEvent.change(screen.getByPlaceholderText(/给 Codex 发消息/), {
+    fireEvent.change(screen.getByPlaceholderText(/给 Codex CLI 发消息/), {
       target: { value: 'expanded send' },
     });
     fireEvent.click(screen.getByRole('button', { name: '放大输入框' }));
     const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
-    const expanded = within(dialog).getByPlaceholderText(/给 Codex 发消息/);
+    const expanded = within(dialog).getByPlaceholderText(/给 Codex CLI 发消息/);
 
     fireEvent.keyDown(expanded, { key: 'Enter', isComposing: true, keyCode: 229 });
     expect(sendAdapterMessage).not.toHaveBeenCalled();
@@ -144,7 +299,14 @@ describe('ComposerSdk unified input routing', () => {
 
   it('shows authoritative pending messages and deletes one before consumption', async () => {
     listPendingOutgoingMessages.mockResolvedValueOnce([
-      { id: 'pending-1', text: 'queued request', attachmentCount: 2 },
+      {
+        id: 'pending-1',
+        text: 'queued request',
+        attachments: [
+          { id: '0', mime: 'image/png', bytes: 10 },
+          { id: '1', mime: 'image/jpeg', bytes: 20 },
+        ],
+      },
     ]).mockResolvedValueOnce([]);
     render(<ComposerSdk session={makeSession()} />);
 
@@ -162,7 +324,7 @@ describe('ComposerSdk unified input routing', () => {
 
   it('removes a pending row when its correlated user event is consumed', async () => {
     listPendingOutgoingMessages.mockResolvedValueOnce([
-      { id: 'pending-1', text: 'wait for provider', attachmentCount: 0 },
+      { id: 'pending-1', text: 'wait for provider', attachments: [] },
     ]).mockResolvedValueOnce([]);
     render(<ComposerSdk session={makeSession()} />);
     expect(await screen.findByText('wait for provider')).toBeTruthy();
@@ -179,7 +341,7 @@ describe('ComposerSdk unified input routing', () => {
     await waitFor(() => expect(screen.queryByText('wait for provider')).toBeNull());
   });
 
-  it('offers handoff only after the active turn finishes or is interrupted', () => {
+  it('offers handoff only after the active round finishes or is interrupted', () => {
     const onHandOff = vi.fn();
     const view = render(
       <ComposerSdk
@@ -218,7 +380,7 @@ describe('ComposerSdk unified input routing', () => {
   it('routes Codex busy input through sendAdapterMessage from the main composer', async () => {
     render(<ComposerSdk session={makeSession({ activity: 'working' })} turnBusy canSteerTurn />);
 
-    const input = screen.getByPlaceholderText(/修正当前 Codex turn/) as HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(/修正当前 Codex CLI 轮次/) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'use the latest instruction' } });
     fireEvent.click(screen.getByRole('button', { name: '修正' }));
 
@@ -233,7 +395,7 @@ describe('ComposerSdk unified input routing', () => {
   it('routes idle input through sendAdapterMessage', async () => {
     render(<ComposerSdk session={makeSession()} turnBusy={false} canSteerTurn />);
 
-    const input = screen.getByPlaceholderText(/给 Codex 发消息/) as HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'next turn' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
 
@@ -269,26 +431,26 @@ describe('ComposerSdk unified input routing', () => {
       />,
     );
 
-    expect(await screen.findByPlaceholderText(/插入当前 Grok turn/)).toBeTruthy();
+    expect(await screen.findByPlaceholderText(/插入当前 Grok Build 轮次/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '插入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '上传图片' })).toBeTruthy();
   });
 
   it('restores text into the same composer when busy Codex send fails', async () => {
-    sendAdapterMessage.mockRejectedValueOnce(new Error('Codex 当前没有可 steer 的 active turn。'));
+    sendAdapterMessage.mockRejectedValueOnce(new Error('Codex CLI 当前没有可修正的活动轮次。'));
     render(<ComposerSdk session={makeSession({ activity: 'working' })} turnBusy canSteerTurn />);
 
-    const input = screen.getByPlaceholderText(/修正当前 Codex turn/) as HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(/修正当前 Codex CLI 轮次/) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'do not continue that path' } });
     fireEvent.click(screen.getByRole('button', { name: '修正' }));
 
     await waitFor(() => {
       expect(input.value).toBe('do not continue that path');
-      expect(screen.getByText(/Codex 当前没有可 steer 的 active turn/)).toBeTruthy();
+      expect(screen.getByText(/Codex CLI 当前没有可修正的活动轮次/)).toBeTruthy();
     });
   });
 
-  it('automatically applies a free-form model and dropdown thinking level to the next turn', async () => {
+  it('automatically applies a free-form model and dropdown thinking level to the next round', async () => {
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
     fireEvent.click(screen.getByText('Provider、模型与思考程度'));
@@ -506,10 +668,10 @@ describe('ComposerSdk unified input routing', () => {
     );
 
     const permission = await screen.findByLabelText('权限');
-    expect(permission.textContent).toContain('提供方状态：不询问（只读）');
+    expect(permission.textContent).toContain('模型提供方状态：不询问（只读）');
     fireEvent.click(permission);
     const restored = screen.getByRole('option', {
-      name: '提供方状态：不询问（只读）',
+      name: '模型提供方状态：不询问（只读）',
     }) as HTMLButtonElement;
     expect(restored.disabled).toBe(true);
     expect(screen.getAllByRole('option')).toHaveLength(6);

@@ -1,19 +1,33 @@
 /** Ordinary adapter sending plus authoritative pending-outgoing queue IPC. */
 import { randomUUID } from 'node:crypto';
 import { adapterRegistry } from '@main/adapters/registry';
-import { deleteUploadIfExists } from '@main/store/image-uploads';
+import {
+  deleteUploadIfExists,
+  loadUploadedImage,
+} from '@main/store/image-uploads';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
+import type { PendingOutgoingAttachmentLoadResult } from '@shared/types';
 import { IpcInputError, on, parseStringId } from './_helpers';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { dispatchAdapterMessageWithHandOffRedirect } from './adapters-message-dispatch';
 import log from '@main/utils/logger';
+import { safeErrorSummary } from '@main/utils/safe-diagnostic';
 
 const logger = log.scope('adapter-outgoing-ipc');
 
+function pendingAttachmentId(index: number): string {
+  return String(index);
+}
+
+function pendingAttachmentNotFound(): PendingOutgoingAttachmentLoadResult {
+  return { ok: false, reason: 'not_found' };
+}
+
 export function registerAdapterOutgoingIpc(): void {
   on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, payload) => {
-    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
+    const parsedAgentId = parseStringId('agentId', agentId, 64);
+    const adapter = adapterRegistry.get(parsedAgentId);
     if (!adapter?.sendMessage) throw new Error('adapter cannot send message');
     let text: string;
     let rawAttachments: unknown;
@@ -59,7 +73,19 @@ export function registerAdapterOutgoingIpc(): void {
       });
       return { messageId, sessionId: targetSessionId };
     } catch (error) {
-      await Promise.all(attachments.map((attachment) => deleteUploadIfExists(attachment.path)));
+      const cleanup = await Promise.allSettled(
+        attachments.map((attachment) => deleteUploadIfExists(attachment.path)),
+      );
+      for (const result of cleanup) {
+        if (result.status === 'fulfilled') continue;
+        logger.warn('send attachment cleanup failed', {
+          agentId: parsedAgentId,
+          sessionId: sourceSessionId,
+          messageId,
+          action: 'send-cleanup',
+          error: safeErrorSummary(result.reason),
+        });
+      }
       throw error;
     }
   });
@@ -71,12 +97,51 @@ export function registerAdapterOutgoingIpc(): void {
     return (adapter.listPendingOutgoingMessages?.(sid) ?? []).map((message) => ({
       id: message.id,
       text: message.text,
-      attachmentCount: message.attachments?.length ?? 0,
+      attachments: (message.attachments ?? []).map((attachment, index) => ({
+        id: pendingAttachmentId(index),
+        mime: attachment.mime,
+        bytes: attachment.bytes,
+      })),
     }));
   });
 
+  on(
+    IpcInvoke.AdapterLoadPendingOutgoingAttachment,
+    async (_e, agentId, sessionId, messageId, attachmentId) => {
+      const parsedAgentId = parseStringId('agentId', agentId, 64);
+      const adapter = adapterRegistry.get(parsedAgentId);
+      if (!adapter) throw new Error('adapter not found');
+      const sid = parseStringId('sessionId', sessionId);
+      const id = parseStringId('messageId', messageId, 128);
+      const slotId = parseStringId('attachmentId', attachmentId, 32);
+      const message = (adapter.listPendingOutgoingMessages?.(sid) ?? [])
+        .find((candidate) => candidate.id === id);
+      const attachment = message?.attachments?.find(
+        (_candidate, index) => pendingAttachmentId(index) === slotId,
+      );
+      if (!attachment) return pendingAttachmentNotFound();
+      try {
+        const result = await loadUploadedImage(attachment.path);
+        return result.ok ? result : { ok: false, reason: result.reason };
+      } catch (error) {
+        logger.warn('pending attachment load failed', {
+          agentId: parsedAgentId,
+          sessionId: sid,
+          messageId: id,
+          action: 'load-attachment',
+          error: safeErrorSummary(error),
+        });
+        return {
+          ok: false,
+          reason: 'io_error',
+        } satisfies PendingOutgoingAttachmentLoadResult;
+      }
+    },
+  );
+
   on(IpcInvoke.AdapterDeletePendingOutgoing, async (_e, agentId, sessionId, messageId) => {
-    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
+    const parsedAgentId = parseStringId('agentId', agentId, 64);
+    const adapter = adapterRegistry.get(parsedAgentId);
     if (!adapter) throw new Error('adapter not found');
     const sid = parseStringId('sessionId', sessionId);
     const id = parseStringId('messageId', messageId, 128);
@@ -84,12 +149,15 @@ export function registerAdapterOutgoingIpc(): void {
     if (!removed) return false;
     const cleanup = await Promise.allSettled((removed.attachments ?? []).map((attachment) =>
       deleteUploadIfExists(attachment.path)));
-    for (const [index, result] of cleanup.entries()) {
+    for (const result of cleanup) {
       if (result.status === 'fulfilled') continue;
-      logger.warn(
-        `[adapter-outgoing] queued message was removed but upload cleanup failed: ${removed.attachments?.[index]?.path ?? 'unknown'}`,
-        result.reason,
-      );
+      logger.warn('pending attachment cleanup failed', {
+        agentId: parsedAgentId,
+        sessionId: sid,
+        messageId: id,
+        action: 'delete-cleanup',
+        error: safeErrorSummary(result.reason),
+      });
     }
     return true;
   });
