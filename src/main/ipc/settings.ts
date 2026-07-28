@@ -100,8 +100,14 @@ export function validateSettingsPatch(
     p.codexSandbox = parseCodexSandboxMode(p.codexSandbox) ?? 'workspace-write';
   }
   if ('grokSandbox' in p) {
-    p.grokSandbox =
-      raw.grokSandbox === null ? null : parseGrokSandboxProfile(raw.grokSandbox);
+    const profile = parseGrokSandboxProfile(raw.grokSandbox);
+    if (profile === null || profile === 'strict' || profile === 'devbox') {
+      throw new IpcInputError(
+        'grokSandbox',
+        'must be read-only, workspace, off, or a custom sandbox.toml profile',
+      );
+    }
+    p.grokSandbox = profile;
   }
   if ('bundledAgentRuntimeOverrides' in raw) {
     try {

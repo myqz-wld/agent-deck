@@ -48,6 +48,7 @@ export const IpcInvoke = {
   SettingsGet: 'settings:get',
   SettingsSet: 'settings:set',
   AdapterCreateSession: 'adapter:create-session',
+  AdapterSessionCreationDefaults: 'adapter:session-creation-defaults',
   AdapterInterrupt: 'adapter:interrupt',
   AdapterSendMessage: 'adapter:send-message',
   AdapterListPendingOutgoing: 'adapter:list-pending-outgoing',

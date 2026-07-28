@@ -6,10 +6,13 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import {
   ADAPTER_SESSION_MODES,
+  CODEX_APPROVAL_POLICIES,
   PERMISSION_MODES,
   isAdapterSessionMode,
+  isCodexApprovalPolicy,
   isSelectablePermissionMode,
   type AdapterSessionMode,
+  type CodexApprovalPolicy,
   type SelectablePermissionMode,
 } from '@shared/types';
 import { SANDBOX_MODE_VALUES, type SandboxMode } from '@main/adapters/claude-code/sandbox-config';
@@ -82,6 +85,17 @@ export function parsePermissionMode(value: unknown): SelectablePermissionMode | 
     throw new IpcInputError(
       'permissionMode',
       `must be one of ${PERMISSION_MODES.join('|')}, got ${value}`,
+    );
+  }
+  return value;
+}
+
+export function parseCodexApprovalPolicy(value: unknown): CodexApprovalPolicy | null {
+  if (value === undefined || value === null) return null;
+  if (!isCodexApprovalPolicy(value)) {
+    throw new IpcInputError(
+      'approvalPolicy',
+      `must be one of ${CODEX_APPROVAL_POLICIES.join('|')}, got ${String(value)}`,
     );
   }
   return value;

@@ -25,6 +25,7 @@
  */
 import type {
   ClaudeSandboxChoice,
+  CodexApprovalPolicyChoice,
   CodexSandboxChoice,
   GrokSandboxChoice,
   PermissionModeChoice,
@@ -36,15 +37,16 @@ type AdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
 
 type Defaults = {
   permissionMode?: PermissionModeChoice;
+  approvalPolicy?: CodexApprovalPolicyChoice;
   sessionMode?: AdapterSessionMode;
   codexSandbox?: CodexSandboxChoice;
   claudeCodeSandbox?: ClaudeSandboxChoice;
   grokSandbox?: GrokSandboxChoice;
   /** Claude Gateway profile id or Codex model_provider. */
   provider?: string;
-  /** 自由文本；空串表示明确恢复 provider 默认模型。 */
+  /** 自由文本；空白输入会清除记忆并重新采用配置文件模型。 */
   model?: string;
-  /** 空串表示明确恢复 provider 默认思考程度。 */
+  /** 空白输入会清除记忆并重新采用配置文件思考程度。 */
   thinking?: SessionThinkingLevel | '';
 };
 
@@ -76,8 +78,8 @@ export function setLastAdapter(adapter: string): void {
  * 读本 adapter 上次记的默认值。返回的 shape 故意只含本 adapter 的字段：
  * - claude-code → 可能含 permissionMode + claudeCodeSandbox + provider/model/thinking
  *   （不带 codexSandbox）
- * - codex-cli adapter → 可能含 codexSandbox + provider/model/thinking（不带 permissionMode /
- *   claudeCodeSandbox）
+ * - codex-cli adapter → 可能含 approvalPolicy + codexSandbox + provider/model/thinking
+ *   （不带 permissionMode / claudeCodeSandbox）
  * 避免 caller 误读跨 adapter 字段。
  */
 export function getLastDefaults(adapter: string): Defaults {
@@ -91,7 +93,7 @@ export function getLastDefaults(adapter: string): Defaults {
  * 写本 adapter 的 last-used。patch 任意字段可空，merge 进 store。
  * - model / thinking：三个 adapter 都落到各自桶
  * - claude-code: permissionMode / claudeCodeSandbox 落库；codexSandbox 忽略
- * - codex-cli: codexSandbox 落库；permissionMode / claudeCodeSandbox 忽略
+ * - codex-cli: approvalPolicy / codexSandbox 落库；permissionMode / claudeCodeSandbox 忽略
  * 不在主进程跑、纯 renderer 内存 store —— 任何值传错也是本地错，UI 下一次 reset 自然恢复。
  */
 export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void {
@@ -100,24 +102,38 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     const next: Defaults = { ...store[adapter] };
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode;
     if (patch.claudeCodeSandbox !== undefined) next.claudeCodeSandbox = patch.claudeCodeSandbox;
-    if (patch.provider !== undefined) next.provider = patch.provider;
-    if (patch.model !== undefined) next.model = patch.model;
-    if (patch.thinking !== undefined) next.thinking = patch.thinking;
+    applyTextDefault(next, 'provider', patch.provider);
+    applyTextDefault(next, 'model', patch.model);
+    applyTextDefault(next, 'thinking', patch.thinking);
     // 故意忽略 patch.codexSandbox —— 不允许跨 adapter 串味
     store[adapter] = next;
   } else if (adapter === 'codex-cli') {
     const next: Defaults = { ...store['codex-cli'] };
+    if (patch.approvalPolicy !== undefined) next.approvalPolicy = patch.approvalPolicy;
     if (patch.codexSandbox !== undefined) next.codexSandbox = patch.codexSandbox;
-    if (patch.provider !== undefined) next.provider = patch.provider;
-    if (patch.model !== undefined) next.model = patch.model;
-    if (patch.thinking !== undefined) next.thinking = patch.thinking;
+    applyTextDefault(next, 'provider', patch.provider);
+    applyTextDefault(next, 'model', patch.model);
+    applyTextDefault(next, 'thinking', patch.thinking);
     store['codex-cli'] = next;
   } else {
     const next: Defaults = { ...store['grok-build'] };
     if (patch.sessionMode !== undefined) next.sessionMode = patch.sessionMode;
     if (patch.grokSandbox !== undefined) next.grokSandbox = patch.grokSandbox;
-    if (patch.model !== undefined) next.model = patch.model;
-    if (patch.thinking !== undefined) next.thinking = patch.thinking;
+    applyTextDefault(next, 'model', patch.model);
+    applyTextDefault(next, 'thinking', patch.thinking);
     store['grok-build'] = next;
+  }
+}
+
+function applyTextDefault<K extends 'provider' | 'model' | 'thinking'>(
+  target: Defaults,
+  key: K,
+  value: Defaults[K] | undefined,
+): void {
+  if (value === undefined) return;
+  if (typeof value === 'string' && value.trim()) {
+    target[key] = value as Defaults[K];
+  } else {
+    delete target[key];
   }
 }

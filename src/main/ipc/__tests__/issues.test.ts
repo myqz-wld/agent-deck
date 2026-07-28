@@ -319,6 +319,38 @@ describe('createIssueResolutionSession helper — 11 项边界硬化 (§D14 + St
     expect(mockSessionManager.recordCreatedPermissionMode).toHaveBeenCalledWith('new-sid-123', undefined);
   });
 
+  it('Codex approvalPolicy 显式值透传到 createSession', async () => {
+    const adapter = makeAdapter({ id: 'codex-cli' });
+    mockAdapterRegistry.get.mockReturnValue(adapter);
+    await createIssueResolutionSession({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'p',
+      permissionMode: null,
+      approvalPolicy: 'never',
+      codexSandbox: null,
+      claudeCodeSandbox: null,
+    });
+    expect(adapter.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'codex-cli', approvalPolicy: 'never' }),
+    );
+  });
+
+  it('非 Codex adapter 拒绝 approvalPolicy', async () => {
+    const adapter = makeAdapter();
+    mockAdapterRegistry.get.mockReturnValue(adapter);
+    await expect(createIssueResolutionSession({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'p',
+      permissionMode: null,
+      approvalPolicy: 'never',
+      codexSandbox: null,
+      claudeCodeSandbox: null,
+    })).rejects.toThrow(/approvalPolicy.*incompatible/);
+    expect(adapter.createSession).not.toHaveBeenCalled();
+  });
+
   it('§8 不暴露 attachments — buildCreateSessionOptions 调用 opts 无 attachments 字段', async () => {
     mockAdapterRegistry.get.mockReturnValue(makeAdapter());
     await createIssueResolutionSession({
@@ -521,13 +553,15 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
 
   it('把 Codex 模型与思考程度映射到 adapter-native createSession 字段', async () => {
     mockIssueRepo.get.mockReturnValue(makeIssue());
-    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ id: 'codex-cli' }));
+    const adapter = makeAdapter({ id: 'codex-cli' });
+    mockAdapterRegistry.get.mockReturnValue(adapter);
     mockIssueRepo.update.mockReturnValue(makeIssue());
 
     await issuesResolveInNewSessionHandler({
       issueId: 'issue-1',
       adapter: 'codex-cli',
       prompt: 'p',
+      approvalPolicy: 'on-request',
       model: '  gpt-custom-preview  ',
       thinking: 'ultra',
     });
@@ -541,6 +575,9 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
     );
     const opts = mocks.buildCreateSessionOptions.mock.calls.at(-1)?.[1];
     expect(opts).not.toHaveProperty('claudeCodeEffortLevel');
+    expect(adapter.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ approvalPolicy: 'on-request' }),
+    );
   });
 
   it('把规范化后的 Grok sandbox profile 透传给问题解决会话', async () => {
@@ -609,5 +646,18 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
         permissionMode: 'evil-mode',
       }),
     ).rejects.toThrow(/permissionMode.*must be one of/);
+  });
+
+  it('reject approvalPolicy 非白名单', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ id: 'codex-cli' }));
+    await expect(
+      issuesResolveInNewSessionHandler({
+        issueId: 'issue-1',
+        adapter: 'codex-cli',
+        prompt: 'p',
+        approvalPolicy: 'always',
+      }),
+    ).rejects.toThrow(/approvalPolicy.*must be one of/);
   });
 });

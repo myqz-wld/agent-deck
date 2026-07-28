@@ -7,7 +7,9 @@ const mocks = vi.hoisted(() => ({
   deleteUpload: vi.fn(),
   listPending: vi.fn(),
   removePending: vi.fn(),
+  createSession: vi.fn(),
   restartWithGrokSandbox: vi.fn(),
+  resolveCreationDefaults: vi.fn(),
 }));
 
 vi.mock('@main/adapters/registry', () => ({
@@ -21,7 +23,7 @@ vi.mock('@main/adapters/registry', () => ({
         canSetSessionMode: false,
         canRestartWithGrokSandbox: true,
       },
-      createSession: vi.fn(),
+      createSession: mocks.createSession,
       sendMessage: vi.fn(),
       listPendingOutgoingMessages: mocks.listPending,
       removePendingOutgoingMessage: mocks.removePending,
@@ -45,6 +47,9 @@ vi.mock('../adapters-attachments', () => ({
 vi.mock('../adapters-session-model-options', () => ({
   registerSessionModelOptionsIpc: vi.fn(),
 }));
+vi.mock('@main/adapters/session-creation-defaults', () => ({
+  resolveSessionCreationDefaults: mocks.resolveCreationDefaults,
+}));
 vi.mock('../adapters-message-dispatch', () => ({
   dispatchAdapterMessageWithHandOffRedirect: mocks.dispatch,
 }));
@@ -67,7 +72,19 @@ describe('adapter outgoing queue IPC', () => {
     mocks.dispatch.mockResolvedValue('successor');
     mocks.listPending.mockReturnValue([]);
     mocks.removePending.mockReturnValue(null);
+    mocks.createSession.mockResolvedValue('codex-created');
     mocks.restartWithGrokSandbox.mockResolvedValue('source');
+    mocks.resolveCreationDefaults.mockResolvedValue({
+      provider: 'openai',
+      model: 'gpt-5.6-sol',
+      thinking: 'high',
+      permissionMode: 'bypassPermissions',
+      sessionMode: 'default',
+      approvalPolicy: 'on-request',
+      codexSandbox: 'workspace-write',
+      claudeCodeSandbox: 'workspace-write',
+      grokSandbox: 'workspace',
+    });
     mocks.deleteUpload.mockResolvedValue(undefined);
     registerAdaptersIpc();
   });
@@ -170,6 +187,65 @@ describe('adapter outgoing queue IPC', () => {
       'codex-cli',
       { cwd: '/repo', grokSandbox: 'strict' },
     )).rejects.toThrow('opts.grokSandbox');
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'claude-code',
+      { cwd: '/repo', approvalPolicy: 'never' },
+    )).rejects.toThrow('opts.approvalPolicy');
+  });
+
+  it('validates and forwards a Codex thread approval policy', async () => {
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'codex-cli',
+      { cwd: '/repo', approvalPolicy: 'on-request' },
+    )).resolves.toBe('codex-created');
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'codex-cli',
+        approvalPolicy: 'on-request',
+      }),
+    );
+    expect(() => parseAdapterCreateRuntimeControls('codex-cli', {
+      approvalPolicy: 'always',
+    })).toThrow('approvalPolicy');
+  });
+
+  it('omits approvalPolicy when a non-UI caller supplies no override', async () => {
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'codex-cli',
+      { cwd: '/repo' },
+    )).resolves.toBe('codex-created');
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({ approvalPolicy: expect.anything() }),
+    );
+  });
+
+  it('validates and resolves concrete new-session defaults at the IPC boundary', async () => {
+    await expect(handler(IpcInvoke.AdapterSessionCreationDefaults)(
+      {},
+      'codex-cli',
+      { cwd: ' /repo ', provider: ' openai ' },
+    )).resolves.toMatchObject({
+      model: 'gpt-5.6-sol',
+      thinking: 'high',
+    });
+    expect(mocks.resolveCreationDefaults).toHaveBeenCalledWith('codex-cli', {
+      cwd: '/repo',
+      provider: 'openai',
+    });
+
+    await expect(handler(IpcInvoke.AdapterSessionCreationDefaults)(
+      {},
+      'unknown-adapter',
+      {},
+    )).rejects.toThrow('adapterId');
+    await expect(handler(IpcInvoke.AdapterSessionCreationDefaults)(
+      {},
+      'codex-cli',
+      [],
+    )).rejects.toThrow('options');
   });
 
   it('normalizes built-in and custom Grok profiles at the IPC trust boundary', () => {

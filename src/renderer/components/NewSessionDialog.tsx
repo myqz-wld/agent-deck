@@ -1,30 +1,24 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { DeckSelect } from '@renderer/components/DeckSelect';
-import {
-  SessionModelFields,
-  type SessionThinkingChoice,
-} from '@renderer/components/SessionModelFields';
+import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclosure';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
+import { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
 import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
 import { CloseIcon, FolderOpenIcon, ImageIcon, SendIcon } from './icons';
 import {
   getLastAdapter,
-  getLastDefaults,
   setLastAdapter,
-  setLastDefaults,
 } from '@renderer/hooks/useLastSessionDefaults';
 import {
   PERMISSION_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   CLAUDE_SANDBOX_OPTIONS,
-  type CodexSandboxChoice,
-  type ClaudeSandboxChoice,
-  type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 import { errorMessage } from '@renderer/lib/error-message';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import type { AdapterSessionMode } from '@shared/types';
 import { GrokSandboxPicker } from './GrokSandboxPicker';
+import { CodexApprovalPolicyPicker } from './CodexApprovalPolicyPicker';
 
 interface AdapterInfo {
   id: string;
@@ -50,19 +44,22 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
   const [agentId, setAgentId] = useState<string>(() => getLastAdapter());
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [permissionMode, setPermissionMode] = useState<PermissionModeChoice>('bypassPermissions');
-  const [sessionMode, setSessionMode] = useState<AdapterSessionMode>('default');
-  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxChoice>('');
-  // CHANGELOG_74：claude-code OS 沙盒 per-session 覆盖（与 codexSandbox 字面镜像）
-  const [claudeCodeSandbox, setClaudeCodeSandbox] = useState<ClaudeSandboxChoice>('');
-  const [grokSandbox, setGrokSandbox] = useState('');
-  const [provider, setProvider] = useState(
-    () => getLastDefaults(getLastAdapter()).provider ?? '',
-  );
-  const [model, setModel] = useState(() => getLastDefaults(getLastAdapter()).model ?? '');
-  const [thinking, setThinking] = useState<SessionThinkingChoice>(
-    () => getLastDefaults(getLastAdapter()).thinking ?? '',
-  );
+  const sessionOptions = useSessionCreationOptions({
+    adapterId: agentId,
+    cwd,
+    active: open,
+  });
+  const {
+    permissionMode,
+    sessionMode,
+    approvalPolicy,
+    codexSandbox,
+    claudeCodeSandbox,
+    grokSandbox,
+    provider,
+    model,
+    thinking,
+  } = sessionOptions;
   // R3.E7：删 agentTeamsEnabled / canJoinTeam 路径（老 inbox 协议下线）。
   // 新 universal team backend 不需要在新建会话对话框里预选 team —— 用户在 TeamHub
   // 单独建 team / 加 member。
@@ -106,25 +103,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
       cancelled = true;
     };
   }, [open]);
-
-  // plan pending-tab-resume-and-new-session-default-20260602 §D2 BUG 2：两个弹窗共享 last-used。
-  // open 变 true 时（dialog 重新打开）从模块顶层 store 读回上次的选项；mount 期不变（避免
-  // dialog 关掉再开之间被外部 mutation 误改）。adapter 切换时也重读（跨 adapter 不串味，
-  // useLastSessionDefaults.setLastDefaults 内已经按 adapter 维度分桶）。
-  useEffect(() => {
-    if (!open) return;
-    const d = getLastDefaults(agentId);
-    if (d.permissionMode !== undefined) setPermissionMode(d.permissionMode);
-    if (d.sessionMode !== undefined) setSessionMode(d.sessionMode);
-    if (d.claudeCodeSandbox !== undefined) setClaudeCodeSandbox(d.claudeCodeSandbox);
-    if (d.codexSandbox !== undefined) setCodexSandbox(d.codexSandbox);
-    if (d.grokSandbox !== undefined) setGrokSandbox(d.grokSandbox);
-    // model / thinking 对所有 adapter 都有意义；切 adapter 时无历史值必须显式清空，
-    // 不能把上一个 provider 的 model id / effort 串到新 provider。
-    setProvider(d.provider ?? '');
-    setModel(d.model ?? '');
-    setThinking(d.thinking ?? '');
-  }, [open, agentId]);
 
   if (!open) return null;
 
@@ -184,10 +162,10 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
         prompt: prompt.trim() || undefined,
         permissionMode: showPermissionMode ? permissionMode : undefined,
         sessionMode: showSessionMode ? sessionMode : undefined,
-        codexSandbox: showCodexSandbox && codexSandbox ? codexSandbox : undefined,
-        claudeCodeSandbox:
-          showClaudeCodeSandbox && claudeCodeSandbox ? claudeCodeSandbox : undefined,
-        grokSandbox: showGrokSandbox && grokSandbox.trim() ? grokSandbox.trim() : undefined,
+        approvalPolicy: showCodexSandbox ? approvalPolicy : undefined,
+        codexSandbox: showCodexSandbox ? codexSandbox : undefined,
+        claudeCodeSandbox: showClaudeCodeSandbox ? claudeCodeSandbox : undefined,
+        grokSandbox: showGrokSandbox ? grokSandbox.trim() : undefined,
         ...((agentId === 'claude-code' || agentId === 'codex-cli') && provider.trim()
           ? { provider: provider.trim() }
           : {}),
@@ -253,25 +231,15 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               />
             </Field>
 
-            <SessionModelFields
+            <SessionModelDisclosure
               adapterId={agentId}
               provider={provider}
               model={model}
               thinking={thinking}
               disabled={busy}
-              onProviderChange={(next) => {
-                setProvider(next);
-                setModel('');
-                setLastDefaults(agentId, { provider: next, model: '' });
-              }}
-              onModelChange={(next) => {
-                setModel(next);
-                setLastDefaults(agentId, { model: next });
-              }}
-              onThinkingChange={(next) => {
-                setThinking(next);
-                setLastDefaults(agentId, { thinking: next });
-              }}
+              onProviderChange={sessionOptions.setProvider}
+              onModelChange={sessionOptions.setModel}
+              onThinkingChange={sessionOptions.setThinking}
             />
 
             <Field label="工作目录">
@@ -366,10 +334,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="权限模式">
                 <DeckSelect
                   value={permissionMode}
-                  onChange={(v) => {
-                    setPermissionMode(v);
-                    setLastDefaults(agentId, { permissionMode: v });
-                  }}
+                  onChange={sessionOptions.setPermissionMode}
                   options={PERMISSION_OPTIONS}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
                 />
@@ -380,11 +345,19 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="工作模式">
                 <DeckSelect
                   value={sessionMode}
-                  onChange={(v) => {
-                    setSessionMode(v);
-                    setLastDefaults(agentId, { sessionMode: v });
-                  }}
+                  onChange={sessionOptions.setSessionMode}
                   options={adapterSessionModeOptions(selectedAdapter.sessionModes)}
+                  buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
+                />
+              </Field>
+            )}
+
+            {showCodexSandbox && (
+              <Field label="审批策略">
+                <CodexApprovalPolicyPicker
+                  ariaLabel="审批策略"
+                  value={approvalPolicy}
+                  onChange={sessionOptions.setApprovalPolicy}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
                 />
               </Field>
@@ -394,10 +367,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="沙盒">
                 <DeckSelect
                   value={codexSandbox}
-                  onChange={(v) => {
-                    setCodexSandbox(v);
-                    setLastDefaults(agentId, { codexSandbox: v });
-                  }}
+                  onChange={sessionOptions.setCodexSandbox}
                   options={CODEX_SANDBOX_OPTIONS}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
                 />
@@ -408,10 +378,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="系统沙盒">
                 <DeckSelect
                   value={claudeCodeSandbox}
-                  onChange={(v) => {
-                    setClaudeCodeSandbox(v);
-                    setLastDefaults(agentId, { claudeCodeSandbox: v });
-                  }}
+                  onChange={sessionOptions.setClaudeCodeSandbox}
                   options={CLAUDE_SANDBOX_OPTIONS}
                   buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20"
                 />
@@ -422,10 +389,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: Props): JSX.Eleme
               <Field label="Grok 沙盒（请求档位）">
                 <GrokSandboxPicker
                   value={grokSandbox}
-                  onChange={(value) => {
-                    setGrokSandbox(value);
-                    setLastDefaults(agentId, { grokSandbox: value });
-                  }}
+                  onChange={sessionOptions.setGrokSandbox}
+                  allowUnset={false}
                   disabled={busy}
                 />
               </Field>

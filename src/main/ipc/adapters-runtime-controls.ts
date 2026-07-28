@@ -11,6 +11,7 @@ import {
   IpcInputError,
   on,
   parseAdapterSessionMode,
+  parseCodexApprovalPolicy,
   parseCodexSandboxMode,
   parseGrokSandboxProfile,
   parseOptionalAbsolutePathArray,
@@ -29,6 +30,7 @@ export function parseAdapterCreateRuntimeControls(
 ) {
   const permissionMode = parsePermissionMode(raw.permissionMode);
   const sessionMode = parseAdapterSessionMode(raw.sessionMode);
+  const approvalPolicy = parseCodexApprovalPolicy(raw.approvalPolicy);
   const codexSandbox = parseCodexSandboxMode(raw.codexSandbox);
   const claudeCodeSandbox = parseSandboxMode(raw.claudeCodeSandbox);
   const grokSandbox = parseGrokSandboxProfile(raw.grokSandbox);
@@ -51,9 +53,16 @@ export function parseAdapterCreateRuntimeControls(
       unsupportedTargetRuntimeFieldMessage(adapterId, unsupported),
     );
   }
+  if (approvalPolicy !== null && adapterId !== 'codex-cli') {
+    throw new IpcInputError(
+      'opts.approvalPolicy',
+      `owned by codex-cli and incompatible with target adapter "${adapterId}"`,
+    );
+  }
   return {
     permissionMode,
     sessionMode,
+    approvalPolicy,
     codexSandbox,
     claudeCodeSandbox,
     grokSandbox,

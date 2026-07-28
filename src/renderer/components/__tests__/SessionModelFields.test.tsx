@@ -9,7 +9,7 @@ import {
 afterEach(cleanup);
 
 describe('SessionModelFields', () => {
-  it('按 adapter 展示合法思考档位，并始终保留 provider 默认选项', () => {
+  it('按 adapter 展示合法思考档位，通用控件保留 provider 默认选项', () => {
     expect(thinkingOptionsForAdapter('codex-cli').map((option) => option.value)).toEqual([
       '',
       'low',
@@ -34,6 +34,12 @@ describe('SessionModelFields', () => {
       'high',
       'xhigh',
     ]);
+  });
+
+  it('新建会话可只展示具体思考档位', () => {
+    expect(
+      thinkingOptionsForAdapter('codex-cli', false).map((option) => option.value),
+    ).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
   });
 
   it('模型使用自由文本，思考程度通过下拉选择', () => {

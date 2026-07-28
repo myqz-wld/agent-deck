@@ -5,6 +5,7 @@ import {
   CODEX_SANDBOX_MODE_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   GROK_SANDBOX_MODE_OPTIONS,
+  GROK_SETTINGS_SANDBOX_MODE_OPTIONS,
   PERMISSION_OPTIONS,
 } from '../sandbox-options';
 
@@ -25,17 +26,16 @@ describe('sandbox option copy', () => {
     ]);
   });
 
-  it('prepends the same follow-settings option in new-session dialogs', () => {
-    expect(CLAUDE_SANDBOX_OPTIONS[0]).toEqual(CODEX_SANDBOX_OPTIONS[0]);
-    expect(CLAUDE_SANDBOX_OPTIONS.slice(1)).toEqual(CLAUDE_SANDBOX_MODE_OPTIONS);
-    expect(CODEX_SANDBOX_OPTIONS.slice(1)).toEqual(CODEX_SANDBOX_MODE_OPTIONS);
+  it('shows concrete sandbox values in new-session dialogs', () => {
+    expect(CLAUDE_SANDBOX_OPTIONS).toEqual(CLAUDE_SANDBOX_MODE_OPTIONS);
+    expect(CODEX_SANDBOX_OPTIONS).toEqual(CODEX_SANDBOX_MODE_OPTIONS);
   });
 
-  it('exposes every current Claude Code permission mode', () => {
+  it('exposes every current Claude Code permission mode from restrictive to permissive', () => {
     expect(PERMISSION_OPTIONS.map((option) => option.value)).toEqual([
+      'plan',
       'default',
       'acceptEdits',
-      'plan',
       'auto',
       'bypassPermissions',
     ]);
@@ -47,6 +47,14 @@ describe('sandbox option copy', () => {
       'read-only',
       'workspace',
       'devbox',
+      'off',
+    ]);
+  });
+
+  it('keeps only the simplified strict-to-open Grok settings choices', () => {
+    expect(GROK_SETTINGS_SANDBOX_MODE_OPTIONS.map((option) => option.value)).toEqual([
+      'read-only',
+      'workspace',
       'off',
     ]);
   });

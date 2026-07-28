@@ -11,7 +11,7 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
-import type { AdapterSessionMode, IssueRecord } from '@shared/types';
+import type { AdapterSessionMode, CodexApprovalPolicy, IssueRecord } from '@shared/types';
 import type { SessionThinkingLevel } from '@shared/session-metadata';
 
 export interface IssuesListFilters {
@@ -45,6 +45,8 @@ export interface IssuesResolveInNewSessionArgs {
   /** optional — adapter 默认 + settings 白名单 */
   permissionMode?: string;
   sessionMode?: AdapterSessionMode;
+  /** optional — Codex thread-wide approval_policy；缺省时跟随 Codex config/provider。 */
+  approvalPolicy?: CodexApprovalPolicy;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
   grokSandbox?: string;
