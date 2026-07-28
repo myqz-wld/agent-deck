@@ -2,31 +2,26 @@ import { useEffect, useState, type JSX } from 'react';
 import type { AgentDeckMessage } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { MarkdownText } from '@renderer/components/MarkdownText';
+import log from '@renderer/utils/logger';
 import { relativeTime } from '../TeamDetail/helpers';
 import { ArrowRightIcon, ReplyIcon } from '../icons';
 import { MessageStatusBadge } from '../MessageStatusBadge';
+import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
+import {
+  MESSAGE_EXPAND_THRESHOLD,
+  MessageDetailViewer,
+} from '../TeamDetail/viewers/MessageDetailViewer';
 
 /**
- * SessionDetail 「跨会话消息」tab —— DB 视角的 send_message 历史全量视图。
- *
- * CHANGELOG_100 / plan mcp-tool-simplify-20260514：删 reply_message + wait_reply + check_reply
- * 三个 tool + J fix 后，所有 reply 现在通过 send_message + reply_to_message_id 发送，
- * 自动 dispatch 进 receiver SDK conversation flow（活动 tab 能看到）。本 panel 仍提供
- * DB 视角全量历史 + 状态可见性（包括失败 / 重试 / 已投递时序），活动流补不到的角度。
- *
- * 视觉上区分本 session 角色：
- * - 本 session 是 sender（from = sid）：左侧 "→" 标记 + 高亮目标
- * - 本 session 是 receiver（to = sid）：左侧 "↩" 标记 + 高亮 sender
- * - reply chain：reply_to_message_id 非空时显示「↩ #abc12345…」
- *
- * 数据源：listAgentDeckMessagesBySession（IPC 走 from_session_id OR to_session_id 查询）。
- * 监听 onAgentDeckMessageChanged 200ms 节流后重拉（不解析 payload from/to，整体重拉简单可靠）。
+ * Session message history preserves delivery state and reply relationships. The panel refreshes
+ * from the database on message changes so it also covers failures and retries absent from activity.
  */
 interface Props {
   sessionId: string;
 }
 
 const EMPTY: AgentDeckMessage[] = [];
+const logger = log.scope('renderer-session-messages');
 
 export function MessagesPanel({ sessionId }: Props): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
@@ -38,6 +33,10 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let req = 0;
+    let cachedCount = 0;
+    setMessages(EMPTY);
+    setLoaded(false);
+    setError(null);
 
     const sync = (): void => {
       const cur = ++req;
@@ -45,13 +44,27 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
         .listAgentDeckMessagesBySession({ sessionId, limit: 100 })
         .then((rows) => {
           if (disposed || cur !== req) return;
+          cachedCount = rows.length;
           setMessages(rows);
           setLoaded(true);
           setError(null);
         })
         .catch((err: unknown) => {
-          if (disposed) return;
-          setError(`加载消息失败：${(err as Error).message ?? String(err)}`);
+          if (disposed || cur !== req) return;
+          logger.warn('session messages load failed', {
+            action: cachedCount > 0 ? 'refresh-session-messages' : 'list-session-messages',
+            agentId: null,
+            sessionId,
+            teamId: null,
+            source: 'session-detail-messages',
+            count: cachedCount,
+            ...safeErrorData(err),
+          });
+          setError(
+            cachedCount > 0
+              ? '刷新失败，当前显示上次结果。'
+              : '读取消息失败，请稍后重试。',
+          );
           setLoaded(true);
         });
     };
@@ -92,19 +105,31 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
   }
 
   return (
-    <ol className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5">
+      {error && (
+        <div role="status" className="text-[10px] text-status-waiting/80">
+          {error}
+        </div>
+      )}
+      <ol className="flex flex-col gap-1.5">
       {messages.map((msg) => {
         const isSender = msg.fromSessionId === sessionId;
         const otherId = isSender ? msg.toSessionId : msg.fromSessionId;
         const otherSess = sessions.get(otherId);
-        const otherTitle = otherSess?.title ?? otherId.slice(0, 8);
+        const otherTitle = otherSess?.title ?? '另一会话';
         const arrowColor = isSender ? 'text-cyan-300/80' : 'text-blue-300/80';
+        const fromLabel = isSender ? '当前会话' : otherTitle;
+        const toLabel = isSender ? otherTitle : '当前会话';
+        const expandable = msg.body.length > MESSAGE_EXPAND_THRESHOLD;
         return (
           <li
             key={msg.id}
-            className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px]"
+            className={`relative rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px] ${expandable ? 'pr-12' : ''}`}
           >
-            <div className="flex items-center justify-between text-[10px] text-deck-muted">
+            {expandable && (
+              <MessageDetailViewer message={msg} fromLabel={fromLabel} toLabel={toLabel} />
+            )}
+            <div className={`flex items-center justify-between text-[10px] text-deck-muted ${expandable ? 'min-h-11' : ''}`}>
               <span className="truncate">
                 <span className={`mr-1 inline-block align-middle ${arrowColor}`}>
                   {isSender ? <ArrowRightIcon className="h-3 w-3" /> : <ReplyIcon className="h-3 w-3" />}
@@ -127,7 +152,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
                 <MessageStatusBadge status={msg.status} />
               </span>
             </div>
-            <div className="mt-1 break-words text-deck-text">
+            <div className={`mt-1 break-words text-deck-text ${expandable ? 'max-h-40 overflow-hidden' : ''}`}>
               <MarkdownText text={msg.body} />
             </div>
             {msg.statusReason && (
@@ -136,6 +161,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
           </li>
         );
       })}
-    </ol>
+      </ol>
+    </div>
   );
 }

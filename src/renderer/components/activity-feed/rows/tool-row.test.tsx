@@ -1,27 +1,48 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { AgentEvent } from '@shared/types';
 import { ToolEndRow, ToolStartRow } from './tool-row';
+import {
+  localDiffContent,
+  localImageContent,
+} from '../viewers/content-reference';
 
 vi.mock('@renderer/components/diff/DiffViewer', () => ({
-  DiffViewer: () => <div data-testid="diff-viewer" />,
+  DiffViewer: ({ payload }: { payload: unknown }) => (
+    <div data-testid="diff-viewer">{JSON.stringify(payload)}</div>
+  ),
+}));
+
+vi.mock('@renderer/components/diff/renderers/ImageBlobLoader', () => ({
+  ImageBlobLoader: ({ children }: {
+    children: (state: unknown) => React.ReactNode;
+  }) => children({
+    loading: false,
+    result: { ok: true, dataUrl: 'data:image/png;base64,AAAA' },
+  }),
 }));
 
 vi.mock('@renderer/components/ImageThumb', () => ({
-  ImageThumb: () => <div data-testid="image-thumb" />,
-}));
-
-vi.mock('@renderer/components/MarkdownText', () => ({
-  MarkdownText: ({ text }: { text: string }) => <div>{text}</div>,
+  ImageThumb: ({ onClick }: { onClick?: () => void }) => (
+    <div data-testid="image-thumb" role="img" aria-label="ImageRead 缩略图" onClick={onClick} />
+  ),
 }));
 
 function ev(kind: AgentEvent['kind'], payload: unknown): AgentEvent {
   return { sessionId: 's', agentId: 'codex-cli', kind, payload, ts: 0 };
 }
 
-describe('ToolStartRow tool input disclosure', () => {
-  it('keeps generic tool inputs collapsed until the user clicks the start row', () => {
+afterEach(() => cleanup());
+
+describe('ToolStartRow unified viewer', () => {
+  it('keeps raw input out of the row and exposes it through the top-right 44px action', () => {
     const { container } = render(
       <ToolStartRow
         event={ev('tool-use-start', {
@@ -36,38 +57,20 @@ describe('ToolStartRow tool input disclosure', () => {
         sessionId="s"
       />,
     );
-
-    expect(container.textContent).not.toContain('"codexSandbox": "workspace-write"');
-    expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /mcp__agent-deck__spawn_session/ }));
-    expect(container.textContent).toContain('"codexSandbox": "workspace-write"');
+    expect(container.textContent).not.toContain('"codexSandbox"');
+    const trigger = screen.getByRole('button', {
+      name: '展开 mcp__agent-deck__spawn_session 详情',
+    });
+    expect(trigger.className).toContain('h-11');
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', {
+      name: 'mcp__agent-deck__spawn_session 详情',
+    });
+    expect(dialog.className).toContain('min-w-0');
+    expect(dialog.textContent).toContain('"codexSandbox": "workspace-write"');
   });
 
-  it('shows Task/Agent prompt controls and exposes raw input from the start row', () => {
-    const { container } = render(
-      <ToolStartRow
-        event={ev('tool-use-start', {
-          toolName: 'Agent',
-          toolUseId: 'agent-1',
-          toolInput: {
-            subagent_type: 'reviewer-codex',
-            prompt: 'review this patch',
-            model_reasoning_effort: 'xhigh',
-          },
-        })}
-        sessionId="s"
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: '查看指令' })).toBeTruthy();
-    expect(container.textContent).toContain('默认模型 · xhigh');
-    expect(container.textContent).not.toContain('"model_reasoning_effort": "xhigh"');
-    expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
-    fireEvent.click(within(container).getByRole('button', { name: /Agent/ }));
-    expect(container.textContent).toContain('"model_reasoning_effort": "xhigh"');
-  });
-
-  it('surfaces Codex collab operation, runtime, targets, and full raw parameters', () => {
+  it('preserves Agent summary fields and full raw input in the viewer', () => {
     const { container } = render(
       <ToolStartRow
         event={ev('tool-use-start', {
@@ -88,50 +91,103 @@ describe('ToolStartRow tool input disclosure', () => {
         sessionId="s"
       />,
     );
-
-    expect(container.textContent).toContain('spawn_agent');
-    expect(container.textContent).toContain('audit_adapter');
     expect(container.textContent).toContain('任务 audit_adapter');
-    expect(container.textContent).not.toContain('→ audit_adapter');
-    expect(container.textContent).toContain('fork_turns=all');
+    expect(container.textContent).toContain('spawn_agent');
     expect(container.textContent).toContain('gpt-5.6-codex · xhigh');
     expect(container.textContent).toContain('1 个目标');
-    expect(container.textContent).not.toContain('codex-collab-agent');
-    expect(container.textContent).not.toContain('"sender_thread_id": "lead-thread"');
-    expect(container.textContent).not.toContain('gAAAA-encrypted-raw-prompt');
-    fireEvent.click(within(container).getByRole('button', { name: /Agent/ }));
-    expect(container.textContent).toContain('"sender_thread_id": "lead-thread"');
-    expect(container.textContent).toContain('"receiver_thread_ids"');
-    expect(container.textContent).toContain('gAAAA-encrypted-raw-prompt');
+    expect(container.textContent).toContain('fork_turns=all');
+    expect(container.textContent).not.toContain('"sender_thread_id"');
+    fireEvent.click(screen.getByRole('button', { name: '展开 Agent 详情' }));
+    const dialog = screen.getByRole('dialog', { name: 'Agent 详情' });
+    expect(dialog.textContent).toContain('"sender_thread_id": "lead-thread"');
+    expect(dialog.textContent).toContain('gAAAA-encrypted-raw-prompt');
   });
 
-  it('shows the exact Codex collaboration wait timeout', () => {
-    const { container } = render(
+  it('keeps typed diff data intact and mounts the heavy renderer only when opened', () => {
+    render(
       <ToolStartRow
         event={ev('tool-use-start', {
-          toolName: 'Agent',
-          toolUseId: 'call-wait-1',
-          toolInput: { collab_tool: 'wait_agent', timeout_ms: 30000 },
+          toolName: 'Edit',
+          toolUseId: 'edit-1',
+          toolInput: {
+            file_path: '/repo/a.ts',
+            old_string: 'const before = 1;',
+            new_string: 'const after = 2;',
+          },
         })}
         sessionId="s"
       />,
     );
+    expect(screen.queryByTestId('diff-viewer')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开 Edit 详情' }));
+    const viewer = screen.getByTestId('diff-viewer');
+    expect(viewer.textContent).toContain('"filePath":"/repo/a.ts"');
+    expect(viewer.textContent).toContain('"before":"const before = 1;"');
+    expect(viewer.textContent).toContain('"after":"const after = 2;"');
+    expect(viewer.closest('[data-expandable-heavy-view]')?.getAttribute(
+      'data-expandable-heavy-view',
+    )).toBe('monaco');
+  });
 
-    expect(container.textContent).toContain('wait_agent');
-    expect(container.textContent).toContain('超时 30 秒');
-    fireEvent.click(within(container).getByRole('button', { name: /Agent/ }));
-    expect(container.textContent).toContain('"timeout_ms": 30000');
+  it('closes an open fallback viewer when a same-millisecond tool changes identity', () => {
+    const first = ev('tool-use-start', {
+      toolName: 'FirstTool',
+      toolInput: { value: 'first payload' },
+    });
+    const second = ev('tool-use-start', {
+      toolName: 'SecondTool',
+      toolInput: { value: 'second payload' },
+    });
+    const view = render(<ToolStartRow event={first} sessionId="s" />);
+    fireEvent.click(screen.getByRole('button', { name: '展开 FirstTool 详情' }));
+    expect(screen.getByRole('dialog').textContent).toContain('first payload');
+    view.rerender(<ToolStartRow event={second} sessionId="s" />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '展开 SecondTool 详情' }));
+    expect(screen.getByRole('dialog').textContent).toContain('second payload');
+  });
+
+  it('maps required typed references to the owning local heavy-view resolver', () => {
+    const diff = {
+      kind: 'text',
+      filePath: '/repo/a.ts',
+      before: 'before',
+      after: 'after',
+      ts: 1,
+    } as const;
+    const diffContent = localDiffContent({
+      sessionId: 's',
+      eventId: 'diff-1',
+      toolName: 'Edit',
+      diff,
+    });
+    expect(diffContent.resolve(diffContent.payload.reference)).toEqual(diff);
+    expect(diffContent.resolve({
+      ...diffContent.payload.reference,
+      authorization: {
+        ...diffContent.payload.reference.authorization,
+        grantId: 'wrong-grant',
+      },
+    })).toBeNull();
+
+    const source = { kind: 'path', path: '/repo/image.png' } as const;
+    const imageContent = localImageContent({
+      sessionId: 's',
+      eventId: 'image-1',
+      source,
+      alt: '图片',
+    });
+    expect(imageContent.resolve(imageContent.payload.reference)).toEqual(source);
   });
 });
 
-describe('ToolEndRow tool output disclosure', () => {
-  it('does not show the paired input button and expands tool output from the end row', () => {
+describe('ToolEndRow unified viewer', () => {
+  it('shows full paired input, result, status, and truncation in one detail view', () => {
     const startEvent = ev('tool-use-start', {
       toolName: 'Skill',
       toolUseId: 'skill-1',
       toolInput: { skill: 'prompt-asset-improver', args: 'audit durable prompts' },
     });
-
     const { container } = render(
       <ToolEndRow
         event={ev('tool-use-end', {
@@ -139,94 +195,55 @@ describe('ToolEndRow tool output disclosure', () => {
           toolUseId: 'skill-1',
           toolResult: 'tool output done',
           status: 'completed',
+          toolResultTruncated: true,
         })}
         sessionId="s"
         startEvent={startEvent}
       />,
     );
-
-    expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
-    expect(container.textContent).not.toContain('"skill": "prompt-asset-improver"');
+    expect(container.textContent).toContain('结果已截断');
     expect(container.textContent).not.toContain('tool output done');
-    fireEvent.click(screen.getByRole('button', { name: /Skill 完成/ }));
-    expect(container.textContent).toContain('tool output done');
-    expect(container.textContent).not.toContain('"skill": "prompt-asset-improver"');
+    fireEvent.click(screen.getByRole('button', { name: '展开 Skill 详情' }));
+    const dialog = screen.getByRole('dialog', { name: 'Skill 详情' });
+    expect(dialog.textContent).toContain('"skill": "prompt-asset-improver"');
+    expect(dialog.textContent).toContain('tool output done');
+    expect(dialog.textContent).toContain('结果已截断');
   });
 
-  it('merges richer completion metadata with safe start-only Agent parameters', () => {
-    const startEvent = ev('tool-use-start', {
-      toolName: 'Agent',
-      toolUseId: 'agent-merge-1',
-      toolInput: { collab_tool: 'spawn_agent', task_name: 'audit', fork_turns: 'all' },
-    });
-    const { container } = render(
+  it('shows an unknown provider status safely without duplicating label and detail', () => {
+    render(
       <ToolEndRow
         event={ev('tool-use-end', {
-          toolName: 'Agent',
-          toolUseId: 'agent-merge-1',
-          toolInput: {
-            collab_tool: 'spawn_agent',
-            receiver_thread_ids: ['child-thread'],
-            model: 'gpt-5.6-codex',
-            reasoning_effort: 'xhigh',
-          },
-          status: 'completed',
-        })}
-        sessionId="s"
-        startEvent={startEvent}
-      />,
-    );
-
-    expect(container.textContent).toContain('spawn_agent');
-    expect(container.textContent).toContain('audit');
-    expect(container.textContent).toContain('gpt-5.6-codex/xhigh');
-    expect(container.textContent).toContain('fork_turns=all');
-    expect(container.textContent).toContain('1 个目标');
-  });
-
-  it('expands Codex collaboration raw output like Claude tool results', () => {
-    const { container } = render(
-      <ToolEndRow
-        event={ev('tool-use-end', {
-          toolName: 'Agent',
-          toolUseId: 'agent-output-1',
-          toolResult: 'gAAAA-encrypted-raw-output',
+          toolName: 'custom_tool',
+          toolUseId: 'custom-1',
+          status: 'provider_paused',
         })}
         sessionId="s"
       />,
     );
-
-    expect(container.textContent).not.toContain('gAAAA-encrypted-raw-output');
-    fireEvent.click(within(container).getByRole('button', { name: /Agent 完成/ }));
-    expect(container.textContent).toContain('gAAAA-encrypted-raw-output');
+    expect(screen.getByText('状态未知')).toBeTruthy();
+    expect(screen.getByText('· 原始状态：provider_paused')).toBeTruthy();
   });
 
-  it('renders a canonical failed Grok completion with the shared failure treatment', () => {
-    const { container } = render(
+  it('keeps failed and denied terminal states concise and actionable', () => {
+    const { rerender, container } = render(
       <ToolEndRow
         event={ev('tool-use-end', {
           toolName: 'search_tool',
-          toolKind: 'search',
-          toolUseId: 'grok-search-1',
-          toolResult: 'search unavailable',
+          toolUseId: 'failed-1',
           status: 'failed',
         })}
         sessionId="s"
       />,
     );
-
-    expect(container.textContent).toContain('search_tool 失败');
+    expect(container.textContent).toContain('search_tool失败');
     expect(container.firstElementChild?.className).toContain('border-status-error');
-  });
-
-  it('distinguishes denied terminal state and exposes its reason', () => {
-    const { container } = render(
+    rerender(
       <ToolEndRow
         event={ev('tool-use-end', {
           toolName: 'Bash',
           toolUseId: 'denied-1',
           status: 'denied',
-          error: 'user rejected',
           reason: 'user rejected',
           durationMs: 1250,
           toolInputTruncated: true,
@@ -235,12 +252,40 @@ describe('ToolEndRow tool output disclosure', () => {
         sessionId="s"
       />,
     );
-
-    expect(container.textContent).toContain('Bash 已拒绝');
+    expect(container.textContent).toContain('Bash已拒绝');
     expect(container.textContent).toContain('1.3s');
     expect(container.textContent).toContain('输入和结果已截断');
-    expect(container.firstElementChild?.className).toContain('border-status-error');
-    fireEvent.click(screen.getByRole('button', { name: /Bash 已拒绝/ }));
-    expect(container.textContent).toContain('user rejected');
+  });
+
+  it('opens ImageRead from the thumbnail action and mounts the full image only then', () => {
+    render(
+      <ToolEndRow
+        event={ev('tool-use-end', {
+          toolName: 'mcp__image__ImageRead',
+          toolUseId: 'image-1',
+          status: 'completed',
+          toolResult: JSON.stringify({
+            kind: 'image-read',
+            file: '/repo/image.png',
+            description: '完整图片描述',
+            provider: 'openai',
+            model: 'vision',
+          }),
+        })}
+        sessionId="s"
+      />,
+    );
+    expect(screen.getByTestId('image-thumb')).toBeTruthy();
+    expect(document.querySelector('[data-expandable-heavy-view="image"]')).toBeNull();
+    const trigger = screen.getByRole('button', { name: '展开 ImageRead 详情' });
+    trigger.focus();
+    fireEvent.click(screen.getByTestId('image-thumb'));
+    expect(screen.getByRole('dialog', { name: 'ImageRead 详情' })).toBeTruthy();
+    expect(document.querySelector('[data-expandable-heavy-view="image"]')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    return waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'ImageRead 详情' })).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
   });
 });

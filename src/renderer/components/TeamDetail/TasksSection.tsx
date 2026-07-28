@@ -12,20 +12,9 @@ import {
   InfoIcon,
   WrenchIcon,
 } from '../icons';
+import { TaskDetailViewer } from './viewers/TaskDetailViewer';
 
-/**
- * plan team-cohesion-fix-20260513 Phase C：team 内 task 列表 section。
- *
- * 数据来自 IPC `agent-deck-team:get-full` 的 `tasks` 字段（taskRepo.list({teamId}) — task 表
- * 自己的 team_id 列）。展示：
- * - 状态图标 + subject
- * - activeForm（"present continuous form shown during execution" 如 "Running tests"，
- *   sdk-task-manager-spec §3，是状态描述不是 sessionId — 不要 lookup sessions Map）
- * - priority（5 是默认；非 5 显示 ⬆/⬇ + 数字）
- * - 相对更新时间（updatedAt 是 ISO 字符串，需 Date.parse 转 ms）
- *
- * 按状态分组排序（active / pending / blocked / completed / abandoned）。
- */
+/** Team tasks in workflow order. Every row exposes the complete task record in its detail viewer. */
 interface Props {
   tasks: TaskRecord[];
 }
@@ -62,10 +51,11 @@ export function TasksSection({ tasks }: Props): JSX.Element {
 function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
   return (
     <li
-      className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px]"
+      className="relative rounded border border-deck-border/40 bg-white/[0.02] py-1 pl-2 pr-12 text-[11px]"
       title={task.description ?? task.subject}
     >
-      <div className="flex items-baseline justify-between gap-2">
+      <TaskDetailViewer task={task} sessionId={task.ownerSessionId} />
+      <div className="flex min-h-11 items-center justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0">{statusIcon(task.status)}</span>
           <strong className="truncate text-deck-text">{task.subject}</strong>

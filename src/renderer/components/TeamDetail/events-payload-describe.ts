@@ -1,11 +1,4 @@
-/**
- * EventsSection 的 payload 描述纯逻辑抽离成独立 .ts 模块，便于 node 环境 vitest 单测
- * （不拉 React / useSessionStore）。范式同 session-list-tree.ts。
- *
- * R4（reviewer-codex MED-1）：不再 JSON.stringify 直显字段名给用户，按 kind 给用户向摘要 +
- * 未知 kind 兜底「无更多详情」。REVIEW_107 LOW：补 truthy 非 string 原始值 payload 守门
- * （`'in'` 对原始值抛 TypeError，TeamDetail 无 local ErrorBoundary → 整 app 崩）。
- */
+/** Compact, user-facing event summaries kept separate from React for deterministic testing. */
 import type { AgentEvent } from '@shared/types';
 import {
   describeToolInput,
@@ -25,11 +18,7 @@ export function describeEventPayload(e: AgentEvent): string {
   if (typeof e.payload === 'string') {
     return e.payload.length > 80 ? `${e.payload.slice(0, 80)}…` : e.payload;
   }
-  // REVIEW_107 LOW（防御护栏）：payload 类型是 `unknown`，DB rowToEvent 走 `JSON.parse(...) as
-  // unknown` 不收窄 → 类型上 truthy 非 string 原始值（number/boolean）可达，后续 `'text' in p`
-  // 对原始值抛 TypeError。当前无 emitter 产此类 payload（SDK/hook 两通道 emit 全是 object），
-  // 实际不可达；但 TeamDetail 无 local ErrorBoundary，一旦抛错冒泡到 RootErrorBoundary = 整
-  // app 持久错误页 → blast radius 大，加一行 object 守门兜底。
+  // Persisted payloads are not runtime-validated and may contain legacy primitives.
   if (typeof e.payload !== 'object') return '无更多详情';
   // 常见字段优先级:text > summary > 按 kind 取主字段
   const p = e.payload as Record<string, unknown>;
@@ -58,7 +47,7 @@ export function describeEventPayload(e: AgentEvent): string {
         ? truncate80(p.filePath.trim())
         : '文件已变更';
     case 'thinking':
-      return e.agentId === 'codex-cli' ? 'No reasoning summary for this turn' : '暂无 THINKING 内容';
+      return e.agentId === 'codex-cli' ? '本轮暂无推理摘要' : '暂无思考内容';
     case 'team-task-created':
     case 'team-task-completed': {
       const desc = typeof p.description === 'string' ? p.description : '';

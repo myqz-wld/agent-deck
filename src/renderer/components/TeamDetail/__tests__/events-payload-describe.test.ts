@@ -54,12 +54,12 @@ describe('describeEventPayload — 正常路径', () => {
   it('file-changed 缺 filePath 时显示用户向状态', () => {
     expect(describeEventPayload(ev('file-changed', {}))).toBe('文件已变更');
   });
-  it('thinking 缺文本时显示 THINKING 兜底文案', () => {
-    expect(describeEventPayload(ev('thinking', {}))).toBe('暂无 THINKING 内容');
+  it('thinking 缺文本时显示简洁中文兜底文案', () => {
+    expect(describeEventPayload(ev('thinking', {}))).toBe('暂无思考内容');
   });
-  it('Codex thinking 缺文本时保留 reasoning summary 兜底文案', () => {
+  it('Codex thinking 缺文本时显示中文推理摘要兜底', () => {
     expect(describeEventPayload(ev('thinking', {}, 'codex-cli'))).toBe(
-      'No reasoning summary for this turn',
+      '本轮暂无推理摘要',
     );
   });
   it('tool-use-start 显示工具入参摘要，而不是只显示工具名', () => {

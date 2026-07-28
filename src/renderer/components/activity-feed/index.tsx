@@ -18,11 +18,12 @@ import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from '@renderer/com
 import log from '@renderer/utils/logger';
 import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
 import { EMPTY_EVENTS } from './shared';
-import { eventKey } from './format';
 import { MessageBubble } from './rows/message-row';
 import { ThinkingBubble } from './rows/thinking-row';
 import { ToolStartRow, ToolEndRow } from './rows/tool-row';
 import { SimpleRow } from './rows/simple-row';
+import { safeErrorData } from './viewers/safe-error-data';
+import { activityEventIdentity } from './viewers/activity-event-identity';
 
 const logger = log.scope('renderer-activity-feed');
 
@@ -56,7 +57,14 @@ async function refreshPendingRequests(
     isCancelled,
   });
   if (result === 'unstable') {
-    logger.warn('[activity-feed] pending snapshot stayed unstable; kept live state', { sessionId });
+    logger.warn('pending snapshot remained unstable', {
+      action: 'refresh-pending',
+      agentId,
+      sessionId,
+      teamId: null,
+      source: 'adapter-pending',
+      count: null,
+    });
   }
 }
 
@@ -81,7 +89,7 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
   const resolveDiffReview = useSessionStore((s) => s.resolveDiffReview);
   const setPending = useSessionStore((s) => s.setPendingRequests);
   const [loaded, setLoaded] = useState(false);
-  /** REVIEW_4 M18：listEvents IPC 失败时显示可恢复错误态而非死锁在「加载中…」 */
+  /** Keep load failures recoverable instead of leaving the feed in a perpetual loading state. */
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -107,13 +115,30 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       })
       .catch((err: unknown) => {
         if (aborted) return;
-        setLoadError(`加载历史事件失败：${(err as Error).message ?? String(err)}`);
+        logger.warn('event history load failed', {
+          action: 'load-event-history',
+          agentId,
+          sessionId,
+          teamId: null,
+          source: 'event-history',
+          count: null,
+          ...safeErrorData(err),
+        });
+        setLoadError('读取活动记录失败，请稍后重试。');
         setLoaded(true);
       });
     if (isSdk) {
       void refreshPendingRequests(agentId, sessionId, setPending, () => aborted)
         .catch((err: unknown) => {
-          logger.warn('[activity-feed] listAdapterPending failed:', err);
+          logger.warn('pending snapshot refresh failed', {
+            action: 'initial-refresh-pending',
+            agentId,
+            sessionId,
+            teamId: null,
+            source: 'adapter-pending',
+            count: null,
+            ...safeErrorData(err),
+          });
         });
     }
     return () => {
@@ -130,7 +155,15 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       if (s.id !== sessionId) return;
       void refreshPendingRequests(agentId, sessionId, setPending, () => cancelled)
         .catch((err: unknown) => {
-          logger.warn('[activity-feed] onSessionUpserted listAdapterPending failed:', err);
+          logger.warn('pending snapshot refresh failed', {
+            action: 'session-upsert-refresh-pending',
+            agentId,
+            sessionId,
+            teamId: null,
+            source: 'adapter-pending',
+            count: null,
+            ...safeErrorData(err),
+          });
         });
     });
     return () => {
@@ -156,7 +189,6 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
     [pendingDiffReviews],
   );
 
-  // R3.E7：删 cancelledTeamPermIds（老 inbox 协议下线）
   const { cancelledPermIds, cancelledAskIds, cancelledExitIds, cancelledDiffIds } = useMemo(() => {
     const perms = new Set<string>();
     const asks = new Set<string>();
@@ -204,28 +236,35 @@ export function ActivityFeed({ sessionId, agentId, isSdk }: Props): JSX.Element 
       aria-live="polite"
       aria-relevant="additions"
     >
-      {recent.map((e) => (
-        <ActivityRow
-          key={eventKey(e)}
-          event={e}
-          sessionId={sessionId}
-          agentId={agentId}
-          isSdk={isSdk}
-          pendingPermIds={pendingPermIds}
-          pendingAskIds={pendingAskIds}
-          pendingExitIds={pendingExitIds}
-          pendingDiffIds={pendingDiffIds}
-          cancelledPermIds={cancelledPermIds}
-          cancelledAskIds={cancelledAskIds}
-          cancelledExitIds={cancelledExitIds}
-          cancelledDiffIds={cancelledDiffIds}
-          toolStartByUseId={toolStartByUseId}
-          resolvePermission={resolvePermission}
-          resolveAsk={resolveAsk}
-          resolveExitPlan={resolveExitPlan}
-          resolveDiffReview={resolveDiffReview}
-        />
-      ))}
+      {recent.map((e) => {
+        const derived = deriveRowState(e, {
+          pendingPermIds,
+          pendingAskIds,
+          pendingExitIds,
+          pendingDiffIds,
+          cancelledPermIds,
+          cancelledAskIds,
+          cancelledExitIds,
+          cancelledDiffIds,
+          toolStartByUseId,
+        });
+        return (
+          <ActivityRow
+            key={activityEventIdentity(e)}
+            event={e}
+            sessionId={sessionId}
+            agentId={agentId}
+            isSdk={isSdk}
+            stillPending={derived.stillPending}
+            wasCancelled={derived.wasCancelled}
+            startEvent={derived.startEvent}
+            resolvePermission={resolvePermission}
+            resolveAsk={resolveAsk}
+            resolveExitPlan={resolveExitPlan}
+            resolveDiffReview={resolveDiffReview}
+          />
+        );
+      })}
     </ol>
   );
 }
@@ -235,35 +274,23 @@ interface RowProps {
   sessionId: string;
   agentId: string;
   isSdk: boolean;
-  pendingPermIds: Set<string>;
-  pendingAskIds: Set<string>;
-  pendingExitIds: Set<string>;
-  pendingDiffIds: Set<string>;
-  cancelledPermIds: Set<string>;
-  cancelledAskIds: Set<string>;
-  cancelledExitIds: Set<string>;
-  cancelledDiffIds: Set<string>;
-  toolStartByUseId: Map<string, AgentEvent>;
+  stillPending: boolean;
+  wasCancelled: boolean;
+  startEvent?: AgentEvent;
   resolvePermission: (sessionId: string, requestId: string) => void;
   resolveAsk: (sessionId: string, requestId: string) => void;
   resolveExitPlan: (sessionId: string, requestId: string) => void;
   resolveDiffReview: (sessionId: string, requestId: string) => void;
 }
 
-const ActivityRow = memo(function ActivityRow({
+export const ActivityRow = memo(function ActivityRow({
   event,
   sessionId,
   agentId,
   isSdk,
-  pendingPermIds,
-  pendingAskIds,
-  pendingExitIds,
-  pendingDiffIds,
-  cancelledPermIds,
-  cancelledAskIds,
-  cancelledExitIds,
-  cancelledDiffIds,
-  toolStartByUseId,
+  stillPending,
+  wasCancelled,
+  startEvent,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
@@ -281,7 +308,6 @@ const ActivityRow = memo(function ActivityRow({
     const p = (event.payload ?? {}) as Record<string, unknown>;
     const type = (p.type as string) ?? '';
     if (type === 'permission-request') {
-      const rid = (p.requestId as string) ?? '';
       return (
         <PermissionRow
           event={event}
@@ -289,14 +315,13 @@ const ActivityRow = memo(function ActivityRow({
           sessionId={sessionId}
           agentId={agentId}
           isSdk={isSdk}
-          stillPending={pendingPermIds.has(rid)}
-          wasCancelled={cancelledPermIds.has(rid)}
+          stillPending={stillPending}
+          wasCancelled={wasCancelled}
           onResolved={resolvePermission}
         />
       );
     }
     if (type === 'ask-user-question') {
-      const rid = (p.requestId as string) ?? '';
       return (
         <AskRow
           event={event}
@@ -304,14 +329,13 @@ const ActivityRow = memo(function ActivityRow({
           sessionId={sessionId}
           agentId={agentId}
           isSdk={isSdk}
-          stillPending={pendingAskIds.has(rid)}
-          wasCancelled={cancelledAskIds.has(rid)}
+          stillPending={stillPending}
+          wasCancelled={wasCancelled}
           onResolved={resolveAsk}
         />
       );
     }
     if (type === 'exit-plan-mode') {
-      const rid = (p.requestId as string) ?? '';
       return (
         <ExitPlanRow
           event={event}
@@ -319,14 +343,13 @@ const ActivityRow = memo(function ActivityRow({
           sessionId={sessionId}
           agentId={agentId}
           isSdk={isSdk}
-          stillPending={pendingExitIds.has(rid)}
-          wasCancelled={cancelledExitIds.has(rid)}
+          stillPending={stillPending}
+          wasCancelled={wasCancelled}
           onResolved={resolveExitPlan}
         />
       );
     }
     if (type === 'diff-review') {
-      const rid = (p.requestId as string) ?? '';
       return (
         <DiffReviewRow
           event={event}
@@ -334,8 +357,8 @@ const ActivityRow = memo(function ActivityRow({
           sessionId={sessionId}
           agentId={agentId}
           isSdk={isSdk}
-          stillPending={pendingDiffIds.has(rid)}
-          wasCancelled={cancelledDiffIds.has(rid)}
+          stillPending={stillPending}
+          wasCancelled={wasCancelled}
           onResolved={resolveDiffReview}
         />
       );
@@ -344,19 +367,8 @@ const ActivityRow = memo(function ActivityRow({
   }
 
   if (event.kind === 'tool-use-start') {
-    // SDK 通道下 AskUserQuestion / ExitPlanMode 走协议级 deny + message 注入答案/决策，
-    // 同一次调用已由 AskRow / ExitPlanRow 完整渲染（提问 + 选项 + 用户状态）。
-    // 这里再渲染 ToolStartRow 是冗余，且配合 tool-use-end 会让用户看到「AskUserQuestion 失败」
-    // 的红框（实际上是 SDK 把 deny 翻成 is_error → translate 翻成 status='failed'）。
-    // hook 通道（外部 CLI）拿不到 canUseTool 通路，没有 AskRow / ExitPlanRow，必须保留 ToolStartRow
-    // 来显示 plan / 提问内容，因此只对应用内 SDK 会话隐藏。
-    //
-    // 注意：用 session-level `isSdk` 而非 event-level `event.source`，原因 ——
-    // events 表 schema 没有 source 列（见 event-repo.ts:5-12 / insert 行），listEvents 重新拉
-    // 历史事件时 event.source === undefined，REVIEW_26 修法对刷新 / 切会话后的旧事件失效。
-    // session.source 持久化在 sessions 表里、`isSdk = session.source === 'sdk'` 在父组件按会话计算。
-    // 两者等价：manager.ts:196 已保证 sdkOwned session 不会保留 hook 事件，所以 sdk 会话内
-    // 所有事件都源自 SDK 通道，cli 会话内所有事件都源自 hook 通道。
+    // SDK interactive tools already render as pending rows. Hook sessions lack that protocol
+    // stream and keep tool rows. Use persisted session source because history omits event.source.
     if (isSdk) {
       const tn = (event.payload as { toolName?: unknown })?.toolName;
       if (tn === 'AskUserQuestion' || tn === 'ExitPlanMode') return null;
@@ -365,11 +377,8 @@ const ActivityRow = memo(function ActivityRow({
   }
 
   if (event.kind === 'tool-use-end') {
-    const useId = (event.payload as { toolUseId?: unknown })?.toolUseId;
-    const startEvent =
-      typeof useId === 'string' && useId ? toolStartByUseId.get(useId) : undefined;
     if (isSdk) {
-      // toolName 优先取 end 事件的；老事件可能没带 → 反查同 useId 的 start 事件兜底
+      // Persisted end events may omit the tool name, so pair them with their stable start event.
       const endTn = (event.payload as { toolName?: unknown })?.toolName;
       const startTn = (startEvent?.payload as { toolName?: unknown })?.toolName;
       const tn = typeof endTn === 'string' ? endTn : typeof startTn === 'string' ? startTn : undefined;
@@ -380,3 +389,58 @@ const ActivityRow = memo(function ActivityRow({
 
   return <SimpleRow event={event} />;
 });
+
+interface DerivationSources {
+  pendingPermIds: Set<string>;
+  pendingAskIds: Set<string>;
+  pendingExitIds: Set<string>;
+  pendingDiffIds: Set<string>;
+  cancelledPermIds: Set<string>;
+  cancelledAskIds: Set<string>;
+  cancelledExitIds: Set<string>;
+  cancelledDiffIds: Set<string>;
+  toolStartByUseId: Map<string, AgentEvent>;
+}
+
+function deriveRowState(
+  event: AgentEvent,
+  sources: DerivationSources,
+): { stillPending: boolean; wasCancelled: boolean; startEvent?: AgentEvent } {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  if (event.kind === 'tool-use-end') {
+    const useId = typeof payload.toolUseId === 'string' ? payload.toolUseId : '';
+    return {
+      stillPending: false,
+      wasCancelled: false,
+      startEvent: useId ? sources.toolStartByUseId.get(useId) : undefined,
+    };
+  }
+  if (event.kind !== 'waiting-for-user') {
+    return { stillPending: false, wasCancelled: false };
+  }
+  const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
+  switch (payload.type) {
+    case 'permission-request':
+      return {
+        stillPending: sources.pendingPermIds.has(requestId),
+        wasCancelled: sources.cancelledPermIds.has(requestId),
+      };
+    case 'ask-user-question':
+      return {
+        stillPending: sources.pendingAskIds.has(requestId),
+        wasCancelled: sources.cancelledAskIds.has(requestId),
+      };
+    case 'exit-plan-mode':
+      return {
+        stillPending: sources.pendingExitIds.has(requestId),
+        wasCancelled: sources.cancelledExitIds.has(requestId),
+      };
+    case 'diff-review':
+      return {
+        stillPending: sources.pendingDiffIds.has(requestId),
+        wasCancelled: sources.cancelledDiffIds.has(requestId),
+      };
+    default:
+      return { stillPending: false, wasCancelled: false };
+  }
+}

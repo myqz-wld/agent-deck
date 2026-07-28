@@ -17,29 +17,31 @@ export function toolStatusView(payload: Record<string, unknown>): ToolStatusView
     case 'success':
     case 'succeeded':
       return hasError
-        ? { label: '失败', detail: '失败', isError: true }
+        ? { label: '失败', detail: null, isError: true }
         : { label: '完成', detail: null, isError: false };
     case 'failed':
-      return { label: '失败', detail: '失败', isError: true };
+      return { label: '失败', detail: null, isError: true };
     case 'denied':
     case 'rejected':
-      return { label: '已拒绝', detail: '已拒绝', isError: true };
+      return { label: '已拒绝', detail: null, isError: true };
     case 'cancelled':
     case 'canceled':
-      return { label: '已取消', detail: '已取消', isError: false };
+      return { label: '已取消', detail: null, isError: false };
     case 'interrupted':
-      return { label: '已中断', detail: '已中断', isError: true };
+      return { label: '已中断', detail: null, isError: true };
     case 'blocked':
-      return { label: '已阻止', detail: '已阻止', isError: true };
+      return { label: '已阻止', detail: null, isError: true };
     case 'error':
-      return { label: '出错', detail: '出错', isError: true };
+      return { label: '出错', detail: null, isError: true };
     case 'inprogress':
     case 'running':
-      return { label: '执行中', detail: '执行中', isError: false };
+      return { label: '执行中', detail: null, isError: false };
     default:
-      return hasError
-        ? { label: '失败', detail: '失败', isError: true }
-        : { label: '状态未知', detail: '状态未知', isError: false };
+      return {
+        label: hasError ? '失败' : '状态未知',
+        detail: `原始状态：${raw.slice(0, 80)}`,
+        isError: hasError,
+      };
   }
 }
 
