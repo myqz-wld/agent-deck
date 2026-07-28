@@ -73,7 +73,7 @@ export function PlanReviewDecisionFooter({
               意见草稿已生成，请检查或修改后再提交。
             </span>
           ) : (
-            '可以手动填写，也可以生成草稿；LLM 不会自动提交。'
+            '可以手动填写，也可以先生成草稿；提交前请检查内容。'
           )}
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">

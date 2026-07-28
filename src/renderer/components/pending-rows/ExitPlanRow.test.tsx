@@ -1,6 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { AgentEvent, ExitPlanModeRequest } from '@shared/types';
 import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
 import { useSessionStore } from '@renderer/stores/session-store';
@@ -37,6 +44,136 @@ afterEach(() => {
 });
 
 describe('ExitPlanRow', () => {
+  it('opens the complete typed plan without duplicating decision actions', () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      writable: true,
+      value: {} as Window['api'],
+    });
+    render(
+      <ExitPlanRow
+        event={event}
+        payload={payload}
+        sessionId="source"
+        agentId="codex-cli"
+        isSdk
+        stillPending
+        wasCancelled={false}
+        onResolved={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole('button', { name: '展开完整计划' });
+    expect(trigger.className).toContain('h-11');
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: '完整计划 · Lifecycle plan' });
+    expect(dialog.textContent).toContain('Validate handoff cleanup.');
+    expect(within(dialog).queryByRole('button', { name: '确认计划' })).toBeNull();
+  });
+
+  it('keeps feedback multiline, expands it, and submits with the explicit shortcut', async () => {
+    const respondExitPlanMode = vi.fn(async () => ({ resolvedSessionId: 'source' }));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      writable: true,
+      value: { respondExitPlanMode } as unknown as Window['api'],
+    });
+    render(
+      <ExitPlanRow
+        event={event}
+        payload={payload}
+        sessionId="source"
+        agentId="codex-cli"
+        isSdk
+        stillPending
+        wasCancelled={false}
+        onResolved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '继续规划' }));
+    const feedback = screen.getByLabelText('计划修改意见') as HTMLTextAreaElement;
+    fireEvent.change(feedback, { target: { value: 'First line\nSecond line' } });
+    fireEvent.click(screen.getByRole('button', { name: '展开计划修改意见' }));
+    const expandedFeedback = screen.getByLabelText(
+      '计划修改意见（展开）',
+    ) as HTMLTextAreaElement;
+    expect(expandedFeedback.value)
+      .toBe('First line\nSecond line');
+
+    fireEvent.keyDown(expandedFeedback, { key: 'Enter' });
+    expect(respondExitPlanMode).not.toHaveBeenCalled();
+    fireEvent.keyDown(expandedFeedback, { key: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(respondExitPlanMode).toHaveBeenCalledWith(
+      'codex-cli',
+      'source',
+      'plan-1',
+      { decision: 'keep-planning', feedback: 'First line\nSecond line' },
+    ));
+  });
+
+  it('keeps a failed decision on the row with actionable copy', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      writable: true,
+      value: {
+        respondExitPlanMode: vi.fn(async () => {
+          throw new Error('provider internals');
+        }),
+      } as unknown as Window['api'],
+    });
+    render(
+      <ExitPlanRow
+        event={event}
+        payload={payload}
+        sessionId="source"
+        agentId="codex-cli"
+        isSdk
+        stillPending
+        wasCancelled={false}
+        onResolved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '确认计划' }));
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('计划响应失败，请确认计划仍在等待后重试。');
+    expect(screen.queryByText('provider internals')).toBeNull();
+  });
+
+  it('uses canonical punctuation for native permission-mode copy', () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      writable: true,
+      value: {} as Window['api'],
+    });
+    const nativePayload: ExitPlanModeRequest = {
+      ...payload,
+      reviewSource: 'adapter',
+    };
+    render(
+      <ExitPlanRow
+        event={{ ...event, payload: nativePayload }}
+        payload={nativePayload}
+        sessionId="source"
+        agentId="codex-cli"
+        isSdk
+        stillPending
+        wasCancelled={false}
+        onResolved={vi.fn()}
+      />,
+    );
+
+    const modeSelect = screen.getByTitle(
+      '批准计划后切换到的权限模式（完全免询问需要重启会话）',
+    );
+    fireEvent.click(modeSelect);
+    fireEvent.click(screen.getByRole('option', { name: '⚠️ 不再询问' }));
+
+    expect(screen.getByTitle(
+      '批准计划并切到完全免询问模式（需重启会话，5–10 秒）',
+    )).toBeTruthy();
+  });
+
   it('clears the authoritative successor bucket returned after a handoff race', async () => {
     const respondExitPlanMode = vi.fn(async () => ({ resolvedSessionId: 'successor' }));
     Object.defineProperty(window, 'api', {

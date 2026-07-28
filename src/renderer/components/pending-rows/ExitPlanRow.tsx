@@ -10,6 +10,11 @@ import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store'
 import log from '@renderer/utils/logger';
 import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
 import { PlanMarkdownPanel } from './plan-markdown-panel';
+import { ExpandableFeedbackField } from './review-detail/ExpandableFeedbackField';
+import {
+  RowResponseError,
+  useRowResponseState,
+} from './review-detail/row-response-state';
 
 const logger = log.scope('renderer-exit-plan-row');
 type TargetMode = SelectablePermissionMode;
@@ -18,12 +23,12 @@ const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string }[
   { value: 'default', label: '手动确认', title: '每次工具调用前都询问' },
   { value: 'acceptEdits', label: '自动接受编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '继续计划模式', title: '保持计划模式，不执行任何工具' },
-  { value: 'auto', label: '自动判断', title: '由 Claude 的权限分类器自动允许或拒绝' },
+  { value: 'auto', label: '自动判断', title: '由 Claude Code 的权限分类器自动允许或拒绝' },
   { value: 'bypassPermissions', label: '⚠️ 不再询问', title: '不再询问任何工具调用；需要重启会话' },
 ];
 
 /**
- * ExitPlanMode / MCP plan presentation row. Native Claude ExitPlanMode keeps the
+ * ExitPlanMode / MCP plan presentation row. Native Claude Code ExitPlanMode keeps the
  * permission-mode selector; MCP plan presentation is confirmation/feedback only.
  */
 export function ExitPlanRow({
@@ -45,7 +50,7 @@ export function ExitPlanRow({
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useRowResponseState(payload.requestId);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [targetMode, setTargetMode] = useState<TargetMode>('acceptEdits');
@@ -55,9 +60,9 @@ export function ExitPlanRow({
     state.drafts.get(payload.requestId));
 
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
-  const plan = payload.plan || '(计划内容为空)';
+  const plan = payload.plan || '（计划内容为空）';
   const isMcpPlanReview = payload.reviewSource === 'mcp';
-  const actorName = isMcpPlanReview ? '模型' : 'Claude';
+  const actorName = isMcpPlanReview ? '模型' : 'Claude Code';
   const keepPlanningLabel = '继续规划';
   const deepReviewRunning =
     deepReviewDraft?.questionBusy === true || deepReviewDraft?.feedbackDraftBusy === true;
@@ -81,23 +86,30 @@ export function ExitPlanRow({
 
   const respond = async (response: ExitPlanModeResponse): Promise<boolean> => {
     if (!isSdk || !stillPending || busy) return false;
-    setBusy(true);
-    try {
-      const result = await window.api.respondExitPlanMode(
+    const result = await run(
+      () => window.api.respondExitPlanMode(
         agentId,
         sessionId,
         payload.requestId,
         response,
-      );
-      onResolved(result.resolvedSessionId, payload.requestId);
+      ),
+      '计划响应失败，请确认计划仍在等待后重试。',
+    );
+    if (result.ok && result.value) {
+      onResolved(result.value.resolvedSessionId, payload.requestId);
       clearDeepReviewDraft(payload.requestId);
       return true;
-    } catch (err) {
-      logger.error('respondExitPlanMode failed', err);
-      return false;
-    } finally {
-      setBusy(false);
     }
+    if (result.error) {
+      logger.error('plan response failed', {
+        action: 'respondExitPlanMode',
+        agentId,
+        sessionId,
+        requestId: payload.requestId,
+        error: result.error,
+      });
+    }
+    return false;
   };
 
   const onClickApprove = async (): Promise<void> => {
@@ -110,8 +122,8 @@ export function ExitPlanRow({
         title: '批准并切换到完全免询问',
         message: '需要重启当前会话',
         detail:
-          '重启后,Claude 直接按计划执行 —— 全过程不再向你确认任何工具调用。重启约需 5-10 秒。\n\n' +
-          '失败时会自动回到计划模式。继续?',
+          '重启后，Claude Code 将直接按计划执行，全程不再确认工具调用。重启约需 5–10 秒。\n\n' +
+          '失败时会自动回到计划模式。是否继续？',
         okLabel: '重启并启用',
         cancelLabel: '取消',
         destructive: true,
@@ -131,8 +143,12 @@ export function ExitPlanRow({
     void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined });
   };
 
-  const onFeedbackKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+  const onFeedbackKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (
+      e.key !== 'Enter'
+      || (!e.metaKey && !e.ctrlKey)
+      || e.nativeEvent.isComposing
+    ) return;
     e.preventDefault();
     void respond({ decision: 'keep-planning', feedback: feedback.trim() || undefined });
   };
@@ -181,7 +197,7 @@ export function ExitPlanRow({
                 value={targetMode}
                 disabled={busy}
                 onChange={setTargetMode}
-                title="批准计划后切换到的权限模式(完全免询问需要重启会话)"
+                title="批准计划后切换到的权限模式（完全免询问需要重启会话）"
                 options={TARGET_MODE_OPTIONS}
                 className="w-[104px]"
                 buttonClassName="w-full rounded border border-deck-border bg-white/[0.06] px-1.5 py-0.5 text-left text-[10px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
@@ -198,7 +214,7 @@ export function ExitPlanRow({
                     ? '审阅正在后台继续；点击返回查看进度'
                     : deepReviewDraft
                       ? '返回之前的深度审阅'
-                      : '放大计划，选中文字后右键引用，并在隔离的原生 fork 中提问'
+                      : '打开完整计划，在隔离的审阅会话中提问'
                 }
                 className="rounded border border-status-waiting/50 bg-status-waiting/10 px-2.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/20 disabled:opacity-50"
               >
@@ -213,7 +229,7 @@ export function ExitPlanRow({
                 isMcpPlanReview
                   ? '确认计划并把结果返回给模型'
                   : targetMode === 'bypassPermissions'
-                    ? '批准计划并切到完全免询问模式(需重启会话,5-10 秒)'
+                    ? '批准计划并切到完全免询问模式（需重启会话，5–10 秒）'
                     : `批准计划并切到「${targetModeLabel[targetMode]}」`
               }
               className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
@@ -240,19 +256,30 @@ export function ExitPlanRow({
       </div>
 
       {stillPending && isSdk && showFeedback && (
-        <input
-          type="text"
-          autoFocus
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          onKeyDown={onFeedbackKeyDown}
-          placeholder={`反馈可选；按 Enter 或再次点击“${keepPlanningLabel}”继续`}
-          disabled={busy}
-          className="mb-1.5 h-7 w-full rounded border border-deck-border bg-white/[0.04] px-2 text-[10px] text-deck-text outline-none placeholder:text-deck-muted/70 focus:border-white/20 disabled:opacity-50"
-        />
+        <div className="mb-1.5">
+          <ExpandableFeedbackField
+            sessionId={sessionId}
+            requestId={payload.requestId}
+            fieldId="plan-feedback"
+            label="计划修改意见"
+            autoFocus
+            value={feedback}
+            onChange={setFeedback}
+            onKeyDown={onFeedbackKeyDown}
+            placeholder={`反馈可选；按 ⌘/Ctrl+Enter 或再次点击“${keepPlanningLabel}”提交`}
+            disabled={busy}
+          />
+        </div>
       )}
 
-      <PlanMarkdownPanel plan={plan} />
+      <PlanMarkdownPanel
+        plan={plan}
+        sessionId={sessionId}
+        requestId={payload.requestId}
+        title={payload.title}
+        status={stillPending ? 'pending' : wasCancelled ? 'timed-out' : 'approved'}
+      />
+      <RowResponseError>{error}</RowResponseError>
 
       {!isSdk && (
         <div className="mt-1.5 text-[10px] text-deck-muted">
@@ -268,9 +295,11 @@ export function ExitPlanRow({
       {isMcpPlanReview && deepReviewOpen && stillPending && (
         <PlanDeepReviewDialog
           open
+          sourceAgentId={agentId}
           sourceSessionId={sessionId}
           request={payload}
           decisionBusy={busy}
+          decisionError={error}
           onClose={() => setDeepReviewOpen(false)}
           onApprove={() => respond({ decision: 'approve', targetMode: 'default' })}
           onRevise={(nextFeedback) =>

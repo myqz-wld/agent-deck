@@ -1,16 +1,21 @@
-import { useState, type JSX } from 'react';
+import { useMemo, useState, type JSX } from 'react';
 import type {
   AgentEvent,
   AskUserQuestionItem,
   AskUserQuestionRequest,
 } from '@shared/types';
 import { CheckboxIcon } from '../icons';
+import log from '@renderer/utils/logger';
+import { askDraftKeys } from './review-detail/ask-draft-identity';
+import { ExpandableFeedbackField } from './review-detail/ExpandableFeedbackField';
+import {
+  RowResponseError,
+  useRowResponseState,
+} from './review-detail/row-response-state';
 
 type AskDraft = { selected: string[]; other?: string; note?: string };
+const logger = log.scope('renderer-ask-row');
 
-/**
- * AskUserQuestion 行（内嵌选项）。接口同 PermissionRow 模式。
- */
 export function AskRow({
   event,
   payload,
@@ -31,20 +36,21 @@ export function AskRow({
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
   const [selections, setSelections] = useState<Record<string, AskDraft>>({});
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useRowResponseState(payload.requestId);
+  const draftKeys = useMemo(() => askDraftKeys(payload), [payload]);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const totalQuestions = payload.questions.length;
-  const answeredCount = payload.questions.reduce((acc, q) => {
-    const cur = selections[q.question];
+  const answeredCount = payload.questions.reduce((acc, _question, index) => {
+    const cur = selections[draftKeys[index]!];
     const hasSel = (cur?.selected.length ?? 0) > 0;
     const hasOther = (cur?.other ?? '').trim().length > 0;
     return acc + (hasSel || hasOther ? 1 : 0);
   }, 0);
   const canSubmit = answeredCount === totalQuestions;
 
-  const toggle = (q: AskUserQuestionItem, label: string): void => {
+  const toggle = (key: string, q: AskUserQuestionItem, label: string): void => {
     setSelections((prev) => {
-      const cur = prev[q.question] ?? { selected: [], other: undefined, note: undefined };
+      const cur = prev[key] ?? { selected: [], other: undefined, note: undefined };
       const has = cur.selected.includes(label);
       const nextSel = q.multiSelect
         ? has
@@ -53,36 +59,58 @@ export function AskRow({
         : has
           ? []
           : [label];
-      return { ...prev, [q.question]: { selected: nextSel, other: cur.other, note: cur.note } };
+      return { ...prev, [key]: { selected: nextSel, other: cur.other, note: cur.note } };
     });
   };
 
-  const setOther = (q: AskUserQuestionItem, value: string): void => {
+  const setOther = (key: string, value: string): void => {
     setSelections((prev) => {
-      const cur = prev[q.question] ?? { selected: [], other: undefined };
-      return { ...prev, [q.question]: { selected: cur.selected, other: value, note: cur.note } };
+      const cur = prev[key] ?? { selected: [], other: undefined };
+      return { ...prev, [key]: { selected: cur.selected, other: value, note: cur.note } };
     });
   };
 
-  const setNote = (q: AskUserQuestionItem, value: string): void => {
+  const setNote = (key: string, value: string): void => {
     setSelections((prev) => {
-      const cur = prev[q.question] ?? { selected: [], other: undefined, note: undefined };
-      return { ...prev, [q.question]: { selected: cur.selected, other: cur.other, note: value } };
+      const cur = prev[key] ?? { selected: [], other: undefined, note: undefined };
+      return { ...prev, [key]: { selected: cur.selected, other: cur.other, note: value } };
     });
   };
 
   const submit = async (): Promise<void> => {
     if (!isSdk || !stillPending || busy) return;
-    setBusy(true);
-    try {
-      const answers = payload.questions.map((q) => {
-        const cur = selections[q.question] ?? { selected: [], other: undefined, note: undefined };
-        return { question: q.question, selected: cur.selected, other: cur.other, note: cur.note };
-      });
-      await window.api.respondAskUserQuestion(agentId, sessionId, payload.requestId, { answers });
+    const answers = payload.questions.map((question, index) => {
+      const cur = selections[draftKeys[index]!] ?? {
+        selected: [],
+        other: undefined,
+        note: undefined,
+      };
+      return {
+        question: question.question,
+        selected: cur.selected,
+        other: cur.other,
+        note: cur.note,
+      };
+    });
+    const result = await run(
+      () => window.api.respondAskUserQuestion(
+        agentId,
+        sessionId,
+        payload.requestId,
+        { answers },
+      ),
+      '回答提交失败，请确认问题仍在等待后重试。',
+    );
+    if (result.ok) {
       onResolved(sessionId, payload.requestId);
-    } finally {
-      setBusy(false);
+    } else if (result.error) {
+      logger.error('ask response failed', {
+        action: 'respondAskUserQuestion',
+        agentId,
+        sessionId,
+        requestId: payload.requestId,
+        error: result.error,
+      });
     }
   };
 
@@ -132,20 +160,27 @@ export function AskRow({
       </div>
       <div className="flex min-w-0 flex-col gap-2">
         {payload.questions.map((q, qi) => {
-          const sel = selections[q.question]?.selected ?? [];
+          const draftKey = draftKeys[qi]!;
+          const draft = selections[draftKey];
+          const sel = draft?.selected ?? [];
           return (
-            <div key={qi} className="min-w-0">
+            <div key={draftKey} className="min-w-0">
+              {q.header && (
+                <div className="mb-0.5 text-[9px] font-medium text-deck-muted">
+                  {q.header}
+                </div>
+              )}
               <div className="mb-1 break-words text-[11px] text-deck-text">{q.question}</div>
               <div className="flex flex-wrap gap-1">
-                {q.options.map((opt) => {
+                {q.options.map((opt, optionIndex) => {
                   const isSel = sel.includes(opt.label);
                   return (
                     <button
-                      key={opt.label}
+                      key={`${opt.label}:${optionIndex}`}
                       type="button"
                       disabled={!isSdk || !stillPending || busy}
                       aria-pressed={isSel}
-                      onClick={() => toggle(q, opt.label)}
+                      onClick={() => toggle(draftKey, q, opt.label)}
                       title={opt.description}
                       className={`max-w-full break-words rounded border px-2 py-0.5 text-[10px] disabled:opacity-50 ${
                         isSel
@@ -161,24 +196,30 @@ export function AskRow({
               </div>
               <input
                 type="text"
-                value={selections[q.question]?.other ?? ''}
-                onChange={(e) => setOther(q, e.target.value)}
+                value={draft?.other ?? ''}
+                onChange={(e) => setOther(draftKey, e.target.value)}
                 placeholder="其他（可选）"
                 disabled={!isSdk || !stillPending || busy}
                 className="mt-1 w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
               />
-              <textarea
-                value={selections[q.question]?.note ?? ''}
-                onChange={(e) => setNote(q, e.target.value)}
-                placeholder="备注（可选）"
-                rows={2}
-                disabled={!isSdk || !stillPending || busy}
-                className="mt-1 w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
-              />
+              <div className="mt-1">
+                <ExpandableFeedbackField
+                  sessionId={sessionId}
+                  requestId={payload.requestId}
+                  fieldId={`note:${draftKey}`}
+                  label={`${q.header ?? `第 ${qi + 1} 题`}备注`}
+                  value={draft?.note ?? ''}
+                  onChange={(value) => setNote(draftKey, value)}
+                  placeholder="备注（可选）"
+                  rows={2}
+                  disabled={!isSdk || !stillPending || busy}
+                />
+              </div>
             </div>
           );
         })}
       </div>
+      <RowResponseError>{error}</RowResponseError>
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口回答</div>
       )}
