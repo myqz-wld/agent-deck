@@ -4,8 +4,10 @@ import {
   translateCodexPostCompact,
   translateCodexPostToolUse,
   translateCodexPreToolUse,
+  translateCodexSessionEnd,
   translateCodexSessionStart,
   translateCodexStop,
+  translateCodexUserPrompt,
 } from '../hook-translate';
 
 describe('codex hook translation', () => {
@@ -17,6 +19,8 @@ describe('codex hook translation', () => {
       hook_event_name: 'SessionStart',
       model: 'gpt-5.5',
       source: 'startup',
+      permission_mode: 'default',
+      agent_type: 'code-reviewer',
     });
 
     expect(event).toMatchObject({
@@ -29,6 +33,8 @@ describe('codex hook translation', () => {
         hookEventName: 'SessionStart',
         model: 'gpt-5.5',
         source: 'startup',
+        permissionMode: 'default',
+        agentType: 'code-reviewer',
       },
     });
   });
@@ -59,7 +65,6 @@ describe('codex hook translation', () => {
       cwd: '/repo',
       tool_name: 'Bash',
       tool_input: { command: 'sudo true' },
-      tool_use_id: 'tool-2',
       permission_mode: 'default',
     });
 
@@ -69,7 +74,6 @@ describe('codex hook translation', () => {
       message: 'Codex is waiting for terminal approval: Bash',
       toolName: 'Bash',
       toolInput: { command: 'sudo true' },
-      toolUseId: 'tool-2',
       permissionMode: 'default',
     });
   });
@@ -94,33 +98,59 @@ describe('codex hook translation', () => {
     });
   });
 
-  it('translates PostCompact and Stop', () => {
+  it('translates user prompts, PostCompact, Stop, and SessionEnd', () => {
+    const prompt = translateCodexUserPrompt({
+      session_id: 'codex-sid-1',
+      cwd: '/repo',
+      prompt: 'Review this branch.',
+      turn_id: 'turn-2',
+    });
     const compact = translateCodexPostCompact({
       session_id: 'codex-sid-1',
       cwd: '/repo',
       trigger: 'auto',
       turn_id: 'turn-2',
     });
-    const stop = translateCodexStop({
+    const stopEvents = translateCodexStop({
       session_id: 'codex-sid-1',
       cwd: '/repo',
       stop_hook_active: false,
       last_assistant_message: 'done',
       turn_id: 'turn-2',
     });
+    const sessionEnd = translateCodexSessionEnd({
+      session_id: 'codex-sid-1',
+      cwd: '/repo',
+      reason: 'other',
+    });
 
+    expect(prompt).toMatchObject({
+      kind: 'message',
+      payload: { role: 'user', text: 'Review this branch.' },
+    });
     expect(compact.kind).toBe('message');
     expect(compact.payload).toMatchObject({
       role: 'assistant',
       text: 'Codex context compacted (auto)',
     });
-    expect(stop.kind).toBe('finished');
-    expect(stop.payload).toMatchObject({
-      ok: true,
-      subtype: 'success',
-      stopHookActive: false,
-      lastAssistantMessage: 'done',
-      turnId: 'turn-2',
+    expect(stopEvents).toMatchObject([
+      {
+        kind: 'message',
+        payload: { role: 'assistant', text: 'done' },
+      },
+      {
+        kind: 'finished',
+        payload: {
+          ok: true,
+          subtype: 'success',
+          stopHookActive: false,
+          turnId: 'turn-2',
+        },
+      },
+    ]);
+    expect(sessionEnd).toMatchObject({
+      kind: 'session-end',
+      payload: { reason: 'other' },
     });
   });
 });

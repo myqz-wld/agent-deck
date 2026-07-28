@@ -21,12 +21,13 @@ export function HookSection({
   installHook,
   uninstallHook,
 }: Props): JSX.Element {
+  const partial = !!hookStatus && !hookStatus.installed && hookStatus.installedHooks.length > 0;
   return (
     <Section title={title} storageKey={storageKey} defaultOpen={false}>
       {hookStatus ? (
         <div className="text-[11px] leading-relaxed">
           <div className="text-deck-muted">
-            状态：{hookStatus.installed ? '已安装' : '未安装'}
+            状态：{hookStatus.installed ? '已安装' : partial ? '安装不完整' : '未安装'}
           </div>
           <div className="break-all text-[10px] text-deck-muted/70">
             位置：{hookStatus.settingsPath}
@@ -48,7 +49,7 @@ export function HookSection({
                 onClick={() => void installHook()}
                 className="rounded bg-status-working/20 px-2 py-1 text-[11px] text-status-working hover:bg-status-working/30 disabled:opacity-50"
               >
-                {installLabel}
+                {partial ? '修复 Hook' : installLabel}
               </button>
             )}
           </div>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeGrokHookPrompt,
   translateGrokNotification,
   translateGrokPermissionDenied,
   translateGrokPostCompact,
@@ -18,7 +19,7 @@ const base = {
   cwd: '/repo',
   workspaceRoot: '/repo',
   hookEventName: 'SessionStart',
-  model: 'grok-4.5',
+  modelId: 'grok-4.5',
 };
 
 describe('Grok hook translation', () => {
@@ -42,7 +43,59 @@ describe('Grok hook translation', () => {
       }),
     ).toMatchObject({
       kind: 'message',
-      payload: { role: 'user', text: 'inspect this repository' },
+      payload: {
+        role: 'user',
+        text: 'inspect this repository',
+        rawText: 'inspect this repository',
+      },
+    });
+  });
+
+  it('strips exactly one canonical Grok user_query envelope and preserves raw text', () => {
+    const wrapped =
+      '<user_query>\n带我检查这个分支\n每段保留原文\n</user_query>';
+    expect(
+      translateGrokUserPrompt({
+        ...base,
+        hookEventName: 'UserPromptSubmit',
+        prompt: wrapped,
+      }),
+    ).toMatchObject({
+      kind: 'message',
+      payload: {
+        role: 'user',
+        text: '带我检查这个分支\n每段保留原文',
+        rawText: wrapped,
+        metadata: { normalization: 'grok-user-query-envelope-v1' },
+      },
+    });
+  });
+
+  it('keeps user-authored nested tags and leaves ambiguous/non-canonical text untouched', () => {
+    const nested =
+      '<user_query>\n<user_query>\ninner\n</user_query>\n</user_query>';
+    expect(normalizeGrokHookPrompt(nested)).toEqual({
+      text: '<user_query>\ninner\n</user_query>',
+      rawText: nested,
+      normalizedBy: 'grok-user-query-envelope-v1',
+    });
+
+    for (const rawText of [
+      '<user_query>verbatim</user_query>',
+      'prefix\n<user_query>\nvalue\n</user_query>',
+      '<user_query>\nvalue\n</user_query>\nsibling',
+      '<user_query>\nnot closed',
+    ]) {
+      expect(normalizeGrokHookPrompt(rawText)).toEqual({ text: rawText, rawText });
+    }
+  });
+
+  it('supports the canonical CRLF envelope without normalizing the inner newlines', () => {
+    const rawText = '<user_query>\r\nline 1\r\nline 2\r\n</user_query>';
+    expect(normalizeGrokHookPrompt(rawText)).toEqual({
+      text: 'line 1\r\nline 2',
+      rawText,
+      normalizedBy: 'grok-user-query-envelope-v1',
     });
   });
 
@@ -52,16 +105,29 @@ describe('Grok hook translation', () => {
       toolName: 'Bash',
       toolInput: { command: 'false' },
       toolUseId: 'tool-1',
+      toolInputTruncated: true,
+      toolResultTruncated: true,
+      durationMs: 1250,
     };
     expect(translateGrokPreToolUse(tool)).toMatchObject({
       kind: 'tool-use-start',
-      payload: { toolName: 'Bash', toolUseId: 'tool-1' },
+      payload: {
+        toolName: 'Bash',
+        toolUseId: 'tool-1',
+        toolInputTruncated: true,
+        durationMs: 1250,
+      },
     });
     expect(
       translateGrokPostToolUse({ ...tool, toolOutput: { exitCode: 0 } }),
     ).toMatchObject({
       kind: 'tool-use-end',
-      payload: { status: 'completed', toolResult: { exitCode: 0 } },
+      payload: {
+        status: 'completed',
+        toolResult: { exitCode: 0 },
+        toolResultTruncated: true,
+        durationMs: 1250,
+      },
     });
     expect(
       translateGrokPostToolUseFailure({ ...tool, errorMessage: 'exit 1' }),
@@ -82,21 +148,69 @@ describe('Grok hook translation', () => {
       kind: 'message',
       payload: { text: 'Grok context compacted (auto)' },
     });
-    expect(translateGrokNotification({ ...base, message: 'Approve Bash' })).toMatchObject({
+    expect(translateGrokNotification({
+      ...base,
+      notificationType: 'permission_prompt',
+      message: 'Approve Bash',
+    })).toMatchObject({
       kind: 'waiting-for-user',
-      payload: { type: 'grok-terminal-notification', message: 'Approve Bash' },
+      payload: { type: 'permission_prompt', message: 'Approve Bash' },
     });
-    expect(translateGrokStop({ ...base, stopReason: 'end_turn' })).toMatchObject({
-      kind: 'finished',
-      payload: { ok: true, subtype: 'success', stopReason: 'end_turn' },
+    expect(translateGrokNotification({
+      ...base,
+      notificationType: 'auth_success',
+      title: 'Signed in',
+      message: 'Authentication complete',
+      level: 'info',
+    })).toMatchObject({
+      kind: 'message',
+      payload: {
+        role: 'assistant',
+        text: 'Authentication complete',
+        metadata: {
+          notification: true,
+          notificationType: 'auth_success',
+          title: 'Signed in',
+          level: 'info',
+        },
+      },
     });
-    expect(translateGrokStopFailure({ ...base, error: 'provider failed' })).toMatchObject({
-      kind: 'finished',
-      payload: { ok: false, subtype: 'error', error: 'provider failed' },
-    });
+    expect(translateGrokStop({ ...base, stopReason: 'end_turn' })).toMatchObject([
+      {
+        kind: 'finished',
+        payload: { ok: true, subtype: 'success', stopReason: 'end_turn' },
+      },
+    ]);
+    expect(
+      translateGrokStopFailure({ ...base, error: 'provider failed' }),
+    ).toMatchObject([
+      {
+        kind: 'finished',
+        payload: { ok: false, subtype: 'error', error: 'provider failed' },
+      },
+    ]);
     expect(translateGrokSessionEnd({ ...base, reason: 'exit' })).toMatchObject({
       kind: 'session-end',
       payload: { reason: 'exit' },
     });
+  });
+
+  it('emits the final assistant text before the Grok turn terminal event', () => {
+    expect(
+      translateGrokStop({
+        ...base,
+        lastAssistantMessage: 'Review complete.',
+        backgroundTasks: [{ id: 'bg-1' }],
+      }),
+    ).toMatchObject([
+      {
+        kind: 'message',
+        payload: { role: 'assistant', text: 'Review complete.' },
+      },
+      {
+        kind: 'finished',
+        payload: { backgroundTasks: [{ id: 'bg-1' }] },
+      },
+    ]);
   });
 });

@@ -92,7 +92,8 @@ export function isAgentProfileSource(value: unknown): value is AgentProfileSourc
 }
 /**
  * 'sdk' = 应用内通过 ＋ 按钮新建的会话（可发消息、可响应权限请求）
- * 'cli' = 外部终端 `claude` 通过 hook 上报的会话（只读，UI 提示用户去终端操作）
+ * 'cli' = 外部终端里的 Claude / Codex / Grok 通过 hook 上报的会话
+ *（只读，UI 提示用户回到对应终端操作）
  */
 export type SessionSource = 'sdk' | 'cli';
 

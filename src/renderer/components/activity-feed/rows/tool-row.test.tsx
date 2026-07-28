@@ -218,4 +218,29 @@ describe('ToolEndRow tool output disclosure', () => {
     expect(container.textContent).toContain('search_tool 失败');
     expect(container.firstElementChild?.className).toContain('border-status-error');
   });
+
+  it('distinguishes denied terminal state and exposes its reason', () => {
+    const { container } = render(
+      <ToolEndRow
+        event={ev('tool-use-end', {
+          toolName: 'Bash',
+          toolUseId: 'denied-1',
+          status: 'denied',
+          error: 'user rejected',
+          reason: 'user rejected',
+          durationMs: 1250,
+          toolInputTruncated: true,
+          toolResultTruncated: true,
+        })}
+        sessionId="s"
+      />,
+    );
+
+    expect(container.textContent).toContain('Bash 已拒绝');
+    expect(container.textContent).toContain('1.3s');
+    expect(container.textContent).toContain('输入和结果已截断');
+    expect(container.firstElementChild?.className).toContain('border-status-error');
+    fireEvent.click(screen.getByRole('button', { name: /Bash 已拒绝/ }));
+    expect(container.textContent).toContain('user rejected');
+  });
 });

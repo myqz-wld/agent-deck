@@ -10,11 +10,13 @@ const HOOK_TAG = 'agent-deck-hook';
 
 export const CODEX_HOOK_EVENTS = [
   'SessionStart',
+  'UserPromptSubmit',
   'PreToolUse',
   'PermissionRequest',
   'PostToolUse',
   'PostCompact',
   'Stop',
+  'SessionEnd',
 ] as const;
 
 type CodexHookEvent = (typeof CODEX_HOOK_EVENTS)[number];
@@ -113,8 +115,11 @@ function cleanedGroups(groups: HookEventValue): HookGroup[] {
 }
 
 function matcherFor(event: CodexHookEvent): string | undefined {
-  if (event === 'Stop') return undefined;
-  return '.*';
+  return event === 'PreToolUse' ||
+    event === 'PermissionRequest' ||
+    event === 'PostToolUse'
+    ? '.*'
+    : undefined;
 }
 
 export class CodexHookInstaller {
@@ -230,7 +235,7 @@ export class CodexHookInstaller {
     }
 
     return {
-      installed: installed.length > 0,
+      installed: installed.length === CODEX_HOOK_EVENTS.length,
       scope: opts.scope,
       settingsPath: path,
       installedHooks: installed,

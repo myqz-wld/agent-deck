@@ -29,6 +29,10 @@ describe('Phase 3 Step 3.4 — translatePostToolUse toolCallId 透传 (A1-MED-4 
     // tool-use-end 一条 + file-changed 一条
     expect(events.length).toBe(2);
     expect(events[0].kind).toBe('tool-use-end');
+    expect(events[0].payload).toMatchObject({
+      toolUseId: 'tool_use_xxx',
+      status: 'completed',
+    });
     expect(events[1].kind).toBe('file-changed');
     expect((events[1].payload as FileChangePayload).toolCallId).toBe('tool_use_xxx');
     expect((events[1].payload as FileChangePayload).filePath).toBe('/tmp/foo.ts');

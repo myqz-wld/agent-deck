@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
+import { GROK_HOOK_EVENTS } from '../hook-installer';
 import { buildGrokHookRoutes } from '../hook-routes';
 
 function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn> } {
@@ -9,6 +10,13 @@ function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof 
 }
 
 describe('Grok hook routes', () => {
+  it('keeps every installed event routable', () => {
+    const urls = buildGrokHookRoutes(() => undefined).map((route) => route.url);
+    expect(urls).toEqual(
+      GROK_HOOK_EVENTS.map((event) => `/hook/grok/${event.toLowerCase()}`),
+    );
+  });
+
   it('accepts camelCase Grok payloads and tags external process identity', async () => {
     const events: AgentEvent[] = [];
     const route = buildGrokHookRoutes((event) => events.push(event)).find(
@@ -56,6 +64,36 @@ describe('Grok hook routes', () => {
     );
 
     expect(events[0]).toMatchObject({ source: 'hook', hookOrigin: 'sdk' });
+  });
+
+  it('removes the Grok harness envelope before emitting a visible user message', async () => {
+    const events: AgentEvent[] = [];
+    const route = buildGrokHookRoutes((event) => events.push(event)).find(
+      (candidate) => candidate.url === '/hook/grok/userpromptsubmit',
+    );
+
+    await (route?.handler as (request: unknown, reply: unknown) => Promise<void>)(
+      {
+        body: {
+          sessionId: 'grok-external',
+          hookEventName: 'UserPromptSubmit',
+          prompt: '<user_query>\n逐段审查这个分支\n</user_query>',
+        },
+        headers: {},
+      },
+      replyStub(),
+    );
+
+    expect(events).toMatchObject([
+      {
+        kind: 'message',
+        payload: {
+          role: 'user',
+          text: '逐段审查这个分支',
+          rawText: '<user_query>\n逐段审查这个分支\n</user_query>',
+        },
+      },
+    ]);
   });
 
   it('rejects payloads without the official sessionId field', async () => {
