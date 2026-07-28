@@ -31,7 +31,7 @@ describe('PermissionsView adapter routing', () => {
     expect(screen.getByText('计划模式')).toBeTruthy();
     expect(screen.getByText(/ACP 运行时请求/)).toBeTruthy();
     expect(screen.getByText(/提供方原生控制/)).toBeTruthy();
-    expect(screen.getByText(/不读取 Claude settings\.json/)).toBeTruthy();
+    expect(screen.getByText(/不读取 Claude Code settings\.json/)).toBeTruthy();
     await waitFor(() => {
       expect(scanCwdSettings).not.toHaveBeenCalled();
       expect(scanCodexSettings).not.toHaveBeenCalled();

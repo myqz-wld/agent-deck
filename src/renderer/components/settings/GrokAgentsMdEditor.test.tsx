@@ -33,7 +33,7 @@ describe('GrokAgentsMdEditor', () => {
 
     await waitFor(() => expect(resetGrokAgentsMd).toHaveBeenCalledOnce());
     expect(screen.getByDisplayValue('# bundled')).toBeTruthy();
-    expect(screen.getByText(/不会写入用户级 Grok 配置/)).toBeTruthy();
+    expect(screen.getByText(/不会写入用户级 Grok Build 配置/)).toBeTruthy();
   });
 
   it('does not show restore-default while using the packaged baseline', async () => {

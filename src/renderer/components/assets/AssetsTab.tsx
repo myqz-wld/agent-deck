@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { AssetKind, AssetMeta } from '@shared/types';
 import type { AssetAdapter } from './AdapterSubTab';
-import { AssetCard } from './AssetCard';
+import { ExpandableAssetContent } from './b18/ExpandableAssetContent';
 
 interface Props {
   kind: AssetKind;
@@ -47,7 +47,7 @@ export function AssetsTab({
         ) : (
           <div className="flex flex-col gap-1.5">
             {filteredBundled.map((asset) => (
-              <AssetCard
+              <ExpandableAssetContent
                 key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                 asset={asset}
                 onView={onView}
@@ -70,12 +70,12 @@ export function AssetsTab({
           </div>
           {filteredUser.length === 0 ? (
             <div className="text-[10px] text-deck-muted/60">
-              未发现资产。请通过 {adapter === 'claude-code' ? 'Claude Code' : adapter === 'codex-cli' ? 'Codex CLI' : 'Grok'} 原生配置管理。
+              未发现资产。请通过 {adapter === 'claude-code' ? 'Claude Code' : adapter === 'codex-cli' ? 'Codex CLI' : 'Grok Build'} 原生配置管理。
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
               {filteredUser.map((asset) => (
-                <AssetCard
+                <ExpandableAssetContent
                   key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                   asset={asset}
                   onView={onView}

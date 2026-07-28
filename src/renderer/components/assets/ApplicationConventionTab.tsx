@@ -72,19 +72,19 @@ export function ApplicationConventionTab({
       />
       <ConventionPane adapter={adapter} value="claude-code">
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CLAUDE.md，会随新建的 Claude 会话自动加载。改动只对新建会话生效。
+          Agent Deck 的 CLAUDE.md 会注入新建的 Claude Code 会话，不会改写用户维护的文件。
         </div>
         <ClaudeMdEditor key={resetKeys['claude-code']} onDirtyChange={onClaudeDirty} />
       </ConventionPane>
       <ConventionPane adapter={adapter} value="codex-cli">
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 CODEX_AGENTS.md，会随新建的 Codex 会话自动加载。改动只对新建会话生效。
+          Agent Deck 的 CODEX_AGENTS.md 会注入新建的 Codex CLI 会话，不会改写用户维护的文件。
         </div>
         <CodexAgentsMdEditor key={resetKeys['codex-cli']} onDirtyChange={onCodexDirty} />
       </ConventionPane>
       <ConventionPane adapter={adapter} value="grok-build">
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          应用内置的 GROK_AGENTS.md，通过 ACP 注入新建的 Grok Build 会话。改动只对新建会话生效。
+          Agent Deck 的 GROK_AGENTS.md 会通过 ACP 注入新建的 Grok Build 会话，不会改写用户维护的文件。
         </div>
         <GrokAgentsMdEditor key={resetKeys['grok-build']} onDirtyChange={onGrokDirty} />
       </ConventionPane>

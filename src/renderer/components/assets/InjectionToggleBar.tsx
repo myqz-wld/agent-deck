@@ -43,22 +43,7 @@ const INJECTION_CONFIG: Record<
   },
 };
 
-/**
- * 资产库三 tab 顶部的「资产注入开关」横条（CHANGELOG_69）。
- *
- * 把原 SettingsDialog 三个资产 section（ClaudeMdSection / PluginAssetsSection /
- * CodexInjectionSection）的资产注入 toggle 整体迁来，按 tab 维度分发：
- *
- * - skills tab：claude 端 plugin skills 子目录 + codex 端 skills extraRoot 注入
- * - agents tab：claude 端 plugin agents 子目录 + codex 端 bundled custom agents 解析
- * - claude-md tab：claude 端 system prompt 注入 + codex 端 developerInstructions 注入
- *
- * 设计：
- * - 内置资产注入开关的单一真源在资产库，与设置面板彻底解耦
- * - settings null 时显示 placeholder 不报错（mount 期间 fetch 未回）
- * - busy 期不 disable toggle UI（避免 toggle 在等 IPC 时变灰，体验割裂；
- *   update 内部已有 dedup seq 防止旧响应回写）
- */
+/** Injection settings affect only Agent Deck bundled assets in newly created sessions. */
 export function InjectionToggleBar({
   tab,
   settings,
@@ -86,17 +71,17 @@ export function InjectionToggleBar({
       </div>
       <div className="flex flex-col gap-1.5">
         <Toggle
-          label="注入到 Claude 会话"
+          label="注入到 Claude Code 会话"
           value={settings[config.claudeKey]}
           onChange={(value) => void update({ [config.claudeKey]: value })}
         />
         <Toggle
-          label="注入到 Codex 会话"
+          label="注入到 Codex CLI 会话"
           value={settings[config.codexKey]}
           onChange={(value) => void update({ [config.codexKey]: value })}
         />
         <Toggle
-          label="注入到 Grok 会话"
+          label="注入到 Grok Build 会话"
           value={settings[config.grokKey]}
           onChange={(value) => void update({ [config.grokKey]: value })}
         />

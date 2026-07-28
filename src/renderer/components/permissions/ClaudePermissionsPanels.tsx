@@ -1,4 +1,5 @@
 import { useCallback, useState, type JSX } from 'react';
+import log from '@renderer/utils/logger';
 import type { MergedPermissions, SettingsLayer } from '@shared/types';
 import {
   CheckIcon,
@@ -8,6 +9,16 @@ import {
   InfoIcon,
 } from '../icons';
 import { RawJsonBlock, SOURCE_LABEL, SourceBadge } from './permission-chrome';
+
+const logger = log.scope('renderer-claude-permissions');
+
+function safeErrorKind(reason: unknown): 'function' | 'null' | 'object' | 'primitive' | 'string' {
+  if (reason === null) return 'null';
+  if (typeof reason === 'object') return 'object';
+  if (typeof reason === 'string') return 'string';
+  if (typeof reason === 'function') return 'function';
+  return 'primitive';
+}
 
 export function MergedPanel({ merged }: { merged: MergedPermissions }): JSX.Element {
   const empty =
@@ -20,7 +31,7 @@ export function MergedPanel({ merged }: { merged: MergedPermissions }): JSX.Elem
   return (
     <section className="rounded-md border border-deck-border/60 bg-white/[0.03] p-2">
       <header className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-deck-muted">
-        <span>当前生效规则（按 全局 → 本机 → 项目 → 当前目录 顺序合并）</span>
+        <span>Claude Code 当前生效规则（按全局 → 本机 → 项目 → 当前目录的顺序合并）</span>
         {merged.defaultMode && (
           <span className="text-deck-text/80">
             默认权限模式：<span className="font-mono text-status-working">{merged.defaultMode.value}</span>{' '}
@@ -105,20 +116,38 @@ export function LayerPanel({
   notice?: string;
 }): JSX.Element {
   const [collapsed, setCollapsed] = useState(false);
-  const [openErr, setOpenErr] = useState<string | null>(null);
+  const [openFailed, setOpenFailed] = useState(false);
   const onOpen = useCallback(async () => {
-    setOpenErr(null);
-    const result = await window.api.openPermissionFile(cwd, layer.path);
-    if (!result.ok) setOpenErr(result.reason ?? '打开失败');
-  }, [cwd, layer.path]);
+    setOpenFailed(false);
+    try {
+      const result = await window.api.openPermissionFile(cwd, layer.path);
+      if (result.ok) return;
+      logger.error('permission file open failed', {
+        action: 'open-permission-file',
+        adapter: 'claude-code',
+        source: layer.source,
+        category: 'backend-rejected',
+      });
+      setOpenFailed(true);
+    } catch (reason) {
+      logger.error('permission file open failed', {
+        action: 'open-permission-file',
+        adapter: 'claude-code',
+        source: layer.source,
+        category: 'request-rejected',
+        errorKind: safeErrorKind(reason),
+      });
+      setOpenFailed(true);
+    }
+  }, [cwd, layer.path, layer.source]);
 
   return (
     <section className="rounded-md border border-deck-border/60 bg-white/[0.02]">
-      <header className="flex items-center gap-1.5 px-2 py-1.5">
+      <header className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1.5">
         <button
           type="button"
           onClick={() => setCollapsed((value) => !value)}
-          className="text-deck-muted hover:text-deck-text"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
           title={collapsed ? '展开' : '折叠'}
           aria-label={`${collapsed ? '展开' : '折叠'}${SOURCE_LABEL[layer.source]}`}
           aria-expanded={!collapsed}
@@ -126,7 +155,7 @@ export function LayerPanel({
           {collapsed ? <ChevronRightIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />}
         </button>
         <span className="text-[11px] font-medium text-deck-text">{SOURCE_LABEL[layer.source]}</span>
-        <span className="truncate font-mono text-[10px] text-deck-muted" title={layer.path}>{layer.path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-deck-muted" title={layer.path}>{layer.path}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {layer.exists ? (
             <span className="inline-flex items-center gap-0.5 text-[10px] text-status-working"><CheckIcon className="h-3 w-3" />存在</span>
@@ -136,7 +165,8 @@ export function LayerPanel({
           <button
             type="button"
             onClick={() => void onOpen()}
-            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-deck-text hover:bg-white/15"
+            aria-label={`打开${SOURCE_LABEL[layer.source]}`}
+            className="inline-flex h-11 items-center gap-1 rounded bg-white/10 px-2 text-[10px] text-deck-text hover:bg-white/15"
             title={layer.exists ? '用系统默认应用打开' : '用系统默认应用打开（文件不存在时多数编辑器会创建空文件）'}
           >
             <ExternalLinkIcon className="h-3 w-3" />打开
@@ -149,17 +179,35 @@ export function LayerPanel({
           <InfoIcon className="h-3 w-3 shrink-0" />{notice}
         </div>
       )}
-      {openErr && <div className="border-t border-deck-border/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">打开失败：{openErr}</div>}
+      {openFailed && (
+        <div className="border-t border-deck-border/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">
+          无法打开设置文件，请稍后重试。
+        </div>
+      )}
       {!collapsed && (
         <div className="border-t border-deck-border/40 px-2 py-1.5">
           {!layer.exists ? (
             <div className="text-[10px] text-deck-muted">这层未配置；点「打开」按钮可在编辑器中创建。</div>
           ) : layer.parseError ? (
             <>
-              <div className="mb-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200">JSON 解析失败：{layer.parseError}</div>
-              <RawJsonBlock raw={layer.raw ?? ''} />
+              <div className="mb-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200">
+                JSON 解析失败，请检查该设置文件。
+              </div>
+              <RawJsonBlock
+                raw={layer.raw ?? ''}
+                title={`${SOURCE_LABEL[layer.source]}原文`}
+                sessionId={`claude-code-permissions:${cwd}`}
+                contentId={layer.path}
+              />
             </>
-          ) : <RawJsonBlock raw={layer.raw ?? ''} />}
+          ) : (
+            <RawJsonBlock
+              raw={layer.raw ?? ''}
+              title={`${SOURCE_LABEL[layer.source]}原文`}
+              sessionId={`claude-code-permissions:${cwd}`}
+              contentId={layer.path}
+            />
+          )}
         </div>
       )}
     </section>
