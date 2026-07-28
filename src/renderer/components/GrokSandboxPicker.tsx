@@ -31,7 +31,10 @@ export function GrokSandboxPicker({
   buttonClassName,
   ariaLabel = 'Grok 沙盒请求档位',
 }: Props): JSX.Element {
-  const valueIsCustom = value !== '' && !isGrokBuiltinSandboxProfile(value);
+  const valueIsSelectableBuiltin = profileOptions.some((option) => option.value === value);
+  const valueIsCustom =
+    value !== '' &&
+    (!isGrokBuiltinSandboxProfile(value) || !valueIsSelectableBuiltin);
   const [customActive, setCustomActive] = useState(valueIsCustom);
 
   useEffect(() => {

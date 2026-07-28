@@ -188,11 +188,10 @@ export async function createSessionImpl(
       // resumeThread(id, options) 透传到每次 turn 的 CLI args）。
       //
       // plan §P3 Step 3.5 + §不变量 6: 3 个新字段（approvalPolicy / networkAccessEnabled /
-      // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。caller 缺省 →
-      // approvalPolicy / networkAccessEnabled / additionalDirectories 都不写字段，由 Codex
-      // config / provider default 决定。options-builder 在 reviewer-* 路径下
-      // 已 spread reviewer runtime defaults（approvalPolicy / networkAccessEnabled /
-      // additionalDirectories）,这里直接透传不影响普通 codex session lead 路径。
+      // additionalDirectories）从 opts 读，bridge **不主动 enforce default**。新建 facade
+      // 已把普通 Codex 缺省审批解析为 never；同 adapter spawn/handoff 则传入持久值。
+      // 只有旧的无记录 resume/recovery 仍可省略 approvalPolicy 并交回 Codex config。
+      // reviewer-* 另由 options-builder 补 networkAccessEnabled / additionalDirectories。
       thread = codex.resumeThread(
         effectiveResumeThreadId,
         buildCodexThreadOptions({

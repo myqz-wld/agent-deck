@@ -7,21 +7,21 @@
  * cross-adapter native 改造后,reviewer-claude 不再走 wrapper 路径(claude SDK 子 + Bash
  * 起外部 codex CLI),改 cross-adapter native (claude-code adapter 直起 claude SDK)。
  * 删除 reviewer-claude wrapper 专用 envOverrideExtra: AGENT_DECK_CLAUDE_PATH 注入分支
- * + 对应测试 case (TC9 / TC11)。所有 reviewer-* slot 仍
- * 共享 3 项 reviewer runtime default spread (approvalPolicy / networkAccessEnabled /
- * additionalDirectories)。codexSandbox 走普通 spawn 语义：caller 显式 / same-adapter 继承
+ * + 对应测试 case (TC9 / TC11)。所有 Codex session 共享 `approvalPolicy='never'` 默认；
+ * reviewer-* slot 另加 networkAccessEnabled / additionalDirectories。codexSandbox 走
+ * 普通 spawn 语义：caller 显式 / same-adapter 继承
  * 透传到本 builder,reviewer 分支不再覆盖。
  *
  * 覆盖:
- * - TC8: agentName='reviewer-codex' → 3 项 reviewer runtime default spread
- * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → **不** spread reviewer
- *   runtime default (不变量 6: 普通 session 不被污染)
- * - TC10b: agentName='reviewer-typescript' (非 REVIEWER_AGENT_NAMES) → 同款不 spread
+ * - TC8: agentName='reviewer-codex' → approval 默认 + 2 项 reviewer runtime access
+ * - TC10: agentName=undefined (普通 codex session 用户起的 lead) → approvalPolicy 默认 never，
+ *   不 spread reviewer network/read roots
+ * - TC10b: agentName='reviewer-typescript' (非 REVIEWER_AGENT_NAMES) → 同款行为
  * - TC11b: claude-code adapter narrow 不消费 agentName 字段 (filter 掉 —
  *   narrowToClaudeOpts 不 spread codex default)
  *
- * 3 项 reviewer runtime default:
- *   - approvalPolicy: 'never'
+ * Codex default + 2 项 reviewer runtime access:
+ *   - approvalPolicy: 'never'（所有普通/Reviewer Codex 会话）
  *   - networkAccessEnabled: true
  *   - additionalDirectories: ['<home>/.claude', '<home>/.codex', '/tmp']
  *
@@ -93,7 +93,7 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
     expect(opts.envOverrideExtra).toBeUndefined();
   });
 
-  it('TC10: agentName=undefined (普通 codex session lead) → 不 spread reviewer runtime default (不变量 6 enforce — 普通 session 不被污染)', () => {
+  it('TC10: ordinary Codex defaults approval to never without reviewer access', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'lead chat',
@@ -102,9 +102,8 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
 
     expect(opts.agentId).toBe('codex-cli');
 
-    // **关键 negative**: reviewer runtime default 任一被 spread 都是 bug(污染普通 codex session)
     expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBeUndefined();
+    expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
     expect(opts.envOverrideExtra).toBeUndefined();
@@ -116,13 +115,13 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
       codexSandbox: 'read-only',
     });
     expect(optsWithCallerSandbox.codexSandbox).toBe('read-only');
-    expect(optsWithCallerSandbox.approvalPolicy).toBeUndefined();
-    // 其他 3 default 字段仍不 spread(caller 没明确要 reviewer 行为)
+    expect(optsWithCallerSandbox.approvalPolicy).toBe('never');
+    // reviewer network/read roots 仍不 spread(caller 没明确要 reviewer 行为)
     expect(optsWithCallerSandbox.networkAccessEnabled).toBeUndefined();
     expect(optsWithCallerSandbox.additionalDirectories).toBeUndefined();
   });
 
-  it('TC10b: agentName="some-other-name" 非 REVIEWER_AGENT_NAMES → 同款不 spread', () => {
+  it('TC10b: a non-reviewer Codex agent keeps the ordinary approval default', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'custom agent',
@@ -131,7 +130,7 @@ describe('options-builder narrowToCodexOpts agentName-based default spread (plan
 
     expect(opts.agentId).toBe('codex-cli');
     expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBeUndefined();
+    expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
     expect(opts.envOverrideExtra).toBeUndefined();

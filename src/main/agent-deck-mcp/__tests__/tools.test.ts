@@ -204,6 +204,9 @@ const createSessionCalls: Array<{
   claudeAgentName?: string;
   claudeAgents?: unknown;
   extraAllowWrite?: readonly string[];
+  approvalPolicy?: string;
+  networkAccessEnabled?: boolean;
+  additionalDirectories?: readonly string[];
   awaitCanonicalId?: boolean;
   initialSpawnLink?: { parentSessionId: string; depth: number };
 }> = [];
@@ -237,6 +240,9 @@ vi.mock('@main/adapters/registry', () => ({
           claudeAgentName?: string;
           claudeAgents?: unknown;
           extraAllowWrite?: readonly string[];
+          approvalPolicy?: string;
+          networkAccessEnabled?: boolean;
+          additionalDirectories?: readonly string[];
           awaitCanonicalId?: boolean;
           initialSessionRegistration?: {
             spawnLink: { parentSessionId: string; depth: number };
@@ -263,6 +269,9 @@ vi.mock('@main/adapters/registry', () => ({
             claudeAgentName: opts.claudeAgentName,
             claudeAgents: opts.claudeAgents,
             extraAllowWrite: opts.extraAllowWrite,
+            approvalPolicy: opts.approvalPolicy,
+            networkAccessEnabled: opts.networkAccessEnabled,
+            additionalDirectories: opts.additionalDirectories,
             awaitCanonicalId: opts.awaitCanonicalId,
             initialSpawnLink: opts.initialSessionRegistration?.spawnLink,
           });
@@ -823,7 +832,10 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const description = tools.get('spawn_session').description as string;
     expect(description).toContain('Required fields: adapter, absolute cwd');
     expect(description).toContain('Use provider for a Claude Gateway profile');
-    expect(description).toContain('Provider/model/thinking precedence is explicit value');
+    expect(description).toContain('Explicit runtime values and resolved Agent runtime values win');
+    expect(description).toContain('persisted same-adapter caller');
+    expect(description).toContain('cross-adapter targets use their own defaults');
+    expect(description).toContain('no explicit or inherited approval uses never');
     expect(description).toContain('grokSandbox belongs only to grok-build');
     expect(description).toContain('Managed requirements may override');
     expect(description).toContain('follow hint exactly');
@@ -962,12 +974,15 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'acceptEdits' }]);
   });
 
-  it('same codex adapter spawn inherits caller codex sandbox', async () => {
+  it('same Codex adapter spawn inherits approval, sandbox, network, and read roots', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', {
       cwd: '/repo',
       agentId: 'codex-cli',
       codexSandbox: 'read-only',
+      codexApprovalPolicy: 'on-request',
+      networkAccessEnabled: true,
+      additionalDirectories: ['/shared-read'],
     });
     const r = await tools.get('spawn_session').handler({
       adapter: 'codex-cli',
@@ -979,8 +994,32 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].codexSandbox).toBe('read-only');
+    expect(createSessionCalls[0].approvalPolicy).toBe('on-request');
+    expect(createSessionCalls[0].networkAccessEnabled).toBe(true);
+    expect(createSessionCalls[0].additionalDirectories).toEqual(['/shared-read']);
     expect(createSessionCalls[0].permissionMode).toBeUndefined();
     expect(recordPermCalls).toEqual([]);
+  });
+
+  it('cross-adapter Codex spawn uses target defaults instead of source runtime access', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', {
+      cwd: '/repo',
+      agentId: 'claude-code',
+      permissionMode: 'plan',
+      networkAccessEnabled: true,
+      additionalDirectories: ['/source-only'],
+    });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      cwd: '/repo',
+      prompt: 'cross adapter Codex task',
+      callerSessionId: 'lead',
+    }, {});
+    expect(parseResult(r).isError).toBeFalsy();
+    expect(createSessionCalls[0].approvalPolicy).toBe('never');
+    expect(createSessionCalls[0].networkAccessEnabled).toBeUndefined();
+    expect(createSessionCalls[0].additionalDirectories).toBeUndefined();
   });
 
   it('same Grok adapter spawn inherits its requested native sandbox profile', async () => {

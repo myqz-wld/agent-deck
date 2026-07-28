@@ -18,7 +18,7 @@ Agent Deck selects tools and instructions from the authenticated caller session'
 - If a requested operation is unavailable, explain the missing capability and give the next supported action.
 - Grok's native tools remain owned by Grok Build. Agent Deck adds cross-session MCP tools without replacing the native toolset.
 - Grok ACP tool permissions and the native OS sandbox are separate controls: permissions decide whether a tool may run, while the sandbox limits resources available to an allowed tool.
-- For a `grok-build` target, `grokSandbox` requests the profile used to start its ACP child. Accept built-ins `off`, `workspace`, `devbox`, `read-only`, and `strict`, or a custom profile from user/project `sandbox.toml`; reject Claude/Codex sandbox fields. Omission delegates through Agent Deck defaults to Grok-native configuration. Managed requirements may override the request, so never report it as a verified effective profile.
+- For a `grok-build` target, `grokSandbox` requests the profile used to start its ACP child. Accept built-ins `off`, `workspace`, `devbox`, `read-only`, and `strict`, or a custom profile from user/project `sandbox.toml`; reject Claude/Codex sandbox fields. Explicit values win, omission inherits a persisted same-adapter value, and cross-adapter targets use the Agent Deck Grok default before Grok-native configuration. Managed requirements may override the request, so never report it as a verified effective profile. Renderer pickers list only `read-only`, `workspace`, `off`, and custom profiles; CLI and MCP still accept every native built-in.
 - Image input is capability-negotiated. Accept attachments only when the current ACP session advertises image support; otherwise tell the user that upgrading Grok Build may enable it.
 
 ## In-App Browser
@@ -74,7 +74,7 @@ For complex or isolated changes, keep a durable plan containing the goal, invari
 
 Use Agent Deck's worktree tools when the task needs isolation. Work against the returned absolute path because entering a worktree does not change the current process directory.
 
-`hand_off_session` starts a fresh successor with a provider-neutral continuation context. Call it only after source-side preparation is complete and as the final tool action. A successful result containing a successor session id transfers ownership; end the source turn immediately.
+`hand_off_session` starts a fresh successor with a provider-neutral continuation context. Explicit runtime values win; omitted values inherit the complete persisted same-adapter runtime, while cross-adapter targets use their own defaults. A Codex target with no explicit or inherited approval uses `never`. Call hand-off only after source-side preparation is complete and as the final tool action. A successful result containing a successor session id transfers ownership; end the source turn immediately.
 
 ## Message Anchors And Recovery
 

@@ -26,8 +26,9 @@ export interface SpawnTargetOptionsInput {
   grokAgentName?: string;
   grokAgentSource?: 'bundled' | 'project' | 'user' | 'plugin';
   grokPluginDir?: string;
-  /** Main-only same-adapter inheritance for an internal Codex review fork. */
+  /** Main-only Codex runtime fields absent from the public MCP schema. */
   codexRuntimeAccess?: {
+    approvalPolicy?: 'untrusted' | 'on-request' | 'never';
     networkAccessEnabled?: boolean;
     additionalDirectories?: readonly string[];
   };
@@ -72,6 +73,9 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       : {}),
   });
   if (target.agentId === 'codex-cli' && input.codexRuntimeAccess) {
+    if (input.codexRuntimeAccess.approvalPolicy !== undefined) {
+      target.approvalPolicy = input.codexRuntimeAccess.approvalPolicy;
+    }
     if (input.codexRuntimeAccess.networkAccessEnabled !== undefined) {
       target.networkAccessEnabled = input.codexRuntimeAccess.networkAccessEnabled;
     }
@@ -82,29 +86,26 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
   return target;
 }
 
-/**
- * A native fork inherits the authenticated source thread's non-public Codex runtime controls.
- *
- * These fields are intentionally absent from the public MCP schema. Reviewer defaults already
- * resolved for this target win; otherwise a reviewer that forks itself must not silently become
- * interactive or lose its network/read roots.
- */
-export function inheritCodexForkRuntimeControls(
-  target: CreateSessionOptions,
+export function resolveSpawnCodexRuntimeAccess(
+  adapter: SpawnSessionArgs['adapter'],
+  inherit: boolean,
   source: SessionRecord | null,
-): void {
-  if (
-    target.agentId !== 'codex-cli' ||
-    source?.agentId !== 'codex-cli'
-  ) return;
-  target.approvalPolicy ??= source.codexApprovalPolicy ?? undefined;
-  target.networkAccessEnabled ??= source.networkAccessEnabled ?? undefined;
-  if (
-    (!target.additionalDirectories || target.additionalDirectories.length === 0) &&
-    source.additionalDirectories?.length
-  ) {
-    target.additionalDirectories = [...source.additionalDirectories];
-  }
+  override: SpawnTargetOptionsInput['codexRuntimeAccess'],
+): SpawnTargetOptionsInput['codexRuntimeAccess'] {
+  if (adapter !== 'codex-cli') return undefined;
+  return {
+    approvalPolicy:
+      override?.approvalPolicy ??
+      (inherit ? source?.codexApprovalPolicy ?? undefined : undefined),
+    networkAccessEnabled:
+      override?.networkAccessEnabled ??
+      (inherit ? source?.networkAccessEnabled ?? undefined : undefined),
+    additionalDirectories:
+      override?.additionalDirectories ??
+      (inherit && source?.additionalDirectories?.length
+        ? source.additionalDirectories
+        : undefined),
+  };
 }
 
 function alignActiveClaudeAgentRuntime(

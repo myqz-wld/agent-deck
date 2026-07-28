@@ -52,11 +52,13 @@ permissive.
 
 When creating a Codex session—or starting a new Codex session from an issue—choose its thread-wide
 approval policy: `untrusted`, `on-request`, or `never`. The initial value is resolved from the
-effective Codex configuration (falling back to `on-request`), and Agent Deck forwards the concrete
+effective Codex configuration (falling back to `never`), and Agent Deck forwards the concrete
 selection to Codex app-server and preserves it when the session resumes or recovers.
 
 Approval policy and sandbox access are separate. Choosing `never` stops approval prompts but does
 not widen filesystem or network access; operations outside the selected sandbox fail instead.
+The creation form keeps this distinction in the option tooltips without adding a separate
+description below the picker.
 
 ### Grok Build sandbox profiles
 
@@ -65,10 +67,11 @@ sandbox when creating, handing off, or resolving work in a Grok session. Named c
 from user or project `sandbox.toml` files are also accepted. Existing idle Grok sessions can switch
 profiles without changing their Agent Deck or native session identity.
 
-The global setting defaults to `workspace`. Its settings-page choices are `read-only`, `workspace`,
+The global setting defaults to `workspace`. All renderer pickers list only `read-only`, `workspace`,
 `off`, or a custom profile; legacy unset and `devbox` settings migrate to `workspace`, while
-`strict` migrates to `read-only`. Session-specific controls and
-`agent-deck new --adapter grok-build --grok-sandbox strict` can still request every native profile.
+`strict` migrates to `read-only`. Existing session values remain visible through the custom-profile
+field. CLI and MCP callers, including
+`agent-deck new --adapter grok-build --grok-sandbox strict`, can still request every native profile.
 Agent Deck displays the requested profile because organization-managed requirements may override
 it. Sandbox constraints and ACP tool-permission decisions remain separate. On macOS, Grok
 documents child-network blocking in `read-only` and `strict` as unenforced even though filesystem
@@ -84,6 +87,12 @@ The Agent Deck MCP server provides tools for:
 - plan and diff review;
 - worktree management;
 - session-private in-app browser snapshots, bounded waits, interactions, and visual checks.
+
+For `spawn_session` and `hand_off_session`, explicit runtime controls win. Omitted controls inherit
+the persisted source values only when source and target use the same adapter; cross-adapter targets
+use their own defaults. This includes provider/model/thinking plus adapter-owned permission, work
+mode, sandbox, writable-root, and Codex approval/network/read-root state. When no inherited or
+explicit Codex approval applies, the target defaults to `never`.
 
 These tools give agents a shared collaboration environment while keeping each agent's own runtime and permissions intact.
 

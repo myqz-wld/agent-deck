@@ -236,6 +236,7 @@ describe('NewSessionDialog model options', () => {
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     const approvalPicker = await screen.findByLabelText('审批策略');
+    expect(screen.queryByText(/只控制是否暂停询问/)).toBeNull();
     await waitFor(() => {
       expect(approvalPicker.textContent).toContain('非可信命令前询问');
     });

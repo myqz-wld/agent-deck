@@ -29,7 +29,7 @@ import { buildSpawnPromptContext } from './spawn-prompt';
 import { validateSpawnForkPreflight } from './spawn-fork-preflight';
 import {
   buildSpawnTargetOptions,
-  inheritCodexForkRuntimeControls,
+  resolveSpawnCodexRuntimeAccess,
   setSpawnTargetInitialRegistration,
   setSpawnTargetPrompt,
 } from './spawn-target-options';
@@ -137,15 +137,13 @@ export const spawnSessionHandler = withMcpGuard(
       modelOptions: resolvedModelOptions,
     } = runtimeSelection;
 
-    // Spawn 权限 / 沙盒默认值：
     // - caller 显式传参永远最高优先级；
-    // - caller 与 target adapter 相同才继承 lead 的 permission/sandbox/extra writable roots；
-    // - 跨 adapter spawn 不继承 lead（不同 adapter 的权限/沙盒语义不同），改用 target adapter
-    //   默认值。Claude-family 的应用默认是 bypassPermissions（与 NewSessionDialog /
+    // - 同 adapter 才继承 lead 的 permission/sandbox/approval/network/extra writable roots；
+    // - 跨 adapter 改用 target adapter 默认值。Claude-family 的应用默认是
+    //   bypassPermissions（与 NewSessionDialog /
     //   agent-deck new 默认一致）；sandbox 仍留 undefined 让 target adapter 走 settings 全局默认。
     // 这避免 Codex lead spawn Claude teammate 时把目标落回 Claude SDK 默认 "每次询问"。
     // REVIEW_36 LOW-1：sessionRepo.get 单次反查（旧实现 callerExists / leadRecord 各调一次）。
-    //
     // **REVIEW_49 R1 follow-up LOW**: `callerExists` 控制 caller-scoped side effects 散落 4 处
     // (grep `[caller-scoped #` anchor 定位 — REVIEW_85 INFO reviewer-claude:删内联行号改引 anchor
     // 名,anchor 是 SSOT,内联行号随每次编辑漂移反成维护负担):
@@ -172,6 +170,12 @@ export const spawnSessionHandler = withMcpGuard(
       inherit: shouldInheritAdapterSettings,
       codexSandboxFromAgent,
     });
+    const codexRuntimeAccess = resolveSpawnCodexRuntimeAccess(
+      args.adapter,
+      shouldInheritAdapterSettings,
+      leadRecord,
+      opts?.codexRuntimeAccess,
+    );
 
     // Build once before fork preflight. The provisional prompt is replaced in-place after the
     // normal team/reply context is assembled, preserving fresh dispatch field order and values.
@@ -194,12 +198,11 @@ export const spawnSessionHandler = withMcpGuard(
       grokAgentName: grokAgentNameFromAgent,
       grokAgentSource: grokAgentSourceFromAgent,
       grokPluginDir: grokPluginDirFromAgent,
-      codexRuntimeAccess: opts?.codexRuntimeAccess,
+      codexRuntimeAccess,
     });
 
     let forkSource: ForkSessionSource | null = null;
     if (contextMode === 'fork') {
-      inheritCodexForkRuntimeControls(targetOptions, leadRecord);
       const preflight = await validateSpawnForkPreflight({
         callerSessionId: caller.callerSessionId,
         caller: leadRecord,

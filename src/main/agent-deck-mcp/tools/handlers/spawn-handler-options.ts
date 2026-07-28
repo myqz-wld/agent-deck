@@ -7,6 +7,7 @@ export interface SpawnSessionHandlerOptions {
   hideFromHistory?: boolean;
   /** Trusted same-adapter access fields that are not part of the public MCP schema. */
   codexRuntimeAccess?: {
+    approvalPolicy?: 'untrusted' | 'on-request' | 'never';
     networkAccessEnabled?: boolean;
     additionalDirectories?: readonly string[];
   };
