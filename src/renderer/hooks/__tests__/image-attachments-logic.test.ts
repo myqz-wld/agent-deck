@@ -1,23 +1,18 @@
-/**
- * 图片附件子系统 renderer 纯逻辑回归测试（REVIEW_102 deep-review 补测）。
- *
- * 双 reviewer 命中「零单测」+ 本轮 fix 的几条核心逻辑都该有回归 test：
- * - evictToBudget（useImageBlob）：REVIEW_102 MED-2 条数 + 字节双预算 LRU 驱逐
- * - isAnimatedWebpHeader（useImageAttachments）：REVIEW_102 MED-3 animated WebP 检测
- *
- * 这两个都是不依赖 DOM / React 的纯函数（已 export），node 环境直接测。generationRef race
- * 修法（MED-1）的控制流已由 /tmp/img-med1-fix.mjs 3 场景 sim 实证（hook 行为需 jsdom +
- * react-testing 不在本测试环境，REVIEW_102 记录 sim 铁证）。
- */
+/** Pure attachment cache, animation detection, and sidecar-bound regressions. */
 import { describe, expect, it } from 'vitest';
 import { evictToBudget, type CacheEntry } from '../useImageBlob';
 import { isAnimatedWebpHeader, detectAnimatedWebp } from '../useImageAttachments';
+import {
+  imageAttachmentSidecarStats,
+  resetImageAttachmentSidecarForTests,
+  storeAttachmentPayload,
+} from '../image-attachments/payload-sidecar';
 
 function okEntry(bytes: number, ts: number): CacheEntry {
   return { result: { ok: true, mime: 'image/png', bytes, dataUrl: 'data:image/png;base64,x' }, ts };
 }
 
-describe('evictToBudget（MED-2 条数+字节双预算 LRU）', () => {
+describe('evictToBudget count and byte limits', () => {
   it('连续塞 60 张 27MB 大图 → 字节预算压到 ≤128MB（约 4 张）', () => {
     const cache = new Map<string, CacheEntry>();
     for (let i = 0; i < 60; i++) {
@@ -75,7 +70,7 @@ describe('evictToBudget（MED-2 条数+字节双预算 LRU）', () => {
   });
 });
 
-describe('isAnimatedWebpHeader（MED-3 animated WebP 检测）', () => {
+describe('isAnimatedWebpHeader', () => {
   function webpHeader({ vp8x, anim }: { vp8x: boolean; anim?: boolean }): Uint8Array {
     const b = new Uint8Array(32);
     b.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
@@ -119,7 +114,7 @@ describe('isAnimatedWebpHeader（MED-3 animated WebP 检测）', () => {
   });
 });
 
-describe('detectAnimatedWebp（MED-3 fake File 端到端，含 file.slice().arrayBuffer() async 路径）', () => {
+describe('detectAnimatedWebp File integration', () => {
   function webpFile({ vp8x, anim, tailBytes = 0 }: { vp8x: boolean; anim?: boolean; tailBytes?: number }): File {
     const head = new Uint8Array(32 + tailBytes);
     head.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
@@ -150,5 +145,28 @@ describe('detectAnimatedWebp（MED-3 fake File 端到端，含 file.slice().arra
       type: 'image/png',
     });
     expect(await detectAnimatedWebp(png)).toBe(false);
+  });
+});
+
+describe('full-payload sidecar bounds', () => {
+  it('refuses admission after the bounded payload count without exposing payloads in state', () => {
+    resetImageAttachmentSidecarForTests();
+    for (let index = 0; index < 128; index += 1) {
+      expect(storeAttachmentPayload('session', String(index), {
+        base64: 'c2FmZQ==',
+        mime: 'image/png',
+        bytes: 4,
+      })).toBe(true);
+    }
+    expect(storeAttachmentPayload('session', 'overflow', {
+      base64: 'b3ZlcmZsb3c=',
+      mime: 'image/png',
+      bytes: 8,
+    })).toBe(false);
+    expect(imageAttachmentSidecarStats()).toMatchObject({
+      payloads: 128,
+      sessions: 1,
+    });
+    resetImageAttachmentSidecarForTests();
   });
 });

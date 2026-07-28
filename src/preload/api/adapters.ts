@@ -1,10 +1,4 @@
-/**
- * preload/api/adapters: Adapter 通道相关 IPC facade。
- *
- * 包含会话生命周期（create / interrupt）、消息发送、3 类 pending request 响应
- * （permission / askUserQuestion / exitPlanMode）、permission mode 切换、Codex sandbox
- * next-turn apply、Claude 沙盒冷切，以及 pending request 列表拉取。
- */
+/** Preload facade for runtime sessions, messages, controls, and pending requests. */
 
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
@@ -19,6 +13,7 @@ import type {
   PermissionResponse,
   UploadedAttachmentInput,
   PendingOutgoingMessage,
+  PendingOutgoingAttachmentLoadResult,
   AdapterSessionMode,
   CodexApprovalPolicy,
   SessionCreationDefaults,
@@ -26,7 +21,6 @@ import type {
 } from '@shared/types';
 
 export const adaptersApi = {
-  // Adapter
   listAdapters: (): Promise<Array<{
     id: string;
     displayName: string;
@@ -54,6 +48,19 @@ export const adaptersApi = {
     sessionId: string,
   ): Promise<PendingOutgoingMessage[]> =>
     ipcRenderer.invoke(IpcInvoke.AdapterListPendingOutgoing, agentId, sessionId),
+  loadPendingOutgoingAttachment: (
+    agentId: string,
+    sessionId: string,
+    messageId: string,
+    attachmentId: string,
+  ): Promise<PendingOutgoingAttachmentLoadResult> =>
+    ipcRenderer.invoke(
+      IpcInvoke.AdapterLoadPendingOutgoingAttachment,
+      agentId,
+      sessionId,
+      messageId,
+      attachmentId,
+    ),
   deletePendingOutgoingMessage: (
     agentId: string,
     sessionId: string,
@@ -147,11 +154,7 @@ export const adaptersApi = {
       policy,
     ),
 
-  /**
-   * Codex sandbox 切换。IPC 名称沿用 restartWithCodexSandbox 兼容旧调用方；app-server
-   * Codex 实现不再销毁/重建 thread，而是持久化新档位并让下一次 turn/start 使用新 sandbox。
-   * 失败时主进程已 emit error message + 回滚 sessionRepo.codexSandbox，本接口仅 throw 让 UI catch。
-   */
+  /** Persist the Codex sandbox selection for the next round without interrupting this one. */
   restartWithCodexSandbox: (
     agentId: string,
     sessionId: string,
@@ -166,12 +169,7 @@ export const adaptersApi = {
       handoffPrompt,
     ),
 
-  /**
-   * Claude Code OS 沙盒冷切（CHANGELOG_74）。
-   * SDK 的 sandbox options 是 query() spawn-time 锁定，运行时切档必须冷切（销毁旧 SDK
-   * 子进程 + 用新档位 createSession resume 重建）。adapter 必须
-   * capabilities.canRestartWithClaudeCodeSandbox === true。失败回滚 sessionRepo.claudeCodeSandbox。
-   */
+  /** Restart an idle Claude Code child because its OS sandbox is fixed at spawn time. */
   restartWithClaudeCodeSandbox: (
     agentId: string,
     sessionId: string,
