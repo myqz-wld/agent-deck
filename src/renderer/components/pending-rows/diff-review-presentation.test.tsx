@@ -1,16 +1,78 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { DiffReviewRequest } from '@shared/types';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import type { AgentEvent, DiffReviewRequest } from '@shared/types';
 import {
   DiffIntroCards,
   DiffPresentationPanel,
   buildPrDiffPayload,
 } from './diff-review-presentation';
+import { DiffReviewRow } from './DiffReviewRow';
 
 afterEach(() => cleanup());
 
 describe('diff review presentation', () => {
+  it('keeps every conflict pane and review field lazy but typed in the expanded heavy view', () => {
+    const payload: DiffReviewRequest = {
+      type: 'diff-review',
+      requestId: 'typed-conflict',
+      mode: 'merge-conflict',
+      title: 'Resolve lifecycle conflict',
+      filePath: '/workspace/lifecycle.ts',
+      language: 'typescript',
+      rationale: 'Preserve both lifecycle guarantees.',
+      instructions: 'Verify the suggested result before approval.',
+      annotations: [
+        {
+          pane: 'resolution',
+          line: 1,
+          title: 'Combined guarantee',
+          body: 'The result retains both checks.',
+        },
+      ],
+      conflict: {
+        base: 'base-state',
+        baseLabel: '共同版本',
+        ours: 'local-state',
+        oursLabel: '本地版本',
+        theirs: 'incoming-state',
+        theirsLabel: '传入版本',
+        resolution: 'resolved-state',
+        resolutionLabel: '建议版本',
+      },
+    };
+    render(
+      <DiffPresentationPanel
+        payload={payload}
+        diffPayload={null}
+        sessionId="codex-1"
+      />,
+    );
+
+    expect(screen.queryByText('base-state')).toBeNull();
+    expect(screen.queryByText('resolved-state')).toBeNull();
+    const trigger = screen.getByRole('button', { name: '展开冲突内容' });
+    expect(trigger.className).toContain('h-11');
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: 'Resolve lifecycle conflict' });
+    expect(within(dialog).getByText('Preserve both lifecycle guarantees.')).toBeTruthy();
+    expect(within(dialog).getByText('Verify the suggested result before approval.')).toBeTruthy();
+    expect(within(dialog).getByText('base-state')).toBeTruthy();
+    expect(within(dialog).getByText('local-state')).toBeTruthy();
+    expect(within(dialog).getByText('incoming-state')).toBeTruthy();
+    expect(within(dialog).getByText('resolved-state')).toBeTruthy();
+    expect(within(dialog).getByText('Combined guarantee')).toBeTruthy();
+    expect(dialog.querySelector('[data-expandable-heavy-view="custom"]')).toBeTruthy();
+  });
+
   it('keeps rationale and instructions as separate intro cards', () => {
     render(
       <DiffIntroCards
@@ -93,7 +155,7 @@ describe('diff review presentation', () => {
       },
     };
 
-    const { container } = render(
+    render(
       <DiffPresentationPanel
         payload={payload}
         diffPayload={buildPrDiffPayload(payload)}
@@ -103,8 +165,9 @@ describe('diff review presentation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /展开差异/ }));
 
-    const deletedRows = container.querySelectorAll('[data-diff-tone="deleted"]');
-    const addedRows = container.querySelectorAll('[data-diff-tone="added"]');
+    const dialog = screen.getByRole('dialog', { name: '差异详情' });
+    const deletedRows = dialog.querySelectorAll('[data-diff-tone="deleted"]');
+    const addedRows = dialog.querySelectorAll('[data-diff-tone="added"]');
     expect(deletedRows.length).toBeGreaterThan(0);
     expect(addedRows.length).toBeGreaterThan(0);
     expect(deletedRows[0]?.className).toContain('bg-status-error');
@@ -154,13 +217,80 @@ describe('diff review presentation', () => {
       },
     };
 
-    const { container } = render(
+    render(
       <DiffPresentationPanel payload={payload} diffPayload={null} sessionId="codex-1" />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: /展开冲突/ }));
 
-    const paneBody = container.querySelector('pre');
+    const paneBody = screen
+      .getByRole('dialog', { name: '冲突解决详情' })
+      .querySelector('pre');
     expect(paneBody?.className).toContain('pb-5');
+  });
+});
+
+describe('DiffReviewRow feedback', () => {
+  it('uses multiline feedback, expands the draft, and handles response failure locally', async () => {
+    const payload: DiffReviewRequest = {
+      type: 'diff-review',
+      requestId: 'diff-feedback',
+      mode: 'pr',
+      rationale: 'Review this change.',
+      pr: {
+        before: 'before',
+        after: 'after',
+      },
+    };
+    const event: AgentEvent = {
+      sessionId: 'codex-1',
+      agentId: 'codex-cli',
+      kind: 'waiting-for-user',
+      payload,
+      ts: 1,
+    };
+    const respondDiffReview = vi.fn(async () => {
+      throw new Error('transport details');
+    });
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      writable: true,
+      value: { respondDiffReview } as unknown as Window['api'],
+    });
+    render(
+      <DiffReviewRow
+        event={event}
+        payload={payload}
+        sessionId="codex-1"
+        agentId="codex-cli"
+        isSdk
+        stillPending
+        wasCancelled={false}
+        onResolved={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '提修改意见' }));
+    const feedback = screen.getByLabelText('差异修改意见') as HTMLTextAreaElement;
+    fireEvent.change(feedback, { target: { value: 'First line\nSecond line' } });
+    fireEvent.click(screen.getByRole('button', { name: '展开差异修改意见' }));
+    const expandedFeedback = screen.getByLabelText(
+      '差异修改意见（展开）',
+    ) as HTMLTextAreaElement;
+    expect(expandedFeedback.value)
+      .toBe('First line\nSecond line');
+    fireEvent.keyDown(expandedFeedback, { key: 'Enter' });
+    expect(respondDiffReview).not.toHaveBeenCalled();
+    fireEvent.keyDown(expandedFeedback, { key: 'Enter', metaKey: true });
+
+    await waitFor(() => expect(respondDiffReview).toHaveBeenCalledWith(
+      'codex-cli',
+      'codex-1',
+      'diff-feedback',
+      { decision: 'revise', feedback: 'First line\nSecond line' },
+    ));
+    expect((await screen.findByRole('alert', { hidden: true })).textContent)
+      .toBe('差异响应失败，请确认内容仍在等待后重试。');
+    expect(screen.queryByText('transport details')).toBeNull();
   });
 });

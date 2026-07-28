@@ -1,18 +1,25 @@
-import { Fragment, useState, type JSX } from 'react';
+import { Fragment, type JSX } from 'react';
 import type {
   DiffPayload,
   DiffReviewAnnotation,
   DiffReviewAnnotationPane,
   DiffReviewRequest,
 } from '@shared/types';
+import {
+  ExpandableContent,
+  type ToolContentPayload,
+} from '../expandable-content';
 import { DiffViewer } from '../diff/DiffViewer';
-import { ChevronDownIcon, ChevronUpIcon } from '../icons';
+import {
+  buildPrLineTones,
+  diffLineMarkerClass,
+  diffLineToneClass,
+  splitDisplayLines,
+  type AnnotatedLineTone,
+} from './review-detail/diff-line-tones';
 
 const PRESENTED_DIFF_HEIGHT = 'h-[60vh] min-h-96 max-h-[44rem]';
 const PRESENTED_PANE_MAX_HEIGHT = 'max-h-[44rem]';
-const LCS_CELL_LIMIT = 250_000;
-
-type AnnotatedLineTone = 'added' | 'deleted';
 
 export function DiffIntroCards({
   rationale,
@@ -75,35 +82,93 @@ export function DiffPresentationPanel({
   diffPayload: DiffPayload<string> | null;
   sessionId: string;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
   const size = getPresentationSize(payload);
   const label = payload.mode === 'merge-conflict' ? '冲突内容' : '差异内容';
+  const expandablePayload: ToolContentPayload = {
+    kind: 'tool',
+    toolName: 'present_diff',
+    input: diffReviewStructuredInput(payload),
+    metadata: {
+      mode: payload.mode,
+      filePath: payload.filePath ?? null,
+      language: payload.language ?? null,
+    },
+  };
 
   return (
-    <div className="min-w-0 rounded border border-deck-border/40 bg-black/20 p-2">
-      {expanded ? (
-        <DiffPresentationContent
-          payload={payload}
-          diffPayload={diffPayload}
-          sessionId={sessionId}
-        />
-      ) : (
-        <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/85">
-          {label}已收起
-        </div>
-      )}
-      <div className="mt-1.5 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
-        >
-          {expanded ? <ChevronUpIcon className="mr-1 inline h-3 w-3" /> : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}{expanded ? '收起' : `展开${payload.mode === 'merge-conflict' ? '冲突' : '差异'}（${size} 字）`}
-        </button>
+    <div className="relative min-w-0 rounded border border-deck-border/40 bg-black/20 p-2 pr-12">
+      <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/85">
+        {label}包含 {size} 字
       </div>
+      <ExpandableContent<ToolContentPayload>
+        identity={{
+          sessionId,
+          kind: 'request',
+          requestId: `${payload.requestId}:diff`,
+        }}
+        payload={expandablePayload}
+        title={payload.title ?? (payload.mode === 'merge-conflict' ? '冲突解决详情' : '差异详情')}
+        triggerLabel={`展开${label}`}
+        heavyView={{
+          id: `diff-review-${sessionId}-${payload.requestId}`,
+          kind: payload.mode === 'pr' ? 'monaco' : 'custom',
+          render: () => (
+            <DiffPresentationContent
+              payload={payload}
+              diffPayload={diffPayload}
+              sessionId={sessionId}
+            />
+          ),
+        }}
+      >
+        <DiffIntroCards
+          rationale={payload.rationale}
+          instructions={payload.instructions}
+        />
+      </ExpandableContent>
     </div>
   );
+}
+
+function diffReviewStructuredInput(
+  payload: DiffReviewRequest,
+): ToolContentPayload['input'] {
+  return {
+    type: payload.type,
+    mode: payload.mode,
+    title: payload.title ?? null,
+    filePath: payload.filePath ?? null,
+    language: payload.language ?? null,
+    rationale: payload.rationale,
+    instructions: payload.instructions ?? null,
+    annotations: (payload.annotations ?? []).map((annotation) => ({
+      pane: annotation.pane,
+      line: annotation.line ?? null,
+      title: annotation.title ?? null,
+      body: annotation.body,
+    })),
+    pr: payload.pr
+      ? {
+          before: payload.pr.before,
+          after: payload.pr.after,
+          beforeLabel: payload.pr.beforeLabel ?? null,
+          afterLabel: payload.pr.afterLabel ?? null,
+          unifiedDiff: payload.pr.unifiedDiff ?? null,
+        }
+      : null,
+    conflict: payload.conflict
+      ? {
+          ours: payload.conflict.ours,
+          theirs: payload.conflict.theirs,
+          resolution: payload.conflict.resolution,
+          base: payload.conflict.base ?? null,
+          oursLabel: payload.conflict.oursLabel ?? null,
+          theirsLabel: payload.conflict.theirsLabel ?? null,
+          resolutionLabel: payload.conflict.resolutionLabel ?? null,
+          baseLabel: payload.conflict.baseLabel ?? null,
+        }
+      : null,
+  };
 }
 
 function DiffPresentationContent({
@@ -122,7 +187,7 @@ function DiffPresentationContent({
     }
     return (
       <div className={`${PRESENTED_DIFF_HEIGHT} flex min-w-0 overflow-hidden rounded border border-white/5`}>
-        <DiffViewer payload={diffPayload} sessionId={sessionId} />
+        <DiffViewer payload={diffPayload} sessionId={sessionId} expanded />
       </div>
     );
   }
@@ -398,102 +463,4 @@ function groupAnnotationsByLine(
     grouped.set(line, group);
   }
   return grouped;
-}
-
-function splitDisplayLines(content: string): string[] {
-  if (content === '') return [''];
-  const lines = content.replace(/\r\n/g, '\n').split('\n');
-  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
-  return lines;
-}
-
-function splitComparableLines(content: string): string[] {
-  if (content === '') return [];
-  return splitDisplayLines(content);
-}
-
-function buildPrLineTones(
-  before: string,
-  after: string,
-): { before: Map<number, AnnotatedLineTone>; after: Map<number, AnnotatedLineTone> } {
-  const beforeLines = splitComparableLines(before);
-  const afterLines = splitComparableLines(after);
-  const pairs =
-    beforeLines.length * afterLines.length <= LCS_CELL_LIMIT
-      ? longestCommonLinePairs(beforeLines, afterLines)
-      : prefixSuffixCommonLinePairs(beforeLines, afterLines);
-  const keptBefore = new Set(pairs.map(([beforeIndex]) => beforeIndex));
-  const keptAfter = new Set(pairs.map(([, afterIndex]) => afterIndex));
-  const beforeTones = new Map<number, AnnotatedLineTone>();
-  const afterTones = new Map<number, AnnotatedLineTone>();
-
-  beforeLines.forEach((_line, index) => {
-    if (!keptBefore.has(index)) beforeTones.set(index + 1, 'deleted');
-  });
-  afterLines.forEach((_line, index) => {
-    if (!keptAfter.has(index)) afterTones.set(index + 1, 'added');
-  });
-
-  return { before: beforeTones, after: afterTones };
-}
-
-function longestCommonLinePairs(before: string[], after: string[]): Array<[number, number]> {
-  const dp = Array.from({ length: before.length + 1 }, () =>
-    Array<number>(after.length + 1).fill(0),
-  );
-  for (let i = before.length - 1; i >= 0; i -= 1) {
-    for (let j = after.length - 1; j >= 0; j -= 1) {
-      dp[i][j] =
-        before[i] === after[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    }
-  }
-
-  const pairs: Array<[number, number]> = [];
-  let i = 0;
-  let j = 0;
-  while (i < before.length && j < after.length) {
-    if (before[i] === after[j]) {
-      pairs.push([i, j]);
-      i += 1;
-      j += 1;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      i += 1;
-    } else {
-      j += 1;
-    }
-  }
-  return pairs;
-}
-
-function prefixSuffixCommonLinePairs(before: string[], after: string[]): Array<[number, number]> {
-  const pairs: Array<[number, number]> = [];
-  let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) {
-    pairs.push([start, start]);
-    start += 1;
-  }
-
-  let beforeEnd = before.length - 1;
-  let afterEnd = after.length - 1;
-  const suffix: Array<[number, number]> = [];
-  while (beforeEnd >= start && afterEnd >= start && before[beforeEnd] === after[afterEnd]) {
-    suffix.push([beforeEnd, afterEnd]);
-    beforeEnd -= 1;
-    afterEnd -= 1;
-  }
-  return [...pairs, ...suffix.reverse()];
-}
-
-function diffLineToneClass(tone: AnnotatedLineTone | undefined): string {
-  if (tone === 'added') return 'bg-status-working/[0.10]';
-  if (tone === 'deleted') return 'bg-status-error/[0.10]';
-  return '';
-}
-
-function diffLineMarkerClass(tone: AnnotatedLineTone | undefined): string {
-  if (tone === 'added') return 'text-status-working';
-  if (tone === 'deleted') return 'text-status-error';
-  return 'text-deck-muted/30';
 }

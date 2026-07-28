@@ -23,15 +23,18 @@ import {
   PLAN_QUOTE_ARIA_SHORTCUT, PLAN_QUOTE_SHORTCUT, isPlanQuoteShortcut,
   quotedPlanText, selectedTextWithin,
 } from './plan-quote-selection';
+import { useReviewDialogFocus } from './review-detail/use-review-dialog-focus';
 
 const logger = log.scope('renderer-plan-deep-review');
 const EMPTY_EVENTS: AgentEvent[] = [];
 
 interface Props {
   open: boolean;
+  sourceAgentId: string;
   sourceSessionId: string;
   request: ExitPlanModeRequest;
   decisionBusy: boolean;
+  decisionError?: string | null;
   onClose: () => void;
   onApprove: () => Promise<boolean>;
   onRevise: (feedback?: string) => Promise<boolean>;
@@ -39,9 +42,11 @@ interface Props {
 
 export function PlanDeepReviewDialog({
   open,
+  sourceAgentId,
   sourceSessionId,
   request,
   decisionBusy,
+  decisionError,
   onClose,
   onApprove,
   onRevise,
@@ -71,10 +76,7 @@ export function PlanDeepReviewDialog({
   const questionRef = useRef<HTMLTextAreaElement>(null);
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
   const busyRef = useRef(false);
-  const closeBlockedRef = useRef(false);
-  const quoteMenuOpenRef = useRef(false);
   const operationRef = useRef<'question' | 'feedback' | 'decision' | null>(null);
   const patchExistingDraft = usePlanDeepReviewStore((state) => state.patchExistingDraft);
   const setRecentEvents = useSessionStore((state) => state.setRecentEvents);
@@ -83,75 +85,19 @@ export function PlanDeepReviewDialog({
   );
   const busy = decisionBusy || localDecisionBusy || feedbackDraftBusy || questionBusy;
   const closeBlocked = decisionBusy || localDecisionBusy;
-  onCloseRef.current = onClose;
   busyRef.current = busy;
-  closeBlockedRef.current = closeBlocked;
-  quoteMenuOpenRef.current = quoteMenu !== null;
 
-  useEffect(() => {
-    if (!open) return;
-    const dialog = dialogRef.current;
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    const background = [...document.body.children]
-      .filter((node): node is HTMLElement => node instanceof HTMLElement && node !== dialog)
-      .map((node) => ({
-        node,
-        ariaHidden: node.getAttribute('aria-hidden'),
-        inert: node.inert,
-      }));
-    for (const { node } of background) {
-      node.inert = true;
-      node.setAttribute('aria-hidden', 'true');
-    }
-    closeButtonRef.current?.focus();
-
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (quoteMenuOpenRef.current && (event.key === 'Escape' || event.key === 'Tab')) {
-        event.preventDefault();
-        event.stopPropagation();
-        const focusTarget = event.key === 'Escape'
-          ? planRef.current
-          : event.shiftKey ? closeButtonRef.current : questionRef.current;
-        setQuoteMenu(null);
-        requestAnimationFrame(() => focusTarget?.focus());
-        return;
-      }
-      if (event.key === 'Escape') {
-        if (!closeBlockedRef.current) onCloseRef.current();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialog) return;
-      const focusable = [...dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )].filter((node) => !node.hidden && node.getAttribute('aria-hidden') !== 'true');
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = focusable[0]!;
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    dialog?.addEventListener('keydown', onKeyDown);
-    return () => {
-      dialog?.removeEventListener('keydown', onKeyDown);
-      for (const { node, ariaHidden, inert } of background) {
-        node.inert = inert;
-        if (ariaHidden === null) node.removeAttribute('aria-hidden');
-        else node.setAttribute('aria-hidden', ariaHidden);
-      }
-      previousFocus?.focus();
-    };
-  }, [open]);
+  useReviewDialogFocus({
+    open,
+    dialogRef,
+    closeButtonRef,
+    planRef,
+    questionRef,
+    closeBlocked,
+    quoteMenuOpen: quoteMenu !== null,
+    onClose,
+    closeQuoteMenu: () => setQuoteMenu(null),
+  });
 
   useEffect(() => {
     const node = conversationRef.current;
@@ -250,12 +196,18 @@ export function PlanDeepReviewDialog({
       await window.api.askPlanDeepReview(sourceSessionId, request.requestId, submittedText);
       patchExistingDraft(request.requestId, { startError: null });
     } catch (error) {
-      logger.error('askPlanDeepReview failed', error);
+      logger.error('plan deep-review question failed', {
+        action: 'askPlanDeepReview',
+        agentId: sourceAgentId,
+        sourceSessionId,
+        requestId: request.requestId,
+        error,
+      });
       patchExistingDraft(request.requestId, {
         question: text,
         planQuotes: submittedQuotes,
         ...(!forkReady
-          ? { startError: '无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。' }
+          ? { startError: '无法创建隔离的审阅会话。请稍后重试。' }
           : {}),
         questionError: '问题发送失败，请确认计划仍在等待审阅后重试。',
       });
@@ -293,7 +245,13 @@ export function PlanDeepReviewDialog({
         feedbackDraftGenerated: true,
       }));
     } catch (error) {
-      logger.error('generatePlanDeepReviewFeedback failed', error);
+      logger.error('plan deep-review feedback generation failed', {
+        action: 'generatePlanDeepReviewFeedback',
+        agentId: sourceAgentId,
+        sourceSessionId,
+        requestId: request.requestId,
+        error,
+      });
       patchExistingDraft(request.requestId, {
         feedbackDraftError: '意见草稿生成失败，请重试或手动填写。',
       });
@@ -339,14 +297,14 @@ export function PlanDeepReviewDialog({
     <div
       ref={dialogRef}
       tabIndex={-1}
-      className="fixed inset-0 z-[70] flex flex-col bg-black/70 backdrop-blur-sm"
+      className="no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-deck-bg-strong text-deck-text shadow-2xl outline-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="plan-deep-review-title"
       aria-describedby="plan-deep-review-description"
     >
-      <div className="no-drag flex min-h-0 flex-1 flex-col bg-[#141418]">
-        <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-deck-border py-2 pl-[78px] pr-4">
+      <div className="flex min-h-0 flex-1 flex-col bg-[#141418]">
+        <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border py-2 pl-[78px] pr-3 sm:pr-4">
           <div className="mr-auto min-w-0">
             <h2 id="plan-deep-review-title" className="text-[13px] font-semibold text-deck-text">
               计划深度审阅
@@ -366,7 +324,7 @@ export function PlanDeepReviewDialog({
                 ? '关闭窗口；正在进行的审阅会继续'
                 : '关闭深度审阅'
             }
-            className="ml-1 flex h-6 w-6 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text disabled:opacity-40"
+            className="ml-1 flex h-11 w-11 touch-manipulation items-center justify-center rounded-md text-deck-muted hover:bg-white/10 hover:text-deck-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-status-working disabled:opacity-40"
           >
             <CloseIcon className="h-4 w-4" />
           </button>
@@ -394,7 +352,7 @@ export function PlanDeepReviewDialog({
               onKeyUp={captureSelection}
               className="select-text rounded-lg border border-deck-border/60 bg-black/20 p-4 text-[12px] leading-relaxed"
             >
-              <MemoizedMarkdownText text={request.plan || '(计划内容为空)'} />
+              <MemoizedMarkdownText text={request.plan || '（计划内容为空）'} />
             </div>
           </section>
 
@@ -469,7 +427,7 @@ export function PlanDeepReviewDialog({
           canGenerate
           generating={feedbackDraftBusy}
           generated={feedbackDraftGenerated}
-          error={feedbackDraftError}
+          error={feedbackDraftError ?? decisionError ?? null}
           onFeedbackChange={(value) => {
             patchDraft(request.requestId, {
               feedback: value,

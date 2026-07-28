@@ -42,6 +42,7 @@ function renderDialog(props: Partial<Parameters<typeof PlanDeepReviewDialog>[0]>
   const view = render(
     <PlanDeepReviewDialog
       open
+      sourceAgentId="codex-cli"
       sourceSessionId="source"
       request={request}
       decisionBusy={false}
@@ -96,8 +97,9 @@ describe('PlanDeepReviewDialog', () => {
     trigger.focus();
     const { onClose, unmount } = renderDialog();
 
+    const dialog = screen.getByRole('dialog', { name: '计划深度审阅' });
     const close = screen.getByRole('button', { name: '关闭深度审阅' });
-    expect(document.activeElement).toBe(close);
+    expect(document.activeElement).toBe(dialog);
     expect(trigger.inert).toBe(true);
     expect(trigger.getAttribute('aria-hidden')).toBe('true');
 
@@ -112,7 +114,7 @@ describe('PlanDeepReviewDialog', () => {
     expect(document.activeElement).toBe(approve);
 
     fireEvent.keyDown(close, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     unmount();
     expect(document.activeElement).toBe(trigger);
     expect(trigger.inert).toBe(false);
@@ -279,6 +281,9 @@ describe('PlanDeepReviewDialog', () => {
     expect(within(footer).getByRole('button', { name: '继续修改' })).toBeTruthy();
     expect(within(footer).getByRole('button', { name: '批准计划' })).toBeTruthy();
     expect(within(footer).getByRole('button', { name: '根据上下文生成意见' })).toBeTruthy();
+    expect(within(footer).getByText(
+      '可以手动填写，也可以先生成草稿；提交前请检查内容。',
+    )).toBeTruthy();
   });
 
   it('generates an editable feedback draft and waits for explicit confirmation', async () => {
@@ -465,7 +470,7 @@ describe('PlanDeepReviewDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送问题' }));
 
     expect(await screen.findByText(
-      '无法创建隔离的原生 fork。请等待当前会话到达安全边界后重试。',
+      '无法创建隔离的审阅会话。请稍后重试。',
     )).toBeTruthy();
     expect((question as HTMLTextAreaElement).value).toBe('Trigger the fork.');
     expect(screen.queryByText(/contextMode "fresh"/)).toBeNull();

@@ -6,6 +6,11 @@ import {
   buildPrDiffPayload,
 } from './diff-review-presentation';
 import log from '@renderer/utils/logger';
+import { ExpandableFeedbackField } from './review-detail/ExpandableFeedbackField';
+import {
+  RowResponseError,
+  useRowResponseState,
+} from './review-detail/row-response-state';
 
 const logger = log.scope('renderer-diff-review-row');
 
@@ -28,7 +33,7 @@ export function DiffReviewRow({
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
 }): JSX.Element {
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useRowResponseState(payload.requestId);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
@@ -36,14 +41,25 @@ export function DiffReviewRow({
 
   const respond = async (response: DiffReviewResponse): Promise<void> => {
     if (!isSdk || !stillPending || busy) return;
-    setBusy(true);
-    try {
-      await window.api.respondDiffReview(agentId, sessionId, payload.requestId, response);
+    const result = await run(
+      () => window.api.respondDiffReview(
+        agentId,
+        sessionId,
+        payload.requestId,
+        response,
+      ),
+      '差异响应失败，请确认内容仍在等待后重试。',
+    );
+    if (result.ok) {
       onResolved(sessionId, payload.requestId);
-    } catch (err) {
-      logger.error('respondDiffReview failed', err);
-    } finally {
-      setBusy(false);
+    } else if (result.error) {
+      logger.error('diff review response failed', {
+        action: 'respondDiffReview',
+        agentId,
+        sessionId,
+        requestId: payload.requestId,
+        error: result.error,
+      });
     }
   };
 
@@ -55,8 +71,12 @@ export function DiffReviewRow({
     void respond({ decision: 'revise', feedback: feedback.trim() || undefined });
   };
 
-  const onFeedbackKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+  const onFeedbackKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (
+      e.key !== 'Enter'
+      || (!e.metaKey && !e.ctrlKey)
+      || e.nativeEvent.isComposing
+    ) return;
     e.preventDefault();
     void respond({ decision: 'revise', feedback: feedback.trim() || undefined });
   };
@@ -131,21 +151,26 @@ export function DiffReviewRow({
       </div>
 
       {stillPending && isSdk && showFeedback && (
-        <input
-          type="text"
-          autoFocus
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          onKeyDown={onFeedbackKeyDown}
-          placeholder="反馈可选；按 Enter 或再次点击“提修改意见”提交"
-          disabled={busy}
-          className="mb-1.5 h-7 w-full rounded border border-deck-border bg-white/[0.04] px-2 text-[10px] text-deck-text outline-none placeholder:text-deck-muted/70 focus:border-white/20 disabled:opacity-50"
-        />
+        <div className="mb-1.5">
+          <ExpandableFeedbackField
+            sessionId={sessionId}
+            requestId={payload.requestId}
+            fieldId="diff-feedback"
+            label="差异修改意见"
+            autoFocus
+            value={feedback}
+            onChange={setFeedback}
+            onKeyDown={onFeedbackKeyDown}
+            placeholder="反馈可选；按 ⌘/Ctrl+Enter 或再次点击“提修改意见”提交"
+            disabled={busy}
+          />
+        </div>
       )}
 
       <DiffIntroCards rationale={payload.rationale} instructions={payload.instructions} />
 
       <DiffPresentationPanel payload={payload} diffPayload={diffPayload} sessionId={sessionId} />
+      <RowResponseError>{error}</RowResponseError>
 
       {!isSdk && (
         <div className="mt-1.5 text-[10px] text-deck-muted">

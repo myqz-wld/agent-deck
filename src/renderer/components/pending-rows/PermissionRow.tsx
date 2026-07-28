@@ -1,18 +1,161 @@
-import { useState, type JSX } from 'react';
+import { useMemo, type JSX } from 'react';
 import type { AgentEvent, PermissionRequest } from '@shared/types';
+import {
+  ExpandableContent,
+  type StructuredContentValue,
+  type ToolContentPayload,
+} from '../expandable-content';
 import { DiffViewer } from '../diff/DiffViewer';
+import log from '@renderer/utils/logger';
 import { toolInputToDiff } from './tool-input-diff';
+import {
+  RowResponseError,
+  useRowResponseState,
+} from './review-detail/row-response-state';
 
-/**
- * 权限请求行（内嵌按钮 + diff）。
- *
- * 接口：(event, payload, sessionId, agentId, isSdk, stillPending, wasCancelled, onResolved)
- * - event 仅用于显示时间戳（event.ts）
- * - stillPending=true 时仍可响应；false 时按钮区域降级为「已响应 / 已取消」
- * - wasCancelled=true 区分「SDK 主动取消」与「用户已响应」
- * - onResolved 由调用方提供（store.resolveX(sessionId, requestId) 同款），Row 内部
- *   调 window.api.respondPermission 完成响应后调用
- */
+const logger = log.scope('renderer-permission-row');
+const MAX_STRUCTURED_DEPTH = 6;
+const MAX_STRUCTURED_ENTRIES = 80;
+const MAX_STRUCTURED_NODES = 600;
+const MAX_STRUCTURED_STRING = 4_000;
+
+interface NormalizeBudget {
+  remainingNodes: number;
+  ancestors: WeakSet<object>;
+}
+
+function truncateStructuredText(value: string): string {
+  if (value.length <= MAX_STRUCTURED_STRING) return value;
+  return `${value.slice(0, MAX_STRUCTURED_STRING)}…[已截断 ${value.length - MAX_STRUCTURED_STRING} 字]`;
+}
+
+function objectKind(value: object): string {
+  try {
+    return Object.prototype.toString.call(value).slice(8, -1) || '对象';
+  } catch {
+    return '对象';
+  }
+}
+
+function normalizeStructuredValue(
+  value: unknown,
+  depth: number,
+  budget: NormalizeBudget,
+): StructuredContentValue {
+  if (budget.remainingNodes <= 0) {
+    return `[已截断：内容超过 ${MAX_STRUCTURED_NODES} 个节点]`;
+  }
+  budget.remainingNodes -= 1;
+  if (value === null) return null;
+  if (typeof value === 'string') return truncateStructuredText(value);
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : `[非 JSON 数值：${String(value)}]`;
+  }
+  if (typeof value === 'bigint') {
+    return `[非 JSON 值：BigInt（${truncateStructuredText(value.toString())}）]`;
+  }
+  if (value === undefined) return '[非 JSON 值：undefined]';
+  if (typeof value === 'symbol') return '[非 JSON 值：Symbol]';
+  if (typeof value === 'function') return '[非 JSON 值：function]';
+  if (depth >= MAX_STRUCTURED_DEPTH) {
+    return `[已截断：嵌套层级超过 ${MAX_STRUCTURED_DEPTH}]`;
+  }
+
+  const objectValue = value as object;
+  if (budget.ancestors.has(objectValue)) return '[无法展开：循环引用]';
+  budget.ancestors.add(objectValue);
+  try {
+    let isArray = false;
+    try {
+      isArray = Array.isArray(objectValue);
+    } catch {
+      return '[无法展开：对象类型读取失败]';
+    }
+    if (isArray) {
+      let length = 0;
+      try {
+        length = (objectValue as unknown[]).length;
+      } catch {
+        return '[无法展开：数组长度读取失败]';
+      }
+      const visibleLength = Math.min(length, MAX_STRUCTURED_ENTRIES);
+      const normalized: StructuredContentValue[] = [];
+      for (let index = 0; index < visibleLength; index += 1) {
+        try {
+          normalized.push(normalizeStructuredValue(
+            (objectValue as unknown[])[index],
+            depth + 1,
+            budget,
+          ));
+        } catch {
+          normalized.push('[无法展开：数组项读取失败]');
+        }
+      }
+      if (length > visibleLength) {
+        normalized.push(`[已截断：另有 ${length - visibleLength} 项]`);
+      }
+      return normalized;
+    }
+
+    let keys: string[];
+    try {
+      keys = Object.keys(objectValue);
+    } catch {
+      return '[无法展开：对象字段读取失败]';
+    }
+    if (keys.length === 0) {
+      try {
+        const prototype = Object.getPrototypeOf(objectValue);
+        if (prototype !== Object.prototype && prototype !== null) {
+          return `[非 JSON 对象：${objectKind(objectValue)}]`;
+        }
+      } catch {
+        return '[无法展开：对象原型读取失败]';
+      }
+    }
+    const normalized = Object.create(null) as Record<string, StructuredContentValue>;
+    const visibleKeys = keys.slice(0, MAX_STRUCTURED_ENTRIES);
+    visibleKeys.forEach((key, index) => {
+      const displayKey = key.length <= 160 ? key : `${key.slice(0, 160)}…#${index + 1}`;
+      try {
+        normalized[displayKey] = normalizeStructuredValue(
+          (objectValue as Record<string, unknown>)[key],
+          depth + 1,
+          budget,
+        );
+      } catch {
+        normalized[displayKey] = '[无法展开：字段读取失败]';
+      }
+    });
+    if (keys.length > visibleKeys.length) {
+      normalized['…'] = `[已截断：另有 ${keys.length - visibleKeys.length} 个字段]`;
+    }
+    return normalized;
+  } finally {
+    budget.ancestors.delete(objectValue);
+  }
+}
+
+function normalizeToolInput(value: unknown): StructuredContentValue {
+  try {
+    return normalizeStructuredValue(value, 0, {
+      remainingNodes: MAX_STRUCTURED_NODES,
+      ancestors: new WeakSet(),
+    });
+  } catch {
+    return '[无法显示：工具输入归一化失败]';
+  }
+}
+
+function formatStructuredInput(value: StructuredContentValue): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? '"[无法显示：工具输入为空]"';
+  } catch {
+    return '"[无法显示：结构化工具输入序列化失败]"';
+  }
+}
+
 export function PermissionRow({
   event,
   payload,
@@ -22,6 +165,7 @@ export function PermissionRow({
   stillPending,
   wasCancelled,
   onResolved,
+  externalError,
 }: {
   event: AgentEvent;
   payload: PermissionRequest;
@@ -31,30 +175,51 @@ export function PermissionRow({
   stillPending: boolean;
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
+  externalError?: string | null;
 }): JSX.Element {
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useRowResponseState(payload.requestId);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
-  const diff = toolInputToDiff(payload.toolName, payload.toolInput);
+  const normalizedInput = useMemo(
+    () => normalizeToolInput(payload.toolInput),
+    [payload.toolInput],
+  );
+  const diff = useMemo(
+    () => toolInputToDiff(payload.toolName, normalizedInput),
+    [normalizedInput, payload.toolName],
+  );
+  const expandablePayload: ToolContentPayload = {
+    kind: 'tool',
+    toolName: payload.toolName,
+    input: normalizedInput,
+    metadata: {
+      hasSuggestedPermission: Boolean(payload.suggestions),
+    },
+  };
 
   const respond = async (decision: 'allow' | 'deny', alwaysAllow = false): Promise<void> => {
     if (!isSdk || !stillPending) return;
-    setBusy(true);
-    try {
-      await window.api.respondPermission(agentId, sessionId, payload.requestId, {
+    const result = await run(
+      () => window.api.respondPermission(agentId, sessionId, payload.requestId, {
         decision,
         message: decision === 'deny' ? '用户拒绝' : undefined,
         updatedInput: decision === 'allow' ? payload.toolInput : undefined,
         updatedPermissions: alwaysAllow ? payload.suggestions : undefined,
-      });
+      }),
+      '授权响应失败，请确认请求仍在等待后重试。',
+    );
+    if (result.ok) {
       onResolved(sessionId, payload.requestId);
-    } finally {
-      setBusy(false);
+    } else if (result.error) {
+      logger.error('permission response failed', {
+        action: 'respondPermission',
+        agentId,
+        sessionId,
+        requestId: payload.requestId,
+        error: result.error,
+      });
     }
   };
 
-  // 三态：等待中 / 已被 SDK 取消 / 已响应（用户主动 allow|deny）
-  // 「已取消」整张更暗（opacity-50），左侧细色条提示这条是 SDK 放弃的，不是用户操作；
-  // 「已响应」保持原样的 70% 透明 + 中性灰描边（用户已经处理过的痕迹，不强调）
   const settled = !stillPending;
   const cardClass = stillPending
     ? 'border-status-waiting/40 bg-status-waiting/10'
@@ -109,15 +274,43 @@ export function PermissionRow({
           </div>
         )}
       </div>
-      {diff ? (
-        <div className="h-72 overflow-hidden rounded border border-white/5">
-          <DiffViewer payload={diff} sessionId={sessionId} />
+      <div className="relative min-h-14 rounded border border-deck-border/40 bg-black/20 p-2 pr-12">
+        <div className="text-[10px] leading-relaxed text-deck-muted">
+          {diff
+            ? `此请求包含${diff.kind === 'image' ? '图片' : '文件'}差异，展开后查看完整内容。`
+            : '此请求包含结构化工具输入，展开后查看完整内容。'}
         </div>
-      ) : (
-        <pre className="max-h-24 max-w-full overflow-auto scrollbar-deck rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted">
-          {JSON.stringify(payload.toolInput, null, 2)}
-        </pre>
-      )}
+        <ExpandableContent<ToolContentPayload>
+          identity={{
+            sessionId,
+            kind: 'request',
+            requestId: `${payload.requestId}:permission`,
+          }}
+          payload={expandablePayload}
+          title={`权限请求 · ${payload.toolName}`}
+          triggerLabel="展开权限请求内容"
+          heavyView={diff
+            ? {
+                id: `permission-${sessionId}-${payload.requestId}`,
+                kind: diff.kind === 'image' ? 'image-diff' : 'monaco',
+                render: () => (
+                  <div className="flex min-h-[60vh] flex-1 overflow-hidden rounded border border-white/5">
+                    <DiffViewer payload={diff} sessionId={sessionId} expanded />
+                  </div>
+                ),
+              }
+            : undefined}
+        >
+          {!diff
+            ? ({ payload: expandedPayload }) => (
+                <pre className="max-w-full overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-3 text-xs leading-relaxed text-deck-text">
+                  {formatStructuredInput(expandedPayload.input)}
+                </pre>
+              )
+            : null}
+        </ExpandableContent>
+      </div>
+      <RowResponseError>{externalError ?? error}</RowResponseError>
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口授权</div>
       )}

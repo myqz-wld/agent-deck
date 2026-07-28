@@ -1,4 +1,11 @@
-import { useMemo, useState, type JSX, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type JSX,
+  type MouseEvent,
+} from 'react';
 import type { AgentEvent } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectPendingBuckets, type PendingBucket } from '@renderer/lib/session-selectors';
@@ -6,25 +13,13 @@ import { deriveTeamRole } from '@renderer/lib/derive-team-role';
 import { StatusBadge } from './StatusBadge';
 import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from './pending-rows';
 import { CheckIcon, ChevronRightIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIcon } from './icons';
+import log from '@renderer/utils/logger';
 
 /**
- * 集中「待处理」面板。把所有有未响应请求的会话按 section 平铺，用户在此一屏完成
- * 跨会话的权限 / 提问 / 计划批准操作，不必逐个进 SessionDetail。
- *
- * 数据：纯派生于 store 的 sessions / 三张 pending Map（selectPendingBuckets），
- * 不引入任何 main 端调用。响应仍走三个 Row 内置的 window.api.respondX → 主进程的
- * sdk-bridge.respondPermission/AskUserQuestion/ExitPlanMode → SDK canUseTool
- * resolver。
- *
- * 与 ActivityFeed 的关系：完整复用同一套 PermissionRow / AskRow / ExitPlanRow
- * 组件（diff / 选项 / markdown 都保留）。stillPending 永远 true（来源就是当前
- * pending Map），wasCancelled 永远 false（取消事件已让 store 删 Map 项）。
- *
- * 视觉：每会话一个 section，header 整行可点击跳到 SessionDetail；right side 提供
- * 「全部允许」「全部拒绝」批量按钮（仅作用于 PermissionRequest；ExitPlanModeRequest
- * / AskUserQuestion 必须人审，不参与批量——plan 模式逐条在 ExitPlanRow 内点
- * 「批准并切到 X」/「继续规划」/「⚠️ 不再询问」，ask 逐条在 AskRow 内回答选项）。
+ * Central pending surface. It reuses the same request rows as the activity
+ * feed; only permission requests participate in the serial batch actions.
  */
+const logger = log.scope('renderer-pending-tab');
 
 interface Props {
   onOpenSession: (sid: string) => void;
@@ -95,23 +90,26 @@ function PendingSection({
   const isSdk = session.source === 'sdk';
   const ts = session.lastEventAt;
 
-  // 批量按钮只作用于 PermissionRequest；plan / ask 跟 ask 一样必须逐条处理 —
-  // 详见顶部 doc 注释。batchableCount 唯一来源即 permissions.length。
   const batchableCount = permissions.length;
   const askCount = askQuestions.length;
   const [batchBusy, setBatchBusy] = useState(false);
+  const [batchFailure, setBatchFailure] = useState<{
+    requestId: string;
+    message: string;
+  } | null>(null);
+  const batchOperationRef = useRef(0);
+  const mountedRef = useRef(true);
   const batchDisabled = batchableCount === 0 || !isSdk || batchBusy;
 
-  // plan team-cohesion-fix-20260513 Phase D：team chip + role badge（与 SessionCard 同款风格）。
-  // session.teams 由 sessionManager.enrichWithTeams 在 IPC 桥点统一注入（Phase A），
-  // teammate / lead role 直接来自 universal team backend membership 表 — 不依赖 SessionList 的
-  // spawnedBy visibility 判定（PendingTab 平铺无 tree context）。multi-team 共享时 chip 显
-  // teams[0]，hover title 列完整 team 列表。
-  //
-  // plan session-list-handoff-role-badge-20260526 (v4 §D4): teamRole 改走 deriveTeamRole shared
-  // util 与 SessionList 对齐「任一 lead 优先」语义 (单 team 行为与原 primaryTeam?.role 一致;
-  // mixed lead+teammate 升级显 lead 是 plan §HIGH-1 设计意图)。chip / hover title 文案保持
-  // 原样 (teamRole 改 source 不改 visual)。
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      batchOperationRef.current += 1;
+    };
+  }, []);
+
+  // Team role uses the shared any-lead-wins derivation used by the session list.
   const primaryTeam = session.teams?.[0];
   const displayTeamName = primaryTeam?.teamName ?? null;
   const teamCount = session.teams?.length ?? 0;
@@ -131,44 +129,62 @@ function PendingSection({
         : '仅剩需要逐项处理的计划或问题'
       : `批量响应 ${permissions.length} 项权限请求${
           exitPlanModes.length + askCount + diffReviews.length > 0
-            ? `；${exitPlanModes.length} 项计划确认 + ${askCount} 个问题 + ${diffReviews.length} 项差异展示需要逐条处理`
+            ? `；${exitPlanModes.length} 项计划确认、${askCount} 个问题、${diffReviews.length} 项差异展示需要逐条处理`
             : ''
         }`;
 
-  const onBatchAllow = async (e: MouseEvent): Promise<void> => {
-    e.stopPropagation();
+  const respondBatch = async (
+    event: MouseEvent,
+    decision: 'allow' | 'deny',
+  ): Promise<void> => {
+    event.stopPropagation();
     if (batchDisabled) return;
+    const operation = ++batchOperationRef.current;
     setBatchBusy(true);
-    try {
-      // 串行响应避免主进程并发 race；resolvePermission 同步删 store 的 pending 列表，
-      // 下一帧 useMemo 重算让 row 逐条消失（动画感）。ExitPlanMode / AskUserQuestion
-      // 不参与批量 — 详见顶部 doc 注释。
-      for (const req of permissions) {
-        await window.api.respondPermission(session.agentId, session.id, req.requestId, {
-          decision: 'allow',
-          updatedInput: req.toolInput,
-        });
-        resolvePermission(session.id, req.requestId);
-      }
-    } finally {
-      setBatchBusy(false);
-    }
-  };
-
-  const onBatchDeny = async (e: MouseEvent): Promise<void> => {
-    e.stopPropagation();
-    if (batchDisabled) return;
-    setBatchBusy(true);
+    setBatchFailure(null);
     try {
       for (const req of permissions) {
-        await window.api.respondPermission(session.agentId, session.id, req.requestId, {
-          decision: 'deny',
-          message: '用户批量拒绝',
-        });
-        resolvePermission(session.id, req.requestId);
+        try {
+          await window.api.respondPermission(session.agentId, session.id, req.requestId, {
+            decision,
+            message: decision === 'deny' ? '用户批量拒绝' : undefined,
+            updatedInput: decision === 'allow' ? req.toolInput : undefined,
+          });
+        } catch (error) {
+          logger.error('permission batch response failed', {
+            action: decision === 'allow'
+              ? 'batchAllowPermissions'
+              : 'batchDenyPermissions',
+            agentId: session.agentId,
+            requestId: req.requestId,
+            sessionId: session.id,
+            error,
+          });
+          if (
+            mountedRef.current
+            && batchOperationRef.current === operation
+          ) {
+            setBatchFailure({
+              requestId: req.requestId,
+              message: '批量响应在此项失败。请单独重试，或重新执行批量操作。',
+            });
+          }
+          return;
+        }
+        if (
+          mountedRef.current
+          && batchOperationRef.current === operation
+        ) {
+          resolvePermission(session.id, req.requestId);
+        }
       }
     } finally {
-      setBatchBusy(false);
+      if (
+        mountedRef.current
+        && batchOperationRef.current === operation
+      ) {
+        setBatchBusy(false);
+      }
     }
   };
 
@@ -234,7 +250,7 @@ function PendingSection({
               <button
                 type="button"
                 disabled={batchDisabled}
-                onClick={(e) => void onBatchAllow(e)}
+                onClick={(e) => void respondBatch(e, 'allow')}
                 title={batchTooltip}
                 className="rounded bg-status-working/30 px-2 py-0.5 text-[10px] text-status-working transition hover:bg-status-working/40 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -243,7 +259,7 @@ function PendingSection({
               <button
                 type="button"
                 disabled={batchDisabled}
-                onClick={(e) => void onBatchDeny(e)}
+                onClick={(e) => void respondBatch(e, 'deny')}
                 title={batchTooltip}
                 className="rounded bg-status-waiting/30 px-2 py-0.5 text-[10px] text-status-waiting transition hover:bg-status-waiting/40 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -280,6 +296,11 @@ function PendingSection({
             stillPending={true}
             wasCancelled={false}
             onResolved={resolvePermission}
+            externalError={
+              batchFailure?.requestId === req.requestId
+                ? batchFailure.message
+                : null
+            }
           />
         ))}
         {askQuestions.map((req) => (
@@ -326,12 +347,7 @@ function PendingSection({
   );
 }
 
-/**
- * 三个 Row 当前接口要求传 event: AgentEvent，仅用 event.ts 显示时间；
- * 不读 event.kind / event.payload（payload 已单独作为 prop 传入）。
- * PendingRequest 自身没有 ts 字段（见 shared/types.ts），用 session.lastEventAt 兜底。
- * 如未来要精确显示「pending 入库时间」，需在 store pushEvent 时给 pending 加 addedAt。
- */
+/** Pending request payloads have no timestamp, so rows use the session activity time. */
 function makeFakeEvent(
   sessionId: string,
   agentId: string,
@@ -347,7 +363,6 @@ function makeFakeEvent(
   };
 }
 
-/** 折叠过长 cwd：>4 段时只保留最后 3 段，前面用 …/ 缩写。 */
 function shortenPath(p: string): string {
   if (!p) return '';
   const parts = p.split('/');
