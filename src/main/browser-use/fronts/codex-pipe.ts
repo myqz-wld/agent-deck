@@ -12,8 +12,12 @@
 
 import { app } from 'electron';
 
-import { BrowserEngine, getBrowserEngine, type BrowserOwnerHandle } from '../engine/registry';
-import type { BrowserOwnerKey } from '../engine/types';
+import {
+  BrowserEngine,
+  getBrowserEngine,
+  type BrowserOwnerHandle,
+  type BrowserOwnerLease,
+} from '../engine/registry';
 import { CDP_TIMEOUT_MS } from '../engine/types';
 import type { EngineTab } from '../engine/tab';
 
@@ -25,6 +29,7 @@ export interface CodexPipeBrowserFrontOptions {
   appVersion?: string;
   codexAppBuildFlavor?: string;
   createWindow?: BrowserEngine['createWindow'];
+  engine?: BrowserEngine;
   showWindows?: boolean;
 }
 
@@ -34,6 +39,7 @@ interface TabTargets {
   targetIdsBySessionId: Map<string, string>;
   targetSessionsById: Map<string, string>;
   subscribed: boolean;
+  unsubscribe: Array<() => void>;
 }
 
 export class CodexPipeBrowserFront {
@@ -43,7 +49,7 @@ export class CodexPipeBrowserFront {
   private readonly showWindows: boolean;
   private readonly targets = new Map<number, TabTargets>();
   private boundSessionId: string | null = null;
-  private handle: BrowserOwnerHandle | null = null;
+  private lease: BrowserOwnerLease | null = null;
   private disposed = false;
 
   constructor(
@@ -52,10 +58,10 @@ export class CodexPipeBrowserFront {
   ) {
     // An injected window factory means a caller-owned engine (tests, isolated harnesses). Production
     // uses the shared engine so tab caps are global across fronts.
-    this.engine =
-      options.createWindow == null
+    this.engine = options.engine
+      ?? (options.createWindow == null
         ? getBrowserEngine()
-        : new BrowserEngine({ createWindow: options.createWindow });
+        : new BrowserEngine({ createWindow: options.createWindow }));
     this.appVersion = options.appVersion ?? app.getVersion();
     this.codexAppBuildFlavor =
       options.codexAppBuildFlavor ??
@@ -107,16 +113,23 @@ export class CodexPipeBrowserFront {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    for (const targets of this.targets.values()) {
+      for (const unsubscribe of targets.unsubscribe) unsubscribe();
+    }
     this.targets.clear();
-    const owner = this.ownerKey();
-    this.handle = null;
-    if (owner != null) await this.engine.disposeOwner(owner);
+    const lease = this.lease;
+    this.lease = null;
+    await lease?.release();
   }
 
   private bindAndValidateSession(params: UnknownRecord): void {
     const sessionId = requireString(params, 'session_id');
     if (this.boundSessionId == null) {
       this.boundSessionId = sessionId;
+      this.lease = this.engine.acquireLease({
+        kind: 'codex-pipe',
+        id: sessionId,
+      });
       return;
     }
     if (this.boundSessionId !== sessionId) {
@@ -136,7 +149,6 @@ export class CodexPipeBrowserFront {
       metadata: {
         codexAppBuildFlavor: this.codexAppBuildFlavor,
         codexSessionId: this.requireBoundSessionId(),
-        agentDeckSessionOwned: 'true',
       },
     };
   }
@@ -149,6 +161,7 @@ export class CodexPipeBrowserFront {
       targetIdsBySessionId: new Map(),
       targetSessionsById: new Map(),
       subscribed: false,
+      unsubscribe: [],
     });
     return { ...tab.info(handle.isActive(tab.id)) };
   }
@@ -294,7 +307,7 @@ export class CodexPipeBrowserFront {
     if (targets.subscribed) return;
     targets.subscribed = true;
 
-    tab.cdp.onMessage((method, params, cdpSessionId) => {
+    const offMessage = tab.cdp.onMessage((method, params, cdpSessionId) => {
       if (method === 'Target.attachedToTarget') {
         const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
         const targetInfo = isRecord(params.targetInfo) ? params.targetInfo : null;
@@ -319,12 +332,13 @@ export class CodexPipeBrowserFront {
         params,
       });
     });
-    tab.cdp.onDetach((reason) => {
+    const offDetach = tab.cdp.onDetach((reason) => {
       const current = this.tabTargets(tab.id);
       current.targetIdsBySessionId.clear();
       current.targetSessionsById.clear();
       this.notifier.notify('onCDPDetach', { tabId: tab.id, reason });
     });
+    targets.unsubscribe.push(offMessage, offDetach);
   }
 
   private tabTargets(tabId: number): TabTargets {
@@ -334,6 +348,7 @@ export class CodexPipeBrowserFront {
         targetIdsBySessionId: new Map(),
         targetSessionsById: new Map(),
         subscribed: false,
+        unsubscribe: [],
       };
       this.targets.set(tabId, targets);
     }
@@ -353,17 +368,12 @@ export class CodexPipeBrowserFront {
     if (targetId != null) targets.targetSessionsById.delete(targetId);
   }
 
-  private ownerKey(): BrowserOwnerKey | null {
-    return this.boundSessionId == null ? null : { kind: 'codex-pipe', id: this.boundSessionId };
-  }
-
   private requireHandle(): BrowserOwnerHandle {
     if (this.disposed) throw new Error('Browser-use session is closed.');
-    if (this.handle != null && !this.handle.isDisposed) return this.handle;
-    const owner = this.ownerKey();
-    if (owner == null) throw new Error('Browser-use session is not initialized.');
-    this.handle = this.engine.acquire(owner);
-    return this.handle;
+    const handle = this.lease?.handle;
+    if (handle == null) throw new Error('Browser-use session is not initialized.');
+    if (handle.isDisposed) throw new Error('Browser-use session is closed.');
+    return handle;
   }
 
   private requireBoundSessionId(): string {
