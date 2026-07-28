@@ -32,8 +32,9 @@ const ADAPTER_ID = 'codex-cli';
  * 能力边界（与 plan 对齐）：
  * - ✅ createSession / sendMessage / interrupt / resume / 事件流
  * - ✅ hook installer + hook routes for external terminal Codex sessions
- * - ✅ app-server native command / file / permission approval requests
- * - ❌ AskUserQuestion / ExitPlanMode（codex 没有这些工具/状态机）
+ * - ✅ app-server native command / file / permission / MCP tool approval requests
+ * - ❌ 通用 AskUserQuestion / ExitPlanMode（MCP tool approval 的 requestUserInput
+ *   compatibility path 由 permission queue 单独承接）
  * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
  *
  * 普通会话不覆盖 provider 的 approval policy；reviewer 等无人值守内部会话显式使用
@@ -343,7 +344,8 @@ class CodexCliAdapter implements AgentAdapter {
     );
   }
 
-  // 不实现：respondAskUserQuestion / respondExitPlanMode / setPermissionMode。
+  // 不实现：通用 respondAskUserQuestion / respondExitPlanMode / setPermissionMode。
+  // MCP tool approval 的 requestUserInput compatibility path 复用 respondPermission。
 }
 
 /**
