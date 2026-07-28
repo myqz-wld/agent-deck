@@ -199,7 +199,9 @@ export class GrokHookInstaller {
       }
     }
     return {
-      installed: installed.length > 0,
+      // A partial install cannot deliver the advertised hook contract. Report it as repairable
+      // instead of presenting a misleading fully-installed state in Settings.
+      installed: installed.length === GROK_HOOK_EVENTS.length,
       scope: opts.scope,
       settingsPath: path,
       installedHooks: installed,

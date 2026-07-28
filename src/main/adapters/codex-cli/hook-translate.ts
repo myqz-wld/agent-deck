@@ -9,6 +9,9 @@ interface BaseCodexHookPayload {
   hook_event_name?: string;
   model?: string;
   turn_id?: string;
+  permission_mode?: string;
+  agent_id?: string;
+  agent_type?: string;
 }
 
 type AnyRecord = Record<string, unknown>;
@@ -20,16 +23,24 @@ function commonPayload(p: BaseCodexHookPayload): Record<string, unknown> {
     hookEventName: p.hook_event_name,
     model: p.model,
     turnId: p.turn_id,
+    permissionMode: p.permission_mode,
+    agentId: p.agent_id,
+    agentType: p.agent_type,
   };
 }
 
-function event<P>(p: BaseCodexHookPayload, kind: AgentEvent<P>['kind'], payload: P): AgentEvent<P> {
+function event<P>(
+  p: BaseCodexHookPayload,
+  kind: AgentEvent<P>['kind'],
+  payload: P,
+  ts = Date.now(),
+): AgentEvent<P> {
   return {
     sessionId: p.session_id,
     agentId: AGENT_ID,
     kind,
     payload,
-    ts: Date.now(),
+    ts,
   };
 }
 
@@ -42,7 +53,16 @@ export function translateCodexSessionStart(
   return event(p, 'session-start', {
     ...commonPayload(p),
     source: p.source,
-    permissionMode: p.permission_mode,
+  });
+}
+
+export function translateCodexUserPrompt(
+  p: BaseCodexHookPayload & { prompt?: string },
+): AgentEvent {
+  return event(p, 'message', {
+    role: 'user',
+    text: p.prompt ?? '',
+    metadata: commonPayload(p),
   });
 }
 
@@ -65,8 +85,6 @@ export function translateCodexPermissionRequest(
   p: BaseCodexHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
-    tool_use_id?: string;
-    permission_mode?: string;
   },
 ): AgentEvent {
   const tool = p.tool_name || 'tool';
@@ -76,8 +94,6 @@ export function translateCodexPermissionRequest(
     ...commonPayload(p),
     toolName: p.tool_name,
     toolInput: p.tool_input,
-    toolUseId: p.tool_use_id,
-    permissionMode: p.permission_mode,
   });
 }
 
@@ -117,13 +133,35 @@ export function translateCodexStop(
     stop_hook_active?: boolean;
     last_assistant_message?: string | null;
   },
+): AgentEvent[] {
+  const ts = Date.now();
+  const events: AgentEvent[] = [];
+  if (p.last_assistant_message) {
+    events.push(
+      event(p, 'message', {
+        role: 'assistant',
+        text: p.last_assistant_message,
+        metadata: { ...commonPayload(p), final: true },
+      }, ts),
+    );
+  }
+  events.push(
+    event(p, 'finished', {
+      ok: true,
+      subtype: 'success',
+      stopHookActive: p.stop_hook_active,
+      ...commonPayload(p),
+    }, ts),
+  );
+  return events;
+}
+
+export function translateCodexSessionEnd(
+  p: BaseCodexHookPayload & { reason?: string },
 ): AgentEvent {
-  return event(p, 'finished', {
-    ok: true,
-    subtype: 'success',
-    stopHookActive: p.stop_hook_active,
-    lastAssistantMessage: p.last_assistant_message ?? undefined,
+  return event(p, 'session-end', {
     ...commonPayload(p),
+    reason: p.reason,
   });
 }
 

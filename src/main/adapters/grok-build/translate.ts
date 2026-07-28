@@ -118,8 +118,7 @@ export function translateGrokUpdate(
         }
         return events;
       }
-      state.startedToolIds.add(update.toolCallId);
-      return [
+      const events = [
         ...flushGrokTextUpdates(sessionId, state),
         event('tool-use-start', {
           toolName,
@@ -129,6 +128,22 @@ export function translateGrokUpdate(
           status: normalizeToolStatus(update.status),
         }),
       ];
+      if (update.status === 'completed' || update.status === 'failed') {
+        events.push(
+          event('tool-use-end', {
+            toolName,
+            toolKind,
+            toolUseId: update.toolCallId,
+            toolResult: update.rawOutput ?? toolContentText(update.content),
+            status: update.status,
+          }),
+        );
+        state.toolKinds.delete(update.toolCallId);
+        state.toolNames.delete(update.toolCallId);
+        return events;
+      }
+      state.startedToolIds.add(update.toolCallId);
+      return events;
     }
     case 'tool_call_update': {
       // ACP `title` is a mutable human-readable progress label. Keep the identity chosen for the

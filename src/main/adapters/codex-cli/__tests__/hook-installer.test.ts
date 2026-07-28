@@ -46,7 +46,9 @@ describe('CodexHookInstaller', () => {
     });
     expect(data.hooks.PreToolUse[0].matcher).toBe('.*');
     expect(data.hooks.Stop[0].matcher).toBeUndefined();
+    expect(data.hooks.UserPromptSubmit[0].matcher).toBeUndefined();
     expect(data.hooks.SessionStart[0].hooks[0].command).toContain('/hook/codex/sessionstart');
+    expect(data.hooks.SessionEnd[0].hooks[0].command).toContain('/hook/codex/sessionend');
     expect(data.hooks.SessionStart[0].hooks[0].command).toContain(
       'X-Agent-Deck-Parent-Pid: ${PPID:-}',
     );
@@ -172,5 +174,33 @@ describe('CodexHookInstaller', () => {
     };
     expect(data.hooks.SessionStart.at(-1)?.hooks[0].command).toContain('/hook/codex/sessionstart');
     expect(data.hooks.PreToolUse.at(-1)?.hooks[0].command).toContain('/hook/codex/pretooluse');
+  });
+
+  it('reports a partial hook set as needing repair', async () => {
+    const hooksPath = join(home, '.codex', 'hooks.json');
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    writeFileSync(
+      hooksPath,
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'curl http://127.0.0.1/hook/codex/sessionstart # agent-deck-hook',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      'utf8',
+    );
+
+    const { CodexHookInstaller } = await import('../hook-installer');
+    const status = new CodexHookInstaller(47821, 'token-abc').status({ scope: 'user' });
+    expect(status.installed).toBe(false);
+    expect(status.installedHooks).toEqual(['SessionStart']);
   });
 });

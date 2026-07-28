@@ -16,24 +16,31 @@ const logger = log.scope('claude-hook-installer');
 const HOOK_TAG = 'agent-deck-hook';
 const CURRENT_HOOK_TAG = 'agent-deck-hook-grok-guard';
 
-const HOOK_EVENTS = [
+export const CLAUDE_HOOK_EVENTS = [
   'SessionStart',
+  'UserPromptSubmit',
   'PreToolUse',
+  'PermissionRequest',
   'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionDenied',
   'PostCompact',
   'Notification',
   'Stop',
+  'StopFailure',
   'SessionEnd',
-  // M3 Agent Teams hook（Claude Code v2.1.32+ 实验特性）：随基础 6 个一起注入，
-  // 老版本 CLI 不识别这些 event 名会**静默忽略**（与 settings.json 不冲突），
-  // 应用层 hook-server 端点存在但收不到 hit；用户 CLI 升级到 v2.1.32+ 后自动开始飞回。
-  // 不加 CLI 版本检测的 gating：实验特性 schema 演进时省得多一道判断。
+] as const;
+
+// Universal team backend owns these lifecycles. Older Agent Deck versions installed the hooks,
+// so keep them in cleanup even though they must no longer be active (their routes were removed).
+const LEGACY_HOOK_EVENTS = [
   'TaskCreated',
   'TaskCompleted',
   'TeammateIdle',
 ] as const;
 
-type HookEvent = (typeof HOOK_EVENTS)[number];
+type HookEvent = (typeof CLAUDE_HOOK_EVENTS)[number];
+type OwnedHookEvent = HookEvent | (typeof LEGACY_HOOK_EVENTS)[number];
 
 interface HookEntry {
   type: 'command';
@@ -48,7 +55,7 @@ interface HookGroup {
 type HookEventValue = HookGroup[];
 
 interface ClaudeSettings {
-  hooks?: Partial<Record<HookEvent, HookEventValue>>;
+  hooks?: Partial<Record<OwnedHookEvent, HookEventValue>>;
   [key: string]: unknown;
 }
 
@@ -67,7 +74,7 @@ function buildCommand(port: number, token: string, event: HookEvent): string {
   // Grok Build discovers Claude-compatible hooks by default and exposes GROK_HOOK_EVENT to hook
   // commands. Consume but do not forward that compatibility invocation: the native Grok hook owns
   // external Grok reporting, while genuine Claude Code processes do not set this variable.
-  return `if [ -n "\${GROK_HOOK_EVENT:-}" ]; then cat > /dev/null; else cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" --data-binary @- > /dev/null; fi || true # ${CURRENT_HOOK_TAG}`;
+  return `if [ -n "\${GROK_HOOK_EVENT:-}" ]; then cat > /dev/null; else cat | curl -sS -m 2 -X POST http://127.0.0.1:${port}/hook/${event.toLowerCase()} -H 'Content-Type: application/json' -H 'Authorization: Bearer ${token}' -H "X-Agent-Deck-Origin: \${AGENT_DECK_ORIGIN:-cli}" -H "X-Agent-Deck-Parent-Pid: \${PPID:-}" --data-binary @- > /dev/null; fi || true # ${CURRENT_HOOK_TAG}`;
 }
 
 function settingsPath(scope: 'user' | 'project', cwd?: string): string {
@@ -122,6 +129,15 @@ function isCurrentHookEntry(entry: HookEntry): boolean {
   return entry.type === 'command' && entry.command.includes(CURRENT_HOOK_TAG);
 }
 
+function cleanedGroups(groups: HookEventValue): HookGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      hooks: group.hooks.filter((hook) => !isOurHookEntry(hook)),
+    }))
+    .filter((group) => group.hooks.length > 0);
+}
+
 export class HookInstaller {
   constructor(
     private port: number,
@@ -134,20 +150,33 @@ export class HookInstaller {
     data.hooks = data.hooks ?? {};
     const installed: string[] = [];
 
-    for (const event of HOOK_EVENTS) {
+    // Remove obsolete team hooks left by older Agent Deck releases. They intentionally have no
+    // route now, so leaving them installed would make every matching Claude event hit a 404.
+    for (const event of LEGACY_HOOK_EVENTS) {
+      const groups = data.hooks[event];
+      if (!groups) continue;
+      const cleaned = cleanedGroups(groups);
+      if (cleaned.length === 0) delete data.hooks[event];
+      else data.hooks[event] = cleaned;
+    }
+
+    for (const event of CLAUDE_HOOK_EVENTS) {
       const cmd = buildCommand(this.port, this.token, event);
       const groups = (data.hooks[event] ?? []) as HookEventValue;
 
       // 移除本应用旧 hook（避免端口 / token 变化或重复注入）
-      const cleaned: HookGroup[] = groups
-        .map((g) => ({
-          ...g,
-          hooks: g.hooks.filter((h) => !isOurHookEntry(h)),
-        }))
-        .filter((g) => g.hooks.length > 0);
+      const cleaned = cleanedGroups(groups);
 
       // 加入新 hook
-      const matcher = event === 'PreToolUse' || event === 'PostToolUse' ? '*' : undefined;
+      const matcher = [
+        'PreToolUse',
+        'PermissionRequest',
+        'PostToolUse',
+        'PostToolUseFailure',
+        'PermissionDenied',
+      ].includes(event)
+        ? '*'
+        : undefined;
       cleaned.push({
         ...(matcher ? { matcher } : {}),
         hooks: [{ type: 'command', command: cmd }],
@@ -177,15 +206,10 @@ export class HookInstaller {
     }
     const data = readSettings(path);
     if (data.hooks) {
-      for (const event of HOOK_EVENTS) {
+      for (const event of [...CLAUDE_HOOK_EVENTS, ...LEGACY_HOOK_EVENTS]) {
         const groups = data.hooks[event];
         if (!groups) continue;
-        const cleaned = groups
-          .map((g) => ({
-            ...g,
-            hooks: g.hooks.filter((h) => !isOurHookEntry(h)),
-          }))
-          .filter((g) => g.hooks.length > 0);
+        const cleaned = cleanedGroups(groups);
         if (cleaned.length === 0) {
           delete data.hooks[event];
         } else {
@@ -231,7 +255,7 @@ export class HookInstaller {
       };
     }
     const installed: string[] = [];
-    for (const event of HOOK_EVENTS) {
+    for (const event of CLAUDE_HOOK_EVENTS) {
       const groups = data.hooks?.[event] ?? [];
       for (const g of groups) {
         if (g.hooks.some(isCurrentHookEntry)) {
@@ -240,8 +264,12 @@ export class HookInstaller {
         }
       }
     }
+    const hasLegacyOwnedHook = LEGACY_HOOK_EVENTS.some((event) =>
+      (data.hooks?.[event] ?? []).some((group) => group.hooks.some(isOurHookEntry)),
+    );
     return {
-      installed: installed.length > 0,
+      installed:
+        installed.length === CLAUDE_HOOK_EVENTS.length && !hasLegacyOwnedHook,
       scope: opts.scope,
       settingsPath: path,
       installedHooks: installed,

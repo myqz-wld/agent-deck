@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
+import { CODEX_HOOK_EVENTS } from '../hook-installer';
 import { buildCodexHookRoutes } from '../hook-routes';
 
 function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn> } {
@@ -9,6 +10,13 @@ function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof 
 }
 
 describe('codex hook routes', () => {
+  it('keeps every installed event routable', () => {
+    const urls = buildCodexHookRoutes(() => undefined).map((route) => route.url);
+    expect(urls).toEqual(
+      CODEX_HOOK_EVENTS.map((event) => `/hook/codex/${event.toLowerCase()}`),
+    );
+  });
+
   it('tags hook origin and forwards the external parent pid header', async () => {
     const events: AgentEvent[] = [];
     const desktopFilter = { shouldIgnore: vi.fn().mockResolvedValue(false) };

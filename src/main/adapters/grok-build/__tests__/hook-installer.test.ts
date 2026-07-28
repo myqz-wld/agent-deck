@@ -172,4 +172,33 @@ describe('GrokHookInstaller', () => {
     expect(() => installer.install({ scope: 'user' })).toThrow(/parse failed/);
     expect(readFileSync(path, 'utf8')).toBe('{not-json');
   });
+
+  it('reports a partial native hook set as needing repair', async () => {
+    const path = join(home, '.grok', 'hooks', 'agent-deck.json');
+    mkdirSync(join(home, '.grok', 'hooks'), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command:
+                    'curl http://127.0.0.1/hook/grok/sessionstart # agent-deck-grok-hook',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      'utf8',
+    );
+
+    const { GrokHookInstaller } = await import('../hook-installer');
+    const status = new GrokHookInstaller(47821, 'token-abc').status({ scope: 'user' });
+    expect(status.installed).toBe(false);
+    expect(status.installedHooks).toEqual(['SessionStart']);
+  });
 });

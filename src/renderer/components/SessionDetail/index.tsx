@@ -453,7 +453,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           canSteerTurnAttachments={canSteerTurnAttachments}
         />
       ) : (
-        <CliFooter />
+        <CliFooter agentId={session.agentId} />
       )}
 
       {/* K3 hand-off preview dialog（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。

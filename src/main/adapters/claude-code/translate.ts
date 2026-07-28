@@ -1,54 +1,12 @@
 import type { AgentEvent, ImageSource, ImageToolResult } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
-import { buildClaudeCompactMessageText } from './compact-message';
+import {
+  type BaseClaudeHookPayload,
+  CLAUDE_AGENT_ID,
+  commonClaudeHookPayload,
+} from './hook-context';
 
-const AGENT_ID = 'claude-code';
-
-/**
- * Claude Code hook payload 格式（来自 Claude Code 文档 + 实测）：
- *
- * - SessionStart:    { session_id, transcript_path, cwd, source }
- * - PreToolUse:      { session_id, transcript_path, cwd, tool_name, tool_input }
- * - PostToolUse:     { session_id, transcript_path, cwd, tool_name, tool_input, tool_response }
- * - Notification:    { session_id, transcript_path, cwd, message }
- * - Stop:            { session_id, transcript_path, cwd, stop_hook_active }
- * - SessionEnd:      { session_id, transcript_path, cwd, reason }
- * - PostCompact:     { session_id, transcript_path, cwd, trigger, compact_summary }
- *
- * 我们把它们翻译为统一的 AgentEvent。
- *
- * R3.E6：删除 5 个老 team translate 函数（translateTaskCreated/Completed/TeammateIdle +
- * translateTeamPermissionRequest/Cancelled）+ TeamHookPayload interface。
- * 老 inbox 协议 / Claude Code experimental teams hook 全废，universal team backend 不依赖。
- */
-
-interface BaseHookPayload {
-  session_id: string;
-  transcript_path?: string;
-  cwd?: string;
-}
-
-export function translateSessionStart(p: BaseHookPayload & { source?: string }): AgentEvent {
-  return {
-    sessionId: p.session_id,
-    agentId: AGENT_ID,
-    kind: 'session-start',
-    payload: { cwd: p.cwd, transcriptPath: p.transcript_path, source: p.source },
-    ts: Date.now(),
-  };
-}
-
-export function translatePreToolUse(
-  p: BaseHookPayload & { tool_name?: string; tool_input?: unknown },
-): AgentEvent {
-  return {
-    sessionId: p.session_id,
-    agentId: AGENT_ID,
-    kind: 'tool-use-start',
-    payload: { cwd: p.cwd, toolName: p.tool_name, toolInput: p.tool_input },
-    ts: Date.now(),
-  };
-}
+export * from './hook-lifecycle-translate';
 
 interface EditToolInput {
   file_path?: string;
@@ -203,24 +161,28 @@ export function imageResultToFileChanges(
  *   translatePreToolUse / translatePostToolUseFailure 不调 file-changed,无需修改。
  */
 export function translatePostToolUse(
-  p: BaseHookPayload & {
+  p: BaseClaudeHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
     tool_response?: unknown;
     tool_use_id?: string;
+    duration_ms?: number;
   },
 ): AgentEvent[] {
   const ts = Date.now();
   const events: AgentEvent[] = [
     {
       sessionId: p.session_id,
-      agentId: AGENT_ID,
+      agentId: CLAUDE_AGENT_ID,
       kind: 'tool-use-end',
       payload: {
-        cwd: p.cwd,
+        ...commonClaudeHookPayload(p),
         toolName: p.tool_name,
         toolInput: p.tool_input,
         toolResponse: p.tool_response,
+        toolUseId: p.tool_use_id,
+        status: 'completed',
+        durationMs: p.duration_ms,
       },
       ts,
     },
@@ -233,7 +195,7 @@ export function translatePostToolUse(
     if (input?.file_path) {
       events.push({
         sessionId: p.session_id,
-        agentId: AGENT_ID,
+        agentId: CLAUDE_AGENT_ID,
         kind: 'file-changed',
         payload: {
           cwd: p.cwd,
@@ -252,7 +214,7 @@ export function translatePostToolUse(
     if (input?.file_path) {
       events.push({
         sessionId: p.session_id,
-        agentId: AGENT_ID,
+        agentId: CLAUDE_AGENT_ID,
         kind: 'file-changed',
         payload: {
           cwd: p.cwd,
@@ -274,7 +236,7 @@ export function translatePostToolUse(
       const after = input.edits.map((e) => e.new_string).join('\n---\n');
       events.push({
         sessionId: p.session_id,
-        agentId: AGENT_ID,
+        agentId: CLAUDE_AGENT_ID,
         kind: 'file-changed',
         payload: {
           cwd: p.cwd,
@@ -298,7 +260,7 @@ export function translatePostToolUse(
       for (const fc of imageResultToFileChanges(parsed, p.tool_use_id)) {
         events.push({
           sessionId: p.session_id,
-          agentId: AGENT_ID,
+          agentId: CLAUDE_AGENT_ID,
           kind: 'file-changed',
           payload: {
             cwd: p.cwd,
@@ -311,53 +273,4 @@ export function translatePostToolUse(
   }
 
   return events;
-}
-
-export function translateNotification(p: BaseHookPayload & { message?: string }): AgentEvent {
-  return {
-    sessionId: p.session_id,
-    agentId: AGENT_ID,
-    kind: 'waiting-for-user',
-    payload: { cwd: p.cwd, message: p.message },
-    ts: Date.now(),
-  };
-}
-
-export function translateStop(p: BaseHookPayload & { stop_hook_active?: boolean }): AgentEvent {
-  return {
-    sessionId: p.session_id,
-    agentId: AGENT_ID,
-    kind: 'finished',
-    payload: { cwd: p.cwd, stopHookActive: p.stop_hook_active },
-    ts: Date.now(),
-  };
-}
-
-export function translateSessionEnd(p: BaseHookPayload & { reason?: string }): AgentEvent {
-  return {
-    sessionId: p.session_id,
-    agentId: AGENT_ID,
-    kind: 'session-end',
-    payload: { cwd: p.cwd, reason: p.reason },
-    ts: Date.now(),
-  };
-}
-
-export function translatePostCompact(
-  p: BaseHookPayload & { trigger?: string; compact_summary?: string },
-): AgentEvent {
-  return {
-    sessionId: p.session_id,
-    agentId: AGENT_ID,
-    kind: 'message',
-    payload: {
-      cwd: p.cwd,
-      role: 'assistant',
-      text: buildClaudeCompactMessageText({
-        trigger: p.trigger,
-        summary: p.compact_summary,
-      }),
-    },
-    ts: Date.now(),
-  };
 }

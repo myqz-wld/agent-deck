@@ -168,6 +168,41 @@ describe('Grok ACP event translation', () => {
     });
   });
 
+  it('closes an ACP tool_call that arrives in a terminal state without waiting for an update', () => {
+    const state = createGrokTranslationState();
+    const events = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'tool-already-complete',
+        name: 'fast_tool',
+        title: 'Fast tool',
+        kind: 'execute',
+        status: 'completed',
+        rawInput: { value: 1 },
+        rawOutput: { ok: true },
+      },
+      state,
+    );
+
+    expect(events).toMatchObject([
+      {
+        kind: 'tool-use-start',
+        payload: { toolUseId: 'tool-already-complete', status: 'completed' },
+      },
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'tool-already-complete',
+          status: 'completed',
+          toolResult: { ok: true },
+        },
+      },
+    ]);
+    expect(state.startedToolIds.has('tool-already-complete')).toBe(false);
+  });
+
   it('coalesces contiguous ACP chunks into one persisted bubble', () => {
     const state = createGrokTranslationState();
     for (const text of ['one', ' ', 'message']) {

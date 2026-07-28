@@ -7,6 +7,11 @@ import { toolInputToDiff } from '@renderer/components/pending-rows';
 import { describeToolInput } from '../describe';
 import { formatDisplayText, formatToolInput, formatToolResult, parseImageReadResult } from '../format';
 import { toolIcon } from '../tool-icons';
+import {
+  formatToolDuration,
+  providerTruncationLabel,
+  toolStatusView,
+} from '../tool-status';
 import { ChevronDownIcon, ChevronRightIcon, ImageIcon } from '../../icons';
 
 /**
@@ -346,18 +351,13 @@ export function ToolEndRow({
   const startPayload = (startEvent?.payload ?? {}) as Record<string, unknown>;
   const tool =
     formatDisplayText(p.toolName) || formatDisplayText(startPayload.toolName) || '工具';
-  const result = p.toolResult ?? p.toolResponse;
+  const result = p.toolResult ?? p.toolResponse ?? p.error ?? p.reason;
   const [open, setOpen] = useState(false);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
 
-  // CHANGELOG_<X> A1：跨 adapter 统一 status 显示。
-  // - codex translate.ts:119 emit status: i.status (completed / failed)
-  // - claude sdk-message-translate.ts:118 emit status: block.is_error ? failed : completed
-  // 兜底：缺 status 字段视作成功（老事件 / 老 hook）；exitCode != 0 也视为 failed（codex Bash）
-  const isFailed =
-    p.status === 'failed' ||
-    p.error != null ||
-    (typeof p.exitCode === 'number' && p.exitCode !== 0);
+  const status = toolStatusView(p);
+  const duration = formatToolDuration(p.durationMs);
+  const truncation = providerTruncationLabel(p);
 
   // REVIEW_4 M15：formatToolResult / parseImageReadResult 都含 JSON.stringify / JSON.parse，
   // 大结果场景下每次父级 rerender 都重做开销巨大；锁定到 [result] 引用。
@@ -366,7 +366,6 @@ export function ToolEndRow({
   const text = useMemo(() => formatToolResult(result), [result]);
   const imageRead = useMemo(() => parseImageReadResult(result), [result]);
   const hasContent = text && text.trim().length > 0;
-  const statusText = toolStatusText(p.status);
   const inputForDisplay = mergeToolInputs(startPayload.toolInput, p.toolInput);
   // 借 start 事件的 toolInput 拼 detail —— 让「✨ Skill 完成」补回「· agent-deck:deep-code-review」。
   // imageRead 自己带 [provider · model] 后缀就不再叠 detail，避免一行三段信息太挤。
@@ -376,7 +375,7 @@ export function ToolEndRow({
   );
 
   // 失败：红色边框 + 浅红背景，与 status-error 色对齐（与 SessionDetail 错误消息同色）
-  const containerClass = isFailed
+  const containerClass = status.isError
     ? 'min-w-0 rounded-md border border-status-error/40 bg-status-error/[0.05] p-2 text-[11px]'
     : 'min-w-0 rounded-md border border-deck-border/40 bg-white/[0.015] p-2 text-[11px]';
 
@@ -391,10 +390,10 @@ export function ToolEndRow({
         <span>{open ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}</span>
         <span className="min-w-0 truncate">
           {imageRead ? <><ImageIcon className="mr-1 inline h-3 w-3" />ImageRead</> : `${toolIcon(tool, p.toolKind ?? startPayload.toolKind)} ${tool}`}{' '}
-          {isFailed ? (
-            <span className="text-status-error/90">失败</span>
+          {status.isError ? (
+            <span className="text-status-error/90">{status.label}</span>
           ) : (
-            '完成'
+            status.label
           )}
           {imageRead?.provider && (
             <span className="ml-1.5 text-[9px] text-deck-muted/70">
@@ -407,10 +406,16 @@ export function ToolEndRow({
               · {detail}
             </span>
           )}
-          {isFailed && typeof p.exitCode === 'number' && (
+          {status.isError && typeof p.exitCode === 'number' && (
             <span className="ml-1.5 rounded bg-status-error/20 px-1 py-0.5 font-mono text-[9px] text-status-error/90">
               退出码 {String(p.exitCode)}
             </span>
+          )}
+          {duration && (
+            <span className="ml-1.5 text-[9px] text-deck-muted/70">{duration}</span>
+          )}
+          {truncation && (
+            <span className="ml-1.5 text-[9px] text-amber-300/90">{truncation}</span>
           )}
         </span>
         <span className="ml-auto font-mono tabular-nums text-[9px] text-deck-muted/60">{ts}</span>
@@ -441,7 +446,7 @@ export function ToolEndRow({
       ) : (
         <div className="mt-1 px-1.5 py-1 text-[10px] italic text-deck-muted/70">
           （无输出
-          {statusText && ` · 状态：${statusText}`}
+          {status.detail && ` · 状态：${status.detail}`}
           {typeof p.exitCode === 'number' && ` · 退出码: ${p.exitCode}`}
           ）
         </div>
@@ -479,22 +484,4 @@ function objectRecord(value: unknown): Record<string, unknown> | null {
 
 function isNestedInteractiveTarget(target: EventTarget): boolean {
   return target instanceof Element && target.closest('button,a,input,textarea,select') !== null;
-}
-
-function toolStatusText(status: unknown): string | null {
-  if (status === 'completed' || status == null) return null;
-  switch (status) {
-    case 'failed':
-      return '失败';
-    case 'cancelled':
-      return '已取消';
-    case 'error':
-      return '出错';
-    case 'inProgress':
-    case 'in_progress':
-    case 'running':
-      return '执行中';
-    default:
-      return typeof status === 'string' ? '状态未知' : null;
-  }
 }

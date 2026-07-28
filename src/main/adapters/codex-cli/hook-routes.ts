@@ -6,8 +6,10 @@ import {
   translateCodexPostCompact,
   translateCodexPostToolUse,
   translateCodexPreToolUse,
+  translateCodexSessionEnd,
   translateCodexSessionStart,
   translateCodexStop,
+  translateCodexUserPrompt,
 } from './hook-translate';
 import {
   codexDesktopEphemeralFilter,
@@ -107,6 +109,7 @@ export function buildCodexHookRoutes(
   ): RouteOptions => makeRoute(url, handler, taggedEmit, desktopEphemeralFilter);
   return [
     route('/hook/codex/sessionstart', (b) => translateCodexSessionStart(b as never)),
+    route('/hook/codex/userpromptsubmit', (b) => translateCodexUserPrompt(b as never)),
     route('/hook/codex/pretooluse', (b) => translateCodexPreToolUse(b as never)),
     route(
       '/hook/codex/permissionrequest',
@@ -115,5 +118,6 @@ export function buildCodexHookRoutes(
     route('/hook/codex/posttooluse', (b) => translateCodexPostToolUse(b as never)),
     route('/hook/codex/postcompact', (b) => translateCodexPostCompact(b as never)),
     route('/hook/codex/stop', (b) => translateCodexStop(b as never)),
+    route('/hook/codex/sessionend', (b) => translateCodexSessionEnd(b as never)),
   ];
 }

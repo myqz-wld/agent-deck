@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-27 | `REVIEW_186_adapter-hook-contract-normalization.md` | Cross-adapter hook contract normalization | 0 CRITICAL / 4 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-27 | `REVIEW_185_codex-mcp-lifecycle-approval-bridge.md` | Codex MCP lifecycle approval bridge | 0 CRITICAL / 1 HIGH fixed |
 | 2026-07-27 | `REVIEW_184_transparent-usage-refresh-latency.md` | Transparent artifact and provider refresh latency | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
 | 2026-07-27 | `REVIEW_183_token-usage-visibility-regression.md` | Daily token aggregate visibility regression | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
