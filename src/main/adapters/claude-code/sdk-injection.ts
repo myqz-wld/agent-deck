@@ -32,6 +32,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -39,7 +40,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 import log from '@main/utils/logger';
@@ -63,7 +64,8 @@ export function getClaudeAgentDeckPluginSourcePath(): string {
 }
 
 /**
- * 返回 claude 视角 agent-deck plugin mirror 的绝对路径，传给 SDK 的 `plugins[].path`。
+ * 返回 claude 视角已安装 agent-deck plugin mirror 的绝对路径，失败时返回 null，避免把
+ * 不存在或未完成的目录传给 SDK `plugins[].path`。
  * SDK 会读 `<plugin>/.claude-plugin/plugin.json` + 自动扫 `<plugin>/skills/` 与
  * `<plugin>/agents/` 子目录。调用方按 settings 传入 includeSkills / includeAgents，mirror 会
  * 裁掉禁用的子目录。
@@ -78,17 +80,17 @@ export function getClaudeAgentDeckPluginSourcePath(): string {
  * 的 placeholder substitute。所以 plugin 内文档里写的 `{{AGENT_DECK_RESOURCES}}/...` 占位符
  * 必须在镜像安装时替换，否则 agent 会看到不可执行的字面占位符路径。
  *
- * Fix：用户每次 spawn 时 lazy 跑 `ensurePluginMirrorInstalled()` —— cp source plugin 到
- * `<userData>/agent-deck-plugin/`，并对所有 .md 文件做 placeholder substitute（in-place）。
- * 返回的 plugin path 指向 mirror 而非原 source。SDK 扫 mirror 拿到 substituted 内容。
+ * Fix：用户每次 spawn 时 lazy 跑 `ensurePluginMirrorInstalled()` —— 在
+ * `<userData>/agent-deck-plugin/` 的 sibling staging 目录 cp source plugin，并对所有 .md 文件
+ * 做 placeholder substitute（in-place），完成后才 rename 发布。返回的 plugin path 指向 mirror
+ * 而非原 source。SDK 扫 mirror 拿到 substituted 内容。
  *
- * 每次启动只 install 一次（pluginMirrorInstalled 标志），但每次都 rm + cp + substitute
- * 全量覆盖（substitute 输出依赖 runtime constants `app.isPackaged`，source mtime 不是
- * 权威 staleness 判据；plugin 文件总量 ~10 KB IO 成本忽略不计）。
+ * 同一进程仅缓存已成功发布的 mirror signature；安装失败不缓存，下一次会话会重试，当前
+ * 会话则得到 null。substitute 输出依赖 runtime constants `app.isPackaged`，source mtime 不是
+ * 权威 staleness 判据；plugin 文件总量 ~10 KB IO 成本忽略不计。
  */
-export function getClaudeAgentDeckPluginPath(): string {
-  ensurePluginMirrorInstalled({ includeSkills: true, includeAgents: true });
-  return getPluginMirrorDir();
+export function getClaudeAgentDeckPluginPath(): string | null {
+  return ensurePluginMirrorInstalled({ includeSkills: true, includeAgents: true });
 }
 
 /** 返回 plugin source dir（dev=<repo>/resources/.../agent-deck-plugin, prod=<.app>/Contents/Resources/...） */
@@ -111,60 +113,198 @@ interface PluginMirrorOptions {
   includeAgents: boolean;
 }
 
+interface PluginMirrorPublicationState {
+  stagingPath: string;
+  backupPath: string | null;
+  stagingPublished: boolean;
+  /** True only while the backup is the last known location of the old live mirror. */
+  backupContainsLiveMirror: boolean;
+}
+
+/** Narrow synchronous filesystem seam so install failure cases stay deterministic in tests. */
+export interface PluginMirrorFilesystem {
+  cpSync: typeof cpSync;
+  existsSync: typeof existsSync;
+  mkdirSync: typeof mkdirSync;
+  mkdtempSync: typeof mkdtempSync;
+  readdirSync: typeof readdirSync;
+  readFileSync: typeof readFileSync;
+  renameSync: typeof renameSync;
+  rmSync: typeof rmSync;
+  writeFileSync: typeof writeFileSync;
+}
+
+const defaultPluginMirrorFilesystem: PluginMirrorFilesystem = {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+};
+
+let pluginMirrorFilesystem = defaultPluginMirrorFilesystem;
+
+/** Test-only reset/injection point; resetting also prevents a prior install signature from masking a test case. */
+export function __setPluginMirrorFilesystemForTests(
+  overrides: Partial<PluginMirrorFilesystem> = {},
+): void {
+  pluginMirrorFilesystem = { ...defaultPluginMirrorFilesystem, ...overrides };
+  pluginMirrorSignature = null;
+}
+
 /**
- * 安装 / 重装 app-owned plugin mirror 时跑：
- * 1. rm 旧 mirror（避免 stale 文件 / 删除的 skill 残留）
- * 2. cp source → mirror（递归整个 plugin 目录树）
- * 3. walk mirror，对每个 .md 文件做 placeholder substitute（in-place 改写）
- *
- * 失败 warn 不抛错（让 SDK 仍能起来，避免一处 plugin 错误阻塞整个 spawn）。
+ * 安装 / 重装 app-owned plugin mirror：先在 destination sibling staging 目录内完整准备，
+ * 再以 rename 发布。失败不会污染 live mirror 或 signature cache，调用方拿 null 后跳过插件。
  */
-function ensurePluginMirrorInstalled(options: PluginMirrorOptions): void {
+function ensurePluginMirrorInstalled(options: PluginMirrorOptions): string | null {
   const src = getPluginSourceDir();
   const dst = getPluginMirrorDir();
   const signature = `${src}|skills:${options.includeSkills ? 'on' : 'off'}|agents:${options.includeAgents ? 'on' : 'off'}`;
-  if (pluginMirrorSignature === signature) return;
-  if (!existsSync(src)) {
-    logger.warn(`[sdk-injection] plugin source dir missing, skip mirror install: ${src}`);
-    pluginMirrorSignature = signature; // 标记，避免每次 spawn 都 warn；toggle 改变后会重试
-    return;
+  if (pluginMirrorSignature === signature && isPluginMirrorValid(dst, options)) {
+    return dst;
   }
+
+  // A stale/missing cached live mirror must be reinstalled, never injected as though it were usable.
+  pluginMirrorSignature = null;
+  if (!pluginMirrorFilesystem.existsSync(src)) {
+    logger.warn(`[sdk-injection] plugin source dir missing, skip mirror install: ${src}`);
+    return null;
+  }
+
+  let publication: PluginMirrorPublicationState | null = null;
   try {
-    if (existsSync(dst)) {
-      rmSync(dst, { recursive: true, force: true });
-    }
-    cpSync(src, dst, { recursive: true });
-    if (!options.includeSkills) {
-      rmSync(join(dst, 'skills'), { recursive: true, force: true });
-    }
-    if (!options.includeAgents) {
-      rmSync(join(dst, 'agents'), { recursive: true, force: true });
-    }
-    substituteMdFilesInPlace(dst);
+    const stagingPath = createPluginMirrorOperationDirectory(dst, 'staging');
+    publication = {
+      stagingPath,
+      backupPath: null,
+      stagingPublished: false,
+      backupContainsLiveMirror: false,
+    };
+    preparePluginMirrorInStaging(src, stagingPath, options);
+    publishPreparedPluginMirror(dst, publication);
     pluginMirrorSignature = signature;
+    return dst;
   } catch (err) {
     logger.warn(`[sdk-injection] plugin mirror install failed: ${dst}`, err);
-    pluginMirrorSignature = signature; // 标记，避免无限重试；toggle 改变后会重试
+    pluginMirrorSignature = null;
+    return null;
+  } finally {
+    if (publication && !publication.stagingPublished) {
+      cleanupPluginMirrorOperationPath(publication.stagingPath, 'staging');
+    }
+    // Preserve the backup when rollback itself failed: it is still the only valid old mirror.
+    if (publication?.backupPath && !publication.backupContainsLiveMirror) {
+      cleanupPluginMirrorOperationPath(publication.backupPath, 'backup');
+    }
+  }
+}
+
+/** Creates a unique sibling directory, guaranteeing the staged data shares destination's filesystem. */
+function createPluginMirrorOperationDirectory(destination: string, kind: 'staging' | 'backup'): string {
+  const parent = dirname(destination);
+  pluginMirrorFilesystem.mkdirSync(parent, { recursive: true });
+  return pluginMirrorFilesystem.mkdtempSync(
+    join(parent, `.${basename(destination)}.${kind}-${process.pid}-`),
+  );
+}
+
+/** Completes all mutations and validation before the live destination is renamed. */
+function preparePluginMirrorInStaging(
+  source: string,
+  stagingPath: string,
+  options: PluginMirrorOptions,
+): void {
+  pluginMirrorFilesystem.cpSync(source, stagingPath, { recursive: true });
+  if (!options.includeSkills) {
+    pluginMirrorFilesystem.rmSync(join(stagingPath, 'skills'), { recursive: true, force: true });
+  }
+  if (!options.includeAgents) {
+    pluginMirrorFilesystem.rmSync(join(stagingPath, 'agents'), { recursive: true, force: true });
+  }
+  substituteMdFilesInPlace(stagingPath);
+  assertPluginMirrorValid(stagingPath, options);
+}
+
+/** Publishes the ready tree. Non-empty-directory platforms use a bounded backup + rollback sequence. */
+function publishPreparedPluginMirror(destination: string, state: PluginMirrorPublicationState): void {
+  if (pluginMirrorFilesystem.existsSync(destination)) {
+    const backupPath = createPluginMirrorOperationDirectory(destination, 'backup');
+    state.backupPath = backupPath;
+    // rename requires a non-existing target on platforms that reject replacing a non-empty directory.
+    pluginMirrorFilesystem.rmSync(backupPath, { recursive: true, force: true });
+    pluginMirrorFilesystem.renameSync(destination, backupPath);
+    state.backupContainsLiveMirror = true;
+  }
+
+  try {
+    pluginMirrorFilesystem.renameSync(state.stagingPath, destination);
+    state.stagingPublished = true;
+    state.backupContainsLiveMirror = false;
+  } catch (publishError) {
+    if (state.backupPath && state.backupContainsLiveMirror) {
+      try {
+        pluginMirrorFilesystem.renameSync(state.backupPath, destination);
+        state.backupContainsLiveMirror = false;
+      } catch (rollbackError) {
+        logger.warn(`[sdk-injection] plugin mirror rollback failed: ${destination}`, rollbackError);
+      }
+    }
+    throw publishError;
+  }
+}
+
+/** Validates the minimal plugin contract and expected prune state without mutating the mirror. */
+function assertPluginMirrorValid(dir: string, options: PluginMirrorOptions): void {
+  const manifestPath = join(dir, '.claude-plugin', 'plugin.json');
+  if (!pluginMirrorFilesystem.existsSync(manifestPath)) {
+    throw new Error(`plugin manifest missing: ${manifestPath}`);
+  }
+  JSON.parse(pluginMirrorFilesystem.readFileSync(manifestPath, 'utf8'));
+  if (!options.includeSkills && pluginMirrorFilesystem.existsSync(join(dir, 'skills'))) {
+    throw new Error(`disabled skills directory remains in mirror: ${dir}`);
+  }
+  if (!options.includeAgents && pluginMirrorFilesystem.existsSync(join(dir, 'agents'))) {
+    throw new Error(`disabled agents directory remains in mirror: ${dir}`);
+  }
+}
+
+function isPluginMirrorValid(dir: string, options: PluginMirrorOptions): boolean {
+  try {
+    assertPluginMirrorValid(dir, options);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Best-effort cleanup is intentionally one-shot and scoped to this operation's unique sibling path. */
+function cleanupPluginMirrorOperationPath(path: string, kind: 'staging' | 'backup'): void {
+  try {
+    if (pluginMirrorFilesystem.existsSync(path)) {
+      pluginMirrorFilesystem.rmSync(path, { recursive: true, force: true });
+    }
+  } catch (err) {
+    logger.warn(`[sdk-injection] plugin mirror ${kind} cleanup failed: ${path}`, err);
   }
 }
 
 /** Walk 目录递归找 .md 文件，对每个做 placeholder substitute（如有占位符）。 */
 function substituteMdFilesInPlace(dir: string): void {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of pluginMirrorFilesystem.readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       substituteMdFilesInPlace(path);
       continue;
     }
     if (!entry.isFile() || !path.endsWith('.md')) continue;
-    try {
-      const raw = readFileSync(path, 'utf8');
-      const substituted = substituteResourcesPlaceholder(raw);
-      if (substituted !== raw) {
-        writeFileSync(path, substituted, 'utf8');
-      }
-    } catch (err) {
-      logger.warn(`[sdk-injection] substitute .md failed: ${path}`, err);
+    const raw = pluginMirrorFilesystem.readFileSync(path, 'utf8');
+    const substituted = substituteResourcesPlaceholder(raw);
+    if (substituted !== raw) {
+      pluginMirrorFilesystem.writeFileSync(path, substituted, 'utf8');
     }
   }
 }
@@ -190,8 +330,10 @@ export function getAgentDeckPluginsForSession(
   const includeAgents = settingsStore.get('injectAgentDeckClaudeAgents') !== false;
   const plugins: Array<{ type: 'local'; path: string }> = [];
   if (includeSkills || includeAgents) {
-    ensurePluginMirrorInstalled({ includeSkills, includeAgents });
-    plugins.push({ type: 'local', path: getPluginMirrorDir() });
+    const mirrorPath = ensurePluginMirrorInstalled({ includeSkills, includeAgents });
+    if (mirrorPath) {
+      plugins.push({ type: 'local', path: mirrorPath });
+    }
   }
   if (selectedPluginDir && !plugins.some((plugin) => plugin.path === selectedPluginDir)) {
     plugins.push({ type: 'local', path: selectedPluginDir });
