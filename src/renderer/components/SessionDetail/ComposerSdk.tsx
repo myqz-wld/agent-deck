@@ -6,7 +6,6 @@ import {
   type SelectablePermissionMode,
   type SessionRecord,
 } from '@shared/types';
-import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
 import log from '@renderer/utils/logger';
@@ -16,14 +15,11 @@ import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { PendingOutgoingQueue } from './composer-sdk/PendingOutgoingQueue';
 import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
 import { useAdapterRuntimeInfo } from './composer-sdk/useAdapterRuntimeInfo';
+import { SessionSandboxControls } from './composer-sdk/SessionSandboxControls';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import {
   SelectRow,
   PERMISSION_MODE_OPTIONS,
-  CODEX_SANDBOX_OPTIONS,
-  CLAUDE_CODE_SANDBOX_OPTIONS,
-  type CodexSandbox,
-  type ClaudeCodeSandbox,
 } from './composer-sdk/SandboxSelects';
 
 const logger = log.scope('renderer-composer-sdk');
@@ -110,20 +106,6 @@ export function ComposerSdk({
   const [sessionModeBusy, setSessionModeBusy] = useState(false);
   const [sessionModeError, setSessionModeError] = useState<string | null>(null);
 
-  // CHANGELOG_<X> A2c：codex 会话独立的 sandbox 切档（与 permissionMode 正交）。
-  // app-server Codex 每个 turn/start 都带 sandboxPolicy，切档只需更新下个 turn 的 options；
-  // 当前 turn 不重启、不清 pending 队列。
-  const codexSandbox = (session.codexSandbox ?? 'workspace-write') as CodexSandbox;
-  const [csBusy, setCsBusy] = useState(false);
-  const [csError, setCsError] = useState<string | null>(null);
-
-  // CHANGELOG_74：claude OS 沙盒切档（与 codex 字面镜像）。SDK 的 sandbox options 是
-  // query() spawn-time 锁定，切档必须冷切重启 SDK 子进程。session.claudeCodeSandbox
-  // null/undefined → 'off' 兜底（与全局默认对齐）。
-  const claudeCodeSandbox = (session.claudeCodeSandbox ?? 'off') as ClaudeCodeSandbox;
-  const [csClaudeBusy, setCsClaudeBusy] = useState(false);
-  const [csClaudeError, setCsClaudeError] = useState<string | null>(null);
-
   // 多 agent 适配：
   // - 标签 / placeholder 文案用对应 agent 名（Claude / Codex / ...）
   // - 权限模式 select 仅 Claude Code 桥接层显示（codex SDK 没有运行时切权限模式；REVIEW_35 MED-D-codex-3
@@ -144,8 +126,6 @@ export function ComposerSdk({
   const supportsPermissionMode = adapterRuntime.canSetPermissionMode;
   const supportsSessionMode =
     adapterRuntime.canSetSessionMode && adapterRuntime.sessionModes.length > 0;
-  const supportsCodexSandbox = agentId === 'codex-cli';
-  const supportsClaudeCodeSandbox = agentId === 'claude-code';
   const isSteerMode = canSteerTurn && turnBusy;
   const steerActionLabel = agentId === 'codex-cli' ? '修正' : '插入';
   const canUseAttachments =
@@ -271,88 +251,6 @@ export function ComposerSdk({
     }
   };
 
-  /**
-   * CHANGELOG_<X> A2c：codex sandbox 切档。app-server Codex 的 sandboxPolicy 按 turn 下发，
-   * 所以切换只影响下一轮 Codex turn，不重启当前会话。
-   *
-   * 切到 'danger-full-access' 必须 confirm（让 codex 完全免审批触达系统资源）；
-   * 'read-only' 是降级到只读，无破坏性，免 confirm。
-   */
-  const changeSandbox = async (next: CodexSandbox): Promise<void> => {
-    if (next === codexSandbox || csBusy) return;
-    if (next === 'danger-full-access') {
-      const ok = await window.api.confirmDialog({
-        title: '关闭沙盒（完全开放）',
-        message: '将从下一轮 Codex turn 起生效',
-        detail:
-          '关闭后，Codex 可以读写任意文件、执行任意命令。当前正在运行的 turn 不会中断，后续消息会使用新设置。\n\n' +
-          '失败时会自动回到当前沙盒设置。继续？',
-        okLabel: '关闭沙盒',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
-    }
-    setCsBusy(true);
-    setCsError(null);
-    try {
-      // IPC 名称沿用 restartWithCodexSandbox；主进程实际只写 codexSandbox +
-      // patch live app-server thread options。当前 turn 不重启，下一轮 turn/start 生效。
-      // session-upserted event 推回 renderer store 让下拉值跟着 sessions Map 变。
-      await window.api.restartWithCodexSandbox(
-        agentId,
-        sessionId,
-        next,
-        SDK_RESTART_RESUME_PROMPT,
-      );
-    } catch (err) {
-      setCsError((err as Error).message);
-    } finally {
-      setCsBusy(false);
-    }
-  };
-
-  /**
-   * CHANGELOG_74：Claude OS 沙盒冷切（与 changeSandbox 字面镜像）。
-   * SDK 的 sandbox options 是 query() spawn-time 锁定，必须冷切重启 SDK 子进程。
-   *
-   * confirm 策略反向：切到 `'off'` 才弹 confirm（关闭 OS 沙盒 = 放宽 = 让 SDK 完全
-   * 不受 OS 隔离约束，与 codex `danger-full-access` 同性质）；切到 `'workspace-write'` /
-   * `'strict'` 是同档/更严格，无破坏性，免 confirm。
-   */
-  const changeClaudeCodeSandbox = async (next: ClaudeCodeSandbox): Promise<void> => {
-    if (next === claudeCodeSandbox || csClaudeBusy) return;
-    if (next === 'off') {
-      const ok = await window.api.confirmDialog({
-        title: '关闭系统沙盒',
-        message: '需要重启当前会话',
-        detail:
-          '重启后，Claude 不再受系统沙盒约束（仅靠应用内授权弹窗管控）。重启约需 5-10 秒。\n\n' +
-          '失败时会自动回到当前沙盒设置。继续？',
-        okLabel: '重启并关闭沙盒',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
-    }
-    setCsClaudeBusy(true);
-    setCsClaudeError(null);
-    try {
-      // IPC 主进程 restartWithClaudeCodeSandbox：closeSession → setClaudeCodeSandbox →
-      // createSession({resume, claudeCodeSandbox, prompt}) → 失败回滚 DB + emit error。
-      await window.api.restartWithClaudeCodeSandbox(
-        agentId,
-        sessionId,
-        next,
-        SDK_RESTART_RESUME_PROMPT,
-      );
-    } catch (err) {
-      setCsClaudeError((err as Error).message);
-    } finally {
-      setCsClaudeBusy(false);
-    }
-  };
-
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
   const canSubmit =
     isSteerMode && !canSteerTurnAttachments ? text.trim().length > 0 && !busy : canSend;
@@ -398,35 +296,12 @@ export function ComposerSdk({
           onChange={(next) => void changeSessionMode(next)}
         />
       )}
-      {supportsCodexSandbox && (
-        <SelectRow
-          label="沙盒"
-          value={codexSandbox}
-          options={CODEX_SANDBOX_OPTIONS}
-          disabled={csBusy}
-          onChange={(next) => void changeSandbox(next)}
-        />
-      )}
-      {supportsClaudeCodeSandbox && (
-        <SelectRow
-          label="沙盒"
-          value={claudeCodeSandbox}
-          options={CLAUDE_CODE_SANDBOX_OPTIONS}
-          disabled={csClaudeBusy}
-          onChange={(next) => void changeClaudeCodeSandbox(next)}
-        />
-      )}
+      <SessionSandboxControls session={session} turnBusy={turnBusy} />
       <ErrorBanner message={pmError} prefix="权限模式切换失败" onDismiss={() => setPmError(null)} />
       <ErrorBanner
         message={sessionModeError}
         prefix="工作模式切换失败"
         onDismiss={() => setSessionModeError(null)}
-      />
-      <ErrorBanner message={csError} prefix="Codex 沙盒切换失败" onDismiss={() => setCsError(null)} />
-      <ErrorBanner
-        message={csClaudeError}
-        prefix="Claude 沙盒切换失败"
-        onDismiss={() => setCsClaudeError(null)}
       />
       <ErrorBanner message={sendError} onDismiss={() => setSendError(null)} />
       <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />

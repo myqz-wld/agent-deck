@@ -53,7 +53,13 @@ import {
   DEFAULT_SETTINGS,
   type AppSettings,
 } from '@shared/types';
-import { on, IpcInputError, parseSandboxMode, parseCodexSandboxMode } from './_helpers';
+import {
+  on,
+  IpcInputError,
+  parseSandboxMode,
+  parseCodexSandboxMode,
+  parseGrokSandboxProfile,
+} from './_helpers';
 import { validateContinuationAndSummarySettingsPatch } from './settings-continuation-validation';
 import { invalidateSessionHandOffPreparationsForSettingsChange } from './session-hand-off';
 import { normalizeBundledAgentRuntimeOverrideMap } from '@main/bundled-agent-runtime-validation';
@@ -92,6 +98,10 @@ export function validateSettingsPatch(
   }
   if ('codexSandbox' in p) {
     p.codexSandbox = parseCodexSandboxMode(p.codexSandbox) ?? 'workspace-write';
+  }
+  if ('grokSandbox' in p) {
+    p.grokSandbox =
+      raw.grokSandbox === null ? null : parseGrokSandboxProfile(raw.grokSandbox);
   }
   if ('bundledAgentRuntimeOverrides' in raw) {
     try {
@@ -290,17 +300,19 @@ function applyContinuationCheckpointRefresh(
 
 function applyContinuationPreparationSettings(
   p: Partial<AppSettings>,
-  _next: AppSettings,
+  before: AppSettings,
 ): void {
-  if (
-    'continuationCheckpointAdapter' in p ||
-    'continuationCheckpointRuntimeProvider' in p ||
-    'continuationCheckpointModel' in p ||
-    'continuationCheckpointThinking' in p ||
-    'continuationRawRetentionTokens' in p ||
-    'codexSandbox' in p ||
-    'claudeCodeSandbox' in p
-  ) {
+  const fingerprintFields = [
+    'continuationCheckpointAdapter',
+    'continuationCheckpointRuntimeProvider',
+    'continuationCheckpointModel',
+    'continuationCheckpointThinking',
+    'continuationRawRetentionTokens',
+    'codexSandbox',
+    'claudeCodeSandbox',
+    'grokSandbox',
+  ] as const;
+  if (fingerprintFields.some((key) => key in p && p[key] !== before[key])) {
     invalidateSessionHandOffPreparationsForSettingsChange();
   }
 }
@@ -379,7 +391,7 @@ export function registerSettingsIpc(): void {
       warnHookServerToken(p);
       // Cache eviction is intentionally last and is not part of the rollback apply chain: it is
       // safe but irreversible, so an earlier runtime-apply failure must leave previews intact.
-      applyContinuationPreparationSettings(p, next);
+      applyContinuationPreparationSettings(p, before);
     } catch (err) {
       // 1) DB 回滚：只回 patch 涉及的 key，避免动到本来就不该变的字段。
       //    双层 unknown 中转：AppSettings 严格联合类型，TS 不允许直接当 Record<string,unknown>。

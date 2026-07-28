@@ -47,6 +47,7 @@ export interface IssuesResolveInNewSessionArgs {
   sessionMode?: AdapterSessionMode;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
+  grokSandbox?: string;
   /** Claude Gateway profile id or Codex model_provider. */
   provider?: string;
   /** optional — 空值不传，使用目标 provider 默认模型。 */

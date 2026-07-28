@@ -39,6 +39,7 @@ import {
 import { clearGrokTurnLiveRate } from './translate';
 import { readGrokUsageSnapshotInBackground } from './usage-snapshot';
 import { probeGrokImageCapability } from './capability-probe';
+import { GrokSandboxRestartController } from './sandbox-restart-controller';
 
 const AGENT_ID = 'grok-build';
 
@@ -53,6 +54,7 @@ export class GrokBuildBridge {
   private readonly runtimes = new Map<string, GrokRuntime>();
   private readonly permissionController: GrokPermissionController;
   private readonly turnQueue: GrokTurnQueue;
+  private readonly sandboxRestartController: GrokSandboxRestartController;
   private binaryPath: string | null;
 
   constructor(private readonly options: GrokBuildBridgeOptions) {
@@ -66,6 +68,13 @@ export class GrokBuildBridge {
       emitEvent: (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
       emitError: (sessionId, text) => this.emitError(sessionId, text),
       closeSession: (sessionId) => this.closeSession(sessionId),
+    });
+    this.sandboxRestartController = new GrokSandboxRestartController({
+      getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
+      start: (runtime) => this.startRuntime(runtime),
+      drain: (runtime) => this.turnQueue.drain(runtime),
+      dispose: (runtime) => this.disposeRuntime(runtime),
+      persist: persistGrokRuntimeMetadata,
     });
   }
 
@@ -321,6 +330,13 @@ export class GrokBuildBridge {
     });
     runtime.sessionMode = mode;
     sessionRepo.setSessionMode(sessionId, mode);
+  }
+
+  restartWithGrokSandbox(
+    sessionId: string,
+    sandbox: string | null,
+  ): Promise<string> {
+    return this.sandboxRestartController.restart(sessionId, sandbox);
   }
 
   async shutdown(): Promise<void> {

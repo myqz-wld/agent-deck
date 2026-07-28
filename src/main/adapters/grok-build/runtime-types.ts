@@ -59,6 +59,8 @@ export interface GrokRuntime {
   model: string | null;
   thinking: string | null;
   sessionMode: AdapterSessionMode | null;
+  grokSandbox: string | null;
+  restartingSandbox: boolean;
   agentProfileName: string | null;
   agentProfileSource: 'bundled' | 'project' | 'user' | 'plugin' | null;
   agentPluginDir: string | null;

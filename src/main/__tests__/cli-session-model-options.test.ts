@@ -124,4 +124,35 @@ describe('agent-deck new model options', () => {
       'read-only',
     ])).toThrow('--codex-sandbox 与 adapter "claude-code" 不兼容');
   });
+
+  it('parses built-in and custom Grok sandbox profiles only for Grok', () => {
+    expect(parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'grok',
+      '--grok-sandbox',
+      ' project-locked ',
+    ])).toMatchObject({
+      kind: 'new-session',
+      agent: 'grok-build',
+      grokSandbox: 'project-locked',
+    });
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'codex',
+      '--grok-sandbox',
+      'strict',
+    ])).toThrow('--grok-sandbox 与 adapter "codex-cli" 不兼容');
+    expect(() => parseCliInvocation([
+      '/Applications/Agent Deck',
+      'new',
+      '--adapter',
+      'grok',
+      '--grok-sandbox',
+      'strict\nworkspace',
+    ])).toThrow('--grok-sandbox 取值无效');
+  });
 });

@@ -128,6 +128,11 @@ describe('NewSessionDialog model options', () => {
 
     fireEvent.click(await screen.findByLabelText('工作模式'));
     fireEvent.click(screen.getByRole('option', { name: '计划模式' }));
+    fireEvent.click(screen.getByLabelText('Grok 沙盒请求档位'));
+    fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
+    fireEvent.change(screen.getByLabelText('Grok 自定义沙盒 profile'), {
+      target: { value: 'project-locked' },
+    });
     fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
       target: { value: '先制定计划' },
     });
@@ -136,7 +141,10 @@ describe('NewSessionDialog model options', () => {
     await waitFor(() => {
       expect(createAdapterSession).toHaveBeenCalledWith(
         'grok-build',
-        expect.objectContaining({ sessionMode: 'plan' }),
+        expect.objectContaining({
+          sessionMode: 'plan',
+          grokSandbox: 'project-locked',
+        }),
       );
     });
   });

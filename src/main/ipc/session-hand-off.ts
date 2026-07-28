@@ -46,7 +46,12 @@ import {
   finalizeUiHandOffSource,
 } from './session-hand-off-finalize';
 import { serializeSessionHandOffCommit } from './session-hand-off-response';
-import { IpcInputError, on, parseStringId } from './_helpers';
+import {
+  IpcInputError,
+  on,
+  parseGrokSandboxProfile,
+  parseStringId,
+} from './_helpers';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-session-hand-off');
@@ -193,12 +198,17 @@ function parseTarget(value: unknown): SessionHandOffTarget {
       'must be default, plan, ask, or null',
     );
   }
+  const grokSandbox =
+    raw.grokSandbox === null
+      ? null
+      : parseGrokSandboxProfile(raw.grokSandbox);
   return {
     adapter: raw.adapter,
     provider: typeof raw.provider === 'string' ? raw.provider : null,
     model: typeof raw.model === 'string' ? raw.model : null,
     thinking: typeof raw.thinking === 'string' ? raw.thinking : null,
     sessionMode: isAdapterSessionMode(raw.sessionMode) ? raw.sessionMode : null,
+    ...(raw.grokSandbox !== undefined ? { grokSandbox } : {}),
   };
 }
 

@@ -67,20 +67,48 @@ describe('spawn adapter runtime controls', () => {
     });
   });
 
-  it('inherits only the Grok-native mode for a same-adapter spawn', () => {
+  it('inherits only Grok-owned mode and sandbox for a same-adapter spawn', () => {
     const resolved = resolveSpawnRuntimeControls({
       args: { adapter: 'grok-build', cwd: '/repo', prompt: 'work' },
       capabilities: grokCapabilities,
       leadRecord: {
         agentId: 'grok-build',
         sessionMode: 'ask',
+        grokSandbox: 'project-locked',
         permissionMode: 'bypassPermissions',
       } as SessionRecord,
       inherit: true,
       codexSandboxFromAgent: undefined,
     });
     expect(resolved.effectiveSessionMode).toBe('ask');
+    expect(resolved.effectiveGrokSandbox).toBe('project-locked');
     expect(resolved.effectivePermissionMode).toBeUndefined();
+  });
+
+  it('keeps an explicit Grok sandbox ahead of inheritance and never cross-inherits it', () => {
+    const leadRecord = {
+      agentId: 'grok-build',
+      grokSandbox: 'strict',
+    } as SessionRecord;
+    expect(resolveSpawnRuntimeControls({
+      args: {
+        adapter: 'grok-build',
+        cwd: '/repo',
+        prompt: 'work',
+        grokSandbox: 'read-only',
+      },
+      capabilities: grokCapabilities,
+      leadRecord,
+      inherit: true,
+      codexSandboxFromAgent: undefined,
+    }).effectiveGrokSandbox).toBe('read-only');
+    expect(resolveSpawnRuntimeControls({
+      args: { adapter: 'grok-build', cwd: '/repo', prompt: 'work' },
+      capabilities: grokCapabilities,
+      leadRecord: { ...leadRecord, agentId: 'codex-cli' },
+      inherit: true,
+      codexSandboxFromAgent: undefined,
+    }).effectiveGrokSandbox).toBeUndefined();
   });
 
   it('does not expose a provider-restored dontAsk state to a new spawned session', () => {

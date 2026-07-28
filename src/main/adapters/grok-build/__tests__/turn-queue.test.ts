@@ -44,6 +44,8 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
     model: 'fake-model',
     thinking: null,
     sessionMode: null,
+    grokSandbox: null,
+    restartingSandbox: false,
     agentProfileName: null,
     agentProfileSource: null,
     agentPluginDir: null,

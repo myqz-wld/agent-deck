@@ -141,6 +141,7 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
             : {}),
         ...(source.codexSandbox ? { codexSandbox: source.codexSandbox } : {}),
         ...(source.claudeCodeSandbox ? { claudeCodeSandbox: source.claudeCodeSandbox } : {}),
+        ...(source.grokSandbox ? { grokSandbox: source.grokSandbox } : {}),
         ...(source.extraAllowWrite?.length
           ? { extraAllowWrite: [...source.extraAllowWrite] }
           : {}),

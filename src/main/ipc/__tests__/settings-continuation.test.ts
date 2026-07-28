@@ -315,7 +315,19 @@ describe('SettingsSet continuation validation', () => {
     expect(setHandler!({} as never, { claudeCodeSandbox: 'strict' })).toMatchObject({
       claudeCodeSandbox: 'strict',
     });
-    expect(invalidatePreparations).toHaveBeenCalledTimes(2);
+    expect(setHandler!({} as never, { grokSandbox: ' project-locked ' })).toMatchObject({
+      grokSandbox: 'project-locked',
+    });
+    expect(invalidatePreparations).toHaveBeenCalledTimes(3);
+
+    invalidatePreparations.mockClear();
+    settingsStoreMocks.getAll.mockReturnValue(
+      current({ grokSandbox: 'project-locked' }),
+    );
+    expect(setHandler!({} as never, { grokSandbox: 'project-locked' })).toMatchObject({
+      grokSandbox: 'project-locked',
+    });
+    expect(invalidatePreparations).not.toHaveBeenCalled();
 
     expect(
       setHandler!({} as never, {
@@ -335,6 +347,20 @@ describe('SettingsSet continuation validation', () => {
         continuationCheckpointMaxConcurrent: 4,
       }),
     );
-    expect(invalidatePreparations).toHaveBeenCalledTimes(2);
+    expect(invalidatePreparations).not.toHaveBeenCalled();
+  });
+
+  it('accepts nullable custom Grok profiles and rejects unsafe names', () => {
+    expect(validateSettingsPatch({ grokSandbox: null }, current())).toMatchObject({
+      grokSandbox: null,
+    });
+    expect(
+      validateSettingsPatch({ grokSandbox: ' project-locked ' }, current()),
+    ).toMatchObject({ grokSandbox: 'project-locked' });
+    for (const profile of ['', 'x'.repeat(129), 'strict\nworkspace', 42]) {
+      expect(() =>
+        validateSettingsPatch({ grokSandbox: profile } as unknown, current()),
+      ).toThrow(/grokSandbox/);
+    }
   });
 });

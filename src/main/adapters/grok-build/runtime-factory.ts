@@ -31,6 +31,11 @@ export function createGrokRuntime(
     model: opts.model ?? existing?.model ?? null,
     thinking: opts.reasoningEffort ?? existing?.thinking ?? null,
     sessionMode: opts.sessionMode ?? existing?.sessionMode ?? null,
+    grokSandbox:
+      opts.grokSandbox !== undefined
+        ? opts.grokSandbox
+        : existing?.grokSandbox ?? null,
+    restartingSandbox: false,
     agentProfileName: opts.grokAgentName ?? existing?.agentProfileName ?? null,
     agentProfileSource: opts.grokAgentSource ?? existing?.agentProfileSource ?? null,
     agentPluginDir: opts.grokPluginDir ?? existing?.agentPluginDir ?? null,
@@ -62,6 +67,8 @@ export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
     model: record.model ?? null,
     thinking: record.thinking ?? null,
     sessionMode: record.sessionMode ?? null,
+    grokSandbox: record.grokSandbox ?? null,
+    restartingSandbox: false,
     agentProfileName: record.agentProfileName ?? null,
     agentProfileSource: record.agentProfileSource ?? null,
     agentPluginDir: record.agentPluginDir ?? null,
@@ -87,6 +94,7 @@ export function persistGrokRuntimeMetadata(runtime: GrokRuntime): void {
   if (runtime.sessionMode) {
     sessionRepo.setSessionMode(runtime.applicationSessionId, runtime.sessionMode);
   }
+  sessionRepo.setGrokSandbox(runtime.applicationSessionId, runtime.grokSandbox);
   const updated = sessionRepo.get(runtime.applicationSessionId);
   if (updated) eventBus.emit('session-upserted', updated);
 }

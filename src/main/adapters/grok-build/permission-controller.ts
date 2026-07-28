@@ -32,7 +32,9 @@ export class GrokPermissionController {
     request: RequestPermissionRequest,
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> {
-    if (runtime.closed) return Promise.resolve({ outcome: { outcome: 'cancelled' } });
+    if (runtime.closed || runtime.restartingSandbox) {
+      return Promise.resolve({ outcome: { outcome: 'cancelled' } });
+    }
     const requestId = randomUUID();
     const permission: PermissionRequest = {
       type: 'permission-request',

@@ -14,6 +14,7 @@ import type {
   SessionRecord,
 } from '@shared/types';
 import { isSelectablePermissionMode } from '@shared/types';
+import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 import type { ResolvedSuccessorSpec } from '../continuation-context/types';
 import { resolveContinuationTargetSnapshot } from '../continuation-context/resolver';
 
@@ -27,6 +28,7 @@ export interface HandOffTargetRequest {
   sessionMode?: AdapterSessionMode | null;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict';
+  grokSandbox?: string | null;
   extraAllowWrite?: readonly string[];
   networkAccessEnabled?: boolean;
   additionalDirectories?: readonly string[];
@@ -126,6 +128,24 @@ export function resolveHandOffTarget(input: {
         (sameAdapter ? source.claudeCodeSandbox ?? undefined : undefined) ??
         settingsStore.get('claudeCodeSandbox')
       : undefined;
+  let grokSandbox: string | null | undefined;
+  if (request.adapter === 'grok-build') {
+    const candidate =
+      request.grokSandbox !== undefined
+        ? request.grokSandbox
+        : sameAdapter
+          ? source.grokSandbox ?? null
+          : settingsStore.get('grokSandbox');
+    try {
+      grokSandbox =
+        candidate === null ? null : normalizeGrokSandboxProfile(candidate);
+    } catch (error) {
+      throw new HandOffTargetOptionsError(
+        'grokSandbox',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
   const extraAllowWrite =
     request.adapter === 'grok-build'
       ? []
@@ -162,6 +182,7 @@ export function resolveHandOffTarget(input: {
       sessionMode,
       codexSandbox,
       claudeCodeSandbox,
+      grokSandbox,
       networkAccessEnabled:
         networkAccessEnabled === null ? undefined : networkAccessEnabled,
       handOff: {
@@ -196,7 +217,7 @@ export function resolveHandOffTarget(input: {
     null;
   const sandbox =
     request.adapter === 'grok-build'
-      ? { kind: 'grok' }
+      ? { kind: 'grok', profile: grokSandbox ?? null }
       : request.adapter === 'codex-cli'
       ? {
           kind: 'codex',

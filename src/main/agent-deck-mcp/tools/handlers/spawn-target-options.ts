@@ -14,6 +14,7 @@ export interface SpawnTargetOptionsInput {
   effectiveSessionMode?: SpawnSessionArgs['sessionMode'];
   effectiveCodexSandbox: SpawnSessionArgs['codexSandbox'];
   effectiveClaudeCodeSandbox: SpawnSessionArgs['claudeCodeSandbox'];
+  effectiveGrokSandbox?: SpawnSessionArgs['grokSandbox'] | null;
   effectiveExtraAllowWrite: readonly string[] | undefined;
   provider: string | undefined;
   modelOptions: SpawnModelOptions;
@@ -48,6 +49,7 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       sessionMode: input.effectiveSessionMode,
       codexSandbox: input.effectiveCodexSandbox,
       claudeCodeSandbox: input.effectiveClaudeCodeSandbox,
+      grokSandbox: input.effectiveGrokSandbox,
       teamName: args.teamName,
       provider: input.provider,
       model: input.modelOptions.model,

@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-27 | `CHANGELOG_406_grok-native-sandbox-controls.md` | Control Grok Build's native sandbox across every session path |
 | 2026-07-27 | `CHANGELOG_405_transparent-usage-refresh-latency.md` | Clear transparent artifacts and bound provider refresh latency |
 | 2026-07-27 | `CHANGELOG_404_token-usage-presence-repair.md` | Restore daily token totals without weakening strict provider totals |
 | 2026-07-27 | `CHANGELOG_403_browser-waits-open-dom-retention.md` | Add browser waits, open-DOM refs, and seven-day screenshot retention |

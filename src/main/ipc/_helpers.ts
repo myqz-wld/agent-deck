@@ -13,6 +13,7 @@ import {
   type SelectablePermissionMode,
 } from '@shared/types';
 import { SANDBOX_MODE_VALUES, type SandboxMode } from '@main/adapters/claude-code/sandbox-config';
+import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
 
@@ -148,6 +149,21 @@ export function parseCodexSandboxMode(value: unknown): CodexSandboxMode | null {
     );
   }
   return value as CodexSandboxMode;
+}
+
+export function parseGrokSandboxProfile(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') {
+    throw new IpcInputError('grokSandbox', `not a string: ${String(value)}`);
+  }
+  try {
+    return normalizeGrokSandboxProfile(value);
+  } catch (error) {
+    throw new IpcInputError(
+      'grokSandbox',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 /**

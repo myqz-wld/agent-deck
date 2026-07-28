@@ -25,6 +25,7 @@ describe('adapter target runtime control contracts', () => {
       'model',
       'thinking',
       'sessionMode',
+      'grokSandbox',
     ]);
   });
 
@@ -41,6 +42,12 @@ describe('adapter target runtime control contracts', () => {
     expect(firstUnsupportedTargetRuntimeField('grok-build', {
       extraAllowWrite: [],
     })).toBe('extraAllowWrite');
+    expect(firstUnsupportedTargetRuntimeField('grok-build', {
+      grokSandbox: 'strict',
+    })).toBeNull();
+    expect(firstUnsupportedTargetRuntimeField('codex-cli', {
+      grokSandbox: 'strict',
+    })).toBe('grokSandbox');
   });
 
   it('accepts writable roots for both sandbox hosts', () => {
