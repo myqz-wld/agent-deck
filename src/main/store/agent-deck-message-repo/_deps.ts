@@ -34,6 +34,10 @@ export interface MessageRow {
   last_attempt_at: number | null;
   delivering_since: number | null;
   reply_to_message_id: string | null;
+  /** Optional only for compatibility with pre-v054 row fixtures. */
+  delivery_generation?: number;
+  /** Optional only for compatibility with pre-v054 row fixtures. */
+  delivery_lease_to_session_id?: string | null;
 }
 
 export function rowToRecord(r: MessageRow): AgentDeckMessage {
@@ -53,6 +57,8 @@ export function rowToRecord(r: MessageRow): AgentDeckMessage {
     lastAttemptAt: r.last_attempt_at,
     deliveringSince: r.delivering_since,
     replyToMessageId: r.reply_to_message_id,
+    deliveryGeneration: r.delivery_generation ?? 0,
+    deliveryLeaseToSessionId: r.delivery_lease_to_session_id ?? null,
   };
 }
 
@@ -138,6 +144,30 @@ export interface FindEligibleExcludingTargetsOptions {
   now: number;
   /** 排除的 target sessionId 列表(已在当前 batch 的 candidates) */
   excludeTargets: readonly string[];
+}
+
+/** Durable capability returned by claim(); only this destination/generation may finalize it. */
+export interface MessageDeliveryLease {
+  messageId: string;
+  toSessionId: string;
+  generation: number;
+}
+
+export function deliveryLeaseOf(message: AgentDeckMessage): MessageDeliveryLease {
+  const generation = message.deliveryGeneration ?? 0;
+  const leaseToSessionId = message.deliveryLeaseToSessionId ?? null;
+  if (
+    message.status !== 'delivering' ||
+    leaseToSessionId !== message.toSessionId ||
+    generation < 1
+  ) {
+    throw new Error(`message ${message.id} does not hold an active delivery lease`);
+  }
+  return {
+    messageId: message.id,
+    toSessionId: message.toSessionId,
+    generation,
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -229,15 +259,25 @@ export interface AgentDeckMessageRepo {
    */
   claim(messageId: string, now: number): AgentDeckMessage | null;
   /** 投递成功 → terminal */
-  markDelivered(messageId: string, now: number): AgentDeckMessage | null;
+  markDelivered(
+    messageIdOrLease: string | MessageDeliveryLease,
+    now: number,
+  ): AgentDeckMessage | null;
   /** 失败超出 MAX_RETRY 或 caller 主动放弃 → terminal */
-  markFailed(messageId: string, reason: string): AgentDeckMessage | null;
+  markFailed(
+    messageIdOrLease: string | MessageDeliveryLease,
+    reason: string,
+  ): AgentDeckMessage | null;
   /**
    * 退避后下次再试：attempt_count++ + last_attempt_at=now + status='pending'。
    * 调用方在 watcher 内 catch adapter.receiveTeammateMessage error 后调；
    * 内部判断如 attempt_count >= MAX_RETRY 自动 markFailed。
    */
-  retryAfterFail(messageId: string, reason: string, now: number): AgentDeckMessage | null;
+  retryAfterFail(
+    lease: MessageDeliveryLease,
+    reason: string,
+    now: number,
+  ): AgentDeckMessage | null;
   /** 显式 cancel（lead 撤回 / team archive 后兜底）→ terminal */
   cancel(messageId: string, reason: string): AgentDeckMessage | null;
   /** per-target backpressure：to_session_id 当前 in-flight count（pending + delivering） */
@@ -248,4 +288,8 @@ export interface AgentDeckMessageRepo {
    * 返回 reset 行数。
    */
   resetDeliveringOnStartup(): number;
+  /** Pending-only handoff retarget. Delivering rows are never mutated in place. */
+  retargetPendingForHandOff(sourceSessionId: string, successorSessionId: string): number;
+  /** Durable drain probe used before a handoff ownership commit. */
+  countDeliveringForSession(sessionId: string): number;
 }

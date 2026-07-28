@@ -42,23 +42,22 @@
  * 外部 import 路径不变（TS module resolution 自动 fallback 到 index.ts）。
  */
 
-import type { AgentAdapter } from '@main/adapters/types';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
-import { adapterRegistry } from '@main/adapters/registry';
 import { eventBus } from '@main/event-bus';
-import { sessionRepo } from '@main/store/session-repo';
 import {
   agentDeckMessageRepo,
+  deliveryLeaseOf,
   MAX_RETRY,
 } from '@main/store/agent-deck-message-repo';
-import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { settingsStore } from '@main/store/settings-store';
-import { sanitizeWireFieldName } from '@shared/wire-prefix';
 import type { AgentDeckMessage } from '@shared/types';
 
+import { dispatchClaimedMessage } from './claimed-message-delivery';
 import { teamEventDispatcher } from './team-event-dispatcher';
 import { messageRateLimiter } from './rate-limiter';
 import log from '@main/utils/logger';
+import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
+import { getProcessRunId } from '@main/utils/run-context';
 
 const logger = log.scope('universal-message-watcher');
 
@@ -74,55 +73,13 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 const ENQUEUE_DEBOUNCE_MS = 50;
 /** 单 tick 单批 claim 上限（避免单次循环吃光 event-loop）。 */
 const BATCH_LIMIT = 16;
+export const MESSAGE_DELIVERY_DRAIN_TIMEOUT_MS = 5_000;
 
-// ────────────────────────────────────────────────────────────────────────────
-// fromMember displayName 反查（§4.4 wire format 前缀拼装）
-// ────────────────────────────────────────────────────────────────────────────
-
-function resolveFromDisplayName(
-  fromSessionId: string,
-  teamId: string | null,
-): { displayName: string; adapterId: string } {
-  const session = sessionRepo.get(fromSessionId);
-  // adapter 已删时走二级 fallback（避免 `null:abcd1234`）
-  const adapterId = session?.agentId ?? 'unknown-adapter';
-  // plan teamless-dm-20260601 D6：teamless DM（teamId=null）无 team membership 可查 → 直接走
-  // fallback。优先 session.title（用户可见名，如 "reviewer-claude · batch A"），缺失再退
-  // `<adapterId>:<sid 前 8>`。team 模式下保留 REVIEW_35 MED-A2 的 PK lookup（O(log N) 复合索引）。
-  if (teamId !== null) {
-    const myMembership = agentDeckTeamRepo.findActiveMembershipIn(teamId, fromSessionId);
-    if (myMembership?.displayName && myMembership.displayName.trim()) {
-      return { displayName: myMembership.displayName, adapterId };
-    }
-  } else if (session?.title && session.title.trim()) {
-    return { displayName: session.title, adapterId };
-  }
-  // fallback `<adapterId>:<sessionId 前 8 字符>`
-  return {
-    displayName: `${adapterId}:${fromSessionId.slice(0, 8)}`,
-    adapterId,
-  };
-}
-
-function buildWireBody(
-  message: AgentDeckMessage,
-): string {
-  const { displayName, adapterId } = resolveFromDisplayName(
-    message.fromSessionId,
-    message.teamId,
-  );
-  // plan team-cohesion-fix-20260513 Phase B7：在 wire body 顶部注入 [msg <id>]，让 teammate
-  // 能从 prompt 提 messageId 调 send_message —— 否则 lead 收到 reply 没有 reply chain anchor
-  // （teammate 不知 reply_to_message_id 该填啥，只能裸 message reply）。
-  // CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：升级双锚点 [msg <id>][sid <senderSessionId>]，
-  // 让 teammate 拿到 senderSessionId 直接 send_message({session_id: sid, team_id, ...})
-  // 回 lead，不必依赖 spawn 时注入的 lead context block / 不必 list_sessions 反查（双层冗余防
-  // 协议漂移 / 长 prompt 截断）。
-  // CHANGELOG_100 R2 fix (codex MED-1): sanitizeWireFieldName 处理 displayName / adapterId 里的
-  // `]` / `\n` / `[`，避免 user 设的 session.title (e.g. "feat: [test]") 破坏 wire prefix 解析。
-  const safeDisplayName = sanitizeWireFieldName(displayName);
-  const safeAdapterId = sanitizeWireFieldName(adapterId);
-  return `[from ${safeDisplayName} @ ${safeAdapterId}][msg ${message.id}][sid ${message.fromSessionId}]\n${message.body}`;
+export interface MessageDeliveryDrainResult {
+  drained: boolean;
+  timedOut: boolean;
+  activeDeliveries: number;
+  durableDelivering: number;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -148,6 +105,11 @@ export class UniversalMessageWatcher {
    * 在 finally reschedule 前 gate + stop() 清 rescheduleAfterCurrent。
    */
   private running = false;
+  /** Claimed adapter calls that have not yet reached a durable terminal/retry state. */
+  private readonly activeDeliveries = new Map<
+    string,
+    { fromSessionId: string; toSessionId: string }
+  >();
 
   /** 应用启动调一次。idempotent：重复调不会起多个 timer。 */
   start(opts?: { pollIntervalMs?: number }): void {
@@ -187,7 +149,9 @@ export class UniversalMessageWatcher {
     );
   }
 
-  stop(): void {
+  async stop(
+    options: { timeoutMs?: number } = {},
+  ): Promise<MessageDeliveryDrainResult> {
     this.running = false;
     // **REVIEW_100 LOW (reviewer-codex)**: 清 rescheduleAfterCurrent，防 in-flight process() 的
     // finally 在 stop 后仍 setImmediate 再跑一轮（shutdown 语义后继续 claim/deliver + 与
@@ -208,7 +172,59 @@ export class UniversalMessageWatcher {
       this.sweepInterval = null;
     }
     teamEventDispatcher.stop();
-    logger.info('[universal-message-watcher] stopped');
+    const result = await this.waitForDrain(
+      () => this.activeDeliveries.size,
+      options.timeoutMs ?? MESSAGE_DELIVERY_DRAIN_TIMEOUT_MS,
+    );
+    logger.info(
+      '[message-delivery-drain]',
+      safeDiagnostic({
+        event: 'message-delivery-drain',
+        runId: getProcessRunId(),
+        scope: 'watcher-stop',
+        outcome: result.drained ? 'drained' : 'timeout',
+        activeDeliveries: result.activeDeliveries,
+        durableDelivering: result.durableDelivering,
+      }),
+    );
+    return result;
+  }
+
+  /**
+   * The cutover lease must already be active. It blocks new source ingress and this watcher's
+   * pre-claim gate; this method only drains claims that crossed the boundary earlier.
+   */
+  async drainForHandOff(
+    sessionId: string,
+    timeoutMs = MESSAGE_DELIVERY_DRAIN_TIMEOUT_MS,
+  ): Promise<MessageDeliveryDrainResult> {
+    const result = await this.waitForDrain(
+      () => {
+        let active = 0;
+        for (const delivery of this.activeDeliveries.values()) {
+          if (
+            delivery.fromSessionId === sessionId ||
+            delivery.toSessionId === sessionId
+          ) active += 1;
+        }
+        return active;
+      },
+      timeoutMs,
+      sessionId,
+    );
+    logger.info(
+      '[message-delivery-drain]',
+      safeDiagnostic({
+        event: 'message-delivery-drain',
+        runId: getProcessRunId(),
+        scope: 'handoff',
+        sessionId,
+        outcome: result.drained ? 'drained' : 'timeout',
+        activeDeliveries: result.activeDeliveries,
+        durableDelivering: result.durableDelivering,
+      }),
+    );
+    return result;
   }
 
   /** event 触发后的 debounce：50ms 内多个 enqueue 合并为一次 process。 */
@@ -340,6 +356,12 @@ export class UniversalMessageWatcher {
 
   /** 单条投递：claim → adapter call → markDelivered | retry。 */
   private async deliver(message: AgentDeckMessage): Promise<void> {
+    // The handoff lease is the pre-claim boundary. Pending envelopes remain durable and are
+    // retargeted transactionally only after every older claim has drained.
+    if (
+      handOffCutoverCoordinator.isActive(message.fromSessionId) ||
+      handOffCutoverCoordinator.isActive(message.toSessionId)
+    ) return;
     const claimNow = Date.now();
     const claimed = agentDeckMessageRepo.claim(message.id, claimNow);
     if (!claimed) {
@@ -347,6 +369,11 @@ export class UniversalMessageWatcher {
       return;
     }
     this.emitStatus(claimed);
+    const lease = deliveryLeaseOf(claimed);
+    this.activeDeliveries.set(claimed.id, {
+      fromSessionId: claimed.fromSessionId,
+      toSessionId: claimed.toSessionId,
+    });
 
     // **REVIEW_86 MED-1 (reviewer-codex)**: claim 已把行置 'delivering'，但 claim 后的 invariant
     // 重验（sessionRepo.get / agentDeckTeamRepo.get / findActiveMembershipIn）+ buildWireBody 旧版
@@ -358,229 +385,68 @@ export class UniversalMessageWatcher {
     // 异常都走状态机不会卡 delivering。invariant 违规路径（markFailed + return）是 by-design 终止态，
     // return 正常退出 try 不进 catch，行为不变。
     try {
-      await this.dispatchClaimed(claimed);
+      await dispatchClaimedMessage({
+        claimed,
+        lease,
+        emitStatus: (message) => this.emitStatus(message),
+      });
     } catch (err) {
       // claim 后任意同步/异步异常（invariant 重验 DB 抛错 / buildWireBody 抛错 / 未被内层 adapter
       // try 捕获的其他抛错）统一退避重投，破开「永久卡 delivering」。
       const reason = err instanceof Error ? err.message : String(err);
-      const updated = agentDeckMessageRepo.retryAfterFail(claimed.id, reason, Date.now());
+      const updated = agentDeckMessageRepo.retryAfterFail(lease, reason, Date.now());
       if (updated) {
         this.emitStatus(updated);
         logger.warn(
           `[universal-message-watcher] deliver post-claim error (attempt ${updated.attemptCount}/${MAX_RETRY}) message=${updated.id}: ${reason}`,
         );
       }
+    } finally {
+      this.activeDeliveries.delete(claimed.id);
     }
   }
 
-  /**
-   * claim 之后的投递主体：5 项 invariant 重验 → adapter resolve → buildWireBody → adapter call。
-   * 抽出让 deliver() 的 outer try 能兜住本段任意 post-claim 抛错（REVIEW_86 MED-1）。
-   * invariant 违规走 markFailed + return（终止态，by-design）；adapter call 失败走内层 retryAfterFail。
-   */
-  private async dispatchClaimed(claimed: AgentDeckMessage): Promise<void> {
-    // CHANGELOG_100 / plan mcp-tool-simplify-20260514：J fix 一刀切拦截已删除。
-    //
-    // 旧 J fix（CHANGELOG_99 之前）：`if (claimed.replyToMessageId != null)` 直接 markDelivered
-    // + return，不 dispatch 给 sender SDK。当时是为了避免 lead 看到 wait_reply 拿到的 reply
-    // 同时也作为 user-role message 被 inject 进 SDK conversation 重复显示。
-    //
-    // 但 CHANGELOG_99 反向发现：J fix 一刀切拦截了「lead 给 teammate 发消息时 caller 显式
-    // 传 reply_to_message_id 链接 reply chain」场景 — teammate 不调 wait_reply 只能被动
-    // 等 dispatch，被拦了永远收不到。
-    //
-    // CHANGELOG_100 协议大简化（删 reply_message + wait_reply + check_reply）：reply 现在
-    // 走与普通 send_message 同款 dispatch 路径 → universal-message-watcher.deliver →
-    // adapter.receiveTeammateMessage → adapter.sendMessage → sender SDK emit 'message'
-    // kind 'user' role event → SessionDetail echo → lead/teammate 直接看到 reply 自动 act on
-    // it。这跟收任意普通 message 同款处理路径，无特殊机制 — 一统协议。
-
-    // Handoff may retarget a pending/delivering row while this watcher turn is queued. Refresh the
-    // durable envelope before resolving lifecycle, membership, adapter, and destination fields.
-    const current = agentDeckMessageRepo.get(claimed.id);
-    if (!current || (current.status !== 'pending' && current.status !== 'delivering')) return;
-    const redirectedSessionId = handOffCutoverCoordinator.successorFor(current.toSessionId);
-    claimed = redirectedSessionId
-      ? { ...current, toSessionId: redirectedSessionId }
-      : current;
-
-    const target = sessionRepo.get(claimed.toSessionId);
-    if (!target) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'target session not found',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    if (target.lifecycle === 'closed') {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'target session is closed',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-
-    // REVIEW_56 Batch C R1 codex MED-1 修法: enqueue 时 send.ts 校验 caller/target 共享 active
-    // team(+ archived check),但 enqueue 与 deliver 之间发生 team archive / from leave team /
-    // to leave team / from archived / target archived 任一种 → claim 后 dispatch 已 stale。
-    // ipc/teams.ts:155 AgentDeckTeamArchive handler 只 emit event 不 cancel pending message
-    // (ipc 路径不知 message-repo);watcher 是 dispatch 路径最后一道闸门 → claim 后重验 invariant
-    // 失败 markFailed 不 dispatch,防止向已 archive / leave 的 receiver 投递。
-    // (cancel pending 主动清理是 follow-up optimization;watcher 重验是充分的正确性 invariant。)
-    //
-    // **session 级闸门**（target archived / from not found / from archived）对 team + teamless
-    // **都适用**，留在 teamless guard 外（plan teamless-dm-20260601 D5）。
-    if (target.archivedAt != null) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'target session archived',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    const fromSession = sessionRepo.get(claimed.fromSessionId);
-    if (!fromSession) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'from session not found',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    if (fromSession.archivedAt != null) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        'from session archived',
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    // **team 级闸门**（team exists / team archived / from-to active membership）仅 team 消息适用。
-    // plan teamless-dm-20260601 D5：teamless DM（teamId=null）无 team / membership 概念 → 整段短路。
-    // membership 是 peer-ACL，teamless 已由 RFC 放弃（§不变量 9）；上面 session 级安全闸门保留。
-    // 同时 `agentDeckTeamRepo.get(claimed.teamId)` 要求非 null string，guard 也消解类型。
-    if (claimed.teamId !== null) {
-      const team = agentDeckTeamRepo.get(claimed.teamId);
-      if (!team) {
-        const failed = agentDeckMessageRepo.markFailed(
-          claimed.id,
-          'team not found',
-        );
-        if (failed) this.emitStatus(failed);
-        return;
-      }
-      if (team.archivedAt != null) {
-        const failed = agentDeckMessageRepo.markFailed(
-          claimed.id,
-          'team archived',
-        );
-        if (failed) this.emitStatus(failed);
-        return;
-      }
-      const fromMembership = agentDeckTeamRepo.findActiveMembershipIn(
-        claimed.teamId,
-        claimed.fromSessionId,
-      );
-      const toMembership = agentDeckTeamRepo.findActiveMembershipIn(
-        claimed.teamId,
-        claimed.toSessionId,
-      );
-      if (!fromMembership && !toMembership) {
-        const failed = agentDeckMessageRepo.markFailed(
-          claimed.id,
-          'from and to no longer active members of team',
-        );
-        if (failed) this.emitStatus(failed);
-        return;
-      }
-      if (!fromMembership) {
-        const failed = agentDeckMessageRepo.markFailed(
-          claimed.id,
-          'from no longer active member of team',
-        );
-        if (failed) this.emitStatus(failed);
-        return;
-      }
-      if (!toMembership) {
-        const failed = agentDeckMessageRepo.markFailed(
-          claimed.id,
-          'to no longer active member of team',
-        );
-        if (failed) this.emitStatus(failed);
-        return;
-      }
-    }
-
-    let adapter: AgentAdapter | undefined;
-    try {
-      adapter = adapterRegistry.get(target.agentId);
-    } catch {
-      adapter = undefined;
-    }
-    if (!adapter) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        `adapter "${target.agentId}" not registered`,
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-    if (!adapter.capabilities.canCollaborate || !adapter.receiveTeammateMessage) {
-      const failed = agentDeckMessageRepo.markFailed(
-        claimed.id,
-        `adapter "${target.agentId}" does not support receiveTeammateMessage`,
-      );
-      if (failed) this.emitStatus(failed);
-      return;
-    }
-
-    const wireBody = buildWireBody(claimed);
-    try {
-      await adapter.receiveTeammateMessage(
-        claimed.toSessionId,
-        claimed.fromSessionId,
-        wireBody,
-      );
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      const updated = agentDeckMessageRepo.retryAfterFail(claimed.id, reason, Date.now());
-      if (updated) {
-        this.emitStatus(updated);
-        if (updated.status === 'pending') {
-          logger.warn(
-            `[universal-message-watcher] deliver failed (attempt ${updated.attemptCount}/${MAX_RETRY}) message=${updated.id}: ${reason}`,
-          );
-        } else {
-          logger.warn(
-            `[universal-message-watcher] deliver exhausted message=${updated.id}: ${reason}`,
-          );
-        }
-      }
-      return;
-    }
-
-    try {
-      const delivered = agentDeckMessageRepo.markDelivered(claimed.id, Date.now());
-      if (delivered) this.emitStatus(delivered);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      logger.warn(
-        `[universal-message-watcher] markDelivered failed after adapter accepted message=${claimed.id}; not retrying to avoid duplicate receiver injection: ${reason}`,
-      );
+  private async waitForDrain(
+    activeCount: () => number,
+    timeoutMs: number,
+    sessionId?: string,
+  ): Promise<MessageDeliveryDrainResult> {
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    for (;;) {
+      const activeDeliveries = activeCount();
+      let durableDelivering = 0;
       try {
-        const failed = agentDeckMessageRepo.markFailed(
-          claimed.id,
-          `post-delivery markDelivered failed after adapter accepted; not retried: ${reason}`,
-        );
-        if (failed) this.emitStatus(failed);
-      } catch (markFailedErr) {
+        durableDelivering = sessionId
+          ? agentDeckMessageRepo.countDeliveringForSession(sessionId)
+          : activeDeliveries;
+      } catch (error) {
         logger.warn(
-          `[universal-message-watcher] markFailed also failed after markDelivered failure message=${claimed.id}:`,
-          markFailedErr,
+          '[message-delivery-drain] durable probe failed',
+          safeErrorSummary(error),
         );
+        durableDelivering = Math.max(1, activeDeliveries);
       }
+      if (activeDeliveries === 0 && durableDelivering === 0) {
+        return {
+          drained: true,
+          timedOut: false,
+          activeDeliveries,
+          durableDelivering,
+        };
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return {
+          drained: false,
+          timedOut: true,
+          activeDeliveries,
+          durableDelivering,
+        };
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, Math.min(25, remaining));
+        timer.unref?.();
+      });
     }
   }
 

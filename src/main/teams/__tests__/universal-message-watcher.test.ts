@@ -63,6 +63,11 @@ const membershipBySid: Map<
   string,
   { sessionId: string; teamId: string; role: 'lead' | 'teammate'; leftAt: number | null } | null
 > = new Map();
+interface LeaseLike {
+  messageId: string;
+  toSessionId: string;
+  generation: number;
+}
 
 // REVIEW_35 follow-up A1 R2: stateful pending Map 让 process() 集成 test 可跑
 // findEligible / countPendingForTarget / claim / markDelivered / markFailed 5 个 fn
@@ -78,6 +83,11 @@ const receiveTeammateMessageStub = async (to: string, from: string, body: string
 
 vi.mock('@main/store/agent-deck-message-repo', () => ({
   MAX_RETRY: 3,
+  deliveryLeaseOf: (message: AgentDeckMessage): LeaseLike => ({
+    messageId: message.id,
+    toSessionId: message.toSessionId,
+    generation: message.deliveryGeneration ?? 1,
+  }),
   agentDeckMessageRepo: {
     get: (id: string) => {
       if (statefulPendingMap) {
@@ -93,11 +103,21 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         const m = statefulPendingMap.get(id);
         if (!m || m.status !== 'pending') return null;
         m.status = 'delivering';
+        m.deliveryGeneration = (m.deliveryGeneration ?? 0) + 1;
+        m.deliveryLeaseToSessionId = m.toSessionId;
         return { ...m };
       }
-      return nextClaimResult;
+      return nextClaimResult
+        ? {
+            ...nextClaimResult,
+            deliveryGeneration: nextClaimResult.deliveryGeneration ?? 1,
+            deliveryLeaseToSessionId:
+              nextClaimResult.deliveryLeaseToSessionId ?? nextClaimResult.toSessionId,
+          }
+        : null;
     },
-    markDelivered: (id: string, ts: number) => {
+    markDelivered: (lease: LeaseLike, ts: number) => {
+      const id = lease.messageId;
       markDeliveredCalls.push({ id, ts });
       if (markDeliveredThrow) throw markDeliveredThrow;
       if (statefulPendingMap) {
@@ -106,22 +126,26 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         if (m.status !== 'pending' && m.status !== 'delivering') return null;
         m.status = 'delivered';
         m.deliveredAt = ts;
+        m.deliveryLeaseToSessionId = null;
         return { ...m };
       }
       return nextClaimResult ? { ...nextClaimResult, status: 'delivered', deliveredAt: ts } : null;
     },
-    markFailed: (id: string, reason: string) => {
+    markFailed: (lease: LeaseLike, reason: string) => {
+      const id = lease.messageId;
       markFailedCalls.push({ id, reason });
       if (statefulPendingMap) {
         const m = statefulPendingMap.get(id);
         if (!m) return null;
         m.status = 'failed';
         m.statusReason = reason;
+        m.deliveryLeaseToSessionId = null;
         return { ...m };
       }
       return nextClaimResult ? { ...nextClaimResult, status: 'failed', statusReason: reason } : null;
     },
-    retryAfterFail: (id: string, reason: string, _now: number) => {
+    retryAfterFail: (lease: LeaseLike, reason: string, _now: number) => {
+      const id = lease.messageId;
       // REVIEW_86 MED-1: 记录 retryAfterFail 调用 + stateful 改 status 回 pending（退避重投语义）。
       retryAfterFailCalls.push({ id, reason });
       if (statefulPendingMap) {
@@ -131,6 +155,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         // attemptCount < MAX_RETRY(3) → 退避后回 pending；到顶 → failed
         m.status = m.attemptCount >= 3 ? 'failed' : 'pending';
         m.statusReason = reason;
+        m.deliveryLeaseToSessionId = null;
         return { ...m };
       }
       return nextClaimResult
@@ -168,6 +193,14 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         return n;
       }
       return 0;
+    },
+    countDeliveringForSession: (sid: string) => {
+      if (!statefulPendingMap) return 0;
+      return [...statefulPendingMap.values()].filter(
+        (message) =>
+          message.status === 'delivering' &&
+          (message.fromSessionId === sid || message.toSessionId === sid),
+      ).length;
     },
     resetDeliveringOnStartup: () => 0,
     listAllMembers: () => [],
@@ -267,6 +300,8 @@ function makeMessage(overrides: Partial<AgentDeckMessage> = {}): AgentDeckMessag
     attemptCount: 0,
     lastAttemptAt: null,
     deliveringSince: null,
+    deliveryGeneration: 0,
+    deliveryLeaseToSessionId: null,
     ...overrides,
   };
 }
@@ -367,18 +402,13 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
     expect(markFailedCalls).toHaveLength(0);
   });
 
-  it('refreshes a delivering envelope retargeted by handoff before adapter dispatch', async () => {
-    const original = makeMessage({ id: 'handoff-retarget', toSessionId: 'source-sid' });
+  it('finishes a claimed envelope against its original destination and generation', async () => {
+    const original = makeMessage({ id: 'handoff-original-lease', toSessionId: 'source-sid' });
     nextClaimResult = { ...original, status: 'delivering' };
-    currentMessageOverride = {
-      ...original,
-      toSessionId: 'successor-sid',
-      status: 'delivering',
-    };
-    sessionByIdMap.set('successor-sid', {
-      id: 'successor-sid',
+    sessionByIdMap.set('source-sid', {
+      id: 'source-sid',
       lifecycle: 'active',
-      agentId: 'codex-cli',
+      agentId: 'claude-code',
       archivedAt: null,
     });
     sessionByIdMap.set('sender-sid', {
@@ -387,8 +417,8 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
       agentId: 'claude-code',
       archivedAt: null,
     });
-    membershipBySid.set('successor-sid', {
-      sessionId: 'successor-sid',
+    membershipBySid.set('source-sid', {
+      sessionId: 'source-sid',
       teamId: 'team-1',
       role: 'lead',
       leftAt: null,
@@ -406,57 +436,27 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
 
     await callDeliver(new UniversalMessageWatcher(), original);
 
-    expect(adapterRegistryGetCalls).toEqual(['codex-cli']);
+    expect(adapterRegistryGetCalls).toEqual(['claude-code']);
     expect(receiveTeammateMessageCalls).toEqual([
-      expect.objectContaining({ to: 'successor-sid', from: 'sender-sid' }),
+      expect.objectContaining({ to: 'source-sid', from: 'sender-sid' }),
     ]);
     expect(markDeliveredCalls).toHaveLength(1);
     expect(markFailedCalls).toHaveLength(0);
   });
 
-  it('redirects an envelope inserted just after handoff ownership committed', async () => {
-    const sourceId = 'source-after-commit';
-    const successorId = 'successor-after-commit';
+  it('does not claim a pending envelope while its source cutover lease is active', async () => {
+    const sourceId = 'source-during-cutover';
     const lease = handOffCutoverCoordinator.tryAcquire(sourceId)!;
-    lease.commit(successorId);
-    lease.release();
-    const original = makeMessage({ id: 'post-commit-message', toSessionId: sourceId });
-    nextClaimResult = { ...original, status: 'delivering' };
-    sessionByIdMap.set(successorId, {
-      id: successorId,
-      lifecycle: 'active',
-      agentId: 'codex-cli',
-      archivedAt: null,
-    });
-    sessionByIdMap.set('sender-sid', {
-      id: 'sender-sid',
-      lifecycle: 'active',
-      agentId: 'claude-code',
-      archivedAt: null,
-    });
-    membershipBySid.set(successorId, {
-      sessionId: successorId,
-      teamId: 'team-1',
-      role: 'lead',
-      leftAt: null,
-    });
-    membershipBySid.set('sender-sid', {
-      sessionId: 'sender-sid',
-      teamId: 'team-1',
-      role: 'teammate',
-      leftAt: null,
-    });
-    nextAdapterResult = {
-      capabilities: { canCollaborate: true },
-      receiveTeammateMessage: receiveTeammateMessageStub,
-    };
-
-    await callDeliver(new UniversalMessageWatcher(), original);
-
-    expect(receiveTeammateMessageCalls).toEqual([
-      expect.objectContaining({ to: successorId }),
-    ]);
-    expect(markDeliveredCalls).toHaveLength(1);
+    try {
+      const original = makeMessage({ id: 'pending-during-cutover', toSessionId: sourceId });
+      nextClaimResult = { ...original, status: 'delivering' };
+      await callDeliver(new UniversalMessageWatcher(), original);
+      expect(claimCalls).toEqual([]);
+      expect(receiveTeammateMessageCalls).toEqual([]);
+      expect(markDeliveredCalls).toEqual([]);
+    } finally {
+      lease.release();
+    }
   });
 
   it('reply 在 target session 已删除时 markFailed（与普通 message 同款，不再短路 markDelivered）', async () => {
@@ -1003,9 +1003,16 @@ describe('universal-message-watcher.stop — REVIEW_100 LOW: 停后不 reschedul
     const processPromise = w.process();
 
     await firstDeliveryStarted;
-    watcher.stop();
+    const stopPromise = watcher.stop();
+    let stopSettled = false;
+    void stopPromise.then(() => {
+      stopSettled = true;
+    });
+    await Promise.resolve();
+    expect(stopSettled).toBe(false);
     releaseFirst();
     await processPromise;
+    await expect(stopPromise).resolves.toMatchObject({ drained: true, timedOut: false });
 
     expect(claimCalls).toEqual(['stop-batch-1']);
     expect(receiveTeammateMessageCalls).toHaveLength(1);
@@ -1013,7 +1020,7 @@ describe('universal-message-watcher.stop — REVIEW_100 LOW: 停后不 reschedul
     expect(statefulPendingMap.get('stop-batch-2')?.status).toBe('pending');
   });
 
-  it('stop() 清 rescheduleAfterCurrent + 置 running=false（白盒断言 flag 状态）', () => {
+  it('stop() 清 rescheduleAfterCurrent + 置 running=false（白盒断言 flag 状态）', async () => {
     const watcher = new UniversalMessageWatcher();
     const w = watcher as unknown as {
       running: boolean;
@@ -1024,7 +1031,7 @@ describe('universal-message-watcher.stop — REVIEW_100 LOW: 停后不 reschedul
     expect(w.running).toBe(true);
     // 模拟 in-flight process() 期间 poll/event 置 reschedule flag
     w.rescheduleAfterCurrent = true;
-    watcher.stop();
+    await watcher.stop();
     // 修后：stop() 清 flag + 置 running=false → finally guard 不会再 setImmediate(process)
     expect(w.running).toBe(false);
     expect(w.rescheduleAfterCurrent).toBe(false);

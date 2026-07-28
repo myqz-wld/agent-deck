@@ -1,5 +1,5 @@
 import type { UploadedAttachmentRef } from '@shared/types';
-import { bufferHandOffSourceInput } from '@main/session/hand-off/input-buffer';
+import { guardHandOffSourceIngress } from '@main/session/hand-off/ingress-guard';
 import {
   validateMessageLengthOrThrow,
   validateSendMessageOrThrow,
@@ -70,7 +70,7 @@ export async function sendClaudeMessage(
 ): Promise<void> {
   validateMessageLengthOrThrow(input.text);
   if (
-    bufferHandOffSourceInput({
+    guardHandOffSourceIngress({
       sourceSessionId: input.sessionId,
       agentId: 'claude-code',
       text: input.text,

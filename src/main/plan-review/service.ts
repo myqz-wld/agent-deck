@@ -26,7 +26,10 @@ type ResolutionState = 'pending' | 'resolving' | 'resolved' | 'cancelled';
 
 interface PendingMcpPlanReview {
   payload: ExitPlanModeRequest;
-  sessionId: string;
+  /** Immutable provider turn that owns the original blocking request promise. */
+  sourceSessionId: string;
+  /** Current UI/authorization owner. Changes only after a committed handoff event. */
+  ownerSessionId: string;
   agentId: string;
   state: PendingState;
   timer: NodeJS.Timeout | null;
@@ -103,7 +106,8 @@ export class PlanReviewService {
     });
     const entry: PendingMcpPlanReview = {
       payload,
-      sessionId: input.sessionId,
+      sourceSessionId: input.sessionId,
+      ownerSessionId: input.sessionId,
       agentId: input.agentId,
       state: 'active',
       timer: null,
@@ -149,7 +153,7 @@ export class PlanReviewService {
     if (entry.childPromise) return entry.childPromise;
 
     const childPromise = this.deps.coordinator.start({
-      sourceSessionId: entry.sessionId,
+      sourceSessionId: entry.ownerSessionId,
       request: entry.payload,
     }).then(async (child) => {
       if (this.pending.get(requestId) !== entry) {
@@ -195,7 +199,7 @@ export class PlanReviewService {
     response: ExitPlanModeResponse,
   ): Promise<string | null> {
     const entry = this.pending.get(requestId);
-    if (!entry || entry.sessionId !== sessionId) return null;
+    if (!entry || entry.ownerSessionId !== sessionId) return null;
     if (entry.resolutionState !== 'pending') {
       throw new Error('This plan decision is already being submitted or is no longer pending.');
     }
@@ -212,7 +216,7 @@ export class PlanReviewService {
     try {
       if (entry.state === 'timed-out') {
         await this.deps.coordinator.deliverLateDecision({
-          sourceSessionId: entry.sessionId,
+          sourceSessionId: entry.sourceSessionId,
           request: entry.payload,
           response: entry.lateDecisionResponse!,
         });
@@ -223,7 +227,7 @@ export class PlanReviewService {
         await this.closeChild(entry);
         return null;
       }
-      const resolvedSessionId = entry.sessionId;
+      const resolvedSessionId = entry.ownerSessionId;
       entry.resolutionState = 'resolved';
       this.removeEntry(entry);
       await this.closeChild(entry);
@@ -241,7 +245,7 @@ export class PlanReviewService {
     const emitCancelled = options.emitCancelled ?? true;
     let cancelled = 0;
     for (const entry of [...this.pending.values()]) {
-      if (entry.sessionId !== sessionId) continue;
+      if (entry.ownerSessionId !== sessionId) continue;
       if (entry.resolutionState === 'resolved' || entry.resolutionState === 'cancelled') continue;
       entry.resolutionState = 'cancelled';
       this.removeEntry(entry);
@@ -259,11 +263,18 @@ export class PlanReviewService {
       previousAgentId: string;
     }> = [];
     for (const entry of this.pending.values()) {
-      if (entry.sessionId !== sourceSessionId) continue;
+      if (entry.ownerSessionId !== sourceSessionId) continue;
       const previousAgentId = entry.agentId;
-      // Ownership commit is the authoritative boundary. Route the backend gate first so a
-      // transient metadata/projection failure cannot leave it attached to the closing source.
-      entry.sessionId = successorSessionId;
+      // Commit detaches the blocking source promise. The card remains as transferable successor
+      // work; a later decision is a new idempotent provider turn redirected from the immutable
+      // historical source. No source promise is kept alive by rewriting a session id.
+      if (entry.state === 'active') {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = null;
+        entry.state = 'timed-out';
+        entry.resolve({ decision: 'timeout' });
+      }
+      entry.ownerSessionId = successorSessionId;
       movedEntries.push({ entry, previousAgentId });
     }
     if (movedEntries.length === 0) return 0;
@@ -318,7 +329,7 @@ export class PlanReviewService {
 
   listPending(sessionId: string): ExitPlanModeRequest[] {
     return [...this.pending.values()]
-      .filter((entry) => entry.sessionId === sessionId)
+      .filter((entry) => entry.ownerSessionId === sessionId)
       .map((entry) => entry.payload);
   }
 
@@ -327,10 +338,10 @@ export class PlanReviewService {
     for (const entry of this.pending.values()) {
       let session: SessionRecord | null;
       try {
-        session = this.deps.getSession(entry.sessionId);
+        session = this.deps.getSession(entry.ownerSessionId);
       } catch (error) {
         logger.warn(
-          `[plan-review] failed to hydrate pending request=${entry.payload.requestId} session=${entry.sessionId}`,
+          `[plan-review] failed to hydrate pending request=${entry.payload.requestId} session=${entry.ownerSessionId}`,
           error,
         );
         continue;
@@ -340,7 +351,7 @@ export class PlanReviewService {
       // successful hydration so cross-adapter handoffs remain visible under the successor adapter.
       entry.agentId = session.agentId;
       if (agentId && entry.agentId !== agentId) continue;
-      (out[entry.sessionId] ??= []).push(entry.payload);
+      (out[entry.ownerSessionId] ??= []).push(entry.payload);
     }
     return out;
   }
@@ -356,7 +367,7 @@ export class PlanReviewService {
     if (
       this.pending.get(entry.payload.requestId) !== entry ||
       entry.resolutionState !== 'pending' ||
-      entry.sessionId !== expectedSessionId
+      entry.ownerSessionId !== expectedSessionId
     ) {
       throw new Error('The plan request changed before the feedback draft was ready.');
     }
@@ -367,7 +378,7 @@ export class PlanReviewService {
     const entry = this.pending.get(requestId);
     if (
       !entry ||
-      entry.sessionId !== sessionId ||
+      entry.ownerSessionId !== sessionId ||
       entry.resolutionState !== 'pending'
     ) {
       throw new Error('The plan review request is no longer pending.');
@@ -396,7 +407,7 @@ export class PlanReviewService {
 
   private emitCancelled(entry: PendingMcpPlanReview): void {
     this.deps.ingest({
-      sessionId: entry.sessionId,
+      sessionId: entry.ownerSessionId,
       agentId: entry.agentId,
       kind: 'waiting-for-user',
       payload: { type: 'exit-plan-cancelled', requestId: entry.payload.requestId },

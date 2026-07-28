@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     reassignOwner: vi.fn(),
   },
   retargetMessages: vi.fn(),
+  deliveringCount: 0,
   compressAliases: vi.fn(),
   recordAlias: vi.fn(),
   transaction: vi.fn((fn: () => unknown) => fn),
@@ -29,6 +30,7 @@ vi.mock('@main/store/db', () => ({
   getDb: () => ({
     transaction: mocks.transaction,
     prepare: (sql: string) => ({
+      get: () => ({ c: mocks.deliveringCount }),
       run: sql.includes('UPDATE session_handoff_aliases')
         ? mocks.compressAliases
         : sql.includes('session_handoff_aliases')
@@ -92,6 +94,9 @@ beforeEach(() => {
   mocks.teamRepo.findActiveMembershipIn.mockReturnValue(null);
   mocks.taskRepo.reassignOwner.mockReturnValue(0);
   mocks.compressAliases.mockReturnValue({ changes: 0 });
+  mocks.retargetMessages.mockReturnValue({ changes: 0 });
+  mocks.recordAlias.mockReturnValue({ changes: 1 });
+  mocks.deliveringCount = 0;
 });
 
 describe('transferHandOffResources', () => {
@@ -381,6 +386,21 @@ describe('transferHandOffResources', () => {
     );
     expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(2, 'successor-sid', null);
     expect(mocks.teamRepo.findActiveMembershipsBySession).not.toHaveBeenCalled();
+  });
+
+  it('refuses resource cutover while a delivery lease still references the source', () => {
+    mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([]);
+    mocks.deliveringCount = 1;
+
+    expect(() => transferHandOffResources({
+      callerSessionId: 'caller-sid',
+      callerRow: callerRow(),
+      newSessionId: 'successor-sid',
+    })).toThrow('message delivery drain incomplete');
+
+    expect(mocks.retargetMessages).not.toHaveBeenCalled();
+    expect(mocks.recordAlias).not.toHaveBeenCalled();
+    expect(mocks.eventEmit).not.toHaveBeenCalled();
   });
 
   it('transaction rollback restores ownership even when every manual compensation fails', () => {

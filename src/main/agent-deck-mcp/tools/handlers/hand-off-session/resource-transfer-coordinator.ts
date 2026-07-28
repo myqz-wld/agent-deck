@@ -5,6 +5,10 @@ import { getDb } from '@main/store/db';
 import { sessionRepo } from '@main/store/session-repo';
 import { taskRepo } from '@main/store/task-repo';
 import {
+  countDeliveringMessagesForSessionWithDb,
+  retargetPendingMessagesForHandOffWithDb,
+} from '@main/store/agent-deck-message-repo';
+import {
   compressSessionHandOffAliasesWithDb,
   recordSessionHandOffAliasWithDb,
 } from '@main/store/session-handoff-alias-repo';
@@ -273,24 +277,16 @@ function transferTasks(
   }
 }
 
-/** Keep queued inbound and outbound envelopes attached to the new owner. */
-function retargetInFlightMessages(callerSessionId: string, newSessionId: string): void {
-  getDb()
-    .prepare(
-      `UPDATE agent_deck_messages
-          SET from_session_id = CASE WHEN from_session_id = ? THEN ? ELSE from_session_id END,
-              to_session_id = CASE WHEN to_session_id = ? THEN ? ELSE to_session_id END
-        WHERE (from_session_id = ? OR to_session_id = ?)
-          AND status IN ('pending', 'delivering')`,
-    )
-    .run(
-      callerSessionId,
-      newSessionId,
-      callerSessionId,
-      newSessionId,
-      callerSessionId,
-      callerSessionId,
+/** Keep only unclaimed inbound and outbound envelopes attached to the new owner. */
+function retargetPendingMessages(callerSessionId: string, newSessionId: string): void {
+  const db = getDb();
+  const delivering = countDeliveringMessagesForSessionWithDb(db, callerSessionId);
+  if (delivering > 0) {
+    throw new Error(
+      `message delivery drain incomplete for ${callerSessionId}: ${delivering} delivering`,
     );
+  }
+  retargetPendingMessagesForHandOffWithDb(db, callerSessionId, newSessionId);
 }
 
 /** Flatten every older wire anchor that currently resolves to the outgoing owner. */
@@ -355,7 +351,7 @@ function transferHandOffResourcesInTransaction(input: {
     return { tasks: rolledBackTasks, teams, worktreeMarker: rolledBackMarker };
   }
 
-  retargetInFlightMessages(input.callerSessionId, input.newSessionId);
+  retargetPendingMessages(input.callerSessionId, input.newSessionId);
   compressHandOffAliases(input.callerSessionId, input.newSessionId);
   recordSessionHandOffAliasWithDb(
     getDb(),

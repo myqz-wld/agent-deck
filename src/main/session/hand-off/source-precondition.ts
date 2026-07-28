@@ -42,6 +42,7 @@ export type HandOffSourceCutoverRejectionReason =
   | 'revision-gap'
   | 'source-kept-changing'
   | 'late-message-delivery-failed'
+  | 'message-delivery-drain-timeout'
   | 'check-failed';
 
 export type HandOffSourceCutoverResult =

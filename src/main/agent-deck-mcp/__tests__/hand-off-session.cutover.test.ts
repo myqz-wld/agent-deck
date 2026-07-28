@@ -125,6 +125,7 @@ function dependencies(
       lateMessages: [],
     }),
     createSuccessor: vi.fn(async () => 'successor-sid'),
+    drainMessageDeliveries: vi.fn(async () => true),
     transferResources: vi.fn(() => successfulTransfer()),
     closeSuccessor: vi.fn(async () => undefined),
     finalizeSource: vi.fn(async () => undefined),
@@ -341,6 +342,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
     const closeSuccessor = vi.fn(async () => undefined);
     const transferResources = vi.fn(() => successfulTransfer());
     const finalizeSource = vi.fn(async () => undefined);
+    const drainMessageDeliveries = vi.fn(async () => true);
     const sourcePreconditionCheck = vi
       .fn()
       .mockReturnValueOnce({
@@ -363,16 +365,40 @@ describe('hand_off_session cutover exclusion and freshness', () => {
         closeSuccessor,
         transferResources,
         finalizeSource,
+        drainMessageDeliveries,
         sourcePreconditionCheck,
       }),
     );
 
     expect(result.isError).toBeFalsy();
     expect(sourcePreconditionCheck).toHaveBeenCalledTimes(2);
+    expect(drainMessageDeliveries).toHaveBeenCalledOnce();
+    expect(drainMessageDeliveries).toHaveBeenCalledWith('caller-sid');
     expect(transferResources).toHaveBeenCalledTimes(1);
     expect(finalizeSource).toHaveBeenCalledTimes(1);
     expect(closeSuccessor).not.toHaveBeenCalled();
     expect(parsed(result).warnings).toEqual(['source-advanced-after-capture']);
+  });
+
+  it('closes the orphan and reports a truthful error when message delivery drain times out', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
+    const closeSuccessor = vi.fn(async () => undefined);
+    const transferResources = vi.fn(() => successfulTransfer());
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue after delivery' },
+      context(),
+      dependencies({
+        drainMessageDeliveries: vi.fn(async () => false),
+        closeSuccessor,
+        transferResources,
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('message delivery did not drain');
+    expect(closeSuccessor).toHaveBeenCalledWith('successor-sid');
+    expect(transferResources).not.toHaveBeenCalled();
   });
 
   it('delivers late user input to the successor instead of rejecting the handoff', async () => {

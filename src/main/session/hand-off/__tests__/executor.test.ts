@@ -144,6 +144,64 @@ describe('executePreparedHandOff', () => {
     expect(result.queuedMessagesDelivered).toBe(1);
   });
 
+  it('drains pre-existing message claims before the final source scan and transfer', async () => {
+    const order: string[] = [];
+    await executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck: () => {
+        order.push('scan');
+        return matchingSource();
+      },
+      target,
+      turn,
+      createSuccessor: vi.fn(async () => {
+        order.push('create');
+        return 'successor-after-drain';
+      }),
+      drainMessageDeliveries: vi.fn(async () => {
+        order.push('drain');
+        return true;
+      }),
+      transferResources: vi.fn(() => {
+        order.push('transfer');
+        return { failed: false };
+      }),
+      resourceTransferFailed: (value: { failed: boolean }) => value.failed,
+      closeSuccessor: vi.fn(),
+      finalizeSource: vi.fn(),
+    });
+
+    expect(order).toEqual(['create', 'drain', 'scan', 'transfer']);
+  });
+
+  it('closes the orphan and leaves resources untouched when delivery drain times out', async () => {
+    const closeSuccessor = vi.fn(async () => undefined);
+    const transferResources = vi.fn();
+    const work = executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck: vi.fn(),
+      target,
+      turn,
+      createSuccessor: vi.fn(async () => 'orphan-after-drain-timeout'),
+      drainMessageDeliveries: vi.fn(async () => false),
+      transferResources,
+      resourceTransferFailed: vi.fn(),
+      closeSuccessor,
+      finalizeSource: vi.fn(),
+    });
+
+    await expect(work).rejects.toMatchObject({
+      stage: 'cutover',
+      cutoverReason: 'message-delivery-drain-timeout',
+      successorSessionId: 'orphan-after-drain-timeout',
+      successorCleanup: 'ok',
+    });
+    expect(closeSuccessor).toHaveBeenCalledWith('orphan-after-drain-timeout');
+    expect(transferResources).not.toHaveBeenCalled();
+  });
+
   it('closes an orphan on mandatory-transfer failure and never finalizes the source', async () => {
     const closeSuccessor = vi.fn(async () => undefined);
     const finalizeSource = vi.fn();
