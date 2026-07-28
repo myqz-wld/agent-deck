@@ -7,17 +7,19 @@ import { AgentDeckMcpSection } from '../AgentDeckMcpSection';
 afterEach(cleanup);
 
 describe('AgentDeckMcpSection tool inventory', () => {
-  it('shows all 19 registered tools, including list_session_events', () => {
+  it('shows 19 core tools and 14 adapter-scoped browser tools', () => {
     render(
       <AgentDeckMcpSection settings={DEFAULT_SETTINGS} update={vi.fn()} />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Agent Deck MCP' }));
 
-    const summary = screen.getByText('查看全部 19 个工具');
-    const names = [...summary.closest('details')!.querySelectorAll('code')].map(
-      (node) => node.textContent,
-    );
+    const summary = screen.getByText('查看工具清单（19 个核心 + 14 个 Browser）');
+    const names = [...summary.closest('details')!.querySelectorAll('code')]
+      .map((node) => node.textContent)
+      .filter((name) => name !== 'browser_*');
     expect(names).toContain('list_session_events');
-    expect(names).toHaveLength(19);
+    expect(names).toContain('browser_open');
+    expect(names).toContain('browser_evaluate');
+    expect(names).toHaveLength(33);
   });
 });
