@@ -7,6 +7,20 @@ let chooseDirectory: ReturnType<typeof vi.fn>;
 let createAdapterSession: ReturnType<typeof vi.fn>;
 let resolveChooseDirectory: (value: string | null) => void;
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function sessionCreationDefaults(
   approvalPolicy: 'untrusted' | 'on-request' | 'never' = 'on-request',
 ) {
@@ -41,6 +55,7 @@ beforeEach(() => {
           capabilities: {
             canCreateSession: true,
             canSetPermissionMode: true,
+            canAcceptAttachments: true,
           },
         },
       ]),
@@ -56,6 +71,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, 'api');
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('NewSessionDialog directory picker', () => {
@@ -158,7 +175,7 @@ describe('NewSessionDialog model options', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows and forwards adapter-native Grok work modes', async () => {
+  it('shows and forwards adapter-native Grok Build work modes', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -188,9 +205,9 @@ describe('NewSessionDialog model options', () => {
     expect(workMode.textContent).not.toContain('默认');
     fireEvent.click(workMode);
     fireEvent.click(screen.getByRole('option', { name: '计划模式' }));
-    fireEvent.click(screen.getByLabelText('Grok 沙盒请求档位'));
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒请求档位'));
     fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
-    fireEvent.change(screen.getByLabelText('Grok 自定义沙盒 profile'), {
+    fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox profile 名'), {
       target: { value: 'project-locked' },
     });
     fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
@@ -253,5 +270,171 @@ describe('NewSessionDialog model options', () => {
         expect.objectContaining({ approvalPolicy: 'never' }),
       );
     });
+  });
+});
+
+describe('NewSessionDialog unified authoring and create lifecycle', () => {
+  it('edits long text with two images in the expanded surface and layers image Escape', async () => {
+    class ImmediateFileReader {
+      result: string | ArrayBuffer | null = null;
+      onload: (() => void) | null = null;
+      readAsDataURL(file: Blob): void {
+        this.result = `data:${file.type};base64,aGVsbG8=`;
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    class ImmediateImage {
+      width = 100;
+      height = 100;
+      onload: (() => void) | null = null;
+      private value = '';
+      set src(next: string) {
+        this.value = next;
+        queueMicrotask(() => this.onload?.());
+      }
+      get src(): string {
+        return this.value;
+      }
+    }
+    vi.stubGlobal('FileReader', ImmediateFileReader as unknown as typeof FileReader);
+    vi.stubGlobal('Image', ImmediateImage as unknown as typeof Image);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      globalCompositeOperation: '',
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue('data:image/jpeg;base64,dGh1bWI=');
+
+    render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
+    await screen.findByText('Claude');
+    const longText = `完整任务\n${'长文本 '.repeat(180)}`;
+    fireEvent.change(screen.getByLabelText('第一条消息'), {
+      target: { value: longText },
+    });
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File([new Uint8Array(32)], 'first.png', { type: 'image/png' }),
+          new File([new Uint8Array(32)], 'second.png', { type: 'image/png' }),
+        ],
+      },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '放大查看附件：first.png' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '放大查看附件：second.png' })).toBeTruthy();
+    });
+
+    const expand = screen.getByRole('button', { name: '展开编辑第一条消息' });
+    expect(expand.className).toContain('h-11');
+    expect(expand.className).toContain('w-11');
+    fireEvent.click(expand);
+    const editor = screen.getByRole('dialog', { name: '编辑第一条消息' });
+    expect(
+      (screen.getByLabelText('第一条消息（展开编辑）') as HTMLTextAreaElement).value,
+    ).toBe(longText);
+    expect(editor.textContent).toContain('first.png');
+    expect(editor.textContent).toContain('second.png');
+
+    fireEvent.click(screen.getByRole('button', {
+      name: '放大查看附件：first.png',
+    }));
+    expect(screen.getByRole('dialog', { name: '图片预览' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '图片预览' })).toBeNull();
+    });
+    expect(screen.getByRole('dialog', { name: '编辑第一条消息' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '编辑第一条消息' })).toBeNull();
+    });
+  });
+
+  it('locks create synchronously against double submission', async () => {
+    const pending = deferred<string>();
+    createAdapterSession.mockReturnValueOnce(pending.promise);
+    render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
+    await screen.findByText('Claude');
+    fireEvent.change(screen.getByLabelText('第一条消息'), {
+      target: { value: '只创建一次' },
+    });
+    const create = screen.getByRole('button', { name: '创建' });
+    fireEvent.click(create);
+    fireEvent.click(create);
+    expect(createAdapterSession).toHaveBeenCalledTimes(1);
+    pending.resolve('session-new');
+  });
+
+  it('freezes the compact image file control while create is in flight', async () => {
+    const readAsDataUrl = vi.fn();
+    class GuardedFileReader {
+      result: string | ArrayBuffer | null = null;
+      onload: (() => void) | null = null;
+      readAsDataURL(file: Blob): void {
+        readAsDataUrl(file);
+      }
+    }
+    vi.stubGlobal('FileReader', GuardedFileReader as unknown as typeof FileReader);
+    const pending = deferred<string>();
+    createAdapterSession.mockReturnValueOnce(pending.promise);
+    render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
+    await screen.findByText('Claude');
+    expect(screen.getByText('第一条消息（文字或图片至少一项）')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('第一条消息'), {
+      target: { value: '创建期间冻结附件' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    const fileInput = screen.getByLabelText('添加图片文件') as HTMLInputElement;
+    expect(fileInput.disabled).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: '添加图片' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File([new Uint8Array(16)], 'too-late.png', { type: 'image/png' })],
+      },
+    });
+    await Promise.resolve();
+    expect(readAsDataUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', {
+      name: '放大查看附件：too-late.png',
+    })).toBeNull();
+    pending.resolve('session-new');
+  });
+
+  it('ignores a create completion after close and preserves the reopened draft', async () => {
+    const pending = deferred<string>();
+    createAdapterSession.mockReturnValueOnce(pending.promise);
+    const onClose = vi.fn();
+    const onCreated = vi.fn();
+    const view = render(
+      <NewSessionDialog open onClose={onClose} onCreated={onCreated} />,
+    );
+    await screen.findByText('Claude');
+    fireEvent.change(screen.getByLabelText('第一条消息'), {
+      target: { value: '旧草稿' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    fireEvent.click(screen.getByRole('button', { name: '关闭新建会话' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    view.rerender(<NewSessionDialog open={false} onClose={onClose} onCreated={onCreated} />);
+    view.rerender(<NewSessionDialog open onClose={onClose} onCreated={onCreated} />);
+    const prompt = await screen.findByLabelText('第一条消息') as HTMLTextAreaElement;
+    expect(prompt.value).toBe('旧草稿');
+    fireEvent.change(prompt, { target: { value: '重新打开后的草稿' } });
+
+    pending.resolve('stale-session');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText('第一条消息') as HTMLTextAreaElement).value)
+      .toBe('重新打开后的草稿');
   });
 });
