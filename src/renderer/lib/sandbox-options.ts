@@ -110,11 +110,6 @@ export const GROK_SANDBOX_MODE_OPTIONS: {
   title?: string;
 }[] = [
   {
-    value: 'strict',
-    label: '严格隔离',
-    title: '限制到工作目录和系统文件；子进程网络受限（macOS 网络限制除外）',
-  },
-  {
     value: 'read-only',
     label: '广泛只读',
     title: '可读取系统文件，仅 Grok 配置和临时目录可写；子进程网络受限',
@@ -125,18 +120,11 @@ export const GROK_SANDBOX_MODE_OPTIONS: {
     title: '工作目录、Grok 配置和临时目录可写；允许子进程联网',
   },
   {
-    value: 'devbox',
-    label: '开发机宽松',
-    title: '除受保护目录外允许广泛写入，并允许子进程联网',
-  },
-  {
     value: 'off',
     label: '⚠️ 完全开放',
     title: '不启用 Grok 系统沙盒；仍受 Grok 工具授权规则约束',
   },
 ];
 
-/** Simplified global setting choices; per-session and live controls retain every native profile. */
-export const GROK_SETTINGS_SANDBOX_MODE_OPTIONS = GROK_SANDBOX_MODE_OPTIONS.filter(
-  (option) => option.value !== 'strict' && option.value !== 'devbox',
-);
+/** All renderer surfaces share the same simplified built-in choices. */
+export const GROK_SETTINGS_SANDBOX_MODE_OPTIONS = GROK_SANDBOX_MODE_OPTIONS;

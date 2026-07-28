@@ -37,8 +37,9 @@ const ADAPTER_ID = 'codex-cli';
  *   compatibility path 由 permission queue 单独承接）
  * - ❌ 运行时 setPermissionMode（approvalPolicy 仅在 startThread 时设一次）
  *
- * 普通会话不覆盖 provider 的 approval policy；reviewer 等无人值守内部会话显式使用
- * `never`。sandboxMode 默认 'workspace-write' 但**可被 settings.codexSandbox 覆盖**
+ * 新建会话的 approval policy 默认 `never`；caller 显式值和同 adapter 继承值优先。
+ * reviewer 另加无人值守所需的网络与读取根。sandboxMode 默认 'workspace-write' 但
+ * **可被 settings.codexSandbox 覆盖**
  * （CHANGELOG_54 B-4：补齐 REVIEW_14「双 backend 沙盒对称」目标，让用户能在 read-only /
  * workspace-write / danger-full-access 三档间切）。靠 OS sandbox 兜底。
  *

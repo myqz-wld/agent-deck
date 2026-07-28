@@ -53,7 +53,7 @@ const codexSandbox = z
   .enum(['workspace-write', 'read-only', 'danger-full-access'])
   .optional()
   .describe(
-    'Optional Codex app-server sandbox override. This field is owned only by adapter="codex-cli"; omission uses resolved Agent runtime, same-adapter inheritance, or the Codex adapter default as applicable.',
+    'Optional Codex app-server sandbox override. This field is owned only by adapter="codex-cli". Precedence is explicit value, resolved Agent runtime, persisted same-adapter source, then the Codex target default; cross-adapter targets never copy the source sandbox.',
   );
 
 const claudeCodeSandbox = z
@@ -91,7 +91,7 @@ const extraAllowWrite = z
   .max(16)
   .optional()
   .describe(
-    'Optional absolute writable roots outside cwd. claude-code passes them to sandbox.allowWrite and codex-cli merges them into workspace-write writableRoots; same-adapter targets may inherit them when omitted. grok-build keeps ACP-native tool permissions and rejects this field.',
+    'Optional absolute writable roots outside cwd. claude-code passes them to sandbox.allowWrite and codex-cli merges them into workspace-write writableRoots. Omission inherits persisted roots only for a same-adapter target; cross-adapter targets use an empty target default. grok-build keeps ACP-native tool permissions and rejects this field.',
   );
 
 /**

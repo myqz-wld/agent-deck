@@ -210,11 +210,10 @@ export interface CodexCreateOpts {
   /**
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
    * codex app-server `approvalPolicy` 透传。当前 provider 支持 `untrusted`、`on-request`
-   * 和 `never`；普通会话缺省时不覆盖 Codex config，teammate reviewer 显式使用 never。
+   * 和 `never`；普通会话缺省时使用 `never`，caller 显式值和同 adapter 继承值优先。
    *
-   * **enforce 点** = `options-builder.ts narrowToCodexOpts` 按 `agentName in REVIEWER_AGENT_NAMES`
-   * 路径触发 default spread；**bridge 不主动 hardcode default** —— 让 caller
-   * 路径 / 普通 codex session 不被污染（不变量 6）。
+   * **enforce 点** = `options-builder.ts narrowToCodexOpts`。bridge 不再另设默认值，
+   * recovery / resume 继续优先透传已持久化的会话值。
    *
    * spawn-time 一次性透传；app-server 的请求由 PendingTab 应答。运行时无热切。
    */

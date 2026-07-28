@@ -160,7 +160,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     );
 
     fireEvent.click(await screen.findByLabelText('Grok 沙盒请求档位'));
-    fireEvent.click(screen.getByRole('option', { name: '严格隔离' }));
+    fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
 
     await waitFor(() => {
@@ -168,7 +168,7 @@ describe('ResolveInNewSessionDialog model options', () => {
         expect.objectContaining({
           issueId: 'issue-1',
           adapter: 'grok-build',
-          grokSandbox: 'strict',
+          grokSandbox: 'read-only',
         }),
       );
     });

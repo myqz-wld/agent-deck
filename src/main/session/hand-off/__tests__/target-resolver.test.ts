@@ -119,6 +119,7 @@ describe('resolveHandOffTarget', () => {
     });
     expect(codexResult.createOptions).toMatchObject({
       codexSandbox: 'danger-full-access',
+      approvalPolicy: 'never',
     });
     expect(codexResult.spec).toMatchObject({
       sandbox: { kind: 'codex', mode: 'danger-full-access' },

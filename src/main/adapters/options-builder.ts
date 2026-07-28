@@ -138,14 +138,12 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  *
  * **plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7**:
  * 按 `raw.agentName in REVIEWER_AGENT_NAMES` 触发 codex teammate spawn
- * default spread —— 3 字段 reviewer runtime default（`approvalPolicy: 'never'` /
- * `networkAccessEnabled: true` /
+ * default spread —— reviewer runtime access（`networkAccessEnabled: true` /
  * `additionalDirectories: ['~/.claude', '~/.codex', '/tmp']`）。
  *
- * **enforce 点 = 本函数（options-builder 层）**，**禁** `bridge.startThread` hardcode default
- * （污染普通 codex session lead 路径）。普通 codex session（agentName 缺省 / 非 reviewer-*）
- * 走 caller 显式字段路径，不被 spread 污染（不变量 6）。reviewer-* 的 codexSandbox 不在本层
- * 强制覆盖，沿用 caller 显式值 / same-adapter 继承 / target adapter 默认值。
+ * **enforce 点 = 本函数（options-builder 层）**。普通 Codex 会话缺省审批策略为
+ * `never`；入口在 builder 返回后覆盖 caller 显式值或 same-adapter 继承值。reviewer-* 只额外补
+ * 网络与读取根，codexSandbox 仍沿用 caller 显式值 / same-adapter 继承 / target adapter 默认值。
  *
  * **信号源 = `raw.agentName`**（v4 D7）：禁用 spawn-link 反向信号源。reviewer runtime 只由
  * agentName 决定；initialSessionRegistration 是 UI/限流所需的父子关系注册，不代表 reviewer，
@@ -170,6 +168,7 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   }
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
+  out.approvalPolicy = 'never';
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
   // 给 codex-cli adapter,bridge createSession → thread-loop / resume emit first user message
   // 时 spread 进 events.payload(3 处 emit:thread-loop fallback + thread-loop success +
@@ -181,16 +180,12 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   }
 
   // plan §P3 Step 3.5 + §不变量 6: codex reviewer teammate spawn (REVIEWER_AGENT_NAMES
-  // SSOT) runtime default spread enforce 点。caller 路径 / 普通 codex session 走
-  // raw.agentName 缺省 / 非 reviewer-* 路径,不进本分支不被污染。
+  // SSOT) runtime access default spread enforce 点。普通 Codex 的审批默认已在上方统一解析。
   // plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.2 修法(A1-MED-2 claude):用
   // isReviewerAgentName SSOT guard 替代 reviewer agent hardcode。
   if (isReviewerAgentName(raw.agentName)) {
     // codexSandbox 不在 reviewer 分支强制覆盖。spawn handler 已在本函数前完成
     // caller explicit > same-adapter inherit > target default 的 effective 计算；这里保留该值。
-    // approvalPolicy='never' 跳过 codex CLI 工具审批弹窗(reviewer 是 in-process bridge 派发,
-    // PendingTab UI 走应用层 / 没有 user 在 codex CLI 直接审批的入口)
-    out.approvalPolicy = 'never';
     // networkAccessEnabled=true 让 reviewer-codex 能 web search / 调外部资源(spike 3 实证 codex
     // sandbox=workspace-write 默认 networkAccessEnabled 在某些 platform 受限,显式打开稳)
     out.networkAccessEnabled = true;
@@ -378,9 +373,10 @@ void _assertAgentIdsListMatchesOptions;
  *
  * **by-design 例外**（不算 narrow 该挑、故从对比集排除）：
  * - `cwd`：必填字段，narrow 起手 `{ cwd: raw.cwd }` 恒挑，不进 optional 清单
- * - codex `approvalPolicy` / `networkAccessEnabled` / `additionalDirectories`：仅 reviewer-* 分支
- *   spread 产出（不变量 6），**不是** caller 经 Raw 透传字段，故不在 Raw、也不该被主分支 narrow
- *   挑（narrow 主分支挑了反而污染普通 codex session）
+ * - codex `approvalPolicy`：普通 Codex 会话由 builder 统一设为 `never`，入口可在 builder 返回后
+ *   应用显式 human selection 或 same-adapter 继承值；不是 Raw 直传字段
+ * - codex `networkAccessEnabled` / `additionalDirectories`：仅 reviewer-* 分支 spread 产出
+ *   （不变量 6），**不是** caller 经 Raw 透传字段，故不在 Raw、也不该被主分支 narrow 挑
  * - codex `envOverrideExtra`：**性质不同于上 3 个**（REVIEW_105 R2 双 reviewer 独立命中 LOW 订正）——
  *   它**不是** reviewer-* spread 字段（reviewer 分支 L163-180 实际只 spread 上 3 个 + codexSandbox,
  *   无 envOverrideExtra；TC8/TC9 显式断言 reviewer 路径下它 undefined），而是「facade 声明 + bridge

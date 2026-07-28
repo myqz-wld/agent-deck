@@ -138,8 +138,12 @@ function GrokSessionSandboxControl({
   run: (operation: () => Promise<unknown>) => Promise<boolean>;
 }): JSX.Element {
   const current = session.grokSandbox ?? '';
+  const currentIsSelectableBuiltin = GROK_SANDBOX_MODE_OPTIONS.some(
+    (option) => option.value === current,
+  );
   const currentIsCustom =
-    current !== '' && !isGrokBuiltinSandboxProfile(current);
+    current !== '' &&
+    (!isGrokBuiltinSandboxProfile(current) || !currentIsSelectableBuiltin);
   const [customActive, setCustomActive] = useState(currentIsCustom);
   const [draft, setDraft] = useState(currentIsCustom ? current : '');
 

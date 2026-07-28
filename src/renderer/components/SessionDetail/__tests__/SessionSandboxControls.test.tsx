@@ -47,13 +47,13 @@ describe('Grok live sandbox control', () => {
     render(<SessionSandboxControls session={session()} turnBusy={false} />);
 
     fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
-    fireEvent.click(screen.getByRole('option', { name: '严格隔离' }));
+    fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
 
     await waitFor(() => {
       expect(restartWithGrokSandbox).toHaveBeenCalledWith(
         'grok-build',
         'grok-session',
-        'strict',
+        'read-only',
       );
     });
     expect(confirmDialog).not.toHaveBeenCalled();
@@ -89,7 +89,7 @@ describe('Grok live sandbox control', () => {
     );
 
     fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
-    fireEvent.click(screen.getByRole('option', { name: '严格隔离' }));
+    fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
 
     await waitFor(() => {
       expect(screen.getByText(/switch failed/)).toBeTruthy();
@@ -99,6 +99,22 @@ describe('Grok live sandbox control', () => {
         ) as HTMLInputElement).value,
       ).toBe('project-locked');
     });
+  });
+
+  it('shows a legacy strict value as a custom profile without offering removed built-ins', () => {
+    render(
+      <SessionSandboxControls
+        session={session({ grokSandbox: 'strict' })}
+        turnBusy={false}
+      />,
+    );
+
+    expect(
+      (screen.getByLabelText('Grok 自定义沙盒 profile') as HTMLInputElement).value,
+    ).toBe('strict');
+    fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
+    expect(screen.queryByRole('option', { name: '严格隔离' })).toBeNull();
+    expect(screen.queryByRole('option', { name: '开发机宽松' })).toBeNull();
   });
 
   it('confirms an off request and disables switching while the turn is busy', async () => {

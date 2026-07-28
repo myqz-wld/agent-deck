@@ -41,17 +41,15 @@ describe('sandbox option copy', () => {
     ]);
   });
 
-  it('exposes all Grok built-ins in restrictive-to-open order', () => {
+  it('exposes only the simplified Grok UI built-ins in restrictive-to-open order', () => {
     expect(GROK_SANDBOX_MODE_OPTIONS.map((option) => option.value)).toEqual([
-      'strict',
       'read-only',
       'workspace',
-      'devbox',
       'off',
     ]);
   });
 
-  it('keeps only the simplified strict-to-open Grok settings choices', () => {
+  it('uses the same simplified Grok choices in settings', () => {
     expect(GROK_SETTINGS_SANDBOX_MODE_OPTIONS.map((option) => option.value)).toEqual([
       'read-only',
       'workspace',

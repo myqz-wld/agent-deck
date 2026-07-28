@@ -136,6 +136,22 @@ describe('resolveSessionCreationDefaults', () => {
     });
   });
 
+  it('defaults Codex approvals to never when no valid policy is configured', async () => {
+    const root = tempRoot();
+
+    await expect(resolveSessionCreationDefaults(
+      'codex-cli',
+      { cwd: root },
+      {
+        settings,
+        codexConfigPath: join(root, 'missing.toml'),
+        readCodexConfig: async () => ({}),
+      },
+    )).resolves.toMatchObject({
+      approvalPolicy: 'never',
+    });
+  });
+
   it('reads Grok config values and falls back to a concrete workspace sandbox', async () => {
     const root = tempRoot();
     const configPath = join(root, 'config.toml');
