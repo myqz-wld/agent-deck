@@ -2,8 +2,9 @@ import { join } from 'node:path';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import { resolveAgentDeckResourcesRoot } from '@main/utils/resources-placeholder';
 import log from '@main/utils/logger';
+import { safeErrorSummary } from '@main/utils/safe-diagnostic';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
-import type { CodexAppServerClient } from './client';
+import type { CodexAppServerClient, CodexGenerationOperation } from './client';
 import type { JsonObject, JsonValue } from './protocol';
 import { buildThreadConfig } from './thread-params';
 
@@ -33,14 +34,19 @@ export async function prepareNodeReplCompatibility(
   client: CodexAppServerClient,
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
+  operation?: CodexGenerationOperation,
 ): Promise<CodexThreadOptions> {
   const explicitConfig = buildThreadConfig(options, baseConfig);
   let inheritedConfig: JsonObject = {};
   if (options.useBaseConfig !== false) {
     try {
-      inheritedConfig = await readEffectiveConfig(client, options.workingDirectory);
+      inheritedConfig = await readEffectiveConfig(client, options.workingDirectory, operation);
     } catch (err) {
-      logger.warn('[node-repl-compat] config/read failed; leaving node_repl unchanged', err);
+      if (operation && !operation.isCurrent()) throw err;
+      logger.warn(
+        '[node-repl-compat] config/read failed; leaving node_repl unchanged',
+        safeErrorSummary(err),
+      );
       return options;
     }
   }
@@ -73,6 +79,7 @@ export async function prepareNodeReplCompatibility(
 async function readEffectiveConfig(
   client: CodexAppServerClient,
   cwd: string,
+  operation?: CodexGenerationOperation,
 ): Promise<JsonObject> {
   let cache = effectiveConfigCache.get(client);
   if (!cache || cache.generation !== client.generation) {
@@ -82,8 +89,9 @@ async function readEffectiveConfig(
   const cached = cache.byCwd.get(cwd);
   if (cached) return cached;
 
-  const request = client
-    .request<ConfigReadResponse>('config/read', { includeLayers: false, cwd })
+  const request = (operation
+    ? operation.request<ConfigReadResponse>('config/read', { includeLayers: false, cwd })
+    : client.request<ConfigReadResponse>('config/read', { includeLayers: false, cwd }))
     .then((response) => isJsonObject(response.config) ? response.config : {});
   cache.byCwd.set(cwd, request);
   try {
@@ -92,6 +100,10 @@ async function readEffectiveConfig(
     if (cache.byCwd.get(cwd) === request) cache.byCwd.delete(cwd);
     throw err;
   }
+}
+
+export function clearNodeReplCompatibilityCache(client: CodexAppServerClient): void {
+  effectiveConfigCache.delete(client);
 }
 
 function buildWrappedServer(

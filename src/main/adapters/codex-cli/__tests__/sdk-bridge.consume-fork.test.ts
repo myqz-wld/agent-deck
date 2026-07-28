@@ -534,6 +534,52 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
     spy.mockRestore();
   });
 
+  it('DB/live dual rollback failure reports state unknown and never claims sandbox reverted', async () => {
+    const bridge = makeBridge();
+    const updateSandboxMode = vi.fn(() => {
+      throw new Error('live sandbox projection failed');
+    });
+    const internal = makeInternalSession({
+      runStreamed: vi.fn(),
+      updateSandboxMode,
+    } as unknown as InternalSession['thread'], 'sess-dual-fail');
+    const sessionsMap = (bridge as unknown as {
+      sessions: Map<string, InternalSession>;
+    }).sessions;
+    sessionsMap.set('sess-dual-fail', internal);
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: 'sess-dual-fail',
+      agentId: 'codex-cli',
+      cwd: '/tmp/x',
+      title: 'x',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      codexSandbox: 'read-only',
+    });
+    vi.mocked(sessionRepo.setCodexSandbox)
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('DB rollback failed');
+      });
+
+    await expect(
+      bridge.restartWithCodexSandbox('sess-dual-fail', 'workspace-write', 'ignored'),
+    ).rejects.toThrow('live sandbox projection failed');
+
+    expect(updateSandboxMode).toHaveBeenCalledTimes(2);
+    const message = emits.find((event) =>
+      event.kind === 'message' &&
+      (event.payload as { error?: boolean }).error === true);
+    const text = (message?.payload as { text?: string } | undefined)?.text ?? '';
+    expect(text).toMatch(/回退未完全成功.*当前状态未知/);
+    expect(text).not.toContain('档位已回退');
+  });
+
   it('record 不存在 → throw not found', async () => {
     const bridge = makeBridge();
     vi.mocked(sessionRepo.get).mockReturnValue(null);

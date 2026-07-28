@@ -112,11 +112,11 @@ class CapturingAppServerClient extends CodexAppServerClient {
       queueMicrotask(() => {
         this.dispatchForTest({
           method: 'turn/started',
-          params: { threadId, turn: { id: turnId } },
+          params: { threadId, turn: { id: turnId, status: 'inProgress', items: [] } },
         });
         this.dispatchForTest({
           method: 'turn/completed',
-          params: { threadId, turn: { id: turnId } },
+          params: { threadId, turn: { id: turnId, status: 'completed', items: [] } },
         });
       });
       return resolved<T>({ turn: { id: turnId } });

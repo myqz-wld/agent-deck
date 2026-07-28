@@ -1,19 +1,11 @@
 /**
- * Codex resume path inner Promise 编排 helper（REVIEW_60 R4 §B 抽法 #1 / file-size-guardrail.md SOP §档 2 强）。
+ * Codex resume path bounded startup helper.
  *
  * 抽自 codex-cli/sdk-bridge/index.ts createSession resume path inner Promise (L609-L729 ~120 LOC)。
- * resume 路径 thread.started 等待 + earlyErr cleanup + 30s timeout fallback 三态状态机。
- *
- * **三态路径**:
- * 1. **onFirstId triggered** (thread.started 在 30s 内到):resolve(realId) → outer createSession 继续
- *    走 persistSessionFields + return handle
- * 2. **earlyErrCb 30s 内 triggered** (resolved=false 路径):cleanup 4 资源 + emit finished →
- *    reject 让 outer caller catch 触发上下文相关错误处理 / DB rollback
- * 3. **earlyErrCb 30s 后 triggered** (resolved=true 路径,late earlyErr after timeout):cleanup 4 资源 +
- *    emit finished + emit error message → 不 reject(outer 已 resolve),补 emit 让用户在 SessionDetail 看到
- * 4. **30s timeout fallback** (resolved=false 路径):console.warn + emit info message →
- *    resolve(opts.resume) 假定 SDK 慢但能起,与新路径 resolveWithFallback 不同 (resume 已 emit
- *    session-start + user msg 不应武断标 finished:error)
+ * Resume succeeds only after thread.started identifies the accepted native thread. A deadline or
+ * early startup error aborts the live turn, disposes the app-server client, clears all provisional
+ * ownership, emits one failed terminal, and rejects with an actionable retry error. It never
+ * returns an application sid while the startup loop is still blocked.
  *
  * **REVIEW_60 R1 MED-codex-2 修法 + R3 reviewer-claude PASS 验证**:earlyErrCb cleanup 必须
  * 同步清 4 资源 (sessions / sdkClaim / codexBySession / mcpSessionTokenMap),漏清两个 Map →
@@ -44,6 +36,7 @@ import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { ThreadLoop } from './thread-loop';
 import type { InternalSession } from './types';
 import log from '@main/utils/logger';
+import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 
 const logger = log.scope('codex-resume-await');
 
@@ -77,85 +70,64 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
   const { applicationSid, internal, deps } = args;
 
   return new Promise<string>((resolve, reject) => {
-    let resolved = false;
-    const fallback = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      logger.warn(
-        `[codex-bridge] resume ${applicationSid} no thread.started in ${THREAD_STARTED_FALLBACK_MS}ms, ` +
-          `returning original id (turn loop may still recover)`,
-      );
-      // symmetry-plan P3 R2-3 (reviewer-claude LOW-B):补 emit info message 让用户在
-      // SessionDetail 知道 30s 没拿到 thread.started — 不 `error: true`(commit c9c94d7
-      // 注释明示 resume 已 emit session-start + user msg 不应武断标 finished:error,
-      // 仅 turn loop 慢启动场景信息提示)。修前 silent resolve 用户等 30s 啥反馈没有。
-      deps.emit({
-        sessionId: applicationSid,
-        agentId: AGENT_ID,
-        kind: 'message',
-        payload: {
-          text:
-            `⚠ Codex 30 秒内未发出 thread.started 事件,可能 SDK 慢启动 — 后续 turn 可能仍能` +
-            `恢复,请等待或检查 codex 鉴权 / 二进制路径(终端 \`codex auth\` 或设置面板「Codex 二进制路径」)。`,
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-      resolve(applicationSid);
-    }, THREAD_STARTED_FALLBACK_MS);
-
-    void deps.threadLoop.runTurnLoop(
-      internal,
-      applicationSid,
-      (realId) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallback);
-        // realId 可能 = applicationSid (common case) 或新 id (thread-loop 已 rename Map key + 调
-        // renameSdkSession + update internal.threadId,outer 仅取最终 id 即可)
-        resolve(realId);
-      },
-      (earlyErr) => {
-        // symmetry-plan P3 R3 (reviewer-codex MED):cleanup + emit finished **永远做**(不管
-        // resolved 不 resolved),覆盖两条路径:
-        // 1. 30s 内 earlyErr (resolved=false):cleanup → emit finished → reject(让 outer caller
-        //    catch 触发上下文相关错误处理 / DB rollback)
-        // 2. 30s timeout 后 late earlyErr (resolved=true):cleanup → emit finished + emit error
-        //    message(outer caller 已 resolve 不会 catch,补 emit error 让用户在 SessionDetail 看到失败)
-        //
-        // 修前 R2-1 仅修了路径 1,路径 2 (timeout resolve → late earlyErr → `if (resolved) return`
-        // 短路) 仍残留 stale internal.thread + 后续 sendMessage `if (!s)` 命中绕过 recoverer。
-        //
-        // symmetry-plan P3 R2-1 (reviewer-codex HIGH):cleanup 半初始化 sessions Map + sdkClaim,
-        // 让后续 sendMessage 走 sessions Map miss → recoverer 自愈正常路径。
-        //
-        // **P5 Round 1 reviewer-claude+codex 双方独立 HIGH-2 修法**:earlyErrCb cleanup 必须
-        // 同步清 codexBySession + mcpSessionTokenMap (旧实现仅清 sessions Map + releaseSdkClaim,
-        // 漏清两个 Map → recoverer 重试 createSession({resume}) 顶部 allocate(opts.resume) 走
-        // re-allocate 路径,ensureCodex(opts.resume) 命中 codexBySession.get cache 返 leaked Codex-A
-        // (env frozen tokenA),resumeThread 在 Codex-A spawn 子进程读 frozen tokenA → 401。
-        // closeSession line 730-744 标准 cleanup 模板已含双轨,这里同款。delete / release 失败
-        // 仅 console.warn 不阻塞 cleanup 后续 emit。
-        deps.sessions.delete(applicationSid);
+    let settled = false;
+    let cleaned = false;
+    const cleanup = (): void => {
+      if (cleaned) return;
+      cleaned = true;
+      internal.intentionallyClosed = true;
+      internal.pendingMessages.length = 0;
+      try {
+        internal.currentTurn?.abort();
+      } catch {
+        // The client disposal below remains authoritative.
+      }
+      deps.sessions.delete(applicationSid);
+      try {
         sessionManager.releaseSdkClaim(applicationSid);
-        try {
-          deps.codexBySession.get(applicationSid)?.dispose();
-          deps.codexBySession.delete(applicationSid);
-        } catch (cleanupErr) {
-          logger.warn(
-            `[codex-bridge] codexBySession.delete failed during earlyErr cleanup for ${applicationSid}:`,
-            cleanupErr,
-          );
-        }
-        try {
-          mcpSessionTokenMap.release(applicationSid);
-        } catch (cleanupErr) {
-          logger.warn(
-            `[codex-bridge] mcpSessionTokenMap.release failed during earlyErr cleanup for ${applicationSid}:`,
-            cleanupErr,
-          );
-        }
-        // resume 路径已 emit session-start + user msg,补 finished 完成 UI 序列。
+      } catch (cleanupErr) {
+        logger.warn(
+          '[codex-bridge] SDK claim release failed during resume cleanup',
+          safeErrorSummary(cleanupErr),
+        );
+      }
+      const client = deps.codexBySession.get(applicationSid);
+      deps.codexBySession.delete(applicationSid);
+      try {
+        client?.dispose();
+      } catch (cleanupErr) {
+        logger.warn(
+          '[codex-bridge] client retirement failed during resume cleanup',
+          safeDiagnostic({
+            event: 'codex_resume_cleanup',
+            phase: 'client_retirement',
+            outcome: 'failed',
+            sessionShort: applicationSid.slice(0, 12),
+            error: safeErrorSummary(cleanupErr),
+          }),
+        );
+      }
+      try {
+        mcpSessionTokenMap.release(applicationSid);
+      } catch (cleanupErr) {
+        logger.warn(
+          '[codex-bridge] MCP token release failed during resume cleanup',
+          safeDiagnostic({
+            event: 'codex_resume_cleanup',
+            phase: 'mcp_token_release',
+            outcome: 'failed',
+            sessionShort: applicationSid.slice(0, 12),
+            error: safeErrorSummary(cleanupErr),
+          }),
+        );
+      }
+    };
+    const fail = (message: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallback);
+      cleanup();
+      try {
         deps.emit({
           sessionId: applicationSid,
           agentId: AGENT_ID,
@@ -164,32 +136,71 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
           ts: Date.now(),
           source: 'sdk',
         });
+      } catch (emitError) {
+        logger.warn(
+          '[codex-bridge] failed to emit resume failure terminal',
+          safeErrorSummary(emitError),
+        );
+      }
+      reject(new Error(message));
+    };
+    const fallback = setTimeout(() => {
+      logger.warn(
+        '[codex-bridge] resume readiness timed out; retiring blocked runtime',
+        safeDiagnostic({
+          event: 'codex_resume_readiness',
+          phase: 'thread.started',
+          outcome: 'timeout_retired',
+          sessionShort: applicationSid.slice(0, 12),
+          timeoutMs: THREAD_STARTED_FALLBACK_MS,
+        }),
+      );
+      try {
+        deps.emit({
+          sessionId: applicationSid,
+          agentId: AGENT_ID,
+          kind: 'message',
+          payload: {
+            text:
+              '⚠ Codex 30 秒内未发出 thread.started 事件。阻塞的运行时已清理；' +
+              '请重试，若仍失败请检查 `codex auth` 和 Codex 二进制路径。',
+            error: true,
+          },
+          ts: Date.now(),
+          source: 'sdk',
+        });
+      } catch (emitError) {
+        logger.warn(
+          '[codex-bridge] failed to emit resume timeout detail',
+          safeErrorSummary(emitError),
+        );
+      }
+      fail(
+        `Codex resume ${applicationSid} timed out waiting for thread.started; ` +
+          'the blocked runtime was retired and the operation can be retried',
+      );
+    }, THREAD_STARTED_FALLBACK_MS);
 
-        if (resolved) {
-          // 路径 2 (late earlyErr after 30s timeout):outer caller 已 resolve 不会 catch,
-          // 补 emit error message 让用户看到失败原因 + 知道下条消息会自愈。
-          deps.emit({
-            sessionId: applicationSid,
-            agentId: AGENT_ID,
-            kind: 'message',
-            payload: {
-              text:
-                `⚠ Codex 启动失败 (30s timeout 后 late error):${earlyErr}。` +
-                `会话已清理,下条消息将走自愈路径重新尝试 resume。`,
-              error: true,
-            },
-            ts: Date.now(),
-            source: 'sdk',
-          });
-          return;
-        }
-
-        // 路径 1 (30s 内 earlyErr):reject 让 outer caller 自己 emit 上下文相关错误消息
-        // (避免双错误消息)。
-        resolved = true;
+    void deps.threadLoop.runTurnLoop(
+      internal,
+      applicationSid,
+      (realId) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(fallback);
-        reject(new Error(`Codex resume early error: ${earlyErr}`));
+        // realId 可能 = applicationSid (common case) 或新 id (thread-loop 已 rename Map key + 调
+        // renameSdkSession + update internal.threadId,outer 仅取最终 id 即可)
+        resolve(realId);
       },
-    );
+      (earlyErr) => {
+        fail(`Codex resume early error: ${earlyErr}; runtime retired, retry is safe`);
+      },
+    ).catch((loopError) => {
+      fail(
+        `Codex resume loop failed before thread.started: ` +
+          `${loopError instanceof Error ? loopError.message : String(loopError)}; ` +
+          'runtime retired, retry is safe',
+      );
+    });
   });
 }

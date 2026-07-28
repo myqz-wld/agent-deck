@@ -7,11 +7,17 @@ export class AsyncNotificationQueue<T> implements AsyncIterable<T> {
   private closed = false;
   private error: Error | null = null;
 
+  constructor(private readonly maxBufferedValues = 2_048) {}
+
   push(value: T): void {
     if (this.closed) return;
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve({ value, done: false });
+      return;
+    }
+    if (this.values.length >= this.maxBufferedValues) {
+      this.throw(new Error('Codex app-server notification queue exceeded its bounded capacity'));
       return;
     }
     this.values.push(value);
@@ -29,6 +35,7 @@ export class AsyncNotificationQueue<T> implements AsyncIterable<T> {
     if (this.closed) return;
     this.closed = true;
     this.error = err;
+    this.values.length = 0;
     for (const waiter of this.waiters.splice(0)) {
       waiter.reject(err);
     }

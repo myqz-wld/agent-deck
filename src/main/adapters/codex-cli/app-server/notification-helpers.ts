@@ -21,19 +21,51 @@ export function isTerminalForTurn(
   activeTurnId: string | null,
   turnStartSeen: boolean,
 ): boolean {
+  const state = classifyTerminalForTurn(notification, activeTurnId);
+  if (state === 'terminal' || state === 'malformed') return true;
+  return !activeTurnId && turnStartSeen && state === 'unattributed-completion';
+}
+
+export type TerminalNotificationState =
+  | 'none'
+  | 'retrying'
+  | 'other-turn'
+  | 'unattributed-completion'
+  | 'malformed'
+  | 'terminal';
+
+/** Strict terminal parsing used by the turn queue; malformed completion can never become success. */
+export function classifyTerminalForTurn(
+  notification: CodexAppServerNotification,
+  activeTurnId: string | null,
+): TerminalNotificationState {
   if (notification.method === 'turn/completed') {
-    const turn = (notification.params as { turn?: { id?: unknown } } | undefined)?.turn;
-    if (activeTurnId) return turn?.id === activeTurnId;
-    // activeTurnId 未知时按 FIFO 时序判别：本 turn 的 completed 不可能先于自己的 started
-    // 到达（同一 stdout 管道顺序投递）→ 未见 started 的 completed 是上一个 turn 的迟到
-    // 尾包，不是本 turn terminal（详 runTurn 内 turnStartSeen 注释）。见过 started 但
-    // turn id 未解析出时退回旧行为（completed 即 terminal）。
-    return turnStartSeen;
+    const params = asObject(notification.params);
+    const turn = asObject(params?.turn);
+    if (!turn) return 'malformed';
+    const turnId = typeof turn.id === 'string' && turn.id.trim() ? turn.id : null;
+    if (!turnId) return activeTurnId ? 'unattributed-completion' : 'malformed';
+    if (activeTurnId && turnId !== activeTurnId) return 'other-turn';
+    if (
+      turn.status !== 'completed' &&
+      turn.status !== 'interrupted' &&
+      turn.status !== 'failed'
+    ) {
+      return 'malformed';
+    }
+    return 'terminal';
   }
-  if (notification.method !== 'error') return false;
-  const params = notification.params as { willRetry?: unknown; turnId?: unknown } | undefined;
-  if (params?.willRetry === true) return false;
-  return !activeTurnId || params?.turnId === undefined || params.turnId === activeTurnId;
+  if (notification.method !== 'error') return 'none';
+  const params = asObject(notification.params);
+  if (!params) return 'malformed';
+  if (params.willRetry === true) return 'retrying';
+  const turnId = typeof params.turnId === 'string' && params.turnId.trim()
+    ? params.turnId
+    : null;
+  if (activeTurnId && turnId && turnId !== activeTurnId) return 'other-turn';
+  const error = asObject(params.error);
+  if (!error || typeof error.message !== 'string' || !error.message.trim()) return 'malformed';
+  return 'terminal';
 }
 
 export function readCompletedAgentMessageText(notification: CodexAppServerNotification): string {
@@ -45,6 +77,20 @@ export function readCompletedAgentMessageText(notification: CodexAppServerNotifi
 }
 
 export function readTerminalErrorText(notification: CodexAppServerNotification): string {
+  if (notification.method === 'turn/completed') {
+    const params = asObject(notification.params);
+    const turn = asObject(params?.turn);
+    if (!turn) return 'Codex app-server returned a malformed turn completion';
+    if (turn.status === 'completed') return '';
+    if (turn.status === 'interrupted') return 'Codex app-server turn interrupted';
+    if (turn.status === 'failed') {
+      const error = asObject(turn.error);
+      return typeof error?.message === 'string' && error.message.trim()
+        ? error.message
+        : 'Codex app-server turn failed';
+    }
+    return 'Codex app-server returned a malformed turn completion';
+  }
   if (notification.method !== 'error') return '';
   const params = asObject(notification.params);
   if (params?.willRetry === true) return '';
