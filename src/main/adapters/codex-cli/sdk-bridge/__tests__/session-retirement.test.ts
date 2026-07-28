@@ -273,6 +273,43 @@ describe('Codex handoff source runtime retirement', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
+  it('finishes alias, claim, and token cleanup when bounded client retirement throws', () => {
+    const sessionId = 'codex-retirement-stop-failure';
+    const nativeId = 'codex-retirement-native';
+    const internal = makeInternal(
+      sessionId,
+      { steer: vi.fn() } as unknown as InternalSession['thread'],
+      [],
+    );
+    internal.threadId = nativeId;
+    const bridge = new CodexSdkBridge({ emit: vi.fn() });
+    const state = bridgeInternals(bridge);
+    state.sessions.set(sessionId, internal);
+    state.sessions.set(nativeId, internal);
+    const dispose = vi.fn(() => {
+      throw new Error('bounded stop failed');
+    });
+    const client = { dispose } as unknown as CodexAppServerClient;
+    state.codexBySession.set(sessionId, client);
+    state.codexBySession.set(nativeId, client);
+    sessionManager.claimAsSdk(sessionId);
+    sessionManager.claimAsSdk(nativeId);
+    const sourceToken = mcpSessionTokenMap.allocate(sessionId);
+    const nativeToken = mcpSessionTokenMap.allocate(nativeId);
+
+    expect(() => bridge.retireSessionAfterCurrentTurn(sessionId)).not.toThrow();
+
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(state.sessions.has(sessionId)).toBe(false);
+    expect(state.sessions.has(nativeId)).toBe(false);
+    expect(state.codexBySession.has(sessionId)).toBe(false);
+    expect(state.codexBySession.has(nativeId)).toBe(false);
+    expect(runtime.claims.has(sessionId)).toBe(false);
+    expect(runtime.claims.has(nativeId)).toBe(false);
+    expect(mcpSessionTokenMap.get(sourceToken)).toBeNull();
+    expect(mcpSessionTokenMap.get(nativeToken)).toBeNull();
+  });
+
   it('keeps destructive attachment cleanup for an ordinary close', async () => {
     const sessionId = 'codex-ordinary-close';
     const attachmentPath = '/tmp/test-image-uploads/close.png';

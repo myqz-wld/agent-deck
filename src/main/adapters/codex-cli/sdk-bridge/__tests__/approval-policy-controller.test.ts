@@ -146,4 +146,34 @@ describe('Codex approval-policy next-turn controller', () => {
       }),
     );
   });
+
+  it('reports state unknown instead of claiming rollback when DB and live rollback both fail', async () => {
+    mocks.setCodexApprovalPolicy
+      .mockImplementationOnce((_sessionId: string, policy: SessionRecord['codexApprovalPolicy']) => {
+        if (mocks.record) mocks.record = { ...mocks.record, codexApprovalPolicy: policy };
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('DB rollback failed');
+      });
+    const applyLive = vi.fn(() => {
+      throw new Error('live projection failed');
+    });
+    const { controller: subject, emit } = controller(applyLive);
+
+    await expect(
+      subject.setCodexApprovalPolicy('codex-session', 'on-request'),
+    ).rejects.toThrow('live projection failed');
+
+    expect(mocks.setCodexApprovalPolicy).toHaveBeenCalledTimes(2);
+    expect(applyLive).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'message',
+      payload: expect.objectContaining({
+        error: true,
+        text: expect.stringMatching(/回退未完全成功.*当前状态未知/),
+      }),
+    }));
+    const text = (emit.mock.calls.at(-1)?.[0]?.payload as { text?: string }).text ?? '';
+    expect(text).not.toContain('策略已回退');
+  });
 });

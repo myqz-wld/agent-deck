@@ -88,7 +88,7 @@ describe('Codex first-model-event watchdog', () => {
     expect(logger.debug).toHaveBeenCalledOnce();
     expect(logger.debug).toHaveBeenCalledWith(
       expect.stringContaining('watchdog armed'),
-      expect.objectContaining({ phase: 'armed', acceptanceSource: 'notification' }),
+      expect.objectContaining({ phase: 'armed', acceptanceSource: 'response' }),
     );
     expect(logger.warn).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalledWith(
@@ -100,37 +100,12 @@ describe('Codex first-model-event watchdog', () => {
       .not.toContain('do work');
   });
 
-  it('arms from turn/started when the turn/start response never resolves', async () => {
-    vi.useFakeTimers();
-    const client = new ScriptedClient(50, undefined, null);
-    const result = collectTurn(client);
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(client.turnStartCalls).toBe(1);
-    await vi.advanceTimersByTimeAsync(50);
-
-    const events = await result;
-    expect(client.recycles).toHaveLength(1);
-    expect(client.pendingTurnStartRejected).toBe(true);
-    expect(client.turnStartCalls).toBe(1);
-    expect(events.map(eventName)).toEqual([
-      'thread.started',
-      'turn.accepted',
-      'server.notification:turn/started',
-      'server.notification:error',
-    ]);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ responsePending: true, notificationCount: 1 }),
-    );
-  });
-
-  it('does not reset the turn/started deadline when the RPC response arrives later', async () => {
+  it('starts the model-event deadline only after the authoritative RPC response', async () => {
     vi.useFakeTimers();
     const client = new ScriptedClient(50, undefined, 40);
     const result = collectTurn(client);
 
-    await vi.advanceTimersByTimeAsync(49);
+    await vi.advanceTimersByTimeAsync(89);
     expect(client.recycles).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
 
@@ -269,8 +244,56 @@ describe('Codex first-model-event watchdog', () => {
     const events = await result;
 
     expect(client.recycles).toHaveLength(1);
-    expect(events.map(eventName)).toContain('server.notification:item/agentMessage/delta');
+    expect(events.map(eventName)).not.toContain('server.notification:item/agentMessage/delta');
     expect(events.map(eventName).at(-1)).toBe('server.notification:error');
+  });
+
+  it('drops prior-turn packets after the response accepts a new turn id', async () => {
+    vi.useFakeTimers();
+    const client = new ScriptedClient(50, (current) => {
+      setTimeout(() => {
+        current.emit(notify('item/agentMessage/delta', {
+          threadId: 'thread-1',
+          turnId: 'prior-turn',
+          delta: 'stale',
+        }));
+        current.emit(completedTurn('thread-1', 'prior-turn'));
+        current.emit(completedTurn());
+      }, 10);
+    });
+    const result = collectTurn(client);
+    await vi.advanceTimersByTimeAsync(10);
+    const events = await result;
+
+    expect(events.map(eventName)).toEqual([
+      'thread.started',
+      'turn.accepted',
+      'server.notification:turn/started',
+      'server.notification:turn/completed',
+    ]);
+  });
+
+  it('fails closed and recycles on malformed completion for the accepted turn', async () => {
+    vi.useFakeTimers();
+    const client = new ScriptedClient(50, (current) => {
+      setTimeout(() => current.emit(notify('turn/completed', {
+        threadId: 'thread-1',
+        turn: { id: 'turn-1' },
+      })), 10);
+    });
+    const result = collectTurn(client);
+
+    await vi.advanceTimersByTimeAsync(10);
+    const events = await result;
+
+    expect(client.recycles).toEqual([
+      expect.objectContaining({
+        turnId: 'turn-1',
+        message: expect.stringContaining('malformed turn/completed'),
+      }),
+    ]);
+    expect(events.map(eventName).at(-1)).toBe('server.notification:error');
+    expect(events.map(eventName)).not.toContain('server.notification:turn/completed');
   });
 
   it.each([

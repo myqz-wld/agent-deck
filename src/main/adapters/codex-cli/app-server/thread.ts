@@ -2,9 +2,9 @@ import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import type { CodexAppServerClient } from './client';
 import { AsyncNotificationQueue } from './async-notification-queue';
 import {
+  classifyTerminalForTurn,
   getNotificationThreadId,
   getNotificationTurnId,
-  isTerminalForTurn,
   readCompletedAgentMessageText,
   readTerminalErrorText,
 } from './notification-helpers';
@@ -150,14 +150,14 @@ export class CodexAppServerThread {
     return { finalResponse: messages.join('\n') };
   }
 
-  async ensureReady(): Promise<string> {
-    const threadId = await this.ensureThread();
+  async ensureReady(signal?: AbortSignal): Promise<string> {
+    const threadId = await this.ensureThread(signal);
     this.started = true;
     return threadId;
   }
 
   async steer(input: CodexAppServerUserInput[], expectedTurnId: string, signal?: AbortSignal): Promise<void> {
-    const threadId = await this.ensureThread();
+    const threadId = await this.ensureThread(signal);
     await this.client.request('turn/steer', { threadId, expectedTurnId, input }, signal);
   }
 
@@ -176,44 +176,28 @@ export class CodexAppServerThread {
   ): AsyncIterable<CodexAppServerStreamEvent> {
     const signal = opts?.signal;
     let unsub: Unsubscribe | null = null;
-    let abortListener: (() => void) | null = null;
     let firstModelEventTimer: ReturnType<typeof setTimeout> | null = null;
     const queue = new AsyncNotificationQueue<CodexAppServerNotification>();
     try {
-      const threadId = await this.ensureThread();
+      const threadId = await this.ensureThread(signal);
       if (!this.started) {
         this.started = true;
         yield { type: 'thread.started', thread_id: threadId };
       }
 
-      // Stdout is FIFO. A completion seen before this turn's started notification belongs to the
-      // previous turn and must not close this turn's queue.
       const turnGeneration = this.client.generation;
-      let turnStartSeen = false;
       let turnAccepted = false;
       let turnRequestIssued = false;
-      let cancelledBeforeAcceptance = false;
       let modelActivitySeen = false;
       let terminalSeen = false;
       let firstModelEventWatchdogStarted = false;
-      let turnStartResponsePending = true;
       let acceptanceSource: TurnAcceptanceBoundary['source'] | null = null;
       let acceptedAtMs: number | null = null;
       let deadlineAtMs: number | null = null;
       let notificationCount = 0;
       let lastScopedNotificationMethod: string | null = null;
       let lastScopedNotificationAtMs: number | null = null;
-      const preAcceptanceCandidates = new Map<string, {
-        model: boolean;
-        terminal: boolean;
-        count: number;
-        lastMethod: string;
-        lastAtMs: number;
-      }>();
-      let resolveTurnStarted!: (boundary: TurnAcceptanceBoundary) => void;
-      const turnStartedPromise = new Promise<TurnAcceptanceBoundary>((resolve) => {
-        resolveTurnStarted = resolve;
-      });
+      const preAcceptanceCandidates = new Map<string, CodexAppServerNotification[]>();
       const clearFirstModelEventTimer = (): void => {
         if (!firstModelEventTimer) return;
         clearTimeout(firstModelEventTimer);
@@ -240,7 +224,7 @@ export class CodexAppServerThread {
             acceptedAtMs,
             deadlineAtMs,
             nowMs: Date.now(),
-            responsePending: turnStartResponsePending,
+            responsePending: !turnAccepted,
             notificationCount,
             lastScopedNotificationMethod,
             lastScopedNotificationAtMs,
@@ -267,7 +251,7 @@ export class CodexAppServerThread {
             acceptedAtMs: acceptedAtMs!,
             deadlineAtMs: deadlineAtMs!,
             nowMs: atMs,
-            responsePending: turnStartResponsePending,
+            responsePending: !turnAccepted,
             notificationCount,
             lastScopedNotificationMethod,
             lastScopedNotificationAtMs,
@@ -293,13 +277,49 @@ export class CodexAppServerThread {
       const consumePreAcceptanceCandidates = (turnId: string): void => {
         const matching = preAcceptanceCandidates.get(turnId);
         preAcceptanceCandidates.clear();
-        if (matching) {
-          notificationCount += matching.count;
-          lastScopedNotificationMethod = matching.lastMethod;
-          lastScopedNotificationAtMs = matching.lastAtMs;
+        for (const notification of matching ?? []) {
+          handleAcceptedNotification(notification, turnId);
         }
-        if (matching?.model) recordFirstModelActivity(turnId);
-        if (matching?.terminal) {
+      };
+      const failMalformedTerminal = (
+        notification: CodexAppServerNotification,
+        turnId: string,
+      ): void => {
+        const error = new Error(
+          `Codex app-server returned malformed ${notification.method} for accepted turn ${turnId}`,
+        );
+        const recycled = this.client.abortTurnAndRecycleGeneration(
+          turnGeneration,
+          threadId,
+          turnId,
+          error,
+        );
+        if (!recycled) queue.throw(error);
+      };
+      const handleAcceptedNotification = (
+        notification: CodexAppServerNotification,
+        turnId: string,
+      ): void => {
+        if (!this.client.acceptsNotificationForGeneration(turnGeneration)) return;
+        const terminalState = classifyTerminalForTurn(notification, turnId);
+        if (terminalState === 'other-turn' || terminalState === 'retrying') return;
+        if (
+          terminalState === 'malformed' ||
+          terminalState === 'unattributed-completion'
+        ) {
+          failMalformedTerminal(notification, turnId);
+          return;
+        }
+        const notificationTurnId = getNotificationTurnId(notification);
+        if (terminalState === 'none' && notificationTurnId !== turnId) return;
+        notificationCount += 1;
+        lastScopedNotificationMethod = notification.method;
+        lastScopedNotificationAtMs = Date.now();
+        if (!modelActivitySeen && isCodexModelActivity(notification)) {
+          recordFirstModelActivity(turnId);
+        }
+        queue.push(notification);
+        if (terminalState === 'terminal') {
           terminalSeen = true;
           clearFirstModelEventTimer();
           this.activeTurnId = null;
@@ -307,31 +327,9 @@ export class CodexAppServerThread {
         }
       };
       unsub = this.client.subscribe((notification) => {
+        if (!this.client.acceptsNotificationForGeneration(turnGeneration)) return;
         const notificationThreadId = getNotificationThreadId(notification);
         if (notificationThreadId && notificationThreadId !== threadId) return;
-        let startedBoundary: TurnAcceptanceBoundary | null = null;
-        if (
-          notification.method === 'turn/started' &&
-          turnRequestIssued &&
-          notificationThreadId === threadId
-        ) {
-          const turnId = getNotificationTurnId(notification);
-          if (turnId) {
-            this.activeTurnId = turnId;
-            turnStartSeen = true;
-            turnAccepted = true;
-            startedBoundary = { turnId, source: 'notification' };
-          }
-        }
-        if (turnAccepted && notificationMatchesTurn(notification, threadId, this.activeTurnId)) {
-          notificationCount += 1;
-          lastScopedNotificationMethod = notification.method;
-          lastScopedNotificationAtMs = Date.now();
-        }
-        if (startedBoundary) {
-          armFirstModelEventWatchdog(startedBoundary.turnId, startedBoundary.source);
-          resolveTurnStarted(startedBoundary);
-        }
         const notificationTurnId = getNotificationTurnId(notification);
         if (
           turnRequestIssued &&
@@ -348,56 +346,25 @@ export class CodexAppServerThread {
               const oldestTurnId = preAcceptanceCandidates.keys().next().value;
               if (oldestTurnId) preAcceptanceCandidates.delete(oldestTurnId);
             }
-            candidate = {
-              model: false,
-              terminal: false,
-              count: 0,
-              lastMethod: notification.method,
-              lastAtMs: Date.now(),
-            };
+            candidate = [];
             preAcceptanceCandidates.set(notificationTurnId, candidate);
           }
-          candidate.count += 1;
-          candidate.lastMethod = notification.method;
-          candidate.lastAtMs = Date.now();
-          candidate.model ||= isCodexModelActivity(notification);
-          candidate.terminal ||= isTerminalForTurn(notification, notificationTurnId, true);
+          if (candidate.length < 256) {
+            candidate.push(notification);
+          } else {
+            failMalformedTerminal(notification, notificationTurnId);
+          }
+          return;
         }
-        if (
-          !modelActivitySeen &&
-          (turnStartSeen || turnAccepted) &&
-          notificationMatchesTurn(notification, threadId, this.activeTurnId) &&
-          isCodexModelActivity(notification)
-        ) {
-          recordFirstModelActivity(this.activeTurnId ?? 'unknown');
-        }
-        queue.push(notification);
-        if (isTerminalForTurn(notification, this.activeTurnId, turnStartSeen)) {
-          terminalSeen = true;
-          clearFirstModelEventTimer();
-          this.activeTurnId = null;
-          queue.close();
+        if (turnAccepted && this.activeTurnId) {
+          handleAcceptedNotification(notification, this.activeTurnId);
         }
       });
 
       if (signal?.aborted) throw new Error('Codex turn interrupted');
-      const abortPromise = new Promise<never>((_, reject) => {
-        if (!signal) return;
-        abortListener = () => {
-          cancelledBeforeAcceptance = !turnAccepted;
-          void this.interrupt().catch((err) => {
-            logger.warn('[codex-app-server] turn interrupt request failed', err);
-            // A failed interrupt produces no terminal notification. Throw the local queue so the
-            // turn loop cannot hang indefinitely.
-            queue.throw(new Error('Codex turn interrupted'));
-          });
-          reject(new Error('Codex turn interrupted'));
-        };
-        signal.addEventListener('abort', abortListener, { once: true });
-      });
 
       turnRequestIssued = true;
-      const turnStartRequest = this.client.request<{ turn: { id: string } }>(
+      const response = await this.client.request<{ turn: { id: string } }>(
         'turn/start',
         buildTurnStartParams(threadId, input, this.mode.options, this.client.baseConfig, {
           ...(opts?.outputSchema !== undefined ? { outputSchema: opts.outputSchema } : {}),
@@ -406,34 +373,12 @@ export class CodexAppServerThread {
             ? { runtimeWorkspaceRoots: [...opts.runtimeWorkspaceRoots] }
             : {}),
         }),
+        signal,
       );
-      void turnStartRequest.then(
-        (response) => {
-          if (!cancelledBeforeAcceptance) return;
-          void this.client.request('turn/interrupt', {
-            threadId,
-            turnId: response.turn.id,
-          }).catch((error) => {
-            logger.warn('[codex-app-server] delayed turn interrupt failed', error);
-          });
-        },
-        () => undefined,
-      );
-      const responsePromise = turnStartRequest.then<TurnAcceptanceBoundary>(
-        (response) => {
-          turnStartResponsePending = false;
-          return { turnId: response.turn.id, source: 'response' };
-        },
-        (error) => {
-          turnStartResponsePending = false;
-          throw error;
-        },
-      );
-      const acceptance = await Promise.race([
-        responsePromise,
-        turnStartedPromise,
-        abortPromise,
-      ]);
+      const acceptance: TurnAcceptanceBoundary = {
+        turnId: response.turn.id,
+        source: 'response',
+      };
       this.activeTurnId = acceptance.turnId;
       turnAccepted = true;
       recordAcceptanceBoundary(acceptance.source);
@@ -446,22 +391,30 @@ export class CodexAppServerThread {
       }
     } finally {
       if (firstModelEventTimer) clearTimeout(firstModelEventTimer);
-      if (signal && abortListener) signal.removeEventListener('abort', abortListener);
       unsub?.();
       this.activeTurnId = null;
       queue.close();
     }
   }
 
-  private async ensureThread(): Promise<string> {
+  private async ensureThread(signal?: AbortSignal): Promise<string> {
     if (this.readyPromise && this.readyGeneration === this.client.generation) {
-      return this.readyPromise;
+      return signal
+        ? this.client.runGenerationOperation(
+            'thread readiness wait',
+            signal,
+            async () => this.readyPromise!,
+          )
+        : this.readyPromise;
     }
     this.readyGeneration = this.client.generation;
-    const attempt = (async () => {
-      const options = await this.client.prepareThreadOptions(this.mode.options);
+    const attempt = this.client.runGenerationOperation(
+      this.threadId ? 'thread/resume readiness' : 'thread/start readiness',
+      signal,
+      async (operation) => {
+      const options = await this.client.prepareThreadOptions(this.mode.options, operation);
       if (this.threadId) {
-        const result = await this.client.request<{ thread: { id: string } }>(
+        const result = await operation.request<{ thread: { id: string } }>(
           'thread/resume',
           buildThreadResumeParams(this.threadId, options, this.client.baseConfig),
         );
@@ -469,13 +422,13 @@ export class CodexAppServerThread {
         return this.threadId;
       }
 
-      const result = await this.client.request<{ thread: { id: string } }>(
+      const result = await operation.request<{ thread: { id: string } }>(
         'thread/start',
         buildThreadStartParams(options, this.client.baseConfig),
       );
       this.threadId = result.thread.id;
       return this.threadId;
-    })();
+    });
     this.readyPromise = attempt;
     try {
       return await attempt;
@@ -490,22 +443,6 @@ export class CodexAppServerThread {
       throw err;
     }
   }
-}
-
-function notificationMatchesTurn(
-  notification: CodexAppServerNotification,
-  expectedThreadId: string,
-  activeTurnId: string | null,
-): boolean {
-  const notificationTurnId = getNotificationTurnId(notification);
-  if (notificationTurnId) return !activeTurnId || notificationTurnId === activeTurnId;
-  const notificationThreadId = getNotificationThreadId(notification);
-  // Production callers keep one active turn per thread: the live bridge serializes its message
-  // queue, and each pooled oneshot creates a distinct thread. Thread scope is therefore sufficient.
-  if (notificationThreadId) return notificationThreadId === expectedThreadId;
-  // Live sessions own one client each, but the oneshot pool intentionally runs concurrent threads
-  // on a shared client. An unscoped model notification cannot safely disarm any one watchdog.
-  return false;
 }
 
 interface TurnAcceptanceBoundary { turnId: string; source: 'notification' | 'response'; }

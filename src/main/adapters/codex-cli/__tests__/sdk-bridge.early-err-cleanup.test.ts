@@ -309,19 +309,18 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     expect(lateErrMsg).toHaveLength(0);
   });
 
-  // ─── R3-1 path 2: 30s timeout 后 late earlyErr → cleanup + emit error msg + 不抛 ─────
-  it('R3-1: 30s timeout 后 late earlyErr → cleanup sessions Map + releaseSdkClaim + emit late error message + emit finished:error 一次 (createPromise 已 resolve 不抛)', async () => {
+  it('30s timeout rejects, retires the blocked runtime, and leaves no late-success session', async () => {
     vi.useFakeTimers();
     nextThread = new ControlledThread();
     appServerClientMock.nextThread = nextThread;
     const bridge = makeBridge();
 
-    // createSession resume 不 await(30s timeout 会 resolve(opts.resume))
     const createPromise = bridge.createSession({
       cwd: '/tmp/r2',
       prompt: 'hi',
       resume: 'sess-r2',
     });
+    const rejection = expect(createPromise).rejects.toThrow(/timed out.*retired/i);
 
     // flush microtasks 让 ensureCodex → resumeThread → emit → await runStreamed pending +
     // setTimeout 注册 (vi.useFakeTimers 让 setTimeout 受 fake clock 控)
@@ -332,28 +331,14 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     await vi.advanceTimersByTimeAsync(30_001);
     await flushMicrotasks();
 
-    // createSession 应 resolve(opts.resume) — 30s warn message + resolve(opts.resume!)
-    const handle = await createPromise;
-    expect(handle.sessionId).toBe('sess-r2');
+    await rejection;
 
-    // 30s warn message 已 emit (info,非 error)
     const warn30s = emits.filter((e) =>
       ((e.payload as { text?: string }).text ?? '').includes('30 秒内未发出 thread.started'),
     );
     expect(warn30s).toHaveLength(1);
-    expect((warn30s[0].payload as { error?: boolean }).error).not.toBe(true);
+    expect((warn30s[0].payload as { error?: boolean }).error).toBe(true);
 
-    // 此时 sessions Map 仍持 sess-r2 (resume 主路径已登记,30s warn 路径不 cleanup)
-    expect(getSessionsMap(bridge).has('sess-r2')).toBe(true);
-
-    // 触发 late earlyErr (超过 30s 后 codex 子进程才报错)
-    expect(nextThread.rejectStreamed).not.toBeNull();
-    nextThread.rejectStreamed!(new Error('late spawn fail after timeout'));
-
-    // flush microtasks 让 thread-loop catch + earlyErrCb 跑完
-    await flushMicrotasks();
-
-    // R3-1 cleanup 验证: sessions Map deleted + releaseSdkClaim
     expect(getSessionsMap(bridge).has('sess-r2')).toBe(false);
     expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('sess-r2');
 
@@ -364,20 +349,10 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
     );
     expect(finishedErr).toHaveLength(1);
     expect(finishedErr[0].sessionId).toBe('sess-r2');
-
-    // emit late error message (R3-1 path 2 特征文案 "30s timeout 后 late error")
-    const lateErrMsg = emits.filter((e) => {
-      const p = e.payload as { text?: string; error?: boolean };
-      return (
-        p.error === true &&
-        (p.text ?? '').includes('30s timeout 后 late error') &&
-        (p.text ?? '').includes('late spawn fail after timeout')
-      );
-    });
-    expect(lateErrMsg).toHaveLength(1);
-    expect(lateErrMsg[0].sessionId).toBe('sess-r2');
-    // 文案应提示「下条消息将走自愈路径」让用户知情
-    expect((lateErrMsg[0].payload as { text: string }).text).toMatch(/自愈|recover/i);
+    expect(
+      emits.some((event) =>
+        ((event.payload as { text?: string }).text ?? '').includes('30s timeout 后 late error')),
+    ).toBe(false);
   });
 
   // ─── R2-1 cleanup 让后续 sendMessage 走 recoverer (联合验证 cleanup effective) ──────

@@ -1,6 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { performance } from 'node:perf_hooks';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import {
   prependResolvedCodexPathDirs,
@@ -8,10 +7,7 @@ import {
 } from '../sdk-bridge/codex-binary';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import { formatRpcError } from './notification-helpers';
-import {
-  AgentDeckMcpStartupObserver,
-  sanitizeMcpDiagnostic,
-} from './mcp-startup-observer';
+import { AgentDeckMcpStartupObserver } from './mcp-startup-observer';
 import { DEFAULT_FIRST_MODEL_EVENT_TIMEOUT_MS } from './first-model-event-watchdog';
 import {
   sanitizeCodexStderrTail,
@@ -41,11 +37,12 @@ import {
   buildTurnStartParams,
 } from './thread-params';
 import { CodexAppServerThread } from './thread';
-import { logCodexThreadBoundaryReady } from './thread-boundary-logging';
-import { prepareNodeReplCompatibility } from './node-repl-compat';
+import { clearNodeReplCompatibilityCache, prepareNodeReplCompatibility } from './node-repl-compat';
 import { requestCodexRaw, type CodexPendingRequest } from './request-raw';
 import { CodexServerRequestHost } from './server-request-host';
 import log from '@main/utils/logger';
+import { safeErrorSummary } from '@main/utils/safe-diagnostic';
+import { CodexGenerationController, type CodexGenerationOperation } from './generation-operation';
 
 const logger = log.scope('codex-app-server');
 
@@ -57,6 +54,7 @@ export type {
   CodexAppServerUserInput,
 } from './protocol';
 export { CodexAppServerThread } from './thread';
+export type { CodexGenerationOperation } from './generation-operation';
 
 type Unsubscribe = () => void;
 
@@ -66,17 +64,41 @@ export class CodexAppServerClient {
   private pending = new Map<number | string, CodexPendingRequest>();
   private notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
   private readonly serverRequestHost = new CodexServerRequestHost(() => this.child);
-  private initializePromise: Promise<void> | null = null;
   private closed = false;
-  private processGeneration = 0;
   private currentStderrTail = '';
   private readonly mcpStartupObserver = new AgentDeckMcpStartupObserver();
+  private readonly generationController: CodexGenerationController;
 
-  constructor(private readonly opts: CodexAppServerOptions) {}
+  constructor(private readonly opts: CodexAppServerOptions) {
+    this.generationController = new CodexGenerationController({
+      isClosed: () => this.closed,
+      getChild: () => this.child,
+      detachChild: (child) => this.detachChild(child),
+      requestRaw: <T>(method: string, params: unknown, signal?: AbortSignal) =>
+        this.requestRaw<T>(method, params, signal),
+      requestForOperation: <T>(
+        method: string,
+        params: unknown,
+        operation: CodexGenerationOperation,
+      ) => this.request !== CodexAppServerClient.prototype.request
+        ? this.request<T>(method, params, operation.signal)
+        : this.generationController.request<T>(method, params, operation),
+      getSkillExtraRoots: () => this.opts.skillExtraRoots,
+      abortServerRequests: () => this.serverRequestHost.abortAll(),
+      rejectPending: (error) => this.rejectAll(error),
+      clearCompatibilityCache: () => clearNodeReplCompatibilityCache(this),
+      dispatchNotification: (notification) => this.dispatchNotification(notification),
+    });
+  }
 
   get baseConfig(): CodexConfigObject | null { return this.opts.config ?? null; }
 
-  get generation(): number { return this.processGeneration; }
+  get generation(): number { return this.generationController.generation; }
+
+  /** True only for the live generation or its synchronous synthetic retirement terminal. */
+  acceptsNotificationForGeneration(generation: number): boolean {
+    return this.generationController.acceptsNotificationForGeneration(generation);
+  }
 
   get firstModelEventTimeoutMs(): number {
     const configured = this.opts.firstModelEventTimeoutMs;
@@ -87,7 +109,7 @@ export class CodexAppServerClient {
 
   getProcessDiagnosticSnapshot(): CodexProcessDiagnosticSnapshot {
     return {
-      processGeneration: this.processGeneration,
+      processGeneration: this.generation,
       processPid: this.child?.pid ?? null,
       processAlive: this.child !== null,
       pendingRpcCount: this.pending.size,
@@ -133,24 +155,42 @@ export class CodexAppServerClient {
       this.isProcessAlive ? this.generation : undefined,
     );
   }
-  prepareThreadOptions(options: CodexThreadOptions): Promise<CodexThreadOptions> {
+  prepareThreadOptions(
+    options: CodexThreadOptions,
+    operation?: CodexGenerationOperation,
+  ): Promise<CodexThreadOptions> {
     return this.opts.nodeReplSandboxMetaCompatibility
-      ? prepareNodeReplCompatibility(this, options, this.baseConfig)
+      ? prepareNodeReplCompatibility(this, options, this.baseConfig, operation)
       : Promise.resolve(options);
   }
   readThread(threadId: string): Promise<CodexAppServerThreadReadResult> {
     return this.request('thread/read', { threadId, includeTurns: true });
   }
-  async startThreadEager(options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
-    options = await this.prepareThreadOptions(options);
-    return this.request('thread/start', buildThreadStartParams(options, this.baseConfig));
+  startThreadEager(
+    options: CodexThreadOptions,
+    signal?: AbortSignal,
+  ): Promise<CodexAppServerThreadCreateResult> {
+    return this.runGenerationOperation('thread/start readiness', signal, async (operation) => {
+      const prepared = await this.prepareThreadOptions(options, operation);
+      return operation.request(
+        'thread/start',
+        buildThreadStartParams(prepared, this.baseConfig),
+      );
+    });
   }
-  async forkThread(sourceThreadId: string, lastTurnId: string, options: CodexThreadOptions): Promise<CodexAppServerThreadCreateResult> {
-    options = await this.prepareThreadOptions(options);
-    return this.request(
-      'thread/fork',
-      buildThreadForkParams(sourceThreadId, lastTurnId, options, this.baseConfig),
-    );
+  forkThread(
+    sourceThreadId: string,
+    lastTurnId: string,
+    options: CodexThreadOptions,
+    signal?: AbortSignal,
+  ): Promise<CodexAppServerThreadCreateResult> {
+    return this.runGenerationOperation('thread/fork readiness', signal, async (operation) => {
+      const prepared = await this.prepareThreadOptions(options, operation);
+      return operation.request(
+        'thread/fork',
+        buildThreadForkParams(sourceThreadId, lastTurnId, prepared, this.baseConfig),
+      );
+    });
   }
 
   injectThreadItems(threadId: string, items: JsonValue[]): Promise<void> {
@@ -159,25 +199,23 @@ export class CodexAppServerClient {
   deleteThread(threadId: string): Promise<void> { return this.request('thread/delete', { threadId }); }
 
   async request<T = unknown>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
-    await this.ensureInitialized();
-    if (signal?.aborted) throw new Error('Codex request cancelled');
-    if (!isThreadBoundaryMethod(method)) return this.requestRaw<T>(method, params, signal);
-    const started = performance.now();
-    const thread = readRequestThreadId(params);
-    try {
-      const response = await this.requestRaw<T>(method, params, signal);
-      const durationMs = Math.round(performance.now() - started);
-      logCodexThreadBoundaryReady({ method, thread, durationMs });
-      return response;
-    } catch (err) {
-      const diagnostic = sanitizeMcpDiagnostic(err) ?? 'unknown error';
-      logger.warn(
-        `[codex-app-server] ${method} failed before thread readiness ` +
-          `(thread=${thread}, durationMs=${Math.round(performance.now() - started)}, ` +
-          `error=${diagnostic})`,
-      );
-      throw err;
-    }
+    return this.runGenerationOperation(method, signal, (operation) =>
+      operation.request<T>(method, params));
+  }
+
+  /**
+   * Run one control-plane operation against exactly one process generation.
+   *
+   * The deadline and caller abort are wired into the underlying JSON-RPC requests. Either failure
+   * retires the whole generation, so shared initialize/readiness waiters reject together and no
+   * request can survive behind an outer Promise.race.
+   */
+  async runGenerationOperation<T>(
+    phase: string,
+    callerSignal: AbortSignal | undefined,
+    execute: (operation: CodexGenerationOperation) => Promise<T>,
+  ): Promise<T> {
+    return this.generationController.run(phase, callerSignal, execute);
   }
 
   subscribe(listener: (notification: CodexAppServerNotification) => void): Unsubscribe {
@@ -209,7 +247,7 @@ export class CodexAppServerClient {
   ): boolean {
     const before = this.getProcessDiagnosticSnapshot();
     const recycleContext = { threadId, turnId, expectedGeneration, before };
-    if (this.closed || this.processGeneration !== expectedGeneration) {
+    if (this.closed || this.generation !== expectedGeneration) {
       logCodexRecycleSkipped(logger, recycleContext, 'generation_mismatch');
       return false;
     }
@@ -238,7 +276,7 @@ export class CodexAppServerClient {
 
     // Recycling is process-wide. Emit a process-level terminal (no turn/thread filter) so any
     // other accepted turns sharing this generation also close instead of waiting on dead queues.
-    if (!this.retireCurrentProcess(child, err)) {
+    if (!this.generationController.retireCurrentProcess(child, err)) {
       logCodexRecycleDetachFailure(
         logger,
         recycleContext,
@@ -256,52 +294,10 @@ export class CodexAppServerClient {
   }
 
   dispose(): void {
+    if (this.closed) return;
     this.closed = true;
-    const child = this.child;
-    this.child = null;
-    this.currentStderrTail = '';
-    if (child && !child.killed) {
-      child.kill();
-    }
-    this.serverRequestHost.abortAll();
-    this.rejectAll(new Error('Codex app-server disposed'));
-  }
-
-  private async ensureInitialized(): Promise<void> {
-    if (this.initializePromise) return this.initializePromise;
-    const attempt = (async () => {
-      await this.requestRaw('initialize', {
-        clientInfo: {
-          name: 'agent-deck',
-          title: 'Agent Deck',
-          version: '0.1.0',
-        },
-        capabilities: {
-          experimentalApi: true,
-          requestAttestation: false,
-        },
-      });
-      if (this.opts.skillExtraRoots && this.opts.skillExtraRoots.length > 0) {
-        try {
-          await this.requestRaw('skills/extraRoots/set', {
-            extraRoots: this.opts.skillExtraRoots,
-          });
-        } catch (err) {
-          logger.warn('[codex-app-server] skills/extraRoots/set failed', err);
-        }
-      }
-    })();
-    this.initializePromise = attempt;
-    try {
-      await attempt;
-    } catch (err) {
-      if (this.initializePromise === attempt) this.initializePromise = null;
-      logger.warn(
-        '[codex-app-server] initialize failed; next request will retry ' +
-          `(error=${sanitizeMcpDiagnostic(err) ?? 'unknown error'})`,
-      );
-      throw err;
-    }
+    this.generationController.dispose(new Error('Codex app-server disposed'));
+    this.notificationListeners.clear();
   }
 
   private ensureProcess(): ChildProcessWithoutNullStreams {
@@ -331,7 +327,7 @@ export class CodexAppServerClient {
       const safeTail = sanitizeCodexStderrTail(chunk);
       logger.debug('[codex-app-server] stderr activity', {
         event: 'codex_app_server_stderr',
-        processGeneration: this.processGeneration,
+        processGeneration: this.generation,
         processPid: child.pid ?? null,
         bytes: Buffer.byteLength(chunk, 'utf8'),
         sanitizedTail: safeTail,
@@ -372,7 +368,7 @@ export class CodexAppServerClient {
     } catch (err) {
       logger.warn('[codex-app-server] failed to parse stdout line', {
         event: 'codex_app_server_stdout_parse_failed',
-        processGeneration: this.processGeneration,
+        processGeneration: this.generation,
         processPid: sourceChild.pid ?? null,
         bytes: Buffer.byteLength(line, 'utf8'),
         errorName: err instanceof Error ? err.name : 'unknown',
@@ -424,7 +420,10 @@ export class CodexAppServerClient {
       try {
         listener(notification);
       } catch (err) {
-        logger.warn('[codex-app-server] notification listener failed', err);
+        logger.warn(
+          '[codex-app-server] notification listener failed',
+          safeErrorSummary(err),
+        );
       }
     }
   }
@@ -432,32 +431,16 @@ export class CodexAppServerClient {
   private handleExit(exitedChild: ChildProcessWithoutNullStreams, err: Error): void {
     // `error` is normally followed by `exit`; an old child's late exit may also arrive after a
     // replacement process was spawned. Only the currently-owned child may clear state/reject RPCs.
-    this.retireCurrentProcess(exitedChild, err);
+    this.generationController.retireCurrentProcess(exitedChild, err);
   }
 
-  private retireCurrentProcess(
+  private detachChild(
     exitedChild: ChildProcessWithoutNullStreams,
-    err: Error,
   ): boolean {
     if (this.child !== exitedChild) return false;
     this.child = null;
     this.currentStderrTail = '';
-    this.initializePromise = null;
-    this.processGeneration++;
     this.mcpStartupObserver.reset();
-    this.serverRequestHost.abortAll();
-    this.rejectAll(err);
-    this.dispatchNotification({
-      method: 'error',
-      params: {
-        error: {
-          message: err.message,
-          codexErrorInfo: null,
-          additionalDetails: null,
-        },
-        willRetry: false,
-      },
-    });
     return true;
   }
 
@@ -468,16 +451,6 @@ export class CodexAppServerClient {
     this.pending.clear();
   }
 
-}
-
-function isThreadBoundaryMethod(method: string): boolean {
-  return method === 'thread/start' || method === 'thread/resume' || method === 'thread/fork';
-}
-
-function readRequestThreadId(params: unknown): string {
-  if (!params || typeof params !== 'object' || Array.isArray(params)) return 'new';
-  const threadId = (params as Record<string, unknown>).threadId;
-  return typeof threadId === 'string' ? threadId : 'new';
 }
 
 function readErrorCode(error: unknown): string | null {

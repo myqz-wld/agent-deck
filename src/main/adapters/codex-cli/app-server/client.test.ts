@@ -426,27 +426,6 @@ describe('Codex app-server thread params', () => {
     expect(labels.map((label) => attempts.get(label))).toEqual([1, 2, 1]);
   });
 
-  it('clears a live-process initialize rejection so the next request can retry', async () => {
-    const client = new CodexAppServerClient({ env: {}, config: null });
-    let attempts = 0;
-    const internal = client as unknown as {
-      ensureInitialized: () => Promise<void>;
-      requestRaw: (method: string, params: unknown) => Promise<unknown>;
-      initializePromise: Promise<void> | null;
-    };
-    internal.requestRaw = async (method) => {
-      expect(method).toBe('initialize');
-      attempts += 1;
-      if (attempts === 1) throw new Error('temporary initialize failure');
-      return {};
-    };
-
-    await expect(internal.ensureInitialized()).rejects.toThrow(/temporary/);
-    expect(internal.initializePromise).toBeNull();
-    await expect(internal.ensureInitialized()).resolves.toBeUndefined();
-    expect(attempts).toBe(2);
-  });
-
   it('ignores stale or duplicate child exits instead of clobbering a replacement process', () => {
     const client = new CodexAppServerClient({ env: {}, config: null });
     const currentChild = {} as never;

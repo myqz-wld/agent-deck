@@ -12,6 +12,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import log from '@main/utils/logger';
+import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 import { mergeCodexWritableRoots } from './thread-options-builder';
 
 const logger = log.scope('codex-restart');
@@ -76,11 +77,13 @@ export class RestartController {
     const oldSandbox: CodexSandboxMode | null = rec.codexSandbox ?? null;
 
     const p = (async (): Promise<string> => {
+      let liveApplyAttempted = false;
       try {
         sessionRepo.setCodexSandbox(sessionId, sandbox);
         const updatedRec = sessionRepo.get(sessionId);
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
+        liveApplyAttempted = true;
         const liveApplied = this.ctx.applyLiveSandbox(sessionId, sandbox, {
           networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
           additionalDirectories: mergeCodexWritableRoots(
@@ -96,40 +99,56 @@ export class RestartController {
         }
         return sessionId;
       } catch (err) {
+        let dbRollback: RollbackProjectionOutcome = 'failed';
+        let liveRollback: RollbackProjectionOutcome = liveApplyAttempted
+          ? 'failed'
+          : 'unchanged';
         try {
           sessionRepo.setCodexSandbox(sessionId, oldSandbox);
+          dbRollback = 'restored';
           const rolled = sessionRepo.get(sessionId);
           if (rolled) eventBus.emit('session-upserted', rolled);
-          if (oldSandbox !== null) {
-            try {
-              this.ctx.applyLiveSandbox(sessionId, oldSandbox, {
-                networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
-                additionalDirectories: mergeCodexWritableRoots(
-                  rec.additionalDirectories ?? undefined,
-                  rec.extraAllowWrite ?? undefined,
-                ),
-              });
-            } catch (liveRollbackErr) {
-              logger.warn(
-                `[codex-bridge] live sandbox rollback failed for ${sessionId}; DB rollback still completed:`,
-                liveRollbackErr,
-              );
-            }
-          }
         } catch (rollbackErr) {
           logger.warn(
-            `[codex-bridge] restartWithCodexSandbox rollback setCodexSandbox(${sessionId}, ${oldSandbox}) failed; original error is preserved:`,
-            rollbackErr,
+            '[codex-bridge] sandbox DB rollback failed; original error is preserved',
+            rollbackFailureDiagnostic('sandbox', 'database', sessionId, rollbackErr),
           );
         }
+        if (liveApplyAttempted && oldSandbox !== null) {
+          try {
+            this.ctx.applyLiveSandbox(sessionId, oldSandbox, {
+              networkAccessEnabled: rec.networkAccessEnabled ?? undefined,
+              additionalDirectories: mergeCodexWritableRoots(
+                rec.additionalDirectories ?? undefined,
+                rec.extraAllowWrite ?? undefined,
+              ),
+            });
+            liveRollback = 'restored';
+          } catch (liveRollbackErr) {
+            logger.warn(
+              '[codex-bridge] live sandbox rollback failed',
+              rollbackFailureDiagnostic('sandbox', 'live', sessionId, liveRollbackErr),
+            );
+          }
+        } else if (liveApplyAttempted) {
+          liveRollback = 'unknown';
+        }
+        const rollbackComplete =
+          dbRollback === 'restored' &&
+          (liveRollback === 'restored' || liveRollback === 'unchanged');
+        logRollbackOutcome('sandbox', sessionId, dbRollback, liveRollback, rollbackComplete);
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,
           kind: 'message',
           payload: {
-            text:
-              `⚠ 切到 sandbox ${sandbox} 失败：${(err as Error)?.message ?? String(err)}。` +
-              `档位已回退到 ${oldSandbox ?? '(默认)'}。`,
+            text: rollbackComplete
+              ? `⚠ 切到 sandbox ${sandbox} 失败：${errorText(err)}。` +
+                `档位已回退到 ${oldSandbox ?? '(默认)'}。`
+              : `⚠ 切到 sandbox ${sandbox} 失败：${errorText(err)}。` +
+                `回退未完全成功（数据库：${rollbackOutcomeText(dbRollback)}；` +
+                `实时运行时：${rollbackOutcomeText(liveRollback)}），当前状态未知；` +
+                '请关闭并重新打开会话后重试。',
             error: true,
           },
           ts: Date.now(),
@@ -171,11 +190,13 @@ export class RestartController {
       rec.codexApprovalPolicy ?? null;
 
     const operation = (async (): Promise<void> => {
+      let liveApplyAttempted = false;
       try {
         sessionRepo.setCodexApprovalPolicy(sessionId, policy);
         const updatedRec = sessionRepo.get(sessionId);
         if (updatedRec) eventBus.emit('session-upserted', updatedRec);
 
+        liveApplyAttempted = true;
         const liveApplied = this.ctx.applyLiveApprovalPolicy(sessionId, policy);
         if (!liveApplied) {
           logger.info(
@@ -184,35 +205,48 @@ export class RestartController {
           );
         }
       } catch (error) {
+        let dbRollback: RollbackProjectionOutcome = 'failed';
+        let liveRollback: RollbackProjectionOutcome = liveApplyAttempted
+          ? 'failed'
+          : 'unchanged';
         try {
           sessionRepo.setCodexApprovalPolicy(sessionId, oldPolicy);
+          dbRollback = 'restored';
           const rolled = sessionRepo.get(sessionId);
           if (rolled) eventBus.emit('session-upserted', rolled);
-          try {
-            this.ctx.applyLiveApprovalPolicy(sessionId, oldPolicy);
-          } catch (liveRollbackError) {
-            logger.warn(
-              `[codex-bridge] live approval-policy rollback failed for ${sessionId}; ` +
-                'DB rollback still completed:',
-              liveRollbackError,
-            );
-          }
         } catch (rollbackError) {
           logger.warn(
-            `[codex-bridge] setCodexApprovalPolicy rollback ` +
-              `(${sessionId}, ${oldPolicy}) failed; original error is preserved:`,
-            rollbackError,
+            '[codex-bridge] approval-policy DB rollback failed; original error is preserved',
+            rollbackFailureDiagnostic('approval_policy', 'database', sessionId, rollbackError),
           );
         }
+        if (liveApplyAttempted) {
+          try {
+            this.ctx.applyLiveApprovalPolicy(sessionId, oldPolicy);
+            liveRollback = 'restored';
+          } catch (liveRollbackError) {
+            logger.warn(
+              '[codex-bridge] live approval-policy rollback failed',
+              rollbackFailureDiagnostic('approval_policy', 'live', sessionId, liveRollbackError),
+            );
+          }
+        }
+        const rollbackComplete =
+          dbRollback === 'restored' &&
+          (liveRollback === 'restored' || liveRollback === 'unchanged');
+        logRollbackOutcome('approval_policy', sessionId, dbRollback, liveRollback, rollbackComplete);
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,
           kind: 'message',
           payload: {
-            text:
-              `⚠ 切换审批策略到 ${policy} 失败：` +
-              `${(error as Error)?.message ?? String(error)}。` +
-              `策略已回退到 ${oldPolicy ?? '(默认)'}。`,
+            text: rollbackComplete
+              ? `⚠ 切换审批策略到 ${policy} 失败：${errorText(error)}。` +
+                `策略已回退到 ${oldPolicy ?? '(默认)'}。`
+              : `⚠ 切换审批策略到 ${policy} 失败：${errorText(error)}。` +
+                `回退未完全成功（数据库：${rollbackOutcomeText(dbRollback)}；` +
+                `实时运行时：${rollbackOutcomeText(liveRollback)}），当前状态未知；` +
+                '请关闭并重新打开会话后重试。',
             error: true,
           },
           ts: Date.now(),
@@ -229,4 +263,54 @@ export class RestartController {
       this.ctx.recovering.delete(sessionId);
     }
   }
+}
+
+type RollbackProjectionOutcome = 'restored' | 'unchanged' | 'failed' | 'unknown';
+
+function logRollbackOutcome(
+  control: 'sandbox' | 'approval_policy',
+  sessionId: string,
+  database: RollbackProjectionOutcome,
+  live: RollbackProjectionOutcome,
+  complete: boolean,
+): void {
+  logger.warn('[codex-bridge] runtime-control rollback outcome', safeDiagnostic({
+    event: 'codex_runtime_control_rollback',
+    phase: 'rollback',
+    control,
+    sessionShort: sessionId.slice(0, 12),
+    database,
+    live,
+    outcome: complete ? 'restored' : 'state_unknown',
+  }));
+}
+
+function rollbackFailureDiagnostic(
+  control: 'sandbox' | 'approval_policy',
+  projection: 'database' | 'live',
+  sessionId: string,
+  error: unknown,
+): ReturnType<typeof safeDiagnostic> {
+  return safeDiagnostic({
+    event: 'codex_runtime_control_rollback',
+    phase: 'rollback',
+    control,
+    projection,
+    sessionShort: sessionId.slice(0, 12),
+    outcome: 'failed',
+    error: safeErrorSummary(error),
+  });
+}
+
+function rollbackOutcomeText(outcome: RollbackProjectionOutcome): string {
+  switch (outcome) {
+    case 'restored': return '已恢复';
+    case 'unchanged': return '未变更';
+    case 'failed': return '恢复失败';
+    case 'unknown': return '状态未知';
+  }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
