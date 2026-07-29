@@ -1,30 +1,45 @@
-import type { AgentAdapter, AdapterContext } from './types';
 import type { ClaudeCodeAdapter } from './claude-code';
 import type { CodexCliAdapter } from './codex-cli';
 import type { GrokBuildAdapter } from './grok-build';
 import type { CreateSessionOptionsByAdapter } from './options-builder';
+import type { AgentAdapter, AdapterContext } from './types';
+import {
+  BoundedLogStateTracker,
+  type LogStateDecision,
+  type LogStateSnapshot,
+} from '@main/utils/log-state-tracker';
 import log from '@main/utils/logger';
+import { getProcessRunId } from '@main/utils/run-context';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
 
-const logger = log.scope('adapter-registry');
+const TRACKER_CAPACITY = 2;
+const SUMMARY_INTERVAL_MS = 300_000;
+const INIT_SLOW_THRESHOLD_MS = 10_000;
+const SHUTDOWN_SLOW_THRESHOLD_MS = 5_000;
+const MAX_DIAGNOSTIC_COUNT = 10_000;
+const MAX_NUMERIC_VALUE = Number.MAX_SAFE_INTEGER;
+
+type RegistryOperation = 'init' | 'shutdown';
+type RegistryState = 'healthy' | 'slow' | 'partial-failure' | 'failed';
+
+const THRESHOLD_BY_OPERATION: Record<RegistryOperation, number> = {
+  init: INIT_SLOW_THRESHOLD_MS,
+  shutdown: SHUTDOWN_SLOW_THRESHOLD_MS,
+};
+
+function createLogger() {
+  try {
+    return log.scope('adapter-registry');
+  } catch {
+    return null;
+  }
+}
+
+const logger = createLogger();
 
 /**
- * D2 typed adapter id 映射：agentId → 具体 adapter class type。
- *
- * **典型用法**：caller 编译期知道具体 adapter id 时直接 import typed instance（
- * `import { claudeCodeAdapter } from './adapters/claude-code'`）拿到 ClaudeCodeAdapter
- * 类型,自动暴露 adapter-专属方法（如 respondPermission / restartWithClaudeCodeSandbox）。
- *
- * **dynamic dispatch caller**（如 5 处生产 caller / IPC handler / cli.ts）走
- * `adapterRegistry.get(string)` 拿 AgentAdapter union 兜底（generic createSession 即可）;
- * typed overload **不加到 registry.get**,因为 enum union arg 让 TS 走 typed overload
- * 后 return adapter union 调 createSession(opts) 会撞 union dispatch fail（opts 必须
- * assignable to 每个 arm createSession opts type,而 narrow opts 单 arm 不满足）。
- *
- * **多侧 SSOT 守门**（p4-d2-impl R1 reviewer-codex MED follow-up）:加新 adapter 时漏改本
- * map → `_assertAdapterIdMapMatchesOptions` TS 编译期报错。详 options-builder.ts §D2 多侧
- * SSOT 守门 注释表(本 map 是守门点 4)。
-
- * 加新 adapter 完整 checklist 见 options-builder.ts 同名注释。
+ * Compile-time adapter ids map to their concrete implementations. Dynamic callers use the
+ * string-based registry API, while callers needing adapter-specific methods import that adapter.
  */
 export type AdapterIdMap = {
   'claude-code': ClaudeCodeAdapter;
@@ -32,12 +47,7 @@ export type AdapterIdMap = {
   'grok-build': GrokBuildAdapter;
 };
 
-/**
- * **REVIEW_105 MED-2 (deep-review Batch 7)**: initAll per-adapter 结果 —— 让 bootstrap 调用方
- * 区分「全部 init 成功」vs「部分 adapter init 失败但续跑」, 对失败项明确 surface(升级日志 +
- * actionable hint), 替代修前「catch 只 log 后静默续跑 + 调用方不消费返回值」导致半死 adapter
- * 启动期零可观测的缺陷。`ok: false` 时 `err` 携带原始异常供调用方记录。
- */
+/** Each result preserves the registered id and the exact thrown value for its caller. */
 export interface AdapterInitResult {
   id: string;
   ok: boolean;
@@ -50,11 +60,7 @@ export interface AdapterShutdownResult {
   err?: unknown;
 }
 
-/**
- * **守门 (4)**: AdapterIdMap keys 必须与 CreateSessionOptionsByAdapter keys 严格一致
- * (与 options-builder.ts 守门 (3) 同款 trick)。漏 entry → 此 type 解析为 false → 赋值 true 报错。
- * 反向:CreateSessionOptionsByAdapter 加 entry 但本 map 未加 → 同款报错。
- */
+/** Adapter ids and create-session option ids must remain identical. */
 type _AssertSameKeys<A, B> = keyof A extends keyof B
   ? keyof B extends keyof A
     ? true
@@ -66,10 +72,162 @@ const _assertAdapterIdMapMatchesOptions: _AssertSameKeys<
 > = true;
 void _assertAdapterIdMapMatchesOptions;
 
-// REVIEW_105 MED-2 (deep-review Batch 7): export class 供 registry.test.ts 隔离测 initAll
-// per-adapter result(不污染 module-level singleton adapterRegistry —— 后者已被 bootstrap register)。
+class RegistryDiagnostics {
+  private readonly tracker = createTracker();
+
+  begin(): number | null {
+    return readClock();
+  }
+
+  observe(
+    phase: RegistryOperation,
+    totalCount: number,
+    failedCount: number,
+    startedAtMs: number | null,
+  ): void {
+    try {
+      if (!this.tracker) return;
+      const durationMs = elapsedSince(startedAtMs);
+      const thresholdMs = THRESHOLD_BY_OPERATION[phase];
+      const state = classifyState(
+        totalCount,
+        failedCount,
+        durationMs,
+        thresholdMs,
+      );
+      const decision = this.tracker.observe(phase, {
+        signature: state,
+        abnormal: state !== 'healthy',
+        metric: durationMs,
+      });
+      emitDecision(
+        decision,
+        phase,
+        durationMs,
+        thresholdMs,
+        totalCount,
+        failedCount,
+      );
+    } catch {
+      // Diagnostics cannot change adapter results or execution order.
+    }
+  }
+}
+
+function createTracker(): BoundedLogStateTracker<
+  RegistryOperation,
+  RegistryState
+> | null {
+  try {
+    return new BoundedLogStateTracker({
+      capacity: TRACKER_CAPACITY,
+      summaryIntervalMs: SUMMARY_INTERVAL_MS,
+      now: () => Date.now(),
+    });
+  } catch {
+    return null;
+  }
+}
+
+function readClock(): number | null {
+  try {
+    const value = Date.now();
+    if (!Number.isFinite(value) || value < 0) return null;
+    return Math.min(MAX_NUMERIC_VALUE, value);
+  } catch {
+    return null;
+  }
+}
+
+function elapsedSince(startedAtMs: number | null): number | null {
+  const endedAtMs = readClock();
+  if (
+    startedAtMs === null ||
+    endedAtMs === null ||
+    endedAtMs < startedAtMs
+  ) {
+    return null;
+  }
+  return Math.min(MAX_NUMERIC_VALUE, endedAtMs - startedAtMs);
+}
+
+function classifyState(
+  totalCount: number,
+  failedCount: number,
+  durationMs: number | null,
+  thresholdMs: number,
+): RegistryState {
+  if (totalCount === 0) return 'healthy';
+  if (failedCount >= totalCount) return 'failed';
+  if (failedCount > 0) return 'partial-failure';
+  if (durationMs !== null && durationMs >= thresholdMs) return 'slow';
+  return 'healthy';
+}
+
+function emitDecision(
+  decision: LogStateDecision<RegistryState>,
+  phase: RegistryOperation,
+  durationMs: number | null,
+  thresholdMs: number,
+  totalCount: number,
+  failedCount: number,
+): void {
+  if (decision.kind === 'repeat') return;
+  if (decision.kind === 'initial' && !decision.current.abnormal) return;
+
+  const priorAbnormal: LogStateSnapshot<RegistryState> | null =
+    decision.flushed?.abnormal ? decision.flushed : null;
+  if (!decision.current.abnormal && !priorAbnormal) return;
+  const aggregate =
+    decision.kind === 'periodic-summary'
+      ? priorAbnormal ?? decision.current
+      : decision.current.abnormal
+        ? decision.current
+        : priorAbnormal ?? decision.current;
+  const suppressed = priorAbnormal ?? decision.current;
+
+  try {
+    const details = safeDiagnostic({
+      event: 'adapter-registry-state',
+      runId: getProcessRunId(),
+      phase,
+      state: decision.current.signature,
+      previousState: decision.flushed?.signature ?? null,
+      transition: decision.kind,
+      durationMs,
+      abnormalDuration: aggregate.abnormalDurationMs,
+      maxDuration: aggregate.maxMetric,
+      thresholdMs,
+      suppressedCount: suppressed.suppressedCount,
+      capped: suppressed.suppressedCountCapped,
+      summaryInterval: SUMMARY_INTERVAL_MS,
+      totalCount: boundedCount(totalCount),
+      failedCount: boundedCount(failedCount),
+    });
+
+    if (decision.current.abnormal) {
+      logger?.warn(
+        decision.kind === 'periodic-summary'
+          ? 'adapter registry phase remains degraded'
+          : 'adapter registry phase degraded',
+        details,
+      );
+    } else {
+      logger?.info('adapter registry phase recovered', details);
+    }
+  } catch {
+    // Serialization, run identity, and sinks are all best-effort.
+  }
+}
+
+function boundedCount(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.min(MAX_DIAGNOSTIC_COUNT, Math.floor(value));
+}
+
 export class AdapterRegistryClass {
-  private map = new Map<string, AgentAdapter>();
+  private readonly map = new Map<string, AgentAdapter>();
+  private readonly diagnostics = new RegistryDiagnostics();
 
   register(adapter: AgentAdapter): void {
     if (this.map.has(adapter.id)) {
@@ -79,15 +237,8 @@ export class AdapterRegistryClass {
   }
 
   /**
-   * 仅 string overload：返回 AgentAdapter union 兜底。
-   *
-   * 不加 typed overload `<T extends keyof AdapterIdMap>(id: T): AdapterIdMap[T] | undefined`,
-   * 因为 enum union arg（如 SpawnSessionArgs.adapter）让 TS 推走 typed overload 后
-   * return adapter union → caller 调 `adapter.createSession(opts)` 撞 union dispatch
-   * fail（opts narrow 到 single arm 不 assignable to union 每个 arm）。
-   *
-   * caller 想拿 typed adapter instance → 直接 `import { claudeCodeAdapter }` 走 typed
-   * export（绕过 registry）。registry 是 dynamic dispatch 兜底通道。
+   * The string API is the dynamic-dispatch boundary. Adapter-specific callers import the typed
+   * adapter instance directly so union arguments do not widen create-session option types.
    */
   get(id: string): AgentAdapter | undefined {
     return this.map.get(id);
@@ -98,36 +249,48 @@ export class AdapterRegistryClass {
   }
 
   async initAll(ctx: AdapterContext): Promise<AdapterInitResult[]> {
+    const startedAtMs = this.diagnostics.begin();
     const results: AdapterInitResult[] = [];
+    let failedCount = 0;
     for (const adapter of this.map.values()) {
       try {
         await adapter.init(ctx);
-        logger.info(`[adapter] ${adapter.id} initialized`);
         results.push({ id: adapter.id, ok: true });
       } catch (err) {
-        // REVIEW_105 MED-2 (deep-review Batch 7 双方共识): 保留「一个 adapter init 失败不连坐
-        // 其他 adapter」的 resilience 续跑语义(双 adapter 桌面应用, codex 挂了 claude 仍可用),
-        // 但**不再静默** —— 返回 per-adapter result 让 bootstrap 调用方明确 surface 失败(否则
-        // 半死 adapter 留在 registry, get() 仍返回它, 直到用户 spawn 该 adapter 才在
-        // createSession 抛 "adapter not initialized" cryptic 错, 启动期零可观测)。
-        logger.error(`[adapter] ${adapter.id} init failed:`, err);
+        // A failed adapter does not prevent later adapters from initializing.
+        failedCount += 1;
         results.push({ id: adapter.id, ok: false, err });
       }
     }
+    this.diagnostics.observe(
+      'init',
+      results.length,
+      failedCount,
+      startedAtMs,
+    );
     return results;
   }
 
   async shutdownAll(): Promise<AdapterShutdownResult[]> {
+    const startedAtMs = this.diagnostics.begin();
     const results: AdapterShutdownResult[] = [];
+    let failedCount = 0;
     for (const adapter of this.map.values()) {
       try {
         await adapter.shutdown();
         results.push({ id: adapter.id, ok: true });
       } catch (err) {
-        logger.error(`[adapter] ${adapter.id} shutdown failed:`, err);
+        // Every registered adapter receives its shutdown attempt in insertion order.
+        failedCount += 1;
         results.push({ id: adapter.id, ok: false, err });
       }
     }
+    this.diagnostics.observe(
+      'shutdown',
+      results.length,
+      failedCount,
+      startedAtMs,
+    );
     return results;
   }
 }
