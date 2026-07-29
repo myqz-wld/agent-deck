@@ -8,10 +8,22 @@ afterEach(cleanup);
 
 describe('AgentDeckMcpSection tool inventory', () => {
   it('shows 19 core tools and 14 adapter-scoped browser tools', () => {
-    render(
+    const { container } = render(
       <AgentDeckMcpSection settings={DEFAULT_SETTINGS} update={vi.fn()} />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Agent Deck MCP' }));
+
+    expect(container.textContent).toContain(
+      '让 Claude Code、Codex CLI、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。',
+    );
+    expect(container.textContent).toContain('Browser（Claude Code / Grok Build）');
+    expect(container.textContent).toContain(
+      'Codex CLI 通过官方 Browser 插件连接同一个 Agent Deck 浏览器引擎',
+    );
+    expect(container.textContent).toContain('Codex CLI 和 Grok Build 自动连接');
+    expect(container.textContent).toContain(
+      '首次启动时自动生成并保存。Codex CLI 会读取环境变量',
+    );
 
     const summary = screen.getByText('查看工具清单（19 个核心 + 14 个 Browser）');
     const names = [...summary.closest('details')!.querySelectorAll('code')]

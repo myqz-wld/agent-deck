@@ -9,22 +9,9 @@ interface Props {
 }
 
 /**
- * 「Agent Deck MCP server」settings section（B'0 ADR §7 / B'6,CHANGELOG_160 简化）。
- *
- * 功能：让 Claude Gateway / Codex / Grok / 第三方 MCP client 通过 19 个核心 tool 跨
- * adapter 编排其他 coding agent session、向用户展示 plan / diff 并收集确认或反馈、
- * 管理结构化任务并上报 issue；Claude / Grok 还会获得 14 个 Browser MCP tool。
- *
- * UI 布局（自顶向下）：
- * 1. 总开关 enableAgentDeckMcp + 描述
- * 2. 三 transport 简介（CHANGELOG_160:transport 子开关 toggle 已删,默认三 transport 都
- *    enable;字段 mcpHttpEnabled / mcpStdioEnabled 仍持久化但 UI 不暴露,user 想关单独
- *    transport 编辑 settings.json)
- * 3. 防递归 3 条规则的可调阈值（depth / spawn-rate / fan-out）
- * 4. mcpServerToken 显示（只读 + 复制按钮，自动生成不允许改）
- *
- * 与 ExperimentalSection 区分：那边是「实验功能」（Claude / Codex 沙盒档位），
- * 这边是「跨 runtime 编排 + 结构化任务管理」独立 section。
+ * Configures the Agent Deck MCP master switch, connection summary, recursion
+ * limits, and read-only server token. Transport-specific fields remain persisted
+ * but intentionally stay outside this section.
  */
 export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -36,7 +23,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 Claude、Codex、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
+        让 Claude Code、Codex CLI、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
         <details className="mt-1">
           <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">
             查看工具清单（19 个核心 + 14 个 Browser）
@@ -71,7 +58,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             <code className="rounded bg-white/5 px-1">append_issue_context</code> /
             <code className="rounded bg-white/5 px-1">update_issue_status</code>
             <br />
-            <strong className="text-deck-text/85">Browser（Claude / Grok Build）</strong>：
+            <strong className="text-deck-text/85">Browser（Claude Code / Grok Build）</strong>：
             <code className="rounded bg-white/5 px-1">browser_open</code> /
             <code className="rounded bg-white/5 px-1">browser_tabs</code> /
             <code className="rounded bg-white/5 px-1">browser_navigate</code> /
@@ -87,7 +74,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             <code className="rounded bg-white/5 px-1">browser_read_network</code> /
             <code className="rounded bg-white/5 px-1">browser_evaluate</code>
             <div className="mt-1">
-              Codex 通过官方 Browser 插件连接同一个 Agent Deck 浏览器引擎，不暴露
+              Codex CLI 通过官方 Browser 插件连接同一个 Agent Deck 浏览器引擎，不暴露
               <code className="rounded bg-white/5 px-1">browser_*</code> MCP 工具。Browser
               工具仅供有真实会话身份的应用内客户端使用，外部客户端不可调用。
             </div>
@@ -114,7 +101,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             <tr className="border-b border-deck-border/40">
               <td className="py-1 pr-2 align-top font-medium text-deck-text/85">HTTP</td>
               <td className="py-1 text-deck-muted/80">
-                Codex 和 Grok Build 自动连接；外部客户端可连接
+                Codex CLI 和 Grok Build 自动连接；外部客户端可连接
                 <code className="rounded bg-white/5 px-1">/mcp</code>（需要下方 Token）
               </td>
             </tr>
@@ -193,7 +180,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
           <div className="mt-1 text-[10px] text-status-waiting">复制失败，请手动选择 Token。</div>
         )}
         <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
-          首次启动时自动生成并保存。Codex 会读取环境变量
+          首次启动时自动生成并保存。Codex CLI 会读取环境变量
           <code className="rounded bg-white/5 px-1">AGENT_DECK_MCP_TOKEN</code>；
           Grok Build 通过 ACP 会话 metadata 接收独立的会话 Token；
           外部 HTTP 客户端将此值用作 Bearer Token。

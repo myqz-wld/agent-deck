@@ -40,6 +40,12 @@ describe('sandbox option copy', () => {
       'auto',
       'bypassPermissions',
     ]);
+    expect(PERMISSION_OPTIONS[3]?.title).toBe(
+      '由 Claude Code 的权限分类器自动允许或拒绝原本需要询问的工具调用',
+    );
+    expect(PERMISSION_OPTIONS[4]?.title).toBe(
+      'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
+    );
   });
 
   it('orders Codex approval policies from strict interaction to no prompts', () => {
@@ -55,6 +61,11 @@ describe('sandbox option copy', () => {
       'read-only',
       'workspace',
       'off',
+    ]);
+    expect(GROK_SANDBOX_MODE_OPTIONS.map((option) => option.title)).toEqual([
+      '可读取系统文件，仅 Grok Build 配置和临时目录可写；子进程网络受限',
+      '工作目录、Grok Build 配置和临时目录可写；允许子进程联网',
+      '不启用 Grok Build 系统沙盒；仍受 Grok Build 工具授权规则约束',
     ]);
   });
 

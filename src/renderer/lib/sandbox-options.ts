@@ -11,7 +11,7 @@ export type CodexSandboxChoice = 'workspace-write' | 'read-only' | 'danger-full-
 export type ClaudeSandboxChoice = 'off' | 'workspace-write' | 'strict';
 export type CodexSandboxMode = CodexSandboxChoice;
 export type ClaudeSandboxMode = ClaudeSandboxChoice;
-/** Empty means follow the Agent Deck/Grok default; other strings may name custom profiles. */
+/** Empty follows the Agent Deck or Grok Build default; other strings may name custom profiles. */
 export type GrokSandboxChoice = string;
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
@@ -21,12 +21,12 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
   {
     value: 'auto',
     label: '自动判断',
-    title: '由 Claude 的权限分类器自动允许或拒绝原本需要询问的工具调用',
+    title: '由 Claude Code 的权限分类器自动允许或拒绝原本需要询问的工具调用',
   },
   {
     value: 'bypassPermissions',
     label: '⚠️ 不再询问（仍在系统沙盒内）',
-    title: 'Claude 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
+    title: 'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
   },
 ];
 
@@ -112,17 +112,17 @@ export const GROK_SANDBOX_MODE_OPTIONS: {
   {
     value: 'read-only',
     label: '广泛只读',
-    title: '可读取系统文件，仅 Grok 配置和临时目录可写；子进程网络受限',
+    title: '可读取系统文件，仅 Grok Build 配置和临时目录可写；子进程网络受限',
   },
   {
     value: 'workspace',
     label: '工作目录可写',
-    title: '工作目录、Grok 配置和临时目录可写；允许子进程联网',
+    title: '工作目录、Grok Build 配置和临时目录可写；允许子进程联网',
   },
   {
     value: 'off',
     label: '⚠️ 完全开放',
-    title: '不启用 Grok 系统沙盒；仍受 Grok 工具授权规则约束',
+    title: '不启用 Grok Build 系统沙盒；仍受 Grok Build 工具授权规则约束',
   },
 ];
 

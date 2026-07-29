@@ -14,11 +14,11 @@ interface Props {
 }
 
 function buildModelHint(adapter: GeneratorAdapter, runtimeProvider: string): string {
-  if (adapter === 'codex-cli') return '留空时使用所选 Codex provider 的默认模型';
-  if (adapter === 'grok-build') return '留空时使用 Grok 配置默认模型';
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex CLI provider 的默认模型';
+  if (adapter === 'grok-build') return '留空时使用 Grok Build 配置中的默认模型';
   return runtimeProvider
     ? `留空时使用 ${runtimeProvider} Gateway 的 Haiku 路由`
-    : '留空时使用 Claude Haiku';
+    : '留空时使用 Claude Code 的 Haiku 模型';
 }
 
 export function SummarySection({ settings, update }: Props): JSX.Element {

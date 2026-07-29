@@ -24,12 +24,14 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
 
 let restartWithGrokSandbox: ReturnType<typeof vi.fn>;
 let restartWithCodexSandbox: ReturnType<typeof vi.fn>;
+let restartWithClaudeCodeSandbox: ReturnType<typeof vi.fn>;
 let setCodexApprovalPolicy: ReturnType<typeof vi.fn>;
 let confirmDialog: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   restartWithGrokSandbox = vi.fn().mockResolvedValue('grok-session');
   restartWithCodexSandbox = vi.fn().mockResolvedValue('codex-session');
+  restartWithClaudeCodeSandbox = vi.fn().mockResolvedValue('claude-session');
   setCodexApprovalPolicy = vi.fn().mockResolvedValue(undefined);
   confirmDialog = vi.fn().mockResolvedValue(true);
   Object.defineProperty(window, 'api', {
@@ -37,6 +39,7 @@ beforeEach(() => {
     value: {
       restartWithGrokSandbox,
       restartWithCodexSandbox,
+      restartWithClaudeCodeSandbox,
       setCodexApprovalPolicy,
       confirmDialog,
     } as unknown as Window['api'],
@@ -62,7 +65,7 @@ describe('Codex live approval control', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('审批'));
+    fireEvent.click(screen.getByLabelText('Codex CLI 审批'));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       '非可信命令前询问',
       '按需询问',
@@ -89,17 +92,78 @@ describe('Codex live approval control', () => {
         turnBusy
       />,
     );
-    expect(
-      (screen.getByLabelText('审批') as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect((screen.getByLabelText('Codex CLI 审批') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('uses canonical Codex CLI copy in the fully open sandbox confirmation', async () => {
+    render(
+      <SessionSandboxControls
+        session={session({
+          id: 'codex-session',
+          agentId: 'codex-cli',
+          codexSandbox: 'workspace-write',
+        })}
+        turnBusy={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Codex CLI 沙盒'));
+    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+
+    await waitFor(() => {
+      expect(confirmDialog).toHaveBeenCalledWith({
+        title: '关闭 Codex CLI 沙盒（完全开放）',
+        message: '将从 Codex CLI 的下一轮对话起生效',
+        detail:
+          '关闭后，Codex CLI 可以读写任意文件、执行任意命令。当前正在运行的轮次不会中断，后续消息会使用新设置。\n\n失败时会自动恢复当前沙盒设置。继续？',
+        okLabel: '关闭沙盒',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+    });
   });
 });
 
-describe('Grok live sandbox control', () => {
-  it('requests a built-in profile through the Grok-only cold restart API', async () => {
+describe('Claude Code live sandbox control', () => {
+  it('uses canonical Claude Code copy in the fully open sandbox confirmation', async () => {
+    render(
+      <SessionSandboxControls
+        session={session({
+          id: 'claude-session',
+          agentId: 'claude-code',
+          claudeCodeSandbox: 'workspace-write',
+        })}
+        turnBusy={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Claude Code 沙盒'));
+    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+
+    await waitFor(() => {
+      expect(confirmDialog).toHaveBeenCalledWith({
+        title: '关闭 Claude Code 系统沙盒',
+        message: '需要重启当前 Claude Code 会话',
+        detail:
+          '重启后，Claude Code 不再受系统沙盒约束（仅靠应用内授权弹窗管控）。重启约需 5–10 秒。\n\n失败时会自动恢复当前沙盒设置。继续？',
+        okLabel: '重启并关闭沙盒',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+    });
+  });
+});
+
+describe('Grok Build live sandbox control', () => {
+  it('requests a built-in profile through the Grok Build cold restart API', async () => {
     render(<SessionSandboxControls session={session()} turnBusy={false} />);
 
-    fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    expect(
+      screen.getByRole('option', { name: '跟随 Grok Build 原生配置' }).title,
+    ).toBe('不添加 --sandbox，由 Grok Build 配置、环境变量或托管策略决定');
     fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
 
     await waitFor(() => {
@@ -115,9 +179,9 @@ describe('Grok live sandbox control', () => {
   it('supports a custom sandbox.toml profile without restarting while typing', async () => {
     render(<SessionSandboxControls session={session()} turnBusy={false} />);
 
-    fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
-    fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
-    fireEvent.change(screen.getByLabelText('Grok 自定义沙盒 profile'), {
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    fireEvent.click(screen.getByRole('option', { name: '自定义配置…' }));
+    fireEvent.change(screen.getByLabelText('Grok Build 自定义沙盒配置名称'), {
       target: { value: 'project-locked' },
     });
     expect(restartWithGrokSandbox).not.toHaveBeenCalled();
@@ -141,14 +205,14 @@ describe('Grok live sandbox control', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
     fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
 
     await waitFor(() => {
       expect(screen.getByText(/switch failed/)).toBeTruthy();
       expect(
         (screen.getByLabelText(
-          'Grok 自定义沙盒 profile',
+          'Grok Build 自定义沙盒配置名称',
         ) as HTMLInputElement).value,
       ).toBe('project-locked');
     });
@@ -163,9 +227,16 @@ describe('Grok live sandbox control', () => {
     );
 
     expect(
-      (screen.getByLabelText('Grok 自定义沙盒 profile') as HTMLInputElement).value,
+      (screen.getByLabelText(
+        'Grok Build 自定义沙盒配置名称',
+      ) as HTMLInputElement).value,
     ).toBe('strict');
-    fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
+    expect(
+      (screen.getByLabelText(
+        'Grok Build 自定义沙盒配置名称',
+      ) as HTMLInputElement).placeholder,
+    ).toBe('输入 sandbox.toml 配置名称');
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
     expect(screen.queryByRole('option', { name: '严格隔离' })).toBeNull();
     expect(screen.queryByRole('option', { name: '开发机宽松' })).toBeNull();
   });
@@ -174,10 +245,20 @@ describe('Grok live sandbox control', () => {
     const view = render(
       <SessionSandboxControls session={session()} turnBusy={false} />,
     );
-    fireEvent.click(screen.getByLabelText('Grok 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
     fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
 
-    await waitFor(() => expect(confirmDialog).toHaveBeenCalledOnce());
+    await waitFor(() => {
+      expect(confirmDialog).toHaveBeenCalledWith({
+        title: '关闭 Grok Build 系统沙盒',
+        message: '需要重启当前 Grok Build 会话',
+        detail:
+          '重启后，Grok Build 不再受系统沙盒约束，但工具授权规则仍然生效。仅空闲会话可以切换；失败时会自动恢复当前档位。\n\n继续？',
+        okLabel: '重启并关闭沙盒',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+    });
     expect(restartWithGrokSandbox).toHaveBeenCalledWith(
       'grok-build',
       'grok-session',
@@ -186,7 +267,9 @@ describe('Grok live sandbox control', () => {
 
     view.rerender(<SessionSandboxControls session={session()} turnBusy />);
     expect(
-      (screen.getByLabelText('Grok 沙盒（请求档位）') as HTMLButtonElement).disabled,
+      (screen.getByLabelText(
+        'Grok Build 沙盒（请求档位）',
+      ) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 });
