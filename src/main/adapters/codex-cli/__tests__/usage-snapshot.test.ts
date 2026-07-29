@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodexSdkBridge } from '../sdk-bridge';
+import { ensureCodexClient } from '../sdk-bridge/client-registry';
+import type { CodexAppServerOptions } from '../app-server/protocol';
 import {
   codexUsageUnavailableSnapshot,
   isExpectedCodexUsageUnavailable,
@@ -13,6 +15,15 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  settingsGet: vi.fn(),
+  settingsGetAll: vi.fn(),
+  skillExtraRoots: vi.fn(),
+  appServerClient: vi.fn((options: CodexAppServerOptions) => ({
+    options,
+    isProcessAlive: false,
+    request: vi.fn(),
+    dispose: vi.fn(),
+  })),
 }));
 
 vi.mock('@main/utils/logger', () => ({
@@ -20,6 +31,21 @@ vi.mock('@main/utils/logger', () => ({
     ...mocks.logger,
     scope: () => mocks.logger,
   },
+}));
+
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: {
+    get: mocks.settingsGet,
+    getAll: mocks.settingsGetAll,
+  },
+}));
+
+vi.mock('@main/codex-config/skills-installer', () => ({
+  getCodexSkillExtraRootsForSession: mocks.skillExtraRoots,
+}));
+
+vi.mock('../app-server/client', () => ({
+  CodexAppServerClient: mocks.appServerClient,
 }));
 
 vi.mock('../usage-snapshot', () => ({
@@ -54,6 +80,81 @@ function setCodexClients(bridge: CodexSdkBridge, clients: unknown[]): void {
     clients.map((client, index) => [`sid-${index}`, client]),
   );
 }
+
+describe('ensureCodexClient', () => {
+  beforeEach(() => {
+    mocks.settingsGet.mockReset();
+    mocks.settingsGetAll.mockReset();
+    mocks.skillExtraRoots.mockReset();
+    mocks.appServerClient.mockClear();
+    for (const method of Object.values(mocks.logger)) method.mockReset();
+  });
+
+  it('creates and caches a configured per-session client without logging its identity', () => {
+    const sessionId = 'raw-private-session-id';
+    const sessionToken = 'raw-private-session-token';
+    const settings = {
+      enableAgentDeckMcp: true,
+      mcpHttpEnabled: true,
+      permissionTimeoutMs: 1_234,
+    };
+    const hookServer = {
+      isRunning: true,
+      listeningPort: 49_321,
+      mcpBearerToken: 'raw-private-server-token',
+    };
+    const clients = new Map();
+
+    mocks.settingsGet.mockReturnValue('  /opt/codex-test  ');
+    mocks.settingsGetAll.mockReturnValue(settings);
+    mocks.skillExtraRoots.mockReturnValue(['/app-owned/codex-skills']);
+
+    const first = ensureCodexClient({
+      clients,
+      sessionId,
+      sessionToken,
+      hookServer: hookServer as never,
+      envOverrideExtra: { B20_TEST_ENV: 'preserved' },
+    });
+    const cached = ensureCodexClient({
+      clients,
+      sessionId,
+      sessionToken: 'must-not-reconfigure-the-cached-client',
+      hookServer: null as never,
+    });
+
+    expect(cached).toBe(first);
+    expect(clients).toEqual(new Map([[sessionId, first]]));
+    expect(mocks.appServerClient).toHaveBeenCalledTimes(1);
+    expect(mocks.settingsGetAll).toHaveBeenCalledTimes(1);
+    expect(mocks.skillExtraRoots).toHaveBeenCalledTimes(1);
+
+    const options = mocks.appServerClient.mock.calls[0]?.[0];
+    expect(options).toMatchObject({
+      codexPathOverride: '/opt/codex-test',
+      config: {
+        mcp_servers: {
+          'agent-deck': {
+            url: 'http://127.0.0.1:49321/mcp',
+            bearer_token_env_var: 'AGENT_DECK_MCP_TOKEN',
+            tool_timeout_sec: 2,
+            required: true,
+          },
+        },
+      },
+      env: {
+        AGENT_DECK_MCP_TOKEN: sessionToken,
+        AGENT_DECK_ORIGIN: 'sdk',
+        B20_TEST_ENV: 'preserved',
+      },
+      skillExtraRoots: ['/app-owned/codex-skills'],
+      nodeReplSandboxMetaCompatibility: true,
+    });
+    for (const method of Object.values(mocks.logger)) expect(method).not.toHaveBeenCalled();
+    expect(JSON.stringify(Object.values(mocks.logger).flatMap((method) => method.mock.calls)))
+      .not.toContain(sessionId);
+  });
+});
 
 describe('CodexSdkBridge getUsageSnapshot', () => {
   beforeEach(() => {
