@@ -110,6 +110,12 @@ pnpm verify:bundled-runtimes  # verify the native Grok package before packaging
 pnpm dist        # build an installer; bundled-runtime verification runs first
 ```
 
+Installer commands are native-host only: run `dist:mac` on macOS, `dist:win` on Windows, and
+`dist:linux` on Linux. Each command packages the host architecture and rejects a different target
+before building, because the bundled Claude Code, Codex CLI, and Grok Build runtimes contain
+platform-specific payloads. Cross-target artifacts are not part of the supported packaging
+contract; CI packaging must use a matching OS and architecture.
+
 After changing main-process code, restart development mode. Renderer changes can use the development server's hot reload.
 
 ## Documentation

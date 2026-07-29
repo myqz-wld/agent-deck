@@ -33,10 +33,51 @@ const PLATFORM_SPECS = {
 
 const defaultProjectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function parseProjectRoot(argv) {
-  if (argv.length === 0) return defaultProjectRoot;
-  if (argv.length === 2 && argv[0] === '--project-root') return resolve(argv[1]);
-  throw new Error('Usage: node scripts/verify-bundled-grok.mjs [--project-root <path>]');
+function parseCliArgs(argv) {
+  let projectRoot = defaultProjectRoot;
+  let targetPlatform = process.platform;
+  let targetArch = process.arch;
+
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (!value) {
+      throw new Error(
+        'Usage: node scripts/verify-bundled-grok.mjs ' +
+          '[--project-root <path>] [--target-platform <platform>] ' +
+          '[--target-arch <arch>]',
+      );
+    }
+    if (flag === '--project-root') {
+      projectRoot = resolve(value);
+    } else if (flag === '--target-platform') {
+      targetPlatform = value;
+    } else if (flag === '--target-arch') {
+      targetArch = value;
+    } else {
+      throw new Error(
+        'Usage: node scripts/verify-bundled-grok.mjs ' +
+          '[--project-root <path>] [--target-platform <platform>] ' +
+          '[--target-arch <arch>]',
+      );
+    }
+  }
+
+  return { projectRoot, targetPlatform, targetArch };
+}
+
+export function assertNativePackagingTarget({
+  targetPlatform,
+  targetArch,
+  hostPlatform = process.platform,
+  hostArch = process.arch,
+}) {
+  if (targetPlatform === hostPlatform && targetArch === hostArch) return;
+  throw new Error(
+    `[bundled-grok] Native-only packaging target ${targetPlatform}-${targetArch} ` +
+      `does not match host ${hostPlatform}-${hostArch}. ` +
+      'Run the target-specific dist command on its matching host.',
+  );
 }
 
 function resolvePackageJson(requireFromProject, packageName) {
@@ -133,8 +174,14 @@ export async function verifyBundledGrok({
 }
 
 async function main() {
+  const { projectRoot, targetPlatform, targetArch } = parseCliArgs(
+    process.argv.slice(2),
+  );
+  assertNativePackagingTarget({ targetPlatform, targetArch });
   const result = await verifyBundledGrok({
-    projectRoot: parseProjectRoot(process.argv.slice(2)),
+    projectRoot,
+    platform: targetPlatform,
+    arch: targetArch,
   });
   console.log(
     `[bundled-grok] verified ${result.packageName}@${result.version} ` +
