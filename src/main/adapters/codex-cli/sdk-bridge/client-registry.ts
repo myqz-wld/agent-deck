@@ -27,9 +27,7 @@ import {
 } from '../usage-snapshot';
 import { CodexAppServerClient } from '../app-server/client';
 import type { CodexBridgeOptions, InternalSession } from './types';
-import log from '@main/utils/logger';
 
-const logger = log.scope('codex-bridge');
 const CODEX_USAGE_LABEL = providerUsageLabel('codex-cli');
 
 function snapshotProcessEnv(): Record<string, string> {
@@ -64,12 +62,6 @@ export function ensureCodexClient({
   const settings = settingsStore.getAll();
   const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, hookServer ?? null);
   const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
-  if (agentDeckMcpConfig) {
-    logger.info(
-      `[codex-bridge] agent-deck MCP server configured as required ` +
-        `(HTTP transport, sid=${sessionId})`,
-    );
-  }
 
   // Supplying env replaces SDK inheritance, so preserve the process snapshot before adding the
   // per-session MCP identity. Explicit caller overrides intentionally take precedence.
