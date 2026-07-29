@@ -16,20 +16,8 @@ interface Props {
   selected: boolean;
   onSelect: () => void;
   /**
-   * Phase C (CHANGELOG_77) + plan session-list-handoff-role-badge-20260526 (v4 §D1/D3):
-   * 在 team 中的角色 badge,数据来源走 `deriveTeamRole` shared util (SessionList / PendingTab 共用):
-   * - 'lead': 优先看 session.teams[*].role==='lead' (任一 lead);退化看是否为纯 spawn 链
-   *   的 owner (visible children > 0 且全无 universal team)
-   * - 'teammate': 优先看 session.teams[*].role==='teammate';退化看是否在纯 spawn 链
-   *   的子位置 (hasOwner=true 且 self / owner 全无 universal team)
-   * - undefined: 既无 universal team membership,也不是纯 spawn 链相关节点
-   *
-   * SessionList 在树形分组时计算 owner→children Map (spawn-link 优先 + universal team
-   * 收编 fallback,详 plan §D2) 后传入。SessionList / PendingTab 共用同一份 deriveTeamRole
-   * util 保持行为一致 (plan §HIGH-1)。
-   *
-   * lead 走「蓝边」(border 颜色);teammate 走「浅蓝小 chip」(bg+text),与现有 teamName
-   * chip 风格一致。
+   * 由上游 deriveTeamRole 统一计算的团队角色。universal team membership 优先，纯 spawn 链
+   * 才按 owner/child 位置回退；lead 使用蓝色边框和标签，teammate 使用浅蓝标签。
    */
   teamRole?: 'lead' | 'teammate';
 }
@@ -86,11 +74,8 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
     }
   };
 
-  // 「在干嘛」：当前活动详情（实时） + 最近一次总结（一句话）
-  // Phase 5 Step 5.4（plan mcp-bug-and-feature-batch-20260513 §决策 4 L1）：liveLines 最多
-  // 3 行（原 1 行）—— 让用户瞄一眼卡片就知道最近 3 个 tool 用了什么；useMemo 防 recent 引用
-  // 稳定时不重算（已知踩坑：L SessionCard 大改影响 SessionList 滚动性能）。
-  // 第 4 行是较稳定的总结（5min/10events 才更新一次），缺失时回退到 cwd。
+  // 卡片展示最多三行去重后的实时活动，并用 useMemo 避免 recent 引用稳定时重复计算。
+  // 最后一行展示较稳定的总结，缺失时回退到 cwd。
   const liveLines = useMemo(() => describeLiveActivity(session, recent), [session, recent]);
   const summaryHeadline = latestSummary?.content?.split('\n')[0]?.trim();
   const summaryLine = summaryHeadline
@@ -98,9 +83,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
     : session.cwd || '无工作目录';
   const summaryTitle = latestSummary?.content?.trim() || summaryLine;
 
-  // plan team-cohesion-fix-20260513 Phase A：teams[] 是 universal team backend 投影
-  // （sessionManager.enrichWithTeams 在 IPC 桥点统一注入）。v014 drop sessions.team_name
-  // 后老 teamName 字段已删，纯走 teams[0]。
+  // teams[] 是 universal team backend 的统一投影，首个 membership 提供主团队标签。
   const primaryTeam = session.teams?.[0];
   const displayTeamName = primaryTeam?.teamName ?? null;
   const teamCount = session.teams?.length ?? 0;
@@ -247,10 +230,7 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
 
 /**
  * 把会话的实时状态浓缩成最多 3 行短文案。waiting 优先级最高（仅返回 1 行），否则按事件 kind
- * 翻译，尽量从 payload 里抠出文件名 / 工具名等可读信息。
- *
- * Phase 5 Step 5.4（plan mcp-bug-and-feature-batch-20260513 §决策 4 L1）：返回数组（最多 3
- * 行，去重连续同行）让用户瞄一眼卡片就知道最近 N 个 tool 用了什么 —— 比 1 行信息密度高 3x。
+ * 翻译并提取文件名、工具名等可读信息；连续重复行会合并。
  */
 function describeLiveActivity(
   session: SessionRecord,
@@ -328,7 +308,7 @@ function formatWaitingLine(p: Record<string, unknown>): string {
   }
   if (type === 'codex-terminal-permission-request') {
     const tool = textValue(p.toolName) || '工具';
-    return `⚠️ Codex 等待终端授权 ${tool}`;
+    return `⚠️ Codex CLI 等待终端授权 ${tool}`;
   }
   if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
   if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
@@ -356,8 +336,7 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
     case 'Grep':
       return typeof o.pattern === 'string' ? o.pattern : null;
     case 'TodoWrite': {
-      // Phase 5 Step 5.3（plan mcp-bug-and-feature-batch-20260513 §决策 4 L2）：显示进度
-      // [N/M done]，让用户瞄一眼卡片就知道任务推进度。原来 return null 完全丢信息。
+      // 显示完成数量和当前任务，让卡片保留待办进度。
       // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
       const todos = Array.isArray(o.todos)
         ? o.todos.filter(
@@ -377,13 +356,13 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       return `已完成 ${done}/${todos.length}${inProgressLabel}`;
     }
     case 'WebSearch': {
-      // Phase 5 Step 5.3（plan §决策 4 L2）：显示 query 摘要让用户知道在搜什么
+      // 显示 query 摘要。
       const query = typeof o.query === 'string' ? o.query.replace(/\s+/g, ' ').trim() : '';
       if (!query) return null;
       return `"${query.slice(0, 50)}${query.length > 50 ? '…' : ''}"`;
     }
     case 'WebFetch': {
-      // Phase 5 Step 5.3（plan §决策 4 L2）：显示 url + 简短 prompt
+      // 显示截断后的 URL。
       const url = typeof o.url === 'string' ? o.url : '';
       if (!url) return null;
       // url 长度截 60 字（host 一般够看，太长 prompt 主导）
@@ -395,7 +374,7 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
     }
     case 'Skill': {
       // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
-      // 与 activity-feed/describe.ts 的 Skill case 同步；这两份重复实现是历史债（见 REVIEW_16）。
+      // 与 activity-feed/describe.ts 的 Skill 摘要保持一致。
       const skill = typeof o.skill === 'string' ? o.skill : '';
       const args = typeof o.args === 'string' ? o.args.replace(/\s+/g, ' ').trim() : '';
       if (!skill) return null;

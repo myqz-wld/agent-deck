@@ -28,6 +28,17 @@ suite('activity-feed describe user-facing fallbacks', () => {
     ).toBe('⚠️ 等待你授权 Bash · pnpm test -- --runInBand');
   });
 
+  it('Codex CLI 终端授权使用完整产品名', () => {
+    expect(
+      describeActivity(
+        ev('waiting-for-user', {
+          type: 'codex-terminal-permission-request',
+          toolName: 'Bash',
+        }),
+      ),
+    ).toBe('⚠️ Codex CLI 等待终端授权 Bash');
+  });
+
   it('waiting message 为结构对象时不显示 [object Object]', () => {
     expect(describeActivity(ev('waiting-for-user', { message: { type: 'internal' } }))).toBe(
       '⚠️ 等待你的输入',
@@ -49,7 +60,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
     );
   });
 
-  it('Codex 协作 Agent 摘要包含操作、目标、模型、思考程度和超时', () => {
+  it('Codex CLI 协作 Agent 摘要包含操作、目标、模型、思考程度和超时', () => {
     expect(
       describeActivity(
         ev('tool-use-start', {
@@ -66,7 +77,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
     ).toContain('wait_agent · → /root/reviewer · gpt-5.6-codex/xhigh · 超时 30 秒');
   });
 
-  it('Grok tool kind 优先于原始工具名选择图标', () => {
+  it('Grok Build tool kind 优先于原始工具名选择图标', () => {
     expect(
       describeActivity(
         ev('tool-use-start', {
@@ -78,7 +89,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
     ).toBe('💻 run_terminal_command · pwd');
   });
 
-  it('Grok 工具别名没有 kind 时仍能选择语义图标', () => {
+  it('Grok Build 工具别名没有 kind 时仍能选择语义图标', () => {
     expect(
       formatEventLine(
         ev('tool-use-start', {
@@ -124,6 +135,17 @@ suite('SessionCard formatEventLine', () => {
         }),
       ),
     ).toBe('⚠️ 等待你授权 Bash · pnpm test');
+  });
+
+  it('Codex CLI 终端授权使用完整产品名', () => {
+    expect(
+      formatEventLine(
+        ev('waiting-for-user', {
+          type: 'codex-terminal-permission-request',
+          toolName: 'Bash',
+        }),
+      ),
+    ).toBe('⚠️ Codex CLI 等待终端授权 Bash');
   });
 
   it('file-changed 缺 filePath 时跳过该弱摘要', () => {

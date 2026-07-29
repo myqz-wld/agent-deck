@@ -37,7 +37,7 @@ export function describe(e: AgentEvent): string {
       if (type === 'exit-plan-mode') return '📋 收到一个执行计划';
       if (type === 'codex-terminal-permission-request') {
         const tool = textValue(p.toolName) || '工具';
-        return `⚠️ Codex 等待终端授权 ${tool}`;
+        return `⚠️ Codex CLI 等待终端授权 ${tool}`;
       }
       if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
       if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
@@ -51,10 +51,7 @@ export function describe(e: AgentEvent): string {
       const reason = textValue(p.reason);
       return `⏹ 会话结束${reason ? ` · ${translateSessionEndReason(reason)}` : ''}`;
     }
-    // CHANGELOG_165: M3 Agent Teams 事件家族 SimpleRow 渲染(原走 default 只显 e.kind 字符串)。
-    // payload schema 见 CHANGELOG_40 §共享类型 TeamTaskPayload / TeamTeammateIdlePayload。
-    // handler ingest 时仅含 schema 子集({teamName, taskId, description}+task_create 的 assignee);
-    // 兼容写时 teammateName / reason 缺失时 graceful degrade。
+    // 团队事件只依赖共享 payload 的稳定子集；teammateName / reason 缺失时保持可读降级。
     case 'team-task-created': {
       const desc = textValue(p.description) || textValue(p.taskId);
       const teammate = textValue(p.teammateName);
@@ -127,12 +124,9 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
     case 'Glob':
       return typeof o.pattern === 'string' ? o.pattern : null;
     case 'TodoWrite': {
-      // CHANGELOG_95: 与 SessionCard summariseToolInput TodoWrite case 同源逻辑（不抽公共 helper：
-      // SessionCard 用作 SessionList 单行 live activity，本处用作 ActivityFeed 详情 + SimpleRow，
-      // 两处 case 形态接近但 SessionCard 还在 LOC 拆分边界附近，先各自维护避免误抽 helper）。
+      // 与 SessionCard 的 TodoWrite 摘要保持一致，但分别服务详情和卡片展示。
       // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
-      // CHANGELOG_95 review fix LOW-1（reviewer-codex 实测 node -e 复现 TypeError）：
-      // 元素为 null/非对象时 t.status 抛错，加 `t && typeof t === 'object'` 守门
+      // 忽略 null 和非对象元素，避免读取无效 status。
       const rawTodos = Array.isArray(o.todos) ? (o.todos as unknown[]) : [];
       const todos = rawTodos.filter(
         (t): t is { status?: string; activeForm?: string } => t !== null && typeof t === 'object',
@@ -147,20 +141,20 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       return `已完成 ${done}/${todos.length}${inProgressLabel}`;
     }
     case 'WebSearch': {
-      // CHANGELOG_95: 显示 query 摘要让用户知道在搜什么
+      // 显示 query 摘要。
       const query = typeof o.query === 'string' ? o.query.replace(/\s+/g, ' ').trim() : '';
       if (!query) return null;
       return `"${query.slice(0, 50)}${query.length > 50 ? '…' : ''}"`;
     }
     case 'WebFetch': {
-      // CHANGELOG_95: 显示 url 摘要
+      // 显示 URL 摘要。
       const url = typeof o.url === 'string' ? o.url : '';
       if (!url) return null;
       return url.slice(0, 60) + (url.length > 60 ? '…' : '');
     }
     case 'Skill': {
       // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
-      // 实证扫 26 条 jsonl tool_use：skill 全 string、args 14 条 string + 12 条 absent，无 null/object。
+      // skill 必须是 string，args 是可选 string。
       const skill = typeof o.skill === 'string' ? o.skill : '';
       const args = typeof o.args === 'string' ? o.args.replace(/\s+/g, ' ').trim() : '';
       if (!skill) return null;

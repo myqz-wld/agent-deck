@@ -3,11 +3,11 @@ import { type JSX } from 'react';
 export function CliFooter({ agentId }: { agentId: string }): JSX.Element {
   const agentName =
     agentId === 'codex-cli'
-      ? 'Codex'
+      ? 'Codex CLI'
       : agentId === 'grok-build'
-        ? 'Grok'
+        ? 'Grok Build'
         : agentId === 'claude-code'
-          ? 'Claude'
+          ? 'Claude Code'
           : '该 Agent';
   return (
     <div className="shrink-0 border-t border-deck-border bg-white/[0.02] px-3 py-2 text-[10px] leading-relaxed text-deck-muted">
