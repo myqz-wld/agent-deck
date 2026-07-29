@@ -1,272 +1,310 @@
-/**
- * user-shell-path.ts 单测 (plan sdk-spawn-shell-path-20260529 §Step 3.3 + Step 3.6 fix
- *  + Step 3.6 deep-review Round 2 INFO nonce hardening follow-up)。
- *
- * 核心覆盖:
- * - **nonce-marked PATH parse**: 用 `__AD_PATH_<uuid-v4>__` per-startup nonce 包围 PATH
- *   输出(模块加载时一次生成,export 给 test 用真实 marker 构造 mock stdout),不依赖
- *   last-line — 防 zsh `.zlogout` 等结束 hook 输出污染 last-line(Step 3.6 reviewer-codex
- *   Round 1 MED-1 hardening,/tmp HOME + .zlogout 实测铁证)。
- *
- *   **nonce per-startup 替代 hardcoded sentinel**(Step 3.6 deep-review Round 2 INFO
- *   hardening follow-up):rc 文件无法预知主进程启动时随机生成的 UUID → 关闭 (a) user
- *   PATH 含 hardcoded `__AGENT_DECK_PATH_END__` substring 误匹配 + (b) rc echo 写假
- *   sentinel 对污染 first-match 两个 attack vector
- * - **execFileSync 三状态**: success (mocked nonce return) / throw / 无 nonce 在输出 — 每个
- *   返预期值 + console.warn 行为
- * - **sentinel 二分 memo (§不变量 6)**: success/failure/no-nonce 三路径都「连调 2 次只跑
- *   execFileSync 1 次 + console.warn 只 1 次」— 旧 design 用 `_cached: string | null` 单变量
- *   会 fail 失败路径 memo (因 `_cached === null` 同时表示「未初始化」与「失败」), test 必须
- *   钉住失败路径 memo (Round 1 reviewer-codex MED-2 fix)
- * - **NONCE_MARKER per-module-load 唯一**: 3 次 `vi.resetModules()` + dynamic import 拿 3
- *   个不同 UUID + marker shape 匹配 `__AD_PATH_<uuid-v4>__` regex
- * - **dedupePath 保序去重 (§不变量 4)**: 含重复 → Set 顺序保留 + 输入空 → 返空
- * - **unionUserShellPath 拼接 + 失败兜底 (§不变量 2/3/4)**: 拼接顺序 user 优先 / capture
- *   失败 → originalPath / originalPath undefined → user PATH / originalPath '' → user PATH
- *   (Step 3.6 reviewer-claude INFO-2)
- * - **$SHELL undefined → /bin/zsh fallback (impl L81)**: Step 3.6 reviewer-claude INFO-3
- * - **zsh .zlogout 污染防御 (Step 3.6 reviewer-codex MED-1)**: mock stdout 含 nonce PATH +
- *   后接 logout 文本 → parse 拿到 nonce 内 PATH 而非 logout 文本
- *
- * mock 策略: vi.mock('node:child_process') 顶层 mock execFileSync, 每个 test beforeEach
- * 用 vi.resetModules() + dynamic import 拿 fresh module 实例 (重置 module-level `captured`
- * / `cached` state + 重新生成 NONCE_MARKER) — 避免 test 间 memo state 互相污染。
- */
-import { describe, expect, it, beforeEach, vi, type Mock } from 'vitest';
-import log from 'electron-log/main';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Step 3.3.5 后业务源码用 logger = log.scope('utils-user-shell').warn 替代 console.warn;
-// 测试需 spy 此 scoped logger 而非 console.warn(vitest-setup.ts mock 已让 log.scope 返
-// vi.fn 化的 logger,直接用 mockClear / 断言)
-const userShellLogger = log.scope('utils-user-shell');
+const mocks = vi.hoisted(() => {
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+  return {
+    logger,
+    execFileSync: vi.fn(),
+    loggerScope: vi.fn(() => logger),
+    safeDiagnostic: vi.fn((value: unknown) => value),
+    getProcessRunId: vi.fn(() => 'shell-path-test-run'),
+  };
+});
 
 vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
+  execFileSync: mocks.execFileSync,
 }));
+vi.mock('@main/utils/logger', () => ({
+  default: { scope: mocks.loggerScope },
+}));
+vi.mock('@main/utils/safe-diagnostic', () => ({
+  safeDiagnostic: mocks.safeDiagnostic,
+}));
+vi.mock('@main/utils/run-context', () => ({
+  getProcessRunId: mocks.getProcessRunId,
+}));
+
+type Subject = typeof import('../user-shell-path');
+
+async function freshImport(): Promise<Subject> {
+  vi.resetModules();
+  return import('../user-shell-path');
+}
 
 function wrap(marker: string, path: string): string {
   return `${marker}${path}${marker}\n`;
 }
 
-async function freshImport(): Promise<{
-  captureUserShellPath: () => string | null;
-  dedupePath: (path: string | undefined) => string;
-  unionUserShellPath: (originalPath: string | undefined) => string;
-  NONCE_MARKER: string;
-  execFileSync: Mock;
-}> {
-  vi.resetModules();
-  const { execFileSync } = await import('node:child_process');
-  const mod = await import('../user-shell-path');
-  return {
-    captureUserShellPath: mod.captureUserShellPath,
-    dedupePath: mod.dedupePath,
-    unionUserShellPath: mod.unionUserShellPath,
-    NONCE_MARKER: mod.NONCE_MARKER,
-    execFileSync: execFileSync as unknown as Mock,
-  };
+function loggedText(): string {
+  return [
+    ...mocks.logger.info.mock.calls,
+    ...mocks.logger.warn.mock.calls,
+    ...mocks.logger.error.mock.calls,
+  ].flat().map(String).join(' ');
 }
 
 describe('captureUserShellPath', () => {
   beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.loggerScope.mockReturnValue(mocks.logger);
+    mocks.safeDiagnostic.mockImplementation((value: unknown) => value);
+    mocks.getProcessRunId.mockReturnValue('shell-path-test-run');
+    vi.stubEnv('SHELL', '/bin/test-shell');
+  });
+
+  afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
-  it('returns captured PATH when nonce-marked line present', async () => {
-    const { captureUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(
-      wrap(NONCE_MARKER, '/Users/foo/.nvm/bin:/opt/homebrew/bin:/usr/bin'),
+  it('uses exact shell argv/options and returns the first valid marked PATH', async () => {
+    const subject = await freshImport();
+    const hostilePath =
+      '/Users/private/.nvm/bin:/opt/homebrew/bin:/path?token=secret';
+    mocks.execFileSync.mockReturnValue(
+      `rc noise ${subject.NONCE_MARKER}unterminated\n` +
+        wrap(subject.NONCE_MARKER, hostilePath) +
+        wrap(subject.NONCE_MARKER, '/later/path'),
     );
-    expect(captureUserShellPath()).toBe('/Users/foo/.nvm/bin:/opt/homebrew/bin:/usr/bin');
-    expect(execFileSync).toHaveBeenCalledTimes(1);
-  });
 
-  // Step 3.6 reviewer-codex MED-1: zsh .zlogout 输出会污染 last-line parse
-  // 修法用 nonce marker 包围 PATH → 不论 logout 文本写多少行都不影响 PATH 提取
-  it('extracts nonce-marked PATH even when zsh .zlogout writes after (no last-line confusion)', async () => {
-    const { captureUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(
-      wrap(NONCE_MARKER, '/opt/homebrew/bin:/usr/bin') + 'LOGOUT_MARKER\ngoodbye!\n',
+    expect(subject.captureUserShellPath()).toBe(hostilePath);
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
+    expect(mocks.execFileSync).toHaveBeenCalledWith(
+      '/bin/test-shell',
+      [
+        '-ilc',
+        `printf "${subject.NONCE_MARKER}%s${subject.NONCE_MARKER}\\n" "$PATH"`,
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 3_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
     );
-    expect(captureUserShellPath()).toBe('/opt/homebrew/bin:/usr/bin');
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
   });
 
-  it('extracts nonce-marked PATH even when rc echo writes BEFORE the marker', async () => {
-    const { captureUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(
-      'rc-script: loading nvm\nstarship init complete\n' +
-        wrap(NONCE_MARKER, '/opt/homebrew/bin:/usr/bin'),
+  it('preserves empty marked PATH as distinct from a missing marker', async () => {
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue(wrap(subject.NONCE_MARKER, ''));
+
+    expect(subject.captureUserShellPath()).toBe('');
+    expect(subject.captureUserShellPath()).toBe('');
+    expect(subject.unionUserShellPath('/process/bin')).toBe('/process/bin');
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('warns once with fixed fields for a missing marker and memoizes null', async () => {
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue(
+      'RAW_STDOUT token=private /Users/private/repo https://private.test\n',
     );
-    expect(captureUserShellPath()).toBe('/opt/homebrew/bin:/usr/bin');
+
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.unionUserShellPath('/process/bin')).toBe('/process/bin');
+    expect(subject.unionUserShellPath(undefined)).toBe('');
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
+    expect(mocks.logger.warn).toHaveBeenCalledOnce();
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      'user shell path capture unavailable',
+      {
+        event: 'user-shell-path',
+        runId: 'shell-path-test-run',
+        state: 'missing-marker',
+        fallback: 'process-env',
+      },
+    );
+    expect(Object.keys(
+      mocks.logger.warn.mock.calls[0]?.[1] as Record<string, unknown>,
+    ).sort()).toEqual(['event', 'fallback', 'runId', 'state']);
+    expect(loggedText()).not.toMatch(
+      /RAW_STDOUT|private|\/Users\/private|https:\/\//,
+    );
   });
 
-  it('returns null + logger.warn when execFileSync throws (unsupported -ilc / shell missing)', async () => {
-    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
-    warnMock.mockClear();
-    const { captureUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockImplementation(() => {
-      throw new Error('Unknown option: -lc');
+  it('warns once with fixed fields for capture failure and memoizes null', async () => {
+    vi.stubEnv(
+      'SHELL',
+      '/Users/private/hostile shell;token=secret https://private.test',
+    );
+    const subject = await freshImport();
+    const rawError = new Error(
+      'RAW_SHELL_ERROR token=private /Users/private/repo https://private.test',
+    );
+    rawError.name = 'PrivateShellError';
+    mocks.execFileSync.mockImplementation(() => {
+      throw rawError;
     });
-    expect(captureUserShellPath()).toBeNull();
-    expect(warnMock).toHaveBeenCalledTimes(1);
-    expect(warnMock.mock.calls[0][0]).toContain('[user-shell-path] failed to capture');
+
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.unionUserShellPath('/fallback/bin')).toBe('/fallback/bin');
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      'user shell path capture unavailable',
+      {
+        event: 'user-shell-path',
+        runId: 'shell-path-test-run',
+        state: 'capture-failed',
+        fallback: 'process-env',
+      },
+    );
+    expect(loggedText()).not.toMatch(
+      /RAW_SHELL|PrivateShellError|hostile shell|private|\/Users\/private|https:\/\//,
+    );
   });
 
-  // 取代旧「empty output」测试 — 现在依赖 nonce 不依赖空白
-  it('returns null + logger.warn when stdout lacks nonce marker', async () => {
-    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
-    warnMock.mockClear();
-    const { captureUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockReturnValue('only noise without any nonce\nanother line\n');
-    expect(captureUserShellPath()).toBeNull();
-    expect(warnMock).toHaveBeenCalledTimes(1);
-    expect(warnMock.mock.calls[0][0]).toContain('[user-shell-path] no nonce-marked PATH line');
+  it('falls back to /bin/zsh when SHELL is empty', async () => {
+    vi.stubEnv('SHELL', '');
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue(wrap(subject.NONCE_MARKER, '/usr/bin'));
+
+    expect(subject.captureUserShellPath()).toBe('/usr/bin');
+    expect(mocks.execFileSync.mock.calls[0]?.[0]).toBe('/bin/zsh');
   });
 
-  it('returns null + logger.warn when stdout completely empty (no nonce)', async () => {
-    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
-    warnMock.mockClear();
-    const { captureUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockReturnValue('');
-    expect(captureUserShellPath()).toBeNull();
-    expect(warnMock).toHaveBeenCalledTimes(1);
+  it('memoizes successful capture across direct and union callers', async () => {
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue(
+      wrap(subject.NONCE_MARKER, '/user/bin:/usr/bin'),
+    );
+
+    expect(subject.captureUserShellPath()).toBe('/user/bin:/usr/bin');
+    expect(subject.captureUserShellPath()).toBe('/user/bin:/usr/bin');
+    expect(subject.unionUserShellPath('/usr/bin:/process/bin')).toBe(
+      '/user/bin:/usr/bin:/process/bin',
+    );
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
   });
 
-  it('memoizes success result (2 calls only execFileSync 1 time)', async () => {
-    const { captureUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(wrap(NONCE_MARKER, '/usr/bin'));
-    expect(captureUserShellPath()).toBe('/usr/bin');
-    expect(captureUserShellPath()).toBe('/usr/bin');
-    expect(execFileSync).toHaveBeenCalledTimes(1);
-  });
-
-  // §不变量 6 sentinel 二分 — 失败路径也命中 memo
-  // 旧 design (`_cached: string | null` 单变量, null 同时表示「未初始化」+「失败」) fail 此 test
-  it('memoizes failure result (2 calls only execFileSync 1 time + logger.warn 1 time)', async () => {
-    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
-    warnMock.mockClear();
-    const { captureUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockImplementation(() => {
-      throw new Error('Unknown option: -lc');
+  it.each([
+    ['serializer', () => mocks.safeDiagnostic.mockImplementation(() => {
+      throw new Error('RAW_SERIALIZER');
+    })],
+    ['run id', () => mocks.getProcessRunId.mockImplementation(() => {
+      throw new Error('RAW_RUN_ID');
+    })],
+    ['sink', () => mocks.logger.warn.mockImplementation(() => {
+      throw new Error('RAW_SINK');
+    })],
+  ])('contains %s failure and preserves failed memo and union fallback', async (
+    _name,
+    fail,
+  ) => {
+    const subject = await freshImport();
+    fail();
+    mocks.execFileSync.mockImplementation(() => {
+      throw new Error('RAW_CAPTURE');
     });
-    expect(captureUserShellPath()).toBeNull();
-    expect(captureUserShellPath()).toBeNull();
-    expect(execFileSync).toHaveBeenCalledTimes(1);
-    expect(warnMock).toHaveBeenCalledTimes(1);
+
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.unionUserShellPath('/process/bin')).toBe('/process/bin');
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
   });
 
-  // §不变量 6 sentinel 二分 — no-nonce 路径也命中 memo
-  it('memoizes no-nonce result (2 calls only execFileSync 1 time + logger.warn 1 time)', async () => {
-    const warnMock = userShellLogger.warn as ReturnType<typeof vi.fn>;
-    warnMock.mockClear();
-    const { captureUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockReturnValue('no nonce here\njust noise\n');
-    expect(captureUserShellPath()).toBeNull();
-    expect(captureUserShellPath()).toBeNull();
-    expect(execFileSync).toHaveBeenCalledTimes(1);
-    expect(warnMock).toHaveBeenCalledTimes(1);
+  it('contains logger scope failure and preserves failed memo and fallback', async () => {
+    mocks.loggerScope.mockImplementation(() => {
+      throw new Error('RAW_SCOPE');
+    });
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue('missing marker');
+
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(subject.unionUserShellPath('/process/bin')).toBe('/process/bin');
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
   });
 
-  // Step 3.6 reviewer-claude INFO-3: $SHELL undefined → /bin/zsh fallback 显式 test
-  it('falls back to /bin/zsh when $SHELL is not set', async () => {
-    const originalShell = process.env.SHELL;
-    delete process.env.SHELL;
-    try {
-      const { captureUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-      execFileSync.mockReturnValue(wrap(NONCE_MARKER, '/usr/bin'));
-      captureUserShellPath();
-      expect(execFileSync.mock.calls[0][0]).toBe('/bin/zsh');
-    } finally {
-      if (originalShell !== undefined) process.env.SHELL = originalShell;
-    }
+  it('does not emit shell, PATH, output, error, or nonce content', async () => {
+    vi.stubEnv('SHELL', '/private/nonce-shell');
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue(
+      `output=${subject.NONCE_MARKER} RAW_NONCE_OUTPUT /Users/private`,
+    );
+
+    expect(subject.captureUserShellPath()).toBeNull();
+    expect(loggedText()).not.toContain(subject.NONCE_MARKER);
+    expect(loggedText()).not.toMatch(
+      /nonce-shell|RAW_NONCE_OUTPUT|\/Users\/private/,
+    );
   });
 });
 
-// Step 3.6 deep-review Round 2 INFO hardening follow-up: nonce per-startup 唯一
-describe('NONCE_MARKER per-startup uniqueness', () => {
-  it('generates fresh nonce per module load (3 vi.resetModules() → 3 different markers)', async () => {
-    const { NONCE_MARKER: marker1 } = await freshImport();
-    const { NONCE_MARKER: marker2 } = await freshImport();
-    const { NONCE_MARKER: marker3 } = await freshImport();
-    // 3 fresh imports → 3 different UUIDs (v4 collision probability ≈ 0)
-    expect(new Set([marker1, marker2, marker3]).size).toBe(3);
+describe('nonce and PATH union behavior', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.loggerScope.mockReturnValue(mocks.logger);
+    mocks.safeDiagnostic.mockImplementation((value: unknown) => value);
+    mocks.getProcessRunId.mockReturnValue('shell-path-test-run');
+    vi.stubEnv('SHELL', '/bin/test-shell');
   });
 
-  it('marker shape matches __AD_PATH_<uuid-v4>__ regex', async () => {
-    const { NONCE_MARKER } = await freshImport();
-    // UUID v4: 8-4-4-4-12 hex/hyphen, total 36 chars between __AD_PATH_ and __
-    expect(NONCE_MARKER).toMatch(
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('generates a fresh UUID marker for each module load', async () => {
+    const first = (await freshImport()).NONCE_MARKER;
+    const second = (await freshImport()).NONCE_MARKER;
+    const third = (await freshImport()).NONCE_MARKER;
+
+    expect(new Set([first, second, third]).size).toBe(3);
+    expect(first).toMatch(
       /^__AD_PATH_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}__$/,
     );
   });
-});
 
-describe('dedupePath', () => {
-  it('returns empty string for undefined / empty input', async () => {
-    const { dedupePath } = await freshImport();
-    expect(dedupePath(undefined)).toBe('');
-    expect(dedupePath('')).toBe('');
+  it('deduplicates in order while preserving one empty segment', async () => {
+    const subject = await freshImport();
+
+    expect(subject.dedupePath(undefined)).toBe('');
+    expect(subject.dedupePath('')).toBe('');
+    expect(subject.dedupePath('/a:/b:/a:/c:/b')).toBe('/a:/b:/c');
+    expect(subject.dedupePath('/a::/a::/b')).toBe('/a::/b');
   });
 
-  it('preserves order while deduplicating (§不变量 4)', async () => {
-    const { dedupePath } = await freshImport();
-    expect(dedupePath('/a:/b:/a:/c:/b')).toBe('/a:/b:/c');
-    expect(dedupePath('/opt/homebrew/bin:/usr/bin:/opt/homebrew/bin')).toBe(
-      '/opt/homebrew/bin:/usr/bin',
+  it('keeps user PATH first and original PATH as the fallback tail', async () => {
+    const subject = await freshImport();
+    mocks.execFileSync.mockReturnValue(
+      wrap(subject.NONCE_MARKER, '/user/bin:/usr/bin'),
+    );
+
+    expect(subject.unionUserShellPath('/usr/bin:/process/bin')).toBe(
+      '/user/bin:/usr/bin:/process/bin',
     );
   });
 
-  it('handles single-element PATH unchanged', async () => {
-    const { dedupePath } = await freshImport();
-    expect(dedupePath('/usr/bin')).toBe('/usr/bin');
-  });
-});
+  it.each([undefined, ''])(
+    'returns only user PATH when original PATH is %s',
+    async (originalPath) => {
+      const subject = await freshImport();
+      mocks.execFileSync.mockReturnValue(
+        wrap(subject.NONCE_MARKER, '/user/bin:/usr/bin'),
+      );
 
-describe('unionUserShellPath', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
+      expect(subject.unionUserShellPath(originalPath)).toBe(
+        '/user/bin:/usr/bin',
+      );
+    },
+  );
 
-  it('union user PATH first, original PATH last, dedupe (§不变量 3+4)', async () => {
-    const { unionUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(
-      wrap(NONCE_MARKER, '/Users/foo/.nvm/bin:/opt/homebrew/bin:/usr/bin'),
-    );
-    expect(unionUserShellPath('/usr/bin:/bin:/agent-deck-plugin/bin')).toBe(
-      // user PATH (3) + original PATH (3) dedupe /usr/bin (重复) → 5
-      '/Users/foo/.nvm/bin:/opt/homebrew/bin:/usr/bin:/bin:/agent-deck-plugin/bin',
-    );
-  });
-
-  it('falls back to originalPath when captureUserShellPath fails (§不变量 2)', async () => {
-    (userShellLogger.warn as ReturnType<typeof vi.fn>).mockClear();
-    const { unionUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockImplementation(() => {
-      throw new Error('Unknown option: -lc');
+  it('preserves original fallback for an explicitly unsupported shell', async () => {
+    vi.stubEnv('SHELL', '/usr/local/bin/fish');
+    const subject = await freshImport();
+    mocks.execFileSync.mockImplementation(() => {
+      throw new Error('unsupported -ilc');
     });
-    expect(unionUserShellPath('/usr/bin:/bin')).toBe('/usr/bin:/bin');
-  });
 
-  it('returns user PATH when originalPath is undefined', async () => {
-    const { unionUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(wrap(NONCE_MARKER, '/opt/homebrew/bin:/usr/bin'));
-    expect(unionUserShellPath(undefined)).toBe('/opt/homebrew/bin:/usr/bin');
-  });
-
-  // Step 3.6 reviewer-claude INFO-2: originalPath = '' (空字符串非 undefined) 显式 test
-  // 当前 impl `if (!originalPath) return userPath;` falsy check 让 '' 与 undefined 走同款分支
-  it('returns user PATH when originalPath is empty string (falsy parity with undefined)', async () => {
-    const { unionUserShellPath, execFileSync, NONCE_MARKER } = await freshImport();
-    execFileSync.mockReturnValue(wrap(NONCE_MARKER, '/opt/homebrew/bin:/usr/bin'));
-    expect(unionUserShellPath('')).toBe('/opt/homebrew/bin:/usr/bin');
-  });
-
-  it('returns empty string when both fail (capture fails + originalPath undefined)', async () => {
-    (userShellLogger.warn as ReturnType<typeof vi.fn>).mockClear();
-    const { unionUserShellPath, execFileSync } = await freshImport();
-    execFileSync.mockImplementation(() => {
-      throw new Error('Unknown option: -lc');
-    });
-    expect(unionUserShellPath(undefined)).toBe('');
+    expect(subject.unionUserShellPath('/process/bin')).toBe('/process/bin');
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
   });
 });
