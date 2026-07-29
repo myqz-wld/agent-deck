@@ -6,33 +6,30 @@ import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { ProviderUsageSnapshot, ProviderUsageWindow, TokenDailyRow } from '@shared/types';
 import { RefreshIcon } from './icons';
-import log from '@renderer/utils/logger';
 import {
   formatTokenCount,
   TokenTotalCard,
 } from './data-panel/TokenTotalCard';
-
-const logger = log.scope('renderer-data-panel');
+import {
+  requestTokenDailyRefresh,
+  retainStrongTokenDailyRefresh,
+} from '../lib/token-daily-refresh';
 
 /**
- * 数据 tab：每模型每天 token 使用统计（plan model-token-stats-and-dashboard-20260602 §Phase 3 R5）。
+ * 数据 tab：每模型每天 token 使用统计。
  *
  * 需求2 + 追加：
  * - **顶部实时区**：全部 model bucket 的当前 token/s（生成中 fresh live 估算优先，其次 60s 窗口）。
  * - **今日账本**：输入/输出总量 + 已包含的缓存/推理分项。
  * - **主体表格**：行 = model bucket（友好名）× 日期，列 = 输入/输出总量及其分项（无费用）。
  *
- * **刷新**：rates/live 走 useTokenRatesPoll；daily 走 onTokenUsageChanged debounce refetch + mount 拉一次
- * （组件自订阅模式，与 IssuesPanel 同款，use-event-bridge 不动）。
+ * **刷新**：rates/live 走 useTokenRatesPoll；daily 由 App 级协调器订阅事件并串行刷新。
  */
-
-const DAILY_REFETCH_DEBOUNCE_MS = 500;
 
 export function DataPanel(): JSX.Element {
   const rates = useTokenUsageStore((s) => s.rates);
   const liveBySession = useTokenUsageStore((s) => s.liveBySession);
   const daily = useTokenUsageStore((s) => s.daily);
-  const setDaily = useTokenUsageStore((s) => s.setDaily);
   const usageSnapshots = useTokenUsageStore((s) => s.providerUsageSnapshots);
   const usageFetchedAt = useTokenUsageStore((s) => s.providerUsageFetchedAt);
   const usageLoading = useTokenUsageStore((s) => s.providerUsageLoading);
@@ -50,31 +47,11 @@ export function DataPanel(): JSX.Element {
     };
   }, []);
 
-  // daily：mount 拉一次 + 订阅 onTokenUsageChanged debounce refetch
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const fetchDaily = (): void => {
-      void window.api
-        .tokenUsageDaily({ includeGrokHistory: true })
-        .then((rows) => {
-          if (!cancelled) setDaily(rows);
-        })
-        .catch((err: unknown) => {
-          if (!cancelled) logger.warn('[data] daily token usage read failed', err);
-        });
-    };
-    fetchDaily();
-    const off = window.api.onTokenUsageChanged(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(fetchDaily, DAILY_REFETCH_DEBOUNCE_MS);
-    });
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      off();
-    };
-  }, [setDaily]);
+    const releaseStrongRefresh = retainStrongTokenDailyRefresh();
+    requestTokenDailyRefresh(true);
+    return releaseStrongRefresh;
+  }, []);
 
   const fetchUsage = useCallback(
     async (opts: { showLoading: boolean; force?: boolean }): Promise<void> => {

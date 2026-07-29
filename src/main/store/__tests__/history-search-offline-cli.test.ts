@@ -131,7 +131,7 @@ function readVersion(path = databasePath): number {
   }
 }
 
-function applyStartupMigrationsThroughV54(): void {
+function applyRemainingStartupMigrations(): void {
   const db = new Database(databasePath);
   try {
     db.pragma('foreign_keys = ON');
@@ -177,15 +177,15 @@ describe.skipIf(!bindingAvailable)('history-search offline CLI integration', () 
     expect(existsSync(join(temporaryDirectory, journal.backupName))).toBe(false);
   });
 
-  it('finalizes after normal startup advances the installed DB through V54', () => {
+  it('finalizes after normal startup applies every remaining migration', () => {
     expectSuccess(invoke());
     const backupName = readJournal().backupName;
-    applyStartupMigrationsThroughV54();
-    expect(readVersion()).toBe(54);
+    applyRemainingStartupMigrations();
+    expect(readVersion()).toBe(MIGRATIONS.at(-1)!.version);
 
     expectSuccess(invoke('--finalize', '--smoke-passed'));
     expect(readJournal().state).toBe('finalized');
-    expect(readVersion()).toBe(54);
+    expect(readVersion()).toBe(MIGRATIONS.at(-1)!.version);
     expect(existsSync(join(temporaryDirectory, backupName))).toBe(false);
   });
 

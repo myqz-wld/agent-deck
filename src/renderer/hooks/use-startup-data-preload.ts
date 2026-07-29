@@ -5,6 +5,7 @@ import {
   PROVIDER_USAGE_REFETCH_MS,
 } from '@shared/constants/provider-usage';
 import log from '@renderer/utils/logger';
+import { startTokenDailyRefresh } from '../lib/token-daily-refresh';
 
 const logger = log.scope('renderer-startup-data-preload');
 
@@ -21,22 +22,13 @@ export const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_CACHE_TTL_MS;
  * current even while the user is on other tabs.
  */
 export function useStartupDataPreload(): void {
-  const setDaily = useTokenUsageStore((s) => s.setDaily);
   const beginProviderUsageRequest = useTokenUsageStore((s) => s.beginProviderUsageRequest);
   const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
   const finishProviderUsageRequest = useTokenUsageStore((s) => s.finishProviderUsageRequest);
 
   useEffect(() => {
     let cancelled = false;
-
-    void window.api
-      .tokenUsageDaily()
-      .then((rows) => {
-        if (!cancelled) setDaily(rows);
-      })
-      .catch((err) => {
-        logger.warn('[app] tokenUsageDaily preload failed', err);
-      });
+    const stopTokenDailyRefresh = startTokenDailyRefresh();
 
     const refreshProviderUsage = (): void => {
       const requestId = beginProviderUsageRequest(false);
@@ -56,7 +48,8 @@ export function useStartupDataPreload(): void {
 
     return () => {
       cancelled = true;
+      stopTokenDailyRefresh();
       clearInterval(providerUsageTimer);
     };
-  }, [beginProviderUsageRequest, finishProviderUsageRequest, setDaily, setProviderUsageSuccess]);
+  }, [beginProviderUsageRequest, finishProviderUsageRequest, setProviderUsageSuccess]);
 }
