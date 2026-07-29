@@ -1,7 +1,92 @@
 import { app } from 'electron';
 import log from '@main/utils/logger';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
+import { getProcessRunId } from '@main/utils/run-context';
+import {
+  BoundedLogStateTracker,
+  type LogStateDecision,
+  type LogStateSnapshot,
+} from '@main/utils/log-state-tracker';
 
-const logger = log.scope('login-item');
+const LOGIN_ITEM_TRACKER_CAPACITY = 1;
+const SUMMARY_INTERVAL_MS = 300_000;
+
+type LoginItemOperation = 'login-item';
+type LoginItemState = 'healthy' | 'read-failed' | 'approval-required';
+
+function createLoginItemLogger(): ReturnType<typeof log.scope> | null {
+  try {
+    return log.scope('login-item');
+  } catch {
+    return null;
+  }
+}
+
+function createLoginItemTracker(): BoundedLogStateTracker<
+  LoginItemOperation,
+  LoginItemState
+> | null {
+  try {
+    return new BoundedLogStateTracker<LoginItemOperation, LoginItemState>({
+      capacity: LOGIN_ITEM_TRACKER_CAPACITY,
+      summaryIntervalMs: SUMMARY_INTERVAL_MS,
+    });
+  } catch {
+    return null;
+  }
+}
+
+const logger = createLoginItemLogger();
+const loginItemTracker = createLoginItemTracker();
+
+function observeLoginItemState(state: LoginItemState): void {
+  if (!loginItemTracker) return;
+  try {
+    emitLoginItemDecision(
+      loginItemTracker.observe('login-item', {
+        signature: state,
+        abnormal: state !== 'healthy',
+      }),
+    );
+  } catch {
+    // Login item diagnostics cannot alter OS synchronization.
+  }
+}
+
+function emitLoginItemDecision(decision: LogStateDecision<LoginItemState>): void {
+  if (decision.kind === 'repeat') return;
+  if (decision.kind === 'initial' && !decision.current.abnormal) return;
+
+  const priorAbnormal: LogStateSnapshot<LoginItemState> | null =
+    decision.flushed?.abnormal ? decision.flushed : null;
+  const aggregate = priorAbnormal ?? decision.current;
+  try {
+    const details = safeDiagnostic({
+      event: 'login-item-state',
+      runId: getProcessRunId(),
+      operation: 'login-item',
+      state: decision.current.signature,
+      previousState: decision.flushed?.signature ?? null,
+      transition: decision.kind,
+      abnormalDurationMs: aggregate.abnormalDurationMs,
+      suppressedCount: aggregate.suppressedCount,
+      suppressedCountCapped: aggregate.suppressedCountCapped,
+      summaryIntervalMs: SUMMARY_INTERVAL_MS,
+    });
+    if (decision.current.abnormal) {
+      logger?.warn(
+        decision.kind === 'periodic-summary'
+          ? 'login item state remains degraded'
+          : 'login item state degraded',
+        details,
+      );
+    } else if (priorAbnormal) {
+      logger?.info('login item state recovered', details);
+    }
+  } catch {
+    // Serialization and logging remain best-effort.
+  }
+}
 
 export interface LoginItemApp {
   getLoginItemSettings(options?: Electron.LoginItemSettingsOptions): Electron.LoginItemSettings;
@@ -72,19 +157,24 @@ export function syncLoginItemSetting(
 
   const electronApp = opts.app ?? app;
   let current: Electron.LoginItemSettings | null = null;
+  let readFailed = false;
   try {
     current = electronApp.getLoginItemSettings(loginItemReadOptions(platform));
-  } catch (err) {
-    logger.warn('[login-item] getLoginItemSettings failed; applying requested state anyway', err);
+  } catch {
+    readFailed = true;
+    observeLoginItemState('read-failed');
   }
 
   if (current && !shouldUpdateLoginItem(openAtLogin, current, platform)) {
     if (platform === 'darwin' && openAtLogin && current.status === 'requires-approval') {
-      logger.warn('[login-item] startOnLogin is waiting for macOS approval; skip duplicate registration');
+      observeLoginItemState('approval-required');
+    } else {
+      observeLoginItemState('healthy');
     }
     return 'already-current';
   }
 
   electronApp.setLoginItemSettings(loginItemWriteSettings(openAtLogin, platform));
+  if (!readFailed) observeLoginItemState('healthy');
   return 'updated';
 }
