@@ -13,10 +13,14 @@ describe('Grok sandbox profile contract', () => {
   });
 
   it('rejects empty, overlong, and control-character values', () => {
-    expect(() => normalizeGrokSandboxProfile('   ')).toThrow('must not be empty');
-    expect(() => normalizeGrokSandboxProfile('x'.repeat(129))).toThrow('128');
+    expect(() => normalizeGrokSandboxProfile('   ')).toThrow(
+      'Grok Build sandbox profile 不能为空。',
+    );
+    expect(() => normalizeGrokSandboxProfile('x'.repeat(129))).toThrow(
+      'Grok Build sandbox profile 不能超过 128 个字符。',
+    );
     expect(() => normalizeGrokSandboxProfile('strict\nworkspace')).toThrow(
-      'control characters',
+      'Grok Build sandbox profile 不能包含控制字符。',
     );
   });
 });

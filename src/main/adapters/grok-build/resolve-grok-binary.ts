@@ -93,8 +93,8 @@ async function materializeBundledBinary(
     await access(compressedPath);
   } catch {
     throw new Error(
-      `Bundled Grok binary was not found for ${process.platform}-${process.arch}. ` +
-        'Reinstall Agent Deck dependencies or choose an external absolute path.',
+      `未找到适用于 ${process.platform}-${process.arch} 的内置 Grok Build 二进制文件。` +
+        '请重新安装 Agent Deck 依赖，或选择外部绝对路径。',
     );
   }
 
@@ -115,7 +115,7 @@ async function materializeBundledBinary(
       await rename(temporaryPath, destination);
     } catch {
       if (!(await isUsableFile(destination))) {
-        throw new Error('Unable to cache bundled Grok binary.');
+        throw new Error('无法缓存内置 Grok Build 二进制文件。');
       }
     }
   } finally {
@@ -128,15 +128,15 @@ async function resolveBundledGrokBinary(): Promise<string> {
   const spec = currentPlatformSpec();
   if (!spec) {
     throw new Error(
-      `Bundled Grok CLI is unavailable for ${process.platform}-${process.arch}; ` +
-        'choose an external absolute path.',
+      `内置 Grok Build CLI 不支持 ${process.platform}-${process.arch}；` +
+        '请选择外部绝对路径。',
     );
   }
   const packageDir = resolvePlatformPackageDir(spec);
   if (!packageDir) {
     throw new Error(
-      `Bundled Grok CLI package ${spec.packageName} is not installed. ` +
-        'Reinstall Agent Deck dependencies or choose an external absolute path.',
+      `未安装内置 Grok Build CLI 包 ${spec.packageName}。` +
+        '请重新安装 Agent Deck 依赖，或选择外部绝对路径。',
     );
   }
   return materializeBundledBinary(packageDir, spec);
@@ -147,13 +147,13 @@ export async function resolveGrokBinary(configuredPath: string | null): Promise<
   if (candidate) {
     if (!isAbsolute(candidate)) {
       throw new Error(
-        'Grok binary path must be absolute, or leave it empty to use the bundled CLI.',
+        'Grok Build 二进制路径必须是绝对路径；留空则使用内置 CLI。',
       );
     }
     try {
       await access(candidate);
     } catch {
-      throw new Error(`Grok binary was not found at ${candidate}.`);
+      throw new Error(`在 ${candidate} 找不到 Grok Build 二进制文件。`);
     }
     return candidate;
   }

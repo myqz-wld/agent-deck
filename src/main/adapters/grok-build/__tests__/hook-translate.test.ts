@@ -49,6 +49,19 @@ describe('Grok Build hook translation', () => {
         rawText: 'inspect this repository',
       },
     });
+    expect(
+      translateGrokUserPrompt({
+        ...base,
+        hookEventName: 'UserPromptSubmit',
+      }),
+    ).toMatchObject({
+      kind: 'message',
+      payload: {
+        role: 'user',
+        text: 'Grok Build 提示已提交',
+        rawText: 'Grok Build 提示已提交',
+      },
+    });
   });
 
   it('strips exactly one canonical Grok Build user_query envelope and preserves raw text', () => {
@@ -141,12 +154,20 @@ describe('Grok Build hook translation', () => {
       kind: 'tool-use-end',
       payload: { status: 'denied', error: 'user rejected' },
     });
+    expect(translateGrokPostToolUseFailure(tool)).toMatchObject({
+      kind: 'tool-use-end',
+      payload: { status: 'failed', error: 'Grok Build 工具调用失败' },
+    });
+    expect(translateGrokPermissionDenied(tool)).toMatchObject({
+      kind: 'tool-use-end',
+      payload: { status: 'denied', error: 'Grok Build 工具权限被拒绝' },
+    });
   });
 
   it('maps compact, notification, stop outcomes, and session end', () => {
     expect(translateGrokPostCompact({ ...base, trigger: 'auto' })).toMatchObject({
       kind: 'message',
-      payload: { text: 'Grok context compacted (auto)' },
+      payload: { text: 'Grok Build 上下文已压缩（auto）' },
     });
     expect(translateGrokNotification({
       ...base,
@@ -175,6 +196,16 @@ describe('Grok Build hook translation', () => {
         },
       },
     });
+    expect(translateGrokNotification({
+      ...base,
+      notificationType: 'input_required',
+    })).toMatchObject({
+      kind: 'waiting-for-user',
+      payload: {
+        type: 'input_required',
+        message: 'Grok Build 通知',
+      },
+    });
     expect(translateGrokStop({ ...base, stopReason: 'end_turn' })).toMatchObject([
       {
         kind: 'finished',
@@ -187,6 +218,16 @@ describe('Grok Build hook translation', () => {
       {
         kind: 'finished',
         payload: { ok: false, subtype: 'error', error: 'provider failed' },
+      },
+    ]);
+    expect(translateGrokStopFailure(base)).toMatchObject([
+      {
+        kind: 'finished',
+        payload: {
+          ok: false,
+          subtype: 'error',
+          error: 'Grok Build 轮次失败',
+        },
       },
     ]);
     expect(translateGrokSessionEnd({ ...base, reason: 'exit' })).toMatchObject({

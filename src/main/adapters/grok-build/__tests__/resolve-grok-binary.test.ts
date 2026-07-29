@@ -21,10 +21,11 @@ describe('resolveGrokBinary', () => {
     await writeFile(binary, '');
     await expect(resolveGrokBinary(binary)).resolves.toBe(binary);
     await expect(resolveGrokBinary('relative/grok')).rejects.toThrow(
-      'must be absolute',
+      'Grok Build 二进制路径必须是绝对路径；留空则使用内置 CLI。',
     );
-    await expect(resolveGrokBinary(join(dir, 'missing'))).rejects.toThrow(
-      'was not found',
+    const missing = join(dir, 'missing');
+    await expect(resolveGrokBinary(missing)).rejects.toThrow(
+      `在 ${missing} 找不到 Grok Build 二进制文件。`,
     );
   });
 });

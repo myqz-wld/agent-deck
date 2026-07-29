@@ -60,14 +60,14 @@ export interface RunGrokOneshotOptions {
   systemPrompt: string;
   model?: string;
   effort?: GrokThinkingLevel;
-  /** Configured Grok CLI path; null/blank uses the bundled native CLI. */
+  /** Configured Grok Build CLI path; null/blank uses the bundled native CLI. */
   binaryPath?: string | null;
   outputSchema?: Record<string, unknown>;
   maxOutputBytes?: number;
   timeoutMs: number;
   timeoutErrorMessage: string;
   signal?: AbortSignal;
-  /** Deterministic process seam; production always resolves the configured Grok CLI. */
+  /** Deterministic process seam; production always resolves the configured Grok Build CLI. */
   testCommand?: GrokTestCommand;
   /** Test-only environment overlay for a deterministic fixture. */
   envOverride?: Readonly<Record<string, string>>;
@@ -129,12 +129,12 @@ export function buildGrokHeadlessArgs(input: {
 /**
  * Run one isolated Grok Build headless turn.
  *
- * Grok's headless surface is used instead of a visible Agent Deck session because it can enforce
- * the generator boundary directly: a strict temporary cwd, empty built-in tool allowlist, explicit
- * deny rules for executable/MCP tools, no Agent Deck MCP injection, no memory/subagents/web search,
- * and one turn. Grok does not attest its final model-visible registry, so continuation classifies
- * this boundary as hardened-unattested. The CLI still reads the user's own Grok config and
- * authentication, including custom model definitions.
+ * Grok Build's headless surface is used instead of a visible Agent Deck session because it can
+ * enforce the generator boundary directly: a strict temporary cwd, empty built-in tool allowlist,
+ * explicit deny rules for executable/MCP tools, no Agent Deck MCP injection, no
+ * memory/subagents/web search, and one turn. Grok Build does not attest its final model-visible
+ * registry, so continuation classifies this boundary as hardened-unattested. The CLI still reads
+ * the user's own Grok Build config and authentication, including custom model definitions.
  */
 export async function runGrokOneshot(
   options: RunGrokOneshotOptions,
@@ -246,7 +246,9 @@ async function captureHeadlessResult(
     child.once('close', (code, signal) => resolve({ code, signal }));
   });
   if (outputOverflow) {
-    throw new Error(`Grok oneshot output exceeded ${OUTPUT_LIMIT_BYTES} bytes.`);
+    throw new Error(
+      `Grok Build 单次运行输出超过 ${OUTPUT_LIMIT_BYTES} 字节上限。`,
+    );
   }
 
   let parsed: GrokHeadlessEnvelope;
@@ -254,13 +256,13 @@ async function captureHeadlessResult(
     parsed = JSON.parse(output.trim()) as GrokHeadlessEnvelope;
   } catch (error) {
     throw new Error(
-      `Grok oneshot returned invalid JSON${diagnostics.trim() ? `: ${diagnostics.trim()}` : '.'}`,
+      `Grok Build 单次运行返回无效 JSON${diagnostics.trim() ? `: ${diagnostics.trim()}` : '。'}`,
       { cause: error },
     );
   }
   if (code !== 0 || parsed.type === 'error' || parsed.error) {
     const detail = headlessErrorDetail(parsed, diagnostics, code, signal);
-    throw new Error(`Grok oneshot failed: ${detail}`);
+    throw new Error(`Grok Build 单次运行失败：${detail}`);
   }
 
   const value =
@@ -274,7 +276,9 @@ async function captureHeadlessResult(
         ? JSON.stringify(parsed)
         : JSON.stringify(value);
   if (options.maxOutputBytes && Buffer.byteLength(text, 'utf8') > options.maxOutputBytes) {
-    throw new Error(`Grok oneshot response exceeded ${options.maxOutputBytes} bytes.`);
+    throw new Error(
+      `Grok Build 单次运行响应超过 ${options.maxOutputBytes} 字节上限。`,
+    );
   }
   return {
     text,
