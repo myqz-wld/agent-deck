@@ -39,14 +39,87 @@ const dbMock = vi.hoisted(() => {
     rows: [] as TestRow[],
     blobs: new Map<string, TestBlob>(),
     fileInsertArgs: [] as unknown[][],
+    functions: new Map<string, (...args: unknown[]) => unknown>(),
   };
   const prepare = vi.fn((sql: string) => ({
-    all: vi.fn(() => state.rows),
+    all: vi.fn((...args: unknown[]) => {
+      let rows = [...state.rows];
+      if (sql.includes('FROM file_changes')) {
+        const sessionId = args[0];
+        rows = rows.filter((candidate) => candidate.session_id === sessionId);
+      }
+      if (sql.includes('(fc.ts < ? OR (fc.ts = ? AND fc.id < ?))')) {
+        const [, cursorTs, , cursorId] = args as [string, number, number, number];
+        rows = rows.filter(
+          (candidate) =>
+            candidate.ts < cursorTs ||
+            (candidate.ts === cursorTs && candidate.id < cursorId),
+        );
+      }
+      if (sql.includes('ORDER BY fc.ts DESC, fc.id DESC') && sql.includes('LIMIT ?')) {
+        rows.sort((a, b) => b.ts - a.ts || b.id - a.id);
+      } else if (sql.includes('ORDER BY fc.ts ASC, fc.id ASC')) {
+        rows.sort((a, b) => a.ts - b.ts || a.id - b.id);
+      }
+      const limit = args.at(-1);
+      const limited = typeof limit === 'number' ? rows.slice(0, limit) : rows;
+      if (!sql.includes('AS has_before_blob')) return limited;
+      const visible = state.functions.get('agent_deck_file_change_visible');
+      return limited.map((candidate) => ({
+        ...candidate,
+        has_before_blob: candidate.before_blob !== null ? 1 : 0,
+        has_after_blob: candidate.after_blob !== null ? 1 : 0,
+        has_before_snapshot:
+          candidate.before_snapshot_hash != null || candidate.before_snapshot !== null ? 1 : 0,
+        has_after_snapshot:
+          candidate.after_snapshot_hash != null || candidate.after_snapshot !== null ? 1 : 0,
+        is_visible: visible?.(candidate.kind, candidate.metadata_json) ?? 1,
+      }));
+    }),
     get: vi.fn((...args: unknown[]) => {
       if (sql.includes('COUNT(*)')) return { c: state.rows.length };
       if (sql.includes('FROM file_snapshot_blobs')) {
         const digest = args[0];
         return Buffer.isBuffer(digest) ? state.blobs.get(digest.toString('hex')) : undefined;
+      }
+      if (sql.includes('FROM file_changes')) {
+        const [sessionId, id] = args;
+        const found = state.rows.find(
+          (candidate) => candidate.session_id === sessionId && candidate.id === id,
+        );
+        if (!found || sql.includes('fc.*')) return found;
+        const projected: Record<string, unknown> = {
+          id: found.id,
+          session_id: found.session_id,
+          file_path: found.file_path,
+          kind: found.kind,
+          metadata_json: found.metadata_json,
+          tool_call_id: found.tool_call_id,
+          ts: found.ts,
+        };
+        if (sql.includes('fc.before_blob AS before_blob')) {
+          Object.assign(projected, {
+            before_blob: found.before_blob,
+            before_snapshot: found.before_snapshot,
+            before_snapshot_hash: found.before_snapshot_hash,
+            before_snapshot_codec: found.before_snapshot_codec,
+            before_snapshot_raw_bytes: found.before_snapshot_raw_bytes,
+            before_snapshot_compressed_bytes: found.before_snapshot_compressed_bytes,
+            before_snapshot_data: found.before_snapshot_data,
+          });
+        }
+        if (sql.includes('fc.after_blob AS after_blob')) {
+          Object.assign(projected, {
+            after_blob: found.after_blob,
+            after_snapshot: found.after_snapshot,
+            after_snapshot_hash: found.after_snapshot_hash,
+            after_snapshot_codec: found.after_snapshot_codec,
+            after_snapshot_raw_bytes: found.after_snapshot_raw_bytes,
+            after_snapshot_compressed_bytes: found.after_snapshot_compressed_bytes,
+            after_snapshot_data: found.after_snapshot_data,
+          });
+        }
+        return projected;
       }
       return undefined;
     }),
@@ -71,7 +144,21 @@ const dbMock = vi.hoisted(() => {
     }),
   }));
   const transaction = vi.fn((callback: () => number) => () => callback());
-  return { state, db: { prepare, transaction } };
+  const db = {
+    prepare,
+    transaction,
+    function: vi.fn(
+      (
+        name: string,
+        _options: unknown,
+        callback: (...args: unknown[]) => unknown,
+      ) => {
+        state.functions.set(name, callback);
+        return db;
+      },
+    ),
+  };
+  return { state, db };
 });
 
 vi.mock('../db', () => ({ getDb: () => dbMock.db }));
@@ -79,6 +166,7 @@ vi.mock('../db', () => ({ getDb: () => dbMock.db }));
 import { deflateRawSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { fileChangeRepo } from '../file-change-repo';
+import { fileChangeReadRepo } from '../file-change-read-repo';
 import {
   encodeFileSnapshot,
   FILE_SNAPSHOT_CODEC,
@@ -298,5 +386,226 @@ describe('fileChangeRepo', () => {
       '/repo/claude-empty.ts',
       '/repo/image.png',
     ]);
+  });
+
+  it('pages summaries with a stable same-timestamp id cursor and no snapshot joins', () => {
+    dbMock.state.rows = [
+      row({
+        id: 3,
+        ts: 100,
+        file_path: '/repo/three.ts',
+        before_blob: '',
+        before_snapshot: 'legacy-before',
+        after_snapshot_hash: Buffer.alloc(32, 3),
+      }),
+      row({ id: 2, ts: 100, file_path: '/repo/two.ts' }),
+      row({ id: 1, ts: 99, file_path: '/repo/one.ts' }),
+    ];
+
+    const first = fileChangeReadRepo.listSummaryPage('s1', { limit: 1 });
+    const second = fileChangeReadRepo.listSummaryPage('s1', {
+      limit: 1,
+      cursor: first.nextCursor,
+    });
+
+    expect(first.items.map((item) => item.id)).toEqual([3]);
+    expect(second.items.map((item) => item.id)).toEqual([2]);
+    expect(first.nextCursor).toBeTypeOf('string');
+    expect(first.items[0]).not.toHaveProperty('metadata');
+    expect(first.items[0]).not.toHaveProperty('beforeSnapshot');
+    expect(first.items[0]).not.toHaveProperty('afterSnapshot');
+    expect(first.items[0]).toMatchObject({
+      hasBeforeBlob: true,
+      hasAfterBlob: false,
+      hasBeforeSnapshot: true,
+      hasAfterSnapshot: true,
+    });
+    const summarySql = dbMock.db.prepare.mock.calls
+      .map(([sql]) => sql as string)
+      .find((sql) => sql.includes('ORDER BY fc.ts DESC, fc.id DESC') && sql.includes('LIMIT ?'));
+    const projection = summarySql?.slice(0, summarySql.indexOf('FROM')) ?? '';
+    expect(summarySql).not.toContain('file_snapshot_blobs');
+    expect(projection).toContain('fc.before_blob IS NOT NULL AS has_before_blob');
+    expect(projection).toContain('fc.after_blob IS NOT NULL AS has_after_blob');
+    expect(projection).toContain(
+      '(fc.before_snapshot_hash IS NOT NULL OR fc.before_snapshot IS NOT NULL)',
+    );
+    expect(projection).toContain(
+      '(fc.after_snapshot_hash IS NOT NULL OR fc.after_snapshot IS NOT NULL)',
+    );
+    expect(projection).toContain(
+      'agent_deck_file_change_visible(fc.kind, fc.metadata_json) AS is_visible',
+    );
+    expect(projection).not.toMatch(/fc\.metadata_json\s+AS/);
+    expect(projection).not.toContain('snapshot_codec');
+    expect(projection).not.toContain('snapshot_data');
+  });
+
+  it('advances the raw cursor when a bounded page contains only historical no-ops', () => {
+    dbMock.state.rows = Array.from({ length: 41 }, (_, index) =>
+      row({
+        id: 100 - index,
+        ts: 100 - index,
+        file_path: `/repo/noop-${index}.ts`,
+        metadata_json: JSON.stringify({
+          source: 'codex',
+          changeKind: 'update',
+          patchStatus: 'completed',
+          diff: '',
+        }),
+      }),
+    );
+
+    const page = fileChangeReadRepo.listSummaryPage('s1', { limit: 10 });
+
+    expect(page.items).toEqual([]);
+    expect(page.nextCursor).toBeTypeOf('string');
+  });
+
+  it('isolates malformed metadata and blobs in one session-bound payload lookup', () => {
+    dbMock.state.rows = [
+      row({
+        id: 7,
+        metadata_json: '{bad',
+        before_snapshot_hash: Buffer.alloc(32, 7),
+        before_snapshot: 'legacy-before',
+      }),
+      row({ id: 8, session_id: 'other' }),
+    ];
+
+    const payload = fileChangeReadRepo.getPayload('s1', 7);
+    expect(payload).toMatchObject({
+      id: 7,
+      metadata: {},
+      beforeSnapshot: 'legacy-before',
+    });
+    expect(payload).not.toHaveProperty('hasBeforeBlob');
+    expect(payload).not.toHaveProperty('hasAfterSnapshot');
+    expect(fileChangeReadRepo.getPayload('s1', 8)).toBeNull();
+    const payloadSql = dbMock.db.prepare.mock.calls
+      .map(([sql]) => sql as string)
+      .find((sql) => sql.includes('WHERE fc.session_id = ?') && sql.includes('fc.id = ?'));
+    expect(payloadSql?.match(/JOIN file_snapshot_blobs/g)).toHaveLength(2);
+    expect(loggerMock.warn.mock.calls.map(([entry]) => entry)).toEqual(
+      expect.arrayContaining([
+        {
+          action: 'decode',
+          category: 'snapshot',
+          source: 'file-change-storage',
+          outcome: 'invalid',
+        },
+        {
+          action: 'decode',
+          category: 'metadata',
+          source: 'file-change-storage',
+          outcome: 'invalid',
+        },
+      ]),
+    );
+    expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toMatch(
+      /s1|legacy-before|\{bad|070707|changeId|sessionId|digest|context|error/i,
+    );
+  });
+
+  it('discovers boundaries without blobs and loads only the requested snapshot side', () => {
+    const before = encodeFileSnapshot('old snapshot')!;
+    const after = encodeFileSnapshot('new snapshot')!;
+    const malformed = {
+      snapshot_hash: Buffer.alloc(32, 9),
+      snapshot_codec: FILE_SNAPSHOT_CODEC,
+      snapshot_raw_bytes: 3,
+      snapshot_compressed_bytes: 3,
+      snapshot_data: Buffer.from('bad'),
+    };
+    dbMock.state.rows = [
+      row({
+        id: 1,
+        ts: 1,
+        before_blob: 'old',
+        after_blob: 'large-opposite-after',
+        ...selection('before', before),
+        after_snapshot: 'opposite-after',
+        after_snapshot_hash: malformed.snapshot_hash,
+        after_snapshot_codec: malformed.snapshot_codec,
+        after_snapshot_raw_bytes: malformed.snapshot_raw_bytes,
+        after_snapshot_compressed_bytes: malformed.snapshot_compressed_bytes,
+        after_snapshot_data: malformed.snapshot_data,
+      }),
+      row({
+        id: 2,
+        ts: 2,
+        before_blob: 'large-opposite-before',
+        after_blob: 'new',
+        before_snapshot: 'opposite-before',
+        before_snapshot_hash: malformed.snapshot_hash,
+        before_snapshot_codec: malformed.snapshot_codec,
+        before_snapshot_raw_bytes: malformed.snapshot_raw_bytes,
+        before_snapshot_compressed_bytes: malformed.snapshot_compressed_bytes,
+        before_snapshot_data: malformed.snapshot_data,
+        ...selection('after', after),
+      }),
+    ];
+
+    const boundaries = fileChangeReadRepo.readPathBoundaries('s1', ['/repo/a.ts']);
+
+    expect(boundaries?.first).toMatchObject({
+      id: 1,
+      beforeBlob: 'old',
+      afterBlob: null,
+      beforeSnapshot: 'old snapshot',
+      afterSnapshot: undefined,
+    });
+    expect(boundaries?.last).toMatchObject({
+      id: 2,
+      beforeBlob: null,
+      afterBlob: 'new',
+      beforeSnapshot: undefined,
+      afterSnapshot: 'new snapshot',
+    });
+    expect(loggerMock.warn).not.toHaveBeenCalled();
+
+    const sqlStatements = dbMock.db.prepare.mock.calls.map(([sql]) => sql as string);
+    const scans = sqlStatements.filter(
+      (sql) =>
+        sql.includes('fc.file_path IN') &&
+        (sql.includes('ORDER BY fc.ts ASC') || sql.includes('ORDER BY fc.ts DESC')),
+    );
+    expect(scans).toHaveLength(2);
+    for (const sql of scans) {
+      const projection = sql.slice(0, sql.indexOf('FROM'));
+      expect(projection).not.toMatch(/before_blob|after_blob|snapshot/i);
+      expect(projection).toContain('fc.id');
+      expect(projection).toContain('fc.kind');
+      expect(projection).toContain('fc.metadata_json');
+      expect(projection).toContain('fc.ts');
+    }
+
+    const beforeSql = sqlStatements.find((sql) =>
+      sql.includes('blob.codec AS before_snapshot_codec'),
+    );
+    const afterSql = sqlStatements.find((sql) =>
+      sql.includes('blob.codec AS after_snapshot_codec'),
+    );
+    expect(beforeSql).not.toContain('fc.*');
+    expect(beforeSql).toContain('fc.before_blob');
+    expect(beforeSql).toContain('fc.before_snapshot_hash');
+    expect(beforeSql).toContain('fc.metadata_json');
+    expect(beforeSql).not.toMatch(/after_blob|after_snapshot/i);
+    expect(afterSql).not.toContain('fc.*');
+    expect(afterSql).toContain('fc.after_blob');
+    expect(afterSql).toContain('fc.after_snapshot_hash');
+    expect(afterSql).toContain('fc.metadata_json');
+    expect(afterSql).not.toMatch(/before_blob|before_snapshot/i);
+  });
+
+  it('authorizes image paths with a guarded targeted query and no full-list snapshots', () => {
+    fileChangeReadRepo.hasImagePathForSession('s1', '/repo/image.png');
+
+    const sql = dbMock.db.prepare.mock.calls.at(-1)?.[0] as string;
+    expect(sql).toContain('fc.file_path = ?');
+    expect(sql).toContain('json_valid(fc.before_blob)');
+    expect(sql).toContain("json_extract(fc.after_blob, '$.path')");
+    expect(sql).toContain('LIMIT 1');
+    expect(sql).not.toContain('file_snapshot_blobs');
   });
 });

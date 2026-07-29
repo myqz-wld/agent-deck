@@ -3,7 +3,6 @@ import type {
   AgentEvent,
   DiffPayload,
   FileFinalDiffResult,
-  FileChangeRecord,
   SessionRecord,
 } from '@shared/types';
 import { ActivityFeed } from '../activity-feed';
@@ -26,6 +25,7 @@ import { CliFooter } from './CliFooter';
 import { DiffTab } from './DiffTab';
 import { TasksPanel } from './TasksPanel';
 import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
+import { useFileChanges } from './use-file-changes';
 
 type Tab = 'activity' | 'tasks' | 'diff' | 'summary' | 'messages' | 'permissions';
 type DiffMode = 'single' | 'final';
@@ -40,22 +40,22 @@ interface Props {
 
 export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('activity');
-  const [changes, setChanges] = useState<FileChangeRecord[] | null>(null);
-  const [diffError, setDiffError] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedChangeId, setSelectedChangeId] = useState<number | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
-  /** K3 hand-off preview dialog 开关（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。 */
+  const fileChanges = useFileChanges({
+    sessionId: session.id,
+    enabled: tab === 'diff',
+    selectedChangeId,
+  });
+  const changes = fileChanges.changes;
   const [handOffOpen, setHandOffOpen] = useState(false);
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
   const [cancelToasts, setCancelToasts] = useState<{ id: string; text: string; ts: number }[]>([]);
-  // deep-review H3 MED：auto-dismiss timer 用独立 ref registry，**不绑 [recent] effect cleanup**。
-  // 旧实现 timer 在 [recent] effect 内 setTimeout + cleanup clearTimeout → 下一条非 cancel 事件到达
-  // 时 React 先跑旧 cleanup 杀掉 timer、新 effect 看非 cancel 直接 return 不补设 timer → toast 永不
-  // auto-dismiss（活跃会话取消后必有后续活动，必踩）。改为按 toast id 存 timer，添加时设、移除/卸载时清。
+  // Toast timer 按 id 独立管理，后续事件刷新不会提前取消自动关闭。
   const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const dismissToast = (id: string): void => {
     setCancelToasts((prev) => prev.filter((t) => t.id !== id));
@@ -92,10 +92,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     (s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS_FOR_TOAST,
   );
 
-  // 监听最近一条事件：如果是 SDK 主动取消的权限 / 提问 / 计划批准，弹一个 5s toast，
-  // 让用户知道 banner 上那条不是被自己点掉的。
-  // deep-review H3 MED：timer 放 toastTimersRef（不绑本 effect cleanup），避免下一条事件 cleanup
-  // 杀掉 auto-dismiss timer。本 effect 只负责「检测 cancel 事件 → 加 toast + 注册 timer」。
+  // SDK 自动取消权限、提问或计划批准时显示 5 秒提示。
   useEffect(() => {
     const e = recent[0];
     if (!e || e.kind !== 'waiting-for-user') return;
@@ -127,16 +124,12 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
 
   useEffect(() => {
     setTab('activity');
-    setChanges(null);
-    setDiffError(null);
     setSelectedFilePath(null);
     setSelectedChangeId(null);
     setDiffMode('single');
     setFinalDiff(null);
     setFinalDiffLoading(false);
-    // deep-review H3 MED：SessionDetail 无 key prop（App.tsx）→ 切会话不 remount，cancelToasts
-    // useState 跨会话存活；切会话时 B 的 recent[0] 非 cancel 不会触发清理 → A 的 toast 串到 B。
-    // 这里 reset 时一并清空 toast + 其 timer。
+    // 组件切换会话时不会 remount，因此同步清空上一会话的提示和 timer。
     setCancelToasts([]);
     for (const tm of toastTimersRef.current.values()) clearTimeout(tm);
     toastTimersRef.current.clear();
@@ -166,74 +159,20 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     };
   }, [session.id]);
 
-  /** 加载并订阅 file_changes：
-   * - tab 切到 'diff' 且未加载 → 首次拉
-   * - 已加载状态下监听 agent-event 'file-changed'，300ms 节流后重拉（合并 MultiEdit 拆出的 N 条事件）
-   * - sequence counter 防过期 IPC 覆盖新结果；disposed flag 防卸载/换会话后 setState
-   * - 重新选中策略：原选中 filePath / changeId 仍在新数据里 → 保留；否则 fallback 到最新一条
-   *
-   * REVIEW_2 修：原本仅在 changes===null 时拉一次，期间产生的新 file-changed 不会刷新；
-   *           且切会话时旧 IPC 返回会污染新会话列表。融合 Claude A 节流 + Codex B sequence。
-   *
-   * deep-review H3 LOW：effect deps 去掉 hasLoaded（改用 changesLoadedRef）。旧 hasLoaded 入 deps →
-   * 首次 sync setChanges 后 false→true 触发 effect 重订阅，cleanup `clearTimeout(timer)` 会杀掉 sync
-   * 在途期间 file-changed 设的 300ms 节流 timer → 那条刷新被吞直到下条 file-changed。去掉 hasLoaded
-   * dep 让订阅在「首加载」前后稳定，不重订阅不杀 timer。
-   */
-  const changesLoadedRef = useRef(false);
   useEffect(() => {
-    changesLoadedRef.current = changes !== null;
-  });
-  useEffect(() => {
-    if (tab !== 'diff' && !changesLoadedRef.current) return;
-    let disposed = false;
-    let req = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const sync = (): void => {
-      const cur = ++req;
-      void window.api
-        .listFileChanges(session.id)
-        .then((rows) => {
-          if (disposed || cur !== req) return;
-          const arr = rows as FileChangeRecord[];
-          // deep-review H3 LOW：同毫秒同文件改动 latest 选取带 id tiebreaker（pickLatestChange 与
-          // groupFileChanges 同 tiebreaker，DB 端是 ts DESC, id DESC，新 id 在前）。
-          const latest = pickLatestChange(arr);
-          setChanges(arr);
-          setDiffError(null);
-          setSelectedFilePath((p) =>
-            p && arr.some((c) => c.filePath === p) ? p : latest?.filePath ?? null,
-          );
-          setSelectedChangeId((p) =>
-            p !== null && arr.some((c) => c.id === p) ? p : latest?.id ?? null,
-          );
-        })
-        .catch((err: unknown) => {
-          // deep-review H3 MED：无 catch 时 IPC reject 冒泡 main.tsx unhandledrejection → 全屏 fatal。
-          // 接住 → diffError。渲染处（changes===null 才整屏 error，有数据时 inline strip 保留 stale）
-          // 与 MessagesPanel `error && messages.length===0` 守门对齐（H3 R2 LOW 修正）。
-          if (disposed || cur !== req) return;
-          setDiffError(err instanceof Error ? err.message : String(err));
-        });
-    };
-    if (tab === 'diff' && changes === null) sync();
-    const off = window.api.onAgentEvent((e) => {
-      if (e.sessionId !== session.id || e.kind !== 'file-changed') return;
-      if (timer != null) return;
-      timer = setTimeout(() => {
-        timer = null;
-        sync();
-      }, 300);
-    });
-    return () => {
-      disposed = true;
-      if (timer != null) clearTimeout(timer);
-      off();
-    };
-    // changes 故意不入 deps（只用首次 sync 的 changes===null 判定 + changesLoadedRef 读最新），
-    // 防 changes 每次刷新都重订阅；仅 tab/session.id 变才重订阅。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, session.id]);
+    if (!changes) return;
+    const latest = pickLatestChange(changes);
+    setSelectedFilePath((current) =>
+      current && changes.some((change) => change.filePath === current)
+        ? current
+        : latest?.filePath ?? null,
+    );
+    setSelectedChangeId((current) =>
+      current !== null && changes.some((change) => change.id === current)
+        ? current
+        : latest?.id ?? null,
+    );
+  }, [changes]);
 
   // 按文件分组：组内升序（旧→新）+ 文件按最近改动倒序，同毫秒带 id tiebreaker（详 groupFileChanges）。
   const fileGroups = useMemo(() => (changes ? groupFileChanges(changes) : []), [changes]);
@@ -243,10 +182,10 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     [fileGroups, selectedFilePath],
   );
 
-  const selectedChange = useMemo(
-    () => changes?.find((c) => c.id === selectedChangeId) ?? null,
-    [changes, selectedChangeId],
-  );
+  const selectedChange =
+    fileChanges.selectedPayload?.id === selectedChangeId
+      ? fileChanges.selectedPayload
+      : null;
   const selectedGroupLastId = selectedGroup?.lastId ?? null;
 
   useEffect(() => {
@@ -260,7 +199,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         if (disposed) return;
         setFinalDiff(r);
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         if (disposed) return;
         setFinalDiff({
           ok: false,
@@ -268,7 +207,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           diff: null,
           source: 'recorded-snapshot',
           reason: 'snapshot_unavailable',
-          message: err instanceof Error ? err.message : String(err),
+          message: '无法加载最终 diff。',
         });
       })
       .finally(() => {
@@ -348,9 +287,6 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         </div>
       </header>
 
-      {/* 顶部 banner 已废弃：权限请求 / AskUserQuestion 全部由活动流的 PermissionRow / AskRow 内嵌渲染并响应。
-         留空对照位避免日后重复加 banner —— 真要恢复 banner 请同时在活动流里跳过同 requestId。 */}
-
       {cancelToasts.length > 0 && (
         <div className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-3 py-1.5">
           <div className="flex flex-col gap-1">
@@ -374,8 +310,6 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           </div>
         </div>
       )}
-
-      {/* 权限请求 banner 同样删掉，统一由活动流接管。 */}
 
       <nav className="flex shrink-0 gap-1 border-b border-deck-border/60 px-2 py-1">
         {(['activity', 'tasks', 'diff', 'summary', 'messages', 'permissions'] as Tab[]).map((t) => (
@@ -421,7 +355,11 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           <DiffTab
             sessionId={session.id}
             changes={changes}
-            diffError={diffError}
+            diffError={fileChanges.error}
+            hasMore={fileChanges.hasMore}
+            loadingMore={fileChanges.loadingMore}
+            payloadLoading={fileChanges.payloadLoading}
+            payloadError={fileChanges.payloadError}
             fileGroups={fileGroups}
             selectedFilePath={selectedFilePath}
             selectedGroup={selectedGroup}
@@ -437,13 +375,13 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
               setDiffMode('single');
             }}
             onDiffModeChange={setDiffMode}
+            onLoadMore={() => void fileChanges.loadMore()}
+            onRetry={() => void fileChanges.retry()}
           />
         )}
       </div>
 
-      {/* 底部输入区：SDK 会话可发消息；CLI 会话只显示提示。
-          CHANGELOG_94: 「📤 接力到新会话」按钮从 header 右上角挪到 ComposerSdk 右下角
-          （中断按钮左侧），通过 onHandOff prop 触发 setHandOffOpen(true)。 */}
+      {/* SDK 会话提供输入与接力操作；CLI 会话只显示提示。 */}
       {isSdk ? (
         <ComposerSdk
           session={session}
@@ -456,9 +394,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
         <CliFooter agentId={session.agentId} />
       )}
 
-      {/* K3 hand-off preview dialog（plan mcp-bug-and-feature-batch-20260513 Phase 4c）。
-          spawn 成功后 main 端 emit session-focus-request 让 App 自动切到新 session detail，
-          所以这里 onClose 只关闭 modal 不需 props 传 newSid。 */}
+      {/* 接力成功后主进程负责切换会话，这里只管理预览框。 */}
       <HandOffPreviewDialog
         open={handOffOpen}
         session={session}

@@ -7,12 +7,19 @@ import { sessionManager } from '@main/session/manager';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { eventRepo } from '@main/store/event-repo';
-import { fileChangeRepo } from '@main/store/file-change-repo';
+import { fileChangeReadRepo } from '@main/store/file-change-read-repo';
 import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
 import { summaryRepo } from '@main/store/summary-repo';
 import { taskRepo } from '@main/store/task-repo';
 import log from '@main/utils/logger';
-import { on, parseBoolean, parsePositiveInt, parseStringId, parseStringIdArray } from './_helpers';
+import {
+  IpcInputError,
+  on,
+  parseBoolean,
+  parsePositiveInt,
+  parseStringId,
+  parseStringIdArray,
+} from './_helpers';
 import { registerSessionHandOffIpc } from './session-hand-off';
 import { takePendingSessionFocusRequest } from '@main/session-focus-request';
 
@@ -32,9 +39,35 @@ export function registerSessionsIpc(): void {
     });
     return eventRepo.listForSession(sessionId, safeLimit);
   });
-  on(IpcInvoke.SessionListFileChanges, (_event, id) =>
-    fileChangeRepo.listForSession(parseStringId('sessionId', id)),
-  );
+  on(IpcInvoke.SessionListFileChangePage, (_event, id, rawOptions) => {
+    const sessionId = parseStringId('sessionId', id);
+    if (
+      rawOptions != null &&
+      (typeof rawOptions !== 'object' || Array.isArray(rawOptions))
+    ) {
+      throw new IpcInputError('options', 'must be an object');
+    }
+    const options = (rawOptions ?? {}) as { cursor?: unknown; limit?: unknown };
+    const cursor =
+      options.cursor == null ? undefined : parseStringId('cursor', options.cursor, 1_024);
+    const limit = parsePositiveInt('limit', options.limit, {
+      fallback: 50,
+      min: 1,
+      max: 100,
+    });
+    return fileChangeReadRepo.listSummaryPage(sessionId, { cursor, limit });
+  });
+  on(IpcInvoke.SessionGetFileChange, (_event, id, rawChangeId) => {
+    const sessionId = parseStringId('sessionId', id);
+    if (
+      typeof rawChangeId !== 'number' ||
+      !Number.isSafeInteger(rawChangeId) ||
+      rawChangeId < 1
+    ) {
+      throw new IpcInputError('changeId', 'must be a positive integer');
+    }
+    return fileChangeReadRepo.getPayload(sessionId, rawChangeId);
+  });
   on(IpcInvoke.SessionGetFileFinalDiff, (_event, id, filePath) =>
     getSessionFileFinalDiff(
       parseStringId('sessionId', id),
@@ -71,7 +104,12 @@ export function registerSessionsIpc(): void {
       return true;
     } catch (error) {
       if (error instanceof SessionRowMissingError) {
-        logger.warn(`[ipc SessionArchive] ${sessionId} row already missing:`, error);
+        logger.warn({
+          action: 'archive',
+          category: 'session-row',
+          source: 'session-storage',
+          outcome: 'already-missing',
+        });
         return true;
       }
       throw error;
@@ -84,7 +122,12 @@ export function registerSessionsIpc(): void {
       return true;
     } catch (error) {
       if (error instanceof SessionRowMissingError) {
-        logger.warn(`[ipc SessionUnarchive] ${sessionId} row already missing:`, error);
+        logger.warn({
+          action: 'unarchive',
+          category: 'session-row',
+          source: 'session-storage',
+          outcome: 'already-missing',
+        });
         return true;
       }
       throw error;

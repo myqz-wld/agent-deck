@@ -1,5 +1,5 @@
 import { type JSX } from 'react';
-import type { FileChangeRecord } from '@shared/types';
+import type { FileChangeSummary } from '@shared/types';
 import { fileKindLabel } from './helpers';
 
 export function ChangeTimeline({
@@ -7,7 +7,7 @@ export function ChangeTimeline({
   selectedId,
   onSelect,
 }: {
-  items: FileChangeRecord[];
+  items: FileChangeSummary[];
   selectedId: number | null;
   onSelect: (id: number) => void;
 }): JSX.Element {

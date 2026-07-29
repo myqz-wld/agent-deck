@@ -10,7 +10,8 @@ import { IpcInvoke } from '@shared/ipc-channels';
 import type {
   AgentEvent,
   FileFinalDiffResult,
-  FileChangeRecord,
+  FileChangePage,
+  FileChangePayload,
   SessionHandOffCommitResponse,
   SessionHandOffPreparation,
   SessionHandOffPrepareRequest,
@@ -53,8 +54,13 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionDelete, id),
   listEvents: (id: string, limit?: number): Promise<AgentEvent[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListEvents, id, limit),
-  listFileChanges: (id: string): Promise<FileChangeRecord[]> =>
-    ipcRenderer.invoke(IpcInvoke.SessionListFileChanges, id),
+  listFileChangePage: (
+    id: string,
+    options: { cursor?: string; limit?: number } = {},
+  ): Promise<FileChangePage> =>
+    ipcRenderer.invoke(IpcInvoke.SessionListFileChangePage, id, options),
+  getFileChange: (id: string, changeId: number): Promise<FileChangePayload | null> =>
+    ipcRenderer.invoke(IpcInvoke.SessionGetFileChange, id, changeId),
   getFileFinalDiff: (id: string, filePath: string): Promise<FileFinalDiffResult> =>
     ipcRenderer.invoke(IpcInvoke.SessionGetFileFinalDiff, id, filePath),
   getSessionGitBranch: (id: string): Promise<string | null> =>

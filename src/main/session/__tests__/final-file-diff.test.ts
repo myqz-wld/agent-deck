@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sessionRepoMock = vi.hoisted(() => ({ get: vi.fn() }));
-const fileChangeRepoMock = vi.hoisted(() => ({ listForSession: vi.fn() }));
+const fileChangeRepoMock = vi.hoisted(() => ({
+  listForSession: vi.fn(),
+  readPathBoundaries: vi.fn(),
+  listPathPatchPage: vi.fn(),
+}));
 
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: sessionRepoMock }));
-vi.mock('@main/store/file-change-repo', () => ({ fileChangeRepo: fileChangeRepoMock }));
+vi.mock('@main/store/file-change-read-repo', () => ({
+  fileChangeReadRepo: fileChangeRepoMock,
+}));
 
 import { getSessionFileFinalDiff } from '../final-file-diff';
 
@@ -15,6 +21,35 @@ describe('getSessionFileFinalDiff', () => {
     fileChangeRepoMock.listForSession.mockReturnValue([
       { id: 1, filePath: '/repo/src/a.ts', ts: 1, metadata: {} },
     ]);
+    fileChangeRepoMock.readPathBoundaries.mockImplementation(
+      (_sessionId: string, candidates: string[]) => {
+        const rows = fileChangeRepoMock
+          .listForSession()
+          .filter((change: { filePath: string }) => candidates.includes(change.filePath))
+          .sort(
+            (a: { ts: number; id: number }, b: { ts: number; id: number }) =>
+              a.ts - b.ts || a.id - b.id,
+          );
+        return rows.length === 0 ? null : { first: rows[0], last: rows.at(-1) };
+      },
+    );
+    fileChangeRepoMock.listPathPatchPage.mockImplementation(
+      (_sessionId: string, candidates: string[]) => ({
+        items: fileChangeRepoMock
+          .listForSession()
+          .filter((change: { filePath: string }) => candidates.includes(change.filePath))
+          .map((change: { id: number; ts: number; metadata: { diff?: unknown } }) => ({
+            id: change.id,
+            ts: change.ts,
+            diff: typeof change.metadata?.diff === 'string' ? change.metadata.diff : null,
+          }))
+          .sort(
+            (a: { ts: number; id: number }, b: { ts: number; id: number }) =>
+              b.ts - a.ts || b.id - a.id,
+          ),
+        nextCursor: null,
+      }),
+    );
   });
 
   it('rejects paths that are not recorded in file_changes for the session', async () => {
@@ -271,5 +306,66 @@ describe('getSessionFileFinalDiff', () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('snapshot_unavailable');
     expect(result.message).toContain('记录快照');
+  });
+
+  it('targets the finite normalized relative and absolute candidates only', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: 'src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: null,
+        beforeSnapshot: 'old\n',
+        afterSnapshot: 'new\n',
+        metadata: { source: 'Edit' },
+        toolCallId: null,
+        ts: 1,
+      },
+    ]);
+
+    await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(fileChangeRepoMock.readPathBoundaries).toHaveBeenCalledWith(
+      's1',
+      expect.arrayContaining(['/repo/src/a.ts', 'src/a.ts']),
+    );
+    expect(fileChangeRepoMock.readPathBoundaries.mock.calls[0][1]).toHaveLength(2);
+  });
+
+  it('keeps the 4 MiB limit while keyset-reading same-path patch fallback pages', async () => {
+    fileChangeRepoMock.listForSession.mockReturnValue([
+      {
+        id: 1,
+        sessionId: 's1',
+        filePath: '/repo/src/a.ts',
+        kind: 'text',
+        beforeBlob: null,
+        afterBlob: null,
+        metadata: {},
+        toolCallId: null,
+        ts: 1,
+      },
+    ]);
+    fileChangeRepoMock.listPathPatchPage
+      .mockReturnValueOnce({
+        items: [{ id: 2, ts: 2, diff: 'x'.repeat(3 * 1024 * 1024) }],
+        nextCursor: 'next',
+      })
+      .mockReturnValueOnce({
+        items: [{ id: 1, ts: 1, diff: 'y'.repeat(2 * 1024 * 1024) }],
+        nextCursor: null,
+      });
+
+    const result = await getSessionFileFinalDiff('s1', '/repo/src/a.ts');
+
+    expect(result).toMatchObject({
+      ok: false,
+      source: 'recorded-patch-fallback',
+      reason: 'too_large',
+    });
+    expect(fileChangeRepoMock.listPathPatchPage).toHaveBeenCalledTimes(2);
+    expect(fileChangeRepoMock.listPathPatchPage.mock.calls[1][2]).toBe('next');
   });
 });

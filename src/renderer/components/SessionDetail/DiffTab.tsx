@@ -1,18 +1,22 @@
 import { useMemo, useState, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { DiffPayload, FileChangeRecord, FileFinalDiffResult } from '@shared/types';
+import type { DiffPayload, FileChangeSummary, FileFinalDiffResult } from '@shared/types';
 import { DiffViewer } from '../diff/DiffViewer';
 import { ChangeTimeline } from './ChangeTimeline';
 import type { FileChangeGroup } from './helpers';
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from '../icons';
 
 type DiffMode = 'single' | 'final';
-type FileGroup = FileChangeGroup<FileChangeRecord>;
+type FileGroup = FileChangeGroup<FileChangeSummary>;
 
 interface Props {
   sessionId: string;
-  changes: FileChangeRecord[] | null;
+  changes: FileChangeSummary[] | null;
   diffError: string | null;
+  hasMore: boolean;
+  loadingMore: boolean;
+  payloadLoading: boolean;
+  payloadError: string | null;
   fileGroups: FileGroup[];
   selectedFilePath: string | null;
   selectedGroup: FileGroup | null;
@@ -25,12 +29,18 @@ interface Props {
   onSelectFile: (group: FileGroup) => void;
   onSelectChange: (id: number) => void;
   onDiffModeChange: (mode: DiffMode) => void;
+  onLoadMore: () => void;
+  onRetry: () => void;
 }
 
 export function DiffTab({
   sessionId,
   changes,
   diffError,
+  hasMore,
+  loadingMore,
+  payloadLoading,
+  payloadError,
   fileGroups,
   selectedFilePath,
   selectedGroup,
@@ -43,6 +53,8 @@ export function DiffTab({
   onSelectFile,
   onSelectChange,
   onDiffModeChange,
+  onLoadMore,
+  onRetry,
 }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const selectedFileIndex = useMemo(
@@ -95,17 +107,45 @@ export function DiffTab({
     <div className="flex h-full flex-col gap-2">
       {changes === null ? (
         diffError ? (
-          <div className="text-[11px] text-status-waiting">加载改动失败：{diffError}</div>
+          <div className="flex items-center gap-2 text-[11px] text-status-waiting">
+            <span>加载改动失败：{diffError}</span>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded bg-white/[0.05] px-2 py-1 hover:bg-white/[0.1]"
+            >
+              重试
+            </button>
+          </div>
         ) : (
           <div className="text-[11px] text-deck-muted">加载中…</div>
         )
       ) : changes.length === 0 ? (
-        <div className="text-[11px] text-deck-muted">本会话暂无文件改动</div>
+        <div className="flex items-center gap-2 text-[11px] text-deck-muted">
+          <span>本会话暂无文件改动</span>
+          {hasMore && (
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              className="rounded bg-white/[0.05] px-2 py-1 hover:bg-white/[0.1] disabled:opacity-50"
+            >
+              {loadingMore ? '加载中…' : '继续查找'}
+            </button>
+          )}
+        </div>
       ) : (
         <>
           {diffError && (
-            <div className="shrink-0 text-[10px] text-status-waiting/80">
-              刷新改动失败（显示的是上次结果）：{diffError}
+            <div className="flex shrink-0 items-center gap-2 text-[10px] text-status-waiting/80">
+              <span>刷新改动失败（显示的是上次结果）：{diffError}</span>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="rounded bg-white/[0.05] px-2 py-1 hover:bg-white/[0.1]"
+              >
+                重试
+              </button>
             </div>
           )}
           <div className="flex shrink-0 flex-wrap gap-1">
@@ -129,6 +169,16 @@ export function DiffTab({
                 )}
               </button>
             ))}
+            {hasMore && (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="rounded bg-white/[0.05] px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.1] disabled:opacity-50"
+              >
+                {loadingMore ? '加载中…' : '加载更多'}
+              </button>
+            )}
           </div>
 
           {selectedGroup && (
@@ -167,6 +217,8 @@ export function DiffTab({
               finalDiff,
               diffPayload,
               finalDiffPayload,
+              payloadLoading,
+              payloadError,
             })}
           </div>
         </>
@@ -186,6 +238,8 @@ export function DiffTab({
               finalDiff,
               diffPayload,
               finalDiffPayload,
+              payloadLoading,
+              payloadError,
               hideHeader: true,
             })}
           </ExpandedDiffOverlay>,
@@ -202,6 +256,8 @@ function renderDiffBody(args: {
   finalDiff: FileFinalDiffResult | null;
   diffPayload: DiffPayload | null;
   finalDiffPayload: DiffPayload | null;
+  payloadLoading: boolean;
+  payloadError: string | null;
   hideHeader?: boolean;
 }): JSX.Element | null {
   if (args.diffMode === 'final') {
@@ -220,6 +276,16 @@ function renderDiffBody(args: {
     return (
       <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
         {args.finalDiff?.message ?? '暂无可显示的最终 diff'}
+      </div>
+    );
+  }
+  if (args.payloadLoading) {
+    return <div className="text-[11px] text-deck-muted">加载所选改动…</div>;
+  }
+  if (args.payloadError) {
+    return (
+      <div className="rounded-md border border-deck-border bg-white/[0.02] p-3 text-[11px] text-deck-muted/85">
+        {args.payloadError}
       </div>
     );
   }
