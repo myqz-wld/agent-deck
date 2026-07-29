@@ -15,7 +15,7 @@ Use this skill to verify that the Agent Deck app packaged and injected the bundl
 ## Steps
 
 1. Reply with this fixed confirmation: `Agent Deck bundled skill is ready: hello-from-deck`.
-2. Include the current session cwd and an ISO timestamp. Use Bash `pwd` + `date` on Claude, shell `pwd` + `date` on Codex, or reuse exact cwd/time values already present in context.
+2. Include the current session cwd and an ISO timestamp. In Claude Code, use Bash `pwd` + `date`, or reuse exact cwd/time values already present in context.
 
 ## Pass Criteria
 

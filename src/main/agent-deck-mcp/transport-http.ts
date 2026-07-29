@@ -10,6 +10,10 @@ import type { RouteRegistry } from '@main/hook-server/route-registry';
 import { isSessionAdapterId } from '@main/adapters/runtime-profiles';
 import { sessionRepo } from '@main/store/session-repo';
 import type { SessionAdapterId } from '@shared/types';
+import {
+  registerAgentDeckToolDefinitions,
+  type AgentDeckMcpServerModule,
+} from './server';
 import { buildAgentDeckTools } from './tools';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from './types';
 import {
@@ -23,18 +27,6 @@ const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
   s: string,
 ) => Promise<T>;
 
-interface McpSdkServerModule {
-  McpServer: new (info: { name: string; version: string }) => {
-    registerTool: (
-      name: string,
-      config: Record<string, unknown>,
-      cb: (args: any, extra?: unknown) => Promise<any>,
-    ) => unknown;
-    connect: (transport: unknown) => Promise<void>;
-    close: () => Promise<void>;
-  };
-}
-
 interface McpStreamableHttpModule {
   StreamableHTTPServerTransport: new (options: {
     sessionIdGenerator: (() => string) | undefined;
@@ -45,17 +37,19 @@ interface McpStreamableHttpModule {
 }
 
 let cachedMcpSdk: {
-  server: McpSdkServerModule;
+  server: AgentDeckMcpServerModule;
   http: McpStreamableHttpModule;
 } | null = null;
 
 async function loadMcpSdk(): Promise<{
-  server: McpSdkServerModule;
+  server: AgentDeckMcpServerModule;
   http: McpStreamableHttpModule;
 }> {
   if (!cachedMcpSdk) {
     const [server, http] = await Promise.all([
-      dynamicImport<McpSdkServerModule>('@modelcontextprotocol/sdk/server/mcp.js'),
+      dynamicImport<AgentDeckMcpServerModule>(
+        '@modelcontextprotocol/sdk/server/mcp.js',
+      ),
       dynamicImport<McpStreamableHttpModule>(
         '@modelcontextprotocol/sdk/server/streamableHttp.js',
       ),
@@ -84,11 +78,12 @@ export function resolveAuthenticatedAdapterId(
 }
 
 /** Build a fresh SDK server and register the tools visible to the authenticated adapter. */
-async function buildAgentDeckMcpServerForExternalTransport(
+export async function buildAgentDeckMcpServerForExternalTransport(
   transportName: 'http' | 'stdio',
   adapterId: SessionAdapterId | null,
+  mcpServerModule?: AgentDeckMcpServerModule,
 ) {
-  const { server } = await loadMcpSdk();
+  const server = mcpServerModule ?? (await loadMcpSdk()).server;
   const mcpServer = new server.McpServer({
     name: 'agent-deck',
     version: '0.1.0',
@@ -100,24 +95,7 @@ async function buildAgentDeckMcpServerForExternalTransport(
     transport: transportName,
     adapterId,
   });
-  for (const tool of adapted) {
-    const definition = tool as unknown as {
-      name: string;
-      description?: string;
-      inputSchema: Record<string, unknown>;
-      handler: (args: any, extra: unknown) => Promise<any>;
-      annotations?: Record<string, unknown>;
-    };
-    mcpServer.registerTool(
-      definition.name,
-      {
-        description: definition.description ?? '',
-        inputSchema: definition.inputSchema,
-        annotations: definition.annotations,
-      },
-      definition.handler,
-    );
-  }
+  registerAgentDeckToolDefinitions(mcpServer, adapted);
   return mcpServer;
 }
 

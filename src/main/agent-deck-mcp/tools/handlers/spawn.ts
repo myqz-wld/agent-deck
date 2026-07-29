@@ -9,9 +9,10 @@ import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-inject
 import { applySpawnGuards } from '../../spawn-guards';
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
+  type HandlerResult,
 } from '../helpers';
 import type { SpawnSessionArgs, SpawnSessionResult } from '../schemas';
 import { shouldWriteSpawnLink } from './spawn-link-guard';
@@ -53,7 +54,7 @@ export const spawnSessionHandler = withMcpGuard(
     args: SpawnSessionArgs,
     ctx: HandlerContext,
     opts?: SpawnSessionHandlerOptions,
-  ) => {
+  ): Promise<HandlerResult> => {
     const { caller } = ctx;
     const contextMode = args.contextMode ?? 'fresh';
     if (opts?.handOffMode && contextMode === 'fork') {
@@ -122,6 +123,21 @@ export const spawnSessionHandler = withMcpGuard(
 
     const leadRecord = sessionRepo.get(caller.callerSessionId);
     const callerExists = leadRecord !== null;
+    if (args.teamName && !callerExists) {
+      const nextAction =
+        'Do not retry this team spawn until the authenticated caller has an active durable Agent Deck session row. Then submit the request again, or omit teamName for a standalone target. No team or provider target was created.';
+      return err(
+        'team preflight requires a durable authenticated caller before the caller can become team lead',
+        nextAction,
+        {
+          phase: 'team-preflight',
+          preflightStep: 'caller-session',
+          retryValid: false,
+          residualState: [],
+          nextAction,
+        },
+      );
+    }
     const runtimeSelection = resolveSpawnRuntimeSelection({
       args,
       leadRecord,
@@ -217,37 +233,12 @@ export const spawnSessionHandler = withMcpGuard(
       );
     }
 
-    // REVIEW_31 Bug 4：teammate display name fallback 链 = args.displayName > args.agentName > 不动。
-    // teammateDisplayName 在多处被引用（wire prefix injection / setTitle / addMember / ok return），
-    // 提前算供下面 lead context block 注入也能引用 lead displayName 对称信息。
+    // One value drives the target title, team label, wire metadata, and success response.
     const teammateDisplayName = args.displayName ?? args.agentName ?? null;
     const leadDisplayName = leadRecord?.title ?? null;
 
-    // plan team-cohesion-fix-20260513 Phase B7 / CHANGELOG_100 D9 升级：spawn 路径
-    // wire format 与 buildWireBody 同款 `[from <name> @ <adapter>][msg <id>][sid <senderSid>]`
-    // 三段，让 teammate 端 message-row.tsx parseWirePrefix 能识别这条 prompt 也是 cross-session
-    // message（带 ↩ chip + lead context block 折叠 disclosure），不被当成"自己输入的 user message"渲染。
-    //
-    // teammate 收到 prompt 后从顶部 regex `\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]` 提
-    // messageId + senderSessionId 双锚点，调
-    // send_message({replyToMessageId: msgId, sessionId: senderSid, teamId, text}) 回复 lead。
-    // lead context block 显式列出 lead sessionId / teamId / lead displayName + send_message 用法，
-    // 让 teammate 不必依赖 wire prefix 解析也能 send_message（双层冗余防 prompt 长度截断 / 协议漂移）。
-    //
-    // 注入条件：callerExists + 普通 spawn（非 handOffMode）。
-    // - team spawn：teamIdEarly 写进 context block + placeholder.teamId
-    // - standalone spawn：teamIdEarly=null，context block 明确让 teammate omit teamId，placeholder
-    //   写 teamId=null 走 teamless DM reply-chain 校验（CHANGELOG_194）。
-    // - handOffMode：仍不注入。hand_off_session 是单向接力，successor 不应 reply 旧 caller。
-    // **DB messages.body 列存原始 promptToUse**（不含 prefix / lead context block），与 send_message
-    // buildWireBody 同款（wire prefix 在内存里加，不写回 DB）。
-    //
-    // leadDisplayName fallback：优先取 leadRecord.title（用户 / cwd-basename 默认），缺失时用
-    // `<leadAdapter>:<lead-sid 前 8>` 同 buildWireBody.resolveFromDisplayName 的 fallback 形态。
-    // 严格说 buildWireBody 优先取 team_member.displayName，但 spawn 路径下 lead addMember 在
-    // createSession 之后做（team_member sessionId FK 必须先存在），所以这里只能用 leadRecord.title。
-    // teammate 看到的是 lead "first impression" 名字，与之后 send_message reply 看到的可能不同
-    // —— 视觉上一致足以让用户识别"是同一个 lead"，无需强一致。
+    // Ordinary spawns from a durable caller receive a wire prefix and reply context. Hand-offs and
+    // suppressed review forks do not, and the stored anchor body remains the unwrapped prompt.
     const {
       shouldWriteNormalSpawnLink,
       willInjectWirePrefix,
@@ -288,7 +279,7 @@ export const spawnSessionHandler = withMcpGuard(
           },
         );
       }
-      return guard;
+      return { ...guard };
     }
     const { parentDepth, fanOutSlot } = guard;
 
@@ -305,12 +296,7 @@ export const spawnSessionHandler = withMcpGuard(
       });
     }
 
-    // 实际 spawn
-    // REVIEW_32 follow-up MED-1 (fan-out race) 修法：把 setSpawnLink 提到 try 块内 createSession
-    // 之后，与 fanOutSlot.release()（finally）形成顺序保证。旧实现 release 在 finally 跑完才
-    // setSpawnLink → applySpawnGuards 下次调用看到 inFlightChildren=0（已 release）+
-    // listChildren=oldCount（新 sid 未 setSpawnLink）→ effective 比真实少 1，能突破 maxFanOut + 1。
-    // 新版 setSpawnLink 在 release 之前做完，关闭 race window。
+    // Keep the fan-out reservation until registration and the best-effort link write have run.
     let sid: string;
     let forkHandle: ForkedSessionHandle | null = null;
     try {
@@ -325,7 +311,6 @@ export const spawnSessionHandler = withMcpGuard(
       }
       // Persist the normal caller edge before releasing the fan-out reservation. Hand-offs never
       // write a spawn edge because they are peer ownership transfers, not delegated children.
-      // **[caller-scoped #1/4]** spawn-link 写入(grep anchor 详 L148-160 callerExists 定义)
       if (shouldWriteNormalSpawnLink) {
         persistSpawnLinkFallback({
           sessionId: sid,
@@ -335,8 +320,7 @@ export const spawnSessionHandler = withMcpGuard(
       }
     } catch (e) {
       fanOutSlot.release();
-      // CHANGELOG_100 R2 fix (codex MED-2): createSession 失败 → cleanup 本次新建的空 team
-      // 防 active team 列表污染。再次 verify 空才删（防并发 caller 已抢先 addMember）。
+      // A provider failure must not leave a newly created, still-empty team behind.
       cleanupEmptySpawnTeam({
         teamCreatedNow,
         teamIdEarly,
@@ -349,7 +333,7 @@ export const spawnSessionHandler = withMcpGuard(
           : `No session was created. Retry once with an exact catalog/provider model and a thinking value supported by ${args.adapter}, or omit model/thinking. If it still fails, verify adapter authentication and inspect Agent Deck logs.`,
       );
     } finally {
-      // catch 路径已 release；finally 兜底 idempotent 二次 release（内部 dedupe）
+      // release is idempotent, including the provider-failure path above.
       fanOutSlot.release();
     }
 
@@ -399,7 +383,6 @@ export const spawnSessionHandler = withMcpGuard(
     // The provider receives the first prompt directly; a delivered placeholder preserves the
     // reply chain without redispatching it. Standalone spawns use the same teamless-DM anchor.
     let spawnPromptMessageId: string | null = null;
-    // **[caller-scoped #3/4]** placeholder message(grep anchor 详 L148-160 callerExists 定义)
     if (willInjectWirePrefix && callerExists && placeholderId) {
       const anchor = persistSpawnPromptAnchor({
         placeholderId,
@@ -433,23 +416,18 @@ export const spawnSessionHandler = withMcpGuard(
       callerSessionId: caller.callerSessionId,
       spawnDepth,
     });
-    return ok({
+    return structuredOk({
       sessionId: sid,
       adapter: args.adapter,
       provider: created?.runtimeProvider ?? resolvedProvider ?? null,
       cwd: args.cwd,
       teamId,
       teamName: args.teamName ?? null,
-      // REVIEW_32 HIGH-4：spawn-time agentName / displayName 回传给 caller
-      // （deep-review SKILL 里 lead 起多组并发 review 时按这两字段区分 reviewer 实例，
-      // 不再需要 list_sessions / get_session 反查）。
       agentName: args.agentName ?? null,
       displayName: teammateDisplayName,
-      // **[caller-scoped #4/4]** spawnDepth fallback (grep anchor 详 L148-160 callerExists 定义)
       spawnDepth,
       spawnLimits,
       sentAt: Date.now(),
-      // plan team-cohesion-fix-20260513 Phase B5：lead 用此 messageId 作为 teammate first reply anchor
       spawnPromptMessageId,
       ...(contextMode === 'fork'
         ? {

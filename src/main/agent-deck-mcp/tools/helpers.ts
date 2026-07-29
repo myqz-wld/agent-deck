@@ -31,7 +31,9 @@ export interface HandlerContext {
 
 /** SDK tool handler 的标准返回结构。 */
 export type HandlerResult = {
+  [key: string]: unknown;
   content: Array<{ type: 'text'; text: string }>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
@@ -152,6 +154,16 @@ export function withMcpGuard<
 export function ok(data: unknown): HandlerResult {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+  };
+}
+
+/** Return the same JSON in the legacy text channel and the MCP structured success channel. */
+export function structuredOk<T extends Record<string, unknown>>(
+  data: T,
+): HandlerResult {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+    structuredContent: data,
   };
 }
 

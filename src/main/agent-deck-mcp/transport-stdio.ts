@@ -24,6 +24,11 @@
  * 任一关 → 子进程启动时打印「未启用」错误后退出。
  */
 
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  registerAgentDeckToolDefinitions,
+  type AgentDeckMcpServerModule,
+} from './server';
 import { buildAgentDeckTools } from './tools';
 import { EXTERNAL_CALLER_SENTINEL } from './types';
 
@@ -58,16 +63,26 @@ interface McpStdioModule {
   };
 }
 
-interface McpServerModule {
-  McpServer: new (info: { name: string; version: string }) => {
-    registerTool: (
-      name: string,
-      config: Record<string, unknown>,
-      cb: (args: any, extra?: unknown) => Promise<any>,
-    ) => unknown;
-    connect: (transport: unknown) => Promise<void>;
-    close: () => Promise<void>;
-  };
+/** Build the listener-free stdio server so tools/list can be contract-tested in memory. */
+export async function buildAgentDeckMcpStdioServer(
+  mcpServerModule?: AgentDeckMcpServerModule,
+): Promise<McpServer> {
+  const serverMod =
+    mcpServerModule ??
+    (await dynamicImport<AgentDeckMcpServerModule>(
+      '@modelcontextprotocol/sdk/server/mcp.js',
+    ));
+  const mcpServer = new serverMod.McpServer({
+    name: 'agent-deck',
+    version: '0.1.0',
+  });
+  const adapted = await buildAgentDeckTools({
+    callerSessionIdOverride: stdioCallerSessionIdOverride,
+    transport: 'stdio',
+    adapterId: null,
+  });
+  registerAgentDeckToolDefinitions(mcpServer, adapted);
+  return mcpServer;
 }
 
 /**
@@ -84,15 +99,10 @@ interface McpServerModule {
  * 真正逻辑（IPC / HTTP 反向调用）放 B'2.a 与 B'5 同改。
  */
 export async function runAgentDeckMcpStdio(): Promise<void> {
-  const [serverMod, stdioMod] = await Promise.all([
-    dynamicImport<McpServerModule>('@modelcontextprotocol/sdk/server/mcp.js'),
+  const [mcpServer, stdioMod] = await Promise.all([
+    buildAgentDeckMcpStdioServer(),
     dynamicImport<McpStdioModule>('@modelcontextprotocol/sdk/server/stdio.js'),
   ]);
-
-  const mcpServer = new serverMod.McpServer({
-    name: 'agent-deck',
-    version: '0.1.0',
-  });
 
   // B-HIGH-1 (C) 修法 (b)（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
   // stdio transport 没 per-session authn 链路，client 只能传特殊值 `__external__` 当
@@ -106,30 +116,6 @@ export async function runAgentDeckMcpStdio(): Promise<void> {
   // 给 spoofing-attack-paths.test.ts 真 import 绑 production（旧版 test 本地复制 const stdioOverride
   // 不绑 production → 将来 transport-stdio.ts 回退成 `callerSessionIdOverride: null` test 仍 pass
   // 不报警 → 漏洞回归被静默 ship）。export 仅供 __tests__ import,严禁其他 production 文件 import。
-  const adapted = await buildAgentDeckTools({
-    callerSessionIdOverride: stdioCallerSessionIdOverride,
-    transport: 'stdio',
-    adapterId: null,
-  });
-  for (const t of adapted) {
-    const def = t as unknown as {
-      name: string;
-      description?: string;
-      inputSchema: Record<string, unknown>;
-      handler: (args: any, extra: unknown) => Promise<any>;
-      annotations?: Record<string, unknown>;
-    };
-    mcpServer.registerTool(
-      def.name,
-      {
-        description: def.description ?? '',
-        inputSchema: def.inputSchema,
-        annotations: def.annotations,
-      },
-      def.handler,
-    );
-  }
-
   const transport = new stdioMod.StdioServerTransport();
   // McpServer.connect 会调 transport.start（mcp-sdk 内部封装）
   await (mcpServer as unknown as { connect: (t: unknown) => Promise<void> }).connect(transport);
