@@ -1,11 +1,4 @@
-/**
- * agent-deck-repos 单测共享 fixture（CHANGELOG_105 拆分自 agent-deck-repos.test.ts）。
- *
- * 抽出 better-sqlite3 binding probe + in-memory DB factory + insertSession helper +
- * latest-schema ?raw migration imports，让 team-repo 与 message-repo 两组 test 复用。
- *
- * 与 task-repo.test.ts 同 pattern：bind probe 失败时 skip 整个 describe。
- */
+/** Shared better-sqlite3 probe, schema fixture, and session helper for repository tests. */
 
 import Database from 'better-sqlite3';
 import v001 from '../../migrations/v001_init.sql?raw';
@@ -61,18 +54,20 @@ import v050 from '../../migrations/v050_sessions_grok_usage_watermark.sql?raw';
 import v051 from '../../migrations/v051_token_usage_presence.sql?raw';
 import v052 from '../../migrations/v052_token_usage_metric_scope_repair.sql?raw';
 import v053 from '../../migrations/v053_sessions_grok_sandbox.sql?raw';
+import v054 from '../../migrations/v054_message_delivery_generation.sql?raw';
+import v055 from '../../migrations/v055_token_usage_daily_rollup.sql?raw';
 
-// binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
-// 让本 _setup 的 7 个下游 consumer（team-repo / message-repo / task-repo / issue-repo /
-// rejoin-after-soft-exit / swap-lead + agent-deck-mcp dormant-teammate-shutdown）的
-// `import { bindingAvailable } from './...../_setup'` 继续可用，0 改动。
+// Re-export the shared binding probe for existing fixture consumers.
 export { bindingAvailable } from '../_binding-probe';
 
-export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
+export function makeMemoryDb(
+  dbPath = ':memory:',
+  throughVersion: 53 | 54 | 55 = 53,
+): Database.Database {
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [
+  const migrations = [
     v001,
     v002,
     v003,
@@ -126,7 +121,10 @@ export function makeMemoryDb(dbPath = ':memory:'): Database.Database {
     v051,
     v052,
     v053,
-  ]) {
+  ];
+  if (throughVersion >= 54) migrations.push(v054);
+  if (throughVersion >= 55) migrations.push(v055);
+  for (const sql of migrations) {
     db.exec(sql);
   }
   return db;

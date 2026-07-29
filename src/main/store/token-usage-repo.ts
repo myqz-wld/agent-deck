@@ -10,6 +10,8 @@ import {
 import { normalizeModel } from '@shared/model-normalize';
 import { getDb } from './db';
 import { deleteExpiredTokenUsageBatch } from './token-usage-retention';
+import { queryTokenUsageDaily } from './token-usage-daily-query';
+import { createTokenUsageDailyRollup } from './token-usage-daily-rollup';
 
 export interface TokenUsageInsertInput extends TokenUsagePayload {
   sessionId: string;
@@ -27,6 +29,19 @@ export interface TokenUsageRepo {
 }
 
 export function createTokenUsageRepo(db: Database): TokenUsageRepo {
+  let dailyRollup: ReturnType<typeof createTokenUsageDailyRollup> | undefined;
+
+  function getDailyRollup(): ReturnType<typeof createTokenUsageDailyRollup> | null {
+    if (dailyRollup) return dailyRollup;
+    const migrated = db.prepare(
+      `SELECT 1 FROM sqlite_schema
+        WHERE type = 'table' AND name = 'token_usage_daily_state'`,
+    ).get();
+    if (!migrated) return null;
+    dailyRollup = createTokenUsageDailyRollup(db);
+    return dailyRollup;
+  }
+
   function insert(input: TokenUsageInsertInput): void {
     const needsTransaction =
       input.grokUsageWatermark !== undefined ||
@@ -92,122 +107,10 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
   }
 
   function dailyByModel(fromMs?: number, toMs?: number): TokenDailyRow[] {
-    const clauses: string[] = [];
-    const params: number[] = [];
-    if (fromMs !== undefined) {
-      clauses.push('ts >= ?');
-      params.push(fromMs);
+    if (fromMs !== undefined || toMs !== undefined) {
+      return queryTokenUsageDaily(db, fromMs, toMs);
     }
-    if (toMs !== undefined) {
-      clauses.push('ts < ?');
-      params.push(toMs);
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = db
-      .prepare(
-        `SELECT model_bucket AS bucketKey,
-                date(ts/1000, 'unixepoch', 'localtime') AS day,
-                ${completeScopedSum('total_tokens', TOKEN_USAGE_METRIC.total)}
-                  AS providerTotalTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.total)}
-                  AS providerTotalApplicable,
-                ${completeScopedSum('input_tokens', TOKEN_USAGE_METRIC.input)}
-                  AS inputTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.input)}
-                  AS inputApplicable,
-                CASE
-                  WHEN ${scopedCount(TOKEN_USAGE_METRIC.input)} = 0 THEN NULL
-                  WHEN ${scopedCount(TOKEN_USAGE_METRIC.input)} = SUM(
-                    CASE
-                      WHEN (metric_scope & ${TOKEN_USAGE_METRIC.input}) = 0 THEN 0
-                      WHEN input_tokens IS NULL THEN 0
-                      WHEN agent_id = 'claude-code'
-                       AND (metric_scope & ${TOKEN_USAGE_METRIC.cacheRead}) != 0
-                       AND cache_read_tokens IS NULL THEN 0
-                      WHEN agent_id = 'claude-code'
-                       AND (metric_scope & ${TOKEN_USAGE_METRIC.cacheCreation}) != 0
-                       AND cache_creation_tokens IS NULL THEN 0
-                      ELSE 1
-                    END
-                  )
-                  THEN SUM(
-                    CASE
-                      WHEN (metric_scope & ${TOKEN_USAGE_METRIC.input}) = 0 THEN 0
-                      WHEN agent_id = 'claude-code'
-                      THEN input_tokens
-                         + CASE
-                             WHEN (metric_scope & ${TOKEN_USAGE_METRIC.cacheRead}) != 0
-                             THEN cache_read_tokens ELSE 0
-                           END
-                         + CASE
-                             WHEN (metric_scope & ${TOKEN_USAGE_METRIC.cacheCreation}) != 0
-                             THEN cache_creation_tokens ELSE 0
-                           END
-                      ELSE input_tokens
-                    END
-                  )
-                  ELSE NULL
-                END AS inputTotalTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.input)}
-                  AS inputTotalApplicable,
-                ${completeScopedSum('output_tokens', TOKEN_USAGE_METRIC.output)}
-                  AS outputTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.output)}
-                  AS outputApplicable,
-                ${completeScopedSum('reasoning_tokens', TOKEN_USAGE_METRIC.reasoning)}
-                  AS reasoningTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.reasoning)}
-                  AS reasoningApplicable,
-                ${completeScopedSum('cache_read_tokens', TOKEN_USAGE_METRIC.cacheRead)}
-                  AS cacheReadTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.cacheRead)}
-                  AS cacheReadApplicable,
-                ${completeScopedSum(
-                  'cache_creation_tokens',
-                  TOKEN_USAGE_METRIC.cacheCreation,
-                )} AS cacheCreationTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.cacheCreation)}
-                  AS cacheCreationApplicable
-         FROM token_usage ${where}
-         GROUP BY model_bucket, day
-         ORDER BY day DESC, COALESCE(outputTokens, -1) DESC`,
-      )
-      .all(...params) as {
-      bucketKey: string;
-      day: string;
-      providerTotalTokens: number | null;
-      providerTotalApplicable: number;
-      inputTokens: number | null;
-      inputApplicable: number;
-      inputTotalTokens: number | null;
-      inputTotalApplicable: number;
-      outputTokens: number | null;
-      outputApplicable: number;
-      reasoningTokens: number | null;
-      reasoningApplicable: number;
-      cacheReadTokens: number | null;
-      cacheReadApplicable: number;
-      cacheCreationTokens: number | null;
-      cacheCreationApplicable: number;
-    }[];
-    return rows.map((r) => ({
-      bucketKey: r.bucketKey,
-      day: r.day,
-      providerTotalTokens: r.providerTotalTokens,
-      providerTotalApplicable: r.providerTotalApplicable > 0,
-      inputTokens: r.inputTokens,
-      inputApplicable: r.inputApplicable > 0,
-      inputTotalTokens: r.inputTotalTokens,
-      inputTotalApplicable: r.inputTotalApplicable > 0,
-      outputTokens: r.outputTokens,
-      outputApplicable: r.outputApplicable > 0,
-      reasoningTokens: r.reasoningTokens,
-      reasoningApplicable: r.reasoningApplicable > 0,
-      cacheReadTokens: r.cacheReadTokens,
-      cacheReadApplicable: r.cacheReadApplicable > 0,
-      cacheCreationTokens: r.cacheCreationTokens,
-      cacheCreationApplicable: r.cacheCreationApplicable > 0,
-    }));
+    return getDailyRollup()?.read() ?? queryTokenUsageDaily(db);
   }
 
   function deleteOlderThan(thresholdMs: number): number {
@@ -251,7 +154,30 @@ function insertUsageRow(db: Database, input: TokenUsageInsertInput): void {
          metric_scope          = token_usage.metric_scope | excluded.metric_scope,
          model_raw             = excluded.model_raw,
          model_bucket          = excluded.model_bucket,
-         ts                    = min(token_usage.ts, excluded.ts)`,
+         ts                    = min(token_usage.ts, excluded.ts)
+       WHERE
+         (excluded.total_tokens IS NOT NULL
+          AND (token_usage.total_tokens IS NULL
+               OR excluded.total_tokens > token_usage.total_tokens))
+         OR (excluded.input_tokens IS NOT NULL
+             AND (token_usage.input_tokens IS NULL
+                  OR excluded.input_tokens > token_usage.input_tokens))
+         OR (excluded.output_tokens IS NOT NULL
+             AND (token_usage.output_tokens IS NULL
+                  OR excluded.output_tokens > token_usage.output_tokens))
+         OR (excluded.reasoning_tokens IS NOT NULL
+             AND (token_usage.reasoning_tokens IS NULL
+                  OR excluded.reasoning_tokens > token_usage.reasoning_tokens))
+         OR (excluded.cache_read_tokens IS NOT NULL
+             AND (token_usage.cache_read_tokens IS NULL
+                  OR excluded.cache_read_tokens > token_usage.cache_read_tokens))
+         OR (excluded.cache_creation_tokens IS NOT NULL
+             AND (token_usage.cache_creation_tokens IS NULL
+                  OR excluded.cache_creation_tokens > token_usage.cache_creation_tokens))
+         OR (token_usage.metric_scope | excluded.metric_scope) != token_usage.metric_scope
+         OR token_usage.model_raw IS NOT excluded.model_raw
+         OR token_usage.model_bucket IS NOT excluded.model_bucket
+         OR excluded.ts < token_usage.ts`,
   ).run(
     input.sessionId,
     input.agentId,
@@ -410,33 +336,6 @@ function nullableMax(column: string): string {
   END`;
 }
 
-function scopedCount(metric: number): string {
-  return `SUM(CASE WHEN (metric_scope & ${metric}) != 0 THEN 1 ELSE 0 END)`;
-}
-
-function scopedApplicable(metric: number): string {
-  return `CASE WHEN ${scopedCount(metric)} > 0 THEN 1 ELSE 0 END`;
-}
-
-function completeScopedSum(column: string, metric: number): string {
-  return `CASE
-    WHEN ${scopedCount(metric)} = 0 THEN NULL
-    WHEN SUM(
-      CASE
-        WHEN (metric_scope & ${metric}) != 0 AND ${column} IS NULL THEN 1
-        ELSE 0
-      END
-    ) = 0
-    THEN SUM(
-      CASE
-        WHEN (metric_scope & ${metric}) != 0 THEN COALESCE(${column}, 0)
-        ELSE 0
-      END
-    )
-    ELSE NULL
-  END`;
-}
-
 function normalizeMetricScope(value: number | undefined): number {
   if (value === undefined) return TOKEN_USAGE_ALL_METRICS;
   if (
@@ -450,9 +349,19 @@ function normalizeMetricScope(value: number | undefined): number {
 }
 
 let _defaultRepo: TokenUsageRepo | null = null;
+let _defaultDb: Database | null = null;
 function defaultRepo(): TokenUsageRepo {
-  if (!_defaultRepo) _defaultRepo = createTokenUsageRepo(getDb());
+  const db = getDb();
+  if (!_defaultRepo || _defaultDb !== db) {
+    _defaultDb = db;
+    _defaultRepo = createTokenUsageRepo(db);
+  }
   return _defaultRepo;
+}
+
+export function resetTokenUsageRepoForTests(): void {
+  _defaultRepo = null;
+  _defaultDb = null;
 }
 
 export const tokenUsageRepo: TokenUsageRepo = {

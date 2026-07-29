@@ -180,7 +180,7 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     ).get()).toBeDefined();
   });
 
-  it('allows installed-pending-smoke to start and apply migrations through V54', () => {
+  it('allows installed-pending-smoke to apply every startup migration', () => {
     makeDbAtVersion(43);
     writeFileSync(`${dbPath()}${JOURNAL_SUFFIX}`, JSON.stringify({
       formatVersion: 1,
@@ -189,7 +189,9 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     }));
 
     const db = initDb();
-    expect(db.pragma('user_version', { simple: true })).toBe(54);
+    expect(db.pragma('user_version', { simple: true })).toBe(
+      MIGRATIONS.at(-1)!.version,
+    );
   });
 
   it('rejects a partial existing user_version=0 database without altering it', () => {

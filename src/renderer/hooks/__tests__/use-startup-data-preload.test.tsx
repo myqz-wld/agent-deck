@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
 import type { ProviderUsageSnapshot, TokenDailyRow } from '@shared/types';
 import { PROVIDER_USAGE_REFETCH_MS, useStartupDataPreload } from '../use-startup-data-preload';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
+import { resetTokenDailyRefreshForTests } from '../../lib/token-daily-refresh';
+import { DataPanel } from '../../components/DataPanel';
 
 function resetTokenUsageStore(): void {
   useTokenUsageStore.setState({
@@ -52,22 +54,32 @@ function claudeSnapshot(): ProviderUsageSnapshot {
 
 let tokenUsageDaily: ReturnType<typeof vi.fn>;
 let providerUsageSnapshot: ReturnType<typeof vi.fn>;
+let onTokenUsageChanged: ReturnType<typeof vi.fn>;
+let offTokenUsageChanged: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  resetTokenDailyRefreshForTests();
   resetTokenUsageStore();
   tokenUsageDaily = vi.fn().mockResolvedValue([dailyRow()]);
   providerUsageSnapshot = vi.fn().mockResolvedValue({ snapshots: [claudeSnapshot()] });
+  offTokenUsageChanged = vi.fn();
+  onTokenUsageChanged = vi.fn(() => offTokenUsageChanged);
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
       tokenUsageDaily,
       providerUsageSnapshot,
+      onTokenUsageChanged,
+      tokenUsageRates: vi.fn().mockResolvedValue([]),
+      tokenUsageTopToday: vi.fn().mockResolvedValue([]),
+      onTokenRateTick: vi.fn(() => vi.fn()),
     },
   });
 });
 
 afterEach(() => {
   cleanup();
+  resetTokenDailyRefreshForTests();
   Reflect.deleteProperty(window, 'api');
 });
 
@@ -77,16 +89,19 @@ describe('useStartupDataPreload', () => {
   });
 
   it('preloads provider usage into the renderer store before DataPanel mounts', async () => {
-    renderHook(() => useStartupDataPreload());
+    const { unmount } = renderHook(() => useStartupDataPreload());
 
     await waitFor(() => expect(tokenUsageDaily).toHaveBeenCalledTimes(1));
     expect(tokenUsageDaily).toHaveBeenCalledWith();
+    expect(onTokenUsageChanged).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(providerUsageSnapshot).toHaveBeenCalledTimes(1));
 
     const state = useTokenUsageStore.getState();
     expect(state.daily).toEqual([dailyRow()]);
     expect(state.providerUsageSnapshots).toEqual([expect.objectContaining({ provider: 'claude-code' })]);
     expect(state.providerUsageFetchedAt).toEqual(expect.any(Number));
+    unmount();
+    expect(offTokenUsageChanged).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes provider usage in the background while DataPanel is unmounted', async () => {
@@ -100,5 +115,31 @@ describe('useStartupDataPreload', () => {
     expect(providerUsageSnapshot).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+
+  it('serializes startup weak + DataPanel strong reads without stale store writes', async () => {
+    let resolveWeak!: (rows: TokenDailyRow[]) => void;
+    tokenUsageDaily
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveWeak = resolve;
+      }))
+      .mockResolvedValueOnce([dailyRow()]);
+
+    renderHook(() => useStartupDataPreload());
+    render(<DataPanel />);
+    await waitFor(() => expect(tokenUsageDaily).toHaveBeenCalledTimes(1));
+    expect(tokenUsageDaily).toHaveBeenNthCalledWith(1);
+
+    await act(async () => {
+      resolveWeak([{ ...dailyRow(), bucketKey: 'stale-weak' }]);
+    });
+    await waitFor(() => expect(tokenUsageDaily).toHaveBeenCalledTimes(2));
+    expect(tokenUsageDaily).toHaveBeenNthCalledWith(
+      2,
+      { includeGrokHistory: true },
+    );
+    await waitFor(() => {
+      expect(useTokenUsageStore.getState().daily).toEqual([dailyRow()]);
+    });
   });
 });

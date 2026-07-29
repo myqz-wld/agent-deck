@@ -1,21 +1,6 @@
 /**
- * session-repo cwd_release_marker 真 SQLite 单测 fixture（plan
- * codex-handoff-team-alignment-20260518 P1 Step 1.5）。
- *
- * makeMemoryDb factory + binding probe（probe 收敛到 ../../__tests__/_binding-probe SSOT，
- * plan sqlite-tests-no-skip-20260601 D3：import + re-export 让 cwd-release-marker.test 的
- * `import { bindingAvailable } from './_setup'` 0 改动可用）。
- *
- * Migration 范围 v001-v052（latest schema fixture）：
- * 原只载到 v020，但 session-repo 的 core-crud.upsert 写 cli_session_id（v021）、rename.ts 迁
- * tasks.owner_session_id（v023）/ issues.*（v026）→ 补齐到 v026；upsert / rename 又新增
- * network_access_enabled + additional_directories（v029）→ 再补 v027-v029 否则撞 `no such column`。
- * thinking（v032）同款：core-crud.upsert 写 sessions.thinking，fixture 必须带最新 sessions 列。
- * v033-v038 继续保持 latest-schema fixture；rename 会重建 v037 event revision boundary，
- * 并使 v038 continuation checkpoints 失效。
- * 与 agent-deck-repos/_setup.ts 对齐。仅 cwd-release-marker.test.ts import 本 fixture
- * （archive.test.ts 不 import），改动 contained；v021-v029 中仅 v023 含 DROP TABLE IF EXISTS tasks，
- * fresh in-memory DB 下安全（drop 后重建）。
+ * Session repository SQLite fixture. The version parameter lets migration-specific consumers
+ * stay on their required predecessor while new token-usage tests opt into v055.
  */
 
 import Database from 'better-sqlite3';
@@ -72,26 +57,29 @@ import v050 from '../../migrations/v050_sessions_grok_usage_watermark.sql?raw';
 import v051 from '../../migrations/v051_token_usage_presence.sql?raw';
 import v052 from '../../migrations/v052_token_usage_metric_scope_repair.sql?raw';
 import v053 from '../../migrations/v053_sessions_grok_sandbox.sql?raw';
+import v054 from '../../migrations/v054_message_delivery_generation.sql?raw';
+import v055 from '../../migrations/v055_token_usage_daily_rollup.sql?raw';
 
-// binding probe SSOT（plan sqlite-tests-no-skip-20260601 D3）：import + re-export，
-// 让 cwd-release-marker.test 的 `import { bindingAvailable } from './_setup'` 0 改动可用。
+// Re-export the shared binding probe for existing fixture consumers.
 export { bindingAvailable } from '../../__tests__/_binding-probe';
 
-/**
- * In-memory SQLite + 跑 v001-v052 全部 migration 后返回 db 实例。
- * 调用方负责 db.close()(beforeEach/afterEach pattern)。
- */
-export function makeMemoryDb(): Database.Database {
+/** Return an in-memory migrated database; the caller owns closing it. */
+export function makeMemoryDb(
+  throughVersion: 53 | 54 | 55 = 53,
+): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of [
+  const migrations = [
     v001, v002, v003, v004, v005, v006, v007, v008, v009, v010,
     v011, v012, v013, v014, v015, v016, v017, v018, v019, v020,
     v021, v022, v023, v024, v025, v026, v027, v028, v029, v030,
     v031, v032, v033, v034, v035, v036, v037, v038, v039, v040, v041, v042, v043, v044,
     v045, v046, v047, v048, v049, v050, v051, v052, v053,
-  ]) {
+  ];
+  if (throughVersion >= 54) migrations.push(v054);
+  if (throughVersion >= 55) migrations.push(v055);
+  for (const sql of migrations) {
     db.exec(sql);
   }
   return db;

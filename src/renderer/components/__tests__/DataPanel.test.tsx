@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { DataPanel } from '../DataPanel';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
 import type { ProviderUsageSnapshot, TokenDailyRow } from '@shared/types';
+import { resetTokenDailyRefreshForTests } from '../../lib/token-daily-refresh';
 
 function resetTokenUsageStore(): void {
   useTokenUsageStore.setState({
@@ -78,6 +79,7 @@ function tokenDailyRow(over: Partial<TokenDailyRow> = {}): TokenDailyRow {
 let providerUsageSnapshot: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  resetTokenDailyRefreshForTests();
   resetTokenUsageStore();
   providerUsageSnapshot = vi.fn().mockResolvedValue({ snapshots: [claudeSnapshot()] });
   Object.defineProperty(window, 'api', {
@@ -95,6 +97,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetTokenDailyRefreshForTests();
   vi.useRealTimers();
   Reflect.deleteProperty(window, 'api');
 });
@@ -260,6 +263,7 @@ describe('DataPanel quota usage', () => {
     render(<DataPanel />);
 
     expect(window.api.tokenUsageDaily).toHaveBeenCalledTimes(1);
+    expect(window.api.onTokenUsageChanged).toHaveBeenCalledTimes(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5 * 60_000);
     });
