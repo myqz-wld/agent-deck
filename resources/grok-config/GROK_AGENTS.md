@@ -41,7 +41,11 @@ Agent Deck's own in-app browser is available as MCP tools: `browser_open`, `brow
 
 Cross-adapter collaboration uses Agent Deck MCP tools. `send_message` is pushed into the receiver conversation as a user-role message; do not poll for it.
 
-After calling `spawn_session` or `send_message`, if the next useful step depends on the reply, record `spawnPromptMessageId` or `messageId`, tell the user the task was sent, and end the current turn. Do not busy-wait with session queries.
+Call `spawn_session` only for one bounded, independently executable subtask with a self-contained objective, exact scope and non-overlapping write set, exclusions, expected output, validation, and stop/report conditions. Keep tightly coupled producer/consumer files in one batch. Run only independent batches in parallel and treat returned `spawnLimits` as recursion/rate guard state, not promised worker capacity.
+
+`spawn_session` non-idempotently starts one parallel target for the bounded brief above; duplicate calls can create duplicate targets. Treat the live tool description plus input/output schemas as the SSOT for fields, adapter-owned runtime controls and defaults, side effects, time bounds, and result shapes. Omitted `contextMode` is `fresh`; a requested `fork` never downgrades silently. On `isError`, follow `retryValid` and `nextAction`, or the supplied hint when those fields are absent, before retrying. After success, use only a non-null `spawnPromptMessageId` as a reply anchor; otherwise call `send_message` and use its `messageId`.
+
+After calling `spawn_session` or `send_message`, if the next useful step depends on the reply, record the returned `messageId` or a non-null `spawnPromptMessageId`, tell the user the task was sent, and end the current turn. A null `spawnPromptMessageId` is not a reply anchor; if a reply chain is required, send a follow-up with `send_message` and record its `messageId` before waiting. Do not busy-wait with session queries.
 
 For a wire-prefixed reply, extract `[msg <id>][sid <senderSid>]` and use the message id as `replyToMessageId` when replying.
 

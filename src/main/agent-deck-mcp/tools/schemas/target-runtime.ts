@@ -19,7 +19,7 @@ const provider = z
   .max(128)
   .optional()
   .describe(
-    'Optional provider override for the target session. claude-code accepts a Gateway profile id from ~/.claude/gateways; codex-cli accepts a model_provider id from ~/.codex/config.toml; grok-build rejects this field. Explicit values outrank resolved Agent runtime and same-adapter inheritance; omission preserves the applicable same-adapter or target-native default.',
+    'Optional non-null provider override, trimmed to 1-128 characters. Claude Code accepts a Gateway profile id from ~/.claude/gateways; Codex CLI accepts a model_provider id from ~/.codex/config.toml; Grok Build rejects this field. Spawn precedence is explicit value, selected Agent runtime, persisted same-adapter source, then adapter/provider default. Omission never cross-inherits a source provider; null and empty-after-trim values reject.',
   );
 
 const model = z
@@ -29,49 +29,49 @@ const model = z
   .max(256)
   .optional()
   .describe(
-    'Optional free-text model override for the target session; for spawn_session it applies to the spawned session only. Suggested values include Claude haiku, sonnet, opus, and fable; Codex gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, and gpt-5.4; and Grok Build grok-4.5. Suggestions are not an allowlist: the selected provider remains authoritative. Spawn precedence is explicit model > resolved agent model > same-adapter source session > provider default. A hand-off follows the equivalent explicit, same-adapter, then target-provider precedence.',
+    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, and gpt-5.4; and Grok Build grok-4.5. Suggestions are not an allowlist; the selected provider validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > provider default. Omission never cross-inherits; null and empty-after-trim values reject.',
   );
 
 const thinking = z
   .enum(SESSION_THINKING_LEVELS)
   .optional()
   .describe(
-    'Optional target reasoning level. Claude accepts low, medium, high, xhigh, and max; Codex accepts low, medium, high, xhigh, max, and ultra; Grok Build accepts low, medium, high, and xhigh. Spawn precedence is explicit thinking > resolved agent effort > same-adapter source session > provider default. A hand-off follows the equivalent explicit, same-adapter, then target-provider precedence. Adapter-invalid values are rejected before session creation.',
+    'Optional non-null target reasoning level. Claude accepts low, medium, high, xhigh, and max; Codex CLI also accepts ultra; Grok Build accepts low, medium, high, and xhigh. Spawn precedence is explicit thinking > resolved agent effort > same-adapter source session > provider default. Omission never cross-inherits. Adapter-invalid values and null reject before creation.',
   );
 
 const permissionMode = z
   .enum(PERMISSION_MODES)
   .optional()
   .describe(
-    'Optional Claude Code permission mode. This field is owned only by adapter="claude-code"; omitted same-adapter targets may inherit it, while fresh Claude targets use the Claude target default. Codex approval requests and Grok ACP permissions use their provider-native protocols.',
+    'Optional non-null Claude Code-only permission mode: default, acceptEdits, plan, auto, or bypassPermissions. Explicit value wins; omission inherits a selectable persisted same-adapter mode (persisted dontAsk becomes default), while fresh or cross-adapter Claude targets currently use bypassPermissions. Codex CLI approvals and Grok Build ACP permissions use their separate native protocols. Other adapters and null reject.',
   );
 
 const approvalPolicy = z
   .enum(CODEX_APPROVAL_POLICIES)
   .optional()
   .describe(
-    'Optional Codex app-server approval policy override. This field is owned only by adapter="codex-cli". Values run from stricter to looser interaction: untrusted, on-request, never. Explicit values win; omission inherits a persisted same-adapter value or uses the Codex target default on-request.',
+    'Optional non-null Codex CLI app-server approval policy: untrusted, on-request, or never. Explicit public value wins, followed by any trusted main-only override, persisted same-adapter source, then on-request. This field does not set Codex network access or arbitrary additional readable directories; those can only come from trusted internal state, same-adapter inheritance, or selected Codex Agent configuration. Other adapters and null reject.',
   );
 
 const sessionMode = z
   .enum(['default', 'plan', 'ask'])
   .optional()
   .describe(
-    'Optional Grok Build work mode. This field is owned only by adapter="grok-build", may inherit across same-adapter targets when omitted, and is distinct from Claude permissionMode.',
+    'Optional non-null Grok Build-only ACP work mode: default, plan, or ask. Explicit value wins; omission inherits a persisted same-adapter mode, otherwise sends no override and accepts the mode Grok Build reports. This is distinct from Claude Code permissionMode and from Grok ACP tool permissions. Other adapters and null reject.',
   );
 
 const codexSandbox = z
   .enum(['workspace-write', 'read-only', 'danger-full-access'])
   .optional()
   .describe(
-    'Optional Codex app-server sandbox override. This field is owned only by adapter="codex-cli". Precedence is explicit value, resolved Agent runtime, persisted same-adapter source, then the Codex target default; cross-adapter targets never copy the source sandbox.',
+    'Optional non-null Codex CLI app-server sandbox: workspace-write, read-only, or danger-full-access. Precedence is explicit value, selected Codex Agent runtime, persisted same-adapter source, then configured Codex adapter default. Cross-adapter targets never copy the source sandbox. This is separate from approvalPolicy. Other adapters and null reject.',
   );
 
 const claudeCodeSandbox = z
   .enum(['off', 'workspace-write', 'strict'])
   .optional()
   .describe(
-    'Optional Claude Code OS sandbox override. This field is owned only by adapter="claude-code"; omission uses same-adapter inheritance or the Claude adapter default as applicable.',
+    'Optional non-null Claude Code-only OS sandbox: off, workspace-write, or strict. Explicit value wins; omission uses persisted same-adapter inheritance, otherwise the configured Claude Code adapter default. This is separate from permissionMode. Other adapters and null reject.',
   );
 
 const grokSandbox = z
@@ -85,7 +85,7 @@ const grokSandbox = z
   )
   .optional()
   .describe(
-    'Optional Grok Build native sandbox profile requested when its ACP child starts. This field is owned only by adapter="grok-build". Input is trimmed and must contain 1-128 characters with no control characters. Built-ins are off, workspace, devbox, read-only, and strict; custom names from user/project sandbox.toml are accepted. Omission inherits the same-adapter source or uses the Agent Deck Grok default, which may delegate to Grok native configuration. Managed requirements may override the request, so the value is not an effective-policy attestation. Grok ACP tool permissions remain separate.',
+    'Optional non-null Grok Build-only native sandbox profile requested when its ACP child starts. Input is trimmed to 1-128 characters with no control characters. Built-ins are off, workspace, devbox, read-only, and strict; trimmed custom names from user/project sandbox.toml are accepted. Explicit value wins; omission inherits the persisted same-adapter source, otherwise uses the configured Agent Deck Grok default, which may delegate to Grok-native configuration. Managed requirements may override the request, so neither input nor output attests the effective policy. Grok ACP tool permissions remain separate. Other adapters, null, and empty-after-trim values reject.',
   );
 
 const extraAllowWrite = z
@@ -102,7 +102,7 @@ const extraAllowWrite = z
   .max(16)
   .optional()
   .describe(
-    'Optional absolute writable roots outside cwd. claude-code passes them to sandbox.allowWrite and codex-cli merges them into workspace-write writableRoots. Omission inherits persisted roots only for a same-adapter target; cross-adapter targets use an empty target default. grok-build keeps ACP-native tool permissions and rejects this field.',
+    'Optional non-null array of 0-16 additional writable roots outside cwd. Each untrimmed string must use absolute POSIX or drive-letter syntax and contain 1-4096 characters; existence is checked later by the target runtime. Claude Code passes non-empty roots to sandbox.allowWrite; Codex CLI merges them into workspace-write writableRoots. An explicit empty array clears inherited roots. Omission inherits persisted roots only for a same-adapter target; cross-adapter targets use no extra roots. This field cannot set arbitrary readable roots or network access. Grok Build and null reject.',
   );
 
 /**

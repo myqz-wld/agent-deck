@@ -2,7 +2,7 @@
  * Agent Deck MCP server 顶层入口（B'0 ADR §2 / §9）。
  *
  * 三 transport 共享同一份 buildAgentDeckTools 输出（tools.ts），但实例化路径不同：
- * - in-process（B'3）：用 SDK `createSdkMcpServer`，挂到 sdk-bridge query options.mcpServers
+ * - in-process（B'3）：用 mcp-sdk `McpServer`，挂到 sdk-bridge query options.mcpServers
  * - HTTP（B'4）：用 mcp-sdk `McpServer` + `StreamableHTTPServerTransport`，
  *   挂到 fastify HookServer 的 `/mcp` route（rate-limit + Bearer token）
  * - stdio（B'1）：用 mcp-sdk `McpServer` + `StdioServerTransport`，
@@ -18,9 +18,42 @@
  */
 
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
-import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SessionAdapterId } from '@shared/types';
-import { buildAgentDeckTools } from './tools';
+import {
+  buildAgentDeckTools,
+  type AgentDeckToolDefinition,
+} from './tools';
+
+const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
+  s: string,
+) => Promise<T>;
+
+export interface AgentDeckMcpServerModule {
+  McpServer: new (info: { name: string; version: string }) => McpServer;
+}
+
+/** Register one shared tool-definition set without dropping MCP output schemas. */
+export function registerAgentDeckToolDefinitions(
+  mcpServer: McpServer,
+  tools: readonly AgentDeckToolDefinition[],
+): void {
+  for (const definition of tools) {
+    mcpServer.registerTool(
+      definition.name,
+      {
+        description: definition.description ?? '',
+        inputSchema: definition.inputSchema,
+        ...(definition.outputSchema !== undefined
+          ? { outputSchema: definition.outputSchema }
+          : {}),
+        annotations: definition.annotations,
+        _meta: definition._meta,
+      },
+      definition.handler,
+    );
+  }
+}
 
 /**
  * 构造 in-process MCP server（B'3 在 sdk-bridge 内调，per-session 实例化）。
@@ -42,18 +75,24 @@ import { buildAgentDeckTools } from './tools';
 export async function getAgentDeckMcpServerForSession(
   callerSessionIdProvider: () => string | null,
   adapterId: SessionAdapterId,
+  mcpServerModule?: AgentDeckMcpServerModule,
 ): Promise<McpSdkServerConfigWithInstance> {
-  const { createSdkMcpServer } = await loadSdk();
+  const { McpServer } =
+    mcpServerModule ??
+    (await dynamicImport<AgentDeckMcpServerModule>(
+      '@modelcontextprotocol/sdk/server/mcp.js',
+    ));
   const tools = await buildAgentDeckTools({
     callerSessionIdOverride: callerSessionIdProvider,
     transport: 'in-process',
     adapterId,
   });
-  return createSdkMcpServer({
+  const mcpServer = new McpServer({
     name: 'agent-deck',
     version: '0.1.0',
-    tools,
   });
+  registerAgentDeckToolDefinitions(mcpServer, tools);
+  return { type: 'sdk', name: 'agent-deck', instance: mcpServer };
 }
 
 /**

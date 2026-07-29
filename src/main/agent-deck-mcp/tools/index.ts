@@ -1,4 +1,5 @@
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import type { ZodType } from 'zod';
 
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
@@ -31,6 +32,7 @@ import {
   REPORT_ISSUE_SCHEMA,
   APPEND_ISSUE_CONTEXT_SCHEMA,
   UPDATE_ISSUE_STATUS_SCHEMA,
+  SPAWN_SESSION_OUTPUT_SCHEMA,
   spawnSessionSchemaForCaller,
 } from './schemas';
 import { spawnSessionHandler } from './handlers/spawn';
@@ -94,16 +96,22 @@ export interface BuildAgentDeckToolsDeps {
   transport: CallerContext['transport'];
 }
 
+export type AgentDeckToolDefinition = Omit<SdkMcpToolDefinition<any>, 'handler'> & {
+  // Erase each tool's distinct inferred input type only at the shared registry boundary.
+  handler: (args: any, extra: unknown) => ReturnType<SdkMcpToolDefinition<any>['handler']>;
+  outputSchema?: ZodType;
+};
+
 export async function buildAgentDeckTools(
   deps: BuildAgentDeckToolsDeps,
-): Promise<SdkMcpToolDefinition<any>[]> {
+): Promise<AgentDeckToolDefinition[]> {
   const { tool } = await loadSdk();
   const { transport, callerSessionIdOverride } = deps;
   const profile = deps.adapterId ? getAdapterRuntimeProfile(deps.adapterId) : null;
 
   /**
-   * 把 zod 解析后的 args 字段（含 callerSessionId / parentSessionId）规范成
-   * HandlerContext。in-process transport 用 closure override 覆盖伪造的 callerSessionId;
+   * 把 zod 解析后的 callerSessionId（及 private compatibility seam 的 parentSessionId）规范成
+   * HandlerContext。public spawn schema 不暴露 parentSessionId；in-process closure 覆盖伪造 caller;
    * HTTP transport 通过 mcp-sdk handler 第二参数 extra 透传 RequestHandlerExtra,
    * 由 callerSessionIdOverride 拿 extra.authInfo.resolvedSid 反查（plan P2 Step 2.3）。
    *
@@ -127,20 +135,14 @@ export async function buildAgentDeckTools(
     };
   }
 
-  const spawnSession = tool(
+  const spawnSession = Object.assign(tool(
     AGENT_DECK_TOOL_NAMES.spawnSession,
-    'Spawn a parallel session on claude-code, codex-cli, or grok-build. Required fields: adapter, absolute cwd, and a complete non-empty prompt. Use provider for a Claude Gateway profile such as deepseek/openrouter or a Codex model_provider; grok-build rejects provider. Explicit runtime values and resolved Agent runtime values win. Omitted model, thinking, permission/work mode, sandbox, writable-root, and Codex approval/network/read-root state inherit only from a persisted same-adapter caller; cross-adapter targets use their own defaults. A Codex target with no explicit or inherited approval uses on-request; approvalPolicy is a public Codex-only override. agentName never injects runtime access. grokSandbox belongs only to grok-build and requests the profile used to start that target ACP child; built-ins are off, workspace, devbox, read-only, and strict, and custom user/project sandbox.toml profile names are accepted. Its precedence is explicit value, same-adapter source, Agent Deck Grok default, then Grok-native configuration. Managed requirements may override the requested profile, and Grok ACP tool permissions remain separate. contextMode defaults to fresh. Use contextMode "fork" only when the selected adapter advertises native fork support, to inherit the authenticated caller\'s provider history through the safe active-turn boundary; fork requires the exact caller adapter, exact runtime provider, and same realpath cwd, accepts no source-session id or turn count, and never silently falls back to fresh. A first-turn Codex fork creates an independent zero-prefix target thread and replays current native UserInput values before the delegated prompt. Successful forks return contextMode and the Agent Deck forkedFromSessionId. Omit agentName for a general-purpose teammate; set it only to resolve an adapter-native bundled, project, user, or Grok plugin agent. Optional runtime controls affect only the target session. Pass teamName to create or reuse a shared team; omit it for a standalone session that can still use teamless DM. Returns sessionId, resolved provider, optional teamId, spawnPromptMessageId, and spawnLimits. On failure, follow hint exactly or use contextMode "fresh" when inherited context is unnecessary. Use hand_off_session when replacing the current session; hand-offs always start fresh.',
+    'Create one parallel Claude Code, Codex CLI, or Grok Build session for a concrete independently executable task with a self-contained objective, exact scope/write set, exclusions, output, validation, and stop/report conditions; keep coupled producer/consumer files together, prevent overlapping active write sets, and parallelize only independent batches. Required fields: adapter, absolute cwd, and prompt; field schemas define every length, enum, owner, omission default, null rejection, and cross-field rule. Public callers cannot choose parent lineage: Agent Deck derives it from the authenticated caller, and the spawn-link write is best-effort. A teamName request requires the authenticated caller to have a durable Agent Deck session row and otherwise fails before team or provider creation. Use provider for a Claude Gateway profile or a Codex model_provider; Grok Build rejects it. Explicit runtime values and resolved Agent runtime values win. Resolution then uses a persisted same-adapter caller before target defaults; cross-adapter targets use their own defaults. A Codex target with no explicit or inherited approval uses on-request; approvalPolicy is a public Codex-only override. agentName never injects runtime access by identity alone, but selected Agent configuration can affect runtime, including Codex sandbox/network/read/write configuration; bundled reviewer-* identity grants no hidden elevation. Adapter-incompatible controls reject rather than being ignored, and MCP cannot directly set arbitrary network access or additional readable directories. grokSandbox belongs only to grok-build; managed policy and Grok ACP tool permissions remain separate, and Managed requirements may override the request. If validation fails, follow hint exactly or omit an optional override. contextMode defaults to fresh. fork inherits only the authenticated active caller provider history through the safe active-turn boundary and requires exact adapter, runtime provider, and realpath cwd; it accepts no source id/count, excludes unfinished caller output/tool use and this frame, and never falls back silently. This non-idempotent call can start a provider process/session, attempt a best-effort authenticated spawn-link write, create/reuse a team and memberships, and persist a delivered reply anchor; a duplicate call can create another target. Normal recursion/rate guards default to depth 3, direct fan-out 10, and 20 app-wide spawns per 60000 ms, are configurable, and consume rate quota after preflight; returned spawnLimits is guard state, not worker capacity. Success returns identical JSON text and structuredContent matching the published output schema: canonical sessionId; exact adapter/cwd; nullable provider/teamId/teamName/agentName/displayName/spawnPromptMessageId; reported spawnDepth, spawnLimits, and sentAt; and the contextMode/forkedFromSessionId pair only for fork. teamId/teamName are both null or both non-null; spawnPromptMessageId may validly be null, so only a non-null id is a reply anchor. Success means the provider target and applicable team/anchor steps completed; it is not a durable lineage attestation because the spawn-link write remains best-effort. Schema, adapter/agent/runtime/fork/team-preflight/guard failures occur before a durable target when stated; guard errors include spawnLimits and rate retryAfterMs. Provider-creation failures report that no target was registered. A post-creation team/anchor failure returns isError text with phase, targetSessionId, rollback, residualState, retryValid, and nextAction after best-effort target close, anchor/link/team cleanup, and native-fork discard; retry the same call immediately only when retryValid is true. When it is false, complete the prerequisites named by nextAction before any later retry. Error results are not required to match the success output schema. There is no timeout input or end-to-end spawn deadline: current adapter-owned bounds include Claude Code 30s canonical-id fallback, Codex CLI 30s control-plane and 30s thread-id bounds (the 90s first-model watchdog is later), and Grok Build 15s ACP request bounds with 2s graceful-stop plus 2s forced-close cleanup; the HTTP 60s spawn threshold logs latency but does not cancel. After success, record sessionId and any non-null spawnPromptMessageId; if the next useful step depends on its reply, return control instead of polling. Use hand_off_session to replace the caller; hand-offs always start fresh.',
     spawnSessionSchemaForCaller(profile?.capabilities.canForkSession ?? null),
     async (args, extra) => spawnSessionHandler(args, makeCtx(args, extra)),
     {
-      // plan reviewer-codex-cross-adapter-20260519 Phase 0 Step 0.4-tris: codex CLI 内部 mcp tool
-      // approval gate 看 mcp annotations 决策放行 vs 走审批 gate (cancel)。给 8 个 write tool
-      // 加 spec-compliant annotations 让 codex / 其他 mcp client 都能正确决策。
-      // spawn_session: 起 SDK 子进程是应用内 closed-world (主进程 spawn 应用边界内 SDK CLI 子进程,
-      // 不是 web search 那种真正外部 open-world); 写 sessions 表 INSERT 不破坏不幂等。
-      // **fix v3** (2026-05-20): openWorldHint 由 true 改 false — Phase 0 Step 0.5 方向 B 实测
-      // codex CLI 把 openWorldHint:true 当 destructive 触发审批 gate cancel; 改 false 让 codex 放行,
-      // spec 上也更准确(应用内部 spawn 不是真正 open world)。
+      // Session creation writes app state and is non-idempotent. Adapter child startup remains an
+      // application-owned operation rather than an external-web open-world action.
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -148,7 +150,7 @@ export async function buildAgentDeckTools(
         openWorldHint: false,
       },
     },
-  );
+  ), { outputSchema: SPAWN_SESSION_OUTPUT_SCHEMA });
 
   const sendMessage = tool(
     AGENT_DECK_TOOL_NAMES.sendMessage,
