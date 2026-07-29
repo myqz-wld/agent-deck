@@ -53,7 +53,7 @@ const CONFIGS: Record<'claude' | 'codex' | 'grok', AdapterHelpConfig> = {
     inAppFeatures: (
       <>
         应用内会话通过 ACP 注入 Agent Deck 应用约定、内置 skills / Agents 和按 adapter
-        过滤的 MCP 工具；Grok 原生配置与登录状态仍由 Grok CLI 管理。
+        过滤的 MCP 工具；Grok Build 原生配置与登录状态仍由 Grok Build CLI 管理。
       </>
     ),
   },

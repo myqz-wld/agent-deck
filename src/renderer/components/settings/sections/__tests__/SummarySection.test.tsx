@@ -64,7 +64,9 @@ describe('SummarySection provider-specific thinking levels', () => {
       />,
     );
     openSection();
-    expect(screen.getByText('留空时使用所选 Codex provider 的默认模型。')).toBeTruthy();
+    expect(
+      screen.getByText('留空时使用所选 Codex CLI provider 的默认模型。'),
+    ).toBeTruthy();
     expect(
       (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
         .placeholder,
@@ -98,7 +100,7 @@ describe('SummarySection provider-specific thinking levels', () => {
           .placeholder,
       ).toBe('模型（可留空）');
     });
-    expect(screen.getByText('留空时使用 Claude Haiku。')).toBeTruthy();
+    expect(screen.getByText('留空时使用 Claude Code 的 Haiku 模型。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryAdapter: 'claude-code',
       summaryRuntimeProvider: '',
@@ -231,7 +233,9 @@ describe('SummarySection provider-specific thinking levels', () => {
       const thinking = screen.getByRole('button', { name: '总结模型 思考程度' });
       expect(thinking.title).toBe('Grok Build 思考程度');
       expect(thinking.textContent).toContain('XHIGH');
-      expect(screen.getByText('留空时使用 Grok 配置默认模型。')).toBeTruthy();
+      expect(
+        screen.getByText('留空时使用 Grok Build 配置中的默认模型。'),
+      ).toBeTruthy();
     });
     expect(onPatch).toHaveBeenCalledWith({
       summaryAdapter: 'grok-build',

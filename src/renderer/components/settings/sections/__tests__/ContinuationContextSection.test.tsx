@@ -66,7 +66,7 @@ describe('ContinuationContextSection', () => {
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText('留空时使用所选 Codex provider 的默认模型。'),
+      screen.getByText('留空时使用所选 Codex CLI provider 的默认模型。'),
     ).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: '上下文整理模型 model' }) as HTMLInputElement)
@@ -96,7 +96,9 @@ describe('ContinuationContextSection', () => {
           name: '上下文整理模型 model',
         }) as HTMLInputElement).placeholder,
       ).toBe('模型（可留空）');
-      expect(screen.getByText('留空时使用 Claude Sonnet。')).not.toBeNull();
+      expect(
+        screen.getByText('留空时使用 Claude Code 的 Sonnet 模型。'),
+      ).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
       continuationCheckpointAdapter: 'claude-code',
@@ -192,7 +194,9 @@ describe('ContinuationContextSection', () => {
       expect(
         screen.getByRole('button', { name: '上下文整理模型 思考程度' }).textContent,
       ).toContain('XHIGH');
-      expect(screen.getByText('留空时使用 Grok 配置默认模型。')).not.toBeNull();
+      expect(
+        screen.getByText('留空时使用 Grok Build 配置中的默认模型。'),
+      ).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
       continuationCheckpointAdapter: 'grok-build',

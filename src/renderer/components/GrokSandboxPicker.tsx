@@ -20,7 +20,7 @@ interface Props {
   ariaLabel?: string;
 }
 
-/** Built-in Grok profiles plus an editable custom sandbox.toml profile name. */
+/** Built-in Grok Build profiles plus an editable sandbox.toml configuration name. */
 export function GrokSandboxPicker({
   value,
   onChange,
@@ -29,7 +29,7 @@ export function GrokSandboxPicker({
   followLabel = '跟随设置（默认）',
   profileOptions = GROK_SANDBOX_MODE_OPTIONS,
   buttonClassName,
-  ariaLabel = 'Grok 沙盒请求档位',
+  ariaLabel = 'Grok Build 沙盒请求档位',
 }: Props): JSX.Element {
   const valueIsSelectableBuiltin = profileOptions.some((option) => option.value === value);
   const valueIsCustom =
@@ -50,14 +50,14 @@ export function GrokSandboxPicker({
       ? [{
           value: '',
           label: followLabel,
-          title: '不添加会话级覆盖，使用 Agent Deck 设置或 Grok 原生配置',
+          title: '不添加会话级覆盖，使用 Agent Deck 设置或 Grok Build 原生配置',
         }]
       : []),
     ...profileOptions,
     {
       value: CUSTOM_VALUE,
-      label: '自定义 profile…',
-      title: '使用 ~/.grok/sandbox.toml 或项目 .grok/sandbox.toml 中定义的名称',
+      label: '自定义配置…',
+      title: '使用 ~/.grok/sandbox.toml 或项目 .grok/sandbox.toml 中定义的配置名称',
     },
   ];
 
@@ -85,8 +85,8 @@ export function GrokSandboxPicker({
           onChange={(event) => onChange(event.target.value)}
           disabled={disabled}
           maxLength={128}
-          placeholder="输入自定义 sandbox profile 名"
-          aria-label="Grok 自定义沙盒 profile"
+          placeholder="输入自定义 sandbox.toml 配置名称"
+          aria-label="Grok Build 自定义沙盒配置名称"
           className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
         />
       )}

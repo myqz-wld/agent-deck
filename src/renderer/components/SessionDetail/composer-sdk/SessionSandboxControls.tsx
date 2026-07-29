@@ -45,10 +45,10 @@ export function SessionSandboxControls({
     if (next === current || busy) return;
     if (next === 'danger-full-access') {
       const approved = await window.api.confirmDialog({
-        title: '关闭沙盒（完全开放）',
-        message: '将从下一轮 Codex turn 起生效',
+        title: '关闭 Codex CLI 沙盒（完全开放）',
+        message: '将从 Codex CLI 的下一轮对话起生效',
         detail:
-          '关闭后，Codex 可以读写任意文件、执行任意命令。当前正在运行的 turn 不会中断，后续消息会使用新设置。\n\n失败时会自动回到当前沙盒设置。继续？',
+          '关闭后，Codex CLI 可以读写任意文件、执行任意命令。当前正在运行的轮次不会中断，后续消息会使用新设置。\n\n失败时会自动恢复当前沙盒设置。继续？',
         okLabel: '关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
@@ -70,10 +70,10 @@ export function SessionSandboxControls({
     if (next === current || busy) return;
     if (next === 'off') {
       const approved = await window.api.confirmDialog({
-        title: '关闭系统沙盒',
-        message: '需要重启当前会话',
+        title: '关闭 Claude Code 系统沙盒',
+        message: '需要重启当前 Claude Code 会话',
         detail:
-          '重启后，Claude 不再受系统沙盒约束（仅靠应用内授权弹窗管控）。重启约需 5-10 秒。\n\n失败时会自动回到当前沙盒设置。继续？',
+          '重启后，Claude Code 不再受系统沙盒约束（仅靠应用内授权弹窗管控）。重启约需 5–10 秒。\n\n失败时会自动恢复当前沙盒设置。继续？',
         okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
@@ -109,7 +109,7 @@ export function SessionSandboxControls({
       {session.agentId === 'codex-cli' && (
         <>
           <SelectRow
-            label="审批"
+            label="Codex CLI 审批"
             value={
               (session.codexApprovalPolicy ??
                 'on-request') as CodexApprovalPolicyChoice
@@ -119,7 +119,7 @@ export function SessionSandboxControls({
             onChange={(next) => void changeCodexApproval(next)}
           />
           <SelectRow
-            label="沙盒"
+            label="Codex CLI 沙盒"
             value={(session.codexSandbox ?? 'workspace-write') as CodexSandboxMode}
             options={CODEX_SANDBOX_OPTIONS}
             disabled={busy}
@@ -129,7 +129,7 @@ export function SessionSandboxControls({
       )}
       {session.agentId === 'claude-code' && (
         <SelectRow
-          label="沙盒"
+          label="Claude Code 沙盒"
           value={(session.claudeCodeSandbox ?? 'off') as ClaudeSandboxMode}
           options={CLAUDE_CODE_SANDBOX_OPTIONS}
           disabled={busy}
@@ -180,10 +180,10 @@ function GrokSessionSandboxControl({
     if (profile === current || (profile === null && current === '')) return true;
     if (profile === 'off') {
       const approved = await window.api.confirmDialog({
-        title: '关闭 Grok 系统沙盒',
-        message: '需要重启当前 Grok 会话',
+        title: '关闭 Grok Build 系统沙盒',
+        message: '需要重启当前 Grok Build 会话',
         detail:
-          '重启后，Grok 不受系统沙盒约束，但工具授权规则仍然生效。仅空闲会话可以切换；失败时会自动恢复当前档位。\n\n继续？',
+          '重启后，Grok Build 不再受系统沙盒约束，但工具授权规则仍然生效。仅空闲会话可以切换；失败时会自动恢复当前档位。\n\n继续？',
         okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
@@ -203,10 +203,10 @@ function GrokSessionSandboxControl({
   return (
     <div className="mb-1.5">
       <div className="flex items-center gap-1.5 text-[10px] text-deck-muted">
-        <span>Grok 沙盒（请求档位）</span>
+        <span>Grok Build 沙盒（请求档位）</span>
         <DeckSelect
           value={selectValue}
-          ariaLabel="Grok 沙盒（请求档位）"
+          ariaLabel="Grok Build 沙盒（请求档位）"
           onChange={(next) => {
             if (next === CUSTOM_GROK_PROFILE) {
               setCustomActive(true);
@@ -224,11 +224,11 @@ function GrokSessionSandboxControl({
           options={[
             {
               value: '',
-              label: '跟随 Grok 原生',
-              title: '不添加 --sandbox，由 Grok 配置、环境变量或托管策略决定',
+              label: '跟随 Grok Build 原生配置',
+              title: '不添加 --sandbox，由 Grok Build 配置、环境变量或托管策略决定',
             },
             ...GROK_SANDBOX_MODE_OPTIONS,
-            { value: CUSTOM_GROK_PROFILE, label: '自定义 profile…' },
+            { value: CUSTOM_GROK_PROFILE, label: '自定义配置…' },
           ]}
           className="min-w-0 flex-1"
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
@@ -241,8 +241,8 @@ function GrokSessionSandboxControl({
             onChange={(event) => setDraft(event.target.value)}
             disabled={disabled}
             maxLength={128}
-            placeholder="自定义 sandbox.toml profile"
-            aria-label="Grok 自定义沙盒 profile"
+            placeholder="输入 sandbox.toml 配置名称"
+            aria-label="Grok Build 自定义沙盒配置名称"
             className="min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
           />
           <button

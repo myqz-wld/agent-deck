@@ -16,22 +16,8 @@ interface Props {
 }
 
 /**
- * 「实验功能」section。包含：
- * - Claude Code 沙盒档位
- * - Codex 沙盒档位
- *
- * R3.E7：删 Agent Teams toggle + Teammate 权限自动放行档位（老 inbox 协议下线）。
- * 新 universal team backend 不需要这两个开关 —— 默认开启，跨 adapter team UI 直接进入。
- *
- * plan task-mcp-merge-into-agent-deck-mcp-20260521：删 enableTaskManager toggle —
- * 5 个 task tool 合并入 agent-deck-mcp namespace 后跟随 enableAgentDeckMcp 开关（详
- * AgentDeckMcpSection），settings-store smart migration 自动 carry 老用户 ON 值。
- *
- * plan prancy-forging-penguin：删 autoSummariseOnFallback toggle（字段曾保留 default:true 当
- * 孤儿不可配）。plan resume-inject-raw-messages-20260601 §不变量 7 **彻底删字段**：fallback 路径
- * (jsonl missing / cwdFellBack=true) 改为**无条件注入历史**（DB 有历史就注「LLM 总结 + 最近原始
- * 对话」），autoSummariseOnFallback 进 settings-store REMOVED_KEYS 清孤儿 —— settings.json 手动
- * set false 也不再生效（字段已不存在）。原始历史容量由「会话续接上下文」section 的 token 预算控制。
+ * Keeps global sandbox defaults together. These values apply to new sessions;
+ * Grok Build sessions may also request an idle-time override in SessionDetail.
  */
 export function ExperimentalSection({ settings, update }: Props): JSX.Element {
   const sandboxNativeAvailable = IS_DARWIN || IS_LINUX;
@@ -73,7 +59,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
         )}
       </div>
       <div className="mt-3 flex flex-col gap-1 text-[11px]">
-        <div>Codex 沙盒（系统隔离）</div>
+        <div>Codex CLI 沙盒（系统隔离）</div>
         <DeckSelect
           value={settings.codexSandbox}
           onChange={(next) =>
@@ -106,13 +92,13 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
         默认档位为<strong>工作目录可写</strong>。
-        <br />可选广泛只读、工作目录可写、完全开放，或输入自定义{' '}
-        <code className="rounded bg-white/5 px-1">sandbox.toml</code> profile；企业 managed
-        requirements 仍可能覆盖这里的请求。
+        <br />可选广泛只读、工作目录可写、完全开放，或输入{' '}
+        <code className="rounded bg-white/5 px-1">sandbox.toml</code>{' '}
+        中定义的配置名称；企业托管要求仍可能覆盖这里的请求。
         <br />权限弹窗决定工具是否执行，沙盒限制获准工具能够访问的系统资源。
         {IS_DARWIN && (
           <>
-            <br />macOS 上 Grok 的 strict / read-only 子进程网络限制当前不生效。
+            <br />macOS 上 Grok Build 的 strict / read-only 子进程网络限制当前不生效。
           </>
         )}
         <br />
