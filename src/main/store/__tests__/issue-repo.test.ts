@@ -214,9 +214,11 @@ describe.skipIf(!bindingAvailable)('issue-repo / appendContext + listAppendices 
   it('appendContext INSERT 子表行 + 返回完整 record 含 appendices', () => {
     const i = repo.create({ title: 'T', description: 'D', sourceSessionId: sid });
     const after = repo.appendContext({ issueId: i.id, body: 'ctx-1', appendedSessionId: sid });
+    expect(db.inTransaction).toBe(false);
     expect(after?.appendices?.length).toBe(1);
     expect(after?.appendices?.[0].body).toBe('ctx-1');
     expect(after?.appendices?.[0].appendedSessionId).toBe(sid);
+    expect(after?.updatedAt).toBeGreaterThanOrEqual(i.updatedAt);
   });
 
   it('listAppendices 按 appendedAt asc 排序', async () => {
@@ -240,6 +242,42 @@ describe.skipIf(!bindingAvailable)('issue-repo / appendContext + listAppendices 
     expect(repo.listAppendices(i.id).length).toBe(1);
     repo.hardDelete(i.id);
     expect(repo.listAppendices(i.id).length).toBe(0); // CASCADE 已删
+  });
+
+  it.each([
+    { name: 'without logsRef', logsRef: undefined },
+    { name: 'with logsRef', logsRef: { date: '2026-07-28', scopes: ['main'] } },
+  ])('rolls back appendix and parent when parent update aborts $name', ({ logsRef }) => {
+    const i = repo.create({
+      title: 'T',
+      description: 'D',
+      sourceSessionId: sid,
+      logsRef: { date: '2026-07-27', note: 'before' },
+    });
+    const before = repo.get(i.id);
+    db.exec(`
+      CREATE TRIGGER fail_issue_parent_update
+      BEFORE UPDATE ON issues
+      BEGIN
+        SELECT RAISE(ABORT, 'injected parent update failure');
+      END
+    `);
+
+    expect(() =>
+      repo.appendContext({
+        issueId: i.id,
+        body: 'must roll back',
+        appendedSessionId: sid,
+        logsRef,
+      }),
+    ).toThrow(/injected parent update failure/);
+
+    const count = db
+      .prepare('SELECT COUNT(*) AS count FROM issue_appendices WHERE issue_id = ?')
+      .get(i.id) as { count: number };
+    expect(count.count).toBe(0);
+    expect(repo.get(i.id)).toEqual(before);
+    expect(db.inTransaction).toBe(false);
   });
 });
 

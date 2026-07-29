@@ -1,23 +1,9 @@
 /**
- * Issue Tracker 持久层（plan issue-tracker-mcp-20260529 §Step 3.2 / §D9-D17）。
+ * Issue tracker persistence.
  *
- * agent 上报问题机制 + UI 顶层 Issues tab 看板的 SQLite 持久层。MVP 单文件 facade
- * pattern（与 task-repo facade 同款，但 issue-repo 不拆子模块 — 没有 hand_off 三态
- * 复杂度，单文件 ≤ 300 行可控）。
- *
- * 关键能力（§D 决策表）：
- * - **CRUD**: create / get / update / list / softDelete / undelete / hardDelete
- * - **D15 resolved_at 状态机**：update patch 带 status 时按 transition 写 resolved_at；
- *   不带 status 的 partial patch idempotent 不动 resolved_at（reviewer R2 LOW）
- * - **D16 append 子表**: appendContext / listAppendices — 不动 issues.description
- *   1-2000 char 不变量
- * - **D17 logsRef merge**: appendContext 带 args.logsRef 时 merge 到 issues.logs_ref
- *   （date 覆盖 / tsRange min-max 扩展 / scopes union / note append + 截断 / 32 项 normalize）
- * - **D13 GC**: listForGc — IssueLifecycleScheduler tick 用，按 thresholds 拿超期 issue id
- *
- * **DB 命名**：列名 snake_case（SQLite 惯例），TS 内部 / mcp args 全 camelCase（§D18）。
- * **timestamp**：INTEGER epoch ms（与 sessions / agent_deck_teams 一致；不与 tasks 表
- * TEXT ISO8601 对齐）。
+ * Appendices have an independent child-table lifecycle and cascade with their
+ * parent. Source and resolution sessions remain nullable authorities. Resolving,
+ * reopening, soft deletion, and hard deletion retain their existing boundaries.
  */
 import type { Database } from 'better-sqlite3';
 import { normalizeIssueBranchName } from '@shared/types';
@@ -30,12 +16,9 @@ import type {
 } from '@shared/types';
 import log from '@main/utils/logger';
 import { getDb } from './db';
+import { mergeIssueLogsRef } from './issue-repo-logs-ref';
 
 const logger = log.scope('issue-repo');
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Row schema (snake_case) + 类型转换 helpers
-// ═══════════════════════════════════════════════════════════════════════════
 
 interface IssueRow {
   id: string;
@@ -66,11 +49,18 @@ interface AppendixRow {
   appended_at: number;
 }
 
-function safeJsonParse<T>(raw: string | null, fallback: T, ctx: string): T {
+function safeJsonParse<T>(raw: string | null, fallback: T): T {
   if (raw == null) return fallback;
   try { return JSON.parse(raw) as T; }
-  catch (e) {
-    logger.warn(`[issue-repo] JSON parse 失败 (${ctx})，退化默认`, e);
+  catch {
+    logger.warn('Issue data JSON decode failed', {
+      action: 'issue-read',
+      phase: 'decode',
+      candidate: 1,
+      changed: 0,
+      duration: 0,
+      outcome: 'invalid',
+    });
     return fallback;
   }
 }
@@ -87,9 +77,9 @@ function rowToRecord(r: IssueRow): IssueRecord {
     sourceSessionId: r.source_session_id,
     cwd: r.cwd,
     branchName: r.branch_name,
-    logsRef: safeJsonParse<LogsRef | null>(r.logs_ref, null, `issue ${r.id} logs_ref`),
+    logsRef: safeJsonParse<LogsRef | null>(r.logs_ref, null),
     resolutionSessionId: r.resolution_session_id,
-    labels: safeJsonParse<string[]>(r.labels, [], `issue ${r.id} labels`),
+    labels: safeJsonParse<string[]>(r.labels, []),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     resolvedAt: r.resolved_at,
@@ -102,15 +92,11 @@ function appendixRowToRecord(r: AppendixRow): IssueAppendix {
     id: r.id,
     issueId: r.issue_id,
     body: r.body,
-    logsRef: safeJsonParse<LogsRef | null>(r.logs_ref, null, `appendix ${r.id} logs_ref`),
+    logsRef: safeJsonParse<LogsRef | null>(r.logs_ref, null),
     appendedSessionId: r.appended_session_id,
     appendedAt: r.appended_at,
   };
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// IO 接口
-// ═══════════════════════════════════════════════════════════════════════════
 
 export interface IssueCreateInput {
   title: string;
@@ -132,32 +118,23 @@ export interface IssueUpdateInput {
   kind?: string;
   status?: IssueStatus;
   severity?: IssueSeverity;
-  /** UI「Resolve in new session」起 SDK session 后回写 */
   resolutionSessionId?: string | null;
   labels?: string[];
-  /** appendContext 内部用 merge 后的 logsRef；UI 端不直接走 update 改 logsRef（走 detail 编辑表单时另议） */
   logsRef?: LogsRef | null;
 }
 
 export interface IssueListOptions {
-  /** 多选 status filter；不传 / 空数组 = 不过滤 */
   statuses?: IssueStatus[];
-  /** 多选 kind filter；不传 / 空数组 = 不过滤 */
   kinds?: string[];
-  /** subject (title) 大小写不敏感 substring 模糊匹配 */
   titleKeyword?: string;
-  /** 是否包含软删；默认 false（隐藏 deleted_at IS NOT NULL） */
   includeDeleted?: boolean;
-  /** 仅返回软删；与 includeDeleted=true 互斥（专门「已删除」过滤器） */
   onlyDeleted?: boolean;
   limit?: number;
   offset?: number;
 }
 
 export interface IssueListForGcResult {
-  /** status='resolved' && resolved_at < now-resolvedRetentionDays * 86400_000 */
   resolvedExpired: string[];
-  /** deleted_at IS NOT NULL && deleted_at < now-softDeletedRetentionDays * 86400_000 */
   softDeletedExpired: string[];
 }
 
@@ -171,108 +148,22 @@ export interface IssueAppendInput {
 export interface IssueRepo {
   create(input: IssueCreateInput): IssueRecord;
   get(id: string): IssueRecord | null;
-  /**
-   * 增量更新。patch 显式 undefined 视为「不动」；显式 null 视为「清空」。
-   *
-   * **D15 resolved_at 状态机**（详 plan §D15 7 transition + 1 partial patch idempotent
-   * 共 8 case repo 层覆盖；status zod enum reject 是 IPC 层 case 9）：
-   * - patch 不带 status → idempotent 不动 resolved_at（reviewer R2 LOW 边角）
-   * - 旧 != 'resolved' && 新 == 'resolved' → SET resolved_at = now（含 reopen 后再 resolve 刷新）
-   * - 旧 == 'resolved' && 新 != 'resolved' → 保留旧 resolved_at（不清，让 GC 在中间不命中条件）
-   * - 旧 == 'resolved' && 新 == 'resolved' → idempotent 不动（避免 user 重复点 resolve 刷 GC 时钟）
-   */
+  /** Undefined fields are unchanged; explicit null clears nullable fields. */
   update(id: string, patch: IssueUpdateInput): IssueRecord | null;
   list(opts?: IssueListOptions): IssueRecord[];
-  /** 写 deleted_at = now；UI 列表默认隐藏；超期 IssueLifecycleScheduler 硬删 */
   softDelete(id: string): boolean;
-  /** 清 deleted_at；恢复显示 */
   undelete(id: string): boolean;
-  /** 真删；CASCADE 自动删 issue_appendices 子表行 */
   hardDelete(id: string): boolean;
-  /** §D13 GC：拿超期 issue id 列表，IssueLifecycleScheduler tick 调 hardDelete */
   listForGc(thresholds: {
     resolvedRetentionDays: number;
     softDeletedRetentionDays: number;
     nowMs?: number;
-    /** 每路（resolved / softDeleted）单轮 id 上限，剩余下轮 tick 继续。默认 500（与
-     *  session-repo findHistoryOlderThan 对称，防一次同步删上万行卡主线程）。REVIEW_83 LOW。 */
     limit?: number;
   }): IssueListForGcResult;
-  /**
-   * §D16 append 子表 INSERT + §D17 logsRef merge 到 issues.logs_ref（args.logsRef 非
-   * null/undefined 时）。返回完整 IssueRecord 含 appendices 列表（D19 让 UI 直接拿全 record
-   * 不必再 IPC fetch）。
-   */
+  /** Atomically append context and update the parent issue metadata. */
   appendContext(input: IssueAppendInput): IssueRecord | null;
   listAppendices(issueId: string): IssueAppendix[];
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// D17 logsRef merge 算法（appendContext 内部用）
-// ═══════════════════════════════════════════════════════════════════════════
-
-const SCOPES_MAX = 32;
-const NOTE_MAX = 2000;
-
-/**
- * §D17：merge args.logsRef → existing logsRef。
- * - date：以 args 为准覆盖（最新现场以新为准）
- * - tsRange：min(start), max(end) 扩展；其中一边 null 取非 null
- * - scopes：union 去重；post-merge >32 项 → caller args 全保留 + existing 从尾截到总数 = 32
- * - note：append "(appended <appendedAtIso>) <new note>" 到旧 note 末尾；总长 > NOTE_MAX
- *   从 note **头部** 截字符直到总长 ≤ NOTE_MAX-3，前缀 `...`（保留最新内容）
- */
-function mergeLogsRef(
-  existing: LogsRef | null,
-  incoming: LogsRef,
-  appendedAtMs: number,
-): LogsRef {
-  const merged: LogsRef = { date: incoming.date };
-  // tsRange
-  if (incoming.tsRange && existing?.tsRange) {
-    merged.tsRange = {
-      start: Math.min(incoming.tsRange.start, existing.tsRange.start),
-      end: Math.max(incoming.tsRange.end, existing.tsRange.end),
-    };
-  } else if (incoming.tsRange) {
-    merged.tsRange = { ...incoming.tsRange };
-  } else if (existing?.tsRange) {
-    merged.tsRange = { ...existing.tsRange };
-  }
-  // scopes union + post-merge normalize（caller args 全保留 + existing 从尾截）
-  const incomingScopes = incoming.scopes ?? [];
-  const existingScopes = existing?.scopes ?? [];
-  const seen = new Set<string>();
-  const unioned: string[] = [];
-  for (const s of incomingScopes) if (!seen.has(s)) { seen.add(s); unioned.push(s); }
-  for (const s of existingScopes) if (!seen.has(s)) { seen.add(s); unioned.push(s); }
-  // unioned 已去重且 incoming 优先 + existing 补足；>32 直接截断（incoming 优先保留，
-  // existing 从尾丢）。不要回退用 raw incomingScopes —— 那会把 incoming 内的重复项写回主表
-  if (unioned.length > 0) {
-    merged.scopes = unioned.slice(0, SCOPES_MAX);
-  }
-  // note: append (appended <iso>) <new>
-  if (incoming.note != null) {
-    const iso = new Date(appendedAtMs).toISOString();
-    const appendedSegment = `(appended ${iso}) ${incoming.note}`;
-    let combined = existing?.note != null
-      ? `${existing.note}\n${appendedSegment}`
-      : appendedSegment;
-    if (combined.length > NOTE_MAX) {
-      // 从头截：保留最新（末尾的 new note 部分），前缀 `...`
-      const keepLen = NOTE_MAX - 3;
-      combined = '...' + combined.slice(combined.length - keepLen);
-    }
-    merged.note = combined;
-  } else if (existing?.note != null) {
-    merged.note = existing.note;
-  }
-  return merged;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Factory
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function createIssueRepo(db: Database): IssueRepo {
   function get(id: string): IssueRecord | null {
@@ -352,7 +243,6 @@ export function createIssueRepo(db: Database): IssueRepo {
       else if (key === 'logsRef') params.push(value == null ? null : JSON.stringify(value));
       else params.push(value ?? null);
     }
-    // §D15 resolved_at 状态机
     const hasStatusPatch = Object.prototype.hasOwnProperty.call(patch, 'status') && patch.status !== undefined;
     if (hasStatusPatch) {
       const oldS = existing.status;
@@ -360,7 +250,7 @@ export function createIssueRepo(db: Database): IssueRepo {
       if (oldS !== 'resolved' && newS === 'resolved') {
         sets.push('resolved_at = ?'); params.push(Date.now());
       }
-      // 其他 transition（resolved→non / non→non / resolved→resolved）：不动 resolved_at
+      // Leaving or reapplying resolved status preserves its previous timestamp.
     }
     if (sets.length === 0) return existing;
     sets.push('updated_at = ?'); params.push(Date.now());
@@ -421,12 +311,6 @@ export function createIssueRepo(db: Database): IssueRepo {
     resolvedRetentionDays: number; softDeletedRetentionDays: number; nowMs?: number; limit?: number;
   }): IssueListForGcResult {
     const now = opts.nowMs ?? Date.now();
-    // REVIEW_83 LOW (reviewer-codex E2 + lead grep 对照): 每路单轮上限,与 session-repo
-    // findHistoryOlderThan(threshold, limit=500) 对称。issue 是 agent 低频上报量级远小于
-    // session events,但两个 latent 场景可达大批量:① retention 从 0 改非 0 首次启用 GC
-    // 历史一次性全删 ② 长期 high-volume 上报后批量过期。一次同步删 N 千行 + N 千次 emit
-    // 卡主线程(IssueLifecycleScheduler.scan() 是 sync 逐条 hardDelete+emit)。限 500 剩余
-    // 下轮 tick 续(默认 6h)。
     const limit = opts.limit ?? 500;
     const result: IssueListForGcResult = { resolvedExpired: [], softDeletedExpired: [] };
     if (opts.resolvedRetentionDays > 0) {
@@ -447,26 +331,40 @@ export function createIssueRepo(db: Database): IssueRepo {
   }
 
   function appendContext(input: IssueAppendInput): IssueRecord | null {
-    const issue = get(input.issueId);
-    if (!issue) return null;
     const now = Date.now();
-    db.prepare(
-      `INSERT INTO issue_appendices (issue_id, body, logs_ref, appended_session_id, appended_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(
-      input.issueId, input.body,
-      input.logsRef == null ? null : JSON.stringify(input.logsRef),
-      input.appendedSessionId, now,
-    );
-    // §D17：args.logsRef 非 null/undefined 时 merge 到 issues.logs_ref
-    if (input.logsRef != null) {
-      const merged = mergeLogsRef(issue.logsRef, input.logsRef, now);
-      db.prepare(`UPDATE issues SET logs_ref = ?, updated_at = ? WHERE id = ?`).run(
-        JSON.stringify(merged), now, input.issueId,
+    const appended = db.transaction((): boolean => {
+      const row = db
+        .prepare('SELECT * FROM issues WHERE id = ?')
+        .get(input.issueId) as IssueRow | undefined;
+      if (!row) return false;
+
+      db.prepare(
+        `INSERT INTO issue_appendices (issue_id, body, logs_ref, appended_session_id, appended_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(
+        input.issueId,
+        input.body,
+        input.logsRef == null ? null : JSON.stringify(input.logsRef),
+        input.appendedSessionId,
+        now,
       );
-    } else {
-      db.prepare(`UPDATE issues SET updated_at = ? WHERE id = ?`).run(now, input.issueId);
-    }
+
+      const logsRef = input.logsRef == null
+        ? row.logs_ref
+        : JSON.stringify(mergeIssueLogsRef(
+            safeJsonParse<LogsRef | null>(row.logs_ref, null),
+            input.logsRef,
+            now,
+          ));
+      const updated = db
+        .prepare('UPDATE issues SET logs_ref = ?, updated_at = ? WHERE id = ?')
+        .run(logsRef, now, input.issueId);
+      if (updated.changes !== 1) {
+        throw new Error('Issue parent update did not affect exactly one row');
+      }
+      return true;
+    })();
+    if (!appended) return null;
     return getWithAppendices(input.issueId);
   }
 
@@ -483,10 +381,6 @@ export function createIssueRepo(db: Database): IssueRepo {
     appendContext, listAppendices,
   };
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Default lazy singleton（与 task-repo / session-repo 同款 pattern）
-// ═══════════════════════════════════════════════════════════════════════════
 
 let _defaultRepo: IssueRepo | null = null;
 function defaultRepo(): IssueRepo {

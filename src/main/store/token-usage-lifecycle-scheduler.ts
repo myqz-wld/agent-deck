@@ -8,20 +8,25 @@
 import { eventBus } from '@main/event-bus';
 import log from '@main/utils/logger';
 import { tokenUsageRepo } from './token-usage-repo';
+import { TOKEN_USAGE_GC_BATCH_LIMIT } from './token-usage-retention';
 
 const logger = log.scope('token-usage-gc');
 
 /** Keep one year of token history; this is not user-configurable by design. */
 export const TOKEN_USAGE_RETENTION_DAYS = 365;
+export { TOKEN_USAGE_GC_BATCH_LIMIT };
 const DEFAULT_TICK_INTERVAL_MS = 6 * 3600_000;
+const DEFAULT_CATCH_UP_DELAY_MS = 30_000;
 
 interface TokenUsageLifecycleSchedulerOptions {
-  /** Test hook only. Production uses the fixed TOKEN_USAGE_RETENTION_DAYS. */
   tickIntervalMs?: number;
+  catchUpDelayMs?: number;
 }
 
 export class TokenUsageLifecycleScheduler {
   private timer: NodeJS.Timeout | null = null;
+  private catchUpTimer: NodeJS.Timeout | null = null;
+  private scanInProgress = false;
 
   constructor(private opts: TokenUsageLifecycleSchedulerOptions = {}) {}
 
@@ -37,34 +42,66 @@ export class TokenUsageLifecycleScheduler {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.clearCatchUp();
   }
 
-  /**
-   * Delete rows older than TOKEN_USAGE_RETENTION_DAYS. This is a single SQL
-   * delete because token_usage has no per-row lifecycle/status that needs
-   * side effects, and the table already has an index on ts.
-   */
+  /** Delete one bounded batch and continue one-shot batches while each remains full. */
   scan(): void {
-    const now = Date.now();
-    const thresholdMs = now - TOKEN_USAGE_RETENTION_DAYS * 86_400_000;
-    let deletedCount = 0;
-    try {
-      deletedCount = tokenUsageRepo.deleteOlderThan(thresholdMs);
-    } catch (err) {
-      logger.warn('[token-usage-gc] scan failed', {
-        retentionDays: TOKEN_USAGE_RETENTION_DAYS,
-        thresholdMs,
-      }, err);
-      return;
-    }
+    if (this.catchUpTimer) return;
+    this.runBatch('scheduled');
+  }
 
-    if (deletedCount > 0) {
-      eventBus.emit('token-usage-changed', { sessionId: 'gc', ts: now });
-      logger.info('[token-usage-gc] purged expired token_usage rows', {
-        deletedCount,
-        retentionDays: TOKEN_USAGE_RETENTION_DAYS,
+  private runBatch(phase: 'scheduled' | 'catch-up'): void {
+    if (this.scanInProgress) return;
+    this.scanInProgress = true;
+    const startedAt = performance.now();
+    try {
+      const now = Date.now();
+      const thresholdMs = now - TOKEN_USAGE_RETENTION_DAYS * 86_400_000;
+      const deletedCount = tokenUsageRepo.deleteOlderThan(thresholdMs);
+      if (deletedCount > 0) {
+        eventBus.emit('token-usage-changed', { sessionId: 'gc', ts: now });
+        logger.info('Token usage retention batch completed', {
+          action: 'token-usage-retention',
+          phase,
+          candidate: TOKEN_USAGE_GC_BATCH_LIMIT,
+          changed: deletedCount,
+          duration: Math.round(performance.now() - startedAt),
+          outcome: 'success',
+        });
+      }
+      if (deletedCount === TOKEN_USAGE_GC_BATCH_LIMIT) {
+        this.scheduleCatchUp();
+      } else {
+        this.clearCatchUp();
+      }
+    } catch {
+      this.clearCatchUp();
+      logger.warn('Token usage retention batch failed', {
+        action: 'token-usage-retention',
+        phase,
+        candidate: TOKEN_USAGE_GC_BATCH_LIMIT,
+        changed: 0,
+        duration: Math.round(performance.now() - startedAt),
+        outcome: 'failed',
       });
+    } finally {
+      this.scanInProgress = false;
     }
+  }
+
+  private scheduleCatchUp(): void {
+    if (this.catchUpTimer) return;
+    this.catchUpTimer = setTimeout(() => {
+      this.catchUpTimer = null;
+      this.runBatch('catch-up');
+    }, this.opts.catchUpDelayMs ?? DEFAULT_CATCH_UP_DELAY_MS);
+  }
+
+  private clearCatchUp(): void {
+    if (!this.catchUpTimer) return;
+    clearTimeout(this.catchUpTimer);
+    this.catchUpTimer = null;
   }
 }
 

@@ -22,6 +22,7 @@ vi.mock('@main/event-bus', () => ({ eventBus: mocks.eventBus }));
 import {
   getTokenUsageLifecycleScheduler,
   setTokenUsageLifecycleScheduler,
+  TOKEN_USAGE_GC_BATCH_LIMIT,
   TOKEN_USAGE_RETENTION_DAYS,
   TokenUsageLifecycleScheduler,
 } from '../token-usage-lifecycle-scheduler';
@@ -71,8 +72,12 @@ describe('TokenUsageLifecycleScheduler.scan', () => {
       ts: now,
     });
     expect(tokenUsageGcLogger.info).toHaveBeenCalledWith(
-      expect.stringContaining('[token-usage-gc] purged expired token_usage rows'),
-      expect.objectContaining({ deletedCount: 3, retentionDays: TOKEN_USAGE_RETENTION_DAYS }),
+      expect.any(String),
+      expect.objectContaining({
+        action: 'token-usage-retention',
+        changed: 3,
+        outcome: 'success',
+      }),
     );
   });
 
@@ -94,10 +99,115 @@ describe('TokenUsageLifecycleScheduler.scan', () => {
 
     expect(mockEventBus.emit).not.toHaveBeenCalled();
     expect(tokenUsageGcLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('[token-usage-gc] scan failed'),
-      expect.objectContaining({ retentionDays: TOKEN_USAGE_RETENTION_DAYS }),
-      expect.any(Error),
+      expect.any(String),
+      expect.objectContaining({
+        action: 'token-usage-retention',
+        changed: 0,
+        outcome: 'failed',
+      }),
     );
+  });
+
+  it('drains a 1001-row backlog as 500 → 500 → 1 and then stops', () => {
+    vi.useFakeTimers();
+    mockRepo.deleteOlderThan
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockReturnValueOnce(1);
+    const s = new TokenUsageLifecycleScheduler({ catchUpDelayMs: 50 });
+
+    s.scan();
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(50);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(50);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(3);
+    expect(mockEventBus.emit).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(500);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(3);
+  });
+
+  it('continues through consecutive full batches without duplicate timers', () => {
+    vi.useFakeTimers();
+    mockRepo.deleteOlderThan
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockReturnValueOnce(2);
+    const s = new TokenUsageLifecycleScheduler({ catchUpDelayMs: 50 });
+
+    s.scan();
+    vi.advanceTimersByTime(150);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(4);
+    vi.advanceTimersByTime(500);
+
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(4);
+  });
+
+  it('ignores reentrant and overlapping scans while one catch-up chain owns scheduling', () => {
+    vi.useFakeTimers();
+    let s: TokenUsageLifecycleScheduler;
+    mockRepo.deleteOlderThan
+      .mockImplementationOnce(() => {
+        s.scan();
+        return TOKEN_USAGE_GC_BATCH_LIMIT;
+      })
+      .mockReturnValueOnce(1);
+    s = new TokenUsageLifecycleScheduler({ catchUpDelayMs: 50 });
+
+    s.scan();
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(1);
+    s.scan();
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(50);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(500);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops a catch-up chain after zero progress and recovers on the next interval', () => {
+    vi.useFakeTimers();
+    mockRepo.deleteOlderThan
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(1);
+    const s = new TokenUsageLifecycleScheduler({
+      tickIntervalMs: 200,
+      catchUpDelayMs: 50,
+    });
+
+    s.start();
+    vi.advanceTimersByTime(50);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(149);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(3);
+    s.stop();
+  });
+
+  it('stops a catch-up chain after a batch failure and recovers on the next interval', () => {
+    vi.useFakeTimers();
+    mockRepo.deleteOlderThan
+      .mockReturnValueOnce(TOKEN_USAGE_GC_BATCH_LIMIT)
+      .mockImplementationOnce(() => {
+        throw new Error('SQLite locked');
+      })
+      .mockReturnValueOnce(1);
+    const s = new TokenUsageLifecycleScheduler({
+      tickIntervalMs: 200,
+      catchUpDelayMs: 50,
+    });
+
+    s.start();
+    vi.advanceTimersByTime(50);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(149);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(3);
+    expect(tokenUsageGcLogger.warn).toHaveBeenCalledTimes(1);
+    s.stop();
   });
 });
 
@@ -129,6 +239,41 @@ describe('TokenUsageLifecycleScheduler.start/stop', () => {
     expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
 
     s.stop();
+  });
+
+  it('survives a locked query and runs the next interval tick', () => {
+    vi.useFakeTimers();
+    mockRepo.deleteOlderThan
+      .mockImplementationOnce(() => {
+        throw new Error('SQLite locked');
+      })
+      .mockReturnValueOnce(1);
+    const s = new TokenUsageLifecycleScheduler({ tickIntervalMs: 100 });
+
+    expect(() => s.start()).not.toThrow();
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(100);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    expect(mockEventBus.emit).toHaveBeenCalledTimes(1);
+    s.stop();
+  });
+
+  it('stop clears the interval and a pending timer in the middle of a catch-up chain', () => {
+    vi.useFakeTimers();
+    mockRepo.deleteOlderThan.mockReturnValue(TOKEN_USAGE_GC_BATCH_LIMIT);
+    const s = new TokenUsageLifecycleScheduler({
+      tickIntervalMs: 100,
+      catchUpDelayMs: 50,
+    });
+
+    s.start();
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(50);
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
+    s.stop();
+    vi.advanceTimersByTime(500);
+
+    expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
   });
 });
 
