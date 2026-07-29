@@ -55,9 +55,10 @@ export function normalizeSessionModelOptions(
       throw new SessionModelOptionsError('provider', 'must not contain control characters');
     }
     if (provider && adapterId === 'grok-build') {
+      const adapterName = getAdapterRuntimeProfile(adapterId).displayName;
       throw new SessionModelOptionsError(
         'provider',
-        'is not supported for grok-build; select a Grok model alias instead',
+        `${adapterName} 不支持 provider；请选择 ${adapterName} 模型别名`,
       );
     }
     if (

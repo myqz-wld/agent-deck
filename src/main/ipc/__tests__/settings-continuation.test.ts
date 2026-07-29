@@ -50,6 +50,19 @@ function current(overrides: Partial<AppSettings> = {}): AppSettings {
   return { ...DEFAULT_SETTINGS, ...overrides };
 }
 
+function validationErrorMessage(
+  patch: unknown,
+  settings: AppSettings = current(),
+): string {
+  try {
+    validateSettingsPatch(patch, settings);
+    throw new Error('expected settings validation to fail');
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return error.message;
+  }
+}
+
 describe('SettingsSet continuation validation', () => {
   it.each([8_000, 64_000, 128_000])('accepts raw retention token value %s', (value) => {
     expect(
@@ -229,6 +242,41 @@ describe('SettingsSet continuation validation', () => {
         current(),
       ),
     ).toThrow(/continuationCheckpointRuntimeProvider/);
+  });
+
+  it('uses canonical runtime display names in generator validation errors', () => {
+    expect(
+      validationErrorMessage({
+        summaryAdapter: 'grok-build',
+        summaryRuntimeProvider: 'xai',
+      }),
+    ).toBe(
+      'invalid ipc input: summaryRuntimeProvider (Grok Build 不支持 provider；该字段必须为空)',
+    );
+    expect(
+      validationErrorMessage({
+        summaryAdapter: 'grok-build',
+        summaryThinking: 'max',
+      }),
+    ).toBe(
+      'invalid ipc input: summaryThinking (thinking "max" 与 Grok Build 不兼容)',
+    );
+    expect(
+      validationErrorMessage({
+        continuationCheckpointAdapter: 'grok-build',
+        continuationCheckpointThinking: 'ultra',
+      }),
+    ).toBe(
+      'invalid ipc input: continuationCheckpointThinking (thinking "ultra" 与 Grok Build 不兼容)',
+    );
+    expect(
+      validationErrorMessage({
+        summaryAdapter: 'claude-code',
+        summaryRuntimeProvider: '../deepseek',
+      }),
+    ).toBe(
+      'invalid ipc input: summaryRuntimeProvider (必须是安全的 Claude Code Gateway profile id)',
+    );
   });
 
   it('rejects a provider-only switch that would make the retained thinking incompatible', () => {

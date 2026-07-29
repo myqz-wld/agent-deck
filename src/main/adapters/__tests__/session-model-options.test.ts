@@ -68,6 +68,19 @@ describe('session model option normalization', () => {
       normalizeSessionModelOptions('codex-cli', { thinking: 'minimal' }),
     ).toThrow(SessionModelOptionsError);
   });
+
+  it('names Grok Build exactly when rejecting a provider override', () => {
+    try {
+      normalizeSessionModelOptions('grok-build', { provider: 'xai' });
+      expect.unreachable('expected the Grok Build provider override to be rejected');
+    } catch (error) {
+      expect(error).toBeInstanceOf(SessionModelOptionsError);
+      expect((error as SessionModelOptionsError).field).toBe('provider');
+      expect((error as Error).message).toBe(
+        'Grok Build 不支持 provider；请选择 Grok Build 模型别名',
+      );
+    }
+  });
 });
 
 describe('SessionModelController', () => {

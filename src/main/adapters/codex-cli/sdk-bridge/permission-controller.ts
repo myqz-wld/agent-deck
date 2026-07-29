@@ -4,6 +4,7 @@ import type {
   CodexAppServerServerRequest,
   CodexAppServerServerRequestDisposition,
 } from '../app-server/protocol';
+import { getAdapterRuntimeProfile } from '../../runtime-profiles';
 import type { AgentEvent, PermissionRequest, PermissionResponse } from '@shared/types';
 import type { CodexPendingPermission, InternalSession } from './types';
 import { AGENT_ID } from './constants';
@@ -42,6 +43,7 @@ const MCP_TOOL_ALLOW = 'Allow';
 const MCP_TOOL_ALLOW_FOR_SESSION = 'Allow for this session';
 const MCP_TOOL_DECLINE = '__codex_mcp_decline__';
 const MCP_TOOL_CANCEL = 'Cancel';
+const CODEX_CLI_DISPLAY_NAME = getAdapterRuntimeProfile(AGENT_ID).displayName;
 
 export class CodexPermissionController {
   constructor(
@@ -155,7 +157,7 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
       const supports = (decision: string): boolean =>
         available === null || available.includes(decision);
       return {
-        toolName: 'Codex command',
+        toolName: `${CODEX_CLI_DISPLAY_NAME} 命令`,
         toolInput: params,
         supportsAlways: supports('acceptForSession'),
         allow: (always) => ({
@@ -174,7 +176,7 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
     }
     case 'item/fileChange/requestApproval':
       return {
-        toolName: 'Codex file change',
+        toolName: `${CODEX_CLI_DISPLAY_NAME} 文件修改`,
         toolInput: params,
         supportsAlways: true,
         allow: (always) => ({ decision: always ? 'acceptForSession' : 'accept' }),
@@ -187,7 +189,7 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
       const requested = asRecord(params.permissions);
       const granted = compactGrantedPermissions(requested);
       return {
-        toolName: 'Codex permission grant',
+        toolName: `${CODEX_CLI_DISPLAY_NAME} 权限授权`,
         toolInput: params,
         supportsAlways: true,
         allow: (always) => ({
@@ -201,9 +203,9 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
     case 'mcpServer/elicitation/request':
       return parseMcpToolElicitation(params);
     case 'execCommandApproval':
-      return legacyApproval('Codex command', params);
+      return legacyApproval(`${CODEX_CLI_DISPLAY_NAME} 命令`, params);
     case 'applyPatchApproval':
-      return legacyApproval('Codex file change', params);
+      return legacyApproval(`${CODEX_CLI_DISPLAY_NAME} 文件修改`, params);
   }
 }
 
@@ -254,7 +256,7 @@ function parseMcpToolRequestUserInput(
   });
   const supportsAlways = questions.every((question) => question.supportsSession);
   return {
-    toolName: 'Codex MCP 工具调用',
+    toolName: `${CODEX_CLI_DISPLAY_NAME} MCP 工具调用`,
     toolInput: {
       itemId: params.itemId,
       questions: questions.map(({ header, question, options }) => ({
@@ -285,7 +287,7 @@ function parseMcpToolElicitation(
     persist === 'session' ||
     (Array.isArray(persist) && persist.includes('session'));
   return {
-    toolName: 'Codex MCP 工具调用',
+    toolName: `${CODEX_CLI_DISPLAY_NAME} MCP 工具调用`,
     toolInput: {
       serverName: params.serverName,
       message: params.message,

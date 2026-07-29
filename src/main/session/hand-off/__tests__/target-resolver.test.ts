@@ -291,4 +291,42 @@ describe('resolveHandOffTarget', () => {
       }
     },
   );
+
+  it('uses canonical runtime display names in compatibility errors', () => {
+    expect(() =>
+      resolveHandOffTarget({
+        source: source(),
+        request: {
+          adapter: 'grok-build',
+          cwd: '/target',
+          provider: 'xai',
+        },
+        sourceMaxEventId: 42,
+      }),
+    ).toThrow(
+      'provider 与 Grok Build 不兼容；仅 Claude Code 或 Codex CLI 支持',
+    );
+    expect(() =>
+      resolveHandOffTarget({
+        source: source(),
+        request: {
+          adapter: 'claude-code',
+          cwd: '/target',
+          networkAccessEnabled: true,
+        },
+        sourceMaxEventId: 42,
+      }),
+    ).toThrow('networkAccessEnabled 仅与 Codex CLI 兼容');
+    expect(() =>
+      resolveHandOffTarget({
+        source: source(),
+        request: {
+          adapter: 'grok-build',
+          cwd: '/target',
+          additionalDirectories: [],
+        },
+        sourceMaxEventId: 42,
+      }),
+    ).toThrow('additionalDirectories 仅与 Codex CLI 兼容');
+  });
 });

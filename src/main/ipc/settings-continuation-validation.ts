@@ -13,6 +13,7 @@ import {
   isCodexThinkingLevel,
   isGrokThinkingLevel,
 } from '@shared/session-metadata';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { IpcInputError } from './_helpers';
 import { CLAUDE_GATEWAY_PROFILE_ID_PATTERN } from '@main/adapters/claude-code/gateway-profiles';
 
@@ -47,14 +48,20 @@ function assertRuntimeProvider(
     throw new IpcInputError(field, 'must be a printable string of at most 128 characters');
   }
   if (adapter === 'grok-build' && value.trim()) {
-    throw new IpcInputError(field, 'must be empty for grok-build');
+    throw new IpcInputError(
+      field,
+      `${getAdapterRuntimeProfile(adapter).displayName} 不支持 provider；该字段必须为空`,
+    );
   }
   if (
     adapter === 'claude-code' &&
     value.trim() &&
     !CLAUDE_GATEWAY_PROFILE_ID_PATTERN.test(value.trim())
   ) {
-    throw new IpcInputError(field, 'must be a safe Claude Gateway profile id');
+    throw new IpcInputError(
+      field,
+      `必须是安全的 ${getAdapterRuntimeProfile(adapter).displayName} Gateway profile id`,
+    );
   }
 }
 
@@ -99,7 +106,7 @@ export function validateContinuationAndSummarySettingsPatch(
     if (!isValidGeneratorThinking(adapter, thinking)) {
       throw new IpcInputError(
         'summaryThinking',
-        `incompatible with adapter ${String(adapter)}`,
+        `thinking "${String(thinking)}" 与 ${getAdapterRuntimeProfile(adapter).displayName} 不兼容`,
       );
     }
   }
@@ -177,7 +184,7 @@ export function validateContinuationAndSummarySettingsPatch(
   if (!isValidGeneratorThinking(adapter, thinking)) {
     throw new IpcInputError(
       'continuationCheckpointThinking',
-      `incompatible with adapter ${String(adapter)}`,
+      `thinking "${String(thinking)}" 与 ${getAdapterRuntimeProfile(adapter).displayName} 不兼容`,
     );
   }
   if ('continuationRawRetentionTokens' in patch) {

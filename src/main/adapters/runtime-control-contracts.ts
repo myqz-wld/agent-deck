@@ -74,6 +74,11 @@ export function unsupportedTargetRuntimeFieldMessage(
   field: AdapterTargetRuntimeField,
 ): string {
   const owners = targetRuntimeFieldAdapters(field);
-  const ownerText = owners.length > 0 ? owners.join(' or ') : 'no adapter';
-  return `${field} is incompatible with adapter "${adapterId}"; it is supported by ${ownerText}`;
+  const ownerText =
+    owners.length > 0
+      ? owners
+          .map((owner) => getAdapterRuntimeProfile(owner).displayName)
+          .join(' 或 ')
+      : '没有适配器';
+  return `${field} 与 ${getAdapterRuntimeProfile(adapterId).displayName} 不兼容；仅 ${ownerText} 支持`;
 }

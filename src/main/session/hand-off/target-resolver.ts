@@ -3,6 +3,7 @@ import {
   firstUnsupportedTargetRuntimeField,
   unsupportedTargetRuntimeFieldMessage,
 } from '@main/adapters/runtime-control-contracts';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { resolveCreateSessionModelOptions } from '@main/adapters/session-model-options';
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { settingsStore } from '@main/store/settings-store';
@@ -72,16 +73,18 @@ export function resolveHandOffTarget(input: {
     );
   }
   if (request.adapter !== 'codex-cli') {
+    const codexDisplayName =
+      getAdapterRuntimeProfile('codex-cli').displayName;
     if (request.networkAccessEnabled !== undefined) {
       throw new HandOffTargetOptionsError(
         'networkAccessEnabled',
-        'networkAccessEnabled is compatible only with codex-cli',
+        `networkAccessEnabled 仅与 ${codexDisplayName} 兼容`,
       );
     }
     if (request.additionalDirectories !== undefined) {
       throw new HandOffTargetOptionsError(
         'additionalDirectories',
-        'additionalDirectories is compatible only with codex-cli',
+        `additionalDirectories 仅与 ${codexDisplayName} 兼容`,
       );
     }
   }

@@ -3,6 +3,7 @@ import {
   unsupportedTargetRuntimeFieldMessage,
 } from '@main/adapters/runtime-control-contracts';
 import { adapterRegistry } from '@main/adapters/registry';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import type { SessionAdapterId } from '@shared/types';
@@ -66,6 +67,13 @@ export function parseAdapterCreateRuntimeControls(
 }
 
 export function registerAdapterSandboxRestartIpc(): void {
+  const claudeCodeDisplayName =
+    getAdapterRuntimeProfile('claude-code').displayName;
+  const codexCliDisplayName =
+    getAdapterRuntimeProfile('codex-cli').displayName;
+  const grokBuildDisplayName =
+    getAdapterRuntimeProfile('grok-build').displayName;
+
   on(
     IpcInvoke.AdapterSetCodexApprovalPolicy,
     async (_e, agentId, sessionId, policy) => {
@@ -74,7 +82,9 @@ export function registerAdapterSandboxRestartIpc(): void {
         !adapter?.capabilities.canSetCodexApprovalPolicy ||
         !adapter.setCodexApprovalPolicy
       ) {
-        throw new Error('adapter does not support Codex approval-policy changes');
+        throw new Error(
+          `当前适配器不支持修改 ${codexCliDisplayName} approvalPolicy`,
+        );
       }
       const sid = parseStringId('sessionId', sessionId);
       const parsed = parseCodexApprovalPolicy(policy);
@@ -93,7 +103,9 @@ export function registerAdapterSandboxRestartIpc(): void {
     async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
       const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
       if (!adapter?.capabilities.canRestartWithCodexSandbox || !adapter.restartWithCodexSandbox) {
-        throw new Error('adapter does not support codex sandbox restart');
+        throw new Error(
+          `当前适配器不支持使用 ${codexCliDisplayName} 沙盒重启`,
+        );
       }
       const sid = parseStringId('sessionId', sessionId);
       const profile = parseCodexSandboxMode(sandbox);
@@ -119,7 +131,9 @@ export function registerAdapterSandboxRestartIpc(): void {
         !adapter?.capabilities.canRestartWithClaudeCodeSandbox ||
         !adapter.restartWithClaudeCodeSandbox
       ) {
-        throw new Error('adapter does not support claude-code sandbox restart');
+        throw new Error(
+          `当前适配器不支持使用 ${claudeCodeDisplayName} 沙盒重启`,
+        );
       }
       const sid = parseStringId('sessionId', sessionId);
       const profile = parseSandboxMode(sandbox);
@@ -145,7 +159,9 @@ export function registerAdapterSandboxRestartIpc(): void {
         !adapter?.capabilities.canRestartWithGrokSandbox ||
         !adapter.restartWithGrokSandbox
       ) {
-        throw new Error('adapter does not support Grok sandbox restart');
+        throw new Error(
+          `当前适配器不支持使用 ${grokBuildDisplayName} 沙盒重启`,
+        );
       }
       const sid = parseStringId('sessionId', sessionId);
       const profile = sandbox === null ? null : parseGrokSandboxProfile(sandbox);
