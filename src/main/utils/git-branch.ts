@@ -1,8 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import { normalizeIssueBranchName } from '@shared/types';
-import log from './logger';
-
-const logger = log.scope('git-branch');
 
 export function detectGitBranchName(cwd: string | null | undefined): string | null {
   if (!cwd) return null;
@@ -14,8 +11,7 @@ export function detectGitBranchName(cwd: string | null | undefined): string | nu
     });
     const branch = out.trim();
     return normalizeIssueBranchName(branch);
-  } catch (err) {
-    logger.debug('[git-branch] branch detection failed:', err);
+  } catch {
     return null;
   }
 }

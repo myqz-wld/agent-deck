@@ -1,58 +1,104 @@
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { detectGitBranchName } from '../git-branch';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const gitAvailable = (() => {
-  try {
-    execFileSync('git', ['--version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-describe('detectGitBranchName', () => {
-  it('returns null for null cwd', () => {
-    expect(detectGitBranchName(null)).toBeNull();
-  });
-
-  it('returns null outside a git repository', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'agent-deck-non-git-'));
-    try {
-      expect(detectGitBranchName(dir)).toBeNull();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+const mocks = vi.hoisted(() => {
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+  return {
+    logger,
+    execFileSync: vi.fn(),
+    loggerScope: vi.fn(() => logger),
+  };
 });
 
-describe.skipIf(!gitAvailable)('detectGitBranchName / git-backed cases', () => {
-  it('returns the current branch for normal branch names', () => {
-    const repo = mkdtempSync(join(tmpdir(), 'agent-deck-git-branch-'));
-    try {
-      execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' });
-      execFileSync('git', ['checkout', '-b', 'feature/branch-snapshot'], { cwd: repo, stdio: 'ignore' });
+vi.mock('node:child_process', () => ({
+  execFileSync: mocks.execFileSync,
+}));
+vi.mock('@main/utils/logger', () => ({
+  default: { scope: mocks.loggerScope },
+}));
 
-      expect(detectGitBranchName(repo)).toBe('feature/branch-snapshot');
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
+let subject: typeof import('../git-branch');
+
+function loggedText(): string {
+  return [
+    ...mocks.logger.debug.mock.calls,
+    ...mocks.logger.info.mock.calls,
+    ...mocks.logger.warn.mock.calls,
+    ...mocks.logger.error.mock.calls,
+  ].flat().map(String).join(' ');
+}
+
+describe('detectGitBranchName', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.resetAllMocks();
+    mocks.loggerScope.mockReturnValue(mocks.logger);
+    subject = await import('../git-branch');
   });
 
-  it('returns null for valid branches longer than the issue DB limit', () => {
-    const repo = mkdtempSync(join(tmpdir(), 'agent-deck-git-branch-'));
-    const longBranch = `${'a'.repeat(100)}/${'b'.repeat(100)}/${'c'.repeat(100)}`;
-    try {
-      execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' });
-      execFileSync('git', ['checkout', '-b', longBranch], { cwd: repo, stdio: 'ignore' });
+  it.each([null, undefined, ''])(
+    'returns null without spawning git for an absent cwd (%s)',
+    (cwd) => {
+      expect(subject.detectGitBranchName(cwd)).toBeNull();
+      expect(mocks.execFileSync).not.toHaveBeenCalled();
+      expect(mocks.loggerScope).not.toHaveBeenCalled();
+    },
+  );
 
-      expect(longBranch.length).toBeGreaterThan(255);
-      expect(detectGitBranchName(repo)).toBeNull();
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
+  it('uses the exact argv, stdio, encoding, and timeout contract', () => {
+    const hostileCwd =
+      '/Users/private/repo with spaces;$(touch token)/https://secret.test';
+    mocks.execFileSync.mockReturnValue('  feature/branch-snapshot \n');
+
+    expect(subject.detectGitBranchName(hostileCwd)).toBe(
+      'feature/branch-snapshot',
+    );
+    expect(mocks.execFileSync).toHaveBeenCalledOnce();
+    expect(mocks.execFileSync).toHaveBeenCalledWith(
+      'git',
+      ['-C', hostileCwd, 'branch', '--show-current'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 1_000,
+      },
+    );
+    expect(mocks.loggerScope).not.toHaveBeenCalled();
+  });
+
+  it('normalizes empty and oversized branch output to null', () => {
+    mocks.execFileSync
+      .mockReturnValueOnce(' \n')
+      .mockReturnValueOnce(`${'a'.repeat(256)}\n`);
+
+    expect(subject.detectGitBranchName('/repo/empty')).toBeNull();
+    expect(subject.detectGitBranchName('/repo/oversized')).toBeNull();
+    expect(mocks.logger.debug).not.toHaveBeenCalled();
+  });
+
+  it('keeps hostile cwd and execution errors silent while returning null', () => {
+    const hostileCwd =
+      '/Users/private/raw-repo?token=secret&url=https://private.test';
+    const rawError = new Error(
+      'RAW_GIT_ERROR token=private /Users/private/repo https://private.test',
+    );
+    rawError.name = 'PrivateGitError';
+    mocks.execFileSync.mockImplementation(() => {
+      throw rawError;
+    });
+
+    expect(subject.detectGitBranchName(hostileCwd)).toBeNull();
+    expect(mocks.execFileSync).toHaveBeenCalledWith(
+      'git',
+      ['-C', hostileCwd, 'branch', '--show-current'],
+      expect.objectContaining({ timeout: 1_000 }),
+    );
+    expect(mocks.loggerScope).not.toHaveBeenCalled();
+    expect(mocks.logger.debug).not.toHaveBeenCalled();
+    expect(loggedText()).toBe('');
   });
 });
