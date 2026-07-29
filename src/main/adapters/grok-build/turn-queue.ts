@@ -107,15 +107,15 @@ export class GrokTurnQueue {
 
   async steer(runtime: GrokRuntime, text: string): Promise<void> {
     if (!runtime.running || !runtime.ready || runtime.closed) {
-      throw new Error('Grok 当前没有可插入的 active turn。');
+      throw new Error('Grok Build 当前没有可插入内容的活动轮次。');
     }
     const prepared = this.prepareMessage(runtime, text, undefined);
     if (!prepared) return;
     if (runtime.submittingMessage) {
-      throw new Error('当前 Grok 消息仍在提交，请稍后再试。');
+      throw new Error('当前 Grok Build 消息仍在提交，请稍后再试。');
     }
     if (!this.startInterject(runtime, prepared)) {
-      throw new Error('当前 Grok Build 版本不支持 active-turn interjection。');
+      throw new Error('当前 Grok Build 版本不支持活动轮次插入。');
     }
   }
 
@@ -197,11 +197,11 @@ export class GrokTurnQueue {
       );
     }
     if (runtime.closed || runtime.sealed) {
-      throw new Error(`Grok session ${runtime.applicationSessionId} is closing.`);
+      throw new Error(`Grok Build 会话 ${runtime.applicationSessionId} 正在关闭。`);
     }
     if (attachments?.length && !supportsImages(runtime)) {
       throw new Error(
-        '当前 Grok ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
+        '当前 Grok Build ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
       );
     }
     if (!text.trim() && !attachments?.length) {
@@ -247,7 +247,9 @@ export class GrokTurnQueue {
       !prepared.bypassQueueLimit &&
       runtime.queue.length + (runtime.running ? 1 : 0) >= MAX_PENDING_MESSAGES
     ) {
-      throw new Error(`待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条，请等当前 turn 完成。`);
+      throw new Error(
+        `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条，请等待当前轮次完成。`,
+      );
     }
     runtime.queue.push(message);
     this.rememberAccepted(runtime, prepared);
@@ -361,7 +363,7 @@ export class GrokTurnQueue {
       if (isCancelled(submitting)) return;
       if (message.attachments?.length && !supportsImages(runtime)) {
         throw new Error(
-          '当前 Grok ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
+          '当前 Grok Build ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
         );
       }
       beginGrokTurn(
@@ -422,7 +424,7 @@ export class GrokTurnQueue {
         this.flushText(runtime);
         this.options.emitError(
           runtime.applicationSessionId,
-          `Grok turn failed: ${errorText(error)}`,
+          `Grok Build 轮次失败：${errorText(error)}`,
         );
       }
     } finally {
@@ -470,7 +472,7 @@ export class GrokTurnQueue {
 
   private emitEventError(runtime: GrokRuntime, error: unknown): void {
     this.options.emitEvent(runtime.applicationSessionId, 'message', {
-      text: `⚠ Grok 插入失败：${errorText(error)}`,
+      text: `⚠ Grok Build 插入失败：${errorText(error)}`,
       error: true,
     });
   }

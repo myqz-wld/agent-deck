@@ -7,12 +7,12 @@ import type { Readable } from 'node:stream';
 
 const LOGIN_SHELLS = new Set(['zsh', 'bash', 'sh', 'dash', 'ksh']);
 const MANAGED_CHILD_ENV = {
-  // In-app Grok sessions are already ACP-owned. If a user hook still reaches Agent Deck, retain
+  // In-app Grok Build sessions are already ACP-owned. If a user hook still reaches Agent Deck, retain
   // the same SDK-origin dedup fallback used by the Claude/Codex bridges.
   AGENT_DECK_ORIGIN: 'sdk',
-  // Grok scans Claude/Cursor hooks by default. Agent Deck installs hooks for those external CLI
-  // adapters, so loading them in an ACP-owned Grok child would create duplicate/ghost sessions.
-  // Native Grok hooks remain enabled.
+  // Grok Build scans Claude/Cursor hooks by default. Agent Deck installs hooks for those external
+  // CLI adapters, so loading them in an ACP-owned Grok Build child would create duplicate/ghost
+  // sessions. Native Grok Build hooks remain enabled.
   GROK_CLAUDE_HOOKS_ENABLED: '0',
   GROK_CURSOR_HOOKS_ENABLED: '0',
 } as const;
@@ -39,8 +39,8 @@ export function buildGrokAgentArgs(sandboxProfile: string | null): string[] {
 }
 
 /**
- * Use the user's login shell only for the real Grok child. This lets a GUI-launched app pass
- * exported API-key variables to Grok without reading, persisting, or logging their values.
+ * Use the user's login shell only for the real Grok Build child. This lets a GUI-launched app pass
+ * exported API-key variables to Grok Build without reading, persisting, or logging their values.
  */
 export function buildGrokLaunchSpec(
   binary: string,
@@ -66,7 +66,7 @@ export function buildGrokLaunchSpec(
 
   return {
     command: shell,
-    // $0 is a fixed label; binary and every Grok argument remain positional argv values.
+    // $0 is a fixed label; binary and every Grok Build argument remain positional argv values.
     // The export runs after login-shell startup files, so they cannot accidentally re-enable
     // cross-adapter hook scanners. fd 3 keeps ACP stdout separate from shell startup text.
     args: [
@@ -119,7 +119,7 @@ export function spawnGrokChild(options: {
   const protocolOutput = child.stdio[3] as Readable | null;
   if (!protocolOutput) {
     child.kill('SIGTERM');
-    throw new Error('Unable to create the dedicated Grok ACP output pipe.');
+    throw new Error('无法创建专用的 Grok Build ACP 输出管道。');
   }
   return {
     child,

@@ -2,11 +2,21 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { methods } from '@agentclientprotocol/sdk';
 
-import { GrokAcpProcess } from '../acp-process';
+import { GrokAcpProcess, withTimeout } from '../acp-process';
 
 const fixture = fileURLToPath(
   new URL('./fixtures/fake-grok-acp-agent.mjs', import.meta.url),
 );
+
+async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+    throw new Error('expected promise to reject');
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return error.message;
+  }
+}
 
 describe('GrokAcpProcess', () => {
   it('authenticates before session/new and prefers API key over cached token', async () => {
@@ -46,17 +56,55 @@ describe('GrokAcpProcess', () => {
     expect(cached.authenticatedMethodId).toBe('cached_token');
     await cached.stop();
 
-    await expect(
-      GrokAcpProcess.start({
-        binary: globalThis.process.execPath,
-        args: [fixture, '--auth=grok.com'],
-        cwd: globalThis.process.cwd(),
-        onSessionUpdate: () => undefined,
-        onPermissionRequest: vi.fn(async () => ({
-          outcome: { outcome: 'cancelled' as const },
-        })),
-      }),
-    ).rejects.toThrow(/grok login --oauth/);
+    expect(
+      await rejectionMessage(
+        GrokAcpProcess.start({
+          binary: globalThis.process.execPath,
+          args: [fixture, '--auth=grok.com'],
+          cwd: globalThis.process.cwd(),
+          onSessionUpdate: () => undefined,
+          onPermissionRequest: vi.fn(async () => ({
+            outcome: { outcome: 'cancelled' as const },
+          })),
+        }),
+      ),
+    ).toBe(
+      'Grok Build ACP 需要交互式认证（grok.com）。请在终端运行 "grok login --oauth"，或通过 ~/.grok/config.toml 和导出的环境变量配置 API key，然后重启 Agent Deck。',
+    );
+  });
+
+  it('uses exact Grok Build copy for ACP timeout', async () => {
+    expect(
+      await rejectionMessage(
+        withTimeout(
+          new Promise<never>(() => undefined),
+          1,
+          'Grok Build ACP initialize',
+        ),
+      ),
+    ).toBe('Grok Build ACP initialize 在 1ms 后超时');
+  });
+
+  it('reports the final authenticate failure without changing method ids or recovery commands', async () => {
+    expect(
+      await rejectionMessage(
+        GrokAcpProcess.start({
+          binary: globalThis.process.execPath,
+          args: [
+            fixture,
+            '--auth=xai.api_key,cached_token',
+            '--fail-auth=xai.api_key,cached_token',
+          ],
+          cwd: globalThis.process.cwd(),
+          onSessionUpdate: () => undefined,
+          onPermissionRequest: vi.fn(async () => ({
+            outcome: { outcome: 'cancelled' as const },
+          })),
+        }),
+      ),
+    ).toBe(
+      'Grok Build ACP authenticate 对 "xai.api_key"、"cached_token" 均失败：Internal error。请运行 "grok login --oauth"，或确认 ~/.grok/config.toml 中为 API key 配置的 env_key 已由登录 shell 导出。',
+    );
   });
 
   it('falls back to cached login when API-key authentication is advertised but unavailable', async () => {

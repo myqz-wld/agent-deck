@@ -40,7 +40,9 @@ export function isInterjectionUnsupported(error: unknown): boolean {
 
 export function requireNativeSession(runtime: GrokRuntime): string {
   if (!runtime.nativeSessionId) {
-    throw new Error(`Grok session ${runtime.applicationSessionId} has no native session id.`);
+    throw new Error(
+      `Grok Build 会话 ${runtime.applicationSessionId} 缺少原生会话 ID。`,
+    );
   }
   return runtime.nativeSessionId;
 }

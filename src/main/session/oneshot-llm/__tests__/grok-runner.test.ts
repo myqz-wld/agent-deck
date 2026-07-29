@@ -168,4 +168,53 @@ describe('Grok isolated oneshot runner', () => {
 
     expect(result.text).toBe('{"version":1}');
   });
+
+  it('uses exact Grok Build copy for process, JSON, and response-limit failures', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-deck-grok-runner-errors-'));
+    tempRoots.push(root);
+    const baseOptions = {
+      prompt: 'checkpoint',
+      systemPrompt: 'return text',
+      timeoutMs: 5_000,
+      timeoutErrorMessage: 'timeout',
+      testCommand: {
+        binary: process.execPath,
+        argsPrefix: [fixture],
+      },
+    };
+
+    await expect(
+      runGrokOneshot({
+        ...baseOptions,
+        envOverride: {
+          FAKE_GROK_LOG: join(root, 'failed.jsonl'),
+          FAKE_GROK_ERROR: 'provider unavailable',
+        },
+      }),
+    ).rejects.toThrow('Grok Build 单次运行失败：provider unavailable');
+
+    await expect(
+      runGrokOneshot({
+        ...baseOptions,
+        maxOutputBytes: 4,
+        envOverride: {
+          FAKE_GROK_LOG: join(root, 'oversized.jsonl'),
+          FAKE_GROK_RESPONSE: 'too long',
+        },
+      }),
+    ).rejects.toThrow('Grok Build 单次运行响应超过 4 字节上限。');
+
+    await expect(
+      runGrokOneshot({
+        prompt: 'checkpoint',
+        systemPrompt: 'return text',
+        timeoutMs: 5_000,
+        timeoutErrorMessage: 'timeout',
+        testCommand: {
+          binary: process.execPath,
+          argsPrefix: ['-e', 'process.stdout.write("not-json")', '--'],
+        },
+      }),
+    ).rejects.toThrow('Grok Build 单次运行返回无效 JSON。');
+  });
 });

@@ -26,7 +26,7 @@ const STOP_TIMEOUT_MS = 2_000;
 
 export interface GrokAcpProcessOptions {
   binary: string;
-  /** Test seam for a deterministic fake ACP child. Production always uses Grok's fixed args. */
+  /** Test seam for a deterministic fake ACP child. Production always uses Grok Build's fixed args. */
   args?: string[];
   cwd: string;
   sandboxProfile?: string | null;
@@ -124,7 +124,7 @@ export class GrokAcpProcess {
           clientInfo: { name: 'Agent Deck', version: '0.1.0' },
         }),
         START_TIMEOUT_MS,
-        'Grok ACP initialize',
+        'Grok Build ACP initialize',
       );
       const authenticatedMethodId =
         options.authenticate === false
@@ -218,7 +218,7 @@ async function authenticateGrokConnection(
   if (candidates.length === 0) {
     const ids = authMethods.map((method) => method.id).join(', ');
     throw new Error(
-      `Grok ACP requires interactive authentication (${ids}). Run "grok login --oauth" in a terminal, or configure an API key through ~/.grok/config.toml and an exported environment variable, then restart Agent Deck.`,
+      `Grok Build ACP 需要交互式认证（${ids}）。请在终端运行 "grok login --oauth"，或通过 ~/.grok/config.toml 和导出的环境变量配置 API key，然后重启 Agent Deck。`,
     );
   }
   let lastError: unknown = null;
@@ -230,7 +230,7 @@ async function authenticateGrokConnection(
           _meta: { headless: true },
         }),
         START_TIMEOUT_MS,
-        `Grok ACP authenticate (${candidate.id})`,
+        `Grok Build ACP authenticate (${candidate.id})`,
       );
       return candidate.id;
     } catch (error) {
@@ -238,9 +238,9 @@ async function authenticateGrokConnection(
     }
   }
   throw new Error(
-    `Grok ACP authentication failed for ${candidates.map((method) => `"${method.id}"`).join(', ')}: ${
+    `Grok Build ACP authenticate 对 ${candidates.map((method) => `"${method.id}"`).join('、')} 均失败：${
       lastError instanceof Error ? lastError.message : String(lastError)
-    }. Run "grok login --oauth", or verify the API-key env_key configured in ~/.grok/config.toml is exported by your login shell.`,
+    }。请运行 "grok login --oauth"，或确认 ~/.grok/config.toml 中为 API key 配置的 env_key 已由登录 shell 导出。`,
     { cause: lastError },
   );
 }
@@ -271,7 +271,7 @@ export async function withTimeout<T>(
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          () => reject(new Error(`${label} 在 ${timeoutMs}ms 后超时`)),
           timeoutMs,
         );
       }),

@@ -123,13 +123,13 @@ export interface GrokPromptNormalization {
 }
 
 /**
- * Grok's normal interactive path wraps the submitted text in one canonical outer envelope:
+ * Grok Build's normal interactive path wraps the submitted text in one canonical outer envelope:
  * `<user_query>\n...\n</user_query>`. Strip exactly that single provider-owned layer for display.
  *
  * The transform is deliberately anchored, non-recursive, and newline-sensitive:
  * - nested tags typed by the user remain intact after the outer layer is removed;
  * - malformed/sibling/prefixed content is preserved verbatim;
- * - rawText is always retained because Grok's `--verbatim` path exposes no provenance bit, so a
+ * - rawText is always retained because Grok Build's `--verbatim` path exposes no provenance bit, so a
  *   user-authored canonical envelope is inherently indistinguishable from the harness wrapper.
  */
 export function normalizeGrokHookPrompt(rawText: string): GrokPromptNormalization {
@@ -164,7 +164,7 @@ export function translateGrokUserPrompt(
   const rawText = firstRawString(
     payload,
     ['prompt', 'userPrompt', 'message'],
-    'Grok prompt submitted',
+    'Grok Build 提示已提交',
   );
   const normalized = normalizeGrokHookPrompt(rawText);
   return event(payload, 'message', {
@@ -212,7 +212,11 @@ export function translateGrokPostToolUseFailure(
     ...toolFields(payload),
     status: 'failed',
     error:
-      firstString(payload, ['error', 'errorMessage', 'message'], 'Grok tool failed'),
+      firstString(
+        payload,
+        ['error', 'errorMessage', 'message'],
+        'Grok Build 工具调用失败',
+      ),
     errorDetails:
       firstString(payload, ['errorDetails', 'error_details']) || undefined,
   });
@@ -226,7 +230,11 @@ export function translateGrokPermissionDenied(
     ...toolFields(payload),
     status: 'denied',
     error:
-      firstString(payload, ['reason', 'error', 'message'], 'Grok tool permission denied'),
+      firstString(
+        payload,
+        ['reason', 'error', 'message'],
+        'Grok Build 工具权限被拒绝',
+      ),
   });
 }
 
@@ -236,7 +244,7 @@ export function translateGrokPostCompact(
   const trigger = firstString(payload, ['trigger']);
   return event(payload, 'message', {
     role: 'assistant',
-    text: `Grok context compacted${trigger ? ` (${trigger})` : ''}`,
+    text: `Grok Build 上下文已压缩${trigger ? `（${trigger}）` : ''}`,
     metadata: commonPayload(payload),
   });
 }
@@ -247,7 +255,7 @@ export function translateGrokNotification(
   const notificationType =
     firstString(payload, ['notificationType', 'notification_type', 'type']) || undefined;
   const title = firstString(payload, ['title']) || undefined;
-  const message = firstString(payload, ['message', 'title'], 'Grok notification');
+  const message = firstString(payload, ['message', 'title'], 'Grok Build 通知');
   const actionRequiredTypes = new Set([
     'permission_prompt',
     'permission_request',
@@ -321,7 +329,7 @@ export function translateGrokStopFailure(
     ok: false,
     subtype: 'error',
     error:
-      firstString(payload, ['error', 'errorMessage', 'message'], 'Grok turn failed'),
+      firstString(payload, ['error', 'errorMessage', 'message'], 'Grok Build 轮次失败'),
     errorDetails:
       firstString(payload, ['errorDetails', 'error_details']) || undefined,
     ...commonPayload(payload),

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { GrokAcpProcess } from '../acp-process';
 import { GrokTurnQueue } from '../turn-queue';
+import { requireNativeSession } from '../turn-queue-helpers';
 import type { GrokRuntime } from '../runtime-types';
 import { createGrokTranslationState } from '../translate';
 
@@ -57,13 +58,14 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
 
 function makeQueue() {
   const events: Array<{ kind: string; payload: unknown }> = [];
+  const emitError = vi.fn();
   const queue = new GrokTurnQueue({
     emit: (event) => events.push({ kind: event.kind, payload: event.payload }),
     emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
-    emitError: vi.fn(),
+    emitError,
     closeSession: vi.fn(async () => undefined),
   });
-  return { queue, events };
+  return { queue, events, emitError };
 }
 
 describe('GrokTurnQueue active-turn delivery', () => {
@@ -286,5 +288,104 @@ describe('GrokTurnQueue active-turn delivery', () => {
     expect(events).not.toContainEqual(expect.objectContaining({
       payload: expect.objectContaining({ text: 'cancel this interjection' }),
     }));
+  });
+
+  it('uses exact Grok Build copy for queue and native-session errors', async () => {
+    const runtime = makeRuntime(vi.fn());
+    const { queue } = makeQueue();
+
+    await expect(queue.steer(runtime, 'insert')).rejects.toThrow(
+      'Grok Build 当前没有可插入内容的活动轮次。',
+    );
+
+    runtime.running = true;
+    runtime.submittingMessage = {
+      message: { id: 'pending-1', text: 'pending' },
+      status: 'submitting',
+      promptRequestIssued: true,
+      kind: 'interject',
+    };
+    await expect(queue.steer(runtime, 'insert')).rejects.toThrow(
+      '当前 Grok Build 消息仍在提交，请稍后再试。',
+    );
+
+    runtime.submittingMessage = null;
+    runtime.interjectionSupported = false;
+    await expect(queue.steer(runtime, 'insert')).rejects.toThrow(
+      '当前 Grok Build 版本不支持活动轮次插入。',
+    );
+
+    runtime.running = false;
+    runtime.closed = true;
+    expect(() => queue.enqueue(runtime, 'closing')).toThrow(
+      'Grok Build 会话 app-session 正在关闭。',
+    );
+
+    runtime.closed = false;
+    runtime.nativeSessionId = null;
+    expect(() => requireNativeSession(runtime)).toThrow(
+      'Grok Build 会话 app-session 缺少原生会话 ID。',
+    );
+
+    const queuedRuntime = makeRuntime(vi.fn());
+    queuedRuntime.ready = false;
+    for (let index = 0; index < 20; index += 1) {
+      queue.enqueue(queuedRuntime, `queued-${index}`);
+    }
+    expect(() => queue.enqueue(queuedRuntime, 'queue overflow')).toThrow(
+      '待发送队列已堆积 20 条，请等待当前轮次完成。',
+    );
+  });
+
+  it('uses exact Grok Build copy for image and turn failures', async () => {
+    const failedRequest = vi.fn(async () => {
+      throw new Error('provider unavailable');
+    });
+    const failedRuntime = makeRuntime(failedRequest);
+    const { queue, emitError } = makeQueue();
+    queue.enqueue(failedRuntime, 'fail this turn');
+    await vi.waitFor(() =>
+      expect(emitError).toHaveBeenCalledWith(
+        'app-session',
+        'Grok Build 轮次失败：provider unavailable',
+      ),
+    );
+
+    const imageRuntime = makeRuntime(vi.fn());
+    imageRuntime.process!.initializeResponse.agentCapabilities = {
+      promptCapabilities: { image: false },
+    };
+    expect(() =>
+      queue.enqueue(imageRuntime, 'inspect image', [
+        {
+          kind: 'uploaded',
+          path: '/tmp/input.png',
+          mime: 'image/png',
+          bytes: 1,
+        },
+      ]),
+    ).toThrow(
+      '当前 Grok Build ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
+    );
+  });
+
+  it('uses exact Grok Build copy for interjection failures', async () => {
+    const runtime = makeRuntime(vi.fn(async () => {
+      throw new Error('interjection unavailable');
+    }));
+    runtime.running = true;
+    const { queue, events } = makeQueue();
+
+    await queue.send(runtime, 'insert');
+    await vi.waitFor(() =>
+      expect(events).toContainEqual({
+        kind: 'message',
+        payload: {
+          text: '⚠ Grok Build 插入失败：interjection unavailable',
+          error: true,
+        },
+      }),
+    );
+
   });
 });
