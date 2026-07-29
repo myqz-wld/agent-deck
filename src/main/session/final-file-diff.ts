@@ -1,6 +1,6 @@
-import { isAbsolute, normalize, resolve } from 'node:path';
-import type { FileChangeRecord, FileFinalDiffResult } from '@shared/types';
-import { fileChangeRepo } from '@main/store/file-change-repo';
+import { isAbsolute, normalize, relative, resolve } from 'node:path';
+import type { FileChangePayload, FileFinalDiffResult } from '@shared/types';
+import { fileChangeReadRepo } from '@main/store/file-change-read-repo';
 import { sessionRepo } from '@main/store/session-repo';
 
 const MAX_RECORDED_DIFF_BYTES = 4 * 1024 * 1024;
@@ -11,16 +11,14 @@ export async function getSessionFileFinalDiff(
 ): Promise<FileFinalDiffResult> {
   const session = sessionRepo.get(sessionId);
   const inputPath = String(filePath || '');
-  const targetPath = normalize(
-    isAbsolute(inputPath) ? inputPath : resolve(session?.cwd ?? '', inputPath),
-  );
+  const cwd = session?.cwd ?? '';
+  const targetPath = normalize(isAbsolute(inputPath) ? inputPath : resolve(cwd, inputPath));
+  const candidates = session ? normalizedPathCandidates(inputPath, cwd, targetPath) : [];
+  const boundaries = session
+    ? fileChangeReadRepo.readPathBoundaries(sessionId, candidates)
+    : null;
 
-  const changes = session ? fileChangeRepo.listForSession(sessionId) : [];
-  const fileChanges = changes.filter(
-    (c) => normalizeFilePath(c.filePath, session?.cwd ?? '') === targetPath,
-  );
-
-  if (!session || fileChanges.length === 0) {
+  if (!session || !boundaries) {
     return {
       ok: false,
       filePath: targetPath,
@@ -31,10 +29,10 @@ export async function getSessionFileFinalDiff(
     };
   }
 
-  const snapshot = snapshotFinalDiff(targetPath, fileChanges);
+  const snapshot = snapshotFinalDiff(targetPath, boundaries.first, boundaries.last);
   if (snapshot) return snapshot;
 
-  const recorded = recordedPatchFallback(targetPath, fileChanges);
+  const recorded = recordedPatchFallback(targetPath, sessionId, candidates);
   if (recorded) return recorded;
 
   return {
@@ -47,18 +45,21 @@ export async function getSessionFileFinalDiff(
   };
 }
 
-function normalizeFilePath(filePath: string, cwd: string): string {
-  const raw = String(filePath || '');
-  return normalize(isAbsolute(raw) ? raw : resolve(cwd, raw));
+function normalizedPathCandidates(inputPath: string, cwd: string, targetPath: string): string[] {
+  const candidates = new Set<string>([targetPath]);
+  if (inputPath) candidates.add(inputPath);
+  const normalizedInput = normalize(inputPath);
+  if (normalizedInput && normalizedInput !== '.') candidates.add(normalizedInput);
+  const relativeTarget = normalize(relative(cwd, targetPath));
+  if (relativeTarget && relativeTarget !== '.') candidates.add(relativeTarget);
+  return [...candidates];
 }
 
 function snapshotFinalDiff(
   targetPath: string,
-  fileChanges: FileChangeRecord[],
+  first: FileChangePayload,
+  last: FileChangePayload,
 ): FileFinalDiffResult | null {
-  const ordered = [...fileChanges].sort((a, b) => a.ts - b.ts || a.id - b.id);
-  const first = ordered[0];
-  const last = ordered[ordered.length - 1];
   const finalFileKind = inferFinalFileKind(first, last);
   const before = first.beforeSnapshot ?? (isAddChange(first) ? '' : null);
   const after = last.afterSnapshot ?? (isDeleteChange(last) ? '' : null);
@@ -92,7 +93,7 @@ function snapshotFinalDiff(
 
 type FinalFileKind = 'added' | 'deleted' | null;
 
-function inferFinalFileKind(first: FileChangeRecord, last: FileChangeRecord): FinalFileKind {
+function inferFinalFileKind(first: FileChangePayload, last: FileChangePayload): FinalFileKind {
   const firstIsAdd = isAddChange(first);
   const lastIsDelete = isDeleteChange(last);
   if (firstIsAdd && lastIsDelete) return null;
@@ -101,14 +102,14 @@ function inferFinalFileKind(first: FileChangeRecord, last: FileChangeRecord): Fi
   return null;
 }
 
-function isAddChange(change: FileChangeRecord): boolean {
+function isAddChange(change: FileChangePayload): boolean {
   const changeKind = readChangeKind(change.metadata);
   if (['add', 'added', 'new', 'create', 'created'].includes(changeKind ?? '')) return true;
   if (hasNewFileDiffHeader(change.metadata)) return true;
   return change.metadata?.source === 'Write' && change.beforeBlob == null;
 }
 
-function isDeleteChange(change: FileChangeRecord): boolean {
+function isDeleteChange(change: FileChangePayload): boolean {
   const changeKind = readChangeKind(change.metadata);
   if (['delete', 'deleted', 'remove', 'removed'].includes(changeKind ?? '')) return true;
   return hasDeletedFileDiffHeader(change.metadata);
@@ -136,26 +137,38 @@ function hasDeletedFileDiffHeader(metadata: Record<string, unknown> | undefined)
 
 function recordedPatchFallback(
   targetPath: string,
-  fileChanges: FileChangeRecord[],
+  sessionId: string,
+  candidates: string[],
 ): FileFinalDiffResult | null {
-  const diffs = [...fileChanges]
+  const patches: Array<{ id: number; ts: number; diff: string }> = [];
+  let cursor: string | null = null;
+  let totalBytes = 0;
+  do {
+    const page = fileChangeReadRepo.listPathPatchPage(sessionId, candidates, cursor);
+    for (const item of page.items) {
+      if (!item.diff?.trim()) continue;
+      totalBytes += Buffer.byteLength(item.diff, 'utf8') + (patches.length > 0 ? 2 : 0);
+      if (totalBytes > MAX_RECORDED_DIFF_BYTES) {
+        return {
+          ok: false,
+          filePath: targetPath,
+          diff: null,
+          source: 'recorded-patch-fallback',
+          reason: 'too_large',
+          message: '会话记录中的 patch 过大，超过当前可显示上限。',
+        };
+      }
+      patches.push({ id: item.id, ts: item.ts, diff: item.diff });
+    }
+    cursor = page.nextCursor;
+  } while (cursor);
+
+  const diffs = patches
     .sort((a, b) => a.ts - b.ts || a.id - b.id)
-    .map((c) => (typeof c.metadata?.diff === 'string' ? c.metadata.diff : ''))
-    .filter((diff) => diff.trim());
+    .map((item) => item.diff);
   if (diffs.length === 0) return null;
 
   const diff = diffs.join('\n\n');
-  if (Buffer.byteLength(diff, 'utf8') > MAX_RECORDED_DIFF_BYTES) {
-    return {
-      ok: false,
-      filePath: targetPath,
-      diff: null,
-      source: 'recorded-patch-fallback',
-      reason: 'too_large',
-      message: '会话记录中的 patch 过大，超过当前可显示上限。',
-    };
-  }
-
   return {
     ok: true,
     filePath: targetPath,

@@ -18,6 +18,29 @@ export interface FileChangeRecord {
   ts: number;
 }
 
+/** Lightweight list item. Large blobs, snapshots, and metadata stay behind payload lookup. */
+export interface FileChangeSummary {
+  id: number;
+  sessionId: string;
+  filePath: string;
+  kind: string;
+  toolCallId: string | null;
+  hasBeforeBlob: boolean;
+  hasAfterBlob: boolean;
+  hasBeforeSnapshot: boolean;
+  hasAfterSnapshot: boolean;
+  ts: number;
+}
+
+/** Full data for one selected change, loaded only after a session-bound id lookup. */
+export type FileChangePayload = FileChangeRecord;
+
+export interface FileChangePage {
+  items: FileChangeSummary[];
+  /** Opaque keyset cursor based on the last raw row scanned. */
+  nextCursor: string | null;
+}
+
 export type FileFinalDiffReason =
   | 'not_in_session'
   | 'unchanged'
@@ -48,7 +71,7 @@ export interface DiffPayload<T = unknown> {
 /**
  * 图片在事件流 / DiffPayload 里的承载形态。**不存图片二进制本身**，只存「怎么读到它」。
  * - kind:'path' 直接用绝对路径，主进程读盘后转 dataURL 给 renderer
- * - kind:'snapshot' 二期预留：让 MCP server 把快照交给 agent-deck 自管目录后用 id 索引
+ * - kind:'snapshot' 描述由 agent-deck 自管目录按 id 索引的快照
  * 之所以加这层抽象：MCP server 维护着自己的快照目录（ImageEdit 的 beforeFile 就放在那里），
  * 这些路径之后可能被 server 清理，DiffPayload 里只存「读取契约」让 renderer 兜底失效场景。
  */
