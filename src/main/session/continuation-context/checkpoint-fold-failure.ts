@@ -1,9 +1,9 @@
-import log from '@main/utils/logger';
-import { CheckpointGeneratorError } from './checkpoint-generator';
+import {
+  CheckpointGeneratorError,
+  type CheckpointGeneratorErrorCode,
+} from './checkpoint-generator';
 import { CheckpointPatchValidationError } from './checkpoint-patch-validation';
 import type { ContinuationWarning } from './types';
-
-const logger = log.scope('continuation-context');
 
 export type CheckpointFailureStage =
   | 'bounded-marker-commit'
@@ -12,17 +12,42 @@ export type CheckpointFailureStage =
   | 'fold-commit'
   | 'repair';
 
+export type CheckpointFoldFailureCategory =
+  | CheckpointGeneratorErrorCode
+  | 'checkpoint-validation'
+  | 'checkpoint-commit'
+  | 'internal-error';
+
+export type CheckpointFoldFailureReason =
+  | CheckpointGeneratorErrorCode
+  | 'invalid-json'
+  | 'schema-invalid'
+  | 'evidence-outside-current-delta'
+  | 'coverage-marker-invariant'
+  | 'canonical-capacity'
+  | 'patch-no-op'
+  | 'patch-target-invalid'
+  | 'patch-semantic-invalid'
+  | 'evidence-outside-allowlist'
+  | 'active-fact-removed'
+  | 'active-fact-changed-without-evidence'
+  | 'duplicate-fact-id'
+  | 'checkpoint-cas-conflict'
+  | 'unclassified';
+
 export interface CheckpointFoldFailureDiagnostic {
   stage: CheckpointFailureStage;
-  category: string;
-  reason: string;
+  category: CheckpointFoldFailureCategory;
+  reason: CheckpointFoldFailureReason;
   providerCalls: number;
   checkpointRevision: number;
   captureRevision: number;
   deadlineRemainingMs: number;
 }
 
-export function classifyCheckpointFailureReason(error: unknown): string {
+export function classifyCheckpointFailureReason(
+  error: unknown,
+): CheckpointFoldFailureReason {
   if (error instanceof CheckpointGeneratorError) return error.code;
   if (error instanceof CheckpointPatchValidationError) {
     const codes = new Set(error.issues.map((issue) => issue.code));
@@ -56,7 +81,10 @@ export function classifyCheckpointFailureReason(error: unknown): string {
   return 'unclassified';
 }
 
-function failureCategory(stage: CheckpointFailureStage, error: unknown): string {
+function failureCategory(
+  stage: CheckpointFailureStage,
+  error: unknown,
+): CheckpointFoldFailureCategory {
   if (error instanceof CheckpointGeneratorError) return error.code;
   if (stage === 'fold-validate' || stage === 'repair') return 'checkpoint-validation';
   if (stage === 'fold-commit' || stage === 'bounded-marker-commit') {
@@ -84,9 +112,6 @@ export function recordCheckpointFoldFailure(input: {
     captureRevision: input.captureRevision,
     deadlineRemainingMs: Math.max(0, input.deadlineRemainingMs),
   };
-  // The background owner emits the persisted warning with retry context. Keep this local detail in
-  // the development console so one failure does not become two persisted warning records.
-  logger.debug('[continuation-context] checkpoint fold failed', diagnostic);
   input.warnings.push({
     code: input.code,
     message:

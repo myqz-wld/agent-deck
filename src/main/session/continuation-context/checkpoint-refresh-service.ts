@@ -8,7 +8,6 @@ import { eventBus, type TypedEventBus } from '@main/event-bus';
 import { getDb } from '@main/store/db';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
 import { sessionRepo } from '@main/store/session-repo';
-import log from '@main/utils/logger';
 import {
   type CheckpointBacklogEstimate,
 } from './checkpoint-backlog-estimator';
@@ -26,10 +25,10 @@ import {
   type CheckpointRefreshRequest,
 } from './checkpoint-refresh-scheduler';
 import { CheckpointRefreshQueue } from './checkpoint-refresh-queue';
+import { CheckpointRefreshDiagnosticCoordinator } from './checkpoint-refresh-diagnostics';
 
 const EVENT_EVALUATION_THROTTLE_MS = 5_000;
 const SESSION_PAGE_SIZE = 100;
-const logger = log.scope('checkpoint-refresh');
 
 interface CheckpointRefreshServiceDependencies {
   bus?: Pick<TypedEventBus, 'on'>;
@@ -90,6 +89,7 @@ export class ContinuationCheckpointRefreshService {
   private readonly foregroundLeases = new Map<string, number>();
   private readonly scheduler: CheckpointRefreshScheduler<ContinuationCheckpointRefreshSnapshot>;
   private readonly refreshQueue: CheckpointRefreshQueue;
+  private readonly diagnostics: CheckpointRefreshDiagnosticCoordinator;
   private backlogEstimator: CheckpointBacklogEstimator | null;
   private started = false;
 
@@ -102,6 +102,7 @@ export class ContinuationCheckpointRefreshService {
     this.setTimer = dependencies.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = dependencies.clearTimer ?? ((timer) => clearTimeout(timer));
     this.backlogEstimator = dependencies.backlogEstimator ?? null;
+    this.diagnostics = new CheckpointRefreshDiagnosticCoordinator(this.now);
     this.refreshQueue = new CheckpointRefreshQueue(
       settings.continuationCheckpointMaxConcurrent ??
         DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
@@ -121,48 +122,30 @@ export class ContinuationCheckpointRefreshService {
             error.checkpointThroughRevision >
               (context.snapshot?.checkpointEventRevision ?? 0);
           if (incompleteWithProgress) {
-            logger.info('[checkpoint-refresh] background refresh partially completed', {
-              sessionId: context.sessionId,
-              schedulerStage: context.stage,
-              trigger: context.trigger,
-              observedSourceRevision: context.snapshot?.sourceEventRevision ?? null,
-              materializedRevision: error.materializedThroughRevision,
-              checkpointRevision: error.checkpointThroughRevision,
-              remainingMaterializedRevisions: Math.max(
-                0,
-                error.materializedThroughRevision - error.checkpointThroughRevision,
-              ),
-              retryDelayMs: context.retryDelayMs,
-              retryAt: context.retryAt,
-            });
+            if (context.trigger) {
+              this.diagnostics.complete(context.sessionId, {
+                trigger: context.trigger,
+                partial: true,
+              });
+            }
             return;
           }
-          logger.warn('[checkpoint-refresh] background refresh failed', {
-            sessionId: context.sessionId,
-            schedulerStage: context.stage,
-            trigger: context.trigger,
-            sourceRevision: context.snapshot?.sourceEventRevision ?? null,
-            checkpointRevision:
-              error instanceof BackgroundCheckpointRefreshIncompleteError
-                ? error.checkpointThroughRevision
-                : context.snapshot?.checkpointEventRevision ?? null,
-            failureStage: foldFailure?.stage ?? null,
-            failureCategory:
+          const trigger = context.stage === 'snapshot' ? 'snapshot' : context.trigger;
+          if (!trigger) return;
+          this.diagnostics.fail(context.sessionId, {
+            trigger,
+            category:
               foldFailure?.category ??
               (error instanceof BackgroundCheckpointRefreshIncompleteError
                 ? 'incomplete-coverage'
-                : error instanceof Error
-                  ? error.name
-                  : 'unknown-error'),
-            failureReason:
+                : context.stage === 'snapshot'
+                  ? 'snapshot-error'
+                  : 'refresh-error'),
+            reason:
               foldFailure?.reason ??
               (error instanceof BackgroundCheckpointRefreshIncompleteError
                 ? 'fold-budget-or-call-limit'
-                : null),
-            providerCalls: foldFailure?.providerCalls ?? null,
-            consecutiveFailures: context.consecutiveFailures,
-            retryDelayMs: context.retryDelayMs,
-            retryAt: context.retryAt,
+                : 'unclassified'),
           });
         },
         now: this.now,
@@ -246,6 +229,7 @@ export class ContinuationCheckpointRefreshService {
     const failure = results.find(
       (result): result is PromiseRejectedResult => result.status === 'rejected',
     );
+    this.diagnostics.reset();
     if (failure) throw failure.reason;
   }
 
@@ -337,6 +321,7 @@ export class ContinuationCheckpointRefreshService {
   private enqueueRefresh(
     request: CheckpointRefreshRequest<ContinuationCheckpointRefreshSnapshot>,
   ): Promise<void> {
+    this.diagnostics.begin(request.sessionId, request.trigger, request.startedAt);
     return this.refreshQueue.enqueue(async () => {
       if (request.signal.aborted || this.foregroundLeases.has(request.sessionId)) {
         throw new Error('Background checkpoint refresh cancelled before execution');
@@ -347,15 +332,14 @@ export class ContinuationCheckpointRefreshService {
         snapshot: request.snapshot,
         signal: request.signal,
       });
-      logger.info('[checkpoint-refresh] background refresh completed', {
-        sessionId: request.sessionId,
-        trigger: request.trigger,
-        captureRevision: result.captureRevision,
-        checkpointRevision: result.checkpointThroughRevision,
-        foldCalls: result.foldCalls,
-        repairCalls: result.repairCalls,
-        coverageGap: result.uncoveredRevisionRange !== null,
-      });
+      if (!request.signal.aborted) {
+        this.diagnostics.complete(request.sessionId, {
+          trigger: request.trigger,
+          partial:
+            result.checkpointThroughRevision < result.captureRevision ||
+            result.uncoveredRevisionRange !== null,
+        });
+      }
       if (
         result.checkpointThroughRevision < result.captureRevision &&
         !request.signal.aborted &&
@@ -390,6 +374,7 @@ export class ContinuationCheckpointRefreshService {
   private removeSession(sessionId: string): void {
     this.clearPending(sessionId);
     this.foregroundLeases.delete(sessionId);
+    this.diagnostics.forget(sessionId);
     void this.scheduler.removeSession(sessionId);
   }
 

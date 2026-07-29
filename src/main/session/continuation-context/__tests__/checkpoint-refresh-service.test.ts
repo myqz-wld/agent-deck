@@ -527,6 +527,9 @@ describe('continuation checkpoint refresh service integration', () => {
     const activeSession = session('partial-safety', 'working');
     let checkpointThroughRevision = 0;
     let estimatedTokens = 48_000;
+    vi.mocked(logger.warn).mockImplementationOnce(() => {
+      throw new Error('diagnostic sink must not affect refresh');
+    });
     const refresh = vi.fn(async (): Promise<BackgroundCheckpointRefreshResult> => {
       if (checkpointThroughRevision === 0) {
         checkpointThroughRevision = 50;
@@ -575,10 +578,26 @@ describe('continuation checkpoint refresh service integration', () => {
 
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     expect(checkpointThroughRevision).toBe(100);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'checkpoint refresh state degraded',
+      expect.objectContaining({
+        event: 'checkpoint-refresh-state',
+        state: 'partial:safety',
+        transition: 'initial',
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'checkpoint refresh state recovered',
+      expect.objectContaining({
+        event: 'checkpoint-refresh-state',
+        state: 'healthy',
+        previousState: 'partial:safety',
+      }),
+    );
   });
 
-  it('logs bounded checkpoint progress as partial completion instead of failure', async () => {
-    const activeSession = session('partial-log', 'working');
+  it('logs content-free bounded checkpoint progress as a partial state', async () => {
+    const activeSession = session('partial-log /Users/private token=secret', 'working');
     const refresh = vi.fn(async () => {
       throw new BackgroundCheckpointRefreshIncompleteError(50, 100, null);
     });
@@ -609,20 +628,28 @@ describe('continuation checkpoint refresh service integration', () => {
     service.start();
 
     await vi.waitFor(() => {
-      expect(logger.info).toHaveBeenCalledWith(
-        '[checkpoint-refresh] background refresh partially completed',
+      expect(logger.warn).toHaveBeenCalledWith(
+        'checkpoint refresh state degraded',
         expect.objectContaining({
-          sessionId: activeSession.id,
-          observedSourceRevision: 100,
-          materializedRevision: 100,
-          checkpointRevision: 50,
-          remainingMaterializedRevisions: 50,
+          event: 'checkpoint-refresh-state',
+          state: 'partial:safety',
+          previousState: null,
+          transition: 'initial',
+          suppressedCount: 0,
+          suppressedCountCapped: false,
+          slowThresholdMs: 30_000,
+          summaryIntervalMs: 5 * 60_000,
         }),
       );
     });
-    expect(logger.warn).not.toHaveBeenCalledWith(
-      '[checkpoint-refresh] background refresh failed',
-      expect.anything(),
-    );
+    const emitted = JSON.stringify([
+      ...vi.mocked(logger.info).mock.calls,
+      ...vi.mocked(logger.warn).mock.calls,
+    ]);
+    expect(emitted).not.toContain(activeSession.id);
+    expect(emitted).not.toContain('/Users/private');
+    expect(emitted).not.toContain('token=secret');
+    expect(emitted).not.toContain('sessionId');
+    expect(emitted).not.toContain('Revision');
   });
 });

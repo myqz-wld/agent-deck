@@ -33,6 +33,17 @@ describe('checkpoint fold failure diagnostics', () => {
     expect(classifyCheckpointFailureReason(error)).toBe(expected);
   });
 
+  it('collapses unknown provider text to one fixed content-free reason', () => {
+    const secret =
+      'provider payload at /Users/private?token=secret https://example.test/';
+    const reason = classifyCheckpointFailureReason(new Error(secret));
+
+    expect(reason).toBe('unclassified');
+    expect(JSON.stringify(reason)).not.toContain(secret);
+    expect(JSON.stringify(reason)).not.toContain('/Users/private');
+    expect(JSON.stringify(reason)).not.toContain('example.test');
+  });
+
   it('records one bounded structured failure for the owning caller', () => {
     const warnings: ContinuationWarning[] = [];
     const diagnostic = recordCheckpointFoldFailure({
