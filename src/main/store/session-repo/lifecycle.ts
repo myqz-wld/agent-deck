@@ -1,14 +1,27 @@
 /**
- * session-repo —— lifecycle 推进 + activity / 历史清理批量操作。
- * 与 archive 正交（archive 见 archive.ts）；lifecycle scheduler 主要消费此文件。
- *
- * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
- * deep-review-and-split-20260513 H2 Step 2.3）。
+ * Session lifecycle and activity persistence plus bounded cleanup queries.
+ * Archive remains orthogonal to lifecycle.
  */
 
 import type { ActivityState, LifecycleState, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
 import { rowToRecord, type Row } from './types';
+
+export const LIFECYCLE_BATCH_SIZE = 100;
+
+export interface HistoryLifecycleCursor {
+  lastEventAt: number;
+  id: string;
+}
+
+export interface HistoryLifecycleCandidate extends HistoryLifecycleCursor {
+  cliSessionId: string | null;
+}
+
+function boundedLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return LIFECYCLE_BATCH_SIZE;
+  return Math.max(1, Math.min(Math.floor(limit), LIFECYCLE_BATCH_SIZE));
+}
 
 export function setLifecycle(
   id: string,
@@ -57,26 +70,36 @@ export function setEventState(
 }
 
 /** lifecycle scheduler 用：找出所有可能要从 active → dormant 的未归档、未 pin 会话。 */
-export function findActiveExpiring(threshold: number): SessionRecord[] {
+export function findActiveExpiring(
+  threshold: number,
+  limit = LIFECYCLE_BATCH_SIZE,
+): SessionRecord[] {
   const rows = getDb()
     .prepare(
       `SELECT * FROM sessions
        WHERE lifecycle = 'active' AND archived_at IS NULL
-         AND pinned_at IS NULL AND last_event_at < ?`,
+         AND pinned_at IS NULL AND last_event_at < ?
+       ORDER BY last_event_at ASC, id ASC
+       LIMIT ?`,
     )
-    .all(threshold) as Row[];
+    .all(threshold, boundedLimit(limit)) as Row[];
   return rows.map(rowToRecord);
 }
 
 /** lifecycle scheduler 用：找出所有可能要从 dormant → closed 的未归档、未 pin 会话。 */
-export function findDormantExpiring(threshold: number): SessionRecord[] {
+export function findDormantExpiring(
+  threshold: number,
+  limit = LIFECYCLE_BATCH_SIZE,
+): SessionRecord[] {
   const rows = getDb()
     .prepare(
       `SELECT * FROM sessions
        WHERE lifecycle = 'dormant' AND archived_at IS NULL
-         AND pinned_at IS NULL AND last_event_at < ?`,
+         AND pinned_at IS NULL AND last_event_at < ?
+       ORDER BY last_event_at ASC, id ASC
+       LIMIT ?`,
     )
-    .all(threshold) as Row[];
+    .all(threshold, boundedLimit(limit)) as Row[];
   return rows.map(rowToRecord);
 }
 
@@ -120,42 +143,62 @@ export function batchAdvanceLifecycle(
 }
 
 /**
- * 历史会话自动清理：找出 lastEventAt < threshold 且不在实时面板的会话 id。
- * 「不在实时面板」= lifecycle = 'closed' 或 archived_at IS NOT NULL，
- * 与 listHistory 的范围一致。active / dormant 即便最后事件很久也不删
- * （用户可能开着窗口在等长任务），由 LifecycleScheduler 先推到 closed 再考虑清理。
+ * Page closed or archived cleanup candidates strictly after the
+ * `(lastEventAt, id)` cursor. Returning both identities lets the caller skip
+ * live-owned rows without starving later candidates and fence successful
+ * deletes. Active and dormant sessions are never purge candidates.
  */
-export function findHistoryOlderThan(threshold: number, limit = 500): string[] {
+export function findHistoryOlderThan(
+  threshold: number,
+  cursor: HistoryLifecycleCursor | null = null,
+  limit = LIFECYCLE_BATCH_SIZE,
+): HistoryLifecycleCandidate[] {
   const rows = getDb()
     .prepare(
-      `SELECT id FROM sessions
+      `SELECT id, cli_session_id, last_event_at FROM sessions
        WHERE pinned_at IS NULL AND last_event_at < ?
          AND (lifecycle = 'closed' OR archived_at IS NOT NULL)
+         AND (? IS NULL OR last_event_at > ?
+           OR (last_event_at = ? AND id > ?))
        ORDER BY last_event_at ASC, id ASC
        LIMIT ?`,
     )
-    .all(threshold, limit) as { id: string }[];
-  return rows.map((r) => r.id);
+    .all(
+      threshold,
+      cursor?.id ?? null,
+      cursor?.lastEventAt ?? 0,
+      cursor?.lastEventAt ?? 0,
+      cursor?.id ?? '',
+      boundedLimit(limit),
+    ) as Array<{ id: string; cli_session_id: string | null; last_event_at: number }>;
+  return rows.map((row) => ({
+    id: row.id,
+    cliSessionId: row.cli_session_id,
+    lastEventAt: row.last_event_at,
+  }));
 }
 
 /**
- * 批量删除会话（events / file_changes / summaries 由外键 ON DELETE CASCADE 自动清理）。
- * 单事务内逐条 DELETE，事务保证「要么全删要么全不删」，避免中途异常留下半残行。
- * 返回 IPC 上层用来一次性广播 session-removed 的 id 数组（已存在的才返回）。
+ * Recheck cleanup predicates while deleting one bounded batch transactionally.
+ * Return only successful candidates so the caller can synchronously fence both
+ * identities before any asynchronous cleanup.
  */
-export function batchDeleteHistory(ids: readonly string[], threshold: number): string[] {
-  if (ids.length === 0) return [];
+export function batchDeleteHistory(
+  candidates: readonly HistoryLifecycleCandidate[],
+  threshold: number,
+): HistoryLifecycleCandidate[] {
+  if (candidates.length === 0) return [];
   const db = getDb();
   const del = db.prepare(
     `DELETE FROM sessions
      WHERE id = ? AND pinned_at IS NULL AND last_event_at < ?
        AND (lifecycle = 'closed' OR archived_at IS NOT NULL)`,
   );
-  const removed: string[] = [];
+  const removed: HistoryLifecycleCandidate[] = [];
   const tx = db.transaction(() => {
-    for (const id of ids) {
-      const result = del.run(id, threshold);
-      if (result.changes === 1) removed.push(id);
+    for (const candidate of candidates) {
+      const result = del.run(candidate.id, threshold);
+      if (result.changes === 1) removed.push(candidate);
     }
   });
   tx();
