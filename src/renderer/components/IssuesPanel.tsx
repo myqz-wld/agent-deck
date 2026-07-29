@@ -1,12 +1,4 @@
-/**
- * Issues tab list 视图 + filter 栏（plan issue-tracker-mcp-20260529 §Step 3.8.2 / §D12）。
- *
- * - 上方 filter 栏: status 多选 / kind 多选 / search title (debounce 300ms) / show deleted toggle
- * - 主列表: createdAt DESC 排序; click 切到 IssueDetail
- * - useEffect 启动时 + filter 变时拉 `window.api.issuesList(filters)` merge 进 store
- * - issue-changed 实时事件由全局常驻 `useIssuesBridge`（App.tsx）订阅，**不在本组件内**——
- *   否则切走 tab unmount 即漏事件、切回状态不刷新（详 use-issues-bridge.ts 头注）
- */
+/** Bounded issue query list; the application-level bridge owns live event subscription. */
 
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { IssueStatus, IssueRecord } from '@shared/types';
@@ -26,27 +18,27 @@ const KEYWORD_DEBOUNCE_MS = 300;
 
 export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) => void }): JSX.Element {
   const issues = useIssuesStore((s) => s.issues);
+  const queryIssueIds = useIssuesStore((s) => s.queryIssueIds);
   const filters = useIssuesStore((s) => s.filters);
   const selectedIssueId = useIssuesStore((s) => s.selectedIssueId);
+  const beginListRequest = useIssuesStore((s) => s.beginListRequest);
   const mergeIssuesFromList = useIssuesStore((s) => s.mergeIssuesFromList);
+  const cancelListRequest = useIssuesStore((s) => s.cancelListRequest);
   const setFilters = useIssuesStore((s) => s.setFilters);
   const selectIssue = useIssuesStore((s) => s.selectIssue);
 
   const [keywordInput, setKeywordInput] = useState(filters.titleKeyword ?? '');
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [listReloadNonce, setListReloadNonce] = useState(0);
 
-  // selector 只用 issues / filters 两字段（store.ts），useMemo 缓存避免每 render 对最多 500 条
-  // 重做 filter+sort（deep-review H1 INFO）。
+  // Query membership, rather than the entity cache, is the list boundary.
   const filteredList = useMemo(
-    () => selectFilteredIssues({ issues, filters }),
-    [issues, filters],
+    () => selectFilteredIssues({ issues, queryIssueIds, filters }),
+    [issues, queryIssueIds, filters],
   );
 
-  // keyword input → filters debounce 300ms。
-  // 用 functional updater 读最新 filters（不是闭包捕获的旧值）：用户输入搜索后 300ms 内切
-  // tab/kind/showDeleted 时，旧 timeout 到点只补 titleKeyword 到**最新** filters，不再把刚切的
-  // tab 覆盖回去（reviewer-codex MED：debounce 旧闭包覆盖 tab 切换）。
+  // The functional updater preserves filter changes made during the keyword debounce.
   useEffect(() => {
     const t = setTimeout(() => {
       setFilters((prev) => ({ ...prev, titleKeyword: keywordInput || undefined }));
@@ -58,6 +50,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
   // 初始 + filters 变 重拉 list
   useEffect(() => {
     let cancelled = false;
+    const requestId = beginListRequest(500);
     setLoading(true);
     setListError(null);
     void window.api
@@ -70,13 +63,14 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
       })
       .then((list) => {
         if (cancelled) return;
-        // merge（非整替）：保留期间 onIssueChanged event 已 upsert 的更新记录（deep-review H1 MED）。
-        mergeIssuesFromList(list);
+        const outcome = mergeIssuesFromList(requestId, list);
+        if (outcome === 'retry') {
+          setListReloadNonce((value) => value + 1);
+        }
       })
       .catch((e: unknown) => {
-        // deep-review H1 MED：无 catch 时 reject 冒泡到 main.tsx unhandledrejection → 全屏 fatal banner。
-        // 接住 → 列表区内联报错，不遮挡整窗。
         if (cancelled) return;
+        cancelListRequest(requestId);
         setListError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
@@ -85,18 +79,18 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
       });
     return () => {
       cancelled = true;
+      cancelListRequest(requestId);
     };
   }, [
     filters.statuses,
     filters.kinds,
     filters.titleKeyword,
     filters.showDeleted,
+    listReloadNonce,
+    beginListRequest,
     mergeIssuesFromList,
+    cancelListRequest,
   ]);
-
-  // 注：issue-changed event 订阅已上移到全局常驻 useIssuesBridge（App.tsx），不再放本组件内
-  // ——否则切走 tab 时 IssuesPanel unmount，期间的 issue-changed 事件全漏，切回状态不刷新
-  // （详 use-issues-bridge.ts 头注）。本组件只负责按 filter 拉 list snapshot + 渲染。
 
   return (
     <div className="flex h-full">
@@ -136,10 +130,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
       {/* Right: detail (or empty hint) */}
       <div className="flex-1 overflow-y-auto scrollbar-deck">
         {selectedIssueId ? (
-          // key={selectedIssueId} 是 load-bearing：强制 per-issue remount fresh state（editing/
-          // baseline 从新 issue 重 seed），根治切 issue 时旧草稿写到新 issue 的跨 issue 污染
-          // （deep-review HIGH-A）。删此 key 会令污染复活；buildUpdatePatch 的 expectedIssueId
-          // 守护是第二道防线但不可替代 key（fresh state 才能保证 baseline 正确）。
+          // The key resets the per-issue edit baseline before another issue can receive the draft.
           <IssueDetail
             key={selectedIssueId}
             issueId={selectedIssueId}

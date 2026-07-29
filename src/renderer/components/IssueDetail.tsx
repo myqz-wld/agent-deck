@@ -108,18 +108,17 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   }, [issueId, fetchNonce]);
 
   // Store updates advance untouched fields while preserving local drafts and hydrated appendices.
-  const storeUpdatedAt = issueFromStore?.updatedAt;
   useEffect(() => {
     if (!issueFromStore || savingRef.current) return;
     const base = issueRef.current;
-    if (base && base.updatedAt === issueFromStore.updatedAt) return;
+    if (base && base.updatedAt > issueFromStore.updatedAt) return;
     setIssue((prev) => ({
       ...issueFromStore,
       appendices: issueFromStore.appendices ?? prev?.appendices,
     }));
     rebaseEditing(issueFromStore);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeUpdatedAt]);
+  }, [issueFromStore]);
 
   if (loadError) {
     return (

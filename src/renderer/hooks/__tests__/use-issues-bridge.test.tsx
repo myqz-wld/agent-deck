@@ -1,21 +1,5 @@
 // @vitest-environment happy-dom
-/**
- * useIssuesBridge 常驻订阅回归测试（修「切到问题页状态不刷新」bug）。
- *
- * 背景：原先 onIssueChanged 订阅写在 IssuesPanel 组件 useEffect 里，App 按 view 条件渲染 panel，
- * 切走 tab 即 unmount → 订阅被拆除 → 期间的 issue-changed 事件（典型 MCP「起新会话解决」回写
- * status / update_issue_status 翻 resolved）全漏 → 切回时 store 仍是旧状态。修法：把订阅上移到
- * App 常驻挂载的 useIssuesBridge，事件永不漏。
- *
- * 本文件验三条 bug 直接相关行为：
- *  ① mount 即订阅 window.api.onIssueChanged（修复前订阅依附组件生命周期）
- *  ② 收到 created/updated/appended event（带 issue）→ store.upsertIssue（状态实时落 store）
- *  ③ 收到 hardDeleted event → store.removeIssue
- *  ④ unmount → 调用 onIssueChanged 返回的 off()（不泄漏订阅）
- *
- * window.api mock 策略：本仓库渲染层测试尚无 window.api stub 先例，这里用 vi.stubGlobal 挂一个
- * 最小 window.api（仅 onIssueChanged），记录注册的 callback + off spy，手动 emit 驱动 store。
- */
+/** The application-level bridge keeps issue entities and query membership current across views. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { IssueChangedEvent, IssueRecord } from '@shared/types';
@@ -52,8 +36,16 @@ let offSpy: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   emitIssueChanged = null;
   offSpy = vi.fn();
-  // 每个用例重置 store（zustand 是 module 级单例，跨用例会串）
-  useIssuesStore.setState({ issues: new Map(), selectedIssueId: null });
+  useIssuesStore.setState({
+    issues: new Map(),
+    queryIssueIds: [],
+    selectedIssueId: null,
+    filters: { statuses: ['open', 'in-progress'], showDeleted: false },
+    queryLimit: 500,
+    filterVersion: 0,
+    listRequestSerial: 0,
+    activeListRequest: null,
+  });
   vi.stubGlobal('window', {
     api: {
       onIssueChanged: (cb: (e: IssueChangedEvent) => void) => {
@@ -84,7 +76,11 @@ describe('useIssuesBridge — 常驻订阅生命周期', () => {
 });
 
 describe('useIssuesBridge — 事件 → store 派发', () => {
-  it('updated event（带 issue）→ upsert 进 store，状态实时刷新', () => {
+  it('updated event 移出当前 filter 时同步回收 query entity', () => {
+    const requestId = useIssuesStore.getState().beginListRequest();
+    useIssuesStore.getState().mergeIssuesFromList(requestId, [makeIssue()]);
+    expect(useIssuesStore.getState().issues.has('i1')).toBe(true);
+
     renderHook(() => useIssuesBridge());
     const resolved = makeIssue({ status: 'resolved', updatedAt: 2000 });
     act(() => {
@@ -96,8 +92,8 @@ describe('useIssuesBridge — 事件 → store 派发', () => {
         ts: 2000,
       });
     });
-    // ★ bug 核心：状态翻 resolved 的 event 直接落 store（修复前 unmount 期间会漏）
-    expect(useIssuesStore.getState().issues.get('i1')?.status).toBe('resolved');
+    expect(useIssuesStore.getState().issues.has('i1')).toBe(false);
+    expect(useIssuesStore.getState().queryIssueIds).not.toContain('i1');
   });
 
   it('created event（带 issue）→ upsert 新 issue 进 store', () => {
@@ -113,6 +109,7 @@ describe('useIssuesBridge — 事件 → store 派发', () => {
       });
     });
     expect(useIssuesStore.getState().issues.get('i2')?.title).toBe('new');
+    expect(useIssuesStore.getState().queryIssueIds).toContain('i2');
   });
 
   it('hardDeleted event → 从 store 移除', () => {

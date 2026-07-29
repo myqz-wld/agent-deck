@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -11,7 +12,7 @@ import type { IssueRecord } from '@shared/types';
 import { useIssuesStore } from '@renderer/stores/issues-store';
 import { IssueDetail } from '../IssueDetail';
 
-function issue(): IssueRecord {
+function issue(overrides: Partial<IssueRecord> = {}): IssueRecord {
   return {
     id: 'issue-visible',
     title: 'Expandable issue',
@@ -49,6 +50,7 @@ function issue(): IssueRecord {
         appendedAt: 3,
       },
     ],
+    ...overrides,
   };
 }
 
@@ -132,5 +134,28 @@ describe('IssueDetail expandable evidence and drafts', () => {
     expect(dialog.textContent).toContain('Appendix evidence body');
     expect(dialog.textContent).toContain('Appendix log note');
     expect(dialog.textContent).not.toContain('append-session-internal-id');
+  });
+
+  it('rebases a same-millisecond store event while preserving the local draft', async () => {
+    render(<IssueDetail issueId="issue-visible" onClose={vi.fn()} />);
+    await waitFor(() => expect(window.api.issuesGet).toHaveBeenCalled());
+
+    const description = screen.getByLabelText('Issue 描述') as HTMLTextAreaElement;
+    fireEvent.change(description, { target: { value: 'Local draft survives' } });
+
+    act(() => {
+      useIssuesStore.getState().upsertIssue(issue({
+        title: 'Same millisecond server title',
+        status: 'resolved',
+        updatedAt: 2,
+      }));
+    });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('标题') as HTMLInputElement).value)
+        .toBe('Same millisecond server title');
+      expect(screen.getByLabelText('状态').textContent).toContain('resolved');
+    });
+    expect(description.value).toBe('Local draft survives');
   });
 });
