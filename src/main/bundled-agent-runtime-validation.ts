@@ -10,6 +10,7 @@ import {
   isCodexThinkingLevel,
   isGrokThinkingLevel,
 } from '@shared/session-metadata';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 
 const ADAPTERS: readonly AssetAdapter[] = ['claude-code', 'codex-cli', 'grok-build'];
 const MAX_OVERRIDE_COUNT = 128;
@@ -32,10 +33,15 @@ export function normalizeBundledAgentRuntimeOverride(
   const thinking = normalizeOptionalField('thinking', value.thinking, 16);
   const provider = normalizeOptionalField('provider', value.provider, ASSET_LIMITS.provider);
   if (thinking && !isThinkingValidForAdapter(adapter, thinking)) {
-    throw new Error(`thinking "${thinking}" is not valid for ${adapter}`);
+    throw new Error(
+      `thinking "${thinking}" 对 ${getAdapterRuntimeProfile(adapter).displayName} 无效`,
+    );
   }
   if (provider && adapter === 'grok-build') {
-    throw new Error('provider is supported only for claude-code or codex-cli bundled Agents');
+    const supportedAdapters = (['claude-code', 'codex-cli'] as const)
+      .map((adapterId) => getAdapterRuntimeProfile(adapterId).displayName)
+      .join(' 或 ');
+    throw new Error(`provider 仅适用于 ${supportedAdapters} 的内置 Agent`);
   }
   return {
     ...(model ? { model } : {}),

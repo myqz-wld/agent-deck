@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   firstUnsupportedTargetRuntimeField,
   targetRuntimeFieldsForAdapter,
+  unsupportedTargetRuntimeFieldMessage,
 } from '../runtime-control-contracts';
 
 describe('adapter target runtime control contracts', () => {
@@ -58,5 +59,19 @@ describe('adapter target runtime control contracts', () => {
     expect(firstUnsupportedTargetRuntimeField('codex-cli', {
       extraAllowWrite: ['/repo-2'],
     })).toBeNull();
+  });
+
+  it('uses canonical adapter display names in incompatibility messages', () => {
+    expect(
+      unsupportedTargetRuntimeFieldMessage('grok-build', 'provider'),
+    ).toBe(
+      'provider 与 Grok Build 不兼容；仅 Claude Code 或 Codex CLI 支持',
+    );
+    expect(
+      unsupportedTargetRuntimeFieldMessage('codex-cli', 'grokSandbox'),
+    ).toBe('grokSandbox 与 Codex CLI 不兼容；仅 Grok Build 支持');
+    expect(
+      unsupportedTargetRuntimeFieldMessage('codex-cli', 'permissionMode'),
+    ).toBe('permissionMode 与 Codex CLI 不兼容；仅 Claude Code 支持');
   });
 });

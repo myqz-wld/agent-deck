@@ -4,6 +4,16 @@ import {
   normalizeBundledAgentRuntimeOverrideMap,
 } from '@main/bundled-agent-runtime-validation';
 
+function errorMessage(run: () => unknown): string {
+  try {
+    run();
+    throw new Error('expected validation to fail');
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return error.message;
+  }
+}
+
 describe('bundled Agent runtime override validation', () => {
   it('normalizes supported model, thinking, and Codex provider fields', () => {
     expect(
@@ -28,9 +38,20 @@ describe('bundled Agent runtime override validation', () => {
         provider: ' deepseek ',
       }),
     ).toEqual({ provider: 'deepseek' });
-    expect(() =>
-      normalizeBundledAgentRuntimeOverride('grok-build', { provider: 'fable' }),
-    ).toThrow('only for claude-code or codex-cli');
+    expect(
+      errorMessage(() =>
+        normalizeBundledAgentRuntimeOverride('grok-build', {
+          provider: 'fable',
+        }),
+      ),
+    ).toBe('provider 仅适用于 Claude Code 或 Codex CLI 的内置 Agent');
+    expect(
+      errorMessage(() =>
+        normalizeBundledAgentRuntimeOverride('grok-build', {
+          thinking: 'max',
+        }),
+      ),
+    ).toBe('thinking "max" 对 Grok Build 无效');
   });
 
   it('rejects unknown fields and malformed persisted keys', () => {

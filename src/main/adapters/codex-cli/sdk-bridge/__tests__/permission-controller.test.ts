@@ -41,7 +41,7 @@ describe('CodexPermissionController', () => {
     const [onceRequest] = controller.list(active);
     expect(onceRequest).toMatchObject({
       type: 'permission-request',
-      toolName: 'Codex command',
+      toolName: 'Codex CLI 命令',
       toolInput: { command: 'pnpm test' },
       suggestions: { scope: 'session' },
     });
@@ -113,6 +113,7 @@ describe('CodexPermissionController', () => {
       new AbortController().signal,
     );
     const [request] = controller.list(active);
+    expect(request.toolName).toBe('Codex CLI 权限授权');
 
     controller.respond(active, request.requestId, {
       decision: 'allow',
@@ -159,7 +160,7 @@ describe('CodexPermissionController', () => {
     const [onceRequest] = controller.list(active);
     expect(onceRequest).toMatchObject({
       type: 'permission-request',
-      toolName: 'Codex MCP 工具调用',
+      toolName: 'Codex CLI MCP 工具调用',
       toolInput: {
         itemId: 'call-1',
         questions: [{
@@ -251,7 +252,7 @@ describe('CodexPermissionController', () => {
     const pending = controller.handle(active, request, new AbortController().signal);
     const [permission] = controller.list(active);
     expect(permission).toMatchObject({
-      toolName: 'Codex MCP 工具调用',
+      toolName: 'Codex CLI MCP 工具调用',
       toolInput: {
         serverName: 'agent-deck',
         message: 'Allow the agent-deck MCP server to run tool "hand_off_session"?',
@@ -286,6 +287,7 @@ describe('CodexPermissionController', () => {
       new AbortController().signal,
     );
     const [denialRequest] = controller.list(active);
+    expect(denialRequest.toolName).toBe('Codex CLI 命令');
     controller.respond(active, denialRequest.requestId, {
       decision: 'deny',
       message: 'Not approved',
@@ -304,6 +306,8 @@ describe('CodexPermissionController', () => {
       },
       new AbortController().signal,
     );
+    const [timeoutRequest] = controller.list(active);
+    expect(timeoutRequest.toolName).toBe('Codex CLI 文件修改');
     controller.cancel(active, 'timed-out');
     await expect(Promise.resolve(timeout)).resolves.toEqual({
       handled: true,
@@ -325,6 +329,7 @@ describe('CodexPermissionController', () => {
       aborter.signal,
     );
     const [request] = controller.list(active);
+    expect(request.toolName).toBe('Codex CLI 文件修改');
 
     aborter.abort();
 
