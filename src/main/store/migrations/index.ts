@@ -59,6 +59,7 @@ import v052 from './v052_token_usage_metric_scope_repair.sql?raw';
 import v053 from './v053_sessions_grok_sandbox.sql?raw';
 import v054 from './v054_message_delivery_generation.sql?raw';
 import v055 from './v055_token_usage_daily_rollup.sql?raw';
+import v056 from './v056_agent_deck_messages_pending_order.sql?raw';
 
 interface MigrationBase {
   version: number;
@@ -139,4 +140,12 @@ export const MIGRATIONS: Migration[] = [
   { version: 53, name: 'sessions_grok_sandbox', execution: 'startup', sql: v053 },
   { version: 54, name: 'message_delivery_generation', execution: 'startup', sql: v054 },
   { version: 55, name: 'token_usage_daily_rollup', execution: 'startup', sql: v055 },
+  {
+    version: 56,
+    name: 'agent_deck_messages_pending_order',
+    execution: 'offline',
+    freshInstallSafe: true,
+    command: 'migrate:message-dispatch',
+    sql: v056,
+  },
 ];

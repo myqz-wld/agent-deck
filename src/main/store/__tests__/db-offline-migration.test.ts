@@ -94,6 +94,12 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     expect(String(db.prepare(
       `SELECT sql FROM sqlite_schema WHERE name = 'event_search_fts_v1'`,
     ).pluck().get())).toContain('trigram case_sensitive 0');
+    expect(String(db.prepare(
+      `SELECT sql FROM sqlite_schema
+        WHERE type = 'index' AND name = 'idx_messages_pending_sent_at'`,
+    ).pluck().get())).toMatch(
+      /agent_deck_messages\(status, sent_at\)\s+WHERE status = 'pending'/,
+    );
   });
 
   it('treats an existing, completely empty user_version=0 database as fresh', () => {
@@ -103,6 +109,10 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     expect(db.pragma('user_version', { simple: true })).toBe(
       MIGRATIONS.at(-1)!.version,
     );
+    expect(db.prepare(
+      `SELECT 1 FROM sqlite_schema
+        WHERE type = 'index' AND name = 'idx_messages_pending_sent_at'`,
+    ).get()).toBeDefined();
   });
 
   it('rejects an existing V42 database before changing the database or WAL mode', () => {
@@ -114,6 +124,38 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     expect(readJournalMode()).toBe('delete');
     expect(existsSync(`${dbPath()}-wal`)).toBe(false);
     expect(existsSync(`${dbPath()}-shm`)).toBe(false);
+  });
+
+  it('rejects an existing V55 database for offline V56 before changing WAL mode', () => {
+    makeDbAtVersion(55);
+
+    let error: unknown;
+    try {
+      initDb();
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(OfflineMigrationRequiredError);
+    expect(error).toMatchObject({
+      currentVersion: 55,
+      targetVersion: 56,
+      command: 'migrate:message-dispatch',
+    });
+    expect(readVersion()).toBe(55);
+    expect(readJournalMode()).toBe('delete');
+    expect(existsSync(`${dbPath()}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath()}-shm`)).toBe(false);
+    const verify = new Database(dbPath(), { readonly: true, fileMustExist: true });
+    try {
+      expect(verify.prepare(
+        `SELECT 1 FROM sqlite_schema
+          WHERE type = 'index' AND name = 'idx_messages_pending_sent_at'`,
+      ).get()).toBeUndefined();
+    } finally {
+      verify.close();
+    }
+    expect(() => getDb()).toThrow(/not initialized/i);
   });
 
   it.each([41, 1])(
@@ -167,20 +209,36 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     expect(() => getDb()).toThrow(/not initialized/i);
   });
 
-  it('runs only later startup migrations for an existing V43 database', () => {
+  it('runs later startup migrations before requiring the next offline migration', () => {
     makeDbAtVersion(43);
 
-    const db = initDb();
-    expect(db.pragma('user_version', { simple: true })).toBe(
-      MIGRATIONS.at(-1)!.version,
-    );
-    expect(db.prepare(
-      `SELECT 1 FROM pragma_table_info('sessions')
-       WHERE name = 'hidden_from_history'`,
-    ).get()).toBeDefined();
+    let error: unknown;
+    try {
+      initDb();
+    } catch (caught) {
+      error = caught;
+    }
+    const latest = MIGRATIONS.at(-1)!;
+    expect(latest.execution).toBe('offline');
+    expect(error).toMatchObject({
+      currentVersion: latest.version - 1,
+      targetVersion: latest.version,
+      command: 'migrate:message-dispatch',
+    });
+    expect(readVersion()).toBe(latest.version - 1);
+    const verify = new Database(dbPath(), { readonly: true, fileMustExist: true });
+    try {
+      expect(verify.prepare(
+        `SELECT 1 FROM pragma_table_info('sessions')
+         WHERE name = 'hidden_from_history'`,
+      ).get()).toBeDefined();
+    } finally {
+      verify.close();
+    }
+    expect(() => getDb()).toThrow(/not initialized/i);
   });
 
-  it('allows installed-pending-smoke to apply every startup migration', () => {
+  it('allows installed-pending-smoke to apply startup migrations up to the next offline gate', () => {
     makeDbAtVersion(43);
     writeFileSync(`${dbPath()}${JOURNAL_SUFFIX}`, JSON.stringify({
       formatVersion: 1,
@@ -188,10 +246,19 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
       state: 'installed-pending-smoke',
     }));
 
-    const db = initDb();
-    expect(db.pragma('user_version', { simple: true })).toBe(
-      MIGRATIONS.at(-1)!.version,
-    );
+    let error: unknown;
+    try {
+      initDb();
+    } catch (caught) {
+      error = caught;
+    }
+    const latest = MIGRATIONS.at(-1)!;
+    expect(error).toMatchObject({
+      currentVersion: latest.version - 1,
+      targetVersion: latest.version,
+      command: 'migrate:message-dispatch',
+    });
+    expect(readVersion()).toBe(latest.version - 1);
   });
 
   it('rejects a partial existing user_version=0 database without altering it', () => {

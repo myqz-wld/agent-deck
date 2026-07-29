@@ -657,6 +657,22 @@ describe('universal-message-watcher.process - REVIEW_35 HIGH-A1 backpressure 死
     expect(result.deliveredIds).toContain('receiver-C-msg-0');
   });
 
+  it('first 16 全为 X 时仍通过 secondary exclusion 投递 batch 外最早 Y', async () => {
+    const pending = [
+      ...makePendingForTarget('target-X', 16, 1_000_000),
+      ...makePendingForTarget('target-Y', 1, 2_000_000),
+    ];
+
+    const result = await runProcessWithPending(pending, 10);
+
+    expect(result.deliveredCount).toBe(2);
+    expect(result.deliveredIds).toEqual([
+      'target-X-msg-0',
+      'target-Y-msg-0',
+    ]);
+    expect(statefulPendingMap?.get('target-Y-msg-0')?.status).toBe('delivered');
+  });
+
   it('N=12 同 target — 临界点（other=11>10 全 skip）→ starvation guard 仍救', async () => {
     const pending = makePendingForTarget('receiver-D', 12);
     const result = await runProcessWithPending(pending, 10);

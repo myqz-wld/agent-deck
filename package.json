@@ -22,6 +22,7 @@
     "test:fts5": "scripts/verify-fts5.sh",
     "verify:bundled-runtimes": "node scripts/verify-bundled-grok.mjs",
     "migrate:history-search": "node scripts/run-history-search-migration.mjs",
+    "migrate:message-dispatch": "node scripts/run-message-dispatch-migration.mjs",
     "logger:check": "bash scripts/logger-check.sh",
     "postinstall": "electron-builder install-app-deps"
   },
