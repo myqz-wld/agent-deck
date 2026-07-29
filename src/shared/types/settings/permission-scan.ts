@@ -1,11 +1,6 @@
 import type { AppSettings, CodexMcpServerConfigShared } from './app-settings';
 
-/**
- * Permission Settings Scan — Claude Code settings.json 四层 permissions 扫描结果 schema。
- *
- * 拆分自 src/shared/types/settings.ts（Phase 4 Step 4.10）；
- * entity 域：扫描器（main 进程）的输出契约,renderer PermissionsView 消费。
- */
+/** Shared contracts for bounded Claude Code and Codex CLI permission settings scans. */
 
 /**
  * Claude Code 的 settings 四层来源（与 SDK 实际读取行为对齐）。
@@ -32,11 +27,9 @@ export interface SettingsLayer {
   /** 推断出的绝对路径，无论是否存在 */
   path: string;
   exists: boolean;
-  /** 原文（pretty-print 后），文件不存在为 null */
+  /** Bounded original content; missing, unreadable, or oversized files return null. */
   raw: string | null;
-  /** JSON.parse 结果，解析失败 / 文件不存在为 null */
-  parsed: unknown | null;
-  /** 解析失败时记错误消息 */
+  /** Fixed scan category for malformed, unreadable, or over-limit content. */
   parseError: string | null;
   /** 提取出的 permissions 块；不存在 / 解析失败时为 null */
   permissions: SettingsPermissionsBlock | null;
@@ -60,6 +53,8 @@ export interface MergedPermissions {
   additionalDirectories: MergedDirectory[];
   /** 倒序找第一个非 null：local > project > user-local > user */
   defaultMode: { value: string; source: SettingsSource } | null;
+  /** True when a merged category exceeded the renderer-safe output bound. */
+  truncated: boolean;
 }
 
 export interface PermissionScanResult {
