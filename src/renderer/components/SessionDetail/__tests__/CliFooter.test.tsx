@@ -5,9 +5,9 @@ import { CliFooter } from '../CliFooter';
 
 describe('CliFooter', () => {
   it.each([
-    ['claude-code', 'Claude'],
-    ['codex-cli', 'Codex'],
-    ['grok-build', 'Grok'],
+    ['claude-code', 'Claude Code'],
+    ['codex-cli', 'Codex CLI'],
+    ['grok-build', 'Grok Build'],
     ['custom-adapter', '该 Agent'],
   ])('uses adapter-aware terminal copy for %s', (agentId, expected) => {
     const { container } = render(<CliFooter agentId={agentId} />);

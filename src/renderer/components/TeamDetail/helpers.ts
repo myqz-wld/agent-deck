@@ -1,6 +1,5 @@
 /**
- * plan team-cohesion-fix-20260513 Phase C：TeamDetail 子组件共用纯函数。
- * 全部 module-level，无 React state，便于子组件 import。
+ * TeamDetail 子组件共用的无状态纯函数。
  */
 /** 折叠过长 cwd / 路径:>4 段时只保留最后 3 段。 */
 export function shortenPath(p: string | null | undefined): string {
@@ -12,10 +11,7 @@ export function shortenPath(p: string | null | undefined): string {
 
 /** 时间戳 → 相对时间(如「3 分钟前」/「刚刚」),用于 events / messages / tasks 列表显示。 */
 export function relativeTime(ts: number, now: number = Date.now()): string {
-  // REVIEW_107 LOW（防御护栏）：非 finite 输入（典型 TasksSection 走 Date.parse(updatedAt)，
-  // 非法 ISO → NaN）会让下方 Math.max(0,NaN)=NaN、所有区间比较 false → 落到末尾 `NaN 天前`。
-  // events `e.ts` / messages `msg.sentAt` 是 number 直传安全，Date.parse 是唯一 NaN 注入口；
-  // 当前 repo 保证 updatedAt 合法 ISO 不可达，集中在共享 helper 兜底让三个 caller 全受益。
+  // Date.parse 可能产生 NaN；在共享边界统一返回空文本，避免各列表显示“NaN 天前”。
   if (!Number.isFinite(ts)) return '';
   const dt = Math.max(0, now - ts);
   if (dt < 5_000) return '刚刚';
@@ -51,16 +47,16 @@ export function roleLabel(role: string | null | undefined): string {
   }
 }
 
-/** agentId → 中文显示标签（claude-code → Claude / codex-cli → Codex / null → 未知）。
+/** agentId → 产品显示标签（claude-code → Claude Code / codex-cli → Codex CLI / null → 未知）。
  *  统一让会话列表 / 团队成员等所有 user-visible 位置不再露出 raw adapter id。 */
 export function agentIdLabel(agentId: string | null | undefined): string {
   switch (agentId) {
     case 'claude-code':
-      return 'Claude';
+      return 'Claude Code';
     case 'codex-cli':
-      return 'Codex';
+      return 'Codex CLI';
     case 'grok-build':
-      return 'Grok';
+      return 'Grok Build';
     default:
       return agentId ?? '未知';
   }

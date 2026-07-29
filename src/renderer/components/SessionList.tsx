@@ -7,32 +7,13 @@ import { computeChildrenByOwner, isPureSpawnChain } from './session-list-tree';
 import { SessionCard } from './SessionCard';
 
 /**
- * Phase C (CHANGELOG_77 / plan deep-review-flow-fix) + plan session-list-handoff-role-badge-20260526
- * (v4 D1/D2): 按 spawn-link + universal team backend 双源分组,SSOT 走 deriveTeamRole shared util。
+ * 会话树先按 spawn link 收编，再用 universal team backend 为未收编协作者寻找同团队的首个
+ * 可见负责人。spawn owner 只有在仍是共同团队的 active visible lead 时才优先，避免过期
+ * spawnedBy 将成员锁到已离队的 caller。
  *
- * **Phase 1: spawn-link primary (有条件收编)** — 老 spawn 子任务 (SDK 派遣链) 行为不变;对有
- * universal team teammate membership 的 child, 必须验证 spawn owner 仍是 child 某 team 的 active
- * visible lead, 否则不锁 claimedBySpawn, 让 Phase 2 走 universal team SSOT 收编 (HIGH-A 修法:
- * 避免 archive_caller:false adopt 后 caller 已 left_at 但 child spawnedBy 仍指向 stale caller,
- * Phase 1 把 child 错锁在 stale caller 下)。
- *
- * **Phase 2: universal team 收编 fallback** — 仅 Phase 1 未收编的 teammate 走此分支, teammate
- * 找同 team 的 visible lead 缩进进去 (first-match-wins 单 parent — plan §不变量 5)。让 hand_off
- * adopt_teammates=true 后 newSid + 原 teammate 视觉缩进层级回归 (D4 反转)。
- *
- * **mid-tier dual-role 注**: mid-tier 节点 (既有 owner 又有 children) badge 走 deriveTeamRole,
- * 优先看 universal team membership (任一 lead → lead), 退化才用「对 owner 是 teammate」(纯 spawn
- * 链场景)。与原 v1「始终 teammate」承诺改写, mixed lead+teammate 节点显 lead badge (任一 lead
- * 优先) — D7 mixed role nested spawn 当前可达。
- *
- * **视觉缩进上限 3 层**: spawn-guards.ts default `mcpMaxSpawnDepth=3` 允许 4 层 spawn 链
- * (L1→L2→L3→L4),但 SessionList 视觉缩进 cap 在 `MAX_VISUAL_DEPTH=2`(L1/L2/L3 三层 ml-3)防
- * 深嵌套塞爆侧栏。L4+ 仍渲染但平铺在 L3 同级(无额外缩进 div),保留 `teammate` badge 让 owner
- * 关系仍可见。
- *
- * **跨 group 不关联**: SessionList 按 grouped.active / grouped.dormant 双 section 分别调
- * renderTreeGroup, Phase 1 / Phase 2 收编都只在单 section 内, 跨 lifecycle group 不缩进
- * (caller dormant + teammate active 视觉脱节是设计预期, 详 plan §已知踩坑)。
+ * deriveTeamRole 是角色标签的唯一来源：universal team membership 优先，纯 spawn 链才回退到
+ * owner/child 位置。视觉缩进最多三层，更深节点在上限层平铺；active 与 dormant 分组独立，
+ * 不建立跨 lifecycle 的视觉父子关系。
  */
 const MAX_VISUAL_DEPTH = 2; // L1=0, L2=1, L3=2 → 视觉 3 层缩进上限
 
@@ -106,7 +87,7 @@ export function SessionList(): JSX.Element {
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">还没有会话</div>
         <div className="text-[10px] leading-relaxed">
-          点击右上角的 + 即可创建 Claude、Codex 或 Grok 会话；Claude 可选择 Gateway。
+          点击右上角的 + 即可创建 Claude Code、Codex CLI 或 Grok Build 会话；Claude Code 可选择 Gateway。
           <br />
           <details className="mt-1 inline-block text-left">
             <summary className="cursor-pointer text-deck-muted/70 hover:text-deck-text/85">也可接入终端会话</summary>
