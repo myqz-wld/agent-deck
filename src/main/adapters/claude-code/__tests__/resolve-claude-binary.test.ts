@@ -1,117 +1,310 @@
-/**
- * Priority chain unit test for `resolveClaudeBinary()`(plan
- * add-claude-cli-path-override-and-bump-sdks-20260520 Follow-up F3 实施)。
- *
- * 测试覆盖优先级链 6 边界 case(spike3 §B1 + F2 加 existsSync 行为):
- * 1. claudeCliPath = null → falsy → fallback bundled(无 logger.warn)
- * 2. claudeCliPath = "" → falsy → fallback bundled(无 logger.warn)
- * 3. claudeCliPath = "   \t  " → trim 后空 → falsy → fallback bundled(无 logger.warn)
- * 4. claudeCliPath = "/path/to/missing" + existsSync false → fallback bundled + logger.warn
- * 5. claudeCliPath = "/usr/bin/claude" + existsSync true → user override
- * 6. claudeCliPath = "  /usr/bin/claude  " + existsSync true(对 trim 后路径)→ trim 后的 path 用作 override
- *
- * Mock 策略:
- * - settingsStore.get('claudeCliPath') 受测变量(每 case set 不同值)
- * - existsSync mock 对 user override 路径返 true/false
- * - getPathToClaudeCodeExecutable 返固定 '/bundled/claude'
- * - log.scope('claude-binary').warn assert (Step 3.3.1 console.warn → logger.warn migrate 后,
- *   vitest-setup.ts mock 让 log.scope() 返 cached vi.fn() object — spy 直接拿同 name 同一个 obj)
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import log from 'electron-log/main';
 
-vi.mock('@main/store/settings-store', () => ({
-  settingsStore: {
-    get: vi.fn(),
-    set: vi.fn(),
-    getAll: vi.fn(() => ({})),
-    patch: vi.fn(),
+import type {
+  BoundedLogStateTrackerOptions,
+  LogStateObservation,
+} from '@main/utils/log-state-tracker';
+
+const mocks = vi.hoisted(() => ({
+  settingsGet: vi.fn(),
+  existsSync: vi.fn(),
+  bundledBinary: vi.fn(),
+  loggerScope: vi.fn(),
+  safeDiagnostic: vi.fn(),
+  getProcessRunId: vi.fn(),
+  trackerMode: 'normal' as 'normal' | 'construct-throw' | 'observe-throw',
+  trackerOptions: [] as BoundedLogStateTrackerOptions[],
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   },
 }));
 
-vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
-  getPathToClaudeCodeExecutable: vi.fn(() => '/bundled/claude'),
-  getSdkRuntimeOptions: () => ({ executable: 'node', env: {} }),
+vi.mock('@main/store/settings-store', () => ({
+  settingsStore: { get: mocks.settingsGet },
 }));
+vi.mock('@main/adapters/claude-code/sdk-runtime', () => ({
+  getPathToClaudeCodeExecutable: mocks.bundledBinary,
+}));
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  existsSync: mocks.existsSync,
+}));
+vi.mock('@main/utils/logger', () => ({
+  default: { scope: mocks.loggerScope },
+}));
+vi.mock('@main/utils/safe-diagnostic', () => ({
+  safeDiagnostic: mocks.safeDiagnostic,
+}));
+vi.mock('@main/utils/run-context', () => ({
+  getProcessRunId: mocks.getProcessRunId,
+}));
+vi.mock('@main/utils/log-state-tracker', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@main/utils/log-state-tracker')>();
+  class ControlledTracker<
+    Key,
+    Signature extends string,
+  > extends actual.BoundedLogStateTracker<Key, Signature> {
+    constructor(options: BoundedLogStateTrackerOptions = {}) {
+      mocks.trackerOptions.push(options);
+      if (mocks.trackerMode === 'construct-throw') {
+        throw new Error('tracker constructor secret');
+      }
+      super(options);
+    }
 
-vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
-  return {
-    ...actual,
-    existsSync: vi.fn(),
-  };
+    override observe(
+      key: Key,
+      observation: LogStateObservation<Signature>,
+    ) {
+      if (mocks.trackerMode === 'observe-throw') {
+        throw new Error('tracker observe secret');
+      }
+      return super.observe(key, observation);
+    }
+  }
+  return { ...actual, BoundedLogStateTracker: ControlledTracker };
 });
 
-describe('resolveClaudeBinary — priority chain (plan F3)', () => {
-  const scopedLogger = log.scope('claude-binary');
+type Subject = typeof import('../resolve-claude-binary');
 
-  beforeEach(() => {
-    (scopedLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+async function freshSubject(): Promise<Subject> {
+  vi.resetModules();
+  return import('../resolve-claude-binary');
+}
+
+function diagnostic(
+  level: 'info' | 'warn',
+  index = 0,
+): Record<string, unknown> {
+  return mocks.logger[level].mock.calls[index]?.[1] as Record<string, unknown>;
+}
+
+function loggedText(): string {
+  return JSON.stringify(
+    Object.values(mocks.logger).flatMap((method) => method.mock.calls),
+  );
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  mocks.trackerMode = 'normal';
+  mocks.trackerOptions.length = 0;
+  mocks.loggerScope.mockReturnValue(mocks.logger);
+  mocks.safeDiagnostic.mockImplementation((value: unknown) => value);
+  mocks.getProcessRunId.mockReturnValue('binary-test-run');
+  mocks.settingsGet.mockReturnValue(null);
+  mocks.existsSync.mockReturnValue(false);
+  mocks.bundledBinary.mockReturnValue('/bundled/claude');
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+describe('resolveClaudeBinary', () => {
+  it.each([null, '', '   \t  '])(
+    'uses the bundled fallback for an absent or empty override: %j',
+    async (override) => {
+      mocks.settingsGet.mockReturnValue(override);
+      const subject = await freshSubject();
+
+      expect(subject.resolveClaudeBinary()).toBe('/bundled/claude');
+      expect(mocks.settingsGet).toHaveBeenCalledWith('claudeCliPath');
+      expect(mocks.existsSync).not.toHaveBeenCalled();
+      expect(mocks.bundledBinary).toHaveBeenCalledOnce();
+      expect(mocks.logger.warn).not.toHaveBeenCalled();
+      expect(mocks.logger.info).not.toHaveBeenCalled();
+    },
+  );
+
+  it('trims an existing override and gives it priority over the fallback', async () => {
+    const rawPath = '  /Users/private/bin/claude?token=secret  ';
+    mocks.settingsGet.mockReturnValue(rawPath);
+    mocks.existsSync.mockReturnValue(true);
+    const subject = await freshSubject();
+
+    expect(subject.resolveClaudeBinary()).toBe(
+      '/Users/private/bin/claude?token=secret',
+    );
+    expect(mocks.existsSync).toHaveBeenCalledWith(
+      '/Users/private/bin/claude?token=secret',
+    );
+    expect(mocks.bundledBinary).not.toHaveBeenCalled();
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+    expect(mocks.logger.info).not.toHaveBeenCalled();
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
+  it('falls back for a missing override and emits only fixed fields', async () => {
+    mocks.settingsGet.mockReturnValue(
+      '/Users/private/missing-claude?token=secret',
+    );
+    mocks.existsSync.mockReturnValue(false);
+    const subject = await freshSubject();
 
-  it('case 1: claudeCliPath=null → fallback bundled, no warn', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    (settingsStore.get as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    const { resolveClaudeBinary } = await import('@main/adapters/claude-code/resolve-claude-binary');
-    expect(resolveClaudeBinary()).toBe('/bundled/claude');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
-  });
-
-  it('case 2: claudeCliPath="" → fallback bundled, no warn', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    (settingsStore.get as ReturnType<typeof vi.fn>).mockReturnValue('');
-    const { resolveClaudeBinary } = await import('@main/adapters/claude-code/resolve-claude-binary');
-    expect(resolveClaudeBinary()).toBe('/bundled/claude');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
-  });
-
-  it('case 3: claudeCliPath="   \\t  " (全空白) → trim falsy → fallback bundled, no warn', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    (settingsStore.get as ReturnType<typeof vi.fn>).mockReturnValue('   \t  ');
-    const { resolveClaudeBinary } = await import('@main/adapters/claude-code/resolve-claude-binary');
-    expect(resolveClaudeBinary()).toBe('/bundled/claude');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
-  });
-
-  it('case 4: user override path 不存在 → fallback bundled + logger.warn', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    (settingsStore.get as ReturnType<typeof vi.fn>).mockReturnValue('/path/to/missing');
-    const fs = await import('node:fs');
-    (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
-    const { resolveClaudeBinary } = await import('@main/adapters/claude-code/resolve-claude-binary');
-    expect(resolveClaudeBinary()).toBe('/bundled/claude');
-    expect(scopedLogger.warn).toHaveBeenCalledOnce();
-    expect(scopedLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('/path/to/missing'),
+    expect(subject.resolveClaudeBinary()).toBe('/bundled/claude');
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      'Claude configuration state degraded',
+      {
+        event: 'claude-configuration-state',
+        runId: 'binary-test-run',
+        operation: 'binary',
+        state: 'override-missing',
+        previousState: null,
+        transition: 'initial',
+        abnormalDuration: 0,
+        suppressedCount: 0,
+        capped: false,
+        summaryInterval: 300_000,
+      },
+    );
+    expect(Object.keys(diagnostic('warn')).sort()).toEqual(
+      [
+        'event',
+        'runId',
+        'operation',
+        'state',
+        'previousState',
+        'transition',
+        'abnormalDuration',
+        'suppressedCount',
+        'capped',
+        'summaryInterval',
+      ].sort(),
+    );
+    expect(loggedText()).not.toMatch(
+      /missing-claude|Users|token=secret|\/bundled\/claude/,
+    );
+    expect(mocks.trackerOptions).toContainEqual(
+      expect.objectContaining({ capacity: 1, summaryIntervalMs: 300_000 }),
     );
   });
 
-  it('case 5: user override path 存在 → 用 user 路径, no warn', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    (settingsStore.get as ReturnType<typeof vi.fn>).mockReturnValue('/usr/bin/claude');
-    const fs = await import('node:fs');
-    (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(true);
-    const { resolveClaudeBinary } = await import('@main/adapters/claude-code/resolve-claude-binary');
-    expect(resolveClaudeBinary()).toBe('/usr/bin/claude');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
+  it('suppresses repeats, summarizes at five minutes, and supports both recovery paths', async () => {
+    const override = '/private/missing-binary';
+    mocks.settingsGet.mockReturnValue(override);
+    mocks.existsSync.mockReturnValue(false);
+    const subject = await freshSubject();
+
+    subject.resolveClaudeBinary();
+    vi.setSystemTime(1);
+    subject.resolveClaudeBinary();
+    vi.setSystemTime(299_999);
+    subject.resolveClaudeBinary();
+    expect(mocks.logger.warn).toHaveBeenCalledOnce();
+
+    vi.setSystemTime(300_000);
+    subject.resolveClaudeBinary();
+    expect(mocks.logger.warn).toHaveBeenLastCalledWith(
+      'Claude configuration state remains degraded',
+      expect.objectContaining({
+        state: 'override-missing',
+        previousState: 'override-missing',
+        transition: 'periodic-summary',
+        abnormalDuration: 300_000,
+        suppressedCount: 2,
+        capped: false,
+      }),
+    );
+
+    mocks.existsSync.mockReturnValue(true);
+    vi.setSystemTime(300_001);
+    expect(subject.resolveClaudeBinary()).toBe(override);
+    expect(mocks.logger.info).toHaveBeenCalledOnce();
+    expect(diagnostic('info')).toMatchObject({
+      state: 'healthy',
+      previousState: 'override-missing',
+      transition: 'transition',
+    });
+    subject.resolveClaudeBinary();
+    expect(mocks.logger.info).toHaveBeenCalledOnce();
+
+    mocks.existsSync.mockReturnValue(false);
+    vi.setSystemTime(300_002);
+    subject.resolveClaudeBinary();
+    expect(mocks.logger.warn).toHaveBeenCalledTimes(3);
+    mocks.settingsGet.mockReturnValue(null);
+    vi.setSystemTime(300_003);
+    expect(subject.resolveClaudeBinary()).toBe('/bundled/claude');
+    expect(mocks.logger.info).toHaveBeenCalledTimes(2);
   });
 
-  it('case 6: user override 含前后空白 + trim 后路径存在 → trim 后路径用作 override (filepicker 残留 user-friendly)', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    (settingsStore.get as ReturnType<typeof vi.fn>).mockReturnValue('  /usr/bin/claude  ');
-    const fs = await import('node:fs');
-    // existsSync called with trim 后路径 '/usr/bin/claude' → true
-    (fs.existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: unknown) => {
-      return p === '/usr/bin/claude';
-    });
-    const { resolveClaudeBinary } = await import('@main/adapters/claude-code/resolve-claude-binary');
-    expect(resolveClaudeBinary()).toBe('/usr/bin/claude');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
-    // verify existsSync called with TRIMMED path not raw
-    expect(fs.existsSync).toHaveBeenCalledWith('/usr/bin/claude');
-  });
+  it.each(['exists', 'fallback'] as const)(
+    'preserves a thrown %s error exactly',
+    async (seam) => {
+      const rawError = new Error(`RAW_${seam.toUpperCase()}_ERROR`);
+      if (seam === 'exists') {
+        mocks.settingsGet.mockReturnValue('/private/override');
+        mocks.existsSync.mockImplementation(() => {
+          throw rawError;
+        });
+      } else {
+        mocks.settingsGet.mockReturnValue(null);
+        mocks.bundledBinary.mockImplementation(() => {
+          throw rawError;
+        });
+      }
+      const subject = await freshSubject();
+
+      expect(() => subject.resolveClaudeBinary()).toThrow(rawError);
+    },
+  );
+
+  it.each([
+    'scope',
+    'tracker-constructor',
+    'tracker-observe',
+    'serializer',
+    'run-id',
+    'sink',
+    'clock',
+  ] as const)(
+    'contains a %s diagnostic failure without changing fallback behavior',
+    async (seam) => {
+      mocks.settingsGet.mockReturnValue('/private/missing-override');
+      mocks.existsSync.mockReturnValue(false);
+      if (seam === 'scope') {
+        mocks.loggerScope.mockImplementation(() => {
+          throw new Error('RAW_SCOPE');
+        });
+      }
+      if (seam === 'tracker-constructor') {
+        mocks.trackerMode = 'construct-throw';
+      }
+      const subject = await freshSubject();
+      if (seam === 'tracker-observe') mocks.trackerMode = 'observe-throw';
+      if (seam === 'serializer') {
+        mocks.safeDiagnostic.mockImplementation(() => {
+          throw new Error('RAW_SERIALIZER');
+        });
+      }
+      if (seam === 'run-id') {
+        mocks.getProcessRunId.mockImplementation(() => {
+          throw new Error('RAW_RUN_ID');
+        });
+      }
+      if (seam === 'sink') {
+        mocks.logger.warn.mockImplementation(() => {
+          throw new Error('RAW_SINK');
+        });
+      }
+      if (seam === 'clock') {
+        vi.spyOn(Date, 'now').mockImplementation(() => {
+          throw new Error('RAW_CLOCK');
+        });
+      }
+
+      expect(subject.resolveClaudeBinary()).toBe('/bundled/claude');
+      expect(mocks.existsSync).toHaveBeenCalledWith(
+        '/private/missing-override',
+      );
+      expect(mocks.bundledBinary).toHaveBeenCalledOnce();
+    },
+  );
 });
