@@ -16,6 +16,7 @@ import type { ProviderUsageSnapshot } from '@shared/types';
 import {
   buildCodexUsageSnapshot,
   errorUsageSnapshot,
+  providerUsageLabel,
   type CodexAccountRateLimitsResponseLike,
 } from '../../provider-usage';
 import {
@@ -29,6 +30,7 @@ import type { CodexBridgeOptions, InternalSession } from './types';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-bridge');
+const CODEX_USAGE_LABEL = providerUsageLabel('codex-cli');
 
 function snapshotProcessEnv(): Record<string, string> {
   const out: Record<string, string> = {};
@@ -118,11 +120,9 @@ export async function getCodexUsageSnapshot(
     return buildCodexUsageSnapshot(response);
   } catch (err) {
     if (isExpectedCodexUsageUnavailable(err)) {
-      logger.debug('[codex-bridge] usage snapshot unavailable:', err);
       return codexUsageUnavailableSnapshot();
     }
-    logger.warn('[codex-bridge] usage snapshot failed:', err);
-    return errorUsageSnapshot('codex-cli', 'Codex', err);
+    return errorUsageSnapshot('codex-cli', CODEX_USAGE_LABEL, err);
   }
 }
 

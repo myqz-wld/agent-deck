@@ -1,11 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   readGrokCachedAccessToken,
   readGrokUsageSnapshotInBackground,
 } from '../usage-snapshot';
 
+const mocks = vi.hoisted(() => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+vi.mock('@main/utils/logger', () => ({
+  default: {
+    ...mocks.logger,
+    scope: () => mocks.logger,
+  },
+}));
+
 describe('Grok usage snapshot', () => {
+  beforeEach(() => {
+    for (const method of Object.values(mocks.logger)) method.mockReset();
+  });
+
   it('reads billing usage with the cached token without exposing it in the result', async () => {
     const fetchFn = vi.fn(async (_input, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({
@@ -34,6 +54,7 @@ describe('Grok usage snapshot', () => {
 
     expect(snapshot).toMatchObject({
       provider: 'grok-build',
+      label: 'Grok Build',
       status: 'ok',
     });
     expect(JSON.stringify(snapshot)).not.toContain('secret-token');
@@ -78,9 +99,36 @@ describe('Grok usage snapshot', () => {
 
     expect(snapshot).toMatchObject({
       provider: 'grok-build',
+      label: 'Grok Build',
       status: 'unavailable',
-      message: expect.stringContaining('Grok 已登录'),
+      message: expect.stringContaining('Grok Build 已登录'),
     });
+    expect(mocks.logger.debug).not.toHaveBeenCalled();
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('returns a generic error snapshot without adapter-local raw logging', async () => {
+    const snapshot = await readGrokUsageSnapshotInBackground({
+      readAccessTokenFn: async () => 'private-token',
+      refreshAuthFn: vi.fn(async () => undefined),
+      fetchFn: vi.fn(async () => {
+        throw new Error(
+          'Bearer private-token /Users/private/repo https://example.test/?token=private',
+        );
+      }),
+      endpoint: 'https://example.test/v1/billing?format=credits',
+    });
+
+    expect(snapshot).toMatchObject({
+      provider: 'grok-build',
+      label: 'Grok Build',
+      status: 'error',
+      message: '额度信息读取失败，请稍后重试',
+    });
+    expect(mocks.logger.debug).not.toHaveBeenCalled();
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+    expect(JSON.stringify(snapshot)).not.toContain('private-token');
+    expect(JSON.stringify(snapshot)).not.toContain('/Users/private/repo');
   });
 
   it('selects the latest cached Grok token from auth.json', async () => {

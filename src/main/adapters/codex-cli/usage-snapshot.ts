@@ -4,18 +4,19 @@ import { CodexAppServerClient } from './app-server/client';
 import {
   buildCodexUsageSnapshot,
   errorUsageSnapshot,
+  providerUsageLabel,
   unavailableUsageSnapshot,
   type CodexAccountRateLimitsResponseLike,
 } from '../provider-usage';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { getProviderUsageProbeCwd } from '@main/paths';
-import log from '@main/utils/logger';
 import { PROVIDER_USAGE_REFETCH_MS } from '@shared/constants/provider-usage';
 
-const logger = log.scope('codex-usage');
+const CODEX_USAGE_LABEL = providerUsageLabel('codex-cli');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
 const BACKGROUND_USAGE_IDLE_DISPOSE_MS = PROVIDER_USAGE_REFETCH_MS;
-const CODEX_USAGE_UNAVAILABLE_MESSAGE = 'Codex 额度信息暂不可读，请确认 Codex 已登录且网络可用';
+const CODEX_USAGE_UNAVAILABLE_MESSAGE =
+  'Codex 额度信息暂不可读，请确认 Codex 已登录且网络可用';
 
 type CodexUsageClient = Pick<CodexAppServerClient, 'request' | 'dispose'>;
 
@@ -85,11 +86,9 @@ export async function readCodexUsageSnapshotInBackground(
     return buildCodexUsageSnapshot(response);
   } catch (err) {
     if (isExpectedCodexUsageUnavailable(err)) {
-      logger.debug('[codex-usage] usage snapshot unavailable:', err);
       return codexUsageUnavailableSnapshot();
     }
-    logger.warn('[codex-usage] usage snapshot failed:', err);
-    return errorUsageSnapshot('codex-cli', 'Codex', err);
+    return errorUsageSnapshot('codex-cli', CODEX_USAGE_LABEL, err);
   } finally {
     if (disposeAfterRead) {
       client.dispose();
@@ -152,7 +151,11 @@ function clearCachedUsageClientIdleTimer(): void {
 }
 
 export function codexUsageUnavailableSnapshot(): ProviderUsageSnapshot {
-  return unavailableUsageSnapshot('codex-cli', 'Codex', CODEX_USAGE_UNAVAILABLE_MESSAGE);
+  return unavailableUsageSnapshot(
+    'codex-cli',
+    CODEX_USAGE_LABEL,
+    CODEX_USAGE_UNAVAILABLE_MESSAGE,
+  );
 }
 
 export function isExpectedCodexUsageUnavailable(err: unknown): boolean {
