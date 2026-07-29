@@ -1,70 +1,328 @@
 import Database from 'better-sqlite3';
 import { app } from 'electron';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { MIGRATIONS } from './migrations';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+} from 'node:fs';
+import { MIGRATIONS, type Migration } from './migrations';
 import log from '@main/utils/logger';
 
 const logger = log.scope('store-db');
+const DB_NAME = 'agent-deck.db';
+const OFFLINE_JOURNAL_SUFFIX = '.migration-v43.json';
+const OFFLINE_JOURNAL_MAX_BYTES = 64 * 1024;
+const STARTUP_SAFE_OFFLINE_STATES = new Set([
+  'installed-pending-smoke',
+  'finalized',
+  'rolled-back',
+]);
 
 let dbInstance: Database.Database | null = null;
 
-/**
- * 「已显式关闭」标记 —— 仅 closeDb() 置 true,initDb() 复位 false。
- *
- * shutdown race guard（issue shutdown-race-ingest-db-guard）:before-quit finally 跑 closeDb() 后
- * (REVIEW_104 MED-B 为 WAL checkpoint 不变量提前到 finally),adapter in-flight 尾包(shutdownAll
- * drain 完成前已 emit 的事件 / 迟到 SDK 流尾包)仍会飞到 emit sink → sessionManager.ingest →
- * findByCliSessionId → getDb()。此时 dbInstance 已 null → db.ts throw → 在 adapter async 流上
- * 变 unhandledRejection 落盘噪音(logger.ts unhandledRejection 仅落盘不强退,非 crash)。caller 先查
- * isDbClosed()===true 时直接 drop 退出期事件(本就无需持久化)。
- *
- * **区分 init-never vs closed(关键不变量,防掩盖启动期真 bug)**:本 flag 仅 closeDb() 置 true。
- * 启动期 initDb 之前 dbInstance=null 但 dbClosed=false → isDbClosed() 返 false → caller 不 drop →
- * getDb() 照常 loud throw "Database not initialized",不掩盖真正的「启动顺序漏 initDb」bug。
- * 只有「正常跑过 → 显式 closeDb」这一条退出路径才让 caller 静默 drop。
- */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+interface DatabaseInspection {
+  existed: boolean;
+  userVersion: number;
+  schemaObjectCount: number;
+  fresh: boolean;
+}
+
+type OfflineMigration = Extract<Migration, { execution: 'offline' }>;
+
+interface MigrationPlan {
+  migrations: Migration[];
+  blocked: OfflineMigration | null;
+}
+
+export class OfflineMigrationRequiredError extends Error {
+  readonly code = 'OFFLINE_MIGRATION_REQUIRED';
+
+  constructor(
+    readonly currentVersion: number,
+    readonly targetVersion: number,
+    readonly command: string,
+    dbPath: string,
+  ) {
+    super(
+      `Agent Deck database v${currentVersion} requires offline migration V${targetVersion}. ` +
+      `Fully quit Agent Deck, run \`pnpm ${command} -- --db ${shellQuote(dbPath)}\`, ` +
+      'then restart Agent Deck.',
+    );
+    this.name = 'OfflineMigrationRequiredError';
+  }
+}
+
+function schemaObjectCount(db: Database.Database): number {
+  return Number(db.prepare(
+    'SELECT count(*) FROM sqlite_schema',
+  ).pluck().get());
+}
+
+function inspectDatabase(dbPath: string): DatabaseInspection {
+  if (!existsSync(dbPath)) {
+    return {
+      existed: false,
+      userVersion: 0,
+      schemaObjectCount: 0,
+      fresh: true,
+    };
+  }
+
+  const inspected = new Database(dbPath, {
+    readonly: true,
+    fileMustExist: true,
+  });
+  try {
+    const userVersion =
+      (inspected.pragma('user_version', { simple: true }) as number) ?? 0;
+    const objects = schemaObjectCount(inspected);
+    if (userVersion === 0 && objects > 0) {
+      throw new Error(
+        `Existing Agent Deck database has user_version=0 but is not empty (${objects} schema objects). ` +
+        'Refusing to initialize over partial or unversioned state.',
+      );
+    }
+    return {
+      existed: true,
+      userVersion,
+      schemaObjectCount: objects,
+      fresh: userVersion === 0 && objects === 0,
+    };
+  } finally {
+    inspected.close();
+  }
+}
+
+function readOfflineJournalState(dbPath: string): string | null {
+  const journalPath = `${dbPath}${OFFLINE_JOURNAL_SUFFIX}`;
+  let stats;
+  try {
+    stats = lstatSync(journalPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw offlineJournalRecoveryError(
+      dbPath,
+      'cannot be inspected',
+    );
+  }
+  if (!stats.isFile()) {
+    throw offlineJournalRecoveryError(
+      dbPath,
+      'must be a regular file',
+    );
+  }
+  if (stats.size > OFFLINE_JOURNAL_MAX_BYTES) {
+    throw offlineJournalRecoveryError(
+      dbPath,
+      'exceeds the 64 KiB safety limit',
+    );
+  }
+  try {
+    const value = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+      formatVersion?: unknown;
+      migrationVersion?: unknown;
+      state?: unknown;
+    };
+    if (
+      value.formatVersion !== 1 ||
+      value.migrationVersion !== 43 ||
+      typeof value.state !== 'string'
+    ) {
+      return 'invalid';
+    }
+    return value.state;
+  } catch {
+    return 'invalid';
+  }
+}
+
+function offlineJournalRecoveryError(dbPath: string, reason: string): Error {
+  return new Error(
+    `Offline history-search migration journal ${reason}. ` +
+    `Fully quit Agent Deck, restore the original journal, then run ` +
+    `\`pnpm migrate:history-search -- --db ${shellQuote(dbPath)} --resume\`.`,
+  );
+}
+
+function assertNoActiveOfflineJournal(dbPath: string): void {
+  const state = readOfflineJournalState(dbPath);
+  if (
+    state === null ||
+    (STARTUP_SAFE_OFFLINE_STATES.has(state) &&
+      (state === 'finalized' || existsSync(dbPath)))
+  ) {
+    return;
+  }
+  throw new Error(
+    `Offline history-search migration journal is in state "${state}". ` +
+    `Fully quit Agent Deck, run \`pnpm migrate:history-search -- --db ${shellQuote(dbPath)} --resume\`, ` +
+    'then restart Agent Deck.',
+  );
+}
+
+function pendingMigrations(userVersion: number): Migration[] {
+  return MIGRATIONS
+    .filter((migration) => migration.version > userVersion)
+    .sort((a, b) => a.version - b.version);
+}
+
+function planMigrations(
+  inspection: DatabaseInspection,
+): MigrationPlan {
+  const migrations: Migration[] = [];
+  let expectedVersion = inspection.userVersion + 1;
+  for (const migration of pendingMigrations(inspection.userVersion)) {
+    if (migration.version !== expectedVersion) {
+      throw new Error(
+        `Migration registry is not contiguous at V${expectedVersion}.`,
+      );
+    }
+    if (
+      migration.execution === 'offline' &&
+      !(inspection.fresh && migration.freshInstallSafe)
+    ) {
+      return { migrations, blocked: migration };
+    }
+    migrations.push(migration);
+    expectedVersion += 1;
+  }
+  return { migrations, blocked: null };
+}
+
+function assertInspectionUnchanged(
+  before: DatabaseInspection,
+  opened: Database.Database,
+): void {
+  const currentVersion =
+    (opened.pragma('user_version', { simple: true }) as number) ?? 0;
+  const currentObjectCount = schemaObjectCount(opened);
+  if (
+    currentVersion !== before.userVersion ||
+    currentObjectCount !== before.schemaObjectCount
+  ) {
+    throw new Error(
+      'Agent Deck database changed between read-only inspection and writable open. ' +
+      'Fully quit every Agent Deck process and retry.',
+    );
+  }
+}
+
+// Distinguishes explicit shutdown from a missing initDb() call.
 let dbClosed = false;
 
 export function initDb(): Database.Database {
   if (dbInstance) return dbInstance;
-  // initDb 成功路径会落到末尾置 dbInstance；这里先复位 closed 标记,让「关闭后理论上重开」
-  // (当前生命周期无此路径,纯防御)也能恢复 isDbClosed()===false 语义。
   dbClosed = false;
 
+  const startedAt = performance.now();
   const userDataDir = app.getPath('userData');
-  mkdirSync(userDataDir, { recursive: true });
-  const dbPath = join(userDataDir, 'agent-deck.db');
+  const dbPath = join(userDataDir, DB_NAME);
+  let inspection: DatabaseInspection | null = null;
+  let opened: Database.Database | null = null;
+  let published = false;
+  let initializationState = 'journal-check';
+  let effectiveVersion: number | null = null;
 
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  // V5 FTS5 触发器从 trigger 写虚表（INSERT INTO events_fts(events_fts, ...)）。
-  // SQLite 在 trusted_schema=OFF 时拒之报 "unsafe use of virtual table"。
-  // better-sqlite3 11.x 编译时默认 trusted_schema=ON，但显式置一遍防御未来 binding 默认变化
-  // （review N5 #10）。
-  db.pragma('trusted_schema = ON');
+  try {
+    // Recovery metadata wins over a missing DB path after an interrupted swap.
+    assertNoActiveOfflineJournal(dbPath);
+    initializationState = 'inspect';
+    mkdirSync(userDataDir, { recursive: true });
+    inspection = inspectDatabase(dbPath);
+    effectiveVersion = inspection.userVersion;
+    const plan = planMigrations(inspection);
+    if (plan.blocked && plan.migrations.length === 0) {
+      throw new OfflineMigrationRequiredError(
+        inspection.userVersion,
+        plan.blocked.version,
+        plan.blocked.command,
+        dbPath,
+      );
+    }
 
-  const userVersion = (db.pragma('user_version', { simple: true }) as number) ?? 0;
-  // sort by version 防御：如果 migrations/index.ts 数组顺序被改乱（cherry-pick 历史
-  // hotfix 插错位置），DDL 顺序错就会乱套。零成本兜底（review N5 #11）。
-  const pending = MIGRATIONS
-    .filter((m) => m.version > userVersion)
-    .sort((a, b) => a.version - b.version);
+    initializationState = 'open-recheck';
+    opened = new Database(dbPath);
+    // Recheck before WAL mode or a transaction to catch inspect/open races.
+    assertInspectionUnchanged(inspection, opened);
+    opened.pragma('journal_mode = WAL');
+    opened.pragma('foreign_keys = ON');
+    // FTS triggers write virtual tables and require a trusted schema.
+    opened.pragma('trusted_schema = ON');
 
-  if (pending.length > 0) {
-    const tx = db.transaction(() => {
-      for (const m of pending) {
-        db.exec(m.sql);
-        db.pragma(`user_version = ${m.version}`);
-        logger.info(`[db] migrated to v${m.version} (${m.name})`);
-      }
+    if (plan.migrations.length > 0) {
+      initializationState = 'migrate';
+      const tx = opened.transaction(() => {
+        for (const migration of plan.migrations) {
+          opened!.exec(migration.sql);
+          opened!.pragma(`user_version = ${migration.version}`);
+        }
+      });
+      tx();
+      effectiveVersion = plan.migrations.at(-1)!.version;
+    }
+
+    if (plan.blocked) {
+      initializationState = 'offline-required';
+      throw new OfflineMigrationRequiredError(
+        effectiveVersion,
+        plan.blocked.version,
+        plan.blocked.command,
+        dbPath,
+      );
+    }
+
+    dbInstance = opened;
+    published = true;
+    logger.info('migration initialization', {
+      version: effectiveVersion,
+      mode: inspection.fresh ? 'fresh-startup' : 'startup',
+      state: 'complete',
+      outcome: 'success',
+      durationMs: Math.round(performance.now() - startedAt),
     });
-    tx();
+    return opened;
+  } catch (error) {
+    logger.warn('migration initialization', {
+      version: effectiveVersion,
+      mode:
+        error instanceof OfflineMigrationRequiredError
+          ? 'offline-required'
+          : 'startup',
+      state: initializationState,
+      outcome:
+        error instanceof OfflineMigrationRequiredError
+          ? 'blocked'
+          : opened
+            ? 'failed'
+            : 'blocked',
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    throw error;
+  } finally {
+    if (opened && !published) {
+      try {
+        opened.close();
+      } catch {
+        try {
+          logger.warn('migration connection close failed', {
+            version: effectiveVersion,
+            mode: 'startup',
+            state: 'close',
+            outcome: 'failed',
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+        } catch {
+          // Diagnostics must not replace the primary initialization error.
+        }
+      }
+    }
   }
-
-  dbInstance = db;
-  return db;
 }
 
 export function getDb(): Database.Database {
@@ -74,27 +332,13 @@ export function getDb(): Database.Database {
   return dbInstance;
 }
 
-/**
- * 是否已显式关闭(closeDb 跑过且未再 initDb)。
- *
- * 退出期热路径 caller（sessionManager.ingest 入口 / bootstrap-infra emit sink）先查此 flag,
- * true 时直接 drop 事件,避免 getDb() 在 dbInstance=null 上 throw → adapter async 流 unhandledRejection
- * 落盘噪音（详 dbClosed flag jsdoc）。**不要**用 `dbInstance === null` 替代:那会把启动期 init-never
- * 也算进来,掩盖「漏 initDb」真 bug。
- */
+/** True only after an explicit closeDb(), not before initial startup. */
 export function isDbClosed(): boolean {
   return dbClosed;
 }
 
 export function closeDb(): void {
-  // dbClosed 先于 dbInstance.close() 置位:close() 是同步操作,但置位顺序无害且语义上「一旦决定关闭
-  // 就拒绝后续写」。即便 close() 抛错(WAL checkpoint 失败等),flag 已 true,退出期尾包仍被 drop。
   dbClosed = true;
-  // dbInstance=null 放 finally:close() 抛错(WAL checkpoint 失败)时也必须清空,否则留下
-  // 「dbClosed=true + dbInstance≠null」中间态 — 当前 shutdown 用途无害(热路径 caller 都 gate
-  // 在 isDbClosed 上不读 dbInstance),但若未来接「关闭后重开」(initDb:if(dbInstance)return 在
-  // dbClosed=false reset 之前)会返回 broken instance 且永卡 isDbClosed()=true。finally 清空让
-  // 防御性 reopen 真正 robust(REVIEW shutdown-guard LOW-1)。
   if (dbInstance) {
     try {
       dbInstance.close();
