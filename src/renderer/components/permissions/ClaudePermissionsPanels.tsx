@@ -43,6 +43,11 @@ export function MergedPanel({ merged }: { merged: MergedPermissions }): JSX.Elem
         <div className="text-[11px] text-deck-muted">尚未配置任何权限规则</div>
       ) : (
         <div className="grid gap-1.5">
+          {merged.truncated && (
+            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
+              规则数量超过显示上限；每类仅显示前 500 条。
+            </div>
+          )}
           <RuleRow label="允许" tone="allow" rules={merged.allow} />
           <RuleRow label="拒绝" tone="deny" rules={merged.deny} />
           <RuleRow label="每次询问" tone="ask" rules={merged.ask} />
@@ -191,7 +196,7 @@ export function LayerPanel({
           ) : layer.parseError ? (
             <>
               <div className="mb-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200">
-                JSON 解析失败，请检查该设置文件。
+                设置文件无法安全扫描，请检查格式、大小或规则数量。
               </div>
               <RawJsonBlock
                 raw={layer.raw ?? ''}

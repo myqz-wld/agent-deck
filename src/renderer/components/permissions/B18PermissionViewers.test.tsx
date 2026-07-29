@@ -25,7 +25,7 @@ import {
   createAuthorizedContentReferenceId,
   type DiffContentPayload,
 } from '../expandable-content';
-import { LayerPanel } from './ClaudePermissionsPanels';
+import { LayerPanel, MergedPanel } from './ClaudePermissionsPanels';
 import { CodexPermissionsPanel } from './CodexPermissionsPanel';
 import { GrokPermissionsPanel } from './GrokPermissionsPanel';
 import { ExpandablePermissionSurface } from './b18/ExpandablePermissionSurface';
@@ -37,6 +37,18 @@ afterEach(() => {
 });
 
 describe('B18 permission viewers', () => {
+  it('labels a bounded merged permission result as truncated', () => {
+    render(<MergedPanel merged={{
+      allow: [{ rule: 'Bash(*)', sources: ['user'] }],
+      deny: [],
+      ask: [],
+      additionalDirectories: [],
+      defaultMode: null,
+      truncated: true,
+    }} />);
+    expect(screen.getByText('规则数量超过显示上限；每类仅显示前 500 条。')).toBeTruthy();
+  });
+
   it('expands raw config without replacing the separate external open action', async () => {
     const raw = '{\n  "permissions": {\n    "allow": ["Read"]\n  }\n}\n';
     const layer: SettingsLayer = {
@@ -44,7 +56,6 @@ describe('B18 permission viewers', () => {
       path: '/Users/example/.claude/settings.json',
       exists: true,
       raw,
-      parsed: {},
       parseError: null,
       permissions: null,
     };
@@ -191,7 +202,6 @@ describe('B18 permission viewers', () => {
       path: '/workspace/project/.claude/settings.json',
       exists: true,
       raw: `{"note":"${rawMarker}"}`,
-      parsed: null,
       parseError: parseMarker,
       permissions: null,
     };
@@ -205,7 +215,7 @@ describe('B18 permission viewers', () => {
 
     render(<LayerPanel layer={layer} cwd="/workspace/project" />);
 
-    expect(screen.getByText('JSON 解析失败，请检查该设置文件。')).toBeTruthy();
+    expect(screen.getByText('设置文件无法安全扫描，请检查格式、大小或规则数量。')).toBeTruthy();
     expect(document.body.textContent).not.toContain(parseMarker);
     const open = screen.getByRole('button', { name: '打开项目设置' });
     fireEvent.click(open);
