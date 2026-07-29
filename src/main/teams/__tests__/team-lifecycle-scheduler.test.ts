@@ -162,6 +162,73 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
     expect(teams.every((t) => t.archivedAt !== null)).toBe(true);
   });
 
+  it('bounds one tick to 1000 teams and drains the remainder through catch-up', () => {
+    vi.useFakeTimers();
+    makeGhostFixture(1001);
+    const scheduler = new TeamLifecycleScheduler({
+      intervalMs: 60_000,
+      graceMs: 30 * 60_000,
+      catchUpDelayMs: 1_000,
+    });
+
+    scheduler.scan();
+    expect(archiveCalls).toHaveLength(1000);
+
+    vi.advanceTimersByTime(1_000);
+    expect(archiveCalls).toHaveLength(1001);
+    expect(teams.every((team) => team.archivedAt !== null)).toBe(true);
+    scheduler.stop();
+    vi.useRealTimers();
+  });
+
+  it('stop clears a pending team catch-up batch', () => {
+    vi.useFakeTimers();
+    makeGhostFixture(1001);
+    const scheduler = new TeamLifecycleScheduler({
+      intervalMs: 60_000,
+      graceMs: 30 * 60_000,
+      catchUpDelayMs: 1_000,
+    });
+
+    scheduler.scan();
+    expect(archiveCalls).toHaveLength(1000);
+    scheduler.stop();
+    vi.advanceTimersByTime(1_000);
+
+    expect(archiveCalls).toHaveLength(1000);
+    expect(teams.at(-1)?.archivedAt).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('advances past a full live batch without starving a later eligible team', () => {
+    vi.useFakeTimers();
+    makeGhostFixture(1001);
+    for (let index = 0; index < 1000; index += 1) {
+      const teamId = `team-${index}`;
+      const sessionId = `live-${index}`;
+      teamMembers.set(teamId, [{ sessionId, joinedAt: Date.now() - 60 * 60_000 }]);
+      sessions.set(sessionId, {
+        id: sessionId,
+        lifecycle: 'active',
+        lastEventAt: Date.now(),
+        endedAt: null,
+      });
+    }
+    const scheduler = new TeamLifecycleScheduler({
+      intervalMs: 60_000,
+      graceMs: 30 * 60_000,
+      catchUpDelayMs: 1_000,
+    });
+
+    scheduler.scan();
+    expect(archiveCalls).toEqual([]);
+    vi.advanceTimersByTime(1_000);
+
+    expect(archiveCalls).toEqual(['team-1000']);
+    scheduler.stop();
+    vi.useRealTimers();
+  });
+
   it('PAGE_SIZE 边界：恰好 200 条 ghost → 必须 archive 200 条不少不多', () => {
     makeGhostFixture(200);
     const scheduler = new TeamLifecycleScheduler({ intervalMs: 60_000, graceMs: 30 * 60_000 });
