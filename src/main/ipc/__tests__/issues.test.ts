@@ -615,7 +615,7 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
       adapter: 'codex-cli',
       prompt: 'p',
       grokSandbox: 'strict',
-    })).rejects.toThrow(/grokSandbox.*incompatible/);
+    })).rejects.toThrow(/grokSandbox 与 Codex CLI 不兼容；仅 Grok Build 支持/);
     expect(adapter.createSession).not.toHaveBeenCalled();
   });
 

@@ -163,8 +163,8 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     fireEvent.click(await screen.findByLabelText('目标运行时'));
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
     fireEvent.click(screen.getByLabelText('Grok Build 沙盒请求档位'));
-    fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
-    fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox profile 名'), {
+    fireEvent.click(screen.getByRole('option', { name: '自定义配置…' }));
+    fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox.toml 配置名称'), {
       target: { value: 'project-locked' },
     });
     fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {

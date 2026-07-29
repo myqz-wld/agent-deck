@@ -206,8 +206,8 @@ describe('NewSessionDialog model options', () => {
     fireEvent.click(workMode);
     fireEvent.click(screen.getByRole('option', { name: '计划模式' }));
     fireEvent.click(screen.getByLabelText('Grok Build 沙盒请求档位'));
-    fireEvent.click(screen.getByRole('option', { name: '自定义 profile…' }));
-    fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox profile 名'), {
+    fireEvent.click(screen.getByRole('option', { name: '自定义配置…' }));
+    fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox.toml 配置名称'), {
       target: { value: 'project-locked' },
     });
     fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
