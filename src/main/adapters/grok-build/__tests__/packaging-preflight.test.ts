@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -38,10 +38,10 @@ function platformSpec(): { packageName: string; binaryName: string } {
   return spec;
 }
 
-function runPreflight(projectRoot: string) {
+function runPreflight(projectRoot: string, extraArgs: string[] = []) {
   return spawnSync(
     process.execPath,
-    [scriptPath, '--project-root', projectRoot],
+    [scriptPath, '--project-root', projectRoot, ...extraArgs],
     {
       encoding: 'utf8',
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -92,5 +92,58 @@ describe('bundled Grok packaging preflight', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('@xai-official/grok is missing');
     expect(result.stderr).toContain('pnpm install');
+  });
+
+  it('rejects a packaging target that does not match the host OS', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'agent-deck-grok-preflight-'));
+    await writeFile(join(projectRoot, 'package.json'), '{"private":true}');
+    const foreignPlatform = process.platform === 'darwin' ? 'win32' : 'darwin';
+
+    const result = runPreflight(projectRoot, [
+      '--target-platform',
+      foreignPlatform,
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      `Native-only packaging target ${foreignPlatform}-${process.arch} does not match host ` +
+        `${process.platform}-${process.arch}`,
+    );
+    expect(result.stderr).toContain('Run the target-specific dist command on its matching host');
+    expect(result.stderr).not.toContain(projectRoot);
+  });
+
+  it('rejects a packaging target that does not match the host architecture', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'agent-deck-grok-preflight-'));
+    await writeFile(join(projectRoot, 'package.json'), '{"private":true}');
+    const foreignArch = process.arch === 'arm64' ? 'x64' : 'arm64';
+
+    const result = runPreflight(projectRoot, [
+      '--target-arch',
+      foreignArch,
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      `Native-only packaging target ${process.platform}-${foreignArch} does not match host ` +
+        `${process.platform}-${process.arch}`,
+    );
+    expect(result.stderr).not.toContain(projectRoot);
+  });
+
+  it('pins every target-specific dist command to its matching native OS', async () => {
+    const packageJson = JSON.parse(
+      await readFile(resolve('package.json'), 'utf8'),
+    ) as { scripts: Record<string, string> };
+
+    expect(packageJson.scripts['dist:mac']).toContain(
+      'verify-bundled-grok.mjs --target-platform darwin',
+    );
+    expect(packageJson.scripts['dist:win']).toContain(
+      'verify-bundled-grok.mjs --target-platform win32',
+    );
+    expect(packageJson.scripts['dist:linux']).toContain(
+      'verify-bundled-grok.mjs --target-platform linux',
+    );
   });
 });
