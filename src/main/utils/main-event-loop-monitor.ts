@@ -1,13 +1,25 @@
 import { performance } from 'node:perf_hooks';
 
+import {
+  BoundedLogStateTracker,
+  type LogStateDecision,
+  type LogStateSnapshot,
+} from '@main/utils/log-state-tracker';
 import log from '@main/utils/logger';
+import { getProcessRunId } from '@main/utils/run-context';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
 
 const logger = log.scope('main-event-loop');
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 250;
 const DEFAULT_WARN_THRESHOLD_MS = 500;
-const DEFAULT_WARNING_COOLDOWN_MS = 10_000;
 const DEFAULT_SUSPEND_THRESHOLD_MS = 60_000;
+const SUMMARY_INTERVAL_MS = 60_000;
+const HEALTHY_SAMPLES_TO_RECOVER = 4;
+const TRACKER_KEY = 'main-event-loop';
+const MAX_NUMERIC_VALUE = Number.MAX_SAFE_INTEGER;
+
+type EventLoopMonitorState = 'healthy' | 'lagging';
 
 export interface EventLoopDelaySample {
   lagMs: number;
@@ -19,63 +31,249 @@ export interface EventLoopDelaySample {
 interface EventLoopMonitorOptions {
   sampleIntervalMs?: number;
   warnThresholdMs?: number;
+  /** @deprecated Repeats now use the fixed bounded-state summary interval. */
   warningCooldownMs?: number;
   suspendThresholdMs?: number;
   now?: () => number;
   onDelay?: (sample: EventLoopDelaySample) => void;
 }
 
+interface EventLoopDiagnosticContext {
+  sampleIntervalMs: number;
+  warnThresholdMs: number;
+  suspendThresholdMs: number;
+  onDelay?: (sample: EventLoopDelaySample) => void;
+}
+
 /**
  * Monitor Electron's main event-loop drift so rare global stalls can be separated from slow
- * MCP handlers or SQLite writes. Delays longer than suspendThresholdMs are ignored because they
- * are normally laptop sleep/wake, not actionable in-process latency.
+ * MCP handlers or SQLite writes. Suspend, invalid-clock, and rollback samples only rebase the
+ * schedule; they do not advance the diagnostic state machine.
  */
 export function startMainEventLoopMonitor(options: EventLoopMonitorOptions = {}): () => void {
-  const sampleIntervalMs = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS;
-  const warnThresholdMs = options.warnThresholdMs ?? DEFAULT_WARN_THRESHOLD_MS;
-  const warningCooldownMs = options.warningCooldownMs ?? DEFAULT_WARNING_COOLDOWN_MS;
-  const suspendThresholdMs = options.suspendThresholdMs ?? DEFAULT_SUSPEND_THRESHOLD_MS;
+  const sampleIntervalMs = positiveDuration(
+    options.sampleIntervalMs,
+    DEFAULT_SAMPLE_INTERVAL_MS,
+  );
+  const warnThresholdMs = nonnegativeDuration(
+    options.warnThresholdMs,
+    DEFAULT_WARN_THRESHOLD_MS,
+  );
+  const suspendThresholdMs = nonnegativeDuration(
+    options.suspendThresholdMs,
+    DEFAULT_SUSPEND_THRESHOLD_MS,
+  );
   const now = options.now ?? (() => performance.now());
-  const onDelay =
-    options.onDelay ??
-    ((sample: EventLoopDelaySample) => {
-      logger.warn('[performance] main event loop delay detected', {
-        lagMs: Math.round(sample.lagMs),
-        sampleIntervalMs: sample.sampleIntervalMs,
-        suppressedSinceLastWarning: sample.suppressedSinceLastWarning,
-        maxSuppressedLagMs: Math.round(sample.maxSuppressedLagMs),
-      });
-    });
+  const diagnosticContext = {
+    sampleIntervalMs,
+    warnThresholdMs,
+    suspendThresholdMs,
+    onDelay: options.onDelay,
+  };
 
-  let expectedAt = now() + sampleIntervalMs;
-  let lastWarningAt = Number.NEGATIVE_INFINITY;
-  let suppressedSinceLastWarning = 0;
-  let maxSuppressedLagMs = 0;
+  let diagnosticClockMs = 0;
+  let tracker = createTracker(() => diagnosticClockMs);
+  let expectedAt: number | null = null;
+  let lastClockAt: number | null = null;
+  let degraded = false;
+  let consecutiveHealthySamples = 0;
+
+  const initialClock = readClock(now);
+  if (initialClock !== null) {
+    expectedAt = boundedSum(initialClock, sampleIntervalMs);
+    lastClockAt = initialClock;
+  }
+
+  const observe = (
+    state: EventLoopMonitorState,
+    abnormal: boolean,
+    lagMs: number,
+    recoveryHealthySamples: number,
+  ): void => {
+    let decision: LogStateDecision<EventLoopMonitorState>;
+    try {
+      decision = tracker.observe(TRACKER_KEY, {
+        signature: state,
+        abnormal,
+        metric: roundedMetric(lagMs),
+      });
+    } catch {
+      tracker = createTracker(() => diagnosticClockMs);
+      return;
+    }
+    emitDecision(
+      decision,
+      lagMs,
+      recoveryHealthySamples,
+      diagnosticContext,
+    );
+  };
 
   const timer = setInterval(() => {
-    const current = now();
-    const lagMs = Math.max(0, current - expectedAt);
-    // Rebase on the actual callback time. This avoids reporting the same stall on every tick.
-    expectedAt = current + sampleIntervalMs;
-
-    if (lagMs < warnThresholdMs || lagMs >= suspendThresholdMs) return;
-    if (current - lastWarningAt < warningCooldownMs) {
-      suppressedSinceLastWarning += 1;
-      maxSuppressedLagMs = Math.max(maxSuppressedLagMs, lagMs);
+    const current = readClock(now);
+    if (current === null) {
+      expectedAt = null;
+      lastClockAt = null;
+      consecutiveHealthySamples = 0;
+      return;
+    }
+    if (
+      expectedAt === null ||
+      lastClockAt === null ||
+      current <= lastClockAt
+    ) {
+      expectedAt = boundedSum(current, sampleIntervalMs);
+      lastClockAt = current;
+      consecutiveHealthySamples = 0;
       return;
     }
 
-    onDelay({
-      lagMs,
-      sampleIntervalMs,
-      suppressedSinceLastWarning,
-      maxSuppressedLagMs,
-    });
-    lastWarningAt = current;
-    suppressedSinceLastWarning = 0;
-    maxSuppressedLagMs = 0;
+    const elapsedMs = current - lastClockAt;
+    const lagMs = Math.max(0, current - expectedAt);
+    expectedAt = boundedSum(current, sampleIntervalMs);
+    lastClockAt = current;
+
+    if (lagMs >= suspendThresholdMs) {
+      consecutiveHealthySamples = 0;
+      return;
+    }
+
+    diagnosticClockMs = boundedSum(diagnosticClockMs, elapsedMs);
+    if (lagMs >= warnThresholdMs) {
+      degraded = true;
+      consecutiveHealthySamples = 0;
+      observe('lagging', true, lagMs, 0);
+      return;
+    }
+    if (!degraded) return;
+
+    consecutiveHealthySamples += 1;
+    if (consecutiveHealthySamples < HEALTHY_SAMPLES_TO_RECOVER) return;
+    degraded = false;
+    observe('healthy', false, lagMs, consecutiveHealthySamples);
   }, sampleIntervalMs);
   timer.unref();
 
   return () => clearInterval(timer);
+}
+
+function createTracker(
+  now: () => number,
+): BoundedLogStateTracker<typeof TRACKER_KEY, EventLoopMonitorState> {
+  return new BoundedLogStateTracker({
+    capacity: 1,
+    summaryIntervalMs: SUMMARY_INTERVAL_MS,
+    now,
+  });
+}
+
+function emitDecision(
+  decision: LogStateDecision<EventLoopMonitorState>,
+  lagMs: number,
+  recoveryHealthySamples: number,
+  context: EventLoopDiagnosticContext,
+): void {
+  if (decision.kind === 'repeat') return;
+  if (decision.kind === 'initial' && !decision.current.abnormal) return;
+
+  const priorAbnormal: LogStateSnapshot<EventLoopMonitorState> | null =
+    decision.flushed?.abnormal ? decision.flushed : null;
+  const aggregate =
+    decision.kind === 'periodic-summary'
+      ? priorAbnormal ?? decision.current
+      : decision.current.abnormal
+        ? decision.current
+        : priorAbnormal ?? decision.current;
+  const details = safeDiagnostic({
+    event: 'main-event-loop-state',
+    runId: getProcessRunId(),
+    state: decision.current.signature,
+    previousState: decision.flushed?.signature ?? null,
+    transition: decision.kind,
+    abnormalDurationMs: aggregate.abnormalDurationMs,
+    lagMs: roundedMetric(lagMs),
+    maxLagMs: aggregate.maxMetric,
+    suppressedCount: aggregate.suppressedCount,
+    suppressedCountCapped: aggregate.suppressedCountCapped,
+    sampleIntervalMs: context.sampleIntervalMs,
+    lagThresholdMs: context.warnThresholdMs,
+    suspendThresholdMs: context.suspendThresholdMs,
+    recoveryHealthySamples,
+    recoveryHealthySamplesRequired: HEALTHY_SAMPLES_TO_RECOVER,
+  });
+
+  if (decision.current.abnormal) {
+    const message =
+      decision.kind === 'periodic-summary'
+        ? 'main event loop state remains degraded'
+        : 'main event loop state degraded';
+    try {
+      logger.warn(message, details);
+    } catch {
+      // Diagnostics must never interrupt the sampling interval.
+    }
+    notifyDelay(context, decision, lagMs, aggregate);
+    return;
+  }
+  if (!priorAbnormal) return;
+  try {
+    logger.info('main event loop state recovered', details);
+  } catch {
+    // Diagnostics must never interrupt the sampling interval.
+  }
+}
+
+function notifyDelay(
+  context: EventLoopDiagnosticContext,
+  decision: LogStateDecision<EventLoopMonitorState>,
+  lagMs: number,
+  aggregate: LogStateSnapshot<EventLoopMonitorState>,
+): void {
+  if (!context.onDelay) return;
+  try {
+    context.onDelay({
+      lagMs,
+      sampleIntervalMs: context.sampleIntervalMs,
+      suppressedSinceLastWarning: aggregate.suppressedCount,
+      maxSuppressedLagMs:
+        decision.kind === 'periodic-summary'
+          ? aggregate.maxMetric ?? 0
+          : 0,
+    });
+  } catch {
+    // Compatibility observers are best-effort and cannot interrupt monitoring.
+  }
+}
+
+function readClock(now: () => number): number | null {
+  try {
+    const value = now();
+    if (!Number.isFinite(value)) return null;
+    return Math.min(MAX_NUMERIC_VALUE, Math.max(0, value));
+  } catch {
+    return null;
+  }
+}
+
+function positiveDuration(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.min(MAX_NUMERIC_VALUE, value);
+}
+
+function nonnegativeDuration(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+  return Math.min(MAX_NUMERIC_VALUE, value);
+}
+
+function boundedSum(left: number, right: number): number {
+  return Math.min(MAX_NUMERIC_VALUE, Math.max(0, left + right));
+}
+
+function roundedMetric(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.min(MAX_NUMERIC_VALUE, Math.round(value));
 }
