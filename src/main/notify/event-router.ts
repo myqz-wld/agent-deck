@@ -2,31 +2,109 @@ import type { AgentEvent } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { notifyUser } from './visual';
 import log from '@main/utils/logger';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
+import { getProcessRunId } from '@main/utils/run-context';
+import {
+  BoundedLogStateTracker,
+  type LogStateDecision,
+  type LogStateSnapshot,
+} from '@main/utils/log-state-tracker';
 
-const logger = log.scope('notify-event-router');
+const ROUTER_TRACKER_CAPACITY = 2;
+const SUMMARY_INTERVAL_MS = 300_000;
+
+type NotificationOperation = 'waiting-for-user' | 'finished';
+type NotificationState = 'healthy' | 'notification-failed';
+
+function createRouterLogger(): ReturnType<typeof log.scope> | null {
+  try {
+    return log.scope('notify-event-router');
+  } catch {
+    return null;
+  }
+}
+
+function createRouterTracker(): BoundedLogStateTracker<
+  NotificationOperation,
+  NotificationState
+> | null {
+  try {
+    return new BoundedLogStateTracker<NotificationOperation, NotificationState>({
+      capacity: ROUTER_TRACKER_CAPACITY,
+      summaryIntervalMs: SUMMARY_INTERVAL_MS,
+    });
+  } catch {
+    return null;
+  }
+}
+
+const logger = createRouterLogger();
+const routerTracker = createRouterTracker();
+
+function observeNotificationState(
+  operation: NotificationOperation,
+  state: NotificationState,
+): void {
+  if (!routerTracker) return;
+  let decision: LogStateDecision<NotificationState>;
+  try {
+    decision = routerTracker.observe(operation, {
+      signature: state,
+      abnormal: state !== 'healthy',
+    });
+    emitNotificationDecision(operation, decision);
+  } catch {
+    return;
+  }
+}
+
+function emitNotificationDecision(
+  operation: NotificationOperation,
+  decision: LogStateDecision<NotificationState>,
+): void {
+  if (decision.kind === 'repeat') return;
+  if (decision.kind === 'initial' && !decision.current.abnormal) return;
+
+  const priorAbnormal: LogStateSnapshot<NotificationState> | null =
+    decision.flushed?.abnormal ? decision.flushed : null;
+  const aggregate = priorAbnormal ?? decision.current;
+  try {
+    const details = safeDiagnostic({
+      event: 'notification-routing-state',
+      runId: getProcessRunId(),
+      operation,
+      state: decision.current.signature,
+      previousState: decision.flushed?.signature ?? null,
+      transition: decision.kind,
+      abnormalDurationMs: aggregate.abnormalDurationMs,
+      suppressedCount: aggregate.suppressedCount,
+      suppressedCountCapped: aggregate.suppressedCountCapped,
+      summaryIntervalMs: SUMMARY_INTERVAL_MS,
+    });
+    if (decision.current.abnormal) {
+      logger?.warn(
+        decision.kind === 'periodic-summary'
+          ? 'notification routing remains degraded'
+          : 'notification routing degraded',
+        details,
+      );
+    } else if (priorAbnormal) {
+      logger?.info('notification routing recovered', details);
+    }
+  } catch {
+    // Diagnostics cannot alter event routing.
+  }
+}
 
 /**
- * 把 AgentEvent 翻成「是否要给用户系统通知 + 提示音」。
- * 拆离自 index.ts bootstrap 的 emit 回调（CHANGELOG_20 / F），让 bootstrap 回归装配胶水。
- *
- * 调用顺序：sessionManager.ingest(event) → routeEventToNotification(event)。
- * 如果以后要按事件 kind 加新通知规则，只动这个文件。
- *
- * REVIEW_4 M6：整段 try/catch — `notifyUser` 内 Notification / dock.bounce / playSoundOnce
- * 任一抛错（macOS 无通知权限 / Notification.isSupported 误判 / dock 已 release）都会
- * 冒泡到 adapter for-await emit 循环把后续事件流整条切断；这里吞错只 console.error，
- * 通知失败不应影响事件入库 / UI 渲染主链路。
- *
- * REVIEW_4 M7：finished 看 `payload.ok / subtype`，error/interrupted 走「中断 / 出错」
- * 标题，避免与 H1 删除复活复合让用户看到莫名的「Agent 完成」通知。
+ * Route user-attention events after ingestion. Notification failures remain isolated from the
+ * adapter event stream, and cancellation events never create replacement notifications.
  */
 export function routeEventToNotification(event: AgentEvent): void {
+  let operation: NotificationOperation | null = null;
   try {
     if (event.kind === 'waiting-for-user') {
-      // SDK 通道的 `*-cancelled` 事件（permission-cancelled / ask-question-cancelled /
-      // exit-plan-cancelled）也复用 `waiting-for-user` 这个 kind，但语义是「撤掉那条 pending」
-      // 而不是「又一次需要用户输入」。如果一律推系统通知 + 提示音，用户在点完按钮 / 超时 /
-      // session-end 之后会收到一条多余的「Agent 等待你的输入」打扰。
+      operation = 'waiting-for-user';
       const payload = (event.payload ?? {}) as { type?: string; message?: string };
       const type = payload.type;
       if (typeof type === 'string' && type.endsWith('-cancelled')) {
@@ -38,11 +116,12 @@ export function routeEventToNotification(event: AgentEvent): void {
         body: session ? `${session.title}：${payload.message ?? ''}` : '',
         level: 'waiting',
       });
+      observeNotificationState(operation, 'healthy');
       return;
     }
 
     if (event.kind === 'finished') {
-      // ok=false 的 finished 通常意味着「中断 / 异常」，不该用「完成」措辞混淆用户。
+      operation = 'finished';
       const payload = (event.payload ?? {}) as { ok?: boolean; subtype?: string };
       const session = sessionManager.get(event.sessionId);
       const isError = payload.ok === false;
@@ -57,10 +136,9 @@ export function routeEventToNotification(event: AgentEvent): void {
         body: session?.title ?? '',
         level: 'finished',
       });
+      observeNotificationState(operation, 'healthy');
     }
-  } catch (err) {
-    // 通知失败（无系统权限 / dock 已 release / 音频文件被删 / Notification.show 抛错）
-    // 不应反噬主链路。adapter for-await emit 循环对 throw 敏感，这里必须吞。
-    logger.error('[event-router] notification dispatch failed:', err);
+  } catch {
+    if (operation) observeNotificationState(operation, 'notification-failed');
   }
 }
