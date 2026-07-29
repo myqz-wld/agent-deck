@@ -30,12 +30,13 @@ function insertSession(
   lifecycle: 'active' | 'dormant' | 'closed' = 'active',
   lastEventAt = 100,
   archivedAt: number | null = null,
+  cliSessionId: string | null = null,
 ): void {
   db.prepare(
     `INSERT INTO sessions
        (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at,
-        ended_at, archived_at)
-     VALUES (?, 'codex-cli', '/repo', ?, 'sdk', ?, 'idle', 1, ?, ?, ?)`,
+        ended_at, archived_at, cli_session_id)
+     VALUES (?, 'codex-cli', '/repo', ?, 'sdk', ?, 'idle', 1, ?, ?, ?, ?)`,
   ).run(
     id,
     `title-${id}`,
@@ -43,6 +44,7 @@ function insertSession(
     lastEventAt,
     lifecycle === 'closed' ? lastEventAt : null,
     archivedAt,
+    cliSessionId,
   );
 }
 
@@ -250,10 +252,15 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
 
   it('rechecks history predicates before delete and clears pin on terminal event state', () => {
     insertSession(db, 'history-race', 'active', 10, 5);
-    expect(sessionRepo.findHistoryOlderThan(20)).toContain('history-race');
+    expect(sessionRepo.findHistoryOlderThan(20).map((row) => row.id)).toContain('history-race');
     sessionRepo.setArchived('history-race', null);
     sessionRepo.setPinned('history-race', 800);
-    expect(sessionRepo.batchDeleteHistory(['history-race'], 20)).toEqual([]);
+    expect(
+      sessionRepo.batchDeleteHistory(
+        [{ id: 'history-race', cliSessionId: null, lastEventAt: 10 }],
+        20,
+      ),
+    ).toEqual([]);
     expect(sessionRepo.get('history-race')).not.toBeNull();
 
     sessionRepo.setEventState('history-race', 'idle', 'dormant', 30, {
@@ -264,5 +271,45 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
       lastEventAt: 30,
       pinnedAt: null,
     });
+  });
+
+  it('caps lifecycle candidate reads at 100 rows', () => {
+    for (let index = 0; index < 101; index += 1) {
+      insertSession(db, `active-${index.toString().padStart(3, '0')}`, 'active', 10);
+      insertSession(db, `dormant-${index.toString().padStart(3, '0')}`, 'dormant', 10);
+    }
+
+    expect(sessionRepo.findActiveExpiring(20)).toHaveLength(100);
+    expect(sessionRepo.findDormantExpiring(20)).toHaveLength(100);
+  });
+
+  it('pages history candidates by (last_event_at,id) and retains both session identities', () => {
+    for (let index = 0; index < 205; index += 1) {
+      const id = `history-${index.toString().padStart(3, '0')}`;
+      insertSession(db, id, 'closed', index < 150 ? 10 : 11, null, `cli-${id}`);
+    }
+
+    const first = sessionRepo.findHistoryOlderThan(20);
+    const firstCursor = {
+      lastEventAt: first.at(-1)!.lastEventAt,
+      id: first.at(-1)!.id,
+    };
+    const second = sessionRepo.findHistoryOlderThan(20, firstCursor);
+    const secondCursor = {
+      lastEventAt: second.at(-1)!.lastEventAt,
+      id: second.at(-1)!.id,
+    };
+    const third = sessionRepo.findHistoryOlderThan(20, secondCursor);
+
+    expect(first).toHaveLength(100);
+    expect(second).toHaveLength(100);
+    expect(third).toHaveLength(5);
+    expect(new Set([...first, ...second, ...third].map((row) => row.id)).size).toBe(205);
+    expect(first[0]).toMatchObject({
+      id: 'history-000',
+      cliSessionId: 'cli-history-000',
+      lastEventAt: 10,
+    });
+    expect(second[50]).toMatchObject({ id: 'history-150', lastEventAt: 11 });
   });
 });

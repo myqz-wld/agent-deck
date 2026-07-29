@@ -26,12 +26,14 @@ interface FakeTeam {
 
 interface FakeMember {
   sessionId: string;
+  joinedAt: number;
 }
 
 interface FakeSession {
   id: string;
   lifecycle: 'active' | 'dormant' | 'closed';
   lastEventAt: number;
+  endedAt: number | null;
 }
 
 let teams: FakeTeam[] = [];
@@ -115,20 +117,22 @@ function makeMixedFixture(): void {
   }
   for (let i = 0; i < 5; i++) {
     teams.push({ id: `alive-${i}`, name: `Alive ${i}`, createdAt: oldEnough, archivedAt: null });
-    teamMembers.set(`alive-${i}`, [{ sessionId: `sess-alive-${i}` }]);
+    teamMembers.set(`alive-${i}`, [{ sessionId: `sess-alive-${i}`, joinedAt: oldEnough }]);
     sessions.set(`sess-alive-${i}`, {
       id: `sess-alive-${i}`,
       lifecycle: 'active',
       lastEventAt: Date.now(),
+      endedAt: null,
     });
   }
   for (let i = 0; i < 5; i++) {
     teams.push({ id: `closed-${i}`, name: `Closed ${i}`, createdAt: oldEnough, archivedAt: null });
-    teamMembers.set(`closed-${i}`, [{ sessionId: `sess-closed-${i}` }]);
+    teamMembers.set(`closed-${i}`, [{ sessionId: `sess-closed-${i}`, joinedAt: oldEnough }]);
     sessions.set(`sess-closed-${i}`, {
       id: `sess-closed-${i}`,
       lifecycle: 'closed',
       lastEventAt: Date.now() - 60 * 60_000, // 1 小时前 closed → grace（30min）已过
+      endedAt: Date.now() - 60 * 60_000,
     });
   }
 }
@@ -193,11 +197,15 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
       createdAt: Date.now() - 60 * 60_000,
       archivedAt: null,
     }];
-    teamMembers.set('fresh-closed', [{ sessionId: 'sess-fresh' }]);
+    teamMembers.set('fresh-closed', [{
+      sessionId: 'sess-fresh',
+      joinedAt: Date.now() - 60 * 60_000,
+    }]);
     sessions.set('sess-fresh', {
       id: 'sess-fresh',
       lifecycle: 'closed',
       lastEventAt: Date.now() - 5 * 60_000, // 5 分钟前 closed，grace=30min 未到
+      endedAt: Date.now() - 5 * 60_000,
     });
     archiveCalls.length = 0;
 
@@ -236,5 +244,128 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
     expect(archiveCalls[199]).toBe('team-199'); // 第一页末
     expect(archiveCalls[200]).toBe('team-200'); // 第二页首
     expect(archiveCalls[299]).toBe('team-299');
+  });
+
+  it('uses endedAt as the authoritative close time for new rows', () => {
+    const now = Date.now();
+    teams = [{
+      id: 'ended-at-authoritative',
+      name: 'Ended At',
+      createdAt: now - 120 * 60_000,
+      archivedAt: null,
+    }];
+    teamMembers.set('ended-at-authoritative', [{
+      sessionId: 'ended-at-session',
+      joinedAt: now - 120 * 60_000,
+    }]);
+    sessions.set('ended-at-session', {
+      id: 'ended-at-session',
+      lifecycle: 'closed',
+      endedAt: now - 31 * 60_000,
+      lastEventAt: now - 1_000,
+    });
+
+    new TeamLifecycleScheduler({ graceMs: 30 * 60_000 }).scan();
+
+    expect(archiveCalls).toEqual(['ended-at-authoritative']);
+  });
+
+  it('falls back to lastEventAt for legacy closed rows without endedAt', () => {
+    const now = Date.now();
+    teams = [{
+      id: 'legacy-close-time',
+      name: 'Legacy',
+      createdAt: now - 120 * 60_000,
+      archivedAt: null,
+    }];
+    teamMembers.set('legacy-close-time', [{
+      sessionId: 'legacy-session',
+      joinedAt: now - 120 * 60_000,
+    }]);
+    sessions.set('legacy-session', {
+      id: 'legacy-session',
+      lifecycle: 'closed',
+      endedAt: null,
+      lastEventAt: now - 31 * 60_000,
+    });
+
+    new TeamLifecycleScheduler({ graceMs: 30 * 60_000 }).scan();
+
+    expect(archiveCalls).toEqual(['legacy-close-time']);
+  });
+
+  it('starts grace from the newest of close, member join, and team creation', () => {
+    const now = Date.now();
+    teams = [{
+      id: 'new-team',
+      name: 'New Team',
+      createdAt: now - 5 * 60_000,
+      archivedAt: null,
+    }];
+    teamMembers.set('new-team', [{
+      sessionId: 'old-closed-session',
+      joinedAt: now - 10 * 60_000,
+    }]);
+    sessions.set('old-closed-session', {
+      id: 'old-closed-session',
+      lifecycle: 'closed',
+      endedAt: now - 60 * 60_000,
+      lastEventAt: now - 60 * 60_000,
+    });
+
+    new TeamLifecycleScheduler({ graceMs: 30 * 60_000 }).scan();
+
+    expect(archiveCalls).toEqual([]);
+  });
+
+  it('does not archive until grace has elapsed from a newer member join', () => {
+    const now = Date.now();
+    teams = [{
+      id: 'recent-member',
+      name: 'Recent Member',
+      createdAt: now - 120 * 60_000,
+      archivedAt: null,
+    }];
+    teamMembers.set('recent-member', [{
+      sessionId: 'already-closed',
+      joinedAt: now - 5 * 60_000,
+    }]);
+    sessions.set('already-closed', {
+      id: 'already-closed',
+      lifecycle: 'closed',
+      endedAt: now - 60 * 60_000,
+      lastEventAt: now - 60 * 60_000,
+    });
+
+    new TeamLifecycleScheduler({ graceMs: 30 * 60_000 }).scan();
+
+    expect(archiveCalls).toEqual([]);
+  });
+
+  it('archives exactly at the grace boundary', () => {
+    vi.useFakeTimers();
+    const now = 2_000_000;
+    vi.setSystemTime(now);
+    teams = [{
+      id: 'exact-boundary',
+      name: 'Boundary',
+      createdAt: now - 60_000,
+      archivedAt: null,
+    }];
+    teamMembers.set('exact-boundary', [{
+      sessionId: 'boundary-session',
+      joinedAt: now - 60_000,
+    }]);
+    sessions.set('boundary-session', {
+      id: 'boundary-session',
+      lifecycle: 'closed',
+      endedAt: now - 30_000,
+      lastEventAt: now - 30_000,
+    });
+
+    new TeamLifecycleScheduler({ graceMs: 30_000 }).scan();
+
+    expect(archiveCalls).toEqual(['exact-boundary']);
+    vi.useRealTimers();
   });
 });
