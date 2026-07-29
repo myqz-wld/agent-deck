@@ -230,10 +230,42 @@ describe('IssueLifecycleScheduler.scan — 阈值 0 跳过 / 超期硬删 / emit
       expect.objectContaining({ issueId: 'ok-id' }),
     );
     expect(issueGcLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('[issue-gc] hardDelete failed'),
-      expect.objectContaining({ issueId: 'fail-id' }),
-      expect.any(Error),
+      expect.any(String),
+      expect.objectContaining({
+        action: 'issue-retention',
+        changed: 0,
+        outcome: 'failed',
+      }),
     );
+  });
+
+  it('catches listForGc failure and a later interval tick still runs', () => {
+    vi.useFakeTimers();
+    mockIssueRepo.listForGc
+      .mockImplementationOnce(() => {
+        throw new Error('SQLite locked');
+      })
+      .mockReturnValueOnce({ resolvedExpired: [], softDeletedExpired: [] });
+    const s = new IssueLifecycleScheduler({
+      resolvedRetentionDays: 90,
+      softDeletedRetentionDays: 7,
+      tickIntervalMs: 100,
+    });
+
+    expect(() => s.start()).not.toThrow();
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(100);
+    expect(mockIssueRepo.listForGc).toHaveBeenCalledTimes(2);
+    expect(issueGcLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        action: 'issue-retention',
+        phase: 'scan',
+        changed: 0,
+        outcome: 'failed',
+      }),
+    );
+    s.stop();
   });
 });
 

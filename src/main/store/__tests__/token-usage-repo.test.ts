@@ -922,15 +922,50 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 去硬 FK（F3）', () =>
 });
 
 describe.skipIf(!bindingAvailable)('token-usage-repo / deleteOlderThan (GC)', () => {
-  it('删 ts < threshold 的行', () => {
+  it('deletes exactly 500 expired rows in deterministic oldest-first order', () => {
     const db = makeMemoryDb();
     const repo = createTokenUsageRepo(db);
-    repo.insert(claudeUsage({ messageId: 'old', ts: 1000 }));
+    for (let i = 0; i < 500; i++) {
+      repo.insert(claudeUsage({ messageId: `old-${i}`, ts: i + 1 }));
+    }
     repo.insert(claudeUsage({ messageId: 'new', ts: 9000 }));
-    const deleted = repo.deleteOlderThan(5000);
-    expect(deleted).toBe(1);
-    const cnt = db.prepare('SELECT COUNT(*) c FROM token_usage').get() as { c: number };
-    expect(cnt.c).toBe(1);
+
+    expect(repo.deleteOlderThan(5000)).toBe(500);
+    const rows = db
+      .prepare('SELECT message_id FROM token_usage ORDER BY ts, id')
+      .all() as Array<{ message_id: string }>;
+    expect(rows.map((row) => row.message_id)).toEqual(['new']);
+    db.close();
+  });
+
+  it('caps a 501-row backlog and drains it across bounded batches', () => {
+    const db = makeMemoryDb();
+    const repo = createTokenUsageRepo(db);
+    for (let i = 0; i < 501; i++) {
+      repo.insert(claudeUsage({ messageId: `expired-${i}`, ts: i + 1 }));
+    }
+
+    expect(repo.deleteOlderThan(5000)).toBe(500);
+    const remaining = db
+      .prepare('SELECT message_id, ts FROM token_usage ORDER BY ts, id')
+      .all() as Array<{ message_id: string; ts: number }>;
+    expect(remaining).toEqual([{ message_id: 'expired-500', ts: 501 }]);
+    expect(repo.deleteOlderThan(5000)).toBe(1);
+    expect(repo.deleteOlderThan(5000)).toBe(0);
+    db.close();
+  });
+
+  it('drains a multi-batch backlog without exceeding the limit', () => {
+    const db = makeMemoryDb();
+    const repo = createTokenUsageRepo(db);
+    for (let i = 0; i < 1001; i++) {
+      repo.insert(claudeUsage({ messageId: `backlog-${i}`, ts: i + 1 }));
+    }
+
+    expect(repo.deleteOlderThan(5000)).toBe(500);
+    expect(repo.deleteOlderThan(5000)).toBe(500);
+    expect(repo.deleteOlderThan(5000)).toBe(1);
+    expect(repo.deleteOlderThan(5000)).toBe(0);
     db.close();
   });
 });
