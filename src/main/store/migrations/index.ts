@@ -1,15 +1,8 @@
 /**
- * Migration 注册表（CHANGELOG_22 / Phase 4 N4 单轨化）
+ * Ordered migration registry embedded into the main bundle with `?raw`.
  *
- * 历史：之前 db.ts 内联 V1-V4 SQL 字符串 + migrations/v001_init.sql 同时存在但只有
- * v001 被同步、v002-v004 完全没有文件，外人维护极易写错（以为改 sql 文件生效）。
- * 现在唯一来源是 migrations/v00x_*.sql，db.ts 通过本文件 import。
- *
- * 用 Vite 的 `?raw` import：build 时把 sql 文件作为字符串内联到 main bundle，运行时
- * 不需要 fs.readFileSync，避免 dev/asar 路径分歧（CHANGELOG_15 ENOTDIR 教训）。
- *
- * 加新 migration（V5+）：写 v00X_xxx.sql + 在数组里加一行 import + push 进 MIGRATIONS。
- * version 字段必须严格递增、连续；name 用于日志与排错。
+ * Versions must remain contiguous. Each entry declares whether normal startup
+ * may execute it; offline entries also expose their stable operator command.
  */
 import v001 from './v001_init.sql?raw';
 import v002 from './v002_sessions_source.sql?raw';
@@ -66,65 +59,82 @@ import v052 from './v052_token_usage_metric_scope_repair.sql?raw';
 import v053 from './v053_sessions_grok_sandbox.sql?raw';
 import v054 from './v054_message_delivery_generation.sql?raw';
 
-export interface Migration {
+interface MigrationBase {
   version: number;
   name: string;
   sql: string;
 }
 
+export type Migration =
+  | (MigrationBase & {
+      execution: 'startup';
+    })
+  | (MigrationBase & {
+      execution: 'offline';
+      freshInstallSafe: boolean;
+      command: string;
+    });
+
 export const MIGRATIONS: Migration[] = [
-  { version: 1, name: 'init', sql: v001 },
-  { version: 2, name: 'sessions_source', sql: v002 },
-  { version: 3, name: 'split_archive_from_lifecycle', sql: v003 },
-  { version: 4, name: 'sessions_permission_mode', sql: v004 },
-  { version: 5, name: 'fts5', sql: v005 },
-  { version: 6, name: 'sessions_team_name', sql: v006 },
-  { version: 7, name: 'tasks', sql: v007 },
-  { version: 8, name: 'sessions_codex_sandbox', sql: v008 },
-  { version: 9, name: 'mcp_spawn_chain', sql: v009 },
-  { version: 10, name: 'agent_deck_teams', sql: v010 },
-  { version: 11, name: 'tasks_team_id', sql: v011 },
-  { version: 12, name: 'sessions_generic_pty_config', sql: v012 },
-  { version: 13, name: 'sessions_claude_code_sandbox', sql: v013 },
-  { version: 14, name: 'drop_sessions_team_name', sql: v014 },
-  { version: 15, name: 'agent_deck_messages_reply_to', sql: v015 },
-  { version: 16, name: 'agent_deck_teams_archive_reason', sql: v016 },
-  { version: 17, name: 'agent_deck_team_members_cascade', sql: v017 },
-  { version: 18, name: 'sessions_model', sql: v018 },
-  { version: 19, name: 'sessions_extra_allow_write', sql: v019 },
-  { version: 20, name: 'sessions_cwd_release_marker', sql: v020 },
-  { version: 21, name: 'sessions_cli_session_id', sql: v021 },
-  { version: 22, name: 'events_tool_use_dedup', sql: v022 },
-  { version: 23, name: 'tasks_owner_session_id_rewrite', sql: v023 },
-  { version: 24, name: 'tasks_add_team_id', sql: v024 },
-  { version: 25, name: 'events_tool_use_end_dedup', sql: v025 },
-  { version: 26, name: 'issues', sql: v026 },
-  { version: 27, name: 'agent_deck_messages_team_id_nullable', sql: v027 },
-  { version: 28, name: 'token_usage', sql: v028 },
-  { version: 29, name: 'sessions_network_dirs', sql: v029 },
-  { version: 30, name: 'agent_deck_messages_indexes', sql: v030 },
-  { version: 31, name: 'file_change_snapshots', sql: v031 },
-  { version: 32, name: 'sessions_thinking', sql: v032 },
-  { version: 33, name: 'issues_branch_name', sql: v033 },
-  { version: 34, name: 'sessions_list_filter_indexes', sql: v034 },
-  { version: 35, name: 'token_usage_reasoning', sql: v035 },
-  { version: 36, name: 'token_usage_model_buckets', sql: v036 },
-  { version: 37, name: 'event_revisions', sql: v037 },
-  { version: 38, name: 'continuation_checkpoints', sql: v038 },
-  { version: 39, name: 'sessions_pinned', sql: v039 },
-  { version: 40, name: 'summary_revision_metadata', sql: v040 },
-  { version: 41, name: 'storage_maintenance_staging', sql: v041 },
-  { version: 42, name: 'session_handoff_aliases', sql: v042 },
-  { version: 43, name: 'history_search_case_insensitive', sql: v043 },
-  { version: 44, name: 'sessions_hidden_from_history', sql: v044 },
-  { version: 45, name: 'sessions_adapter_mode', sql: v045 },
-  { version: 46, name: 'sessions_runtime_provider', sql: v046 },
-  { version: 47, name: 'sessions_agent_runtime_profile', sql: v047 },
-  { version: 48, name: 'codex_output_token_totals', sql: v048 },
-  { version: 49, name: 'sessions_codex_approval_policy', sql: v049 },
-  { version: 50, name: 'sessions_grok_usage_watermark', sql: v050 },
-  { version: 51, name: 'token_usage_presence', sql: v051 },
-  { version: 52, name: 'token_usage_metric_scope_repair', sql: v052 },
-  { version: 53, name: 'sessions_grok_sandbox', sql: v053 },
-  { version: 54, name: 'message_delivery_generation', sql: v054 },
+  { version: 1, name: 'init', execution: 'startup', sql: v001 },
+  { version: 2, name: 'sessions_source', execution: 'startup', sql: v002 },
+  { version: 3, name: 'split_archive_from_lifecycle', execution: 'startup', sql: v003 },
+  { version: 4, name: 'sessions_permission_mode', execution: 'startup', sql: v004 },
+  { version: 5, name: 'fts5', execution: 'startup', sql: v005 },
+  { version: 6, name: 'sessions_team_name', execution: 'startup', sql: v006 },
+  { version: 7, name: 'tasks', execution: 'startup', sql: v007 },
+  { version: 8, name: 'sessions_codex_sandbox', execution: 'startup', sql: v008 },
+  { version: 9, name: 'mcp_spawn_chain', execution: 'startup', sql: v009 },
+  { version: 10, name: 'agent_deck_teams', execution: 'startup', sql: v010 },
+  { version: 11, name: 'tasks_team_id', execution: 'startup', sql: v011 },
+  { version: 12, name: 'sessions_generic_pty_config', execution: 'startup', sql: v012 },
+  { version: 13, name: 'sessions_claude_code_sandbox', execution: 'startup', sql: v013 },
+  { version: 14, name: 'drop_sessions_team_name', execution: 'startup', sql: v014 },
+  { version: 15, name: 'agent_deck_messages_reply_to', execution: 'startup', sql: v015 },
+  { version: 16, name: 'agent_deck_teams_archive_reason', execution: 'startup', sql: v016 },
+  { version: 17, name: 'agent_deck_team_members_cascade', execution: 'startup', sql: v017 },
+  { version: 18, name: 'sessions_model', execution: 'startup', sql: v018 },
+  { version: 19, name: 'sessions_extra_allow_write', execution: 'startup', sql: v019 },
+  { version: 20, name: 'sessions_cwd_release_marker', execution: 'startup', sql: v020 },
+  { version: 21, name: 'sessions_cli_session_id', execution: 'startup', sql: v021 },
+  { version: 22, name: 'events_tool_use_dedup', execution: 'startup', sql: v022 },
+  { version: 23, name: 'tasks_owner_session_id_rewrite', execution: 'startup', sql: v023 },
+  { version: 24, name: 'tasks_add_team_id', execution: 'startup', sql: v024 },
+  { version: 25, name: 'events_tool_use_end_dedup', execution: 'startup', sql: v025 },
+  { version: 26, name: 'issues', execution: 'startup', sql: v026 },
+  { version: 27, name: 'agent_deck_messages_team_id_nullable', execution: 'startup', sql: v027 },
+  { version: 28, name: 'token_usage', execution: 'startup', sql: v028 },
+  { version: 29, name: 'sessions_network_dirs', execution: 'startup', sql: v029 },
+  { version: 30, name: 'agent_deck_messages_indexes', execution: 'startup', sql: v030 },
+  { version: 31, name: 'file_change_snapshots', execution: 'startup', sql: v031 },
+  { version: 32, name: 'sessions_thinking', execution: 'startup', sql: v032 },
+  { version: 33, name: 'issues_branch_name', execution: 'startup', sql: v033 },
+  { version: 34, name: 'sessions_list_filter_indexes', execution: 'startup', sql: v034 },
+  { version: 35, name: 'token_usage_reasoning', execution: 'startup', sql: v035 },
+  { version: 36, name: 'token_usage_model_buckets', execution: 'startup', sql: v036 },
+  { version: 37, name: 'event_revisions', execution: 'startup', sql: v037 },
+  { version: 38, name: 'continuation_checkpoints', execution: 'startup', sql: v038 },
+  { version: 39, name: 'sessions_pinned', execution: 'startup', sql: v039 },
+  { version: 40, name: 'summary_revision_metadata', execution: 'startup', sql: v040 },
+  { version: 41, name: 'storage_maintenance_staging', execution: 'startup', sql: v041 },
+  { version: 42, name: 'session_handoff_aliases', execution: 'startup', sql: v042 },
+  {
+    version: 43,
+    name: 'history_search_case_insensitive',
+    execution: 'offline',
+    freshInstallSafe: true,
+    command: 'migrate:history-search',
+    sql: v043,
+  },
+  { version: 44, name: 'sessions_hidden_from_history', execution: 'startup', sql: v044 },
+  { version: 45, name: 'sessions_adapter_mode', execution: 'startup', sql: v045 },
+  { version: 46, name: 'sessions_runtime_provider', execution: 'startup', sql: v046 },
+  { version: 47, name: 'sessions_agent_runtime_profile', execution: 'startup', sql: v047 },
+  { version: 48, name: 'codex_output_token_totals', execution: 'startup', sql: v048 },
+  { version: 49, name: 'sessions_codex_approval_policy', execution: 'startup', sql: v049 },
+  { version: 50, name: 'sessions_grok_usage_watermark', execution: 'startup', sql: v050 },
+  { version: 51, name: 'token_usage_presence', execution: 'startup', sql: v051 },
+  { version: 52, name: 'token_usage_metric_scope_repair', execution: 'startup', sql: v052 },
+  { version: 53, name: 'sessions_grok_sandbox', execution: 'startup', sql: v053 },
+  { version: 54, name: 'message_delivery_generation', execution: 'startup', sql: v054 },
 ];

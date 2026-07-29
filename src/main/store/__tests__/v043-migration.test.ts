@@ -46,7 +46,15 @@ describe.skipIf(!bindingAvailable)('v043 case-insensitive history search', () =>
     expect(MIGRATIONS[v043Index]).toMatchObject({
       version: 43,
       name: 'history_search_case_insensitive',
+      execution: 'offline',
+      freshInstallSafe: true,
+      command: 'migrate:history-search',
     });
+    for (const migration of MIGRATIONS) {
+      expect((migration as { execution?: unknown }).execution).toMatch(
+        /^(startup|offline)$/,
+      );
+    }
 
     const db = makeDbThrough(40);
     try {
