@@ -20,7 +20,19 @@ const harness = vi.hoisted(() => {
     })),
     countForSession: vi.fn(() => 1),
     adapterGet: vi.fn(),
-    emit: vi.fn(),
+    listeners: new Map<string, Set<(payload: unknown) => void>>(),
+    missingSessions: new Set<string>(),
+    eventOn: vi.fn((name: string, handler: (payload: unknown) => void) => {
+      const handlers = harness.listeners.get(name) ?? new Set();
+      handlers.add(handler);
+      harness.listeners.set(name, handlers);
+    }),
+    eventOff: vi.fn((name: string, handler: (payload: unknown) => void) => {
+      harness.listeners.get(name)?.delete(handler);
+    }),
+    emit: vi.fn((name: string, payload: unknown) => {
+      for (const handler of harness.listeners.get(name) ?? []) handler(payload);
+    }),
     info: vi.fn(),
     warn: vi.fn(),
   };
@@ -75,7 +87,9 @@ vi.mock('@main/store/event-revision-repo', () => ({
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
     listActiveAndDormant: vi.fn(() => [session]),
-    get: vi.fn(() => session),
+    get: vi.fn((sessionId: string) =>
+      harness.missingSessions.has(sessionId) ? null : session
+    ),
   },
 }));
 vi.mock('@main/store/settings-store', () => ({
@@ -108,8 +122,8 @@ vi.mock('../summarizer/evidence-snapshot', () => ({
 }));
 vi.mock('@main/event-bus', () => ({
   eventBus: {
-    on: vi.fn(),
-    off: vi.fn(),
+    on: harness.eventOn,
+    off: harness.eventOff,
     emit: harness.emit,
   },
 }));
@@ -144,6 +158,8 @@ describe('Summarizer persisted revision cursor', () => {
     };
     harness.pending.length = 0;
     harness.nextId = 10;
+    harness.listeners.clear();
+    harness.missingSessions.clear();
     harness.summariseEvents.mockReset();
     harness.summariseEvents.mockImplementation(
       () => new Promise<string | null>((resolve) => harness.pending.push(resolve)),
@@ -151,6 +167,8 @@ describe('Summarizer persisted revision cursor', () => {
     harness.insert.mockClear();
     harness.countForSession.mockClear();
     harness.emit.mockClear();
+    harness.eventOn.mockClear();
+    harness.eventOff.mockClear();
     harness.info.mockClear();
     harness.warn.mockClear();
     harness.adapterGet.mockReset().mockReturnValue({
@@ -256,32 +274,46 @@ describe('Summarizer persisted revision cursor', () => {
     expect(first?.generationSource).toBe('stats-fallback');
     expect(second?.generationSource).toBe('stats-fallback');
     expect(later?.generationSource).toBe('stats-fallback');
-    // The first concurrent batch can perform two cheap capability checks, but only one info is
-    // emitted and later sessions do not retry. The Codex runner separately proves no turn starts.
+    // The first concurrent batch can perform two cheap capability checks, but the provider-scoped
+    // diagnostic is emitted once and later sessions do not retry.
     expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
-    expect(harness.info).toHaveBeenCalledTimes(1);
-    expect(harness.info).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'codex-cli: provider capability unavailable; using local fallback until application restart',
-      ),
+    expect(harness.warn).toHaveBeenCalledTimes(1);
+    expect(harness.warn).toHaveBeenCalledWith(
+      'summarizer state degraded',
+      expect.objectContaining({
+        event: 'summarizer-state',
+        state: 'provider-capability-failure',
+        previousState: null,
+        transition: 'initial',
+      }),
     );
-    expect(harness.warn).not.toHaveBeenCalled();
+    expect(harness.info).not.toHaveBeenCalled();
     expect(summarizer.getLastErrors()).toEqual({});
+    const firstDiagnostics = JSON.stringify(harness.warn.mock.calls);
+    expect(firstDiagnostics).not.toContain('codex-cli:');
+    expect(firstDiagnostics).not.toContain('tool isolation cannot be attested');
 
     const restarted = new Summarizer();
     await restarted.summarizeNow('capability-after-restart');
     expect(harness.summariseEvents).toHaveBeenCalledTimes(3);
-    expect(harness.info).toHaveBeenCalledTimes(2);
-    expect(harness.warn).not.toHaveBeenCalled();
+    expect(harness.warn).toHaveBeenCalledTimes(2);
+    expect(harness.info).not.toHaveBeenCalled();
     expect(restarted.getLastErrors()).toEqual({});
   });
 
-  it('does not open the capability circuit for a transient provider failure', async () => {
-    harness.summariseEvents.mockRejectedValueOnce(new Error('temporary auth failure'));
+  it('contains diagnostic sink failure without changing fallback, raw UI error, or recovery', async () => {
+    const rawError =
+      'temporary provider failure /Users/private https://example.test/?token=secret';
+    harness.summariseEvents.mockRejectedValueOnce(new Error(rawError));
+    harness.warn.mockImplementationOnce(() => {
+      throw new Error('diagnostic sink failure');
+    });
     const summarizer = new Summarizer();
 
-    await summarizer.summarizeNow(session.id);
-    expect(summarizer.getLastErrors()[session.id]?.message).toBe('temporary auth failure');
+    const fallback = await summarizer.summarizeNow(session.id);
+    expect(fallback?.generationSource).toBe('stats-fallback');
+    expect(summarizer.getLastErrors()[session.id]?.message).toBe(rawError);
+    expect(JSON.stringify(harness.warn.mock.calls)).not.toContain(rawError);
     const retry = summarizer.summarizeNow(session.id);
     expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
     harness.pending.shift()!('provider recovered');
@@ -289,7 +321,121 @@ describe('Summarizer persisted revision cursor', () => {
 
     expect(recovered?.generationSource).toBe('llm');
     expect(harness.warn).toHaveBeenCalledTimes(1);
+    expect(harness.info).toHaveBeenCalledWith(
+      'summarizer state recovered',
+      expect.objectContaining({
+        state: 'healthy',
+        previousState: 'transient-failure:provider-error',
+      }),
+    );
     expect(summarizer.getLastErrors()[session.id]).toBeUndefined();
+  });
+
+  it('rethrows the exact manual persistence error and releases in-flight state', async () => {
+    const manualSessionId = 'manual-session /Users/private token=secret';
+    const persistenceError = new Error(
+      'insert failed https://example.test/?token=secret',
+    );
+    harness.summariseEvents.mockResolvedValueOnce('provider result');
+    harness.insert.mockImplementationOnce(() => {
+      throw persistenceError;
+    });
+    const summarizer = new Summarizer();
+
+    await expect(summarizer.summarizeNow(manualSessionId)).rejects.toBe(
+      persistenceError,
+    );
+    expect(harness.warn).toHaveBeenCalledWith(
+      'summarizer state degraded',
+      expect.objectContaining({
+        state: 'transient-failure:internal-error',
+        previousState: 'healthy',
+        transition: 'transition',
+      }),
+    );
+    const emitted = JSON.stringify(harness.warn.mock.calls);
+    expect(emitted).not.toContain(manualSessionId);
+    expect(emitted).not.toContain(persistenceError.message);
+    expect(summarizer.getLastErrors()).toEqual({});
+
+    const retry = summarizer.summarizeNow(manualSessionId);
+    expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
+    harness.pending.shift()!('retry succeeded');
+    await expect(retry).resolves.toMatchObject({
+      generationSource: 'llm',
+    });
+  });
+
+  it('drops stale rename outcomes without raw logs or a stuck in-flight key', async () => {
+    const rawError =
+      'renamed provider failure /Users/private https://example.test/?token=secret';
+    let rejectProvider!: (error: Error) => void;
+    harness.summariseEvents.mockImplementationOnce(
+      () => new Promise<string | null>((_resolve, reject) => {
+        rejectProvider = reject;
+      }),
+    );
+    const summarizer = new Summarizer();
+    summarizer.start();
+
+    try {
+      await summarizer.scanAll();
+      harness.missingSessions.add(session.id);
+      harness.emit('session-renamed', {
+        from: session.id,
+        to: 'renamed-session /Users/private',
+      });
+      rejectProvider(new Error(rawError));
+      await flush();
+
+      expect(harness.insert).not.toHaveBeenCalled();
+      expect(summarizer.getLastErrors()).toEqual({});
+      expect(harness.warn).not.toHaveBeenCalled();
+      expect(harness.info).not.toHaveBeenCalled();
+
+      const renamed = summarizer.summarizeNow('renamed-session /Users/private');
+      expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
+      harness.pending.shift()!('renamed session recovered');
+      await expect(renamed).resolves.toMatchObject({
+        generationSource: 'llm',
+      });
+      const emitted = JSON.stringify([
+        ...harness.warn.mock.calls,
+        ...harness.info.mock.calls,
+      ]);
+      expect(emitted).not.toContain(rawError);
+      expect(emitted).not.toContain('/Users/private');
+    } finally {
+      summarizer.stop();
+    }
+  });
+
+  it('forgets raw UI and transition state when a session is removed', async () => {
+    const summarizer = new Summarizer();
+    summarizer.start();
+
+    try {
+      harness.summariseEvents.mockRejectedValueOnce(new Error('first raw failure'));
+      await summarizer.summarizeNow(session.id);
+      expect(summarizer.getLastErrors()[session.id]?.message).toBe(
+        'first raw failure',
+      );
+      expect(harness.warn).toHaveBeenCalledTimes(1);
+
+      harness.emit('session-removed', session.id);
+      expect(summarizer.getLastErrors()).toEqual({});
+
+      harness.summariseEvents.mockRejectedValueOnce(new Error('second raw failure'));
+      await summarizer.summarizeNow(session.id);
+      expect(harness.warn).toHaveBeenCalledTimes(2);
+      expect(harness.warn.mock.calls[1]?.[1]).toMatchObject({
+        state: 'transient-failure:provider-error',
+        previousState: null,
+        transition: 'initial',
+      });
+    } finally {
+      summarizer.stop();
+    }
   });
 
   it('dispatches the Grok summary provider to the grok-build adapter', async () => {
