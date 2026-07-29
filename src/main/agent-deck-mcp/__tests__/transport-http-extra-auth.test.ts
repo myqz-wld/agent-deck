@@ -20,22 +20,37 @@
  * Phase 1.1c）。
  */
 
+import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
+
+const sessionHarness = vi.hoisted(() => ({
+  get: vi.fn(),
+}));
 
 // helpers.ts 通过 `import { sessionRepo } from '@main/store/session-repo'` 间接拉 electron
 // （sessionRepo → store/index → electron app paths）。本测试不需要真实 sessionRepo 行为
 // （只用 makeCallerContext / denyExternalIfNotAllowed 两个纯函数 helper），mock 让 import
 // 链路绕开 electron load。vi.mock 由 vitest hoist 到所有 import 之前生效。
 vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: makeSessionRepoMock({}),
+  sessionRepo: {
+    ...makeSessionRepoMock({}),
+    get: sessionHarness.get,
+  },
 }));
 
 import {
-  describeMcpHttpRequest,
-  mcpSlowRequestThresholdMs,
+  registerAgentDeckMcpHttpRoutes,
   resolveCallerSidForReadOnly,
 } from '../transport-http';
+import {
+  MCP_HTTP_HANDOFF_SLOW_THRESHOLD_MS,
+  MCP_HTTP_LIFECYCLE_SLOW_THRESHOLD_MS,
+  MCP_HTTP_LOCAL_SLOW_THRESHOLD_MS,
+  MCP_HTTP_SPAWN_SLOW_THRESHOLD_MS,
+  classifyMcpHttpOperation,
+  mcpHttpSlowThresholdMs,
+} from '../transport-http-observability';
 import { makeCallerContext, denyExternalIfNotAllowed } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL, type McpAuthInfo } from '../types';
 
@@ -86,38 +101,48 @@ describe('resolveCallerSidForReadOnly (production lambda) — 3 分支合约', (
   });
 });
 
-describe('describeMcpHttpRequest', () => {
-  it('extracts the tool name without retaining tool arguments', () => {
-    expect(
-      describeMcpHttpRequest({
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: { name: 'send_message', arguments: { text: 'sensitive body' } },
-      }),
-    ).toEqual({ rpcMethod: 'tools/call', toolName: 'send_message' });
-  });
-
-  it('labels protocol, batch, and malformed requests safely', () => {
-    expect(describeMcpHttpRequest({ method: 'initialize', params: {} })).toEqual({
-      rpcMethod: 'initialize',
-      toolName: null,
+describe('MCP HTTP operation classification', () => {
+  it('classifies without retaining tool arguments or arbitrary names', () => {
+    const classified = classifyMcpHttpOperation({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'send_message',
+        arguments: { text: 'sensitive body' },
+      },
     });
-    expect(describeMcpHttpRequest([])).toEqual({ rpcMethod: 'batch', toolName: null });
-    expect(describeMcpHttpRequest('bad')).toEqual({ rpcMethod: 'unknown', toolName: null });
+    expect(classified.operationClass).toBe('local');
+    expect(JSON.stringify(classified)).not.toContain('sensitive body');
+    expect(
+      classifyMcpHttpOperation({
+        method: 'tools/call',
+        params: { name: 'arbitrary-secret-tool' },
+      }).operationClass,
+    ).toBe('unknown');
   });
 });
 
 describe('MCP slow-request thresholds', () => {
-  it('does not classify user-gated presentation waits as server latency', () => {
-    expect(mcpSlowRequestThresholdMs('present_plan')).toBe(Number.POSITIVE_INFINITY);
-    expect(mcpSlowRequestThresholdMs('present_diff')).toBe(Number.POSITIVE_INFINITY);
+  it('does not classify intentional human waits as server latency', () => {
+    expect(mcpHttpSlowThresholdMs('human_wait')).toBeNull();
   });
 
-  it('keeps ordinary calls sensitive while allowing provider startup work', () => {
-    expect(mcpSlowRequestThresholdMs('send_message')).toBe(500);
-    expect(mcpSlowRequestThresholdMs(null)).toBe(500);
-    expect(mcpSlowRequestThresholdMs('spawn_session')).toBe(60_000);
-    expect(mcpSlowRequestThresholdMs('hand_off_session')).toBe(180_000);
+  it('uses the frozen local, lifecycle, spawn, and hand-off thresholds', () => {
+    expect(mcpHttpSlowThresholdMs('local')).toBe(
+      MCP_HTTP_LOCAL_SLOW_THRESHOLD_MS,
+    );
+    expect(mcpHttpSlowThresholdMs('unknown')).toBe(
+      MCP_HTTP_LOCAL_SLOW_THRESHOLD_MS,
+    );
+    expect(mcpHttpSlowThresholdMs('lifecycle')).toBe(
+      MCP_HTTP_LIFECYCLE_SLOW_THRESHOLD_MS,
+    );
+    expect(mcpHttpSlowThresholdMs('spawn')).toBe(
+      MCP_HTTP_SPAWN_SLOW_THRESHOLD_MS,
+    );
+    expect(mcpHttpSlowThresholdMs('hand_off')).toBe(
+      MCP_HTTP_HANDOFF_SLOW_THRESHOLD_MS,
+    );
   });
 });
 
@@ -183,4 +208,160 @@ describe('TC4b integration: production lambda → makeCallerContext → 写 tool
     const denial = denyExternalIfNotAllowed('list_sessions', ctx);
     expect(denial).toBeNull();
   });
+});
+
+class FakeRawResponse extends EventEmitter {
+  statusCode = 200;
+  headersSent = false;
+  writableEnded = false;
+  writableFinished = false;
+  readonly headers = new Map<string, string>();
+  body = '';
+
+  setHeader(name: string, value: string): void {
+    this.headers.set(name, value);
+  }
+
+  end(body = ''): void {
+    this.body = body;
+    this.headersSent = true;
+    this.writableEnded = true;
+    this.writableFinished = true;
+    this.emit('finish');
+  }
+}
+
+describe('MCP HTTP observability integration', () => {
+  it.each(['begin', 'complete'] as const)(
+    'preserves auth, status, body, hijack, and close cleanup when observer %s throws',
+    async (failurePoint) => {
+      sessionHarness.get.mockReturnValue({ agentId: 'codex-cli' });
+      const transports: Array<{
+        handleRequest: ReturnType<typeof vi.fn>;
+        close: ReturnType<typeof vi.fn>;
+      }> = [];
+      class FakeTransport {
+        readonly close = vi.fn(async () => {});
+        readonly handleRequest = vi.fn(
+          async (_request: unknown, rawResponse: unknown, body?: unknown) => {
+            const response = rawResponse as FakeRawResponse;
+            expect(body).toEqual({
+              method: 'tools/call',
+              params: {
+                name: 'send_message',
+                arguments: { text: 'raw body secret' },
+              },
+            });
+            response.statusCode = 207;
+            response.setHeader('content-type', 'application/json');
+            response.end('exact response body');
+          },
+        );
+
+        constructor(_options: {
+          sessionIdGenerator: (() => string) | undefined;
+        }) {
+          transports.push(this);
+        }
+      }
+
+      const mcpServer = {
+        connect: vi.fn(async () => {}),
+        close: vi.fn(async () => {}),
+      };
+      const observer = {
+        begin: vi.fn(() => {
+          if (failurePoint === 'begin') throw new Error('observer begin secret');
+          return {
+            operation: { operationClass: 'local' as const, correlationSlot: 1 },
+            startedAtMs: 0,
+          };
+        }),
+        beginOperation: vi.fn((operation) => ({
+          operation,
+          startedAtMs: 0,
+        })),
+        complete: vi.fn(() => {
+          if (failurePoint === 'complete') {
+            throw new Error('observer complete secret');
+          }
+        }),
+      };
+      const routes: Array<Record<string, unknown>> = [];
+      const routeRegistry = {
+        registerForAdapter: vi.fn(
+          (_adapterId: string, route: Record<string, unknown>) => {
+            routes.push(route);
+          },
+        ),
+      };
+      const buildServer = vi.fn(async () => mcpServer);
+      await registerAgentDeckMcpHttpRoutes(routeRegistry as never, {
+        observer,
+        loadSdk: async () => ({
+          http: {
+            StreamableHTTPServerTransport: FakeTransport,
+          },
+        }),
+        buildServer,
+      });
+
+      const postRoute = routes.find((route) => route.method === 'POST');
+      const handler = postRoute?.handler as
+        | ((request: unknown, reply: unknown) => Promise<void>)
+        | undefined;
+      expect(handler).toBeTypeOf('function');
+      const authInfo = {
+        resolvedSid: 'authenticated-session-secret',
+        fallbackToGlobal: false,
+      } satisfies McpAuthInfo;
+      const request = {
+        raw: { auth: authInfo },
+        body: {
+          method: 'tools/call',
+          params: {
+            name: 'send_message',
+            arguments: { text: 'raw body secret' },
+          },
+        },
+      };
+      const raw = new FakeRawResponse();
+      const reply = {
+        raw,
+        hijack: vi.fn(),
+      };
+
+      await handler!(request, reply);
+      expect(buildServer).toHaveBeenCalledWith('http', 'codex-cli');
+      expect(request.raw.auth).toBe(authInfo);
+      expect(raw.statusCode).toBe(207);
+      expect(raw.body).toBe('exact response body');
+      expect(reply.hijack).toHaveBeenCalledOnce();
+      expect(observer.begin).toHaveBeenCalledWith(request.body);
+      if (failurePoint === 'complete') {
+        expect(observer.complete).toHaveBeenCalledWith(
+          expect.objectContaining({
+            operation: {
+              operationClass: 'local',
+              correlationSlot: 1,
+            },
+          }),
+          { kind: 'response', statusCode: 207 },
+        );
+      } else {
+        expect(observer.complete).not.toHaveBeenCalled();
+      }
+      expect(transports[0]?.handleRequest).toHaveBeenCalledWith(
+        request.raw,
+        raw,
+        request.body,
+      );
+
+      raw.emit('close');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(transports[0]?.close).toHaveBeenCalledOnce();
+      expect(mcpServer.close).toHaveBeenCalledOnce();
+    },
+  );
 });
