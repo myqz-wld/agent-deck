@@ -3,14 +3,17 @@ import type { ProviderUsageSnapshot } from '@shared/types';
 import { loadSdk } from './sdk-loader';
 import { getSdkRuntimeOptions } from './sdk-runtime';
 import { resolveClaudeBinary } from './resolve-claude-binary';
-import { buildClaudeUsageSnapshot, errorUsageSnapshot } from '../provider-usage';
+import {
+  buildClaudeUsageSnapshot,
+  errorUsageSnapshot,
+  providerUsageLabel,
+} from '../provider-usage';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { sessionManager } from '@main/session/manager';
 import { getProviderUsageProbeCwd } from '@main/paths';
-import log from '@main/utils/logger';
 import type { InternalSession } from './sdk-bridge/types';
 
-const logger = log.scope('claude-usage');
+const CLAUDE_USAGE_LABEL = providerUsageLabel('claude-code');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
 const HOOK_CLAIM_HOLD_MS = 60_000;
 
@@ -44,8 +47,7 @@ export async function readClaudeBridgeUsageSnapshot(
       await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
     return buildClaudeUsageSnapshot(usage);
   } catch (error) {
-    logger.warn('[claude-bridge] usage snapshot failed:', error);
-    return errorUsageSnapshot('claude-code', 'Claude', error);
+    return errorUsageSnapshot('claude-code', CLAUDE_USAGE_LABEL, error);
   }
 }
 
@@ -97,9 +99,7 @@ export async function readClaudeUsageSnapshotInBackground(
       controller.abort();
       q?.close();
     });
-    drain.catch((err) => {
-      logger.debug('[claude-usage] background query drain ended:', err);
-    });
+    void drain.catch(() => undefined);
     const interactionFailure = drain.then<never>(
       () => new Promise<never>(() => undefined),
       (err) => Promise.reject(err),
@@ -121,8 +121,7 @@ export async function readClaudeUsageSnapshotInBackground(
     });
     return buildClaudeUsageSnapshot(usage);
   } catch (err) {
-    logger.warn('[claude-usage] background usage snapshot failed:', err);
-    return errorUsageSnapshot('claude-code', 'Claude', err);
+    return errorUsageSnapshot('claude-code', CLAUDE_USAGE_LABEL, err);
   } finally {
     controller.abort();
     q?.close();

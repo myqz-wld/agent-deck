@@ -3,13 +3,25 @@ import type {
   ProviderUsageProviderId,
   ProviderUsageSnapshot,
   ProviderUsageSnapshotResult,
+  ProviderUsageStatus,
 } from '@shared/types';
 import { adapterRegistry } from '@main/adapters/registry';
-import { errorUsageSnapshot, unavailableUsageSnapshot } from '@main/adapters/provider-usage';
+import {
+  errorUsageSnapshot,
+  providerUsageLabel,
+  unavailableUsageSnapshot,
+} from '@main/adapters/provider-usage';
 import { on } from './_helpers';
 import log from '@main/utils/logger';
 import { PROVIDER_USAGE_CACHE_TTL_MS } from '@shared/constants/provider-usage';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
+import {
+  BoundedLogStateTracker,
+  type LogStateDecision,
+  type LogStateSnapshot,
+} from '@main/utils/log-state-tracker';
+import { safeDiagnostic } from '@main/utils/safe-diagnostic';
+import { getProcessRunId } from '@main/utils/run-context';
 
 const logger = log.scope('provider-usage');
 
@@ -19,14 +31,17 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderUsageProviderId> = [
   'grok-build',
 ];
 
-const PROVIDER_LABELS: Record<ProviderUsageProviderId, string> = {
-  'claude-code': 'Claude',
-  'codex-cli': 'Codex',
-  'grok-build': 'Grok',
-};
-
 const PROVIDER_USAGE_READ_TIMEOUT_ERROR = '__provider_usage_read_timeout__';
 export const PROVIDER_USAGE_READ_TIMEOUT_MS = 5_000;
+export const PROVIDER_USAGE_SLOW_READ_MS = 2_000;
+export const PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS = 60_000;
+
+type ProviderUsageDiagnosticState =
+  | 'healthy'
+  | 'slow'
+  | 'timeout-cached'
+  | 'timeout-empty'
+  | Exclude<ProviderUsageStatus, 'ok'>;
 
 type ProviderUsageSnapshotOptions = {
   force?: boolean;
@@ -50,6 +65,18 @@ let forceInFlightFetch: ProviderUsageInFlightFetch | null = null;
 let nextFetchSeq = 0;
 const lastSuccessfulSnapshots = new Map<ProviderUsageProviderId, SuccessfulProviderSnapshot>();
 const latestProviderReadSeq = new Map<ProviderUsageProviderId, number>();
+let providerUsageLogState = createProviderUsageLogState();
+
+function createProviderUsageLogState(): BoundedLogStateTracker<
+  ProviderUsageProviderId,
+  ProviderUsageDiagnosticState
+> {
+  return new BoundedLogStateTracker({
+    capacity: PROVIDER_ORDER.length,
+    summaryIntervalMs: PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS,
+    now: () => Date.now(),
+  });
+}
 
 export async function providerUsageSnapshotHandler(
   opts: ProviderUsageSnapshotOptions = {},
@@ -71,8 +98,18 @@ export async function providerUsageSnapshotHandler(
 export async function prefetchProviderUsageSnapshots(): Promise<void> {
   try {
     await providerUsageSnapshotHandler();
-  } catch (err) {
-    logger.warn('[provider-usage] startup prefetch failed:', err);
+  } catch {
+    try {
+      logger.warn(
+        'provider usage prefetch failed',
+        safeDiagnostic({
+          event: 'provider-usage-prefetch-failed',
+          runId: getProcessRunId(),
+        }),
+      );
+    } catch {
+      // Prefetch diagnostics are best-effort and must not reject startup work.
+    }
   }
 }
 
@@ -111,6 +148,7 @@ export function _resetProviderUsageCacheForTesting(): void {
   nextFetchSeq = 0;
   lastSuccessfulSnapshots.clear();
   latestProviderReadSeq.clear();
+  providerUsageLogState = createProviderUsageLogState();
 }
 
 export function registerProviderUsageIpc(): void {
@@ -130,22 +168,37 @@ async function readAdapterSnapshot(
   provider: ProviderUsageProviderId,
   seq: number,
 ): Promise<ProviderUsageSnapshot> {
-  const label = PROVIDER_LABELS[provider];
+  const label = providerUsageLabel(provider);
+  const startedAt = Date.now();
   latestProviderReadSeq.set(provider, Math.max(latestProviderReadSeq.get(provider) ?? 0, seq));
   const adapter = adapterRegistry.get(provider);
   if (!adapter) {
-    return unavailableUsageSnapshot(provider, label, `${label} 暂时无法读取额度信息`);
+    const snapshot = unavailableUsageSnapshot(
+      provider,
+      label,
+      `${label} 暂时无法读取额度信息`,
+    );
+    observeProviderUsage(provider, seq, snapshot.status, elapsedSince(startedAt));
+    return snapshot;
   }
   if (!adapter.getUsageSnapshot) {
-    return unavailableUsageSnapshot(provider, label, `${label} 暂不支持读取额度信息`);
+    const snapshot = unavailableUsageSnapshot(
+      provider,
+      label,
+      `${label} 暂不支持读取额度信息`,
+    );
+    observeProviderUsage(provider, seq, snapshot.status, elapsedSince(startedAt));
+    return snapshot;
   }
   try {
     const work = adapter.getUsageSnapshot().then((snapshot) => {
-      if (snapshot.status === 'ok' && latestProviderReadSeq.get(provider) === seq) {
-        lastSuccessfulSnapshots.set(provider, { seq, snapshot });
-        replaceCachedProviderSnapshot(provider, snapshot, seq);
+      const canonical = canonicalProviderUsageSnapshot(provider, snapshot);
+      if (canonical.status === 'ok' && latestProviderReadSeq.get(provider) === seq) {
+        lastSuccessfulSnapshots.set(provider, { seq, snapshot: canonical });
+        replaceCachedProviderSnapshot(provider, canonical, seq);
       }
-      return snapshot;
+      observeProviderUsage(provider, seq, canonical.status, elapsedSince(startedAt));
+      return canonical;
     });
     return await raceWithTimeout({
       work,
@@ -155,9 +208,11 @@ async function readAdapterSnapshot(
   } catch (err) {
     if (err instanceof Error && err.message === PROVIDER_USAGE_READ_TIMEOUT_ERROR) {
       const stale = lastSuccessfulSnapshots.get(provider);
-      logger.warn(
-        `[provider-usage] ${provider} snapshot timed out after ` +
-          `${PROVIDER_USAGE_READ_TIMEOUT_MS}ms; ${stale ? 'using cached snapshot' : 'no cached snapshot'}`,
+      observeProviderUsage(
+        provider,
+        seq,
+        stale ? 'timeout-cached' : 'timeout-empty',
+        elapsedSince(startedAt),
       );
       return stale?.snapshot ?? unavailableUsageSnapshot(
         provider,
@@ -165,8 +220,121 @@ async function readAdapterSnapshot(
         `${label} 额度读取超时，已跳过本次刷新`,
       );
     }
+    observeProviderUsage(provider, seq, 'error', elapsedSince(startedAt));
     return errorUsageSnapshot(provider, label, err);
   }
+}
+
+function canonicalProviderUsageSnapshot(
+  provider: ProviderUsageProviderId,
+  snapshot: ProviderUsageSnapshot,
+): ProviderUsageSnapshot {
+  const label = providerUsageLabel(provider);
+  return snapshot.label === label ? snapshot : { ...snapshot, label };
+}
+
+function elapsedSince(startedAt: number): number {
+  const elapsed = Date.now() - startedAt;
+  return Number.isFinite(elapsed)
+    ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, elapsed))
+    : 0;
+}
+
+function observeProviderUsage(
+  provider: ProviderUsageProviderId,
+  seq: number,
+  outcome: ProviderUsageStatus | 'timeout-cached' | 'timeout-empty',
+  durationMs: number,
+): void {
+  if (latestProviderReadSeq.get(provider) !== seq) return;
+  try {
+    const signature = providerUsageDiagnosticState(outcome, durationMs);
+    const decision = providerUsageLogState.observe(provider, {
+      signature,
+      abnormal: signature !== 'healthy',
+      metric: durationMs,
+    });
+
+    if (decision.kind === 'repeat') return;
+    if (decision.kind === 'initial' && !decision.current.abnormal) return;
+    if (decision.kind === 'periodic-summary') {
+      writeProviderUsageDiagnostic(
+        'warn',
+        'provider usage state remains degraded',
+        decision,
+      );
+      return;
+    }
+    if (decision.current.abnormal) {
+      writeProviderUsageDiagnostic(
+        'warn',
+        'provider usage state degraded',
+        decision,
+      );
+      return;
+    }
+    if (decision.flushed?.abnormal) {
+      writeProviderUsageDiagnostic(
+        'info',
+        'provider usage state recovered',
+        decision,
+      );
+    }
+  } catch {
+    // Diagnostics must never change provider reads, cache state, or fallback behavior.
+  }
+}
+
+function providerUsageDiagnosticState(
+  outcome: unknown,
+  durationMs: number,
+): ProviderUsageDiagnosticState {
+  if (outcome === 'ok') {
+    return durationMs >= PROVIDER_USAGE_SLOW_READ_MS ? 'slow' : 'healthy';
+  }
+  if (
+    outcome === 'error' ||
+    outcome === 'unavailable' ||
+    outcome === 'not_subscribed' ||
+    outcome === 'unsupported' ||
+    outcome === 'timeout-cached' ||
+    outcome === 'timeout-empty'
+  ) {
+    return outcome;
+  }
+  return 'error';
+}
+
+function writeProviderUsageDiagnostic(
+  level: 'info' | 'warn',
+  message: string,
+  decision: LogStateDecision<ProviderUsageDiagnosticState>,
+): void {
+  const priorAbnormal: LogStateSnapshot<ProviderUsageDiagnosticState> | null =
+    decision.flushed?.abnormal ? decision.flushed : null;
+  const aggregate =
+    decision.kind === 'periodic-summary'
+      ? priorAbnormal ?? decision.current
+      : decision.current.abnormal
+        ? decision.current
+        : priorAbnormal ?? decision.current;
+  const suppressed = priorAbnormal ?? decision.current;
+  logger[level](
+    message,
+    safeDiagnostic({
+      event: 'provider-usage-state',
+      runId: getProcessRunId(),
+      state: decision.current.signature,
+      previousState: decision.flushed?.signature ?? null,
+      transition: decision.kind,
+      abnormalDurationMs: aggregate.abnormalDurationMs,
+      maxDurationMs: aggregate.maxMetric,
+      suppressedCount: suppressed.suppressedCount,
+      suppressedCountCapped: suppressed.suppressedCountCapped,
+      slowThresholdMs: PROVIDER_USAGE_SLOW_READ_MS,
+      timeoutMs: PROVIDER_USAGE_READ_TIMEOUT_MS,
+    }),
+  );
 }
 
 function replaceCachedProviderSnapshot(

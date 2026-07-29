@@ -4,21 +4,21 @@ import { join, resolve } from 'node:path';
 
 import type { ProviderUsageSnapshot } from '@shared/types';
 import { getProviderUsageProbeCwd } from '@main/paths';
-import log from '@main/utils/logger';
 import {
   buildGrokUsageSnapshot,
   errorUsageSnapshot,
+  providerUsageLabel,
   unavailableUsageSnapshot,
   type GrokBillingResponseLike,
 } from '../provider-usage';
 import { GrokAcpProcess } from './acp-process';
 import { resolveGrokBinary } from './resolve-grok-binary';
 
-const logger = log.scope('grok-usage');
+const GROK_USAGE_LABEL = providerUsageLabel('grok-build');
 const DEFAULT_GROK_BILLING_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
 const GROK_USAGE_UNAVAILABLE_MESSAGE =
-  'Grok 额度信息暂不可读，请确认 Grok 已登录且网络可用';
+  `${GROK_USAGE_LABEL} 额度信息暂不可读，请确认 ${GROK_USAGE_LABEL} 已登录且网络可用`;
 
 type FetchLike = (
   input: string | URL | Request,
@@ -112,15 +112,13 @@ export async function readGrokUsageSnapshotInBackground(
     return buildGrokUsageSnapshot(payload as GrokBillingResponseLike);
   } catch (error) {
     if (isExpectedGrokUsageUnavailable(error)) {
-      logger.debug('[grok-usage] usage snapshot unavailable:', error);
       return unavailableUsageSnapshot(
         'grok-build',
-        'Grok',
+        GROK_USAGE_LABEL,
         GROK_USAGE_UNAVAILABLE_MESSAGE,
       );
     }
-    logger.warn('[grok-usage] usage snapshot failed:', error);
-    return errorUsageSnapshot('grok-build', 'Grok', error);
+    return errorUsageSnapshot('grok-build', GROK_USAGE_LABEL, error);
   }
 }
 

@@ -6,6 +6,7 @@ import type {
   ProviderUsageWindow,
   ProviderUsageWindowId,
 } from '@shared/types';
+import { getAdapterRuntimeProfile } from './runtime-profiles';
 
 export interface CodexRateLimitWindowLike {
   usedPercent?: number | null;
@@ -52,13 +53,17 @@ interface SnapshotBase {
   updatedAt?: number;
 }
 
+export function providerUsageLabel(provider: ProviderUsageProviderId): string {
+  return getAdapterRuntimeProfile(provider).displayName;
+}
+
 export function usageSnapshot(
   base: SnapshotBase,
   windows: ProviderUsageWindow[] = [],
 ): ProviderUsageSnapshot {
   return {
     provider: base.provider,
-    label: base.label,
+    label: providerUsageLabel(base.provider),
     status: base.status,
     windows,
     updatedAt: base.updatedAt ?? Date.now(),
@@ -112,11 +117,12 @@ export function buildClaudeUsageSnapshot(
   response: SDKControlGetUsageResponse,
   updatedAt = Date.now(),
 ): ProviderUsageSnapshot {
+  const label = providerUsageLabel('claude-code');
   if (response.subscription_type === null && !response.rate_limits_available) {
     return notSubscribedUsageSnapshot(
       'claude-code',
-      'Claude',
-      '当前 Claude 账号没有可展示的额度信息',
+      label,
+      `当前 ${label} 账号没有可展示的额度信息`,
       updatedAt,
     );
   }
@@ -124,8 +130,8 @@ export function buildClaudeUsageSnapshot(
   if (!response.rate_limits_available || !response.rate_limits) {
     return unavailableUsageSnapshot(
       'claude-code',
-      'Claude',
-      '当前 Claude 登录方式暂不支持读取额度信息',
+      label,
+      `当前 ${label} 登录方式暂不支持读取额度信息`,
       updatedAt,
     );
   }
@@ -139,8 +145,8 @@ export function buildClaudeUsageSnapshot(
   if (!hasWindowData) {
     return unavailableUsageSnapshot(
       'claude-code',
-      'Claude',
-      'Claude 暂未返回可展示的额度信息',
+      label,
+      `${label} 暂未返回可展示的额度信息`,
       updatedAt,
     );
   }
@@ -148,7 +154,7 @@ export function buildClaudeUsageSnapshot(
   return usageSnapshot(
     {
       provider: 'claude-code',
-      label: 'Claude',
+      label,
       status: 'ok',
       updatedAt,
     },
@@ -160,12 +166,13 @@ export function buildCodexUsageSnapshot(
   response: CodexAccountRateLimitsResponseLike,
   updatedAt = Date.now(),
 ): ProviderUsageSnapshot {
+  const label = providerUsageLabel('codex-cli');
   const limits = chooseCodexRateLimitSnapshot(response);
   if (!limits) {
     return unavailableUsageSnapshot(
       'codex-cli',
-      'Codex',
-      'Codex 暂未返回账户额度信息',
+      label,
+      `${label} 暂未返回账户额度信息`,
       updatedAt,
     );
   }
@@ -178,8 +185,8 @@ export function buildCodexUsageSnapshot(
   if (!hasWindowData) {
     return unavailableUsageSnapshot(
       'codex-cli',
-      'Codex',
-      'Codex 暂未返回可展示的额度信息',
+      label,
+      `${label} 暂未返回可展示的额度信息`,
       updatedAt,
     );
   }
@@ -187,7 +194,7 @@ export function buildCodexUsageSnapshot(
   return usageSnapshot(
     {
       provider: 'codex-cli',
-      label: 'Codex',
+      label,
       status: 'ok',
       updatedAt,
     },
@@ -199,12 +206,13 @@ export function buildGrokUsageSnapshot(
   response: GrokBillingResponseLike,
   updatedAt = Date.now(),
 ): ProviderUsageSnapshot {
+  const label = providerUsageLabel('grok-build');
   const config = response.config;
   if (!config) {
     return unavailableUsageSnapshot(
       'grok-build',
-      'Grok',
-      'Grok 暂未返回账户额度信息',
+      label,
+      `${label} 暂未返回账户额度信息`,
       updatedAt,
     );
   }
@@ -222,8 +230,8 @@ export function buildGrokUsageSnapshot(
   if (usedPercent === null && periodEnd === null) {
     return unavailableUsageSnapshot(
       'grok-build',
-      'Grok',
-      'Grok 暂未返回可展示的额度信息',
+      label,
+      `${label} 暂未返回可展示的额度信息`,
       updatedAt,
     );
   }
@@ -232,7 +240,7 @@ export function buildGrokUsageSnapshot(
   return usageSnapshot(
     {
       provider: 'grok-build',
-      label: 'Grok',
+      label,
       status: 'ok',
       updatedAt,
     },

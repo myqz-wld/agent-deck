@@ -5,6 +5,10 @@ import {
   buildClaudeUsageSnapshot,
   buildCodexUsageSnapshot,
   buildGrokUsageSnapshot,
+  errorUsageSnapshot,
+  notSubscribedUsageSnapshot,
+  unavailableUsageSnapshot,
+  unsupportedUsageSnapshot,
 } from '../provider-usage';
 
 describe('provider usage snapshots', () => {
@@ -38,6 +42,7 @@ describe('provider usage snapshots', () => {
 
     expect(snapshot).toMatchObject({
       provider: 'claude-code',
+      label: 'Claude Code',
       status: 'ok',
       updatedAt: 123,
     });
@@ -77,6 +82,7 @@ describe('provider usage snapshots', () => {
     );
 
     expect(snapshot.status).toBe('not_subscribed');
+    expect(snapshot.label).toBe('Claude Code');
     expect(snapshot.windows).toEqual([]);
     expect(snapshot.updatedAt).toBe(456);
   });
@@ -101,6 +107,7 @@ describe('provider usage snapshots', () => {
     );
 
     expect(snapshot.status).toBe('unavailable');
+    expect(snapshot.label).toBe('Claude Code');
     expect(snapshot.windows).toEqual([]);
     expect(snapshot.updatedAt).toBe(457);
   });
@@ -128,6 +135,7 @@ describe('provider usage snapshots', () => {
 
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',
+      label: 'Codex CLI',
       status: 'ok',
       updatedAt: 789,
     });
@@ -189,7 +197,7 @@ describe('provider usage snapshots', () => {
 
     expect(snapshot).toMatchObject({
       provider: 'grok-build',
-      label: 'Grok',
+      label: 'Grok Build',
       status: 'ok',
       updatedAt: 222,
     });
@@ -220,5 +228,23 @@ describe('provider usage snapshots', () => {
       usedPercent: null,
       resetsAt: '2026-07-29T00:00:00.000Z',
     });
+  });
+
+  it('uses runtime-profile labels for every non-success status', () => {
+    const snapshots = [
+      errorUsageSnapshot('claude-code', 'legacy-label', new Error('private')),
+      unavailableUsageSnapshot('codex-cli', 'legacy-label', 'unavailable'),
+      notSubscribedUsageSnapshot('grok-build', 'legacy-label', 'not subscribed'),
+      unsupportedUsageSnapshot('codex-cli', 'legacy-label', 'unsupported'),
+    ];
+
+    expect(
+      snapshots.map(({ provider, label, status }) => ({ provider, label, status })),
+    ).toEqual([
+      { provider: 'claude-code', label: 'Claude Code', status: 'error' },
+      { provider: 'codex-cli', label: 'Codex CLI', status: 'unavailable' },
+      { provider: 'grok-build', label: 'Grok Build', status: 'not_subscribed' },
+      { provider: 'codex-cli', label: 'Codex CLI', status: 'unsupported' },
+    ]);
   });
 });
