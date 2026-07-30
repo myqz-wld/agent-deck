@@ -149,6 +149,15 @@ describe('Grok runtime recovery profile', () => {
     expect(runtime.nativeDefaultModel).toBeNull();
 
     const startOptions = acpStartMock.mock.calls[0]![0] as {
+      onGrokExtensionUpdate: (notification: {
+        sessionId: string;
+        update: {
+          sessionUpdate: string;
+          prompt_id: string;
+          stop_reason: string;
+        };
+        _meta: { agentTimestampMs: number };
+      }) => void;
       onGrokPromptComplete: (notification: {
         sessionId: string;
         stopReason: string;
@@ -162,6 +171,21 @@ describe('Grok runtime recovery profile', () => {
     };
     startOptions.onGrokPromptComplete(terminal);
     expect(observePromptComplete).toHaveBeenCalledWith(runtime, terminal);
+
+    const extensionTerminal = {
+      sessionId: 'native-grok',
+      update: {
+        sessionUpdate: 'turn_completed',
+        prompt_id: 'provider-prompt',
+        stop_reason: 'rate_limit',
+      },
+      _meta: { agentTimestampMs: Date.now() },
+    };
+    startOptions.onGrokExtensionUpdate(extensionTerminal);
+    expect(observePromptComplete).toHaveBeenLastCalledWith(
+      runtime,
+      extensionTerminal,
+    );
   });
 
   it('restores profile fields for explicit resume and persists them atomically', () => {

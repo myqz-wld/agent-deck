@@ -484,6 +484,99 @@ describe('GrokTurnQueue active-turn delivery', () => {
     await vi.waitFor(() => expect(runtime.running).toBe(false));
   });
 
+  it('finishes and recycles from the live extension turn_completed terminal', async () => {
+    let promptSignal: AbortSignal | undefined;
+    const request = vi.fn((
+      _method: string,
+      _params: unknown,
+      options?: { cancellationSignal?: AbortSignal },
+    ) => {
+      promptSignal = options?.cancellationSignal;
+      return new Promise(() => undefined);
+    });
+    const runtime = makeRuntime(request);
+    const { queue, events, recycleRuntime } = makeQueue();
+
+    queue.enqueue(runtime, 'hit the real Grok terminal rail');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    queue.observePromptComplete(runtime, {
+      sessionId: 'native-session',
+      update: {
+        sessionUpdate: 'turn_completed',
+        prompt_id: 'provider-rate-limit',
+        stop_reason: 'rate_limit',
+      },
+      _meta: { agentTimestampMs: Date.now() + 10 },
+    });
+
+    await vi.waitFor(() => expect(events).toContainEqual({
+      kind: 'message',
+      payload: {
+        text: 'Grok Build 请求触发速率限制，请稍后重试。',
+        role: 'assistant',
+        error: true,
+      },
+    }));
+    expect(events).toContainEqual({
+      kind: 'finished',
+      payload: { ok: false, subtype: 'rate_limit' },
+    });
+    expect(promptSignal?.aborted).toBe(true);
+    expect(recycleRuntime).toHaveBeenCalledWith(runtime);
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+  });
+
+  it('ignores a stale extension terminal from before the active turn', async () => {
+    const prompt = deferred<{ stopReason: 'end_turn'; usage: undefined }>();
+    const request = vi.fn(() => prompt.promise);
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'keep stale history out');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    queue.observePromptComplete(runtime, {
+      sessionId: 'native-session',
+      update: {
+        sessionUpdate: 'turn_completed',
+        prompt_id: 'stale-provider-prompt',
+        stop_reason: 'rate_limit',
+      },
+      _meta: { agentTimestampMs: 1 },
+    });
+    await Promise.resolve();
+    expect(runtime.running).toBe(true);
+    expect(events.some((event) => event.kind === 'finished')).toBe(false);
+
+    prompt.resolve({ stopReason: 'end_turn', usage: undefined });
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+  });
+
+  it('does not let a bare successful extension terminal discard a missing assistant', async () => {
+    const prompt = deferred<{ stopReason: 'end_turn'; usage: undefined }>();
+    const request = vi.fn(() => prompt.promise);
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'preserve the missing assistant');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    queue.observePromptComplete(runtime, {
+      sessionId: 'native-session',
+      update: {
+        sessionUpdate: 'turn_completed',
+        prompt_id: 'provider-success-without-live-text',
+        stop_reason: 'end_turn',
+      },
+      _meta: { agentTimestampMs: Date.now() + 10 },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(runtime.running).toBe(true);
+    expect(events.some((event) => event.kind === 'finished')).toBe(false);
+
+    prompt.resolve({ stopReason: 'end_turn', usage: undefined });
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+  });
+
   it('recovers and recycles when Grok completes natively but every live ACP rail stalls', async () => {
     const root = await mkdtemp(join(tmpdir(), 'grok-native-recovery-'));
     const cwd = '/repo with spaces';

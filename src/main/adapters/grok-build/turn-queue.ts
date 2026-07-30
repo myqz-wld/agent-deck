@@ -8,23 +8,15 @@ import {
   rememberAcceptedEnqueue,
 } from '@main/adapters/enqueue-idempotency';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
-import type {
-  UploadedAttachmentRef,
-} from '@shared/types';
+import type { UploadedAttachmentRef } from '@shared/types';
 
-import type { GrokPromptCompleteNotification } from './extension';
+import type { GrokExtensionNotification, GrokPromptCompleteNotification } from './extension';
 import { GrokLivePromptCompletion } from './live-prompt-completion';
 import { errorText } from './protocol-utils';
 import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
-import {
-  applyRecoveredGrokTurn,
-  GrokProviderCompletionRecovery,
-} from './provider-completion-recovery';
+import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
-import {
-  finalizeGrokAcpResponse,
-  responseFromGrokLiveOutcome,
-} from './turn-response';
+import { finalizeGrokAcpResponse, responseFromGrokLiveOutcome } from './turn-response';
 import type {
   GrokEnqueueOptions,
   GrokInterjectRequest,
@@ -69,7 +61,7 @@ export class GrokTurnQueue {
 
   observePromptComplete(
     runtime: GrokRuntime,
-    notification: GrokPromptCompleteNotification,
+    notification: GrokPromptCompleteNotification | GrokExtensionNotification,
   ): void {
     if (!this.livePromptCompletion.observe(runtime, notification)) return;
     this.firstModelEventWatchdog.clear(runtime);
@@ -417,6 +409,12 @@ export class GrokTurnQueue {
         outcome.value,
         this.options,
       );
+      if (outcome.value.kind === 'prompt-complete') {
+        runtime.ready = false;
+        runtime.suppressUpdates = true;
+        currentTurnController.abort();
+        recycleTransport = true;
+      }
       await finalizeGrokAcpResponse(
         runtime,
         response,

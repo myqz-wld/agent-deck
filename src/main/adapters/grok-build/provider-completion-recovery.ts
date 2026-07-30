@@ -101,8 +101,8 @@ export function applyRecoveredGrokTurn(
 }
 
 interface ActiveRecovery {
+  readErrorLogged: boolean;
   timer: ReturnType<typeof setTimeout> | null;
-  turnId: string;
 }
 
 /**
@@ -134,7 +134,7 @@ export class GrokProviderCompletionRecovery {
       return { kind: 'live', value: await request() };
     }
 
-    const active: ActiveRecovery = { timer: null, turnId };
+    const active: ActiveRecovery = { readErrorLogged: false, timer: null };
     this.active.set(runtime, active);
     const recovered = new Promise<GrokProviderCompletionOutcome<T>>((resolve) => {
       const poll = async (): Promise<void> => {
@@ -158,15 +158,22 @@ export class GrokProviderCompletionRecovery {
             resolve({ kind: 'native-history', turn });
             return;
           }
-        } catch {
-          // Native history is a best-effort terminal rail; live ACP remains authoritative.
+        } catch (error) {
+          if (!active.readErrorLogged) {
+            active.readErrorLogged = true;
+            logger.warn('[grok-provider-completion] native history read failed', {
+              event: 'grok_provider_completion_read_failed',
+              sessionId: runtime.applicationSessionId,
+              nativeSessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
         if (!this.isActive(runtime, active)) return;
         active.timer = setTimeout(() => void poll(), this.pollMs);
         active.timer.unref?.();
       };
-      active.timer = setTimeout(() => void poll(), this.pollMs);
-      active.timer.unref?.();
+      void poll();
     });
 
     try {
@@ -188,9 +195,7 @@ export class GrokProviderCompletionRecovery {
 
   private isActive(runtime: GrokRuntime, active: ActiveRecovery): boolean {
     return this.active.get(runtime) === active
-      && runtime.running
-      && !runtime.closed
-      && runtime.translation.currentTurnUsageId === active.turnId;
+      && !runtime.closed;
   }
 }
 
@@ -207,7 +212,13 @@ export async function readCompletedGrokNativeTurn(options: {
     options.nativeSessionId,
     'updates.jsonl',
   );
-  const tail = await readTail(file, HISTORY_TAIL_BYTES);
+  let tail: string;
+  try {
+    tail = await readTail(file, HISTORY_TAIL_BYTES);
+  } catch (error) {
+    if (isFileNotFound(error)) return null;
+    throw error;
+  }
   const completion = findCompletion(
     tail,
     options.nativeSessionId,
@@ -325,6 +336,14 @@ function recoveredTerminalText(turn: RecoveredGrokTurn): string | null {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
