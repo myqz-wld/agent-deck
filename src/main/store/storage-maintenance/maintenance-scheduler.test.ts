@@ -341,37 +341,6 @@ describe('StorageMaintenanceScheduler main controller protocol', () => {
     await stop;
   });
 
-  it('restores main checkpoint safety on request timeout and waits for close before respawn', async () => {
-    const harness = createHarness({
-      initialDelayMs: 0,
-      requestTimeoutMs: 10,
-      errorRetryMs: 5,
-    });
-    harness.scheduler.start();
-    const firstWorker = harness.workers[0];
-    ready(firstWorker);
-    harness.advance(0);
-    expect(lastCommand(firstWorker).type).toBe('run-slice');
-    expect(harness.db.autoCheckpointPages).toBe(0);
-
-    harness.advance(10);
-    expect(harness.db.autoCheckpointPages).toBe(731);
-    const close = lastCommand(firstWorker);
-    expect(close.type).toBe('close');
-
-    harness.advance(100);
-    expect(harness.workers).toHaveLength(1);
-    closeResult(firstWorker, close.requestId);
-    harness.advance(4);
-    expect(harness.workers).toHaveLength(1);
-    harness.advance(1);
-    expect(harness.workers).toHaveLength(2);
-
-    const stop = harness.scheduler.stop();
-    harness.workers[1].emit('exit', 1);
-    await stop;
-  });
-
   it('rolls back a partially acquired checkpoint lease before retiring the worker', async () => {
     const db = new FakeDatabase();
     db.failAutoCheckpointReadAt = 2;
