@@ -23,8 +23,6 @@ export interface GrokTurnQueueOptions {
   emitError: (sessionId: string, text: string) => void;
   closeSession: (sessionId: string) => Promise<void>;
   firstModelEventTimeoutMs?: number;
-  providerCompletionPollMs?: number;
-  providerHistoryRoot?: string;
 }
 
 export type GrokRuntimeEvent = (runtime: GrokRuntime) => void;

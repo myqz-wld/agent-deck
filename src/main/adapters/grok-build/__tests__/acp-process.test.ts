@@ -307,14 +307,16 @@ describe('GrokAcpProcess', () => {
     }
   });
 
-  it('delivers Grok extension notifications separately from standard ACP updates', async () => {
+  it('delivers Grok usage and prompt-complete notifications over ACP', async () => {
     const updates: unknown[] = [];
+    const completions: unknown[] = [];
     const child = await GrokAcpProcess.start({
       binary: globalThis.process.execPath,
       args: [fixture],
       cwd: globalThis.process.cwd(),
       onSessionUpdate: () => undefined,
       onGrokExtensionUpdate: (notification) => updates.push(notification),
+      onGrokPromptComplete: (notification) => completions.push(notification),
       onPermissionRequest: vi.fn(async () => ({
         outcome: { outcome: 'cancelled' as const },
       })),
@@ -328,6 +330,7 @@ describe('GrokAcpProcess', () => {
       await child.connection.agent.request(methods.agent.session.prompt, {
         sessionId: created.sessionId,
         prompt: [{ type: 'text', text: 'extension' }],
+        _meta: { turnId: 42 },
       });
       expect(updates).toHaveLength(1);
       expect(updates[0]).toMatchObject({
@@ -338,6 +341,13 @@ describe('GrokAcpProcess', () => {
           usage: { inputTokens: 7, outputTokens: 5 },
         },
       });
+      await vi.waitFor(() => expect(completions).toEqual([{
+        sessionId: created.sessionId,
+        promptId: 'fake-prompt-1',
+        stopReason: 'end_turn',
+        agentResult: null,
+        turnId: 42,
+      }]));
     } finally {
       await child.stop();
     }

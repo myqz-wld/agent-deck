@@ -170,6 +170,15 @@ agent({ name: 'fake-grok-acp-agent' })
         },
       },
     });
+    await context.client.notify('_x.ai/session/prompt_complete', {
+      sessionId: context.params.sessionId,
+      promptId,
+      stopReason: 'end_turn',
+      agentResult: null,
+      ...(Number.isSafeInteger(context.params._meta?.turnId)
+        ? { turnId: context.params._meta.turnId }
+        : {}),
+    });
     return {
       stopReason: 'end_turn',
       usage: {

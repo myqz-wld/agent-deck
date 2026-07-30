@@ -102,6 +102,7 @@ describe('Grok runtime recovery profile', () => {
     } as unknown as GrokAcpProcess;
     acpStartMock.mockResolvedValue(process);
     const getPluginDirectories = vi.fn(async () => ['/plugins/reviewer-grok']);
+    const observePromptComplete = vi.fn();
     const runtimes = new Map([[runtime.applicationSessionId, runtime]]);
     const context = {
       binaryPath: null,
@@ -118,6 +119,7 @@ describe('Grok runtime recovery profile', () => {
       isCurrentRuntime: (candidate) => candidate === runtime,
       requireNativeSession: () => 'native-grok',
       confirmPromptAccepted: vi.fn(),
+      observePromptComplete,
       drain: vi.fn(async () => undefined),
       dispose: vi.fn(async () => undefined),
     } as unknown as GrokRuntimeStartContext;
@@ -145,6 +147,21 @@ describe('Grok runtime recovery profile', () => {
       },
     });
     expect(runtime.nativeDefaultModel).toBeNull();
+
+    const startOptions = acpStartMock.mock.calls[0]![0] as {
+      onGrokPromptComplete: (notification: {
+        sessionId: string;
+        stopReason: string;
+        turnId: number;
+      }) => void;
+    };
+    const terminal = {
+      sessionId: 'native-grok',
+      stopReason: 'end_turn',
+      turnId: 7,
+    };
+    startOptions.onGrokPromptComplete(terminal);
+    expect(observePromptComplete).toHaveBeenCalledWith(runtime, terminal);
   });
 
   it('restores profile fields for explicit resume and persists them atomically', () => {

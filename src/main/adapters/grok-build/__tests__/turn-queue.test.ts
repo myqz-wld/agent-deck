@@ -1,15 +1,15 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { methods } from '@agentclientprotocol/sdk';
+import { methods, type SessionUpdate } from '@agentclientprotocol/sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { GrokAcpProcess } from '../acp-process';
 import { GrokTurnQueue } from '../turn-queue';
 import { requireNativeSession } from '../turn-queue-helpers';
 import type { GrokRuntime } from '../runtime-types';
-import { createGrokTranslationState } from '../translate';
+import { createGrokTranslationState, translateGrokUpdate } from '../translate';
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -59,14 +59,15 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
 function makeQueue(firstModelEventTimeoutMs?: number) {
   const events: Array<{ kind: string; payload: unknown }> = [];
   const emitError = vi.fn();
+  const closeSession = vi.fn(async () => undefined);
   const queue = new GrokTurnQueue({
     emit: (event) => events.push({ kind: event.kind, payload: event.payload }),
     emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
     emitError,
-    closeSession: vi.fn(async () => undefined),
+    closeSession,
     firstModelEventTimeoutMs,
   });
-  return { queue, events, emitError };
+  return { queue, events, emitError, closeSession };
 }
 
 describe('GrokTurnQueue active-turn delivery', () => {
@@ -402,6 +403,116 @@ describe('GrokTurnQueue active-turn delivery', () => {
     );
   });
 
+  it('flushes the assistant from live ACP prompt_complete when PromptResponse is lost', async () => {
+    const prompt = deferred<{ stopReason: 'end_turn'; usage: undefined }>();
+    const request = vi.fn((_method: string, _params: unknown) => prompt.promise);
+    const runtime = makeRuntime(request);
+    const { queue, events, closeSession } = makeQueue();
+
+    queue.enqueue(runtime, 'finish on the live terminal');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    const params = request.mock.calls[0]![1] as {
+      _meta: { turnId: number };
+    };
+    expect(params._meta.turnId).toEqual(expect.any(Number));
+
+    const update: SessionUpdate = {
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: 'Delivered over ACP' },
+    };
+    queue.observeModelActivity(runtime, update);
+    expect(
+      translateGrokUpdate(
+        runtime.applicationSessionId,
+        runtime.cwd,
+        update,
+        runtime.translation,
+      ),
+    ).toEqual([]);
+    expect(runtime.translation.pendingText).not.toBeNull();
+
+    queue.observePromptComplete(runtime, {
+      sessionId: 'native-session',
+      promptId: 'provider-prompt-1',
+      stopReason: 'end_turn',
+      agentResult: null,
+      turnId: params._meta.turnId,
+    });
+
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+    expect(events).toContainEqual({
+      kind: 'message',
+      payload: { text: 'Delivered over ACP', role: 'assistant' },
+    });
+    expect(events).toContainEqual({
+      kind: 'finished',
+      payload: { ok: true, subtype: 'end_turn' },
+    });
+    expect(closeSession).not.toHaveBeenCalled();
+
+    prompt.resolve({ stopReason: 'end_turn', usage: undefined });
+    await Promise.resolve();
+    expect(events.filter((event) => event.kind === 'finished')).toHaveLength(1);
+  });
+
+  it('ignores a prompt_complete terminal for a different ACP turnId', async () => {
+    const prompt = deferred<{ stopReason: 'end_turn'; usage: undefined }>();
+    const request = vi.fn((_method: string, _params: unknown) => prompt.promise);
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'keep the turn correlated');
+    await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+    const params = request.mock.calls[0]![1] as {
+      _meta: { turnId: number };
+    };
+    queue.observePromptComplete(runtime, {
+      sessionId: 'native-session',
+      stopReason: 'end_turn',
+      turnId: params._meta.turnId + 1,
+    });
+    await Promise.resolve();
+    expect(runtime.running).toBe(true);
+    expect(events.some((event) => event.kind === 'finished')).toBe(false);
+
+    prompt.resolve({ stopReason: 'end_turn', usage: undefined });
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+  });
+
+  it('uses exact usage from the live ACP PromptResponse metadata', async () => {
+    const request = vi.fn(async () => ({
+      stopReason: 'end_turn' as const,
+      _meta: {
+        sessionId: 'native-session',
+        promptId: 'provider-prompt-usage',
+        usage: {
+          inputTokens: 17,
+          outputTokens: 4,
+          totalTokens: 21,
+          reasoningTokens: 3,
+          cachedReadTokens: 2,
+        },
+      },
+    }));
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'capture ACP usage');
+
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+    expect(events).toContainEqual({
+      kind: 'token-usage',
+      payload: expect.objectContaining({
+        messageId: 'provider-prompt-usage',
+        inputTokens: 17,
+        outputTokens: 4,
+        reasoningTokens: 3,
+        cacheReadTokens: 2,
+        cacheCreationTokens: null,
+      }),
+    });
+  });
+
   it('surfaces and recycles a prompt with no first model event', async () => {
     const runtime = makeRuntime(vi.fn(() => new Promise(() => undefined)));
     const closeSession = vi.fn(async () => {
@@ -424,173 +535,6 @@ describe('GrokTurnQueue active-turn delivery', () => {
     ));
     expect(closeSession).toHaveBeenCalledWith('app-session');
     expect(runtime.running).toBe(false);
-  });
-
-  it('recovers a completed native turn when the ACP prompt response stays pending', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'grok-native-recovery-'));
-    const cwd = '/repo with spaces';
-    const nativeSessionId = 'native-recovery';
-    const historyDir = join(root, encodeURIComponent(cwd), nativeSessionId);
-    await mkdir(historyDir, { recursive: true });
-    const completedAt = Date.now() + 1_000;
-    const promptId = 'provider-prompt-1';
-    await writeFile(join(historyDir, 'updates.jsonl'), [
-      JSON.stringify({
-        method: 'session/update',
-        params: {
-          sessionId: nativeSessionId,
-          update: {
-            sessionUpdate: 'agent_message_chunk',
-            content: { type: 'text', text: 'Recovered answer' },
-          },
-          _meta: { promptId, agentTimestampMs: completedAt - 1 },
-        },
-      }),
-      JSON.stringify({
-        method: '_x.ai/session/update',
-        params: {
-          sessionId: nativeSessionId,
-          update: {
-            sessionUpdate: 'turn_completed',
-            prompt_id: promptId,
-            stop_reason: 'end_turn',
-            usage: {
-              inputTokens: 10,
-              outputTokens: 3,
-              totalTokens: 13,
-              reasoningTokens: 2,
-              cachedReadTokens: 0,
-            },
-          },
-          _meta: { agentTimestampMs: completedAt },
-        },
-      }),
-    ].join('\n'));
-
-    const runtime = makeRuntime(vi.fn(() => new Promise(() => undefined)));
-    runtime.cwd = cwd;
-    runtime.nativeSessionId = nativeSessionId;
-    const events: Array<{ kind: string; payload: unknown }> = [];
-    const closeSession = vi.fn(async () => {
-      runtime.closed = true;
-    });
-    const queue = new GrokTurnQueue({
-      emit: (event) => events.push({ kind: event.kind, payload: event.payload }),
-      emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
-      emitError: vi.fn(),
-      closeSession,
-      providerCompletionPollMs: 5,
-      providerHistoryRoot: root,
-    });
-
-    try {
-      queue.enqueue(runtime, 'recover this turn');
-      await vi.waitFor(() => expect(events).toContainEqual({
-        kind: 'message',
-        payload: {
-          text: 'Recovered answer',
-          role: 'assistant',
-          recoveredFrom: 'grok-native-history',
-        },
-      }));
-      expect(events).toContainEqual(expect.objectContaining({
-        kind: 'token-usage',
-        payload: expect.objectContaining({
-          messageId: promptId,
-          reasoningTokens: 2,
-          cacheReadTokens: 0,
-          cacheCreationTokens: null,
-        }),
-      }));
-      expect(events).toContainEqual({
-        kind: 'finished',
-        payload: {
-          ok: true,
-          subtype: 'end_turn',
-          recoveredFrom: 'grok-native-history',
-        },
-      });
-      expect(closeSession).toHaveBeenCalledWith('app-session');
-      await vi.waitFor(() => expect(runtime.running).toBe(false));
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('captures journal-only Grok usage when ACP completes with usage=null', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'grok-native-usage-'));
-    const cwd = '/repo';
-    const nativeSessionId = 'native-healthy';
-    const historyDir = join(root, encodeURIComponent(cwd), nativeSessionId);
-    await mkdir(historyDir, { recursive: true });
-    const promptId = 'provider-healthy-1';
-    await writeFile(join(historyDir, 'updates.jsonl'), [
-      JSON.stringify({
-        method: 'session/update',
-        params: {
-          sessionId: nativeSessionId,
-          update: {
-            sessionUpdate: 'agent_message_chunk',
-            content: { type: 'text', text: 'Healthy answer' },
-          },
-          _meta: { promptId, agentTimestampMs: Date.now() + 500 },
-        },
-      }),
-      JSON.stringify({
-        method: '_x.ai/session/update',
-        params: {
-          sessionId: nativeSessionId,
-          update: {
-            sessionUpdate: 'turn_completed',
-            prompt_id: promptId,
-            stop_reason: 'end_turn',
-            usage: {
-              inputTokens: 17,
-              outputTokens: 4,
-              totalTokens: 21,
-              reasoningTokens: 3,
-              cachedReadTokens: 2,
-            },
-          },
-          _meta: { agentTimestampMs: Date.now() + 1_000 },
-        },
-      }),
-    ].join('\n'));
-    const runtime = makeRuntime(vi.fn(async () => ({
-      stopReason: 'end_turn',
-      usage: null,
-    })));
-    runtime.cwd = cwd;
-    runtime.nativeSessionId = nativeSessionId;
-    const events: Array<{ kind: string; payload: unknown }> = [];
-    const queue = new GrokTurnQueue({
-      emit: (event) => events.push({ kind: event.kind, payload: event.payload }),
-      emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
-      emitError: vi.fn(),
-      closeSession: vi.fn(async () => undefined),
-      providerHistoryRoot: root,
-    });
-
-    try {
-      queue.enqueue(runtime, 'healthy turn');
-      await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({
-        kind: 'token-usage',
-        payload: expect.objectContaining({
-          messageId: promptId,
-          inputTokens: 17,
-          outputTokens: 4,
-          reasoningTokens: 3,
-          cacheReadTokens: 2,
-          cacheCreationTokens: null,
-        }),
-      })));
-      expect(events).toContainEqual({
-        kind: 'finished',
-        payload: { ok: true, subtype: 'end_turn' },
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 
   it('uses exact Grok Build copy for interjection failures', async () => {
