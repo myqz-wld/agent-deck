@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-30 | `REVIEW_197_runtime-log-signal-quality.md` | Runtime log signal quality | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-30 | `REVIEW_196_grok-durable-turn-delivery.md` | Durable Grok turn delivery | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
 | 2026-07-29 | `REVIEW_195_grok-live-acp-terminal.md` | Grok live ACP completion delivery | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
 | 2026-07-29 | `REVIEW_194_claude-gateway-sandbox-startup.md` | Claude Gateway sandbox startup | 0 CRITICAL / 2 HIGH fixed |

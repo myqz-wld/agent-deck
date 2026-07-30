@@ -23,7 +23,9 @@ vi.mock('@main/utils/logger', () => ({
 
 import {
   PROVIDER_USAGE_CACHE_TTL_MS,
+  PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS,
   PROVIDER_USAGE_READ_TIMEOUT_MS,
+  PROVIDER_USAGE_SLOW_READ_MS,
   _resetProviderUsageCacheForTesting,
   prefetchProviderUsageSnapshots,
   providerUsageSnapshotHandler,
@@ -49,8 +51,6 @@ function snapshot(
 }
 
 type ProviderCalls = Record<ProviderUsageSnapshot['provider'], ReturnType<typeof vi.fn>>;
-const PROVIDER_LOG_SUMMARY_INTERVAL_MS = 60_000;
-const PROVIDER_SLOW_READ_MS = 2_000;
 
 function installAdapters(calls: ProviderCalls): void {
   mocks.adapterRegistry.get.mockImplementation((id: ProviderUsageSnapshot['provider']) => ({
@@ -104,6 +104,7 @@ afterEach(() => {
 describe('providerUsageSnapshotHandler cache', () => {
   it('keeps the provider usage cache TTL just below the ten-minute refresh cadence', () => {
     expect(PROVIDER_USAGE_CACHE_TTL_MS).toBe(10 * 60_000 - 5_000);
+    expect(PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS).toBe(60 * 60_000);
   });
 
   it('returns cached snapshots within TTL', async () => {
@@ -293,8 +294,8 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(cached.snapshots[0]).toEqual(snapshot('claude-code', 4_000));
     expect(mocks.logger.warn.mock.calls.map((call) => call[1]?.state)).toEqual([
       'timeout-empty',
-      'slow',
     ]);
+    expect(mocks.logger.info).not.toHaveBeenCalled();
     expect(calls['claude-code']).toHaveBeenCalledTimes(1);
   });
 
@@ -328,7 +329,7 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect(result.snapshots[2].updatedAt).toBe(2_000);
   });
 
-  it('logs distinct bounded status transitions without provider or secret material', async () => {
+  it('logs allowlisted provider diagnostics without account-state or secret material', async () => {
     const secret =
       'Bearer private-token prompt=/Users/private/repo https://example.test/?token=private';
     const claude = vi
@@ -361,16 +362,18 @@ describe('providerUsageSnapshotHandler cache', () => {
       mocks.logger.warn.mock.calls.map(
         (call) => (call[1] as { state: string }).state,
       ),
-    ).toEqual(['error', 'unavailable', 'not_subscribed', 'unsupported']);
+    ).toEqual(['error', 'unavailable']);
     expect(mocks.logger.warn.mock.calls[1]?.[1]).toMatchObject({
+      provider: 'claude-code',
       previousState: 'error',
       suppressedCount: 1,
     });
     expect(mocks.logger.info).toHaveBeenCalledWith(
       'provider usage state recovered',
       expect.objectContaining({
+        provider: 'claude-code',
         state: 'healthy',
-        previousState: 'unsupported',
+        previousState: 'unavailable',
       }),
     );
     const emitted = JSON.stringify({
@@ -383,7 +386,6 @@ describe('providerUsageSnapshotHandler cache', () => {
       '/Users/private/repo',
       'example.test',
       'prompt=',
-      'claude-code',
       'codex-cli',
       'grok-build',
       '[provider-usage]',
@@ -402,12 +404,13 @@ describe('providerUsageSnapshotHandler cache', () => {
     await providerUsageSnapshotHandler({ force: true });
     expect(mocks.logger.warn).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(Date.now() + PROVIDER_LOG_SUMMARY_INTERVAL_MS);
+    vi.setSystemTime(Date.now() + PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS);
     await providerUsageSnapshotHandler({ force: true });
     expect(mocks.logger.warn).toHaveBeenCalledTimes(2);
     expect(mocks.logger.warn.mock.calls[1]).toEqual([
       'provider usage state remains degraded',
       expect.objectContaining({
+        provider: 'claude-code',
         state: 'unavailable',
         transition: 'periodic-summary',
         suppressedCount: 1,
@@ -418,7 +421,10 @@ describe('providerUsageSnapshotHandler cache', () => {
     await providerUsageSnapshotHandler({ force: true });
     expect(mocks.logger.info).toHaveBeenCalledWith(
       'provider usage state recovered',
-      expect.objectContaining({ previousState: 'unavailable' }),
+      expect.objectContaining({
+        provider: 'claude-code',
+        previousState: 'unavailable',
+      }),
     );
   });
 
@@ -428,7 +434,10 @@ describe('providerUsageSnapshotHandler cache', () => {
       .mockImplementationOnce(
         () =>
           new Promise<ProviderUsageSnapshot>((resolve) => {
-            setTimeout(() => resolve(snapshot('claude-code', 1)), PROVIDER_SLOW_READ_MS);
+            setTimeout(
+              () => resolve(snapshot('claude-code', 1)),
+              PROVIDER_USAGE_SLOW_READ_MS,
+            );
           }),
       )
       .mockResolvedValueOnce(snapshot('claude-code', 2))
@@ -436,11 +445,15 @@ describe('providerUsageSnapshotHandler cache', () => {
     setupClaudeAdapter(claude);
 
     const slowRead = providerUsageSnapshotHandler();
-    await vi.advanceTimersByTimeAsync(PROVIDER_SLOW_READ_MS);
+    await vi.advanceTimersByTimeAsync(PROVIDER_USAGE_SLOW_READ_MS);
     await slowRead;
     expect(mocks.logger.warn).toHaveBeenCalledWith(
       'provider usage state degraded',
-      expect.objectContaining({ state: 'slow', maxDurationMs: PROVIDER_SLOW_READ_MS }),
+      expect.objectContaining({
+        provider: 'claude-code',
+        state: 'slow',
+        maxDurationMs: PROVIDER_USAGE_SLOW_READ_MS,
+      }),
     );
 
     await providerUsageSnapshotHandler({ force: true });
@@ -450,7 +463,10 @@ describe('providerUsageSnapshotHandler cache', () => {
     expect((await cachedTimeout).snapshots[0]).toEqual(snapshot('claude-code', 2));
     expect(mocks.logger.warn).toHaveBeenLastCalledWith(
       'provider usage state degraded',
-      expect.objectContaining({ state: 'timeout-cached' }),
+      expect.objectContaining({
+        provider: 'claude-code',
+        state: 'timeout-cached',
+      }),
     );
 
     _resetProviderUsageCacheForTesting();
@@ -465,7 +481,10 @@ describe('providerUsageSnapshotHandler cache', () => {
     });
     expect(mocks.logger.warn).toHaveBeenCalledWith(
       'provider usage state degraded',
-      expect.objectContaining({ state: 'timeout-empty' }),
+      expect.objectContaining({
+        provider: 'claude-code',
+        state: 'timeout-empty',
+      }),
     );
   });
 

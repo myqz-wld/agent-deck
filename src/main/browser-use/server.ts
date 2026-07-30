@@ -20,6 +20,12 @@ import {
   resolveBrowserUseTransportLimits,
   type BrowserUseTransportLimits,
 } from './transport-limits';
+import {
+  reportBrowserServerError,
+  safeBrowserOperation,
+  type BrowserTransportReason,
+  type BrowserTransportReportContext,
+} from './transport-diagnostics';
 
 const logger = log.scope('browser-transport');
 
@@ -44,20 +50,6 @@ const UNIX_PIPE_ROOT = '/tmp/codex-browser-use';
 const WINDOWS_PIPE_PREFIX = '\\\\.\\pipe\\codex-browser-use';
 const REQUEST_FAILED_MESSAGE = 'Browser request failed.';
 const RESOURCE_LIMIT_MESSAGE = 'Browser transport resource limit exceeded.';
-
-type BrowserTransportReason =
-  | BrowserUseTransportLimitError['reason']
-  | 'dispose-error'
-  | 'drain-timeout'
-  | 'handler-error'
-  | 'inflight-limit'
-  | 'input-protocol-error'
-  | 'invalid-request'
-  | 'output-encoding-error'
-  | 'output-queue-limit'
-  | 'server-error'
-  | 'socket-error'
-  | 'socket-write-error';
 
 export interface BrowserUseConnectionOptions {
   socket: Socket;
@@ -192,7 +184,10 @@ export class BrowserUseConnection implements BrowserUseNotifier {
       const result = await this.handler.handleRequest(method, params);
       if (id !== undefined) this.write({ jsonrpc: '2.0', id, result });
     } catch {
-      this.report('rejected', 'handler-error');
+      this.report('rejected', 'handler-error', {
+        operation: safeBrowserOperation(method),
+        requestKind: id === undefined ? 'notification' : 'request',
+      });
       if (id === undefined) return;
       this.write({
         jsonrpc: '2.0',
@@ -298,7 +293,11 @@ export class BrowserUseConnection implements BrowserUseNotifier {
     return this.blockedOutputBytes + this.pendingOutputBytes;
   }
 
-  private report(outcome: 'closed' | 'rejected', reason: BrowserTransportReason): void {
+  private report(
+    outcome: 'closed' | 'rejected',
+    reason: BrowserTransportReason,
+    context: BrowserTransportReportContext = {},
+  ): void {
     if (this.reportedReasons.has(reason)) return;
     this.reportedReasons.add(reason);
     const diagnostic = safeDiagnostic({
@@ -306,6 +305,8 @@ export class BrowserUseConnection implements BrowserUseNotifier {
       runId: getProcessRunId(),
       outcome,
       reason,
+      ...(context.operation == null ? {} : { operation: context.operation }),
+      ...(context.requestKind == null ? {} : { requestKind: context.requestKind }),
       activeRequests: this.activeRequests,
       retainedInputBytes: this.decoder.retainedBytes,
       queuedOutputBytes: this.totalQueuedOutputBytes(),
@@ -336,7 +337,7 @@ export async function startBrowserUseServer(
   const reportServerFailure = (): void => {
     if (serverFailureReported) return;
     serverFailureReported = true;
-    reportServerError(onError);
+    reportBrowserServerError(onError);
   };
 
   try {
@@ -358,7 +359,7 @@ export async function startBrowserUseServer(
         onClosed: () => connections.delete(connection),
       });
     } catch {
-      reportServerError(onError);
+      reportBrowserServerError(onError);
       socket.destroy();
       return;
     }
@@ -376,7 +377,7 @@ export async function startBrowserUseServer(
     throw new Error('Browser server failed to start.');
   }
   server.removeListener('error', reportServerFailure);
-  server.on('error', () => reportServerError(onError));
+  server.on('error', () => reportBrowserServerError(onError));
 
   const cleanupAtExit = (): void => {
     if (process.platform === 'win32') return;
@@ -481,19 +482,4 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve) => {
     server.close(() => resolve());
   });
-}
-
-function reportServerError(onError: (error: unknown) => void): void {
-  const diagnostic = safeDiagnostic({
-    event: 'browser-transport',
-    runId: getProcessRunId(),
-    outcome: 'closed',
-    reason: 'server-error',
-  });
-  logger.warn('server state changed', diagnostic);
-  try {
-    onError(diagnostic);
-  } catch {
-    // Diagnostics must never change server state.
-  }
 }

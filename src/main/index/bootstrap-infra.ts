@@ -23,7 +23,7 @@
 //   null = fatalExit (EADDRINUSE 已 app.exit(1))
 // ────────────────────────────────────────────────────────────────────────────
 
-import { app, dialog } from 'electron';
+import { app, dialog, powerMonitor } from 'electron';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -139,7 +139,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // settings.logLevel 仅在后续 SettingsSet patch 含 logLevel 时经 applyLogLevel 生效 → 重启后运行时
   // 回退 'info' 与 UI 显示的持久化值不一致。启动读 settings 后补一次 setFileLevel 应用持久化级别。
   setFileLevel(settings.logLevel);
-  state.mainEventLoopMonitorStop = startMainEventLoopMonitor();
+  state.mainEventLoopMonitorStop = startMainEventLoopMonitor({ powerMonitor });
 
   // 3. HookServer + RouteRegistry
   state.hookServer = new HookServer(
@@ -357,15 +357,13 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
 
   // 8.2 Browser plugin native-pipe backend：每条连接按首次请求的真实 Codex session_id
   // 绑定，并在隔离的 Electron partition/window 中执行 CDP。启动失败只降级 Browser visual
-  // QA，不影响 Claude/Codex/Grok 的普通会话；错误会在这里明确落日志。
+  // QA，不影响 Claude/Codex/Grok 的普通会话；transport 自身负责一次固定字段诊断。
   try {
-    const browserUseServer = await startBrowserUseServer({
-      onError: (err) => logger.warn('[browser-use] native-pipe backend error', err),
-    });
+    const browserUseServer = await startBrowserUseServer();
     state.browserUseServerShutdown = browserUseServer.shutdown;
     logger.info(`[browser-use] session-owned backend listening at ${browserUseServer.pipePath}`);
-  } catch (err) {
-    logger.warn('[browser-use] failed to start session-owned backend', err);
+  } catch {
+    // startBrowserUseServer owns the single redacted startup-failure diagnostic.
   }
 
   // 8.5 预热 agent-deck plugin 内置 agents/skills frontmatter 缓存
