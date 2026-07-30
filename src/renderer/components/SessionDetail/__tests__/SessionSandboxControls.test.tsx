@@ -65,7 +65,7 @@ describe('Codex live approval control', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Codex CLI 审批'));
+    fireEvent.click(screen.getByLabelText('审批'));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       '非可信命令前询问',
       '按需询问',
@@ -92,7 +92,7 @@ describe('Codex live approval control', () => {
         turnBusy
       />,
     );
-    expect((screen.getByLabelText('Codex CLI 审批') as HTMLButtonElement).disabled).toBe(
+    expect((screen.getByLabelText('审批') as HTMLButtonElement).disabled).toBe(
       false,
     );
   });
@@ -109,7 +109,7 @@ describe('Codex live approval control', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Codex CLI 沙盒'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
 
     await waitFor(() => {
@@ -139,7 +139,7 @@ describe('Claude Code live sandbox control', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Claude Code 沙盒'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
 
     await waitFor(() => {
@@ -160,7 +160,7 @@ describe('Grok Build live sandbox control', () => {
   it('requests a built-in profile through the Grok Build cold restart API', async () => {
     render(<SessionSandboxControls session={session()} turnBusy={false} />);
 
-    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     expect(
       screen.getByRole('option', { name: '跟随 Grok Build 原生配置' }).title,
     ).toBe('不添加 --sandbox，由 Grok Build 配置、环境变量或托管策略决定');
@@ -179,9 +179,9 @@ describe('Grok Build live sandbox control', () => {
   it('supports a custom sandbox.toml profile without restarting while typing', async () => {
     render(<SessionSandboxControls session={session()} turnBusy={false} />);
 
-    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '自定义配置…' }));
-    fireEvent.change(screen.getByLabelText('Grok Build 自定义沙盒配置名称'), {
+    fireEvent.change(screen.getByLabelText('自定义沙盒配置名称'), {
       target: { value: 'project-locked' },
     });
     expect(restartWithGrokSandbox).not.toHaveBeenCalled();
@@ -205,14 +205,14 @@ describe('Grok Build live sandbox control', () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
 
     await waitFor(() => {
       expect(screen.getByText(/switch failed/)).toBeTruthy();
       expect(
         (screen.getByLabelText(
-          'Grok Build 自定义沙盒配置名称',
+          '自定义沙盒配置名称',
         ) as HTMLInputElement).value,
       ).toBe('project-locked');
     });
@@ -228,15 +228,15 @@ describe('Grok Build live sandbox control', () => {
 
     expect(
       (screen.getByLabelText(
-        'Grok Build 自定义沙盒配置名称',
+        '自定义沙盒配置名称',
       ) as HTMLInputElement).value,
     ).toBe('strict');
     expect(
       (screen.getByLabelText(
-        'Grok Build 自定义沙盒配置名称',
+        '自定义沙盒配置名称',
       ) as HTMLInputElement).placeholder,
     ).toBe('输入 sandbox.toml 配置名称');
-    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     expect(screen.queryByRole('option', { name: '严格隔离' })).toBeNull();
     expect(screen.queryByRole('option', { name: '开发机宽松' })).toBeNull();
   });
@@ -245,7 +245,7 @@ describe('Grok Build live sandbox control', () => {
     const view = render(
       <SessionSandboxControls session={session()} turnBusy={false} />,
     );
-    fireEvent.click(screen.getByLabelText('Grok Build 沙盒（请求档位）'));
+    fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
 
     await waitFor(() => {
@@ -268,7 +268,7 @@ describe('Grok Build live sandbox control', () => {
     view.rerender(<SessionSandboxControls session={session()} turnBusy />);
     expect(
       (screen.getByLabelText(
-        'Grok Build 沙盒（请求档位）',
+        '沙盒',
       ) as HTMLButtonElement).disabled,
     ).toBe(true);
   });

@@ -626,7 +626,7 @@ describe('ComposerSdk unified input routing', () => {
         })}
       />,
     );
-    fireEvent.click(await screen.findByLabelText('工作模式'));
+    fireEvent.click(await screen.findByLabelText('模式'));
     fireEvent.click(screen.getByRole('option', { name: '问答模式' }));
 
     await waitFor(() => {

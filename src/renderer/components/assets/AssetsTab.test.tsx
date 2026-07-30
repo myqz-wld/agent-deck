@@ -37,6 +37,7 @@ describe('AssetsTab', () => {
     expect(screen.getByText('只读')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /新建/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /编辑/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /展开查看/ })).toBeNull();
     expect(screen.getByRole('button', { name: '查看' })).toBeTruthy();
   });
 

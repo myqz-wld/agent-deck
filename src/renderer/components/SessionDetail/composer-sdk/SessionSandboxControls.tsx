@@ -109,7 +109,7 @@ export function SessionSandboxControls({
       {session.agentId === 'codex-cli' && (
         <>
           <SelectRow
-            label="Codex CLI 审批"
+            label="审批"
             value={
               (session.codexApprovalPolicy ??
                 'on-request') as CodexApprovalPolicyChoice
@@ -119,7 +119,7 @@ export function SessionSandboxControls({
             onChange={(next) => void changeCodexApproval(next)}
           />
           <SelectRow
-            label="Codex CLI 沙盒"
+            label="沙盒"
             value={(session.codexSandbox ?? 'workspace-write') as CodexSandboxMode}
             options={CODEX_SANDBOX_OPTIONS}
             disabled={busy}
@@ -129,7 +129,7 @@ export function SessionSandboxControls({
       )}
       {session.agentId === 'claude-code' && (
         <SelectRow
-          label="Claude Code 沙盒"
+          label="沙盒"
           value={(session.claudeCodeSandbox ?? 'off') as ClaudeSandboxMode}
           options={CLAUDE_CODE_SANDBOX_OPTIONS}
           disabled={busy}
@@ -203,10 +203,10 @@ function GrokSessionSandboxControl({
   return (
     <div className="mb-1.5">
       <div className="flex items-center gap-1.5 text-[10px] text-deck-muted">
-        <span>Grok Build 沙盒（请求档位）</span>
+        <span>沙盒</span>
         <DeckSelect
           value={selectValue}
-          ariaLabel="Grok Build 沙盒（请求档位）"
+          ariaLabel="沙盒"
           onChange={(next) => {
             if (next === CUSTOM_GROK_PROFILE) {
               setCustomActive(true);
@@ -242,7 +242,7 @@ function GrokSessionSandboxControl({
             disabled={disabled}
             maxLength={128}
             placeholder="输入 sandbox.toml 配置名称"
-            aria-label="Grok Build 自定义沙盒配置名称"
+            aria-label="自定义沙盒配置名称"
             className="min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
           />
           <button

@@ -329,10 +329,16 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     });
 
     const expand = screen.getByRole('button', { name: '展开编辑第一条消息' });
-    expect(expand.className).toContain('h-11');
-    expect(expand.className).toContain('w-11');
+    expect(expand.className).toContain('!right-1');
+    expect(expand.className).toContain('!top-1');
+    expect(expand.className).toContain('!h-6');
+    expect(expand.className).toContain('!w-6');
+    expect(screen.getByLabelText('第一条消息').className).toContain('resize-none');
+    expect(screen.getByLabelText('第一条消息').className).not.toContain('resize-y');
     fireEvent.click(expand);
     const editor = screen.getByRole('dialog', { name: '编辑第一条消息' });
+    expect(editor.className).toContain('!bg-[#141418]');
+    expect(editor.querySelector('header')?.className).toContain('!pl-[78px]');
     expect(
       (screen.getByLabelText('第一条消息（展开编辑）') as HTMLTextAreaElement).value,
     ).toBe(longText);
@@ -383,7 +389,13 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     createAdapterSession.mockReturnValueOnce(pending.promise);
     render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
     await screen.findByText('Claude');
-    expect(screen.getByText('第一条消息（文字或图片至少一项）')).toBeTruthy();
+    const firstMessageLabel = screen.getByText('第一条消息（文字或图片至少一项）');
+    expect(firstMessageLabel.parentElement?.parentElement?.className).toContain('gap-1.5');
+    expect(
+      firstMessageLabel.parentElement?.parentElement?.contains(
+        screen.getByRole('button', { name: '添加图片' }),
+      ),
+    ).toBe(true);
     fireEvent.change(screen.getByLabelText('第一条消息'), {
       target: { value: '创建期间冻结附件' },
     });

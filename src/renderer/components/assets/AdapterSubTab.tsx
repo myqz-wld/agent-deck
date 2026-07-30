@@ -53,7 +53,7 @@ function SubTabBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`min-h-11 rounded px-2 text-[10px] transition-colors ${
+      className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
         active
           ? 'bg-status-working/20 text-status-working'
           : 'bg-white/5 text-deck-muted hover:bg-white/10 hover:text-deck-text'
