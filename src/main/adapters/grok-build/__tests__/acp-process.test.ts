@@ -197,6 +197,51 @@ describe('GrokAcpProcess', () => {
     expect(child.child.exitCode ?? child.child.signalCode).not.toBeNull();
   });
 
+  it('keeps consuming ACP after an application session-update callback throws', async () => {
+    const updateErrors: unknown[] = [];
+    const updates: string[] = [];
+    let failFirstUpdate = true;
+    const child = await GrokAcpProcess.start({
+      binary: globalThis.process.execPath,
+      args: [fixture],
+      cwd: globalThis.process.cwd(),
+      onSessionUpdate: (notification) => {
+        if (failFirstUpdate) {
+          failFirstUpdate = false;
+          throw new Error('simulated persistence failure');
+        }
+        if (
+          notification.update.sessionUpdate === 'agent_message_chunk'
+          && notification.update.content.type === 'text'
+        ) {
+          updates.push(notification.update.content.text);
+        }
+      },
+      onSessionUpdateError: (error) => updateErrors.push(error),
+      onPermissionRequest: vi.fn(async () => ({
+        outcome: { outcome: 'cancelled' as const },
+      })),
+    });
+
+    try {
+      const created = await child.connection.agent.request(
+        methods.agent.session.new,
+        { cwd: globalThis.process.cwd(), mcpServers: [] },
+      );
+      await expect(
+        child.connection.agent.request(methods.agent.session.prompt, {
+          sessionId: created.sessionId,
+          prompt: [{ type: 'text', text: 'survive callback failure' }],
+        }),
+      ).resolves.toMatchObject({ stopReason: 'end_turn' });
+      expect(updateErrors).toHaveLength(1);
+      expect(updateErrors[0]).toBeInstanceOf(Error);
+      expect(updates).toEqual(['echo:survive callback failure']);
+    } finally {
+      await child.stop();
+    }
+  });
+
   it('sends ACP extension requests with the underscore wire prefix', async () => {
     const child = await GrokAcpProcess.start({
       binary: globalThis.process.execPath,

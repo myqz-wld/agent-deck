@@ -31,6 +31,10 @@ export interface GrokAcpProcessOptions {
   cwd: string;
   sandboxProfile?: string | null;
   onSessionUpdate: (notification: SessionNotification) => void;
+  onSessionUpdateError?: (
+    error: unknown,
+    notification: SessionNotification,
+  ) => void;
   onGrokExtensionUpdate?: (notification: GrokExtensionNotification) => void;
   onPermissionRequest: (
     request: RequestPermissionRequest,
@@ -77,7 +81,15 @@ export class GrokAcpProcess {
     let startupStderr = '';
     const app = client({ name: 'Agent Deck' })
       .onNotification(methods.client.session.update, ({ params }) => {
-        options.onSessionUpdate(params);
+        try {
+          options.onSessionUpdate(params);
+        } catch (error) {
+          try {
+            options.onSessionUpdateError?.(error, params);
+          } catch {
+            // Application diagnostics must not terminate the ACP read loop either.
+          }
+        }
       })
       .onNotification(
         GROK_EXTENSION_UPDATE_METHOD,

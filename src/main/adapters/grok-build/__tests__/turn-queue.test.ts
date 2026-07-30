@@ -56,7 +56,7 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
   };
 }
 
-function makeQueue() {
+function makeQueue(firstModelEventTimeoutMs?: number) {
   const events: Array<{ kind: string; payload: unknown }> = [];
   const emitError = vi.fn();
   const queue = new GrokTurnQueue({
@@ -64,6 +64,7 @@ function makeQueue() {
     emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
     emitError,
     closeSession: vi.fn(async () => undefined),
+    firstModelEventTimeoutMs,
   });
   return { queue, events, emitError };
 }
@@ -398,6 +399,30 @@ describe('GrokTurnQueue active-turn delivery', () => {
     ).toThrow(
       '当前 Grok Build ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
     );
+  });
+
+  it('surfaces and recycles a prompt with no first model event', async () => {
+    const runtime = makeRuntime(vi.fn(() => new Promise(() => undefined)));
+    const closeSession = vi.fn(async () => {
+      runtime.closed = true;
+    });
+    const emitError = vi.fn();
+    const queue = new GrokTurnQueue({
+      emit: vi.fn(),
+      emitEvent: vi.fn(),
+      emitError,
+      closeSession,
+      firstModelEventTimeoutMs: 5,
+    });
+
+    queue.enqueue(runtime, 'hang after acceptance');
+
+    await vi.waitFor(() => expect(emitError).toHaveBeenCalledWith(
+      'app-session',
+      expect.stringContaining('Grok Build 已接受 prompt'),
+    ));
+    expect(closeSession).toHaveBeenCalledWith('app-session');
+    expect(runtime.running).toBe(false);
   });
 
   it('uses exact Grok Build copy for interjection failures', async () => {

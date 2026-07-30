@@ -52,7 +52,10 @@ import {
   persistGrokUsageWatermark,
   recoverGrokRuntime,
 } from '../runtime-factory';
-import { startGrokRuntime } from '../runtime-start';
+import {
+  startGrokRuntime,
+  startGrokRuntimeInBackground,
+} from '../runtime-start';
 
 function makeRecord(): SessionRecord {
   return {
@@ -223,6 +226,69 @@ describe('Grok runtime recovery profile', () => {
       lastUsage: null,
       standardUsageBaselineReady: false,
     });
+  });
+
+  it('makes a UI-style background runtime ready before draining its prequeued initial turn', async () => {
+    const runtime = createGrokRuntime(
+      'app-background',
+      { cwd: '/repo', prompt: 'hello' } as GrokCreateOpts,
+      null,
+    );
+    runtime.queue.push({ id: 'initial-message', text: 'hello' });
+    const request = vi.fn(async (method: unknown) => {
+      if (method === methods.agent.session.new) {
+        return {
+          sessionId: 'native-background',
+          modes: { currentModeId: 'default', availableModes: [] },
+        };
+      }
+      return {};
+    });
+    const process = {
+      connection: { agent: { request, notify: vi.fn() } },
+      initializeResponse: {
+        agentCapabilities: { loadSession: true },
+        _meta: { modelState: { currentModelId: 'native-default' } },
+      },
+      onExit: vi.fn(),
+      stop: vi.fn(async () => undefined),
+      isStopping: false,
+      diagnostics: '',
+    } as unknown as GrokAcpProcess;
+    acpStartMock.mockResolvedValue(process);
+    const runtimes = new Map([[runtime.applicationSessionId, runtime]]);
+    const drain = vi.fn(async (candidate: GrokRuntime) => {
+      expect(candidate.ready).toBe(true);
+      expect(candidate.queue).toEqual([
+        { id: 'initial-message', text: 'hello' },
+      ]);
+    });
+    const persist = vi.fn();
+    const context = {
+      binaryPath: null,
+      runtimes,
+      sessionSetup: {
+        mcpHttpUrl: 'http://127.0.0.1:1234/mcp',
+        isAgentDeckMcpEnabled: () => false,
+        getAgentProfilePrompt: async () => null,
+        getPluginDirectories: async () => [],
+      },
+      permissionController: { handle: vi.fn() },
+      emit: vi.fn(),
+      emitError: vi.fn(),
+      isCurrentRuntime: (candidate: GrokRuntime) => candidate === runtime,
+      requireNativeSession: () => 'native-background',
+      confirmPromptAccepted: vi.fn(),
+      observeModelActivity: vi.fn(),
+      drain,
+      dispose: vi.fn(async () => undefined),
+    } as unknown as GrokRuntimeStartContext;
+
+    await startGrokRuntimeInBackground(runtime, context, persist);
+
+    expect(runtime.nativeSessionId).toBe('native-background');
+    expect(drain).toHaveBeenCalledWith(runtime);
+    expect(persist).toHaveBeenCalledWith(runtime);
   });
 
   it('bounds startup setMode and disposes instead of assuming a timeout was not applied', async () => {
