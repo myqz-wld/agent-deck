@@ -29,6 +29,8 @@ export function toolStatusView(payload: Record<string, unknown>): ToolStatusView
       return { label: '已取消', detail: null, isError: false };
     case 'interrupted':
       return { label: '已中断', detail: null, isError: true };
+    case 'aborted':
+      return { label: '已中止', detail: null, isError: false };
     case 'blocked':
       return { label: '已阻止', detail: null, isError: true };
     case 'error':

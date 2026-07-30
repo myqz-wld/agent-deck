@@ -83,6 +83,19 @@ describe('nextActivityState', () => {
     expect(nextActivityState('waiting', 'tool-use-end', { clearsTerminalPermission: true })).toBe('working');
   });
 
+  it('Codex terminal SessionEnd clears a stale waiting activity', () => {
+    expect(
+      nextActivityState('waiting', 'session-end', { clearsTerminalPermission: true }),
+    ).toBe('finished');
+  });
+
+  it('compaction and subagent lifecycle events keep the session working', () => {
+    expect(nextActivityState('idle', 'context-compaction-start', {})).toBe('working');
+    expect(nextActivityState('idle', 'context-compaction-end', {})).toBe('working');
+    expect(nextActivityState('idle', 'subagent-start', {})).toBe('working');
+    expect(nextActivityState('idle', 'subagent-end', {})).toBe('working');
+  });
+
   it('普通 tool-use-end 不清除既有 waiting activity', () => {
     expect(nextActivityState('waiting', 'tool-use-end', {})).toBe('waiting');
   });

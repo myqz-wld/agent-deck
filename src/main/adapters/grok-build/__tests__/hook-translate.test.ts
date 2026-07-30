@@ -6,11 +6,14 @@ import {
   translateGrokPostCompact,
   translateGrokPostToolUse,
   translateGrokPostToolUseFailure,
+  translateGrokPreCompact,
   translateGrokPreToolUse,
   translateGrokSessionEnd,
   translateGrokSessionStart,
   translateGrokStop,
   translateGrokStopFailure,
+  translateGrokSubagentStart,
+  translateGrokSubagentStop,
   translateGrokUserPrompt,
 } from '../hook-translate';
 
@@ -165,9 +168,15 @@ describe('Grok Build hook translation', () => {
   });
 
   it('maps compact, notification, stop outcomes, and session end', () => {
+    expect(
+      translateGrokPreCompact({ ...base, trigger: 'auto', source: 'threshold' }),
+    ).toMatchObject({
+      kind: 'context-compaction-start',
+      payload: { trigger: 'auto', source: 'threshold' },
+    });
     expect(translateGrokPostCompact({ ...base, trigger: 'auto' })).toMatchObject({
-      kind: 'message',
-      payload: { text: 'Grok Build 上下文已压缩（auto）' },
+      kind: 'context-compaction-end',
+      payload: { trigger: 'auto', text: 'Grok Build 上下文已压缩（auto）' },
     });
     expect(translateGrokNotification({
       ...base,
@@ -233,6 +242,43 @@ describe('Grok Build hook translation', () => {
     expect(translateGrokSessionEnd({ ...base, reason: 'exit' })).toMatchObject({
       kind: 'session-end',
       payload: { reason: 'exit' },
+    });
+  });
+
+  it('preserves Grok Build subagent lifecycle fields', () => {
+    expect(
+      translateGrokSubagentStart({
+        ...base,
+        subagentId: 'sub-1',
+        subagentType: 'reviewer',
+        description: 'Review hooks',
+      }),
+    ).toMatchObject({
+      kind: 'subagent-start',
+      payload: {
+        subagentId: 'sub-1',
+        subagentType: 'reviewer',
+        description: 'Review hooks',
+      },
+    });
+    expect(
+      translateGrokSubagentStop({
+        ...base,
+        subagentId: 'sub-1',
+        subagentType: 'reviewer',
+        phase: 'completed',
+        stopHookActive: false,
+        lastAssistantMessage: 'Looks good.',
+      }),
+    ).toMatchObject({
+      kind: 'subagent-end',
+      payload: {
+        subagentId: 'sub-1',
+        subagentType: 'reviewer',
+        phase: 'completed',
+        stopHookActive: false,
+        lastAssistantMessage: 'Looks good.',
+      },
     });
   });
 

@@ -53,6 +53,17 @@ export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]):
     } else if (e.kind === 'file-changed') {
       const path = (p.filePath as string) || '';
       if (path) lines.push(`[Claude 改动文件] ${path}`);
+    } else if (e.kind === 'context-compaction-start') {
+      const trigger = compactValue(p.trigger, 80);
+      lines.push(`[上下文开始压缩]${trigger ? ` ${trigger}` : ''}`);
+    } else if (e.kind === 'context-compaction-end') {
+      const trigger = compactValue(p.trigger, 80);
+      lines.push(`[上下文压缩完成]${trigger ? ` ${trigger}` : ''}`);
+    } else if (e.kind === 'subagent-start' || e.kind === 'subagent-end') {
+      const subagent = compactValue(p.subagentType ?? p.subagentId, 160);
+      lines.push(
+        `[子代理${e.kind === 'subagent-start' ? '开始' : '结束'}]${subagent ? ` ${subagent}` : ''}`,
+      );
     } else if (e.kind === 'waiting-for-user') {
       const type = (p.type as string) || '';
       if (type === 'ask-user-question') {
@@ -98,6 +109,8 @@ export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]):
 
 function toolResultStatus(payload: Record<string, unknown>): string {
   if (payload.status === 'failed' || payload.isError === true) return '失败';
+  if (payload.status === 'aborted') return '中止';
+  if (payload.status === 'denied') return '拒绝';
   if (payload.status === 'interrupted') return '中断';
   if (payload.status === 'completed') return '完成';
   if (payload.status === 'inProgress') return '进行中';

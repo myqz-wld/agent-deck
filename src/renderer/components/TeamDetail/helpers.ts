@@ -78,12 +78,22 @@ export function eventKindLabel(kind: string, agentId?: string | null): string {
       return '文件改动';
     case 'message':
       return '消息';
+    case 'message-display':
+      return '显示消息';
     case 'thinking':
       return agentId === 'codex-cli' ? 'REASONING SUMMARY' : 'THINKING';
     case 'waiting-for-user':
       return '等待响应';
     case 'finished':
       return '一轮完成';
+    case 'context-compaction-start':
+      return '开始压缩上下文';
+    case 'context-compaction-end':
+      return '上下文压缩完成';
+    case 'subagent-start':
+      return '子代理开始';
+    case 'subagent-end':
+      return '子代理结束';
     case 'team-task-created':
       return '团队任务创建';
     case 'team-task-completed':

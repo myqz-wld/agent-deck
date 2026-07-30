@@ -24,6 +24,17 @@ describe('activity-feed format helpers', () => {
     expect(eventKey(event)).toBe('s-1:message:1:{\n  "type": "empty"\n}');
   });
 
+  it('uses Claude MessageDisplay message id and index as a stable key', () => {
+    const event = {
+      sessionId: 's-1',
+      kind: 'message-display',
+      payload: { messageId: 'display-1', index: 3, delta: 'line' },
+      ts: 1,
+    } as AgentEvent;
+
+    expect(eventKey(event)).toBe('display:display-1:3');
+  });
+
   it('keeps tool result block formatting intact', () => {
     expect(formatToolResult([{ type: 'text', text: 'tool output' }, { type: 'image' }])).toBe(
       'tool output\n{"type":"image"}',

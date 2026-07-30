@@ -39,6 +39,24 @@ export function translateUserPromptSubmit(
   });
 }
 
+export function translateMessageDisplay(
+  input: BaseClaudeHookPayload & {
+    message_id?: string;
+    index?: number;
+    final?: boolean;
+    delta?: string;
+  },
+): AgentEvent {
+  return claudeHookEvent(input, 'message-display', {
+    ...commonClaudeHookPayload(input),
+    role: 'assistant',
+    messageId: input.message_id,
+    index: input.index,
+    final: input.final,
+    delta: input.delta ?? '',
+  });
+}
+
 export function translatePreToolUse(
   input: BaseClaudeHookPayload & {
     tool_name?: string;
@@ -216,18 +234,68 @@ export function translateSessionEnd(
   });
 }
 
+export function translatePreCompact(
+  input: BaseClaudeHookPayload & {
+    trigger?: string;
+    custom_instructions?: string | null;
+  },
+): AgentEvent {
+  return claudeHookEvent(input, 'context-compaction-start', {
+    ...commonClaudeHookPayload(input),
+    trigger: input.trigger,
+    customInstructions: input.custom_instructions ?? undefined,
+  });
+}
+
 export function translatePostCompact(
   input: BaseClaudeHookPayload & {
     trigger?: string;
     compact_summary?: string;
   },
 ): AgentEvent {
-  return claudeHookEvent(input, 'message', {
+  return claudeHookEvent(input, 'context-compaction-end', {
     ...commonClaudeHookPayload(input),
-    role: 'assistant',
+    trigger: input.trigger,
+    summary: input.compact_summary,
     text: buildClaudeCompactMessageText({
       trigger: input.trigger,
       summary: input.compact_summary,
     }),
+  });
+}
+
+export function translateSubagentStart(
+  input: BaseClaudeHookPayload & {
+    agent_id?: string;
+    agent_type?: string;
+  },
+): AgentEvent {
+  return claudeHookEvent(input, 'subagent-start', {
+    ...commonClaudeHookPayload(input),
+    subagentId: input.agent_id,
+    subagentType: input.agent_type,
+  });
+}
+
+export function translateSubagentStop(
+  input: BaseClaudeHookPayload & {
+    stop_hook_active?: boolean;
+    agent_id?: string;
+    agent_transcript_path?: string;
+    agent_type?: string;
+    last_assistant_message?: string;
+    background_tasks?: unknown;
+    session_crons?: unknown;
+  },
+): AgentEvent {
+  return claudeHookEvent(input, 'subagent-end', {
+    ...commonClaudeHookPayload(input),
+    subagentId: input.agent_id,
+    subagentType: input.agent_type,
+    agentTranscriptPath: input.agent_transcript_path,
+    stopHookActive: input.stop_hook_active,
+    lastAssistantMessage: input.last_assistant_message,
+    backgroundTasks: input.background_tasks,
+    sessionCrons: input.session_crons,
   });
 }

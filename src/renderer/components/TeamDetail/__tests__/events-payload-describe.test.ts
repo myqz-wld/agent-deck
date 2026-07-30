@@ -93,6 +93,19 @@ describe('describeEventPayload — 正常路径', () => {
       ),
     ).toBe('Bash · pnpm test · 失败');
   });
+  it('新 lifecycle 事件显示稳定摘要', () => {
+    expect(
+      describeEventPayload(ev('message-display', { delta: 'streamed line' })),
+    ).toBe('streamed line');
+    expect(
+      describeEventPayload(ev('context-compaction-end', { trigger: 'auto' })),
+    ).toBe('触发方式：auto');
+    expect(
+      describeEventPayload(
+        ev('subagent-start', { subagentType: 'reviewer', subagentId: 'sub-1' }),
+      ),
+    ).toBe('reviewer · sub-1');
+  });
   it('waiting permission-request 显示工具和入参摘要', () => {
     expect(
       describeEventPayload(
@@ -149,6 +162,11 @@ describe('eventKindLabel — adapter-aware thinking label', () => {
   });
   it('Codex thinking badge keeps REASONING SUMMARY', () => {
     expect(eventKindLabel('thinking', 'codex-cli')).toBe('REASONING SUMMARY');
+  });
+  it('new lifecycle kinds have user-facing labels', () => {
+    expect(eventKindLabel('message-display')).toBe('显示消息');
+    expect(eventKindLabel('context-compaction-end')).toBe('上下文压缩完成');
+    expect(eventKindLabel('subagent-start')).toBe('子代理开始');
   });
 });
 

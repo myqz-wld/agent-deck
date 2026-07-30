@@ -7,7 +7,7 @@ import { HookInstaller } from '../hook-installer';
 import { translatePostCompact } from '../translate';
 
 describe('Claude PostCompact hook support', () => {
-  it('translates PostCompact payload into a visible timeline message with summary', () => {
+  it('translates PostCompact payload into a first-class lifecycle event with summary', () => {
     const event = translatePostCompact({
       session_id: 'sid-post-compact',
       cwd: '/tmp/project',
@@ -15,8 +15,12 @@ describe('Claude PostCompact hook support', () => {
       compact_summary: 'Kept the current bug, files, and validation plan.',
     });
 
-    expect(event.kind).toBe('message');
-    expect(event.payload).toMatchObject({ cwd: '/tmp/project', role: 'assistant' });
+    expect(event.kind).toBe('context-compaction-end');
+    expect(event.payload).toMatchObject({
+      cwd: '/tmp/project',
+      trigger: 'manual',
+      summary: 'Kept the current bug, files, and validation plan.',
+    });
     const text = (event.payload as { text: string }).text;
     expect(text).toContain('上下文已压缩');
     expect(text).toContain('触发：手动');

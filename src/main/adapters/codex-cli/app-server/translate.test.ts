@@ -352,7 +352,7 @@ describe('translateCodexAppServerNotification', () => {
     expect(events).toEqual([]);
   });
 
-  it('emits session-visible messages for app-server compaction and review mode items', () => {
+  it('emits first-class compaction events and session-visible review mode messages', () => {
     const { emit, events } = collect();
     translateCodexAppServerNotification(
       {
@@ -378,8 +378,8 @@ describe('translateCodexAppServerNotification', () => {
 
     expect(events).toEqual([
       {
-        kind: 'message',
-        payload: { text: '🧭 上下文已压缩\n\nkept scope', role: 'assistant' },
+        kind: 'context-compaction-end',
+        payload: { text: '🧭 上下文已压缩\n\nkept scope', summary: 'kept scope' },
       },
       { kind: 'message', payload: { text: '🔎 已进入 review 模式', role: 'assistant' } },
       { kind: 'message', payload: { text: '🔎 已退出 review 模式', role: 'assistant' } },

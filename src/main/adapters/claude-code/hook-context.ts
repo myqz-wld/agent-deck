@@ -7,6 +7,7 @@ export interface BaseClaudeHookPayload {
   transcript_path?: string;
   cwd?: string;
   hook_event_name?: string;
+  turn_id?: string;
   prompt_id?: string;
   permission_mode?: string;
   agent_id?: string;
@@ -21,6 +22,7 @@ export function commonClaudeHookPayload(
     cwd: payload.cwd,
     transcriptPath: payload.transcript_path,
     hookEventName: payload.hook_event_name,
+    turnId: payload.turn_id,
     promptId: payload.prompt_id,
     permissionMode: payload.permission_mode,
     agentId: payload.agent_id,

@@ -10,6 +10,14 @@ export function describe(e: AgentEvent): string {
       const cwd = textValue(p.cwd);
       return cwd ? `会话开始 · ${cwd}` : '会话开始';
     }
+    case 'message-display': {
+      const delta = textValue(p.delta).replace(/\s+/g, ' ');
+      return delta
+        ? `💬 显示消息 · ${delta.slice(0, 80)}${delta.length > 80 ? '…' : ''}`
+        : p.final === true
+          ? '💬 消息显示完成'
+          : '💬 显示消息';
+    }
     case 'tool-use-start': {
       const tool = textValue(p.toolName) || '工具';
       if (tool === 'ExitPlanMode') return '📋 收到一个执行计划';
@@ -20,11 +28,42 @@ export function describe(e: AgentEvent): string {
     }
     case 'tool-use-end': {
       const tool = textValue(p.toolName) || '工具';
-      return `${toolIcon(tool, p.toolKind)} ${tool} 完成`;
+      const status = textValue(p.status);
+      const suffix =
+        status === 'aborted'
+          ? '已中止'
+          : status === 'failed'
+            ? '失败'
+            : status === 'denied'
+              ? '已拒绝'
+              : '完成';
+      return `${toolIcon(tool, p.toolKind)} ${tool} ${suffix}`;
     }
     case 'file-changed': {
       const filePath = textValue(p.filePath);
       return filePath ? `📝 ${filePath}` : '📝 文件改动';
+    }
+    case 'context-compaction-start': {
+      const trigger = textValue(p.trigger);
+      return `🧭 开始压缩上下文${trigger ? ` · ${trigger}` : ''}`;
+    }
+    case 'context-compaction-end': {
+      const trigger = textValue(p.trigger);
+      const summary = textValue(p.summary).replace(/\s+/g, ' ');
+      const detail = summary
+        ? `${summary.slice(0, 100)}${summary.length > 100 ? '…' : ''}`
+        : '';
+      return `🧭 上下文压缩完成${trigger ? ` · ${trigger}` : ''}${detail ? ` · ${detail}` : ''}`;
+    }
+    case 'subagent-start': {
+      const type = textValue(p.subagentType);
+      const id = textValue(p.subagentId);
+      return `🤖 子代理开始${type ? ` · ${type}` : id ? ` · ${id}` : ''}`;
+    }
+    case 'subagent-end': {
+      const type = textValue(p.subagentType);
+      const id = textValue(p.subagentId);
+      return `🤖 子代理结束${type ? ` · ${type}` : id ? ` · ${id}` : ''}`;
     }
     case 'waiting-for-user': {
       const type = textValue(p.type);

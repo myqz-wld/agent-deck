@@ -28,6 +28,15 @@ export function eventKey(e: AgentEvent): string {
     const fp = typeof p.filePath === 'string' ? p.filePath : '';
     return `fc:${e.ts}:${fp}`;
   }
+  if (e.kind === 'message-display') {
+    const mid = typeof p.messageId === 'string' ? p.messageId : '';
+    const index = typeof p.index === 'number' ? p.index : '';
+    if (mid) return `display:${mid}:${index}`;
+  }
+  if (e.kind === 'subagent-start' || e.kind === 'subagent-end') {
+    const subagentId = typeof p.subagentId === 'string' ? p.subagentId : '';
+    if (subagentId) return `${e.kind}:${subagentId}:${e.ts}`;
+  }
   if (e.kind === 'message' || e.kind === 'thinking') {
     const text = formatDisplayText(p.text);
     const nonce = text.slice(0, 32);

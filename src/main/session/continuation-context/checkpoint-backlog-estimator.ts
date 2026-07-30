@@ -4,6 +4,7 @@ import type {
   RawEventRevisionRow,
 } from '@main/store/event-revision-repo';
 import { groupContinuationRows } from './checkpoint-fold-chunk';
+import { CONTINUATION_EXCLUDED_EVENT_KINDS } from './event-normalizer';
 import {
   CONTINUATION_CHECKPOINT_SECTIONS,
   parseContinuationCheckpointJson,
@@ -59,6 +60,10 @@ interface RawEventRow {
   ts: number;
   tool_use_id: string | null;
 }
+
+const EXCLUDED_EVENT_KIND_PLACEHOLDERS = CONTINUATION_EXCLUDED_EVENT_KINDS
+  .map(() => '?')
+  .join(', ');
 
 function positiveSafeInteger(value: number, field: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
@@ -127,10 +132,17 @@ function listRawEvents(
        FROM events
       WHERE session_id = ?
         AND COALESCE(change_revision, id) <= ?
+        AND kind NOT IN (${EXCLUDED_EVENT_KIND_PLACEHOLDERS})
         AND (COALESCE(change_revision, id), id) > (?, ?)
       ORDER BY COALESCE(change_revision, id) ASC, id ASC
       LIMIT 1000`,
-  ).all(sessionId, throughRevision, after.revision, after.id) as RawEventRow[];
+  ).all(
+    sessionId,
+    throughRevision,
+    ...CONTINUATION_EXCLUDED_EVENT_KINDS,
+    after.revision,
+    after.id,
+  ) as RawEventRow[];
   return rows.map((row) => ({
     id: row.id,
     sessionId: row.session_id,

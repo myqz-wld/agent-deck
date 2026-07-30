@@ -1,16 +1,20 @@
 import type { RouteOptions } from 'fastify';
 import {
+  translateMessageDisplay,
   translateNotification,
   translatePermissionDenied,
   translatePermissionRequest,
   translatePostCompact,
   translatePostToolUse,
   translatePostToolUseFailure,
+  translatePreCompact,
   translatePreToolUse,
   translateSessionEnd,
   translateSessionStart,
   translateStop,
   translateStopFailure,
+  translateSubagentStart,
+  translateSubagentStop,
   translateUserPromptSubmit,
 } from './translate';
 import type { AgentEvent } from '@shared/types';
@@ -74,6 +78,8 @@ export function buildHookRoutes(
       '/hook/userpromptsubmit',
       (b) => translateUserPromptSubmit(b as never),
     ),
+    route('MessageDisplay', '/hook/messagedisplay', (b) =>
+      translateMessageDisplay(b as never)),
     route('PreToolUse', '/hook/pretooluse', (b) => translatePreToolUse(b as never)),
     route(
       'PermissionRequest',
@@ -91,7 +97,12 @@ export function buildHookRoutes(
       '/hook/permissiondenied',
       (b) => translatePermissionDenied(b as never),
     ),
+    route('PreCompact', '/hook/precompact', (b) => translatePreCompact(b as never)),
     route('PostCompact', '/hook/postcompact', (b) => translatePostCompact(b as never)),
+    route('SubagentStart', '/hook/subagentstart', (b) =>
+      translateSubagentStart(b as never)),
+    route('SubagentStop', '/hook/subagentstop', (b) =>
+      translateSubagentStop(b as never)),
     route('Notification', '/hook/notification', (b) => translateNotification(b as never)),
     route('Stop', '/hook/stop', (b) => translateStop(b as never)),
     route('StopFailure', '/hook/stopfailure', (b) => translateStopFailure(b as never)),

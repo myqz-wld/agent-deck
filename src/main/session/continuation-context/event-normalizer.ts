@@ -5,7 +5,14 @@ import { truncateContinuationTextMiddle, utf8ByteLength } from './token-estimato
 
 export const MAX_NORMALIZED_EVENT_UTF8_BYTES = 32 * 1024;
 
-const EXCLUDED_EVENT_KINDS = new Set(['thinking', 'token-usage']);
+// MessageDisplay carries display-only streaming fragments and would duplicate the
+// authoritative final message in continuation prompts.
+export const CONTINUATION_EXCLUDED_EVENT_KINDS = [
+  'thinking',
+  'token-usage',
+  'message-display',
+] as const;
+const EXCLUDED_EVENT_KINDS = new Set<string>(CONTINUATION_EXCLUDED_EVENT_KINDS);
 
 /** Normalize one immutable spool row while keeping oversized or malformed evidence bounded. */
 export function normalizeContinuationEvent(
