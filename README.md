@@ -51,11 +51,13 @@ permissive.
 
 ### Session context usage
 
-The session detail header shows the provider-reported current context usage, context-window size,
-and occupancy percentage. This live snapshot is separate from the cumulative token ledger in the
-Data view. When a context compaction starts, Agent Deck invalidates the pre-compaction used count;
-it shows the window as updating until the provider reports the compacted snapshot, so stale usage
-is never presented as current.
+The session detail header and live session cards show the provider-reported current context usage,
+context-window size, and occupancy percentage. Live cards also show the current Git branch, with
+branch lookups deduplicated for sessions sharing a working directory and refreshed every 10
+seconds. This live snapshot is separate from the cumulative token ledger in the Data view. When a
+context compaction starts, Agent Deck invalidates the pre-compaction used count; it shows the
+window as updating until the provider reports the compacted snapshot, so stale usage is never
+presented as current.
 
 ### Codex session approvals
 

@@ -5,6 +5,7 @@ import { selectLiveSessions } from '@renderer/lib/session-selectors';
 import { deriveTeamRole } from '@renderer/lib/derive-team-role';
 import { computeChildrenByOwner, isPureSpawnChain } from './session-list-tree';
 import { SessionCard } from './SessionCard';
+import { useSessionGitBranches } from '@renderer/hooks/use-session-git-branches';
 
 /**
  * 会话树先按 spawn link 收编，再用 universal team backend 为未收编协作者寻找同团队的首个
@@ -21,6 +22,7 @@ function renderTreeGroup(
   sessions: SessionRecord[],
   selectedId: string | null,
   onSelect: (sid: string) => void,
+  branchesBySession: ReadonlyMap<string, string | null>,
 ): JSX.Element[] {
   const { childrenByOwner, roots } = computeChildrenByOwner(sessions);
 
@@ -38,6 +40,7 @@ function renderTreeGroup(
         session={session}
         selected={selectedId === session.id}
         onSelect={() => onSelect(session.id)}
+        branch={branchesBySession.get(session.id)}
         teamRole={teamRole}
       />,
     ];
@@ -77,10 +80,12 @@ export function SessionList(): JSX.Element {
     // 与 App.tsx header stats 共用 selectLiveSessions，确保两处计数完全一致。
     const all = selectLiveSessions(sessions);
     return {
+      all,
       active: all.filter((s) => s.lifecycle === 'active'),
       dormant: all.filter((s) => s.lifecycle === 'dormant'),
     };
   }, [sessions]);
+  const branchesBySession = useSessionGitBranches(grouped.all);
 
   if (grouped.active.length === 0 && grouped.dormant.length === 0) {
     return (
@@ -108,7 +113,7 @@ export function SessionList(): JSX.Element {
             活跃 · {grouped.active.length}
           </div>
           <div className="flex flex-col gap-1.5">
-            {renderTreeGroup(grouped.active, selected, select)}
+            {renderTreeGroup(grouped.active, selected, select, branchesBySession)}
           </div>
         </section>
       )}
@@ -118,7 +123,7 @@ export function SessionList(): JSX.Element {
             休眠 · {grouped.dormant.length}
           </div>
           <div className="flex flex-col gap-1.5">
-            {renderTreeGroup(grouped.dormant, selected, select)}
+            {renderTreeGroup(grouped.dormant, selected, select, branchesBySession)}
           </div>
         </section>
       )}
