@@ -121,6 +121,7 @@ vi.mock('@main/utils/logger', () => ({
 import { app } from 'electron';
 import { cleanupSessionHandOffPreparations } from '../../ipc/session-hand-off';
 import { closeDb, getDb } from '../../store/db';
+import { runStorageShutdownMaintenance } from '../../store/storage-maintenance/shutdown-runner';
 import { createInitialBootstrapState } from '../_deps';
 import { registerLifecycleHooks } from '../lifecycle-hooks';
 import {
@@ -274,6 +275,37 @@ describe('checkpoint refresh shutdown entry', () => {
     await flushMicrotasks();
 
     expect(closeDb).toHaveBeenCalledOnce();
+    expect(mocks.calls).toContain('process.exit.1');
+  });
+
+  it('keeps a pending storage-worker stop inside the 10s bound and skips a third connection', async () => {
+    const storageStop = vi.fn(() => new Promise<void>(() => undefined));
+    const state = createInitialBootstrapState();
+    state.storageMaintenanceScheduler = {
+      stop: storageStop,
+    } as unknown as NonNullable<typeof state.storageMaintenanceScheduler>;
+    registerLifecycleHooks(state, Promise.resolve());
+    vi.mocked(getDb).mockClear();
+    vi.mocked(runStorageShutdownMaintenance).mockClear();
+
+    mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+    mocks.checkpointState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(storageStop).toHaveBeenCalledOnce();
+    expect(state.storageMaintenanceScheduler).toBeNull();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(closeDb).not.toHaveBeenCalled();
+    expect(getDb).not.toHaveBeenCalled();
+    expect(runStorageShutdownMaintenance).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks();
+
+    expect(closeDb).toHaveBeenCalledOnce();
+    expect(getDb).not.toHaveBeenCalled();
+    expect(runStorageShutdownMaintenance).not.toHaveBeenCalled();
     expect(mocks.calls).toContain('process.exit.1');
   });
 });

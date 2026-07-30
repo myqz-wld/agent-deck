@@ -1,14 +1,14 @@
 import type { Database } from 'better-sqlite3';
 import createStorageMaintenanceWorker from './maintenance-worker?nodeWorker';
 import { getDb } from '../db';
-import type { MaintenanceEngineTick, MaintenanceEngineOptions } from './maintenance-engine';
+import type { MaintenanceEngineOptions } from './maintenance-engine';
 import {
   STORAGE_MAINTENANCE_WORKER_KIND,
-  type StorageMaintenanceCheckpointResult,
   type StorageMaintenanceWorkerCommand,
   type StorageMaintenanceWorkerData,
   type StorageMaintenanceWorkerMessage,
 } from './maintenance-worker-contract';
+import { StorageMaintenanceDiagnostics } from './scheduler-diagnostics';
 import { MainWalCheckpointLease } from './main-checkpoint-lease';
 import { readMaintenanceState, type StorageMaintenanceTask } from './state';
 import log from '@main/utils/logger';
@@ -73,6 +73,8 @@ export class StorageMaintenanceScheduler {
   private respawnTimer: NodeJS.Timeout | null = null;
   private requestTimer: NodeJS.Timeout | null = null;
   private stopped = true;
+  private terminalDisabled = false;
+  private terminalCloseRequested = false;
   private worker: ActiveWorker | null = null;
   private workerGeneration = 0;
   private requestId = 0;
@@ -83,18 +85,21 @@ export class StorageMaintenanceScheduler {
   private maintenanceStartsAt = 0;
   private nextSliceAt = 0;
   private stopWaiter: { promise: Promise<void>; resolve: () => void } | null = null;
-  private lastPhase = new Map<string, string>();
-  private lastProgress = new Map<string, number>();
-  private lastErrorLog = new Map<StorageMaintenanceTask, { signature: string; at: number }>();
-  private lastCheckpointWarningAt = 0;
+  private readonly diagnostics: StorageMaintenanceDiagnostics;
 
   constructor(
     private readonly options: SchedulerOptions = {},
     private readonly dependencies: StorageMaintenanceSchedulerDependencies = DEFAULT_DEPENDENCIES,
-  ) {}
+  ) {
+    this.diagnostics = new StorageMaintenanceDiagnostics(
+      this.options.slowSliceMs ?? 50,
+      () => this.dependencies.now(),
+      logger,
+    );
+  }
 
   start(): void {
-    if (!this.stopped) return;
+    if (!this.stopped || this.terminalDisabled) return;
     this.stopped = false;
     this.mainDb = this.dependencies.getDatabase();
     this.restartEligible = (['event-search-v1', 'file-snapshot-blobs-v1'] as const).filter(
@@ -125,7 +130,7 @@ export class StorageMaintenanceScheduler {
   }
 
   private spawnWorker(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.terminalDisabled) return;
     this.clearRespawnTimer();
     const generation = ++this.workerGeneration;
     const workerData: StorageMaintenanceWorkerData = {
@@ -173,6 +178,19 @@ export class StorageMaintenanceScheduler {
     message: StorageMaintenanceWorkerMessage,
   ): void {
     if (this.worker?.generation !== generation) return;
+    if (this.terminalDisabled) {
+      if (message.type === 'fatal') {
+        this.completeWorkerExit(generation, new Error(message.error));
+      } else if (message.type === 'closed') {
+        this.inFlight = null;
+        this.clearRequestTimerHandle();
+        this.diagnostics.observeCheckpoint(message.checkpoint);
+        this.worker = null;
+        this.releaseMainCheckpointLease();
+        if (this.stopped) this.finishStop();
+      }
+      return;
+    }
     if (message.type === 'ready') {
       this.onWorkerReady(generation, message.autoCheckpointPages);
       return;
@@ -185,25 +203,27 @@ export class StorageMaintenanceScheduler {
     if (!this.takeRequest(message.requestId, message.type)) return;
 
     if (message.type === 'slice-result') {
-      if (message.checkpoint) this.observeCheckpoint(message.checkpoint);
-      if (message.tick) this.observeTick(message.tick);
-      if (message.pausedForCheckpoint) this.warnCheckpointBacklog(message.checkpoint);
+      if (message.checkpoint) this.diagnostics.observeCheckpoint(message.checkpoint);
+      if (message.tick) this.diagnostics.observeTick(message.tick);
+      if (message.pausedForCheckpoint) {
+        this.diagnostics.warnCheckpointBacklog(message.checkpoint);
+      }
       this.nextSliceAt = this.dependencies.now() + message.nextDelayMs;
       this.afterRequest();
       return;
     }
     if (message.type === 'checkpoint-result') {
-      this.observeCheckpoint(message.checkpoint);
+      this.diagnostics.observeCheckpoint(message.checkpoint);
       this.afterRequest();
       return;
     }
-    this.observeCheckpoint(message.checkpoint);
+    this.diagnostics.observeCheckpoint(message.checkpoint);
     const retired = this.worker?.retiring === true;
     const reason = this.worker?.failureReason ?? 'worker retired';
     this.worker = null;
     this.releaseMainCheckpointLease();
     if (this.stopped) this.finishStop();
-    else if (retired) this.scheduleRespawn(new Error(reason));
+    else if (retired && !this.terminalDisabled) this.scheduleRespawn(new Error(reason));
   }
 
   private onWorkerReady(generation: number, autoCheckpointPages: number): void {
@@ -240,7 +260,7 @@ export class StorageMaintenanceScheduler {
   }
 
   private scheduleNextRequest(): void {
-    if (this.stopped || !this.worker?.ready || this.inFlight) return;
+    if (this.stopped || this.terminalDisabled || !this.worker?.ready || this.inFlight) return;
     if (this.timer) clearTimeout(this.timer);
     const now = this.dependencies.now();
     const checkpointInterval = this.options.checkpointIntervalMs ?? 5_000;
@@ -250,13 +270,13 @@ export class StorageMaintenanceScheduler {
 
   private dispatchNextRequest(): void {
     this.timer = null;
-    if (this.stopped || !this.worker?.ready || this.inFlight) return;
+    if (this.stopped || this.terminalDisabled || !this.worker?.ready || this.inFlight) return;
     if (this.dependencies.now() >= this.nextSliceAt) this.sendRequest('run-slice');
     else this.sendRequest('checkpoint');
   }
 
   private sendRequest(type: 'run-slice' | 'checkpoint' | 'close'): void {
-    if (!this.worker || this.inFlight) return;
+    if (!this.worker || this.inFlight || this.terminalDisabled) return;
     const requestId = ++this.requestId;
     this.inFlight = { id: requestId, type };
     try {
@@ -271,6 +291,10 @@ export class StorageMaintenanceScheduler {
   private sendClose(): void { this.sendRequest('close'); }
 
   private queueCloseAfterCurrent(): void {
+    if (this.terminalDisabled) {
+      this.queueTerminalClose();
+      return;
+    }
     if (!this.worker || this.inFlight?.type === 'close') return;
     const generation = this.worker.generation;
     const requestId = ++this.requestId;
@@ -314,80 +338,6 @@ export class StorageMaintenanceScheduler {
   private afterRequest(): void {
     if (this.stopped) this.sendClose();
     else this.scheduleNextRequest();
-  }
-
-  private observeTick(tick: MaintenanceEngineTick): void {
-    for (const task of tick.restartTransitions) {
-      logger.info(`[storage-maintenance] ${task} restart gate passed; verification resumed`);
-    }
-    if (tick.error) {
-      const signature = `${tick.error.task}:${tick.error.message}`;
-      const now = this.dependencies.now();
-      const prior = this.lastErrorLog.get(tick.error.task);
-      if (!prior || prior.signature !== signature || now - prior.at >= 5 * 60_000) {
-        logger.warn(
-          `[storage-maintenance] worker slice failed; will retry: ${tick.error.message}`,
-        );
-        this.lastErrorLog.set(tick.error.task, { signature, at: now });
-      }
-    }
-    if (!tick.result) return;
-    const stateTask = tick.result.task === 'file-snapshot-gc'
-      ? 'file-snapshot-blobs-v1'
-      : tick.result.task;
-    this.lastErrorLog.delete(stateTask);
-    const slowThreshold = this.options.slowSliceMs ?? 50;
-    if (tick.result.durationMs >= slowThreshold) {
-      logger.warn('[performance] slow storage maintenance worker slice', {
-        task: tick.result.task,
-        phase: tick.result.phase,
-        processed: tick.result.processed,
-        durationMs: Math.round(tick.result.durationMs),
-      });
-    }
-    const previousPhase = this.lastPhase.get(tick.result.task);
-    if (previousPhase !== tick.result.phase) {
-      this.lastPhase.set(tick.result.task, tick.result.phase);
-      this.lastProgress.set(tick.result.task, 0);
-      logger.info(
-        `[storage-maintenance] ${tick.result.task} phase=${tick.result.phase} ` +
-          `(processed=${tick.result.processed}, durationMs=${Math.round(tick.result.durationMs)})`,
-      );
-      return;
-    }
-    if (!tick.state || tick.result.task === 'file-snapshot-gc') return;
-    const interval = tick.state.task === 'event-search-v1' ? 10_000 : 1_000;
-    const previous = this.lastProgress.get(tick.state.task) ?? 0;
-    if (tick.state.cursor - previous < interval) return;
-    this.lastProgress.set(tick.state.task, tick.state.cursor);
-    logger.info(
-      `[storage-maintenance] ${tick.state.task} progress=${tick.state.cursor}/` +
-        `${tick.state.upperBound} (batch=${tick.state.batchSize})`,
-    );
-  }
-
-  private observeCheckpoint(checkpoint: StorageMaintenanceCheckpointResult): void {
-    if (checkpoint.durationMs >= (this.options.slowSliceMs ?? 50)) {
-      logger.warn('[performance] slow storage worker WAL checkpoint', {
-        durationMs: Math.round(checkpoint.durationMs),
-        busy: checkpoint.busy,
-        walPages: checkpoint.log,
-        checkpointedPages: checkpoint.checkpointed,
-      });
-    }
-  }
-
-  private warnCheckpointBacklog(
-    checkpoint: StorageMaintenanceCheckpointResult | null,
-  ): void {
-    const now = this.dependencies.now();
-    if (now - this.lastCheckpointWarningAt < 60_000) return;
-    this.lastCheckpointWarningAt = now;
-    logger.warn('[storage-maintenance] staged writes paused for WAL checkpoint backlog', {
-      busy: checkpoint?.busy ?? 0,
-      walPages: checkpoint?.log ?? 0,
-      checkpointedPages: checkpoint?.checkpointed ?? 0,
-    });
   }
 
   private acquireMainCheckpointLease(): void {
@@ -435,10 +385,15 @@ export class StorageMaintenanceScheduler {
     this.inFlight = null;
     this.releaseMainCheckpointLease();
     if (this.stopped) {
-      logger.warn(`[storage-maintenance] worker stopped after failure: ${message}`);
+      logger.warn(
+        this.terminalDisabled
+          ? 'terminal-disabled storage maintenance worker stopped during shutdown'
+          : `[storage-maintenance] worker stopped after failure: ${message}`,
+      );
       this.finishStop();
       return;
     }
+    if (this.terminalDisabled) return;
     this.scheduleRespawn(error);
   }
 
@@ -451,10 +406,7 @@ export class StorageMaintenanceScheduler {
     this.requestTimer = setTimeout(() => {
       this.requestTimer = null;
       if (this.inFlight?.id !== requestId) return;
-      this.retireWorker(
-        generation,
-        new Error(`storage maintenance worker request timed out (type=${type}, id=${requestId})`),
-      );
+      this.disableAfterRequestTimeout(generation, requestId, type);
     }, this.options.requestTimeoutMs ?? 15_000);
   }
 
@@ -462,13 +414,53 @@ export class StorageMaintenanceScheduler {
     const message = error instanceof Error ? error.message : String(error);
     logger.warn(`[storage-maintenance] worker unavailable; restoring main checkpoint safety: ${message}`);
     this.releaseMainCheckpointLease();
-    if (this.stopped || this.respawnTimer) return;
+    if (this.stopped || this.terminalDisabled || this.respawnTimer) return;
     const retryMs = this.options.errorRetryMs ?? 30_000;
     this.nextSliceAt = Math.max(this.nextSliceAt, this.dependencies.now() + retryMs);
     this.respawnTimer = setTimeout(() => {
       this.respawnTimer = null;
       this.spawnWorker();
     }, retryMs);
+  }
+
+  private disableAfterRequestTimeout(
+    generation: number,
+    requestId: number,
+    type: StorageMaintenanceWorkerCommand['type'],
+  ): void {
+    if (
+      this.terminalDisabled ||
+      this.worker?.generation !== generation ||
+      this.inFlight?.id !== requestId
+    ) return;
+    this.terminalDisabled = true;
+    this.worker.retiring = true;
+    this.worker.failureReason = 'request-timeout';
+    this.clearRequestTimer();
+    this.clearRespawnTimer();
+    this.clearRequestTimerHandle();
+    this.releaseMainCheckpointLease();
+    logger.warn(
+      'storage maintenance worker timed out; maintenance disabled until restart',
+    );
+    if (type === 'close') {
+      this.terminalCloseRequested = true;
+      return;
+    }
+    this.inFlight = null;
+    this.queueTerminalClose();
+  }
+
+  private queueTerminalClose(): void {
+    if (!this.worker || this.terminalCloseRequested) return;
+    this.terminalCloseRequested = true;
+    const requestId = ++this.requestId;
+    this.inFlight = { id: requestId, type: 'close' };
+    try {
+      this.worker.instance.postMessage({ type: 'close', requestId });
+    } catch {
+      this.inFlight = null;
+    }
   }
 
   private finishStop(): void {
