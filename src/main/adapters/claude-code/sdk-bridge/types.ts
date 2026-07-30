@@ -153,6 +153,11 @@ export interface InternalSession {
   runtimeEffort?: ClaudeCodeEffortLevel;
   /** Provider-only Claude alias mapping extracted from the child env (never contains credentials). */
   providerModelAliases?: ClaudeProviderModelAliases;
+  /**
+   * Removes a private derived Gateway settings file after the SDK stream or startup attempt ends.
+   * The file never contains the Gateway `env`; credentials stay in the per-child environment.
+   */
+  gatewaySandboxSettingsCleanup?: () => void;
   cwd: string;
   query: Query;
   /**
@@ -251,6 +256,12 @@ export interface InternalSession {
    * 之前置位；不需要清，因为 internal session 紧接着会被 sessions Map 删除。
    */
   expectedClose?: boolean;
+  /**
+   * `expectedClose` is also set by failure cleanup before interrupting a failed child. Preserve
+   * whether the close was already intentional so the outer fast-start path does not hide a real
+   * startup exception.
+   */
+  suppressStartupFailureMessage?: boolean;
   /**
    * SDK query consume loop 完整进入 finally 后 resolve。
    *

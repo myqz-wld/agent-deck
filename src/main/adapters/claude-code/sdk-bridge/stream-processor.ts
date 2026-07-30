@@ -30,6 +30,7 @@ import {
   createClaudeUserMessageStream,
   makeClaudeUserMessage,
 } from './user-message-stream';
+import { cleanupGatewaySandboxSettings } from './create-session/gateway-sandbox-settings';
 
 const logger = log.scope('claude-stream');
 
@@ -487,6 +488,7 @@ export class StreamProcessor {
           sessionManager.releaseSdkClaim(cliSid);
         }
       } finally {
+        cleanupGatewaySandboxSettings(internal);
         internal.resolveStreamDrained();
       }
     }

@@ -154,6 +154,7 @@ function trustedRecoveryTurn() {
 beforeEach(() => {
   emits.length = 0;
   vi.mocked(loadSdk).mockReset();
+  vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionManager.claimAsSdk).mockReset();
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.expectSdkSession).mockReset();
@@ -656,4 +657,74 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
       expect(sessions.size).toBe(0); // catch 已 sessions.delete(tempKey)
     },
   );
+
+  it('fast-return startup failures stay visible after failure cleanup marks expectedClose', async () => {
+    const bridge = makeBridge();
+    let visibleSessionId: string | undefined;
+    vi.mocked(sessionRepo.get).mockImplementation((sessionId) =>
+      sessionId === visibleSessionId
+        ? ({
+            id: sessionId,
+            agentId: 'claude-code',
+            cwd: '/tmp/test',
+            title: 'startup failure',
+            source: 'sdk',
+            lifecycle: 'active',
+            activity: 'working',
+            startedAt: 1,
+            lastEventAt: 1,
+            endedAt: null,
+            archivedAt: null,
+          } as never)
+        : null,
+    );
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: vi.fn(() => {
+        throw new Error(
+          'Cannot use both a settings file path and the sandbox option.',
+        );
+      }),
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name,
+        description,
+        inputSchema,
+        handler,
+      })),
+    } as never);
+
+    const handle = await bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'hi',
+    });
+    visibleSessionId = handle.sessionId;
+
+    await vi.waitFor(() => {
+      expect(
+        emits.find(
+          (event) =>
+            event.sessionId === handle.sessionId &&
+            event.kind === 'message' &&
+            (event.payload as { error?: boolean }).error === true,
+        ),
+      ).toBeDefined();
+    });
+
+    const failure = emits.find(
+      (event) =>
+        event.sessionId === handle.sessionId &&
+        event.kind === 'message' &&
+        (event.payload as { error?: boolean }).error === true,
+    );
+    expect((failure?.payload as { text: string }).text).toContain(
+      'Cannot use both a settings file path and the sandbox option.',
+    );
+    expect(
+      emits.some(
+        (event) =>
+          event.sessionId === handle.sessionId &&
+          event.kind === 'finished' &&
+          (event.payload as { ok?: boolean }).ok === false,
+      ),
+    ).toBe(true);
+  });
 });
