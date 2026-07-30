@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { methods, type ContentBlock, type SessionUpdate } from '@agentclientprotocol/sdk';
+import { methods, type SessionUpdate } from '@agentclientprotocol/sdk';
 import type { PendingAgentMessage } from '@main/adapters/types';
 import {
   enqueuePayloadFingerprint,
@@ -16,10 +16,18 @@ import type { GrokPromptCompleteNotification } from './extension';
 import { GrokLivePromptCompletion } from './live-prompt-completion';
 import { errorText } from './protocol-utils';
 import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
+import {
+  applyRecoveredGrokTurn,
+  GrokProviderCompletionRecovery,
+} from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
-import { finalizeGrokAcpResponse } from './turn-response';
+import {
+  finalizeGrokAcpResponse,
+  responseFromGrokLiveOutcome,
+} from './turn-response';
 import type {
   GrokEnqueueOptions,
+  GrokInterjectRequest,
   GrokTurnQueueOptions,
   PreparedGrokMessage,
 } from './turn-queue-types';
@@ -41,22 +49,18 @@ const MAX_PENDING_MESSAGES = 20;
 const GROK_INTERJECT_METHOD = 'x.ai/interject';
 const GROK_INTERJECT_WIRE_METHOD = `_${GROK_INTERJECT_METHOD}`;
 
-interface GrokInterjectRequest {
-  sessionId: string;
-  text: string;
-  interjectionId: string;
-  content: ContentBlock[];
-}
-
 export class GrokTurnQueue {
   private readonly firstModelEventWatchdog: GrokFirstModelEventWatchdog;
   private readonly livePromptCompletion = new GrokLivePromptCompletion();
+  private readonly providerCompletionRecovery: GrokProviderCompletionRecovery;
 
-  constructor(
-    private readonly options: GrokTurnQueueOptions,
-  ) {
+  constructor(private readonly options: GrokTurnQueueOptions) {
     this.firstModelEventWatchdog =
       new GrokFirstModelEventWatchdog(options.firstModelEventTimeoutMs);
+    this.providerCompletionRecovery = new GrokProviderCompletionRecovery({
+      pollMs: options.providerCompletionPollMs,
+      root: options.providerHistoryRoot,
+    });
   }
 
   observeModelActivity(runtime: GrokRuntime, update: SessionUpdate): void {
@@ -353,6 +357,7 @@ export class GrokTurnQueue {
     runtime.interruptRequested = false;
     const currentTurnController = new AbortController();
     runtime.currentTurnController = currentTurnController;
+    let recycleTransport = false;
     const submitting: GrokSubmittingMessage | null = message.deferUserEventUntilTurnStart
       ? {
           message,
@@ -380,43 +385,38 @@ export class GrokTurnQueue {
         message.id,
       );
       if (submitting) submitting.promptRequestIssued = true;
-      const outcome = await this.livePromptCompletion.run(runtime, (turnId) =>
-        this.firstModelEventWatchdog.run(
-          runtime,
-          () => runtime.process!.connection.agent.request(
-            methods.agent.session.prompt,
-            {
-              sessionId: requireNativeSession(runtime),
-              prompt: blocks,
-              _meta: { turnId },
-            },
-            { cancellationSignal: currentTurnController.signal },
-          ),
-        ));
+      const outcome = await this.providerCompletionRecovery.run(
+        runtime,
+        () => this.livePromptCompletion.run(runtime, (turnId) =>
+          this.firstModelEventWatchdog.run(
+            runtime,
+            () => runtime.process!.connection.agent.request(
+              methods.agent.session.prompt,
+              {
+                sessionId: requireNativeSession(runtime),
+                prompt: blocks,
+                _meta: { turnId },
+              },
+              { cancellationSignal: currentTurnController.signal },
+            ),
+          )),
+      );
       if (isCancelled(submitting)) return;
-      if (
-        outcome.kind === 'prompt-complete' &&
-        !runtime.translation.assistantObservedForCurrentTurn
-      ) {
-        const error = outcome.notification.agentResult?.trim()
-          ? outcome.notification.agentResult
-          : outcome.notification.stopReason === 'rate_limit'
-            ? 'Grok Build 请求触发速率限制，请稍后重试。'
-            : null;
-        if (error) {
-          this.options.emitEvent(runtime.applicationSessionId, 'message', {
-            text: error,
-            role: 'assistant',
-            error: true,
-          });
-        }
+      if (outcome.kind === 'native-history') {
+        if (submitting) this.confirmPromptAccepted(runtime);
+        runtime.ready = false;
+        runtime.suppressUpdates = true;
+        this.firstModelEventWatchdog.clear(runtime);
+        currentTurnController.abort();
+        applyRecoveredGrokTurn(runtime, outcome.turn, this.options);
+        recycleTransport = true;
+        return;
       }
-      const response = outcome.kind === 'response'
-        ? outcome.response
-        : {
-            stopReason: outcome.notification.stopReason,
-            usage: null,
-          };
+      const response = responseFromGrokLiveOutcome(
+        runtime,
+        outcome.value,
+        this.options,
+      );
       await finalizeGrokAcpResponse(
         runtime,
         response,
@@ -450,6 +450,8 @@ export class GrokTurnQueue {
       runtime.running = false;
       if (runtime.sealed) {
         await this.options.closeSession(runtime.applicationSessionId);
+      } else if (recycleTransport) {
+        await this.options.recycleRuntime(runtime);
       } else {
         void this.drain(runtime);
       }

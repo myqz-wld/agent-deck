@@ -1,4 +1,5 @@
 import type { AgentEnqueueOptions } from '@main/adapters/types';
+import type { ContentBlock } from '@agentclientprotocol/sdk';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { AgentEvent, HandOffMetadata } from '@shared/types';
 
@@ -9,6 +10,13 @@ export interface PreparedGrokMessage {
   idempotencyKey?: string;
   fingerprint: string | null;
   bypassQueueLimit?: boolean;
+}
+
+export interface GrokInterjectRequest {
+  sessionId: string;
+  text: string;
+  interjectionId: string;
+  content: ContentBlock[];
 }
 
 export type GrokEnqueueOptions = AgentEnqueueOptions & {
@@ -22,7 +30,10 @@ export interface GrokTurnQueueOptions {
   emitEvent: (sessionId: string, kind: AgentEvent['kind'], payload: unknown) => void;
   emitError: (sessionId: string, text: string) => void;
   closeSession: (sessionId: string) => Promise<void>;
+  recycleRuntime: (runtime: GrokRuntime) => Promise<void>;
   firstModelEventTimeoutMs?: number;
+  providerCompletionPollMs?: number;
+  providerHistoryRoot?: string;
 }
 
 export type GrokRuntimeEvent = (runtime: GrokRuntime) => void;

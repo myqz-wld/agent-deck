@@ -307,7 +307,7 @@ describe('GrokAcpProcess', () => {
     }
   });
 
-  it('delivers Grok usage and prompt-complete notifications over ACP', async () => {
+  it('delivers both Grok extension wire variants and prompt-complete over ACP', async () => {
     const updates: unknown[] = [];
     const completions: unknown[] = [];
     const child = await GrokAcpProcess.start({
@@ -332,7 +332,12 @@ describe('GrokAcpProcess', () => {
         prompt: [{ type: 'text', text: 'extension' }],
         _meta: { turnId: 42 },
       });
-      expect(updates).toHaveLength(1);
+      await child.connection.agent.request(methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{ type: 'text', text: 'session_notification extension' }],
+        _meta: { turnId: 43 },
+      });
+      expect(updates).toHaveLength(2);
       expect(updates[0]).toMatchObject({
         sessionId: created.sessionId,
         update: {
@@ -341,13 +346,29 @@ describe('GrokAcpProcess', () => {
           usage: { inputTokens: 7, outputTokens: 5 },
         },
       });
-      await vi.waitFor(() => expect(completions).toEqual([{
+      expect(updates[1]).toMatchObject({
         sessionId: created.sessionId,
-        promptId: 'fake-prompt-1',
-        stopReason: 'end_turn',
-        agentResult: null,
-        turnId: 42,
-      }]));
+        update: {
+          sessionUpdate: 'turn_completed',
+          prompt_id: 'fake-prompt-2',
+        },
+      });
+      await vi.waitFor(() => expect(completions).toEqual([
+        {
+          sessionId: created.sessionId,
+          promptId: 'fake-prompt-1',
+          stopReason: 'end_turn',
+          agentResult: null,
+          turnId: 42,
+        },
+        {
+          sessionId: created.sessionId,
+          promptId: 'fake-prompt-2',
+          stopReason: 'end_turn',
+          agentResult: null,
+          turnId: 43,
+        },
+      ]));
     } finally {
       await child.stop();
     }

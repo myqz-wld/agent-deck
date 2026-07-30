@@ -1,5 +1,11 @@
 export const GROK_EXTENSION_UPDATE_METHOD = '_x.ai/session/update';
+export const GROK_EXTENSION_NOTIFICATION_METHOD = '_x.ai/session_notification';
 export const GROK_PROMPT_COMPLETE_METHOD = '_x.ai/session/prompt_complete';
+
+export function isGrokExtensionUpdateMethod(method: string): boolean {
+  return method === GROK_EXTENSION_UPDATE_METHOD
+    || method === GROK_EXTENSION_NOTIFICATION_METHOD;
+}
 
 export interface GrokExtensionNotification {
   sessionId?: string;

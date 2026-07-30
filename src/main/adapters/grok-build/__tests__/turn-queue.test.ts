@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -60,14 +60,19 @@ function makeQueue(firstModelEventTimeoutMs?: number) {
   const events: Array<{ kind: string; payload: unknown }> = [];
   const emitError = vi.fn();
   const closeSession = vi.fn(async () => undefined);
+  const recycleRuntime = vi.fn(async (runtime: GrokRuntime) => {
+    runtime.ready = true;
+    runtime.suppressUpdates = false;
+  });
   const queue = new GrokTurnQueue({
     emit: (event) => events.push({ kind: event.kind, payload: event.payload }),
     emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
     emitError,
     closeSession,
+    recycleRuntime,
     firstModelEventTimeoutMs,
   });
-  return { queue, events, emitError, closeSession };
+  return { queue, events, emitError, closeSession, recycleRuntime };
 }
 
 describe('GrokTurnQueue active-turn delivery', () => {
@@ -479,6 +484,111 @@ describe('GrokTurnQueue active-turn delivery', () => {
     await vi.waitFor(() => expect(runtime.running).toBe(false));
   });
 
+  it('recovers and recycles when Grok completes natively but every live ACP rail stalls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'grok-native-recovery-'));
+    const cwd = '/repo with spaces';
+    const nativeSessionId = 'native-recovery';
+    const historyDir = join(root, encodeURIComponent(cwd), nativeSessionId);
+    await mkdir(historyDir, { recursive: true });
+    let promptSignal: AbortSignal | undefined;
+    const request = vi.fn((
+      _method: string,
+      _params: unknown,
+      options?: { cancellationSignal?: AbortSignal },
+    ) => {
+      promptSignal = options?.cancellationSignal;
+      return new Promise(() => undefined);
+    });
+    const runtime = makeRuntime(request);
+    runtime.cwd = cwd;
+    runtime.nativeSessionId = nativeSessionId;
+    const events: Array<{ kind: string; payload: unknown }> = [];
+    const recycleRuntime = vi.fn(async (candidate: GrokRuntime) => {
+      candidate.ready = true;
+      candidate.suppressUpdates = false;
+    });
+    const closeSession = vi.fn(async () => undefined);
+    const queue = new GrokTurnQueue({
+      emit: (event) => events.push({ kind: event.kind, payload: event.payload }),
+      emitEvent: (_sessionId, kind, payload) => events.push({ kind, payload }),
+      emitError: vi.fn(),
+      closeSession,
+      recycleRuntime,
+      providerCompletionPollMs: 5,
+      providerHistoryRoot: root,
+    });
+
+    try {
+      queue.enqueue(runtime, 'recover this turn');
+      await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+      const promptId = 'provider-prompt-1';
+      const completedAt = Date.now() + 10;
+      await writeFile(join(historyDir, 'updates.jsonl'), [
+        JSON.stringify({
+          method: 'session/update',
+          params: {
+            sessionId: nativeSessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: 'Recovered answer' },
+            },
+            _meta: { promptId, agentTimestampMs: completedAt - 1 },
+          },
+        }),
+        JSON.stringify({
+          method: '_x.ai/session_notification',
+          params: {
+            sessionId: nativeSessionId,
+            update: {
+              sessionUpdate: 'turn_completed',
+              prompt_id: promptId,
+              stop_reason: 'end_turn',
+              usage: {
+                inputTokens: 10,
+                outputTokens: 3,
+                totalTokens: 13,
+                reasoningTokens: 2,
+                cachedReadTokens: 0,
+              },
+            },
+            _meta: { agentTimestampMs: completedAt },
+          },
+        }),
+      ].join('\n'));
+
+      await vi.waitFor(() => expect(events).toContainEqual({
+        kind: 'message',
+        payload: {
+          text: 'Recovered answer',
+          role: 'assistant',
+          recoveredFrom: 'grok-native-history',
+        },
+      }));
+      expect(events).toContainEqual(expect.objectContaining({
+        kind: 'token-usage',
+        payload: expect.objectContaining({
+          messageId: promptId,
+          reasoningTokens: 2,
+          cacheReadTokens: 0,
+        }),
+      }));
+      expect(events).toContainEqual({
+        kind: 'finished',
+        payload: {
+          ok: true,
+          subtype: 'end_turn',
+          recoveredFrom: 'grok-native-history',
+        },
+      });
+      expect(promptSignal?.aborted).toBe(true);
+      expect(recycleRuntime).toHaveBeenCalledWith(runtime);
+      expect(closeSession).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(runtime.running).toBe(false));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('uses exact usage from the live ACP PromptResponse metadata', async () => {
     const request = vi.fn(async () => ({
       stopReason: 'end_turn' as const,
@@ -524,6 +634,7 @@ describe('GrokTurnQueue active-turn delivery', () => {
       emitEvent: vi.fn(),
       emitError,
       closeSession,
+      recycleRuntime: vi.fn(async () => undefined),
       firstModelEventTimeoutMs: 5,
     });
 

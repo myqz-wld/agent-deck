@@ -4,6 +4,7 @@ import type {
   GrokExtensionNotification,
   GrokTurnUsage,
 } from './extension';
+import type { GrokLivePromptOutcome } from './live-prompt-completion';
 import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
@@ -15,6 +16,36 @@ import {
   translateGrokUsage,
   waitForGrokStandardUsage,
 } from './translate';
+
+export function responseFromGrokLiveOutcome(
+  runtime: GrokRuntime,
+  outcome: GrokLivePromptOutcome,
+  options: Pick<GrokTurnQueueOptions, 'emitEvent'>,
+): {
+  stopReason: string;
+  usage?: Usage | null;
+  _meta?: Record<string, unknown> | null;
+} {
+  if (outcome.kind === 'response') return outcome.response;
+  if (!runtime.translation.assistantObservedForCurrentTurn) {
+    const error = outcome.notification.agentResult?.trim()
+      ? outcome.notification.agentResult
+      : outcome.notification.stopReason === 'rate_limit'
+        ? 'Grok Build 请求触发速率限制，请稍后重试。'
+        : null;
+    if (error) {
+      options.emitEvent(runtime.applicationSessionId, 'message', {
+        text: error,
+        role: 'assistant',
+        error: true,
+      });
+    }
+  }
+  return {
+    stopReason: outcome.notification.stopReason,
+    usage: null,
+  };
+}
 
 export async function finalizeGrokAcpResponse(
   runtime: GrokRuntime,

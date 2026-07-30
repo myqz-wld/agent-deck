@@ -20,6 +20,8 @@ export interface GrokTranslationState {
     chunks: string[];
   } | null;
   assistantObservedForCurrentTurn: boolean;
+  /** Full assistant text observed on live ACP for suffix-only native-history recovery. */
+  currentAssistantText: string;
   lastUsage: GrokUsageWatermark | null;
   /** False only for a recovered legacy session that has no persisted cumulative baseline yet. */
   standardUsageBaselineReady: boolean;

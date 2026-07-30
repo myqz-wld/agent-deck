@@ -146,7 +146,10 @@ agent({ name: 'fake-grok-acp-agent' })
       });
     }
     const promptId = `fake-prompt-${++promptCounter}`;
-    await context.client.notify('_x.ai/session/update', {
+    const extensionMethod = text.includes('session_notification')
+      ? '_x.ai/session_notification'
+      : '_x.ai/session/update';
+    await context.client.notify(extensionMethod, {
       sessionId: context.params.sessionId,
       timestamp: Math.floor(Date.now() / 1000),
       update: {
