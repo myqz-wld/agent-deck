@@ -21,14 +21,9 @@ vi.mock('@renderer/utils/logger', () => ({
   default: { scope: () => loggerSpies },
 }));
 
-import {
-  createAuthorizedContentReferenceId,
-  type DiffContentPayload,
-} from '../expandable-content';
 import { LayerPanel, MergedPanel } from './ClaudePermissionsPanels';
 import { CodexPermissionsPanel } from './CodexPermissionsPanel';
 import { GrokPermissionsPanel } from './GrokPermissionsPanel';
-import { ExpandablePermissionSurface } from './b18/ExpandablePermissionSurface';
 
 afterEach(() => {
   cleanup();
@@ -49,7 +44,7 @@ describe('B18 permission viewers', () => {
     expect(screen.getByText('规则数量超过显示上限；每类仅显示前 500 条。')).toBeTruthy();
   });
 
-  it('expands raw config without replacing the separate external open action', async () => {
+  it('keeps raw config inline without replacing the separate external open action', async () => {
     const raw = '{\n  "permissions": {\n    "allow": ["Read"]\n  }\n}\n';
     const layer: SettingsLayer = {
       source: 'user',
@@ -71,63 +66,13 @@ describe('B18 permission viewers', () => {
       expect(openPermissionFile).toHaveBeenCalledWith('/workspace/project', layer.path);
     });
 
-    const trigger = screen.getByRole('button', {
+    expect(document.querySelector('pre')?.textContent).toBe(raw);
+    expect(screen.queryByRole('button', {
       name: '展开查看全局设置原文',
-    });
-    expect(trigger.className).toContain('h-11');
-    fireEvent.click(trigger);
-    const dialog = screen.getByRole('dialog', { name: '全局设置原文' });
-    expect(dialog.querySelector('pre')?.textContent).toBe(raw);
+    })).toBeNull();
   });
 
-  it('mounts a typed image diff only after expansion and preserves its reference', () => {
-    const reference = {
-      kind: 'diff' as const,
-      referenceId: createAuthorizedContentReferenceId('permission-diff-1'),
-      authorization: {
-        sessionId: 'session-1',
-        grantId: 'permission-grant-1',
-        capability: 'read-diff' as const,
-      },
-      presentation: 'image-diff' as const,
-    };
-    const payload: DiffContentPayload = { kind: 'diff', reference };
-    const renderDiff = vi.fn(() => <div data-testid="typed-permission-diff">图片差异</div>);
-    const observed: DiffContentPayload[] = [];
-
-    render(
-      <ExpandablePermissionSurface
-        identity={{
-          sessionId: 'session-1',
-          kind: 'request',
-          requestId: 'permission-1',
-        }}
-        payload={payload}
-        title="权限差异"
-        triggerLabel="展开权限差异"
-        compact={<div>差异摘要</div>}
-        expanded={({ payload: received }) => {
-          observed.push(received);
-          return null;
-        }}
-        heavyView={{
-          id: 'permission-diff-heavy',
-          kind: 'image-diff',
-          render: renderDiff,
-        }}
-      />,
-    );
-
-    expect(renderDiff).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('typed-permission-diff')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '展开权限差异' }));
-    expect(screen.getByTestId('typed-permission-diff')).toBeTruthy();
-    expect(renderDiff).toHaveBeenCalledOnce();
-    expect(observed.at(-1)).toBe(payload);
-    expect(observed.at(-1)?.reference).toBe(reference);
-  });
-
-  it('expands the Codex CLI TOML verbatim without coupling it to Open', async () => {
+  it('keeps the Codex CLI TOML inline without coupling it to Open', async () => {
     const raw = 'model = "gpt-5.6-sol"\napproval_policy = "on-request"\n';
     const data: CodexPermissionScanResult = {
       adapter: 'codex-cli',
@@ -175,13 +120,10 @@ describe('B18 permission viewers', () => {
       expect(openCodexPermissionFile).toHaveBeenCalledWith(data.config.path);
     });
 
-    fireEvent.click(screen.getByRole('button', {
+    expect(document.querySelector('pre')?.textContent).toBe(raw);
+    expect(screen.queryByRole('button', {
       name: '展开查看 Codex CLI config.toml 原文',
-    }));
-    const dialog = screen.getByRole('dialog', {
-      name: 'Codex CLI config.toml 原文',
-    });
-    expect(dialog.querySelector('pre')?.textContent).toBe(raw);
+    })).toBeNull();
   });
 
   it('uses canonical adapter names while keeping protocol identifiers intact', () => {

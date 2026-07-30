@@ -6,7 +6,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react';
 import type { AgentEvent, ExitPlanModeRequest } from '@shared/types';
 import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
@@ -44,7 +43,7 @@ afterEach(() => {
 });
 
 describe('ExitPlanRow', () => {
-  it('opens the complete typed plan without duplicating decision actions', () => {
+  it('keeps the complete short plan inline without adding a magnify entry', () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       writable: true,
@@ -63,12 +62,9 @@ describe('ExitPlanRow', () => {
       />,
     );
 
-    const trigger = screen.getByRole('button', { name: '展开完整计划' });
-    expect(trigger.className).toContain('h-11');
-    fireEvent.click(trigger);
-    const dialog = screen.getByRole('dialog', { name: '完整计划 · Lifecycle plan' });
-    expect(dialog.textContent).toContain('Validate handoff cleanup.');
-    expect(within(dialog).queryByRole('button', { name: '确认计划' })).toBeNull();
+    expect(document.body.textContent).toContain('Validate handoff cleanup.');
+    expect(screen.queryByRole('button', { name: '展开完整计划' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '完整计划 · Lifecycle plan' })).toBeNull();
   });
 
   it('keeps feedback multiline, expands it, and submits with the explicit shortcut', async () => {

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { TaskRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
 import { relativeTime } from '../TeamDetail/helpers';
-import { TaskDetailViewer } from '../TeamDetail/viewers/TaskDetailViewer';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
 
 interface Props {
@@ -194,13 +193,12 @@ function TaskRow({ task, muted }: { task: TaskRecord; muted: boolean }): JSX.Ele
   const status = statusMeta(task.status);
   return (
     <li
-      className={`relative rounded border border-deck-border/40 bg-white/[0.02] py-1.5 pl-2 pr-12 text-[11px] ${
+      className={`rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1.5 text-[11px] ${
         muted ? 'opacity-75' : ''
       }`}
       title={task.description ?? task.subject}
     >
-      <TaskDetailViewer task={task} sessionId={task.ownerSessionId} />
-      <div className="flex min-h-11 items-center justify-between gap-2">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`} />

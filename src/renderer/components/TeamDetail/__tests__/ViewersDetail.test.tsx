@@ -2,11 +2,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react';
 import type { AgentDeckMessage, AgentEvent, TaskRecord } from '@shared/types';
 import { EventsSection } from '../EventsSection';
@@ -24,18 +22,8 @@ vi.mock('@renderer/stores/session-store', () => ({
   }),
 }));
 
-vi.mock('@renderer/components/diff/DiffViewer', () => ({
-  DiffViewer: ({ payload }: { payload: unknown }) => (
-    <div data-testid="team-diff-viewer">{JSON.stringify(payload)}</div>
-  ),
-}));
-
 vi.mock('@renderer/components/MarkdownText', () => ({
   MarkdownText: ({ text }: { text: string }) => <div data-testid="markdown">{text}</div>,
-}));
-
-vi.mock('@renderer/components/UploadedImageThumb', () => ({
-  UploadedImageThumb: ({ alt }: { alt: string }) => <img alt={alt} />,
 }));
 
 afterEach(() => cleanup());
@@ -91,145 +79,31 @@ function message(body: string): AgentDeckMessage {
   };
 }
 
-describe('TeamDetail viewers', () => {
-  it('exposes the complete event instead of permanently truncating its 80-character summary', () => {
+describe('TeamDetail original compact presentation', () => {
+  it('keeps event summaries truncated inline without adding a detail viewer', () => {
     const longText = `${'摘要'.repeat(50)}完整事件结尾`;
     render(<EventsSection events={[event(1, 'message', { text: longText, role: 'assistant' })]} />);
     expect(document.body.textContent).not.toContain('完整事件结尾');
-    fireEvent.click(screen.getByRole('button', { name: '展开消息详情' }));
-    expect(screen.getByRole('dialog', { name: '消息详情' }).textContent)
-      .toContain('完整事件结尾');
+    expect(screen.queryByRole('button', { name: /展开.*详情/ })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('preserves typed image diff data and mounts the heavy viewer only when selected', () => {
-    render(
-      <EventsSection
-        events={[event(2, 'file-changed', {
-          kind: 'image',
-          filePath: '/repo/image.png',
-          before: { kind: 'snapshot', snapshotId: 'before-1' },
-          after: { kind: 'path', path: '/repo/image.png' },
-          metadata: {
-            annotations: [{ id: 'a-1', text: '注意边缘', status: 'open' }],
-          },
-        })]}
-      />,
-    );
-    expect(screen.queryByTestId('team-diff-viewer')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '展开文件改动详情' }));
-    const viewer = screen.getByTestId('team-diff-viewer');
-    expect(viewer.textContent).toContain('"kind":"image"');
-    expect(viewer.textContent).toContain('"snapshotId":"before-1"');
-    expect(viewer.textContent).toContain('"path":"/repo/image.png"');
-    expect(viewer.closest('[data-expandable-heavy-view]')?.getAttribute(
-      'data-expandable-heavy-view',
-    )).toBe('image-diff');
+  it('keeps task rows compact with the original title and active form', () => {
+    const { container } = render(<TasksSection tasks={[task()]} />);
+    expect(screen.getByText('修复详情查看器')).toBeTruthy();
+    expect(screen.getByText(/正在验证焦点行为/)).toBeTruthy();
+    expect(container.querySelector('li[title]')?.getAttribute('title'))
+      .toBe('完整说明第一行\n完整说明第二行');
+    expect(screen.queryByRole('button', { name: /展开任务详情/ })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('shows subject, description, active form, and every task label accessibly', () => {
-    render(<TasksSection tasks={[task()]} />);
-    fireEvent.click(screen.getByRole('button', { name: '展开任务详情：修复详情查看器' }));
-    const dialog = screen.getByRole('dialog', { name: '任务详情' });
-    expect(dialog.textContent).toContain('完整说明第二行');
-    expect(dialog.textContent).toContain('正在验证焦点行为');
-    const labels = within(dialog).getByRole('list', { name: '任务全部标签' });
-    expect(within(labels).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'renderer',
-      'accessibility',
-      'regression',
-      'fourth-label',
-    ]);
-  });
-
-  it('adds one viewer only above the message capacity threshold', () => {
+  it('renders complete team messages inline without a magnify entry', () => {
     const body = `${'x'.repeat(700)}完整消息结尾`;
     render(<MessagesSection messages={[message(body)]} />);
-    expect(screen.getByRole('button', { name: '展开完整消息' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '展开完整消息' }));
-    expect(screen.getByRole('dialog', { name: '跨会话消息详情' }).textContent)
-      .toContain('完整消息结尾');
-    cleanup();
-    render(<MessagesSection messages={[message('短消息')]} />);
+    expect(screen.getByTestId('markdown').textContent).toContain('完整消息结尾');
     expect(screen.queryByRole('button', { name: '展开完整消息' })).toBeNull();
-  });
-
-  it('shows the complete structured payload for waiting events', () => {
-    render(
-      <EventsSection
-        events={[event(3, 'waiting-for-user', {
-          type: 'custom-approval',
-          subject: '批准发布',
-          choices: ['允许', '拒绝'],
-          nested: { retained: '完整结构字段' },
-        })]}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '展开等待响应详情' }));
-    const dialog = screen.getByRole('dialog', { name: '等待响应详情' });
-    expect(dialog.textContent).toContain('"subject": "批准发布"');
-    expect(dialog.textContent).toContain('"retained": "完整结构字段"');
-    expect(dialog.textContent).not.toContain('无更多详情');
-  });
-
-  it('normalizes Team message events with Activity error, wire, hand-off, and attachment semantics', () => {
-    render(
-      <EventsSection
-        events={[event(4, 'message', {
-          role: 'user',
-          error: true,
-          text: [
-            '[from Reviewer @ claude-code][msg message-4][sid source-session]',
-            '## Hand-off context (auto-injected by Agent Deck MCP)',
-            '- source context',
-            '',
-            '---',
-            '',
-            '# Plain error body',
-          ].join('\n'),
-          handOff: {
-            mode: 'session',
-            fromCallerSid: 'caller-session',
-            sourceMaxEventId: 42,
-          },
-          attachments: [{
-            kind: 'uploaded',
-            path: '/uploads/team.png',
-            mime: 'image/png',
-            bytes: 12,
-          }],
-        })]}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '展开消息详情' }));
-    const dialog = screen.getByRole('dialog', { name: '消息详情' });
-    expect(dialog.textContent).toContain('# Plain error body');
-    expect(dialog.textContent).toContain('Reviewer · Claude Code');
-    expect(dialog.textContent).toContain('查看接力上下文');
-    expect(within(dialog).getByRole('img', { name: '附件图片 1' })).toBeTruthy();
-    expect(within(dialog).queryByTestId('markdown')).toBeNull();
-    expect(dialog.textContent).not.toContain('[from Reviewer');
-  });
-
-  it('keeps Team tool reason, duration, and truncation details', () => {
-    render(
-      <EventsSection
-        events={[event(5, 'tool-use-end', {
-          toolName: 'RemoteCheck',
-          toolInput: { target: 'service' },
-          status: 'failed',
-          toolResult: '远端检查结果',
-          reason: '连接被远端拒绝',
-          durationMs: 1500,
-          toolResultTruncated: true,
-        })]}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '展开工具完成详情' }));
-    const dialog = screen.getByRole('dialog', { name: '工具完成详情' });
-    expect(dialog.textContent).toContain('远端检查结果');
-    expect(dialog.textContent).toContain('连接被远端拒绝');
-    expect(dialog.textContent).toContain('1.5s');
-    expect(dialog.textContent).toContain('结果已截断');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 

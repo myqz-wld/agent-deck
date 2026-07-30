@@ -161,6 +161,7 @@ interface PanelProps<Payload extends ExpandableContentPayload>
     ExpandableContentProps<Payload>,
     'triggerLabel' | 'triggerVariant' | 'triggerClassName' | 'onOpenChange'
   > {
+  variant: ExpandableContentTriggerVariant;
   contentKey: string;
   onRequestClose: () => void;
 }
@@ -179,6 +180,7 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
   heavyView,
   panelClassName = '',
   headerClassName = '',
+  variant,
   contentKey,
   onRequestClose,
 }: PanelProps<Payload>): JSX.Element {
@@ -237,6 +239,12 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
     closing,
     requestClose,
   };
+  const panelBackgroundClass = variant === 'input'
+    ? 'bg-[#141418]'
+    : 'bg-deck-bg-strong';
+  const headerSpacingClass = variant === 'input'
+    ? 'py-2 pl-[78px] pr-3 sm:pr-4'
+    : 'px-3 py-2 sm:px-4';
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -296,10 +304,10 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
       aria-modal="true"
       aria-labelledby={titleId}
       tabIndex={-1}
-      className={`no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#141418] text-deck-text shadow-2xl outline-none ${panelClassName}`}
+      className={`no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden ${panelBackgroundClass} text-deck-text shadow-2xl outline-none ${panelClassName}`}
       data-expandable-content-key={contentKey}
     >
-      <header className={`flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border py-2 pl-[78px] pr-3 sm:pr-4 ${headerClassName}`}>
+      <header className={`flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border ${headerSpacingClass} ${headerClassName}`}>
         <h2 id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium">
           {title}
         </h2>
@@ -381,6 +389,7 @@ export function ExpandableContent<Payload extends ExpandableContentPayload>({
         <ExpandableContentPanel
           key={contentKey}
           {...props}
+          variant={triggerVariant}
           contentKey={contentKey}
           onRequestClose={closePanel}
         />

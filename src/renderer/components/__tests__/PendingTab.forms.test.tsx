@@ -287,7 +287,7 @@ describe('AskRow draft identity and response fencing', () => {
 });
 
 describe('Permission and batch response surfaces', () => {
-  it('mounts a settled permission diff only after the shared expansion action', () => {
+  it('restores the settled permission diff to its original inline presentation', () => {
     const payload = permission('permission-1');
     render(
       <PermissionRow
@@ -302,13 +302,10 @@ describe('Permission and batch response surfaces', () => {
       />,
     );
 
-    expect(screen.queryByTestId('permission-diff-viewer')).toBeNull();
-    const trigger = screen.getByRole('button', { name: '展开权限请求内容' });
-    expect(trigger.className).toContain('h-11');
-    fireEvent.click(trigger);
-    expect(screen.getByRole('dialog', { name: '权限请求 · Edit' })).toBeTruthy();
     expect(screen.getByTestId('permission-diff-viewer').textContent)
-      .toContain('/workspace/example.ts:session-1:true');
+      .toContain('/workspace/example.ts:session-1:undefined');
+    expect(screen.queryByRole('button', { name: '展开权限请求内容' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '权限请求 · Edit' })).toBeNull();
   });
 
   it('normalizes cyclic and non-JSON permission input into a bounded fallback', () => {
@@ -339,14 +336,13 @@ describe('Permission and batch response surfaces', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '展开权限请求内容' }));
-
-    const dialog = screen.getByRole('dialog', { name: '权限请求 · CustomTool' });
-    expect(dialog.textContent).toContain('非 JSON 值：BigInt');
-    expect(dialog.textContent).toContain('非 JSON 值：undefined');
-    expect(dialog.textContent).toContain('无法展开：循环引用');
-    expect(dialog.textContent).toContain('已截断');
-    expect(dialog.textContent?.length).toBeLessThan(10_000);
+    expect(document.body.textContent).toContain('非 JSON 值：BigInt');
+    expect(document.body.textContent).toContain('非 JSON 值：undefined');
+    expect(document.body.textContent).toContain('无法展开：循环引用');
+    expect(document.body.textContent).toContain('已截断');
+    expect(document.body.textContent?.length).toBeLessThan(10_000);
+    expect(screen.queryByRole('button', { name: '展开权限请求内容' })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('keys a batch failure to the permission row that failed', async () => {

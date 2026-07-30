@@ -7,10 +7,6 @@ import { relativeTime } from '../TeamDetail/helpers';
 import { ArrowRightIcon, ReplyIcon } from '../icons';
 import { MessageStatusBadge } from '../MessageStatusBadge';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
-import {
-  MESSAGE_EXPAND_THRESHOLD,
-  MessageDetailViewer,
-} from '../TeamDetail/viewers/MessageDetailViewer';
 
 /**
  * Session message history preserves delivery state and reply relationships. The panel refreshes
@@ -118,18 +114,12 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
         const otherSess = sessions.get(otherId);
         const otherTitle = otherSess?.title ?? '另一会话';
         const arrowColor = isSender ? 'text-cyan-300/80' : 'text-blue-300/80';
-        const fromLabel = isSender ? '当前会话' : otherTitle;
-        const toLabel = isSender ? otherTitle : '当前会话';
-        const expandable = msg.body.length > MESSAGE_EXPAND_THRESHOLD;
         return (
           <li
             key={msg.id}
-            className={`relative rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px] ${expandable ? 'pr-12' : ''}`}
+            className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px]"
           >
-            {expandable && (
-              <MessageDetailViewer message={msg} fromLabel={fromLabel} toLabel={toLabel} />
-            )}
-            <div className={`flex items-center justify-between text-[10px] text-deck-muted ${expandable ? 'min-h-11' : ''}`}>
+            <div className="flex items-center justify-between text-[10px] text-deck-muted">
               <span className="truncate">
                 <span className={`mr-1 inline-block align-middle ${arrowColor}`}>
                   {isSender ? <ArrowRightIcon className="h-3 w-3" /> : <ReplyIcon className="h-3 w-3" />}
@@ -152,7 +142,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
                 <MessageStatusBadge status={msg.status} />
               </span>
             </div>
-            <div className={`mt-1 break-words text-deck-text ${expandable ? 'max-h-40 overflow-hidden' : ''}`}>
+            <div className="mt-1 break-words text-deck-text">
               <MarkdownText text={msg.body} />
             </div>
             {msg.statusReason && (

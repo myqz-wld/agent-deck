@@ -2,14 +2,18 @@ import { useState, type JSX } from 'react';
 import type { AgentEvent } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { UploadedImageThumb } from '@renderer/components/UploadedImageThumb';
-import { ReplyIcon } from '@renderer/components/icons';
-import { DEFAULT_RENDER_MODE, type RenderMode } from '../shared';
-import { MessageContentViewer } from '../viewers/MessageContentViewer';
-import { activityEventIdentity } from '../viewers/activity-event-identity';
+import { ImageLightbox } from '@renderer/components/ImageLightbox';
 import {
-  normalizeAgentMessage,
-  productName,
-} from '../viewers/message-content';
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ReplyIcon,
+} from '@renderer/components/icons';
+import {
+  DEFAULT_RENDER_MODE,
+  getAgentShortName,
+  type RenderMode,
+} from '../shared';
+import { normalizeAgentMessage } from '../viewers/message-content';
 
 /** Prevent a single large prompt or log from dominating the activity list. */
 const COLLAPSE_THRESHOLD_CHARS = 800;
@@ -39,11 +43,13 @@ export function MessageBubble({
     wireAdapter,
   } = message;
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
-  const otherName = productName(agentId);
+  const otherName = getAgentShortName(agentId);
 
   // Render mode is local and intentionally resets when the bubble unmounts.
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
   const isLong = text.length > COLLAPSE_THRESHOLD_CHARS;
+  const [expanded, setExpanded] = useState(false);
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
   const toggle = (): void => {
     setMode((cur) => (cur === 'markdown' ? 'plaintext' : 'markdown'));
@@ -56,18 +62,9 @@ export function MessageBubble({
 
   return (
     <li className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`relative flex min-w-0 max-w-[88%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
-        <MessageContentViewer
-          sessionId={event.sessionId}
-          messageId={activityEventIdentity(event)}
-          revision={event.ts}
-          title={`${isUser ? '你的' : otherName}消息详情`}
-          message={message}
-          mode={mode}
-          onToggleMode={toggle}
-        />
+      <div className={`flex min-w-0 max-w-[88%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
         <div
-          className={`mb-0.5 flex min-h-11 items-center gap-1 pr-12 text-[9px] ${
+          className={`mb-0.5 flex items-center gap-1 text-[9px] ${
             isUser ? 'text-status-working/80' : 'text-deck-muted/70'
           }`}
         >
@@ -100,12 +97,25 @@ export function MessageBubble({
               {mode === 'markdown' ? 'MD' : 'TXT'}
             </button>
           )}
+          {isLong && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              aria-expanded={expanded}
+              className="ml-1 rounded px-1 font-mono text-[9px] tracking-tight text-deck-muted/70 opacity-60 hover:bg-white/10 hover:text-deck-text hover:opacity-100"
+            >
+              {expanded
+                ? <ChevronUpIcon className="mr-0.5 inline h-3 w-3" />
+                : <ChevronDownIcon className="mr-0.5 inline h-3 w-3" />}
+              {expanded ? '收起' : `展开（${text.length} 字）`}
+            </button>
+          )}
         </div>
         <div
           className={`min-w-0 max-w-full break-words rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${
             renderAsMarkdown ? '' : 'whitespace-pre-wrap'
           } ${
-            isLong ? 'max-h-72 overflow-hidden pr-12' : 'pr-12'
+            isLong && !expanded ? 'max-h-72 overflow-auto scrollbar-deck' : ''
           } ${
             isError
               ? 'border border-status-waiting/40 bg-status-waiting/10 text-status-waiting'
@@ -141,12 +151,20 @@ export function MessageBubble({
                   path={a.path}
                   size={64}
                   alt={`附件图片 ${i + 1}`}
+                  onClick={() => setLightboxPath(a.path)}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+      {lightboxPath && (
+        <ImageLightbox
+          onClose={() => setLightboxPath(null)}
+          path={lightboxPath}
+          alt="放大的附件图片"
+        />
+      )}
     </li>
   );
 }

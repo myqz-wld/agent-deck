@@ -1,27 +1,9 @@
 import type { IssueAppendix, LogsRef } from '@shared/types';
 import type { JSX } from 'react';
-import {
-  ExpandableContent,
-  type DiagnosticContentPayload,
-} from '../expandable-content';
 import { ExternalLinkIcon } from '../icons';
 
 function formatTime(value: number): string {
   return new Date(value).toLocaleString('zh-CN', { hour12: false });
-}
-
-function logsPayload(logsRef: LogsRef, text: string): DiagnosticContentPayload {
-  return {
-    kind: 'diagnostic',
-    text,
-    metadata: {
-      date: logsRef.date,
-      rangeStart: logsRef.tsRange?.start ?? null,
-      rangeEnd: logsRef.tsRange?.end ?? null,
-      scopes: logsRef.scopes ?? [],
-      note: logsRef.note ?? null,
-    },
-  };
 }
 
 function LogsReferenceDetails({ logsRef }: { logsRef: LogsRef }): JSX.Element {
@@ -56,33 +38,16 @@ function LogsReferenceDetails({ logsRef }: { logsRef: LogsRef }): JSX.Element {
 }
 
 export function IssueLogsReference({
-  issueId,
-  sessionId,
   logsRef,
 }: {
   issueId: string;
   sessionId: string;
   logsRef: LogsRef;
 }): JSX.Element {
-  const payload = logsPayload(logsRef, logsRef.note ?? '');
   return (
-    <div className="relative rounded bg-white/[0.03] px-2 py-2 pr-12">
+    <div className="rounded bg-white/[0.03] px-2 py-2">
       <div className="mb-1 text-[10px] font-medium text-deck-muted">日志线索</div>
       <LogsReferenceDetails logsRef={logsRef} />
-      <ExpandableContent<DiagnosticContentPayload>
-        identity={{
-          sessionId,
-          kind: 'diagnostic',
-          diagnosticId: `${issueId}:logs`,
-        }}
-        payload={payload}
-        title="日志线索详情"
-        triggerLabel="展开日志线索"
-      >
-        <div className="mx-auto w-full max-w-4xl rounded border border-deck-border bg-black/20 p-4">
-          <LogsReferenceDetails logsRef={logsRef} />
-        </div>
-      </ExpandableContent>
     </div>
   );
 }
@@ -120,8 +85,6 @@ function AppendixDetails({
 }
 
 export function IssueAppendices({
-  issueId,
-  sessionId,
   appendices,
   onOpenSession,
 }: {
@@ -137,53 +100,19 @@ export function IssueAppendices({
         补充记录（{appendices.length}）
       </h3>
       <ul className="space-y-1.5">
-        {appendices.map((appendix) => {
-          const payload: DiagnosticContentPayload = {
-            kind: 'diagnostic',
-            text: appendix.body,
-            metadata: appendix.logsRef
-              ? logsPayload(appendix.logsRef, appendix.body).metadata
-              : {
-                  appendedAt: appendix.appendedAt,
-                  hasLogsReference: false,
-                },
-          };
-          return (
+        {appendices.map((appendix) => (
             <li
               key={appendix.id}
-              className="relative rounded bg-white/[0.03] px-2 py-1.5 pr-12 text-[11px] text-deck-text"
+              className="rounded bg-white/[0.03] px-2 py-1.5 text-[11px] text-deck-text"
             >
               <div className="mb-1 text-[10px] text-deck-muted">
                 {formatTime(appendix.appendedAt)}
                 {appendix.appendedSessionId ? ' · 由相关会话补充' : ' · 来源会话已清理'}
                 {appendix.logsRef ? ' · 含日志线索' : ''}
               </div>
-              <div className="max-h-24 overflow-hidden whitespace-pre-wrap break-words">
-                {appendix.body}
-              </div>
-              {appendix.logsRef && (
-                <div className="mt-2 rounded border border-deck-border/50 bg-black/15 p-2">
-                  <div className="mb-1 text-[10px] font-medium text-deck-text">
-                    关联日志线索
-                  </div>
-                  <LogsReferenceDetails logsRef={appendix.logsRef} />
-                </div>
-              )}
-              <ExpandableContent<DiagnosticContentPayload>
-                identity={{
-                  sessionId,
-                  kind: 'diagnostic',
-                  diagnosticId: `${issueId}:appendix:${appendix.id}`,
-                }}
-                payload={payload}
-                title="补充记录详情"
-                triggerLabel="展开补充记录"
-              >
-                <AppendixDetails appendix={appendix} onOpenSession={onOpenSession} />
-              </ExpandableContent>
+              <AppendixDetails appendix={appendix} onOpenSession={onOpenSession} />
             </li>
-          );
-        })}
+        ))}
       </ul>
     </section>
   );

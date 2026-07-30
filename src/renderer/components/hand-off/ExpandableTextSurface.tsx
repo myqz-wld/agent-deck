@@ -8,7 +8,6 @@ import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachment
 import { PendingImageAttachments } from '../PendingImageAttachments';
 import {
   ExpandableContent,
-  type DiagnosticContentPayload,
   type ExpandableContentIdentity,
   type MessageContentPayload,
 } from '../expandable-content';
@@ -37,17 +36,23 @@ interface ExpandableAuthoringFieldProps extends SharedTextSurfaceProps {
   expandedActions?: ReactNode;
 }
 
-interface ExpandableTextViewerProps extends SharedTextSurfaceProps {
+interface ExpandableTextViewerProps {
+  ariaLabel: string;
+  value: string;
+  rows: number;
+  monospace?: boolean;
   excerptNotice: string;
 }
 
 function textAreaClass(
   monospace: boolean,
   expanded: boolean,
+  compactResizable = false,
+  reserveTriggerSpace = true,
 ): string {
   const dimensions = expanded
     ? 'min-h-[55vh] flex-1 resize-none'
-    : 'w-full resize-none pr-12';
+    : `w-full ${compactResizable ? 'resize-y' : 'resize-none'} ${reserveTriggerSpace ? 'pr-12' : ''}`;
   return [
     dimensions,
     'rounded border border-deck-border bg-white/[0.04] px-3 py-2',
@@ -166,52 +171,22 @@ export function ExpandableAuthoringField({
 }
 
 export function ExpandableTextViewer({
-  identity,
-  title,
   ariaLabel,
   value,
   rows,
-  maxLength,
   monospace = false,
   excerptNotice,
 }: ExpandableTextViewerProps): JSX.Element {
-  const payload: DiagnosticContentPayload = {
-    kind: 'diagnostic',
-    text: value,
-    severity: 'info',
-    metadata: {
-      boundedExcerpt: true,
-      characterCount: value.length,
-      characterLimit: maxLength,
-    },
-  };
   return (
     <div className="space-y-1">
       <p className="text-[10px] leading-relaxed text-deck-muted">{excerptNotice}</p>
-      <div className="relative">
-        <textarea
-          aria-label={ariaLabel}
-          readOnly
-          value={value}
-          rows={rows}
-          className={textAreaClass(monospace, false)}
-        />
-        <ExpandableContent<DiagnosticContentPayload>
-          identity={identity}
-          payload={payload}
-          title={title}
-          triggerLabel={`展开查看${ariaLabel}`}
-          triggerVariant="input"
-        >
-          <textarea
-            aria-label={`${ariaLabel}（展开查看）`}
-            readOnly
-            value={value}
-            rows={rows}
-            className={textAreaClass(monospace, true)}
-          />
-        </ExpandableContent>
-      </div>
+      <textarea
+        aria-label={ariaLabel}
+        readOnly
+        value={value}
+        rows={rows}
+        className={textAreaClass(monospace, false, true, false)}
+      />
     </div>
   );
 }

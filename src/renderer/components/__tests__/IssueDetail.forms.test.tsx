@@ -125,20 +125,17 @@ describe('IssueDetail expandable evidence and drafts', () => {
     expect(await screen.findByText('未找到该 Issue')).toBeTruthy();
   });
 
-  it('shows the main and every appendix log reference without exposing appendix ids', async () => {
+  it('shows the main and every appendix inline without exposing appendix ids', async () => {
     render(<IssueDetail issueId="issue-visible" onClose={vi.fn()} />);
     await waitFor(() => expect(window.api.issuesGet).toHaveBeenCalled());
 
     expect(screen.getByText('Primary log note')).toBeTruthy();
     expect(screen.getByText('Appendix log note')).toBeTruthy();
     expect(screen.getByText('permission')).toBeTruthy();
+    expect(screen.getByText('Appendix evidence body')).toBeTruthy();
     expect(document.body.textContent).not.toContain('append-session-internal-id');
-
-    fireEvent.click(screen.getByRole('button', { name: '展开补充记录' }));
-    const dialog = screen.getByRole('dialog', { name: '补充记录详情' });
-    expect(dialog.textContent).toContain('Appendix evidence body');
-    expect(dialog.textContent).toContain('Appendix log note');
-    expect(dialog.textContent).not.toContain('append-session-internal-id');
+    expect(screen.queryByRole('button', { name: '展开补充记录' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '补充记录详情' })).toBeNull();
   });
 
   it('rebases a same-millisecond store event while preserving the local draft', async () => {

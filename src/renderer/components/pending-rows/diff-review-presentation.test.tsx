@@ -6,7 +6,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from '@testing-library/react';
 import type { AgentEvent, DiffReviewRequest } from '@shared/types';
 import {
@@ -19,7 +18,7 @@ import { DiffReviewRow } from './DiffReviewRow';
 afterEach(() => cleanup());
 
 describe('diff review presentation', () => {
-  it('keeps every conflict pane and review field lazy but typed in the expanded heavy view', () => {
+  it('restores the original inline conflict disclosure without a magnify entry', () => {
     const payload: DiffReviewRequest = {
       type: 'diff-review',
       requestId: 'typed-conflict',
@@ -58,19 +57,17 @@ describe('diff review presentation', () => {
 
     expect(screen.queryByText('base-state')).toBeNull();
     expect(screen.queryByText('resolved-state')).toBeNull();
-    const trigger = screen.getByRole('button', { name: '展开冲突内容' });
-    expect(trigger.className).toContain('h-11');
+    const trigger = screen.getByRole('button', { name: /展开冲突（\d+ 字）/ });
     fireEvent.click(trigger);
 
-    const dialog = screen.getByRole('dialog', { name: 'Resolve lifecycle conflict' });
-    expect(within(dialog).getByText('Preserve both lifecycle guarantees.')).toBeTruthy();
-    expect(within(dialog).getByText('Verify the suggested result before approval.')).toBeTruthy();
-    expect(within(dialog).getByText('base-state')).toBeTruthy();
-    expect(within(dialog).getByText('local-state')).toBeTruthy();
-    expect(within(dialog).getByText('incoming-state')).toBeTruthy();
-    expect(within(dialog).getByText('resolved-state')).toBeTruthy();
-    expect(within(dialog).getByText('Combined guarantee')).toBeTruthy();
-    expect(dialog.querySelector('[data-expandable-heavy-view="custom"]')).toBeTruthy();
+    expect(screen.getByText('base-state')).toBeTruthy();
+    expect(screen.getByText('local-state')).toBeTruthy();
+    expect(screen.getByText('incoming-state')).toBeTruthy();
+    expect(screen.getByText('resolved-state')).toBeTruthy();
+    expect(screen.getByText('Combined guarantee')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '收起' })).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.querySelector('[data-expandable-heavy-view]')).toBeNull();
   });
 
   it('keeps rationale and instructions as separate intro cards', () => {
@@ -165,9 +162,8 @@ describe('diff review presentation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /展开差异/ }));
 
-    const dialog = screen.getByRole('dialog', { name: '差异详情' });
-    const deletedRows = dialog.querySelectorAll('[data-diff-tone="deleted"]');
-    const addedRows = dialog.querySelectorAll('[data-diff-tone="added"]');
+    const deletedRows = document.querySelectorAll('[data-diff-tone="deleted"]');
+    const addedRows = document.querySelectorAll('[data-diff-tone="added"]');
     expect(deletedRows.length).toBeGreaterThan(0);
     expect(addedRows.length).toBeGreaterThan(0);
     expect(deletedRows[0]?.className).toContain('bg-status-error');
@@ -223,9 +219,7 @@ describe('diff review presentation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /展开冲突/ }));
 
-    const paneBody = screen
-      .getByRole('dialog', { name: '冲突解决详情' })
-      .querySelector('pre');
+    const paneBody = document.querySelector('pre');
     expect(paneBody?.className).toContain('pb-5');
   });
 });

@@ -6,12 +6,8 @@ import { relativeTime } from './helpers';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { ArrowRightIcon, ReplyIcon } from '../icons';
 import { MessageStatusBadge } from '../MessageStatusBadge';
-import {
-  MESSAGE_EXPAND_THRESHOLD,
-  MessageDetailViewer,
-} from './viewers/MessageDetailViewer';
 
-/** Team messages keep Markdown structure; long bodies gain detail access without changing routing. */
+/** Team messages keep their original inline Markdown presentation. */
 interface Props {
   messages: AgentDeckMessage[];
 }
@@ -33,23 +29,17 @@ export function MessagesSection({ messages }: Props): JSX.Element {
         {messages.slice(0, 30).map((msg) => {
           const fromSess = sessions.get(msg.fromSessionId);
           const toSess = sessions.get(msg.toSessionId);
-          const fromLabel = fromSess?.title ?? '未知发送方';
-          const toLabel = toSess?.title ?? '未知接收方';
-          const expandable = msg.body.length > MESSAGE_EXPAND_THRESHOLD;
           return (
             <li
               key={msg.id}
-              className={`relative rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px] ${expandable ? 'pr-12' : ''}`}
+              className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px]"
             >
-              {expandable && (
-                <MessageDetailViewer message={msg} fromLabel={fromLabel} toLabel={toLabel} />
-              )}
-              <div className={`flex items-center justify-between text-[10px] text-deck-muted ${expandable ? 'min-h-11' : ''}`}>
+              <div className="flex items-center justify-between text-[10px] text-deck-muted">
                 <span className="truncate">
                   <span className="sr-only">从 </span>
-                  {fromLabel} <ArrowRightIcon className="mx-0.5 inline h-3 w-3" />{' '}
+                  {fromSess?.title ?? msg.fromSessionId.slice(0, 8)} <ArrowRightIcon className="mx-0.5 inline h-3 w-3" />{' '}
                   <span className="sr-only">发送给 </span>
-                  {toLabel}
+                  {toSess?.title ?? msg.toSessionId.slice(0, 8)}
                   {msg.replyToMessageId && (
                     <span
                       className="ml-1 text-blue-300/70"
@@ -66,7 +56,7 @@ export function MessagesSection({ messages }: Props): JSX.Element {
                   <MessageStatusBadge status={msg.status} />
                 </span>
               </div>
-              <div className={`mt-1 break-words text-deck-text ${expandable ? 'max-h-40 overflow-hidden' : ''}`}>
+              <div className="mt-1 break-words text-deck-text">
                 <MarkdownText text={msg.body} />
               </div>
               {msg.statusReason && (

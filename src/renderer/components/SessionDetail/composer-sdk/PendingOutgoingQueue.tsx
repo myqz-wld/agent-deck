@@ -2,11 +2,6 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { AgentEvent, PendingOutgoingMessage } from '@shared/types';
 import { CloseIcon } from '../../icons';
 import log from '@renderer/utils/logger';
-import {
-  ExpandableContent,
-  type MessageContentPayload,
-} from '@renderer/components/expandable-content';
-import { PendingOutgoingDetail } from './pending-outgoing/PendingOutgoingDetail';
 
 const logger = log.scope('renderer-pending-outgoing');
 const EMPTY_DELETING = new Set<string>();
@@ -169,64 +164,22 @@ export function PendingOutgoingQueue({
           <div
             key={message.id}
             role="listitem"
-            className="flex min-h-[3.25rem] items-start gap-1 rounded bg-black/20 py-1 pl-2 pr-1 text-[10px]"
+            className="flex items-start gap-1.5 rounded bg-black/20 px-2 py-1 text-[10px]"
           >
-            <span className="max-h-10 min-w-0 flex-1 self-center overflow-hidden whitespace-pre-wrap break-words text-deck-text/85">
+            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-deck-text/85">
               {message.text || '(仅附件)'}
               {message.attachments.length > 0 ? `  · ${message.attachments.length} 个附件` : ''}
             </span>
-            <div className="flex shrink-0 items-start gap-1">
-              <button
-                type="button"
-                disabled={deleting.has(message.id)}
-                onClick={() => void remove(message.id)}
-                className="flex h-11 w-11 touch-manipulation items-center justify-center rounded-md text-deck-muted hover:bg-white/10 hover:text-status-error disabled:opacity-40"
-                aria-label="删除等待消息"
-                title="从等待队列删除"
-              >
-                <CloseIcon className="h-3 w-3" />
-              </button>
-              <ExpandableContent<MessageContentPayload>
-                identity={{
-                  sessionId,
-                  kind: 'message',
-                  messageId: message.id,
-                  revision: refreshVersion,
-                }}
-                payload={{
-                  kind: 'message',
-                  text: message.text,
-                  attachments: message.attachments.map((attachment, index) => ({
-                    id: attachment.id,
-                    name: `附件 ${index + 1}`,
-                    mediaType: attachment.mime,
-                    size: attachment.bytes,
-                  })),
-                }}
-                title="等待消息详情"
-                triggerLabel="展开等待消息"
-                triggerClassName="!static shrink-0"
-                heavyView={{
-                  id: `pending-outgoing-${sessionId}-${message.id}`,
-                  kind: 'custom',
-                  render: () => (
-                    <PendingOutgoingDetail
-                      key={[
-                        agentId,
-                        sessionId,
-                        message.id,
-                        ...message.attachments.map(
-                          (attachment) => `${attachment.id}:${attachment.mime}:${attachment.bytes}`,
-                        ),
-                      ].join(':')}
-                      agentId={agentId}
-                      sessionId={sessionId}
-                      message={message}
-                    />
-                  ),
-                }}
-              />
-            </div>
+            <button
+              type="button"
+              disabled={deleting.has(message.id)}
+              onClick={() => void remove(message.id)}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-status-error disabled:opacity-40"
+              aria-label="删除等待消息"
+              title="从等待队列删除"
+            >
+              <CloseIcon className="h-3 w-3" />
+            </button>
           </div>
         ))}
       </div>
