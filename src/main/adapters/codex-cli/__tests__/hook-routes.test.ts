@@ -118,6 +118,54 @@ describe('Codex CLI hook routes', () => {
     expect(events[0].sessionId).toBe('preserved-on-error');
   });
 
+  it('emits synthetic tool terminal events before Stop when PostToolUse is absent', async () => {
+    const events: AgentEvent[] = [];
+    const desktopFilter = { shouldIgnore: vi.fn().mockResolvedValue(false) };
+    const openToolUseReader = {
+      listForSession: vi.fn().mockReturnValue([
+        {
+          toolUseId: 'tool-open',
+          toolName: 'Bash',
+          toolInput: { command: 'sleep 10' },
+        },
+      ]),
+    };
+    const route = buildCodexHookRoutes(
+      (event) => events.push(event),
+      desktopFilter,
+      undefined,
+      openToolUseReader,
+    ).find((candidate) => candidate.url === '/hook/codex/stop');
+
+    await (route?.handler as (req: unknown, reply: unknown) => Promise<void>)(
+      {
+        body: {
+          session_id: 'codex-terminal',
+          cwd: '/repo',
+          hook_event_name: 'Stop',
+          last_assistant_message: 'done',
+        },
+        headers: {},
+      },
+      replyStub(),
+    );
+
+    expect(openToolUseReader.listForSession).toHaveBeenCalledWith('codex-terminal');
+    expect(events.map((event) => event.kind)).toEqual([
+      'tool-use-end',
+      'message',
+      'finished',
+    ]);
+    expect(events[0]).toMatchObject({
+      source: 'hook',
+      payload: {
+        toolUseId: 'tool-open',
+        status: 'aborted',
+        terminalHook: 'Stop',
+      },
+    });
+  });
+
   it('rejects invalid Codex CLI session identity with a stable body', async () => {
     const emit = vi.fn();
     const desktopFilter = { shouldIgnore: vi.fn() };

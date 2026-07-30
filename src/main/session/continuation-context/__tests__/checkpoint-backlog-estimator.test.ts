@@ -61,6 +61,8 @@ describe.skipIf(!bindingAvailable)('checkpoint backlog estimator', () => {
     });
     expect(committed.ok).toBe(true);
     insert('thinking', { text: 'excluded' });
+    insert('token-usage', { totalTokens: 123 });
+    insert('message-display', { messageId: 'display-1', index: 0, delta: 'excluded' });
     insert('message', { role: 'user', text: 'new intent '.repeat(200) });
 
     const result = estimateCheckpointBacklog({
@@ -70,9 +72,9 @@ describe.skipIf(!bindingAvailable)('checkpoint backlog estimator', () => {
     });
 
     expect(result).toMatchObject({
-      captureRevision: 3,
+      captureRevision: 5,
       checkpointThroughRevision: 1,
-      sourceRows: 2,
+      sourceRows: 1,
       saturated: false,
     });
     expect(result!.estimatedTokens).toBeGreaterThan(0);

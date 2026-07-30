@@ -19,9 +19,10 @@ function row(kind: string, payloadJson: string): RawEventRevisionRow {
 }
 
 describe('continuation event normalizer', () => {
-  it('excludes internal thinking and raw token telemetry', () => {
+  it('excludes internal thinking, raw token telemetry, and display-only message fragments', () => {
     expect(normalizeContinuationEvent(row('thinking', '{}'))).toBeNull();
     expect(normalizeContinuationEvent(row('token-usage', '{}'))).toBeNull();
+    expect(normalizeContinuationEvent(row('message-display', '{"delta":"partial"}'))).toBeNull();
   });
 
   it('preserves normal structured payloads with source provenance', () => {

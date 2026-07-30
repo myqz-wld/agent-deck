@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  translateMessageDisplay,
   translateNotification,
   translatePermissionDenied,
   translatePermissionRequest,
+  translatePostCompact,
   translatePostToolUse,
   translatePostToolUseFailure,
+  translatePreCompact,
   translatePreToolUse,
   translateStop,
   translateStopFailure,
+  translateSubagentStart,
+  translateSubagentStop,
   translateUserPromptSubmit,
 } from '../translate';
 
@@ -163,6 +168,76 @@ describe('Claude Code hook translation contract', () => {
         role: 'assistant',
         text: 'Authentication succeeded',
         metadata: { notificationType: 'auth_success' },
+      },
+    });
+  });
+
+  it('preserves display, compaction, and subagent lifecycle events', () => {
+    expect(
+      translateMessageDisplay({
+        ...base,
+        turn_id: 'turn-1',
+        message_id: 'display-1',
+        index: 2,
+        final: true,
+        delta: 'final line',
+      }),
+    ).toMatchObject({
+      kind: 'message-display',
+      payload: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        messageId: 'display-1',
+        index: 2,
+        final: true,
+        delta: 'final line',
+      },
+    });
+    expect(
+      translatePreCompact({
+        ...base,
+        trigger: 'manual',
+        custom_instructions: 'Keep validation evidence.',
+      }),
+    ).toMatchObject({
+      kind: 'context-compaction-start',
+      payload: {
+        trigger: 'manual',
+        customInstructions: 'Keep validation evidence.',
+      },
+    });
+    expect(
+      translatePostCompact({
+        ...base,
+        trigger: 'manual',
+        compact_summary: 'Validation evidence retained.',
+      }),
+    ).toMatchObject({
+      kind: 'context-compaction-end',
+      payload: {
+        trigger: 'manual',
+        summary: 'Validation evidence retained.',
+      },
+    });
+    expect(translateSubagentStart(base)).toMatchObject({
+      kind: 'subagent-start',
+      payload: { subagentId: 'subagent-1', subagentType: 'code-reviewer' },
+    });
+    expect(
+      translateSubagentStop({
+        ...base,
+        agent_transcript_path: '/tmp/subagent.jsonl',
+        stop_hook_active: false,
+        last_assistant_message: 'No blockers.',
+      }),
+    ).toMatchObject({
+      kind: 'subagent-end',
+      payload: {
+        subagentId: 'subagent-1',
+        subagentType: 'code-reviewer',
+        agentTranscriptPath: '/tmp/subagent.jsonl',
+        stopHookActive: false,
+        lastAssistantMessage: 'No blockers.',
       },
     });
   });

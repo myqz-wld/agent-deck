@@ -60,6 +60,18 @@ suite('activity-feed describe user-facing fallbacks', () => {
     );
   });
 
+  it('显示压缩、子代理和 Codex 合成的工具中止状态', () => {
+    expect(
+      describeActivity(ev('context-compaction-start', { trigger: 'auto' })),
+    ).toBe('🧭 开始压缩上下文 · auto');
+    expect(
+      describeActivity(ev('subagent-start', { subagentType: 'reviewer' })),
+    ).toBe('🤖 子代理开始 · reviewer');
+    expect(
+      describeActivity(ev('tool-use-end', { toolName: 'Bash', status: 'aborted' })),
+    ).toBe('💻 Bash 已中止');
+  });
+
   it('Codex CLI 协作 Agent 摘要包含操作、目标、模型、思考程度和超时', () => {
     expect(
       describeActivity(
@@ -154,6 +166,13 @@ suite('SessionCard formatEventLine', () => {
 
   it('message text 为结构对象时跳过，避免 React 渲染对象', () => {
     expect(formatEventLine(ev('message', { text: { type: 'internal' } }))).toBeNull();
+  });
+
+  it('first-class lifecycle events remain visible on session cards', () => {
+    expect(formatEventLine(ev('context-compaction-end', {}))).toBe('🧭 上下文压缩完成');
+    expect(formatEventLine(ev('subagent-end', { subagentType: 'reviewer' }))).toBe(
+      '🤖 子代理结束 · reviewer',
+    );
   });
 
   it('Agent live activity 不再显示虚构的 codex-collab-agent 占位', () => {

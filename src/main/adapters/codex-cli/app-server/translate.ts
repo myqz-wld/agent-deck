@@ -299,9 +299,9 @@ function translateItemCompleted(
 
     case 'contextCompaction': {
       const text = itemText(item);
-      emit('message', {
+      emit('context-compaction-end', {
         text: text ? `🧭 上下文已压缩\n\n${text}` : '🧭 上下文已压缩',
-        role: 'assistant',
+        summary: text || undefined,
       });
       return;
     }

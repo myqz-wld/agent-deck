@@ -10,10 +10,14 @@ import {
   translateCodexPermissionRequest,
   translateCodexPostCompact,
   translateCodexPostToolUse,
+  translateCodexPreCompact,
   translateCodexPreToolUse,
   translateCodexSessionEnd,
   translateCodexSessionStart,
   translateCodexStop,
+  translateCodexSubagentStart,
+  translateCodexSubagentStop,
+  translateCodexUnclosedToolUses,
   translateCodexUserPrompt,
 } from './hook-translate';
 import {
@@ -21,10 +25,21 @@ import {
   type CodexDesktopEphemeralFilterLike,
   type CodexHookIdentity,
 } from './desktop-ephemeral-filter';
+import {
+  openToolUseRepo,
+  type OpenToolUseRecord,
+} from '@main/store/open-tool-use-repo';
+import log from '@main/utils/logger';
+
+const logger = log.scope('codex-hook-routes');
 
 interface BaseBody extends CodexHookIdentity {
   cwd?: string;
   hook_event_name?: string;
+}
+
+export interface OpenToolUseReader {
+  listForSession(sessionId: string): OpenToolUseRecord[];
 }
 
 function makeRoute(
@@ -69,6 +84,7 @@ export function buildCodexHookRoutes(
   emit: (e: AgentEvent) => void,
   desktopEphemeralFilter: CodexDesktopEphemeralFilterLike = codexDesktopEphemeralFilter,
   diagnostics: HookRouteDiagnostics = hookRouteDiagnostics,
+  openToolUseReader: OpenToolUseReader = openToolUseRepo,
 ): RouteOptions[] {
   const taggedEmit = (ev: AgentEvent, hookOrigin: HookOrigin): void => {
     emit({ ...ev, source: 'hook', hookOrigin });
@@ -86,6 +102,30 @@ export function buildCodexHookRoutes(
       desktopEphemeralFilter,
       diagnostics,
     );
+  const terminalEvents = (
+    body: BaseBody,
+    terminalHook: 'Stop' | 'SessionEnd',
+    translated: AgentEvent[],
+  ): AgentEvent[] => {
+    try {
+      return [
+        ...translateCodexUnclosedToolUses(
+          body as never,
+          openToolUseReader.listForSession(body.session_id),
+          terminalHook,
+        ),
+        ...translated,
+      ];
+    } catch (error) {
+      // Reconciliation is best-effort. Never lose the authoritative terminal event
+      // because the historical lookup is temporarily unavailable.
+      logger.warn('[codex-hook-routes] open tool reconciliation failed', {
+        sessionId: body.session_id,
+        terminalHook,
+      }, error);
+      return translated;
+    }
+  };
   return [
     route('SessionStart', '/hook/codex/sessionstart', (b) =>
       translateCodexSessionStart(b as never)),
@@ -100,10 +140,17 @@ export function buildCodexHookRoutes(
     ),
     route('PostToolUse', '/hook/codex/posttooluse', (b) =>
       translateCodexPostToolUse(b as never)),
+    route('PreCompact', '/hook/codex/precompact', (b) =>
+      translateCodexPreCompact(b as never)),
     route('PostCompact', '/hook/codex/postcompact', (b) =>
       translateCodexPostCompact(b as never)),
-    route('Stop', '/hook/codex/stop', (b) => translateCodexStop(b as never)),
+    route('SubagentStart', '/hook/codex/subagentstart', (b) =>
+      translateCodexSubagentStart(b as never)),
+    route('SubagentStop', '/hook/codex/subagentstop', (b) =>
+      translateCodexSubagentStop(b as never)),
+    route('Stop', '/hook/codex/stop', (b) =>
+      terminalEvents(b, 'Stop', translateCodexStop(b as never))),
     route('SessionEnd', '/hook/codex/sessionend', (b) =>
-      translateCodexSessionEnd(b as never)),
+      terminalEvents(b, 'SessionEnd', [translateCodexSessionEnd(b as never)])),
   ];
 }

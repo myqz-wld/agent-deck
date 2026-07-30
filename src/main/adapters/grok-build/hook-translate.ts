@@ -238,14 +238,64 @@ export function translateGrokPermissionDenied(
   });
 }
 
+export function translateGrokPreCompact(
+  payload: BaseGrokHookPayload & AnyRecord,
+): AgentEvent {
+  return event(payload, 'context-compaction-start', {
+    ...commonPayload(payload),
+    trigger: firstString(payload, ['trigger']) || undefined,
+    source: firstString(payload, ['source']) || undefined,
+    customInstructions:
+      firstString(payload, ['customInstructions', 'custom_instructions']) || undefined,
+  });
+}
+
 export function translateGrokPostCompact(
   payload: BaseGrokHookPayload & AnyRecord,
 ): AgentEvent {
   const trigger = firstString(payload, ['trigger']);
-  return event(payload, 'message', {
-    role: 'assistant',
+  const summary =
+    firstString(payload, ['compactSummary', 'compact_summary', 'summary']) || undefined;
+  return event(payload, 'context-compaction-end', {
+    ...commonPayload(payload),
+    trigger: trigger || undefined,
+    source: firstString(payload, ['source']) || undefined,
+    summary,
     text: `Grok Build 上下文已压缩${trigger ? `（${trigger}）` : ''}`,
-    metadata: commonPayload(payload),
+  });
+}
+
+export function translateGrokSubagentStart(
+  payload: BaseGrokHookPayload & AnyRecord,
+): AgentEvent {
+  return event(payload, 'subagent-start', {
+    ...commonPayload(payload),
+    subagentId:
+      firstString(payload, ['subagentId', 'subagent_id', 'agentId', 'agent_id']) ||
+      undefined,
+    subagentType:
+      firstString(payload, ['subagentType', 'subagent_type', 'agentType', 'agent_type']) ||
+      undefined,
+    description: firstString(payload, ['description']) || undefined,
+  });
+}
+
+export function translateGrokSubagentStop(
+  payload: BaseGrokHookPayload & AnyRecord,
+): AgentEvent {
+  return event(payload, 'subagent-end', {
+    ...commonPayload(payload),
+    subagentId:
+      firstString(payload, ['subagentId', 'subagent_id', 'agentId', 'agent_id']) ||
+      undefined,
+    subagentType:
+      firstString(payload, ['subagentType', 'subagent_type', 'agentType', 'agent_type']) ||
+      undefined,
+    phase: firstString(payload, ['phase']) || undefined,
+    stopHookActive: firstBoolean(payload, ['stopHookActive', 'stop_hook_active']),
+    lastAssistantMessage:
+      firstString(payload, ['lastAssistantMessage', 'last_assistant_message']) ||
+      undefined,
   });
 }
 

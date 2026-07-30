@@ -117,6 +117,47 @@ describe('formatEventsForPrompt — 排序契约', () => {
     expect(out).not.toContain('· 完成 ·');
   });
 
+  it('labels synthesized Codex terminal reconciliation as aborted', () => {
+    const event: AgentEvent = {
+      sessionId: 's1',
+      agentId: 'codex-cli',
+      kind: 'tool-use-end',
+      payload: { toolName: 'Bash', status: 'aborted' },
+      ts: 100,
+    };
+    expect(formatEventsForPrompt([event])).toContain('[Claude 工具结果] Bash · 中止');
+  });
+
+  it('includes compaction and subagent lifecycle without replaying display-only deltas', () => {
+    const events: AgentEvent[] = [
+      {
+        sessionId: 's1',
+        agentId: 'claude-code',
+        kind: 'message-display',
+        payload: { delta: 'partial duplicate' },
+        ts: 1,
+      },
+      {
+        sessionId: 's1',
+        agentId: 'claude-code',
+        kind: 'context-compaction-end',
+        payload: { trigger: 'auto' },
+        ts: 2,
+      },
+      {
+        sessionId: 's1',
+        agentId: 'claude-code',
+        kind: 'subagent-start',
+        payload: { subagentType: 'reviewer' },
+        ts: 3,
+      },
+    ];
+    const out = formatEventsForPrompt(events);
+    expect(out).toContain('[上下文压缩完成] auto');
+    expect(out).toContain('[子代理开始] reviewer');
+    expect(out).not.toContain('partial duplicate');
+  });
+
   it('无 id 字段时降级到纯 ts 排序（兼容无 id caller，?? 0 兜底不抛错）', () => {
     const noId = [
       { sessionId: 's1', agentId: 'claude-code', kind: 'message', payload: { text: 'a', role: 'assistant' }, ts: 1000, source: 'sdk' },

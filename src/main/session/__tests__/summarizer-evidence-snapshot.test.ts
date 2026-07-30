@@ -56,6 +56,7 @@ describe.skipIf(!bindingAvailable)('periodic summary evidence snapshot', () => {
       insertEvent(db, 'message', { role: 'user', text: '优化周期总结，明确进展和下一步' }, 10);
       insertEvent(db, 'message', { role: 'user', text: 'do not retain', synthetic: true }, 11);
       insertEvent(db, 'message', { role: 'assistant', text: '正在定位总结输入缺口' }, 12);
+      insertEvent(db, 'message-display', { messageId: 'display-1', index: 0, delta: 'partial' }, 12);
       db.prepare(
         `INSERT INTO events (session_id, kind, payload_json, ts)
          VALUES ('summary-evidence', 'message', '{malformed', 12)`,
@@ -76,6 +77,7 @@ describe.skipIf(!bindingAvailable)('periodic summary evidence snapshot', () => {
       );
       expect(snapshot!.events.map((event) => event.kind)).toContain('message');
       expect(snapshot!.events.map((event) => event.kind)).toContain('tool-use-end');
+      expect(snapshot!.events.map((event) => event.kind)).not.toContain('message-display');
     } finally {
       db.close();
     }

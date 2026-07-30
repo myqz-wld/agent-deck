@@ -46,6 +46,23 @@ export function describeEventPayload(e: AgentEvent): string {
       return typeof p.filePath === 'string' && p.filePath.trim()
         ? truncate80(p.filePath.trim())
         : '文件已变更';
+    case 'message-display':
+      return typeof p.delta === 'string' && p.delta.trim()
+        ? truncate80(p.delta.trim())
+        : p.final === true
+          ? '消息显示完成'
+          : '暂无显示内容';
+    case 'context-compaction-start':
+      return typeof p.trigger === 'string' ? `触发方式：${p.trigger}` : '开始压缩上下文';
+    case 'context-compaction-end':
+      return typeof p.trigger === 'string' ? `触发方式：${p.trigger}` : '上下文压缩完成';
+    case 'subagent-start':
+    case 'subagent-end': {
+      const type = typeof p.subagentType === 'string' ? p.subagentType : '';
+      const id = typeof p.subagentId === 'string' ? p.subagentId : '';
+      return [type, id].filter(Boolean).join(' · ') ||
+        (e.kind === 'subagent-start' ? '子代理已开始' : '子代理已结束');
+    }
     case 'thinking':
       return e.agentId === 'codex-cli' ? '本轮暂无推理摘要' : '暂无思考内容';
     case 'team-task-created':
@@ -102,5 +119,6 @@ function describeWaitingPayload(p: Record<string, unknown>): string {
 function toolStatusLabel(status: unknown): string {
   if (status === 'failed') return '失败';
   if (status === 'cancelled') return '已取消';
+  if (status === 'aborted') return '已中止';
   return '';
 }

@@ -276,6 +276,23 @@ export function formatEventLine(e: AgentEvent): string | null {
       if (!text) return null;
       return `💬 ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`;
     }
+    case 'message-display': {
+      const delta = textValue(p.delta).replace(/\s+/g, ' ');
+      if (!delta) return null;
+      return `💬 ${delta.slice(0, 80)}${delta.length > 80 ? '…' : ''}`;
+    }
+    case 'context-compaction-start':
+      return '🧭 正在压缩上下文';
+    case 'context-compaction-end':
+      return '🧭 上下文压缩完成';
+    case 'subagent-start': {
+      const type = textValue(p.subagentType);
+      return `🤖 子代理开始${type ? ` · ${type}` : ''}`;
+    }
+    case 'subagent-end': {
+      const type = textValue(p.subagentType);
+      return `🤖 子代理结束${type ? ` · ${type}` : ''}`;
+    }
     case 'waiting-for-user':
       return formatWaitingLine(p);
     case 'session-start':

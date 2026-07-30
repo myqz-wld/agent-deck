@@ -3,10 +3,14 @@ import {
   translateCodexPermissionRequest,
   translateCodexPostCompact,
   translateCodexPostToolUse,
+  translateCodexPreCompact,
   translateCodexPreToolUse,
   translateCodexSessionEnd,
   translateCodexSessionStart,
   translateCodexStop,
+  translateCodexSubagentStart,
+  translateCodexSubagentStop,
+  translateCodexUnclosedToolUses,
   translateCodexUserPrompt,
 } from '../hook-translate';
 
@@ -78,7 +82,7 @@ describe('Codex CLI hook translation', () => {
     });
   });
 
-  it('translates PostToolUse and derives failed status from exit code', () => {
+  it('marks PostToolUse completed even when the command response has a non-zero exit code', () => {
     const event = translateCodexPostToolUse({
       session_id: 'codex-sid-1',
       cwd: '/repo',
@@ -94,18 +98,24 @@ describe('Codex CLI hook translation', () => {
       toolInput: { command: 'false' },
       toolResult: { exit_code: 1, output: 'nope' },
       toolUseId: 'tool-3',
-      status: 'failed',
+      status: 'completed',
     });
   });
 
-  it('translates user prompts, PostCompact, Stop, and SessionEnd', () => {
+  it('translates user prompts, compaction, Stop, and SessionEnd', () => {
     const prompt = translateCodexUserPrompt({
       session_id: 'codex-sid-1',
       cwd: '/repo',
       prompt: 'Review this branch.',
       turn_id: 'turn-2',
     });
-    const compact = translateCodexPostCompact({
+    const preCompact = translateCodexPreCompact({
+      session_id: 'codex-sid-1',
+      cwd: '/repo',
+      trigger: 'auto',
+      turn_id: 'turn-2',
+    });
+    const postCompact = translateCodexPostCompact({
       session_id: 'codex-sid-1',
       cwd: '/repo',
       trigger: 'auto',
@@ -128,10 +138,16 @@ describe('Codex CLI hook translation', () => {
       kind: 'message',
       payload: { role: 'user', text: 'Review this branch.' },
     });
-    expect(compact.kind).toBe('message');
-    expect(compact.payload).toMatchObject({
-      role: 'assistant',
+    expect(preCompact).toMatchObject({
+      kind: 'context-compaction-start',
+      payload: { trigger: 'auto', turnId: 'turn-2' },
+    });
+    expect(postCompact).toMatchObject({
+      kind: 'context-compaction-end',
+      payload: {
+        trigger: 'auto',
       text: 'Codex context compacted (auto)',
+      },
     });
     expect(stopEvents).toMatchObject([
       {
@@ -145,12 +161,79 @@ describe('Codex CLI hook translation', () => {
           subtype: 'success',
           stopHookActive: false,
           turnId: 'turn-2',
+          clearsTerminalPermission: true,
         },
       },
     ]);
     expect(sessionEnd).toMatchObject({
       kind: 'session-end',
-      payload: { reason: 'other' },
+      payload: { reason: 'other', clearsTerminalPermission: true },
     });
+  });
+
+  it('preserves subagent lifecycle metadata', () => {
+    expect(
+      translateCodexSubagentStart({
+        session_id: 'codex-sid-1',
+        turn_id: 'turn-3',
+        agent_id: 'agent-7',
+        agent_type: 'reviewer',
+      }),
+    ).toMatchObject({
+      kind: 'subagent-start',
+      payload: {
+        subagentId: 'agent-7',
+        subagentType: 'reviewer',
+        turnId: 'turn-3',
+      },
+    });
+    expect(
+      translateCodexSubagentStop({
+        session_id: 'codex-sid-1',
+        turn_id: 'turn-3',
+        agent_id: 'agent-7',
+        agent_type: 'reviewer',
+        agent_transcript_path: '/tmp/agent-7.jsonl',
+        stop_hook_active: false,
+        last_assistant_message: 'No blockers.',
+      }),
+    ).toMatchObject({
+      kind: 'subagent-end',
+      payload: {
+        subagentId: 'agent-7',
+        subagentType: 'reviewer',
+        agentTranscriptPath: '/tmp/agent-7.jsonl',
+        stopHookActive: false,
+        lastAssistantMessage: 'No blockers.',
+      },
+    });
+  });
+
+  it('closes unmatched tool starts conservatively at a terminal hook', () => {
+    expect(
+      translateCodexUnclosedToolUses(
+        { session_id: 'codex-sid-1', turn_id: 'turn-4' },
+        [
+          {
+            toolUseId: 'tool-open',
+            toolName: 'Bash',
+            toolInput: { command: 'sleep 10' },
+          },
+        ],
+        'Stop',
+      ),
+    ).toMatchObject([
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'tool-open',
+          toolName: 'Bash',
+          status: 'aborted',
+          terminalHook: 'Stop',
+          terminalReason: 'turn-ended-without-post-tool-use',
+          clearsTerminalPermission: true,
+        },
+      },
+    ]);
   });
 });

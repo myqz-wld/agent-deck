@@ -66,7 +66,7 @@ function activityRows(
         WHERE session_id = ?
           AND COALESCE(change_revision, id) <= ?
           ${usableAfter ? 'AND COALESCE(change_revision, id) > ?' : ''}
-          AND kind NOT IN ('thinking', 'token-usage')
+          AND kind NOT IN ('thinking', 'token-usage', 'message-display')
         ORDER BY COALESCE(change_revision, id) DESC, id DESC
         LIMIT ?`,
     )

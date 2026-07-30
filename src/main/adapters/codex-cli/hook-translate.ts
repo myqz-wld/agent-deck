@@ -14,8 +14,6 @@ interface BaseCodexHookPayload {
   agent_type?: string;
 }
 
-type AnyRecord = Record<string, unknown>;
-
 function commonPayload(p: BaseCodexHookPayload): Record<string, unknown> {
   return {
     cwd: p.cwd,
@@ -111,8 +109,21 @@ export function translateCodexPostToolUse(
     toolInput: p.tool_input,
     toolResult: p.tool_response,
     toolUseId: p.tool_use_id,
-    status: codexToolStatus(p.tool_response),
+    // Codex emits PostToolUse only for the successful lifecycle branch. A command's
+    // non-zero exit code is still a completed tool response, not a missing/failing hook.
+    status: 'completed',
     clearsTerminalPermission: true,
+  });
+}
+
+export function translateCodexPreCompact(
+  p: BaseCodexHookPayload & {
+    trigger?: string;
+  },
+): AgentEvent {
+  return event(p, 'context-compaction-start', {
+    ...commonPayload(p),
+    trigger: p.trigger,
   });
 }
 
@@ -121,11 +132,69 @@ export function translateCodexPostCompact(
     trigger?: string;
   },
 ): AgentEvent {
-  return event(p, 'message', {
-    role: 'assistant',
+  return event(p, 'context-compaction-end', {
+    ...commonPayload(p),
+    trigger: p.trigger,
     text: `Codex context compacted${p.trigger ? ` (${p.trigger})` : ''}`,
-    metadata: commonPayload(p),
   });
+}
+
+export function translateCodexSubagentStart(
+  p: BaseCodexHookPayload & {
+    agent_id?: string;
+    agent_type?: string;
+  },
+): AgentEvent {
+  return event(p, 'subagent-start', {
+    ...commonPayload(p),
+    subagentId: p.agent_id,
+    subagentType: p.agent_type,
+  });
+}
+
+export function translateCodexSubagentStop(
+  p: BaseCodexHookPayload & {
+    stop_hook_active?: boolean;
+    agent_id?: string;
+    agent_type?: string;
+    agent_transcript_path?: string | null;
+    last_assistant_message?: string | null;
+  },
+): AgentEvent {
+  return event(p, 'subagent-end', {
+    ...commonPayload(p),
+    subagentId: p.agent_id,
+    subagentType: p.agent_type,
+    agentTranscriptPath: p.agent_transcript_path ?? undefined,
+    stopHookActive: p.stop_hook_active,
+    lastAssistantMessage: p.last_assistant_message ?? undefined,
+  });
+}
+
+export interface CodexOpenToolUse {
+  toolUseId: string;
+  toolName?: unknown;
+  toolInput?: unknown;
+}
+
+export function translateCodexUnclosedToolUses(
+  p: BaseCodexHookPayload,
+  openTools: CodexOpenToolUse[],
+  terminalHook: 'Stop' | 'SessionEnd',
+): AgentEvent[] {
+  const ts = Date.now();
+  return openTools.map((tool) =>
+    event(p, 'tool-use-end', {
+      ...commonPayload(p),
+      toolName: tool.toolName,
+      toolInput: tool.toolInput,
+      toolUseId: tool.toolUseId,
+      status: 'aborted',
+      terminalHook,
+      terminalReason: 'turn-ended-without-post-tool-use',
+      clearsTerminalPermission: true,
+    }, ts),
+  );
 }
 
 export function translateCodexStop(
@@ -150,6 +219,7 @@ export function translateCodexStop(
       ok: true,
       subtype: 'success',
       stopHookActive: p.stop_hook_active,
+      clearsTerminalPermission: true,
       ...commonPayload(p),
     }, ts),
   );
@@ -162,28 +232,6 @@ export function translateCodexSessionEnd(
   return event(p, 'session-end', {
     ...commonPayload(p),
     reason: p.reason,
+    clearsTerminalPermission: true,
   });
-}
-
-function codexToolStatus(response: unknown): string | undefined {
-  const record = asRecord(response);
-  const status = stringField(record?.status);
-  if (status) return status;
-  const exitCode = numberField(record?.exit_code ?? record?.exitCode);
-  if (exitCode === null) return undefined;
-  return exitCode === 0 ? 'completed' : 'failed';
-}
-
-function asRecord(value: unknown): AnyRecord | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as AnyRecord)
-    : null;
-}
-
-function stringField(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function numberField(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }

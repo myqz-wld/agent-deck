@@ -15,7 +15,10 @@ export const CODEX_HOOK_EVENTS = [
   'PreToolUse',
   'PermissionRequest',
   'PostToolUse',
+  'PreCompact',
   'PostCompact',
+  'SubagentStart',
+  'SubagentStop',
   'Stop',
   'SessionEnd',
 ] as const;

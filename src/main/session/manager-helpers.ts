@@ -49,8 +49,13 @@ export function nextActivityState(
       return 'idle';
     case 'tool-use-start':
     case 'message':
+    case 'message-display':
     case 'thinking':
     case 'file-changed':
+    case 'context-compaction-start':
+    case 'context-compaction-end':
+    case 'subagent-start':
+    case 'subagent-end':
       return 'working';
     case 'tool-use-end': {
       const clearsTerminalPermission = (
@@ -70,8 +75,13 @@ export function nextActivityState(
     }
     case 'finished':
       return 'finished';
-    case 'session-end':
+    case 'session-end': {
+      const clearsTerminalPermission = (
+        payload as { clearsTerminalPermission?: boolean } | null | undefined
+      )?.clearsTerminalPermission === true;
+      if (clearsTerminalPermission) return 'finished';
       return current;
+    }
     default:
       return current;
   }
