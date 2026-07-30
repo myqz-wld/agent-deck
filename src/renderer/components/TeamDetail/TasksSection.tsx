@@ -12,9 +12,8 @@ import {
   InfoIcon,
   WrenchIcon,
 } from '../icons';
-import { TaskDetailViewer } from './viewers/TaskDetailViewer';
 
-/** Team tasks in workflow order. Every row exposes the complete task record in its detail viewer. */
+/** Team tasks in workflow order. */
 interface Props {
   tasks: TaskRecord[];
 }
@@ -51,11 +50,10 @@ export function TasksSection({ tasks }: Props): JSX.Element {
 function TaskRow({ task }: { task: TaskRecord }): JSX.Element {
   return (
     <li
-      className="relative rounded border border-deck-border/40 bg-white/[0.02] py-1 pl-2 pr-12 text-[11px]"
+      className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-1 text-[11px]"
       title={task.description ?? task.subject}
     >
-      <TaskDetailViewer task={task} sessionId={task.ownerSessionId} />
-      <div className="flex min-h-11 items-center justify-between gap-2">
+      <div className="flex items-baseline justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0">{statusIcon(task.status)}</span>
           <strong className="truncate text-deck-text">{task.subject}</strong>

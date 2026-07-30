@@ -1,10 +1,6 @@
 import { useMemo, type JSX } from 'react';
 import type { AgentEvent, PermissionRequest } from '@shared/types';
-import {
-  ExpandableContent,
-  type StructuredContentValue,
-  type ToolContentPayload,
-} from '../expandable-content';
+import type { StructuredContentValue } from '../expandable-content';
 import { DiffViewer } from '../diff/DiffViewer';
 import log from '@renderer/utils/logger';
 import { toolInputToDiff } from './tool-input-diff';
@@ -187,15 +183,6 @@ export function PermissionRow({
     () => toolInputToDiff(payload.toolName, normalizedInput),
     [normalizedInput, payload.toolName],
   );
-  const expandablePayload: ToolContentPayload = {
-    kind: 'tool',
-    toolName: payload.toolName,
-    input: normalizedInput,
-    metadata: {
-      hasSuggestedPermission: Boolean(payload.suggestions),
-    },
-  };
-
   const respond = async (decision: 'allow' | 'deny', alwaysAllow = false): Promise<void> => {
     if (!isSdk || !stillPending) return;
     const result = await run(
@@ -274,42 +261,15 @@ export function PermissionRow({
           </div>
         )}
       </div>
-      <div className="relative min-h-14 rounded border border-deck-border/40 bg-black/20 p-2 pr-12">
-        <div className="text-[10px] leading-relaxed text-deck-muted">
-          {diff
-            ? `此请求包含${diff.kind === 'image' ? '图片' : '文件'}差异，展开后查看完整内容。`
-            : '此请求包含结构化工具输入，展开后查看完整内容。'}
+      {diff ? (
+        <div className="h-72 overflow-hidden rounded border border-white/5">
+          <DiffViewer payload={diff} sessionId={sessionId} />
         </div>
-        <ExpandableContent<ToolContentPayload>
-          identity={{
-            sessionId,
-            kind: 'request',
-            requestId: `${payload.requestId}:permission`,
-          }}
-          payload={expandablePayload}
-          title={`权限请求 · ${payload.toolName}`}
-          triggerLabel="展开权限请求内容"
-          heavyView={diff
-            ? {
-                id: `permission-${sessionId}-${payload.requestId}`,
-                kind: diff.kind === 'image' ? 'image-diff' : 'monaco',
-                render: () => (
-                  <div className="flex min-h-[60vh] flex-1 overflow-hidden rounded border border-white/5">
-                    <DiffViewer payload={diff} sessionId={sessionId} expanded />
-                  </div>
-                ),
-              }
-            : undefined}
-        >
-          {!diff
-            ? ({ payload: expandedPayload }) => (
-                <pre className="max-w-full overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-3 text-xs leading-relaxed text-deck-text">
-                  {formatStructuredInput(expandedPayload.input)}
-                </pre>
-              )
-            : null}
-        </ExpandableContent>
-      </div>
+      ) : (
+        <pre className="max-h-24 max-w-full overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted scrollbar-deck">
+          {formatStructuredInput(normalizedInput)}
+        </pre>
+      )}
       <RowResponseError>{externalError ?? error}</RowResponseError>
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口授权</div>

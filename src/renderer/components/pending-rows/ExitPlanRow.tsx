@@ -272,13 +272,7 @@ export function ExitPlanRow({
         </div>
       )}
 
-      <PlanMarkdownPanel
-        plan={plan}
-        sessionId={sessionId}
-        requestId={payload.requestId}
-        title={payload.title}
-        status={stillPending ? 'pending' : wasCancelled ? 'timed-out' : 'approved'}
-      />
+      <PlanMarkdownPanel plan={plan} />
       <RowResponseError>{error}</RowResponseError>
 
       {!isSdk && (

@@ -1,15 +1,12 @@
-import { Fragment, type JSX } from 'react';
+import { Fragment, useState, type JSX } from 'react';
 import type {
   DiffPayload,
   DiffReviewAnnotation,
   DiffReviewAnnotationPane,
   DiffReviewRequest,
 } from '@shared/types';
-import {
-  ExpandableContent,
-  type ToolContentPayload,
-} from '../expandable-content';
 import { DiffViewer } from '../diff/DiffViewer';
+import { ChevronDownIcon, ChevronUpIcon } from '../icons';
 import {
   buildPrLineTones,
   diffLineMarkerClass,
@@ -82,93 +79,40 @@ export function DiffPresentationPanel({
   diffPayload: DiffPayload<string> | null;
   sessionId: string;
 }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
   const size = getPresentationSize(payload);
   const label = payload.mode === 'merge-conflict' ? '冲突内容' : '差异内容';
-  const expandablePayload: ToolContentPayload = {
-    kind: 'tool',
-    toolName: 'present_diff',
-    input: diffReviewStructuredInput(payload),
-    metadata: {
-      mode: payload.mode,
-      filePath: payload.filePath ?? null,
-      language: payload.language ?? null,
-    },
-  };
 
   return (
-    <div className="relative min-w-0 rounded border border-deck-border/40 bg-black/20 p-2 pr-12">
-      <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/85">
-        {label}包含 {size} 字
-      </div>
-      <ExpandableContent<ToolContentPayload>
-        identity={{
-          sessionId,
-          kind: 'request',
-          requestId: `${payload.requestId}:diff`,
-        }}
-        payload={expandablePayload}
-        title={payload.title ?? (payload.mode === 'merge-conflict' ? '冲突解决详情' : '差异详情')}
-        triggerLabel={`展开${label}`}
-        heavyView={{
-          id: `diff-review-${sessionId}-${payload.requestId}`,
-          kind: payload.mode === 'pr' ? 'monaco' : 'custom',
-          render: () => (
-            <DiffPresentationContent
-              payload={payload}
-              diffPayload={diffPayload}
-              sessionId={sessionId}
-            />
-          ),
-        }}
-      >
-        <DiffIntroCards
-          rationale={payload.rationale}
-          instructions={payload.instructions}
+    <div className="min-w-0 rounded border border-deck-border/40 bg-black/20 p-2">
+      {expanded ? (
+        <DiffPresentationContent
+          payload={payload}
+          diffPayload={diffPayload}
+          sessionId={sessionId}
         />
-      </ExpandableContent>
+      ) : (
+        <div className="rounded border border-deck-border/40 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted/85">
+          {label}已收起
+        </div>
+      )}
+      <div className="mt-1.5 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          className="rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/[0.08] hover:text-deck-text"
+        >
+          {expanded
+            ? <ChevronUpIcon className="mr-1 inline h-3 w-3" />
+            : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}
+          {expanded
+            ? '收起'
+            : `展开${payload.mode === 'merge-conflict' ? '冲突' : '差异'}（${size} 字）`}
+        </button>
+      </div>
     </div>
   );
-}
-
-function diffReviewStructuredInput(
-  payload: DiffReviewRequest,
-): ToolContentPayload['input'] {
-  return {
-    type: payload.type,
-    mode: payload.mode,
-    title: payload.title ?? null,
-    filePath: payload.filePath ?? null,
-    language: payload.language ?? null,
-    rationale: payload.rationale,
-    instructions: payload.instructions ?? null,
-    annotations: (payload.annotations ?? []).map((annotation) => ({
-      pane: annotation.pane,
-      line: annotation.line ?? null,
-      title: annotation.title ?? null,
-      body: annotation.body,
-    })),
-    pr: payload.pr
-      ? {
-          before: payload.pr.before,
-          after: payload.pr.after,
-          beforeLabel: payload.pr.beforeLabel ?? null,
-          afterLabel: payload.pr.afterLabel ?? null,
-          unifiedDiff: payload.pr.unifiedDiff ?? null,
-        }
-      : null,
-    conflict: payload.conflict
-      ? {
-          ours: payload.conflict.ours,
-          theirs: payload.conflict.theirs,
-          resolution: payload.conflict.resolution,
-          base: payload.conflict.base ?? null,
-          oursLabel: payload.conflict.oursLabel ?? null,
-          theirsLabel: payload.conflict.theirsLabel ?? null,
-          resolutionLabel: payload.conflict.resolutionLabel ?? null,
-          baseLabel: payload.conflict.baseLabel ?? null,
-        }
-      : null,
-  };
 }
 
 function DiffPresentationContent({
@@ -187,7 +131,7 @@ function DiffPresentationContent({
     }
     return (
       <div className={`${PRESENTED_DIFF_HEIGHT} flex min-w-0 overflow-hidden rounded border border-white/5`}>
-        <DiffViewer payload={diffPayload} sessionId={sessionId} expanded />
+        <DiffViewer payload={diffPayload} sessionId={sessionId} />
       </div>
     );
   }

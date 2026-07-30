@@ -5,7 +5,6 @@ import {
   fireEvent,
   render,
   screen,
-  within,
 } from '@testing-library/react';
 import type { AgentEvent } from '@shared/types';
 import { MessageBubble } from './message-row';
@@ -26,8 +25,8 @@ vi.mock('@renderer/components/ImageLightbox', () => ({
 
 afterEach(() => cleanup());
 
-describe('MessageBubble full viewer', () => {
-  it('preserves render mode, attachments, and wire metadata in the selected message', () => {
+describe('MessageBubble original inline presentation', () => {
+  it('keeps render mode, attachments, and wire metadata in the message row', () => {
     const event: AgentEvent = {
       sessionId: 'session-1',
       agentId: 'codex-cli',
@@ -45,38 +44,35 @@ describe('MessageBubble full viewer', () => {
       ts: 1,
     };
     render(<MessageBubble event={event} agentId="codex-cli" />);
-    const trigger = screen.getByRole('button', { name: '展开消息详情' });
-    expect(trigger.className).toContain('h-11');
-    fireEvent.click(trigger);
-    const dialog = screen.getByRole('dialog', { name: '你的消息详情' });
-    expect(dialog.textContent).toContain('Reviewer · Claude Code');
-    expect(within(dialog).getByRole('img', { name: '附件图片 1' })).toBeTruthy();
-    expect(within(dialog).queryByTestId('markdown')).toBeNull();
-    fireEvent.click(within(dialog).getByRole('button', { name: '显示 Markdown' }));
-    expect(within(dialog).getByTestId('markdown').textContent).toBe('# Full message');
+
+    expect(document.body.textContent).toContain('Reviewer');
+    expect(screen.getByRole('img', { name: '附件图片 1' })).toBeTruthy();
+    expect(screen.queryByTestId('markdown')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'TXT' }));
+    expect(screen.getByTestId('markdown').textContent).toBe('# Full message');
+    expect(screen.queryByRole('button', { name: '展开消息详情' })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('closes an open viewer when a same-millisecond message changes identity', () => {
-    const commonPrefix = '123456789012345678901234';
-    const first: AgentEvent = {
+  it('uses the original inline disclosure for long messages', () => {
+    const text = `${'消息'.repeat(401)}完整结尾`;
+    const event: AgentEvent = {
       sessionId: 'session-1',
       agentId: 'codex-cli',
       kind: 'message',
-      payload: { role: 'assistant', text: `${commonPrefix}A first payload` },
+      payload: { role: 'assistant', text },
       ts: 7,
     };
-    const second: AgentEvent = {
-      ...first,
-      payload: { role: 'assistant', text: `${commonPrefix}B second payload` },
-    };
-    const view = render(<MessageBubble event={first} agentId="codex-cli" />);
-    fireEvent.click(screen.getByRole('button', { name: '展开消息详情' }));
-    expect(screen.getByRole('dialog').textContent).toContain('first payload');
+    const { container } = render(<MessageBubble event={event} agentId="codex-cli" />);
 
-    view.rerender(<MessageBubble event={second} agentId="codex-cli" />);
+    const trigger = screen.getByRole('button', { name: `展开（${text.length} 字）` });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('.max-h-72')).toBeTruthy();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('button', { name: '收起' }).getAttribute('aria-expanded'))
+      .toBe('true');
+    expect(container.querySelector('.max-h-72')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '展开消息详情' }));
-    expect(screen.getByRole('dialog').textContent).toContain('second payload');
   });
 
   it('keeps complete wire and hand-off metadata without fictional attachment references', () => {

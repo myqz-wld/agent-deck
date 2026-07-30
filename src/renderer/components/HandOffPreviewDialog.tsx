@@ -392,16 +392,9 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                 </span>
               </div>
               <ExpandableTextViewer
-                identity={{
-                  sessionId,
-                  kind: 'payload',
-                  payloadId: `handoff-preview:${preparation.preparationId}`,
-                }}
-                title="查看续接上下文摘录"
                 ariaLabel="续接上下文摘录"
                 value={preparation.preview}
                 rows={16}
-                maxLength={32_768}
                 monospace
                 excerptNotice="这里仅展示有长度上限的节选；实际发送给模型提供方的内容可能更完整。"
               />

@@ -1,8 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react';
-import {
-  ExpandableContent,
-  type DiagnosticContentPayload,
-} from '@renderer/components/expandable-content';
+import { useEffect, useState, type JSX } from 'react';
 import log from '@renderer/utils/logger';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
 
@@ -60,54 +56,22 @@ export function SummarizerErrorsDiagnostic(): JSX.Element {
       <div className="text-deck-muted/70">最近总结失败记录（前 5 条）</div>
       <ul className="flex flex-col gap-0.5">
         {entries.slice(0, 5).map(([sid, info]) => (
-          <DiagnosticEntry key={sid} sessionId={sid} info={info} />
+          <li
+            key={sid}
+            className="flex flex-col gap-0.5 rounded border border-status-waiting/30 bg-status-waiting/10 p-1.5"
+          >
+            <div className="text-[9px] text-status-waiting/80">
+              {new Date(info.ts).toLocaleTimeString()} · 会话 {sid.slice(0, 8)}…
+            </div>
+            <div className="break-all text-status-waiting/90" title={info.message}>
+              {info.message.slice(0, 200)}
+            </div>
+            <div className="text-[9px] text-status-waiting/60">
+              可检查模型名称、网络或账号权限后重试。
+            </div>
+          </li>
         ))}
       </ul>
     </div>
-  );
-}
-
-function DiagnosticEntry({
-  sessionId,
-  info,
-}: {
-  sessionId: string;
-  info: { message: string; ts: number };
-}): JSX.Element {
-  const payload = useMemo<DiagnosticContentPayload>(() => ({
-    kind: 'diagnostic',
-    text: info.message,
-    severity: 'error',
-    metadata: { timestamp: info.ts, category: 'summarizer' },
-  }), [info.message, info.ts]);
-  return (
-    <li className="relative flex flex-col gap-0.5 rounded border border-status-waiting/30 bg-status-waiting/10 py-1.5 pl-1.5 pr-12">
-      <ExpandableContent<DiagnosticContentPayload>
-        identity={{
-          sessionId,
-          kind: 'diagnostic',
-          diagnosticId: 'summarizer-last-error',
-          revision: info.ts,
-        }}
-        payload={payload}
-        title="总结失败诊断"
-        triggerLabel="展开完整诊断"
-      >
-        {({ payload: selected }) => (
-          <div className="min-w-0 whitespace-pre-wrap break-all text-sm leading-relaxed text-status-waiting">
-            {selected.text}
-          </div>
-        )}
-      </ExpandableContent>
-      <div className="min-h-11 text-[9px] text-status-waiting/80">
-        {new Date(info.ts).toLocaleTimeString()} · 会话诊断
-      </div>
-      <div className="max-h-20 overflow-hidden break-all text-status-waiting/90">
-        {info.message.slice(0, 200)}
-      </div>
-      <div className="text-[9px] text-status-waiting/60">
-        可检查模型名称、网络或账号权限后重试。
-      </div>
-    </li>
   );
 }

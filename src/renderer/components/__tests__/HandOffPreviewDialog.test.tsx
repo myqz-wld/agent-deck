@@ -367,7 +367,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     });
   });
 
-  it('labels the bounded preview as an excerpt and expands the exact excerpt', async () => {
+  it('labels the bounded preview as a read-only inline excerpt', async () => {
     handOffPrepare.mockResolvedValueOnce({
       ...prepared,
       preview: '受限摘录第一行\n受限摘录第二行',
@@ -383,19 +383,13 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       /上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的运行时、模型提供方和思考程度/,
     )).toBeTruthy();
     expect(screen.queryByText(/renderer|主进程|prompt/)).toBeNull();
-    const compact = screen.getByLabelText('续接上下文摘录');
-    const trigger = screen.getByRole('button', { name: '展开查看续接上下文摘录' });
-    expect(compact.className).toContain('resize-none');
-    expect(compact.className).not.toContain('resize-y');
-    expect(trigger.className).toContain('h-6');
-    expect(trigger.className).toContain('w-6');
-    expect(trigger.className).not.toContain('h-11');
-    fireEvent.click(trigger);
-    const excerpt = screen.getByLabelText(
-      '续接上下文摘录（展开查看）',
-    ) as HTMLTextAreaElement;
+    const excerpt = screen.getByLabelText('续接上下文摘录') as HTMLTextAreaElement;
+    expect(excerpt.className).toContain('resize-y');
     expect(excerpt.readOnly).toBe(true);
     expect(excerpt.value).toBe('受限摘录第一行\n受限摘录第二行');
+    expect(screen.queryByRole('button', {
+      name: '展开查看续接上下文摘录',
+    })).toBeNull();
   });
 
   it('locks close and cancel during commit and reconciles the successful transfer', async () => {

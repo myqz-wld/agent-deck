@@ -59,8 +59,11 @@ describe('ExpandableContent', () => {
     const dialog = screen.getByRole('dialog', { name: '消息详情' });
     expect(view.container.contains(dialog)).toBe(false);
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.className).toContain('bg-[#141418]');
-    expect(dialog.querySelector('header')?.className).toContain('pl-[78px]');
+    expect(dialog.className).toContain('bg-deck-bg-strong');
+    expect(dialog.className).not.toContain('bg-[#141418]');
+    expect(dialog.querySelector('header')?.className).toContain('px-3');
+    expect(dialog.querySelector('header')?.className).toContain('sm:px-4');
+    expect(dialog.querySelector('header')?.className).not.toContain('pl-[78px]');
     expect(within(dialog).getByText('完整消息')).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: '表面操作' })).toBeTruthy();
     expect(within(dialog).getByText('验证结果')).toBeTruthy();
@@ -94,6 +97,13 @@ describe('ExpandableContent', () => {
     expect(trigger.className).toContain('w-6');
     expect(trigger.className).not.toContain('h-11');
     expect(trigger.className).not.toContain('w-11');
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole('dialog', { name: '消息编辑' });
+    expect(dialog.className).toContain('bg-[#141418]');
+    expect(dialog.className).not.toContain('bg-deck-bg-strong');
+    expect(dialog.querySelector('header')?.className).toContain('pl-[78px]');
+    expect(dialog.querySelector('header')?.className).not.toContain('sm:px-4');
   });
 
   it('lets only the topmost nested layer consume Escape', async () => {

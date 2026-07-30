@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
@@ -12,7 +11,7 @@ import { SummarizerErrorsDiagnostic } from '../SummarizerErrorsDiagnostic';
 afterEach(() => cleanup());
 
 describe('SummarizerErrorsDiagnostic', () => {
-  it('keeps the list bounded while exposing the complete selected diagnostic', async () => {
+  it('keeps the original bounded inline diagnostic list without a magnify entry', async () => {
     const complete = `${'network failure '.repeat(30)}diagnostic tail`;
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -27,12 +26,11 @@ describe('SummarizerErrorsDiagnostic', () => {
     });
     render(<SummarizerErrorsDiagnostic />);
     await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: '展开完整诊断' })).toHaveLength(5);
+      expect(screen.getAllByRole('listitem')).toHaveLength(5);
     });
     expect(document.body.textContent).not.toContain('diagnostic tail');
-    fireEvent.click(screen.getAllByRole('button', { name: '展开完整诊断' })[0]!);
-    expect(screen.getByRole('dialog', { name: '总结失败诊断' }).textContent)
-      .toContain('diagnostic tail');
+    expect(screen.queryByRole('button', { name: '展开完整诊断' })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('uses natural copy when diagnostics cannot be read', async () => {
