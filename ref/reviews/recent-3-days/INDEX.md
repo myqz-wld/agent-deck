@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-29 | `REVIEW_189_grok-pending-chat-duplication.md` | Grok pending/chat duplication | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
 | 2026-07-29 | `REVIEW_188_maintenance-timeout-terminal-policy.md` | Storage maintenance terminal timeout policy | 0 CRITICAL / 1 HIGH fixed / 1 LOW residual |
 | 2026-07-29 | `REVIEW_187_whole-project-quality-refresh.md` | Whole-project final integration and performance audit | 0 CRITICAL / 4 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed / 5 residuals |
 | 2026-07-27 | `REVIEW_186_adapter-hook-contract-normalization.md` | Cross-adapter hook contract normalization | 0 CRITICAL / 4 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed |

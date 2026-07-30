@@ -146,6 +146,37 @@ describe('GrokTurnQueue active-turn delivery', () => {
     await vi.waitFor(() => expect(runtime.running).toBe(false));
   });
 
+  it('does not expose an already-rendered uncorrelated message as pending outgoing', async () => {
+    const runtime = makeRuntime(vi.fn());
+    runtime.ready = false;
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'initial prompt');
+    const internalMessageId = runtime.queue[0]!.id;
+
+    expect(events).toContainEqual({
+      kind: 'message',
+      payload: {
+        text: 'initial prompt',
+        role: 'user',
+      },
+    });
+    expect(queue.listPendingOutgoingMessages(runtime)).toEqual([]);
+    await expect(
+      queue.removePendingOutgoingMessage(runtime, internalMessageId),
+    ).resolves.toBeNull();
+    expect(runtime.queue.map((message) => message.text)).toEqual(['initial prompt']);
+
+    queue.enqueue(runtime, 'renderer-deferred prompt', undefined, {
+      deferUserEventUntilTurnStart: true,
+      turnCorrelationId: 'renderer-pending-1',
+    });
+    expect(queue.listPendingOutgoingMessages(runtime)).toEqual([{
+      id: 'renderer-pending-1',
+      text: 'renderer-deferred prompt',
+    }]);
+  });
+
   it('falls back to the FIFO queue when the extension is unavailable', async () => {
     const request = vi.fn((method: string) => {
       if (method === '_x.ai/interject') {
