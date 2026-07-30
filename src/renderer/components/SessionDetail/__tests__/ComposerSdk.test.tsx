@@ -97,6 +97,42 @@ afterEach(() => {
 });
 
 describe('ComposerSdk unified input routing', () => {
+  it('disables interrupt while idle and shows progress while cancellation is pending', async () => {
+    let resolveInterrupt = (): void => undefined;
+    interruptAdapterSession.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveInterrupt = resolve;
+      }),
+    );
+    const view = render(<ComposerSdk session={makeSession()} turnBusy={false} />);
+    const idleButton = screen.getByRole('button', { name: '中断' }) as HTMLButtonElement;
+    expect(idleButton.disabled).toBe(true);
+    expect(idleButton.title).toBe('当前没有运行中的任务');
+
+    view.rerender(
+      <ComposerSdk
+        session={makeSession({ activity: 'working' })}
+        turnBusy
+      />,
+    );
+    const activeButton = screen.getByRole('button', { name: '中断' }) as HTMLButtonElement;
+    expect(activeButton.disabled).toBe(false);
+    fireEvent.click(activeButton);
+
+    await waitFor(() => {
+      const pending = screen.getByRole('button', { name: '中断中…' }) as HTMLButtonElement;
+      expect(pending.disabled).toBe(true);
+      expect(pending.title).toBe('正在中断当前任务');
+    });
+    expect(interruptAdapterSession).toHaveBeenCalledWith('codex-cli', 'sess-1');
+
+    resolveInterrupt();
+    view.rerender(<ComposerSdk session={makeSession()} turnBusy={false} />);
+    await waitFor(() => expect(
+      (screen.getByRole('button', { name: '中断' }) as HTMLButtonElement).disabled,
+    ).toBe(true));
+  });
+
   it('isolates and restores text, image descriptors, and errors by logical session', async () => {
     const view = render(<ComposerSdk session={makeSession({ id: 'session-A' })} />);
     const inputA = screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement;

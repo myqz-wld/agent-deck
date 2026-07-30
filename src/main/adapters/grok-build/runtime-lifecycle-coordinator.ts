@@ -18,13 +18,24 @@ export class GrokRuntimeLifecycleCoordinator {
 
   async interrupt(sessionId: string): Promise<void> {
     const runtime = this.runtimes.get(sessionId);
-    if (!runtime) return;
+    if (!runtime) throw new Error('Grok Build 会话不在运行中，无法中断。');
     this.cancelSubmittingInterjection(runtime);
-    if (!runtime.process || !runtime.nativeSessionId) return;
-    await runtime.process.connection.agent.notify(methods.agent.session.cancel, {
-      sessionId: runtime.nativeSessionId,
-    });
-    this.permissionController.cancel(runtime);
+    if (!runtime.process || !runtime.nativeSessionId || !runtime.running) {
+      throw new Error('Grok Build 当前没有可中断的 active turn。');
+    }
+    runtime.interruptRequested = true;
+    const controller = runtime.currentTurnController;
+    try {
+      await runtime.process.connection.agent.notify(methods.agent.session.cancel, {
+        sessionId: runtime.nativeSessionId,
+      });
+    } finally {
+      // ACP session/cancel asks the provider to stop model work. Aborting the matching JSON-RPC
+      // request also sends $/cancelRequest and guarantees Agent Deck's pending prompt unwinds even
+      // if Grok never returns a terminal response.
+      controller?.abort();
+      this.permissionController.cancel(runtime);
+    }
   }
 
   async closeOrdinary(sessionId: string): Promise<void> {
@@ -80,6 +91,8 @@ export class GrokRuntimeLifecycleCoordinator {
     runtime.queue.length = 0;
     runtime.submittingMessage?.requestController?.abort();
     runtime.submittingMessage = null;
+    runtime.currentTurnController?.abort();
+    runtime.currentTurnController = null;
   }
 
   private prepareDispose(runtime: GrokRuntime): void {
@@ -88,6 +101,8 @@ export class GrokRuntimeLifecycleCoordinator {
     runtime.sealed = true;
     runtime.submittingMessage?.requestController?.abort();
     runtime.submittingMessage = null;
+    runtime.currentTurnController?.abort();
+    runtime.currentTurnController = null;
     clearGrokTurnLiveRate(runtime.translation);
     this.permissionController.cancel(runtime);
   }

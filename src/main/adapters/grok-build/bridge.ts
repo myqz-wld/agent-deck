@@ -29,7 +29,8 @@ import {
 } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import type { GrokSessionSetupOptions } from './session-setup';
-import { GrokTurnQueue, type GrokEnqueueOptions } from './turn-queue';
+import { GrokTurnQueue } from './turn-queue';
+import type { GrokEnqueueOptions } from './turn-queue-types';
 import {
   startGrokRuntime,
   startGrokRuntimeInBackground,

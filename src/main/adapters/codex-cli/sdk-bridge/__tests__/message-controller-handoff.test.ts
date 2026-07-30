@@ -26,6 +26,47 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe('MessageController handoff rollback recovery', () => {
+  it('sends a provider-native interrupt after app-server accepts the turn', async () => {
+    const sessionId = 'codex-active-interrupt';
+    const session = internal(sessionId);
+    const abort = vi.fn();
+    const interrupt = vi.fn(async () => undefined);
+    session.currentTurn = { abort } as unknown as AbortController;
+    session.currentTurnId = 'turn-active';
+    session.thread = { interrupt } as unknown as InternalSession['thread'];
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit: vi.fn(),
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    await controller.interrupt(sessionId);
+
+    expect(abort).toHaveBeenCalledOnce();
+    expect(interrupt).toHaveBeenCalledWith('turn-active');
+  });
+
+  it('still cancels turn/start locally before a provider turn id exists', async () => {
+    const sessionId = 'codex-submitting-interrupt';
+    const session = internal(sessionId);
+    const abort = vi.fn();
+    const interrupt = vi.fn(async () => undefined);
+    session.currentTurn = { abort } as unknown as AbortController;
+    session.thread = { interrupt } as unknown as InternalSession['thread'];
+    const controller = new MessageController({
+      sessions: new Map([[sessionId, session]]),
+      emit: vi.fn(),
+      recoverAndSend: vi.fn(async () => undefined),
+      runTurnLoop: vi.fn(async () => undefined),
+    });
+
+    await controller.interrupt(sessionId);
+
+    expect(abort).toHaveBeenCalledOnce();
+    expect(interrupt).not.toHaveBeenCalled();
+  });
+
   it('keeps pending metadata aligned when a user deletes a queued turn', async () => {
     const sessionId = 'codex-visible-pending';
     const session = internal(sessionId);

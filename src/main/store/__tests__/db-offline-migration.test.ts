@@ -218,14 +218,12 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     } catch (caught) {
       error = caught;
     }
-    const latest = MIGRATIONS.at(-1)!;
-    expect(latest.execution).toBe('offline');
     expect(error).toMatchObject({
-      currentVersion: latest.version - 1,
-      targetVersion: latest.version,
+      currentVersion: 55,
+      targetVersion: 56,
       command: 'migrate:message-dispatch',
     });
-    expect(readVersion()).toBe(latest.version - 1);
+    expect(readVersion()).toBe(55);
     const verify = new Database(dbPath(), { readonly: true, fileMustExist: true });
     try {
       expect(verify.prepare(
@@ -252,13 +250,12 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
     } catch (caught) {
       error = caught;
     }
-    const latest = MIGRATIONS.at(-1)!;
     expect(error).toMatchObject({
-      currentVersion: latest.version - 1,
-      targetVersion: latest.version,
+      currentVersion: 55,
+      targetVersion: 56,
       command: 'migrate:message-dispatch',
     });
-    expect(readVersion()).toBe(latest.version - 1);
+    expect(readVersion()).toBe(55);
   });
 
   it('rejects a partial existing user_version=0 database without altering it', () => {

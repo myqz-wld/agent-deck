@@ -28,11 +28,25 @@ export interface GrokHistoryBackfillResult {
 
 let defaultBackfillPromise: Promise<GrokHistoryBackfillResult> | null = null;
 
-export function ensureGrokHistoryTokenUsage(): Promise<GrokHistoryBackfillResult> {
-  if (!defaultBackfillPromise) {
-    defaultBackfillPromise = backfillGrokHistoryTokenUsage({ root: join(homedir(), '.grok', 'sessions') });
+export async function ensureGrokHistoryTokenUsage(options: {
+  root?: string;
+} = {}): Promise<GrokHistoryBackfillResult> {
+  if (options.root) {
+    return backfillGrokHistoryTokenUsage({ root: options.root });
   }
-  return defaultBackfillPromise;
+  if (!defaultBackfillPromise) {
+    defaultBackfillPromise = backfillGrokHistoryTokenUsage({
+      root: join(homedir(), '.grok', 'sessions'),
+    });
+  }
+  const active = defaultBackfillPromise;
+  try {
+    return await active;
+  } finally {
+    // Single-flight concurrent dashboard queries, but never memoize a completed scan: new Grok
+    // turns append to updates.jsonl throughout the process lifetime.
+    if (defaultBackfillPromise === active) defaultBackfillPromise = null;
+  }
 }
 
 export async function backfillGrokHistoryTokenUsage(options: {

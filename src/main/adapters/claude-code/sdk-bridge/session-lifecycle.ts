@@ -50,11 +50,12 @@ export async function interruptClaudeSession(
   sessionId: string,
 ): Promise<void> {
   const resolved = findClaudeSession(sessions, sessionId);
-  if (!resolved) return;
+  if (!resolved) throw new Error('Claude 会话不在运行中，无法中断。');
   try {
     await resolved.internal.query.interrupt();
   } catch (error) {
     logger.warn('[sdk-bridge] interrupt failed', error);
+    throw error;
   }
 }
 

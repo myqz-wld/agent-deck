@@ -60,6 +60,7 @@ import v053 from './v053_sessions_grok_sandbox.sql?raw';
 import v054 from './v054_message_delivery_generation.sql?raw';
 import v055 from './v055_token_usage_daily_rollup.sql?raw';
 import v056 from './v056_agent_deck_messages_pending_order.sql?raw';
+import v057 from './v057_token_usage_metric_scope_repair.sql?raw';
 
 interface MigrationBase {
   version: number;
@@ -147,5 +148,11 @@ export const MIGRATIONS: Migration[] = [
     freshInstallSafe: true,
     command: 'migrate:message-dispatch',
     sql: v056,
+  },
+  {
+    version: 57,
+    name: 'token_usage_metric_scope_repair_v2',
+    execution: 'startup',
+    sql: v057,
   },
 ];

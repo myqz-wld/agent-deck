@@ -50,6 +50,10 @@ export interface GrokRuntime {
   /** Prompt removed from FIFO but not yet acknowledged by a provider session update. */
   submittingMessage?: GrokSubmittingMessage | null;
   running: boolean;
+  /** Owns the currently pending session/prompt JSON-RPC request. */
+  currentTurnController?: AbortController | null;
+  /** Distinguishes a user interrupt from provider/transport failures in turn finalization. */
+  interruptRequested?: boolean;
   /** null = not probed, false = this Grok version only supports queued prompts. */
   interjectionSupported: boolean | null;
   sealed: boolean;

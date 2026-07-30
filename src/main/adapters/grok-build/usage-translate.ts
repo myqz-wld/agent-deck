@@ -65,6 +65,7 @@ export function beginGrokTurn(
   state.currentExtensionUsage = null;
   state.currentStandardUsageEvent = null;
   state.currentStandardUsageSnapshot = null;
+  state.assistantObservedForCurrentTurn = false;
   state.standardUsageObservedForCurrentTurn = false;
   state.extensionUsageForCurrentTurn = false;
   state.usageSource = 'none';
@@ -465,6 +466,7 @@ export function clearGrokTurnLiveRate(state: GrokTranslationState): void {
   state.currentExtensionUsage = null;
   state.currentStandardUsageEvent = null;
   state.currentStandardUsageSnapshot = null;
+  state.assistantObservedForCurrentTurn = false;
   clearGrokLiveTokenRate(state);
 }
 
