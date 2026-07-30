@@ -33,6 +33,7 @@ interface ExpandableAuthoringFieldProps extends SharedTextSurfaceProps {
   attachments?: readonly UploadedAttachmentEntry[];
   getAttachmentPreviewDataUrl?: (id: string) => string | null;
   onRemoveAttachment?: (id: string) => void;
+  compactActions?: ReactNode;
   expandedActions?: ReactNode;
 }
 
@@ -55,7 +56,7 @@ function textAreaClass(
     : `w-full ${compactResizable ? 'resize-y' : 'resize-none'} ${reserveTriggerSpace ? 'pr-12' : ''}`;
   return [
     dimensions,
-    'rounded border border-deck-border bg-white/[0.04] px-3 py-2',
+    'block rounded border border-deck-border bg-white/[0.04] px-3 py-2',
     'text-[11px] leading-relaxed text-deck-text outline-none',
     'focus:border-white/20 disabled:opacity-50',
     monospace ? 'font-mono' : '',
@@ -91,6 +92,7 @@ export function ExpandableAuthoringField({
   attachments = [],
   getAttachmentPreviewDataUrl,
   onRemoveAttachment,
+  compactActions,
   expandedActions,
 }: ExpandableAuthoringFieldProps): JSX.Element {
   const payload: MessageContentPayload = {
@@ -165,7 +167,14 @@ export function ExpandableAuthoringField({
           </div>
         </ExpandableContent>
       </div>
-      <CharacterCount value={value} maxLength={maxLength} />
+      {compactActions ? (
+        <div className="flex items-center justify-between gap-2">
+          {compactActions}
+          <CharacterCount value={value} maxLength={maxLength} />
+        </div>
+      ) : (
+        <CharacterCount value={value} maxLength={maxLength} />
+      )}
     </div>
   );
 }

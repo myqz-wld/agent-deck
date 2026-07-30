@@ -320,9 +320,9 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
             aria-label={closeLabel}
             title={closeLabel}
             aria-busy={closing || undefined}
-            className="flex h-11 w-11 touch-manipulation items-center justify-center rounded-md text-deck-muted hover:bg-white/10 hover:text-deck-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-status-working disabled:opacity-40"
+            className="flex h-8 w-8 touch-manipulation items-center justify-center rounded-md text-deck-muted hover:bg-white/10 hover:text-deck-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-status-working disabled:opacity-40"
           >
-            <CloseIcon className="h-4 w-4" />
+            <CloseIcon className="h-3 w-3" />
           </button>
         </div>
       </header>

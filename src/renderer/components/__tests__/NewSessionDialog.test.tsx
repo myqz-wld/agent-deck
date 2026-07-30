@@ -393,9 +393,14 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     await screen.findByText('Claude');
     const firstMessageLabel = screen.getByText('第一条消息（文字或图片至少一项）');
     expect(firstMessageLabel.parentElement?.parentElement?.className).toContain('gap-1.5');
+    const addImageButton = screen.getByRole('button', { name: '添加图片' });
+    const characterCount = screen.getByText('0 / 102,400');
+    expect(addImageButton.parentElement).toBe(characterCount.parentElement);
+    expect(addImageButton.parentElement?.parentElement?.className).toContain('space-y-1');
+    expect(screen.getByLabelText('第一条消息').className).toContain('block');
     expect(
       firstMessageLabel.parentElement?.parentElement?.contains(
-        screen.getByRole('button', { name: '添加图片' }),
+        addImageButton,
       ),
     ).toBe(true);
     fireEvent.change(screen.getByLabelText('第一条消息'), {
