@@ -14,6 +14,7 @@ import {
   makeFileChangeRepoMock,
   makeSessionRepoMock,
   mockEmits,
+  mockEvents,
   mockSessions,
   resetMocks,
 } from './manager-test-setup';
@@ -316,5 +317,64 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
 
     // 清理：避免污染下一个测试
     sessionManager.releaseSdkClaim('NEW_ID');
+  });
+
+  it('首次绑定 Grok native id 不封禁稳定 application id，轮换时只封禁旧 native id', () => {
+    const applicationId = 'grok-app-stable';
+    sessionManager.claimAsSdk(applicationId);
+    sessionManager.ingest(makeEvent({
+      sessionId: applicationId,
+      agentId: 'grok-build',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp/grok' },
+    }));
+
+    // Fresh Grok sessions intentionally use distinct application/native ids. The first native-id
+    // assignment has no retired CLI identity and must not fence the stable application id.
+    sessionManager.updateCliSessionId(applicationId, 'grok-native-1');
+    sessionManager.ingest(makeEvent({
+      sessionId: applicationId,
+      agentId: 'grok-build',
+      source: 'sdk',
+      kind: 'message',
+      payload: { text: 'Grok Build 请求触发速率限制，请稍后重试。', role: 'assistant', error: true },
+    }));
+    expect(mockEvents.at(-1)).toMatchObject({
+      sessionId: applicationId,
+      kind: 'message',
+      payload: { role: 'assistant', error: true },
+    });
+
+    // A later native-id rotation does retire a real native identity; tails carrying that identity
+    // stay fenced while application-id SDK events continue through to the durable terminal.
+    const eventCountBeforeRetiredTail = mockEvents.length;
+    sessionManager.updateCliSessionId(applicationId, 'grok-native-2');
+    sessionManager.ingest(makeEvent({
+      sessionId: 'grok-native-1',
+      agentId: 'grok-build',
+      source: 'hook',
+      kind: 'message',
+      payload: { text: 'retired native tail', role: 'assistant' },
+    }));
+    expect(mockEvents).toHaveLength(eventCountBeforeRetiredTail);
+    expect(mockSessions.has('grok-native-1')).toBe(false);
+
+    sessionManager.ingest(makeEvent({
+      sessionId: applicationId,
+      agentId: 'grok-build',
+      source: 'sdk',
+      kind: 'finished',
+      payload: { ok: false, subtype: 'rate_limit' },
+    }));
+    expect(mockEvents.at(-1)).toMatchObject({
+      sessionId: applicationId,
+      kind: 'finished',
+      payload: { ok: false, subtype: 'rate_limit' },
+    });
+    expect(mockSessions.get(applicationId)?.activity).toBe('finished');
+    expect(mockSessions.get(applicationId)?.cliSessionId).toBe('grok-native-2');
+
+    sessionManager.releaseSdkClaim(applicationId);
   });
 });

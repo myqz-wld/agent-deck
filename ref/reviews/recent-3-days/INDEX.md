@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-30 | `REVIEW_199_grok-application-id-fence.md` | Grok stable identity deletion fence | 0 CRITICAL / 2 HIGH fixed |
 | 2026-07-30 | `REVIEW_198_grok-extension-terminal-delivery.md` | Real Grok terminal delivery | 0 CRITICAL / 2 HIGH fixed / 1 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-30 | `REVIEW_197_runtime-log-signal-quality.md` | Runtime log signal quality | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-30 | `REVIEW_196_grok-durable-turn-delivery.md` | Durable Grok turn delivery | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
