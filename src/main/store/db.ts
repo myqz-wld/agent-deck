@@ -340,6 +340,11 @@ export function getDb(): Database.Database {
   return dbInstance;
 }
 
+/** Test/bootstrap-safe readiness probe; production callers still use getDb() for fail-loud access. */
+export function isDbInitialized(): boolean {
+  return dbInstance !== null;
+}
+
 /** True only after an explicit closeDb(), not before initial startup. */
 export function isDbClosed(): boolean {
   return dbClosed;

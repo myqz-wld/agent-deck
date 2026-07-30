@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import type {
+  AgentCwdTransition,
+  AgentCwdTransitionSwitchResult,
   AgentEnqueueOptions,
   GrokCreateOpts,
   PendingAgentMessage,
@@ -43,6 +45,7 @@ import { GrokSandboxRestartController } from './sandbox-restart-controller';
 import { GrokRuntimeLifecycleCoordinator } from './runtime-lifecycle-coordinator';
 import { GrokMessageController } from './message-controller';
 import { GrokRuntimeMutationController } from './runtime-mutation-controller';
+import { GrokCwdTransitionController } from './cwd-transition-controller';
 
 const AGENT_ID = 'grok-build';
 
@@ -61,6 +64,7 @@ export class GrokBuildBridge {
   private readonly lifecycle: GrokRuntimeLifecycleCoordinator;
   private readonly messageController: GrokMessageController;
   private readonly runtimeMutationController: GrokRuntimeMutationController;
+  private readonly cwdTransitionController: GrokCwdTransitionController;
   private binaryPath: string | null;
 
   constructor(private readonly options: GrokBuildBridgeOptions) {
@@ -129,6 +133,14 @@ export class GrokBuildBridge {
       drain: (runtime) => this.turnQueue.drain(runtime),
       dispose: (runtime) => this.disposeRuntime(runtime),
       persist: persistGrokRuntimeMetadata,
+    });
+    this.cwdTransitionController = new GrokCwdTransitionController({
+      getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
+      start: (runtime) => this.startRuntime(runtime),
+      dispose: (runtime) => this.disposeRuntime(runtime),
+      drain: (runtime) => this.turnQueue.drain(runtime),
+      cancelPermissions: (runtime) => this.permissionController.cancel(runtime),
+      turnQueue: this.turnQueue,
     });
   }
 
@@ -257,9 +269,19 @@ export class GrokBuildBridge {
     await this.messageController.steerTurn(sessionId, text);
   }
 
-  async interrupt(sessionId: string): Promise<void> {
-    await this.lifecycle.interrupt(sessionId);
+  async interrupt(sessionId: string): Promise<void> { await this.lifecycle.interrupt(sessionId); }
+  armCwdTransition(transition: AgentCwdTransition): void { this.cwdTransitionController.arm(transition); }
+
+  async switchCwdForTransition(transition: AgentCwdTransition): Promise<AgentCwdTransitionSwitchResult> {
+    await this.cwdTransitionController.switchCwd(transition);
+    return { continuationAccepted: false };
   }
+
+  async enqueueCwdTransitionContinuation(transition: AgentCwdTransition, text: string): Promise<void> { this.cwdTransitionController.enqueueContinuation(transition, text); }
+
+  releaseCwdTransition(sessionId: string, generation: number): void { this.cwdTransitionController.release(sessionId, generation); }
+
+  getRuntimeCwd(sessionId: string): string | null { return this.cwdTransitionController.runtimeCwd(sessionId); }
 
   async closeSession(sessionId: string): Promise<void> {
     await this.lifecycle.closeOrdinary(sessionId);

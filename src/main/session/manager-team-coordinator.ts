@@ -3,6 +3,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import type { AgentDeckTeamArchiveReason } from '@shared/types/agent-deck-team';
 import log from '@main/utils/logger';
+import { mayClearLegacyWorktreeMarker } from './worktree-transition/lifecycle-policy';
 
 const logger = log.scope('session-team-coordinator');
 
@@ -201,11 +202,14 @@ export async function applyClosedSideEffects(
 ): Promise<void> {
   const prefix = opts.logPrefix ?? '[applyClosedSideEffects]';
 
-  // 1. clear cwd_release_marker (sync, error isolated)
-  try {
-    sessionRepo.clearCwdReleaseMarker(sessionId);
-  } catch (err) {
-    logger.warn(`${prefix} clearCwdReleaseMarker failed for ${sessionId}:`, err);
+  // 1. Clear only marker-only/settled ownership. A structured lease retains the original cwd and
+  // cleanup authority across close/archive so recovery cannot orphan a live worktree.
+  if (mayClearLegacyWorktreeMarker(sessionId)) {
+    try {
+      sessionRepo.clearCwdReleaseMarker(sessionId);
+    } catch (err) {
+      logger.warn(`${prefix} clearCwdReleaseMarker failed for ${sessionId}:`, err);
+    }
   }
 
   // 2. caller-provided sync callback (sync 段, between clear 和 leave)

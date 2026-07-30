@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   enterWorktreeImpl,
+  rollbackPreparedWorktree,
   _internalIsError as enterIsError,
   type EnterWorktreeDeps,
 } from '../tools/handlers/enter-worktree-impl';
@@ -96,6 +97,28 @@ describe('enterWorktreeImpl', () => {
     expect(enterIsError(result)).toBe(true);
     if (!enterIsError(result)) return;
     expect(result.error).toContain('baseBranch must be a plain local branch name');
+  });
+
+  it('treats a pre-creation git failure as a complete no-op rollback', async () => {
+    const warnings = await rollbackPreparedWorktree(
+      {
+        callerSessionId: 'caller-sid',
+        originalCwd: '/repo',
+        mainRepo: '/repo',
+        worktreePath: '/repo/.agent-deck/worktrees/task',
+        workBranch: 'agent-deck/task',
+        baseBranch: 'main',
+        baseCommit: 'base-sha',
+      },
+      {
+        exists: async () => false,
+        runGit: async () => {
+          throw new Error('branch was never created');
+        },
+      },
+    );
+
+    expect(warnings).toEqual([]);
   });
 });
 

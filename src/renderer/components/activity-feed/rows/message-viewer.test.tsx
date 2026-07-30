@@ -108,4 +108,36 @@ describe('MessageBubble original inline presentation', () => {
       handOffSourceEventId: 99,
     });
   });
+
+  it('renders worktree transition status as a compact system row', () => {
+    const event: AgentEvent = {
+      sessionId: 'session-1',
+      agentId: 'codex-cli',
+      kind: 'message',
+      payload: {
+        role: 'system',
+        text: '已切换到 worktree 工作目录，正在继续当前任务',
+        worktreeTransitionStatus: { generation: 2 },
+      },
+      ts: 11,
+    };
+    const normalized = normalizeAgentMessage(event);
+    expect(normalized).toMatchObject({
+      role: 'system',
+      isSystem: true,
+      isUser: false,
+    });
+    expect(
+      createMessageContentPayload(normalized, 'plaintext').metadata?.role,
+    ).toBe('system');
+
+    render(<MessageBubble event={event} agentId="codex-cli" />);
+
+    expect(screen.getByText('系统')).toBeTruthy();
+    expect(
+      screen.getByText('已切换到 worktree 工作目录，正在继续当前任务'),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'TXT' })).toBeNull();
+    expect(document.querySelector('li')?.className).toContain('justify-center');
+  });
 });

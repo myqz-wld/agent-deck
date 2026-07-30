@@ -11,6 +11,7 @@ import type {
 import type { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import type { SessionAdapterId, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import type { transferHandOffResources } from './resource-transfer-coordinator';
+import type { WorktreeTransitionRecord } from '@main/session/worktree-transition/types';
 
 export interface HandOffTargetValidationError {
   error: string;
@@ -22,6 +23,10 @@ export interface HandOffTargetValidationError {
 export interface HandOffSessionHandlerDeps {
   cutoverCoordinator?: HandOffCutoverCoordinator;
   cwdIsDirectory?: (path: string) => boolean;
+  worktreeTransition?: (
+    sessionId: string,
+  ) => WorktreeTransitionRecord | null;
+  sourceRuntimeCwd?: (sessionId: string) => string | null;
   sourceMaxEventId?: (sessionId: string) => number | null;
   sourceRuntimeFingerprint?: (sessionId: string) => string | null;
   snapshotQueuedMessages?: (source: SessionRecord) => QueuedAgentMessage[];

@@ -20,6 +20,9 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 import type { SessionManagerInternalState, SessionRenameHookFn } from './_deps';
 import log from '@main/utils/logger';
 import { handOffCutoverCoordinator } from '../hand-off/cutover-coordinator';
+import { getDb, isDbInitialized } from '@main/store/db';
+import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
+import { worktreeToolInvocationRegistry } from '../worktree-transition/tool-invocation-registry';
 
 const logger = log.scope('session-manager-rename');
 
@@ -64,8 +67,17 @@ export function renameSdkSessionImpl(
   callbacks: { transferSdkClaim: () => void },
 ): void {
   // ① DB 行 rename(INSERT NEW + DELETE OLD)
-  sessionRepo.rename(fromId, toId);
+  if (isDbInitialized()) {
+    getDb().transaction(() => {
+      sessionRepo.rename(fromId, toId);
+      worktreeTransitionRepo.renameLease(fromId, toId, Date.now());
+    })();
+  } else {
+    // Pure facade tests and pre-database bootstrap seams retain the legacy rename contract.
+    sessionRepo.rename(fromId, toId);
+  }
   handOffCutoverCoordinator.renameSource(fromId, toId);
+  worktreeToolInvocationRegistry.renameSession(fromId, toId);
   // ② `#sdkOwned` 真私有 mutate(facade class method callback)
   callbacks.transferSdkClaim();
   // ③ 黑名单写 OLD_ID 60s,挡迟到 hook event

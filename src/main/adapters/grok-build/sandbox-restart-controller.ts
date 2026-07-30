@@ -143,7 +143,8 @@ export class GrokSandboxRestartController {
       runtime.running ||
       runtime.submittingMessage != null ||
       runtime.pendingPermissions.size > 0 ||
-      runtime.runtimeMutationInProgress
+      runtime.runtimeMutationInProgress ||
+      runtime.cwdTransitionGeneration != null
     ) {
       throw new Error(
         '当前 Grok turn 或授权请求尚未结束，或 runtime 设置事务仍在进行；请等待会话空闲后再切换沙盒。',

@@ -37,6 +37,7 @@ export function MessageBubble({
     handOffLabel,
     handOffTooltip,
     isError,
+    isSystem,
     isUser,
     text,
     wireFrom,
@@ -47,7 +48,7 @@ export function MessageBubble({
 
   // Render mode is local and intentionally resets when the bubble unmounts.
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
-  const isLong = text.length > COLLAPSE_THRESHOLD_CHARS;
+  const isLong = !isSystem && text.length > COLLAPSE_THRESHOLD_CHARS;
   const [expanded, setExpanded] = useState(false);
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
@@ -56,19 +57,24 @@ export function MessageBubble({
   };
 
   // error 消息保留 plaintext，避免 markdown 解析掩盖错误堆栈结构
-  const renderAsMarkdown = mode === 'markdown' && !isError && text.length > 0;
+  const renderAsMarkdown =
+    !isSystem && mode === 'markdown' && !isError && text.length > 0;
   // 「空消息」判定：纯文本时空; 但带附图就不算空
   const hasContent = text.length > 0 || (attachments && attachments.length > 0);
 
   return (
-    <li className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`flex min-w-0 max-w-[88%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+    <li className={`flex ${
+      isSystem ? 'justify-center' : isUser ? 'justify-end' : 'justify-start'
+    }`}>
+      <div className={`flex min-w-0 ${
+        isSystem ? 'max-w-[92%] items-center' : `max-w-[88%] ${isUser ? 'items-end' : 'items-start'}`
+      } flex-col`}>
         <div
           className={`mb-0.5 flex items-center gap-1 text-[9px] ${
             isUser ? 'text-status-working/80' : 'text-deck-muted/70'
           }`}
         >
-          <span>{isUser ? '你' : otherName}</span>
+          <span>{isSystem ? '系统' : isUser ? '你' : otherName}</span>
           {wireFrom && (
             <span
               className="ml-0.5 inline-flex max-w-[16rem] items-center gap-0.5 truncate rounded bg-cyan-500/15 px-1 py-0.5 text-[9px] font-medium text-cyan-300"
@@ -87,7 +93,7 @@ export function MessageBubble({
           )}
           <span className="text-deck-muted/50">·</span>
           <span className="font-mono tabular-nums text-deck-muted/50">{ts}</span>
-          {!isError && text.length > 0 && (
+          {!isSystem && !isError && text.length > 0 && (
             <button
               type="button"
               onClick={toggle}
@@ -119,7 +125,9 @@ export function MessageBubble({
           } ${
             isError
               ? 'border border-status-waiting/40 bg-status-waiting/10 text-status-waiting'
-              : isUser
+              : isSystem
+                ? 'border border-deck-border/70 bg-white/[0.025] px-2 py-1 text-[10px] text-deck-muted'
+                : isUser
                 ? 'bg-status-working/15 text-deck-text'
                 : 'border border-deck-border bg-white/[0.04] text-deck-text'
           }`}

@@ -22,6 +22,7 @@ export interface GrokPendingMessage extends PendingAgentMessage {
   attachments?: UploadedAttachmentRef[];
   handOff?: HandOffMetadata;
   deferUserEventUntilTurnStart?: boolean;
+  suppressUserEvent?: boolean;
   turnCorrelationId?: string;
 }
 
@@ -54,6 +55,8 @@ export interface GrokRuntime {
   currentTurnController?: AbortController | null;
   /** Distinguishes a user interrupt from provider/transport failures in turn finalization. */
   interruptRequested?: boolean;
+  /** Generation-scoped cwd transition gate; drain/interjection must stop while set. */
+  cwdTransitionGeneration?: number | null;
   /** null = not probed, false = this Grok version only supports queued prompts. */
   interjectionSupported: boolean | null;
   sealed: boolean;

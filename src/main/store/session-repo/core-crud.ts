@@ -16,6 +16,7 @@ import type {
   SessionRecord,
 } from '@shared/types';
 import { getDb } from '../db';
+import { deleteSessionWithWorktreeGuard } from './worktree-transition-delete';
 import { rowToRecord, type Row } from './types';
 export function upsert(rec: SessionRecord): void {
   // 注意：permission_mode 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
@@ -247,7 +248,7 @@ export function listLiveForUi(limit = 100): SessionRecord[] {
 
 export function _delete(id: string): void {
   // 注：导出名 `_delete` 因 `delete` 是 reserved word；facade 里 spread 时改回 `delete: _delete`
-  getDb().prepare(`DELETE FROM sessions WHERE id = ?`).run(id);
+  deleteSessionWithWorktreeGuard(getDb(), id);
 }
 
 /** 写入用户在 UI 上选过的权限模式。null 表示恢复默认（'default'）。 */
@@ -418,15 +419,20 @@ export function setGrokUsageWatermark(
     .run(watermark ? JSON.stringify(watermark) : null, id);
 }
 
+/** Commit the cwd that future adapter recovery and renderer projections must use. */
+export function setCwd(id: string, cwd: string): void {
+  const result = getDb().prepare(`UPDATE sessions SET cwd = ? WHERE id = ?`).run(cwd, id);
+  if (result.changes !== 1) throw new Error(`Cannot update cwd for missing session ${id}.`);
+}
+
 /**
  * 写入 mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
  * 不变量 5 + D2）。
  *
  * 调用方:
- * - mcp `enter_worktree` handler: git worktree add 成功后调 setCwdReleaseMarker(sid, worktreePath)
- *   标记 caller 显式持有该 worktreePath, 让 archive_plan 预检 4 态分流认得跨 adapter 路径
- * - mcp `exit_worktree` handler: ExitWorktree 完成后调 clearCwdReleaseMarker(sid) = setCwdReleaseMarker(sid, null)
- * - sessionManager.close hook: session close 时调 clearCwdReleaseMarker 避免 marker 残留
+ * - structured worktree transition repository atomically mirrors the lease here after creation;
+ * - successful exit cleanup clears it together with the structured transition;
+ * - legacy callers may still use the setters directly during the compatibility window.
  *
  * marker = worktreePath 绝对路径（caller 当前持有）；marker = null 视为「未持有 marker」
  * （caller 走 claude builtin 路径或还没调 mcp enter_worktree）。

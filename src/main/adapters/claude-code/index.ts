@@ -1,5 +1,7 @@
 import type {
   AgentAdapter,
+  AgentCwdTransition,
+  AgentCwdTransitionSwitchResult,
   AgentEnqueueOptions,
   AdapterContext,
   ClaudeCreateOpts,
@@ -165,6 +167,34 @@ class ClaudeCodeAdapter implements AgentAdapter {
 
   retireSessionAfterCurrentTurn(sessionId: string): void {
     this.bridge?.retireSessionAfterCurrentTurn(sessionId);
+  }
+
+  armCwdTransition(transition: AgentCwdTransition): void {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    this.bridge.armCwdTransition(transition);
+  }
+
+  async switchCwdForTransition(
+    transition: AgentCwdTransition,
+  ): Promise<AgentCwdTransitionSwitchResult> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.switchCwdForTransition(transition);
+  }
+
+  async enqueueCwdTransitionContinuation(
+    transition: AgentCwdTransition,
+    text: string,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.enqueueCwdTransitionContinuation(transition, text);
+  }
+
+  releaseCwdTransition(sessionId: string, generation: number): void {
+    this.bridge?.releaseCwdTransition(sessionId, generation);
+  }
+
+  getRuntimeCwd(sessionId: string): string | null {
+    return this.bridge?.getRuntimeCwd(sessionId) ?? null;
   }
 
   async sendMessage(

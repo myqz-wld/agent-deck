@@ -273,7 +273,7 @@ class SessionManagerClass {
     handOffCutoverCoordinator.restoreSource(sessionId);
   }
 
-  /** thin delegate → manager/lifecycle.archiveImpl (setArchived + clearCwdReleaseMarker + team 联动)。 */
+  /** thin delegate → manager/lifecycle.archiveImpl (setArchived + safe marker retention + team 联动)。 */
   async archive(sessionId: string): Promise<void> {
     await archiveImpl(sessionId);
   }

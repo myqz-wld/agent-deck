@@ -121,8 +121,13 @@ export function routeEventToNotification(event: AgentEvent): void {
     }
 
     if (event.kind === 'finished') {
+      const payload = (event.payload ?? {}) as {
+        ok?: boolean;
+        subtype?: string;
+        expectedWorktreeTransition?: unknown;
+      };
+      if (payload.expectedWorktreeTransition) return;
       operation = 'finished';
-      const payload = (event.payload ?? {}) as { ok?: boolean; subtype?: string };
       const session = sessionManager.get(event.sessionId);
       const isError = payload.ok === false;
       const subtype = payload.subtype;

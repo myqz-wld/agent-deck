@@ -17,10 +17,7 @@ import type { SessionAdapterId } from '@shared/types';
 import { err, ok, withMcpGuard, type HandlerContext } from '../../helpers';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
 import type { HandOffSessionHandlerDeps } from './_deps';
-import {
-  transferHandOffResources,
-  type HandOffResourceTransferResult,
-} from './resource-transfer-coordinator';
+import { transferHandOffResources } from './resource-transfer-coordinator';
 import { executionCutoverError, sourceChangeError } from './source-change-copy';
 import { finalizeMcpHandOffSource } from './source-finalization';
 import {
@@ -32,15 +29,12 @@ import {
 } from './runtime-dependencies';
 import { validateHandOffTargetAdapter } from './target-adapter-validation';
 import { buildHandOffTargetRequest } from './target-request';
+import {
+  resourceTransferFailed,
+  validateWorktreeHandOffPreflight,
+} from './worktree-preflight';
 
 const logger = log.scope('mcp-handoff-main');
-function resourceTransferFailed(result: HandOffResourceTransferResult): boolean {
-  return (
-    result.tasks.status === 'failed' ||
-    result.teams.status === 'failed' ||
-    result.worktreeMarker.status === 'failed'
-  );
-}
 function safelyCheckSourcePrecondition(
   check: NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>,
   input: Parameters<NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>>[0],
@@ -91,6 +85,12 @@ export const handOffSessionHandler = withMcpGuard(
     }
 
     const finalCwd = args.cwd ?? callerRow.cwd;
+    const worktreeError = validateWorktreeHandOffPreflight({
+      source: callerRow,
+      finalCwd,
+      deps: handlerDeps,
+    });
+    if (worktreeError) return err(worktreeError.error, worktreeError.hint);
     const cwdIsDirectory = handlerDeps?.cwdIsDirectory ?? handOffCwdIsDirectory;
     if (!cwdIsDirectory(finalCwd)) {
       logger.warn(

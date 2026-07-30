@@ -19,6 +19,10 @@ import { bumpCloseEpochImpl } from './_deps';
 import log from '@main/utils/logger';
 import { handOffCutoverCoordinator } from '../hand-off/cutover-coordinator';
 import { reactivateHandOffSource } from '../hand-off/source-reactivation';
+import {
+  assertWorktreeTransitionAllowsDelete,
+  mayClearLegacyWorktreeMarker,
+} from '../worktree-transition/lifecycle-policy';
 
 const logger = log.scope('session-manager-lifecycle');
 // Purge must wait until close marker and team side effects have finished.
@@ -88,8 +92,8 @@ export function markDormantImpl(sessionId: string): void {
 /**
  * Advance active or dormant to closed. The close epoch changes before
  * persistence so in-flight recovery cancels. Browser disposal stays
- * non-blocking; tracked close side effects clear the marker, publish the fresh
- * row, leave teams, and auto-archive them.
+ * non-blocking; tracked close side effects retain unsettled structured worktree
+ * ownership, safely clear legacy markers, publish, leave teams, and auto-archive.
  */
 export function markClosedImpl(
   state: SessionManagerInternalState,
@@ -116,8 +120,8 @@ export function markClosedImpl(
 /**
  * Explicit close terminates the adapter but retains the session and history.
  * Order: establish close intent, await the adapter, persist closed, dispose the
- * browser, then clear the marker, publish, release the MCP token, leave teams,
- * and auto-archive. Natural scheduler closure does not terminate the adapter.
+ * browser, then apply safe marker retention, publish, release the MCP token,
+ * leave teams, and auto-archive. Natural scheduler closure does not terminate the adapter.
  */
 export async function closeImpl(
   sessionId: string,
@@ -150,14 +154,16 @@ export async function closeImpl(
 }
 
 /**
- * Archive is orthogonal to lifecycle. Clear the worktree release marker so a
- * later unarchive cannot reuse stale ownership, publish the fresh row, then
- * auto-archive teams that lost their last active lead.
+ * Archive is orthogonal to lifecycle. Clear only a legacy or settled worktree marker; an
+ * unsettled structured lease retains its cleanup authority for later unarchive recovery.
+ * Publish the fresh row, then auto-archive teams that lost their last active lead.
  */
 export async function archiveImpl(sessionId: string): Promise<void> {
   sessionRepo.setArchived(sessionId, Date.now());
   handOffCutoverCoordinator.abortSource(sessionId);
-  sessionRepo.clearCwdReleaseMarker(sessionId);
+  if (mayClearLegacyWorktreeMarker(sessionId)) {
+    sessionRepo.clearCwdReleaseMarker(sessionId);
+  }
   const updated = sessionRepo.get(sessionId);
   if (updated) eventBus.emit('session-upserted', updated);
   await archiveTeamsIfOrphaned(sessionId);
@@ -247,6 +253,7 @@ export async function deleteImpl(
   sessionId: string,
   sessionCloseFn: SessionCloseFn | null,
 ): Promise<void> {
+  assertWorktreeTransitionAllowsDelete(sessionId);
   // Establish delete intent so in-flight recovery aborts before the row disappears.
   if (sessionRepo.get(sessionId)) handOffCutoverCoordinator.revokeSource(sessionId);
   bumpCloseEpochImpl(state, sessionId);

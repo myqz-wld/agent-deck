@@ -46,6 +46,16 @@ const mocks = vi.hoisted(() => {
     browserScreenshotReap: vi.fn(),
     eventLoopStart: vi.fn(() => vi.fn()),
     hookStart: vi.fn(async () => calls.push('hook.start')),
+    adapterInit: vi.fn(async () => {
+      calls.push('adapters.init');
+      return [];
+    }),
+    worktreeObserve: vi.fn(() => true),
+    worktreeRecover: vi.fn(async () => {
+      calls.push('worktree.recover');
+      return { recovered: 0, skippedClosed: 0, failed: 0 };
+    }),
+    worktreeResumeStart: vi.fn(() => calls.push('worktree.resume-listener')),
     makeScheduler,
     powerMonitor: {
       on: vi.fn(),
@@ -82,7 +92,7 @@ vi.mock('../../store/settings-store', () => ({
 vi.mock('../../adapters/registry', () => ({
   adapterRegistry: {
     register: vi.fn(),
-    initAll: vi.fn(async () => []),
+    initAll: mocks.adapterInit,
     get: vi.fn(() => null),
   },
 }));
@@ -93,6 +103,15 @@ vi.mock('../../session/manager', () => ({
   sessionManager: { ingest: vi.fn() },
   setSessionCloseFn: vi.fn(),
   setSessionRenameHookFn: vi.fn(),
+}));
+vi.mock('../../session/worktree-transition/coordinator', () => ({
+  worktreeTransitionCoordinator: { observe: mocks.worktreeObserve },
+}));
+vi.mock('../../session/worktree-transition/recovery', () => ({
+  reconcileWorktreeTransitionsAtStartup: mocks.worktreeRecover,
+}));
+vi.mock('../../session/worktree-transition/resume-recovery', () => ({
+  startWorktreeTransitionResumeRecovery: mocks.worktreeResumeStart,
 }));
 vi.mock('../../session/lifecycle-scheduler', () => ({
   LifecycleScheduler: mocks.makeScheduler('sessionScheduler'),
@@ -172,6 +191,15 @@ describe('checkpoint refresh bootstrap entry', () => {
     );
     expect(mocks.calls.indexOf('checkpoint.start')).toBeGreaterThan(
       mocks.calls.indexOf('settings.getAll'),
+    );
+    expect(mocks.calls.indexOf('worktree.recover')).toBeGreaterThan(
+      mocks.calls.indexOf('adapters.init'),
+    );
+    expect(mocks.calls.indexOf('worktree.resume-listener')).toBeGreaterThan(
+      mocks.calls.indexOf('worktree.recover'),
+    );
+    expect(mocks.calls.indexOf('hook.start')).toBeGreaterThan(
+      mocks.calls.indexOf('worktree.resume-listener'),
     );
     expect(mocks.checkpointStart).toHaveBeenCalledOnce();
     expect(mocks.checkpointStart).toHaveBeenCalledWith(mocks.settings);

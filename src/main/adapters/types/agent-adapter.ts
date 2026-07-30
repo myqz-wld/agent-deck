@@ -53,6 +53,25 @@ export interface AgentEnqueueOptions {
    * rejected. This is intentionally adapter-internal and is not exposed through renderer IPC.
    */
   idempotencyKey?: string;
+  /** Main-owned replay path: the corresponding user event is already durable. */
+  userEventAlreadyPersisted?: boolean;
+  /** Internal replay bypass after the coordinator already owns the durable transition queue. */
+  bypassWorktreeTransitionGuard?: boolean;
+}
+
+export interface AgentCwdTransition {
+  sessionId: string;
+  generation: number;
+  direction: 'enter' | 'exit';
+  fromCwd: string;
+  targetCwd: string;
+  continuationKey: string;
+  continuationText: string;
+}
+
+export interface AgentCwdTransitionSwitchResult {
+  /** Claude's provider-neutral restart consumes the fixed continuation while creating the query. */
+  continuationAccepted: boolean;
 }
 
 export interface AgentAdapter {
@@ -98,6 +117,24 @@ export interface AgentAdapter {
    * for the active turn, otherwise hand_off_session would deadlock on its own tool response.
    */
   retireSessionAfterCurrentTurn?(sessionId: string): void;
+  /**
+   * Synchronously seal the current provider input boundary. Once armed, a completed active turn
+   * must not dequeue or steer another user input until releaseCwdTransition is called.
+   */
+  armCwdTransition?(transition: AgentCwdTransition): void;
+  /** Apply a confirmed post-terminal cwd change without mutating the persisted session row. */
+  switchCwdForTransition?(
+    transition: AgentCwdTransition,
+  ): Promise<AgentCwdTransitionSwitchResult>;
+  /** Queue the fixed main-owned continuation ahead of every ordinary pending provider input. */
+  enqueueCwdTransitionContinuation?(
+    transition: AgentCwdTransition,
+    text: string,
+  ): Promise<void>;
+  /** Release an armed adapter gate after switch success or compensated rollback. */
+  releaseCwdTransition?(sessionId: string, generation: number): void;
+  /** Runtime-only reference used by destructive exit validation. */
+  getRuntimeCwd?(sessionId: string): string | null;
   sendMessage?(
     sessionId: string,
     text: string,

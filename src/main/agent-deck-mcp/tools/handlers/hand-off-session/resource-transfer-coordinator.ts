@@ -12,6 +12,10 @@ import {
   compressSessionHandOffAliasesWithDb,
   recordSessionHandOffAliasWithDb,
 } from '@main/store/session-handoff-alias-repo';
+import {
+  getWorktreeTransition,
+  transferActiveLeaseWithDb,
+} from '@main/store/worktree-transition-repo';
 import log from '@main/utils/logger';
 import type { SessionRecord } from '@shared/types';
 import type { HandOffSessionResult } from '../../schemas';
@@ -51,6 +55,41 @@ function transferWorktreeMarker(
   callerRow: SessionRecord,
   newSessionId: string,
 ): HandOffResourceTransferResult['worktreeMarker'] {
+  const transitionCandidate = getWorktreeTransition(callerRow.id);
+  // Test seams and older generated resource-transfer doubles may return a generic query row.
+  // Only a versioned transition record can supersede the legacy marker contract.
+  const transition =
+    transitionCandidate?.formatVersion === 1 &&
+    transitionCandidate.sessionId === callerRow.id &&
+    typeof transitionCandidate.generation === 'number' &&
+    typeof transitionCandidate.phase === 'string'
+      ? transitionCandidate
+      : null;
+  if (transition && transition.phase !== 'cleared') {
+    if (transition.phase !== 'active') {
+      return {
+        status: 'failed',
+        marker: transition.worktreePath,
+        error:
+          `pending-transition:${transition.sessionId}:${transition.generation}:${transition.phase}`,
+      };
+    }
+    try {
+      transferActiveLeaseWithDb(
+        getDb(),
+        callerRow.id,
+        newSessionId,
+        Date.now(),
+      );
+      return { status: 'ok', marker: transition.worktreePath };
+    } catch (e) {
+      return {
+        status: 'failed',
+        marker: transition.worktreePath,
+        error: errorMessage(e),
+      };
+    }
+  }
   const marker = callerRow.cwdReleaseMarker ?? null;
   if (!marker) return { status: 'skipped', marker: null };
   try {

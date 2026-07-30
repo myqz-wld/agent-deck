@@ -84,6 +84,18 @@ export class CodexAppServerThread {
         : { mode: 'start', options };
   }
 
+  /** Apply cwd only to subsequent turn/start requests; the active turn keeps its original cwd. */
+  updateWorkingDirectory(workingDirectory: string): void {
+    const options: CodexThreadOptions = {
+      ...this.mode.options,
+      workingDirectory,
+    };
+    this.mode =
+      this.mode.mode === 'resume'
+        ? { mode: 'resume', threadId: this.mode.threadId, options }
+        : { mode: 'start', options };
+  }
+
   /** Apply an approval policy to subsequent turns without interrupting an active turn. */
   updateApprovalPolicy(
     approvalPolicy: CodexThreadOptions['approvalPolicy'] | null,

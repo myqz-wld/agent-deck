@@ -1,13 +1,22 @@
+import { randomUUID } from 'node:crypto';
 import { sessionRepo } from '@main/store/session-repo';
 import {
+  worktreeTransitionRepo,
+  WorktreeTransitionConflictError,
+} from '@main/store/worktree-transition-repo';
+import { worktreeTransitionCoordinator } from '@main/session/worktree-transition/coordinator';
+import { worktreeTransitionId } from '@main/session/worktree-transition/types';
+import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
 import type { EnterWorktreeArgs, EnterWorktreeResult } from '../schemas';
 import {
-  enterWorktreeImpl,
+  createPreparedWorktree,
+  prepareEnterWorktree,
+  rollbackPreparedWorktree,
   _internalIsError,
   type EnterWorktreeDeps,
 } from './enter-worktree-impl';
@@ -42,9 +51,52 @@ export const enterWorktreeHandler = withMcpGuard(
       ...DEFAULT_SESSION_DEPS,
       ...handlerDeps?.implDeps,
     };
-    const result = await enterWorktreeImpl(
+    const callerSessionId = ctx.caller.callerSessionId;
+    const existing = worktreeTransitionRepo.get(callerSessionId);
+    if (existing && existing.phase !== 'cleared') {
+      if (
+        existing.direction === 'enter' &&
+        (existing.phase === 'creating' ||
+          existing.phase === 'enter_waiting_tool_result')
+      ) {
+        return structuredOk({
+          transitionId: worktreeTransitionId(existing),
+          direction: 'enter',
+          state: 'waiting-tool-result',
+          effectiveFrom: 'automatic-next-turn',
+          worktreePath: existing.worktreePath,
+          workBranch: existing.workBranch,
+          baseBranch: existing.baseBranch,
+          baseCommit: existing.baseCommit,
+          baseSource: 'base-branch',
+          markerSet: existing.phase !== 'creating',
+        } satisfies EnterWorktreeResult);
+      }
+      return err(
+        `session already owns worktree transition ${worktreeTransitionId(
+          existing,
+        )} in phase ${existing.phase}`,
+        existing.phase === 'active'
+          ? 'Nested enter_worktree is not allowed. Finish and call exit_worktree first.'
+          : 'Retry after the current automatic cwd transition settles.',
+      );
+    }
+
+    let toolUseId: string;
+    try {
+      toolUseId = worktreeTransitionCoordinator.reserveToolInvocation(
+        callerSessionId,
+        'enter',
+      );
+    } catch (error) {
+      return err(
+        error instanceof Error ? error.message : String(error),
+        'The tool must be invoked from the active in-app provider turn so Agent Deck can correlate its exact tool result.',
+      );
+    }
+    const prepared = await prepareEnterWorktree(
       {
-        callerSessionId: ctx.caller.callerSessionId,
+        callerSessionId,
         baseBranch: args.baseBranch,
         workBranchOverride: args.workBranch,
         worktreePathOverride: args.worktreePath,
@@ -52,18 +104,116 @@ export const enterWorktreeHandler = withMcpGuard(
       },
       mergedDeps,
     );
-
-    if (_internalIsError(result)) {
-      return err(result.error, result.hint);
+    if (_internalIsError(prepared)) {
+      worktreeTransitionCoordinator.releaseToolInvocation(
+        callerSessionId,
+        toolUseId,
+      );
+      return err(prepared.error, prepared.hint);
     }
 
-    return ok({
-      worktreePath: result.worktreePath,
-      workBranch: result.workBranch,
-      baseBranch: result.baseBranch,
-      baseCommit: result.baseCommit,
-      baseSource: result.baseSource,
-      markerSet: result.markerSet,
+    let transition;
+    try {
+      transition = worktreeTransitionRepo.createEnter({
+        sessionId: callerSessionId,
+        originalCwd: prepared.originalCwd,
+        targetCwd: prepared.worktreePath,
+        mainRepo: prepared.mainRepo,
+        worktreePath: prepared.worktreePath,
+        workBranch: prepared.workBranch,
+        baseBranch: prepared.baseBranch,
+        baseCommit: prepared.baseCommit,
+        toolUseId,
+        continuationKey: `worktree-cwd:${randomUUID()}`,
+        requestedAt: Date.now(),
+      });
+      worktreeTransitionCoordinator.bindToolInvocation(
+        callerSessionId,
+        toolUseId,
+        transition.generation,
+      );
+    } catch (error) {
+      worktreeTransitionCoordinator.releaseToolInvocation(
+        callerSessionId,
+        toolUseId,
+      );
+      const hint =
+        error instanceof WorktreeTransitionConflictError
+          ? 'Retry after the existing transition settles.'
+          : 'No git worktree was created.';
+      return err(error instanceof Error ? error.message : String(error), hint);
+    }
+
+    try {
+      await createPreparedWorktree(prepared, mergedDeps);
+      transition = worktreeTransitionRepo.markEnterCreated(
+        callerSessionId,
+        transition.generation,
+        Date.now(),
+      );
+      worktreeTransitionCoordinator.arm(transition);
+    } catch (error) {
+      const warnings = await rollbackPreparedWorktree(
+        prepared,
+        mergedDeps,
+      );
+      if (warnings.length === 0) {
+        try {
+          const current = worktreeTransitionRepo.get(callerSessionId);
+          if (
+            current &&
+            current.generation === transition.generation &&
+            (current.phase === 'creating' ||
+              current.phase === 'enter_waiting_tool_result')
+          ) {
+            await worktreeTransitionCoordinator.releaseAbortedPreparation(
+              current,
+            );
+            transition = worktreeTransitionRepo.compareAndSetPhase({
+              sessionId: callerSessionId,
+              generation: transition.generation,
+              expected: current.phase,
+              next: 'cleared',
+              updatedAt: Date.now(),
+              lastError: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } catch {
+          // The primary error and explicit rollback warning below remain authoritative.
+        }
+      } else {
+        worktreeTransitionRepo.setLastError(
+          callerSessionId,
+          transition.generation,
+          `${error instanceof Error ? error.message : String(error)}; rollback: ${warnings.join(
+            '; ',
+          )}`,
+          Date.now(),
+        );
+      }
+      return err(
+        `enter_worktree preparation failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        warnings.length
+          ? `Rollback was incomplete and the transition lease was retained: ${warnings.join(
+              '; ',
+            )}`
+          : 'The created worktree and branch were rolled back; retry from the active turn.',
+      );
+    }
+
+    return structuredOk({
+      transitionId: worktreeTransitionId(transition),
+      direction: 'enter',
+      state: 'waiting-tool-result',
+      effectiveFrom: 'automatic-next-turn',
+      worktreePath: transition.worktreePath,
+      workBranch: transition.workBranch,
+      baseBranch: transition.baseBranch,
+      baseCommit: transition.baseCommit,
+      baseSource: 'base-branch',
+      markerSet: true,
     } satisfies EnterWorktreeResult);
   },
 );

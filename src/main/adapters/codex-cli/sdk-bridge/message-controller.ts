@@ -55,6 +55,8 @@ export class MessageController {
         emit: this.ctx.emit,
         replay: (sourceSessionId) =>
           this.enqueuePersistedMessage(sourceSessionId, text, attachments),
+        bypassWorktreeTransition:
+          options?.bypassWorktreeTransitionGuard === true,
       })
     ) {
       return;
@@ -79,6 +81,8 @@ export class MessageController {
         emit: this.ctx.emit,
         replay: (sourceSessionId) =>
           this.enqueuePersistedMessage(sourceSessionId, text, attachments),
+        bypassWorktreeTransition:
+          options?.bypassWorktreeTransitionGuard === true,
       })
     ) {
       return;
@@ -153,6 +157,8 @@ export class MessageController {
 
     assertCodexSessionAcceptsInput(session);
     this.validateMessageLength(text);
+    const shouldEmitUserEvent =
+      emitEvent && enqueueOptions?.userEventAlreadyPersisted !== true;
 
     const idempotencyKey = enqueueOptions?.idempotencyKey;
     const fingerprint = idempotencyKey
@@ -168,6 +174,7 @@ export class MessageController {
 
     if (
       !forceQueue &&
+      session.cwdTransitionGeneration == null &&
       !attachments?.length &&
       session.currentTurn &&
       session.currentTurnId &&
@@ -199,7 +206,7 @@ export class MessageController {
     ));
     while (deferredUserEvents.length < pendingCountBefore) deferredUserEvents.push(null);
     deferredUserEvents.push(
-      emitEvent && enqueueOptions?.deferUserEventUntilTurnStart
+      shouldEmitUserEvent && enqueueOptions?.deferUserEventUntilTurnStart
         ? {
             text,
             ...(attachments && attachments.length > 0
@@ -230,7 +237,10 @@ export class MessageController {
       );
     }
     try {
-      if (emitEvent && !enqueueOptions?.deferUserEventUntilTurnStart) {
+      if (
+        shouldEmitUserEvent &&
+        !enqueueOptions?.deferUserEventUntilTurnStart
+      ) {
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,

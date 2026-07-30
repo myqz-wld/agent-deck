@@ -103,9 +103,10 @@ export const HAND_OFF_SESSION_SHAPE = {
     .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
-// enter_worktree / exit_worktree provide a plan-free git worktree lifecycle. The caller chooses
-// a base branch, the tool resolves that branch's current commit, creates a work branch from it,
-// and records the worktree marker for the caller session.
+// enter_worktree / exit_worktree provide one asynchronous, provider-observed cwd transition
+// contract. Their success result acknowledges durable preparation; the effective cwd changes only
+// after the exact tool result reaches the provider and Agent Deck completes the expected turn
+// boundary.
 export const ENTER_WORKTREE_SCHEMA = {
   baseBranch: z
     .string()
@@ -121,7 +122,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .regex(/^[A-Za-z0-9._\\/-]+$/, 'workBranch only allows [A-Za-z0-9._/-]')
     .optional()
     .describe(
-      'Optional new branch name for the worktree. Omit it to let Agent Deck derive a unique branch name from the caller session and baseBranch. The branch must not already exist.',
+      'Optional new branch name for the worktree. Omit it to let Agent Deck derive a unique branch name from the caller session and baseBranch. The branch must not already exist. Creation is durable preparation for an automatic cwd transition; success does not mean the current provider turn already runs there.',
     ),
   worktreePath: z
     .string()
@@ -130,7 +131,7 @@ export const ENTER_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path. Omit it unless the user or project explicitly requires a custom layout. When both worktreePath and worktreeRoot are omitted, the default is <main-repo>/.agent-deck/worktrees/<derived-branch-slug>. The path must not already exist.',
+      'Optional absolute worktree path. Omit it unless the user or project explicitly requires a custom layout. When both worktreePath and worktreeRoot are omitted, the default is <main-repo>/.agent-deck/worktrees/<derived-branch-slug>. The path must not already exist. Agent Deck applies this path to the session automatically after the provider observes the successful tool result.',
     ),
   worktreeRoot: z
     .string()
@@ -157,19 +158,19 @@ export const EXIT_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path to clean up. Omit it to use the caller session worktree marker set by enter_worktree. Passing a different path while the caller holds a marker is rejected.',
+      'Optional absolute worktree path to exit. Omit it to use the caller session structured lease or legacy marker set by enter_worktree. Passing a different path while the caller owns a lease or marker is rejected. For a structured lease, success state waiting-tool-result means automatic restoration was accepted, not that cleanup already finished.',
     ),
   discardChanges: z
     .boolean()
     .optional()
     .describe(
-      'Default false. The tool refuses to remove a dirty worktree unless this is true. Do not pass true unless the user explicitly wants to abandon uncommitted changes.',
+      'Default false. The tool performs a preflight dirty check and a second dirty check immediately before removal. It refuses removal when either check finds changes unless this is true. Pass true only when the user explicitly authorizes abandoning uncommitted changes.',
     ),
   deleteBranch: z
     .boolean()
     .optional()
     .describe(
-      'Default false. exit_worktree removes the worktree directory and keeps the work branch so committed work is not lost. Never set true automatically: immediately before every use, ask the user whether to delete the branch and receive explicit approval. Generic finish or cleanup instructions and pushed, merged, cherry-picked, or abandoned branch state are not approval. Unmerged branch deletion is rejected unless discardChanges=true.',
+      'Default false. Automatic exit restores and confirms the original runtime/database cwd before removing the worktree, and keeps the work branch by default. Never set true automatically: immediately before every use, ask the user whether to delete the branch and receive explicit approval. Generic finish or cleanup instructions and pushed, merged, cherry-picked, or abandoned branch state are not approval. Unmerged branch deletion is rejected unless discardChanges=true.',
     ),
   callerSessionId: z
     .string()
@@ -300,24 +301,75 @@ export interface HandOffSessionResult {
   };
 }
 
-/** enter_worktree ok return shape. */
-export interface EnterWorktreeResult {
-  worktreePath: string;
-  workBranch: string;
-  baseBranch: string;
-  baseCommit: string;
-  baseSource: 'base-branch';
-  markerSet: boolean;
-}
+/** enter_worktree published asynchronous success contract. Errors use the ordinary MCP error body. */
+export const ENTER_WORKTREE_OUTPUT_SCHEMA = z
+  .object({
+    transitionId: z.string().min(1),
+    direction: z.literal('enter'),
+    state: z.literal('waiting-tool-result'),
+    effectiveFrom: z.literal('automatic-next-turn'),
+    worktreePath: z.string().min(1),
+    workBranch: z.string().min(1),
+    baseBranch: z.string().min(1),
+    baseCommit: z.string().min(1),
+    baseSource: z.literal('base-branch'),
+    markerSet: z.boolean(),
+  })
+  .strict();
 
-/** exit_worktree ok return shape. */
-export interface ExitWorktreeResult {
-  worktreePath: string;
-  workBranch: string | null;
-  branchDeleted: boolean;
-  worktreeRemoved: boolean;
-  markerCleared: boolean;
-}
+export type EnterWorktreeResult = z.infer<
+  typeof ENTER_WORKTREE_OUTPUT_SCHEMA
+>;
+
+const EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA = z
+  .object({
+    transitionId: z.string().min(1),
+    direction: z.literal('exit'),
+    state: z.literal('waiting-tool-result'),
+    effectiveFrom: z.literal('automatic-next-turn'),
+    worktreePath: z.string().min(1),
+    workBranch: z.string().min(1),
+  })
+  .strict();
+
+const EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA = z
+  .object({
+    transitionId: z.string().min(1),
+    direction: z.literal('exit'),
+    state: z.literal('completed-cleanup'),
+    effectiveFrom: z.literal('already-effective'),
+    worktreePath: z.string().min(1),
+    workBranch: z.string().nullable(),
+    branchDeleted: z.boolean(),
+    worktreeRemoved: z.boolean(),
+    markerCleared: z.literal(true),
+  })
+  .strict();
+
+const EXIT_WORKTREE_LEGACY_OUTPUT_SCHEMA = z
+  .object({
+    transitionId: z.null(),
+    direction: z.literal('exit'),
+    state: z.literal('completed-legacy'),
+    effectiveFrom: z.literal('already-effective'),
+    worktreePath: z.string().min(1),
+    workBranch: z.string().nullable(),
+    branchDeleted: z.boolean(),
+    worktreeRemoved: z.boolean(),
+    markerCleared: z.boolean(),
+  })
+  .strict();
+
+/** exit_worktree success is either accepted async restoration or completed cleanup/legacy work. */
+export const EXIT_WORKTREE_OUTPUT_SCHEMA = z.discriminatedUnion('state', [
+  EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA,
+  EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA,
+  EXIT_WORKTREE_LEGACY_OUTPUT_SCHEMA,
+]);
+
+export type ExitWorktreeResult = z.infer<
+  typeof EXIT_WORKTREE_OUTPUT_SCHEMA
+>;
 
 /** Retired shutdown_baton_teammates ok return shape kept for legacy handlers. */
 export interface ShutdownBatonTeammatesResult {

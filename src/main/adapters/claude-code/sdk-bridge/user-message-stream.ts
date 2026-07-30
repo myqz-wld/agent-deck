@@ -74,6 +74,7 @@ export async function* createClaudeUserMessageStream(
     if (internal.retireBoundaryReached) return;
     if (
       !internal.retireRequested &&
+      internal.cwdTransitionGeneration == null &&
       !internal.userTurnInFlight &&
       internal.pendingUserMessages.length > 0 &&
       !internal.pendingUserMessages[0]?.materializationError

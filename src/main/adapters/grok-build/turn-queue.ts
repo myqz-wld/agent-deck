@@ -232,6 +232,7 @@ export class GrokTurnQueue {
       ...(options?.turnCorrelationId
         ? { turnCorrelationId: options.turnCorrelationId }
         : {}),
+      ...(options?.userEventAlreadyPersisted ? { suppressUserEvent: true } : {}),
     };
     return {
       message,
@@ -253,7 +254,7 @@ export class GrokTurnQueue {
     }
     runtime.queue.push(message);
     this.rememberAccepted(runtime, prepared);
-    if (!message.deferUserEventUntilTurnStart) this.emitUserMessage(runtime, message);
+    if (!message.deferUserEventUntilTurnStart && !message.suppressUserEvent) this.emitUserMessage(runtime, message);
     void this.drain(runtime);
   }
 
@@ -338,7 +339,8 @@ export class GrokTurnQueue {
       runtime.closed ||
       runtime.restartingSandbox ||
       !runtime.ready ||
-      runtime.submittingMessage
+      runtime.submittingMessage ||
+      runtime.cwdTransitionGeneration != null
     ) return;
     const message = runtime.queue.shift();
     if (!message) {
