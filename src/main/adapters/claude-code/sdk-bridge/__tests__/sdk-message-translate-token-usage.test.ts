@@ -57,6 +57,7 @@ function resultMsg(options: {
       outputTokens?: number;
       cacheReadInputTokens?: number;
       cacheCreationInputTokens?: number;
+      contextWindow?: number;
     }
   >;
 }) {
@@ -103,8 +104,37 @@ describe('translateSdkMessage finalized Claude usage', () => {
     expect(tokenEvents(events)).toEqual([]);
     expect(events).toContainEqual(
       expect.objectContaining({
+        kind: 'context-usage',
+        payload: { usedTokens: 150 },
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
         kind: 'message',
         payload: { text: 'done', role: 'assistant' },
+      }),
+    );
+  });
+
+  it('selects the primary model context window from finalized model usage', () => {
+    const { events, emit, internal } = setup();
+    internal.runtimeModel = 'claude-opus-4-8';
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        modelUsage: {
+          'claude-opus-4-8': { outputTokens: 5, contextWindow: 200_000 },
+          'claude-haiku-4-5': { outputTokens: 2, contextWindow: 128_000 },
+        },
+      }),
+      internal,
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'context-usage',
+        payload: { windowTokens: 200_000 },
       }),
     );
   });

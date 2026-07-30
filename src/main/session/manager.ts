@@ -15,6 +15,8 @@ import {
   persistEventRow,
   persistFileChange,
   advanceState,
+  persistContextUsage,
+  resetContextUsageForCompaction,
   persistTokenUsage,
 } from './manager-ingest-pipeline';
 import {
@@ -194,10 +196,17 @@ class SessionManagerClass {
       eventBus.emit('token-usage-changed', { sessionId: event.sessionId, ts: event.ts });
       return;
     }
+    if (event.kind === 'context-usage') {
+      persistContextUsage(event);
+      return;
+    }
     const record = ensureRecord(this.ingestCtx, event);
     persistEventRow(event);
     persistFileChange(event);
     advanceState(record, event);
+    if (event.kind === 'context-compaction-start') {
+      resetContextUsageForCompaction(event);
+    }
     eventBus.emit('agent-event', event);
   }
 

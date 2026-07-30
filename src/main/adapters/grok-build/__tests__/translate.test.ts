@@ -13,6 +13,20 @@ import {
 } from '../translate';
 
 describe('Grok ACP event translation', () => {
+  it('maps ACP current-context usage without treating it as cumulative token usage', () => {
+    const [event] = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      { sessionUpdate: 'usage_update', used: 65_432, size: 131_072 },
+      createGrokTranslationState(),
+    );
+
+    expect(event).toMatchObject({
+      kind: 'context-usage',
+      payload: { usedTokens: 65_432, windowTokens: 131_072 },
+    });
+  });
+
   it('maps text, thought, tool, diff, and plan updates', () => {
     const state = createGrokTranslationState();
     expect(translateGrokUpdate(

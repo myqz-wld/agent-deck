@@ -45,6 +45,10 @@ import {
   confirmClaudeUserMessageAcceptance,
   discardClaudeSubmittingUserMessage,
 } from './user-message-acceptance';
+import {
+  claudeAssistantContextTokens,
+  claudeContextWindowTokens,
+} from './context-usage';
 
 type EmitFn = (e: AgentEvent) => void;
 
@@ -143,6 +147,10 @@ export function translateSdkMessage(
     const errCode = (msg as { error?: string }).error;
     if (errCode) {
       e('message', { text: `⚠ Claude API 错误：${errCode}`, error: true });
+    }
+    const contextTokens = claudeAssistantContextTokens(m?.usage);
+    if (contextTokens !== null) {
+      e('context-usage', { usedTokens: contextTokens });
     }
     const blocks = m?.content ?? [];
     for (let i = 0; i < blocks.length; i++) {
@@ -261,6 +269,13 @@ export function translateSdkMessage(
     }
     completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
     const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
+    const contextWindowTokens = claudeContextWindowTokens(
+      r.modelUsage,
+      internal.runtimeModel ?? fallbackModel,
+    );
+    if (contextWindowTokens !== null) {
+      e('context-usage', { windowTokens: contextWindowTokens });
+    }
     try {
       emitFinalResultUsage(e, fallbackModel, r);
     } catch {
@@ -282,6 +297,13 @@ export function translateSdkMessage(
         duration_ms?: unknown;
       };
     }).compact_metadata;
+    const postTokens =
+      typeof metadata?.post_tokens === 'number' &&
+      Number.isFinite(metadata.post_tokens) &&
+      metadata.post_tokens >= 0
+        ? Math.trunc(metadata.post_tokens)
+        : null;
+    e('context-usage', { usedTokens: postTokens });
     e('message', {
       text: buildClaudeCompactMessageText({
         trigger: metadata?.trigger,

@@ -168,7 +168,9 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
         continuationInstruction: instruction,
         target: {
           adapter: targetAdapter,
-          provider: targetProvider.trim() || null,
+          ...(targetAdapter !== 'grok-build'
+            ? { provider: targetProvider.trim() || null }
+            : {}),
           model: targetModel.trim() || null,
           thinking: targetThinking || null,
           ...(adapters.find((adapter) => adapter.value === targetAdapter)

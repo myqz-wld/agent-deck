@@ -13,8 +13,16 @@ export function translateCodexTokenUsage(
 ): void {
   const usage = asRecord(asRecord(params)?.tokenUsage);
   const last = asRecord(usage?.last);
+  const usedTokens = numberField(last?.totalTokens);
+  const windowTokens = positiveNumberField(usage?.modelContextWindow);
+  if (usedTokens !== null || windowTokens !== null) {
+    emit('context-usage', {
+      ...(usedTokens !== null ? { usedTokens } : {}),
+      ...(windowTokens !== null ? { windowTokens } : {}),
+    });
+  }
   if (!last) return;
-  const totalTokens = numberField(last.totalTokens);
+  const totalTokens = usedTokens;
   const inputTokens = numberField(last.inputTokens);
   const outputTokens = numberField(last.outputTokens);
   const reasoningTokens = numberField(last.reasoningOutputTokens);
@@ -53,8 +61,13 @@ function metricBit(value: number | null, bit: number): number {
 
 function numberField(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value
+    ? Math.trunc(value)
     : null;
+}
+
+function positiveNumberField(value: unknown): number | null {
+  const parsed = numberField(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
 }
 
 function asRecord(value: unknown): AnyRecord | null {

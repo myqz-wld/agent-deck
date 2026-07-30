@@ -52,10 +52,14 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
       internal,
     );
 
-    expect(events).toHaveLength(1);
-    expect(events[0].kind).toBe('message');
-    expect(events[0].payload).toMatchObject({ role: 'assistant' });
-    const text = (events[0].payload as { text: string }).text;
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      kind: 'context-usage',
+      payload: { usedTokens: 34567 },
+    });
+    expect(events[1].kind).toBe('message');
+    expect(events[1].payload).toMatchObject({ role: 'assistant' });
+    const text = (events[1].payload as { text: string }).text;
     expect(text).toContain('上下文已压缩');
     expect(text).toContain('触发：自动');
     expect(text).toContain('Token：123,456 → 34,567');

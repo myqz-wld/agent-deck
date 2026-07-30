@@ -15,6 +15,7 @@ import type {
   ActivityState,
   GrokUsageWatermark,
   LifecycleState,
+  SessionContextUsage,
   SessionRecord,
   SessionSource,
 } from '@shared/types';
@@ -65,6 +66,8 @@ export interface Row {
   network_access_enabled: number | null;
   additional_directories: string | null;
   grok_usage_watermark: string | null;
+  /** Added in v058; optional keeps historical migration fixtures readable. */
+  context_usage?: string | null;
   // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：mcp enter_worktree marker
   // 标记 caller 显式持有的 worktreePath（archive_plan 预检 4 态分流用），NULL = 未持有 marker。
   cwd_release_marker: string | null;
@@ -129,11 +132,59 @@ export function rowToRecord(r: Row): SessionRecord {
       field: 'additional_directories',
     }),
     grokUsageWatermark: parseGrokUsageWatermarkJson(r.grok_usage_watermark, r.id),
+    contextUsage: parseSessionContextUsageJson(r.context_usage, r.id),
     cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
     cliSessionId: r.cli_session_id ?? null,
   };
+}
+
+export function parseSessionContextUsageJson(
+  raw: string | null | undefined,
+  sessionId?: string,
+): SessionContextUsage | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const usedTokens = nullableTokenCount(parsed.usedTokens, false);
+    const windowTokens = nullableTokenCount(parsed.windowTokens, true);
+    const updatedAt = parsed.updatedAt;
+    if (
+      usedTokens === undefined ||
+      windowTokens === undefined ||
+      typeof updatedAt !== 'number' ||
+      !Number.isFinite(updatedAt) ||
+      updatedAt < 0
+    ) {
+      throw new Error('invalid context usage snapshot');
+    }
+    return {
+      usedTokens,
+      windowTokens,
+      updatedAt: Math.trunc(updatedAt),
+    };
+  } catch (error) {
+    logger.warn('[session-repo] context usage JSON parse failed', {
+      sessionId,
+      rawLength: raw.length,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function nullableTokenCount(value: unknown, positive: boolean): number | null | undefined {
+  if (value === null) return null;
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    (positive && value === 0)
+  ) {
+    return undefined;
+  }
+  return Math.trunc(value);
 }
 
 function normalizeStoredGrokSandbox(

@@ -74,6 +74,17 @@ export interface GrokUsageWatermark {
   cachedReadTokens: number | null;
   cachedWriteTokens: number | null;
 }
+/** Latest provider-reported snapshot of the current prompt context, not lifetime token usage. */
+export interface SessionContextUsage {
+  usedTokens: number | null;
+  windowTokens: number | null;
+  updatedAt: number;
+}
+/** Partial provider update; omitted fields preserve the last known snapshot value. */
+export interface SessionContextUsageUpdate {
+  usedTokens?: number | null;
+  windowTokens?: number | null;
+}
 /** Adapter-native work mode. Currently negotiated and implemented by Grok Build ACP. */
 export const ADAPTER_SESSION_MODES = ['default', 'plan', 'ask'] as const;
 export type AdapterSessionMode = (typeof ADAPTER_SESSION_MODES)[number];
@@ -305,6 +316,11 @@ export interface SessionRecord {
    */
   grokUsageWatermark?: GrokUsageWatermark | null;
   /**
+   * Current context occupancy and model window. During compaction, usedTokens is reset to null
+   * until the provider reports its post-compaction snapshot; windowTokens remains available.
+   */
+  contextUsage?: SessionContextUsage | null;
+  /**
    * mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
    * 不变量 5 + D2）：caller 走 mcp `enter_worktree` 进 worktree 时设为 worktreePath 绝对路径,
    * 走 mcp `exit_worktree` 或 session close hook 清回 null。
@@ -400,11 +416,11 @@ export type SessionAdapterId = RuntimeAdapterId;
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
   /** Claude Gateway profile id or Codex model_provider; null delegates to native defaults. */
-  provider: string | null;
+  provider?: string | null;
   /** Empty/null delegates model selection to the target provider. */
-  model: string | null;
+  model?: string | null;
   /** Empty/null delegates thinking selection to the target provider. */
-  thinking: string | null;
+  thinking?: string | null;
   /** Adapter-native work mode; currently meaningful only for Grok Build. */
   sessionMode?: AdapterSessionMode | null;
   /** Optional Grok native sandbox request; omitted follows hand-off inheritance/default rules. */

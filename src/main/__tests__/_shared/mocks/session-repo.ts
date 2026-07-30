@@ -23,7 +23,7 @@
  */
 
 import { vi } from 'vitest';
-import type { SessionRecord } from '@shared/types';
+import type { SessionContextUsageUpdate, SessionRecord } from '@shared/types';
 
 /** Factory 选项 */
 export interface SessionRepoMockOptions {
@@ -178,6 +178,27 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     // 测试缺 stub 会 "setNetworkAccessEnabled is not a function" crash（load-bearing）。
     setNetworkAccessEnabled: vi.fn(),
     setAdditionalDirectories: vi.fn(),
+    updateContextUsage: (
+      id: string,
+      update: SessionContextUsageUpdate,
+      updatedAt: number,
+    ) => {
+      const record = sessions.get(id);
+      if (!record) return null;
+      const contextUsage = {
+        usedTokens:
+          update.usedTokens !== undefined
+            ? update.usedTokens
+            : record.contextUsage?.usedTokens ?? null,
+        windowTokens:
+          update.windowTokens !== undefined
+            ? update.windowTokens
+            : record.contextUsage?.windowTokens ?? null,
+        updatedAt,
+      };
+      sessions.set(id, { ...record, contextUsage });
+      return contextUsage;
+    },
     hideFromHistory: (id: string) => {
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, hiddenFromHistory: true });

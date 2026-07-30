@@ -97,6 +97,52 @@ afterEach(() => {
 });
 
 describe('SessionManager.ingest 时序', () => {
+  it('keeps current context telemetry off the timeline and invalidates it on compaction', () => {
+    mockSessions.set('CONTEXT_SESSION', {
+      id: 'CONTEXT_SESSION',
+      agentId: 'codex-cli',
+      cwd: '/tmp',
+      title: 'context session',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'CONTEXT_SESSION',
+      source: 'sdk',
+      kind: 'context-usage',
+      payload: { usedTokens: 80_000, windowTokens: 200_000 },
+      ts: 200,
+    }));
+    expect(mockSessions.get('CONTEXT_SESSION')?.contextUsage).toEqual({
+      usedTokens: 80_000,
+      windowTokens: 200_000,
+      updatedAt: 200,
+    });
+    expect(mockEvents).toHaveLength(0);
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'CONTEXT_SESSION',
+      source: 'sdk',
+      kind: 'context-compaction-start',
+      payload: { text: 'compacting' },
+      ts: 300,
+    }));
+    expect(mockSessions.get('CONTEXT_SESSION')?.contextUsage).toEqual({
+      usedTokens: null,
+      windowTokens: 200_000,
+      updatedAt: 300,
+    });
+    expect(mockEvents.map((event) => event.kind)).toEqual([
+      'context-compaction-start',
+    ]);
+  });
+
   it('persists handoff-buffered user input without falsely starting source activity', () => {
     mockSessions.set('HANDOFF_BUFFERED_IDLE', {
       id: 'HANDOFF_BUFFERED_IDLE',

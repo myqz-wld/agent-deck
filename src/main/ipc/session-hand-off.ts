@@ -1,14 +1,7 @@
 import { IpcInvoke } from '@shared/ipc-channels';
-import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
-import {
-  isAdapterSessionMode,
-  type SessionHandOffPrepareRequest,
-  type SessionHandOffTarget,
-  type SessionRecord,
-} from '@shared/types';
+import type { SessionRecord } from '@shared/types';
 import type { CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
 import { adapterRegistry } from '@main/adapters/registry';
-import { isAgentId } from '@main/adapters/options-builder';
 import { SessionModelOptionsError } from '@main/adapters/session-model-options';
 import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
@@ -49,9 +42,9 @@ import { serializeSessionHandOffCommit } from './session-hand-off-response';
 import {
   IpcInputError,
   on,
-  parseGrokSandboxProfile,
   parseStringId,
 } from './_helpers';
+import { parseSessionHandOffPrepareRequest } from './session-hand-off-input';
 import log from '@main/utils/logger';
 
 const logger = log.scope('ipc-session-hand-off');
@@ -167,76 +160,6 @@ const coordinator = new UiHandOffCoordinator({
     error instanceof HandOffExecutionError,
 });
 
-function parseTarget(value: unknown): SessionHandOffTarget {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new IpcInputError('request.target', 'must be object');
-  }
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.adapter !== 'string' || !isAgentId(raw.adapter)) {
-    throw new IpcInputError('request.target.adapter', 'unknown adapter');
-  }
-  if (raw.model !== null && raw.model !== undefined && typeof raw.model !== 'string') {
-    throw new IpcInputError('request.target.model', 'must be a string or null');
-  }
-  if (
-    raw.provider !== null &&
-    raw.provider !== undefined &&
-    typeof raw.provider !== 'string'
-  ) {
-    throw new IpcInputError('request.target.provider', 'must be a string or null');
-  }
-  if (raw.thinking !== null && raw.thinking !== undefined && typeof raw.thinking !== 'string') {
-    throw new IpcInputError('request.target.thinking', 'must be a string or null');
-  }
-  if (
-    raw.sessionMode !== null &&
-    raw.sessionMode !== undefined &&
-    !isAdapterSessionMode(raw.sessionMode)
-  ) {
-    throw new IpcInputError(
-      'request.target.sessionMode',
-      'must be default, plan, ask, or null',
-    );
-  }
-  const grokSandbox =
-    raw.grokSandbox === null
-      ? null
-      : parseGrokSandboxProfile(raw.grokSandbox);
-  return {
-    adapter: raw.adapter,
-    provider: typeof raw.provider === 'string' ? raw.provider : null,
-    model: typeof raw.model === 'string' ? raw.model : null,
-    thinking: typeof raw.thinking === 'string' ? raw.thinking : null,
-    sessionMode: isAdapterSessionMode(raw.sessionMode) ? raw.sessionMode : null,
-    ...(raw.grokSandbox !== undefined ? { grokSandbox } : {}),
-  };
-}
-
-function parsePrepareRequest(value: unknown): SessionHandOffPrepareRequest {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new IpcInputError('request', 'must be object');
-  }
-  const raw = value as Record<string, unknown>;
-  const sourceSessionId = parseStringId('request.sourceSessionId', raw.sourceSessionId);
-  if (typeof raw.continuationInstruction !== 'string') {
-    throw new IpcInputError('request.continuationInstruction', 'must be a string');
-  }
-  if (!raw.continuationInstruction.trim()) {
-    throw new IpcInputError('request.continuationInstruction', 'must not be empty');
-  }
-  if (raw.continuationInstruction.length > MAX_USER_MESSAGE_LENGTH) {
-    throw new IpcInputError(
-      'request.continuationInstruction',
-      `length > ${MAX_USER_MESSAGE_LENGTH}`,
-    );
-  }
-  return {
-    sourceSessionId,
-    continuationInstruction: raw.continuationInstruction,
-    target: parseTarget(raw.target),
-  };
-}
-
 function ownerFor(event: Electron.IpcMainInvokeEvent): string {
   return `ui:${event.sender.id}`;
 }
@@ -258,7 +181,7 @@ export function registerSessionHandOffIpc(): void {
   }
 
   on(IpcInvoke.SessionHandOffPrepare, async (event, rawRequest) => {
-    const request = parsePrepareRequest(rawRequest);
+    const request = parseSessionHandOffPrepareRequest(rawRequest);
     try {
       return await coordinator.prepare({
         ownerSessionId: ownerFor(event),

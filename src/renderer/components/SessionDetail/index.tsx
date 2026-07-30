@@ -24,6 +24,7 @@ import { ComposerSdk } from './ComposerSdk';
 import { CliFooter } from './CliFooter';
 import { DiffTab } from './DiffTab';
 import { TasksPanel } from './TasksPanel';
+import { SessionContextUsageChip } from './SessionContextUsageChip';
 import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 import { useFileChanges } from './use-file-changes';
 
@@ -269,8 +270,9 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
             <div className="truncate text-[12px] font-medium">{session.title}</div>
           </div>
           <div className="truncate text-[10px] text-deck-muted">{session.cwd}</div>
-          <div className="mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-1">
             <SessionMetadataChips session={session} branch={gitBranch} compact />
+            <SessionContextUsageChip usage={session.contextUsage} />
           </div>
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-1">
