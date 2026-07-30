@@ -7,6 +7,7 @@ import { toolIcon } from './activity-feed/tool-icons';
 import { describeAgentToolInput, resolveToolNameAlias } from './activity-feed/describe';
 import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
+import { SessionContextUsageChip } from './SessionContextUsageChip';
 import { SessionPinButton } from './SessionPinButton';
 import { ArchiveIcon, CrownIcon, RefreshIcon, ShieldIcon, TrashIcon, UsersIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
@@ -15,6 +16,7 @@ interface Props {
   session: SessionRecord;
   selected: boolean;
   onSelect: () => void;
+  branch?: string | null;
   /**
    * 由上游 deriveTeamRole 统一计算的团队角色。universal team membership 优先，纯 spawn 链
    * 才按 owner/child 位置回退；lead 使用蓝色边框和标签，teammate 使用浅蓝标签。
@@ -24,7 +26,13 @@ interface Props {
 
 const EMPTY_EVENTS: AgentEvent[] = [];
 
-export function SessionCard({ session, selected, onSelect, teamRole }: Props): JSX.Element {
+export function SessionCard({
+  session,
+  selected,
+  onSelect,
+  branch,
+  teamRole,
+}: Props): JSX.Element {
   const recent = useSessionStore((s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS);
   const latestSummary = useSessionStore((s) => s.latestSummaryBySession.get(session.id));
   const [menuOpen, setMenuOpen] = useState(false);
@@ -151,8 +159,9 @@ export function SessionCard({ session, selected, onSelect, teamRole }: Props): J
         )}
         <span className="text-[9px] text-deck-muted/60">{agentIdLabel(session.agentId)}</span>
       </div>
-      <div className="mt-1">
-        <SessionMetadataChips session={session} compact />
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
+        <SessionMetadataChips session={session} branch={branch} compact />
+        <SessionContextUsageChip usage={session.contextUsage} />
       </div>
       {liveLines.length > 0 && (
         <div className="mt-1 flex flex-col gap-0.5">

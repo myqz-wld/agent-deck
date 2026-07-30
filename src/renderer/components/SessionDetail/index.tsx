@@ -24,14 +24,13 @@ import { ComposerSdk } from './ComposerSdk';
 import { CliFooter } from './CliFooter';
 import { DiffTab } from './DiffTab';
 import { TasksPanel } from './TasksPanel';
-import { SessionContextUsageChip } from './SessionContextUsageChip';
+import { SessionContextUsageChip } from '../SessionContextUsageChip';
 import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
 import { useFileChanges } from './use-file-changes';
+import { useSessionGitBranch } from '@renderer/hooks/use-session-git-branches';
 
 type Tab = 'activity' | 'tasks' | 'diff' | 'summary' | 'messages' | 'permissions';
 type DiffMode = 'single' | 'final';
-const GIT_BRANCH_REFRESH_MS = 10_000;
-
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
 
 interface Props {
@@ -46,7 +45,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
-  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  const gitBranch = useSessionGitBranch(session);
   const fileChanges = useFileChanges({
     sessionId: session.id,
     enabled: tab === 'diff',
@@ -134,30 +133,6 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     setCancelToasts([]);
     for (const tm of toastTimersRef.current.values()) clearTimeout(tm);
     toastTimersRef.current.clear();
-  }, [session.id]);
-
-  useEffect(() => {
-    let disposed = false;
-    let requestSeq = 0;
-    const refreshGitBranch = (): void => {
-      const seq = ++requestSeq;
-      void window.api
-        .getSessionGitBranch(session.id)
-        .then((branch) => {
-          if (!disposed && seq === requestSeq) setGitBranch(branch);
-        })
-        .catch(() => {
-          if (!disposed && seq === requestSeq) setGitBranch(null);
-        });
-    };
-
-    setGitBranch(null);
-    refreshGitBranch();
-    const timer = window.setInterval(refreshGitBranch, GIT_BRANCH_REFRESH_MS);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
   }, [session.id]);
 
   useEffect(() => {

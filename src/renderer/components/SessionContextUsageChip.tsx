@@ -10,7 +10,7 @@ export function SessionContextUsageChip({ usage }: Props): JSX.Element {
   return (
     <span
       aria-label="上下文窗口用量"
-      className={`rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] tabular-nums ${display.className}`}
+      className={`whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] tabular-nums ${display.className}`}
       title={display.title}
     >
       {display.label}
