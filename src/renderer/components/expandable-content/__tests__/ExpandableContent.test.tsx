@@ -68,7 +68,11 @@ describe('ExpandableContent', () => {
     expect(within(dialog).getByRole('button', { name: '表面操作' })).toBeTruthy();
     expect(within(dialog).getByText('验证结果')).toBeTruthy();
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '关闭展开内容' }));
+    const close = within(dialog).getByRole('button', { name: '关闭展开内容' });
+    expect(close.className).toContain('h-8');
+    expect(close.className).toContain('w-8');
+    expect(close.querySelector('svg')?.getAttribute('class')).toContain('h-3');
+    fireEvent.click(close);
     expect(screen.queryByRole('dialog', { name: '消息详情' })).toBeNull();
     expect(onOpenChange.mock.calls).toEqual([
       [true, messageIdentity],
