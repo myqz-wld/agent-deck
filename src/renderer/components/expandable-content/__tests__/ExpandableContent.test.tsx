@@ -59,6 +59,8 @@ describe('ExpandableContent', () => {
     const dialog = screen.getByRole('dialog', { name: '消息详情' });
     expect(view.container.contains(dialog)).toBe(false);
     expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.className).toContain('bg-[#141418]');
+    expect(dialog.querySelector('header')?.className).toContain('pl-[78px]');
     expect(within(dialog).getByText('完整消息')).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: '表面操作' })).toBeTruthy();
     expect(within(dialog).getByText('验证结果')).toBeTruthy();
@@ -69,6 +71,29 @@ describe('ExpandableContent', () => {
       [true, messageIdentity],
       [false, messageIdentity],
     ]);
+  });
+
+  it('uses a compact trigger for input surfaces without changing the default trigger', () => {
+    render(
+      <div className="relative">
+        <ExpandableContent
+          identity={messageIdentity}
+          payload={messagePayload}
+          title="消息编辑"
+          triggerVariant="input"
+        >
+          <textarea aria-label="消息编辑器" />
+        </ExpandableContent>
+      </div>,
+    );
+
+    const trigger = screen.getByRole('button', { name: '展开内容' });
+    expect(trigger.className).toContain('right-1');
+    expect(trigger.className).toContain('top-1');
+    expect(trigger.className).toContain('h-6');
+    expect(trigger.className).toContain('w-6');
+    expect(trigger.className).not.toContain('h-11');
+    expect(trigger.className).not.toContain('w-11');
   });
 
   it('lets only the topmost nested layer consume Escape', async () => {

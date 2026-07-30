@@ -145,6 +145,14 @@ describe('AskRow draft identity and response fencing', () => {
     });
     const view = renderAsk(askPayload('ask-1'));
 
+    const note = screen.getByLabelText('第一项备注');
+    const expandNote = screen.getByRole('button', { name: '展开第一项备注' });
+    expect(note.className).toContain('resize-none');
+    expect(note.className).not.toContain('resize-y');
+    expect(expandNote.className).toContain('h-6');
+    expect(expandNote.className).toContain('w-6');
+    expect(expandNote.className).not.toContain('h-11');
+
     fireEvent.click(within(screen.getByText('第一项').parentElement!)
       .getByRole('button', { name: '甲' }));
     fireEvent.click(within(screen.getByText('第二项').parentElement!)

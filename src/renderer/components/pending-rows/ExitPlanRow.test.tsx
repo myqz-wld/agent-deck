@@ -92,8 +92,14 @@ describe('ExitPlanRow', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: '继续规划' }));
     const feedback = screen.getByLabelText('计划修改意见') as HTMLTextAreaElement;
+    const expandFeedback = screen.getByRole('button', { name: '展开计划修改意见' });
+    expect(feedback.className).toContain('resize-none');
+    expect(feedback.className).not.toContain('resize-y');
+    expect(expandFeedback.className).toContain('h-6');
+    expect(expandFeedback.className).toContain('w-6');
+    expect(expandFeedback.className).not.toContain('h-11');
     fireEvent.change(feedback, { target: { value: 'First line\nSecond line' } });
-    fireEvent.click(screen.getByRole('button', { name: '展开计划修改意见' }));
+    fireEvent.click(expandFeedback);
     const expandedFeedback = screen.getByLabelText(
       '计划修改意见（展开）',
     ) as HTMLTextAreaElement;

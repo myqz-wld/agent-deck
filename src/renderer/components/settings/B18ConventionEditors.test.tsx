@@ -66,8 +66,12 @@ describe('B18 application convention editors', () => {
     const trigger = screen.getByRole('button', {
       name: '展开编辑 Claude Code 应用约定',
     });
-    expect(trigger.className).toContain('h-11');
-    expect(trigger.className).toContain('w-11');
+    expect(compact.className).toContain('resize-none');
+    expect(compact.className).not.toContain('resize-y');
+    expect(trigger.className).toContain('h-6');
+    expect(trigger.className).toContain('w-6');
+    expect(trigger.className).not.toContain('h-11');
+    expect(trigger.className).not.toContain('w-11');
     expect(document.querySelector('[data-expandable-heavy-view]')).toBeNull();
     trigger.focus();
     fireEvent.click(trigger);

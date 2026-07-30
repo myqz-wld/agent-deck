@@ -43,11 +43,14 @@ type ContentSlot<Payload extends ExpandableContentPayload> =
   | ReactNode
   | ((context: ExpandableContentRenderContext<Payload>) => ReactNode);
 
+export type ExpandableContentTriggerVariant = 'default' | 'input';
+
 export interface ExpandableContentProps<Payload extends ExpandableContentPayload> {
   identity: ExpandableContentIdentity;
   payload: Payload;
   title: string;
   triggerLabel?: string;
+  triggerVariant?: ExpandableContentTriggerVariant;
   closeLabel?: string;
   /** The default positioning expects the caller's source surface to be relative. */
   triggerClassName?: string;
@@ -68,13 +71,18 @@ export interface ExpandableContentProps<Payload extends ExpandableContentPayload
 export interface ExpandableContentTriggerProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'title'> {
   label?: string;
+  variant?: ExpandableContentTriggerVariant;
 }
 
 export function ExpandableContentTrigger({
   label = '展开内容',
+  variant = 'default',
   className = '',
   ...props
 }: ExpandableContentTriggerProps): JSX.Element {
+  const sizeClass = variant === 'input'
+    ? 'h-6 w-6 rounded'
+    : 'h-11 w-11 rounded-md';
   return (
     <button
       {...props}
@@ -82,9 +90,9 @@ export function ExpandableContentTrigger({
       aria-label={label}
       title={label}
       aria-haspopup="dialog"
-      className={`absolute right-1 top-1 z-10 flex h-11 w-11 touch-manipulation items-center justify-center rounded-md text-deck-muted transition-colors hover:bg-white/10 hover:text-deck-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-status-working ${className}`}
+      className={`absolute right-1 top-1 z-10 flex ${sizeClass} touch-manipulation items-center justify-center text-deck-muted transition-colors hover:bg-white/10 hover:text-deck-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-status-working ${className}`}
     >
-      <ExpandIcon className="h-4 w-4" />
+      <ExpandIcon className={variant === 'input' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
     </button>
   );
 }
@@ -149,7 +157,10 @@ function HeavyView({
 }
 
 interface PanelProps<Payload extends ExpandableContentPayload>
-  extends Omit<ExpandableContentProps<Payload>, 'triggerLabel' | 'triggerClassName' | 'onOpenChange'> {
+  extends Omit<
+    ExpandableContentProps<Payload>,
+    'triggerLabel' | 'triggerVariant' | 'triggerClassName' | 'onOpenChange'
+  > {
   contentKey: string;
   onRequestClose: () => void;
 }
@@ -285,10 +296,10 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
       aria-modal="true"
       aria-labelledby={titleId}
       tabIndex={-1}
-      className={`no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-deck-bg-strong text-deck-text shadow-2xl outline-none ${panelClassName}`}
+      className={`no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#141418] text-deck-text shadow-2xl outline-none ${panelClassName}`}
       data-expandable-content-key={contentKey}
     >
-      <header className={`flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border px-3 py-2 sm:px-4 ${headerClassName}`}>
+      <header className={`flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border py-2 pl-[78px] pr-3 sm:pr-4 ${headerClassName}`}>
         <h2 id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium">
           {title}
         </h2>
@@ -325,6 +336,7 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
 
 export function ExpandableContent<Payload extends ExpandableContentPayload>({
   triggerLabel = '展开内容',
+  triggerVariant = 'default',
   triggerClassName,
   onOpenChange,
   ...props
@@ -360,6 +372,7 @@ export function ExpandableContent<Payload extends ExpandableContentPayload>({
     <>
       <ExpandableContentTrigger
         label={triggerLabel}
+        variant={triggerVariant}
         className={triggerClassName}
         onClick={openPanel}
         aria-expanded={open}

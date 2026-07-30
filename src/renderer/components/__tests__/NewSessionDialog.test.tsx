@@ -329,16 +329,18 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     });
 
     const expand = screen.getByRole('button', { name: '展开编辑第一条消息' });
-    expect(expand.className).toContain('!right-1');
-    expect(expand.className).toContain('!top-1');
-    expect(expand.className).toContain('!h-6');
-    expect(expand.className).toContain('!w-6');
+    expect(expand.className).toContain('right-1');
+    expect(expand.className).toContain('top-1');
+    expect(expand.className).toContain('h-6');
+    expect(expand.className).toContain('w-6');
+    expect(expand.className).not.toContain('h-11');
+    expect(expand.className).not.toContain('w-11');
     expect(screen.getByLabelText('第一条消息').className).toContain('resize-none');
     expect(screen.getByLabelText('第一条消息').className).not.toContain('resize-y');
     fireEvent.click(expand);
     const editor = screen.getByRole('dialog', { name: '编辑第一条消息' });
-    expect(editor.className).toContain('!bg-[#141418]');
-    expect(editor.querySelector('header')?.className).toContain('!pl-[78px]');
+    expect(editor.className).toContain('bg-[#141418]');
+    expect(editor.querySelector('header')?.className).toContain('pl-[78px]');
     expect(
       (screen.getByLabelText('第一条消息（展开编辑）') as HTMLTextAreaElement).value,
     ).toBe(longText);
