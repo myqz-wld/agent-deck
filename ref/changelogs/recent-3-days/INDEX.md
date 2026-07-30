@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-29 | `CHANGELOG_413_session-ui-scope-alignment.md` | Restore scoped expand controls and align session runtime labels |
 | 2026-07-29 | `CHANGELOG_412_maintenance-timeout-terminal-policy.md` | Disable storage maintenance until restart after a worker timeout |
 | 2026-07-29 | `CHANGELOG_411_whole-project-quality-refresh.md` | Harden runtime, storage, UI, logging, dependencies, and packaging |
 | 2026-07-28 | `CHANGELOG_410_codex-live-approval-review-runtime.md` | Expose live Codex approvals and make review runtime prompt-owned |

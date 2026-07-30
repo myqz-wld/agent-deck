@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { AssetKind, AssetMeta } from '@shared/types';
 import type { AssetAdapter } from './AdapterSubTab';
-import { ExpandableAssetContent } from './b18/ExpandableAssetContent';
+import { AssetCard } from './AssetCard';
 
 interface Props {
   kind: AssetKind;
@@ -47,7 +47,7 @@ export function AssetsTab({
         ) : (
           <div className="flex flex-col gap-1.5">
             {filteredBundled.map((asset) => (
-              <ExpandableAssetContent
+              <AssetCard
                 key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                 asset={asset}
                 onView={onView}
@@ -75,7 +75,7 @@ export function AssetsTab({
           ) : (
             <div className="flex flex-col gap-1.5">
               {filteredUser.map((asset) => (
-                <ExpandableAssetContent
+                <AssetCard
                   key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                   asset={asset}
                   onView={onView}

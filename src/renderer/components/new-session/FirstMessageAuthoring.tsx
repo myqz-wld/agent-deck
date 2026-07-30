@@ -39,7 +39,7 @@ export function FirstMessageAuthoring({
   );
 
   return (
-    <>
+    <div className="flex flex-col gap-1.5">
       <div className="flex flex-col gap-1">
         <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">
           第一条消息（文字或图片至少一项）
@@ -69,6 +69,10 @@ export function FirstMessageAuthoring({
           getAttachmentPreviewDataUrl={images.getPreviewDataUrl}
           onRemoveAttachment={removeImage}
           expandedActions={addImageButton}
+          triggerClassName="!right-1 !top-1 !h-6 !w-6 !rounded"
+          compactResizable={false}
+          expandedPanelClassName="!bg-[#141418]"
+          expandedHeaderClassName="!pl-[78px]"
         />
       </div>
 
@@ -117,6 +121,6 @@ export function FirstMessageAuthoring({
           />
         </fieldset>
       </div>
-    </>
+    </div>
   );
 }

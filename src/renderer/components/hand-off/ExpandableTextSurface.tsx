@@ -26,6 +26,8 @@ interface SharedTextSurfaceProps {
 interface ExpandableAuthoringFieldProps extends SharedTextSurfaceProps {
   onChange: (value: string) => void;
   triggerLabel?: string;
+  triggerClassName?: string;
+  compactResizable?: boolean;
   disabled?: boolean;
   placeholder?: string;
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
@@ -35,16 +37,22 @@ interface ExpandableAuthoringFieldProps extends SharedTextSurfaceProps {
   getAttachmentPreviewDataUrl?: (id: string) => string | null;
   onRemoveAttachment?: (id: string) => void;
   expandedActions?: ReactNode;
+  expandedPanelClassName?: string;
+  expandedHeaderClassName?: string;
 }
 
 interface ExpandableTextViewerProps extends SharedTextSurfaceProps {
   excerptNotice: string;
 }
 
-function textAreaClass(monospace: boolean, expanded: boolean): string {
+function textAreaClass(
+  monospace: boolean,
+  expanded: boolean,
+  compactResizable = true,
+): string {
   const dimensions = expanded
     ? 'min-h-[55vh] flex-1 resize-none'
-    : 'w-full resize-y pr-12';
+    : `w-full ${compactResizable ? 'resize-y' : 'resize-none'} pr-12`;
   return [
     dimensions,
     'rounded border border-deck-border bg-white/[0.04] px-3 py-2',
@@ -72,6 +80,8 @@ export function ExpandableAuthoringField({
   value,
   onChange,
   triggerLabel,
+  triggerClassName,
+  compactResizable = true,
   rows,
   maxLength,
   disabled = false,
@@ -84,6 +94,8 @@ export function ExpandableAuthoringField({
   getAttachmentPreviewDataUrl,
   onRemoveAttachment,
   expandedActions,
+  expandedPanelClassName,
+  expandedHeaderClassName,
 }: ExpandableAuthoringFieldProps): JSX.Element {
   const payload: MessageContentPayload = {
     kind: 'message',
@@ -126,15 +138,18 @@ export function ExpandableAuthoringField({
           {...textAreaProps}
           aria-label={ariaLabel}
           rows={rows}
-          className={textAreaClass(monospace, false)}
+          className={textAreaClass(monospace, false, compactResizable)}
         />
         <ExpandableContent<MessageContentPayload>
           identity={identity}
           payload={payload}
           title={title}
           triggerLabel={triggerLabel ?? `展开编辑${ariaLabel}`}
+          triggerClassName={triggerClassName}
           actions={expandedActions}
           validation={<CharacterCount value={value} maxLength={maxLength} />}
+          panelClassName={expandedPanelClassName}
+          headerClassName={expandedHeaderClassName}
         >
           <div className="flex min-h-full flex-1 flex-col gap-3">
             <textarea

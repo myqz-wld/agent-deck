@@ -51,6 +51,8 @@ export interface ExpandableContentProps<Payload extends ExpandableContentPayload
   closeLabel?: string;
   /** The default positioning expects the caller's source surface to be relative. */
   triggerClassName?: string;
+  panelClassName?: string;
+  headerClassName?: string;
   children?: ContentSlot<Payload>;
   actions?: ContentSlot<Payload>;
   validation?: ContentSlot<Payload>;
@@ -164,6 +166,8 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
   confirmClose,
   onCloseBlocked,
   heavyView,
+  panelClassName = '',
+  headerClassName = '',
   contentKey,
   onRequestClose,
 }: PanelProps<Payload>): JSX.Element {
@@ -281,10 +285,10 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
       aria-modal="true"
       aria-labelledby={titleId}
       tabIndex={-1}
-      className="no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-deck-bg-strong text-deck-text shadow-2xl outline-none"
+      className={`no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-deck-bg-strong text-deck-text shadow-2xl outline-none ${panelClassName}`}
       data-expandable-content-key={contentKey}
     >
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border px-3 py-2 sm:px-4">
+      <header className={`flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border px-3 py-2 sm:px-4 ${headerClassName}`}>
         <h2 id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium">
           {title}
         </h2>

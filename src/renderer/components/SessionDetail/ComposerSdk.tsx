@@ -278,7 +278,7 @@ export function ComposerSdk({
       )}
       {supportsSessionMode && (
         <SelectRow
-          label="工作模式"
+          label="模式"
           value={sessionMode}
           options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
           disabled={sessionModeBusy}
@@ -296,7 +296,7 @@ export function ComposerSdk({
       />
       <ErrorBanner
         message={sessionModeError}
-        prefix="工作模式切换失败"
+        prefix="模式切换失败"
         onDismiss={() => updateComposer(
           sessionId,
           (current) => ({ ...current, sessionModeError: null }),
