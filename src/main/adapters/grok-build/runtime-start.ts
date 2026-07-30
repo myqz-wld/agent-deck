@@ -47,7 +47,7 @@ export interface GrokRuntimeStartContext {
   ) => void;
   observePromptComplete: (
     runtime: GrokRuntime,
-    notification: GrokPromptCompleteNotification,
+    notification: GrokPromptCompleteNotification | GrokExtensionNotification,
   ) => void;
   drain: (runtime: GrokRuntime) => Promise<void>;
   dispose: (runtime: GrokRuntime) => Promise<void>;
@@ -107,6 +107,9 @@ export async function startGrokRuntime(
           runtime.suppressUpdates ||
           notification.sessionId !== runtime.nativeSessionId
         ) return;
+        // Grok 0.2.114 uses this extension update itself as the only live terminal on
+        // rate-limit and some completed turns; prompt_complete is not guaranteed.
+        context.observePromptComplete(runtime, notification);
         const previousWatermark = runtime.translation.lastUsage;
         const usageEvent = translateGrokTurnUsage(
           runtime.applicationSessionId,

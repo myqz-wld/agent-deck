@@ -1,6 +1,10 @@
 import type { PromptResponse } from '@agentclientprotocol/sdk';
 
-import type { GrokPromptCompleteNotification } from './extension';
+import {
+  grokPromptCompleteFromExtension,
+  type GrokExtensionNotification,
+  type GrokPromptCompleteNotification,
+} from './extension';
 import type { GrokRuntime } from './runtime-types';
 
 const DEFAULT_PROMPT_RESPONSE_GRACE_MS = 250;
@@ -88,21 +92,35 @@ export class GrokLivePromptCompletion {
 
   observe(
     runtime: GrokRuntime,
-    notification: GrokPromptCompleteNotification,
+    notification: GrokPromptCompleteNotification | GrokExtensionNotification,
   ): boolean {
     const active = this.active.get(runtime);
+    const fromExtension = isExtensionNotification(notification);
+    const completion = fromExtension
+      ? grokPromptCompleteFromExtension(
+          notification,
+          runtime.translation.currentTurnStartedAt,
+        )
+      : notification;
+    const bareSuccessfulExtension =
+      fromExtension &&
+      completion?.stopReason === 'end_turn' &&
+      !completion.agentResult &&
+      !runtime.translation.assistantObservedForCurrentTurn;
     if (
       !active ||
-      notification.turnId !== active.turnId ||
-      !notification.stopReason ||
+      !completion ||
+      bareSuccessfulExtension ||
+      (!fromExtension && completion.turnId !== active.turnId) ||
+      !completion.stopReason ||
       (
-        notification.sessionId !== undefined &&
-        notification.sessionId !== runtime.nativeSessionId
+        completion.sessionId !== undefined &&
+        completion.sessionId !== runtime.nativeSessionId
       )
     ) return false;
     active.resolve({
-      ...notification,
-      stopReason: notification.stopReason,
+      ...completion,
+      stopReason: completion.stopReason,
       turnId: active.turnId,
     });
     return true;
@@ -128,4 +146,10 @@ function waitForPromptResponse(
       resolve(settlement);
     });
   });
+}
+
+function isExtensionNotification(
+  notification: GrokPromptCompleteNotification | GrokExtensionNotification,
+): notification is GrokExtensionNotification {
+  return 'update' in notification;
 }

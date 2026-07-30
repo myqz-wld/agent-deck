@@ -24,6 +24,8 @@ export interface GrokExtensionUpdate {
   prompt_id?: string;
   promptId?: string;
   stop_reason?: string;
+  agent_result?: string;
+  agentResult?: string;
   usage?: GrokTurnUsage;
   [key: string]: unknown;
 }
@@ -84,6 +86,35 @@ export function parseGrokPromptCompleteNotification(
       ? { turnId: params.turnId as number }
       : {}),
     ...(cancelTrigger ? { cancelTrigger } : {}),
+  };
+}
+
+export function grokPromptCompleteFromExtension(
+  notification: GrokExtensionNotification,
+  currentTurnStartedAt: number | null,
+): GrokPromptCompleteNotification | null {
+  const update = notification.update;
+  if (
+    update?.sessionUpdate !== 'turn_completed' ||
+    currentTurnStartedAt === null
+  ) return null;
+  const completedAt = explicitGrokExtensionTimestampMs(notification);
+  const timestampToleranceMs =
+    notification._meta?.agentTimestampMs === undefined ? 999 : 0;
+  if (
+    completedAt === null ||
+    completedAt + timestampToleranceMs < currentTurnStartedAt
+  ) return null;
+  const promptId = notificationPromptId(notification);
+  if (!promptId) return null;
+  const stopReason = nonEmptyString(update.stop_reason) ?? 'end_turn';
+  const agentResult =
+    nonEmptyString(update.agent_result) ?? nonEmptyString(update.agentResult);
+  return {
+    ...(notification.sessionId ? { sessionId: notification.sessionId } : {}),
+    promptId,
+    stopReason,
+    ...(agentResult ? { agentResult } : { agentResult: null }),
   };
 }
 
