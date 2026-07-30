@@ -105,6 +105,14 @@ describe('browser-use native-pipe server', () => {
       },
     ]);
     expect(socket.destroyed).toBe(false);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'connection state changed',
+      expect.objectContaining({
+        operation: 'getInfo',
+        reason: 'handler-error',
+        requestKind: 'request',
+      }),
+    );
   });
 
   it('refuses to replace a live backend and removes its own pipe on shutdown', async () => {

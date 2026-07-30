@@ -11,6 +11,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const paths = vi.hoisted(() => ({ userData: '' }));
+const loggerMock = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
 vi.mock('electron', () => ({
   app: {
     getPath: (name: string) => {
@@ -21,6 +27,12 @@ vi.mock('electron', () => ({
     setName: vi.fn(),
     isPackaged: false,
     exit: vi.fn(),
+  },
+}));
+vi.mock('@main/utils/logger', () => ({
+  default: {
+    ...loggerMock,
+    scope: () => loggerMock,
   },
 }));
 
@@ -78,6 +90,7 @@ function readJournalMode(): string {
 
 describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
   beforeEach(() => {
+    for (const method of Object.values(loggerMock)) method.mockReset();
     paths.userData = mkdtempSync(join(tmpdir(), 'agent-deck-db-offline-'));
   });
 
@@ -142,6 +155,23 @@ describe.skipIf(!bindingAvailable)('initDb offline migration boundary', () => {
       targetVersion: 56,
       command: 'migrate:message-dispatch',
     });
+    const migrationWarning = loggerMock.warn.mock.calls.find(
+      (call) => call[0] === 'migration initialization',
+    )?.[1];
+    expect(migrationWarning).toMatchObject({
+      version: 55,
+      mode: 'offline-required',
+      state: 'inspect',
+      outcome: 'blocked',
+      failureKind: 'offline-migration-required',
+      errorCode: 'OFFLINE_MIGRATION_REQUIRED',
+      currentVersion: 55,
+      targetVersion: 56,
+    });
+    expect(JSON.stringify(migrationWarning)).not.toContain(paths.userData);
+    expect(JSON.stringify(migrationWarning)).not.toContain(
+      'migrate:message-dispatch',
+    );
     expect(readVersion()).toBe(55);
     expect(readJournalMode()).toBe('delete');
     expect(existsSync(`${dbPath()}-wal`)).toBe(false);

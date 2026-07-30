@@ -25,6 +25,31 @@ const SAMPLE_INTERVAL_MS = 250;
 const LAG_THRESHOLD_MS = 500;
 const SUSPEND_THRESHOLD_MS = 60_000;
 
+class FakePowerMonitor {
+  private readonly listeners = {
+    resume: new Set<() => void>(),
+    suspend: new Set<() => void>(),
+  };
+
+  on(event: 'resume' | 'suspend', listener: () => void): this {
+    this.listeners[event].add(listener);
+    return this;
+  }
+
+  removeListener(event: 'resume' | 'suspend', listener: () => void): this {
+    this.listeners[event].delete(listener);
+    return this;
+  }
+
+  emit(event: 'resume' | 'suspend'): void {
+    for (const listener of this.listeners[event]) listener();
+  }
+
+  listenerCount(event: 'resume' | 'suspend'): number {
+    return this.listeners[event].size;
+  }
+}
+
 function startHarness() {
   let now = 0;
   const stop = startMainEventLoopMonitor({ now: () => now });
@@ -180,6 +205,31 @@ describe('startMainEventLoopMonitor', () => {
       maxLagMs: 700,
     });
     monitor.stop();
+  });
+
+  it('uses power events to exclude short system sleeps from event-loop lag', () => {
+    let now = 0;
+    const powerMonitor = new FakePowerMonitor();
+    const stop = startMainEventLoopMonitor({
+      now: () => now,
+      powerMonitor,
+    });
+
+    powerMonitor.emit('suspend');
+    now += 29_000;
+    vi.advanceTimersByTime(1_000);
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+
+    powerMonitor.emit('resume');
+    now += SAMPLE_INTERVAL_MS;
+    vi.advanceTimersByTime(SAMPLE_INTERVAL_MS);
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+    expect(powerMonitor.listenerCount('suspend')).toBe(1);
+    expect(powerMonitor.listenerCount('resume')).toBe(1);
+
+    stop();
+    expect(powerMonitor.listenerCount('suspend')).toBe(0);
+    expect(powerMonitor.listenerCount('resume')).toBe(0);
   });
 
   it('rebases clock rollback and nonfinite readings without false transitions', () => {

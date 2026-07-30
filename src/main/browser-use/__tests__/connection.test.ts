@@ -280,8 +280,13 @@ describe('BrowserUseConnection resource bounds', () => {
     expect(JSON.stringify(onError.mock.calls)).not.toContain(rawMarker);
     expect(loggerMock.warn).toHaveBeenCalledWith(
       'connection state changed',
-      expect.objectContaining({ reason: 'handler-error' }),
+      expect.objectContaining({
+        operation: 'unknown',
+        reason: 'handler-error',
+        requestKind: 'request',
+      }),
     );
+    expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toContain('"work"');
     expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toContain('[browser-transport]');
     expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toContain(rawMarker);
   });

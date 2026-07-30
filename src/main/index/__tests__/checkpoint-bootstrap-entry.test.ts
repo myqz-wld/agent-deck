@@ -44,14 +44,20 @@ const mocks = vi.hoisted(() => {
       };
     }),
     browserScreenshotReap: vi.fn(),
+    eventLoopStart: vi.fn(() => vi.fn()),
     hookStart: vi.fn(async () => calls.push('hook.start')),
     makeScheduler,
+    powerMonitor: {
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    },
   };
 });
 
 vi.mock('electron', () => ({
   app: { on: vi.fn(), exit: vi.fn() },
   dialog: { showErrorBox: vi.fn() },
+  powerMonitor: mocks.powerMonitor,
 }));
 vi.mock('@electron-toolkit/utils', () => ({
   electronApp: { setAppUserModelId: vi.fn() },
@@ -130,7 +136,7 @@ vi.mock('../../codex-config/agent-deck-mcp-injector', () => ({
 }));
 vi.mock('../../utils/user-shell-path', () => ({ unionUserShellPath: vi.fn((path) => path ?? '') }));
 vi.mock('../../utils/main-event-loop-monitor', () => ({
-  startMainEventLoopMonitor: vi.fn(() => vi.fn()),
+  startMainEventLoopMonitor: mocks.eventLoopStart,
 }));
 vi.mock('../../browser-use/server', () => ({
   startBrowserUseServer: mocks.browserStart,
@@ -169,7 +175,11 @@ describe('checkpoint refresh bootstrap entry', () => {
     );
     expect(mocks.checkpointStart).toHaveBeenCalledOnce();
     expect(mocks.checkpointStart).toHaveBeenCalledWith(mocks.settings);
+    expect(mocks.eventLoopStart).toHaveBeenCalledWith({
+      powerMonitor: mocks.powerMonitor,
+    });
     expect(mocks.browserStart).toHaveBeenCalledOnce();
+    expect(mocks.browserStart).toHaveBeenCalledWith();
     expect(mocks.browserScreenshotReap).toHaveBeenCalledOnce();
     expect(state.browserUseServerShutdown).toBe(mocks.browserShutdown);
   });

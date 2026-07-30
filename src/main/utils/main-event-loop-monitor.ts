@@ -28,6 +28,11 @@ export interface EventLoopDelaySample {
   maxSuppressedLagMs: number;
 }
 
+interface EventLoopPowerMonitor {
+  on(event: 'resume' | 'suspend', listener: () => void): unknown;
+  removeListener(event: 'resume' | 'suspend', listener: () => void): unknown;
+}
+
 interface EventLoopMonitorOptions {
   sampleIntervalMs?: number;
   warnThresholdMs?: number;
@@ -36,6 +41,7 @@ interface EventLoopMonitorOptions {
   suspendThresholdMs?: number;
   now?: () => number;
   onDelay?: (sample: EventLoopDelaySample) => void;
+  powerMonitor?: EventLoopPowerMonitor;
 }
 
 interface EventLoopDiagnosticContext {
@@ -77,12 +83,28 @@ export function startMainEventLoopMonitor(options: EventLoopMonitorOptions = {})
   let lastClockAt: number | null = null;
   let degraded = false;
   let consecutiveHealthySamples = 0;
+  let suspended = false;
 
-  const initialClock = readClock(now);
-  if (initialClock !== null) {
-    expectedAt = boundedSum(initialClock, sampleIntervalMs);
-    lastClockAt = initialClock;
-  }
+  const rebaseSchedule = (): void => {
+    const current = readClock(now);
+    expectedAt = current === null ? null : boundedSum(current, sampleIntervalMs);
+    lastClockAt = current;
+    consecutiveHealthySamples = 0;
+  };
+  const handleSuspend = (): void => {
+    suspended = true;
+    expectedAt = null;
+    lastClockAt = null;
+    consecutiveHealthySamples = 0;
+  };
+  const handleResume = (): void => {
+    suspended = false;
+    rebaseSchedule();
+  };
+
+  rebaseSchedule();
+  options.powerMonitor?.on('suspend', handleSuspend);
+  options.powerMonitor?.on('resume', handleResume);
 
   const observe = (
     state: EventLoopMonitorState,
@@ -110,6 +132,7 @@ export function startMainEventLoopMonitor(options: EventLoopMonitorOptions = {})
   };
 
   const timer = setInterval(() => {
+    if (suspended) return;
     const current = readClock(now);
     if (current === null) {
       expectedAt = null;
@@ -154,7 +177,11 @@ export function startMainEventLoopMonitor(options: EventLoopMonitorOptions = {})
   }, sampleIntervalMs);
   timer.unref();
 
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    options.powerMonitor?.removeListener('suspend', handleSuspend);
+    options.powerMonitor?.removeListener('resume', handleResume);
+  };
 }
 
 function createTracker(

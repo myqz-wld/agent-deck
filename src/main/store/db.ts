@@ -288,19 +288,27 @@ export function initDb(): Database.Database {
     });
     return opened;
   } catch (error) {
+    const offlineMigration =
+      error instanceof OfflineMigrationRequiredError ? error : null;
     logger.warn('migration initialization', {
       version: effectiveVersion,
       mode:
-        error instanceof OfflineMigrationRequiredError
+        offlineMigration
           ? 'offline-required'
           : 'startup',
       state: initializationState,
       outcome:
-        error instanceof OfflineMigrationRequiredError
+        offlineMigration
           ? 'blocked'
           : opened
             ? 'failed'
             : 'blocked',
+      failureKind: offlineMigration
+        ? 'offline-migration-required'
+        : 'initialization-failed',
+      errorCode: offlineMigration?.code ?? null,
+      currentVersion: offlineMigration?.currentVersion ?? effectiveVersion,
+      targetVersion: offlineMigration?.targetVersion ?? null,
       durationMs: Math.round(performance.now() - startedAt),
     });
     throw error;

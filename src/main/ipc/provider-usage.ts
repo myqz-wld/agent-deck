@@ -34,7 +34,7 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderUsageProviderId> = [
 const PROVIDER_USAGE_READ_TIMEOUT_ERROR = '__provider_usage_read_timeout__';
 export const PROVIDER_USAGE_READ_TIMEOUT_MS = 5_000;
 export const PROVIDER_USAGE_SLOW_READ_MS = 2_000;
-export const PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS = 60_000;
+export const PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS = 60 * 60_000;
 
 type ProviderUsageDiagnosticState =
   | 'healthy'
@@ -190,6 +190,7 @@ async function readAdapterSnapshot(
     observeProviderUsage(provider, seq, snapshot.status, elapsedSince(startedAt));
     return snapshot;
   }
+  let timedOut = false;
   try {
     const work = adapter.getUsageSnapshot().then((snapshot) => {
       const canonical = canonicalProviderUsageSnapshot(provider, snapshot);
@@ -197,7 +198,12 @@ async function readAdapterSnapshot(
         lastSuccessfulSnapshots.set(provider, { seq, snapshot: canonical });
         replaceCachedProviderSnapshot(provider, canonical, seq);
       }
-      observeProviderUsage(provider, seq, canonical.status, elapsedSince(startedAt));
+      // A late success still refreshes the cache, but the timeout remains the useful diagnostic
+      // for this read. Emitting its full elapsed time as a second "slow" transition duplicates one
+      // incident and obscures the bounded timeout signal.
+      if (!timedOut) {
+        observeProviderUsage(provider, seq, canonical.status, elapsedSince(startedAt));
+      }
       return canonical;
     });
     return await raceWithTimeout({
@@ -207,6 +213,7 @@ async function readAdapterSnapshot(
     });
   } catch (err) {
     if (err instanceof Error && err.message === PROVIDER_USAGE_READ_TIMEOUT_ERROR) {
+      timedOut = true;
       const stale = lastSuccessfulSnapshots.get(provider);
       observeProviderUsage(
         provider,
@@ -261,6 +268,7 @@ function observeProviderUsage(
       writeProviderUsageDiagnostic(
         'warn',
         'provider usage state remains degraded',
+        provider,
         decision,
       );
       return;
@@ -269,6 +277,7 @@ function observeProviderUsage(
       writeProviderUsageDiagnostic(
         'warn',
         'provider usage state degraded',
+        provider,
         decision,
       );
       return;
@@ -277,6 +286,7 @@ function observeProviderUsage(
       writeProviderUsageDiagnostic(
         'info',
         'provider usage state recovered',
+        provider,
         decision,
       );
     }
@@ -292,11 +302,14 @@ function providerUsageDiagnosticState(
   if (outcome === 'ok') {
     return durationMs >= PROVIDER_USAGE_SLOW_READ_MS ? 'slow' : 'healthy';
   }
+  // These are expected account/capability states, not operational failures. Keeping them healthy
+  // also avoids persisting subscription state in diagnostics.
+  if (outcome === 'not_subscribed' || outcome === 'unsupported') {
+    return 'healthy';
+  }
   if (
     outcome === 'error' ||
     outcome === 'unavailable' ||
-    outcome === 'not_subscribed' ||
-    outcome === 'unsupported' ||
     outcome === 'timeout-cached' ||
     outcome === 'timeout-empty'
   ) {
@@ -308,6 +321,7 @@ function providerUsageDiagnosticState(
 function writeProviderUsageDiagnostic(
   level: 'info' | 'warn',
   message: string,
+  provider: ProviderUsageProviderId,
   decision: LogStateDecision<ProviderUsageDiagnosticState>,
 ): void {
   const priorAbnormal: LogStateSnapshot<ProviderUsageDiagnosticState> | null =
@@ -324,6 +338,7 @@ function writeProviderUsageDiagnostic(
     safeDiagnostic({
       event: 'provider-usage-state',
       runId: getProcessRunId(),
+      provider,
       state: decision.current.signature,
       previousState: decision.flushed?.signature ?? null,
       transition: decision.kind,
