@@ -89,6 +89,9 @@ function recomputeEventRevisionAfterRename(db: Database, toId: string): void {
  */
 export function renameWithDb(db: Database, fromId: string, toId: string): void {
   if (fromId === toId) return;
+  const hasContextUsage = (
+    db.prepare(`PRAGMA table_info('sessions')`).all() as Array<{ name: string }>
+  ).some((column) => column.name === 'context_usage');
   const tx = db.transaction(() => {
     const fromRow = db
       .prepare(`SELECT * FROM sessions WHERE id = ?`)
@@ -174,6 +177,12 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.grok_usage_watermark,
         fromRow.pinned_at,
         fromRow.hidden_from_history,
+      );
+    }
+    if (hasContextUsage) {
+      db.prepare(`UPDATE sessions SET context_usage = ? WHERE id = ?`).run(
+        fromRow.context_usage ?? null,
+        toId,
       );
     }
     // Derived target checkpoints describe the pre-rename target history and cannot be merged with

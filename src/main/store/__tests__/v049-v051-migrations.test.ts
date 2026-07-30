@@ -114,8 +114,9 @@ describe.skipIf(!bindingAvailable)('v049-v051 adapter fidelity migrations', () =
                  'active', 'idle', 2, 2)`,
       ).run();
       // renameWithDb follows the current latest-schema contract. Add the independent nullable
-      // sessions column introduced after this historical migration range before exercising rename.
+      // sessions columns introduced after this historical migration range before exercising rename.
       db.exec(migration(53, 'sessions_grok_sandbox'));
+      db.exec(migration(58, 'sessions_context_usage'));
       renameWithDb(db, 'session-1', 'session-2');
       const renamed = db.prepare(
         `SELECT * FROM sessions WHERE id = 'session-2'`,

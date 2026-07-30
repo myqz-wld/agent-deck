@@ -176,10 +176,13 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       expect(handOffPrepare).toHaveBeenCalledWith({
         sourceSessionId: 'source-1',
         continuationInstruction: '由 Grok Build 继续。',
-        target: expect.objectContaining({
+        target: {
           adapter: 'grok-build',
+          model: null,
+          thinking: null,
+          sessionMode: 'default',
           grokSandbox: 'project-locked',
-        }),
+        },
       });
     });
   });

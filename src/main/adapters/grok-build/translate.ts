@@ -251,8 +251,22 @@ export function translateGrokUpdate(
     case 'current_mode_update':
     case 'config_option_update':
     case 'session_info_update':
-    case 'usage_update':
       return [];
+    case 'usage_update':
+      if (
+        !Number.isFinite(update.used) ||
+        update.used < 0 ||
+        !Number.isFinite(update.size) ||
+        update.size <= 0
+      ) {
+        return [];
+      }
+      return [
+        event('context-usage', {
+          usedTokens: Math.trunc(update.used),
+          windowTokens: Math.trunc(update.size),
+        }),
+      ];
   }
 }
 

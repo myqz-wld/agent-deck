@@ -44,6 +44,10 @@ describe('translateCodexAppServerNotification', () => {
 
     expect(events).toEqual([
       {
+        kind: 'context-usage',
+        payload: { usedTokens: 28 },
+      },
+      {
         kind: 'token-usage',
         payload: {
           messageId: null,
@@ -113,6 +117,27 @@ describe('translateCodexAppServerNotification', () => {
     );
 
     expect(events).toEqual([]);
+  });
+
+  it('reports the current Codex context window separately from cumulative usage', () => {
+    const { emit, events } = collect();
+    translateCodexAppServerNotification(
+      {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          tokenUsage: {
+            last: { totalTokens: 34_567 },
+            modelContextWindow: 272_000,
+          },
+        },
+      } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events[0]).toEqual({
+      kind: 'context-usage',
+      payload: { usedTokens: 34_567, windowTokens: 272_000 },
+    });
   });
 
   it('keeps transient app-server stream errors open and finishes fatal stream errors', () => {
@@ -356,6 +381,13 @@ describe('translateCodexAppServerNotification', () => {
     const { emit, events } = collect();
     translateCodexAppServerNotification(
       {
+        method: 'item/started',
+        params: { item: { id: 'compact-1', type: 'contextCompaction' } },
+      } as CodexAppServerNotification,
+      emit,
+    );
+    translateCodexAppServerNotification(
+      {
         method: 'item/completed',
         params: { item: { id: 'compact-1', type: 'contextCompaction', summary: 'kept scope' } },
       } as CodexAppServerNotification,
@@ -377,6 +409,10 @@ describe('translateCodexAppServerNotification', () => {
     );
 
     expect(events).toEqual([
+      {
+        kind: 'context-compaction-start',
+        payload: { text: '🧭 正在压缩上下文' },
+      },
       {
         kind: 'context-compaction-end',
         payload: { text: '🧭 上下文已压缩\n\nkept scope', summary: 'kept scope' },

@@ -21,6 +21,7 @@ export type AgentEventKind =
   | 'team-task-created'
   | 'team-task-completed'
   | 'team-teammate-idle'
+  | 'context-usage'
   | 'token-usage';
 
 export type AgentToolKind =

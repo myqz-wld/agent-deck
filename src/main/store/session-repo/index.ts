@@ -24,6 +24,7 @@ import { setArchived, SessionRowMissingError } from './archive';
 import * as lifecycle from './lifecycle';
 import * as history from './history';
 import * as visibility from './visibility';
+import * as contextUsage from './context-usage';
 import { setPinned, SessionPinStateError } from './pinning';
 import { rename } from './rename';
 import * as spawnChain from './spawn-chain';
@@ -39,6 +40,7 @@ export const sessionRepo = {
   ...lifecycle,
   ...history,
   ...visibility,
+  ...contextUsage,
   rename,
   ...spawnChain,
 };

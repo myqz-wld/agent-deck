@@ -61,6 +61,7 @@ import v054 from './v054_message_delivery_generation.sql?raw';
 import v055 from './v055_token_usage_daily_rollup.sql?raw';
 import v056 from './v056_agent_deck_messages_pending_order.sql?raw';
 import v057 from './v057_token_usage_metric_scope_repair.sql?raw';
+import v058 from './v058_sessions_context_usage.sql?raw';
 
 interface MigrationBase {
   version: number;
@@ -154,5 +155,11 @@ export const MIGRATIONS: Migration[] = [
     name: 'token_usage_metric_scope_repair_v2',
     execution: 'startup',
     sql: v057,
+  },
+  {
+    version: 58,
+    name: 'sessions_context_usage',
+    execution: 'startup',
+    sql: v058,
   },
 ];

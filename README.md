@@ -49,6 +49,14 @@ choices take precedence when the dialog is reopened. Permission, approval, work-
 selectors show concrete values and are ordered from the most restrictive option to the most
 permissive.
 
+### Session context usage
+
+The session detail header shows the provider-reported current context usage, context-window size,
+and occupancy percentage. This live snapshot is separate from the cumulative token ledger in the
+Data view. When a context compaction starts, Agent Deck invalidates the pre-compaction used count;
+it shows the window as updating until the provider reports the compacted snapshot, so stale usage
+is never presented as current.
+
 ### Codex session approvals
 
 When creating a Codex session—or starting a new Codex session from an issue—choose its thread-wide

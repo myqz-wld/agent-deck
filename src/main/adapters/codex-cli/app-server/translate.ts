@@ -141,7 +141,9 @@ function translateErrorNotification(params: unknown, emit: EmitFn): void {
 
 function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
   const type = item.type;
-  if (type === 'commandExecution') {
+  if (type === 'contextCompaction') {
+    emit('context-compaction-start', { text: '🧭 正在压缩上下文' });
+  } else if (type === 'commandExecution') {
     emit('tool-use-start', {
       toolName: 'Bash',
       toolInput: { command: item.command },

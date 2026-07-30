@@ -19,6 +19,8 @@ export interface ClaudeFinalResultUsage {
       outputTokens?: number;
       cacheReadInputTokens?: number;
       cacheCreationInputTokens?: number;
+      contextWindow?: number;
+      canonicalModel?: string;
     }
   >;
 }
