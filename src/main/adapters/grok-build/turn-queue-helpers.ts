@@ -12,18 +12,20 @@ export function isCancelled(submitting: GrokSubmittingMessage | null): boolean {
   return submitting?.status === 'cancelled';
 }
 
-export function toPendingAgentMessage(message: GrokPendingMessage): PendingAgentMessage {
+export function toPendingAgentMessage(
+  message: GrokPendingMessage | null | undefined,
+): PendingAgentMessage | null {
+  if (
+    !message?.deferUserEventUntilTurnStart
+    || !message.turnCorrelationId
+  ) return null;
   return {
-    id: pendingMessageId(message),
+    id: message.turnCorrelationId,
     text: message.text,
     ...(message.attachments?.length
       ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
       : {}),
   };
-}
-
-export function pendingMessageId(message: GrokPendingMessage): string {
-  return message.turnCorrelationId ?? message.id;
 }
 
 export function supportsImages(runtime: GrokRuntime): boolean {

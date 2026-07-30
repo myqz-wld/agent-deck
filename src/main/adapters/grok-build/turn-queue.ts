@@ -33,7 +33,6 @@ import {
 import {
   isCancelled,
   isInterjectionUnsupported,
-  pendingMessageId,
   promptBlocks,
   requireNativeSession,
   supportsImages,
@@ -120,26 +119,33 @@ export class GrokTurnQueue {
   }
 
   listPendingOutgoingMessages(runtime: GrokRuntime): PendingAgentMessage[] {
-    const queued = runtime.queue.map((message) => toPendingAgentMessage(message));
+    const queued = runtime.queue.flatMap((message) => {
+      const pending = toPendingAgentMessage(message);
+      return pending ? [pending] : [];
+    });
     const submitting = runtime.submittingMessage;
-    return submitting && submitting.status !== 'cancelled'
-      ? [toPendingAgentMessage(submitting.message), ...queued]
-      : queued;
+    const current = submitting?.status !== 'cancelled'
+      ? toPendingAgentMessage(submitting?.message)
+      : null;
+    return current ? [current, ...queued] : queued;
   }
 
   async removePendingOutgoingMessage(
     runtime: GrokRuntime,
     messageId: string,
   ): Promise<PendingAgentMessage | null> {
-    const index = runtime.queue.findIndex((message) => pendingMessageId(message) === messageId);
+    const index = runtime.queue.findIndex(
+      (message) => toPendingAgentMessage(message)?.id === messageId,
+    );
     if (index >= 0) {
       const [removed] = runtime.queue.splice(index, 1);
-      return removed ? toPendingAgentMessage(removed) : null;
+      return toPendingAgentMessage(removed);
     }
     const submitting = runtime.submittingMessage;
+    const pending = toPendingAgentMessage(submitting?.message);
     if (
       !submitting ||
-      pendingMessageId(submitting.message) !== messageId ||
+      pending?.id !== messageId ||
       submitting.status !== 'submitting'
     ) return null;
     if (submitting.kind === 'interject') {
@@ -147,12 +153,12 @@ export class GrokTurnQueue {
       submitting.requestController?.abort();
       if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
       void this.drain(runtime);
-      return toPendingAgentMessage(submitting.message);
+      return pending;
     }
     submitting.status = 'cancelling';
     if (!submitting.promptRequestIssued) {
       submitting.status = 'cancelled';
-      return toPendingAgentMessage(submitting.message);
+      return pending;
     }
     try {
       await runtime.process?.connection.agent.notify(methods.agent.session.cancel, {
@@ -166,7 +172,7 @@ export class GrokTurnQueue {
       return null;
     }
     submitting.status = 'cancelled';
-    return toPendingAgentMessage(submitting.message);
+    return pending;
   }
 
   confirmPromptAccepted(runtime: GrokRuntime): void {
