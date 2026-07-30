@@ -46,7 +46,7 @@ export function ExpandableIssueTextField({
         disabled={disabled}
         maxLength={maxLength}
         rows={rows}
-        className="w-full resize-y rounded border border-deck-border bg-white/[0.04] py-1 pl-2 pr-12 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+        className="w-full resize-none rounded border border-deck-border bg-white/[0.04] py-1 pl-2 pr-12 text-xs text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
       />
       <ExpandableContent<DiagnosticContentPayload>
         identity={{
@@ -57,6 +57,7 @@ export function ExpandableIssueTextField({
         payload={payload}
         title={label}
         triggerLabel={`展开${label.startsWith('Issue ') ? ' ' : ''}${label}`}
+        triggerVariant="input"
       >
         <textarea
           aria-label={`${label}（展开）`}

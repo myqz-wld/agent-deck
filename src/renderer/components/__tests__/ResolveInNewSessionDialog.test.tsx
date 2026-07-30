@@ -218,7 +218,14 @@ describe('ResolveInNewSessionDialog model options', () => {
     );
     await screen.findByText('Codex');
 
-    fireEvent.click(screen.getByRole('button', { name: '展开编辑第一条消息' }));
+    const compact = screen.getByLabelText('第一条消息');
+    const trigger = screen.getByRole('button', { name: '展开编辑第一条消息' });
+    expect(compact.className).toContain('resize-none');
+    expect(compact.className).not.toContain('resize-y');
+    expect(trigger.className).toContain('h-6');
+    expect(trigger.className).toContain('w-6');
+    expect(trigger.className).not.toContain('h-11');
+    fireEvent.click(trigger);
     const expanded = screen.getByLabelText(
       '第一条消息（展开编辑）',
     ) as HTMLTextAreaElement;

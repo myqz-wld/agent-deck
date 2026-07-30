@@ -2,6 +2,7 @@ export { ExpandableContent, ExpandableContentTrigger } from './ExpandableContent
 export type {
   ExpandableContentProps,
   ExpandableContentTriggerProps,
+  ExpandableContentTriggerVariant,
 } from './ExpandableContent';
 export { createAuthorizedContentReferenceId, expandableContentKey } from './identity';
 export type {

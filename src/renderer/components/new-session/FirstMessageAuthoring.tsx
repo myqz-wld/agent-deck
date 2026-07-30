@@ -69,10 +69,6 @@ export function FirstMessageAuthoring({
           getAttachmentPreviewDataUrl={images.getPreviewDataUrl}
           onRemoveAttachment={removeImage}
           expandedActions={addImageButton}
-          triggerClassName="!right-1 !top-1 !h-6 !w-6 !rounded"
-          compactResizable={false}
-          expandedPanelClassName="!bg-[#141418]"
-          expandedHeaderClassName="!pl-[78px]"
         />
       </div>
 

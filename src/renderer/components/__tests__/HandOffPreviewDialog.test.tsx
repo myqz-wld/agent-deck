@@ -336,7 +336,14 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {
       target: { value: longInstruction },
     });
-    fireEvent.click(screen.getByRole('button', { name: '展开编辑下一步指令' }));
+    const compact = screen.getByLabelText('下一步指令 / 补充与修正');
+    const trigger = screen.getByRole('button', { name: '展开编辑下一步指令' });
+    expect(compact.className).toContain('resize-none');
+    expect(compact.className).not.toContain('resize-y');
+    expect(trigger.className).toContain('h-6');
+    expect(trigger.className).toContain('w-6');
+    expect(trigger.className).not.toContain('h-11');
+    fireEvent.click(trigger);
     const expanded = screen.getByLabelText(
       '下一步指令 / 补充与修正（展开编辑）',
     ) as HTMLTextAreaElement;
@@ -376,7 +383,14 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       /上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的运行时、模型提供方和思考程度/,
     )).toBeTruthy();
     expect(screen.queryByText(/renderer|主进程|prompt/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '展开查看续接上下文摘录' }));
+    const compact = screen.getByLabelText('续接上下文摘录');
+    const trigger = screen.getByRole('button', { name: '展开查看续接上下文摘录' });
+    expect(compact.className).toContain('resize-none');
+    expect(compact.className).not.toContain('resize-y');
+    expect(trigger.className).toContain('h-6');
+    expect(trigger.className).toContain('w-6');
+    expect(trigger.className).not.toContain('h-11');
+    fireEvent.click(trigger);
     const excerpt = screen.getByLabelText(
       '续接上下文摘录（展开查看）',
     ) as HTMLTextAreaElement;

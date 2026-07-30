@@ -50,7 +50,7 @@ export function ExpandableFeedbackField({
         placeholder={placeholder}
         rows={rows}
         disabled={disabled}
-        className="w-full resize-y rounded border border-deck-border bg-white/[0.04] py-1 pl-2 pr-12 text-[10px] text-deck-text outline-none placeholder:text-deck-muted/70 focus:border-white/20 disabled:opacity-50"
+        className="w-full resize-none rounded border border-deck-border bg-white/[0.04] py-1 pl-2 pr-12 text-[10px] text-deck-text outline-none placeholder:text-deck-muted/70 focus:border-white/20 disabled:opacity-50"
       />
       <ExpandableContent<DiagnosticContentPayload>
         identity={{
@@ -61,6 +61,7 @@ export function ExpandableFeedbackField({
         payload={payload}
         title={label}
         triggerLabel={`展开${label}`}
+        triggerVariant="input"
       >
         <textarea
           aria-label={`${label}（展开）`}

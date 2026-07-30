@@ -235,6 +235,7 @@ export function ConventionDocumentEditor({
           payload={payload}
           title={`编辑 ${ariaLabel}`}
           triggerLabel={`展开编辑 ${ariaLabel}`}
+          triggerVariant="input"
           dirty={dirty}
           confirmClose={confirmExpandedClose}
           actions={actions}
@@ -291,7 +292,7 @@ function ConventionTextArea({
       className={[
         'no-drag w-full rounded border border-deck-border bg-white/[0.04]',
         'p-2 font-mono text-[11px] leading-relaxed outline-none focus:border-white/20 disabled:opacity-60',
-        expanded ? 'min-h-[60vh] flex-1 resize-none' : 'h-64 resize-y pr-12',
+        expanded ? 'min-h-[60vh] flex-1 resize-none' : 'h-64 resize-none pr-12',
       ].join(' ')}
       style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
     />

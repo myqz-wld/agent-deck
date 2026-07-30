@@ -80,7 +80,12 @@ describe('IssueDetail expandable evidence and drafts', () => {
     await waitFor(() => expect(window.api.issuesGet).toHaveBeenCalled());
     const compact = screen.getByLabelText('Issue 描述') as HTMLTextAreaElement;
     const trigger = screen.getByRole('button', { name: '展开 Issue 描述' });
-    expect(trigger.className).toContain('h-11');
+    expect(compact.className).toContain('resize-none');
+    expect(compact.className).not.toContain('resize-y');
+    expect(trigger.className).toContain('h-6');
+    expect(trigger.className).toContain('w-6');
+    expect(trigger.className).not.toContain('h-11');
+    expect(trigger.className).not.toContain('w-11');
 
     trigger.focus();
     fireEvent.click(trigger);
