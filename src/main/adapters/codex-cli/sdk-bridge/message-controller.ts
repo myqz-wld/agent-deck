@@ -345,18 +345,28 @@ export class MessageController {
 
   async interrupt(sessionId: string): Promise<void> {
     const session = this.ctx.sessions.get(sessionId);
-    if (!session) return;
+    if (!session) throw new Error('Codex 会话不在运行中，无法中断。');
+    const submitting = session.submittingUserMessage;
+    if (submitting?.kind === 'steer') {
+      submitting.cancelled = true;
+      submitting.requestController?.abort();
+      if (session.submittingUserMessage === submitting) session.submittingUserMessage = null;
+    }
+    const currentTurn = session.currentTurn;
+    if (!currentTurn) throw new Error('Codex 当前没有可中断的 active turn。');
+    const currentTurnId = session.currentTurnId;
+
+    // The AbortSignal only owns turn/start submission. Once app-server has accepted the turn,
+    // aborting that controller cannot stop model work (including context compaction). Send the
+    // provider-native interrupt as well, while retaining the local abort for the pre-acceptance
+    // race where no turn id exists yet.
+    currentTurn.abort();
+    if (!currentTurnId) return;
     try {
-      const submitting = session.submittingUserMessage;
-      if (submitting?.kind === 'steer') {
-        submitting.cancelled = true;
-        submitting.requestController?.abort();
-        if (session.submittingUserMessage === submitting) session.submittingUserMessage = null;
-      }
-      if (!session.currentTurn) return;
-      session.currentTurn.abort();
-    } catch (err) {
-      logger.warn('[codex-bridge] interrupt failed', err);
+      await session.thread.interrupt(currentTurnId);
+    } catch (error) {
+      logger.warn('[codex-bridge] provider interrupt failed', error);
+      throw error;
     }
   }
 

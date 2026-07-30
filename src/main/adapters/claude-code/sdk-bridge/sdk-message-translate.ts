@@ -17,8 +17,6 @@
  */
 import {
   normalizeStoredPermissionMode,
-  TOKEN_USAGE_ALL_METRICS,
-  TOKEN_USAGE_METRIC,
   type AgentEvent,
 } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
@@ -40,12 +38,15 @@ import { resetTurnUsageAccounting } from './authoritative-reasoning-usage';
 import type { InternalSession } from './types';
 import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
 import {
+  emitFinalResultUsage,
+  type ClaudeFinalResultUsage,
+} from './final-result-usage';
+import {
   confirmClaudeUserMessageAcceptance,
   discardClaudeSubmittingUserMessage,
 } from './user-message-acceptance';
 
 type EmitFn = (e: AgentEvent) => void;
-const CLAUDE_UNATTRIBUTED_REASONING_MODEL = 'claude-unattributed-reasoning';
 
 function hasExplicitModel(model: string | null | undefined): model is string {
   return model != null && model.trim() !== '';
@@ -59,171 +60,6 @@ function resolveClaudeFallbackModel(internal: InternalSession, sessionId: string
   } catch {
     return CLAUDE_DEFAULT_BUCKET;
   }
-}
-
-function reportedUsageValue(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? Math.trunc(value)
-    : null;
-}
-
-function hasReportedUsage(values: readonly (number | null)[]): boolean {
-  return values.some((value) => value !== null);
-}
-
-/**
- * Persist only the SDK result's finalized usage snapshot.
- *
- * Assistant BetaUsage is useful for live UI feedback but its cache fields are nullable and a later
- * result may provide the authoritative turn/model totals. Persisting the assistant row and then a
- * separate correction row leaves the nullable provisional row in the daily completeness set, so
- * the final exact result can never repair presence. Delaying durable usage until result
- * finalization keeps one logical row per model (or one aggregate fallback row) and never turns a
- * provider null into a measured zero. If a process dies before result, the turn remains absent
- * rather than becoming fabricated history; display-only tok/s continues independently.
- */
-function emitFinalResultUsage(
-  e: (kind: AgentEvent['kind'], payload: unknown) => void,
-  fallbackModel: string,
-  r: {
-    uuid?: string;
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      output_tokens_details?: { thinking_tokens?: number | null } | null;
-      cache_read_input_tokens?: number;
-      cache_creation_input_tokens?: number;
-    };
-    modelUsage?: Record<
-      string,
-      {
-        inputTokens?: number;
-        outputTokens?: number;
-        cacheReadInputTokens?: number;
-        cacheCreationInputTokens?: number;
-      }
-    >;
-  },
-): void {
-  try {
-    const entries = Object.entries(r.modelUsage ?? {});
-    if (entries.length > 0) {
-      const aggregate = r.usage;
-      const aggregateReasoning = reportedUsageValue(
-        aggregate?.output_tokens_details?.thinking_tokens,
-      );
-      const singleModel = entries.length === 1;
-      for (const [model, usage] of entries) {
-        // With exactly one model, aggregate result fields are attributable to that model and can
-        // safely fill an optional modelUsage field. With multiple models, never manufacture an
-        // allocation: retain null unless modelUsage itself reports the dimension.
-        const inputTokens =
-          reportedUsageValue(usage.inputTokens) ??
-          (singleModel ? reportedUsageValue(aggregate?.input_tokens) : null);
-        const outputTokens =
-          reportedUsageValue(usage.outputTokens) ??
-          (singleModel ? reportedUsageValue(aggregate?.output_tokens) : null);
-        const cacheReadTokens =
-          reportedUsageValue(usage.cacheReadInputTokens) ??
-          (singleModel
-            ? reportedUsageValue(aggregate?.cache_read_input_tokens)
-            : null);
-        const cacheCreationTokens =
-          reportedUsageValue(usage.cacheCreationInputTokens) ??
-          (singleModel
-            ? reportedUsageValue(aggregate?.cache_creation_input_tokens)
-            : null);
-        // A positive aggregate cannot be split across multiple models. Aggregate zero is safe to
-        // attribute to every non-negative component; a single-model aggregate is fully exact.
-        const reasoningTokens =
-          singleModel || aggregateReasoning === 0 ? aggregateReasoning : null;
-        if (
-          !hasReportedUsage([
-            inputTokens,
-            outputTokens,
-            reasoningTokens,
-            cacheReadTokens,
-            cacheCreationTokens,
-          ])
-        ) continue;
-        e('token-usage', {
-          messageId: r.uuid
-            ? `result:${r.uuid}:model:${encodeURIComponent(model)}`
-            : null,
-          model,
-          inputTokens,
-          outputTokens,
-          reasoningTokens,
-          cacheReadTokens,
-          cacheCreationTokens,
-          ...(!singleModel && aggregateReasoning !== null && aggregateReasoning > 0
-            ? {
-                metricScope:
-                  TOKEN_USAGE_ALL_METRICS & ~TOKEN_USAGE_METRIC.reasoning,
-              }
-            : {}),
-        });
-      }
-      if (!singleModel && aggregateReasoning !== null && aggregateReasoning > 0) {
-        emitUnattributedReasoningUsage(e, r.uuid, aggregateReasoning);
-      }
-      return;
-    }
-
-    // Older / unusual SDK builds may omit modelUsage. Its aggregate result usage is still a
-    // provider-finalized snapshot, so keep every reported field under the Claude fallback bucket.
-    const u = r.usage;
-    if (u) {
-      const inputTokens = reportedUsageValue(u.input_tokens);
-      const outputTokens = reportedUsageValue(u.output_tokens);
-      const reasoningTokens = reportedUsageValue(
-        u.output_tokens_details?.thinking_tokens,
-      );
-      const cacheReadTokens = reportedUsageValue(u.cache_read_input_tokens);
-      const cacheCreationTokens = reportedUsageValue(
-        u.cache_creation_input_tokens,
-      );
-      if (
-        !hasReportedUsage([
-          inputTokens,
-          outputTokens,
-          reasoningTokens,
-          cacheReadTokens,
-          cacheCreationTokens,
-        ])
-      ) return;
-      e('token-usage', {
-        messageId: r.uuid ? `result:${r.uuid}:aggregate` : null,
-        model: fallbackModel,
-        inputTokens,
-        outputTokens,
-        reasoningTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-      });
-    }
-  } catch {
-    // token usage 是旁路统计，result finalization 失败不应影响 finished / UI 主流程。
-  }
-}
-
-function emitUnattributedReasoningUsage(
-  e: (kind: AgentEvent['kind'], payload: unknown) => void,
-  uuid: string | undefined,
-  reasoningTokens: number,
-): void {
-  e('token-usage', {
-    messageId: uuid ? `result:${uuid}:reasoning:unattributed` : null,
-    model: CLAUDE_UNATTRIBUTED_REASONING_MODEL,
-    // The aggregate is provider-exact but cannot be assigned to one of several models. Keep all
-    // unrelated dimensions unknown instead of inserting synthetic zeroes.
-    inputTokens: null,
-    outputTokens: null,
-    reasoningTokens,
-    cacheReadTokens: null,
-    cacheCreationTokens: null,
-    metricScope: TOKEN_USAGE_METRIC.reasoning,
-  });
 }
 
 function resultOutputTokens(r: {
@@ -395,28 +231,11 @@ export function translateSdkMessage(
     }
   } else if (msg.type === 'result') {
     discardClaudeSubmittingUserMessage(internal);
-    const r = msg as {
+    const r = msg as ClaudeFinalResultUsage & {
       subtype?: string;
       is_error?: boolean;
       result?: string;
       errors?: string[];
-      uuid?: string;
-      usage?: {
-        input_tokens?: number;
-        output_tokens?: number;
-        output_tokens_details?: { thinking_tokens?: number | null } | null;
-        cache_read_input_tokens?: number;
-        cache_creation_input_tokens?: number;
-      };
-      modelUsage?: Record<
-        string,
-        {
-          inputTokens?: number;
-          outputTokens?: number;
-          cacheReadInputTokens?: number;
-          cacheCreationInputTokens?: number;
-        }
-      >;
     };
     // REVIEW_13 Bug 6 / P17 双通道防护陷阱再撞：result frame 在 expectedClose=true 时
     // 必须**整体静默**，不只 gate 红字 message。REVIEW_11 D'2 修法只 gate 了 message emit

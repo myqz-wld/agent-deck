@@ -1,4 +1,4 @@
-import { useEffect, useRef, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import {
   isSelectablePermissionMode,
   type AdapterSessionMode,
@@ -54,11 +54,15 @@ export function ComposerSdk({
   const text = composer.text;
   const busy = composer.requests.send.busy;
   const sendError = composer.sendError;
+  const [interrupting, setInterrupting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments(sessionId);
   const adapterRuntime = useAdapterRuntimeInfo(agentId);
   const canAcceptAttachments = adapterRuntime.canAcceptAttachments;
   useEffect(() => ensureComposerSession(sessionId), [ensureComposerSession, sessionId]);
+  useEffect(() => {
+    if (!turnBusy) setInterrupting(false);
+  }, [turnBusy]);
   // 会话记录持久化当前权限模式，详情切换和恢复后都以它为准。
   const permissionMode: ClaudePermissionMode = session.permissionMode ?? 'default';
   const permissionModeOptions: Array<{
@@ -168,9 +172,12 @@ export function ComposerSdk({
   };
 
   const interrupt = async (): Promise<void> => {
+    if (!turnBusy || interrupting) return;
+    setInterrupting(true);
     try {
       await window.api.interruptAdapterSession(agentId, sessionId);
     } catch (err) {
+      setInterrupting(false);
       updateComposer(sessionId, (current) => ({
         ...current,
         sendError: `中断失败：${(err as Error).message}`,
@@ -382,10 +389,17 @@ export function ComposerSdk({
         <button
           type="button"
           onClick={() => void interrupt()}
-          className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10"
-          title="中断当前任务"
+          disabled={!turnBusy || interrupting}
+          className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+          title={
+            !turnBusy
+              ? '当前没有运行中的任务'
+              : interrupting
+                ? '正在中断当前任务'
+                : '中断当前任务'
+          }
         >
-          <StopIcon className="mr-1 inline h-3 w-3" />中断
+          <StopIcon className="mr-1 inline h-3 w-3" />{interrupting ? '中断中…' : '中断'}
         </button>
         <button
           type="button"

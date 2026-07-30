@@ -48,7 +48,10 @@ vi.mock('@main/store/session-repo', () => ({ sessionRepo: harness.sessionRepo })
 vi.mock('@main/store/token-usage-repo', () => ({ tokenUsageRepo: harness.tokenUsageRepo }));
 vi.mock('@main/event-bus', () => ({ eventBus: harness.eventBus }));
 
-import { backfillGrokHistoryTokenUsage } from '../history-usage';
+import {
+  backfillGrokHistoryTokenUsage,
+  ensureGrokHistoryTokenUsage,
+} from '../history-usage';
 
 describe('Grok history token usage backfill', () => {
   let root = '';
@@ -181,6 +184,37 @@ describe('Grok history token usage backfill', () => {
     expect(harness.emits[0]).toMatchObject({
       name: 'token-usage-changed',
       payload: { sessionId: 'app-session-1' },
+    });
+  });
+
+  it('rescans after a completed ensure call so later Grok turns are not missed', async () => {
+    const updatesDir = join(root, 'encoded-cwd', 'native-1');
+    await mkdir(updatesDir, { recursive: true });
+    const updatesFile = join(updatesDir, 'updates.jsonl');
+    const completion = (promptId: string, inputTokens: number) => JSON.stringify({
+      method: '_x.ai/session/update',
+      params: {
+        sessionId: 'native-1',
+        update: {
+          sessionUpdate: 'turn_completed',
+          prompt_id: promptId,
+          usage: { inputTokens, outputTokens: 1 },
+        },
+      },
+    });
+    await writeFile(updatesFile, completion('prompt-first', 10));
+
+    await ensureGrokHistoryTokenUsage({ root });
+    await writeFile(
+      updatesFile,
+      [completion('prompt-first', 10), completion('prompt-later', 20)].join('\n'),
+    );
+    await ensureGrokHistoryTokenUsage({ root });
+
+    expect(harness.rows.has('prompt-first')).toBe(true);
+    expect(harness.rows.get('prompt-later')).toMatchObject({
+      inputTokens: 20,
+      outputTokens: 1,
     });
   });
 });

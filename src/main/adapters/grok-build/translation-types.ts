@@ -19,6 +19,7 @@ export interface GrokTranslationState {
     messageId: string | null;
     chunks: string[];
   } | null;
+  assistantObservedForCurrentTurn: boolean;
   lastUsage: GrokUsageWatermark | null;
   /** False only for a recovered legacy session that has no persisted cumulative baseline yet. */
   standardUsageBaselineReady: boolean;

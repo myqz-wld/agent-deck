@@ -1,32 +1,34 @@
 import { randomUUID } from 'node:crypto';
 
 import { methods, type ContentBlock, type SessionUpdate } from '@agentclientprotocol/sdk';
-import type { AgentEnqueueOptions, PendingAgentMessage } from '@main/adapters/types';
+import type { PendingAgentMessage } from '@main/adapters/types';
 import {
   enqueuePayloadFingerprint,
   isAcceptedEnqueueRetry,
   rememberAcceptedEnqueue,
 } from '@main/adapters/enqueue-idempotency';
-import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import type {
-  AgentEvent,
-  HandOffMetadata,
   UploadedAttachmentRef,
 } from '@shared/types';
 
 import { errorText } from './protocol-utils';
 import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
-import { persistGrokUsageWatermark } from './runtime-factory';
+import {
+  applyRecoveredGrokTurn,
+  GrokProviderCompletionRecovery,
+} from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
+import { finalizeGrokAcpResponse } from './turn-response';
+import type {
+  GrokEnqueueOptions,
+  GrokTurnQueueOptions,
+  PreparedGrokMessage,
+} from './turn-queue-types';
 import {
   beginGrokTurn,
   clearGrokTurnLiveRate,
-  completeGrokTurnLiveRate,
   flushGrokTextUpdates,
-  markGrokStandardUsageEmitted,
-  translateGrokUsage,
-  waitForGrokStandardUsage,
 } from './translate';
 import {
   isCancelled,
@@ -41,13 +43,6 @@ const MAX_PENDING_MESSAGES = 20;
 const GROK_INTERJECT_METHOD = 'x.ai/interject';
 const GROK_INTERJECT_WIRE_METHOD = `_${GROK_INTERJECT_METHOD}`;
 
-interface PreparedGrokMessage {
-  message: GrokPendingMessage;
-  idempotencyKey?: string;
-  fingerprint: string | null;
-  bypassQueueLimit?: boolean;
-}
-
 interface GrokInterjectRequest {
   sessionId: string;
   text: string;
@@ -55,27 +50,19 @@ interface GrokInterjectRequest {
   content: ContentBlock[];
 }
 
-export type GrokEnqueueOptions = AgentEnqueueOptions & {
-  handOff?: HandOffMetadata;
-  providerText?: string;
-  continuation?: TrustedContinuationInitialTurn['metadata'];
-};
-
-interface GrokTurnQueueOptions {
-  emit: (event: AgentEvent) => void;
-  emitEvent: (sessionId: string, kind: AgentEvent['kind'], payload: unknown) => void;
-  emitError: (sessionId: string, text: string) => void;
-  closeSession: (sessionId: string) => Promise<void>;
-  firstModelEventTimeoutMs?: number; // Test seam; production uses the fixed timeout.
-}
 export class GrokTurnQueue {
   private readonly firstModelEventWatchdog: GrokFirstModelEventWatchdog;
+  private readonly providerCompletionRecovery: GrokProviderCompletionRecovery;
 
   constructor(
     private readonly options: GrokTurnQueueOptions,
   ) {
     this.firstModelEventWatchdog =
       new GrokFirstModelEventWatchdog(options.firstModelEventTimeoutMs);
+    this.providerCompletionRecovery = new GrokProviderCompletionRecovery({
+      pollMs: options.providerCompletionPollMs,
+      root: options.providerHistoryRoot,
+    });
   }
 
   observeModelActivity(runtime: GrokRuntime, update: SessionUpdate): void {
@@ -361,6 +348,9 @@ export class GrokTurnQueue {
       return;
     }
     runtime.running = true;
+    runtime.interruptRequested = false;
+    const currentTurnController = new AbortController();
+    runtime.currentTurnController = currentTurnController;
     const submitting: GrokSubmittingMessage | null = message.deferUserEventUntilTurnStart
       ? {
           message,
@@ -388,57 +378,41 @@ export class GrokTurnQueue {
         message.id,
       );
       if (submitting) submitting.promptRequestIssued = true;
-      const response = await this.firstModelEventWatchdog.run(
-        runtime,
-        () => runtime.process!.connection.agent.request(
-          methods.agent.session.prompt,
-          {
-            sessionId: requireNativeSession(runtime),
-            prompt: blocks,
-          },
-        ),
-      );
+      const outcome = await this.providerCompletionRecovery.run(runtime, () =>
+        this.firstModelEventWatchdog.run(
+          runtime,
+          () => runtime.process!.connection.agent.request(
+            methods.agent.session.prompt,
+            {
+              sessionId: requireNativeSession(runtime),
+              prompt: blocks,
+            },
+            { cancellationSignal: currentTurnController.signal },
+          ),
+        ));
       if (isCancelled(submitting)) return;
-      this.flushText(runtime);
-      const previousWatermark = runtime.translation.lastUsage;
-      const usageEvent = translateGrokUsage(
-        runtime.applicationSessionId,
-        runtime.model,
-        response.usage,
-        runtime.translation,
+      if (outcome.kind === 'recovered') {
+        applyRecoveredGrokTurn(runtime, outcome.turn, this.options);
+        await this.options.closeSession(runtime.applicationSessionId);
+        return;
+      }
+      const response = outcome.response;
+      await finalizeGrokAcpResponse(
+        runtime,
+        response,
+        outcome.journalTurn,
+        this.options,
       );
-      if (usageEvent) {
-        if (runtime.translation.extensionUsageForCurrentTurn && !runtime.closed) {
-          this.options.emit(usageEvent);
-          const payload = usageEvent.payload as { outputTokens?: unknown };
-          completeGrokTurnLiveRate(
-            runtime.translation,
-            typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
-          );
-        } else if (await waitForGrokStandardUsage(runtime.translation) && !runtime.closed) {
-          this.options.emit(usageEvent);
-          markGrokStandardUsageEmitted(runtime.translation, usageEvent);
-          const payload = usageEvent.payload as { outputTokens?: unknown };
-          completeGrokTurnLiveRate(
-            runtime.translation,
-            typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
-          );
-        }
-      } else if (runtime.translation.lastUsage !== previousWatermark) {
-        // Baseline-only observations have no token row to pair with. Persisting just the baseline
-        // is safe; all count-bearing paths carry the watermark inside their atomic token event.
-        persistGrokUsageWatermark(runtime);
-      }
       clearGrokTurnLiveRate(runtime.translation);
-      if (!runtime.closed) {
-        this.options.emitEvent(runtime.applicationSessionId, 'finished', {
-          ok: response.stopReason === 'end_turn',
-          subtype: response.stopReason,
-        });
-      }
     } catch (error) {
       clearGrokTurnLiveRate(runtime.translation);
-      if (!runtime.closed && !isCancelled(submitting)) {
+      if (!runtime.closed && runtime.interruptRequested) {
+        this.flushText(runtime);
+        this.options.emitEvent(runtime.applicationSessionId, 'finished', {
+          ok: false,
+          subtype: 'interrupted',
+        });
+      } else if (!runtime.closed && !isCancelled(submitting)) {
         this.flushText(runtime);
         this.options.emitError(
           runtime.applicationSessionId,
@@ -449,6 +423,10 @@ export class GrokTurnQueue {
         }
       }
     } finally {
+      if (runtime.currentTurnController === currentTurnController) {
+        runtime.currentTurnController = null;
+      }
+      runtime.interruptRequested = false;
       if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
       runtime.running = false;
       if (runtime.sealed) {

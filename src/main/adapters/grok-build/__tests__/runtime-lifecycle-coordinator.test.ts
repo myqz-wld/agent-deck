@@ -62,6 +62,27 @@ beforeEach(() => {
 });
 
 describe('Grok runtime lifecycle coordinator', () => {
+  it('cancels both the provider session and the pending prompt request', async () => {
+    const h = harness();
+    const notify = vi.fn(async () => undefined);
+    const abort = vi.fn();
+    h.target.running = true;
+    h.target.currentTurnController = { abort } as unknown as AbortController;
+    h.target.process = {
+      ...h.target.process,
+      connection: { agent: { notify } },
+    } as unknown as GrokRuntime['process'];
+
+    await h.coordinator.interrupt('child');
+
+    expect(notify).toHaveBeenCalledWith('session/cancel', {
+      sessionId: 'native-child',
+    });
+    expect(abort).toHaveBeenCalledOnce();
+    expect(h.target.interruptRequested).toBe(true);
+    expect(h.permissionController.cancel).toHaveBeenCalledWith(h.target);
+  });
+
   it('strictly stops the provider before releasing runtime ownership', async () => {
     const h = harness();
     const stop = vi.mocked(h.target.process!.stop);

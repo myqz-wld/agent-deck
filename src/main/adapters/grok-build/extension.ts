@@ -16,6 +16,7 @@ export interface GrokExtensionUpdate {
   sessionUpdate?: string;
   prompt_id?: string;
   promptId?: string;
+  stop_reason?: string;
   usage?: GrokTurnUsage;
   [key: string]: unknown;
 }

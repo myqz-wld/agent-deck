@@ -137,6 +137,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
           reasoningTokens: 18,
           cacheReadTokens: 30,
           cacheCreationTokens: 10,
+          metricScope: TOKEN_USAGE_ALL_METRICS,
         },
       }),
     ]);
@@ -162,6 +163,10 @@ describe('translateSdkMessage finalized Claude usage', () => {
       reasoningTokens: null,
       cacheReadTokens: null,
       cacheCreationTokens: null,
+      metricScope:
+        TOKEN_USAGE_METRIC.total |
+        TOKEN_USAGE_METRIC.input |
+        TOKEN_USAGE_METRIC.output,
     });
   });
 
@@ -196,6 +201,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
           reasoningTokens: 25,
           cacheReadTokens: 80_242,
           cacheCreationTokens: 0,
+          metricScope: TOKEN_USAGE_ALL_METRICS,
         },
       }),
     ]);
@@ -238,7 +244,11 @@ describe('translateSdkMessage finalized Claude usage', () => {
       reasoningTokens: null,
       cacheReadTokens: 5,
       cacheCreationTokens: null,
-      metricScope: TOKEN_USAGE_ALL_METRICS & ~TOKEN_USAGE_METRIC.reasoning,
+      metricScope:
+        TOKEN_USAGE_METRIC.total |
+        TOKEN_USAGE_METRIC.input |
+        TOKEN_USAGE_METRIC.output |
+        TOKEN_USAGE_METRIC.cacheRead,
     });
     expect(usage[1]?.payload).toMatchObject({
       model: 'claude-haiku-4-5',
@@ -247,7 +257,10 @@ describe('translateSdkMessage finalized Claude usage', () => {
       reasoningTokens: null,
       cacheReadTokens: null,
       cacheCreationTokens: null,
-      metricScope: TOKEN_USAGE_ALL_METRICS & ~TOKEN_USAGE_METRIC.reasoning,
+      metricScope:
+        TOKEN_USAGE_METRIC.total |
+        TOKEN_USAGE_METRIC.input |
+        TOKEN_USAGE_METRIC.output,
     });
     expect(usage[2]?.payload).toEqual({
       messageId: 'result:multi-model:reasoning:unattributed',

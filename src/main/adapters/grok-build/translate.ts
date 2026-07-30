@@ -33,6 +33,7 @@ export function createGrokTranslationState(options: {
     startedToolIds: new Set(),
     thinkingToolIds: new Set(),
     pendingText: null,
+    assistantObservedForCurrentTurn: false,
     lastUsage: options.lastUsage ?? null,
     standardUsageBaselineReady: options.standardUsageBaselineReady ?? true,
     standardUsageObservedForCurrentTurn: false,
@@ -75,6 +76,7 @@ export function translateGrokUpdate(
 
   switch (update.sessionUpdate) {
     case 'agent_message_chunk':
+      state.assistantObservedForCurrentTurn = true;
       return contentEvents(
         sessionId,
         update.content,
