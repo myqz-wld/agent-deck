@@ -272,9 +272,15 @@ class CodexCliAdapter implements AgentAdapter {
     sessionId: string,
     _fromMemberId: string,
     body: string,
+    messageId: string,
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
-    await this.bridge.sendMessage(sessionId, body);
+    await this.bridge.sendMessage(
+      sessionId,
+      body,
+      undefined,
+      { idempotencyKey: messageId },
+    );
   }
 
   listPending(sessionId: string) {

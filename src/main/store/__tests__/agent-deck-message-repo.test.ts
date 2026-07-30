@@ -7,7 +7,7 @@
  * 覆盖维度（reviewer 双对抗 ✅ HIGH 修法对应的关键 invariant + 边界）：
  * - message insert：自循环防御 + 100KB 校验
  * - claim 原子化 + retry backoff + MAX_RETRY → failed
- * - crash recovery resetDeliveringOnStartup 不 ++attempt_count（reviewer §4.6 修法）
+ * - post-acceptance at-most-once recovery terminalizes outcome-unknown delivering rows
  * - countPendingForTarget per-target backpressure（reviewer §7.5）
  *
  * agent-deck-team-repo 在同目录 agent-deck-team-repo.test.ts。
@@ -23,6 +23,7 @@ import {
   deliveryLeaseOf,
   MessageInvariantError,
   MAX_BODY_LENGTH,
+  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
   type AgentDeckMessageRepo,
 } from '../agent-deck-message-repo';
 import v054 from '../migrations/v054_message_delivery_generation.sql?raw';
@@ -108,12 +109,13 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(msgRepo.claim(m.id, Date.now())).toBeNull();
   });
 
-  it('rejects a stale completion after crash recovery creates a new generation', () => {
+  it('rejects a stale completion after a definite rejection creates a new generation', () => {
     const m = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
     const firstClaim = msgRepo.claim(m.id, 100)!;
     const firstLease = deliveryLeaseOf(firstClaim);
 
-    expect(msgRepo.resetDeliveringOnStartup()).toBe(1);
+    expect(msgRepo.retryAfterFail(firstLease, 'definite adapter rejection', 150)?.status)
+      .toBe('pending');
     const secondClaim = msgRepo.claim(m.id, 200)!;
     expect(secondClaim.deliveryGeneration).toBe(2);
     expect(msgRepo.markDelivered(firstLease, 300)).toBeNull();
@@ -140,6 +142,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     const activeClaim = msgRepo.claim(active.id, 100)!;
 
     expect(msgRepo.countDeliveringForSession('sA')).toBe(1);
+    expect(msgRepo.countDelivering()).toBe(1);
     expect(msgRepo.retargetPendingForHandOff('sA', 'successor')).toBe(1);
     expect(msgRepo.get(pending.id)).toMatchObject({
       fromSessionId: 'successor',
@@ -243,19 +246,25 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(msgRepo.countPendingForTarget('sB')).toBe(2);
   });
 
-  it('resetDeliveringOnStartup：crash recovery 不 ++attempt_count（reviewer §4.6 修法）', () => {
+  it('terminalizeDeliveringOnStartup：outcome-unknown delivering → failed，不再 eligible', () => {
     const m = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
     msgRepo.claim(m.id, Date.now());
     expect(msgRepo.get(m.id)?.status).toBe('delivering');
     expect(msgRepo.get(m.id)?.attemptCount).toBe(0);
+    expect(msgRepo.countDelivering()).toBe(1);
 
-    const reset = msgRepo.resetDeliveringOnStartup();
-    expect(reset).toBe(1);
+    const terminalized = msgRepo.terminalizeDeliveringOnStartup();
+    expect(terminalized).toBe(1);
     const after = msgRepo.get(m.id);
-    expect(after?.status).toBe('pending');
-    expect(after?.attemptCount).toBe(0); // 关键：不 ++
+    expect(after?.status).toBe('failed');
+    expect(after?.attemptCount).toBe(0);
     expect(after?.deliveringSince).toBeNull();
-    expect(after?.statusReason).toContain('recovered-from-delivering');
+    expect(after?.deliveryLeaseToSessionId).toBeNull();
+    expect(after?.statusReason).toBe(UNCERTAIN_DELIVERY_ON_RESTART_REASON);
+    expect(msgRepo.countDelivering()).toBe(0);
+    expect(msgRepo.findEligible({ now: Date.now() + 60_000, limit: 10 })).toEqual([]);
+    expect(msgRepo.terminalizeDeliveringOnStartup()).toBe(0);
+    expect(msgRepo.claim(m.id, Date.now() + 60_000)).toBeNull();
   });
 
   it('listByTeam 按 sentAt DESC + 状态过滤', async () => {

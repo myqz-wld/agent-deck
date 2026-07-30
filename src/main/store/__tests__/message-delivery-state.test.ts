@@ -12,7 +12,19 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import log from 'electron-log/main';
-import { coerceMessageStatus } from '../message-delivery-state';
+import {
+  coerceMessageStatus,
+  MESSAGE_DELIVERY_DURABILITY,
+  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
+} from '../message-delivery-state';
+
+describe('message delivery durability contract', () => {
+  it('is explicitly at-most-once and explains why an uncertain restart is not retried', () => {
+    expect(MESSAGE_DELIVERY_DURABILITY).toBe('at-most-once');
+    expect(UNCERTAIN_DELIVERY_ON_RESTART_REASON).toContain('at-most-once');
+    expect(UNCERTAIN_DELIVERY_ON_RESTART_REASON).toContain('避免重复执行');
+  });
+});
 
 describe('coerceMessageStatus — REVIEW_56 §F14 修法 (logger.warn 回归 test)', () => {
   const scopedLogger = log.scope('store-message-delivery');

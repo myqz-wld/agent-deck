@@ -4,13 +4,12 @@
  * 持久层：agent_deck_messages 表 CRUD + watcher 关键 helpers。
  *
  * **Phase 4 Step 4.11 拆分**（沿用 Step 4.5 task-repo 同款 factory pattern）：
- * 本文件已从 527 LOC facade 化（薄 re-export + factory 装配 + singleton lazy）。15 method
+ * 本文件已从 527 LOC facade 化（薄 re-export + factory 装配 + singleton lazy）。18 methods
  * 按 ADR §4 状态机分四域:
  * - `./crud.ts` — insert / get / listByTeam / listBySession（4 method 基础读写）
  * - `./dispatch.ts` — findEligible / findEligibleExcludingTargets / countPendingForTarget
  *   （3 method watcher 配对查询）
- * - `./state-machine.ts` — claim / markDelivered / markFailed / retryAfterFail / cancel /
- *   resetDeliveringOnStartup（6 method 状态机迁移）
+ * - `./state-machine.ts` — 6 个状态迁移，加 handoff retarget 与 session/global drain probes
  * - `./gc.ts` — listExpiredForGc / batchHardDelete（2 method retention GC，plan
  *   message-retention-and-index-20260602；MessageLifecycleScheduler 调用）
  * - `./_deps.ts` — MessageRow + rowToRecord + 5 Input shapes + AgentDeckMessageRepo interface
@@ -24,13 +23,15 @@
  * 状态机（ADR §4.3）：
  *   pending → claim → delivering →
  *     ↓ success: delivered (terminal)
- *     ↓ throw:   pending (attempt_count++ + last_attempt_at=now) | failed (>= MAX_RETRY)
+ *     ↓ definite pre-acceptance rejection:
+ *                pending (attempt_count++ + last_attempt_at=now) | failed (>= MAX_RETRY)
+ *     ↓ restart with unknown outcome: failed (terminal, at-most-once)
  *   或 cancelled (terminal, 来自显式 cancel API)
  *
  * 关键修法（reviewer 双对抗）：
  * - HIGH-1：用 last_attempt_at 而非 sent_at 做退避基准（findEligible WHERE 子句）
  * - HIGH-1 / MED-2：MAX_RETRY=3，attempt_count 取值 {0,1,2,3}，3 直接 failed
- * - §4.6：crash recovery 不无条件 ++attempt_count（resetDeliveringOnStartup）
+ * - post-acceptance：进程重启把 outcome-unknown delivering 终止为 failed，禁止重复注入
  * - 自循环防御：caller-side insert 校验 from != to
  * - 100KB body：caller-side validation + SQLite CHECK 兜底
  *
@@ -47,7 +48,9 @@ import {
   BACKOFF_TIERS,
   MAX_BODY_LENGTH,
   MAX_RETRY,
+  MESSAGE_DELIVERY_DURABILITY,
   MessageInvariantError,
+  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
   buildFindEligibleWhereSql,
   coerceMessageStatus,
   backoffMs,
@@ -65,7 +68,9 @@ export {
   BACKOFF_TIERS,
   MAX_BODY_LENGTH,
   MAX_RETRY,
+  MESSAGE_DELIVERY_DURABILITY,
   MessageInvariantError,
+  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
   backoffMs,
   buildFindEligibleWhereSql,
   coerceMessageStatus,
@@ -83,6 +88,7 @@ export type {
 } from './agent-deck-message-repo/_deps';
 export { deliveryLeaseOf } from './agent-deck-message-repo/_deps';
 export {
+  countDeliveringMessagesWithDb,
   countDeliveringMessagesForSessionWithDb,
   retargetPendingMessagesForHandOffWithDb,
 } from './agent-deck-message-repo/state-machine';
@@ -122,11 +128,12 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   retryAfterFail: (messageId, reason, now) => defaultRepo().retryAfterFail(messageId, reason, now),
   cancel: (messageId, reason) => defaultRepo().cancel(messageId, reason),
   countPendingForTarget: (toSessionId) => defaultRepo().countPendingForTarget(toSessionId),
-  resetDeliveringOnStartup: () => defaultRepo().resetDeliveringOnStartup(),
+  terminalizeDeliveringOnStartup: () => defaultRepo().terminalizeDeliveringOnStartup(),
   retargetPendingForHandOff: (sourceSessionId, successorSessionId) =>
     defaultRepo().retargetPendingForHandOff(sourceSessionId, successorSessionId),
   countDeliveringForSession: (sessionId) =>
     defaultRepo().countDeliveringForSession(sessionId),
+  countDelivering: () => defaultRepo().countDelivering(),
   listExpiredForGc: (opts) => defaultRepo().listExpiredForGc(opts),
   batchHardDelete: (ids) => defaultRepo().batchHardDelete(ids),
 };

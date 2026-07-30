@@ -114,9 +114,9 @@ export interface SessionTeamMembership {
  */
 export type AgentDeckMessageStatus =
   | 'pending'      // 入队后待 watcher 投递
-  | 'delivering'   // watcher 已选中并在调 adapter（短暂态；进程 crash recovery 见 §4.6）
-  | 'delivered'    // adapter receiveTeammateMessage 成功
-  | 'failed'       // 重试上限到达 / adapter 不支持 / session closed 等
+  | 'delivering'   // watcher 已 claim；结果不确定时按 at-most-once 终止，不可在重启后重投
+  | 'delivered'    // adapter queue 接受且 watcher 已持久确认
+  | 'failed'       // 重试上限 / adapter 不支持 / session closed / 不确定投递终止
   | 'cancelled';   // 显式 cancel（lead 撤回 / team 整体 archive 后兜底）
 
 /**
@@ -146,7 +146,7 @@ export interface AgentDeckMessage {
   statusReason: string | null;
   /** caller 入队时间（不可变） */
   sentAt: number;
-  /** watcher 成功调 receiveTeammateMessage 后填；其它状态 NULL */
+  /** adapter queue 接受且 watcher 成功持久确认后填；其它状态 NULL */
   deliveredAt: number | null;
   /** 已用 attempt 次数。0 初始 → throw 时 ++ → ≥ MAX_RETRY (3) 进 failed */
   attemptCount: number;
@@ -156,9 +156,8 @@ export interface AgentDeckMessage {
    */
   lastAttemptAt: number | null;
   /**
-   * 进入 delivering 状态时间。crash recovery (§4.6) 用：
-   * 进程启动时 watcher 把 status='delivering' 的行重置为 'pending'（**不 ++ attemptCount**），
-   * 让 last_attempt_at 主导 backoff 节奏。
+   * 进入 delivering 状态时间。进程重启时，watcher 无法判断 adapter 是否已接受，因此按
+   * at-most-once 契约把遗留 delivering 终止为 failed，绝不恢复为 pending 重复注入。
    */
   deliveringSince: number | null;
   /**

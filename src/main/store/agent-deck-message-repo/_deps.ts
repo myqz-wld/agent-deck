@@ -270,7 +270,7 @@ export interface AgentDeckMessageRepo {
   ): AgentDeckMessage | null;
   /**
    * 退避后下次再试：attempt_count++ + last_attempt_at=now + status='pending'。
-   * 调用方在 watcher 内 catch adapter.receiveTeammateMessage error 后调；
+   * 仅在 adapter 明确拒绝、消息尚未被 queue 接受时调用；接受后禁止调用。
    * 内部判断如 attempt_count >= MAX_RETRY 自动 markFailed。
    */
   retryAfterFail(
@@ -283,13 +283,15 @@ export interface AgentDeckMessageRepo {
   /** per-target backpressure：to_session_id 当前 in-flight count（pending + delivering） */
   countPendingForTarget(toSessionId: string): number;
   /**
-   * 进程 crash recovery（§4.6）：把上次进程崩溃时卡在 delivering 的行重置为 pending，
-   * **不** ++attempt_count（避免 crash 把还有重试余量的行直接拍 failed）。
-   * 返回 reset 行数。
+   * Post-acceptance at-most-once recovery: a leftover delivering row may already have reached the
+   * receiver, so startup terminalizes it instead of making it eligible for another injection.
+   * Returns the number of rows changed to failed.
    */
-  resetDeliveringOnStartup(): number;
+  terminalizeDeliveringOnStartup(): number;
   /** Pending-only handoff retarget. Delivering rows are never mutated in place. */
   retargetPendingForHandOff(sourceSessionId: string, successorSessionId: string): number;
   /** Durable drain probe used before a handoff ownership commit. */
   countDeliveringForSession(sessionId: string): number;
+  /** Global durable drain probe used during application shutdown. */
+  countDelivering(): number;
 }

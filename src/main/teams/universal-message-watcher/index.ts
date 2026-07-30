@@ -16,8 +16,9 @@
  *
  * **状态机**（§4.3）：pending → claim → delivering → delivered | (retry / failed)
  * - claim 用 `UPDATE ... WHERE status='pending' RETURNING` 原子化抢占
- * - throw 时 attemptCount ++ + lastAttemptAt = now → 退避后下次再选
+ * - adapter 明确拒绝时 attemptCount ++ + lastAttemptAt = now → 退避后下次再选
  * - attemptCount >= 3 直接 failed
+ * - adapter 接受后采用 at-most-once：持久确认失败也不重投；重启会把遗留 delivering 终止
  *
  * **wire format**（§4.4，CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：双锚点）：
  *   `[from <displayName> @ <adapterId>][msg <id>][sid <senderSessionId>]\n<原始 body>`
@@ -50,6 +51,7 @@ import {
   MAX_RETRY,
 } from '@main/store/agent-deck-message-repo';
 import { settingsStore } from '@main/store/settings-store';
+import { MESSAGE_DELIVERY_DURABILITY } from '@main/store/message-delivery-state';
 import type { AgentDeckMessage } from '@shared/types';
 
 import { dispatchClaimedMessage } from './claimed-message-delivery';
@@ -105,7 +107,10 @@ export class UniversalMessageWatcher {
    * 在 finally reschedule 前 gate + stop() 清 rescheduleAfterCurrent。
    */
   private running = false;
-  /** Claimed adapter calls that have not yet reached a durable terminal/retry state. */
+  /**
+   * Claimed adapter calls still executing in this process. A cleared entry is not proof of a
+   * durable outcome; waitForDrain also probes delivering rows from the repository.
+   */
   private readonly activeDeliveries = new Map<
     string,
     { fromSessionId: string; toSessionId: string }
@@ -115,11 +120,14 @@ export class UniversalMessageWatcher {
   start(opts?: { pollIntervalMs?: number }): void {
     if (this.pollInterval) return;
     this.running = true;
-    // crash recovery：把上次进程崩溃时卡在 delivering 的行重置为 pending（§4.6）
+    // Post-acceptance at-most-once recovery: a leftover delivering row may already have reached
+    // the receiver, so make it terminal instead of making it eligible for another injection.
     try {
-      const reset = agentDeckMessageRepo.resetDeliveringOnStartup();
-      if (reset > 0) {
-        logger.info(`[universal-message-watcher] startup: reset ${reset} delivering rows to pending`);
+      const terminalized = agentDeckMessageRepo.terminalizeDeliveringOnStartup();
+      if (terminalized > 0) {
+        logger.info(
+          `[universal-message-watcher] startup: terminalized ${terminalized} uncertain delivering rows (${MESSAGE_DELIVERY_DURABILITY})`,
+        );
       }
     } catch (err) {
       logger.warn('[universal-message-watcher] startup recovery failed:', err);
@@ -379,11 +387,12 @@ export class UniversalMessageWatcher {
     // 重验（sessionRepo.get / agentDeckTeamRepo.get / findActiveMembershipIn）+ buildWireBody 旧版
     // **在 adapter try/catch 之外**。任一同步抛错（SQLITE_BUSY / I/O / DB lock）冒到 process() 外层
     // catch 只 warn，不 retryAfterFail / 不 markFailed → 行永久卡 'delivering'，而 findEligible 仅扫
-    // 'pending' → 运行期不再重投，只有下次 start() 的 resetDeliveringOnStartup() 能救（需重启）。
+    // 'pending'。旧 recovery 会在重启后重投；当前 at-most-once recovery 会终止它，因此明确发生在
+    // acceptance 前的异常必须在本进程内可靠地退回 pending。
     // 修法:把整段 post-claim（invariant 重验 + buildWireBody + adapter call）包进一个 try；catch
-    // 内对 claimed.id 调 retryAfterFail（退避后重投，到 MAX_RETRY 自动 failed），确保所有 post-claim
-    // 异常都走状态机不会卡 delivering。invariant 违规路径（markFailed + return）是 by-design 终止态，
-    // return 正常退出 try 不进 catch，行为不变。
+    // 内对 adapter acceptance 之前的异常调 retryAfterFail（退避后重投，到 MAX_RETRY 自动 failed）。
+    // dispatchClaimedMessage 自己封住 acceptance 之后的 durable-write failure，禁止 outer catch 把已
+    // 接受的消息退回 pending。invariant 违规路径（markFailed + return）是 by-design 终止态。
     try {
       await dispatchClaimedMessage({
         claimed,
@@ -391,8 +400,8 @@ export class UniversalMessageWatcher {
         emitStatus: (message) => this.emitStatus(message),
       });
     } catch (err) {
-      // claim 后任意同步/异步异常（invariant 重验 DB 抛错 / buildWireBody 抛错 / 未被内层 adapter
-      // try 捕获的其他抛错）统一退避重投，破开「永久卡 delivering」。
+      // Acceptance 之前的同步/异步异常（invariant 重验 DB 抛错 / buildWireBody 抛错 / 未被
+      // dispatch 内层捕获的异常）统一退避重投，破开「永久卡 delivering」。
       const reason = err instanceof Error ? err.message : String(err);
       const updated = agentDeckMessageRepo.retryAfterFail(lease, reason, Date.now());
       if (updated) {
@@ -418,7 +427,7 @@ export class UniversalMessageWatcher {
       try {
         durableDelivering = sessionId
           ? agentDeckMessageRepo.countDeliveringForSession(sessionId)
-          : activeDeliveries;
+          : agentDeckMessageRepo.countDelivering();
       } catch (error) {
         logger.warn(
           '[message-delivery-drain] durable probe failed',

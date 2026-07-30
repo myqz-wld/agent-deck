@@ -244,15 +244,18 @@ export interface AgentAdapter {
    * 本 session 的 user turn。
    *
    * 实现约束：
-   * - 必须**至少一次** delivery（重试 ≥ 1 次后才认为 failed）。watcher 先 update
-   *   status='delivering' 再调；adapter 抛错 → watcher catch + 退避（详 ADR §4.5）。
+   * - Promise 是 adapter queue acceptance boundary：只有在消息明确未被接受时才 reject；
+   *   接受后必须 resolve。watcher 只重试明确的 pre-acceptance rejection。
+   * - 接受后采用 durable **at-most-once**：状态确认失败或进程重启都不得再次注入同一 envelope。
+   *   `messageId` 必须作为 adapter enqueue idempotency key，防同一 live runtime 内重复入队；
+   *   该 cache 只是 defense in depth，durable restart 不依赖它。
    * - **不要**自己拼 fromMember 元信息前缀。watcher 已在 body 里拼好（统一格式见 ADR §4.4
    *   `[from <displayName> @ <adapterId>][msg <messageId>][sid <senderSessionId>]\n<原始 body>`，
    *   三段 wire prefix：`[msg]` 让 teammate reply 挂 replyToMessageId 进对话链，`[sid]`
    *   （CHANGELOG_100）让 teammate 直接 `send_message({sessionId, teamId, replyToMessageId})`
    *   回 lead）。adapter 直接 sendMessage(sessionId, body)。
    *   fromMemberId 仅用于 logging / 路由调试。
-   * - 必须是异步：返回 Promise；resolve 表示「已成功提交给 adapter 的 message queue」（不是
+   * - 必须是异步：返回 Promise；resolve 表示「adapter message queue 已接受」（不是
    *   「session 已生成 reply」）。watcher 不等 reply。
    *
    * capability 检查：调用方必须先看 capabilities.canCollaborate；为 true 的 adapter 应实现此方法。
@@ -262,6 +265,7 @@ export interface AgentAdapter {
     sessionId: string,
     fromMemberId: string,
     body: string,
+    messageId: string,
   ): Promise<void>;
 
   /**

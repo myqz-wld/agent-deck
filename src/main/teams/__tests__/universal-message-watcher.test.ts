@@ -31,7 +31,12 @@ const markFailedCalls: Array<{ id: string; reason: string }> = [];
 const retryAfterFailCalls: Array<{ id: string; reason: string }> = [];
 const sessionRepoGetCalls: string[] = [];
 const adapterRegistryGetCalls: string[] = [];
-const receiveTeammateMessageCalls: Array<{ to: string; from: string; body: string }> = [];
+const receiveTeammateMessageCalls: Array<{
+  to: string;
+  from: string;
+  body: string;
+  messageId?: string;
+}> = [];
 const emitStatusCalls: Array<{ id: string; status: string }> = [];
 // plan teamless-dm-20260601 D5: 记录 team repo 调用，验证 teamless（teamId=null）时 team 闸门被短路（不调）。
 const teamRepoGetCalls: string[] = [];
@@ -77,8 +82,13 @@ interface LeaseLike {
 let statefulPendingMap: Map<string, AgentDeckMessage> | null = null;
 let statefulMaxInflight = 10;
 
-const receiveTeammateMessageStub = async (to: string, from: string, body: string) => {
-  receiveTeammateMessageCalls.push({ to, from, body });
+const receiveTeammateMessageStub = async (
+  to: string,
+  from: string,
+  body: string,
+  messageId?: string,
+) => {
+  receiveTeammateMessageCalls.push({ to, from, body, messageId });
 };
 
 vi.mock('@main/store/agent-deck-message-repo', () => ({
@@ -202,7 +212,13 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
           (message.fromSessionId === sid || message.toSessionId === sid),
       ).length;
     },
-    resetDeliveringOnStartup: () => 0,
+    countDelivering: () => {
+      if (!statefulPendingMap) return 0;
+      return [...statefulPendingMap.values()].filter(
+        (message) => message.status === 'delivering',
+      ).length;
+    },
+    terminalizeDeliveringOnStartup: () => 0,
     listAllMembers: () => [],
   },
 }));
@@ -369,6 +385,7 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
     expect(receiveTeammateMessageCalls).toHaveLength(1);
     expect(receiveTeammateMessageCalls[0]?.to).toBe('receiver-sid');
     expect(receiveTeammateMessageCalls[0]?.from).toBe('sender-sid');
+    expect(receiveTeammateMessageCalls[0]?.messageId).toBe('reply-1');
     expect(markDeliveredCalls).toHaveLength(1);
     expect(markFailedCalls).toHaveLength(0);
   });
@@ -882,6 +899,7 @@ describe('universal-message-watcher.deliver — REVIEW_86 MED-1 post-claim throw
     expect(markFailedCalls).toHaveLength(1);
     expect(markFailedCalls[0]?.reason).toContain('adapter accepted');
   });
+
 });
 
 describe('universal-message-watcher.process — REVIEW_86 MED over-cap target 不被 under-cap target 流量饿死', () => {

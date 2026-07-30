@@ -6,7 +6,9 @@
  * 状态机（ADR §4.3）：
  *   pending → claim → delivering →
  *     ↓ success: delivered (terminal)
- *     ↓ throw:   pending (attempt_count++ + last_attempt_at=now) | failed (>= MAX_RETRY)
+ *     ↓ definite pre-acceptance rejection:
+ *                pending (attempt_count++ + last_attempt_at=now) | failed (>= MAX_RETRY)
+ *     ↓ restart with unknown outcome: failed (terminal, at-most-once)
  *   或 cancelled (terminal, 来自显式 cancel API)
  *
  * 域职责：
@@ -15,13 +17,16 @@
  * - markFailed：pending caller failure 或 matching delivering lease → failed
  * - retryAfterFail：delivering → pending 退避后重试，到 MAX_RETRY → failed
  * - cancel：pending → cancelled；claimed adapter calls must finish or drain
- * - resetDeliveringOnStartup：crash recovery，把卡 delivering 的行重置 pending（不 ++attempt_count）
+ * - terminalizeDeliveringOnStartup：at-most-once recovery，把不确定 delivering 终止为 failed
  *
  * 4 method（markDelivered/markFailed/retryAfterFail/cancel）UPDATE 后调 _deps.getById 反查最新 row。
  */
 import type { Database } from 'better-sqlite3';
 import type { AgentDeckMessage } from '@shared/types';
-import { MAX_RETRY } from '@main/store/message-delivery-state';
+import {
+  MAX_RETRY,
+  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
+} from '@main/store/message-delivery-state';
 import {
   getById,
   rowToRecord,
@@ -64,6 +69,15 @@ export function countDeliveringMessagesForSessionWithDb(
       WHERE status = 'delivering'
         AND (from_session_id = ? OR to_session_id = ?)`,
   ).get(sessionId, sessionId) as { c: number };
+  return row.c;
+}
+
+export function countDeliveringMessagesWithDb(db: Database): number {
+  const row = db.prepare(
+    `SELECT count(*) AS c
+       FROM agent_deck_messages
+      WHERE status = 'delivering'`,
+  ).get() as { c: number };
   return row.c;
 }
 
@@ -231,17 +245,17 @@ export function createStateMachine(db: Database) {
     return getById(db, messageId);
   }
 
-  function resetDeliveringOnStartup(): number {
+  function terminalizeDeliveringOnStartup(): number {
     const result = db
       .prepare(
         `UPDATE agent_deck_messages
-         SET status = 'pending',
-             status_reason = 'recovered-from-delivering (process restart)',
+         SET status = 'failed',
+             status_reason = ?,
              delivering_since = NULL,
              delivery_lease_to_session_id = NULL
          WHERE status = 'delivering'`,
       )
-      .run();
+      .run(UNCERTAIN_DELIVERY_ON_RESTART_REASON);
     return result.changes;
   }
 
@@ -256,14 +270,19 @@ export function createStateMachine(db: Database) {
     return countDeliveringMessagesForSessionWithDb(db, sessionId);
   }
 
+  function countDelivering(): number {
+    return countDeliveringMessagesWithDb(db);
+  }
+
   return {
     claim,
     markDelivered,
     markFailed,
     retryAfterFail,
     cancel,
-    resetDeliveringOnStartup,
+    terminalizeDeliveringOnStartup,
     retargetPendingForHandOff,
     countDeliveringForSession,
+    countDelivering,
   };
 }
