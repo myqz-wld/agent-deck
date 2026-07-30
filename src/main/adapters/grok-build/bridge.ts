@@ -31,6 +31,7 @@ import type { GrokRuntime } from './runtime-types';
 import type { GrokSessionSetupOptions } from './session-setup';
 import { GrokTurnQueue } from './turn-queue';
 import type { GrokEnqueueOptions } from './turn-queue-types';
+import { recycleGrokTransport } from './transport-recovery';
 import {
   startGrokRuntime,
   startGrokRuntimeInBackground,
@@ -73,6 +74,18 @@ export class GrokBuildBridge {
       emitEvent: (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
       emitError: (sessionId, text) => this.emitError(sessionId, text),
       closeSession: (sessionId) => this.closeSession(sessionId),
+      recycleRuntime: (runtime) => recycleGrokTransport(runtime, {
+        isCurrent: (candidate) => this.isCurrentRuntime(candidate),
+        start: (candidate) => this.startRuntime(candidate),
+        persist: persistGrokRuntimeMetadata,
+        dispose: (candidate) => this.disposeRuntime(candidate),
+        emitErrorMessage: (sessionId, text) =>
+          this.emit(sessionId, 'message', {
+            text: `⚠ ${text}`,
+            role: 'assistant',
+            error: true,
+          }),
+      }),
     });
     this.lifecycle = new GrokRuntimeLifecycleCoordinator(
       this.runtimes,

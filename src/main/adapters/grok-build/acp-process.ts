@@ -15,6 +15,7 @@ import {
 } from '@agentclientprotocol/sdk';
 import { spawnGrokChild } from './launch-child';
 import {
+  GROK_EXTENSION_NOTIFICATION_METHOD,
   GROK_EXTENSION_UPDATE_METHOD,
   GROK_PROMPT_COMPLETE_METHOD,
   parseGrokExtensionNotification,
@@ -99,6 +100,11 @@ export class GrokAcpProcess {
       })
       .onNotification(
         GROK_EXTENSION_UPDATE_METHOD,
+        parseGrokExtensionNotification,
+        ({ params }) => options.onGrokExtensionUpdate?.(params),
+      )
+      .onNotification(
+        GROK_EXTENSION_NOTIFICATION_METHOD,
         parseGrokExtensionNotification,
         ({ params }) => options.onGrokExtensionUpdate?.(params),
       )

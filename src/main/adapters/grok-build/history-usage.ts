@@ -7,7 +7,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { tokenUsageRepo } from '@main/store/token-usage-repo';
 
 import {
-  GROK_EXTENSION_UPDATE_METHOD,
+  isGrokExtensionUpdateMethod,
   finiteNumber,
   firstModelUsageKey,
   grokExtensionTimestampMs,
@@ -160,7 +160,11 @@ function parseHistoryLine(line: string): {
   } catch {
     return null;
   }
-  if (!isRecord(value) || value.method !== GROK_EXTENSION_UPDATE_METHOD) return null;
+  if (
+    !isRecord(value)
+    || typeof value.method !== 'string'
+    || !isGrokExtensionUpdateMethod(value.method)
+  ) return null;
   const params = parseGrokExtensionNotification(value.params);
   const timestamp = finiteNumber(value.timestamp);
   return {
