@@ -92,6 +92,36 @@ async function readPackageJson(packageJsonPath) {
   return JSON.parse(await readFile(packageJsonPath, 'utf8'));
 }
 
+function parseStableVersion(value) {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+  return match ? match.slice(1).map(Number) : null;
+}
+
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+function installedVersionSatisfies(installedVersion, declaredRange) {
+  const installed = parseStableVersion(installedVersion);
+  const match = /^([~^]?)(\d+\.\d+\.\d+)$/.exec(declaredRange);
+  const minimum = match ? parseStableVersion(match[2]) : null;
+  if (!installed || !match || !minimum) return null;
+  if (compareVersions(installed, minimum) < 0) return false;
+  if (!match[1]) return compareVersions(installed, minimum) === 0;
+  const [major, minor, patch] = minimum;
+  const upper = match[1] === '~'
+    ? [major, minor + 1, 0]
+    : major > 0
+      ? [major + 1, 0, 0]
+      : minor > 0
+        ? [0, minor + 1, 0]
+        : [0, 0, patch + 1];
+  return compareVersions(installed, upper) < 0;
+}
+
 async function isNonEmptyFile(filePath) {
   try {
     const details = await stat(filePath);
@@ -116,6 +146,13 @@ export async function verifyBundledGrok({
   }
 
   const requireFromProject = createRequire(join(resolve(projectRoot), 'package.json'));
+  const projectPackage = await readPackageJson(join(resolve(projectRoot), 'package.json'));
+  const declaredGrokRange = projectPackage.dependencies?.['@xai-official/grok'];
+  if (typeof declaredGrokRange !== 'string') {
+    throw new Error(
+      '[bundled-grok] package.json must declare @xai-official/grok in dependencies.',
+    );
+  }
   const grokPackageJsonPath = resolvePackageJson(
     requireFromProject,
     '@xai-official/grok',
@@ -141,6 +178,23 @@ export async function verifyBundledGrok({
     readPackageJson(grokPackageJsonPath),
     readPackageJson(platformPackageJsonPath),
   ]);
+  const satisfiesDeclared = installedVersionSatisfies(
+    grokPackage.version,
+    declaredGrokRange,
+  );
+  if (satisfiesDeclared === null) {
+    throw new Error(
+      `[bundled-grok] Unsupported @xai-official/grok version declaration ` +
+        `${declaredGrokRange}. Use an exact, caret, or tilde stable version.`,
+    );
+  }
+  if (!satisfiesDeclared) {
+    throw new Error(
+      `[bundled-grok] Installed @xai-official/grok ${String(grokPackage.version)} ` +
+        `does not satisfy package.json dependency ${declaredGrokRange}. ` +
+        'Run pnpm install before packaging.',
+    );
+  }
   if (
     typeof grokPackage.version !== 'string' ||
     platformPackage.version !== grokPackage.version

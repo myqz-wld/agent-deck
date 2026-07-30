@@ -60,10 +60,23 @@ async function writePackage(
   return packageDir;
 }
 
+async function writeProjectPackage(
+  projectRoot: string,
+  grokRange = '^1.2.3',
+): Promise<void> {
+  await writeFile(
+    join(projectRoot, 'package.json'),
+    JSON.stringify({
+      private: true,
+      dependencies: { '@xai-official/grok': grokRange },
+    }),
+  );
+}
+
 describe('bundled Grok packaging preflight', () => {
   it('accepts matching platform assets with a non-empty compressed payload', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'agent-deck-grok-preflight-'));
-    await writeFile(join(projectRoot, 'package.json'), '{"private":true}');
+    await writeProjectPackage(projectRoot);
     const spec = platformSpec();
     await writePackage(projectRoot, '@xai-official/grok', {
       name: '@xai-official/grok',
@@ -85,12 +98,37 @@ describe('bundled Grok packaging preflight', () => {
 
   it('fails before packaging when the Grok dependency is absent', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'agent-deck-grok-preflight-'));
-    await writeFile(join(projectRoot, 'package.json'), '{"private":true}');
+    await writeProjectPackage(projectRoot);
 
     const result = runPreflight(projectRoot);
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('@xai-official/grok is missing');
+    expect(result.stderr).toContain('pnpm install');
+  });
+
+  it('rejects stale installed packages that do not satisfy package.json', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'agent-deck-grok-preflight-'));
+    await writeProjectPackage(projectRoot, '^1.3.0');
+    const spec = platformSpec();
+    await writePackage(projectRoot, '@xai-official/grok', {
+      name: '@xai-official/grok',
+      version: '1.2.3',
+    });
+    const platformDir = await writePackage(projectRoot, spec.packageName, {
+      name: spec.packageName,
+      version: '1.2.3',
+    });
+    const payloadPath = join(platformDir, 'bin', `${spec.binaryName}.br`);
+    await mkdir(dirname(payloadPath), { recursive: true });
+    await writeFile(payloadPath, 'compressed-grok');
+
+    const result = runPreflight(projectRoot);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Installed @xai-official/grok 1.2.3 does not satisfy package.json dependency ^1.3.0',
+    );
     expect(result.stderr).toContain('pnpm install');
   });
 

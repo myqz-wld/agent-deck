@@ -1,5 +1,6 @@
 import { methods } from '@agentclientprotocol/sdk';
 import { sessionManager } from '@main/session/manager';
+import log from '@main/utils/logger';
 import type {
   AdapterSessionMode,
   AgentEvent,
@@ -24,6 +25,7 @@ import {
 } from './translate';
 
 const REQUEST_TIMEOUT_MS = 15_000;
+const logger = log.scope('grok-runtime');
 
 export interface GrokRuntimeStartContext {
   binaryPath: string | null;
@@ -36,6 +38,10 @@ export interface GrokRuntimeStartContext {
   requireNativeSession: (runtime: GrokRuntime) => string;
   onNegotiatedImageCapability?: (supported: boolean) => void;
   confirmPromptAccepted: (runtime: GrokRuntime) => void;
+  observeModelActivity: (
+    runtime: GrokRuntime,
+    update: Parameters<typeof translateGrokUpdate>[2],
+  ) => void;
   drain: (runtime: GrokRuntime) => Promise<void>;
   dispose: (runtime: GrokRuntime) => Promise<void>;
   /** Test seam; production uses the fixed bounded ACP request timeout. */
@@ -63,6 +69,7 @@ export async function startGrokRuntime(
         runtime.suppressUpdates ||
         notification.sessionId !== runtime.nativeSessionId
       ) return;
+      context.observeModelActivity(runtime, notification.update);
       if (notification.update.sessionUpdate === 'user_message_chunk') {
         context.confirmPromptAccepted(runtime);
       }
@@ -74,6 +81,16 @@ export async function startGrokRuntime(
       )) {
         context.emit(event);
       }
+    },
+    onSessionUpdateError: (error, notification) => {
+      logger.warn('[grok-runtime] session update callback failed; stream preserved', {
+        event: 'grok_session_update_callback_failed',
+        sessionId: runtime.applicationSessionId,
+        nativeSessionId: runtime.nativeSessionId,
+        notificationSessionId: notification.sessionId,
+        updateType: notification.update.sessionUpdate,
+        error: errorText(error),
+      });
     },
     onGrokExtensionUpdate: (notification: GrokExtensionNotification) => {
       try {

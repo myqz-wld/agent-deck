@@ -414,6 +414,8 @@ export class GrokBuildBridge {
       requireNativeSession: (runtime) => this.requireNativeSession(runtime),
       onNegotiatedImageCapability: this.options.onNegotiatedImageCapability,
       confirmPromptAccepted: (runtime) => this.turnQueue.confirmPromptAccepted(runtime),
+      observeModelActivity: (runtime, update) =>
+        this.turnQueue.observeModelActivity(runtime, update),
       drain: (runtime) => this.turnQueue.drain(runtime),
       dispose: (runtime) => this.disposeRuntime(runtime),
     };

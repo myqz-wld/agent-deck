@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import {
-  methods,
-  type ContentBlock,
-} from '@agentclientprotocol/sdk';
+import { methods, type ContentBlock, type SessionUpdate } from '@agentclientprotocol/sdk';
 import type { AgentEnqueueOptions, PendingAgentMessage } from '@main/adapters/types';
 import {
   enqueuePayloadFingerprint,
@@ -19,6 +16,7 @@ import type {
 } from '@shared/types';
 
 import { errorText } from './protocol-utils';
+import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
 import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
 import {
@@ -68,10 +66,21 @@ interface GrokTurnQueueOptions {
   emitEvent: (sessionId: string, kind: AgentEvent['kind'], payload: unknown) => void;
   emitError: (sessionId: string, text: string) => void;
   closeSession: (sessionId: string) => Promise<void>;
+  firstModelEventTimeoutMs?: number; // Test seam; production uses the fixed timeout.
 }
-
 export class GrokTurnQueue {
-  constructor(private readonly options: GrokTurnQueueOptions) {}
+  private readonly firstModelEventWatchdog: GrokFirstModelEventWatchdog;
+
+  constructor(
+    private readonly options: GrokTurnQueueOptions,
+  ) {
+    this.firstModelEventWatchdog =
+      new GrokFirstModelEventWatchdog(options.firstModelEventTimeoutMs);
+  }
+
+  observeModelActivity(runtime: GrokRuntime, update: SessionUpdate): void {
+    this.firstModelEventWatchdog.observe(runtime, update);
+  }
 
   async send(
     runtime: GrokRuntime,
@@ -379,12 +388,15 @@ export class GrokTurnQueue {
         message.id,
       );
       if (submitting) submitting.promptRequestIssued = true;
-      const response = await runtime.process!.connection.agent.request(
-        methods.agent.session.prompt,
-        {
-          sessionId: requireNativeSession(runtime),
-          prompt: blocks,
-        },
+      const response = await this.firstModelEventWatchdog.run(
+        runtime,
+        () => runtime.process!.connection.agent.request(
+          methods.agent.session.prompt,
+          {
+            sessionId: requireNativeSession(runtime),
+            prompt: blocks,
+          },
+        ),
       );
       if (isCancelled(submitting)) return;
       this.flushText(runtime);
@@ -432,6 +444,9 @@ export class GrokTurnQueue {
           runtime.applicationSessionId,
           `Grok Build 轮次失败：${errorText(error)}`,
         );
+        if (error instanceof GrokFirstModelEventTimeoutError) {
+          await this.options.closeSession(runtime.applicationSessionId);
+        }
       }
     } finally {
       if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
