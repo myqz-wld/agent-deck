@@ -208,9 +208,15 @@ class ClaudeCodeAdapter implements AgentAdapter {
     sessionId: string,
     _fromMemberId: string,
     body: string,
+    messageId: string,
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    await this.bridge.sendMessage(sessionId, body);
+    await this.bridge.sendMessage(
+      sessionId,
+      body,
+      undefined,
+      { idempotencyKey: messageId },
+    );
   }
 
   async respondPermission(

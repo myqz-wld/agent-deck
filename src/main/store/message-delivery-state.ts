@@ -16,8 +16,9 @@
  * load 期 invariant 自检，违例 throw 阻止 db.ts init —— 比 prod 路径出现 retry 死循环 /
  * 不该 fail 的 message 提前 fail 早死。
  *
- * **范围**（不引入新功能，纯 extract + 抽公共 SSOT）：
+ * **SSOT 范围**：
  * - `MAX_RETRY` / `MAX_BODY_LENGTH` / `BACKOFF_TIERS` 常量
+ * - post-acceptance durability mode 与 outcome-unknown 用户可读原因
  * - `backoffMs()` / `coerceMessageStatus()` / `buildFindEligibleWhereSql()` 纯函数
  * - `MessageInvariantError` class
  * - `VALID_MESSAGE_STATUSES` readonly 数组
@@ -51,6 +52,22 @@ export class MessageInvariantError extends Error {
 // ────────────────────────────────────────────────────────────────────────────
 // Constants
 // ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Durable contract for a claimed universal message:
+ *
+ * - a definite adapter rejection may return the same envelope to pending;
+ * - once the adapter accepts it, the watcher never injects that envelope again;
+ * - after process loss, a leftover `delivering` row is outcome-unknown and is terminalized.
+ *
+ * This deliberately prefers a possible dropped message over duplicate agent execution. Adapter
+ * enqueue idempotency is defense in depth within one live runtime, not the durable recovery rule.
+ */
+export const MESSAGE_DELIVERY_DURABILITY = 'at-most-once' as const;
+
+/** User-visible reason attached when startup terminalizes an outcome-unknown delivery. */
+export const UNCERTAIN_DELIVERY_ON_RESTART_REASON =
+  `进程重启前的投递结果无法确认；${MESSAGE_DELIVERY_DURABILITY} 策略已停止重试，以避免重复执行`;
 
 /**
  * 单条 body 长度上限（字符数，**非** 字节数，与 SQLite CHECK 同款）。
@@ -166,11 +183,11 @@ export function backoffMs(attemptCount: number): number {
  *   OR (attempt_count = 2 AND last_attempt_at + 4000 <= ?)
  * ```
  *
- * **`attempt_count = 0` clause 的必要性**：仅 `last_attempt_at IS NULL` 不够。`claim()`
- * 把 last_attempt_at 设为 now 再投递，若崩溃 `resetDeliveringOnStartup()` 把行重置为
- * pending 但**不**清 last_attempt_at（也不 ++attempt_count，详 §4.6 reviewer HIGH-1
- * 修法），此时 attempt_count=0 但 last_attempt_at 非 NULL。两 clause 各自独立兜底，缺一
- * 不可。
+ * **`attempt_count = 0` clause 的必要性**：仅 `last_attempt_at IS NULL` 不够。旧版本会在
+ * 进程重启时把 claimed row 恢复为 pending，但不清 last_attempt_at / 不增 attempt_count，
+ * 因此升级后仍可能存在 attempt_count=0 且 last_attempt_at 非 NULL 的 legacy pending row。
+ * 两 clause 各自独立兜底，缺一不可。当前 at-most-once recovery 会终止新的 outcome-unknown
+ * delivering row，不再产生这种 pending 组合。
  *
  * **不**自动加 `status = 'pending'` 前缀 —— caller 自己拼，避免本 helper 侵入 repo SQL
  * 结构（保持「只供 backoff 段 SSOT」narrow contract）。

@@ -210,8 +210,14 @@ export class GrokBuildAdapter implements AgentAdapter {
     sessionId: string,
     _fromMemberId: string,
     body: string,
+    messageId: string,
   ): Promise<void> {
-    await this.sendMessage(sessionId, body);
+    await this.sendMessage(
+      sessionId,
+      body,
+      undefined,
+      { idempotencyKey: messageId },
+    );
   }
 
   async respondPermission(

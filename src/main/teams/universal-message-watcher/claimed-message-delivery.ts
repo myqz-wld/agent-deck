@@ -6,6 +6,7 @@ import {
   MAX_RETRY,
   type MessageDeliveryLease,
 } from '@main/store/agent-deck-message-repo';
+import { MESSAGE_DELIVERY_DURABILITY } from '@main/store/message-delivery-state';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import log from '@main/utils/logger';
 import { sanitizeWireFieldName } from '@shared/wire-prefix';
@@ -136,6 +137,7 @@ export async function dispatchClaimedMessage(
       claimed.toSessionId,
       claimed.fromSessionId,
       wireBody,
+      claimed.id,
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -161,7 +163,7 @@ export async function dispatchClaimedMessage(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     logger.warn(
-      `[universal-message-watcher] markDelivered failed after adapter accepted message=${claimed.id}; not retrying to avoid duplicate receiver injection: ${reason}`,
+      `[universal-message-watcher] markDelivered failed after adapter accepted message=${claimed.id}; ${MESSAGE_DELIVERY_DURABILITY} policy forbids retry: ${reason}`,
     );
     try {
       fail(`post-delivery markDelivered failed after adapter accepted; not retried: ${reason}`);
