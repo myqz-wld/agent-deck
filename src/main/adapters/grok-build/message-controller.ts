@@ -69,6 +69,8 @@ export class GrokMessageController {
           options,
           true,
         ),
+      bypassWorktreeTransition:
+        options?.bypassWorktreeTransitionGuard === true,
     });
   }
 }

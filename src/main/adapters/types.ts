@@ -32,6 +32,8 @@ export type {
 } from './types/fork-session';
 export type {
   AgentAdapter,
+  AgentCwdTransition,
+  AgentCwdTransitionSwitchResult,
   AgentEnqueueOptions,
   PendingAgentMessage,
   QueuedAgentMessage,

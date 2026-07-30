@@ -79,6 +79,9 @@ import { syncSkills } from '../codex-config/skills-installer';
 import { syncLoginItemSetting } from '../login-item';
 import type { AgentEvent } from '@shared/types';
 import type { AppSettings } from '@shared/types/settings/app-settings';
+import { worktreeTransitionCoordinator } from '../session/worktree-transition/coordinator';
+import { reconcileWorktreeTransitionsAtStartup } from '../session/worktree-transition/recovery';
+import { startWorktreeTransitionResumeRecovery } from '../session/worktree-transition/resume-recovery';
 
 import type { BootstrapState } from './_deps';
 import log, { setFileLevel } from '@main/utils/logger';
@@ -167,6 +170,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
       // ② 显式表达「DB 关闭后退出期事件整体丢弃」意图,两消费者对称受护(避免只挡 ingest 留
       // routeEventToNotification 半拉子,与 REVIEW_104 只补一条 listener 的不对称裂口同型)。
       if (isDbClosed()) return;
+      if (!worktreeTransitionCoordinator.observe(event)) return;
       sessionManager.ingest(event);
       routeEventToNotification(event);
     },
@@ -212,6 +216,21 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
     if (!bridge?.renameCodexInstance) return;
     bridge.renameCodexInstance(fromId, toId);
   });
+
+  // 5.2 Reconcile persisted cwd transitions after adapters exist but before MCP routes or
+  // ordinary user ingress can accept work. Any failure retains its lease fail-closed.
+  const worktreeRecovery = await reconcileWorktreeTransitionsAtStartup();
+  if (
+    worktreeRecovery.recovered > 0 ||
+    worktreeRecovery.skippedClosed > 0 ||
+    worktreeRecovery.failed > 0
+  ) {
+    logger.info(
+      '[worktree-transition] startup reconciliation completed',
+      worktreeRecovery,
+    );
+  }
+  startWorktreeTransitionResumeRecovery();
 
   // 5.5. R2 / B'4 + R1.A5 + R1.D7:Agent Deck MCP server 自动启停(PRE_LISTEN 阶段)
   // **必须在 hookServer.start() 之前注册 routes**,否则 fastify 5.x 在 listen 后调

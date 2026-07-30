@@ -91,6 +91,19 @@ it. Sandbox constraints and ACP tool-permission decisions remain separate. On ma
 documents child-network blocking in `read-only` and `strict` as unenforced even though filesystem
 isolation still applies.
 
+### Automatic worktree transitions
+
+`enter_worktree` and `exit_worktree` move an in-app Claude, Codex, or Grok session across worktree
+boundaries automatically. A successful `waiting-tool-result` response is durable asynchronous
+acceptance: after that exact result reaches the provider, Agent Deck ends the old turn at a safe
+boundary, applies the new working directory to the runtime and session database, and starts one
+internal continuation before replaying user input buffered during the transition. No manual `cd`
+or follow-up message is needed.
+
+Exit restores and confirms the original working directory before checking references and dirty
+state again and removing the worktree. Cleanup failures preserve the worktree and a retryable
+lease, and work branches are kept by default.
+
 ## MCP Collaboration Areas
 
 The Agent Deck MCP server provides tools for:

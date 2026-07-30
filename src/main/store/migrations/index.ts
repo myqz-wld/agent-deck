@@ -62,6 +62,7 @@ import v055 from './v055_token_usage_daily_rollup.sql?raw';
 import v056 from './v056_agent_deck_messages_pending_order.sql?raw';
 import v057 from './v057_token_usage_metric_scope_repair.sql?raw';
 import v058 from './v058_sessions_context_usage.sql?raw';
+import v059 from './v059_worktree_cwd_transitions.sql?raw';
 
 interface MigrationBase {
   version: number;
@@ -161,5 +162,11 @@ export const MIGRATIONS: Migration[] = [
     name: 'sessions_context_usage',
     execution: 'startup',
     sql: v058,
+  },
+  {
+    version: 59,
+    name: 'worktree_cwd_transitions',
+    execution: 'startup',
+    sql: v059,
   },
 ];

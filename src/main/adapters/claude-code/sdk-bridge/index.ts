@@ -41,10 +41,18 @@ import {
   defaultCwdExists,
 } from './recoverer';
 import { StreamProcessor } from './stream-processor';
+import { ClaudeCwdTransitionController } from './cwd-transition-controller';
 import { RestartController } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
-import type { AgentEnqueueOptions, PendingAgentMessage, PermissionMode, QueuedAgentMessage } from '@main/adapters/types';
+import type {
+  AgentCwdTransition,
+  AgentCwdTransitionSwitchResult,
+  AgentEnqueueOptions,
+  PendingAgentMessage,
+  PermissionMode,
+  QueuedAgentMessage,
+} from '@main/adapters/types';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
@@ -120,6 +128,7 @@ export class ClaudeSdkBridge {
   /** 详 restart-controller.ts —— restartWithPermissionMode + restartWithClaudeCodeSandbox 冷切。 */
   private restartController: RestartController;
   private sessionModelController: SessionModelController;
+  private cwdTransitionController: ClaudeCwdTransitionController;
 
   constructor(private opts: SdkBridgeOptions) {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
@@ -195,6 +204,15 @@ export class ClaudeSdkBridge {
     );
 
     this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
+    this.cwdTransitionController = new ClaudeCwdTransitionController({
+      sessions: this.sessions,
+      closeSession: (sessionId, options) =>
+        this.closeSession(sessionId, options),
+      createSession: (options) => this.createSession(options),
+      capture: (input) => this.captureRecoveryContinuation(input),
+      prepare: (input) => this.prepareRecoveryContinuation(input),
+      cleanup: (capture) => this.cleanupRecoveryContinuation(capture),
+    });
   }
 
   /** 调整超时阈值。0 = 关闭。只影响新建的 pending；老的保持原 timer。 */
@@ -382,6 +400,18 @@ export class ClaudeSdkBridge {
   async interrupt(sessionId: string): Promise<void> {
     await interruptClaudeSession(this.sessions, sessionId);
   }
+
+  armCwdTransition(transition: AgentCwdTransition): void { this.cwdTransitionController.arm(transition); }
+  async switchCwdForTransition(transition: AgentCwdTransition): Promise<AgentCwdTransitionSwitchResult> {
+    return this.cwdTransitionController.switchCwd(transition);
+  }
+  async enqueueCwdTransitionContinuation(_transition: AgentCwdTransition, _text: string): Promise<void> {
+    throw new Error('Claude cwd restart must consume its provider-neutral continuation during runtime creation.');
+  }
+
+  releaseCwdTransition(sessionId: string, generation: number): void { this.cwdTransitionController.release(sessionId, generation); }
+
+  getRuntimeCwd(sessionId: string): string | null { return this.cwdTransitionController.runtimeCwd(sessionId); }
 
   /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */
   async closeSession(sessionId: string, opts: { markRecentlyDeleted?: boolean } = {}): Promise<void> {

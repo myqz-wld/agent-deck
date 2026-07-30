@@ -23,6 +23,16 @@ export interface EnterWorktreeImplResult {
   markerSet: boolean;
 }
 
+export interface PreparedEnterWorktree {
+  callerSessionId: string;
+  originalCwd: string;
+  mainRepo: string;
+  worktreePath: string;
+  workBranch: string;
+  baseBranch: string;
+  baseCommit: string;
+}
+
 export type EnterWorktreeError = { error: string; hint?: string };
 
 export interface EnterWorktreeDeps {
@@ -139,61 +149,125 @@ async function rollbackCreatedWorktree(input: {
   mainRepo: string;
   worktreePath: string;
   workBranch: string;
+  baseCommit: string;
 }): Promise<string[]> {
   const warnings: string[] = [];
+  if (await input.deps.exists(input.worktreePath)) {
+    try {
+      const status = await input.deps.runGit(
+        ['status', '--porcelain'],
+        input.worktreePath,
+      );
+      if (status.trim()) {
+        warnings.push(
+          `created worktree became dirty and was retained: ${status
+            .split('\n')
+            .slice(0, 3)
+            .join(' / ')}`,
+        );
+      } else {
+        await input.deps.runGit(
+          ['worktree', 'remove', input.worktreePath],
+          input.mainRepo,
+        );
+      }
+    } catch (e) {
+      warnings.push(`git worktree remove failed: ${(e as Error).message}`);
+    }
+  }
+
+  let branchTip: string | null = null;
   try {
-    await input.deps.runGit(['worktree', 'remove', '--force', input.worktreePath], input.mainRepo);
-  } catch (e) {
-    warnings.push(`git worktree remove --force failed: ${(e as Error).message}`);
+    branchTip = (
+      await input.deps.runGit(
+        [
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          `refs/heads/${input.workBranch}^{commit}`,
+        ],
+        input.mainRepo,
+      )
+    ).trim() || null;
+  } catch {
+    // git worktree add may have failed before creating the branch.
+  }
+  if (!branchTip) return warnings;
+  if (branchTip !== input.baseCommit) {
+    warnings.push(
+      `generated branch ${input.workBranch} moved from the base commit and was retained`,
+    );
+    return warnings;
+  }
+  if (await input.deps.exists(input.worktreePath)) {
+    warnings.push(
+      `generated branch ${input.workBranch} was retained because the worktree path still exists`,
+    );
+    return warnings;
   }
   try {
-    await input.deps.runGit(['branch', '-D', input.workBranch], input.mainRepo);
+    await input.deps.runGit(
+      ['branch', '-d', input.workBranch],
+      input.mainRepo,
+    );
   } catch (e) {
-    warnings.push(`git branch -D ${input.workBranch} failed: ${(e as Error).message}`);
+    warnings.push(
+      `git branch -d ${input.workBranch} failed: ${(e as Error).message}`,
+    );
   }
   return warnings;
 }
 
-export async function enterWorktreeImpl(
+/** Read-only git/path validation plus parent creation. No worktree or branch exists on success. */
+export async function prepareEnterWorktree(
   input: EnterWorktreeInput,
   depsOverride?: EnterWorktreeDeps,
-): Promise<EnterWorktreeImplResult | EnterWorktreeError> {
-  const deps: Required<EnterWorktreeDeps> = { ...DEFAULT_DEPS, ...depsOverride };
-
+): Promise<PreparedEnterWorktree | EnterWorktreeError> {
+  const deps: Required<EnterWorktreeDeps> = {
+    ...DEFAULT_DEPS,
+    ...depsOverride,
+  };
   const callerCwd = deps.callerCwd(input.callerSessionId);
   if (!callerCwd) {
     return {
       error: `caller session ${input.callerSessionId} has no cwd`,
-      hint: 'enter_worktree requires a real Agent Deck session so it can derive the repo and store the worktree marker.',
+      hint: 'enter_worktree requires a real Agent Deck session so it can derive the repo and persist automatic cwd transition state.',
     };
   }
-
   const mainRepo = await resolveMainRepo(callerCwd, deps);
   if (isError(mainRepo)) return mainRepo;
-
-  const baseCommit = await resolveBaseCommit(input.baseBranch, mainRepo, deps);
+  const baseCommit = await resolveBaseCommit(
+    input.baseBranch,
+    mainRepo,
+    deps,
+  );
   if (isError(baseCommit)) return baseCommit;
-
-  const derivedBranch =
+  const workBranch =
     input.workBranchOverride ??
-    `agent-deck/${slugForPath(input.baseBranch)}-${input.callerSessionId.slice(0, 8)}-${deps
-      .now()
-      .toString(36)}`;
-  const workBranch = derivedBranch;
-  const worktreeRoot = input.worktreeRootOverride ?? path.join(mainRepo, '.agent-deck', 'worktrees');
+    `agent-deck/${slugForPath(input.baseBranch)}-${input.callerSessionId.slice(
+      0,
+      8,
+    )}-${deps.now().toString(36)}`;
+  const worktreeRoot =
+    input.worktreeRootOverride ??
+    path.join(mainRepo, '.agent-deck', 'worktrees');
   const worktreePath =
-    input.worktreePathOverride ?? path.join(worktreeRoot, slugForPath(workBranch));
-
+    input.worktreePathOverride ??
+    path.join(worktreeRoot, slugForPath(workBranch));
   if (await deps.exists(worktreePath)) {
     return {
       error: `worktreePath already exists: ${worktreePath}`,
       hint: 'Choose a new workBranch or worktreePath. enter_worktree creates a fresh worktree and does not attach to an existing directory.',
     };
   }
-
   try {
     const branchExists = await deps.runGit(
-      ['rev-parse', '--verify', '--quiet', `refs/heads/${workBranch}`],
+      [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/heads/${workBranch}`,
+      ],
       mainRepo,
     );
     if (branchExists) {
@@ -203,9 +277,8 @@ export async function enterWorktreeImpl(
       };
     }
   } catch {
-    // rev-parse --verify exits non-zero when the branch does not exist; that is the desired path.
+    // rev-parse exits non-zero when the branch is absent.
   }
-
   try {
     await deps.runGit(['check-ref-format', '--branch', workBranch], mainRepo);
   } catch {
@@ -214,22 +287,81 @@ export async function enterWorktreeImpl(
       hint: 'Pass a valid branch name, for example agent-deck/my-task.',
     };
   }
-
   await deps.mkdir(path.dirname(worktreePath));
+  return {
+    callerSessionId: input.callerSessionId,
+    originalCwd: callerCwd,
+    mainRepo,
+    worktreePath,
+    workBranch,
+    baseBranch: input.baseBranch,
+    baseCommit,
+  };
+}
 
+export async function createPreparedWorktree(
+  prepared: PreparedEnterWorktree,
+  depsOverride?: EnterWorktreeDeps,
+): Promise<void> {
+  const deps: Required<EnterWorktreeDeps> = {
+    ...DEFAULT_DEPS,
+    ...depsOverride,
+  };
+  await deps.runGit(
+    [
+      'worktree',
+      'add',
+      '-b',
+      prepared.workBranch,
+      prepared.worktreePath,
+      prepared.baseCommit,
+    ],
+    prepared.mainRepo,
+  );
+}
+
+export async function rollbackPreparedWorktree(
+  prepared: PreparedEnterWorktree,
+  depsOverride?: EnterWorktreeDeps,
+): Promise<string[]> {
+  const deps: Required<EnterWorktreeDeps> = {
+    ...DEFAULT_DEPS,
+    ...depsOverride,
+  };
+  return rollbackCreatedWorktree({
+    deps,
+    mainRepo: prepared.mainRepo,
+    worktreePath: prepared.worktreePath,
+    workBranch: prepared.workBranch,
+    baseCommit: prepared.baseCommit,
+  });
+}
+
+export async function enterWorktreeImpl(
+  input: EnterWorktreeInput,
+  depsOverride?: EnterWorktreeDeps,
+): Promise<EnterWorktreeImplResult | EnterWorktreeError> {
+  const deps: Required<EnterWorktreeDeps> = {
+    ...DEFAULT_DEPS,
+    ...depsOverride,
+  };
+  const prepared = await prepareEnterWorktree(input, deps);
+  if (isError(prepared)) return prepared;
   try {
-    await deps.runGit(['worktree', 'add', '-b', workBranch, worktreePath, baseCommit], mainRepo);
+    await createPreparedWorktree(prepared, deps);
   } catch (e) {
     return {
       error: `git worktree add failed: ${(e as Error).message}`,
-      hint: `Verify baseBranch "${input.baseBranch}" is available and worktreePath parent is writable: ${path.dirname(worktreePath)}`,
+      hint: `Verify baseBranch "${input.baseBranch}" is available and worktreePath parent is writable: ${path.dirname(prepared.worktreePath)}`,
     };
   }
-
   try {
-    deps.setCwdReleaseMarker(input.callerSessionId, worktreePath);
+    deps.setCwdReleaseMarker(
+      input.callerSessionId,
+      prepared.worktreePath,
+    );
   } catch (e) {
-    const warnings = await rollbackCreatedWorktree({ deps, mainRepo, worktreePath, workBranch });
+    const warnings = await rollbackPreparedWorktree(prepared, deps);
     return {
       error: `setCwdReleaseMarker failed after worktree creation: ${(e as Error).message}`,
       hint:
@@ -240,10 +372,10 @@ export async function enterWorktreeImpl(
   }
 
   return {
-    worktreePath,
-    workBranch,
-    baseBranch: input.baseBranch,
-    baseCommit,
+    worktreePath: prepared.worktreePath,
+    workBranch: prepared.workBranch,
+    baseBranch: prepared.baseBranch,
+    baseCommit: prepared.baseCommit,
     baseSource: 'base-branch',
     markerSet: true,
   };

@@ -21,9 +21,10 @@ const HAND_OFF_SEPARATOR = '\n---\n\n';
 type HandOffMarkerKind = 'spawn' | 'adopt';
 
 export interface NormalizedAgentMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   text: string;
   isUser: boolean;
+  isSystem: boolean;
   isError: boolean;
   attachments: readonly UploadedAttachmentRef[];
   wireFrom?: string;
@@ -48,7 +49,12 @@ export function normalizeAgentMessage(event: AgentEvent): NormalizedAgentMessage
   const payload = event.payload && typeof event.payload === 'object'
     ? event.payload as Record<string, unknown>
     : {};
-  const role = payload.role === 'user' ? 'user' : 'assistant';
+  const role =
+    payload.role === 'user'
+      ? 'user'
+      : payload.role === 'system'
+        ? 'system'
+        : 'assistant';
   const rawText = formatDisplayText(payload.text);
   const wire = role === 'user' ? parseWirePrefix(rawText) : null;
   const wireBody = (wire?.body ?? rawText).trim();
@@ -69,6 +75,7 @@ export function normalizeAgentMessage(event: AgentEvent): NormalizedAgentMessage
     role,
     text: handOff.body,
     isUser: role === 'user',
+    isSystem: role === 'system',
     isError: payload.error === true,
     attachments,
     wireFrom: wire?.from,

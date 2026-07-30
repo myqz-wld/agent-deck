@@ -102,6 +102,8 @@ export interface InternalSession {
   currentTurnId: string | null;
   /** turn loop 是否在跑（避免 sendMessage 重复启动） */
   turnLoopRunning: boolean;
+  /** Generation-scoped worktree transition gate for dequeue and active-turn steering. */
+  cwdTransitionGeneration?: number | null;
   /** Successful handoff sealed this source; finish only the active turn, then dispose runtime. */
   retireAfterCurrentTurn?: boolean;
   /** Idempotence guard for source runtime/client/claim/token cleanup. */

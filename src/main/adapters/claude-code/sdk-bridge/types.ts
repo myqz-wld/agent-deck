@@ -186,6 +186,8 @@ export interface InternalSession {
   userTurnInFlight?: boolean;
   /** Handoff owns this source; do not consume any more user input before the active turn ends. */
   retireRequested?: boolean;
+  /** Generation-scoped worktree transition gate for provider input dequeue. */
+  cwdTransitionGeneration?: number | null;
   /** The active provider turn emitted its result and the streaming input may now terminate. */
   retireBoundaryReached?: boolean;
   notify: (() => void) | null;

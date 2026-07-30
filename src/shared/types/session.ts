@@ -323,7 +323,8 @@ export interface SessionRecord {
   /**
    * mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
    * 不变量 5 + D2）：caller 走 mcp `enter_worktree` 进 worktree 时设为 worktreePath 绝对路径,
-   * 走 mcp `exit_worktree` 或 session close hook 清回 null。
+   * 结构化 `exit_worktree` 完成清理后清回 null。会话 close/archive 在结构化 lease 未结算时
+   * 保留它供恢复；只有 legacy marker 或已结算 lease 沿用历史清理行为。
    *
    * 与 archive_plan 预检 4 态分流配合解锁场景 C（codex / 外部 caller 走 mcp 路径进 worktree）：
    * - !inWorktree                  → 放过（caller 已 ExitWorktree, 现有 claude builtin 路径）

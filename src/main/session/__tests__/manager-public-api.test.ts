@@ -23,6 +23,10 @@ const reactivateHandOffSource = vi.hoisted(() =>
   vi.fn((_sessionId: string, persist: () => void) => persist()),
 );
 const disposeSessionBrowser = vi.hoisted(() => vi.fn(async () => {}));
+const worktreeLifecycle = vi.hoisted(() => ({
+  mayClearMarker: vi.fn(() => true),
+  assertDelete: vi.fn(),
+}));
 
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
@@ -31,6 +35,10 @@ vi.mock('@main/event-bus', () => ({ eventBus: makeEventBusMock() }));
 vi.mock('@main/browser-use/session-browser', () => ({ disposeSessionBrowser }));
 vi.mock('@main/session/hand-off/source-reactivation', () => ({
   reactivateHandOffSource,
+}));
+vi.mock('@main/session/worktree-transition/lifecycle-policy', () => ({
+  mayClearLegacyWorktreeMarker: worktreeLifecycle.mayClearMarker,
+  assertWorktreeTransitionAllowsDelete: worktreeLifecycle.assertDelete,
 }));
 // REVIEW_31 Bug 5：sessionManager.list/delete/markClosed 调真 agent-deck-team-repo →
 // 真 getDb() throws「Database not initialized」。无 team 联动 mock 让主路径走通。
@@ -45,6 +53,9 @@ beforeEach(async () => {
   await resetMocks();
   reactivateHandOffSource.mockClear();
   disposeSessionBrowser.mockClear();
+  worktreeLifecycle.mayClearMarker.mockReset();
+  worktreeLifecycle.mayClearMarker.mockReturnValue(true);
+  worktreeLifecycle.assertDelete.mockReset();
 });
 
 afterEach(() => {
@@ -110,6 +121,32 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     expect(mockSessions.get('sess-with-marker')?.cwdReleaseMarker).toBeNull();
     // archivedAt 已设
     expect(mockSessions.get('sess-with-marker')?.archivedAt).not.toBeNull();
+  });
+
+  it('archive() retains the legacy marker projection while a structured lease is unsettled', async () => {
+    sessionManager.ingest(
+      makeEvent({
+        sessionId: 'sess-structured-marker',
+        source: 'sdk',
+        kind: 'session-start',
+        payload: { cwd: '/tmp/repo/.agent-deck/worktrees/task' },
+      }),
+    );
+    const before = mockSessions.get('sess-structured-marker');
+    if (before) {
+      mockSessions.set('sess-structured-marker', {
+        ...before,
+        cwdReleaseMarker: '/tmp/repo/.agent-deck/worktrees/task',
+      });
+    }
+    worktreeLifecycle.mayClearMarker.mockReturnValue(false);
+
+    await sessionManager.archive('sess-structured-marker');
+
+    expect(
+      mockSessions.get('sess-structured-marker')?.cwdReleaseMarker,
+    ).toBe('/tmp/repo/.agent-deck/worktrees/task');
+    expect(mockSessions.get('sess-structured-marker')?.archivedAt).not.toBeNull();
   });
 
   it('unarchive() → 清 archivedAt 且不动 lifecycle（CLAUDE.md「正交」约定）', async () => {

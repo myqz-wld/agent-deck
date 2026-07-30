@@ -275,7 +275,11 @@ export class ThreadLoop {
     let firstIdCb = onFirstId;
     let earlyErrCb = onEarlyError;
     try {
-      while (!internal.retireAfterCurrentTurn && internal.pendingMessages.length > 0) {
+      while (
+        !internal.retireAfterCurrentTurn &&
+        internal.cwdTransitionGeneration == null &&
+        internal.pendingMessages.length > 0
+      ) {
         const input = internal.pendingMessages.shift()!;
         const deferredUserEvent = internal.pendingDeferredUserEvents?.shift() ?? null;
         internal.pendingHandOffMessages?.shift();

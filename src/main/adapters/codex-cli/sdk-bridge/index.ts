@@ -17,7 +17,13 @@ import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
-import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
+import type {
+  AgentCwdTransition,
+  AgentCwdTransitionSwitchResult,
+  AgentEnqueueOptions,
+  PendingAgentMessage,
+  QueuedAgentMessage,
+} from '@main/adapters/types';
 import type {
   CodexApprovalPolicy,
   PermissionRequest,
@@ -56,6 +62,7 @@ import {
 import type { SessionRecord } from '@shared/types';
 import { CodexPermissionHost } from './permission-host';
 import { CodexSessionLifecycleCoordinator } from './session-lifecycle-coordinator';
+import { CodexCwdTransitionController } from './cwd-transition-controller';
 
 const logger = log.scope('codex-bridge');
 
@@ -117,6 +124,7 @@ export class CodexSdkBridge {
   private messageController: MessageController;
   private permissionHost: CodexPermissionHost;
   private sessionLifecycle: CodexSessionLifecycleCoordinator;
+  private cwdTransitionController: CodexCwdTransitionController;
 
   /**
    * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
@@ -174,6 +182,11 @@ export class CodexSdkBridge {
       finalizeRetirement: (internal) => this.sessionLifecycle.finalizeOrdinary(internal),
     };
     this.threadLoop = new ThreadLoop(ctx);
+    this.cwdTransitionController = new CodexCwdTransitionController({
+      sessions: this.sessions,
+      runTurnLoop: (session, sessionId) =>
+        this.threadLoop.runTurnLoop(session, sessionId),
+    });
     const restartCtx: RestartCtx = {
       recovering: this.recovering,
       emit: opts.emit,
@@ -328,6 +341,27 @@ export class CodexSdkBridge {
 
   async interrupt(sessionId: string): Promise<void> {
     await this.messageController.interrupt(sessionId);
+  }
+
+  armCwdTransition(transition: AgentCwdTransition): void {
+    this.cwdTransitionController.arm(transition);
+  }
+
+  async switchCwdForTransition(transition: AgentCwdTransition): Promise<AgentCwdTransitionSwitchResult> {
+    this.cwdTransitionController.switchCwd(transition);
+    return { continuationAccepted: false };
+  }
+
+  async enqueueCwdTransitionContinuation(transition: AgentCwdTransition, text: string): Promise<void> {
+    this.cwdTransitionController.enqueueContinuation(transition, text);
+  }
+
+  releaseCwdTransition(sessionId: string, generation: number): void {
+    this.cwdTransitionController.release(sessionId, generation);
+  }
+
+  getRuntimeCwd(sessionId: string): string | null {
+    return this.cwdTransitionController.runtimeCwd(sessionId);
   }
 
   /** Finish the current provider turn, but never start queued work on a handed-off source. */

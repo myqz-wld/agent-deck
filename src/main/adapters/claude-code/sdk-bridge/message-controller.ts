@@ -83,6 +83,8 @@ export async function sendClaudeMessage(
           input.text,
           input.attachments,
         ),
+      bypassWorktreeTransition:
+        input.enqueueOptions?.bypassWorktreeTransitionGuard === true,
     })
   ) {
     return;
@@ -125,7 +127,12 @@ export async function sendClaudeMessage(
     }
   }
   const pending = ctx.makeUserMessage(input.sessionId, input.text, input.attachments);
-  if (input.enqueueOptions?.deferUserEventUntilTurnStart) {
+  const shouldEmitUserEvent =
+    input.enqueueOptions?.userEventAlreadyPersisted !== true;
+  if (
+    shouldEmitUserEvent &&
+    input.enqueueOptions?.deferUserEventUntilTurnStart
+  ) {
     pending.deferredUserEvent = {
       text: input.text,
       ...(input.attachments?.length
@@ -146,7 +153,10 @@ export async function sendClaudeMessage(
   }
   session.notify?.();
   try {
-    if (!input.enqueueOptions?.deferUserEventUntilTurnStart) ctx.emit({
+    if (
+      shouldEmitUserEvent &&
+      !input.enqueueOptions?.deferUserEventUntilTurnStart
+    ) ctx.emit({
       sessionId: input.sessionId,
       agentId: 'claude-code',
       kind: 'message',

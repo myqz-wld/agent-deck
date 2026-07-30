@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   deliveringCount: 0,
   compressAliases: vi.fn(),
   recordAlias: vi.fn(),
+  getWorktreeTransition: vi.fn(),
+  transferActiveLease: vi.fn(),
   transaction: vi.fn((fn: () => unknown) => fn),
   warn: vi.fn(),
 }));
@@ -50,6 +52,11 @@ vi.mock('@main/session/manager', () => ({
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: { setCwdReleaseMarker: mocks.setCwdReleaseMarker },
+}));
+
+vi.mock('@main/store/worktree-transition-repo', () => ({
+  getWorktreeTransition: mocks.getWorktreeTransition,
+  transferActiveLeaseWithDb: mocks.transferActiveLease,
 }));
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
@@ -85,6 +92,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.transaction.mockImplementation((fn: () => unknown) => fn);
   mocks.teamRepo.get.mockReturnValue({ id: 'team', archivedAt: null });
+  mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([]);
   mocks.teamRepo.findActiveTeamMembershipsBySession.mockImplementation((sid: string) =>
     mocks.teamRepo.findActiveMembershipsBySession(sid),
   );
@@ -96,10 +104,41 @@ beforeEach(() => {
   mocks.compressAliases.mockReturnValue({ changes: 0 });
   mocks.retargetMessages.mockReturnValue({ changes: 0 });
   mocks.recordAlias.mockReturnValue({ changes: 1 });
+  mocks.getWorktreeTransition.mockReturnValue(null);
+  mocks.transferActiveLease.mockReset();
   mocks.deliveringCount = 0;
 });
 
 describe('transferHandOffResources', () => {
+  it('moves a settled structured lease in the same ownership transaction', () => {
+    mocks.getWorktreeTransition.mockReturnValue({
+      formatVersion: 1,
+      sessionId: 'caller-sid',
+      generation: 3,
+      direction: 'enter',
+      phase: 'active',
+      worktreePath: '/repo/.agent-deck/worktrees/w1',
+    });
+
+    const result = transferHandOffResources({
+      callerSessionId: 'caller-sid',
+      callerRow: callerRow({
+        cwd: '/repo/.agent-deck/worktrees/w1',
+        cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1',
+      }),
+      newSessionId: 'successor-sid',
+    });
+
+    expect(result.worktreeMarker).toEqual({
+      status: 'ok',
+      marker: '/repo/.agent-deck/worktrees/w1',
+    });
+    expect(mocks.transferActiveLease).toHaveBeenCalledWith(
+      expect.anything(), 'caller-sid', 'successor-sid', expect.any(Number),
+    );
+    expect(mocks.setCwdReleaseMarker).not.toHaveBeenCalled();
+  });
+
   it('transfers lead memberships, teammate memberships, tasks, and marker', () => {
     mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-lead', role: 'lead' },

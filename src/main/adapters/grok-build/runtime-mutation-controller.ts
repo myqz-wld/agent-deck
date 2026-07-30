@@ -351,7 +351,8 @@ export class GrokRuntimeMutationController {
       !runtime.ready ||
       runtime.closed ||
       runtime.disposed ||
-      runtime.restartingSandbox
+      runtime.restartingSandbox ||
+      runtime.cwdTransitionGeneration != null
     ) {
       throw new Error(
         `Grok session ${runtime.applicationSessionId} is not active.`,
