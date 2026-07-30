@@ -16,8 +16,11 @@ import {
 import { spawnGrokChild } from './launch-child';
 import {
   GROK_EXTENSION_UPDATE_METHOD,
+  GROK_PROMPT_COMPLETE_METHOD,
   parseGrokExtensionNotification,
+  parseGrokPromptCompleteNotification,
   type GrokExtensionNotification,
+  type GrokPromptCompleteNotification,
 } from './extension';
 
 const STDERR_LIMIT = 64 * 1024;
@@ -36,6 +39,9 @@ export interface GrokAcpProcessOptions {
     notification: SessionNotification,
   ) => void;
   onGrokExtensionUpdate?: (notification: GrokExtensionNotification) => void;
+  onGrokPromptComplete?: (
+    notification: GrokPromptCompleteNotification,
+  ) => void;
   onPermissionRequest: (
     request: RequestPermissionRequest,
     signal: AbortSignal,
@@ -95,6 +101,17 @@ export class GrokAcpProcess {
         GROK_EXTENSION_UPDATE_METHOD,
         parseGrokExtensionNotification,
         ({ params }) => options.onGrokExtensionUpdate?.(params),
+      )
+      .onNotification(
+        GROK_PROMPT_COMPLETE_METHOD,
+        parseGrokPromptCompleteNotification,
+        ({ params }) => {
+          try {
+            options.onGrokPromptComplete?.(params);
+          } catch {
+            // A consumer failure must not strand the ACP response reader.
+          }
+        },
       )
       .onRequest(methods.client.session.requestPermission, ({ params, signal }) =>
         options.onPermissionRequest(params, signal),

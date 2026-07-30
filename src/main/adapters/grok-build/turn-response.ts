@@ -1,6 +1,9 @@
 import type { Usage } from '@agentclientprotocol/sdk';
 
-import type { RecoveredGrokTurn } from './provider-completion-recovery';
+import type {
+  GrokExtensionNotification,
+  GrokTurnUsage,
+} from './extension';
 import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
@@ -18,8 +21,8 @@ export async function finalizeGrokAcpResponse(
   response: {
     stopReason: string;
     usage?: Usage | null;
+    _meta?: Record<string, unknown> | null;
   },
-  journalTurn: RecoveredGrokTurn | null,
   options: Pick<GrokTurnQueueOptions, 'emit' | 'emitEvent'>,
 ): Promise<void> {
   for (const event of flushGrokTextUpdates(
@@ -27,21 +30,20 @@ export async function finalizeGrokAcpResponse(
     runtime.translation,
   )) options.emit(event);
   const previousWatermark = runtime.translation.lastUsage;
-  const usageEvent =
-    (journalTurn
-      ? translateGrokTurnUsage(
-          runtime.applicationSessionId,
-          runtime.model,
-          journalTurn.completion,
-          runtime.translation,
-        )
-      : null)
-    ?? translateGrokUsage(
-      runtime.applicationSessionId,
-      runtime.model,
-      response.usage,
-      runtime.translation,
-    );
+  const completion = completionFromPromptResponse(response);
+  const usageEvent = completion
+    ? translateGrokTurnUsage(
+        runtime.applicationSessionId,
+        runtime.model,
+        completion,
+        runtime.translation,
+      )
+    : translateGrokUsage(
+        runtime.applicationSessionId,
+        runtime.model,
+        response.usage,
+        runtime.translation,
+      );
   if (usageEvent) {
     if (runtime.translation.extensionUsageForCurrentTurn && !runtime.closed) {
       options.emit(usageEvent);
@@ -60,6 +62,31 @@ export async function finalizeGrokAcpResponse(
       subtype: response.stopReason,
     });
   }
+}
+
+function completionFromPromptResponse(response: {
+  stopReason: string;
+  _meta?: Record<string, unknown> | null;
+}): GrokExtensionNotification | null {
+  const meta = response._meta;
+  const usage = meta?.usage;
+  const promptId = meta?.promptId;
+  if (
+    !usage ||
+    typeof usage !== 'object' ||
+    Array.isArray(usage) ||
+    typeof promptId !== 'string' ||
+    !promptId.trim()
+  ) return null;
+  return {
+    sessionId: typeof meta.sessionId === 'string' ? meta.sessionId : undefined,
+    update: {
+      sessionUpdate: 'turn_completed',
+      prompt_id: promptId,
+      stop_reason: response.stopReason,
+      usage: usage as GrokTurnUsage,
+    },
+  };
 }
 
 function completeRateFromEvent(runtime: GrokRuntime, payload: unknown): void {

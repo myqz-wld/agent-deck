@@ -417,6 +417,8 @@ export class GrokBuildBridge {
       confirmPromptAccepted: (runtime) => this.turnQueue.confirmPromptAccepted(runtime),
       observeModelActivity: (runtime, update) =>
         this.turnQueue.observeModelActivity(runtime, update),
+      observePromptComplete: (runtime, notification) =>
+        this.turnQueue.observePromptComplete(runtime, notification),
       drain: (runtime) => this.turnQueue.drain(runtime),
       dispose: (runtime) => this.disposeRuntime(runtime),
     };

@@ -7,7 +7,10 @@ import type {
 } from '@shared/types';
 
 import { GrokAcpProcess, withTimeout } from './acp-process';
-import type { GrokExtensionNotification } from './extension';
+import type {
+  GrokExtensionNotification,
+  GrokPromptCompleteNotification,
+} from './extension';
 import { GrokPermissionController } from './permission-controller';
 import { currentModelId, currentSessionMode, errorText } from './protocol-utils';
 import { resolveGrokBinary } from './resolve-grok-binary';
@@ -41,6 +44,10 @@ export interface GrokRuntimeStartContext {
   observeModelActivity: (
     runtime: GrokRuntime,
     update: Parameters<typeof translateGrokUpdate>[2],
+  ) => void;
+  observePromptComplete: (
+    runtime: GrokRuntime,
+    notification: GrokPromptCompleteNotification,
   ) => void;
   drain: (runtime: GrokRuntime) => Promise<void>;
   dispose: (runtime: GrokRuntime) => Promise<void>;
@@ -131,6 +138,26 @@ export async function startGrokRuntime(
         return;
       }
     },
+    onGrokPromptComplete: (notification: GrokPromptCompleteNotification) => {
+      try {
+        if (
+          context.runtimes.get(runtime.applicationSessionId) !== runtime ||
+          !runtime.ready ||
+          runtime.suppressUpdates ||
+          notification.sessionId !== runtime.nativeSessionId
+        ) return;
+        context.observePromptComplete(runtime, notification);
+      } catch (error) {
+        logger.warn('[grok-runtime] prompt-complete callback failed; stream preserved', {
+          event: 'grok_prompt_complete_callback_failed',
+          sessionId: runtime.applicationSessionId,
+          nativeSessionId: runtime.nativeSessionId,
+          notificationSessionId: notification.sessionId,
+          turnId: notification.turnId,
+          error: errorText(error),
+        });
+      }
+    },
     onPermissionRequest: (request, signal) =>
       context.permissionController.handle(runtime, request, signal),
   });
@@ -190,7 +217,6 @@ export async function startGrokRuntime(
     applyReportedModel(runtime, currentModelId(response));
     reportedMode = currentSessionMode(response);
     runtime.sessionMode ??= reportedMode;
-    runtime.suppressUpdates = false;
   } else {
     const response = await withTimeout(
       process.connection.agent.request(methods.agent.session.new, {
@@ -257,6 +283,9 @@ export async function startGrokRuntime(
     await process.stop();
     return false;
   }
+  // Both load and new paths are fully committed here. Leaving this branch-specific previously
+  // allowed a stale suppression flag to discard every live model update while a prompt ran.
+  runtime.suppressUpdates = false;
   runtime.ready = true;
   void context.drain(runtime);
   return true;

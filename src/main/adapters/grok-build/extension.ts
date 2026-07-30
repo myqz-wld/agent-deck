@@ -1,4 +1,5 @@
 export const GROK_EXTENSION_UPDATE_METHOD = '_x.ai/session/update';
+export const GROK_PROMPT_COMPLETE_METHOD = '_x.ai/session/prompt_complete';
 
 export interface GrokExtensionNotification {
   sessionId?: string;
@@ -35,6 +36,15 @@ export interface GrokTurnUsage {
   [key: string]: unknown;
 }
 
+export interface GrokPromptCompleteNotification {
+  sessionId?: string;
+  promptId?: string;
+  stopReason?: string;
+  agentResult?: string | null;
+  turnId?: number;
+  cancelTrigger?: string;
+}
+
 export function parseGrokExtensionNotification(
   params: unknown,
 ): GrokExtensionNotification {
@@ -44,6 +54,31 @@ export function parseGrokExtensionNotification(
     ...params,
     ...(update ? { update: update as GrokExtensionUpdate } : {}),
   } as GrokExtensionNotification;
+}
+
+export function parseGrokPromptCompleteNotification(
+  params: unknown,
+): GrokPromptCompleteNotification {
+  if (!isRecord(params)) return {};
+  const sessionId = nonEmptyString(params.sessionId);
+  const promptId = nonEmptyString(params.promptId);
+  const stopReason = nonEmptyString(params.stopReason);
+  const agentResult = nonEmptyString(params.agentResult);
+  const cancelTrigger = nonEmptyString(params.cancelTrigger);
+  return {
+    ...(sessionId ? { sessionId } : {}),
+    ...(promptId ? { promptId } : {}),
+    ...(stopReason ? { stopReason } : {}),
+    ...(params.agentResult === null
+      ? { agentResult: null }
+      : agentResult
+        ? { agentResult }
+        : {}),
+    ...(Number.isSafeInteger(params.turnId) && (params.turnId as number) >= 0
+      ? { turnId: params.turnId as number }
+      : {}),
+    ...(cancelTrigger ? { cancelTrigger } : {}),
+  };
 }
 
 export function grokExtensionTimestampMs(
@@ -90,4 +125,8 @@ export function firstModelUsageKey(usage: GrokTurnUsage): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }
