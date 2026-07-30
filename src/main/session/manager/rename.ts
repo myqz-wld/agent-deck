@@ -114,19 +114,21 @@ export function renameSdkSessionImpl(
  * - **不**触发 sessions Map / SDK claim mutate(applicationSid 不变,bridge S3 isNewSpawn 分支保护已让 fork detect 路径只 update internal.cliSessionId)
  *
  * **黑名单链** (R5 HIGH-R5-1 + R6 MED-R6-1 修订):
- * - 读 oldCliSid = sessionRepo.get(applicationSid)?.cliSessionId ?? applicationSid (兜底防 null)
+ * - 只读取真实存在的 oldCliSid = sessionRepo.get(applicationSid)?.cliSessionId ?? null
  * - 调 sessionRepo.updateCliSessionId(applicationSid, newCliSid) 单列 UPDATE
- * - 调 recentlyDeleted.set(oldCliSid, Date.now()) 加 OLD_CLI 黑名单 60s
+ * - oldCliSid 非空且确实被替换时，调 recentlyDeleted.set(oldCliSid, Date.now())
+ *   加 OLD_CLI 黑名单 60s
  *   防迟到 hook event 携带 OLD_CLI 时撞 D7 3b miss 复活幽灵 record
+ * - 首次绑定 native id 时 oldCliSid=null，绝不能拿 applicationSid 代替。applicationSid 是
+ *   adapter 后续所有 SDK event 的稳定身份；把它写进删除黑名单会吞掉首轮 assistant /
+ *   finished，令 UI 永久卡在 working（Grok fresh session 的 application/native id 天生不同）。
  *
  * **caller 必须经本 helper 包装,不能直接调 sessionRepo.updateCliSessionId** (否则黑名单链断,
  * R7 MED-R7-2 test 6 已加断言 verify)。
  *
- * **spawn-path no-op 短路** (REVIEW_49 R3 follow-up LOW): spawn 主路径下 oldCliSid ===
- * applicationSid === newCliSessionId,L632 `oldCliSid !== newCliSessionId` 判断不写黑名单 →
- * 行为等价直调 sessionRepo.updateCliSessionId。统一走 wrapper 是契约层硬约束 SSOT;不要因
- * 「spawn 路径反正等价」而在 caller 处直调 sessionRepo,会让未来 fork 路径误传不同
- * cliSessionId 时静默跳过黑名单写入(blame radius 隐蔽 + 复活 ghost record 风险)。
+ * **首次绑定 no-op 黑名单**: 新会话尚无 cli_session_id 时只写新 native id，不产生退休
+ * identity，因此不写黑名单。统一走 wrapper 仍是契约层硬约束 SSOT；后续 native id 轮换时
+ * oldCliSid 非空，照常封住真正退休的旧 native id。
  *
  * 调用方 (6 处反向 rename 路径,详 plan §D2 表):
  * - recoverer.ts:466 jsonl-missing fallback (claude)
@@ -147,7 +149,7 @@ export function updateCliSessionIdImpl(
   newCliSessionId: string,
 ): void {
   const rec = sessionRepo.get(applicationSid);
-  const oldCliSid = rec?.cliSessionId ?? applicationSid;
+  const oldCliSid = rec?.cliSessionId ?? null;
   sessionRepo.updateCliSessionId(applicationSid, newCliSessionId);
   // OLD_CLI 进黑名单 60s — 防迟到 hook event 携带 OLD_CLI 复活幽灵 record (D7 3b ingest drop)
   if (oldCliSid && oldCliSid !== newCliSessionId) {
