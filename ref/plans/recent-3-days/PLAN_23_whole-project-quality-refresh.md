@@ -85,13 +85,13 @@ related_review: REVIEW_187
   call sites remain explicit follow-up debt.
 - Revisit task-edge persistence only at the measured scale/latency trigger.
 
-## `.ref` classification
+## Supporting evidence
 
-The ignored workspace plan
-`/Users/wanglidong/Repository/agent-deck/.ref/plans/whole-project-quality-improvements.md` is
-intentionally retained as non-final execution evidence because it contains the original 23-batch
-write-set map, benchmark gates, and architecture decision history. This archived plan is the
-authoritative final status and handoff.
+The
+[original execution evidence](../../evidence/whole-project-quality-improvements-20260728.md)
+is archived under `ref/evidence/` because it contains the original 23-batch write-set map,
+benchmark gates, and architecture decision history. This plan remains the authoritative final
+status and handoff.
 
 ## Final status
 
