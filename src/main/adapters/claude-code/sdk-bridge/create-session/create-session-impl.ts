@@ -33,6 +33,7 @@ import { runCreateSessionSdkQuery } from './create-session-sdk-query';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
+import { safeDisplayText } from '@main/utils/safe-diagnostic';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -62,13 +63,14 @@ function emitVisibleCreateFailure(
   const record = sessionRepo.get(sessionId);
   if (!record || record.lifecycle === 'closed') return;
 
-  if (!internal.expectedClose) {
+  if (!internal.suppressStartupFailureMessage) {
+    const detail = err instanceof Error ? err.message : String(err);
     deps.emit({
       sessionId,
       agentId: 'claude-code',
       kind: 'message',
       payload: {
-        text: `⚠ Claude SDK 启动失败：${(err as Error)?.message ?? String(err)}`,
+        text: `⚠ Claude SDK 启动失败：${safeDisplayText(detail)}`,
         error: true,
       },
       ts: Date.now(),

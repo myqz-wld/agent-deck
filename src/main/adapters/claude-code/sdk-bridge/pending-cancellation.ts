@@ -20,6 +20,7 @@ import type { AgentEvent } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from './constants';
 import type { InternalSession } from './types';
+import { cleanupGatewaySandboxSettings } from './create-session/gateway-sandbox-settings';
 
 /**
  * 清掉 internal 上的三个 pending Maps + emit *-cancelled 事件 + best-effort resolve SDK promise。
@@ -123,6 +124,7 @@ export function runCloseSessionCleanup(args: {
   internal.submittingUserMessage = null;
   internal.ignoredUserMessageIds?.clear();
   internal.acceptedEnqueueFingerprints?.clear();
+  cleanupGatewaySandboxSettings(internal);
 
   // step 3：从 sessions map 移除
   if (sessions.get(key) === internal) {

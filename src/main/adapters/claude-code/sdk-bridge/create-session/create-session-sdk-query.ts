@@ -49,6 +49,10 @@ import type {
   SdkQueryResult,
 } from './_deps';
 import log from '@main/utils/logger';
+import {
+  cleanupGatewaySandboxSettings,
+  prepareGatewaySandboxSettings,
+} from './gateway-sandbox-settings';
 
 const logger = log.scope('claude-sdk-query');
 
@@ -84,9 +88,18 @@ export async function runCreateSessionSdkQuery(
     // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
     // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
     const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd, opts.extraAllowWrite);
+    const preparedGatewaySettings = prepareGatewaySandboxSettings({
+      settingsPath: opts.settingsPath,
+      sandboxOpts,
+    });
+    internal.gatewaySandboxSettingsCleanup = preparedGatewaySettings.cleanup;
     logger.info(
       `[sandbox] mode=${claudeSandboxMode} → ${
-        sandboxOpts.sandbox ? 'enabled (top-level)' : 'disabled (no field)'
+        preparedGatewaySettings.settingsBackedSandbox
+          ? 'enabled (Gateway settings)'
+          : preparedGatewaySettings.sandboxOpts.sandbox
+            ? 'enabled (top-level)'
+            : 'disabled (no field)'
       }${
         opts.extraAllowWrite && opts.extraAllowWrite.length > 0
           ? ` extraAllowWrite=[${opts.extraAllowWrite.join(', ')}]`
@@ -141,14 +154,23 @@ export async function runCreateSessionSdkQuery(
         // 反向 rename 后 appSid != cliSid 时让 CLI 找正确 jsonl 文件)。
         resume: effectiveResumeCliSid,
         canUseTool,
-        sandboxOpts,
+        sandboxOpts: preparedGatewaySettings.sandboxOpts,
         systemPromptAppend: getAgentDeckSystemPromptAppend(),
         plugins: getAgentDeckPluginsForSession(opts.claudePluginDir),
-        runtime,
+        runtime:
+          Object.keys(preparedGatewaySettings.childEnv).length > 0
+            ? {
+                ...runtime,
+                env: {
+                  ...runtime.env,
+                  ...preparedGatewaySettings.childEnv,
+                },
+              }
+            : runtime,
         claudeBinary,
         mcpServers,
         model: claudeModel,
-        settingsPath: opts.settingsPath,
+        settingsPath: preparedGatewaySettings.settingsPath,
         effort: opts.claudeCodeEffortLevel,
         agentName: opts.claudeAgentName,
         agents: opts.claudeAgents,
@@ -211,6 +233,9 @@ export async function runCreateSessionSdkQuery(
     // 本路径 + stream-processor.ts setTimeout fallback fire 路径双路径,不覆盖 public
     // interrupt(sessionId) + closeSession(sessionId) 入口 (设计内 — caller 显式调用应当直通
     // SDK,与 spike1 实证 interrupt() 幂等 SDK 行为一致)。
+    if (internal.expectedClose) {
+      internal.suppressStartupFailureMessage = true;
+    }
     if (!internal.interruptFired) {
       internal.expectedClose = true;
       internal.interruptFired = true;
@@ -242,6 +267,7 @@ export async function runCreateSessionSdkQuery(
     // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
     // 否则下次同 sessionId 的真实 hook / 终端 CLI 会话会被静默吞掉
     if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
+    cleanupGatewaySandboxSettings(internal);
 
     // REVIEW_75 HIGH (reviewer-codex + lead 代码链实测三重确认):清掉失败路径落下的孤儿
     // tempKey DB row。
