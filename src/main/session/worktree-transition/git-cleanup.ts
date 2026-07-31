@@ -1,8 +1,8 @@
 import * as path from 'node:path';
 import { adapterRegistry } from '@main/adapters/registry';
 import {
-  existsDefault,
-  realpathDefault,
+  existsSyncDefault,
+  realpathSyncDefault,
   runGitDefault,
 } from '@main/agent-deck-mcp/tools/handlers/_shared/default-impl-deps';
 import { getDb } from '@main/store/db';
@@ -10,6 +10,8 @@ import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
 import type { WorktreeTransitionRecord } from './types';
 
 const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'trunk']);
+const WORKTREE_GIT_CHECK_TIMEOUT_MS = 30_000;
+const WORKTREE_REMOVE_TIMEOUT_MS = 10 * 60_000;
 
 export interface WorktreeExitPreflightResult {
   exists: boolean;
@@ -27,12 +29,20 @@ function stripTrailingSlash(value: string): string {
   return stripped === '' ? '/' : stripped;
 }
 
-async function normalizedPath(value: string): Promise<string> {
+function normalizedPath(value: string): string {
   try {
-    return stripTrailingSlash(await realpathDefault(value));
+    return stripTrailingSlash(realpathSyncDefault(value));
   } catch {
     return stripTrailingSlash(path.resolve(value));
   }
+}
+
+function runGit(
+  args: readonly string[],
+  cwd: string,
+  timeoutMs = WORKTREE_GIT_CHECK_TIMEOUT_MS,
+): Promise<string> {
+  return runGitDefault(args, cwd, { timeoutMs });
 }
 
 export function isSameOrInsideWorktreePath(
@@ -48,14 +58,14 @@ export function isSameOrInsideWorktreePath(
   );
 }
 
-async function assertOwnedPath(
+function assertOwnedPath(
   record: WorktreeTransitionRecord,
   override?: string,
-): Promise<void> {
+): void {
   if (!override) return;
   if (
-    (await normalizedPath(override)) !==
-    (await normalizedPath(record.worktreePath))
+    normalizedPath(override) !==
+    normalizedPath(record.worktreePath)
   ) {
     throw new Error(
       `args.worktreePath (${override}) does not match the structured worktree lease (${record.worktreePath}).`,
@@ -64,7 +74,7 @@ async function assertOwnedPath(
 }
 
 async function readWorktreeMainRepo(worktreePath: string): Promise<string> {
-  const common = await runGitDefault(
+  const common = await runGit(
     ['rev-parse', '--git-common-dir'],
     worktreePath,
   );
@@ -76,7 +86,7 @@ async function readWorktreeMainRepo(worktreePath: string): Promise<string> {
 
 async function assertClean(record: WorktreeTransitionRecord): Promise<void> {
   if (record.discardChanges) return;
-  const status = await runGitDefault(
+  const status = await runGit(
     ['status', '--porcelain'],
     record.worktreePath,
   );
@@ -101,14 +111,14 @@ export async function preflightStructuredWorktreeExit(
       `Worktree transition ${record.sessionId}:${record.generation} is ${record.phase}; exit requires active.`,
     );
   }
-  await assertOwnedPath(record, input.worktreePathOverride);
-  if (!(await existsDefault(record.worktreePath))) {
+  assertOwnedPath(record, input.worktreePathOverride);
+  if (!existsSyncDefault(record.worktreePath)) {
     return { exists: false, workBranch: record.workBranch || null };
   }
   const actualMainRepo = await readWorktreeMainRepo(record.worktreePath);
   if (
-    (await normalizedPath(actualMainRepo)) !==
-    (await normalizedPath(record.mainRepo))
+    normalizedPath(actualMainRepo) !==
+    normalizedPath(record.mainRepo)
   ) {
     throw new Error(
       `worktree git common dir resolves to ${actualMainRepo}, not leased main repo ${record.mainRepo}.`,
@@ -116,14 +126,15 @@ export async function preflightStructuredWorktreeExit(
   }
   const branch =
     (
-      await runGitDefault(
+      await runGit(
         ['branch', '--show-current'],
         record.worktreePath,
       )
     ).trim() || null;
-  if (branch && branch !== record.workBranch) {
+  const expectedBranch = record.workBranch || null;
+  if (branch !== expectedBranch) {
     throw new Error(
-      `worktree branch changed from leased ${record.workBranch} to ${branch}.`,
+      `worktree branch changed from leased ${expectedBranch ?? 'detached HEAD'} to ${branch ?? 'detached HEAD'}.`,
     );
   }
   if (!input.discardChanges) {
@@ -142,7 +153,7 @@ async function persistedCwdReferences(
   for (const row of rows) {
     if (
       isSameOrInsideWorktreePath(
-        await normalizedPath(row.cwd),
+        normalizedPath(row.cwd),
         normalizedWorktreePath,
       )
     ) {
@@ -167,7 +178,7 @@ async function liveCwdReferences(
       if (
         runtimeCwd &&
         isSameOrInsideWorktreePath(
-          await normalizedPath(runtimeCwd),
+          normalizedPath(runtimeCwd),
           normalizedWorktreePath,
         )
       ) {
@@ -181,7 +192,7 @@ async function liveCwdReferences(
 async function assertNoWorktreeReferences(
   record: WorktreeTransitionRecord,
 ): Promise<void> {
-  const target = await normalizedPath(record.worktreePath);
+  const target = normalizedPath(record.worktreePath);
   const persisted = await persistedCwdReferences(target);
   const live = await liveCwdReferences(target, record.sessionId);
   const leases: string[] = [];
@@ -189,7 +200,7 @@ async function assertNoWorktreeReferences(
     if (
       candidate.sessionId !== record.sessionId &&
       isSameOrInsideWorktreePath(
-        await normalizedPath(candidate.worktreePath),
+        normalizedPath(candidate.worktreePath),
         target,
       )
     ) {
@@ -208,7 +219,7 @@ async function assertNoWorktreeReferences(
     const runtimeCwd = adapter.getRuntimeCwd?.(record.sessionId) ?? null;
     if (
       runtimeCwd &&
-      isSameOrInsideWorktreePath(await normalizedPath(runtimeCwd), target)
+      isSameOrInsideWorktreePath(normalizedPath(runtimeCwd), target)
     ) {
       throw new Error(
         `caller runtime ${adapter.id}:${record.sessionId} still points to the worktree.`,
@@ -222,7 +233,7 @@ export async function cleanupStructuredWorktree(
   record: WorktreeTransitionRecord,
 ): Promise<WorktreeCleanupResult> {
   await assertNoWorktreeReferences(record);
-  if (!(await existsDefault(record.worktreePath))) {
+  if (!existsSyncDefault(record.worktreePath)) {
     return {
       worktreeRemoved: false,
       branchDeleted: false,
@@ -230,11 +241,12 @@ export async function cleanupStructuredWorktree(
     };
   }
   await assertClean(record);
-  await runGitDefault(
+  await runGit(
     record.discardChanges
       ? ['worktree', 'remove', '--force', record.worktreePath]
       : ['worktree', 'remove', record.worktreePath],
     record.mainRepo,
+    WORKTREE_REMOVE_TIMEOUT_MS,
   );
   if (
     !record.deleteBranch ||
@@ -248,7 +260,7 @@ export async function cleanupStructuredWorktree(
     };
   }
   try {
-    await runGitDefault(
+    await runGit(
       [
         'branch',
         record.discardChanges ? '-D' : '-d',
@@ -279,11 +291,12 @@ export async function rollbackUnacknowledgedEnter(
 ): Promise<WorktreeCleanupResult> {
   await assertNoWorktreeReferences(record);
   let worktreeRemoved = false;
-  if (await existsDefault(record.worktreePath)) {
+  if (existsSyncDefault(record.worktreePath)) {
     await assertClean({ ...record, discardChanges: false });
-    await runGitDefault(
+    await runGit(
       ['worktree', 'remove', record.worktreePath],
       record.mainRepo,
+      WORKTREE_REMOVE_TIMEOUT_MS,
     );
     worktreeRemoved = true;
   }
@@ -291,7 +304,7 @@ export async function rollbackUnacknowledgedEnter(
   let branchTip: string | null = null;
   try {
     branchTip = (
-      await runGitDefault(
+      await runGit(
         [
           'rev-parse',
           '--verify',
@@ -320,7 +333,7 @@ export async function rollbackUnacknowledgedEnter(
     };
   }
   try {
-    await runGitDefault(
+    await runGit(
       ['branch', '-d', record.workBranch],
       record.mainRepo,
     );

@@ -1,12 +1,12 @@
 import * as path from 'node:path';
 
 import {
-  existsDefault,
-  realpathDefault,
+  existsSyncDefault,
+  realpathSyncDefault,
   runGitDefault,
 } from './_shared/default-impl-deps';
 
-const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'trunk']);
+const LEGACY_EXIT_PREFLIGHT_GIT_TIMEOUT_MS = 30_000;
 
 export interface ExitWorktreeInput {
   callerSessionId: string;
@@ -15,11 +15,21 @@ export interface ExitWorktreeInput {
   deleteBranch?: boolean;
 }
 
-export interface ExitWorktreeImplResult {
+export interface PreparedLegacyWorktreeExit {
+  kind: 'ready';
+  expectedMarker: string | null;
+  originalCwd: string;
+  mainRepo: string;
   worktreePath: string;
-  workBranch: string | null;
-  branchDeleted: boolean;
-  worktreeRemoved: boolean;
+  /** Empty means the legacy worktree is detached. */
+  workBranch: string;
+  baseBranch: string;
+  baseCommit: string;
+}
+
+export interface MissingLegacyWorktreeExit {
+  kind: 'missing';
+  worktreePath: string;
   markerCleared: boolean;
 }
 
@@ -29,45 +39,76 @@ export type ExitWorktreeError = {
   markerCleared?: boolean;
 };
 
+export type LegacyWorktreeExitPreparation =
+  | PreparedLegacyWorktreeExit
+  | MissingLegacyWorktreeExit
+  | ExitWorktreeError;
+
 export interface ExitWorktreeDeps {
   runGit?: (args: string[], cwd: string) => Promise<string>;
-  exists?: (p: string) => Promise<boolean>;
-  realpath?: (p: string) => Promise<string>;
+  exists?: (p: string) => boolean;
+  realpath?: (p: string) => string;
   callerMarker?: (callerSid: string) => string | null;
+  callerCwd?: (callerSid: string) => string | null;
   clearCwdReleaseMarker?: (sid: string) => void;
 }
 
 const DEFAULT_DEPS: Required<ExitWorktreeDeps> = {
-  runGit: runGitDefault,
-  exists: existsDefault,
-  realpath: realpathDefault,
+  runGit: (args, cwd) =>
+    runGitDefault(args, cwd, {
+      timeoutMs: LEGACY_EXIT_PREFLIGHT_GIT_TIMEOUT_MS,
+    }),
+  exists: existsSyncDefault,
+  realpath: realpathSyncDefault,
   callerMarker: (_sid: string) => {
     throw new Error('exit-worktree-impl: deps.callerMarker not injected.');
   },
+  callerCwd: (_sid: string) => {
+    throw new Error('exit-worktree-impl: deps.callerCwd not injected.');
+  },
   clearCwdReleaseMarker: (_sid: string) => {
-    throw new Error('exit-worktree-impl: deps.clearCwdReleaseMarker not injected.');
+    throw new Error(
+      'exit-worktree-impl: deps.clearCwdReleaseMarker not injected.',
+    );
   },
 };
 
-function isError(x: unknown): x is ExitWorktreeError {
+function isError(value: unknown): value is ExitWorktreeError {
   return (
-    typeof x === 'object' &&
-    x !== null &&
-    typeof (x as { error?: unknown }).error === 'string'
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { error?: unknown }).error === 'string'
   );
 }
 
-function stripTrailingSlash(p: string): string {
-  const stripped = p.replace(/\/+$/, '');
+function stripTrailingSlash(value: string): string {
+  const stripped = value.replace(/\/+$/, '');
   return stripped === '' ? '/' : stripped;
 }
 
-async function normalizePath(p: string, deps: Required<ExitWorktreeDeps>): Promise<string> {
+function resolvePath(value: string): string {
+  return stripTrailingSlash(path.resolve(value));
+}
+
+function normalizePath(
+  value: string,
+  deps: Required<ExitWorktreeDeps>,
+): string {
   try {
-    return stripTrailingSlash(await deps.realpath(p));
+    return stripTrailingSlash(deps.realpath(value));
   } catch {
-    return stripTrailingSlash(p);
+    return stripTrailingSlash(path.resolve(value));
   }
+}
+
+function isSameOrInside(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === '' ||
+    (relative !== '..' &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative))
+  );
 }
 
 function clearMarker(
@@ -77,41 +118,73 @@ function clearMarker(
   try {
     deps.clearCwdReleaseMarker(callerSessionId);
     return true;
-  } catch (e) {
+  } catch (error) {
     return {
-      error: `clearCwdReleaseMarker failed: ${(e as Error).message}`,
-      hint: 'Worktree cleanup may have completed, but the caller still holds a stale worktree marker. Retry exit_worktree after checking the marker, or close the session to clear it.',
+      error: `clearCwdReleaseMarker failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      hint:
+        'The worktree path is already absent, but the caller still holds a stale marker. ' +
+        'Retry exit_worktree after checking the marker, or close the session to clear it.',
       markerCleared: false,
     };
   }
 }
 
-export async function exitWorktreeImpl(
+function dirtyWorktreeError(status: string): ExitWorktreeError {
+  const lines = status.split('\n');
+  return {
+    error: `worktree has uncommitted changes: ${lines
+      .slice(0, 3)
+      .join(' / ')}${lines.length > 3 ? ' ...' : ''}`,
+    hint:
+      'Do not lose user work. Commit, stash, copy, or otherwise preserve these changes before ' +
+      'exiting. Pass discardChanges=true only when the user explicitly wants to abandon them.',
+    markerCleared: false,
+  };
+}
+
+/**
+ * Read-only legacy compatibility preflight.
+ *
+ * Existing worktrees are never removed here. The handler persists them as a structured exit
+ * before returning asynchronous acceptance. Synchronous path metadata removes the pre-Git async
+ * filesystem-pool wait from this boundary, while every default Git command has a 30-second bound.
+ */
+export async function prepareLegacyWorktreeExit(
   input: ExitWorktreeInput,
   depsOverride?: ExitWorktreeDeps,
-): Promise<ExitWorktreeImplResult | ExitWorktreeError> {
-  const deps: Required<ExitWorktreeDeps> = { ...DEFAULT_DEPS, ...depsOverride };
+): Promise<LegacyWorktreeExitPreparation> {
+  const deps: Required<ExitWorktreeDeps> = {
+    ...DEFAULT_DEPS,
+    ...depsOverride,
+  };
   const marker = deps.callerMarker(input.callerSessionId);
-  const worktreePath = input.worktreePathOverride ?? marker;
-  if (!worktreePath) {
+  const requestedPath = input.worktreePathOverride ?? marker;
+  if (!requestedPath) {
     return {
-      error: 'cannot resolve worktreePath: caller has no worktree marker and no worktreePath override',
-      hint: 'Pass worktreePath explicitly, or call enter_worktree first so the session owns a worktree marker.',
+      error:
+        'cannot resolve worktreePath: caller has no structured lease, legacy marker, or worktreePath override',
+      hint:
+        'Pass the exact registered worktreePath, or call enter_worktree first so the session owns a worktree lease.',
     };
   }
 
-  if (input.worktreePathOverride && marker) {
-    const argPath = await normalizePath(input.worktreePathOverride, deps);
-    const markerPath = await normalizePath(marker, deps);
-    if (argPath !== markerPath) {
-      return {
-        error: `args.worktreePath (${input.worktreePathOverride}) does not match caller marker (${marker})`,
-        hint: 'A session may only exit the worktree it currently owns. Omit worktreePath to use the marker, or preserve current work and close that marker first.',
-      };
-    }
+  if (
+    input.worktreePathOverride &&
+    marker &&
+    resolvePath(input.worktreePathOverride) !== resolvePath(marker)
+  ) {
+    return {
+      error: `args.worktreePath (${input.worktreePathOverride}) does not match caller marker (${marker})`,
+      hint:
+        'A session may only exit the worktree it currently owns. Omit worktreePath to use the marker, ' +
+        'or preserve current work and close that marker first.',
+      markerCleared: false,
+    };
   }
 
-  if (!(await deps.exists(worktreePath))) {
+  if (!deps.exists(requestedPath)) {
     let markerCleared = false;
     if (marker) {
       const cleared = clearMarker(deps, input.callerSessionId);
@@ -119,96 +192,111 @@ export async function exitWorktreeImpl(
       markerCleared = cleared;
     }
     return {
-      worktreePath,
-      workBranch: null,
-      branchDeleted: false,
-      worktreeRemoved: false,
+      kind: 'missing',
+      worktreePath: requestedPath,
       markerCleared,
     };
   }
 
+  const worktreePath = normalizePath(requestedPath, deps);
   let mainRepo: string;
   try {
-    const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], worktreePath);
-    const commonDirAbs = path.isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : path.resolve(worktreePath, gitCommonDir);
-    mainRepo = path.dirname(commonDirAbs);
-  } catch (e) {
+    const common = await deps.runGit(
+      ['rev-parse', '--git-common-dir'],
+      worktreePath,
+    );
+    const absolute = path.isAbsolute(common)
+      ? common
+      : path.resolve(worktreePath, common);
+    mainRepo = normalizePath(path.dirname(absolute), deps);
+  } catch (error) {
     return {
-      error: `git rev-parse --git-common-dir failed in worktree ${worktreePath}: ${(e as Error).message}`,
-      hint: 'The directory exists but does not look like a valid git worktree. Preserve any files you need, repair/prune the git worktree manually, then retry to clear the marker.',
+      error: `git rev-parse --git-common-dir failed in worktree ${requestedPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      hint:
+        'The directory exists but is not a valid registered Git worktree. Preserve needed files, ' +
+        'repair or prune its Git metadata, then retry. The marker was retained.',
+      markerCleared: false,
+    };
+  }
+  if (isSameOrInside(mainRepo, worktreePath)) {
+    return {
+      error: `refusing to adopt the main checkout as a removable worktree: ${requestedPath}`,
+      hint:
+        'Pass the linked worktree path, not the main repository checkout. No marker or Git state changed.',
       markerCleared: false,
     };
   }
 
-  let workBranch: string | null = null;
+  let workBranch = '';
   try {
-    const branch = await deps.runGit(['branch', '--show-current'], worktreePath);
-    workBranch = branch.trim() || null;
+    workBranch = (
+      await deps.runGit(['branch', '--show-current'], worktreePath)
+    ).trim();
   } catch {
-    workBranch = null;
+    // Detached legacy worktrees intentionally use an empty persisted branch projection.
+  }
+
+  let baseCommit: string;
+  try {
+    baseCommit = (
+      await deps.runGit(
+        ['rev-parse', '--verify', 'HEAD^{commit}'],
+        worktreePath,
+      )
+    ).trim();
+    if (!baseCommit) throw new Error('Git returned an empty HEAD commit.');
+  } catch (error) {
+    return {
+      error: `git rev-parse HEAD failed in legacy worktree: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      hint:
+        'Repair the registered worktree before retrying. The marker and directory were retained.',
+      markerCleared: false,
+    };
   }
 
   if (!input.discardChanges) {
     try {
-      const status = await deps.runGit(['status', '--porcelain'], worktreePath);
-      if (status.trim().length > 0) {
-        return {
-          error: `worktree has uncommitted changes: ${status.split('\n').slice(0, 3).join(' / ')}${status.split('\n').length > 3 ? ' ...' : ''}`,
-          hint: 'Do not lose user work. Commit, stash, copy, or otherwise preserve these changes before exiting. Pass discardChanges=true only when the user explicitly wants to abandon uncommitted changes.',
-          markerCleared: false,
-        };
-      }
-    } catch (e) {
+      const status = await deps.runGit(
+        ['status', '--porcelain'],
+        worktreePath,
+      );
+      if (status.trim()) return dirtyWorktreeError(status);
+    } catch (error) {
       return {
-        error: `git status --porcelain failed in worktree: ${(e as Error).message}`,
-        hint: 'Preserve any needed changes before retrying. The marker was not cleared.',
+        error: `git status --porcelain failed in legacy worktree: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        hint:
+          'Preserve any needed changes and retry. The marker and worktree were retained.',
         markerCleared: false,
       };
     }
   }
 
-  try {
-    const args = input.discardChanges
-      ? ['worktree', 'remove', '--force', worktreePath]
-      : ['worktree', 'remove', worktreePath];
-    await deps.runGit(args, mainRepo);
-  } catch (e) {
-    return {
-      error: `git worktree remove failed: ${(e as Error).message}`,
-      hint: 'The worktree directory was not removed and the marker was not cleared. Preserve needed changes, then retry or pass discardChanges=true only to abandon them.',
-      markerCleared: false,
-    };
-  }
-
-  let branchDeleted = false;
-  if (input.deleteBranch === true && workBranch && !PROTECTED_BRANCHES.has(workBranch)) {
-    try {
-      await deps.runGit(['branch', input.discardChanges ? '-D' : '-d', workBranch], mainRepo);
-      branchDeleted = true;
-    } catch (e) {
-      const cleared = clearMarker(deps, input.callerSessionId);
-      if (isError(cleared)) return cleared;
-      return {
-        error: `git branch ${input.discardChanges ? '-D' : '-d'} ${workBranch} failed: ${(e as Error).message}`,
-        hint: input.discardChanges
-          ? 'The worktree directory was removed and marker was cleared, but branch deletion failed. Inspect the branch manually before deleting it.'
-          : 'The worktree directory was removed and marker was cleared. The branch was kept because it may contain unmerged commits; merge, cherry-pick, or intentionally delete it later.',
-        markerCleared: true,
-      };
-    }
-  }
-
-  const cleared = clearMarker(deps, input.callerSessionId);
-  if (isError(cleared)) return cleared;
+  const recordedCwd = deps.callerCwd(input.callerSessionId);
+  const normalizedRecordedCwd =
+    recordedCwd && deps.exists(recordedCwd)
+      ? normalizePath(recordedCwd, deps)
+      : null;
+  const originalCwd =
+    normalizedRecordedCwd &&
+    !isSameOrInside(normalizedRecordedCwd, worktreePath)
+      ? normalizedRecordedCwd
+      : mainRepo;
 
   return {
+    kind: 'ready',
+    expectedMarker: marker,
+    originalCwd,
+    mainRepo,
     worktreePath,
     workBranch,
-    branchDeleted,
-    worktreeRemoved: true,
-    markerCleared: cleared,
+    baseBranch: workBranch || 'HEAD',
+    baseCommit,
   };
 }
 

@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { MIGRATIONS } from '../migrations';
 import {
   WorktreeTransitionConflictError,
+  adoptLegacyExitWithDb,
   beginExitPreflightWithDb,
   compareAndSetPhaseWithDb,
   createEnterWithDb,
   markContinuationDeliveredWithDb,
   markEnterCreatedWithDb,
+  releaseLegacyExitAdoptionWithDb,
   renameLeaseWithDb,
   transferActiveLeaseWithDb,
 } from '../worktree-transition-repo';
@@ -83,6 +85,120 @@ function advanceToActive(
 }
 
 describe.skipIf(!bindingAvailable)('v059 worktree cwd transitions', () => {
+  it('adopts a detached legacy marker into an exit preflight atomically', () => {
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      insertSession(
+        db,
+        'session-a',
+        '/repo/.agent-deck/worktrees/legacy',
+      );
+      db.prepare(
+        `UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`,
+      ).run('/repo/.agent-deck/worktrees/legacy', 'session-a');
+
+      const adopted = adoptLegacyExitWithDb(db, {
+        sessionId: 'session-a',
+        expectedMarker: '/repo/.agent-deck/worktrees/legacy',
+        originalCwd: '/repo',
+        mainRepo: '/repo',
+        worktreePath: '/repo/.agent-deck/worktrees/legacy',
+        workBranch: '',
+        baseBranch: 'HEAD',
+        baseCommit: 'a'.repeat(40),
+        toolUseId: 'tool-exit',
+        continuationKey: 'worktree-cwd:legacy-exit:test-1',
+        discardChanges: false,
+        deleteBranch: false,
+        requestedAt: 10,
+      });
+
+      expect(adopted).toMatchObject({
+        generation: 1,
+        direction: 'exit',
+        phase: 'exit_preflight',
+        originalCwd: '/repo',
+        targetCwd: '/repo',
+        workBranch: '',
+        baseBranch: 'HEAD',
+      });
+      expect(
+        db
+          .prepare(`SELECT cwd_release_marker FROM sessions WHERE id = ?`)
+          .pluck()
+          .get('session-a'),
+      ).toBe('/repo/.agent-deck/worktrees/legacy');
+
+      const waiting = compareAndSetPhaseWithDb(db, {
+          sessionId: 'session-a',
+          generation: adopted.generation,
+          expected: 'exit_preflight',
+          next: 'exit_waiting_tool_result',
+          updatedAt: 11,
+        });
+      expect(waiting.phase).toBe('exit_waiting_tool_result');
+
+      expect(
+        releaseLegacyExitAdoptionWithDb(db, {
+          sessionId: 'session-a',
+          generation: adopted.generation,
+          expected: 'exit_waiting_tool_result',
+          updatedAt: 12,
+          lastError: 'provider result was not observed',
+        }),
+      ).toMatchObject({
+        phase: 'cleared',
+        lastError: 'provider result was not observed',
+      });
+      expect(
+        db
+          .prepare(`SELECT cwd_release_marker FROM sessions WHERE id = ?`)
+          .pluck()
+          .get('session-a'),
+      ).toBe('/repo/.agent-deck/worktrees/legacy');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('refuses legacy adoption when ownership changes after preflight', () => {
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      insertSession(db, 'session-a');
+      db.prepare(
+        `UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`,
+      ).run('/repo/.agent-deck/worktrees/new-owner', 'session-a');
+
+      expect(() =>
+        adoptLegacyExitWithDb(db, {
+          sessionId: 'session-a',
+          expectedMarker: '/repo/.agent-deck/worktrees/legacy',
+          originalCwd: '/repo',
+          mainRepo: '/repo',
+          worktreePath: '/repo/.agent-deck/worktrees/legacy',
+          workBranch: '',
+          baseBranch: 'HEAD',
+          baseCommit: 'a'.repeat(40),
+          toolUseId: 'tool-exit',
+          continuationKey: 'cwd-transition:session-a:exit:1',
+          discardChanges: false,
+          deleteBranch: false,
+          requestedAt: 10,
+        }),
+      ).toThrow(WorktreeTransitionConflictError);
+      expect(
+        db
+          .prepare(`SELECT COUNT(*) FROM worktree_cwd_transitions`)
+          .pluck()
+          .get(),
+      ).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
   it('adds a structured record while retaining the legacy marker projection', () => {
     const db = new Database(':memory:');
     try {

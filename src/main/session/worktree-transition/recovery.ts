@@ -12,7 +12,10 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import log from '@main/utils/logger';
-import { WORKTREE_TRANSITION_CONTINUATION } from './constants';
+import {
+  isLegacyExitContinuationKey,
+  WORKTREE_TRANSITION_CONTINUATION,
+} from './constants';
 import {
   cleanupStructuredWorktree,
   rollbackUnacknowledgedEnter,
@@ -238,6 +241,37 @@ async function restoreExitAtWorktree(
   );
 }
 
+async function releaseUnacknowledgedLegacyExit(
+  record: WorktreeTransitionRecord,
+): Promise<void> {
+  if (
+    record.phase !== 'exit_preflight' &&
+    record.phase !== 'exit_waiting_tool_result'
+  ) {
+    throw new Error(
+      `Cannot release acknowledged legacy exit ${record.sessionId}:${record.generation} from ${record.phase}.`,
+    );
+  }
+  const adapter = requireAdapter(record);
+  await enqueueBufferedInputs(record, adapter);
+  worktreeTransitionRepo.releaseLegacyExitAdoption({
+    sessionId: record.sessionId,
+    generation: record.generation,
+    expected: record.phase,
+    updatedAt: Date.now(),
+    lastError:
+      'Legacy exit tool result was not observed before restart; the marker and worktree were retained.',
+  });
+  adapter.releaseCwdTransition?.(record.sessionId, record.generation);
+  emitWorktreeSessionUpsert(record.sessionId);
+  emitWorktreeTransitionStatus(
+    record.sessionId,
+    '未确认的旧版 worktree 退出已取消，worktree 与清理标记均已保留',
+    true,
+    record.generation,
+  );
+}
+
 export async function completeAcknowledgedExit(
   initial: WorktreeTransitionRecord,
 ): Promise<void> {
@@ -338,6 +372,10 @@ async function reconcileRecord(record: WorktreeTransitionRecord): Promise<void> 
       return;
     case 'exit_preflight':
     case 'exit_waiting_tool_result':
+      if (isLegacyExitContinuationKey(record.continuationKey)) {
+        await releaseUnacknowledgedLegacyExit(record);
+        return;
+      }
       await restoreExitAtWorktree(
         record,
         '未确认的 worktree 退出已取消，仍在 worktree 工作目录',

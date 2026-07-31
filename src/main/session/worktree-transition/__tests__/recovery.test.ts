@@ -106,6 +106,23 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
         };
         return harness.record;
       },
+      releaseLegacyExitAdoption: (input: {
+        expected: WorktreeTransitionRecord['phase'];
+        updatedAt: number;
+        lastError: string;
+      }) => {
+        if (!harness.record || harness.record.phase !== input.expected) {
+          throw new Error('legacy release mismatch');
+        }
+        harness.record = {
+          ...harness.record,
+          phase: 'cleared',
+          targetCwd: harness.record.originalCwd,
+          updatedAt: input.updatedAt,
+          lastError: input.lastError,
+        };
+        return harness.record;
+      },
       markContinuationDelivered: () => {
         if (harness.record) harness.record.continuationDelivered = true;
         return true;
@@ -232,6 +249,26 @@ describe('worktree transition startup recovery', () => {
       direction: 'enter',
       targetCwd: '/repo/worktree',
     });
+  });
+
+  it('returns an unacknowledged adopted exit to its legacy marker without changing cwd', async () => {
+    harness.record = {
+      ...record('exit_waiting_tool_result', 'exit'),
+      continuationKey: 'worktree-cwd:legacy-exit:test-3',
+    };
+    harness.cwd = '/repo';
+    await recoverWorktreeTransition('session-a');
+    expect(harness.cleanup).not.toHaveBeenCalled();
+    expect(harness.cwd).toBe('/repo');
+    expect(harness.enqueue.mock.calls.map((call) => call[1])).toEqual([
+      'buffered',
+    ]);
+    expect(harness.record).toMatchObject({
+      phase: 'cleared',
+      targetCwd: '/repo',
+      lastError: expect.stringContaining('marker and worktree were retained'),
+    });
+    expect(harness.release).toHaveBeenCalledWith('session-a', 3);
   });
 
   it('restores original cwd but retains cleanup_pending on a second-check failure', async () => {

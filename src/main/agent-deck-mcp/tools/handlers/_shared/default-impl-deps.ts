@@ -5,7 +5,12 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { promises as fs, type Stats } from 'node:fs';
+import {
+  existsSync,
+  promises as fs,
+  realpathSync,
+  type Stats,
+} from 'node:fs';
 import * as os from 'node:os';
 
 const execFileAsync = promisify(execFile);
@@ -17,15 +22,22 @@ const execFileAsync = promisify(execFile);
  * `git status --porcelain=v1 -z` 场景；详 archive-plan-impl ArchivePlanDeps.runGit jsdoc）。
  * 默认 raw=false 适合 rev-parse / commit / status --porcelain 等单行 trim 安全场景。
  *
- * 注：archive-plan-impl 用 3 参签名（含 opts.raw），hand-off / enter / exit 用 2 参签名
- * （没有 opts），TS 兼容性靠 opts 可选 + 各 caller 类型签名独立约束。
+ * 注：archive-plan-impl uses opts.raw, while bounded worktree paths use opts.timeoutMs. Most
+ * handler dependency seams still expose a two-argument signature; optional opts keeps them
+ * compatible.
  */
 export const runGitDefault = async (
   args: readonly string[],
   cwd: string,
-  opts?: { raw?: boolean },
+  opts?: { raw?: boolean; timeoutMs?: number },
 ): Promise<string> => {
-  const { stdout } = await execFileAsync('git', args as string[], { cwd, maxBuffer: 1024 * 1024 });
+  const { stdout } = await execFileAsync('git', args as string[], {
+    cwd,
+    maxBuffer: 1024 * 1024,
+    ...(opts?.timeoutMs !== undefined
+      ? { timeout: opts.timeoutMs }
+      : {}),
+  });
   if (opts?.raw) return stdout.toString();
   return stdout.toString().trim();
 };
@@ -62,6 +74,15 @@ export const existsDefault = async (p: string): Promise<boolean> => {
 
 /** realpath 解 symlink，失败抛（caller 决定是否兜底）。 */
 export const realpathDefault = async (p: string): Promise<string> => fs.realpath(p);
+
+/**
+ * Main-process worktree transition preflights use synchronous metadata syscalls so a saturated
+ * libuv filesystem pool cannot strand an MCP request before its first bounded Git command.
+ */
+export const existsSyncDefault = (p: string): boolean => existsSync(p);
+
+/** Synchronous realpath counterpart for bounded worktree transition preflights. */
+export const realpathSyncDefault = (p: string): string => realpathSync.native(p);
 
 /** 当前进程 cwd。 */
 export const cwdDefault = (): string => process.cwd();
