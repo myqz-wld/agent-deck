@@ -31,13 +31,8 @@ export interface TokenUsageRepo {
 export function createTokenUsageRepo(db: Database): TokenUsageRepo {
   let dailyRollup: ReturnType<typeof createTokenUsageDailyRollup> | undefined;
 
-  function getDailyRollup(): ReturnType<typeof createTokenUsageDailyRollup> | null {
+  function getDailyRollup(): ReturnType<typeof createTokenUsageDailyRollup> {
     if (dailyRollup) return dailyRollup;
-    const migrated = db.prepare(
-      `SELECT 1 FROM sqlite_schema
-        WHERE type = 'table' AND name = 'token_usage_daily_state'`,
-    ).get();
-    if (!migrated) return null;
     dailyRollup = createTokenUsageDailyRollup(db);
     return dailyRollup;
   }
@@ -110,7 +105,7 @@ export function createTokenUsageRepo(db: Database): TokenUsageRepo {
     if (fromMs !== undefined || toMs !== undefined) {
       return queryTokenUsageDaily(db, fromMs, toMs);
     }
-    return getDailyRollup()?.read() ?? queryTokenUsageDaily(db);
+    return getDailyRollup().read();
   }
 
   function deleteOlderThan(thresholdMs: number): number {
@@ -357,11 +352,6 @@ function defaultRepo(): TokenUsageRepo {
     _defaultRepo = createTokenUsageRepo(db);
   }
   return _defaultRepo;
-}
-
-export function resetTokenUsageRepoForTests(): void {
-  _defaultRepo = null;
-  _defaultDb = null;
 }
 
 export const tokenUsageRepo: TokenUsageRepo = {

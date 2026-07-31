@@ -91,24 +91,12 @@ export function ArchiveIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><path d="M4 7h16v14H4V7ZM3 3h18v4H3V3Z" /><path d="M9 11h6" /></SvgIcon>;
 }
 
-export function VolumeIcon(props: SvgIconProps): JSX.Element {
-  return <SvgIcon {...props}><path d="M4 10v4h4l5 4V6l-5 4H4Z" /><path d="M16 9c1.5 1.7 1.5 4.3 0 6M19 6c3.3 3.3 3.3 8.7 0 12" /></SvgIcon>;
-}
-
 export function PlayIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><path d="m8 5 11 7-11 7V5Z" fill="currentColor" /></SvgIcon>;
 }
 
 export function RefreshIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><path d="M20 7v5h-5M4 17v-5h5" /><path d="M6.2 8A7 7 0 0 1 18 6l2 2M17.8 16A7 7 0 0 1 6 18l-2-2" /></SvgIcon>;
-}
-
-export function SearchIcon(props: SvgIconProps): JSX.Element {
-  return <SvgIcon {...props}><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></SvgIcon>;
-}
-
-export function TerminalIcon(props: SvgIconProps): JSX.Element {
-  return <SvgIcon {...props}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 16h4" /></SvgIcon>;
 }
 
 export function WrenchIcon(props: SvgIconProps): JSX.Element {

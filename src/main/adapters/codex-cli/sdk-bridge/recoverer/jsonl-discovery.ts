@@ -1,20 +1,4 @@
-/**
- * Phase 4 Step 4.3 jsonl 探测 helper — codex jsonl 发现 + cwd 存在性默认实现。
- *
- * 3 export helper + 1 internal helper(从 recoverer.ts L489-end 抽出):
- * - `defaultCodexResumeJsonlExists`: facade.codexResumeJsonlExists 默认实现 (扫
- *   ~/.codex/sessions/<YYYY>/<MM>/<DD>/ 找匹配 thread_id 的 rollout 文件)
- * - `findThreadJsonlByRecursiveScan`: internal helper,±1 day fast path miss 后递归扫
- *   sessionsRoot 兜底 (REVIEW_56 §F2 修法)
- * - `defaultCwdExists`: facade.cwdExists 默认实现 (fs.existsSync,fail-safe 返 true)
- *
- * **codex CLI jsonl 路径规则**:
- *   `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<TIMESTAMP>-<thread_id>.jsonl`
- *   YYYY/MM/DD = codex 创建 thread 时的本地日期；TIMESTAMP = 同时刻 ISO 字符串
- *
- * **facade re-export**: recoverer.ts facade re-export 3 export helper 保 byte-identical
- * external import path (`from './recoverer'` caller 站点零变更继续工作)。
- */
+/** Default Codex transcript and cwd probes used by SessionRecoverer. */
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

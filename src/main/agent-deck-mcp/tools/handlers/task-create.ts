@@ -5,7 +5,7 @@
  * 抽出，转 makeCtx + HandlerContext.caller 模式（与现有 10 个 agent-deck-mcp tool 同款）。
  *
  * **D5**: callerSessionId comes from HandlerContext after transport authentication.
- * **D6**: EXTERNAL_CALLER_ALLOWED.task_create = false，withMcpGuard 自动 deny stdio sentinel
+ * **D6**: EXTERNAL_CALLER_ALLOWED.task_create = false，withMcpGuard 自动 deny external sentinel
  * **D7**: ingest 仅在 in-process transport（claude SDK session events 流看得到 team-task-*）；
  *   HTTP transport（codex SDK 子进程）skip ingest（codex SessionDetail 渲染 team-task-* event 未实证）
  *
@@ -76,7 +76,7 @@ export const taskCreateHandler = withMcpGuard(
         ownerSessionId: created.ownerSessionId,
         ts: Date.now(),
       });
-      // D7：in-process 路径 ingest team-task-created；HTTP/stdio transport skip
+      // D7：in-process 路径 ingest team-task-created；HTTP transport skip
       // （codex SDK 子进程 SessionDetail 渲染 team-task-* event 未实证）
       // CHANGELOG_165 修法: 加 `args.teamId` 第二守卫 (truthy check 也覆盖 null/undefined),
       // personal task skip ingest — kind 名 `team-task-created` 与 personal task 语义不符,

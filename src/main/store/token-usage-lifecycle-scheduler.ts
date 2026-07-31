@@ -104,13 +104,3 @@ export class TokenUsageLifecycleScheduler {
     this.catchUpTimer = null;
   }
 }
-
-let activeScheduler: TokenUsageLifecycleScheduler | null = null;
-
-export function setTokenUsageLifecycleScheduler(s: TokenUsageLifecycleScheduler | null): void {
-  activeScheduler = s;
-}
-
-export function getTokenUsageLifecycleScheduler(): TokenUsageLifecycleScheduler | null {
-  return activeScheduler;
-}

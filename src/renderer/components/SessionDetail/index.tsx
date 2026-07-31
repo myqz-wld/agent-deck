@@ -14,9 +14,6 @@ import { SessionMetadataChips } from '../SessionMetadataChips';
 import { SessionPinButton } from '../SessionPinButton';
 import { ArrowLeftIcon, CloseIcon } from '../icons';
 import {
-  EMPTY_ASK_QUESTIONS,
-  EMPTY_EXIT_PLAN_MODES,
-  EMPTY_REQUESTS,
   useSessionStore,
 } from '@renderer/stores/session-store';
 import { SourceBadge } from './SourceBadge';
@@ -74,20 +71,6 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     };
   }, []);
 
-  /** 留作选择器但目前未渲染 banner —— 活动流的 PermissionRow / AskRow / ExitPlanRow 已统一接管。
-   *  拿一下值用 void 标记 used，免得删 selector 还要清 EMPTY_REQUESTS / EMPTY_ASK_QUESTIONS / EMPTY_EXIT_PLAN_MODES。 */
-  const pendingPermissions = useSessionStore(
-    (s) => s.pendingPermissionsBySession.get(session.id) ?? EMPTY_REQUESTS,
-  );
-  const pendingAskQuestions = useSessionStore(
-    (s) => s.pendingAskQuestionsBySession.get(session.id) ?? EMPTY_ASK_QUESTIONS,
-  );
-  const pendingExitPlanModes = useSessionStore(
-    (s) => s.pendingExitPlanModesBySession.get(session.id) ?? EMPTY_EXIT_PLAN_MODES,
-  );
-  void pendingPermissions;
-  void pendingAskQuestions;
-  void pendingExitPlanModes;
   const recent = useSessionStore(
     (s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS_FOR_TOAST,
   );

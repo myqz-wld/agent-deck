@@ -19,7 +19,6 @@ export type WorktreeTransitionDirection = 'enter' | 'exit';
 
 export interface WorktreeTransitionRecord {
   sessionId: string;
-  formatVersion: 1;
   generation: number;
   direction: WorktreeTransitionDirection;
   phase: WorktreeTransitionPhase;

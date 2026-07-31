@@ -35,5 +35,3 @@ export interface GrokTurnQueueOptions {
   providerCompletionPollMs?: number;
   providerHistoryRoot?: string;
 }
-
-export type GrokRuntimeEvent = (runtime: GrokRuntime) => void;

@@ -85,10 +85,8 @@ vi.mock('../../adapters/registry', () => ({
   },
 }));
 vi.mock('../../session/lifecycle-scheduler', () => ({ setLifecycleScheduler: vi.fn() }));
-vi.mock('../../teams/team-lifecycle-scheduler', () => ({ setTeamLifecycleScheduler: vi.fn() }));
 vi.mock('../../store/issue-lifecycle-scheduler', () => ({ setIssueLifecycleScheduler: vi.fn() }));
 vi.mock('../../store/message-lifecycle-scheduler', () => ({ setMessageLifecycleScheduler: vi.fn() }));
-vi.mock('../../store/token-usage-lifecycle-scheduler', () => ({ setTokenUsageLifecycleScheduler: vi.fn() }));
 vi.mock('../../session/summarizer', () => ({ summarizer: { stop: vi.fn() } }));
 vi.mock('../../session/continuation-context/checkpoint-refresh-service', () => ({
   stopContinuationCheckpointRefreshService: mocks.checkpointStop,

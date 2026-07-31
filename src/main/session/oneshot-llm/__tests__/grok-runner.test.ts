@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildGrokHeadlessArgs,
@@ -13,6 +13,35 @@ const fixture = fileURLToPath(
   new URL('./fixtures/fake-grok-headless.mjs', import.meta.url),
 );
 const tempRoots: string[] = [];
+const processHarness = vi.hoisted(() => ({
+  argsPrefix: [] as string[],
+  env: {} as Record<string, string>,
+}));
+
+vi.mock('@main/adapters/grok-build/resolve-grok-binary', () => ({
+  resolveGrokBinary: vi.fn(async () => '/test/grok'),
+}));
+
+vi.mock('@main/adapters/grok-build/launch-child', () => ({
+  buildGrokLaunchSpec: (_binary: string, args: string[]) => ({
+    command: process.execPath,
+    args: [...processHarness.argsPrefix, ...args],
+    useLoginShell: false,
+  }),
+  buildGrokChildEnv: (extra: Record<string, string> = {}) => ({
+    ...process.env,
+    ...processHarness.env,
+    ...extra,
+    AGENT_DECK_ORIGIN: 'sdk',
+    GROK_CLAUDE_HOOKS_ENABLED: '0',
+    GROK_CURSOR_HOOKS_ENABLED: '0',
+  }),
+}));
+
+beforeEach(() => {
+  processHarness.argsPrefix = [fixture];
+  processHarness.env = {};
+});
 
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
@@ -59,6 +88,10 @@ describe('Grok isolated oneshot runner', () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-deck-grok-runner-test-'));
     tempRoots.push(root);
     const logPath = join(root, 'calls.jsonl');
+    processHarness.env = {
+      FAKE_GROK_LOG: logPath,
+      FAKE_GROK_RESPONSE: 'compact summary',
+    };
     const result = await runGrokOneshot({
       prompt: 'summarize this evidence',
       systemPrompt: 'return text only',
@@ -66,14 +99,6 @@ describe('Grok isolated oneshot runner', () => {
       effort: 'high',
       timeoutMs: 5_000,
       timeoutErrorMessage: 'timeout',
-      testCommand: {
-        binary: process.execPath,
-        argsPrefix: [fixture],
-      },
-      envOverride: {
-        FAKE_GROK_LOG: logPath,
-        FAKE_GROK_RESPONSE: 'compact summary',
-      },
     });
 
     expect(result).toEqual({
@@ -119,6 +144,10 @@ describe('Grok isolated oneshot runner', () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-deck-grok-runner-timeout-'));
     tempRoots.push(root);
     const logPath = join(root, 'calls.jsonl');
+    processHarness.env = {
+      FAKE_GROK_LOG: logPath,
+      FAKE_GROK_DELAY_MS: '10000',
+    };
 
     await expect(
       runGrokOneshot({
@@ -126,14 +155,6 @@ describe('Grok isolated oneshot runner', () => {
         systemPrompt: 'system',
         timeoutMs: 20,
         timeoutErrorMessage: 'grok timeout',
-        testCommand: {
-          binary: process.execPath,
-          argsPrefix: [fixture],
-        },
-        envOverride: {
-          FAKE_GROK_LOG: logPath,
-          FAKE_GROK_DELAY_MS: '10000',
-        },
       }),
     ).rejects.toThrow('grok timeout');
 
@@ -147,6 +168,10 @@ describe('Grok isolated oneshot runner', () => {
   it('returns Grok structuredOutput as checkpoint JSON text', async () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-deck-grok-runner-structured-'));
     tempRoots.push(root);
+    processHarness.env = {
+      FAKE_GROK_LOG: join(root, 'calls.jsonl'),
+      FAKE_GROK_STRUCTURED_OUTPUT: '{"version":1}',
+    };
     const result = await runGrokOneshot({
       prompt: 'checkpoint',
       systemPrompt: 'return structured output',
@@ -156,14 +181,6 @@ describe('Grok isolated oneshot runner', () => {
       },
       timeoutMs: 5_000,
       timeoutErrorMessage: 'timeout',
-      testCommand: {
-        binary: process.execPath,
-        argsPrefix: [fixture],
-      },
-      envOverride: {
-        FAKE_GROK_LOG: join(root, 'calls.jsonl'),
-        FAKE_GROK_STRUCTURED_OUTPUT: '{"version":1}',
-      },
     });
 
     expect(result.text).toBe('{"version":1}');
@@ -177,43 +194,35 @@ describe('Grok isolated oneshot runner', () => {
       systemPrompt: 'return text',
       timeoutMs: 5_000,
       timeoutErrorMessage: 'timeout',
-      testCommand: {
-        binary: process.execPath,
-        argsPrefix: [fixture],
-      },
     };
 
+    processHarness.env = {
+      FAKE_GROK_LOG: join(root, 'failed.jsonl'),
+      FAKE_GROK_ERROR: 'provider unavailable',
+    };
     await expect(
-      runGrokOneshot({
-        ...baseOptions,
-        envOverride: {
-          FAKE_GROK_LOG: join(root, 'failed.jsonl'),
-          FAKE_GROK_ERROR: 'provider unavailable',
-        },
-      }),
+      runGrokOneshot(baseOptions),
     ).rejects.toThrow('Grok Build 单次运行失败：provider unavailable');
 
+    processHarness.env = {
+      FAKE_GROK_LOG: join(root, 'oversized.jsonl'),
+      FAKE_GROK_RESPONSE: 'too long',
+    };
     await expect(
       runGrokOneshot({
         ...baseOptions,
         maxOutputBytes: 4,
-        envOverride: {
-          FAKE_GROK_LOG: join(root, 'oversized.jsonl'),
-          FAKE_GROK_RESPONSE: 'too long',
-        },
       }),
     ).rejects.toThrow('Grok Build 单次运行响应超过 4 字节上限。');
 
+    processHarness.argsPrefix = ['-e', 'process.stdout.write("not-json")', '--'];
+    processHarness.env = {};
     await expect(
       runGrokOneshot({
         prompt: 'checkpoint',
         systemPrompt: 'return text',
         timeoutMs: 5_000,
         timeoutErrorMessage: 'timeout',
-        testCommand: {
-          binary: process.execPath,
-          argsPrefix: ['-e', 'process.stdout.write("not-json")', '--'],
-        },
       }),
     ).rejects.toThrow('Grok Build 单次运行返回无效 JSON。');
   });

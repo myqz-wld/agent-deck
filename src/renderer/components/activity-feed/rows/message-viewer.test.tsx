@@ -8,10 +8,7 @@ import {
 } from '@testing-library/react';
 import type { AgentEvent } from '@shared/types';
 import { MessageBubble } from './message-row';
-import {
-  createMessageContentPayload,
-  normalizeAgentMessage,
-} from '../viewers/message-content';
+import { normalizeAgentMessage } from '../viewers/message-content';
 
 vi.mock('@renderer/components/MarkdownText', () => ({
   MarkdownText: ({ text }: { text: string }) => <div data-testid="markdown">{text}</div>,
@@ -75,40 +72,6 @@ describe('MessageBubble original inline presentation', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('keeps complete wire and hand-off metadata without fictional attachment references', () => {
-    const event: AgentEvent = {
-      sessionId: 'session-1',
-      agentId: 'codex-cli',
-      kind: 'message',
-      payload: {
-        role: 'user',
-        text: '[from Reviewer @ claude-code][msg message-9][sid source-9]\nBody',
-        handOff: {
-          mode: 'session',
-          fromCallerSid: 'caller-9',
-          sourceMaxEventId: 99,
-        },
-        attachments: [{
-          kind: 'uploaded',
-          path: '/uploads/image.png',
-          mime: 'image/png',
-          bytes: 42,
-        }],
-      },
-      ts: 9,
-    };
-    const payload = createMessageContentPayload(normalizeAgentMessage(event), 'plaintext');
-    expect(payload.attachments[0]?.reference).toBeUndefined();
-    expect(payload.metadata).toMatchObject({
-      wireFrom: 'Reviewer',
-      wireAdapter: 'Claude Code',
-      wireMessageId: 'message-9',
-      wireSenderSessionId: 'source-9',
-      handOffSourceSessionId: 'caller-9',
-      handOffSourceEventId: 99,
-    });
-  });
-
   it('renders worktree transition status as a compact system row', () => {
     const event: AgentEvent = {
       sessionId: 'session-1',
@@ -127,9 +90,7 @@ describe('MessageBubble original inline presentation', () => {
       isSystem: true,
       isUser: false,
     });
-    expect(
-      createMessageContentPayload(normalized, 'plaintext').metadata?.role,
-    ).toBe('system');
+    expect(normalized.role).toBe('system');
 
     render(<MessageBubble event={event} agentId="codex-cli" />);
 

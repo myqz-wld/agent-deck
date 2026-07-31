@@ -38,11 +38,6 @@ CREATE TABLE agent_deck_teams (
   archive_reason TEXT
 );
 
-CREATE TABLE app_meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
 CREATE TABLE continuation_checkpoints (
   id                            INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id                    TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -297,7 +292,6 @@ CREATE TABLE worktree_cwd_transition_inputs (
 
 CREATE TABLE worktree_cwd_transitions (
   session_id TEXT PRIMARY KEY,
-  format_version INTEGER NOT NULL DEFAULT 1 CHECK (format_version = 1),
   generation INTEGER NOT NULL CHECK (generation > 0),
   direction TEXT NOT NULL CHECK (direction IN ('enter', 'exit')),
   phase TEXT NOT NULL CHECK (

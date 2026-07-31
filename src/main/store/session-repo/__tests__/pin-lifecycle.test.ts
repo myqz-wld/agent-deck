@@ -206,17 +206,11 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
     }
   });
 
-  it('preserves the source pin across both rename paths, including NULL clearing target state', () => {
+  it('preserves the source pin when creating the canonical session id', () => {
     insertSession(db, 'old-missing-target');
     sessionRepo.setPinned('old-missing-target', 700);
     renameWithDb(db, 'old-missing-target', 'new-missing-target');
     expect(sessionRepo.get('new-missing-target')?.pinnedAt).toBe(700);
-
-    insertSession(db, 'old-existing-target');
-    insertSession(db, 'new-existing-target');
-    sessionRepo.setPinned('new-existing-target', 900);
-    renameWithDb(db, 'old-existing-target', 'new-existing-target');
-    expect(sessionRepo.get('new-existing-target')?.pinnedAt).toBeNull();
   });
 
   it('rechecks pin, source lifecycle, and inactivity at the lifecycle write boundary', () => {

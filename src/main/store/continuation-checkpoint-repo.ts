@@ -1,6 +1,5 @@
 import type { Database } from 'better-sqlite3';
 import { canonicalizeContinuationCheckpoint } from '@main/session/continuation-context/checkpoint-schema';
-import { getDb } from './db';
 import {
   assertCheckpointEvidenceWithinCoverage,
   latestValidatedContinuationCheckpoint,
@@ -214,11 +213,3 @@ export function createContinuationCheckpointRepo(db: Database): ContinuationChec
 
   return { latest, latestAtOrBefore, commit };
 }
-
-/** Production facade that resolves the current process database on every call. */
-export const continuationCheckpointRepo: ContinuationCheckpointRepo = {
-  latest: (sessionId) => createContinuationCheckpointRepo(getDb()).latest(sessionId),
-  latestAtOrBefore: (sessionId, revision) =>
-    createContinuationCheckpointRepo(getDb()).latestAtOrBefore(sessionId, revision),
-  commit: (input) => createContinuationCheckpointRepo(getDb()).commit(input),
-};

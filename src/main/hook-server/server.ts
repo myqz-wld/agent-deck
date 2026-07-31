@@ -231,7 +231,7 @@ export class HookServer {
     return this.hookToken;
   }
 
-  /** MCP transport（HTTP /mcp + stdio）Bearer token，B'4 Codex CLI 自动注入用 + Settings UI 复制按钮用。 */
+  /** MCP HTTP `/mcp` Bearer token，供 Codex CLI 自动注入和 Settings UI 复制。 */
   get mcpBearerToken(): string {
     return this.mcpToken;
   }

@@ -15,7 +15,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { defaultCodexResumeJsonlExists } from '../recoverer';
+import { defaultCodexResumeJsonlExists } from '../recoverer/jsonl-discovery';
 
 /**
  * defaultCodexResumeJsonlExists 内部 hardcode ~/.codex/sessions(`join(homedir(), '.codex', 'sessions')`),

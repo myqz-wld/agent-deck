@@ -42,11 +42,6 @@ export interface GrokOneshotResult {
   stopReason: string | null;
 }
 
-interface GrokTestCommand {
-  binary: string;
-  argsPrefix?: string[];
-}
-
 export interface RunGrokOneshotOptions {
   prompt: string;
   systemPrompt: string;
@@ -59,10 +54,6 @@ export interface RunGrokOneshotOptions {
   timeoutMs: number;
   timeoutErrorMessage: string;
   signal?: AbortSignal;
-  /** Deterministic process seam; production always resolves the configured Grok Build CLI. */
-  testCommand?: GrokTestCommand;
-  /** Test-only environment overlay for a deterministic fixture. */
-  envOverride?: Readonly<Record<string, string>>;
 }
 
 export function buildGrokHeadlessArgs(input: {
@@ -138,9 +129,7 @@ export async function runGrokOneshot(
   let child: ChildProcessWithoutNullStreams | null = null;
   try {
     writeFileSync(promptFile, options.prompt, { encoding: 'utf8', mode: 0o600 });
-    binary =
-      options.testCommand?.binary ??
-      await resolveGrokBinary(options.binaryPath ?? null);
+    binary = await resolveGrokBinary(options.binaryPath ?? null);
     const args = buildGrokHeadlessArgs({
       promptFile,
       sessionId,
@@ -149,26 +138,17 @@ export async function runGrokOneshot(
       ...(options.effort ? { effort: options.effort } : {}),
       ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
     });
-    const command = options.testCommand
-      ? {
-          command: binary,
-          args: [...(options.testCommand.argsPrefix ?? []), ...args],
-          dedicatedOutput: false,
-        }
-      : (() => {
-          const spec = buildGrokLaunchSpec(binary!, args);
-          return {
-            command: spec.command,
-            args: spec.args,
-            dedicatedOutput: spec.useLoginShell,
-          };
-        })();
+    const spec = buildGrokLaunchSpec(binary, args);
+    const command = {
+      command: spec.command,
+      args: spec.args,
+      dedicatedOutput: spec.useLoginShell,
+    };
 
     child = spawn(command.command, command.args, {
       cwd: isolatedCwd,
       env: buildGrokChildEnv({
         GROK_DISABLE_AUTOUPDATER: '1',
-        ...(options.envOverride ?? {}),
       }),
       stdio: command.dedicatedOutput
         ? ['pipe', 'pipe', 'pipe', 'pipe']
@@ -193,12 +173,7 @@ export async function runGrokOneshot(
   } finally {
     if (child) await stopChild(child);
     if (binary && child) {
-      await deleteEphemeralSession(
-        binary,
-        sessionId,
-        options.testCommand,
-        options.envOverride,
-      );
+      await deleteEphemeralSession(binary, sessionId);
     }
     rmSync(isolatedCwd, { recursive: true, force: true });
   }
@@ -330,25 +305,15 @@ async function waitForChildClose(
 async function deleteEphemeralSession(
   binary: string,
   sessionId: string,
-  testCommand?: GrokTestCommand,
-  envOverride?: Readonly<Record<string, string>>,
 ): Promise<void> {
-  const command = testCommand
-    ? {
-        command: binary,
-        args: [...(testCommand.argsPrefix ?? []), 'sessions', 'delete', sessionId],
-        dedicatedOutput: false,
-      }
-    : (() => {
-        const spec = buildGrokLaunchSpec(binary, ['sessions', 'delete', sessionId]);
-        return {
-          command: spec.command,
-          args: spec.args,
-          dedicatedOutput: spec.useLoginShell,
-        };
-      })();
+  const spec = buildGrokLaunchSpec(binary, ['sessions', 'delete', sessionId]);
+  const command = {
+    command: spec.command,
+    args: spec.args,
+    dedicatedOutput: spec.useLoginShell,
+  };
   const child = spawn(command.command, command.args, {
-    env: buildGrokChildEnv(envOverride),
+    env: buildGrokChildEnv(),
     stdio: command.dedicatedOutput
       ? ['ignore', 'ignore', 'ignore', 'ignore']
       : 'ignore',

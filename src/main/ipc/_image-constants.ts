@@ -34,23 +34,6 @@ export const MIME_BY_EXT: Record<string, string> = {
 };
 
 /**
- * 用户上传图片白名单：Claude SDK Base64ImageSource.media_type 只接 4 种
- * （`'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'`），应用层主动收口，
- * 避免用户上传 .heic / .svg 后跑到 SDK 才报错。
- *
- * codex SDK `local_image` 文档没明说支持格式，但 vision 模型实际接 png/jpg/webp 等
- * 通用格式（不接 heic / svg），与 Claude 收紧到同一子集刚好。
- *
- * 未来想扩支持，需双 SDK 都验证通过，再动这两张表。
- */
-export const ALLOWED_UPLOAD_MIMES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-]);
-
-/**
  * mime → 优选 ext 反查表。同 mime 多 ext 时（如 image/jpeg 可以是 .jpg / .jpeg），固定一个：
  * - 用户传 image/jpeg → 落盘 .jpg（更短更通用）
  * - 用户传非白名单 mime → undefined（writeUploadedImage 拒）

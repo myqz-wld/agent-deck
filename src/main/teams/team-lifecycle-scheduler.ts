@@ -195,13 +195,3 @@ export class TeamLifecycleScheduler {
     this.catchUpTimer = null;
   }
 }
-
-let activeScheduler: TeamLifecycleScheduler | null = null;
-
-export function setTeamLifecycleScheduler(scheduler: TeamLifecycleScheduler | null): void {
-  activeScheduler = scheduler;
-}
-
-export function getTeamLifecycleScheduler(): TeamLifecycleScheduler | null {
-  return activeScheduler;
-}

@@ -1,10 +1,5 @@
 import { z } from 'zod';
 import type { AgentEvent } from '@shared/types';
-import {
-  SDK_CALLER_SESSION_ID_DESCRIPTION,
-  SDK_READ_CALLER_SESSION_ID_DESCRIPTION,
-  SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION,
-} from './shared';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 
 export const SEND_MESSAGE_SCHEMA = {
@@ -18,12 +13,6 @@ export const SEND_MESSAGE_SCHEMA = {
     .min(1)
     .max(MAX_USER_MESSAGE_LENGTH)
     .describe('Message body to inject as a user-role turn in the target session. Include enough context for the receiver to act without polling.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
   // R3.E0 ADR §5.2 amend：multi-team 共享时必填，单 team 共享时可省（自动 resolve）。
   // plan teamless-dm-20260601：无 shared team 时省略 teamId → teamless DM（自动降级）。
   teamId: z
@@ -59,12 +48,6 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
     .max(120)
     .optional()
     .describe('Optional short title shown above the plan presentation card.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 const DIFF_REVIEW_TEXT = z.string().max(100_000);
@@ -188,21 +171,9 @@ export const REQUEST_DIFF_REVIEW_SCHEMA = {
     .describe(
       'Optional timeout in milliseconds. Omit to use the app permission-request timeout; when that setting is 0, omitted timeoutMs waits until the user confirms or requests changes.',
     ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const LIST_SESSIONS_SCHEMA = {
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
   statusFilter: z
     .enum(['active', 'dormant', 'closed', 'all'])
     .default('active')
@@ -236,12 +207,6 @@ export const LIST_SESSIONS_SCHEMA = {
 };
 
 export const GET_SESSION_SCHEMA = {
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
   sessionId: z
     .string()
     .min(1)
@@ -250,14 +215,6 @@ export const GET_SESSION_SCHEMA = {
 };
 
 export const LIST_SESSION_EVENTS_SCHEMA = {
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(
-      `${SDK_CALLER_SESSION_ID_DESCRIPTION} Unlike broad read-only discovery tools, this tool rejects external callers because trajectory visibility requires a real session identity.`,
-    ),
   sessionId: z
     .string()
     .min(1)
@@ -287,12 +244,6 @@ export const SHUTDOWN_SESSION_SCHEMA = {
     .min(1)
     .max(128)
     .describe('Target session id to close. The caller cannot shut down itself.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
   reason: z
     .string()
     .max(500)

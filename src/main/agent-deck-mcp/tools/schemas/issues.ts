@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type { IssueRecord } from '@shared/types';
-import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.3.1 / §D2 / §D17 / §D19)
@@ -104,12 +103,6 @@ export const REPORT_ISSUE_SCHEMA = {
     .max(16)
     .optional()
     .describe('Optional free-form tags (max 16 items, each 1-64 chars)'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 /**
@@ -130,12 +123,6 @@ export const APPEND_ISSUE_CONTEXT_SCHEMA = {
   logsRef: LOGS_REF_SCHEMA.optional().describe(
     'Optional logsRef pointer to merge into the issue. Same shape as report_issue.logsRef; date is always required when logsRef is present.',
   ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 /**
@@ -157,12 +144,6 @@ export const UPDATE_ISSUE_STATUS_SCHEMA = {
     .max(2000)
     .optional()
     .describe('Optional note kept as an appendix explaining how you fixed it or why you reopened it.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 // Args type infer

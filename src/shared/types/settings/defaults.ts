@@ -83,7 +83,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   enableAgentDeckMcp: true,
   mcpServerToken: null,
   mcpHttpEnabled: true,
-  mcpStdioEnabled: true,
   mcpMaxSpawnDepth: 3,
   mcpSpawnRatePerMinute: 20,
   mcpMaxFanOutPerParent: 10,

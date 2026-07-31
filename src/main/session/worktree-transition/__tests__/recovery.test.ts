@@ -140,7 +140,6 @@ function record(
 ): WorktreeTransitionRecord {
   return {
     sessionId: 'session-a',
-    formatVersion: 1,
     generation: 3,
     direction,
     phase,

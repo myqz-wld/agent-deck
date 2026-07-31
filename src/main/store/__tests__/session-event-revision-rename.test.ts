@@ -97,68 +97,32 @@ describe.skipIf(!bindingAvailable)('session rename / v037 event revision boundar
     ]);
   });
 
-  it('allocates beyond a moved source summary whose revision and rebuild epoch already match', () => {
+  it('rejects an existing target without mutating either session', () => {
     insertSession(db, 'source');
     insertSession(db, 'target');
     const sourceEvent = insertMessage(db, 'source', 'source history');
-    insertMessage(db, 'target', 'target history');
-    db.prepare(`UPDATE events SET change_revision = 10 WHERE id = ?`).run(sourceEvent);
-    db.prepare(
-      `UPDATE session_event_revisions
-          SET revision = 10, rebuild_after_revision = 10
-        WHERE session_id = 'source'`,
-    ).run();
-    db.prepare(
-      `INSERT INTO summaries (
-         session_id, content, trigger, ts, source_event_revision,
-         source_rebuild_after_revision, generation_source
-       ) VALUES ('source', 'source-only summary', 'time', 10, 10, 10, 'llm')`,
-    ).run();
+    const targetEvent = insertMessage(db, 'target', 'target history');
+    const sourceBefore = revisionState(db, 'source');
+    const targetBefore = revisionState(db, 'target');
 
-    renameWithDb(db, 'source', 'target');
+    expect(() => renameWithDb(db, 'source', 'target')).toThrow(
+      'Cannot rename session source to existing session target',
+    );
 
-    expect(revisionState(db, 'target')).toEqual({
-      revision: 11,
-      rebuild_after_revision: 11,
-    });
     expect(
       db.prepare(
-        `SELECT source_event_revision, source_rebuild_after_revision
-           FROM summaries WHERE session_id = 'target'`,
-      ).get(),
-    ).toEqual({
-      source_event_revision: 10,
-      source_rebuild_after_revision: 10,
-    });
+        `SELECT id, session_id FROM events WHERE id IN (?, ?) ORDER BY id`,
+      ).all(sourceEvent, targetEvent),
+    ).toEqual([
+      { id: sourceEvent, session_id: 'source' },
+      { id: targetEvent, session_id: 'target' },
+    ]);
+    expect(revisionState(db, 'source')).toEqual(sourceBefore);
+    expect(revisionState(db, 'target')).toEqual(targetBefore);
   });
 
-  it('advances an existing target once even when moved revisions do not exceed its head', () => {
+  it('keeps zero-event revision state when creating the target', () => {
     insertSession(db, 'source');
-    insertSession(db, 'target');
-    insertMessage(db, 'source', 'from source');
-    insertMessage(db, 'target', 'already there');
-    const before = revisionState(db, 'target');
-
-    renameWithDb(db, 'source', 'target');
-
-    expect(before).toEqual({ revision: 1, rebuild_after_revision: 0 });
-    expect(revisionState(db, 'target')).toEqual({
-      revision: 2,
-      rebuild_after_revision: 2,
-    });
-    expect(
-      (db.prepare(`SELECT COUNT(*) AS count FROM events WHERE session_id = ?`).get('target') as {
-        count: number;
-      }).count,
-    ).toBe(2);
-  });
-
-  it.each([
-    { targetExists: false, label: 'missing target' },
-    { targetExists: true, label: 'existing target' },
-  ])('keeps zero-event revision state for a $label', ({ targetExists }) => {
-    insertSession(db, 'source');
-    if (targetExists) insertSession(db, 'target');
 
     renameWithDb(db, 'source', 'target');
 
@@ -166,54 +130,6 @@ describe.skipIf(!bindingAvailable)('session rename / v037 event revision boundar
     expect(revisionState(db, 'target')).toEqual({
       revision: 1,
       rebuild_after_revision: 1,
-    });
-  });
-
-  it('invalidates existing target checkpoints and cascades source checkpoints atomically', () => {
-    insertSession(db, 'source');
-    insertSession(db, 'target');
-    const sourceEvent = insertMessage(db, 'source', 'source history');
-    const targetEvent = insertMessage(db, 'target', 'target history');
-    const checkpoints = createContinuationCheckpointRepo(db);
-    expect(
-      checkpoints.commit({
-        sessionId: 'source',
-        expectedHeadId: null,
-        expectedRebuildAfterRevision: 0,
-        sourceEventRevision: 1,
-        sourceMaxEventId: sourceEvent,
-        checkpoint: minimalCheckpoint(sourceEvent, 1),
-        generatorAdapter: 'codex-cli',
-        generatorModel: null,
-        generatorThinking: null,
-        trigger: 'test',
-      }).ok,
-    ).toBe(true);
-    expect(
-      checkpoints.commit({
-        sessionId: 'target',
-        expectedHeadId: null,
-        expectedRebuildAfterRevision: 0,
-        sourceEventRevision: 1,
-        sourceMaxEventId: targetEvent,
-        checkpoint: minimalCheckpoint(targetEvent, 1),
-        generatorAdapter: 'codex-cli',
-        generatorModel: null,
-        generatorThinking: null,
-        trigger: 'test',
-      }).ok,
-    ).toBe(true);
-
-    renameWithDb(db, 'source', 'target');
-
-    expect(
-      db.prepare(`SELECT COUNT(*) AS count FROM continuation_checkpoints`).get(),
-    ).toEqual({ count: 0 });
-    expect(checkpoints.latest('source')).toBeNull();
-    expect(checkpoints.latest('target')).toBeNull();
-    expect(revisionState(db, 'target')).toEqual({
-      revision: 2,
-      rebuild_after_revision: 2,
     });
   });
 

@@ -4,9 +4,6 @@ import {
   CLAUDE_SANDBOX_MODE_OPTIONS,
   CODEX_SANDBOX_MODE_OPTIONS,
   PERMISSION_OPTIONS,
-  type ClaudeSandboxMode,
-  type CodexSandboxMode,
-  type PermissionModeChoice,
 } from '@renderer/lib/sandbox-options';
 
 /**
@@ -54,10 +51,6 @@ export function SelectRow<T extends string>({
     </div>
   );
 }
-
-export type PermissionMode = PermissionModeChoice;
-export type CodexSandbox = CodexSandboxMode;
-export type ClaudeCodeSandbox = ClaudeSandboxMode;
 
 export const PERMISSION_MODE_OPTIONS = PERMISSION_OPTIONS;
 

@@ -10,7 +10,6 @@ import { getAgentDeckMcpServerForSession } from '../server';
 import {
   buildAgentDeckMcpServerForExternalTransport,
 } from '../transport-http';
-import { buildAgentDeckMcpStdioServer } from '../transport-stdio';
 import { err } from '../tools/helpers';
 import {
   SPAWN_SESSION_AGENT_NAME_MAX_LENGTH,
@@ -252,7 +251,6 @@ const surfaces = [
         mcpServerModule,
       ),
   ],
-  ['stdio', () => buildAgentDeckMcpStdioServer(mcpServerModule)],
 ] as const;
 
 function seedCaller(): void {
@@ -469,7 +467,11 @@ describe('spawn_session public output contract', () => {
   });
 
   it('does not force isError results through the success output schema', async () => {
-    const server = await buildAgentDeckMcpStdioServer(mcpServerModule);
+    const server = await buildAgentDeckMcpServerForExternalTransport(
+      'http',
+      null,
+      mcpServerModule,
+    );
     await withClient(server, async (client) => {
       const result = await client.callTool({
         name: 'spawn_session',

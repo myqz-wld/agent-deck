@@ -1,20 +1,4 @@
-/**
- * SessionRecoverer jsonl / cwd 存在性默认探测 — Step 4.4 拆分子模块。
- *
- * **抽出范围**（原 recoverer.ts:630-668 ~38 LOC）：
- * - `defaultResumeJsonlExists` — Claude Code CLI `~/.claude/projects/<encoded-cwd>/<sid>.jsonl` 探测
- * - `defaultCwdExists` — fs.existsSync wrapper（fail-safe 退化返回 true）
- *
- * **签名 / 约束**：
- * - 两个 export free fn（与 codex 端 recoverer/jsonl-discovery.ts 同款拆分粒度）
- * - facade `recoverer.ts` re-export 保 import path byte-identical（caller 仍按
- *   `import { defaultResumeJsonlExists } from '@main/adapters/claude-code/sdk-bridge/recoverer'`
- *   方式 import）
- *
- * **抽出动机**：与 Step 4.3 codex 端 jsonl-discovery.ts 模式对齐 — 让 facade
- * `recoverer.ts` 不再含 fs / os / path 直接 import,仅留 SessionRecoverer class shell +
- * 复用本子模块的 default fn 作 thunk 默认值。
- */
+/** Default Claude transcript and cwd probes used by SessionRecoverer. */
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

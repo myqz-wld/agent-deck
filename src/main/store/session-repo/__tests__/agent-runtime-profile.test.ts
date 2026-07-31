@@ -35,7 +35,7 @@ describe.skipIf(!bindingAvailable)('session Agent runtime profile persistence', 
     db.close();
   });
 
-  it('round-trips through setter/upsert and follows both rename branches', () => {
+  it('round-trips through setter/upsert and follows a rename', () => {
     insertSession(db, 'old');
     sessionRepo.setAgentRuntimeProfile('old', {
       agentProfileName: 'reviewer-grok',
@@ -63,19 +63,6 @@ describe.skipIf(!bindingAvailable)('session Agent runtime profile persistence', 
       agentProfileName: 'reviewer-grok',
       agentProfileSource: 'plugin',
       agentPluginDir: '/plugins/reviewer-grok',
-    });
-
-    insertSession(db, 'replacement');
-    sessionRepo.setAgentRuntimeProfile('replacement', {
-      agentProfileName: 'project-agent',
-      agentProfileSource: 'project',
-      agentPluginDir: null,
-    });
-    renameWithDb(db, 'replacement', 'new');
-    expect(sessionRepo.get('new')).toMatchObject({
-      agentProfileName: 'project-agent',
-      agentProfileSource: 'project',
-      agentPluginDir: null,
     });
   });
 });

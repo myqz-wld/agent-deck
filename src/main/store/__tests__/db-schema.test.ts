@@ -87,7 +87,9 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
     partial.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
     partial.close();
 
-    expect(() => initDb()).toThrow(/does not match the v60 schema baseline/);
+    expect(() => initDb()).toThrow(
+      new RegExp(`does not match the v${CURRENT_SCHEMA_VERSION} schema baseline`),
+    );
     const verify = new Database(dbPath(), { readonly: true });
     expect(verify.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
     expect(verify.prepare(`PRAGMA table_info(sessions)`).all()).toHaveLength(1);

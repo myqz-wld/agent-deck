@@ -16,8 +16,7 @@
  *   HookServer 比对 mcpServerToken 全局 token → 命中返 resolvedSid=null + fallbackToGlobal=
  *   true → handler 视为 external caller（EXTERNAL_CALLER_ALLOWED 表，spawn/send/shutdown/
  *   hand_off_session/enter_worktree/exit_worktree 全 deny；list/get 允许）
- * - 这保证「external codex CLI 走全局 token 调用 MCP 时只能读不能写」与 stdio external
- *   caller 行为对齐
+ * - 这保证使用全局 token 的外部客户端只能读取允许的公开数据
  *
  * 不变量 7（plan §不变量 7）：rename 必须由 `sessionManager.renameSdkSession` 函数体内
  * 统一调用（与 sdkOwned 转移同款保证），不能让 caller（codex bridge thread-loop.ts CLI 隐式

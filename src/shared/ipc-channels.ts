@@ -183,6 +183,3 @@ export const IpcEvent = {
   /** message 入队 / 状态变迁：聚合数组 payload，16ms debounce + per-message 累加。 */
   AgentDeckMessageChanged: 'event:agent-deck-message-changed',
 } as const;
-
-export type IpcInvokeChannel = (typeof IpcInvoke)[keyof typeof IpcInvoke];
-export type IpcEventChannel = (typeof IpcEvent)[keyof typeof IpcEvent];

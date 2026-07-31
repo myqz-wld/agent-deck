@@ -48,33 +48,6 @@ export function parseCodexAgentToml(content: string): ParsedCodexAgentToml {
   };
 }
 
-export interface CodexAgentTomlInput {
-  name: string;
-  description: string;
-  developerInstructions: string;
-  model?: string;
-  modelProvider?: string;
-  modelReasoningEffort?: string;
-  sandboxMode?: string;
-}
-
-export function stringifyCodexAgentToml(input: CodexAgentTomlInput): string {
-  const lines = [
-    `name = ${quoteTomlString(input.name)}`,
-    `description = ${quoteTomlString(input.description)}`,
-  ];
-  const model = input.model?.trim();
-  if (model) lines.push(`model = ${quoteTomlString(model)}`);
-  const modelProvider = input.modelProvider?.trim();
-  if (modelProvider) lines.push(`model_provider = ${quoteTomlString(modelProvider)}`);
-  const effort = input.modelReasoningEffort?.trim();
-  if (effort) lines.push(`model_reasoning_effort = ${quoteTomlString(effort)}`);
-  const sandboxMode = input.sandboxMode?.trim();
-  if (sandboxMode) lines.push(`sandbox_mode = ${quoteTomlString(sandboxMode)}`);
-  lines.push('', `developer_instructions = ${quoteTomlMultiline(input.developerInstructions)}`);
-  return `${lines.join('\n')}\n`;
-}
-
 function parseTomlObject(content: string): CodexAgentTomlObject {
   const root: CodexAgentTomlObject = {};
   const lines = content.replace(/\r\n/g, '\n').split('\n');
@@ -304,14 +277,4 @@ function unquoteBasicString(raw: string): string {
   } catch {
     return raw.slice(1, -1);
   }
-}
-
-function quoteTomlString(value: string): string {
-  return JSON.stringify(value.replace(/\r\n/g, '\n'));
-}
-
-function quoteTomlMultiline(value: string): string {
-  const normalized = value.replace(/\r\n/g, '\n');
-  if (!normalized.includes("'''")) return `'''\n${normalized}${normalized.endsWith('\n') ? '' : '\n'}'''`;
-  return `"""\n${normalized.replace(/"""/g, '\\"\\"\\"')}${normalized.endsWith('\n') ? '' : '\n'}"""`;
 }

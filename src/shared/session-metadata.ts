@@ -26,27 +26,3 @@ export function isClaudeThinkingLevel(value: unknown): value is ClaudeThinkingLe
 export function isCodexThinkingLevel(value: unknown): value is CodexThinkingLevel {
   return typeof value === 'string' && (CODEX_THINKING_LEVELS as readonly string[]).includes(value);
 }
-
-export function isSessionThinkingLevel(value: unknown): value is SessionThinkingLevel {
-  return isClaudeThinkingLevel(value) || isCodexThinkingLevel(value);
-}
-
-export function formatThinkingLevel(value: string | null | undefined): string {
-  if (!value) return 'default';
-  switch (value) {
-    case 'low':
-      return 'low';
-    case 'medium':
-      return 'medium';
-    case 'high':
-      return 'high';
-    case 'xhigh':
-      return 'xhigh';
-    case 'max':
-      return 'max';
-    case 'ultra':
-      return 'ultra';
-    default:
-      return value;
-  }
-}

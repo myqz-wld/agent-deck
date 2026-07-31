@@ -46,7 +46,6 @@ export interface TeamRow {
   name: string;
   created_at: number;
   archived_at: number | null;
-  // REVIEW_32 MED-7: v016 加列；旧数据 NULL
   archive_reason: string | null;
   metadata: string;
 }
@@ -85,7 +84,6 @@ export function teamRowToRecord(r: TeamRow): AgentDeckTeam {
     name: r.name,
     createdAt: r.created_at,
     archivedAt: r.archived_at,
-    // REVIEW_32 MED-7：v016 加列；旧数据 NULL（视为「未知来源」，unarchive 联动不复活）
     archiveReason: (r.archive_reason as AgentDeckTeam['archiveReason']) ?? null,
     metadata,
   };

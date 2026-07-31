@@ -6,7 +6,6 @@ export interface SnapshotMaintenanceSliceResult {
   phase: 'idle' | 'cleanup';
   processed: number;
   durationMs: number;
-  doneForRun: boolean;
 }
 
 /** Delete queued blobs that are no longer referenced by any current file-change row. */
@@ -25,7 +24,6 @@ export function runSnapshotGcSlice(
       phase: 'idle',
       processed: 0,
       durationMs: performance.now() - started,
-      doneForRun: true,
     };
   }
 
@@ -51,6 +49,5 @@ export function runSnapshotGcSlice(
     phase: 'cleanup',
     processed: digests.length,
     durationMs: performance.now() - started,
-    doneForRun: false,
   };
 }

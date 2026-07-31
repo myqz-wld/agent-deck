@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
-import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
@@ -14,7 +13,6 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'gpt-5.6-luna',
   'grok-4.5',
 ] as const;
-export type SpawnSessionModelValue = (typeof SPAWN_SESSION_MODEL_VALUES)[number];
 
 export const SPAWN_SESSION_THINKING_VALUES = SESSION_THINKING_LEVELS;
 export type SpawnSessionThinkingValue = (typeof SPAWN_SESSION_THINKING_VALUES)[number];
@@ -98,12 +96,6 @@ export const SPAWN_SESSION_SCHEMA = {
     .describe(
       `Optional human-readable label, 1-${SPAWN_SESSION_EXPLICIT_DISPLAY_NAME_MAX_LENGTH} characters with no trimming. Use it to name a generic teammate; do not set agentName only for labeling. The target title uses displayName, then agentName, then cwd basename. The returned displayName is displayName, then agentName, then null, so it can be null even though the UI has a cwd-derived title.`,
     ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 const SPAWN_SESSION_FRESH_ONLY_SCHEMA = {

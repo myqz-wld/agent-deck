@@ -1,14 +1,6 @@
 /**
  * TeamDetail 子组件共用的无状态纯函数。
  */
-/** 折叠过长 cwd / 路径:>4 段时只保留最后 3 段。 */
-export function shortenPath(p: string | null | undefined): string {
-  if (!p) return '';
-  const parts = p.split('/');
-  if (parts.length <= 4) return p;
-  return '…/' + parts.slice(-3).join('/');
-}
-
 /** 时间戳 → 相对时间(如「3 分钟前」/「刚刚」),用于 events / messages / tasks 列表显示。 */
 export function relativeTime(ts: number, now: number = Date.now()): string {
   // Date.parse 可能产生 NaN；在共享边界统一返回空文本，避免各列表显示“NaN 天前”。

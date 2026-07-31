@@ -65,21 +65,3 @@ export function buildCodexCompactorThreadOptions(input: {
     ephemeral: true,
   };
 }
-
-export interface CodexCompactorIsolationAttestation {
-  proven: false;
-  reason: string;
-}
-
-/**
- * Codex 0.144.1 accepts the hardening fields above but exposes no API that attests the final
- * model-visible built-in tool registry. This reports the residual risk; after explicit user
- * approval, checkpoint and periodic-summary runtimes may run only with every hardening field above.
- */
-export function codexCompactorIsolationAttestation(): CodexCompactorIsolationAttestation {
-  return {
-    proven: false,
-    reason:
-      'Codex 0.144.1 has no model-visible tool-registry attestation API; config controls alone are insufficient proof',
-  };
-}

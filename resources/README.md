@@ -1,6 +1,6 @@
 # resources/
 
-Source directory for app runtime resources. `package.json` `build.extraResources` copies this directory to `.app/Contents/Resources/`; the main process then reads resources by adapter and injects them into SDK sessions.
+Source directory for app runtime resources. `package.json` copies the runtime directories through `build.extraResources`; the main process then reads resources by adapter and injects them into SDK sessions. The runtime window icon is the only resource stored inside `app.asar`.
 
 This document records only resource paths, loading behavior, and paired-boundary rules for locating runtime resources during packaging and injection.
 
@@ -14,7 +14,7 @@ This document records only resource paths, loading behavior, and paired-boundary
 | `resources/grok-config` | `.app/Contents/Resources/grok-config` | Grok Build ACP baseline, plugin agents, and skills |
 | `resources/sounds` | `.app/Contents/Resources/sounds` | App notification sounds |
 
-Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories directly; prod reads the `.app/Contents/Resources/*` copies. `icon.png` / `icon.ico` are electron-builder inputs (`mac.icon`), are not included in extraResources, and are not loaded at runtime.
+Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories directly; prod reads the `.app/Contents/Resources/*` copies. `icon.png` is also included at `app.asar/resources/icon.png` for window and dialog runtime icons; `icon.ico` is a Windows builder input only.
 
 ## Immutable assets and runtime overrides
 

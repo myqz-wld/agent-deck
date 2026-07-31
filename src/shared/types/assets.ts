@@ -20,7 +20,6 @@
 export type AssetKind = 'agent' | 'skill';
 export type AssetSource = 'bundled' | 'user';
 export type AssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
-export type UserAssetAdapter = AssetAdapter;
 
 /**
  * Agent Deck bundled asset slug regex（CHANGELOG_57 R1·F8 收口）：
@@ -132,21 +131,6 @@ export interface AssetMeta {
   runtimeName?: string;
   /** 主进程绝对路径。renderer 显示前可截短，「在 Finder/资源管理器中显示」用。 */
   absPath: string;
-}
-
-/**
- * adapter + kind 组合是否合法。Codex custom agents are native TOML files under
- * `~/.codex/agents/`, so every current adapter/kind combination is valid.
- *
- * 跨进程共享 helper：IPC 读取与定位入口用它统一校验 adapter/kind 组合。
- */
-export function validateAdapterKind(
-  adapter: UserAssetAdapter,
-  kind: AssetKind,
-): { ok: true } | { ok: false; reason: string } {
-  void adapter;
-  void kind;
-  return { ok: true };
 }
 
 export interface BundledAssetsSnapshot {

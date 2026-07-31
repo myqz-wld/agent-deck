@@ -125,14 +125,3 @@ export function resolveInternalInitialTurn(input: {
     trusted: false,
   };
 }
-
-export function continuationMessagePayload(
-  turn: ResolvedInternalInitialTurn,
-): Record<string, unknown> {
-  return turn.metadata
-    ? {
-        messageOrigin: 'continuation',
-        continuation: { ...turn.metadata },
-      }
-    : {};
-}

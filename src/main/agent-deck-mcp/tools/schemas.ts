@@ -1,9 +1,8 @@
 /**
  * Agent Deck MCP schema facade. Domain-specific schema groups live under
- * ./schemas/* while this file preserves the historical public import path.
+ * ./schemas/* and are re-exported here as the internal registry barrel.
  */
 
-export * from './schemas/shared';
 export * from './schemas/spawn';
 export * from './schemas/target-runtime';
 export * from './schemas/session';

@@ -176,7 +176,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     const prepareContinuation = vi.fn();
     const result = await handOffSessionHandler(
       { prompt: 'continue from /tmp/handoff.md', adapter: 'claude-code' },
-      { caller: { callerSessionId: '__external__', transport: 'stdio' } },
+      { caller: { callerSessionId: '__external__', transport: 'http' } },
       testDeps({ prepareContinuation }),
     );
 

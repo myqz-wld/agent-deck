@@ -9,7 +9,7 @@ import type {
   JsonlExistsThunk,
   JsonlMtimeMsThunk,
   LatestConversationMessageTsThunk,
-} from './recoverer';
+} from './recoverer/_deps';
 import type { SdkSessionHandle } from './types';
 import type { PermissionMode } from '@main/adapters/types';
 

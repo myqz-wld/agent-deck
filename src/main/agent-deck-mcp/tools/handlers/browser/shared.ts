@@ -9,27 +9,10 @@
 import { BrowserTabLimitError } from '@main/browser-use/engine/types';
 import type { BrowserOwnerHandle } from '@main/browser-use/engine/registry';
 import type { EngineTab } from '@main/browser-use/engine/tab';
-import { acquireSessionBrowser, peekSessionBrowser } from '@main/browser-use/session-browser';
-import { AGENT_DECK_TOOL_NAMES, type AgentDeckToolName } from '@main/agent-deck-mcp/types';
+import { acquireSessionBrowser } from '@main/browser-use/session-browser';
+import type { AgentDeckToolName } from '@main/agent-deck-mcp/types';
 
 import { denyExternalIfNotAllowed, err, ok, type HandlerContext, type HandlerResult } from '../../helpers';
-
-export const BROWSER_TOOL_NAMES: readonly AgentDeckToolName[] = [
-  AGENT_DECK_TOOL_NAMES.browserOpen,
-  AGENT_DECK_TOOL_NAMES.browserTabs,
-  AGENT_DECK_TOOL_NAMES.browserNavigate,
-  AGENT_DECK_TOOL_NAMES.browserWait,
-  AGENT_DECK_TOOL_NAMES.browserClose,
-  AGENT_DECK_TOOL_NAMES.browserSnapshot,
-  AGENT_DECK_TOOL_NAMES.browserScreenshot,
-  AGENT_DECK_TOOL_NAMES.browserClick,
-  AGENT_DECK_TOOL_NAMES.browserType,
-  AGENT_DECK_TOOL_NAMES.browserPress,
-  AGENT_DECK_TOOL_NAMES.browserScroll,
-  AGENT_DECK_TOOL_NAMES.browserReadConsole,
-  AGENT_DECK_TOOL_NAMES.browserReadNetwork,
-  AGENT_DECK_TOOL_NAMES.browserEvaluate,
-];
 
 /**
  * Reminder attached to every result that carries page-derived content. Page text, console output,
@@ -40,7 +23,6 @@ export const UNTRUSTED_PAGE_CONTENT_NOTE =
 
 export interface BrowserToolArgs {
   tabId?: number;
-  callerSessionId?: string;
 }
 
 interface ResolvedOwner {
@@ -61,11 +43,6 @@ export function resolveOwner(
 
 export function isHandlerResult(value: unknown): value is HandlerResult {
   return value != null && typeof value === 'object' && 'content' in value;
-}
-
-/** Existing tabs only: read-style tools must not silently create a window. */
-export function peekTabs(sessionId: string): BrowserOwnerHandle | null {
-  return peekSessionBrowser(sessionId);
 }
 
 export function requireTab(handle: BrowserOwnerHandle, tabId?: number): EngineTab | HandlerResult {

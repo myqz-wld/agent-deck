@@ -17,10 +17,7 @@ export const TARGET_TOLERANCE_PX = 4;
  *  动画中间帧不污染 preferredSize)。Linux/Windows 无 animate 但 guard 也无害。 */
 export const ANIMATE_GUARD_MS = 300;
 
-/**
- * 应用图标。dev 模式 __dirname 是 build/main/，用项目根 resources/icon.png；
- * 生产模式 electron-builder 会把 resources/ 拷到 app.asar 同级。
- */
+/** Runtime window icon included at app.asar/resources/icon.png in packaged builds. */
 export function resolveIconPath(): string {
   return join(app.getAppPath(), 'resources', 'icon.png');
 }

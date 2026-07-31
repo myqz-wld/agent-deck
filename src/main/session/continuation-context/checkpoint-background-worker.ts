@@ -1,9 +1,6 @@
 import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import {
-  BACKGROUND_MATERIALIZE_MAX_ROWS,
-  BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES,
-  BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES,
   createWorkerOwnedBackgroundFoldSource,
   materializeBackgroundCheckpointSource,
   type WorkerOwnedBackgroundFoldSource,
@@ -148,9 +145,3 @@ function runWorker(data: CheckpointBackgroundWorkerData): void {
 
 // Prevent Vitest's worker pool from running this module as the materializer entry point.
 if (!isMainThread && parentPort && validWorkerData(workerData)) runWorker(workerData);
-
-export const DEFAULT_BACKGROUND_WORKER_LIMITS = Object.freeze({
-  maxSourceBytes: BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES,
-  maxRows: BACKGROUND_MATERIALIZE_MAX_ROWS,
-  maxWireBytes: BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES,
-});

@@ -116,7 +116,7 @@ export interface McpHttpRouteDependencies {
     };
   }>;
   buildServer: (
-    transportName: 'http' | 'stdio',
+    transportName: 'http',
     adapterId: SessionAdapterId | null,
   ) => Promise<McpHttpServerInstance>;
   observer: McpHttpObserver;

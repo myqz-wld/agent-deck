@@ -10,9 +10,6 @@ dist/
 # related spike report so historical evidence stays reviewable.
 .vite
 *.tsbuildinfo
-.deep-code-review/
-# Legacy directory, now migrated to user-scoped ~/.claude/state/deep-code-review/<cwd-slug>/.
-# Keep this defensive ignore in case a tool regression or manual run recreates it.
 .review-cache/
 # Shared simple-review/deep-review sandbox cache. Each invocation creates a
 # subdirectory plus manifest; review caches must never enter git history.

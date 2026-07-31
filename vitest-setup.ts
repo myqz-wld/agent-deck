@@ -10,10 +10,8 @@
  *    Step 3.3 354 处 console.* migrate 后, 业务模块 `import { logger } from '@main/utils/logger'`
  *    会通过 import 链触发 `import 'electron-log/main'` → `require('electron')` → 同样 fail
  *
- * mock 范围 (D15 §mock 范围明确 / Round 2 fix R2-2 边界注解):
- * - mock: `electron` + `electron-log/main` (main 入口顶层 require electron)
- * - NOT mock: `electron-log/renderer` (renderer 入口顶层不 require electron, lazy IPC 调用安全)
- * - NOT mock: `electron-log/node` (spike runner 入口, 纯 Node 不依赖 electron)
+ * Mock scope: `electron`, `electron-log/main`, and `electron-log/renderer`.
+ * Tests that exercise a real logger entry point can override these setup mocks locally.
  *
  * 兼容性 (Step 3.0.2.5 验证清单):
  * - test file 内 local `vi.mock(...)` 自动覆盖本 setup 的全局 mock (vitest hoist 优先级: local > setupFiles)
@@ -341,20 +339,7 @@ vi.mock('electron-store', () => {
 });
 
 // ─── electron-log/renderer mock ──────────────────────────────────────────
-// Plan §D15 §mock 范围 §Step 3.5.1.5 实证扩展: 原 plan §D15 写「不 mock electron-log/renderer」
-// 基于「renderer 入口顶层不 require electron 安全」实证; 但 Step 3.5.1.5 实测发现 vitest 跑
-// `src/renderer/utils/__tests__/logger-guard.test.ts` 时:
-// 1. test file import `'../logger'` → 触发 logger.ts top-level
-// 2. logger.ts `if (shouldCaptureRendererConsole(import.meta.env.MODE)) Object.assign(console, log.functions)`
-// 3. vitest 处理 src/renderer/utils/logger.ts 时 `import.meta.env.MODE` 替换异常 (vitest define
-//    也未拦住, 具体 root cause 不深查 — 可能与 electron-vite 多 config 拆分 + vitest 平铺 config
-//    冲突), 守门返 true 跑接管
-// 4. 接管后 vitest reporter 内部 console.log 经 electron-log/renderer transports/console.js setTimeout
-//    macrotask 排队 → vitest stdout 失控卡死 5+ min
-//
-// 修法: mock 'electron-log/renderer' 整个 module → logger.ts import 时 log.functions 是 mock no-op,
-// `Object.assign(console, log.functions)` 跑但不真接管 console (mock 方法都是 vi.fn() no-op).
-// renderer 端业务模块测试需验真 logger 行为可在 test file local vi.unmock 覆盖.
+// Keep renderer logging inert so a tested module cannot replace Vitest's console reporter.
 vi.mock('electron-log/renderer', () => {
   const makeLogFns = () => ({
     log: vi.fn(),

@@ -336,15 +336,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
 
         {issue.logsRef && (
           <IssueLogsReference
-            issueId={issue.id}
-            sessionId={expansionSessionId}
             logsRef={issue.logsRef}
           />
         )}
 
         <IssueAppendices
-          issueId={issue.id}
-          sessionId={expansionSessionId}
           appendices={appendices}
           onOpenSession={onOpenSession}
         />

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { __testables } from '@main/adapters/codex-cli/app-server/client';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA } from '../checkpoint-patch-schema';
-import { buildCodexCompactorThreadOptions, codexCompactorIsolationAttestation } from '../codex-isolation';
+import { buildCodexCompactorThreadOptions } from '../codex-isolation';
 import { createCheckpointGeneratorRuntime } from '../runtime';
 
 const harness = vi.hoisted(() => ({
@@ -64,8 +64,7 @@ describe('Codex checkpoint compactor isolation', () => {
     });
   });
 
-  it('runs with every hardened option while reporting the remaining unattested boundary', async () => {
-    expect(codexCompactorIsolationAttestation()).toMatchObject({ proven: false });
+  it('runs with every hardened option at the unattested boundary', async () => {
     const runtime = createCheckpointGeneratorRuntime(generator);
     expect(runtime.isolation).toBe('hardened-unattested');
     await expect(

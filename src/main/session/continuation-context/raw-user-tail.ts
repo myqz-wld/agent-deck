@@ -5,8 +5,6 @@ import {
   truncateContinuationTextMiddle,
 } from './token-estimator';
 
-export const CONTINUATION_RAW_QUERY_PAGE_SIZE = 128;
-
 export interface RawUserTailSelection {
   messages: RawContinuationUserInput[];
   estimatedTokens: number;

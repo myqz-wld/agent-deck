@@ -133,7 +133,6 @@ function transition(
 ): WorktreeTransitionRecord {
   return {
     sessionId: 'caller-sid',
-    formatVersion: 1,
     generation: 1,
     direction: 'enter',
     phase,

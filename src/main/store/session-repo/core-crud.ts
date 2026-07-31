@@ -1,11 +1,4 @@
-/**
- * session-repo —— core CRUD（upsert / get / list*）+ per-session settings setter
- * (permissionMode / title / codexSandbox / claudeCodeSandbox / model / thinking / extraAllowWrite /
- *  networkAccessEnabled / additionalDirectories) + delete。
- *
- * 拆分历史：从 src/main/store/session-repo.ts 抽出（CHANGELOG_83 / plan
- * deep-review-and-split-20260513 H2 Step 2.3）。
- */
+/** Core session CRUD and persisted per-session runtime settings. */
 
 import type {
   AgentProfileSource,
@@ -19,32 +12,8 @@ import { getDb } from '../db';
 import { deleteSessionWithWorktreeGuard } from './worktree-transition-delete';
 import { rowToRecord, type Row } from './types';
 export function upsert(rec: SessionRecord): void {
-  // 注意：permission_mode 也参与 INSERT 与 UPDATE，否则 SessionRecord 接口
-  // 与 SQL 字段集错位 —— 复活 closed 会话用 `{...existing, lifecycle:'active'}`
-  // spread 调 upsert 时，spread 进来的 permissionMode 被静默丢弃，
-  // 未来想通过 upsert 改这些字段会神秘失败（写了不报错但不生效）。
-  // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
-  // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
-  // CHANGELOG_74：claude_code_sandbox 同款（claude OS 沙盒 per-session 覆盖与 codex 对称）。
-  // plan model-wiring-and-handoff-20260514 Step 1.3：model 同款 — spawn 时 frontmatter `model`
-  // 透传给 SDK 后持久化，让 SDK resume / dormant 唤醒后保持模型一致；upsert 必须参与
-  // 否则 lifecycle 复活路径丢字段，resume 拿不到 model。
-  // plan cross-adapter-parity-20260515 Phase A Step A.2：extra_allow_write 同款 — caller
-  // 透传的 SDK sandbox 额外可写根 spawn 时持久化,让 recoverer / SDK resume 路径还原
-  // sandbox.allowWrite,与 codex_sandbox / claude_code_sandbox / model 同 per-session
-  // resilience 模式;upsert 必须参与否则 lifecycle 复活路径丢字段。
-  // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
-  // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
-  // plan reverse-rename-sid-stability-20260520 §A.1 / 设计决策 D1 / 不变量 2:cli_session_id
-  // 参与 upsert 透传，让 lifecycle 复活路径不
-  // 丢 cli_session_id;rename 路径 §A.2 重写规则:spawn 主路径 (toExists=false INSERT) hardcode
-  // toId / toExists=true 分支保留 NEW 行已有 cli_session_id 不覆盖(详 rename.ts)。
-  // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
-  // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
-  // network_access_enabled + additional_directories 同款（v029）— 持久化 caller 显式或
-  // same-adapter 继承的 per-session 选择，让 recover / restart 还原 Codex runtime；
-  // upsert 必须参与否则 lifecycle 复活路径丢字段。**boolean→int 手转**
-  // （better-sqlite3 拒绝 raw boolean bind）。
+  // Keep INSERT and UPDATE field sets symmetric so lifecycle reactivation cannot drop runtime state.
+  // better-sqlite3 does not accept raw booleans, so tri-state flags are bound as 1/0/null below.
   getDb()
     .prepare(
       `INSERT INTO sessions

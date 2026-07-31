@@ -18,5 +18,4 @@
 export const PLATFORM: NodeJS.Platform =
   (globalThis as { api?: { platform?: NodeJS.Platform } }).api?.platform ?? 'darwin';
 export const IS_DARWIN = PLATFORM === 'darwin';
-export const IS_WIN = PLATFORM === 'win32';
 export const IS_LINUX = PLATFORM === 'linux';
