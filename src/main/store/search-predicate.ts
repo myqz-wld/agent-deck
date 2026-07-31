@@ -1,17 +1,7 @@
 /**
- * 历史搜索关键词谓词构造（CHANGELOG_22 / Phase 4 N5）
- *
- * 历史方案：`payload_json LIKE '%kw%'` + EXISTS LIMIT 1 短路（详见 session-repo.ts 注释）。
- * 当前方案：≥ 3 字符走 FTS5 + trigram MATCH（legacy events_fts、bounded
- * event_search_fts_v1、summaries_fts），保留 title / cwd LIKE；四类字段统一为 ASCII
- * 大小写不敏感。cwd 直接查 sessions，避免把
- * 每条 event 都重复索引一份目录。新索引回填期间 UNION 保持旧索引完整覆盖；跨重启验证并在
- * 无写入的关机阶段退休旧索引后，长工具输出只保留首尾各 2,048 字符用于搜索。
- *
- * 拆出本函数主因是单测：vitest 在 node 环境跑，better-sqlite3 binding 由 electron 重编无法
- * 直接跑真 SQL，但纯函数（escape / SQL fragment 拼接）可单测，FTS 真行为靠手测脚本验收。
+ * Builds the History keyword predicate. Keywords of at least three characters use the current
+ * bounded event and summary trigram indexes; shorter keywords search session title and cwd only.
  */
-import type { Database } from 'better-sqlite3';
 
 /**
  * 把任意关键词转成 FTS5 phrase 查询字面量（包双引号、内部 `"` 转 `""`）。
@@ -31,23 +21,18 @@ export interface KeywordPredicate {
   params: Record<string, string>;
 }
 
-export interface KeywordPredicateOptions {
-  /** Keep the raw-payload rollback index in the query until shutdown retirement is durable. */
-  includeLegacyEventIndex?: boolean;
-}
-
 /**
  * 构造关键词谓词。约束：
  * - keyword 为空 / 全空白 → 调用方应跳过（这里不 enforce，传进来会回 LIKE-only 形态）
  * - 长度 < 3：trigram 索引 3-gram 不可用，只搜 title / cwd LIKE
- * - 长度 ≥ 3：title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH；v43 tokenizer
+ * - 长度 ≥ 3：title / cwd LIKE OR event FTS MATCH OR summaries_fts MATCH；trigram tokenizer
  *   使用 `trigram case_sensitive 0`，与 SQLite LIKE 的 ASCII 大小写语义一致
  *
  * SQL 形态（Phase 4 N5 review 修订，REVIEW_X #1 + #2）：
  *
  * 1. **MATCH 左侧必须用虚表名而不是 alias**：SQLite 会把 `alias MATCH ...` 里的 alias
- *    当成普通列名解析报错（验证：`SELECT 1 FROM events_fts fts WHERE fts MATCH 'x'`
- *    抛 "no such column: fts"）。所以这里写 `events_fts MATCH @kw_fts` 而不是
+ *    当成普通列名解析报错（验证：`SELECT 1 FROM event_search_fts_v1 fts WHERE fts MATCH 'x'`
+ *    抛 "no such column: fts"）。所以这里写虚表全名而不是
  *    `fts MATCH @kw_fts`。
  *
  * 2. **走 IN (SELECT DISTINCT) 而不是 EXISTS + 相关子查询**：FTS 工作负载下 EXISTS 会让
@@ -66,10 +51,7 @@ export interface KeywordPredicateOptions {
  * @param keyword 用户搜索关键词（trim 由调用方做）
  * @returns 拼接 SQL + 参数
  */
-export function buildKeywordPredicate(
-  keyword: string,
-  options: KeywordPredicateOptions = {},
-): KeywordPredicate {
+export function buildKeywordPredicate(keyword: string): KeywordPredicate {
   // title / cwd LIKE 的 `\` `%` `_` 三个 wildcard 字符做 escape + 配 `ESCAPE '\'`（REVIEW_91
   // 双 reviewer 独立共识）。与同一 listHistory query 的 cwd（core-crud.ts REVIEW_88）/
   // task subject（task-repo-list.ts REVIEW_61）同款修法对齐 —— 此前 title 漏修，用户搜含
@@ -91,26 +73,14 @@ export function buildKeywordPredicate(
   }
 
   params.kw_fts = escapeFtsPhrase(keyword);
-  const eventSessionSelect = options.includeLegacyEventIndex !== false
-    ? `SELECT DISTINCT e.session_id
-          FROM (
-            SELECT rowid FROM events_fts
-             WHERE events_fts MATCH @kw_fts
-            UNION
-            SELECT rowid FROM event_search_fts_v1
-             WHERE event_search_fts_v1 MATCH @kw_fts
-          ) event_matches
-          JOIN events e ON e.id = event_matches.rowid`
-    : `SELECT DISTINCT e.session_id
-          FROM event_search_fts_v1
-          JOIN events e ON e.id = event_search_fts_v1.rowid
-         WHERE event_search_fts_v1 MATCH @kw_fts`;
-
   return {
     sql: `(title LIKE @kw_like ESCAPE '\\'
       OR cwd LIKE @kw_like ESCAPE '\\'
       OR sessions.id IN (
-        ${eventSessionSelect}
+        SELECT DISTINCT e.session_id
+          FROM event_search_fts_v1
+          JOIN events e ON e.id = event_search_fts_v1.rowid
+         WHERE event_search_fts_v1 MATCH @kw_fts
       )
       OR sessions.id IN (
         SELECT DISTINCT su.session_id FROM summaries_fts
@@ -119,17 +89,4 @@ export function buildKeywordPredicate(
       ))`,
     params,
   };
-}
-
-/** Keep the rollback FTS branch until its shutdown retirement has completed durably. */
-export function shouldIncludeLegacyEventIndex(db: Database): boolean {
-  const stateTableExists = db.prepare(
-    `SELECT 1 FROM sqlite_master
-      WHERE type = 'table' AND name = 'storage_maintenance_state' LIMIT 1`,
-  ).get();
-  if (!stateTableExists) return true;
-  const phase = db.prepare(
-    `SELECT phase FROM storage_maintenance_state WHERE task = 'event-search-v1'`,
-  ).pluck().get();
-  return phase !== 'complete';
 }

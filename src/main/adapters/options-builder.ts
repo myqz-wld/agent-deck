@@ -301,13 +301,6 @@ void _assertAgentIdsListMatchesOptions;
  * - `cwd`：必填字段，narrow 起手 `{ cwd: raw.cwd }` 恒挑，不进 optional 清单
  * - codex `networkAccessEnabled` / `additionalDirectories`：trusted lifecycle callers set
  *   these after builder narrowing; they are not public Raw passthrough fields
- * - codex `envOverrideExtra`：是「facade 声明 + bridge 消费但当前零 producer」的 internal
- *   直传字段（create-session-opts.ts CodexCreateOpts.envOverrideExtra jsdoc 明说「目前无 hot
- *   caller，字段保留供未来 caller 重用」, 不在 Raw → narrow 挑不到）。与刚修的 resumeCliSid /
- *   resumeMode 同 bug 类(facade 死字段), 仅因「故意保留未接线」而非缺陷。**维护警告**:
- *   未来若给 envOverrideExtra 接 caller(经 Raw 透传), 必须把它移出本排除集 + 加进 _CODEX_PASSTHROUGH_KEYS,
- *   否则守门不会提醒「Raw 加了但 narrow 漏挑」→ MED-1 同款漏挑复发(根治方向 = 同 resumeCliSid 归位
- *   bridge _deps.ts, 牵动 codex index.ts 透传链, 见 REVIEW_105 follow-up)。
  */
 type OmitKey<T, K extends PropertyKey> = { [P in Exclude<keyof T, K>]: unknown };
 
@@ -358,7 +351,7 @@ const _assertCodexPassthroughCoversArm: AssertSameKeys<
   typeof _CODEX_PASSTHROUGH_KEYS,
   OmitKey<
     CodexCreateOpts,
-    'cwd' | 'networkAccessEnabled' | 'additionalDirectories' | 'envOverrideExtra'
+    'cwd' | 'networkAccessEnabled' | 'additionalDirectories'
   >
 > = true;
 void _assertCodexPassthroughCoversArm;

@@ -1,24 +1,8 @@
-// ────────────────────────────────────────────────────────────────────────────
-// Phase 4 Step 4.8 拆分:bootstrap god-function 之外的 module-level lifecycle
-// hooks 段(原 L486-594 if (gotLock) { ... } 内 3 app.on + bootstrappedPromise
-// catch handler)。
-//
-// hooks:
-// - app.on('second-instance'):聚焦窗口 + 等 bootstrap 完成后转发 argv 到 handleCliArgv
-// - app.on('window-all-closed'):非 darwin 直接 quit
-// - app.on('before-quit'):cleaningUp idempotent guard + globalShortcut.unregisterAll +
-//   event-loop monitor/scheduler/teamScheduler/summarizer/stopAllSounds/universalMessageWatcher 同步停 +
-//   adapterRegistry.shutdownAll / agentDeckMcpHttpShutdown / hookServer.stop 走 10s
-//   race-with-timeout 兜底 + 完整 drain 后 await 独立 storage worker + closeDb 在 race 外
-//   **总是**跑保 SQLite WAL checkpoint
-//   (REVIEW_35 R2 MED-D claude R2-3 修法)。
-// ────────────────────────────────────────────────────────────────────────────
+/** Single-instance forwarding, window-close behavior, and bounded application shutdown hooks. */
 
 import { app, BrowserWindow, globalShortcut } from 'electron';
 
-import { closeDb, getDb } from '../store/db';
-import { hasPendingStorageShutdownTasks } from '../store/storage-maintenance/shutdown-tasks';
-import { runStorageShutdownMaintenance } from '../store/storage-maintenance/shutdown-runner';
+import { closeDb } from '../store/db';
 import { adapterRegistry } from '../adapters/registry';
 import { setLifecycleScheduler } from '../session/lifecycle-scheduler';
 import { setTeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
@@ -109,7 +93,6 @@ export function registerLifecycleHooks(
       // reject;② closeDb 放入 finally，先完成可失败的存储收尾并逐项兜底，再无条件 checkpoint，
       // 最后决定 process.exit(1) vs app.exit(0)。
       let timedOut = false;
-      let ingressDrained = false;
       try {
         globalShortcut.unregisterAll();
         state.mainEventLoopMonitorStop?.();
@@ -159,7 +142,7 @@ export function registerLifecycleHooks(
           .then(() => true)
           .catch((err) => {
             logger.warn(
-              'staged storage worker stop failed during cleanup',
+              'storage worker stop failed during cleanup',
               lifecycleDiagnostic('storage-worker-stop', 'failed', err),
             );
             return false;
@@ -253,30 +236,12 @@ export function registerLifecycleHooks(
           cleanupTimeout,
         ]);
         timedOut = result === '__timeout__';
-        ingressDrained = result === 'ok';
       } catch (err) {
         logger.warn(
           'before-quit cleanup failed',
           lifecycleDiagnostic('before-quit-cleanup', 'failed', err),
         );
       } finally {
-        // Cold copy gates measured 0.84s snapshot-index creation and 5.8-6.0s legacy FTS DROP.
-        // Run both on an isolated SQLite worker only after every ingress owner drained. The main
-        // connection stays open but idle, then is closed unconditionally below for its checkpoint.
-        if (ingressDrained) {
-          try {
-            const db = getDb();
-            if (hasPendingStorageShutdownTasks(db)) {
-              const results = await runStorageShutdownMaintenance(db.name);
-              logStorageShutdownResults(results);
-            }
-          } catch (err) {
-            logger.warn(
-              'shutdown storage maintenance failed; tasks remain retryable',
-              lifecycleDiagnostic('storage-shutdown-maintenance', 'failed', err),
-            );
-          }
-        }
         // closeDb 在 finally 中**无条件**跑（sync 操作 + WAL checkpoint 关键），所有可选存储
         // 收尾都已逐项 catch，因此 normal / cleanup-throw / reject / timeout 全部路径均会到达。
         try {
@@ -298,47 +263,6 @@ export function registerLifecycleHooks(
       }
     })();
   });
-}
-
-function logStorageShutdownResults(
-  results: Awaited<ReturnType<typeof runStorageShutdownMaintenance>>,
-): void {
-  if (results.snapshotIndexes.ok) {
-    if (results.snapshotIndexes.result.prepared) {
-      logger.info('snapshot GC indexes prepared on shutdown worker', safeDiagnostic({
-        event: 'app_shutdown',
-        phase: 'snapshot-indexes',
-        outcome: 'prepared',
-        durationMs: Math.round(results.snapshotIndexes.result.durationMs),
-      }));
-    }
-  } else {
-    logger.warn('snapshot GC index preparation deferred', safeDiagnostic({
-      event: 'app_shutdown',
-      phase: 'snapshot-indexes',
-      outcome: 'deferred',
-      reason: results.snapshotIndexes.error,
-    }));
-  }
-
-  if (results.eventSearchRetirement.ok) {
-    if (results.eventSearchRetirement.result.retired) {
-      logger.info('legacy event search index retired on shutdown worker', safeDiagnostic({
-        event: 'app_shutdown',
-        phase: 'event-search-retirement',
-        outcome: 'retired',
-        durationMs: Math.round(results.eventSearchRetirement.result.durationMs),
-        freedPages: results.eventSearchRetirement.result.freedPages,
-      }));
-    }
-  } else {
-    logger.warn('legacy event search retirement deferred', safeDiagnostic({
-      event: 'app_shutdown',
-      phase: 'event-search-retirement',
-      outcome: 'deferred',
-      reason: results.eventSearchRetirement.error,
-    }));
-  }
 }
 
 function lifecycleDiagnostic(

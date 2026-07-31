@@ -39,7 +39,7 @@ const delayMs = Number(process.env.FAKE_GROK_DELAY_MS ?? 0);
 if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
 
 if (process.env.FAKE_GROK_ERROR) {
-  process.stdout.write(JSON.stringify({ type: 'error', message: process.env.FAKE_GROK_ERROR }));
+  process.stdout.write(JSON.stringify({ error: process.env.FAKE_GROK_ERROR }));
   process.exit(1);
 }
 

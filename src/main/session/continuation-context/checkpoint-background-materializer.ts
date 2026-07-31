@@ -107,7 +107,7 @@ export function materializeBackgroundCheckpointSource(
     }
     const maxEventId = db.prepare(
       `SELECT MAX(id) FROM events
-        WHERE session_id = ? AND COALESCE(change_revision, id) <= ?`,
+        WHERE session_id = ? AND change_revision <= ?`,
     ).pluck().get(input.sessionId, captureRevision) as number | null;
 
     const accepted: RawEventRevisionRow[] = [];

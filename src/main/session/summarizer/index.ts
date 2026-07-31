@@ -133,23 +133,18 @@ export class Summarizer {
       const previous = this.latestSummary(s.id);
       const revisionState = eventRevisionRepo.state(s.id);
       if (!revisionState) continue;
-      const previousRevision = previous?.sourceEventRevision ?? null;
-      const previousRebuildEpoch = previous?.sourceRebuildAfterRevision ?? null;
       const revisionCursorValid =
-        previousRevision !== null &&
-        previousRebuildEpoch === revisionState.rebuildAfterRevision &&
-        previousRevision >= revisionState.rebuildAfterRevision &&
-        previousRevision <= revisionState.revision;
-      const cursorRequiresRebuild = previousRevision !== null && !revisionCursorValid;
+        previous !== null &&
+        previous.sourceRebuildAfterRevision === revisionState.rebuildAfterRevision &&
+        previous.sourceEventRevision >= revisionState.rebuildAfterRevision &&
+        previous.sourceEventRevision <= revisionState.revision;
+      const cursorRequiresRebuild = previous !== null && !revisionCursorValid;
       const lastTs = previous?.ts ?? s.startedAt;
-      const legacyEventsSince = (): number => eventRepo.countForSession(s.id, lastTs);
-      const eventsSince = revisionCursorValid
-        ? revisionState.revision - previousRevision
-        : previousRevision !== null
-          // A destructive event rebuild/rename invalidates the old revision cursor. Force one
-          // fresh bounded snapshot even when all rebuilt event timestamps predate the summary.
-          ? Math.max(1, legacyEventsSince())
-          : legacyEventsSince();
+      const eventsSince = previous === null
+        ? revisionState.revision
+        : revisionCursorValid
+          ? revisionState.revision - previous.sourceEventRevision
+          : 1;
       // A quiet session never repeats an identical summary.
       if (eventsSince === 0) continue;
       const shouldByTime = now - lastTs >= intervalMs;
@@ -344,25 +339,21 @@ export class Summarizer {
       }
     }
 
-    // Prefer a recent assistant message outside the bounded evidence window. Use revision bounds
-    // when available and a timestamp lower bound only for summaries without a revision cursor.
+    // Prefer a recent assistant message outside the bounded evidence window.
     const previousRevisionValid =
-      previous?.sourceEventRevision != null &&
+      previous !== null &&
       previous.sourceRebuildAfterRevision === evidence.rebuildAfterRevision &&
       previous.sourceEventRevision >= evidence.rebuildAfterRevision &&
       previous.sourceEventRevision <= evidence.sourceEventRevision;
     const lastMsg = previousRevisionValid
         ? eventRepo.findLatestAssistantMessageAfterRevision(
             sessionId,
-            previous!.sourceEventRevision!,
+            previous.sourceEventRevision,
             evidence.sourceEventRevision,
           )
         : eventRepo.findLatestAssistantMessageAtOrBeforeRevision(
             sessionId,
             evidence.sourceEventRevision,
-            previous?.sourceEventRevision == null
-              ? previous?.ts ?? session.startedAt
-              : undefined,
           );
     if (lastMsg) {
       return {

@@ -21,13 +21,6 @@ const MAX_NUMERIC_VALUE = Number.MAX_SAFE_INTEGER;
 
 type EventLoopMonitorState = 'healthy' | 'lagging';
 
-export interface EventLoopDelaySample {
-  lagMs: number;
-  sampleIntervalMs: number;
-  suppressedSinceLastWarning: number;
-  maxSuppressedLagMs: number;
-}
-
 interface EventLoopPowerMonitor {
   on(event: 'resume' | 'suspend', listener: () => void): unknown;
   removeListener(event: 'resume' | 'suspend', listener: () => void): unknown;
@@ -36,11 +29,8 @@ interface EventLoopPowerMonitor {
 interface EventLoopMonitorOptions {
   sampleIntervalMs?: number;
   warnThresholdMs?: number;
-  /** @deprecated Repeats now use the fixed bounded-state summary interval. */
-  warningCooldownMs?: number;
   suspendThresholdMs?: number;
   now?: () => number;
-  onDelay?: (sample: EventLoopDelaySample) => void;
   powerMonitor?: EventLoopPowerMonitor;
 }
 
@@ -48,7 +38,6 @@ interface EventLoopDiagnosticContext {
   sampleIntervalMs: number;
   warnThresholdMs: number;
   suspendThresholdMs: number;
-  onDelay?: (sample: EventLoopDelaySample) => void;
 }
 
 /**
@@ -74,7 +63,6 @@ export function startMainEventLoopMonitor(options: EventLoopMonitorOptions = {})
     sampleIntervalMs,
     warnThresholdMs,
     suspendThresholdMs,
-    onDelay: options.onDelay,
   };
 
   let diagnosticClockMs = 0;
@@ -239,7 +227,6 @@ function emitDecision(
     } catch {
       // Diagnostics must never interrupt the sampling interval.
     }
-    notifyDelay(context, decision, lagMs, aggregate);
     return;
   }
   if (!priorAbnormal) return;
@@ -247,28 +234,6 @@ function emitDecision(
     logger.info('main event loop state recovered', details);
   } catch {
     // Diagnostics must never interrupt the sampling interval.
-  }
-}
-
-function notifyDelay(
-  context: EventLoopDiagnosticContext,
-  decision: LogStateDecision<EventLoopMonitorState>,
-  lagMs: number,
-  aggregate: LogStateSnapshot<EventLoopMonitorState>,
-): void {
-  if (!context.onDelay) return;
-  try {
-    context.onDelay({
-      lagMs,
-      sampleIntervalMs: context.sampleIntervalMs,
-      suppressedSinceLastWarning: aggregate.suppressedCount,
-      maxSuppressedLagMs:
-        decision.kind === 'periodic-summary'
-          ? aggregate.maxMetric ?? 0
-          : 0,
-    });
-  } catch {
-    // Compatibility observers are best-effort and cannot interrupt monitoring.
   }
 }
 

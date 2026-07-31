@@ -59,7 +59,7 @@ export const handOffSessionHandler = withMcpGuard(
       logger.warn(`[mcp hand_off_session] caller session not found: ${callerSessionId}`);
       return err(
         `caller session not found: ${callerSessionId}`,
-        'hand_off_session needs a real caller session so its tasks, teams, and worktree marker can transfer to the successor.',
+        'hand_off_session needs a real caller session so its tasks, teams, and active worktree lease can transfer to the successor.',
       );
     }
     if (callerRow.lifecycle === 'closed' || callerRow.archivedAt !== null) {
@@ -76,7 +76,7 @@ export const handOffSessionHandler = withMcpGuard(
       targetAdapter = callerRow.agentId;
     } else {
       logger.warn(
-        `[mcp hand_off_session] caller has unsupported legacy adapter: caller=${callerSessionId} adapter=${callerRow.agentId}`,
+        `[mcp hand_off_session] caller has unsupported adapter: caller=${callerSessionId} adapter=${callerRow.agentId}`,
       );
       return err(
         `caller session has unsupported adapter: ${callerRow.agentId}`,
@@ -376,7 +376,7 @@ export const handOffSessionHandler = withMcpGuard(
         }
 
         logger.info(
-          `[mcp hand_off_session] complete caller=${callerSessionId} successor=${execution.successorSessionId} callerClosed=${callerClosed} tasks=${execution.resourceTransfer.tasks.count} teams=${execution.resourceTransfer.teams.transferred.length} worktreeMarker=${execution.resourceTransfer.worktreeMarker.status}`,
+          `[mcp hand_off_session] complete caller=${callerSessionId} successor=${execution.successorSessionId} callerClosed=${callerClosed} tasks=${execution.resourceTransfer.tasks.count} teams=${execution.resourceTransfer.teams.transferred.length} worktreeLease=${execution.resourceTransfer.worktreeLease.status}`,
         );
         response = ok({
           sessionId: execution.successorSessionId,

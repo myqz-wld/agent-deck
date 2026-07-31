@@ -55,14 +55,13 @@ describe('buildKeywordPredicate', () => {
     expect(result.params).toEqual({ kw_like: '%aB%' });
   });
 
-  it('= 3 字符触发 legacy/bounded events FTS + summaries FTS MATCH', () => {
+  it('= 3 字符触发 bounded events FTS + summaries FTS MATCH', () => {
     const result = buildKeywordPredicate('foo');
     expect(result.sql).toContain('title LIKE @kw_like');
     expect(result.sql).toContain('cwd LIKE @kw_like');
-    expect(result.sql).toContain('events_fts');
+    expect(result.sql).toContain('event_search_fts_v1');
     expect(result.sql).toContain('summaries_fts');
     // MATCH 左侧必须是表名而不是 alias（SQLite 把 alias MATCH 解析成列名报错，N5 #1）
-    expect(result.sql).toContain('events_fts MATCH @kw_fts');
     expect(result.sql).toContain('event_search_fts_v1 MATCH @kw_fts');
     expect(result.sql).toContain('summaries_fts MATCH @kw_fts');
     expect(result.sql).not.toMatch(/\bfts MATCH\b/);
@@ -71,7 +70,7 @@ describe('buildKeywordPredicate', () => {
   });
 
   it('大小写混合关键词原样绑定，大小写折叠由 v43 trigram tokenizer 统一完成', () => {
-    const result = buildKeywordPredicate('FooBar', { includeLegacyEventIndex: false });
+    const result = buildKeywordPredicate('FooBar');
     expect(result.params).toEqual({ kw_like: '%FooBar%', kw_fts: '"FooBar"' });
     expect(result.sql).toContain('event_search_fts_v1 MATCH @kw_fts');
     expect(result.sql).toContain('summaries_fts MATCH @kw_fts');
@@ -82,23 +81,14 @@ describe('buildKeywordPredicate', () => {
     // IN + DISTINCT 让 planner 物化 FTS 命中的 session_id 集合，再 SEARCH sessions PK
     // EXISTS 形态会让 planner 把外层 sessions SCAN + 每行重跑 FTS（review N5 #2）
     expect(result.sql).toMatch(/sessions\.id IN\s*\(\s*SELECT DISTINCT e\.session_id/);
-    expect(result.sql).toMatch(/SELECT rowid FROM events_fts/);
-    expect(result.sql).toMatch(/UNION\s+SELECT rowid FROM event_search_fts_v1/);
-    expect(result.sql).toMatch(/JOIN events e ON e\.id = event_matches\.rowid/);
+    expect(result.sql).toMatch(/FROM event_search_fts_v1/);
+    expect(result.sql).toMatch(/JOIN events e ON e\.id = event_search_fts_v1\.rowid/);
     expect(result.sql).toMatch(/sessions\.id IN\s*\(\s*SELECT DISTINCT su\.session_id FROM summaries_fts/);
     expect(result.sql).toMatch(/JOIN summaries su ON su\.id = summaries_fts\.rowid/);
     expect(result.sql).not.toMatch(/EXISTS\s*\(/);
     // 不应出现旧的 LIKE 全表扫
     expect(result.sql).not.toContain('payload_json LIKE');
     expect(result.sql).not.toContain('su.content LIKE');
-  });
-
-  it('旧索引退休后只查询 bounded FTS，不保留空 legacy UNION 开销', () => {
-    const result = buildKeywordPredicate('hello', { includeLegacyEventIndex: false });
-    expect(result.sql).toContain('FROM event_search_fts_v1');
-    expect(result.sql).toContain('event_search_fts_v1 MATCH @kw_fts');
-    expect(result.sql).not.toContain('events_fts');
-    expect(result.sql).not.toContain('UNION');
   });
 
   it('SQL fragment 整体外层用括号包裹，可直接拼到 WHERE A AND B 形态', () => {
@@ -134,7 +124,7 @@ describe('buildKeywordPredicate', () => {
 
   it('中文关键词 ≥ 3 字符触发 FTS（trigram 按 codepoint 切对 CJK 通用）', () => {
     const result = buildKeywordPredicate('错误信息');
-    expect(result.sql).toContain('events_fts');
+    expect(result.sql).toContain('event_search_fts_v1');
     expect(result.params.kw_fts).toBe('"错误信息"');
   });
 

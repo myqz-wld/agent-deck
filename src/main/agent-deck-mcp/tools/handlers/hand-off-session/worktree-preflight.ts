@@ -18,7 +18,7 @@ export function resourceTransferFailed(
   return (
     result.tasks.status === 'failed' ||
     result.teams.status === 'failed' ||
-    result.worktreeMarker.status === 'failed'
+    result.worktreeLease.status === 'failed'
   );
 }
 

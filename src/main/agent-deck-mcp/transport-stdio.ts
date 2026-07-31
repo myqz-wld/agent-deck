@@ -38,13 +38,8 @@ import { EXTERNAL_CALLER_SENTINEL } from './types';
  * **R3 fix-4 (M2 codex Batch C+D MED-1)**：stdio transport 的 callerSessionIdOverride lambda
  * export 给 spoofing-attack-paths.test.ts 真 import 绑 production。
  *
- * **抽出动机**：旧版 test 本地复制 `const stdioOverride = () => EXTERNAL_CALLER_SENTINEL` 不绑
- * production transport-stdio.ts → 将来 transport-stdio.ts 回退成 `callerSessionIdOverride: null`
- * test 仍 pass 不报警 → B-HIGH-1 修法回归被静默 ship。export 后 test 真 import lambda,production
- * 回退会让 test 同步 fail。
- *
- * **行为不变**: 永返 `__external__` sentinel 切断 spoofing 路径（与 buildAgentDeckTools 内部
- * `overridden ?? args.callerSessionId` 短路逻辑配合，让任何 args.callerSessionId 被忽略）。
+ * Exported so the spoofing-path test binds the production provider. It always returns the external
+ * sentinel, and tool context never reads caller identity from public arguments.
  *
  * **禁止扩散**: 仅 transport-stdio.ts 内使用 + `__tests__/spoofing-attack-paths.test.ts` 校验
  * 用。其他 production 文件想用 sentinel 直接 `import { EXTERNAL_CALLER_SENTINEL } from './types'`
@@ -106,16 +101,8 @@ export async function runAgentDeckMcpStdio(): Promise<void> {
 
   // B-HIGH-1 (C) 修法 (b)（plan deep-review-batch-a1-b-fixes-20260519 / REVIEW_46）:
   // stdio transport 没 per-session authn 链路，client 只能传特殊值 `__external__` 当
-  // callerSessionId（ADR §4.3 / §11.7 文档约定）。旧版 callerSessionIdOverride: null 让
-  // tools/index.ts:108 的 `overridden ?? args.callerSessionId` fallback 到任意 args 字段，
-  // client 能填已存在 active sid spoof 写工具（B-HIGH-1 reviewer-claude 反驳轮 mini-test 实证）。
-  // 修法: force callerSessionIdOverride 永返 sentinel，让 stdio transport 在源头切断 spoofing
-  // 路径（与 helpers.ts denyExternalIfNotAllowed (a) stdio invariant assertion 双层守门 = 修法 (C)）。
-  //
-  // **R3 fix-4 (M2 codex Batch C+D MED-1)**: 抽 module-level export `stdioCallerSessionIdOverride`
-  // 给 spoofing-attack-paths.test.ts 真 import 绑 production（旧版 test 本地复制 const stdioOverride
-  // 不绑 production → 将来 transport-stdio.ts 回退成 `callerSessionIdOverride: null` test 仍 pass
-  // 不报警 → 漏洞回归被静默 ship）。export 仅供 __tests__ import,严禁其他 production 文件 import。
+  // stdio has no per-session authentication, so its required caller provider always returns the
+  // external sentinel. The helper invariant remains a second guard against an incorrect provider.
   const transport = new stdioMod.StdioServerTransport();
   // McpServer.connect 会调 transport.start（mcp-sdk 内部封装）
   await (mcpServer as unknown as { connect: (t: unknown) => Promise<void> }).connect(transport);

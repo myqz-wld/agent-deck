@@ -633,18 +633,18 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
 
   // ─── CHANGELOG_99 cwd 失效启发式 fallback (LOW-A) ──────────
 
-  it('CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + R2-2 保留对话历史（jsonl 在）', async () => {
+  it('cwd 不存在时父目录 fallback 命中 → fallback main repo + R2-2 保留对话历史（jsonl 在）', async () => {
     const bridge = makeBridge();
     // Map mock: dead worktree path 不存在 + main repo 存在 → 启发式 1 命中
     bridge.cwdExistsOverride = new Map<string, boolean>([
-      ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
+      ['/Users/apple/myrepo/.agent-deck/worktrees/dead-task', false],
       ['/Users/apple/myrepo', true],
     ]);
     // jsonl 仍在(默认 true) — R2-2 修法:cwd fallback 不再强制 fresh thread,可保留对话历史
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-cwd-bad',
       agentId: 'codex-cli',
-      cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+      cwd: '/Users/apple/myrepo/.agent-deck/worktrees/dead-task',
       title: 'x',
       source: 'sdk',
       lifecycle: 'dormant',
@@ -743,7 +743,7 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
 
   it('CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录', async () => {
     const bridge = makeBridge();
-    // 路径不含 .claude/worktrees/ → 启发式 1 跳过;parent walk 找到第一个存在的目录
+    // 父目录 walk 找到第一个存在的目录
     bridge.cwdExistsOverride = new Map<string, boolean>([
       ['/Users/apple/some/deep/dead/cwd', false],
       ['/Users/apple/some/deep/dead', false], // parent 1
@@ -777,14 +777,14 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
     const bridge = makeBridge();
     // 双不命中: cwd fallback 仍找到, 但 jsonl 也丢了 → 走 fresh thread fallback
     bridge.cwdExistsOverride = new Map<string, boolean>([
-      ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
+      ['/Users/apple/myrepo/.agent-deck/worktrees/dead-task', false],
       ['/Users/apple/myrepo', true],
     ]);
     bridge.jsonlExistsOverride = false;
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-dual-bad',
       agentId: 'codex-cli',
-      cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+      cwd: '/Users/apple/myrepo/.agent-deck/worktrees/dead-task',
       title: 'x',
       source: 'sdk',
       lifecycle: 'dormant',

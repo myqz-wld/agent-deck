@@ -85,7 +85,7 @@ function successfulTransfer() {
   return {
     tasks: { status: 'ok' as const, count: 1 },
     teams: { status: 'ok' as const, transferred: [], skipped: [], failed: [] },
-    worktreeMarker: { status: 'ok' as const, marker: '/repo' },
+    worktreeLease: { status: 'ok' as const, worktreePath: '/repo' },
   };
 }
 

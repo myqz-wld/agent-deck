@@ -24,7 +24,7 @@
  * spike-A3 实测：5 codex 并发 oneshot 复用 codex app-server 单例，总耗 10s + 单进程
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
  */
-import type { AgentEvent } from '@shared/types';
+import type { StoredAgentEvent } from '@shared/types';
 import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
 import { isCodexThinkingLevel, type CodexThinkingLevel } from '@shared/session-metadata';
 import { settingsStore } from '@main/store/settings-store';
@@ -57,8 +57,8 @@ export function resolveCodexSummaryReasoning(configured: unknown): CodexThinking
  */
 export async function summariseCodexSessionViaOneshot(
   cwd: string,
-  events: AgentEvent[],
-  formatEvents: (events: AgentEvent[]) => string,
+  events: StoredAgentEvent[],
+  formatEvents: (events: StoredAgentEvent[]) => string,
   evidenceContext?: string,
   runtime?: {
     profile?: string;
@@ -92,8 +92,7 @@ export async function summariseCodexSessionViaOneshot(
       runtime?.thinking ?? settingsStore.get('summaryThinking'),
     ),
     // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
-    // (不再是 codexSummaryModel — 已下线 + REMOVED_KEYS 清孤儿)。空值保持 undefined，让
-    // Codex 直接使用 config.toml 当前模型，不再叠加隐藏的 CODEX_SUMMARY_MODEL env 来源。
+    // 空值保持 undefined，让 Codex 直接使用 config.toml 当前模型。
     // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用。
     // 填其他 provider 的 alias 会撞 codex SDK 不识别报错并走 caller fallback。
     model: resolveCodexSummaryModel(

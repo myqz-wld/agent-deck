@@ -91,21 +91,20 @@ export class BrowserUseFrameDecoder {
   private headOffset = 0;
   private retained = 0;
 
-  constructor(options: BrowserUseFrameDecoderOptions | number = {}) {
-    const normalized = typeof options === 'number' ? { maxFrameBytes: options } : options;
+  constructor(options: BrowserUseFrameDecoderOptions = {}) {
     this.maxFrameBytes =
-      normalized.maxFrameBytes ?? DEFAULT_BROWSER_USE_TRANSPORT_LIMITS.maxFrameBytes;
+      options.maxFrameBytes ?? DEFAULT_BROWSER_USE_TRANSPORT_LIMITS.maxFrameBytes;
     this.maxInputChunkBytes =
-      normalized.maxInputChunkBytes ??
+      options.maxInputChunkBytes ??
       DEFAULT_BROWSER_USE_TRANSPORT_LIMITS.maxInputChunkBytes;
     this.maxMessagesPerInputChunk =
-      normalized.maxMessagesPerInputChunk ??
+      options.maxMessagesPerInputChunk ??
       DEFAULT_BROWSER_USE_TRANSPORT_LIMITS.maxMessagesPerInputChunk;
     this.maxRetainedInputBytes =
-      normalized.maxRetainedInputBytes ??
+      options.maxRetainedInputBytes ??
       DEFAULT_BROWSER_USE_TRANSPORT_LIMITS.maxRetainedInputBytes;
     this.maxRetainedInputChunks =
-      normalized.maxRetainedInputChunks ??
+      options.maxRetainedInputChunks ??
       DEFAULT_BROWSER_USE_TRANSPORT_LIMITS.maxRetainedInputChunks;
   }
 

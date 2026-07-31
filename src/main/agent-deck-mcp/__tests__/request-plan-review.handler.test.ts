@@ -19,10 +19,7 @@ vi.mock('@main/session/manager', () => ({
 
 import { planReviewService } from '@main/plan-review/service';
 import { eventBus } from '@main/event-bus';
-import {
-  requestPlanReviewHandler,
-  resolvePlanReviewTimeoutMs,
-} from '../tools/handlers/request-plan-review';
+import { requestPlanReviewHandler } from '../tools/handlers/request-plan-review';
 import type { HandlerContext } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL } from '../types';
 
@@ -146,7 +143,7 @@ describe('present_plan handler', () => {
     });
   });
 
-  it('waits indefinitely when timeoutMs is omitted', async () => {
+  it('waits indefinitely', async () => {
     mocks.sessions.set('codex-1', makeSession('codex-1'));
     const requestSpy = vi
       .spyOn(planReviewService, 'request')
@@ -161,26 +158,6 @@ describe('present_plan handler', () => {
       expect(result.isError).toBeFalsy();
       expect(parseResult(result)).toEqual({ decision: 'approved' });
       expect(requestSpy.mock.calls[0]?.[0].timeoutMs).toBeUndefined();
-    } finally {
-      requestSpy.mockRestore();
-    }
-  });
-
-  it('preserves an explicit timeoutMs', async () => {
-    mocks.sessions.set('codex-1', makeSession('codex-1'));
-    const requestSpy = vi
-      .spyOn(planReviewService, 'request')
-      .mockResolvedValue({ decision: 'timeout' });
-
-    try {
-      await requestPlanReviewHandler(
-        { plan: 'Cap me', timeoutMs: 120_000 },
-        makeCtx('codex-1'),
-      );
-
-      expect(requestSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ timeoutMs: 120_000 }),
-      );
     } finally {
       requestSpy.mockRestore();
     }
@@ -243,22 +220,5 @@ describe('present_plan handler', () => {
       hint: 'Retry present_plan once. If it fails again, stop and inspect Agent Deck main-process logs.',
     });
     expect(planReviewService.listPending('codex-1')).toEqual([]);
-  });
-});
-
-describe('resolvePlanReviewTimeoutMs', () => {
-  it('uses no timeout when present_plan omits timeoutMs', () => {
-    expect(resolvePlanReviewTimeoutMs(undefined)).toBeUndefined();
-    expect(resolvePlanReviewTimeoutMs(30_000)).toBe(30_000);
-  });
-
-  it('retains the legacy permission cap when present_diff supplies that setting', () => {
-    expect(resolvePlanReviewTimeoutMs(30_000, 90_000)).toBe(30_000);
-    expect(resolvePlanReviewTimeoutMs(120_000, 90_000)).toBe(90_000);
-  });
-
-  it('treats permission timeout 0 as no default cap', () => {
-    expect(resolvePlanReviewTimeoutMs(undefined, 0)).toBeUndefined();
-    expect(resolvePlanReviewTimeoutMs(30_000, 0)).toBe(30_000);
   });
 });

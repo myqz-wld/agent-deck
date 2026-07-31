@@ -19,10 +19,8 @@
     "test:browser-electron": "node scripts/verify-browser-engine-electron.mjs",
     "test:node": "vitest run",
     "test:watch": "vitest",
-    "test:fts5": "scripts/verify-fts5.sh",
+    "test:fts5": "node scripts/test-electron.mjs src/main/store/__tests__/db-schema.test.ts src/main/store/search-predicate.test.ts",
     "verify:bundled-runtimes": "node scripts/verify-bundled-grok.mjs",
-    "migrate:history-search": "node scripts/run-history-search-migration.mjs",
-    "migrate:message-dispatch": "node scripts/run-message-dispatch-migration.mjs",
     "logger:check": "bash scripts/logger-check.sh",
     "postinstall": "electron-builder install-app-deps"
   },

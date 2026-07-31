@@ -1,19 +1,11 @@
 /**
- * MCP server 拼装 — Agent Deck MCP only（plan task-mcp-merge-into-agent-deck-mcp-20260521 合并后）。
+ * MCP server builder for Claude SDK sessions.
  *
- * 抽自 ClaudeSdkBridge.createSession 内 mcp 拼装段（原 ~35 行 inline 紧贴 query() 调用）。
- * 收口到一个 pure builder 里，让 createSession 主体只关心拼装结果。
- *
- * 行为（保持原 createSession 拼装逻辑等价）：
+ * Behavior:
  * - settings.enableAgentDeckMcp ON → 起 agentDeckMcpServer，callerSessionIdProvider
  *   走 lazy 工厂（每次 tool 调用时拿当前 SDK session id = applicationSid；tools.ts 内强制覆盖
  *   args.caller_session_id 防 prompt 注入；mcp send_message no-shared-team check 走 sessions.id
  *   维度，需用 applicationSid 才命中 team_member 行）
- *
- * **plan task-mcp-merge-into-agent-deck-mcp-20260521**：原独立 tasksServer 已合并进 agent-deck-mcp
- * namespace（工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
- * 删 enableTaskManager 独立 toggle，task tools 跟随 enableAgentDeckMcp 开关；settings-store.ts
- * REMOVED_KEYS + smart migration 守护老用户 enableTaskManager:true 不丢失能力（详 §D2 R1 F11）。
  */
 
 import { settingsStore } from '@main/store/settings-store';

@@ -76,15 +76,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bundledAgentRuntimeOverrides: {},
   injectAgentDeckClaudeSkills: true,
   injectAgentDeckClaudeAgents: true,
-  // R3.E6 (PR-B) 删 agentTeamsEnabled / autoApproveTeammateMode；
-  // plan task-mcp-merge-into-agent-deck-mcp-20260521 删 enableTaskManager；
-  // plan resume-inject-raw-messages-20260601 删 autoSummariseOnFallback（无条件注入历史 — UI
-  // toggle 早删字段成孤儿，REMOVED_KEYS 清历史 + 改 fallback 路径无条件走注入，详 settings-store.ts）；
-  // REMOVED_KEYS + smart migration 自动清历史 + 守护老用户 ON 值（详 settings-store.ts）
   claudeCodeSandbox: 'workspace-write',
   codexSandbox: 'workspace-write',
   grokSandbox: 'workspace',
-  // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史
   // B'0 ADR §7：Agent Deck MCP server 默认 ON（task tools 跟随，详 enableAgentDeckMcp jsdoc）
   enableAgentDeckMcp: true,
   mcpServerToken: null,

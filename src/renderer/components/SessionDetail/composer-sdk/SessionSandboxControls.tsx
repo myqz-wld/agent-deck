@@ -56,11 +56,10 @@ export function SessionSandboxControls({
       if (!approved) return;
     }
     await run(async () =>
-      window.api.restartWithCodexSandbox(
+      window.api.setCodexSandbox(
         session.agentId,
         session.id,
         next,
-        SDK_RESTART_RESUME_PROMPT,
       ),
     );
   };

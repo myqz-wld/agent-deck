@@ -3,10 +3,12 @@ import { adapterRegistry } from '@main/adapters/registry';
 import { sessionRepo } from '@main/store/session-repo';
 import {
   agentDeckMessageRepo,
-  MAX_RETRY,
   type MessageDeliveryLease,
 } from '@main/store/agent-deck-message-repo';
-import { MESSAGE_DELIVERY_DURABILITY } from '@main/store/message-delivery-state';
+import {
+  MAX_RETRY,
+  MESSAGE_DELIVERY_DURABILITY,
+} from '@main/store/message-delivery-state';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import log from '@main/utils/logger';
 import { sanitizeWireFieldName } from '@shared/wire-prefix';

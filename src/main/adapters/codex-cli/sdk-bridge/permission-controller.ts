@@ -14,9 +14,7 @@ type ApprovalMethod =
   | 'item/fileChange/requestApproval'
   | 'item/tool/requestUserInput'
   | 'item/permissions/requestApproval'
-  | 'mcpServer/elicitation/request'
-  | 'execCommandApproval'
-  | 'applyPatchApproval';
+  | 'mcpServer/elicitation/request';
 
 interface ParsedApproval {
   toolName: string;
@@ -33,8 +31,6 @@ const APPROVAL_METHODS = new Set<ApprovalMethod>([
   'item/tool/requestUserInput',
   'item/permissions/requestApproval',
   'mcpServer/elicitation/request',
-  'execCommandApproval',
-  'applyPatchApproval',
 ]);
 
 const MCP_TOOL_APPROVAL_QUESTION_PREFIX = 'mcp_tool_call_approval_';
@@ -202,10 +198,6 @@ function parseApproval(request: CodexAppServerServerRequest): ParsedApproval | n
     }
     case 'mcpServer/elicitation/request':
       return parseMcpToolElicitation(params);
-    case 'execCommandApproval':
-      return legacyApproval(`${CODEX_CLI_DISPLAY_NAME} 命令`, params);
-    case 'applyPatchApproval':
-      return legacyApproval(`${CODEX_CLI_DISPLAY_NAME} 文件修改`, params);
   }
 }
 
@@ -280,7 +272,7 @@ function parseMcpToolElicitation(
   params: Record<string, unknown>,
 ): ParsedApproval | null {
   if (params.mode !== 'form' && params.mode !== 'openai/form') return null;
-  const meta = asRecord(params._meta ?? params.meta);
+  const meta = asRecord(params._meta);
   if (meta.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND) return null;
   const persist = meta.persist;
   const supportsAlways =
@@ -301,22 +293,6 @@ function parseMcpToolElicitation(
     }),
     deny: () => ({ action: 'decline', content: null, _meta: null }),
     cancel: () => ({ action: 'cancel', content: null, _meta: null }),
-  };
-}
-
-function legacyApproval(
-  toolName: string,
-  params: Record<string, unknown>,
-): ParsedApproval {
-  return {
-    toolName,
-    toolInput: params,
-    supportsAlways: true,
-    allow: (always) => ({ decision: always ? 'approved_for_session' : 'approved' }),
-    deny: (message) => ({
-      decision: { denied: { rejection: message?.trim() || 'Denied by user' } },
-    }),
-    cancel: (timedOut) => ({ decision: timedOut ? 'timed_out' : 'abort' }),
   };
 }
 

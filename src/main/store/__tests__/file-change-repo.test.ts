@@ -7,8 +7,6 @@ interface TestRow {
   kind: string;
   before_blob: string | null;
   after_blob: string | null;
-  before_snapshot: string | null;
-  after_snapshot: string | null;
   before_snapshot_hash?: Buffer | null;
   after_snapshot_hash?: Buffer | null;
   before_snapshot_codec?: unknown;
@@ -69,10 +67,8 @@ const dbMock = vi.hoisted(() => {
         ...candidate,
         has_before_blob: candidate.before_blob !== null ? 1 : 0,
         has_after_blob: candidate.after_blob !== null ? 1 : 0,
-        has_before_snapshot:
-          candidate.before_snapshot_hash != null || candidate.before_snapshot !== null ? 1 : 0,
-        has_after_snapshot:
-          candidate.after_snapshot_hash != null || candidate.after_snapshot !== null ? 1 : 0,
+        has_before_snapshot: candidate.before_snapshot_hash != null ? 1 : 0,
+        has_after_snapshot: candidate.after_snapshot_hash != null ? 1 : 0,
         is_visible: visible?.(candidate.kind, candidate.metadata_json) ?? 1,
       }));
     }),
@@ -100,7 +96,6 @@ const dbMock = vi.hoisted(() => {
         if (sql.includes('fc.before_blob AS before_blob')) {
           Object.assign(projected, {
             before_blob: found.before_blob,
-            before_snapshot: found.before_snapshot,
             before_snapshot_hash: found.before_snapshot_hash,
             before_snapshot_codec: found.before_snapshot_codec,
             before_snapshot_raw_bytes: found.before_snapshot_raw_bytes,
@@ -111,7 +106,6 @@ const dbMock = vi.hoisted(() => {
         if (sql.includes('fc.after_blob AS after_blob')) {
           Object.assign(projected, {
             after_blob: found.after_blob,
-            after_snapshot: found.after_snapshot,
             after_snapshot_hash: found.after_snapshot_hash,
             after_snapshot_codec: found.after_snapshot_codec,
             after_snapshot_raw_bytes: found.after_snapshot_raw_bytes,
@@ -181,8 +175,6 @@ function row(overrides: Partial<TestRow> = {}): TestRow {
     kind: 'text',
     before_blob: null,
     after_blob: null,
-    before_snapshot: null,
-    after_snapshot: null,
     metadata_json: JSON.stringify({
       source: 'codex',
       changeKind: 'update',
@@ -243,7 +235,7 @@ describe('fileChangeRepo', () => {
     const insertSql = dbMock.db.prepare.mock.calls
       .map(([sql]) => sql as string)
       .find((sql) => sql.includes('INSERT INTO file_changes'));
-    expect(insertSql).toContain('VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)');
+    expect(insertSql).toContain('VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   });
 
   it('accepts a verified digest conflict and rejects corrupted conflicting bytes', () => {
@@ -283,7 +275,7 @@ describe('fileChangeRepo', () => {
     expect(loggerMock.warn).not.toHaveBeenCalled();
   });
 
-  it('falls back to legacy text and warns once when a repeated blob is malformed', () => {
+  it('returns null and warns once when a repeated blob is malformed', () => {
     const raw = Buffer.from('expected');
     const digest = createHash('sha256').update(raw).digest();
     const corrupt = deflateRawSync(Buffer.from('different'), { level: 1 });
@@ -295,29 +287,18 @@ describe('fileChangeRepo', () => {
       before_snapshot_data: corrupt,
     };
     dbMock.state.rows = [
-      row({ id: 2, before_snapshot: 'legacy-2', ...malformed }),
-      row({ id: 1, before_snapshot: 'legacy-1', ...malformed }),
+      row({ id: 2, ...malformed }),
+      row({ id: 1, ...malformed }),
     ];
 
-    expect(fileChangeRepo.listForSession('s1').map((r) => r.beforeSnapshot)).toEqual([
-      'legacy-2',
-      'legacy-1',
-    ]);
+    expect(fileChangeRepo.listForSession('s1').map((r) => r.beforeSnapshot)).toEqual([null, null]);
     expect(loggerMock.warn).toHaveBeenCalledOnce();
     expect(loggerMock.warn.mock.calls[0][0]).toContain('snapshot blob decode failed');
   });
 
-  it('silently reads legacy snapshot rows that have not been backfilled', () => {
-    dbMock.state.rows = [row({ before_snapshot: 'legacy', before_snapshot_hash: null })];
-    expect(fileChangeRepo.listForSession('s1')[0].beforeSnapshot).toBe('legacy');
-    expect(loggerMock.warn).not.toHaveBeenCalled();
-  });
-
-  it('warns and falls back when a hash points to a missing blob', () => {
-    dbMock.state.rows = [
-      row({ before_snapshot: 'legacy', before_snapshot_hash: Buffer.alloc(32, 7) }),
-    ];
-    expect(fileChangeRepo.listForSession('s1')[0].beforeSnapshot).toBe('legacy');
+  it('warns and returns null when a hash points to a missing blob', () => {
+    dbMock.state.rows = [row({ before_snapshot_hash: Buffer.alloc(32, 7) })];
+    expect(fileChangeRepo.listForSession('s1')[0].beforeSnapshot).toBeNull();
     expect(loggerMock.warn).toHaveBeenCalledOnce();
     expect(loggerMock.warn.mock.calls[0][0]).toContain('snapshot blob decode failed');
   });
@@ -395,7 +376,7 @@ describe('fileChangeRepo', () => {
         ts: 100,
         file_path: '/repo/three.ts',
         before_blob: '',
-        before_snapshot: 'legacy-before',
+        before_snapshot_hash: Buffer.alloc(32, 2),
         after_snapshot_hash: Buffer.alloc(32, 3),
       }),
       row({ id: 2, ts: 100, file_path: '/repo/two.ts' }),
@@ -427,12 +408,8 @@ describe('fileChangeRepo', () => {
     expect(summarySql).not.toContain('file_snapshot_blobs');
     expect(projection).toContain('fc.before_blob IS NOT NULL AS has_before_blob');
     expect(projection).toContain('fc.after_blob IS NOT NULL AS has_after_blob');
-    expect(projection).toContain(
-      '(fc.before_snapshot_hash IS NOT NULL OR fc.before_snapshot IS NOT NULL)',
-    );
-    expect(projection).toContain(
-      '(fc.after_snapshot_hash IS NOT NULL OR fc.after_snapshot IS NOT NULL)',
-    );
+    expect(projection).toContain('fc.before_snapshot_hash IS NOT NULL');
+    expect(projection).toContain('fc.after_snapshot_hash IS NOT NULL');
     expect(projection).toContain(
       'agent_deck_file_change_visible(fc.kind, fc.metadata_json) AS is_visible',
     );
@@ -468,7 +445,6 @@ describe('fileChangeRepo', () => {
         id: 7,
         metadata_json: '{bad',
         before_snapshot_hash: Buffer.alloc(32, 7),
-        before_snapshot: 'legacy-before',
       }),
       row({ id: 8, session_id: 'other' }),
     ];
@@ -477,7 +453,7 @@ describe('fileChangeRepo', () => {
     expect(payload).toMatchObject({
       id: 7,
       metadata: {},
-      beforeSnapshot: 'legacy-before',
+      beforeSnapshot: null,
     });
     expect(payload).not.toHaveProperty('hasBeforeBlob');
     expect(payload).not.toHaveProperty('hasAfterSnapshot');
@@ -503,7 +479,7 @@ describe('fileChangeRepo', () => {
       ]),
     );
     expect(JSON.stringify(loggerMock.warn.mock.calls)).not.toMatch(
-      /s1|legacy-before|\{bad|070707|changeId|sessionId|digest|context|error/i,
+      /s1|\{bad|070707|changeId|sessionId|digest|context|error/i,
     );
   });
 
@@ -524,7 +500,6 @@ describe('fileChangeRepo', () => {
         before_blob: 'old',
         after_blob: 'large-opposite-after',
         ...selection('before', before),
-        after_snapshot: 'opposite-after',
         after_snapshot_hash: malformed.snapshot_hash,
         after_snapshot_codec: malformed.snapshot_codec,
         after_snapshot_raw_bytes: malformed.snapshot_raw_bytes,
@@ -536,7 +511,6 @@ describe('fileChangeRepo', () => {
         ts: 2,
         before_blob: 'large-opposite-before',
         after_blob: 'new',
-        before_snapshot: 'opposite-before',
         before_snapshot_hash: malformed.snapshot_hash,
         before_snapshot_codec: malformed.snapshot_codec,
         before_snapshot_raw_bytes: malformed.snapshot_raw_bytes,

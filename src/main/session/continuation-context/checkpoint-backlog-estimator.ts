@@ -127,14 +127,14 @@ function listRawEvents(
   after: EventRevisionCursor,
 ): RawEventRevisionRow[] {
   const rows = db.prepare(
-    `SELECT id, session_id, COALESCE(change_revision, id) AS effective_revision,
+    `SELECT id, session_id, change_revision AS effective_revision,
             kind, payload_json, ts, tool_use_id
        FROM events
       WHERE session_id = ?
-        AND COALESCE(change_revision, id) <= ?
+        AND change_revision <= ?
         AND kind NOT IN (${EXCLUDED_EVENT_KIND_PLACEHOLDERS})
-        AND (COALESCE(change_revision, id), id) > (?, ?)
-      ORDER BY COALESCE(change_revision, id) ASC, id ASC
+        AND (change_revision, id) > (?, ?)
+      ORDER BY change_revision ASC, id ASC
       LIMIT 1000`,
   ).all(
     sessionId,

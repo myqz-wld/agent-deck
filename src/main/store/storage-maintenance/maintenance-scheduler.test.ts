@@ -23,42 +23,14 @@ const CHECKPOINT: StorageMaintenanceCheckpointResult = {
   durationMs: 1,
 };
 
-type MaintenanceTask = 'event-search-v1' | 'file-snapshot-blobs-v1';
-
 class FakeDatabase {
   readonly name = '/tmp/agent-deck-maintenance-scheduler.test.db';
   readonly pragmaCalls: string[] = [];
   autoCheckpointPages: number;
   autoCheckpointReads = 0;
   failAutoCheckpointReadAt: number | null = null;
-  phases: Record<MaintenanceTask, string>;
-
-  constructor(
-    autoCheckpointPages = 731,
-    phases: Partial<Record<MaintenanceTask, string>> = {},
-  ) {
+  constructor(autoCheckpointPages = 731) {
     this.autoCheckpointPages = autoCheckpointPages;
-    this.phases = {
-      'event-search-v1': phases['event-search-v1'] ?? 'backfill',
-      'file-snapshot-blobs-v1': phases['file-snapshot-blobs-v1'] ?? 'backfill',
-    };
-  }
-
-  prepare(sql: string) {
-    if (!sql.includes('FROM storage_maintenance_state')) {
-      throw new Error(`unexpected SQL in scheduler controller test: ${sql}`);
-    }
-    return {
-      get: (task: MaintenanceTask) => ({
-        task,
-        phase: this.phases[task],
-        cursor: 0,
-        upper_bound: 10,
-        batch_size: 1,
-        last_error: null,
-        updated_at: 0,
-      }),
-    };
   }
 
   pragma(source: string, options?: { simple?: boolean }): unknown {
@@ -215,34 +187,6 @@ describe('StorageMaintenanceScheduler main controller protocol', () => {
     await harness.scheduler.stop();
     harness.advance(50);
     expect(harness.workers).toHaveLength(1);
-  });
-
-  it('passes the app-run restart eligibility snapshot unchanged across worker respawn', async () => {
-    const db = new FakeDatabase(731, {
-      'event-search-v1': 'awaiting-restart',
-      'file-snapshot-blobs-v1': 'backfill',
-    });
-    const harness = createHarness({ initialDelayMs: 1_000, errorRetryMs: 50 }, db);
-    harness.scheduler.start();
-    const first = harness.workers[0];
-
-    expect(harness.workerData[0].restartEligible).toEqual(['event-search-v1']);
-    // Neither an external mutation of the first worker payload nor later DB phase changes may alter
-    // the app-run snapshot retained by the controller for replacement workers.
-    harness.workerData[0].restartEligible.push('file-snapshot-blobs-v1');
-    db.phases['event-search-v1'] = 'complete';
-    db.phases['file-snapshot-blobs-v1'] = 'awaiting-restart';
-
-    ready(first);
-    first.message({ type: 'fatal', error: 'replace me' });
-    harness.advance(50);
-
-    expect(harness.workers).toHaveLength(2);
-    expect(harness.workerData[1].restartEligible).toEqual(['event-search-v1']);
-
-    const stop = harness.scheduler.stop();
-    harness.workers[1].emit('exit', 1);
-    await stop;
   });
 
   it('keeps one correlated request in flight and ignores stale or mismatched responses', async () => {

@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@shared/types';
+import type { AgentEvent, StoredAgentEvent } from '@shared/types';
 
 /**
  * 把 events 转成给 LLM 看的「最近活动」文本。`events` 入参按 (ts DESC, id DESC)（listForSession
@@ -15,7 +15,7 @@ import type { AgentEvent } from '@shared/types';
  * 「按发生顺序读」契约，SDK 连续 emit 同毫秒是现实路径，handoff 简报会读到局部反序步骤）。
  * 修法：tie-breaker `(a.ts - b.ts) || (idOf(a) - idOf(b))` 还原同毫秒 chronological（id 升序 =
  * 旧→新）。`events.id` 是 INTEGER AUTOINCREMENT 单调（v001），listForSession 返回类型
- * `AgentEvent & { id: number }` 带此列；入参放宽到 optional id 兼容无 id 的 caller（?? 0 兜底）。
+ * `StoredAgentEvent` 带此列。
  *
  * `[Claude 说]` 只算 role !== 'user' 且 error !== true 的 message：
  * - 用户输入虽然 emit 成了 message kind 但 role: 'user'，把它写成"Claude 说"会让
@@ -23,11 +23,11 @@ import type { AgentEvent } from '@shared/types';
  * - error: true 的 ⚠ 警告是基础设施消息（API 错误、待响应队列提示），不是真正
  *   的"Claude 在做什么"
  */
-export function formatEventsForPrompt(events: (AgentEvent & { id?: number })[]): string {
+export function formatEventsForPrompt(events: StoredAgentEvent[]): string {
   // events 通常是 (ts DESC, id DESC)，先排正（ts 升序 + id tie-breaker 还原同毫秒
   // chronological），全部转换成有效行后再 slice(-60)。
   const ordered = [...events]
-    .sort((a, b) => a.ts - b.ts || (a.id ?? 0) - (b.id ?? 0));
+    .sort((a, b) => a.ts - b.ts || a.id - b.id);
   const lines: string[] = [];
   for (const e of ordered) {
     const p = (e.payload ?? {}) as Record<string, unknown>;

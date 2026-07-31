@@ -25,7 +25,6 @@ const batchAdvanceCalls: Array<{
   to: string;
 }> = [];
 const batchDeleteCalls: HistoryCandidate[][] = [];
-const clearMarkerCalls: string[] = [];
 const leaveCalls: string[] = [];
 const browserDisposeCalls: string[] = [];
 const emitCalls: Array<{ name: string; payload: unknown }> = [];
@@ -106,11 +105,6 @@ vi.mock('@main/store/session-repo', () => ({
     get: (id: string) => recordsById.get(id) ?? null,
     findByCliSessionId: (cliSessionId: string) =>
       [...recordsById.values()].find((row) => row.cliSessionId === cliSessionId) ?? null,
-    clearCwdReleaseMarker: (id: string) => {
-      clearMarkerCalls.push(id);
-      const row = recordsById.get(id);
-      if (row) recordsById.set(id, { ...row, cwdReleaseMarker: null });
-    },
   },
 }));
 
@@ -133,9 +127,6 @@ vi.mock('@main/session/manager-team-coordinator', () => ({
     sessionId: string,
     opts: { onClearedBeforeLeave?: () => void } = {},
   ) => {
-    clearMarkerCalls.push(sessionId);
-    const row = recordsById.get(sessionId);
-    if (row) recordsById.set(sessionId, { ...row, cwdReleaseMarker: null });
     opts.onClearedBeforeLeave?.();
     const gate = sideEffectGates.get(sessionId);
     if (gate) await gate;
@@ -198,7 +189,6 @@ beforeEach(() => {
   historyFindCalls.length = 0;
   batchAdvanceCalls.length = 0;
   batchDeleteCalls.length = 0;
-  clearMarkerCalls.length = 0;
   leaveCalls.length = 0;
   browserDisposeCalls.length = 0;
   emitCalls.length = 0;
@@ -218,22 +208,20 @@ afterEach(() => {
 });
 
 describe('LifecycleScheduler phase isolation and transitions', () => {
-  it('keeps close epoch, browser, team, marker, and fresh upsert side effects', async () => {
-    const row = makeRecord('close-me', 'dormant', { cwdReleaseMarker: '/stale' });
+  it('keeps close epoch, browser, team, and fresh upsert side effects', async () => {
+    const row = makeRecord('close-me', 'dormant');
     dormantRows = [row];
     recordsById.set(row.id, row);
 
     makeScheduler({ historyRetentionDays: 0 }).scan();
     await vi.waitFor(() => expect(leaveCalls).toEqual(['close-me']));
 
-    expect(clearMarkerCalls).toEqual(['close-me']);
     expect(browserDisposeCalls).toEqual(['close-me']);
     expect(emitCalls).toContainEqual({
       name: 'session-upserted',
       payload: expect.objectContaining({
         id: 'close-me',
         lifecycle: 'closed',
-        cwdReleaseMarker: null,
       }),
     });
     expect(sessionManager.getCloseEpoch('close-me')).toBeGreaterThan(0);

@@ -20,7 +20,7 @@ const COLLAPSE_THRESHOLD_CHARS = 800;
 
 /**
  * Each message owns its render mode. Errors remain plaintext so Markdown cannot obscure stacks.
- * User attachments are optional, which keeps older persisted events compatible.
+ * User attachments are optional because ordinary text messages do not contain them.
  */
 export function MessageBubble({
   event,

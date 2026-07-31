@@ -76,7 +76,7 @@ describe('CodexHookInstaller', () => {
     expect(statSync(relayPath).mode & 0o777).toBe(0o600);
   });
 
-  it('does not claim historical tags after the one-time migration', async () => {
+  it('does not claim user commands that only contain an unowned tag', async () => {
     const hooksPath = join(home, '.codex', 'hooks.json');
     mkdirSync(join(home, '.codex'), { recursive: true });
     const collision =

@@ -3,7 +3,7 @@ import { isAbsolute } from 'node:path';
 export interface HookCurlCommandOptions {
   relayConfigPath: string;
   tag: string;
-  compatibilityGuardEnvironment?: string;
+  skipWhenEnvironmentSet?: string;
 }
 
 function shellSingleQuote(value: string): string {
@@ -22,10 +22,10 @@ function assertCommandInputs(options: HookCurlCommandOptions): void {
     throw new Error('hook command requires a static ownership tag');
   }
   if (
-    options.compatibilityGuardEnvironment &&
-    !/^[A-Z][A-Z0-9_]*$/.test(options.compatibilityGuardEnvironment)
+    options.skipWhenEnvironmentSet &&
+    !/^[A-Z][A-Z0-9_]*$/.test(options.skipWhenEnvironmentSet)
   ) {
-    throw new Error('hook command requires a static compatibility guard');
+    throw new Error('hook command requires a static environment guard');
   }
 }
 
@@ -47,8 +47,8 @@ export function buildHookCurlCommand(options: HookCurlCommandOptions): string {
     '> /dev/null',
   ].join(' ');
 
-  const guarded = options.compatibilityGuardEnvironment
-    ? `if [ -n "\${${options.compatibilityGuardEnvironment}:-}" ]; then cat > /dev/null; else ${curl}; fi`
+  const guarded = options.skipWhenEnvironmentSet
+    ? `if [ -n "\${${options.skipWhenEnvironmentSet}:-}" ]; then cat > /dev/null; else ${curl}; fi`
     : curl;
   return `${guarded} || true # ${options.tag}`;
 }

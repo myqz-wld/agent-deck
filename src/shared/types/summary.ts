@@ -8,10 +8,10 @@ export interface SummaryRecord {
   content: string;
   trigger: 'time' | 'event-count' | 'manual';
   ts: number;
-  /** Immutable event-revision boundary covered by this summary; null marks a pre-v040 row. */
-  sourceEventRevision: number | null;
-  /** Destructive-rebuild epoch captured with sourceEventRevision; both are required for a valid cursor. */
-  sourceRebuildAfterRevision: number | null;
+  /** Immutable event-revision boundary covered by this summary. */
+  sourceEventRevision: number;
+  /** Destructive-rebuild epoch captured with sourceEventRevision. */
+  sourceRebuildAfterRevision: number;
   /** Makes degraded summaries explicit instead of presenting them as normal LLM output. */
-  generationSource: 'llm' | 'assistant-fallback' | 'stats-fallback' | 'legacy';
+  generationSource: 'llm' | 'assistant-fallback' | 'stats-fallback';
 }

@@ -24,8 +24,6 @@ interface BaseRow {
   kind: string;
   before_blob: string | null;
   after_blob: string | null;
-  before_snapshot?: string | null;
-  after_snapshot?: string | null;
   before_snapshot_hash?: Buffer | null;
   after_snapshot_hash?: Buffer | null;
   metadata_json: string;
@@ -161,14 +159,12 @@ function toPayload(row: PayloadRow, sides: ReadonlySet<'before' | 'after'>): Fil
     beforeSnapshot: sides.has('before')
       ? snapshots.read(
           snapshotSelection(row, 'before'),
-          row.before_snapshot,
           'file-change-payload',
         )
       : undefined,
     afterSnapshot: sides.has('after')
       ? snapshots.read(
           snapshotSelection(row, 'after'),
-          row.after_snapshot,
           'file-change-payload',
         )
       : undefined,
@@ -254,7 +250,6 @@ function getBoundaryPayload(
     .prepare(
       `SELECT fc.id, fc.session_id, fc.file_path, fc.kind,
               fc.${side}_blob AS ${side}_blob,
-              fc.${side}_snapshot AS ${side}_snapshot,
               fc.${side}_snapshot_hash AS ${side}_snapshot_hash,
               fc.metadata_json, fc.tool_call_id, fc.ts,
               blob.codec AS ${side}_snapshot_codec,
@@ -294,10 +289,8 @@ export const fileChangeReadRepo = {
         `SELECT fc.id, fc.session_id, fc.file_path, fc.kind, fc.tool_call_id,
                 fc.before_blob IS NOT NULL AS has_before_blob,
                 fc.after_blob IS NOT NULL AS has_after_blob,
-                (fc.before_snapshot_hash IS NOT NULL OR fc.before_snapshot IS NOT NULL)
-                  AS has_before_snapshot,
-                (fc.after_snapshot_hash IS NOT NULL OR fc.after_snapshot IS NOT NULL)
-                  AS has_after_snapshot,
+                fc.before_snapshot_hash IS NOT NULL AS has_before_snapshot,
+                fc.after_snapshot_hash IS NOT NULL AS has_after_snapshot,
                 agent_deck_file_change_visible(fc.kind, fc.metadata_json) AS is_visible,
                 fc.ts
            FROM file_changes AS fc

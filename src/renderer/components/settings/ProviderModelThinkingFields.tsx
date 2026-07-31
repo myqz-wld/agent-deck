@@ -41,15 +41,13 @@ export function coerceThinkingForAdapter(
   adapter: GeneratorAdapter,
   thinking: SessionThinkingLevel,
 ): SessionThinkingLevel {
-  if (adapter === 'codex-cli') {
-    return thinking === 'minimal' ? 'low' : thinking;
-  }
+  if (adapter === 'codex-cli') return thinking;
   if (adapter === 'grok-build') {
     if (isGrokThinkingLevel(thinking)) return thinking;
-    return thinking === 'minimal' ? 'low' : 'xhigh';
+    return 'xhigh';
   }
   if (isClaudeThinkingLevel(thinking)) return thinking;
-  return thinking === 'minimal' ? 'low' : 'max';
+  return 'max';
 }
 
 function ModelInput({

@@ -21,13 +21,6 @@ export interface EnterWorktreeInput {
   worktreeRootOverride?: string;
 }
 
-export interface EnterWorktreeImplResult {
-  worktreePath: string;
-  startCommit: string;
-  headMode: 'detached';
-  markerSet: boolean;
-}
-
 export interface PreparedEnterWorktree {
   callerSessionId: string;
   originalCwd: string;
@@ -47,7 +40,6 @@ export interface EnterWorktreeDeps {
   exists?: (p: string) => Promise<boolean>;
   mkdir?: (p: string) => Promise<void>;
   callerCwd?: (callerSid: string) => string | null;
-  setCwdReleaseMarker?: (sid: string, marker: string) => void;
   now?: () => number;
 }
 
@@ -57,9 +49,6 @@ const DEFAULT_DEPS: Required<EnterWorktreeDeps> = {
   mkdir: mkdirDefault,
   callerCwd: (_sid: string) => {
     throw new Error('enter-worktree-impl: deps.callerCwd not injected.');
-  },
-  setCwdReleaseMarker: (_sid: string, _marker: string) => {
-    throw new Error('enter-worktree-impl: deps.setCwdReleaseMarker not injected.');
   },
   now: () => Date.now(),
 };
@@ -289,50 +278,6 @@ export async function rollbackPreparedWorktree(
     mainRepo: prepared.mainRepo,
     worktreePath: prepared.worktreePath,
   });
-}
-
-export async function enterWorktreeImpl(
-  input: EnterWorktreeInput,
-  depsOverride?: EnterWorktreeDeps,
-): Promise<EnterWorktreeImplResult | EnterWorktreeError> {
-  const deps: Required<EnterWorktreeDeps> = {
-    ...DEFAULT_DEPS,
-    ...depsOverride,
-  };
-  const prepared = await prepareEnterWorktree(input, deps);
-  if (isError(prepared)) return prepared;
-  try {
-    await createPreparedWorktree(prepared, deps);
-  } catch (e) {
-    return {
-      error: `git worktree add failed: ${(e as Error).message}`,
-      hint:
-        `Verify startPoint "${input.startPoint}" still resolves and the worktree parent is writable: ` +
-        `${path.dirname(prepared.worktreePath)}. No Git ref was created or changed.`,
-    };
-  }
-  try {
-    deps.setCwdReleaseMarker(
-      input.callerSessionId,
-      prepared.worktreePath,
-    );
-  } catch (e) {
-    const warnings = await rollbackPreparedWorktree(prepared, deps);
-    return {
-      error: `setCwdReleaseMarker failed after worktree creation: ${(e as Error).message}`,
-      hint:
-        warnings.length > 0
-          ? `Rollback was incomplete: ${warnings.join('; ')}`
-          : 'The created detached worktree was removed; no Git ref was created or changed.',
-    };
-  }
-
-  return {
-    worktreePath: prepared.worktreePath,
-    startCommit: prepared.startCommit,
-    headMode: 'detached',
-    markerSet: true,
-  };
 }
 
 export const _internalIsError = isError;

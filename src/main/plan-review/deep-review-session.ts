@@ -154,7 +154,6 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
       }, {
         caller: {
           callerSessionId: input.sourceSessionId,
-          parentSessionId: input.sourceSessionId,
           transport: 'in-process',
         },
       }, {

@@ -28,7 +28,7 @@ export interface HandOffLateMessage {
   eventId: number;
   text: string;
   attachments: UploadedAttachmentRef[];
-  origin: 'user' | 'cross-session' | 'legacy-unwrapped';
+  origin: 'user' | 'cross-session';
 }
 
 export type HandOffSourceCutoverRejectionReason =

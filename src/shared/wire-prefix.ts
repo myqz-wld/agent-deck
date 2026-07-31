@@ -10,15 +10,7 @@
  *   1. 隐藏 prefix 只显示 body，保持 chat bubble 干净
  *   2. header 加 chip 显示「来自 X」让用户一眼看出是 cross-session message
  *
- * CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：wire format 升级，新增 `[sid <senderSessionId>]`
- * 段（双锚点 messageId + senderSessionId），让 teammate 从 wire prefix 直接拿到 lead session_id
- * 调 send_message 回 lead（不必依赖 spawn 时一次性注入的 lead context block）。老历史事件
- * 兼容：sid 段标记为可选，老 wire（无 sid 段）仍能 parse 成功。
- *
- * 协议变更原委（删 reply_message + wait_reply + check_reply 三个 tool 后）：
- * teammate reply lead 必须用 send_message({session_id: <lead-sid>, team_id, text, reply_to_message_id})，
- * 三个必填字段都要从某处拿。spawn 时一次性注入 lead context block 是 anchor，wire prefix 双锚点
- * 是每条 message 的 anchor — 双层冗余对抗协议漂移。
+ * `msg` and `sid` are mandatory reply-chain anchors.
  */
 
 export interface WirePrefixParse {
@@ -26,16 +18,16 @@ export interface WirePrefixParse {
   from: string;
   /** adapterId（claude-code / codex-cli / grok-build）*/
   adapter: string;
-  /** messageId — B7 阶段后 buildWireBody 必带；老历史事件可能没有 */
-  msgId?: string;
-  /** senderSessionId — CHANGELOG_100 后 buildWireBody 必带；老历史事件无此字段 */
-  senderSessionId?: string;
+  /** Message being delivered. */
+  msgId: string;
+  /** Sender session used for direct replies. */
+  senderSessionId: string;
   /** 去掉 prefix 的真正消息 body */
   body: string;
 }
 
 const WIRE_PREFIX_RE =
-  /^\[from ([^\]]+) @ ([^\]]+)\](?:\[msg ([^\]]+)\])?(?:\[sid ([^\]]+)\])?\n/;
+  /^\[from ([^\]]+) @ ([^\]]+)\]\[msg ([^\]]+)\]\[sid ([^\]]+)\]\n/;
 
 /**
  * Sanitize wire prefix field value — replace chars that would break parser regex
@@ -74,8 +66,8 @@ export function parseWirePrefix(text: string): WirePrefixParse | null {
   return {
     from,
     adapter,
-    ...(msgId ? { msgId } : {}),
-    ...(senderSessionId ? { senderSessionId } : {}),
+    msgId,
+    senderSessionId,
     body: text.slice(matched.length),
   };
 }

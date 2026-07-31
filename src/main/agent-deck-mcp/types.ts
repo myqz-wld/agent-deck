@@ -1,14 +1,6 @@
 /**
- * Agent Deck MCP server 公共类型（B'0 ADR §2.2 / §3 / §4）。
- *
- * 三 transport（in-process / HTTP / stdio）共享同一份 tool handler，但 caller
- * context 来源各异：
- * - in-process：closure 强制覆盖 args.callerSessionId（防 prompt 注入伪造）
- * - HTTP：从 args.callerSessionId 反查 sessionManager 验证 + Bearer token 鉴权
- * - stdio：从 args.callerSessionId 反查；外部 client 用 `__external__` 字面量
- *
- * tool handler 不 import transport-specific 类型，仅消费 `CallerContext` 与 zod
- * 解析后的 args，便于 B'2.a 同步 tool / send_message 用统一签名实现。
+ * Shared MCP handler types. Caller identity always comes from the transport: an in-process
+ * session provider, HTTP token authentication, or the stdio external-caller sentinel.
  */
 
 export type AgentDeckMcpTransport = 'in-process' | 'http' | 'stdio';
@@ -39,18 +31,12 @@ export interface McpAuthInfo {
 
 export interface CallerContext {
   /**
-   * 调用方 session id。in-process 走 closure 覆盖（无视 args 字段），HTTP/stdio
-   * 直接用 args.callerSessionId 反查 sessionManager。
+   * Transport-authenticated caller session id.
    * 特殊值 `__external__`：stdio transport 的非 agent-deck-managed client（如
    * Cursor / Continue），仅允许 list_sessions / get_session 等只读 tool；spawn /
    * shutdown 默认 deny（ADR §4.3 / §11.7）。
    */
   callerSessionId: string;
-  /**
-   * spawn 链路上一级 session id。spawn_session 的 args 显式传 → 用之；
-   * 否则默认 = callerSessionId（caller 自己即为 parent）。
-   */
-  parentSessionId?: string;
   transport: AgentDeckMcpTransport;
 }
 

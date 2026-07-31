@@ -16,7 +16,6 @@ import type { ProviderUsageSnapshot } from '@shared/types';
 import {
   buildCodexUsageSnapshot,
   errorUsageSnapshot,
-  providerUsageLabel,
   type CodexAccountRateLimitsResponseLike,
 } from '../../provider-usage';
 import {
@@ -27,8 +26,6 @@ import {
 } from '../usage-snapshot';
 import { CodexAppServerClient } from '../app-server/client';
 import type { CodexBridgeOptions, InternalSession } from './types';
-
-const CODEX_USAGE_LABEL = providerUsageLabel('codex-cli');
 
 function snapshotProcessEnv(): Record<string, string> {
   const out: Record<string, string> = {};
@@ -45,7 +42,6 @@ export interface EnsureCodexClientOptions {
   /** Resolved native Codex config profile id for this process. */
   profile?: string;
   hookServer: CodexBridgeOptions['hookServer'];
-  envOverrideExtra?: Readonly<Record<string, string>>;
 }
 
 /** Return the session client, constructing it with a frozen per-session environment on a miss. */
@@ -55,7 +51,6 @@ export function ensureCodexClient({
   sessionToken,
   profile,
   hookServer,
-  envOverrideExtra,
 }: EnsureCodexClientOptions): CodexAppServerClient {
   const normalizedProfile = profile?.trim() || null;
   const cached = clients.get(sessionId);
@@ -75,10 +70,9 @@ export function ensureCodexClient({
   const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
 
   // Supplying env replaces SDK inheritance, so preserve the process snapshot before adding the
-  // per-session MCP identity. Explicit caller overrides intentionally take precedence.
+  // per-session MCP identity.
   const envOverride = snapshotProcessEnv();
   envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
-  if (envOverrideExtra) Object.assign(envOverride, envOverrideExtra);
   envOverride.AGENT_DECK_ORIGIN = 'sdk';
 
   const client = new CodexAppServerClient({
@@ -87,7 +81,7 @@ export function ensureCodexClient({
     config: codexConfig,
     env: envOverride,
     skillExtraRoots: getCodexSkillExtraRootsForSession(),
-    nodeReplSandboxMetaCompatibility: true,
+    nodeReplBrowserBootstrap: true,
   });
   clients.set(sessionId, client);
   return client;
@@ -126,7 +120,7 @@ export async function getCodexUsageSnapshot(
     if (isExpectedCodexUsageUnavailable(err)) {
       return codexUsageUnavailableSnapshot();
     }
-    return errorUsageSnapshot('codex-cli', CODEX_USAGE_LABEL, err);
+    return errorUsageSnapshot('codex-cli', err);
   }
 }
 

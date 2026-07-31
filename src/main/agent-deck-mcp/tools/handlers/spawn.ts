@@ -263,7 +263,7 @@ export const spawnSessionHandler = withMcpGuard(
     setSpawnTargetPrompt(targetOptions, promptForSpawn);
 
     // Reserve guard/rate capacity only after every fallible preflight and prompt preparation.
-    const guard = applySpawnGuards(caller, args.cwd, args.adapter, {
+    const guard = applySpawnGuards(caller, {
       handOffMode: opts?.handOffMode ?? false,
     });
     if ('isError' in guard) {

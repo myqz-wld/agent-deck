@@ -53,6 +53,9 @@ export interface AgentEvent<P = unknown> {
   hookOrigin?: 'sdk' | 'cli';
 }
 
+/** Agent event after durable SQLite insertion. */
+export type StoredAgentEvent<P = unknown> = AgentEvent<P> & { id: number };
+
 /** Renderer-safe snapshot of a user message still waiting in a provider input queue. */
 export interface PendingOutgoingAttachment {
   /** Message-scoped ordered slot id. It is not a path or a reusable capability. */

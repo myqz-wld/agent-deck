@@ -33,6 +33,7 @@ export const continuationFactSchema = z
       .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
     status: continuationFactStatusSchema,
     text: z.string().trim().min(1).max(1_000),
+    // Empty provider patch fields are intentionally canonicalized as absent.
     rationale: z.string().trim().min(1).max(1_000).optional(),
     validation: z.string().trim().min(1).max(1_000).optional(),
     priority: z.number().int().min(0).max(100),
@@ -113,9 +114,6 @@ function factJsonSchema(): Record<string, unknown> {
   return {
     type: 'object',
     additionalProperties: false,
-    // Codex/OpenAI structured output requires every declared object property to be required.
-    // The canonical Zod shape remains backward-compatible with older checkpoints where the two
-    // explanatory strings were absent, while newly generated checkpoints always include them.
     required: ['id', 'status', 'text', 'rationale', 'validation', 'priority', 'evidence'],
     properties: {
       id: {

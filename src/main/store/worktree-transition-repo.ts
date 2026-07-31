@@ -5,7 +5,6 @@ import {
   assertWorktreeTransitionStep,
 } from '@main/session/worktree-transition/state-machine';
 import type {
-  LegacyWorktreeExitAdoption,
   NewWorktreeTransition,
   WorktreeExitOptions,
   WorktreeTransitionDirection,
@@ -17,10 +16,6 @@ import {
   renameWorktreeTransitionInputsWithDb,
 } from './worktree-transition-input-repo';
 import {
-  adoptLegacyExitWithDb,
-  releaseLegacyExitAdoptionWithDb,
-} from './worktree-transition-legacy-adoption';
-import {
   getWorktreeTransitionWithDb as getWithDb,
   requireWorktreeTransitionGeneration as requireGeneration,
   rowToWorktreeTransition as rowToRecord,
@@ -29,11 +24,6 @@ import {
 } from './worktree-transition-row';
 
 export { WorktreeTransitionConflictError } from './worktree-transition-row';
-export {
-  adoptLegacyExitWithDb,
-  releaseLegacyExitAdoptionWithDb,
-} from './worktree-transition-legacy-adoption';
-
 export function createEnterWithDb(
   db: Database.Database,
   input: NewWorktreeTransition,
@@ -53,13 +43,13 @@ export function createEnterWithDb(
     db.prepare(
       `INSERT INTO worktree_cwd_transitions
         (session_id, format_version, generation, direction, phase, original_cwd, target_cwd,
-         main_repo, worktree_path, work_branch, base_branch, base_commit, tool_use_id,
-         continuation_key, continuation_delivered, discard_changes, delete_branch,
+         main_repo, worktree_path, base_commit, tool_use_id,
+         continuation_key, continuation_delivered, discard_changes,
          requested_at, updated_at, last_error)
        VALUES
         (@session_id, 1, @generation, 'enter', 'creating', @original_cwd, @target_cwd,
-         @main_repo, @worktree_path, @work_branch, @base_branch, @base_commit, @tool_use_id,
-         @continuation_key, 0, 0, 0, @requested_at, @requested_at, NULL)
+         @main_repo, @worktree_path, @base_commit, @tool_use_id,
+         @continuation_key, 0, 0, @requested_at, @requested_at, NULL)
        ON CONFLICT(session_id) DO UPDATE SET
          format_version = 1,
          generation = excluded.generation,
@@ -69,14 +59,11 @@ export function createEnterWithDb(
          target_cwd = excluded.target_cwd,
          main_repo = excluded.main_repo,
          worktree_path = excluded.worktree_path,
-         work_branch = excluded.work_branch,
-         base_branch = excluded.base_branch,
          base_commit = excluded.base_commit,
          tool_use_id = excluded.tool_use_id,
          continuation_key = excluded.continuation_key,
          continuation_delivered = 0,
          discard_changes = 0,
-         delete_branch = 0,
          requested_at = excluded.requested_at,
          updated_at = excluded.updated_at,
          last_error = NULL`,
@@ -87,8 +74,6 @@ export function createEnterWithDb(
       target_cwd: input.targetCwd,
       main_repo: input.mainRepo,
       worktree_path: input.worktreePath,
-      work_branch: '',
-      base_branch: '',
       base_commit: input.baseCommit,
       tool_use_id: input.toolUseId,
       continuation_key: input.continuationKey,
@@ -122,10 +107,6 @@ export function markEnterCreatedWithDb(
         `Failed to arm worktree enter ${sessionId}:${generation} from phase ${current.phase}.`,
       );
     }
-    db.prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(
-      current.worktreePath,
-      sessionId,
-    );
     return getWithDb(db, sessionId)!;
   })();
 }
@@ -149,7 +130,6 @@ export function beginExitPreflightWithDb(
              continuation_key = ?,
              continuation_delivered = 0,
              discard_changes = ?,
-             delete_branch = 0,
              requested_at = ?,
              updated_at = ?,
              last_error = NULL
@@ -230,11 +210,6 @@ export function compareAndSetPhaseWithDb(
         `Compare-and-set lost for worktree transition ${input.sessionId}:${input.generation}.`,
       );
     }
-    if (input.next === 'cleared') {
-      db.prepare(`UPDATE sessions SET cwd_release_marker = NULL WHERE id = ?`).run(
-        input.sessionId,
-      );
-    }
     return getWithDb(db, input.sessionId)!;
   })();
 }
@@ -291,12 +266,14 @@ export function transferActiveLeaseWithDb(
       sourceSessionId,
       targetSessionId,
     );
-    db.prepare(
-      `UPDATE sessions SET cwd = ?, cwd_release_marker = ? WHERE id = ?`,
-    ).run(current.worktreePath, current.worktreePath, targetSessionId);
-    db.prepare(
-      `UPDATE sessions SET cwd = ?, cwd_release_marker = NULL WHERE id = ?`,
-    ).run(current.originalCwd, sourceSessionId);
+    db.prepare(`UPDATE sessions SET cwd = ? WHERE id = ?`).run(
+      current.worktreePath,
+      targetSessionId,
+    );
+    db.prepare(`UPDATE sessions SET cwd = ? WHERE id = ?`).run(
+      current.originalCwd,
+      sourceSessionId,
+    );
     return getWithDb(db, targetSessionId)!;
   })();
 }
@@ -389,14 +366,6 @@ export const worktreeTransitionRepo = {
   listPathReferences: listWorktreePathReferences,
   createEnter(input: NewWorktreeTransition) {
     return createEnterWithDb(getDb(), input);
-  },
-  adoptLegacyExit(input: LegacyWorktreeExitAdoption) {
-    return adoptLegacyExitWithDb(getDb(), input);
-  },
-  releaseLegacyExitAdoption(
-    input: Parameters<typeof releaseLegacyExitAdoptionWithDb>[1],
-  ) {
-    return releaseLegacyExitAdoptionWithDb(getDb(), input);
   },
   markEnterCreated(sessionId: string, generation: number, updatedAt: number) {
     return markEnterCreatedWithDb(getDb(), sessionId, generation, updatedAt);

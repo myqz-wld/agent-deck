@@ -114,11 +114,10 @@ export async function readGrokUsageSnapshotInBackground(
     if (isExpectedGrokUsageUnavailable(error)) {
       return unavailableUsageSnapshot(
         'grok-build',
-        GROK_USAGE_LABEL,
         GROK_USAGE_UNAVAILABLE_MESSAGE,
       );
     }
-    return errorUsageSnapshot('grok-build', GROK_USAGE_LABEL, error);
+    return errorUsageSnapshot('grok-build', error);
   }
 }
 

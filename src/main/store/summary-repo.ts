@@ -7,21 +7,12 @@ interface Row {
   content: string;
   trigger: string;
   ts: number;
-  source_event_revision: number | null;
-  source_rebuild_after_revision: number | null;
+  source_event_revision: number;
+  source_rebuild_after_revision: number;
   generation_source: string;
 }
 
-type InsertSummaryRecord = Omit<
-  SummaryRecord,
-  'id' | 'sourceEventRevision' | 'sourceRebuildAfterRevision' | 'generationSource'
-> &
-  Partial<
-    Pick<
-      SummaryRecord,
-      'sourceEventRevision' | 'sourceRebuildAfterRevision' | 'generationSource'
-    >
-  >;
+type InsertSummaryRecord = Omit<SummaryRecord, 'id'>;
 
 function rowToRecord(r: Row): SummaryRecord {
   return {
@@ -38,9 +29,6 @@ function rowToRecord(r: Row): SummaryRecord {
 
 export const summaryRepo = {
   insert(rec: InsertSummaryRecord): SummaryRecord {
-    const sourceEventRevision = rec.sourceEventRevision ?? null;
-    const sourceRebuildAfterRevision = rec.sourceRebuildAfterRevision ?? null;
-    const generationSource = rec.generationSource ?? 'legacy';
     const info = getDb()
       .prepare(
         `INSERT INTO summaries (
@@ -53,16 +41,13 @@ export const summaryRepo = {
         rec.content,
         rec.trigger,
         rec.ts,
-        sourceEventRevision,
-        sourceRebuildAfterRevision,
-        generationSource,
+        rec.sourceEventRevision,
+        rec.sourceRebuildAfterRevision,
+        rec.generationSource,
       );
     return {
       ...rec,
       id: Number(info.lastInsertRowid),
-      sourceEventRevision,
-      sourceRebuildAfterRevision,
-      generationSource,
     };
   },
 

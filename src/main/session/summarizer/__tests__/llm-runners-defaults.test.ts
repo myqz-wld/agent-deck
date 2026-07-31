@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentEvent } from '@shared/types';
+import type { StoredAgentEvent } from '@shared/types';
 
 const harness = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
@@ -37,12 +37,14 @@ import { summariseViaLlm } from '../llm-runners';
 
 const events = [
   {
+    id: 1,
     sessionId: 'summary-defaults',
+    agentId: 'claude-code',
     ts: 1,
     kind: 'message',
     payload: { role: 'assistant', text: '正在处理测试任务' },
   },
-] as unknown as AgentEvent[];
+] satisfies StoredAgentEvent[];
 
 describe('periodic summary blank-model defaults', () => {
   beforeEach(() => {

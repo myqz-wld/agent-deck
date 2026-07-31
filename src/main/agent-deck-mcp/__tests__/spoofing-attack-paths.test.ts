@@ -9,8 +9,7 @@
  * 1. transport-http.ts `resolveCallerSidForReadOnly(extra)`：fallbackToGlobal=true 时 force
  *    sentinel；per-session authn 通过时 resolvedSid 真 sid；其他兜底 sentinel
  * 2. transport-stdio.ts `callerSessionIdOverride: () => EXTERNAL_CALLER_SENTINEL` 永远 sentinel
- * 3. tools/index.ts `makeCtx` `overridden ?? args.callerSessionId` — overridden 非 null
- *    短路 args（不让伪造字段 escape）
+ * 3. tools/index.ts `makeCtx` 只调用必填的 authenticated caller provider，不读取 args 身份字段
  * 4. tools/helpers.ts `denyExternalIfNotAllowed`：sentinel + 写 tool 不允许 external → DENY；
  *    stdio + 非 sentinel callerSid（应该不可能，invariant violation 兜底）→ DENY
  *
@@ -30,7 +29,7 @@
  * - 调真实 production lambda（`resolveCallerSidForReadOnly` from transport-http；stdio override
  *   写死 `() => EXTERNAL_CALLER_SENTINEL` 与 transport-stdio.ts:85 一致）
  * - 调真实 `makeCallerContext` / `denyExternalIfNotAllowed`（不 inline 复制）
- * - 模拟 makeCtx 短路逻辑（与 tools/index.ts:108-109 1:1 一致）
+ * - 模拟 makeCtx 的 provider-only 身份解析
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -51,26 +50,22 @@ import {
 } from '../types';
 
 /**
- * 模拟 tools/index.ts:108-109 `makeCtx` 短路逻辑（与生产 1:1）：
- * 1. `callerSessionIdOverride?.(extra) ?? null` 拿 override 结果
- * 2. `overridden ?? args.callerSessionId` 短路（overridden 非 null 短路 args）
- * 3. `makeCallerContext(callerSid, ..., transport)` 兜底缺省 sentinel
+ * 模拟 tools/index.ts 的 provider-only `makeCtx`。`argsCallerSid` 仅表示攻击者输入，
+ * 身份解析不会读取它。
  */
 function simulateMakeCtx(opts: {
-  override: ((extra?: unknown) => string | null) | null;
+  override: (extra?: unknown) => string;
   extra?: unknown;
   argsCallerSid?: string;
   transport: AgentDeckMcpTransport;
 }) {
-  const overridden = opts.override?.(opts.extra) ?? null;
-  const callerSid = overridden ?? opts.argsCallerSid;
-  return makeCallerContext(callerSid, undefined, opts.transport);
+  const callerSid = opts.override(opts.extra);
+  return makeCallerContext(callerSid, opts.transport);
 }
 
 /**
  * R3 fix-4 (M2 codex Batch C+D MED-1) 修法：真 import production stdio override lambda
- * 替代旧版本地复制 `() => EXTERNAL_CALLER_SENTINEL`。production transport-stdio.ts 若回退成
- * `callerSessionIdOverride: null` test 同步 fail（防 B-HIGH-1 修法被静默回归）。
+ * 替代本地复制 `() => EXTERNAL_CALLER_SENTINEL`，让测试绑定 production provider。
  */
 const stdioOverride = stdioCallerSessionIdOverride;
 
@@ -84,7 +79,7 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
     //
     // 防御链：
     // 1. transport-stdio.ts:85 override `() => SENTINEL` 永返 sentinel
-    // 2. makeCtx 短路 `overridden ?? args.callerSessionId` → SENTINEL
+    // 2. makeCtx 只读取 authenticated provider → SENTINEL
     // 3. makeCallerContext → callerSessionId = SENTINEL
     // 4. denyExternalIfNotAllowed('spawn_session', ctx) → DENY（spawn_session 不允许 external）
     const ctx = simulateMakeCtx({
@@ -142,7 +137,7 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
     //    `req.auth = {resolvedSid: null, fallbackToGlobal: true}`
     // 2. transport-http.ts:73 `resolveCallerSidForReadOnly(extra)` 见 fallbackToGlobal=true
     //    → return SENTINEL（force 防 spoofing）
-    // 3. makeCtx 短路 SENTINEL，不走 args
+    // 3. makeCtx 使用 provider 的 SENTINEL，不读 args
     // 4. denyExternalIfNotAllowed → DENY
     const extra = {
       authInfo: { resolvedSid: null, fallbackToGlobal: true } satisfies McpAuthInfo,
@@ -197,7 +192,7 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
   it('(C) HTTP per-session authn caller + args 塞 fake-injected-sid → resolvedSid 优先（防 prompt 注入）', () => {
     // codex teammate 真正 callerSessionId 由 HookServer.checkMcpAuth 反查 token 解析；
     // 即使 codex agent 在 args.callerSessionId 伪造 fake sid（如被 LLM prompt 注入），
-    // lambda 返的 resolvedSid 优先 — `overridden ?? args` overridden=real sid 短路 args。
+    // lambda 返回的 resolvedSid 是 makeCtx 的唯一身份来源。
     const extra = {
       authInfo: { resolvedSid: 'real-sid', fallbackToGlobal: false } satisfies McpAuthInfo,
     };
@@ -371,12 +366,11 @@ describe('B-HIGH-1 防御链组合：read-only tool 例外（list_sessions / get
 
 describe('B-HIGH-1 防御链兜底：stdio invariant violation（transport 层漏改时兜底守门）', () => {
   it('stdio + 非 sentinel callerSid（假设 transport 层漏改） → denyExternalIfNotAllowed 兜底 DENY', () => {
-    // 假设 transport-stdio.ts:85 漏改回老 `callerSessionIdOverride: null`，攻击者 args 字段
-    // escape 进 makeCtx callerSid='attacker-sid'。helpers.ts denyExternalIfNotAllowed (a)
+    // 假设 stdio transport 错误提供了非 sentinel 身份。helpers.ts denyExternalIfNotAllowed (a)
     // 兜底守门：transport='stdio' + callerSessionId 非 sentinel → invariant violation DENY。
     //
     // 直接构造 ctx 模拟这种 transport 层漏改的 bug 场景，验证兜底守门。
-    const ctx = makeCallerContext('attacker-sid', undefined, 'stdio');
+    const ctx = makeCallerContext('attacker-sid', 'stdio');
     expect(ctx.callerSessionId).toBe('attacker-sid'); // 非 sentinel（漏改场景）
 
     const denial = denyExternalIfNotAllowed('spawn_session', ctx);
@@ -392,7 +386,7 @@ describe('B-HIGH-1 防御链兜底：stdio invariant violation（transport 层�
     // resolvedSid 是合法路径，real sid 应通过 denyExternalIfNotAllowed。
     // 仅 sentinel + 非 read-only tool 走 deny；非 sentinel 应通过此层（后续 validateExternalCaller
     // 反查 sessionRepo 是否真实存在 + lifecycle active）。
-    const ctx = makeCallerContext('codex-teammate-real-sid', undefined, 'http');
+    const ctx = makeCallerContext('codex-teammate-real-sid', 'http');
     expect(ctx.callerSessionId).toBe('codex-teammate-real-sid');
 
     const denial = denyExternalIfNotAllowed('spawn_session', ctx);

@@ -27,7 +27,7 @@ export function currentSessionMode(value: unknown): 'default' | 'plan' | 'ask' |
   if (standard === 'default' || standard === 'plan' || standard === 'ask') return standard;
 
   const sessionConfig = asRecord(asRecord(root._meta)['x.ai/sessionConfig']);
-  const extension = sessionConfig.currentModeId ?? sessionConfig.mode;
+  const extension = sessionConfig.currentModeId;
   return extension === 'default' || extension === 'plan' || extension === 'ask'
     ? extension
     : null;

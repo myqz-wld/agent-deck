@@ -5,7 +5,6 @@
 
 import type { ActivityState, LifecycleState, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
-import { hasWorktreeTransitionSchema } from './schema-capabilities';
 import { rowToRecord, type Row } from './types';
 
 export const LIFECYCLE_BATCH_SIZE = 100;
@@ -155,13 +154,11 @@ export function findHistoryOlderThan(
   limit = LIFECYCLE_BATCH_SIZE,
 ): HistoryLifecycleCandidate[] {
   const db = getDb();
-  const worktreeLeaseFilter = hasWorktreeTransitionSchema(db)
-    ? `AND NOT EXISTS (
-         SELECT 1 FROM worktree_cwd_transitions AS transition
-         WHERE transition.session_id = sessions.id
-           AND transition.phase <> 'cleared'
-       )`
-    : '';
+  const worktreeLeaseFilter = `AND NOT EXISTS (
+       SELECT 1 FROM worktree_cwd_transitions AS transition
+       WHERE transition.session_id = sessions.id
+         AND transition.phase <> 'cleared'
+     )`;
   const rows = db
     .prepare(
       `SELECT id, cli_session_id, last_event_at FROM sessions
@@ -199,30 +196,23 @@ export function batchDeleteHistory(
 ): HistoryLifecycleCandidate[] {
   if (candidates.length === 0) return [];
   const db = getDb();
-  const hasTransitionSchema = hasWorktreeTransitionSchema(db);
-  const deleteInputs = hasTransitionSchema
-    ? db.prepare(
-        `DELETE FROM worktree_cwd_transition_inputs
-         WHERE session_id = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM worktree_cwd_transitions
-             WHERE session_id = ? AND phase <> 'cleared'
-           )`,
-      )
-    : null;
-  const deleteSettledTransition = hasTransitionSchema
-    ? db.prepare(
-        `DELETE FROM worktree_cwd_transitions
-         WHERE session_id = ? AND phase = 'cleared'`,
-      )
-    : null;
-  const worktreeLeaseFilter = hasTransitionSchema
-    ? `AND NOT EXISTS (
-         SELECT 1 FROM worktree_cwd_transitions AS transition
-         WHERE transition.session_id = sessions.id
-           AND transition.phase <> 'cleared'
-       )`
-    : '';
+  const deleteInputs = db.prepare(
+    `DELETE FROM worktree_cwd_transition_inputs
+     WHERE session_id = ?
+       AND NOT EXISTS (
+         SELECT 1 FROM worktree_cwd_transitions
+         WHERE session_id = ? AND phase <> 'cleared'
+       )`,
+  );
+  const deleteSettledTransition = db.prepare(
+    `DELETE FROM worktree_cwd_transitions
+     WHERE session_id = ? AND phase = 'cleared'`,
+  );
+  const worktreeLeaseFilter = `AND NOT EXISTS (
+       SELECT 1 FROM worktree_cwd_transitions AS transition
+       WHERE transition.session_id = sessions.id
+         AND transition.phase <> 'cleared'
+     )`;
   const del = db.prepare(
     `DELETE FROM sessions
      WHERE id = ? AND pinned_at IS NULL AND last_event_at < ?
@@ -232,8 +222,8 @@ export function batchDeleteHistory(
   const removed: HistoryLifecycleCandidate[] = [];
   const tx = db.transaction(() => {
     for (const candidate of candidates) {
-      deleteInputs?.run(candidate.id, candidate.id);
-      deleteSettledTransition?.run(candidate.id);
+      deleteInputs.run(candidate.id, candidate.id);
+      deleteSettledTransition.run(candidate.id);
       const result = del.run(candidate.id, threshold);
       if (result.changes === 1) removed.push(candidate);
     }

@@ -2,10 +2,10 @@
 
 const { isContext } = require('node:vm');
 
-// Current ChatGPT node_repl builds lock a metadata-only process facade into their trusted VM
-// realm, while the bundled Browser client immediately replaces that property with its own
-// dependency shim. Intercept only that exact facade definition, keep it non-configurable, and
-// restore the host intrinsic immediately. The real host process is never exposed to the VM.
+// Current ChatGPT node_repl locks a metadata-only process facade into its trusted VM realm, while
+// the Browser client replaces that property with its dependency shim during startup. Intercept
+// only that exact facade definition, keep it non-configurable, and restore the host intrinsic
+// immediately. The real host process is never exposed to the VM.
 const originalDefineProperty = Object.defineProperty;
 const TRUSTED_PROCESS_KEYS = new Set([
   'arch',

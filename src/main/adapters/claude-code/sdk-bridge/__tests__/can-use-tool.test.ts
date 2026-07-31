@@ -54,14 +54,8 @@ function makeDeps(internal: InternalSession): {
   return { deps, emitted };
 }
 
-/** 最小 ToolPermissionContext stub（CanUseTool 第三参）。
- *
- * REVIEW_35 R2 MED-C-claude/codex test gap：SDK 0.2.118 类型是 `toolUseID` (camelCase) 不是
- * `tool_use_id` (snake_case)。修前测试只传 tool_use_id，与生产代码 `ctx.toolUseID ?? ctx.tool_use_id`
- * 兼容修法分道扬镳 — 测试 pass 但其实没真测 SDK 实际字段名。修法：双字段都暴露，让 test 可
- * 选择性测正路径 toolUseID（线上真实）+ fallback path tool_use_id（兼容老协议）。
- */
-function makeCtx(opts: { toolUseID?: string; tool_use_id?: string } = {}): Parameters<
+/** 最小 ToolPermissionContext stub（CanUseTool 第三参）。 */
+function makeCtx(opts: { toolUseID?: string } = {}): Parameters<
   ReturnType<typeof makeCanUseTool>
 >[2] {
   // signal 给 AbortController.signal — 测试不主动 abort，listener 不会触发

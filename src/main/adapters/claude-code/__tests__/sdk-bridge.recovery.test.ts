@@ -365,17 +365,17 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
   // ─── CHANGELOG_99 cwd 失效启发式 fallback ────────────────────────────
 
-  it('CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + 走 jsonl missing 同款下游', async () => {
+  it('cwd 不存在时父目录 fallback 命中 → fallback main repo + 走 jsonl missing 同款下游', async () => {
     const bridge = makeBridge();
     // Map mock:dead worktree path 不存在 + main repo 存在 → 启发式 1 命中
     bridge.cwdExistsOverride = new Map<string, boolean>([
-      ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
+      ['/Users/apple/myrepo/.agent-deck/worktrees/dead-task', false],
       ['/Users/apple/myrepo', true],
     ]);
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-cwd-bad',
       agentId: 'claude-code',
-      cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+      cwd: '/Users/apple/myrepo/.agent-deck/worktrees/dead-task',
       title: 'x',
       source: 'sdk',
       lifecycle: 'dormant',
@@ -468,7 +468,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
 
   it('CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录', async () => {
     const bridge = makeBridge();
-    // 路径不含 .claude/worktrees/ → 启发式 1 跳过;parent walk 找到第一个存在的目录
+    // 父目录 walk 找到第一个存在的目录
     bridge.cwdExistsOverride = new Map<string, boolean>([
       ['/Users/apple/some/deep/dead/cwd', false],
       ['/Users/apple/some/deep/dead', false], // parent 1
@@ -627,13 +627,13 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     const bridge = makeBridge();
     // 启发式 1 命中(worktrees 路径取段之前)
     bridge.cwdExistsOverride = new Map<string, boolean>([
-      ['/Users/apple/myrepo/.claude/worktrees/dead-plan', false],
+      ['/Users/apple/myrepo/.agent-deck/worktrees/dead-task', false],
       ['/Users/apple/myrepo', true],
     ]);
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'sess-cwd-summary',
       agentId: 'claude-code',
-      cwd: '/Users/apple/myrepo/.claude/worktrees/dead-plan',
+      cwd: '/Users/apple/myrepo/.agent-deck/worktrees/dead-task',
       title: 'x',
       source: 'sdk',
       lifecycle: 'dormant',

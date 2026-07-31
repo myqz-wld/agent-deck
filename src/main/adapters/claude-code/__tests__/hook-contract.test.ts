@@ -126,7 +126,7 @@ describe('Claude Code hook install/route contract', () => {
     }
   });
 
-  it('ignores historical team tags after the one-time migration', () => {
+  it('ignores unowned hook tags outside the active contract', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-deck-claude-hooks-stale-'));
     const relayRoot = join(cwd, 'user-data', 'hook-relay');
     try {

@@ -10,9 +10,8 @@ import {
   isIncompleteCodexFileChangeStatus,
 } from '@shared/codex-file-change';
 import {
-  collabAgentErrorMessage,
-  collabAgentToolInput,
-  collabAgentToolResult,
+  collabToolInput,
+  collabToolResult,
   translateRawCollabResponseItem,
 } from './translate-collab';
 import log from '@main/utils/logger';
@@ -162,10 +161,10 @@ function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
       toolInput: tool.toolInput,
       toolUseId: item.id,
     });
-  } else if (type === 'collabAgentToolCall') {
+  } else if (type === 'collabToolCall') {
     emit('tool-use-start', {
       toolName: 'Agent',
-      toolInput: collabAgentToolInput(item),
+      toolInput: collabToolInput(item),
       toolUseId: item.id,
     });
   }
@@ -318,16 +317,14 @@ function translateItemCompleted(
       return;
     }
 
-    case 'collabAgentToolCall': {
+    case 'collabToolCall': {
       emit('tool-use-end', {
         toolUseId: item.id,
         toolName: 'Agent',
-        toolInput: collabAgentToolInput(item),
-        toolResult: collabAgentToolResult(item),
+        toolInput: collabToolInput(item),
+        toolResult: collabToolResult(item),
         status: item.status,
-        error:
-          collabAgentErrorMessage(item) ??
-          (item.success === false ? 'Collab agent tool call failed' : undefined),
+        error: item.status === 'failed' ? 'Collab agent tool call failed' : undefined,
       });
       return;
     }

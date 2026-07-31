@@ -373,18 +373,14 @@ describe('spawn_session public output contract', () => {
           agentName: state.longAgentSelector,
         },
       });
-      const textPayload = firstTextPayload(result);
-
       expect(result.isError).not.toBe(true);
-      expect(result.structuredContent).toEqual(textPayload);
-      expect(firstText(result)).toBe(
-        JSON.stringify(result.structuredContent, null, 2),
-      );
+      expect(result.content).toEqual([]);
       expect(
         SPAWN_SESSION_OUTPUT_SCHEMA.safeParse(result.structuredContent).success,
       ).toBe(true);
-      expect(textPayload.displayName).toBe(state.longAgentSelector);
-      expect(textPayload.agentName).toBe(state.longAgentSelector);
+      const payload = result.structuredContent as Record<string, unknown>;
+      expect(payload.displayName).toBe(state.longAgentSelector);
+      expect(payload.agentName).toBe(state.longAgentSelector);
       expect(state.createCalls).toHaveLength(1);
     });
   });

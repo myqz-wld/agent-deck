@@ -150,26 +150,26 @@ describe('Phase 3 (H3) — translateSdkMessage status frame permissionMode 同�
     'SDK %s frame permissionMode=dontAsk is preserved as an internal provider state',
     (subtype) => {
     const internal = makeInternalSession({
-      cwd: '/tmp/h3-legacy',
+      cwd: '/tmp/h3-dont-ask',
       permissionMode: 'bypassPermissions',
-      applicationSid: 'sess-h3-legacy',
+      applicationSid: 'sess-h3-dont-ask',
     });
     vi.mocked(sessionRepo.get)
       .mockReturnValueOnce({
-        id: 'sid-h3-legacy',
+        id: 'sid-h3-dont-ask',
         permissionMode: 'bypassPermissions',
       } as never)
-      .mockReturnValueOnce({ id: 'sid-h3-legacy', permissionMode: 'dontAsk' } as never);
+      .mockReturnValueOnce({ id: 'sid-h3-dont-ask', permissionMode: 'dontAsk' } as never);
 
     translateSdkMessage(
       () => undefined,
-      'sid-h3-legacy',
+      'sid-h3-dont-ask',
       { type: 'system', subtype, permissionMode: 'dontAsk' },
       internal,
     );
 
     expect(internal.permissionMode).toBe('dontAsk');
-    expect(sessionRepo.setPermissionMode).toHaveBeenCalledWith('sid-h3-legacy', 'dontAsk');
+    expect(sessionRepo.setPermissionMode).toHaveBeenCalledWith('sid-h3-dont-ask', 'dontAsk');
     },
   );
 

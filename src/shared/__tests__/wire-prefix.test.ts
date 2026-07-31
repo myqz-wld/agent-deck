@@ -2,19 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseWirePrefix, sanitizeWireFieldName } from '../wire-prefix';
 
 describe('parseWirePrefix', () => {
-  it('parses standard prefix with msgId (B7+ legacy format, no sid)', () => {
-    const text = '[from Reviewer Claude @ claude-code][msg msg-abc-123]\nHello teammate, please review this.';
-    const parsed = parseWirePrefix(text);
-    expect(parsed).toEqual({
-      from: 'Reviewer Claude',
-      adapter: 'claude-code',
-      msgId: 'msg-abc-123',
-      body: 'Hello teammate, please review this.',
-    });
-    expect(parsed?.senderSessionId).toBeUndefined();
-  });
-
-  it('parses CHANGELOG_100 format with msgId + senderSessionId (current)', () => {
+  it('parses the current prefix with msgId + senderSessionId', () => {
     const text =
       '[from Lead @ claude-code][msg msg-abc-123][sid sender-sid-456]\nReply chain message body';
     const parsed = parseWirePrefix(text);
@@ -25,18 +13,6 @@ describe('parseWirePrefix', () => {
       senderSessionId: 'sender-sid-456',
       body: 'Reply chain message body',
     });
-  });
-
-  it('parses old prefix without msgId/sid (legacy events)', () => {
-    const text = '[from Lead @ codex-cli]\nLegacy message body';
-    const parsed = parseWirePrefix(text);
-    expect(parsed).toEqual({
-      from: 'Lead',
-      adapter: 'codex-cli',
-      body: 'Legacy message body',
-    });
-    expect(parsed?.msgId).toBeUndefined();
-    expect(parsed?.senderSessionId).toBeUndefined();
   });
 
   it('returns null for plain user input (no wire prefix)', () => {
@@ -86,16 +62,10 @@ describe('parseWirePrefix', () => {
     expect(parsed?.senderSessionId).toBe('abc1234567890ef');
   });
 
-  it('parses prefix with sid but no msgId (defensive: regex allows either optional)', () => {
-    // 实际 buildWireBody 总是同时写 msg + sid（CHANGELOG_100 之后），但 regex 允许只有 sid
-    // 是规则的逻辑后果（两段都 optional）。本 case 验证此边界 — caller 不应依赖此组合，
-    // 这只是确认 regex 不会因此 reject。
-    const text = '[from X @ y][sid sid-only]\nbody';
-    const parsed = parseWirePrefix(text);
-    expect(parsed?.from).toBe('X');
-    expect(parsed?.adapter).toBe('y');
-    expect(parsed?.msgId).toBeUndefined();
-    expect(parsed?.senderSessionId).toBe('sid-only');
+  it('rejects prefixes missing either reply-chain anchor', () => {
+    expect(parseWirePrefix('[from X @ y][msg m]\nbody')).toBeNull();
+    expect(parseWirePrefix('[from X @ y][sid s]\nbody')).toBeNull();
+    expect(parseWirePrefix('[from X @ y]\nbody')).toBeNull();
   });
 });
 

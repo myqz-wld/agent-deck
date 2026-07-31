@@ -311,8 +311,7 @@ export interface SessionRecord {
   /**
    * Last exact cumulative Grok ACP usage snapshot. Persisting this prevents a
    * recovered runtime from treating the provider's session-wide counters as a
-   * new turn. Null on a legacy recovered session means the first standard
-   * snapshot establishes a baseline and is not emitted as usage.
+   * new turn. Null means the provider has not emitted a cumulative snapshot yet.
    */
   grokUsageWatermark?: GrokUsageWatermark | null;
   /**
@@ -321,20 +320,8 @@ export interface SessionRecord {
    */
   contextUsage?: SessionContextUsage | null;
   /**
-   * Compatibility mirror for the session-owned worktree path. `enter_worktree` stores the absolute
-   * path here together with its structured lease; completed `exit_worktree` cleanup clears it.
-   * Close/archive preserves an unsettled structured lease so recovery can finish safely.
-   *
-   * This is per-session transient ownership state. SDK fork/recover rename paths must copy it from
-   * the source row so retries, handoff transfer, and legacy-marker adoption still identify the
-   * exact owned worktree. A null/undefined value means the session has no compatibility marker.
-   *
-   * 持久化层: sessions.cwd_release_marker TEXT 列 (v020), 绝对路径 string / NULL。
-   */
-  cwdReleaseMarker?: string | null;
-  /**
    * Agent Deck MCP server (R2 / B'0 ADR §6.5)：spawn 链上的父 session id。
-   * - null/undefined：顶层 session（用户 IPC / CLI 直接起 / R2 之前老数据）
+   * - null/undefined：顶层 session（用户 IPC / CLI 直接创建）
    * - 字符串：MCP `spawn_session` tool 调用方的 session id
    *
    * 与 spawnDepth 配合用于 depth / per-parent fan-out 防护。MCP handler 先持有 in-flight

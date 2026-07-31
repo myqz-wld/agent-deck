@@ -1,46 +1,8 @@
 /**
- * Universal Message Watcher (R3.E5 / ADR §4)
- *
- * Cross-adapter team message 投递引擎。从 `agent_deck_messages` 表 poll 出 pending 行，
- * 反查 receiver session 的 adapter，调 `adapter.receiveTeammateMessage` 把消息塞进
- * receiver 的 user turn，配重试 / 退避 / per-team rate limit / per-target backpressure /
- * crash recovery 一整套护栏。
- *
- * **调用方**：main bootstrap 启动 watcher.start()，关闭前调 watcher.stop()。
- *
- * **触发模式**（hybrid event + poll，§4.2）：
- * - event 触发（fast path）：messageRepo.insert 后 emit `agent-deck-message-enqueued`，
- *   watcher 监听后 50ms debounce 触发 process()
- * - poll 触发（兜底）：每 250ms 全量扫一次 status='pending'，覆盖 event 漏 emit /
- *   crash recovery / 退避到期重投
- *
- * **状态机**（§4.3）：pending → claim → delivering → delivered | (retry / failed)
- * - claim 用 `UPDATE ... WHERE status='pending' RETURNING` 原子化抢占
- * - adapter 明确拒绝时 attemptCount ++ + lastAttemptAt = now → 退避后下次再选
- * - attemptCount >= 3 直接 failed
- * - adapter 接受后采用 at-most-once：持久确认失败也不重投；重启会把遗留 delivering 终止
- *
- * **wire format**（§4.4，CHANGELOG_100 / plan mcp-tool-simplify-20260514 D9：双锚点）：
- *   `[from <displayName> @ <adapterId>][msg <id>][sid <senderSessionId>]\n<原始 body>`
- * adapter 端不再二次封装；body 直接 sendMessage 到 receiver。
- * teammate（reviewer-* / 其他 mcp-aware agent）收到后从顶部 regex
- * `\[msg ([0-9a-f-]+)\]\[sid ([0-9a-f-]+)\]` 提 messageId + senderSessionId 双锚点，调
- * `send_message({ sessionId: senderSid, teamId, text, replyToMessageId: messageId })` 回 lead；
- * reply 走与普通 message 同款 dispatch（universal-message-watcher.deliver → adapter）自动注入
- * receiver SDK conversation（reply_message / wait_reply / check_reply 三 tool 已 CHANGELOG_100 删，
- * 见本文件 deliver() 内 J fix 注释）。
- *
- * **sessionManager.close 兜底**：watcher 检测 receiver session lifecycle='closed' →
- * messageRepo.markFailed reason='session-closed'。wait-reply-coordinator 同步监听
- * `session-upserted.lifecycle='closed'` 让 lead 立即拿到 reason='session-closed' 结果。
- *
- * **CHANGELOG_105 拆分**（universal-message-watcher-split-20260514）：原 581 LOC 单文件按
- * 档位 1 拆为：
- * - `rate-limiter.ts`        — PerKeyRateLimiter class + messageRateLimiter 单例
- * - `enqueue.ts`             — EnqueueMessageInput + enqueueAgentDeckMessage caller-facing 入队 API
- * - `team-event-dispatcher.ts` — TeamEventDispatcher class + teamEventDispatcher 单例
- * - `index.ts` (本文件)      — UniversalMessageWatcher 主类 + buildWireBody 内部 helper + 单例 + facade re-export
- * 外部 import 路径不变（TS module resolution 自动 fallback 到 index.ts）。
+ * Cross-adapter message delivery. Enqueue events provide the fast path while polling covers missed
+ * events, retry deadlines, and crash recovery. Claims are atomic and accepted deliveries are
+ * at-most-once. Wire bodies carry message and sender-session anchors so replies use the same
+ * durable dispatch path as ordinary messages; closed targets fail explicitly.
  */
 
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
@@ -48,10 +10,12 @@ import { eventBus } from '@main/event-bus';
 import {
   agentDeckMessageRepo,
   deliveryLeaseOf,
-  MAX_RETRY,
 } from '@main/store/agent-deck-message-repo';
 import { settingsStore } from '@main/store/settings-store';
-import { MESSAGE_DELIVERY_DURABILITY } from '@main/store/message-delivery-state';
+import {
+  MAX_RETRY,
+  MESSAGE_DELIVERY_DURABILITY,
+} from '@main/store/message-delivery-state';
 import type { AgentDeckMessage } from '@shared/types';
 
 import { dispatchClaimedMessage } from './claimed-message-delivery';
@@ -63,8 +27,7 @@ import { getProcessRunId } from '@main/utils/run-context';
 
 const logger = log.scope('universal-message-watcher');
 
-// facade re-export：保持外部 import 路径完全兼容
-// (`from '@main/teams/universal-message-watcher'` → TS module resolution fallback 到 index.ts)
+// Public module facade for the watcher and its rate limiter.
 export { PerKeyRateLimiter, messageRateLimiter } from './rate-limiter';
 export { enqueueAgentDeckMessage, type EnqueueMessageInput } from './enqueue';
 export { teamEventDispatcher } from './team-event-dispatcher';

@@ -4,11 +4,8 @@
  *
  * **抽出动机**：在重构前 `agent-deck-message-repo.ts` 同时管 SQL CRUD + 状态机常量
  * （MAX_RETRY / backoff 表 / VALID_STATUSES / SQL CASE 分支硬编码 1000ms 4000ms）。
- * codex 11 LOW finding：JS 端 `backoffMs()` helper 与 SQL findEligible 内 hardcode 的
- * `+ 1000`/`+ 4000` 字面量是「同款常量两份声明」，要改 backoff 表必须 JS / SQL 双改 +
- * 双查所有 test 引用。本文件抽出后 SQL CASE 分支由 `BACKOFF_TIERS` 表自动渲染（构建期
- * 字符串拼接），SSOT 单点；改 backoff tier 只动 BACKOFF_TIERS 数组、`backoffMs()` /
- * SQL fragment / test 全部自动跟着对。
+ * The SQL eligibility clause is generated from `BACKOFF_TIERS`, keeping the retry schedule in one
+ * place instead of duplicating delay literals in repository queries.
  *
  * **edge constraint**：`MAX_RETRY` 与 `BACKOFF_TIERS.length` 必须满足
  * `MAX_RETRY === BACKOFF_TIERS.length + 1`（attempt {0,1,...,BACKOFF_TIERS.length} 都
@@ -19,17 +16,13 @@
  * **SSOT 范围**：
  * - `MAX_RETRY` / `MAX_BODY_LENGTH` / `BACKOFF_TIERS` 常量
  * - post-acceptance durability mode 与 outcome-unknown 用户可读原因
- * - `backoffMs()` / `coerceMessageStatus()` / `buildFindEligibleWhereSql()` 纯函数
+ * - `coerceMessageStatus()` / `buildFindEligibleWhereSql()` pure helpers
  * - `MessageInvariantError` class
  * - `VALID_MESSAGE_STATUSES` readonly 数组
  *
  * **不**含：DB 操作 / row → record 转换 / 任何 better-sqlite3 引用。Repo 端 `import` 此
  * 文件取常量，Repo 不需反向依赖（保持单向：repo → state，不出现 repo ⇆ state cycle）。
  *
- * **back-compat**：`agent-deck-message-repo.ts` re-export 全部 named export，外部 caller
- * （universal-message-watcher / tests）无须改 import 路径。Re-export 允许直接从两处
- * import 等价，但**新代码请直接 import** `@main/store/message-delivery-state`，让
- * agent-deck-message-repo.ts 保持只暴露 repo + 一组 type 的 narrow API。
  */
 
 import type { AgentDeckMessage, AgentDeckMessageStatus } from '@shared/types';
@@ -88,11 +81,10 @@ export const MAX_BODY_LENGTH = MAX_USER_MESSAGE_LENGTH;
  * - attempt_count = 2 → 4_000ms
  * - attempt_count = 3 → never eligible（直接 failed，不进 status='pending'）
  *
- * **SSOT**：JS 端 `backoffMs()` 与 SQL findEligible WHERE 子句都从此表派生（详
- * `buildFindEligibleWhereSql()`）。新增 tier 三步：
+ * `buildFindEligibleWhereSql()` derives the SQL clauses from this table. To add a tier:
  * 1. 在 BACKOFF_TIERS 加新 entry（如 `[3, 9_000]`）
  * 2. 把 MAX_RETRY 加 1（保持不变量 `MAX_RETRY === BACKOFF_TIERS.length + 1`）
- * 3. 跑 vitest（test 自动覆盖新 tier）
+ * 3. run the tests that cover generated eligibility SQL
  *
  * 数组格式 `[attemptCount, delayMs]`，attempt_count 严格升序、连续整数 1..N。运行期 invariant
  * 自检（detail 见文件顶部）违例 throw。
@@ -157,37 +149,15 @@ export const VALID_MESSAGE_STATUSES = [
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 退避表 JS 镜像。**严禁** prod 路径调（findEligible 走 SQL CASE 直接展开常量），保留是为：
- * (a) 文档化 attempt_count → backoff 语义；(b) test 可 import 同款表做对照断言。
- *
- * REVIEW_35 LOW-A3：本函数仅 unit test 内引用，prod 路径完全不调。Step 3.6 抽到本文件
- * （从 BACKOFF_TIERS 表派生）后再无双声明漂移风险。
- */
-export function backoffMs(attemptCount: number): number {
-  if (attemptCount <= 0) return 0;
-  const tier = BACKOFF_TIERS.find(([n]) => n === attemptCount);
-  if (tier) return tier[1];
-  // attempt_count >= MAX_RETRY：never eligible（调用方应已 markFailed）
-  return Number.MAX_SAFE_INTEGER;
-}
-
-/**
  * 构造 findEligible() WHERE 子句（仅退避部分，不含 status='pending'）。从 BACKOFF_TIERS
  * 派生 SQL 字符串 + ? placeholder 数（每 tier 一个 ? 绑定 now）。
  *
  * 返回 `whereSql` 形如：
  * ```
  * last_attempt_at IS NULL
- *   OR attempt_count = 0
  *   OR (attempt_count = 1 AND last_attempt_at + 1000 <= ?)
  *   OR (attempt_count = 2 AND last_attempt_at + 4000 <= ?)
  * ```
- *
- * **`attempt_count = 0` clause 的必要性**：仅 `last_attempt_at IS NULL` 不够。旧版本会在
- * 进程重启时把 claimed row 恢复为 pending，但不清 last_attempt_at / 不增 attempt_count，
- * 因此升级后仍可能存在 attempt_count=0 且 last_attempt_at 非 NULL 的 legacy pending row。
- * 两 clause 各自独立兜底，缺一不可。当前 at-most-once recovery 会终止新的 outcome-unknown
- * delivering row，不再产生这种 pending 组合。
  *
  * **不**自动加 `status = 'pending'` 前缀 —— caller 自己拼，避免本 helper 侵入 repo SQL
  * 结构（保持「只供 backoff 段 SSOT」narrow contract）。
@@ -201,16 +171,15 @@ export function buildFindEligibleWhereSql(): {
   const tierClauses = BACKOFF_TIERS.map(
     ([n, ms]) => `(attempt_count = ${n} AND last_attempt_at + ${ms} <= ?)`,
   );
-  const whereSql = ['last_attempt_at IS NULL', 'attempt_count = 0', ...tierClauses].join(
+  const whereSql = ['last_attempt_at IS NULL', ...tierClauses].join(
     '\n             OR ',
   );
   return { whereSql, backoffPlaceholderCount: BACKOFF_TIERS.length };
 }
 
 /**
- * 防御性把 DB row.status 字符串收口到 typed enum。SQL CHECK constraint（migrations）
- * 理论上挡掉所有非法值，但 (a) 跨 migration 期间历史脏数据；(b) 应用启动 race（先
- * read 后 migrate）—— 兜底 fallback `failed` 不抛错。
+ * 防御性把 DB row.status 字符串收口到 typed enum。SQL CHECK constraint 会挡住正常写入，
+ * 但手工修改、损坏数据或未来版本值仍可能越过当前类型；此时降级为 `failed` 并记录告警。
  *
  * **注意**：caller 端拿到 `failed` 时无法区分「真 failed」vs「coerce 兜底」。如未来需要
  * 区分，加 `coerceResult: 'valid' | 'fallback'` 字段返回。

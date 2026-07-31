@@ -8,12 +8,23 @@ import {
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
-import { resolvePlanReviewTimeoutMs } from './request-plan-review';
 import type { RequestDiffReviewArgs, RequestDiffReviewResult } from '../schemas';
 
 interface DiffReviewValidationError {
   error: string;
   hint: string;
+}
+
+function resolveDiffReviewTimeoutMs(
+  requestedTimeoutMs: number | undefined,
+  permissionTimeoutMs: number,
+): number | undefined {
+  const settingTimeoutMs = Number.isFinite(permissionTimeoutMs)
+    ? Math.max(0, permissionTimeoutMs)
+    : 0;
+  if (settingTimeoutMs === 0) return requestedTimeoutMs;
+  if (!requestedTimeoutMs || requestedTimeoutMs <= 0) return settingTimeoutMs;
+  return Math.min(requestedTimeoutMs, settingTimeoutMs);
 }
 
 function validateDiffReviewArgs(args: RequestDiffReviewArgs): DiffReviewValidationError | null {
@@ -89,7 +100,7 @@ export const requestDiffReviewHandler = withMcpGuard(
         );
       }
 
-      const timeoutMs = resolvePlanReviewTimeoutMs(
+      const timeoutMs = resolveDiffReviewTimeoutMs(
         args.timeoutMs,
         settingsStore.get('permissionTimeoutMs'),
       );

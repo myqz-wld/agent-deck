@@ -77,17 +77,6 @@ const CODEX_SANDBOXES: ReadonlyArray<'workspace-write' | 'read-only' | 'danger-f
   'danger-full-access',
 ];
 
-/**
- * adapter 短名 alias 映射（CHANGELOG_<X> A9）：让用户敲 `--adapter codex` 而不是
- * 完整的 `--agent codex-cli`。`--adapter` 与 `--agent` 等价（前者更通用，符合应用
- * 内部的 adapter 概念命名）。
- */
-const AGENT_ALIASES: Record<string, string> = {
-  codex: 'codex-cli',
-  claude: 'claude-code',
-  grok: 'grok-build',
-};
-
 function findSubcommand(argv: readonly string[]): { sub: string; args: string[] } | null {
   for (let i = 1; i < argv.length; i++) {
     const v = argv[i];
@@ -111,7 +100,6 @@ function findSubcommand(argv: readonly string[]): { sub: string; args: string[] 
  */
 const VALUE_REQUIRED_FLAGS = new Set([
   'cwd',
-  'agent',
   'adapter',
   'prompt',
   'permission-mode',
@@ -126,6 +114,8 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'team',     // R3.E10
   'member',   // R3.E10
 ]);
+
+const KNOWN_FLAGS = new Set([...VALUE_REQUIRED_FLAGS, 'focus']);
 
 /** 可重复 flag —— 同 key 多次出现时累积成数组而非覆盖 */
 const REPEATABLE_FLAGS = new Set(['member']);
@@ -145,21 +135,27 @@ function parseFlags(args: readonly string[]): Map<string, string | boolean | str
   while (i < args.length) {
     const tok = args[i];
     if (!tok.startsWith('--')) {
-      i++;
-      continue;
+      throw new Error(`agent-deck new: 不支持的位置参数 "${tok}"`);
     }
     const eq = tok.indexOf('=');
     if (eq > 0) {
-      accumulate(tok.slice(2, eq), tok.slice(eq + 1));
+      const key = tok.slice(2, eq);
+      if (!KNOWN_FLAGS.has(key)) throw new Error(`agent-deck new: 未知参数 --${key}`);
+      accumulate(key, tok.slice(eq + 1));
       i++;
       continue;
     }
     const key = tok.slice(2);
     if (key.startsWith('no-')) {
-      out.set(key.slice(3), false);
+      const positiveKey = key.slice(3);
+      if (!KNOWN_FLAGS.has(positiveKey)) {
+        throw new Error(`agent-deck new: 未知参数 --${key}`);
+      }
+      out.set(positiveKey, false);
       i++;
       continue;
     }
+    if (!KNOWN_FLAGS.has(key)) throw new Error(`agent-deck new: 未知参数 --${key}`);
     const next = args[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
       accumulate(key, next);
@@ -191,20 +187,17 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
 
   if (sub.sub === 'new') {
     const f = parseFlags(sub.args);
-    if (f.has('provider')) {
-      throw new Error(
-        'agent-deck new: --provider 已移除；Claude Code 请用 --gateway，Codex CLI 请用 --profile',
-      );
-    }
     // cwd 缺省 → 用户主目录（与 renderer NewSessionDialog 行为一致）。
     // wrapper 脚本 resources/bin/agent-deck 在 shell 端已用 $PWD 兜底，
     // 这里再兜一层是给「直接调 .app 二进制 / 第三方调用」的场景。
     const cwd = asString(f.get('cwd')) ?? homedir();
-    // CHANGELOG_<X> A9：--adapter 与 --agent 等价；优先取 --adapter（更新的命名）。
-    // 短名 alias 自动展开（'codex' → 'codex-cli'）。
-    const adapterRaw = asString(f.get('adapter')) ?? asString(f.get('agent')) ?? 'claude-code';
-    const agent = AGENT_ALIASES[adapterRaw] ?? adapterRaw;
-    // 缺省 prompt = '你好'，让裸跑 `agent-deck` 也能立刻发起会话；
+    const agent = asString(f.get('adapter')) ?? 'claude-code';
+    if (!isAgentId(agent)) {
+      throw new Error(
+        `agent-deck new: --adapter 取值无效（应为 claude-code | codex-cli | grok-build）`,
+      );
+    }
+    // 缺省 prompt = '你好'，让 `agent-deck new` 直接发起会话；
     // 不然 SDK CLI 子进程拿不到首条 user message 会卡到 30s fallback。
     const prompt = asString(f.get('prompt')) ?? '你好';
     const resume = asString(f.get('resume'));
@@ -307,8 +300,12 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
         );
       }
       const slug = spec.slice(0, colonIdx);
-      const memberAdapterRaw = spec.slice(colonIdx + 1);
-      const memberAdapter = AGENT_ALIASES[memberAdapterRaw] ?? memberAdapterRaw;
+      const memberAdapter = spec.slice(colonIdx + 1);
+      if (!isAgentId(memberAdapter)) {
+        throw new Error(
+          `agent-deck new: --member adapter 取值无效（应为 claude-code | codex-cli | grok-build），得到 "${memberAdapter}"`,
+        );
+      }
       members.push({ slug, adapter: memberAdapter });
     }
     if (members.length > 0 && !team) {

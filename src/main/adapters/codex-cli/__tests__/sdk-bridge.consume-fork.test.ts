@@ -5,7 +5,7 @@
  * 镜像 claude `__tests__/sdk-bridge.consume-fork.test.ts` 但 codex 端架构差异显著：
  * - claude 一切走 `consume` private method（同 1 个流式 SDK query 处理）
  * - codex 拆 `ThreadLoop.runTurnLoop`（持 thread.started case 1/2/3 三态）+
- *   `RestartController.restartWithCodexSandbox`（兼容旧名称的 next-turn sandbox apply 控制器）
+ *   `RestartController.setCodexSandbox`（next-turn sandbox apply 控制器）
  *
  * 覆盖矩阵（与 plan §2 对应）：
  *   - thread-loop case 1 (新建路径): !threadId → 设 threadId + claimAsSdk + firstIdCb
@@ -265,7 +265,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
   });
 });
 
-describe('codex RestartController.restartWithCodexSandbox（next-turn apply）', () => {
+describe('codex RestartController.setCodexSandbox（next-turn apply）', () => {
   it('live session: persists + emits upsert + patches thread options without abort/create/queue loss', async () => {
     const bridge = makeBridge();
     const updateSandboxMode = vi.fn();
@@ -321,9 +321,8 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
       return true;
     });
 
-    const result = await bridge.restartWithCodexSandbox('sess-live', 'workspace-write', 'ignored');
+    await bridge.setCodexSandbox('sess-live', 'workspace-write');
 
-    expect(result).toBe('sess-live');
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-live', 'workspace-write');
     expect(upsertedEmits).toHaveLength(1);
@@ -374,8 +373,8 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
       });
 
     await expect(
-      bridge.restartWithCodexSandbox('sess-dormant', 'danger-full-access', '   '),
-    ).resolves.toBe('sess-dormant');
+      bridge.setCodexSandbox('sess-dormant', 'danger-full-access'),
+    ).resolves.toBeUndefined();
 
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(1);
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledWith('sess-dormant', 'danger-full-access');
@@ -410,7 +409,7 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
       codexSandbox: 'read-only',
     });
 
-    const p = bridge.restartWithCodexSandbox('sess-wait', 'workspace-write', 'ignored');
+    const p = bridge.setCodexSandbox('sess-wait', 'workspace-write');
     await Promise.resolve();
     await Promise.resolve();
     expect(sessionRepo.setCodexSandbox).not.toHaveBeenCalled();
@@ -443,7 +442,7 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
       .mockImplementationOnce(() => undefined);
 
     await expect(
-      bridge.restartWithCodexSandbox('sess-dbfail', 'workspace-write', 'ignored'),
+      bridge.setCodexSandbox('sess-dbfail', 'workspace-write'),
     ).rejects.toThrow(/SQLITE_BUSY/);
 
     const errMsgs = emits.filter(
@@ -520,7 +519,7 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
     });
 
     await expect(
-      bridge.restartWithCodexSandbox('sess-live-fail', 'workspace-write', 'ignored'),
+      bridge.setCodexSandbox('sess-live-fail', 'workspace-write'),
     ).rejects.toThrow(/patch failed/);
 
     expect(sessionRepo.setCodexSandbox).toHaveBeenCalledTimes(2);
@@ -568,7 +567,7 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
       });
 
     await expect(
-      bridge.restartWithCodexSandbox('sess-dual-fail', 'workspace-write', 'ignored'),
+      bridge.setCodexSandbox('sess-dual-fail', 'workspace-write'),
     ).rejects.toThrow('live sandbox projection failed');
 
     expect(updateSandboxMode).toHaveBeenCalledTimes(2);
@@ -584,7 +583,7 @@ describe('codex RestartController.restartWithCodexSandbox（next-turn apply）',
     const bridge = makeBridge();
     vi.mocked(sessionRepo.get).mockReturnValue(null);
     await expect(
-      bridge.restartWithCodexSandbox('sess-ghost', 'workspace-write', 'x'),
+      bridge.setCodexSandbox('sess-ghost', 'workspace-write'),
     ).rejects.toThrow(/not found in repo/);
   });
 });

@@ -137,30 +137,8 @@ export class SessionRecoverer {
   }
 
   /**
-   * cwd 失效启发式 fallback 算法（与 claude `recoverer.ts` `findFallbackCwd` 同款）。
-   *
-   * 已知 sessionRepo.cwd 不存在时(由 cwdExistsThunk 判定),尝试找一个还能用的 cwd
-   * 让 codex CLI 子进程能正常 spawn(否则 chdir 失败,撞 "Path does not exist" 弯绕错误链)。
-   *
-   * **算法两阶启发式**:
-   * 1. **路径含 `.claude/worktrees/` 段** → 取段之前部分（典型: K2 老 session
-   *    cwd=worktree 的场景,worktree 删了之后 main repo 仍在）
-   * 2. **父目录 walk** → 沿 dirname 链往上找第一个还存在的目录(覆盖手动 git worktree
-   *    remove / 误删 / 跨设备同步丢目录等场景)。**安全边界**:不超过 home。
-   *
-   * 找不到 → null(handler 上层 emit error + throw,不进 placeholder 路径)。
-   *
-   * **fallback 后下游**:走 createThunk 不带 resume + 后置 renameSdkSession（CLI 历史失但应用层
-   * events / file_changes / summaries 子表保留）。
-   *
-   * **不持久化 fallback cwd**:sessionRepo.cwd 不被改写。理由：fallback 是 best-effort 不动持久
-   * state；下次发消息再次 detect → fallback。
-   *
-   * test 通过 facade extend override 该方法定制启发式行为。
-   *
-   * **REVIEW_49 R1 follow-up MED-G**: 抽 `findFallbackCwd` 实现到 `@main/adapters/shared/find-fallback-cwd`
-   * (与 claude/recoverer.ts:637 同款),本方法保留作为 facade extend override 注入点(test
-   * 仍可 override 该 protected method 改启发式)。
+   * Recover a missing cwd by finding its nearest safe existing parent. The shared helper refuses
+   * the home directory, its ancestors, and the filesystem root. Tests may override this facade seam.
    */
   protected findFallbackCwd(badCwd: string): string | null {
     return findFallbackCwdShared(badCwd, this.cwdExistsThunk);

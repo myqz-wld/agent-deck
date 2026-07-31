@@ -75,8 +75,7 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
       .getSettings()
       .then((s) => {
         if (seq !== openSeqRef.current) return;
-        // Defaults keep the form complete when the persisted schema lacks newer fields.
-        setSettings({ ...DEFAULT_SETTINGS, ...((s as Partial<AppSettings>) ?? {}) });
+        setSettings(s);
       })
       .catch(() => {
         if (seq !== openSeqRef.current) return;
@@ -135,10 +134,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     setBusy(true);
     setActionError(null);
     try {
-      const next = (await window.api.setSettings(patch)) as Partial<AppSettings> | undefined;
+      const next = await window.api.setSettings(patch);
       if (seq !== updateSeqRef.current) return;
-      // Main may return a partial settings object during version transitions.
-      setSettings({ ...DEFAULT_SETTINGS, ...((next ?? {}) as Partial<AppSettings>) });
+      setSettings(next);
     } catch {
       if (seq !== updateSeqRef.current) return;
       setActionError('保存设置失败，请重试。');

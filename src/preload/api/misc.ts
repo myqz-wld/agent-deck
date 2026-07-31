@@ -52,18 +52,18 @@ export const miscApi = {
   // Hook
   installHook: (
     scope: 'user' | 'project',
-    cwd?: string,
-    adapterId?: 'claude-code' | 'codex-cli' | 'grok-build',
+    cwd: string | undefined,
+    adapterId: 'claude-code' | 'codex-cli' | 'grok-build',
   ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookInstall, scope, cwd, adapterId),
   uninstallHook: (
     scope: 'user' | 'project',
-    cwd?: string,
-    adapterId?: 'claude-code' | 'codex-cli' | 'grok-build',
+    cwd: string | undefined,
+    adapterId: 'claude-code' | 'codex-cli' | 'grok-build',
   ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookUninstall, scope, cwd, adapterId),
   hookStatus: (
     scope: 'user' | 'project',
-    cwd?: string,
-    adapterId?: 'claude-code' | 'codex-cli' | 'grok-build',
+    cwd: string | undefined,
+    adapterId: 'claude-code' | 'codex-cli' | 'grok-build',
   ): Promise<unknown> => ipcRenderer.invoke(IpcInvoke.HookStatus, scope, cwd, adapterId),
 
   // 设置

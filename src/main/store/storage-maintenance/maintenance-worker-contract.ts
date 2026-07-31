@@ -1,12 +1,10 @@
 import type { MaintenanceEngineTick, MaintenanceEngineOptions } from './maintenance-engine';
-import type { StorageMaintenanceTask } from './state';
 
 export const STORAGE_MAINTENANCE_WORKER_KIND = 'agent-deck-storage-maintenance-v1';
 
 export interface StorageMaintenanceWorkerData {
   kind: typeof STORAGE_MAINTENANCE_WORKER_KIND;
   dbPath: string;
-  restartEligible: StorageMaintenanceTask[];
   engineOptions: MaintenanceEngineOptions;
   autoCheckpointPages: number;
   checkpointIntervalMs: number;

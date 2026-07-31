@@ -115,7 +115,6 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 查询', () => {
       (row) => row.bucketKey === 'gpt-5.5',
     );
     expect(gpt?.day).toBe('2026-06-01');
-    expect(gpt?.inputTokens).toBe(17);
     expect(gpt?.inputTotalTokens).toBe(47);
     expect(gpt?.outputTokens).toBe(8);
     expect(gpt?.reasoningTokens).toBe(6);
@@ -166,7 +165,6 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 查询', () => {
     expect(repo.dailyByModel().find(
       (row) => row.bucketKey === 'opus-4.8',
     )).toMatchObject({
-      inputTokens: 100,
       inputTotalTokens: 140,
       outputTokens: 70,
       reasoningTokens: 18,
@@ -276,7 +274,6 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 查询', () => {
       (row) => row.bucketKey === 'grok-4.5',
     )).toMatchObject({
       providerTotalTokens: 30,
-      inputTokens: 21,
       inputTotalTokens: 21,
       outputTokens: 9,
       reasoningTokens: null,
@@ -287,7 +284,6 @@ describe.skipIf(!bindingAvailable)('token-usage-repo / 查询', () => {
       (row) => row.bucketKey === 'gpt-5.5',
     )).toMatchObject({
       providerTotalTokens: null,
-      inputTokens: 25,
       inputTotalTokens: 25,
       outputTokens: 11,
     });

@@ -152,13 +152,6 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       sessions.set(id, updated);
       return updated;
     },
-    // R2 reviewer-codex MED 修法: archive() 新增 clearCwdReleaseMarker(sessionId) 调用,
-    // mock 必须补该 method 否则 manager-public-api.test.ts 撞 TypeError。
-    // 与生产 sessionRepo.clearCwdReleaseMarker 语义一致(置 cwdReleaseMarker = null)。
-    clearCwdReleaseMarker: (id: string) => {
-      const r = sessions.get(id);
-      if (r) sessions.set(id, { ...r, cwdReleaseMarker: null });
-    },
     setPermissionMode: vi.fn(),
     setTitle: (id: string, title: string) => {
       const r = sessions.get(id);

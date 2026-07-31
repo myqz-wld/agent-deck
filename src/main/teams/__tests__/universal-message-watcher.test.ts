@@ -48,7 +48,7 @@ let nextClaimResult: AgentDeckMessage | null = null;
 let nextSessionResult: { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null = null;
 // REVIEW_86 LOW-2 (reviewer-codex): per-sid sessionRepo.get overlay 让 invariant test 区分
 // target / from session 独立返值（修前单 nextSessionResult 全局 → invariant-2/3 在 target 反查
-// 就 fail，打不到 from-session 分支）。empty → fallback nextSessionResult（向后兼容现有 test）。
+// 就 fail，打不到 from-session 分支）。empty → fallback nextSessionResult。
 const sessionByIdMap: Map<
   string,
   { id: string; lifecycle: 'active' | 'dormant' | 'closed'; agentId: string; archivedAt?: number | null } | null
@@ -63,7 +63,7 @@ let nextTeamResult: { id: string; archivedAt: number | null } | null = null;
 let nextMembershipResult: { sessionId: string; teamId: string; role: 'lead' | 'teammate'; leftAt: number | null } | null = null;
 // REVIEW_56 §Test-Watcher 修法 (Plan-Review Round 2 codex MED-2): 加 per-sessionId Map overlay
 // 让新 invariant fail 分支 test 显式控制 from/to membership 独立返值。
-// 默认 empty → mock fn 走 fallback nextMembershipResult (existing test backward compat 不影响)。
+// 默认 empty → mock fn 走 fallback nextMembershipResult。
 const membershipBySid: Map<
   string,
   { sessionId: string; teamId: string; role: 'lead' | 'teammate'; leftAt: number | null } | null
@@ -96,7 +96,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
   deliveryLeaseOf: (message: AgentDeckMessage): LeaseLike => ({
     messageId: message.id,
     toSessionId: message.toSessionId,
-    generation: message.deliveryGeneration ?? 1,
+    generation: message.deliveryGeneration,
   }),
   agentDeckMessageRepo: {
     get: (id: string) => {
@@ -113,16 +113,15 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         const m = statefulPendingMap.get(id);
         if (!m || m.status !== 'pending') return null;
         m.status = 'delivering';
-        m.deliveryGeneration = (m.deliveryGeneration ?? 0) + 1;
+        m.deliveryGeneration += 1;
         m.deliveryLeaseToSessionId = m.toSessionId;
         return { ...m };
       }
       return nextClaimResult
         ? {
             ...nextClaimResult,
-            deliveryGeneration: nextClaimResult.deliveryGeneration ?? 1,
-            deliveryLeaseToSessionId:
-              nextClaimResult.deliveryLeaseToSessionId ?? nextClaimResult.toSessionId,
+            deliveryGeneration: nextClaimResult.deliveryGeneration,
+            deliveryLeaseToSessionId: nextClaimResult.deliveryLeaseToSessionId,
           }
         : null;
     },
@@ -285,7 +284,7 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
       }) as AgentDeckTeamRepo['get'],
       // REVIEW_56 §Test-Watcher 修法 (Plan-Review Round 2 codex MED-2): per-sessionId Map overlay
       // 让新 invariant fail 分支 test 区分 from/to membership 独立返值。empty Map → fallback
-      // nextMembershipResult (existing test backward compat)。
+      // nextMembershipResult。
       findActiveMembershipIn: ((_teamId: string, sessionId: string) => {
         membershipInCalls.push({ teamId: _teamId, sessionId });
         return membershipBySid.has(sessionId) ? membershipBySid.get(sessionId)! : nextMembershipResult;
@@ -476,10 +475,7 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
     }
   });
 
-  it('reply 在 target session 已删除时 markFailed（与普通 message 同款，不再短路 markDelivered）', async () => {
-    // CHANGELOG_100：旧 J fix 副作用 — reply 短路在 target check 之前，target 不存在时仍
-    // markDelivered（认为 reply 已入库供 sender wait_reply 拿）。删 J fix + 删 wait_reply tool 后
-    // 不再有此特殊语义 — reply 现在像普通 message 一样需要 receiver 真在 sessions 表才能投递。
+  it('marks a reply failed when its target session has been deleted', async () => {
     const replyMsg = makeMessage({
       id: 'reply-orphan',
       replyToMessageId: 'original-msg-1',
@@ -491,7 +487,6 @@ describe('universal-message-watcher.deliver - CHANGELOG_100 J fix removed (统�
     const watcher = new UniversalMessageWatcher();
     await callDeliver(watcher, replyMsg);
 
-    // 与普通 send_message 同款：target 不存在 → markFailed
     expect(markFailedCalls).toHaveLength(1);
     expect(markFailedCalls[0]?.id).toBe('reply-orphan');
     expect(markFailedCalls[0]?.reason).toContain('not found');

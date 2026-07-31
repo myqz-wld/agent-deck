@@ -15,10 +15,12 @@ describe('packaged CLI wrapper parity', () => {
   });
 
   it('limits wrapper argument behavior to subcommand, cwd normalization, and transport', () => {
-    expect(macWrapper).toContain('set -- new');
+    expect(macWrapper).not.toContain('set -- new');
+    expect(macWrapper).toContain('if [[ "${1:-}" != "new" ]]');
     expect(macWrapper).toContain('NEW_ARGS+=("--cwd" "$PWD")');
     expect(macWrapper).toContain('agent-deck-argv-b64:');
-    expect(windowsWrapper).toContain('new --cwd "%CD%"');
+    expect(windowsWrapper).not.toContain('new --cwd "%CD%"');
+    expect(windowsWrapper).toContain('if /I "%FIRST%"=="new"');
     expect(windowsWrapper).toContain('start "" "%APP_EXE%" %*');
   });
 });

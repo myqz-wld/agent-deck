@@ -9,7 +9,7 @@ import type {
 } from '../types';
 import type {
   AdapterSessionMode,
-  AgentEvent,
+  StoredAgentEvent,
   PermissionResponse,
   ProviderUsageSnapshot,
   UploadedAttachmentRef,
@@ -311,7 +311,6 @@ export class GrokBuildAdapter implements AgentAdapter {
     if (!this.bridge) {
       return unavailableUsageSnapshot(
         'grok-build',
-        'Grok',
         'Grok 暂时无法读取额度信息',
       );
     }
@@ -345,7 +344,7 @@ export class GrokBuildAdapter implements AgentAdapter {
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
   async summariseEvents(
     cwd: string,
-    events: AgentEvent[],
+    events: StoredAgentEvent[],
     evidenceContext?: string,
     runtime?: { provider?: string; model?: string; thinking?: string },
   ): Promise<string | null> {

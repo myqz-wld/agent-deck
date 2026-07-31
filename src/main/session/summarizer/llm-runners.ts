@@ -1,5 +1,5 @@
 /** Periodic Claude-family session-list summary runner. */
-import type { AgentEvent } from '@shared/types';
+import type { StoredAgentEvent } from '@shared/types';
 import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
 import {
   isClaudeThinkingLevel,
@@ -25,7 +25,6 @@ interface ClaudeFamilyRunnerOptions {
 }
 
 function claudeReasoningSetting(value: unknown): ClaudeThinkingLevel {
-  if (value === 'minimal') return 'low';
   if (value === 'ultra') return 'max';
   return isClaudeThinkingLevel(value) ? value : DEFAULT_SUMMARY_REASONING;
 }
@@ -41,7 +40,7 @@ function claudeReasoningSetting(value: unknown): ClaudeThinkingLevel {
  */
 export async function summariseViaLlm(
   cwd: string,
-  events: AgentEvent[],
+  events: StoredAgentEvent[],
   opts?: ClaudeFamilyRunnerOptions,
 ): Promise<string | null> {
   const activity = formatEventsForPrompt(events);

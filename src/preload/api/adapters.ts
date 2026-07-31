@@ -155,18 +155,16 @@ export const adaptersApi = {
     ),
 
   /** Persist the Codex sandbox selection for the next round without interrupting this one. */
-  restartWithCodexSandbox: (
+  setCodexSandbox: (
     agentId: string,
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
-    handoffPrompt: string,
-  ): Promise<string> =>
+  ): Promise<void> =>
     ipcRenderer.invoke(
-      IpcInvoke.AdapterRestartWithCodexSandbox,
+      IpcInvoke.AdapterSetCodexSandbox,
       agentId,
       sessionId,
       sandbox,
-      handoffPrompt,
     ),
 
   /** Restart an idle Claude Code child because its OS sandbox is fixed at spawn time. */

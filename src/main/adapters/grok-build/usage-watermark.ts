@@ -26,7 +26,7 @@ export function grokTurnUsageWatermark(usage: GrokTurnUsage): GrokUsageWatermark
     totalTokens: usageValue(usage.totalTokens),
     inputTokens: usageValue(usage.inputTokens),
     outputTokens: usageValue(usage.outputTokens),
-    thoughtTokens: usageValue(usage.reasoningTokens ?? usage.thoughtTokens),
+    thoughtTokens: usageValue(usage.reasoningTokens),
     cachedReadTokens: usageValue(usage.cachedReadTokens),
     cachedWriteTokens: usageValue(usage.cachedWriteTokens),
   };

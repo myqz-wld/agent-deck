@@ -132,7 +132,7 @@ function buildClaudeAgent(
   const tools = withClaudeFamilyReviewerMessagingTools(agentName, parseCsvList(fm.tools));
   const skills = parseCsvList(fm.skills);
   const model = fm.model?.trim() || undefined;
-  const gateway = (fm.gateway ?? fm.provider)?.trim() || undefined;
+  const gateway = fm.gateway?.trim() || undefined;
   const definition: AgentDefinition = {
     description: fm.description?.trim() || agentName,
     prompt: body,

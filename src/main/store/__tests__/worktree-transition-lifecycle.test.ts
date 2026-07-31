@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type BetterSqlite3 from 'better-sqlite3';
-import { MIGRATIONS } from '../migrations';
+import { CURRENT_SCHEMA_SQL } from '../schema';
 import {
   compareAndSetPhaseWithDb,
   createEnterWithDb,
@@ -22,7 +22,6 @@ vi.mock('../db', () => ({
 
 import {
   assertWorktreeTransitionAllowsDelete,
-  mayClearLegacyWorktreeMarker,
 } from '@main/session/worktree-transition/lifecycle-policy';
 import {
   batchDeleteHistory,
@@ -42,7 +41,7 @@ function insertClosedSession(id: string): void {
 describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', () => {
   beforeEach(() => {
     currentDb = new Database(':memory:');
-    for (const migration of MIGRATIONS) currentDb.exec(migration.sql);
+    currentDb.exec(CURRENT_SCHEMA_SQL);
   });
 
   afterEach(() => {
@@ -65,7 +64,6 @@ describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', ()
     });
     markEnterCreatedWithDb(currentDb!, 'session-a', creating.generation, 11);
 
-    expect(mayClearLegacyWorktreeMarker('session-a')).toBe(false);
     expect(() => assertWorktreeTransitionAllowsDelete('session-a')).toThrow(
       'Exit or recover the worktree transition first',
     );
@@ -79,14 +77,9 @@ describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', ()
         100,
       ),
     ).toEqual([]);
-    expect(
-      currentDb!.prepare(`SELECT cwd_release_marker FROM sessions WHERE id = ?`)
-        .pluck()
-        .get('session-a'),
-    ).toBe('/repo/.agent-deck/worktrees/task');
   });
 
-  it('allows marker cleanup and history deletion only after the lease is cleared', () => {
+  it('allows history deletion only after the lease is cleared', () => {
     insertClosedSession('session-a');
     const creating = createEnterWithDb(currentDb!, {
       sessionId: 'session-a',
@@ -115,7 +108,6 @@ describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', ()
       updatedAt: 12,
     });
 
-    expect(mayClearLegacyWorktreeMarker('session-a')).toBe(true);
     expect(() => assertWorktreeTransitionAllowsDelete('session-a')).not.toThrow();
     expect(findHistoryOlderThan(100).map((row) => row.id)).toEqual(['session-a']);
     expect(

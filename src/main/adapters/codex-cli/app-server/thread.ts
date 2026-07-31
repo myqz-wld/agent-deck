@@ -424,23 +424,24 @@ export class CodexAppServerThread {
       this.threadId ? 'thread/resume readiness' : 'thread/start readiness',
       signal,
       async (operation) => {
-      const options = await this.client.prepareThreadOptions(this.mode.options, operation);
-      if (this.threadId) {
+        const options = await this.client.prepareThreadOptions(this.mode.options, operation);
+        if (this.threadId) {
+          const result = await operation.request<{ thread: { id: string } }>(
+            'thread/resume',
+            buildThreadResumeParams(this.threadId, options, this.client.baseConfig),
+          );
+          this.threadId = result.thread.id;
+          return this.threadId;
+        }
+
         const result = await operation.request<{ thread: { id: string } }>(
-          'thread/resume',
-          buildThreadResumeParams(this.threadId, options, this.client.baseConfig),
+          'thread/start',
+          buildThreadStartParams(options, this.client.baseConfig),
         );
         this.threadId = result.thread.id;
         return this.threadId;
-      }
-
-      const result = await operation.request<{ thread: { id: string } }>(
-        'thread/start',
-        buildThreadStartParams(options, this.client.baseConfig),
-      );
-      this.threadId = result.thread.id;
-      return this.threadId;
-    });
+      },
+    );
     this.readyPromise = attempt;
     try {
       return await attempt;

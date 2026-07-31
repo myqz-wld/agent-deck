@@ -23,14 +23,14 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 let restartWithGrokSandbox: ReturnType<typeof vi.fn>;
-let restartWithCodexSandbox: ReturnType<typeof vi.fn>;
+let setCodexSandbox: ReturnType<typeof vi.fn>;
 let restartWithClaudeCodeSandbox: ReturnType<typeof vi.fn>;
 let setCodexApprovalPolicy: ReturnType<typeof vi.fn>;
 let confirmDialog: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   restartWithGrokSandbox = vi.fn().mockResolvedValue('grok-session');
-  restartWithCodexSandbox = vi.fn().mockResolvedValue('codex-session');
+  setCodexSandbox = vi.fn().mockResolvedValue(undefined);
   restartWithClaudeCodeSandbox = vi.fn().mockResolvedValue('claude-session');
   setCodexApprovalPolicy = vi.fn().mockResolvedValue(undefined);
   confirmDialog = vi.fn().mockResolvedValue(true);
@@ -38,7 +38,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       restartWithGrokSandbox,
-      restartWithCodexSandbox,
+      setCodexSandbox,
       restartWithClaudeCodeSandbox,
       setCodexApprovalPolicy,
       confirmDialog,
@@ -218,7 +218,7 @@ describe('Grok Build live sandbox control', () => {
     });
   });
 
-  it('shows a legacy strict value as a custom profile without offering removed built-ins', () => {
+  it('shows an arbitrary strict-named custom profile without offering it as a built-in', () => {
     render(
       <SessionSandboxControls
         session={session({ grokSandbox: 'strict' })}

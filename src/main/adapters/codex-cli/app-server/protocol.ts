@@ -76,8 +76,8 @@ export interface CodexAppServerOptions {
   env: Record<string, string>;
   cwd?: string;
   skillExtraRoots?: string[];
-  /** Enable the in-app node_repl sandbox metadata compatibility bridge. */
-  nodeReplSandboxMetaCompatibility?: boolean;
+  /** Inject the current Browser process bootstrap into local node_repl sessions. */
+  nodeReplBrowserBootstrap?: boolean;
   /** Test/embedding override; production defaults to the app-server watchdog constant. */
   firstModelEventTimeoutMs?: number;
 }

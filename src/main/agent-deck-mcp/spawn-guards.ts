@@ -92,12 +92,8 @@ function deny(error: string, hint: string | undefined, spawnLimits: SpawnSession
  * power-user 自负责任(详 §D3 + §D4)。故意推翻 REVIEW_46/47 当年的「archiveCaller=false
  * 退化 normal spawn」修法。
  *
- * **historical 名词**: `handOffMode` 历史上叫 `batonMode`(CHANGELOG_98 / REVIEW_39/46/47/48);
- * 改名同款语义升级(原仅跳 depth → 现跳三道 + 不进 in-flight 计数表)。
- *
  * 参数：
  * - caller: 调用上下文（含 callerSessionId）
- * - _newCwd / _newAdapter: 兼容老签名，目前内部无引用（§6.2 移除后）
  * - opts.handOffMode: 是否走 hand-off 路径(完全独立于 spawn-guards;默认 false = 普通 spawn)
  *
  * 返回值：
@@ -107,8 +103,6 @@ function deny(error: string, hint: string | undefined, spawnLimits: SpawnSession
  */
 export function applySpawnGuards(
   caller: CallerContext,
-  _newCwd: string,
-  _newAdapter: string,
   opts?: { handOffMode?: boolean },
 ): GuardDenial | {
   ok: true;

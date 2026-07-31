@@ -18,7 +18,6 @@ const harness = vi.hoisted(() => {
       ...input,
       id: 10,
     })),
-    countForSession: vi.fn(() => 1),
     adapterGet: vi.fn(),
     listeners: new Map<string, Set<(payload: unknown) => void>>(),
     missingSessions: new Set<string>(),
@@ -69,7 +68,6 @@ vi.mock('@main/store/summary-repo', () => ({
 }));
 vi.mock('@main/store/event-repo', () => ({
   eventRepo: {
-    countForSession: harness.countForSession,
     findLatestAssistantMessage: vi.fn(() => null),
     findLatestAssistantMessageAfterRevision: vi.fn(() => null),
     findLatestAssistantMessageAtOrBeforeRevision: vi.fn(() => null),
@@ -165,7 +163,6 @@ describe('Summarizer persisted revision cursor', () => {
       () => new Promise<string | null>((resolve) => harness.pending.push(resolve)),
     );
     harness.insert.mockClear();
-    harness.countForSession.mockClear();
     harness.emit.mockClear();
     harness.eventOn.mockClear();
     harness.eventOff.mockClear();
@@ -202,7 +199,6 @@ describe('Summarizer persisted revision cursor', () => {
 
     await summarizer.scanAll();
     expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
-    expect(harness.countForSession).not.toHaveBeenCalled();
     harness.pending.shift()!('继续处理 revision 12');
     await flush();
 
@@ -211,26 +207,7 @@ describe('Summarizer persisted revision cursor', () => {
     );
   });
 
-  it('uses the legacy timestamp count once when the previous row has no revision', async () => {
-    harness.previous = {
-      ...harness.previous!,
-      sourceEventRevision: null,
-      sourceRebuildAfterRevision: null,
-      generationSource: 'legacy',
-    };
-    harness.countForSession.mockReturnValue(2);
-    const summarizer = new Summarizer();
-
-    await summarizer.scanAll();
-    expect(harness.countForSession).toHaveBeenCalledWith(session.id, harness.previous.ts);
-    harness.pending.shift()!('从 legacy 游标升级');
-    await flush();
-    expect(harness.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceEventRevision: 11, sourceRebuildAfterRevision: 0 }),
-    );
-  });
-
-  it('refreshes immediately when a strict rename epoch invalidates an otherwise fresh cursor', async () => {
+  it('refreshes immediately when a rename epoch invalidates an otherwise fresh cursor', async () => {
     harness.currentRevision = 11;
     harness.rebuildAfterRevision = 11;
     harness.summaryEventCount = 10;
@@ -239,11 +216,9 @@ describe('Summarizer persisted revision cursor', () => {
       sourceEventRevision: 10,
       sourceRebuildAfterRevision: 10,
     };
-    harness.countForSession.mockReturnValue(0);
     const summarizer = new Summarizer();
 
     await summarizer.scanAll();
-    expect(harness.countForSession).toHaveBeenCalledWith(session.id, harness.previous!.ts);
     expect(harness.summariseEvents).toHaveBeenCalledTimes(1);
     harness.pending.shift()!('重建后刷新摘要');
     await flush();

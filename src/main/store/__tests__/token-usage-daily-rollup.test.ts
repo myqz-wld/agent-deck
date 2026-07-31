@@ -18,7 +18,7 @@ import {
 const openDbs: Database.Database[] = [];
 
 function makeRepo(): { db: Database.Database; repo: TokenUsageRepo } {
-  const db = makeMemoryDb(':memory:', 55);
+  const db = makeMemoryDb();
   openDbs.push(db);
   return { db, repo: createTokenUsageRepo(db) };
 }
@@ -68,7 +68,7 @@ describe.skipIf(!bindingAvailable)('token usage daily rollup', () => {
       createHash('sha256')
         .update(buildTokenUsageDailyQuery().sql)
         .digest('hex'),
-    ).toBe('5b978132f67a551b1f14cdcb6079ef53b475d37da99f3512652e23099d1c5c24');
+    ).toBe('c780f050ab3f241f35a4e9ebb9a16444f5c3326b39d2c65bff244f35fb65d539');
   });
 
   it('keeps raw SQL parity for mixed adapters, NULL/scope/zero fields, and ordering', () => {
@@ -222,7 +222,7 @@ describe.skipIf(!bindingAvailable)('token usage daily rollup', () => {
   it('falls back to raw truth on BUSY and retains rebuild work for retry', () => {
     const root = mkdtempSync('/tmp/agent-deck-rollup-busy-');
     const dbPath = join(root, 'busy.db');
-    const db = makeMemoryDb(dbPath, 55);
+    const db = makeMemoryDb(dbPath);
     const locker = new Database(dbPath);
     try {
       db.pragma('journal_mode = WAL');

@@ -22,8 +22,6 @@ function row(bucketKey: string): TokenDailyRow {
     day: '2026-06-01',
     providerTotalTokens: null,
     providerTotalApplicable: false,
-    inputTokens: 1,
-    inputApplicable: true,
     inputTotalTokens: 1,
     inputTotalApplicable: true,
     outputTokens: 1,

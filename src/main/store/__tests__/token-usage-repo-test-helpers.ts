@@ -13,7 +13,7 @@ export function makeRepo(): {
   db: Database.Database;
   repo: TokenUsageRepo;
 } {
-  const db = makeMemoryDb(':memory:', 55);
+  const db = makeMemoryDb();
   return { db, repo: createTokenUsageRepo(db) };
 }
 

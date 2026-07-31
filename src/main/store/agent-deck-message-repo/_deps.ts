@@ -34,10 +34,8 @@ export interface MessageRow {
   last_attempt_at: number | null;
   delivering_since: number | null;
   reply_to_message_id: string | null;
-  /** Optional only for compatibility with pre-v054 row fixtures. */
-  delivery_generation?: number;
-  /** Optional only for compatibility with pre-v054 row fixtures. */
-  delivery_lease_to_session_id?: string | null;
+  delivery_generation: number;
+  delivery_lease_to_session_id: string | null;
 }
 
 export function rowToRecord(r: MessageRow): AgentDeckMessage {
@@ -57,8 +55,8 @@ export function rowToRecord(r: MessageRow): AgentDeckMessage {
     lastAttemptAt: r.last_attempt_at,
     deliveringSince: r.delivering_since,
     replyToMessageId: r.reply_to_message_id,
-    deliveryGeneration: r.delivery_generation ?? 0,
-    deliveryLeaseToSessionId: r.delivery_lease_to_session_id ?? null,
+    deliveryGeneration: r.delivery_generation,
+    deliveryLeaseToSessionId: r.delivery_lease_to_session_id,
   };
 }
 
@@ -93,10 +91,8 @@ export interface InsertMessageInput {
   /** 1-100KB；caller-side 校验 + SQL CHECK 兜底 */
   body: string;
   /**
-   * plan team-cohesion-fix-20260513 Phase B Step B1：对话链关联（可选）。
-   * 非 NULL 时建立"这是对某条 msg 的 reply"语义（reply 与普通 message 走同款 dispatch，
-   * CHANGELOG_100 删 reply_message / wait_reply / check_reply 后 reply_to_message_id 仅作
-   * 对话链元数据保留，无 reverse-lookup helper —— 详 crud.ts 末注释）。
+   * Optional conversation-chain anchor. Replies use the same durable dispatch path as ordinary
+   * messages; the column retains thread metadata for rendering and follow-up authorization.
    * caller-side 不强制校验 reply_to_message_id 真实存在（FK ON DELETE SET NULL 兜底）。
    */
   replyToMessageId?: string | null;
@@ -154,8 +150,8 @@ export interface MessageDeliveryLease {
 }
 
 export function deliveryLeaseOf(message: AgentDeckMessage): MessageDeliveryLease {
-  const generation = message.deliveryGeneration ?? 0;
-  const leaseToSessionId = message.deliveryLeaseToSessionId ?? null;
+  const generation = message.deliveryGeneration;
+  const leaseToSessionId = message.deliveryLeaseToSessionId;
   if (
     message.status !== 'delivering' ||
     leaseToSessionId !== message.toSessionId ||

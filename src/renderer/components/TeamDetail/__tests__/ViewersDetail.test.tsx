@@ -76,6 +76,8 @@ function message(body: string): AgentDeckMessage {
     lastAttemptAt: 1,
     deliveringSince: null,
     replyToMessageId: null,
+    deliveryGeneration: 1,
+    deliveryLeaseToSessionId: null,
   };
 }
 

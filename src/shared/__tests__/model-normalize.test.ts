@@ -193,7 +193,7 @@ describe('normalizeModel', () => {
       expect(a).toBe(b);
     });
 
-    it('未知 Claude family / legacy id 不被已知 family 规则截断', () => {
+    it('未知 Claude family / model id 不被已知 family 规则截断', () => {
       expect(normalizeModel('claude-mythos-5').bucketKey).toBe('claude-mythos-5');
       expect(normalizeModel('claude-mythos-preview').bucketKey).toBe('claude-mythos-preview');
       expect(normalizeModel('claude-3-5-sonnet-20241022').bucketKey).toBe(

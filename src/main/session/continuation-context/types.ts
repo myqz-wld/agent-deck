@@ -64,8 +64,7 @@ export interface ContinuationWarning {
     | 'checkpoint-repair-failed'
     | 'checkpoint-projected'
     | 'coverage-gap'
-    | 'legacy-wrapper-excluded'
-    | 'legacy-wrapper-unwrapped'
+    | 'context-wrapper-excluded'
     | 'raw-boundary-truncated'
     | 'raw-history-omitted'
     | 'checkpoint-omitted'
@@ -133,7 +132,7 @@ export interface RawContinuationUserInput {
   ts: number;
   text: string;
   attachments: Array<{ name?: string; path?: string; mimeType?: string }>;
-  origin: 'user' | 'cross-session' | 'legacy-unwrapped';
+  origin: 'user' | 'cross-session';
   truncated: boolean;
   omittedEstimatedTokens: number;
 }

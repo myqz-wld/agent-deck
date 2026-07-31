@@ -117,16 +117,8 @@ export interface ClaudeCreateOpts {
    * recoverer fallback 路径下 SDK 不丢 caller spawn 时透传的 extra writable roots。全链路实装
    * （persist + read-back + buildSandboxOptions 注入 SDK sandbox.allowWrite，workspace-write 档
    * 真正生效）。Codex 端同一 provider-neutral 字段映射到 app-server writableRoots。
-   */
+  */
   extraAllowWrite?: readonly string[];
-  // **REVIEW_105 MED-1 (deep-review Batch 7, 双 reviewer + lead 三重独立命中)**:
-  // resumeCliSid / resumeMode 是 bridge 内部 internal 字段(caller 不该传, 仅 recoverer /
-  // restart-controller 直调 bridge `ctx.createSession` 时显式传), 语义与 cancelCheck /
-  // skipFirstUserEmit 同类 → 按既定分层只活在 bridge 内部 CreateSessionOpts(claude
-  // create-session/_deps.ts + codex create-session/_deps.ts), **不进 facade ClaudeCreateOpts**。
-  // 修前两字段误混进 facade type 但 builder narrowToClaudeOpts / facade.createSession 白名单
-  // spread 都不传它们(死字段 + Raw jsdoc「都消费」契约矛盾)。7 组合不变量表 + runtime guard
-  // SSOT 已迁到 bridge create-session/_deps.ts CreateSessionOpts.resumeCliSid/resumeMode jsdoc。
   /**
    * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing:
    * hand_off_session handler 装配后透传给 adapter,让 createSession first user message emit
@@ -194,19 +186,14 @@ export interface CodexCreateOpts {
   /**
    * Codex per-session sandbox 档位覆盖。三档直接复用 Codex app-server sandbox 字面量。
    * undefined = 用 settings.codexSandbox 全局值。已在跑的 app-server thread 可通过
-   * restartWithCodexSandbox 兼容入口 patch options，让下一次 turn/start 使用新档。
+   * setCodexSandbox 入口 patch options，让下一次 turn/start 使用新档。
    */
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /**
    * Provider-neutral sandbox writable roots. The bridge merges this list into Codex app-server
    * workspace-write `writableRoots` and persists it for resume/recovery.
-   */
+  */
   extraAllowWrite?: readonly string[];
-  // **REVIEW_105 MED-1 (deep-review Batch 7)**: resumeCliSid / resumeMode 同 ClaudeCreateOpts —
-  // bridge 内部 internal 字段(caller 不该传, 仅 codex recoverer / restart-controller 直调 bridge
-  // 时显式传), 按既定分层只活在 bridge 内部 CreateSessionOpts(codex create-session/_deps.ts),
-  // **不进 facade CodexCreateOpts**。修前误混进 facade type 但 narrowToCodexOpts / facade.createSession
-  // 白名单都不传(死字段)。详 ClaudeCreateOpts extraAllowWrite 下方 REVIEW_105 注释。
   /**
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
    * codex app-server `approvalPolicy` 透传。当前 provider 支持 `untrusted`、`on-request`
@@ -233,18 +220,6 @@ export interface CodexCreateOpts {
    * undefined → 沿用 codex SDK 默认（不加额外路径）。
    */
   additionalDirectories?: readonly string[];
-  /**
-   * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：caller 想在 codex 子进程
-   * env 注入额外变量。generic 透传机制(目前无 hot caller — reviewer-claude wrapper 路径已
-   * 改 cross-adapter native 删除;字段保留供未来 caller 重用)。
-   *
-   * 注入路径：bridge `ensureCodex` 在 `envOverride = snapshotProcessEnv() + AGENT_DECK_MCP_TOKEN`
-   * 之后 merge `opts.envOverrideExtra`（caller / options-builder spread 的字段优先级最高）。
-   * 子进程拿到完整 env 集（PATH / HOME / 全局 token / per-session token / extra fields）。
-   *
-   * undefined / 空 object → 无新增 env 字段，behavior 与现状一致。
-   */
-  envOverrideExtra?: Readonly<Record<string, string>>;
   /**
    * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 internal plumbing(codex 端
    * 镜像 ClaudeCreateOpts.handOff)。详 HandOffMetadata jsdoc(shared/types/session.ts) +

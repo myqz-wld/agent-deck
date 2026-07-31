@@ -18,7 +18,7 @@ export function describeEventPayload(e: AgentEvent): string {
   if (typeof e.payload === 'string') {
     return e.payload.length > 80 ? `${e.payload.slice(0, 80)}…` : e.payload;
   }
-  // Persisted payloads are not runtime-validated and may contain legacy primitives.
+  // Persisted payloads are not runtime-validated and may be malformed primitives.
   if (typeof e.payload !== 'object') return '无更多详情';
   // 常见字段优先级:text > summary > 按 kind 取主字段
   const p = e.payload as Record<string, unknown>;

@@ -61,7 +61,7 @@ function recomputeEventRevisionAfterRename(db: Database, toId: string): void {
          SELECT MAX(
            revision + 1,
            COALESCE(
-             (SELECT MAX(COALESCE(change_revision, id))
+             (SELECT MAX(change_revision)
                 FROM events
                WHERE session_id = ?),
              0
@@ -89,9 +89,6 @@ function recomputeEventRevisionAfterRename(db: Database, toId: string): void {
  */
 export function renameWithDb(db: Database, fromId: string, toId: string): void {
   if (fromId === toId) return;
-  const hasContextUsage = (
-    db.prepare(`PRAGMA table_info('sessions')`).all() as Array<{ name: string }>
-  ).some((column) => column.name === 'context_usage');
   const tx = db.transaction(() => {
     const fromRow = db
       .prepare(`SELECT * FROM sessions WHERE id = ?`)
@@ -104,7 +101,6 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 复制 fromRow 内容到新 id（id 是 PK，必须 INSERT 新行）
       // CHANGELOG_<X> R2 / B'0 ADR §6.5.2 #2-#3：列清单扩到 16 列（顺手补 v008
       // codex_sandbox 漏列 latent bug，再加 R2 v009 spawned_by/spawn_depth）。
-      // R4·F2：列再扩 1 → 17 列（generic_pty_config）。
       // CHANGELOG_74：列再扩 1 → 18 列（claude_code_sandbox）。
       // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.team_name 后
       // 列回缩 1 → 17 列。
@@ -114,16 +110,12 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // INSERT path 时 model 字段未带过来 → resume 拿不到 spawn 时 frontmatter 设的 model。
       // 实测虽未 user-report 但与 permission_mode 同款风险已被 REVIEW_17 R2 / H1-R2 治过,
       // 本 plan 列扩同 modules 顺手补齐(commit message 透明注明)。
-      // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法:列扩 1 → 20 列
-      // (v020 cwd_release_marker)。SDK fork / recover rename 路径必须把此列从 fromRow 复制
-      // 到 NEW 行，否则 structured transition retry / handoff transfer / legacy adoption
-      // 无法识别 source session 持有的 worktree。
       // plan reverse-rename-sid-stability-20260520 §A.2 关键修法:列扩 1 → 21 列 (v021 cli_session_id)。
       // **R6 HIGH-R6-1 + R7 HIGH-R7-1 修订**: spawn 主路径 (toExists=false INSERT) cli_session_id
       // hardcode `toId` (= first realId, S2 jsdoc spawn 路径 applicationSid 切到 realId 后冻结),
       // 不复制 fromRow.cli_session_id (避免 tempKey 阶段 NULL / fromRow stale value 带过来)。
       // toExists=true 分支 cli_session_id 处理: see L213+ — **R5 MED-R5-1 + R7 HIGH-R7-1 修订**:
-      // 保留 NEW 行已有 cli_session_id 不覆盖 (语义 != cwd_release_marker 无条件覆盖,详注释)。
+      // 保留 NEW 行已有 cli_session_id 不覆盖。
       //
       // **REVIEW_88 INFO (reviewer-claude 提 MED → 反驳轮 reviewer-codex 降 LOW/INFO)**: cli_session_id
       // 列有 v021 UNIQUE 索引 (idx_sessions_cli_session_id,允许多 NULL 非空必唯一)。本 INSERT
@@ -136,8 +128,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 「INSERT 写 NULL」需补 codex 新建路径 parity 回填否则扩大 NULL 窗口 — 都得不偿失。保留现状。
       db.prepare(
         `INSERT INTO sessions
-         (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, spawned_by, spawn_depth, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         toId,
         fromRow.agent_id,
@@ -163,10 +155,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.model,
         fromRow.thinking,
         fromRow.extra_allow_write,
-        fromRow.cwd_release_marker,
         fromRow.spawned_by,
         fromRow.spawn_depth,
-        fromRow.generic_pty_config,
         toId,  // ← cli_session_id hardcode toId (R6 HIGH-R6-1 + R7 HIGH-R7-1 修订:spawn 主路径 first realId 即 toId)
         // plan codex-recover-network-dirs-parity-20260602：列扩 21→23 (network_access_enabled +
         // additional_directories)。用 fromRow.* raw int/string 不转换（SELECT * 拿的已是 DB 原值，
@@ -178,12 +168,10 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         fromRow.hidden_from_history,
       );
     }
-    if (hasContextUsage) {
-      db.prepare(`UPDATE sessions SET context_usage = ? WHERE id = ?`).run(
-        fromRow.context_usage ?? null,
-        toId,
-      );
-    }
+    db.prepare(`UPDATE sessions SET context_usage = ? WHERE id = ?`).run(
+      fromRow.context_usage ?? null,
+      toId,
+    );
     // Derived target checkpoints describe the pre-rename target history and cannot be merged with
     // moved source history. Invalidate them in the same transaction; source checkpoints cascade
     // when the source session row is deleted below.
@@ -213,12 +201,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       `UPDATE agent_deck_team_members SET session_id = ? WHERE session_id = ?`,
     ).run(toId, fromId);
 
-    // plan linked-swimming-platypus (b) messages.from/to_session_id 迁移：FK 不强制
-    // （v010 设计允许已删 sender 留痕），但 universal-message-watcher 反查
-    // sessionRepo.get(toSessionId) 拿 receiver session 做投递；rename 后 OLD 不在
-    // sessions 表 → markFailed("target session not found") → wait_reply 等的 lead
-    // 收到假阴性。UPDATE 双字段保引用一致性（与 universal team backend 设计一致：
-    // rename 后 NEW 接管 OLD 在 messages 流里的 sender / receiver 角色）。
+    // Message references have no FK so deleted senders remain attributable. During rename, move
+    // both endpoints explicitly so the surviving session owns current delivery and reply chains.
     db.prepare(
       `UPDATE agent_deck_messages SET from_session_id = ? WHERE from_session_id = ?`,
     ).run(toId, fromId);
@@ -364,16 +348,6 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         toId,
       );
     }
-    if (toExists && fromRow.generic_pty_config) {
-      // R4·F2：老 PTY-based session 的 spawn config 是会话身份相关字段，
-      // recoverAndSend / SDK fallback rename 时必须从 fromRow 覆盖到 NEW 行，
-      // 否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn（与 codex_sandbox 同模式）。
-      // (plan remove-aider-generic-pty-adapters-20260520 后 adapter 已删,column 保留兼容老 rows。)
-      db.prepare(`UPDATE sessions SET generic_pty_config = ? WHERE id = ?`).run(
-        fromRow.generic_pty_config,
-        toId,
-      );
-    }
     if (toExists && fromRow.model) {
       // plan cross-adapter-parity-20260515 Phase A Step A.2 顺手修 v018 model 漏列 latent bug:
       // recoverAndSend / SDK fallback rename(toExists=true 分支)时 model 必须从 fromRow 覆盖到
@@ -458,22 +432,7 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
         db.prepare(`UPDATE sessions SET hidden_from_history = 1 WHERE id = ?`).run(toId);
       }
 
-      // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法 (toExists 分支):
-      // cwd_release_marker 与 permission_mode / codex_sandbox / extra_allow_write / model 行为
-      // **不同** — 那些是 user preference (OLD 未设时保留 NEW 已有偏好),marker 是 transient
-      // session state (worktree 持有标记) 必须无条件按 OLD 覆盖 (P5 Round 1 reviewer-codex MED-2
-      // 修法):OLD null + NEW stale value 时 NEW 应清空 (rename = OLD 接管 NEW 身份,worktree
-      // 持有状态必须以 OLD 为准),否则 codex SDK 隐式 fork 后 stale marker 会错误归属到新 sid，
-      // 干扰后续 structured exit 或 legacy adoption。
-      // 与 toExists=false INSERT 分支同款无条件复制 marker (核心 SQL 已包含此列,binds 直接传)。
-      db.prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(
-        fromRow.cwd_release_marker,
-        toId,
-      );
-
       // plan reverse-rename-sid-stability-20260520 §A.2 / R5 MED-R5-1 + R7 HIGH-R7-1 修订:
-      // cli_session_id 在 toExists=true 分支语义**不同**于 cwd_release_marker (上方无条件覆盖):
-      // - cwd_release_marker 是 transient session state,OLD null + NEW stale 时必须以 OLD 为准
       // - cli_session_id 是反查 key (有副作用,影响 jsonl 路径 / SDK resume / ingest 反查),
       //   toExists=true 分支 NEW 行已存在意味着已走过 spawn first realId 确认,
       //   NEW 行 cli_session_id 已是正确 realId — 不能被 OLD 覆盖 (违反 D2 不变量 2)

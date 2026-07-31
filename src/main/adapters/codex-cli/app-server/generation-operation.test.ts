@@ -56,7 +56,6 @@ describe('CodexGenerationController', () => {
     expect(harness.controller.hasCachedReadiness).toBe(false);
     expect(harness.abortServerRequests).toHaveBeenCalledOnce();
     expect(harness.rejectPending).toHaveBeenCalledOnce();
-    expect(harness.clearCompatibilityCache).toHaveBeenCalledOnce();
     expect(harness.notifications).toEqual([
       expect.objectContaining({ method: 'error' }),
     ]);
@@ -101,7 +100,6 @@ function createHarness(
   const notifications: CodexAppServerNotification[] = [];
   const abortServerRequests = vi.fn();
   const rejectPending = vi.fn();
-  const clearCompatibilityCache = vi.fn();
   let controller: CodexGenerationController;
   const host: CodexGenerationLifecycleHost = {
     isClosed: () => false,
@@ -118,7 +116,6 @@ function createHarness(
     getSkillExtraRoots: () => undefined,
     abortServerRequests,
     rejectPending,
-    clearCompatibilityCache,
     dispatchNotification: (notification) => notifications.push(notification),
   };
   controller = new CodexGenerationController(host);
@@ -127,7 +124,6 @@ function createHarness(
     notifications,
     abortServerRequests,
     rejectPending,
-    clearCompatibilityCache,
     getChild: () => child,
   };
 }

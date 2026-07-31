@@ -251,12 +251,19 @@ function args(adapter: AdapterId, mode?: 'fresh' | 'fork', teamName?: string) {
 async function call(adapter: AdapterId, mode?: 'fresh' | 'fork', teamName?: string, handOffMode = false) {
   const result = await spawnSessionHandler(
     args(adapter, mode, teamName),
-    { caller: { callerSessionId: 'caller', parentSessionId: 'caller', transport: 'in-process' } },
+    { caller: { callerSessionId: 'caller', transport: 'in-process' } },
     handOffMode ? { handOffMode: true } : undefined,
   );
+  const data = result.isError
+    ? JSON.parse(result.content[0].text) as Record<string, unknown>
+    : result.structuredContent;
+  if (!result.isError) {
+    expect(result.content).toEqual([]);
+    expect(data).toBeDefined();
+  }
   return {
     raw: result,
-    data: JSON.parse(result.content[0].text) as Record<string, unknown>,
+    data: data as Record<string, unknown>,
   };
 }
 
@@ -285,7 +292,7 @@ describe('spawn_session native-fork handler lifecycle', () => {
     seedCaller('codex-cli');
     const result = await spawnSessionHandler(
       args('codex-cli', 'fork'),
-      { caller: { callerSessionId: 'caller', parentSessionId: 'caller', transport: 'in-process' } },
+      { caller: { callerSessionId: 'caller', transport: 'in-process' } },
       { hideFromHistory: true, suppressLeadContext: true },
     );
 

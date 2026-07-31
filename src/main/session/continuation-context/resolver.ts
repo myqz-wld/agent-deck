@@ -64,8 +64,8 @@ function configuredGeneratorModel(
 ): string | null {
   const explicit = typeof configured === 'string' ? configured.trim() : '';
   if (explicit) return explicit;
-  // Leaving Codex unset delegates to its active config.toml model. Do not let a legacy hidden env
-  // override turn an intentionally blank setting into a second, invisible source of truth.
+  // Leaving Codex unset delegates to its active config.toml model; an intentionally blank setting
+  // has no second environment-based source of truth.
   if (adapter === 'codex-cli' || adapter === 'grok-build') return null;
   const profile = resolveClaudeGatewayProfile(provider);
   if (profile) {
