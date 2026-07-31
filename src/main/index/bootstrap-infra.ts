@@ -175,6 +175,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
       routeEventToNotification(event);
     },
     paths: {
+      appUserData: app.getPath('userData'),
       userHome: homedir(),
       userClaudeSettings: join(homedir(), '.claude', 'settings.json'),
     },

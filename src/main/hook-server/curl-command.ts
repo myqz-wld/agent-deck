@@ -1,7 +1,7 @@
+import { isAbsolute } from 'node:path';
+
 export interface HookCurlCommandOptions {
-  port: number;
-  token: string;
-  route: string;
+  relayConfigPath: string;
   tag: string;
   compatibilityGuardEnvironment?: string;
 }
@@ -11,14 +11,12 @@ function shellSingleQuote(value: string): string {
 }
 
 function assertCommandInputs(options: HookCurlCommandOptions): void {
-  if (!Number.isSafeInteger(options.port) || options.port < 1 || options.port > 65_535) {
-    throw new Error('hook command requires a valid loopback port');
-  }
-  if (!options.token.trim()) {
-    throw new Error('hook command requires a non-empty bearer token');
-  }
-  if (!/^\/hook\/[a-z0-9/-]+$/.test(options.route)) {
-    throw new Error('hook command requires a static hook route');
+  if (
+    !isAbsolute(options.relayConfigPath) ||
+    options.relayConfigPath.includes('\0') ||
+    /[\r\n]/.test(options.relayConfigPath)
+  ) {
+    throw new Error('hook command requires an absolute private relay config path');
   }
   if (!/^[a-z0-9-]+$/.test(options.tag)) {
     throw new Error('hook command requires a static ownership tag');
@@ -38,18 +36,11 @@ function assertCommandInputs(options: HookCurlCommandOptions): void {
  */
 export function buildHookCurlCommand(options: HookCurlCommandOptions): string {
   assertCommandInputs(options);
-  const endpoint = shellSingleQuote(`http://127.0.0.1:${options.port}${options.route}`);
-  const authorization = shellSingleQuote(`Authorization: Bearer ${options.token}`);
+  const relayConfigPath = shellSingleQuote(options.relayConfigPath);
   const curl = [
     'curl',
-    '--silent',
-    '--show-error',
-    '--fail-with-body',
-    '--max-time 2',
-    '--request POST',
-    endpoint,
-    "--header 'Content-Type: application/json'",
-    `--header ${authorization}`,
+    '--config',
+    relayConfigPath,
     '--header "X-Agent-Deck-Origin: ${AGENT_DECK_ORIGIN:-cli}"',
     '--header "X-Agent-Deck-Parent-Pid: ${PPID:-}"',
     '--data-binary @-',

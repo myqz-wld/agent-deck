@@ -35,7 +35,12 @@ describe('Claude PostCompact hook support', () => {
   it('installs the PostCompact command into project Claude settings', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-deck-postcompact-'));
     try {
-      const status = new HookInstaller(47821, 'a'.repeat(64)).install({ scope: 'project', cwd });
+      const relayRoot = join(cwd, 'user-data', 'hook-relay');
+      const status = new HookInstaller(
+        47_821,
+        'a'.repeat(64),
+        relayRoot,
+      ).install({ scope: 'project', cwd });
       expect(status.installedHooks).toContain('PostCompact');
 
       const settings = JSON.parse(readFileSync(join(cwd, '.claude', 'settings.json'), 'utf8')) as {
@@ -43,10 +48,12 @@ describe('Claude PostCompact hook support', () => {
       };
       const postCompact = settings.hooks?.PostCompact;
       expect(postCompact).toBeDefined();
-      expect(postCompact?.[0]?.hooks[0]?.command).toContain('/hook/postcompact');
+      expect(postCompact?.[0]?.hooks[0]?.command).toContain(
+        `--config '${join(relayRoot, 'claude-code-postcompact.curlrc')}'`,
+      );
       expect(postCompact?.[0]?.hooks[0]?.command).toContain('GROK_HOOK_EVENT');
       expect(postCompact?.[0]?.hooks[0]?.command).toContain(
-        '# agent-deck-hook-grok-guard',
+        '# agent-deck-hook-v2-claude-code-postcompact',
       );
     } finally {
       rmSync(cwd, { recursive: true, force: true });

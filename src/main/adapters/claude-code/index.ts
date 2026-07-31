@@ -22,6 +22,7 @@ import type {
   RuntimeSelection,
   UploadedAttachmentRef,
 } from '@shared/types';
+import { join } from 'node:path';
 import { sessionManager } from '@main/session/manager';
 import { buildHookRoutes } from './hook-routes';
 import { HookInstaller } from './hook-installer';
@@ -46,7 +47,11 @@ class ClaudeCodeAdapter implements AgentAdapter {
   async init(ctx: AdapterContext): Promise<void> {
     const port = ctx.hookServer.listeningPort;
     const token = ctx.hookServer.bearerToken;
-    this.installer = new HookInstaller(port, token);
+    this.installer = new HookInstaller(
+      port,
+      token,
+      join(ctx.paths.appUserData, 'hook-relay'),
+    );
 
     const routes = buildHookRoutes(ctx.emit);
     for (const r of routes) {

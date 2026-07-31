@@ -17,7 +17,7 @@ import {
  *
  * 鉴权使用两个独立 token：
  * - hookToken：所有 `/hook/*` 路由前置校验 `Authorization: Bearer <hookToken>`
- *   嵌进 CLI 子进程的 hook 命令，泄漏面广
+ *   安装时写入 app-owned `0600` relay curl config；provider hook 命令只引用该私有文件
  * - mcpToken：所有 `/mcp` 路由前置校验。先反查 per-session token，命中时把
  *   `{resolvedSid, fallbackToGlobal: false}` 写入 `request.raw.auth`，供 mcp-sdk
  *   作为 tool handler 的 `extra.authInfo`；不命中但等于应用全局 token 时写入
@@ -226,7 +226,7 @@ export class HookServer {
     return this.port;
   }
 
-  /** Hook 命令 Bearer token，hook-installer 需要把它嵌进 curl 命令的 Authorization 头。 */
+  /** Hook route bearer token；installer 只把它写入 app-owned `0600` relay curl config。 */
   get bearerToken(): string {
     return this.hookToken;
   }

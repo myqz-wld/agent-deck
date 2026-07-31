@@ -19,7 +19,9 @@ interface AllowedExternalNavigation {
   url: string;
 }
 
-type NavigationWebContents = Pick<WebContents, 'on' | 'setWindowOpenHandler'>;
+type NavigationWebContents = Pick<WebContents, 'on' | 'setWindowOpenHandler'> & {
+  getURL?: WebContents['getURL'];
+};
 type ExternalOpener = (url: string) => Promise<unknown>;
 
 function createNavigationLogger(): ReturnType<typeof log.scope> | null {
@@ -133,17 +135,46 @@ function openAllowedExternal(rawUrl: string, openExternal: ExternalOpener): void
   );
 }
 
+/**
+ * Vite performs full-page navigations for some development changes. Those reloads must remain
+ * inside the Electron renderer; sending the renderer URL to shell.openExternal opens a normal
+ * browser without preload and produces a broken `window.api` page.
+ *
+ * Only an existing HTTP(S) renderer may navigate within its exact origin. Production file URLs
+ * and cross-origin destinations continue through the deny/external-open policy.
+ */
+export function isSameRendererOrigin(
+  currentUrl: string,
+  targetUrl: string,
+): boolean {
+  try {
+    const current = new URL(currentUrl);
+    const target = new URL(targetUrl);
+    return (
+      (current.protocol === 'http:' || current.protocol === 'https:') &&
+      current.origin === target.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Keep links and source-location clicks from replacing the single application renderer. */
 export function installWindowNavigationPolicy(
   webContents: NavigationWebContents,
   openExternal: ExternalOpener,
 ): void {
+  const currentUrl = (): string =>
+    typeof webContents.getURL === 'function' ? webContents.getURL() : '';
   webContents.on('will-navigate', (event, url) => {
+    if (isSameRendererOrigin(currentUrl(), url)) return;
     event.preventDefault();
     openAllowedExternal(url, openExternal);
   });
   webContents.setWindowOpenHandler(({ url }) => {
-    openAllowedExternal(url, openExternal);
+    if (!isSameRendererOrigin(currentUrl(), url)) {
+      openAllowedExternal(url, openExternal);
+    }
     return { action: 'deny' };
   });
 }
