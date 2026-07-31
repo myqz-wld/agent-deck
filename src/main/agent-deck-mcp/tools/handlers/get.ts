@@ -11,8 +11,8 @@ import { sessionManager } from '@main/session/manager';
 
 import {
   err,
-  ok,
   projectSession,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -29,6 +29,6 @@ export const getSessionHandler = withMcpGuard(
         'sessionId must reference an existing session. Use list_sessions to discover ids; pass statusFilter:"all" to include closed sessions.',
       );
     }
-    return ok(projectSession(session) satisfies GetSessionResult);
+    return structuredOk(projectSession(session) satisfies GetSessionResult);
   },
 );

@@ -2,6 +2,7 @@ import {
   isCodexThinkingLevel,
   type CodexThinkingLevel,
 } from '@shared/session-metadata';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 export interface ResolveCodexReasoningEffortArgs {
   explicit?: CodexThinkingLevel;
@@ -16,6 +17,17 @@ export interface ResolvedCodexReasoningEffort {
   sessionValue?: CodexThinkingLevel;
   /** Explicit ThreadOptions override; omitted for a global-config hint. */
   threadValue?: CodexThinkingLevel;
+}
+
+/** Whether a per-session config layer can independently override the inherited effort. */
+export function hasCodexReasoningConfigLayer(
+  configOverrides: CodexConfigObject | undefined,
+): boolean {
+  return (
+    configOverrides !== undefined &&
+    (Object.prototype.hasOwnProperty.call(configOverrides, 'profile') ||
+      Object.prototype.hasOwnProperty.call(configOverrides, 'model_reasoning_effort'))
+  );
 }
 
 /**

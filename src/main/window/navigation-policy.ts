@@ -140,8 +140,8 @@ function openAllowedExternal(rawUrl: string, openExternal: ExternalOpener): void
  * inside the Electron renderer; sending the renderer URL to shell.openExternal opens a normal
  * browser without preload and produces a broken `window.api` page.
  *
- * Only an existing HTTP(S) renderer may navigate within its exact origin. Production file URLs
- * and cross-origin destinations continue through the deny/external-open policy.
+ * Only an existing HTTP(S) renderer may navigate to another HTTP(S) URL within its exact origin.
+ * Production file URLs and cross-origin destinations continue through the deny/external-open policy.
  */
 export function isSameRendererOrigin(
   currentUrl: string,
@@ -152,6 +152,7 @@ export function isSameRendererOrigin(
     const target = new URL(targetUrl);
     return (
       (current.protocol === 'http:' || current.protocol === 'https:') &&
+      (target.protocol === 'http:' || target.protocol === 'https:') &&
       current.origin === target.origin
     );
   } catch {

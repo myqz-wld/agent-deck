@@ -39,12 +39,15 @@ describe('MCP target runtime schemas', () => {
 
   it('accepts Codex approval and writable roots but not Claude controls', () => {
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
-      profile: 'openrouter',
+      provider: 'openrouter',
       approvalPolicy: 'on-request',
       codexSandbox: 'workspace-write',
       extraAllowWrite: ['/repo-2'],
       thinking: 'ultra',
     }).success).toBe(true);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
+      profile: 'openrouter',
+    }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
       gateway: 'deepseek',
     }).success).toBe(false);

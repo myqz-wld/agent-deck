@@ -171,6 +171,10 @@ function scanCodexAgents(): AssetMeta[] {
         {
           description: parsed.description ?? '',
           model: parsed.model ?? '',
+          model_provider:
+            typeof parsed.config.model_provider === 'string'
+              ? parsed.config.model_provider
+              : '',
           model_reasoning_effort: parsed.modelReasoningEffort ?? '',
         },
         'user',

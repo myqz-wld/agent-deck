@@ -4,7 +4,7 @@
  * 三 adapter user 资产只读发现 + UI sub-tab 统一改造）。
  *
  * Channels in this module cover bundled/user asset reads, bundled Agent runtime
- * deltas, Codex config-profile suggestions, and Finder reveal:
+ * deltas, Codex model-provider suggestions, and Finder reveal:
  *   - AssetsListBundled / AssetsListUser    —— 列表
  *   - AssetsGetContent                      —— 单个 asset 完整内容
  *   - AssetsRevealInFolder                  —— shell.showItemInFolder 跨平台显示
@@ -41,7 +41,10 @@ import {
   resetBundledAgentRuntimeOverride,
   saveBundledAgentRuntimeOverride,
 } from '@main/bundled-agent-runtime-overrides';
-import { listCodexConfigProfiles } from '@main/codex-config/profiles';
+import {
+  listCodexModelProviders,
+  resolveCodexModelProvider,
+} from '@main/codex-config/model-providers';
 import { listClaudeGatewayProfiles } from '@main/adapters/claude-code/gateway-profiles';
 
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
@@ -126,6 +129,15 @@ export function registerAssetsIpc(): void {
       return { ok: false, reason: `bundled Agent not found: ${adapter}/${name}` };
     }
     try {
+      if (
+        adapter === 'codex-cli' &&
+        overrideArg !== null &&
+        typeof overrideArg === 'object' &&
+        !Array.isArray(overrideArg) &&
+        typeof (overrideArg as { provider?: unknown }).provider === 'string'
+      ) {
+        resolveCodexModelProvider((overrideArg as { provider: string }).provider);
+      }
       const override = saveBundledAgentRuntimeOverride(adapter, name, overrideArg);
       return { ok: true, override };
     } catch (error) {
@@ -147,7 +159,7 @@ export function registerAssetsIpc(): void {
   });
 
   on(IpcInvoke.AssetsListClaudeGatewayProfiles, () => listClaudeGatewayProfiles());
-  on(IpcInvoke.AssetsListCodexConfigProfiles, () => listCodexConfigProfiles());
+  on(IpcInvoke.AssetsListCodexModelProviders, () => listCodexModelProviders());
 
   on(IpcInvoke.AssetsRevealInFolder, (_e, kindArg, nameArg, sourceArg, adapterArg, pathArg) => {
     const kind = parseKind(kindArg);

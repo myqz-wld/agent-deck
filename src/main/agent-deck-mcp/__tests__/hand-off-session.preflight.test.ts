@@ -44,7 +44,6 @@ describe('hand_off_session preflight', () => {
   it.each([
     ['permissionMode', { adapter: 'codex-cli' as const, permissionMode: 'plan' as const }],
     ['gateway', { adapter: 'codex-cli' as const, gateway: 'deepseek' }],
-    ['profile', { adapter: 'claude-code' as const, profile: 'openrouter' }],
     ['claudeCodeSandbox', { adapter: 'codex-cli' as const, claudeCodeSandbox: 'strict' as const }],
     ['codexSandbox', { adapter: 'claude-code' as const, codexSandbox: 'read-only' as const }],
     ['grokSandbox', { adapter: 'codex-cli' as const, grokSandbox: 'strict' as const }],

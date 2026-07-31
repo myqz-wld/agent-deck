@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
+import {
+  firstUnsupportedTargetRuntimeField,
+  unsupportedTargetRuntimeFieldMessage,
+} from '@main/adapters/runtime-control-contracts';
 import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
 // =============== HAND_OFF_SESSION (session baton) ===============
@@ -36,7 +40,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway, or a Codex native config with profile.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway or a Codex model_provider with provider; the retired profile input is rejected.',
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
 };
@@ -93,7 +97,19 @@ export const EXIT_WORKTREE_SCHEMA = {
     ),
 };
 
-export const HAND_OFF_SESSION_ARGS_SCHEMA = z.object(HAND_OFF_SESSION_SHAPE).strict();
+export const HAND_OFF_SESSION_ARGS_SCHEMA = z
+  .object(HAND_OFF_SESSION_SHAPE)
+  .strict()
+  .superRefine((args, ctx) => {
+    if (!args.adapter) return;
+    const unsupported = firstUnsupportedTargetRuntimeField(args.adapter, args);
+    if (!unsupported) return;
+    ctx.addIssue({
+      code: 'custom',
+      path: [unsupported],
+      message: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
+    });
+  });
 
 export type HandOffSessionArgs = z.infer<typeof HAND_OFF_SESSION_ARGS_SCHEMA>;
 export type EnterWorktreeArgs = z.infer<z.ZodObject<typeof ENTER_WORKTREE_SCHEMA>>;
@@ -106,8 +122,8 @@ export interface HandOffSessionResult {
   adapter: 'claude-code' | 'codex-cli' | 'grok-build';
   /** Resolved Claude Gateway profile; null for Codex/Grok or Claude-native default. */
   gateway: string | null;
-  /** Resolved native Codex config profile; null for Claude/Grok or Codex base config.toml. */
-  profile: string | null;
+  /** Resolved Codex model_provider; null for Claude/Grok or Codex config.toml default. */
+  provider: string | null;
   cwd: string;
   continuationContext: {
     version: number;
@@ -193,59 +209,87 @@ export type EnterWorktreeResult = z.infer<
   typeof ENTER_WORKTREE_OUTPUT_SCHEMA
 >;
 
-const EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA = z
+/**
+ * MCP SDK output schemas must normalize to one object schema. Cross-field checks retain the
+ * discriminated result contract without publishing a top-level Zod union that the SDK cannot
+ * validate or expose through tools/list.
+ */
+export const EXIT_WORKTREE_OUTPUT_SCHEMA = z
   .object({
     transitionId: z
       .string()
       .min(1)
-      .describe('Durable session:generation identity for the accepted exit transition.'),
+      .describe('Durable session:generation identity for the accepted or completed exit transition.'),
     direction: z
       .literal('exit')
       .describe('Confirms that this result belongs to exit_worktree.'),
     state: z
-      .literal('waiting-tool-result')
-      .describe('The restore-first transition is durably accepted but has not completed cleanup yet.'),
+      .enum(['waiting-tool-result', 'completed-cleanup'])
+      .describe('waiting-tool-result means restoration is durably accepted; completed-cleanup means a cleanup_pending retry finished after restoration.'),
     effectiveFrom: z
-      .literal('automatic-next-turn')
-      .describe('The provider must observe this exact result before Agent Deck ends the old turn and restores cwd.'),
+      .enum(['automatic-next-turn', 'already-effective'])
+      .describe('Must be automatic-next-turn for waiting-tool-result and already-effective for completed-cleanup.'),
     worktreePath: z
       .string()
       .min(1)
-      .describe('Absolute owned worktree path scheduled for removal after cwd restoration.'),
-  })
-  .strict();
-
-const EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA = z
-  .object({
-    transitionId: z
-      .string()
-      .min(1)
-      .describe('Durable session:generation identity of the completed exit transition.'),
-    direction: z
-      .literal('exit')
-      .describe('Confirms that this result belongs to exit_worktree.'),
-    state: z
-      .literal('completed-cleanup')
-      .describe('A cleanup_pending retry completed after cwd had already been restored.'),
-    effectiveFrom: z
-      .literal('already-effective')
-      .describe('The caller session was already running from its original cwd before this retry returned.'),
-    worktreePath: z
-      .string()
-      .min(1)
-      .describe('Absolute owned worktree path checked by this cleanup retry.'),
+      .describe('Absolute owned worktree path scheduled for removal or checked by the cleanup retry.'),
     worktreeRemoved: z
       .boolean()
-      .describe('True when this retry removed the worktree; false when it was already absent.'),
+      .optional()
+      .describe('Required only for completed-cleanup: true when removed, false when already absent.'),
   })
-  .strict();
+  .strict()
+  .superRefine((result, ctx) => {
+    if (result.state === 'waiting-tool-result') {
+      if (result.effectiveFrom !== 'automatic-next-turn') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['effectiveFrom'],
+          message: 'waiting-tool-result requires effectiveFrom=automatic-next-turn',
+        });
+      }
+      if (result.worktreeRemoved !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['worktreeRemoved'],
+          message: 'waiting-tool-result must omit worktreeRemoved',
+        });
+      }
+      return;
+    }
 
-/** exit_worktree success is accepted restoration or a completed cleanup retry. */
-export const EXIT_WORKTREE_OUTPUT_SCHEMA = z.discriminatedUnion('state', [
-  EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA,
-  EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA,
-]);
+    if (result.effectiveFrom !== 'already-effective') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['effectiveFrom'],
+        message: 'completed-cleanup requires effectiveFrom=already-effective',
+      });
+    }
+    if (result.worktreeRemoved === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['worktreeRemoved'],
+        message: 'completed-cleanup requires worktreeRemoved',
+      });
+    }
+  });
 
-export type ExitWorktreeResult = z.infer<
-  typeof EXIT_WORKTREE_OUTPUT_SCHEMA
+type ExitWorktreeOutput = z.infer<typeof EXIT_WORKTREE_OUTPUT_SCHEMA>;
+type ExitWorktreeResultBase = Omit<
+  ExitWorktreeOutput,
+  'state' | 'effectiveFrom' | 'worktreeRemoved'
 >;
+
+export type ExitWorktreeResult = ExitWorktreeResultBase &
+  (
+    | {
+        state: 'waiting-tool-result';
+        effectiveFrom: 'automatic-next-turn';
+        worktreeRemoved?: never;
+      }
+    | {
+        state: 'completed-cleanup';
+        effectiveFrom: 'already-effective';
+        worktreeRemoved: boolean;
+      }
+  );

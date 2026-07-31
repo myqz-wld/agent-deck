@@ -129,7 +129,7 @@ describe('spawn Agent bundled runtime overrides', () => {
     expect(mocks.getBundledAgentRuntimeOverride).not.toHaveBeenCalled();
   });
 
-  it('returns a bundled Codex config profile without promoting agent model_provider config', () => {
+  it('returns a bundled Codex model_provider without replacing agent configuration', () => {
     mocks.resolveCodexAgentContent.mockReturnValue({
       ok: true,
       agent: {
@@ -151,7 +151,7 @@ describe('spawn Agent bundled runtime overrides', () => {
 
     expect(resolveSpawnAgent('reviewer-codex', 'codex-cli', '/repo')).toMatchObject({
       ok: true,
-      profile: 'fable',
+      provider: 'fable',
       model: 'qw-pro-5',
       modelReasoningEffort: 'high',
       codexConfigOverrides: {

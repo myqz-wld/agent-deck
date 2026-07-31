@@ -3,12 +3,16 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 vi.mock('@main/adapters/claude-code/sdk-loader', () =>
   makeSdkLoaderMock(),
 );
 
-import { buildAgentDeckTools } from '../tools';
+import { registerAgentDeckToolDefinitions } from '../server';
+import { buildAgentDeckTools, type AgentDeckToolDefinition } from '../tools';
 import { structuredOk } from '../tools/helpers';
 import {
   EXIT_WORKTREE_SCHEMA,
@@ -116,9 +120,97 @@ describe('worktree MCP contract drift', () => {
         worktreePath: '/repo/detached-worktree',
       }).success,
     ).toBe(true);
+    for (const invalidPayload of [
+      {
+        transitionId: 'session-a:3',
+        direction: 'exit',
+        state: 'waiting-tool-result',
+        effectiveFrom: 'already-effective',
+        worktreePath: '/repo/detached-worktree',
+      },
+      {
+        transitionId: 'session-a:3',
+        direction: 'exit',
+        state: 'waiting-tool-result',
+        effectiveFrom: 'automatic-next-turn',
+        worktreePath: '/repo/detached-worktree',
+        worktreeRemoved: false,
+      },
+      {
+        transitionId: 'session-a:3',
+        direction: 'exit',
+        state: 'completed-cleanup',
+        effectiveFrom: 'automatic-next-turn',
+        worktreePath: '/repo/detached-worktree',
+        worktreeRemoved: true,
+      },
+      {
+        transitionId: 'session-a:3',
+        direction: 'exit',
+        state: 'completed-cleanup',
+        effectiveFrom: 'already-effective',
+        worktreePath: '/repo/detached-worktree',
+      },
+    ]) {
+      expect(EXIT_WORKTREE_OUTPUT_SCHEMA.safeParse(invalidPayload).success).toBe(
+        false,
+      );
+    }
     const response = structuredOk(enterPayload);
     expect(response.structuredContent).toEqual(enterPayload);
     expect(response.content).toEqual([]);
+  });
+
+  it('publishes and validates exit results through the real MCP SDK', async () => {
+    const waitingPayload = {
+      transitionId: 'session-a:4',
+      direction: 'exit',
+      state: 'waiting-tool-result',
+      effectiveFrom: 'automatic-next-turn',
+      worktreePath: '/repo/detached-worktree',
+    } as const;
+    const server = new McpServer({
+      name: 'worktree-output-contract-test',
+      version: '1.0.0',
+    });
+    const tool = {
+      name: 'exit_worktree_contract_test',
+      description: 'Exercise the exit_worktree success output contract.',
+      inputSchema: {},
+      outputSchema: EXIT_WORKTREE_OUTPUT_SCHEMA,
+      handler: async () => structuredOk(waitingPayload),
+    } satisfies AgentDeckToolDefinition;
+    registerAgentDeckToolDefinitions(server, [tool]);
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({
+      name: 'worktree-output-contract-test',
+      version: '1.0.0',
+    });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const listed = await client.listTools();
+      const registered = listed.tools.find(
+        (candidate) => candidate.name === tool.name,
+      );
+      expect(registered?.outputSchema).toMatchObject({ type: 'object' });
+      expect(registered?.outputSchema?.properties).toMatchObject({
+        state: {
+          enum: ['waiting-tool-result', 'completed-cleanup'],
+        },
+      });
+
+      const result = await client.callTool({
+        name: tool.name,
+        arguments: {},
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(waitingPayload);
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+    }
   });
 
   it('keeps Claude and Codex bundled instructions aligned without manual-cwd advice', () => {

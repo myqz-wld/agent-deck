@@ -24,7 +24,7 @@ export type ResolvedSpawnAgent =
   | {
       ok: true;
       gateway?: string;
-      profile?: string;
+      provider?: string;
       developerInstructions?: string;
       model?: string;
       modelReasoningEffort?: SpawnCodexReasoningEffort;
@@ -192,9 +192,9 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
       ? getBundledAgentRuntimeOverride('codex-cli', resolved.agent.name)
       : {};
   const model = override.model ?? resolved.agent.model;
-  // A bundled app-owned override may select a native process profile. Custom-agent
-  // `model_provider` remains part of its config layer and is not reinterpreted as a profile name.
-  const profile = override.provider;
+  // A bundled app-owned override may select a model_provider. A custom Agent's own
+  // model_provider remains in that Agent's config layer and is not persisted as a session selector.
+  const provider = override.provider;
   const effort =
     (override.thinking as SpawnCodexReasoningEffort | undefined) ??
     resolved.agent.modelReasoningEffort;
@@ -203,7 +203,7 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
   };
   return {
     ok: true,
-    profile,
+    provider,
     developerInstructions: buildCodexCustomAgentInstructions(resolved.agent),
     model,
     modelReasoningEffort: effort,

@@ -33,7 +33,7 @@ const CLAUDE_REVIEWER_CLAUDE_BODY =
   '---\nname: reviewer-claude\ndescription: claude-config 视角 reviewer-claude SDK teammate\nmodel: opus\neffort: xhigh\n---\n\n# claude-config reviewer-claude body\n这是 claude SDK 直接跑的 reviewer。';
 
 const CODEX_REVIEWER_CODEX_BODY =
-  'name = "reviewer-codex"\ndescription = "codex-config 视角 reviewer-codex SDK teammate"\nmodel = "gpt-5"\nmodel_reasoning_effort = "max"\n\ndeveloper_instructions = \'\'\'\n# codex-config reviewer-codex body\n\'\'\'';
+  'name = "reviewer-codex"\ndescription = "codex-config 视角 reviewer-codex SDK teammate"\nmodel = "gpt-5"\nmodel_provider = "native-team"\nmodel_reasoning_effort = "max"\n\ndeveloper_instructions = \'\'\'\n# codex-config reviewer-codex body\n\'\'\'';
 
 const CLAUDE_SAMPLE_SKILL =
   '---\nname: claude-only-skill\ndescription: claude-config 专有 skill\n---\n# claude-only-skill SKILL';
@@ -165,6 +165,11 @@ describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
     ).toBe('max');
     expect(
       snapshot.agents.find(
+        (a) => a.adapter === 'codex-cli' && a.name === 'reviewer-codex',
+      )?.provider,
+    ).toBe('native-team');
+    expect(
+      snapshot.agents.find(
         (a) => a.adapter === 'grok-build' && a.name === 'reviewer-grok',
       )?.thinking,
     ).toBe('high');
@@ -267,7 +272,11 @@ describe('bundled-assets multi-root scan (plan §P3 Step 3.9 TC1+TC2)', () => {
         thinking: 'high',
         provider: 'fable',
         bundledAgentRuntime: {
-          defaults: { model: 'gpt-5', thinking: 'max' },
+          defaults: {
+            model: 'gpt-5',
+            thinking: 'max',
+            provider: 'native-team',
+          },
           override: {
             model: 'qw-pro-5',
             thinking: 'high',

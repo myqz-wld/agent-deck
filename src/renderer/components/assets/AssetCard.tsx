@@ -55,7 +55,7 @@ export function AssetCard({
             <button
               type="button"
               onClick={() => onConfigure(asset)}
-              title="配置内置 Agent 的模型、思考等级和运行时配置"
+              title="配置内置 Agent 的模型、思考等级和 provider"
               className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
               <PencilIcon className="mr-1 inline h-3 w-3" />配置
@@ -69,11 +69,7 @@ export function AssetCard({
           {asset.thinking && <span>思考程度：<code className="rounded bg-white/5 px-1">{asset.thinking}</code> </span>}
           {asset.provider && (
             <span>
-              {asset.adapter === 'codex-cli'
-                ? 'profile'
-                : asset.adapter === 'claude-code'
-                  ? 'gateway'
-                  : 'provider'}：
+              {asset.adapter === 'claude-code' ? 'gateway' : 'provider'}：
               <code className="rounded bg-white/5 px-1">{asset.provider}</code>{' '}
             </span>
           )}

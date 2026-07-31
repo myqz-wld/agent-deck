@@ -238,7 +238,7 @@ export function setAgentRuntimeProfile(
     });
 }
 
-/** Persist a Claude Gateway profile id or Codex config profile id for the session. */
+/** Persist a Claude Gateway profile id or Codex model_provider id for the session. */
 export function setRuntimeProvider(id: string, provider: string | null): void {
   getDb().prepare(`UPDATE sessions SET runtime_provider = ? WHERE id = ?`).run(provider, id);
 }

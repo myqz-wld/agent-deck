@@ -96,14 +96,14 @@ describe('agent-deck new model options', () => {
     });
   });
 
-  it('parses a Codex profile, free-form model, and thinking for the lead session', () => {
+  it('parses a Codex model_provider, free-form model, and thinking for the lead session', () => {
     expect(
       parseCliInvocation([
         '/Applications/Agent Deck',
         'new',
         '--adapter',
         'codex-cli',
-        '--profile',
+        '--provider',
         'fable',
         '--model',
         'provider/custom-model',
@@ -113,7 +113,7 @@ describe('agent-deck new model options', () => {
     ).toMatchObject({
       kind: 'new-session',
       agent: 'codex-cli',
-      profile: 'fable',
+      provider: 'fable',
       model: 'provider/custom-model',
       thinking: 'ultra',
     });
@@ -136,15 +136,30 @@ describe('agent-deck new model options', () => {
     });
   });
 
-  it('rejects the unsupported cross-adapter provider flag', () => {
+  it('rejects the retired Codex profile flag with a migration hint', () => {
     expect(() =>
       parseCliInvocation([
         '/Applications/Agent Deck',
         'new',
-        '--provider',
-        'deepseek',
+        '--adapter',
+        'codex-cli',
+        '--profile',
+        'work',
       ]),
-    ).toThrow('未知参数 --provider');
+    ).toThrow(/--profile 已停用.*--provider <model_provider>.*config\.toml/);
+  });
+
+  it('rejects the Codex provider flag for non-Codex adapters', () => {
+    expect(() =>
+      parseCliInvocation([
+        '/Applications/Agent Deck',
+        'new',
+        '--adapter',
+        'claude-code',
+        '--provider',
+        'openrouter',
+      ]),
+    ).toThrow('--provider 与 adapter "claude-code" 不兼容');
   });
 
   it('rejects a provider profile used as an adapter name', () => {

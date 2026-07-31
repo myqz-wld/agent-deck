@@ -382,7 +382,7 @@ export const handOffSessionHandler = withMcpGuard(
           sessionId: execution.successorSessionId,
           adapter: targetAdapter,
           gateway: targetAdapter === 'claude-code' ? target.spec.provider ?? null : null,
-          profile: targetAdapter === 'codex-cli' ? target.spec.provider ?? null : null,
+          provider: targetAdapter === 'codex-cli' ? target.spec.provider ?? null : null,
           cwd: finalCwd,
           continuationContext: {
             version: prepared.version,

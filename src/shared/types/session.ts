@@ -128,7 +128,7 @@ export interface SessionRecord {
    * Adapter-scoped runtime provider.
    *
    * - claude-code: Gateway profile id resolved from ~/.claude/gateways/<id>.json
-   * - codex-cli: native profile id from `$CODEX_HOME/<id>.config.toml`
+   * - codex-cli: native `model_provider` id from `$CODEX_HOME/config.toml`
    * - grok-build: always null; Grok keeps native model-alias routing
    */
   runtimeProvider?: string | null;
@@ -221,7 +221,7 @@ export interface SessionRecord {
    *   Claude-compatible alias）
    * - codex-cli adapter（codex-sdk v0.131.0+）：值通过 sdk-bridge spread 到 ThreadOptions.model
    *   真正传给 codex CLI runtime + setModel 持久化让 resume / dormant 唤醒一致；user 端
-   *   codex CLI 实际可用 model id 由 `~/.codex/config.toml` 配置决定（user 须自行 preflight
+   *   codex CLI 实际可用 model id 由 `$CODEX_HOME/config.toml` 配置决定（user 须自行 preflight
    *   model id 在自身 codex CLI 可用,非法 model 会触发 codex SDK ThreadErrorEvent fatal 路径)
    *
    * null/undefined：尚未指定或观测到具体模型；provider 自行选择默认值。
@@ -394,7 +394,7 @@ export type SessionAdapterId = RuntimeAdapterId;
 
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
-  /** Claude Gateway profile id or Codex config profile id; null delegates to native defaults. */
+  /** Claude Gateway profile id or Codex model_provider; null delegates to native defaults. */
   provider?: string | null;
   /** Empty/null delegates model selection to the target provider. */
   model?: string | null;

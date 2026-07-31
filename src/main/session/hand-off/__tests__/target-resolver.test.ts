@@ -31,7 +31,7 @@ describe('resolveHandOffTarget', () => {
     });
 
     expect(result.createOptions).toMatchObject({
-      agentId: 'codex-cli', cwd: '/target', profile: 'openai', model: 'gpt-source',
+      agentId: 'codex-cli', cwd: '/target', provider: 'openai', model: 'gpt-source',
       modelReasoningEffort: 'high', codexSandbox: 'read-only',
       approvalPolicy: 'never',
       extraAllowWrite: ['/extra'], networkAccessEnabled: true,
@@ -268,6 +268,7 @@ describe('resolveHandOffTarget', () => {
     ['claude-code', 'additionalDirectories', { additionalDirectories: [] }],
     ['claude-code', 'sessionMode', { sessionMode: 'ask' }],
     ['codex-cli', 'grokSandbox', { grokSandbox: 'strict' }],
+    ['codex-cli', 'profile', { profile: 'work' }],
     ['grok-build', 'gateway', { gateway: 'xai' }],
     ['grok-build', 'extraAllowWrite', { extraAllowWrite: [] }],
   ] as const)(

@@ -5,19 +5,6 @@ import { CodexAppServerThread } from './thread';
 import { threadBoundaryReadyLogLevel } from './thread-boundary-logging';
 
 describe('Codex app-server thread params', () => {
-  it('starts app-server under the selected native config profile', () => {
-    expect(__testables.buildCodexAppServerArgs('openrouter')).toEqual([
-      '--profile',
-      'openrouter',
-      'app-server',
-      '--stdio',
-    ]);
-    expect(__testables.buildCodexAppServerArgs(null)).toEqual([
-      'app-server',
-      '--stdio',
-    ]);
-  });
-
   it('patches approval policy for subsequent turns and can clear the override', () => {
     const thread = new CodexAppServerThread(
       {} as CodexAppServerClient,
@@ -80,6 +67,26 @@ describe('Codex app-server thread params', () => {
       threadId: 'source-1',
       lastTurnId: 'turn-1',
       excludeTurns: true,
+    });
+  });
+
+  it('passes the native model provider at every new thread boundary', () => {
+    const options = {
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write' as const,
+      approvalPolicy: 'never' as const,
+      skipGitRepoCheck: true,
+      modelProvider: 'openrouter',
+    };
+
+    expect(__testables.buildThreadStartParams(options, null)).toMatchObject({
+      modelProvider: 'openrouter',
+    });
+    expect(__testables.buildThreadResumeParams('thread-1', options, null)).toMatchObject({
+      modelProvider: 'openrouter',
+    });
+    expect(__testables.buildThreadForkParams('source-1', 'turn-1', options, null)).toMatchObject({
+      modelProvider: 'openrouter',
     });
   });
 

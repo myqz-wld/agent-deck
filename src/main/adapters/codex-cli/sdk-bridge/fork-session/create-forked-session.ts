@@ -43,7 +43,6 @@ export interface CreateCodexForkDeps {
   ensureCodex(
     sessionId: string,
     sessionToken: string,
-    profile?: string,
   ): Promise<CodexAppServerClient>;
   lifecycle: CodexForkLifecycleOps;
   resolveTargetRuntime?: (opts: CreateSessionOpts) => CodexForkTargetRuntime;
@@ -86,11 +85,7 @@ export async function createCodexForkedSession(
   };
 
   try {
-    const targetClient = await deps.ensureCodex(
-      tempId,
-      sessionToken,
-      target.profile,
-    );
+    const targetClient = await deps.ensureCodex(tempId, sessionToken);
     cleanupState.targetClient = targetClient;
     if (targetClient === sourceClient) {
       throw new Error('Codex native fork requires a distinct target-owned app-server client.');
@@ -195,7 +190,7 @@ export async function createCodexForkedSession(
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,
       approvalPolicy: target.approvalPolicy,
-      profile: target.profile,
+      provider: target.provider,
       model: runtime.persistedModel,
       modelReasoningEffort: runtime.persistedReasoningEffort,
       extraAllowWrite: target.extraAllowWrite,

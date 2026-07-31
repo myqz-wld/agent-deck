@@ -35,7 +35,7 @@ export function registerPermissionsIpc(): void {
     return errorMsg ? { ok: false, reason: errorMsg } : { ok: true };
   });
 
-  // Codex: 扫描 ~/.codex/config.toml + app-owned Codex runtime knobs，纯只读。
+  // Codex: 扫描 $CODEX_HOME/config.toml + app-owned Codex runtime knobs，纯只读。
   on(IpcInvoke.PermissionScanCodex, async (_e, sessionId) => {
     const session = sessionRepo.get(String(sessionId ?? ''));
     return scanCodexSettings({
@@ -44,7 +44,7 @@ export function registerPermissionsIpc(): void {
     });
   });
 
-  // Codex: 只允许打开 scanner 声明的 ~/.codex/config.toml，避免 renderer 任意 openPath。
+  // Codex: 只允许打开 scanner 声明的 $CODEX_HOME/config.toml，避免 renderer 任意 openPath。
   on(IpcInvoke.PermissionOpenCodexFile, async (_e, path) => {
     const target = String(path ?? '');
     if (target !== getCodexConfigPath()) {

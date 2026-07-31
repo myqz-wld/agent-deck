@@ -2,15 +2,15 @@ import { randomBytes } from 'node:crypto';
 import {
   closeSync,
   constants,
-  existsSync,
   fchmodSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   renameSync,
-  statSync,
+  type Stats,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -67,15 +67,77 @@ function isJsonObject(value: unknown): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function fingerprint(path: string): string {
-  const stat = statSync(path);
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+}
+
+function lstatIfPresent(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    if (isMissingFile(error)) return null;
+    throw error;
+  }
+}
+
+function fingerprint(stat: Stats): string {
   return [
     stat.dev,
     stat.ino,
     stat.size,
     stat.mtimeMs,
+    stat.ctimeMs,
     stat.mode & 0o777,
   ].join(':');
+}
+
+function assertRegularHookConfig(path: string, stat: Stats): void {
+  if (stat.isSymbolicLink()) {
+    throw new Error(
+      `${path} is a symbolic link. Agent Deck refuses to replace or follow hook-config links.`,
+    );
+  }
+  if (!stat.isFile()) {
+    throw new Error(`${path} is not a regular file. Aborted without changing it.`);
+  }
+}
+
+function readRegularSnapshot(
+  path: string,
+  linkStat: Stats,
+  changedMessage: string,
+): { fingerprint: string; mode: number; text: string } {
+  let fd: number | null = null;
+  try {
+    fd = openSync(
+      path,
+      constants.O_RDONLY |
+        (constants.O_NOFOLLOW ?? 0) |
+        constants.O_NONBLOCK,
+    );
+    const openedStat = fstatSync(fd);
+    if (
+      !openedStat.isFile() ||
+      fingerprint(openedStat) !== fingerprint(linkStat)
+    ) {
+      throw new Error(changedMessage);
+    }
+    const text = readFileSync(fd, 'utf8');
+    const afterReadStat = fstatSync(fd);
+    if (fingerprint(afterReadStat) !== fingerprint(openedStat)) {
+      throw new Error(changedMessage);
+    }
+    return {
+      fingerprint: fingerprint(afterReadStat),
+      mode: afterReadStat.mode & 0o777,
+      text,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === changedMessage) throw error;
+    throw new Error(changedMessage);
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
 }
 
 function parseDocument(path: string, text: string): JsonObject {
@@ -98,7 +160,8 @@ function parseDocument(path: string, text: string): JsonObject {
 }
 
 export function readHookConfig(path: string): HookConfigDocument {
-  if (!existsSync(path)) {
+  const linkStat = lstatIfPresent(path);
+  if (!linkStat) {
     return {
       path,
       exists: false,
@@ -110,19 +173,20 @@ export function readHookConfig(path: string): HookConfigDocument {
     };
   }
 
-  const linkStat = lstatSync(path);
-  if (!linkStat.isFile() && !linkStat.isSymbolicLink()) {
-    throw new Error(`${path} is not a regular file. Aborted without changing it.`);
-  }
-  const text = readFileSync(path, 'utf8');
+  assertRegularHookConfig(path, linkStat);
+  const snapshot = readRegularSnapshot(
+    path,
+    linkStat,
+    `${path} changed while Agent Deck was reading hooks. Aborted without changing it.`,
+  );
   return {
     path,
     exists: true,
-    isSymbolicLink: linkStat.isSymbolicLink(),
-    text,
-    data: parseDocument(path, text),
-    mode: statSync(path).mode & 0o777,
-    fingerprint: fingerprint(path),
+    isSymbolicLink: false,
+    text: snapshot.text,
+    data: parseDocument(path, snapshot.text),
+    mode: snapshot.mode,
+    fingerprint: snapshot.fingerprint,
   };
 }
 
@@ -210,28 +274,38 @@ function applyChanges(document: HookConfigDocument, changes: HookConfigChange[])
 }
 
 function assertUnchanged(document: HookConfigDocument): void {
+  const current = lstatIfPresent(document.path);
   if (!document.exists) {
-    if (existsSync(document.path)) {
+    if (current) {
+      if (current.isSymbolicLink() || !current.isFile()) {
+        throw new Error(
+          `${document.path} changed type while Agent Deck was preparing hooks. No update was committed.`,
+        );
+      }
       throw new Error(
         `${document.path} changed while Agent Deck was preparing hooks. No update was committed.`,
       );
     }
     return;
   }
-  if (!existsSync(document.path)) {
+  if (!current) {
     throw new Error(
       `${document.path} changed while Agent Deck was preparing hooks. No update was committed.`,
     );
   }
-  const current = lstatSync(document.path);
   if (!current.isFile() || current.isSymbolicLink()) {
     throw new Error(
       `${document.path} changed type while Agent Deck was preparing hooks. No update was committed.`,
     );
   }
+  const snapshot = readRegularSnapshot(
+    document.path,
+    current,
+    `${document.path} changed while Agent Deck was preparing hooks. No update was committed.`,
+  );
   if (
-    fingerprint(document.path) !== document.fingerprint ||
-    readFileSync(document.path, 'utf8') !== document.text
+    snapshot.fingerprint !== document.fingerprint ||
+    snapshot.text !== document.text
   ) {
     throw new Error(
       `${document.path} changed while Agent Deck was preparing hooks. No update was committed.`,
@@ -317,11 +391,6 @@ export function updateHookConfig(
   });
   try {
     const document = readHookConfig(path);
-    if (document.isSymbolicLink) {
-      throw new Error(
-        `${path} is a symbolic link. Agent Deck refuses to replace or follow hook-config links.`,
-      );
-    }
     const update = updater(document);
     if (update.changes.length === 0) return false;
     const nextText = applyChanges(document, update.changes);

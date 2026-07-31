@@ -104,9 +104,57 @@ describe('window navigation policy', () => {
     expect(subject.allowedExternalNavigationUrl('mailto:user@example.com')).toBe(
       'mailto:user@example.com',
     );
+    expect(
+      subject.allowedExternalNavigationUrl('blob:http://example.com/id'),
+    ).toBeNull();
+    expect(subject.allowedExternalNavigationUrl('data:text/html,hello')).toBeNull();
     expect(subject.allowedExternalNavigationUrl('file:///tmp/source.ts:5')).toBeNull();
     expect(subject.allowedExternalNavigationUrl('javascript:alert(1)')).toBeNull();
     expect(subject.allowedExternalNavigationUrl('not a url')).toBeNull();
+  });
+
+  it.each([
+    [
+      'same-origin HTTP development navigation',
+      'http://localhost:5173/live',
+      'http://localhost:5173/next',
+      true,
+    ],
+    [
+      'same-origin HTTPS development navigation',
+      'https://localhost:5173/live',
+      'https://localhost:5173/next',
+      true,
+    ],
+    [
+      'blob target inheriting the renderer origin',
+      'http://localhost:5173/live',
+      'blob:http://localhost:5173/id',
+      false,
+    ],
+    ['data target', 'http://localhost:5173/live', 'data:text/html,hello', false],
+    [
+      'javascript target',
+      'http://localhost:5173/live',
+      'javascript:alert(1)',
+      false,
+    ],
+    ['malformed current URL', 'not a url', 'http://localhost:5173/next', false],
+    ['malformed target URL', 'http://localhost:5173/live', 'not a url', false],
+    [
+      'cross-origin HTTP target',
+      'http://localhost:5173/live',
+      'http://example.com/next',
+      false,
+    ],
+    [
+      'production file navigation',
+      'file:///Applications/Agent%20Deck.app/index.html',
+      'file:///Applications/Agent%20Deck.app/next.html',
+      false,
+    ],
+  ])('classifies %s', (_name, currentUrl, targetUrl, expected) => {
+    expect(subject.isSameRendererOrigin(currentUrl, targetUrl)).toBe(expected);
   });
 
   it('preserves navigation blocking, window denial, and external URL arguments', async () => {
