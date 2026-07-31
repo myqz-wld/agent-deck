@@ -17,6 +17,7 @@ import type {
   RuntimeSelection,
   UploadedAttachmentRef,
 } from '@shared/types';
+import { join } from 'node:path';
 import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
 import { buildCodexHookRoutes } from './hook-routes';
@@ -82,7 +83,11 @@ class CodexCliAdapter implements AgentAdapter {
     // 已直接 settingsStore.get('codexSandbox')，与 claude-code adapter 的 sandbox-resolve
     // 同款直读模式 — symmetry-plan P2 MED-B 删 currentSandboxMode in-memory mirror）
     this.bridge.setCodexCliPath(settingsStore.get('codexCliPath'));
-    this.installer = new CodexHookInstaller(ctx.hookServer.listeningPort, ctx.hookServer.bearerToken);
+    this.installer = new CodexHookInstaller(
+      ctx.hookServer.listeningPort,
+      ctx.hookServer.bearerToken,
+      join(ctx.paths.appUserData, 'hook-relay'),
+    );
     for (const route of buildCodexHookRoutes(ctx.emit)) {
       ctx.routeRegistry.registerForAdapter(this.id, route);
     }

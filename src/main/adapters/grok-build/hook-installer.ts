@@ -1,19 +1,27 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
 import log from '@main/utils/logger';
 import { buildHookCurlCommand } from '@main/hook-server/curl-command';
+import {
+  changedHookEvent,
+  hooksObject,
+  readHookConfig,
+  strictHookGroups,
+  updateHookConfig,
+  type HookConfigChange,
+  type HookConfigDocument,
+  type HookGroup,
+  type JsonObject,
+} from '@main/hook-server/hook-config-file';
+import {
+  hookRelayConfigPath,
+  prepareHookRelayConfig,
+} from '@main/hook-server/hook-relay-config';
 
 const logger = log.scope('grok-hook-installer');
-const HOOK_TAG = 'agent-deck-grok-hook';
+const CURRENT_HOOK_TAG_PREFIX = 'agent-deck-hook-v2-grok-build';
 
 export const GROK_HOOK_EVENTS = [
   'SessionStart',
@@ -34,130 +42,96 @@ export const GROK_HOOK_EVENTS = [
 
 type GrokHookEvent = (typeof GROK_HOOK_EVENTS)[number];
 
-interface HookEntry {
-  type?: string;
-  command?: string;
-  timeout?: number;
-  [key: string]: unknown;
-}
-
-interface HookGroup {
-  matcher?: string;
-  hooks: HookEntry[];
-  [key: string]: unknown;
-}
-
-interface GrokHooksJson {
-  hooks?: Partial<Record<GrokHookEvent, unknown>>;
-  [key: string]: unknown;
-}
-
 function hooksPath(scope: 'user' | 'project', cwd?: string): string {
   if (scope === 'user') return join(homedir(), '.grok', 'hooks', 'agent-deck.json');
   if (!cwd) throw new Error('project scope requires cwd');
   return join(cwd, '.grok', 'hooks', 'agent-deck.json');
 }
 
-function buildCommand(port: number, token: string, event: GrokHookEvent): string {
-  return buildHookCurlCommand({
-    port,
-    token,
-    route: `/hook/grok/${event.toLowerCase()}`,
-    tag: HOOK_TAG,
-  });
+function routeFor(event: GrokHookEvent): string {
+  return `/hook/grok/${event.toLowerCase()}`;
 }
 
-function readHooksJson(path: string): GrokHooksJson {
-  if (!existsSync(path)) return {};
-  try {
-    return JSON.parse(readFileSync(path, 'utf8')) as GrokHooksJson;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `${path} parse failed (${detail}). Aborted to avoid overwriting existing Grok Build hook config.`,
-    );
-  }
+function currentTag(event: GrokHookEvent): string {
+  return `${CURRENT_HOOK_TAG_PREFIX}-${event.toLowerCase()}`;
 }
 
-function hooksObject(data: GrokHooksJson): Partial<Record<GrokHookEvent, unknown>> {
-  if (!data.hooks || typeof data.hooks !== 'object' || Array.isArray(data.hooks)) {
-    data.hooks = {};
-  }
-  return data.hooks;
-}
-
-function writeHooksJson(path: string, data: GrokHooksJson): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
-  renameSync(tmp, path);
-}
-
-function isOurHookEntry(entry: HookEntry): boolean {
-  return typeof entry.command === 'string' && entry.command.includes(HOOK_TAG);
-}
-
-function coerceHookEntry(value: unknown): HookEntry | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as HookEntry;
-}
-
-function coerceHookGroups(value: unknown): HookGroup[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((group): group is Record<string, unknown> => (
-      !!group && typeof group === 'object' && !Array.isArray(group)
-    ))
+function cleanedGroups(
+  groups: HookGroup[],
+  currentCommand: string,
+): HookGroup[] {
+  return groups
     .map((group) => ({
       ...group,
-      hooks: Array.isArray(group.hooks)
-        ? group.hooks.map(coerceHookEntry).filter((hook): hook is HookEntry => hook !== null)
-        : [],
-    }));
-}
-
-function cleanedGroups(value: unknown): HookGroup[] {
-  return coerceHookGroups(value)
-    .map((group) => ({
-      ...group,
-      hooks: group.hooks.filter((hook) => !isOurHookEntry(hook)),
+      hooks: group.hooks.filter((hook) => hook.command !== currentCommand),
     }))
     .filter((group) => group.hooks.length > 0);
 }
 
-function hasOwnContent(data: GrokHooksJson): boolean {
-  return Object.keys(data).length > 0;
+function updateModes(scope: 'user' | 'project'): {
+  modeForNew: number;
+  directoryMode: number;
+} {
+  return scope === 'user'
+    ? { modeForNew: 0o600, directoryMode: 0o700 }
+    : { modeForNew: 0o644, directoryMode: 0o755 };
 }
 
 export class GrokHookInstaller {
   constructor(
     private port: number,
     private token: string,
+    private relayRoot: string,
   ) {}
+
+  private currentCommand(event: GrokHookEvent, prepare: boolean): string {
+    const relayConfigPath = prepare
+      ? prepareHookRelayConfig({
+          relayRoot: this.relayRoot,
+          adapterId: 'grok-build',
+          event,
+          port: this.port,
+          token: this.token,
+          route: routeFor(event),
+        })
+      : hookRelayConfigPath(this.relayRoot, 'grok-build', event);
+    return buildHookCurlCommand({
+      relayConfigPath,
+      tag: currentTag(event),
+    });
+  }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
     const path = hooksPath(opts.scope, opts.cwd);
-    const data = readHooksJson(path);
-    const hooks = hooksObject(data);
-
-    for (const event of GROK_HOOK_EVENTS) {
-      const groups = cleanedGroups(hooks[event]);
-      groups.push({
-        hooks: [
-          {
-            type: 'command',
-            command: buildCommand(this.port, this.token, event),
-            timeout: 5,
-          },
-        ],
-      });
-      hooks[event] = groups;
-    }
-
-    writeHooksJson(path, data);
+    updateHookConfig(
+      path,
+      (document) => {
+        const hooks = hooksObject(document);
+        const beforeByEvent = new Map<GrokHookEvent, HookGroup[]>();
+        for (const event of GROK_HOOK_EVENTS) {
+          beforeByEvent.set(event, strictHookGroups(document, hooks, event));
+        }
+        const changes: HookConfigChange[] = [];
+        for (const event of GROK_HOOK_EVENTS) {
+          const command = this.currentCommand(event, true);
+          const before = beforeByEvent.get(event) ?? [];
+          const next = cleanedGroups(before, command);
+          next.push({
+            hooks: [
+              {
+                type: 'command',
+                command,
+                timeout: 5,
+              },
+            ],
+          });
+          const change = changedHookEvent(event, before, next);
+          if (change) changes.push(change);
+        }
+        return { changes };
+      },
+      updateModes(opts.scope),
+    );
     return {
       installed: true,
       scope: opts.scope,
@@ -170,18 +144,31 @@ export class GrokHookInstaller {
     const path = hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) return this.emptyStatus(opts.scope, path);
 
-    const data = readHooksJson(path);
-    if (data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)) {
-      for (const event of GROK_HOOK_EVENTS) {
-        const groups = cleanedGroups(data.hooks[event]);
-        if (groups.length === 0) delete data.hooks[event];
-        else data.hooks[event] = groups;
-      }
-      if (Object.keys(data.hooks).length === 0) delete data.hooks;
-    }
-
-    if (hasOwnContent(data)) writeHooksJson(path, data);
-    else unlinkSync(path);
+    updateHookConfig(
+      path,
+      (document) => {
+        const hooks = hooksObject(document);
+        if (!hooks) return { changes: [] };
+        const logicalHooks: JsonObject = { ...hooks };
+        const changes: HookConfigChange[] = [];
+        for (const event of GROK_HOOK_EVENTS) {
+          const before = strictHookGroups(document, hooks, event);
+          const next = cleanedGroups(before, this.currentCommand(event, false));
+          const change = changedHookEvent(event, before, next);
+          if (!change) continue;
+          changes.push(change);
+          if (next.length === 0) delete logicalHooks[event];
+          else logicalHooks[event] = next;
+        }
+        return changes.length > 0 && Object.keys(logicalHooks).length === 0
+          ? {
+              changes: [{ path: ['hooks'], value: undefined }],
+              deleteFileIfRootEmpty: true,
+            }
+          : { changes, deleteFileIfRootEmpty: true };
+      },
+      updateModes(opts.scope),
+    );
     return this.emptyStatus(opts.scope, path);
   }
 
@@ -189,32 +176,28 @@ export class GrokHookInstaller {
     const path = hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) return this.emptyStatus(opts.scope, path);
 
-    let data: GrokHooksJson;
     try {
-      data = readHooksJson(path);
+      const document: HookConfigDocument = readHookConfig(path);
+      const hooks = hooksObject(document);
+      const installed: string[] = [];
+      for (const event of GROK_HOOK_EVENTS) {
+        const command = this.currentCommand(event, false);
+        const groups = strictHookGroups(document, hooks, event);
+        if (groups.some((group) => group.hooks.some((entry) => entry.command === command))) {
+          installed.push(event);
+        }
+      }
+      return {
+        // A partial install cannot deliver the advertised hook contract. Report it as repairable.
+        installed: installed.length === GROK_HOOK_EVENTS.length,
+        scope: opts.scope,
+        settingsPath: path,
+        installedHooks: installed,
+      };
     } catch (error) {
-      logger.warn('[grok-hook-installer] status readHooksJson failed:', error);
+      logger.warn('[grok-hook-installer] status readHookConfig failed:', error);
       return this.emptyStatus(opts.scope, path);
     }
-
-    const installed: string[] = [];
-    const hooks =
-      data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)
-        ? data.hooks
-        : {};
-    for (const event of GROK_HOOK_EVENTS) {
-      if (coerceHookGroups(hooks[event]).some((group) => group.hooks.some(isOurHookEntry))) {
-        installed.push(event);
-      }
-    }
-    return {
-      // A partial install cannot deliver the advertised hook contract. Report it as repairable
-      // instead of presenting a misleading fully-installed state in Settings.
-      installed: installed.length === GROK_HOOK_EVENTS.length,
-      scope: opts.scope,
-      settingsPath: path,
-      installedHooks: installed,
-    };
   }
 
   private emptyStatus(

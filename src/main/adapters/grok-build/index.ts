@@ -14,6 +14,7 @@ import type {
   ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
+import { join } from 'node:path';
 import { unavailableUsageSnapshot } from '../provider-usage';
 import { settingsStore } from '@main/store/settings-store';
 import log from '@main/utils/logger';
@@ -44,6 +45,7 @@ export class GrokBuildAdapter implements AgentAdapter {
     this.installer = new GrokHookInstaller(
       ctx.hookServer.listeningPort,
       ctx.hookServer.bearerToken,
+      join(ctx.paths.appUserData, 'hook-relay'),
     );
     for (const route of buildGrokHookRoutes(ctx.emit)) {
       ctx.routeRegistry.registerForAdapter(this.id, route);

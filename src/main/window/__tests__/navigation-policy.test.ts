@@ -36,6 +36,7 @@ interface NavigationHarness {
 
 function install(
   openExternal: (url: string) => Promise<unknown>,
+  currentUrl = 'http://localhost:5173/',
 ): NavigationHarness {
   let navigate:
     | ((event: { preventDefault: () => void }, url: string) => void)
@@ -44,6 +45,7 @@ function install(
     | ((details: { url: string }) => { action: 'deny' })
     | null = null;
   const webContents = {
+    getURL: vi.fn(() => currentUrl),
     on: vi.fn((_event, listener) => {
       navigate = listener;
     }),
@@ -127,6 +129,23 @@ describe('window navigation policy', () => {
     await settle();
     expect(mocks.logger.warn).not.toHaveBeenCalled();
     expect(mocks.logger.info).not.toHaveBeenCalled();
+  });
+
+  it('keeps same-origin development reloads inside Electron without opening a browser', async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const harness = install(openExternal, 'http://localhost:5173/live');
+
+    harness.navigate(
+      { preventDefault: harness.preventDefault },
+      'http://localhost:5173/',
+    );
+    expect(harness.preventDefault).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+
+    expect(
+      harness.openWindow({ url: 'http://localhost:5173/another-path' }),
+    ).toEqual({ action: 'deny' });
+    expect(openExternal).not.toHaveBeenCalled();
   });
 
   it('keeps invalid targets silent while still preventing renderer replacement', async () => {

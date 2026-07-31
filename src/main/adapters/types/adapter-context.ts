@@ -12,6 +12,7 @@ export interface AdapterContext {
   routeRegistry: RouteRegistry;
   emit: (event: AgentEvent) => void;
   paths: {
+    appUserData: string;
     userHome: string;
     userClaudeSettings: string;
   };

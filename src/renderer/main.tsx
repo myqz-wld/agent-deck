@@ -12,6 +12,60 @@ import './styles/globals.css';
 
 const logger = log.scope('renderer-main');
 
+function hasAgentDeckPreloadBridge(
+  value: unknown,
+): value is Window['api'] {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<Window['api']>;
+  return (
+    typeof candidate.onSessionUpserted === 'function' &&
+    typeof candidate.listSessions === 'function' &&
+    typeof candidate.getSettings === 'function'
+  );
+}
+
+function PreloadBridgeUnavailable(): React.JSX.Element {
+  return (
+    <div
+      role="alert"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'grid',
+        placeContent: 'center',
+        gap: 10,
+        padding: 24,
+        color: 'rgb(255, 170, 120)',
+        background: 'rgba(20, 20, 24, 0.94)',
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 13,
+        textAlign: 'center',
+      }}
+    >
+      <strong>Agent Deck 桌面桥接未加载</strong>
+      <span>
+        当前页面没有 Electron preload API。请在 Agent Deck 桌面窗口中打开；若已在桌面窗口，
+        可重新加载当前界面恢复，现有主进程和会话不会被终止。
+      </span>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          justifySelf: 'center',
+          padding: '6px 12px',
+          color: 'inherit',
+          background: 'transparent',
+          border: '1px solid currentColor',
+          borderRadius: 6,
+          cursor: 'pointer',
+        }}
+      >
+        重新加载界面
+      </button>
+    </div>
+  );
+}
+
 interface RendererErrorDetails {
   name: string;
   message: string;
@@ -378,9 +432,13 @@ if (!container) {
   try {
     ReactDOM.createRoot(container).render(
       <React.StrictMode>
-        <RootErrorBoundary>
-          <App />
-        </RootErrorBoundary>
+        {hasAgentDeckPreloadBridge(window.api) ? (
+          <RootErrorBoundary>
+            <App />
+          </RootErrorBoundary>
+        ) : (
+          <PreloadBridgeUnavailable />
+        )}
       </React.StrictMode>,
     );
   } catch (err) {

@@ -1,13 +1,28 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
 import log from '@main/utils/logger';
 import { buildHookCurlCommand } from '@main/hook-server/curl-command';
+import {
+  changedHookEvent,
+  hooksObject,
+  readHookConfig,
+  strictHookGroups,
+  updateHookConfig,
+  type HookConfigChange,
+  type HookConfigDocument,
+  type HookGroup,
+  type JsonObject,
+} from '@main/hook-server/hook-config-file';
+import {
+  hookRelayConfigPath,
+  prepareHookRelayConfig,
+} from '@main/hook-server/hook-relay-config';
 
 const logger = log.scope('codex-hook-installer');
 
-const HOOK_TAG = 'agent-deck-hook';
+const CURRENT_HOOK_TAG_PREFIX = 'agent-deck-hook-v2-codex-cli';
 
 export const CODEX_HOOK_EVENTS = [
   'SessionStart',
@@ -25,100 +40,28 @@ export const CODEX_HOOK_EVENTS = [
 
 type CodexHookEvent = (typeof CODEX_HOOK_EVENTS)[number];
 
-interface HookEntry {
-  type?: string;
-  command?: string;
-  timeout?: number;
-  statusMessage?: string;
-  [key: string]: unknown;
-}
-
-interface HookGroup {
-  matcher?: string;
-  hooks: HookEntry[];
-  [key: string]: unknown;
-}
-
-type HookEventValue = unknown;
-
-interface CodexHooksJson {
-  hooks?: Partial<Record<CodexHookEvent, HookEventValue>>;
-  [key: string]: unknown;
-}
-
 function hooksPath(scope: 'user' | 'project', cwd?: string): string {
   if (scope === 'user') return join(homedir(), '.codex', 'hooks.json');
   if (!cwd) throw new Error('project scope requires cwd');
   return join(cwd, '.codex', 'hooks.json');
 }
 
-function routeName(event: CodexHookEvent): string {
-  return event.toLowerCase();
+function routeFor(event: CodexHookEvent): string {
+  return `/hook/codex/${event.toLowerCase()}`;
 }
 
-function buildCommand(port: number, token: string, event: CodexHookEvent): string {
-  return buildHookCurlCommand({
-    port,
-    token,
-    route: `/hook/codex/${routeName(event)}`,
-    tag: HOOK_TAG,
-  });
+function currentTag(event: CodexHookEvent): string {
+  return `${CURRENT_HOOK_TAG_PREFIX}-${event.toLowerCase()}`;
 }
 
-function readHooksJson(path: string): CodexHooksJson {
-  if (!existsSync(path)) return {};
-  try {
-    return JSON.parse(readFileSync(path, 'utf8')) as CodexHooksJson;
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `${path} parse failed (${detail}). Aborted to avoid overwriting existing Codex CLI hook config.`,
-    );
-  }
-}
-
-function hooksObject(data: CodexHooksJson): Partial<Record<CodexHookEvent, HookEventValue>> {
-  if (!data.hooks || typeof data.hooks !== 'object' || Array.isArray(data.hooks)) {
-    data.hooks = {};
-  }
-  return data.hooks;
-}
-
-function writeHooksJson(path: string, data: CodexHooksJson): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
-  renameSync(tmp, path);
-}
-
-function isOurHookEntry(entry: HookEntry): boolean {
-  return typeof entry.command === 'string' && entry.command.includes(HOOK_TAG);
-}
-
-function coerceHookEntry(entry: unknown): HookEntry | null {
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-  return entry as HookEntry;
-}
-
-function coerceHookGroups(value: HookEventValue): HookGroup[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((group): group is Record<string, unknown> => (
-      !!group && typeof group === 'object' && !Array.isArray(group)
-    ))
+function cleanedGroups(
+  groups: HookGroup[],
+  currentCommand: string,
+): HookGroup[] {
+  return groups
     .map((group) => ({
       ...group,
-      hooks: Array.isArray(group.hooks)
-        ? group.hooks.map(coerceHookEntry).filter((hook): hook is HookEntry => hook !== null)
-        : [],
-    }));
-}
-
-function cleanedGroups(groups: HookEventValue): HookGroup[] {
-  return coerceHookGroups(groups)
-    .map((group) => ({
-      ...group,
-      hooks: group.hooks.filter((hook) => !isOurHookEntry(hook)),
+      hooks: group.hooks.filter((hook) => hook.command !== currentCommand),
     }))
     .filter((group) => group.hooks.length > 0);
 }
@@ -131,43 +74,78 @@ function matcherFor(event: CodexHookEvent): string | undefined {
     : undefined;
 }
 
+function updateModes(scope: 'user' | 'project'): {
+  modeForNew: number;
+  directoryMode: number;
+} {
+  return scope === 'user'
+    ? { modeForNew: 0o600, directoryMode: 0o700 }
+    : { modeForNew: 0o644, directoryMode: 0o755 };
+}
+
 export class CodexHookInstaller {
   constructor(
     private port: number,
     private token: string,
+    private relayRoot: string,
   ) {}
+
+  private currentCommand(event: CodexHookEvent, prepare: boolean): string {
+    const relayConfigPath = prepare
+      ? prepareHookRelayConfig({
+          relayRoot: this.relayRoot,
+          adapterId: 'codex-cli',
+          event,
+          port: this.port,
+          token: this.token,
+          route: routeFor(event),
+        })
+      : hookRelayConfigPath(this.relayRoot, 'codex-cli', event);
+    return buildHookCurlCommand({
+      relayConfigPath,
+      tag: currentTag(event),
+    });
+  }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
     const path = hooksPath(opts.scope, opts.cwd);
-    const data = readHooksJson(path);
-    const hooks = hooksObject(data);
-    const installed: string[] = [];
-
-    for (const event of CODEX_HOOK_EVENTS) {
-      const groups = hooks[event] ?? [];
-      const next = cleanedGroups(groups);
-      const matcher = matcherFor(event);
-      next.push({
-        ...(matcher ? { matcher } : {}),
-        hooks: [
-          {
-            type: 'command',
-            command: buildCommand(this.port, this.token, event),
-            timeout: 5,
-            statusMessage: 'Reporting to Agent Deck',
-          },
-        ],
-      });
-      hooks[event] = next;
-      installed.push(event);
-    }
-
-    writeHooksJson(path, data);
+    updateHookConfig(
+      path,
+      (document) => {
+        const hooks = hooksObject(document);
+        const beforeByEvent = new Map<CodexHookEvent, HookGroup[]>();
+        for (const event of CODEX_HOOK_EVENTS) {
+          beforeByEvent.set(event, strictHookGroups(document, hooks, event));
+        }
+        const changes: HookConfigChange[] = [];
+        for (const event of CODEX_HOOK_EVENTS) {
+          const command = this.currentCommand(event, true);
+          const before = beforeByEvent.get(event) ?? [];
+          const next = cleanedGroups(before, command);
+          const matcher = matcherFor(event);
+          next.push({
+            ...(matcher ? { matcher } : {}),
+            hooks: [
+              {
+                type: 'command',
+                command,
+                timeout: 5,
+                statusMessage: 'Reporting to Agent Deck',
+              },
+            ],
+          });
+          const change = changedHookEvent(event, before, next);
+          if (change) changes.push(change);
+        }
+        return { changes };
+      },
+      updateModes(opts.scope),
+    );
     return {
       installed: true,
       scope: opts.scope,
       settingsPath: path,
-      installedHooks: installed,
+      installedHooks: [...CODEX_HOOK_EVENTS],
     };
   }
 
@@ -182,20 +160,28 @@ export class CodexHookInstaller {
       };
     }
 
-    const data = readHooksJson(path);
-    if (data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)) {
-      const hooks = data.hooks;
-      for (const event of CODEX_HOOK_EVENTS) {
-        const groups = hooks[event];
-        if (!groups) continue;
-        const next = cleanedGroups(groups);
-        if (next.length === 0) delete hooks[event];
-        else hooks[event] = next;
-      }
-      if (Object.keys(hooks).length === 0) delete data.hooks;
-    }
-
-    writeHooksJson(path, data);
+    updateHookConfig(
+      path,
+      (document) => {
+        const hooks = hooksObject(document);
+        if (!hooks) return { changes: [] };
+        const logicalHooks: JsonObject = { ...hooks };
+        const changes: HookConfigChange[] = [];
+        for (const event of CODEX_HOOK_EVENTS) {
+          const before = strictHookGroups(document, hooks, event);
+          const next = cleanedGroups(before, this.currentCommand(event, false));
+          const change = changedHookEvent(event, before, next);
+          if (!change) continue;
+          changes.push(change);
+          if (next.length === 0) delete logicalHooks[event];
+          else logicalHooks[event] = next;
+        }
+        return changes.length > 0 && Object.keys(logicalHooks).length === 0
+          ? { changes: [{ path: ['hooks'], value: undefined }] }
+          : { changes };
+      },
+      updateModes(opts.scope),
+    );
     return {
       installed: false,
       scope: opts.scope,
@@ -215,11 +201,25 @@ export class CodexHookInstaller {
       };
     }
 
-    let data: CodexHooksJson;
     try {
-      data = readHooksJson(path);
+      const document: HookConfigDocument = readHookConfig(path);
+      const hooks = hooksObject(document);
+      const installed: string[] = [];
+      for (const event of CODEX_HOOK_EVENTS) {
+        const command = this.currentCommand(event, false);
+        const groups = strictHookGroups(document, hooks, event);
+        if (groups.some((group) => group.hooks.some((entry) => entry.command === command))) {
+          installed.push(event);
+        }
+      }
+      return {
+        installed: installed.length === CODEX_HOOK_EVENTS.length,
+        scope: opts.scope,
+        settingsPath: path,
+        installedHooks: installed,
+      };
     } catch (err) {
-      logger.warn('[codex-hook-installer] status readHooksJson failed:', err);
+      logger.warn('[codex-hook-installer] status readHookConfig failed:', err);
       return {
         installed: false,
         scope: opts.scope,
@@ -228,26 +228,5 @@ export class CodexHookInstaller {
       };
     }
 
-    const installed: string[] = [];
-    for (const event of CODEX_HOOK_EVENTS) {
-      const groups = coerceHookGroups(
-        data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)
-          ? data.hooks[event]
-          : [],
-      );
-      for (const group of groups) {
-        if (group.hooks.some(isOurHookEntry)) {
-          installed.push(event);
-          break;
-        }
-      }
-    }
-
-    return {
-      installed: installed.length === CODEX_HOOK_EVENTS.length,
-      scope: opts.scope,
-      settingsPath: path,
-      installedHooks: installed,
-    };
   }
 }
