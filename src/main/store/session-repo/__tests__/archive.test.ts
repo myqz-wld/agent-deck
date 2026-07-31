@@ -2,7 +2,7 @@
  * setArchived + SessionRowMissingError 单测(archive-toctou-fix-20260515 plan,R1 双方共识修法 A)。
  *
  * scope: SQL 单点 setter throw 行为(.changes !== 1 → SessionRowMissingError),verify SSOT
- * 让 caller 链(sessionManager.archive / unarchive / IPC handler / mcp baton-cleanup helper /
+ * 让 caller 链(sessionManager.archive / unarchive / IPC handler /
  * UI session-hand-off-finalize)通过 throw 自然感知 race window 内 row 被外部删的边界。
  *
  * 不依赖真 SQLite — 通过 vi.mock 把 `@main/store/db` 的 getDb 替换成 fake stmt,这样测试
@@ -98,7 +98,7 @@ describe('SessionRowMissingError class', () => {
   });
 
   it('caller 链通过 instanceof 判别(典型 caller 链验证模式)', () => {
-    // 模拟 baton-cleanup / K3 helper / IPC SessionArchive handler 的 catch 块判别模式
+    // 模拟 handoff finalizer / IPC SessionArchive handler 的 catch 块判别模式
     function classifyError(err: unknown): 'row-missing' | 'archive-throw' {
       return err instanceof SessionRowMissingError ? 'row-missing' : 'archive-throw';
     }

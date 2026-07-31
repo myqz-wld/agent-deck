@@ -52,10 +52,8 @@ export interface EventMap {
    * archive-failure-ux-upthrow-20260515 plan(P1 已落地)+ archive-toctou-fix-20260515 plan
    * (R1 双方共识 union narrow + 加 'probe-throw'): caller archive 失败 UX 上抛通道。
    *
-   * 触发点 3 处（mcp baton-cleanup 2 + UI SessionHandOffCommit 1）：
-   * - baton-cleanup.ts probe 路径(reasonKind='row-missing' getFn 返回 null / 'probe-throw' getFn 抛错)
-   * - baton-cleanup.ts archiveFn 路径(reasonKind='row-missing' SessionRowMissingError / 'archive-throw' 其他 Error)
-   * - ipc/session-hand-off.ts SessionHandOffCommit archive 路径同款 reasonKind 区分
+   * 当前 UI SessionHandOffCommit source-archive 路径发出此事件；toolName union 同时保留
+   * MCP hand_off_session 的受控展示值，任何新增 producer 都必须通过该窄类型。
    *
    * main/index.ts bootstrap listener 桥接到 notifyUser + safeSend(IpcEvent.CallerArchiveFailed)。
    * 不在 mcp handler 内直接 import notify/visual.ts —— 保持 mcp handler 与通知层职责分离。
@@ -68,13 +66,13 @@ export interface EventMap {
     sessionId: string;
     /**
      * 触发的工具名(union narrow):
-     * - 'archive_plan' / 'hand_off_session': mcp tool 名(用户在 codex/claude 调用 mcp 时熟悉)
+     * - 'hand_off_session': mcp tool 名(用户在 codex/claude 调用 mcp 时熟悉)
      * - 'SessionHandOffCommit': UI IPC channel 内部名(用户 UI 看不到,main listener 通过
      *   TOOL_DISPLAY_NAME 映射成「会话接力」)
-     * 加新 emit 触发点必须先在此 union 加值,否则 baton-cleanup / session-hand-off-finalize
+     * 加新 emit 触发点必须先在此 union 加值,否则 hand-off finalization
      * 调用处 tsc 报错(✅ feature)。
      */
-    toolName: 'archive_plan' | 'hand_off_session' | 'SessionHandOffCommit';
+    toolName: 'hand_off_session' | 'SessionHandOffCommit';
     /** 完整 reason 描述（含 stringified Error 或 'not in sessions table' 类提示），UI 显示用 */
     reason: string;
     /**

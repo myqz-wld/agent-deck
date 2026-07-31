@@ -15,6 +15,8 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-31 | `CHANGELOG_420_archive-plan-dead-code-removal.md` | Remove retired archive plan MCP code and orphaned cleanup paths |
+| 2026-07-30 | `CHANGELOG_419_branch-independent-worktree-lifecycle.md` | Isolate worktree lifecycle from branches and refs |
 | 2026-07-30 | `CHANGELOG_418_automatic-worktree-cwd-transition.md` | Move sessions across worktrees at an automatic safe turn boundary |
 | 2026-07-30 | `CHANGELOG_417_session-list-runtime-metadata.md` | Show branch and context occupancy on live session cards |
 | 2026-07-30 | `CHANGELOG_416_handoff-context-usage.md` | Fix hand-off fields and show live context occupancy |

@@ -100,9 +100,17 @@ boundary, applies the new working directory to the runtime and session database,
 internal continuation before replaying user input buffered during the transition. No manual `cd`
 or follow-up message is needed.
 
+Enter resolves the required Git `startPoint` once to an exact commit and creates the worktree with
+detached HEAD. Its default path is session/time-derived rather than branch-derived. It never
+creates, switches, renames, or deletes a branch or other ref; later branch/tag management remains
+an ordinary Git workflow.
+
 Exit restores and confirms the original working directory before checking references and dirty
 state again and removing the worktree. Cleanup failures preserve the worktree and a retryable
-lease, and work branches are kept by default.
+lease. Exit never creates, renames, switches, or deletes Git branches or other refs, so branch
+renames and switches do not block cleanup. By default both dirty checks must pass; explicitly
+authorized `discardChanges: true` permits forced removal of dirty tracked or untracked files but
+does not bypass worktree identity, live-reference, or durable-HEAD checks.
 
 ## MCP Collaboration Areas
 

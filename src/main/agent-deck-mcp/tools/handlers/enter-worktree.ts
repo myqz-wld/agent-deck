@@ -32,7 +32,7 @@ export interface EnterWorktreeHandlerDeps {
 
 /**
  * 默认 sessionRepo seam:callerCwd 反查 sessionRepo.get(sid).cwd;setCwdReleaseMarker 写 DB。
- * 与 archive-plan-impl 同款 — sessionRepo 在 handler 层 import 触发 electron load OK,但 impl
+ * sessionRepo 在 handler 层 import 触发 electron load OK,但 impl
  * 不能 import(让 impl test 走 deps inject 时不撞 electron)。
  */
 const DEFAULT_SESSION_DEPS: Required<Pick<EnterWorktreeDeps, 'callerCwd' | 'setCwdReleaseMarker'>> = {
@@ -65,10 +65,10 @@ export const enterWorktreeHandler = withMcpGuard(
           state: 'waiting-tool-result',
           effectiveFrom: 'automatic-next-turn',
           worktreePath: existing.worktreePath,
-          workBranch: existing.workBranch,
-          baseBranch: existing.baseBranch,
-          baseCommit: existing.baseCommit,
-          baseSource: 'base-branch',
+          startCommit: existing.baseCommit,
+          headMode: existing.workBranch
+            ? 'legacy-attached'
+            : 'detached',
           markerSet: existing.phase !== 'creating',
         } satisfies EnterWorktreeResult);
       }
@@ -97,8 +97,7 @@ export const enterWorktreeHandler = withMcpGuard(
     const prepared = await prepareEnterWorktree(
       {
         callerSessionId,
-        baseBranch: args.baseBranch,
-        workBranchOverride: args.workBranch,
+        startPoint: args.startPoint,
         worktreePathOverride: args.worktreePath,
         worktreeRootOverride: args.worktreeRoot,
       },
@@ -120,9 +119,7 @@ export const enterWorktreeHandler = withMcpGuard(
         targetCwd: prepared.worktreePath,
         mainRepo: prepared.mainRepo,
         worktreePath: prepared.worktreePath,
-        workBranch: prepared.workBranch,
-        baseBranch: prepared.baseBranch,
-        baseCommit: prepared.baseCommit,
+        baseCommit: prepared.startCommit,
         toolUseId,
         continuationKey: `worktree-cwd:${randomUUID()}`,
         requestedAt: Date.now(),
@@ -199,7 +196,7 @@ export const enterWorktreeHandler = withMcpGuard(
           ? `Rollback was incomplete and the transition lease was retained: ${warnings.join(
               '; ',
             )}`
-          : 'The created worktree and branch were rolled back; retry from the active turn.',
+          : 'The created detached worktree was removed without changing any Git ref; retry from the active turn.',
       );
     }
 
@@ -209,10 +206,8 @@ export const enterWorktreeHandler = withMcpGuard(
       state: 'waiting-tool-result',
       effectiveFrom: 'automatic-next-turn',
       worktreePath: transition.worktreePath,
-      workBranch: transition.workBranch,
-      baseBranch: transition.baseBranch,
-      baseCommit: transition.baseCommit,
-      baseSource: 'base-branch',
+      startCommit: transition.baseCommit,
+      headMode: 'detached',
       markerSet: true,
     } satisfies EnterWorktreeResult);
   },

@@ -15,7 +15,7 @@
  * - 外部 codex CLI / 非应用 spawn 路径走全局 token 调 MCP → tokenToSession.get 不命中 →
  *   HookServer 比对 mcpServerToken 全局 token → 命中返 resolvedSid=null + fallbackToGlobal=
  *   true → handler 视为 external caller（EXTERNAL_CALLER_ALLOWED 表，spawn/send/shutdown/
- *   archive_plan/hand_off_session/enter_worktree/exit_worktree 全 deny；list/get 允许）
+ *   hand_off_session/enter_worktree/exit_worktree 全 deny；list/get 允许）
  * - 这保证「external codex CLI 走全局 token 调用 MCP 时只能读不能写」与 stdio external
  *   caller 行为对齐
  *

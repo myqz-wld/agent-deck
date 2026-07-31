@@ -109,7 +109,7 @@ export function adoptLegacyExitWithDb(
        VALUES
         (@session_id, 1, @generation, 'exit', 'exit_preflight', @original_cwd, @original_cwd,
          @main_repo, @worktree_path, @work_branch, @base_branch, @base_commit, @tool_use_id,
-         @continuation_key, 0, @discard_changes, @delete_branch,
+         @continuation_key, 0, @discard_changes, 0,
          @requested_at, @requested_at, NULL)
        ON CONFLICT(session_id) DO UPDATE SET
          format_version = 1,
@@ -137,13 +137,12 @@ export function adoptLegacyExitWithDb(
       original_cwd: input.originalCwd,
       main_repo: input.mainRepo,
       worktree_path: input.worktreePath,
-      work_branch: input.workBranch,
-      base_branch: input.baseBranch,
-      base_commit: input.baseCommit,
+      work_branch: '',
+      base_branch: 'HEAD',
+      base_commit: input.headCommit,
       tool_use_id: input.toolUseId,
       continuation_key: input.continuationKey,
       discard_changes: input.discardChanges ? 1 : 0,
-      delete_branch: input.deleteBranch ? 1 : 0,
       requested_at: input.requestedAt,
     });
     db.prepare(

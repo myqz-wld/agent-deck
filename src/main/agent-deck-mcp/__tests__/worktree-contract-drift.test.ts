@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { makeSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 
 vi.mock('@main/adapters/claude-code/sdk-loader', () =>
@@ -10,6 +11,8 @@ vi.mock('@main/adapters/claude-code/sdk-loader', () =>
 import { buildAgentDeckTools } from '../tools';
 import { structuredOk } from '../tools/helpers';
 import {
+  EXIT_WORKTREE_SCHEMA,
+  ENTER_WORKTREE_SCHEMA,
   ENTER_WORKTREE_OUTPUT_SCHEMA,
   EXIT_WORKTREE_OUTPUT_SCHEMA,
 } from '../tools/schemas';
@@ -36,6 +39,34 @@ describe('worktree MCP contract drift', () => {
     expect(enter?.description).toContain(
       'applies the worktree cwd to runtime and database',
     );
+    expect(enter?.description).toContain(
+      'creates the directory with `git worktree add --detach`',
+    );
+    expect(enter?.description).toContain(
+      'never creates, switches, renames, or deletes a branch or other ref',
+    );
+    expect(enter?.description).toContain('30-second');
+    expect(enter?.description).toContain('10-minute timeout');
+    expect(enter?.description).toContain(
+      'may remain as an empty directory after a later failure',
+    );
+    expect(enter?.description).not.toContain('baseBranch');
+    expect(enter?.description).not.toContain('workBranch');
+    expect('baseBranch' in ENTER_WORKTREE_SCHEMA).toBe(false);
+    expect('workBranch' in ENTER_WORKTREE_SCHEMA).toBe(false);
+    expect(ENTER_WORKTREE_SCHEMA.startPoint.description).toContain(
+      'resolves it once in the caller repository',
+    );
+    const enterInputSchema = z.object(ENTER_WORKTREE_SCHEMA).strict();
+    expect(enterInputSchema.safeParse({ startPoint: 'HEAD' }).success).toBe(
+      true,
+    );
+    expect(
+      enterInputSchema.safeParse({
+        baseBranch: 'main',
+        workBranch: 'agent-deck/task',
+      }).success,
+    ).toBe(false);
     expect(enter?.description).not.toContain(
       'does not change the SDK session cwd',
     );
@@ -46,12 +77,26 @@ describe('worktree MCP contract drift', () => {
       'second dirty check immediately before removal',
     );
     expect(exit?.description).toContain(
+      'never creates, renames, switches, or deletes Git branches or other refs',
+    );
+    expect(exit?.description).toContain(
+      'branch renames and branch switches do not block exit',
+    );
+    expect(exit?.description).toContain(
+      'rejects an unreferenced HEAD commit',
+    );
+    expect(exit?.description).toContain(
       'adopted into the same structured restore-first flow',
     );
     expect(exit?.description).toContain(
       '`completed-legacy` is synchronous only when the target path is already absent',
     );
     expect(exit?.description).toContain('`completed-cleanup`');
+    expect(exit?.description).not.toContain('deleteBranch');
+    expect('deleteBranch' in EXIT_WORKTREE_SCHEMA).toBe(false);
+    expect(EXIT_WORKTREE_SCHEMA.discardChanges.description).toContain(
+      'does not bypass lease/path/repository/reference checks or the durable-HEAD check',
+    );
 
     const enterPayload = {
       transitionId: 'session-a:2',
@@ -59,10 +104,8 @@ describe('worktree MCP contract drift', () => {
       state: 'waiting-tool-result',
       effectiveFrom: 'automatic-next-turn',
       worktreePath: '/repo/worktree',
-      workBranch: 'agent-deck/task',
-      baseBranch: 'main',
-      baseCommit: 'a'.repeat(40),
-      baseSource: 'base-branch',
+      startCommit: 'a'.repeat(40),
+      headMode: 'detached',
       markerSet: true,
     } as const;
     const exitPayload = {
@@ -71,17 +114,30 @@ describe('worktree MCP contract drift', () => {
       state: 'completed-cleanup',
       effectiveFrom: 'already-effective',
       worktreePath: '/repo/worktree',
-      workBranch: 'agent-deck/task',
-      branchDeleted: false,
       worktreeRemoved: true,
       markerCleared: true,
     } as const;
     expect(ENTER_WORKTREE_OUTPUT_SCHEMA.safeParse(enterPayload).success).toBe(
       true,
     );
+    expect(
+      ENTER_WORKTREE_OUTPUT_SCHEMA.safeParse({
+        ...enterPayload,
+        workBranch: 'agent-deck/task',
+        baseBranch: 'main',
+        baseSource: 'base-branch',
+      }).success,
+    ).toBe(false);
     expect(EXIT_WORKTREE_OUTPUT_SCHEMA.safeParse(exitPayload).success).toBe(
       true,
     );
+    expect(
+      EXIT_WORKTREE_OUTPUT_SCHEMA.safeParse({
+        ...exitPayload,
+        workBranch: 'agent-deck/task',
+        branchDeleted: false,
+      }).success,
+    ).toBe(false);
     expect(
       EXIT_WORKTREE_OUTPUT_SCHEMA.safeParse({
         transitionId: 'session-a:3',
@@ -89,7 +145,6 @@ describe('worktree MCP contract drift', () => {
         state: 'waiting-tool-result',
         effectiveFrom: 'automatic-next-turn',
         worktreePath: '/repo/detached-worktree',
-        workBranch: null,
       }).success,
     ).toBe(true);
     const response = structuredOk(enterPayload);
@@ -128,6 +183,15 @@ describe('worktree MCP contract drift', () => {
       expect(instructions).not.toContain(
         'After entering the worktree, point read/write commands',
       );
+      expect(instructions).not.toContain('deleteBranch');
+      expect(instructions).not.toContain('baseBranch');
+      expect(instructions).not.toContain('workBranch');
+      expect(instructions).toContain(
+        'Agent Deck resolves it once to `startCommit` and creates the worktree with detached HEAD',
+      );
+      expect(instructions).toContain(
+        'neither worktree MCP tool mutates refs',
+      );
     }
     expect(grok).toContain(
       '`exit_worktree` adopts an existing legacy marker/path into the same restore-first flow',
@@ -135,6 +199,10 @@ describe('worktree MCP contract drift', () => {
     expect(grok).toContain(
       '`completed-legacy` means the target was already absent',
     );
+    expect(grok).not.toContain('deleteBranch');
+    expect(grok).not.toContain('baseBranch');
+    expect(grok).not.toContain('workBranch');
+    expect(grok).toContain('creates only a detached worktree');
     expect(grok).not.toContain(
       'entering a worktree does not change the current process directory',
     );

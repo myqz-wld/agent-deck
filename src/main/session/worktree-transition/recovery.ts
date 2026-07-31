@@ -132,7 +132,7 @@ async function rollbackEnterAtOriginalCwd(
   assertRuntimeAtOrCold(adapter, record, record.originalCwd);
   sessionRepo.setCwd(record.sessionId, record.originalCwd);
   emitWorktreeSessionUpsert(record.sessionId);
-  const cleanup = await rollbackUnacknowledgedEnter(record);
+  await rollbackUnacknowledgedEnter(record);
   await enqueueBufferedInputs(record, adapter);
   const current = worktreeTransitionRepo.get(record.sessionId);
   if (
@@ -149,17 +149,15 @@ async function rollbackEnterAtOriginalCwd(
       expected: current.phase,
       next: 'cleared',
       updatedAt: Date.now(),
-      lastError: cleanup.branchError ?? failure,
+      lastError: failure,
     });
   }
   adapter.releaseCwdTransition?.(record.sessionId, record.generation);
   emitWorktreeSessionUpsert(record.sessionId);
   emitWorktreeTransitionStatus(
     record.sessionId,
-    cleanup.branchError
-      ? `${statusText}；生成分支已保留：${cleanup.branchError}`
-      : statusText,
-    cleanup.branchError !== null || failure !== null,
+    statusText,
+    failure !== null,
     record.generation,
   );
 }
@@ -302,10 +300,8 @@ export async function completeAcknowledgedExit(
   if (record.phase !== 'cleanup_pending') return;
 
   let cleanupError: unknown;
-  let branchError: string | null = null;
   try {
-    const cleanup = await cleanupStructuredWorktree(record);
-    branchError = cleanup.branchError;
+    await cleanupStructuredWorktree(record);
   } catch (error) {
     cleanupError = error;
   }
@@ -332,16 +328,14 @@ export async function completeAcknowledgedExit(
     expected: 'cleanup_pending',
     next: 'cleared',
     updatedAt: Date.now(),
-    lastError: branchError,
+    lastError: null,
   });
   adapter.releaseCwdTransition?.(record.sessionId, record.generation);
   emitWorktreeSessionUpsert(record.sessionId);
   emitWorktreeTransitionStatus(
     record.sessionId,
-    branchError
-      ? `已恢复原工作目录并移除 worktree；分支保留：${branchError}`
-      : '应用重启后已恢复原工作目录并安全移除 worktree',
-    branchError !== null,
+    '应用重启后已恢复原工作目录并安全移除 worktree',
+    false,
     record.generation,
   );
 }

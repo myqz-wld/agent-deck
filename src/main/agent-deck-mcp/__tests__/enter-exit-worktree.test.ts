@@ -36,25 +36,22 @@ function queuedGit(
 }
 
 describe('enterWorktreeImpl', () => {
-  it('requires a local baseBranch and creates a fresh work branch from that commit', async () => {
+  it('freezes startPoint and creates a detached worktree without branch commands', async () => {
     const calls: Array<{ args: string[]; cwd: string }> = [];
     const mkdirs: string[] = [];
     const markers: Array<{ sid: string; marker: string }> = [];
+    const startCommit = 'a'.repeat(40);
 
     const result = await enterWorktreeImpl(
       {
         callerSessionId: 'caller-sid',
-        baseBranch: 'main',
-        workBranchOverride: 'agent-deck/test-work',
+        startPoint: 'main~1',
         worktreeRootOverride: '/repo/.agent-deck/worktrees',
       },
       {
         runGit: queuedGit(calls, [
           '/repo/.git',
-          '',
-          'base-sha',
-          new Error('missing branch'),
-          '',
+          startCommit,
           '',
         ]),
         exists: async () => false,
@@ -65,37 +62,47 @@ describe('enterWorktreeImpl', () => {
         setCwdReleaseMarker: (sid, marker) => {
           markers.push({ sid, marker });
         },
+        now: () => 1,
       },
     );
 
     expect(enterIsError(result)).toBe(false);
     if (enterIsError(result)) return;
     expect(result).toMatchObject({
-      worktreePath: '/repo/.agent-deck/worktrees/agent-deck__test-work',
-      workBranch: 'agent-deck/test-work',
-      baseBranch: 'main',
-      baseCommit: 'base-sha',
-      baseSource: 'base-branch',
+      worktreePath: '/repo/.agent-deck/worktrees/agent-deck-caller-sid-1',
+      startCommit,
+      headMode: 'detached',
       markerSet: true,
     });
     expect(mkdirs).toEqual(['/repo/.agent-deck/worktrees']);
     expect(markers).toEqual([
-      { sid: 'caller-sid', marker: '/repo/.agent-deck/worktrees/agent-deck__test-work' },
+      {
+        sid: 'caller-sid',
+        marker: '/repo/.agent-deck/worktrees/agent-deck-caller-sid-1',
+      },
+    ]);
+    expect(calls.map((c) => c.args)).toContainEqual([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      '--end-of-options',
+      'main~1^{commit}',
     ]);
     expect(calls.map((c) => c.args)).toContainEqual([
       'worktree',
       'add',
-      '-b',
-      'agent-deck/test-work',
-      '/repo/.agent-deck/worktrees/agent-deck__test-work',
-      'base-sha',
+      '--detach',
+      '/repo/.agent-deck/worktrees/agent-deck-caller-sid-1',
+      startCommit,
     ]);
+    expect(calls.flatMap((call) => call.args)).not.toContain('branch');
+    expect(calls.flatMap((call) => call.args)).not.toContain('-b');
   });
 
-  it('rejects ref syntax in baseBranch before running git', async () => {
+  it('rejects an unsafe startPoint before trying to resolve it', async () => {
     const calls: Array<{ args: string[]; cwd: string }> = [];
     const result = await enterWorktreeImpl(
-      { callerSessionId: 'caller-sid', baseBranch: 'main~1' },
+      { callerSessionId: 'caller-sid', startPoint: 'main branch' },
       {
         runGit: queuedGit(calls, ['/repo/.git']),
         exists: async () => false,
@@ -107,7 +114,10 @@ describe('enterWorktreeImpl', () => {
 
     expect(enterIsError(result)).toBe(true);
     if (!enterIsError(result)) return;
-    expect(result.error).toContain('baseBranch must be a plain local branch name');
+    expect(result.error).toContain('startPoint must be one non-empty Git revision');
+    expect(calls.map((call) => call.args)).toEqual([
+      ['rev-parse', '--git-common-dir'],
+    ]);
   });
 
   it('treats a pre-creation git failure as a complete no-op rollback', async () => {
@@ -117,19 +127,108 @@ describe('enterWorktreeImpl', () => {
         originalCwd: '/repo',
         mainRepo: '/repo',
         worktreePath: '/repo/.agent-deck/worktrees/task',
-        workBranch: 'agent-deck/task',
-        baseBranch: 'main',
-        baseCommit: 'base-sha',
+        startCommit: 'a'.repeat(40),
       },
       {
         exists: async () => false,
         runGit: async () => {
-          throw new Error('branch was never created');
+          throw new Error('worktree was never created');
         },
       },
     );
 
     expect(warnings).toEqual([]);
+  });
+
+  it('rollback removes only a safe worktree and never invokes a branch command', async () => {
+    const calls: Array<{ args: string[]; cwd: string }> = [];
+    const warnings = await rollbackPreparedWorktree(
+      {
+        callerSessionId: 'caller-sid',
+        originalCwd: '/repo',
+        mainRepo: '/repo',
+        worktreePath: '/repo/.agent-deck/worktrees/task',
+        startCommit: 'a'.repeat(40),
+      },
+      {
+        exists: async () => true,
+        runGit: queuedGit(calls, [
+          '',
+          'a'.repeat(40),
+          'refs/heads/main',
+          '',
+        ]),
+      },
+    );
+
+    expect(warnings).toEqual([]);
+    expect(calls.map((call) => call.args)).toContainEqual([
+      'worktree',
+      'remove',
+      '/repo/.agent-deck/worktrees/task',
+    ]);
+    expect(calls.flatMap((call) => call.args)).not.toContain('branch');
+  });
+
+  it('creates a real detached worktree without changing the repository ref set', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-deck-detached-enter-'));
+    const mainRepo = join(root, 'repo');
+    const worktreePath = join(root, 'worktree');
+    try {
+      mkdirSync(mainRepo);
+      execFileSync('git', ['init', '-b', 'main'], {
+        cwd: mainRepo,
+        stdio: 'ignore',
+      });
+      execFileSync('git', ['config', 'user.email', 'test@example.invalid'], {
+        cwd: mainRepo,
+      });
+      execFileSync('git', ['config', 'user.name', 'Agent Deck Test'], {
+        cwd: mainRepo,
+      });
+      writeFileSync(join(mainRepo, 'tracked.txt'), 'baseline\n');
+      execFileSync('git', ['add', 'tracked.txt'], { cwd: mainRepo });
+      execFileSync('git', ['commit', '-m', 'baseline'], {
+        cwd: mainRepo,
+        stdio: 'ignore',
+      });
+      const refsBefore = execFileSync(
+        'git',
+        ['for-each-ref', '--format=%(refname):%(objectname)'],
+        { cwd: mainRepo, encoding: 'utf8' },
+      );
+
+      const result = await enterWorktreeImpl(
+        {
+          callerSessionId: 'caller-sid',
+          startPoint: 'HEAD',
+          worktreePathOverride: worktreePath,
+        },
+        {
+          callerCwd: () => mainRepo,
+          setCwdReleaseMarker: () => undefined,
+        },
+      );
+
+      expect(enterIsError(result)).toBe(false);
+      if (enterIsError(result)) return;
+      expect(result.headMode).toBe('detached');
+      expect(
+        () =>
+          execFileSync('git', ['symbolic-ref', '-q', 'HEAD'], {
+            cwd: worktreePath,
+            stdio: 'ignore',
+          }),
+      ).toThrow();
+      const refsAfter = execFileSync(
+        'git',
+        ['for-each-ref', '--format=%(refname):%(objectname)'],
+        { cwd: mainRepo, encoding: 'utf8' },
+      );
+      expect(refsAfter).toBe(refsBefore);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -143,8 +242,8 @@ describe('prepareLegacyWorktreeExit', () => {
       {
         runGit: queuedGit(calls, [
           '/repo/.git',
-          'agent-deck/test-work',
           'head-sha',
+          'refs/heads/agent-deck/test-work',
           '',
         ]),
         exists: () => true,
@@ -165,9 +264,7 @@ describe('prepareLegacyWorktreeExit', () => {
       originalCwd: '/repo',
       mainRepo: '/repo',
       worktreePath: '/repo/.agent-deck/worktrees/test',
-      workBranch: 'agent-deck/test-work',
-      baseBranch: 'agent-deck/test-work',
-      baseCommit: 'head-sha',
+      headCommit: 'head-sha',
     });
     expect(calls.map((c) => c.args)).not.toContainEqual([
       'worktree',
@@ -183,7 +280,12 @@ describe('prepareLegacyWorktreeExit', () => {
     const result = await prepareLegacyWorktreeExit(
       { callerSessionId: 'caller-sid' },
       {
-        runGit: queuedGit(calls, ['/repo/.git', '', 'head-sha', '']),
+        runGit: queuedGit(calls, [
+          '/repo/.git',
+          'head-sha',
+          'refs/heads/main',
+          '',
+        ]),
         exists: () => true,
         realpath: (p) => p,
         callerMarker: () => '/repo/.agent-deck/worktrees/test',
@@ -197,9 +299,7 @@ describe('prepareLegacyWorktreeExit', () => {
     expect(result).toMatchObject({
       kind: 'ready',
       originalCwd: '/outside',
-      workBranch: '',
-      baseBranch: 'HEAD',
-      baseCommit: 'head-sha',
+      headCommit: 'head-sha',
     });
   });
 
@@ -209,7 +309,12 @@ describe('prepareLegacyWorktreeExit', () => {
       {
         runGit: queuedGit(
           [],
-          ['/repo/.git', 'agent-deck/test-work', 'head-sha', ' M file.txt'],
+          [
+            '/repo/.git',
+            'head-sha',
+            'refs/heads/agent-deck/test-work',
+            ' M file.txt',
+          ],
         ),
         exists: () => true,
         realpath: (p) => p,
@@ -222,6 +327,29 @@ describe('prepareLegacyWorktreeExit', () => {
     expect(exitIsError(result)).toBe(true);
     if (!exitIsError(result)) return;
     expect(result.error).toContain('worktree has uncommitted changes');
+    expect(result.markerCleared).toBe(false);
+  });
+
+  it('rejects an unreferenced HEAD even when dirty changes are authorized for discard', async () => {
+    const result = await prepareLegacyWorktreeExit(
+      { callerSessionId: 'caller-sid', discardChanges: true },
+      {
+        runGit: queuedGit([], ['/repo/.git', 'detached-sha', '']),
+        exists: () => true,
+        realpath: (p) => p,
+        callerMarker: () => '/repo/.agent-deck/worktrees/test',
+        callerCwd: () => '/repo',
+        clearCwdReleaseMarker: () => undefined,
+      },
+    );
+
+    expect(exitIsError(result)).toBe(true);
+    if (!exitIsError(result)) return;
+    expect(result.error).toContain('not reachable from any local branch');
+    expect(result.hint).toContain('Create a local branch or tag');
+    expect(result.hint).toContain(
+      'discardChanges does not authorize losing commits',
+    );
     expect(result.markerCleared).toBe(false);
   });
 
@@ -321,8 +449,7 @@ describe('prepareLegacyWorktreeExit', () => {
         originalCwd: realpathSync.native(mainRepo),
         mainRepo: realpathSync.native(mainRepo),
         worktreePath: realpathSync.native(worktreePath),
-        workBranch: '',
-        baseBranch: 'HEAD',
+        headCommit: expect.any(String),
       });
       expect(existsSync(worktreePath)).toBe(true);
       expect(

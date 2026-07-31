@@ -399,10 +399,8 @@ export class WorktreeTransitionCoordinator {
       });
 
       let cleanupError: unknown;
-      let branchError: string | null = null;
       try {
-        const cleanup = await cleanupStructuredWorktree(record);
-        branchError = cleanup.branchError;
+        await cleanupStructuredWorktree(record);
       } catch (error) {
         cleanupError = error;
       }
@@ -434,17 +432,13 @@ export class WorktreeTransitionCoordinator {
         expected: 'cleanup_pending',
         next: 'cleared',
         updatedAt: Date.now(),
-        lastError: branchError
-          ? `Worktree removed, but branch deletion failed: ${branchError}`
-          : null,
+        lastError: null,
       });
       emitWorktreeSessionUpsert(record.sessionId);
       emitWorktreeTransitionStatus(
         record.sessionId,
-        branchError
-          ? `已恢复原工作目录并移除 worktree；分支保留：${branchError}`
-          : '已恢复原工作目录并安全移除 worktree，正在继续当前任务',
-        branchError !== null,
+        '已恢复原工作目录并安全移除 worktree，正在继续当前任务',
+        false,
         record.generation,
       );
       this.releaseAdapter(adapter, record);

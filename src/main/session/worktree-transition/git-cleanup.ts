@@ -8,20 +8,20 @@ import {
 import { getDb } from '@main/store/db';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
 import type { WorktreeTransitionRecord } from './types';
+import {
+  assertWorktreeClean,
+  assertWorktreeHeadIsReferenced,
+} from './git-safety';
 
-const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'trunk']);
 const WORKTREE_GIT_CHECK_TIMEOUT_MS = 30_000;
 const WORKTREE_REMOVE_TIMEOUT_MS = 10 * 60_000;
 
 export interface WorktreeExitPreflightResult {
   exists: boolean;
-  workBranch: string | null;
 }
 
 export interface WorktreeCleanupResult {
   worktreeRemoved: boolean;
-  branchDeleted: boolean;
-  branchError: string | null;
 }
 
 function stripTrailingSlash(value: string): string {
@@ -84,21 +84,6 @@ async function readWorktreeMainRepo(worktreePath: string): Promise<string> {
   return path.dirname(absolute);
 }
 
-async function assertClean(record: WorktreeTransitionRecord): Promise<void> {
-  if (record.discardChanges) return;
-  const status = await runGit(
-    ['status', '--porcelain'],
-    record.worktreePath,
-  );
-  if (!status.trim()) return;
-  const lines = status.split('\n');
-  throw new Error(
-    `worktree has uncommitted changes: ${lines.slice(0, 3).join(' / ')}${
-      lines.length > 3 ? ' ...' : ''
-    }`,
-  );
-}
-
 export async function preflightStructuredWorktreeExit(
   record: WorktreeTransitionRecord,
   input: {
@@ -113,7 +98,7 @@ export async function preflightStructuredWorktreeExit(
   }
   assertOwnedPath(record, input.worktreePathOverride);
   if (!existsSyncDefault(record.worktreePath)) {
-    return { exists: false, workBranch: record.workBranch || null };
+    return { exists: false };
   }
   const actualMainRepo = await readWorktreeMainRepo(record.worktreePath);
   if (
@@ -124,23 +109,11 @@ export async function preflightStructuredWorktreeExit(
       `worktree git common dir resolves to ${actualMainRepo}, not leased main repo ${record.mainRepo}.`,
     );
   }
-  const branch =
-    (
-      await runGit(
-        ['branch', '--show-current'],
-        record.worktreePath,
-      )
-    ).trim() || null;
-  const expectedBranch = record.workBranch || null;
-  if (branch !== expectedBranch) {
-    throw new Error(
-      `worktree branch changed from leased ${expectedBranch ?? 'detached HEAD'} to ${branch ?? 'detached HEAD'}.`,
-    );
-  }
+  await assertWorktreeHeadIsReferenced(runGit, record.worktreePath);
   if (!input.discardChanges) {
-    await assertClean({ ...record, discardChanges: false });
+    await assertWorktreeClean(runGit, record.worktreePath);
   }
-  return { exists: true, workBranch: branch };
+  return { exists: true };
 }
 
 async function persistedCwdReferences(
@@ -234,13 +207,12 @@ export async function cleanupStructuredWorktree(
 ): Promise<WorktreeCleanupResult> {
   await assertNoWorktreeReferences(record);
   if (!existsSyncDefault(record.worktreePath)) {
-    return {
-      worktreeRemoved: false,
-      branchDeleted: false,
-      branchError: null,
-    };
+    return { worktreeRemoved: false };
   }
-  await assertClean(record);
+  await assertWorktreeHeadIsReferenced(runGit, record.worktreePath);
+  if (!record.discardChanges) {
+    await assertWorktreeClean(runGit, record.worktreePath);
+  }
   await runGit(
     record.discardChanges
       ? ['worktree', 'remove', '--force', record.worktreePath]
@@ -248,51 +220,18 @@ export async function cleanupStructuredWorktree(
     record.mainRepo,
     WORKTREE_REMOVE_TIMEOUT_MS,
   );
-  if (
-    !record.deleteBranch ||
-    !record.workBranch ||
-    PROTECTED_BRANCHES.has(record.workBranch)
-  ) {
-    return {
-      worktreeRemoved: true,
-      branchDeleted: false,
-      branchError: null,
-    };
-  }
-  try {
-    await runGit(
-      [
-        'branch',
-        record.discardChanges ? '-D' : '-d',
-        record.workBranch,
-      ],
-      record.mainRepo,
-    );
-    return {
-      worktreeRemoved: true,
-      branchDeleted: true,
-      branchError: null,
-    };
-  } catch (error) {
-    return {
-      worktreeRemoved: true,
-      branchDeleted: false,
-      branchError: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return { worktreeRemoved: true };
 }
 
-/**
- * Startup recovery for an enter request whose provider result was never observed. It never forces
- * removal and deletes the generated branch only when it still points at the frozen base commit.
- */
+/** Startup recovery for an unobserved enter. It removes only a safe worktree and never mutates refs. */
 export async function rollbackUnacknowledgedEnter(
   record: WorktreeTransitionRecord,
 ): Promise<WorktreeCleanupResult> {
   await assertNoWorktreeReferences(record);
   let worktreeRemoved = false;
   if (existsSyncDefault(record.worktreePath)) {
-    await assertClean({ ...record, discardChanges: false });
+    await assertWorktreeClean(runGit, record.worktreePath);
+    await assertWorktreeHeadIsReferenced(runGit, record.worktreePath);
     await runGit(
       ['worktree', 'remove', record.worktreePath],
       record.mainRepo,
@@ -300,53 +239,5 @@ export async function rollbackUnacknowledgedEnter(
     );
     worktreeRemoved = true;
   }
-
-  let branchTip: string | null = null;
-  try {
-    branchTip = (
-      await runGit(
-        [
-          'rev-parse',
-          '--verify',
-          '--quiet',
-          `refs/heads/${record.workBranch}^{commit}`,
-        ],
-        record.mainRepo,
-      )
-    ).trim();
-  } catch {
-    // The branch may not have been created before the app stopped.
-  }
-  if (!branchTip) {
-    return {
-      worktreeRemoved,
-      branchDeleted: false,
-      branchError: null,
-    };
-  }
-  if (branchTip !== record.baseCommit) {
-    return {
-      worktreeRemoved,
-      branchDeleted: false,
-      branchError:
-        `generated branch ${record.workBranch} moved from base commit; retained for recovery`,
-    };
-  }
-  try {
-    await runGit(
-      ['branch', '-d', record.workBranch],
-      record.mainRepo,
-    );
-    return {
-      worktreeRemoved,
-      branchDeleted: true,
-      branchError: null,
-    };
-  } catch (error) {
-    return {
-      worktreeRemoved,
-      branchDeleted: false,
-      branchError: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return { worktreeRemoved };
 }

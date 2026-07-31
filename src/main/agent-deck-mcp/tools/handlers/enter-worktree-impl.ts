@@ -5,21 +5,26 @@ import {
   mkdirDefault,
   runGitDefault,
 } from './_shared/default-impl-deps';
+import {
+  assertWorktreeClean,
+  assertWorktreeHeadIsReferenced,
+} from '@main/session/worktree-transition/git-safety';
+
+const FULL_GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+const ENTER_GIT_CHECK_TIMEOUT_MS = 30_000;
+const ENTER_WORKTREE_MUTATION_TIMEOUT_MS = 10 * 60_000;
 
 export interface EnterWorktreeInput {
   callerSessionId: string;
-  baseBranch: string;
-  workBranchOverride?: string;
+  startPoint: string;
   worktreePathOverride?: string;
   worktreeRootOverride?: string;
 }
 
 export interface EnterWorktreeImplResult {
   worktreePath: string;
-  workBranch: string;
-  baseBranch: string;
-  baseCommit: string;
-  baseSource: 'base-branch';
+  startCommit: string;
+  headMode: 'detached';
   markerSet: boolean;
 }
 
@@ -28,15 +33,17 @@ export interface PreparedEnterWorktree {
   originalCwd: string;
   mainRepo: string;
   worktreePath: string;
-  workBranch: string;
-  baseBranch: string;
-  baseCommit: string;
+  startCommit: string;
 }
 
 export type EnterWorktreeError = { error: string; hint?: string };
 
 export interface EnterWorktreeDeps {
-  runGit?: (args: string[], cwd: string) => Promise<string>;
+  runGit?: (
+    args: string[],
+    cwd: string,
+    options?: { timeoutMs?: number },
+  ) => Promise<string>;
   exists?: (p: string) => Promise<boolean>;
   mkdir?: (p: string) => Promise<void>;
   callerCwd?: (callerSid: string) => string | null;
@@ -65,26 +72,17 @@ function isError(x: unknown): x is EnterWorktreeError {
   );
 }
 
-function isPlainLocalBranchName(name: string): boolean {
+function isValidStartPoint(value: string): boolean {
   return (
-    name.trim() === name &&
-    name.length > 0 &&
-    !name.startsWith('-') &&
-    !name.includes('..') &&
-    !name.includes('@{') &&
-    !name.includes('^') &&
-    !name.includes('~') &&
-    !name.includes(':') &&
-    !name.includes('?') &&
-    !name.includes('*') &&
-    !name.includes('[') &&
-    !name.includes('\\') &&
-    !/\s/.test(name)
+    value.trim() === value &&
+    value.length > 0 &&
+    !value.startsWith('-') &&
+    !/[\s\u0000]/.test(value)
   );
 }
 
 function slugForPath(value: string): string {
-  return value.replace(/\//g, '__').replace(/[^A-Za-z0-9._-]/g, '-');
+  return value.replace(/[^A-Za-z0-9._-]/g, '-');
 }
 
 async function resolveMainRepo(
@@ -92,7 +90,11 @@ async function resolveMainRepo(
   deps: Required<EnterWorktreeDeps>,
 ): Promise<string | EnterWorktreeError> {
   try {
-    const gitCommonDir = await deps.runGit(['rev-parse', '--git-common-dir'], callerCwd);
+    const gitCommonDir = await deps.runGit(
+      ['rev-parse', '--git-common-dir'],
+      callerCwd,
+      { timeoutMs: ENTER_GIT_CHECK_TIMEOUT_MS },
+    );
     const commonDirAbs = path.isAbsolute(gitCommonDir)
       ? gitCommonDir
       : path.resolve(callerCwd, gitCommonDir);
@@ -105,41 +107,47 @@ async function resolveMainRepo(
   }
 }
 
-async function resolveBaseCommit(
-  baseBranch: string,
+async function resolveStartCommit(
+  startPoint: string,
   mainRepo: string,
   deps: Required<EnterWorktreeDeps>,
 ): Promise<string | EnterWorktreeError> {
-  if (!isPlainLocalBranchName(baseBranch)) {
+  if (!isValidStartPoint(startPoint)) {
     return {
-      error: `baseBranch must be a plain local branch name: ${baseBranch}`,
-      hint: 'Pass a branch name like main or feature/x. SHA, tag, rev syntax, whitespace, and ref expressions are rejected.',
+      error: `startPoint must be one non-empty Git revision without whitespace or a leading hyphen: ${JSON.stringify(
+        startPoint,
+      )}`,
+      hint:
+        'Pass one commit-ish such as HEAD, main, refs/tags/v1.0, origin/main, a commit id, or HEAD~1.',
     };
   }
   try {
-    await deps.runGit(['check-ref-format', '--branch', baseBranch], mainRepo);
-  } catch (e) {
-    return {
-      error: `baseBranch is not a valid branch name: ${baseBranch}`,
-      hint: `git check-ref-format --branch rejected the name. Pass an existing local branch name, not a commit or tag.`,
-    };
-  }
-  try {
-    const commit = await deps.runGit(
-      ['rev-parse', '--verify', '--quiet', `refs/heads/${baseBranch}^{commit}`],
-      mainRepo,
-    );
-    if (!commit) {
+    const commit = (
+      await deps.runGit(
+        [
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          '--end-of-options',
+          `${startPoint}^{commit}`,
+        ],
+        mainRepo,
+        { timeoutMs: ENTER_GIT_CHECK_TIMEOUT_MS },
+      )
+    ).trim();
+    if (!FULL_GIT_OBJECT_ID.test(commit)) {
       return {
-        error: `baseBranch does not resolve to a local branch commit: ${baseBranch}`,
-        hint: `Create or fetch the local branch first, then retry. Verify with git -C ${mainRepo} branch --list ${baseBranch}.`,
+        error: `startPoint did not resolve to exactly one full commit object id: ${startPoint}`,
+        hint:
+          'Verify the revision in the caller repository, then pass exactly one commit-ish. No worktree or Git ref was created.',
       };
     }
     return commit;
-  } catch (e) {
+  } catch {
     return {
-      error: `baseBranch does not resolve to a local branch commit: ${baseBranch}`,
-      hint: `enter_worktree resolves refs/heads/${baseBranch}; SHA, tag, and remote-only refs are not accepted.`,
+      error: `startPoint did not resolve to exactly one full commit object id: ${startPoint}`,
+      hint:
+        'Verify the revision with git rev-parse --verify <startPoint>^{commit}, then retry. The tool accepts branches, tags, remote-tracking refs, commit ids, and revision expressions but never mutates the selected ref.',
     };
   }
 }
@@ -148,77 +156,55 @@ async function rollbackCreatedWorktree(input: {
   deps: Required<EnterWorktreeDeps>;
   mainRepo: string;
   worktreePath: string;
-  workBranch: string;
-  baseCommit: string;
 }): Promise<string[]> {
-  const warnings: string[] = [];
-  if (await input.deps.exists(input.worktreePath)) {
-    try {
-      const status = await input.deps.runGit(
-        ['status', '--porcelain'],
-        input.worktreePath,
-      );
-      if (status.trim()) {
-        warnings.push(
-          `created worktree became dirty and was retained: ${status
-            .split('\n')
-            .slice(0, 3)
-            .join(' / ')}`,
-        );
-      } else {
-        await input.deps.runGit(
-          ['worktree', 'remove', input.worktreePath],
-          input.mainRepo,
-        );
-      }
-    } catch (e) {
-      warnings.push(`git worktree remove failed: ${(e as Error).message}`);
-    }
-  }
-
-  let branchTip: string | null = null;
+  if (!(await input.deps.exists(input.worktreePath))) return [];
+  const checkedRunGit = (args: string[], cwd: string) =>
+    input.deps.runGit(
+      args,
+      cwd,
+      { timeoutMs: ENTER_GIT_CHECK_TIMEOUT_MS },
+    );
   try {
-    branchTip = (
-      await input.deps.runGit(
-        [
-          'rev-parse',
-          '--verify',
-          '--quiet',
-          `refs/heads/${input.workBranch}^{commit}`,
-        ],
-        input.mainRepo,
-      )
-    ).trim() || null;
-  } catch {
-    // git worktree add may have failed before creating the branch.
-  }
-  if (!branchTip) return warnings;
-  if (branchTip !== input.baseCommit) {
-    warnings.push(
-      `generated branch ${input.workBranch} moved from the base commit and was retained`,
+    await assertWorktreeClean(
+      checkedRunGit,
+      input.worktreePath,
     );
-    return warnings;
+  } catch (error) {
+    return [
+      `created worktree was retained because its dirty-state check failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    ];
   }
-  if (await input.deps.exists(input.worktreePath)) {
-    warnings.push(
-      `generated branch ${input.workBranch} was retained because the worktree path still exists`,
+  try {
+    await assertWorktreeHeadIsReferenced(
+      checkedRunGit,
+      input.worktreePath,
     );
-    return warnings;
+  } catch (error) {
+    return [
+      `created worktree was retained because its HEAD safety check failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    ];
   }
   try {
     await input.deps.runGit(
-      ['branch', '-d', input.workBranch],
+      ['worktree', 'remove', input.worktreePath],
       input.mainRepo,
+      { timeoutMs: ENTER_WORKTREE_MUTATION_TIMEOUT_MS },
     );
-  } catch (e) {
-    warnings.push(
-      `git branch -d ${input.workBranch} failed: ${(e as Error).message}`,
-    );
+    return [];
+  } catch (error) {
+    return [
+      `git worktree remove failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    ];
   }
-  return warnings;
 }
 
-/** Read-only git/path validation plus parent creation. No worktree or branch exists on success. */
+/** Read-only Git/path validation plus parent creation. No worktree or ref exists on success. */
 export async function prepareEnterWorktree(
   input: EnterWorktreeInput,
   depsOverride?: EnterWorktreeDeps,
@@ -236,55 +222,27 @@ export async function prepareEnterWorktree(
   }
   const mainRepo = await resolveMainRepo(callerCwd, deps);
   if (isError(mainRepo)) return mainRepo;
-  const baseCommit = await resolveBaseCommit(
-    input.baseBranch,
+  const startCommit = await resolveStartCommit(
+    input.startPoint,
     mainRepo,
     deps,
   );
-  if (isError(baseCommit)) return baseCommit;
-  const workBranch =
-    input.workBranchOverride ??
-    `agent-deck/${slugForPath(input.baseBranch)}-${input.callerSessionId.slice(
-      0,
-      8,
-    )}-${deps.now().toString(36)}`;
+  if (isError(startCommit)) return startCommit;
+  const sessionSlug =
+    slugForPath(input.callerSessionId.slice(0, 12)) || 'session';
+  const worktreeName =
+    `agent-deck-${sessionSlug}-${deps.now().toString(36)}`;
   const worktreeRoot =
     input.worktreeRootOverride ??
     path.join(mainRepo, '.agent-deck', 'worktrees');
   const worktreePath =
     input.worktreePathOverride ??
-    path.join(worktreeRoot, slugForPath(workBranch));
+    path.join(worktreeRoot, worktreeName);
   if (await deps.exists(worktreePath)) {
     return {
       error: `worktreePath already exists: ${worktreePath}`,
-      hint: 'Choose a new workBranch or worktreePath. enter_worktree creates a fresh worktree and does not attach to an existing directory.',
-    };
-  }
-  try {
-    const branchExists = await deps.runGit(
-      [
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/heads/${workBranch}`,
-      ],
-      mainRepo,
-    );
-    if (branchExists) {
-      return {
-        error: `workBranch already exists: ${workBranch}`,
-        hint: 'Choose a new workBranch or delete the stale branch after preserving any needed commits.',
-      };
-    }
-  } catch {
-    // rev-parse exits non-zero when the branch is absent.
-  }
-  try {
-    await deps.runGit(['check-ref-format', '--branch', workBranch], mainRepo);
-  } catch {
-    return {
-      error: `workBranch is not a valid branch name: ${workBranch}`,
-      hint: 'Pass a valid branch name, for example agent-deck/my-task.',
+      hint:
+        'Choose a different worktreePath or omit it to derive a new session/time-based path. The tool never attaches to or overwrites an existing directory.',
     };
   }
   await deps.mkdir(path.dirname(worktreePath));
@@ -293,9 +251,7 @@ export async function prepareEnterWorktree(
     originalCwd: callerCwd,
     mainRepo,
     worktreePath,
-    workBranch,
-    baseBranch: input.baseBranch,
-    baseCommit,
+    startCommit,
   };
 }
 
@@ -311,12 +267,12 @@ export async function createPreparedWorktree(
     [
       'worktree',
       'add',
-      '-b',
-      prepared.workBranch,
+      '--detach',
       prepared.worktreePath,
-      prepared.baseCommit,
+      prepared.startCommit,
     ],
     prepared.mainRepo,
+    { timeoutMs: ENTER_WORKTREE_MUTATION_TIMEOUT_MS },
   );
 }
 
@@ -332,8 +288,6 @@ export async function rollbackPreparedWorktree(
     deps,
     mainRepo: prepared.mainRepo,
     worktreePath: prepared.worktreePath,
-    workBranch: prepared.workBranch,
-    baseCommit: prepared.baseCommit,
   });
 }
 
@@ -352,7 +306,9 @@ export async function enterWorktreeImpl(
   } catch (e) {
     return {
       error: `git worktree add failed: ${(e as Error).message}`,
-      hint: `Verify baseBranch "${input.baseBranch}" is available and worktreePath parent is writable: ${path.dirname(prepared.worktreePath)}`,
+      hint:
+        `Verify startPoint "${input.startPoint}" still resolves and the worktree parent is writable: ` +
+        `${path.dirname(prepared.worktreePath)}. No Git ref was created or changed.`,
     };
   }
   try {
@@ -367,16 +323,14 @@ export async function enterWorktreeImpl(
       hint:
         warnings.length > 0
           ? `Rollback was incomplete: ${warnings.join('; ')}`
-          : 'Created worktree and branch were rolled back.',
+          : 'The created detached worktree was removed; no Git ref was created or changed.',
     };
   }
 
   return {
     worktreePath: prepared.worktreePath,
-    workBranch: prepared.workBranch,
-    baseBranch: prepared.baseBranch,
-    baseCommit: prepared.baseCommit,
-    baseSource: 'base-branch',
+    startCommit: prepared.startCommit,
+    headMode: 'detached',
     markerSet: true,
   };
 }

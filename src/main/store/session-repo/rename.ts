@@ -116,9 +116,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // 本 plan 列扩同 modules 顺手补齐(commit message 透明注明)。
       // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 H1 关键修法:列扩 1 → 20 列
       // (v020 cwd_release_marker)。SDK fork / recover rename 路径必须把此列从 fromRow 复制
-      // 到 NEW 行,否则 codex teammate mcp enter_worktree 设的 marker 在 fork 后丢失,
-      // 下次 archive_plan 预检走「在 worktree 内 + 无 marker」分支 reject(状态 3)
-      // — 完全堵死跨 adapter / 外部 caller 路径的解锁意义。
+      // 到 NEW 行，否则 structured transition retry / handoff transfer / legacy adoption
+      // 无法识别 source session 持有的 worktree。
       // plan reverse-rename-sid-stability-20260520 §A.2 关键修法:列扩 1 → 21 列 (v021 cli_session_id)。
       // **R6 HIGH-R6-1 + R7 HIGH-R7-1 修订**: spawn 主路径 (toExists=false INSERT) cli_session_id
       // hardcode `toId` (= first realId, S2 jsdoc spawn 路径 applicationSid 切到 realId 后冻结),
@@ -464,8 +463,8 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       // **不同** — 那些是 user preference (OLD 未设时保留 NEW 已有偏好),marker 是 transient
       // session state (worktree 持有标记) 必须无条件按 OLD 覆盖 (P5 Round 1 reviewer-codex MED-2
       // 修法):OLD null + NEW stale value 时 NEW 应清空 (rename = OLD 接管 NEW 身份,worktree
-      // 持有状态必须以 OLD 为准),否则 codex SDK 隐式 fork 后 stale marker 跟到新 sid 触发
-      // archive_plan 状态 4 (marker != worktree) 误 reject。
+      // 持有状态必须以 OLD 为准),否则 codex SDK 隐式 fork 后 stale marker 会错误归属到新 sid，
+      // 干扰后续 structured exit 或 legacy adoption。
       // 与 toExists=false INSERT 分支同款无条件复制 marker (核心 SQL 已包含此列,binds 直接传)。
       db.prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(
         fromRow.cwd_release_marker,

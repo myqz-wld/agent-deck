@@ -203,8 +203,8 @@ export async function recoverAndSendImpl(
   // 避免 archived session 在 cwd fallback 失败前被 unarchive 成 active 但实际死路一条 —
   // 用户体感"刚归档的会话被自动恢复又死路")。
   //
-  // sessionRepo.cwd 已不存在(典型场景:K2 老 session cwd=worktree 后 worktree 被 archive_plan
-  // 删 / 用户手动 git worktree remove / 跨设备同步丢目录 / 误删等)。
+  // sessionRepo.cwd 已不存在(典型场景:老 session cwd=worktree 后 worktree 被 exit_worktree
+  // 或用户手动 git worktree remove / 跨设备同步丢目录 / 误删等)。
   //
   // 走 jsonl missing fallback 同款下游路径:createThunk 不带 resume + 后置 renameSdkSession
   // (CHANGELOG_28 已成熟;CLI 历史失但应用层 events/file_changes/summaries 子表保留)。

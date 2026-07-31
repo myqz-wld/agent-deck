@@ -27,13 +27,16 @@ export interface WorktreeTransitionRecord {
   targetCwd: string;
   mainRepo: string;
   worktreePath: string;
+  /** v059 compatibility only. New detached enters persist an empty string. */
   workBranch: string;
+  /** v059 compatibility only. New detached enters persist an empty string. */
   baseBranch: string;
   baseCommit: string;
   toolUseId: string | null;
   continuationKey: string;
   continuationDelivered: boolean;
   discardChanges: boolean;
+  /** v059 compatibility only. New exits persist false and cleanup never mutates branches. */
   deleteBranch: boolean;
   requestedAt: number;
   updatedAt: number;
@@ -46,8 +49,6 @@ export interface NewWorktreeTransition {
   targetCwd: string;
   mainRepo: string;
   worktreePath: string;
-  workBranch: string;
-  baseBranch: string;
   baseCommit: string;
   toolUseId: string;
   continuationKey: string;
@@ -58,7 +59,6 @@ export interface WorktreeExitOptions {
   toolUseId: string;
   continuationKey: string;
   discardChanges: boolean;
-  deleteBranch: boolean;
   requestedAt: number;
 }
 
@@ -70,14 +70,10 @@ export interface LegacyWorktreeExitAdoption {
   originalCwd: string;
   mainRepo: string;
   worktreePath: string;
-  /** Empty means the registered legacy worktree is detached. */
-  workBranch: string;
-  baseBranch: string;
-  baseCommit: string;
+  headCommit: string;
   toolUseId: string;
   continuationKey: string;
   discardChanges: boolean;
-  deleteBranch: boolean;
   requestedAt: number;
 }
 

@@ -5,6 +5,12 @@ import {
   realpathSyncDefault,
   runGitDefault,
 } from './_shared/default-impl-deps';
+import {
+  assertWorktreeClean,
+  assertWorktreeHeadIsReferenced,
+  DirtyWorktreeError,
+  UnreferencedWorktreeHeadError,
+} from '@main/session/worktree-transition/git-safety';
 
 const LEGACY_EXIT_PREFLIGHT_GIT_TIMEOUT_MS = 30_000;
 
@@ -12,7 +18,6 @@ export interface ExitWorktreeInput {
   callerSessionId: string;
   worktreePathOverride?: string;
   discardChanges?: boolean;
-  deleteBranch?: boolean;
 }
 
 export interface PreparedLegacyWorktreeExit {
@@ -21,10 +26,7 @@ export interface PreparedLegacyWorktreeExit {
   originalCwd: string;
   mainRepo: string;
   worktreePath: string;
-  /** Empty means the legacy worktree is detached. */
-  workBranch: string;
-  baseBranch: string;
-  baseCommit: string;
+  headCommit: string;
 }
 
 export interface MissingLegacyWorktreeExit {
@@ -131,12 +133,9 @@ function clearMarker(
   }
 }
 
-function dirtyWorktreeError(status: string): ExitWorktreeError {
-  const lines = status.split('\n');
+function dirtyWorktreeError(error: DirtyWorktreeError): ExitWorktreeError {
   return {
-    error: `worktree has uncommitted changes: ${lines
-      .slice(0, 3)
-      .join(' / ')}${lines.length > 3 ? ' ...' : ''}`,
+    error: error.message,
     hint:
       'Do not lose user work. Commit, stash, copy, or otherwise preserve these changes before ' +
       'exiting. Pass discardChanges=true only when the user explicitly wants to abandon them.',
@@ -229,27 +228,24 @@ export async function prepareLegacyWorktreeExit(
     };
   }
 
-  let workBranch = '';
+  let headCommit: string;
   try {
-    workBranch = (
-      await deps.runGit(['branch', '--show-current'], worktreePath)
-    ).trim();
-  } catch {
-    // Detached legacy worktrees intentionally use an empty persisted branch projection.
-  }
-
-  let baseCommit: string;
-  try {
-    baseCommit = (
-      await deps.runGit(
-        ['rev-parse', '--verify', 'HEAD^{commit}'],
-        worktreePath,
-      )
-    ).trim();
-    if (!baseCommit) throw new Error('Git returned an empty HEAD commit.');
+    headCommit = await assertWorktreeHeadIsReferenced(
+      deps.runGit,
+      worktreePath,
+    );
   } catch (error) {
+    if (error instanceof UnreferencedWorktreeHeadError) {
+      return {
+        error: error.message,
+        hint:
+          'Create a local branch or tag that contains this HEAD commit, then retry. ' +
+          'discardChanges does not authorize losing commits, and no marker or Git ref was changed.',
+        markerCleared: false,
+      };
+    }
     return {
-      error: `git rev-parse HEAD failed in legacy worktree: ${
+      error: `Git HEAD safety check failed in legacy worktree: ${
         error instanceof Error ? error.message : String(error)
       }`,
       hint:
@@ -260,14 +256,13 @@ export async function prepareLegacyWorktreeExit(
 
   if (!input.discardChanges) {
     try {
-      const status = await deps.runGit(
-        ['status', '--porcelain'],
-        worktreePath,
-      );
-      if (status.trim()) return dirtyWorktreeError(status);
+      await assertWorktreeClean(deps.runGit, worktreePath);
     } catch (error) {
+      if (error instanceof DirtyWorktreeError) {
+        return dirtyWorktreeError(error);
+      }
       return {
-        error: `git status --porcelain failed in legacy worktree: ${
+        error: `Git dirty-state check failed in legacy worktree: ${
           error instanceof Error ? error.message : String(error)
         }`,
         hint:
@@ -294,9 +289,7 @@ export async function prepareLegacyWorktreeExit(
     originalCwd,
     mainRepo,
     worktreePath,
-    workBranch,
-    baseBranch: workBranch || 'HEAD',
-    baseCommit,
+    headCommit,
   };
 }
 

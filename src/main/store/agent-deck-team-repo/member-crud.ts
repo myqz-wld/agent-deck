@@ -50,8 +50,8 @@ export interface MemberCrudHelpers {
    * observer 永远看不到 dual-lead 中间态(better-sqlite3 单 connection serializable-like 隔离 —
    * spike2 v2 archive 联动隔离 attestation 实证)。
    *
-   * **典型场景**:hand_off_session adopt_teammates: true 把 caller=lead 的 lead role 转给
-   * 新 session(详 hand-off-session.ts handler adopt 分支 + plan §D5 baton-cleanup phase 1.5)。
+   * **典型场景**:hand_off_session 的 resource transfer 把 caller=lead 的 lead role 原子转给
+   * successor session。
    *
    * **三 case 分流**(transaction 内 Phase B 决策):
    * - **case 1 (adopt 主路径)**: newLeadSid 不在 team_member 表 → INSERT 新 row 为 lead,

@@ -21,6 +21,21 @@ function toolStart(
   };
 }
 
+function toolEnd(
+  sessionId: string,
+  toolUseId: string,
+  ts = 1_001,
+): AgentEvent {
+  return {
+    sessionId,
+    agentId: 'codex-cli',
+    kind: 'tool-use-end',
+    payload: { toolUseId, status: 'failed' },
+    ts,
+    source: 'sdk',
+  };
+}
+
 describe('WorktreeToolInvocationRegistry', () => {
   it('recognizes only the exact public MCP tool names', () => {
     expect(
@@ -120,5 +135,28 @@ describe('WorktreeToolInvocationRegistry', () => {
     registry.renameSession('temporary', 'native');
     expect(() => registry.reserve('temporary', 'enter', 1_001)).toThrow();
     expect(registry.reserve('native', 'enter', 1_001)).toBe('tool-a');
+  });
+
+  it('releases an unclaimed invocation when an early-return tool result ends', () => {
+    const registry = new WorktreeToolInvocationRegistry();
+    registry.observe(
+      toolStart(
+        'session-a',
+        'tool-failed',
+        'mcp__agent-deck__exit_worktree',
+      ),
+    );
+    registry.observe(toolEnd('session-a', 'tool-failed'));
+    registry.observe(
+      toolStart(
+        'session-a',
+        'tool-retry',
+        'mcp__agent-deck__exit_worktree',
+        1_002,
+      ),
+    );
+    expect(registry.reserve('session-a', 'exit', 1_003)).toBe(
+      'tool-retry',
+    );
   });
 });

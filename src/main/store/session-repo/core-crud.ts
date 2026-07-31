@@ -37,16 +37,12 @@ export function upsert(rec: SessionRecord): void {
   // 透传的 SDK sandbox 额外可写根 spawn 时持久化,让 recoverer / SDK resume 路径还原
   // sandbox.allowWrite,与 codex_sandbox / claude_code_sandbox / model 同 per-session
   // resilience 模式;upsert 必须参与否则 lifecycle 复活路径丢字段。
-  // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：cwd_release_marker
-  // 同款 — mcp enter_worktree marker 让 archive_plan 预检 4 态分流认得跨 adapter 路径,upsert
-  // 必须参与否则 lifecycle 复活路径丢失 marker（与 codex_sandbox / extra_allow_write 同模式;
-  // rename 路径 H1 关键修法也依赖此字段在 fork 后跟到 NEW 行）。
+  // cwd_release_marker mirrors the session-owned worktree path for transition recovery. Upsert
+  // must preserve it so lifecycle revival and SDK rename/fork paths retain exact ownership.
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
-  // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：cwd_release_marker
-  // 同款 — mcp enter_worktree marker 让 archive_plan 预检 4 态分流认得跨 adapter 路径,upsert
-  // 必须参与否则 lifecycle 复活路径丢失 marker（与 codex_sandbox / extra_allow_write 同模式;
-  // rename 路径 H1 关键修法也依赖此字段在 fork 后跟到 NEW 行）。
+  // cwd_release_marker mirrors the session-owned worktree path for transition recovery. Upsert
+  // must preserve it so lifecycle revival and SDK rename/fork paths retain exact ownership.
   // plan reverse-rename-sid-stability-20260520 §A.1 / 设计决策 D1 / 不变量 2:cli_session_id
   // 列扩 (列 21,与 v020 cwd_release_marker pattern 同款 upsert 透传) — 让 lifecycle 复活路径不
   // 丢 cli_session_id;rename 路径 §A.2 重写规则:spawn 主路径 (toExists=false INSERT) hardcode
@@ -437,9 +433,8 @@ export function setCwd(id: string, cwd: string): void {
  * marker = worktreePath 绝对路径（caller 当前持有）；marker = null 视为「未持有 marker」
  * （caller 走 claude builtin 路径或还没调 mcp enter_worktree）。
  *
- * SDK fork / recover rename 路径必须把此列从 fromRow 复制到 NEW 行（详 rename.ts H1 修法）—
- * 否则 codex teammate enter_worktree 设的 marker 在 fork 后丢失, 下次 archive_plan 预检走
- * 「在 worktree 内 + 无 marker」分支 reject。
+ * SDK fork / recover rename 路径必须把此列从 fromRow 复制到 NEW 行（详 rename.ts），
+ * 否则 transition retry、handoff transfer 或 legacy adoption 会丢失 worktree ownership。
  *
  * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。
  */

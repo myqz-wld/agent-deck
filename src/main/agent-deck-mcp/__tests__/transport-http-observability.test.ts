@@ -93,8 +93,6 @@ describe('MCP HTTP operation classifier', () => {
       'enter_worktree',
       'exit_worktree',
       'shutdown_session',
-      'shutdown_baton_teammates',
-      'archive_plan',
     ]) {
       expect(classifyMcpHttpOperation(toolBody(name))).toMatchObject({
         operationClass: 'lifecycle',

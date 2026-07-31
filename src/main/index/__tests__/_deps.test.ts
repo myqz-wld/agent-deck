@@ -118,15 +118,14 @@ describe('createInitialBootstrapState', () => {
 });
 
 describe('TOOL_DISPLAY_NAME', () => {
-  it('覆盖 caller-archive-failed toolName union 全部三值(穷举,无 fallback 软兜底)', () => {
-    // EventMap['caller-archive-failed'][0]['toolName'] union = 这三值;
+  it('覆盖 caller-archive-failed toolName union 全部两值(穷举,无 fallback 软兜底)', () => {
+    // EventMap['caller-archive-failed'][0]['toolName'] union = 这两值;
     // TOOL_DISPLAY_NAME 是 Record<CallerArchiveFailedToolName, string> 强制完整覆盖
     // (加新 toolName 忘加条目 → tsc 编译期 fail)。本测试运行期再兜一层穷举断言。
-    expect(TOOL_DISPLAY_NAME.archive_plan).toBe('plan 归档');
     expect(TOOL_DISPLAY_NAME.hand_off_session).toBe('会话接力');
     expect(TOOL_DISPLAY_NAME.SessionHandOffCommit).toBe('会话接力');
     expect(Object.keys(TOOL_DISPLAY_NAME).sort()).toEqual(
-      ['SessionHandOffCommit', 'archive_plan', 'hand_off_session'].sort(),
+      ['SessionHandOffCommit', 'hand_off_session'].sort(),
     );
   });
 

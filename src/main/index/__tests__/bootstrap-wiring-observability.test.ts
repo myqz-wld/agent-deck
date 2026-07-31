@@ -60,7 +60,6 @@ vi.mock('@main/index/_deps', () => ({
   makeSafeSend: mocks.makeSafeSend,
   makeDebouncedTeamSender: mocks.makeDebouncedTeamSender,
   TOOL_DISPLAY_NAME: {
-    archive_plan: 'plan 归档',
     hand_off_session: '会话接力',
     SessionHandOffCommit: '会话接力',
   },
@@ -364,22 +363,22 @@ describe('bootstrap wiring observability', () => {
   it.each([
     [
       'archive-throw',
-      '原会话未归档,可重试归档(12345678…,工具:plan 归档)',
+      '原会话未归档,可重试归档(12345678…,工具:会话接力)',
     ],
     [
       'probe-throw',
-      '数据库异常无法探针原会话,可稍后重试归档(12345678…,工具:plan 归档)',
+      '数据库异常无法探针原会话,可稍后重试归档(12345678…,工具:会话接力)',
     ],
     [
       'row-missing',
-      '原会话记录不可用,归档未完成(12345678…,工具:plan 归档)',
+      '原会话记录不可用,归档未完成(12345678…,工具:会话接力)',
     ],
   ])('preserves the %s archive notification and IPC payload', async (reasonKind, body) => {
     await initializeWiring();
     const archiveDispatch = listener('caller-archive-failed');
     const payload = {
       sessionId: '12345678-rest',
-      toolName: 'archive_plan',
+      toolName: 'hand_off_session',
       reason: 'raw UI-facing archive reason',
       reasonKind,
     };
@@ -405,7 +404,7 @@ describe('bootstrap wiring observability', () => {
       get sessionId(): string {
         throw new Error('RAW_ARCHIVE_DISPATCH_MARKER /Users/private/repo');
       },
-      toolName: 'archive_plan',
+      toolName: 'hand_off_session',
       reason: 'raw reason',
       reasonKind: 'row-missing',
     };

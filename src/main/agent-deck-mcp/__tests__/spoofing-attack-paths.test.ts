@@ -4,8 +4,8 @@
  *
  * **背景**：B-HIGH-1（REVIEW_46） — codex 提 + claude 反驳 mini-test 实证：旧版 HTTP global
  * token caller + stdio caller 都能通过 `args.callerSessionId='victim-active-sid'` 伪装
- * 任意活动会话身份调写工具（spawn_session / send_message / shutdown_session / archive_plan
- * / hand_off_session）。修法 (C) 两层守门：
+ * 任意活动会话身份调写工具（spawn_session / send_message / shutdown_session /
+ * hand_off_session）。修法 (C) 两层守门：
  * 1. transport-http.ts `resolveCallerSidForReadOnly(extra)`：fallbackToGlobal=true 时 force
  *    sentinel；per-session authn 通过时 resolvedSid 真 sid；其他兜底 sentinel
  * 2. transport-stdio.ts `callerSessionIdOverride: () => EXTERNAL_CALLER_SENTINEL` 永远 sentinel
@@ -102,7 +102,7 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
     expect(denialJson.error).toMatch(/spawn_session not allowed for external caller/);
   });
 
-  it('(A) stdio + spoofed sid + 写 tool send_message / shutdown_session / archive_plan → 全部 DENY', () => {
+  it('(A) stdio + spoofed sid + core write tools → 全部 DENY', () => {
     const ctx = simulateMakeCtx({
       override: stdioOverride,
       argsCallerSid: 'victim-active-sid',
@@ -115,13 +115,9 @@ describe('B-HIGH-1 4 段防御链 — 5 攻击 / 合法向量端到端', () => {
       'present_plan',
       'present_diff',
       'shutdown_session',
-      'archive_plan',
       'hand_off_session',
       'enter_worktree',
       'exit_worktree',
-      // R3 fix-7 (M1 reviewer-claude LOW): Phase 5.3 新增 shutdown_baton_teammates 写 tool
-      // (types.ts EXTERNAL_CALLER_ALLOWED.shutdown_baton_teammates=false)
-      'shutdown_baton_teammates',
       // plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 R1 F1：5 task tool 合并入 agent-deck
       // namespace 后 3 写 tool 加进 deny external 列表（EXTERNAL_CALLER_ALLOWED.task_*=false）
       'task_create',

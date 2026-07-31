@@ -3,7 +3,7 @@
  *
  * **抽出动机**: SessionRecoverer 是 class 但 recoverAndSend ~280 LOC 巨型 method,
  * 抽到独立 free function 让 facade SessionRecoverer 真薄(class shell + thin delegate)。
- * `this.X` field 改为 deps interface 注入 (与 hand-off-session / archive-plan-impl 经验同款)。
+ * `this.X` field 改为 deps interface 注入，便于隔离副作用并测试。
  *
  * **执行序列**(对应 facade recoverer.ts 修前 L186-456 位置):
  * 1. inflight check — 同 sessionId 重入时等单飞完成,attachments 透传后 sendThunk live 路径

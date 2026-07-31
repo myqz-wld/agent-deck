@@ -46,8 +46,6 @@ function createEnter(
     targetCwd: '/repo/.agent-deck/worktrees/task',
     mainRepo: '/repo',
     worktreePath: '/repo/.agent-deck/worktrees/task',
-    workBranch: 'agent-deck/task',
-    baseBranch: 'main',
     baseCommit: 'a'.repeat(40),
     toolUseId: 'tool-enter',
     continuationKey: 'cwd-transition:session-a:enter:1',
@@ -104,13 +102,10 @@ describe.skipIf(!bindingAvailable)('v059 worktree cwd transitions', () => {
         originalCwd: '/repo',
         mainRepo: '/repo',
         worktreePath: '/repo/.agent-deck/worktrees/legacy',
-        workBranch: '',
-        baseBranch: 'HEAD',
-        baseCommit: 'a'.repeat(40),
+        headCommit: 'a'.repeat(40),
         toolUseId: 'tool-exit',
         continuationKey: 'worktree-cwd:legacy-exit:test-1',
         discardChanges: false,
-        deleteBranch: false,
         requestedAt: 10,
       });
 
@@ -178,13 +173,10 @@ describe.skipIf(!bindingAvailable)('v059 worktree cwd transitions', () => {
           originalCwd: '/repo',
           mainRepo: '/repo',
           worktreePath: '/repo/.agent-deck/worktrees/legacy',
-          workBranch: '',
-          baseBranch: 'HEAD',
-          baseCommit: 'a'.repeat(40),
+          headCommit: 'a'.repeat(40),
           toolUseId: 'tool-exit',
           continuationKey: 'cwd-transition:session-a:exit:1',
           discardChanges: false,
-          deleteBranch: false,
           requestedAt: 10,
         }),
       ).toThrow(WorktreeTransitionConflictError);
@@ -210,6 +202,9 @@ describe.skipIf(!bindingAvailable)('v059 worktree cwd transitions', () => {
         direction: 'enter',
         phase: 'creating',
         toolUseId: 'tool-enter',
+        workBranch: '',
+        baseBranch: '',
+        deleteBranch: false,
       });
       expect(
         db
@@ -273,7 +268,6 @@ describe.skipIf(!bindingAvailable)('v059 worktree cwd transitions', () => {
         toolUseId: 'tool-exit',
         continuationKey: 'cwd-transition:session-a:exit:1',
         discardChanges: false,
-        deleteBranch: false,
         requestedAt: 20,
       });
       compareAndSetPhaseWithDb(db, {
@@ -475,7 +469,6 @@ describe.skipIf(!bindingAvailable)('v059 worktree cwd transitions', () => {
         toolUseId: 'tool-exit',
         continuationKey: 'cwd-transition:session-a:exit:1',
         discardChanges: false,
-        deleteBranch: false,
         requestedAt: 20,
       });
       const restored = compareAndSetPhaseWithDb(db, {
