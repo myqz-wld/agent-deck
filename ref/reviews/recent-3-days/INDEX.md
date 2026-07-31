@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-31 | `REVIEW_205_internal-compatibility-pruning.md` | Second-pass internal compatibility pruning | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 3 LOW fixed |
 | 2026-07-31 | `REVIEW_204_compatibility-cleanup.md` | Current-only compatibility cutover and codebase slimming | 0 CRITICAL / 1 HIGH fixed / 5 MEDIUM fixed / 2 LOW fixed |
 | 2026-07-31 | `REVIEW_203_hook-config-and-development-navigation-safety.md` | Hook ownership and renderer reload safety | 0 CRITICAL / 3 HIGH fixed / 1 MEDIUM fixed |
 | 2026-07-30 | `REVIEW_202_worktree-resume-recovery-race.md` | Revival-only worktree recovery | 0 CRITICAL / 1 HIGH fixed |

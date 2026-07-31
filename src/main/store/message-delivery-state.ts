@@ -103,11 +103,8 @@ export const BACKOFF_TIERS: ReadonlyArray<readonly [attemptCount: number, delayM
 export const MAX_RETRY = 3;
 
 /**
- * Status enum SSOT。SQL CHECK constraint（migrations/0007 / 0010）独立声明同款集合 —— 不
- * 自动同步（migration 是 frozen pl text 不能 import TS const），但 invariant 测试覆盖
- * （`agent-deck-message-repo.test.ts` `100KB 边界` 等 case 间接验证）。新增 status 必须：
- * (a) 加新 migration ALTER CHECK 约束；(b) 加到此数组末尾；(c) 加到 `coerceMessageStatus()`
- * fallback case；(d) 至少加 1 个 test case。
+ * Status enum SSOT. The current schema.sql CHECK constraint declares the same set independently.
+ * When adding a status, update both definitions, coercion behavior, and focused tests together.
  */
 export const VALID_MESSAGE_STATUSES = [
   'pending',

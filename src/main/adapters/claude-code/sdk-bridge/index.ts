@@ -34,12 +34,12 @@ import type {
   SdkSessionHandle,
 } from './types';
 import { PermissionResponder } from './permission-responder';
+import { SessionRecoverer } from './recoverer';
 import {
-  SessionRecoverer,
   defaultResumeJsonlExists,
   defaultResumeJsonlMtimeMs,
   defaultCwdExists,
-} from './recoverer';
+} from './recoverer/jsonl-discovery';
 import { StreamProcessor } from './stream-processor';
 import { ClaudeCwdTransitionController } from './cwd-transition-controller';
 import { RestartController } from './restart-controller';

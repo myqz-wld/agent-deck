@@ -665,28 +665,6 @@ describe('issue tool external caller deny (§不变量 7)', () => {
     );
   });
 
-  it('stdio transport sentinel — DENY 两 tool', () => {
-    for (const tool of ['report_issue', 'append_issue_context'] as const) {
-      const denial = denyExternalIfNotAllowed(tool, {
-        callerSessionId: EXTERNAL_CALLER_SENTINEL,
-        transport: 'stdio',
-      });
-      expect(denial).not.toBeNull();
-      expect(denial?.isError).toBe(true);
-    }
-  });
-
-  it('stdio + 非 sentinel callerSid（invariant violation 模拟）— 兜底 DENY', () => {
-    const denial = denyExternalIfNotAllowed('report_issue', {
-      callerSessionId: 'attacker-injected',
-      transport: 'stdio',
-    });
-    expect(denial).not.toBeNull();
-    expect(JSON.parse(denial!.content[0].text).error).toMatch(
-      /not allowed for stdio transport with non-sentinel/,
-    );
-  });
-
   it('in-process transport + real sid — ALLOW（closure override 路径)', () => {
     for (const tool of ['report_issue', 'append_issue_context'] as const) {
       expect(
@@ -887,16 +865,14 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
     ).toBe(false);
   });
 
-  it('external deny：EXTERNAL_CALLER_ALLOWED.update_issue_status === false + http/stdio sentinel DENY', () => {
+  it('external deny：EXTERNAL_CALLER_ALLOWED.update_issue_status === false + HTTP sentinel DENY', () => {
     expect(EXTERNAL_CALLER_ALLOWED.update_issue_status).toBe(false);
-    for (const transport of ['http', 'stdio'] as const) {
-      const denial = denyExternalIfNotAllowed('update_issue_status', {
-        callerSessionId: EXTERNAL_CALLER_SENTINEL,
-        transport,
-      });
-      expect(denial).not.toBeNull();
-      expect(denial?.isError).toBe(true);
-    }
+    const denial = denyExternalIfNotAllowed('update_issue_status', {
+      callerSessionId: EXTERNAL_CALLER_SENTINEL,
+      transport: 'http',
+    });
+    expect(denial).not.toBeNull();
+    expect(denial?.isError).toBe(true);
   });
 
   it('双 null reject（review Round 1）：source/resolution 皆 null（会话被 GC）→ 任意 caller reject + 不调 update', async () => {

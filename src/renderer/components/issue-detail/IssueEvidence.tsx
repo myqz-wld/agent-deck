@@ -40,8 +40,6 @@ function LogsReferenceDetails({ logsRef }: { logsRef: LogsRef }): JSX.Element {
 export function IssueLogsReference({
   logsRef,
 }: {
-  issueId: string;
-  sessionId: string;
   logsRef: LogsRef;
 }): JSX.Element {
   return (
@@ -88,8 +86,6 @@ export function IssueAppendices({
   appendices,
   onOpenSession,
 }: {
-  issueId: string;
-  sessionId: string;
   appendices: IssueAppendix[];
   onOpenSession?: (sessionId: string) => void;
 }): JSX.Element | null {

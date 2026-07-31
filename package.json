@@ -93,7 +93,7 @@
     "files": [
       "build/**/*",
       "!build/dist/**",
-      "resources/**/*"
+      "resources/icon.png"
     ],
     "extraResources": [
       {

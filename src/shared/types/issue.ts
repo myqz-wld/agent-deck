@@ -28,20 +28,6 @@ export type IssueStatus = 'open' | 'in-progress' | 'resolved';
 /** §D9：severity 严格 enum。 */
 export type IssueSeverity = 'low' | 'medium' | 'high';
 
-/**
- * §D6：kind 软枚举（2 个推荐值）+ free-form fallback。
- * - `follow-up` — agent 自己留的后续事项
- * - `app-bug` — agent-deck 应用缺陷
- *
- * 类型上是 `string`，args.kind 不严格 enum 校验；非枚举值原样落库（**不**自动 normalize）。
- * 历史 issue 可能含其他 kind（如 external-tooling-bug / convention-gap / enhancement），
- * UI 端按字符串原样渲染，不受推荐值收敛影响。
- */
-export type IssueKind =
-  | 'follow-up'
-  | 'app-bug'
-  | string;
-
 /** issues.branch_name DB 上限；超限分支按 best-effort 快照降级为 null。 */
 export const ISSUE_BRANCH_NAME_MAX_LENGTH = 255;
 

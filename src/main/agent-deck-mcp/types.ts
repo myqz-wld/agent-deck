@@ -1,9 +1,9 @@
 /**
  * Shared MCP handler types. Caller identity always comes from the transport: an in-process
- * session provider, HTTP token authentication, or the stdio external-caller sentinel.
+ * session provider or HTTP token authentication.
  */
 
-export type AgentDeckMcpTransport = 'in-process' | 'http' | 'stdio';
+export type AgentDeckMcpTransport = 'in-process' | 'http';
 
 export const EXTERNAL_CALLER_SENTINEL = '__external__' as const;
 
@@ -32,9 +32,8 @@ export interface McpAuthInfo {
 export interface CallerContext {
   /**
    * Transport-authenticated caller session id.
-   * 特殊值 `__external__`：stdio transport 的非 agent-deck-managed client（如
-   * Cursor / Continue），仅允许 list_sessions / get_session 等只读 tool；spawn /
-   * shutdown 默认 deny（ADR §4.3 / §11.7）。
+   * 特殊值 `__external__`：使用全局 HTTP token 的非 Agent Deck 会话客户端，仅允许
+   * list_sessions / get_session 等只读 tool；spawn / shutdown 默认 deny。
    */
   callerSessionId: string;
   transport: AgentDeckMcpTransport;

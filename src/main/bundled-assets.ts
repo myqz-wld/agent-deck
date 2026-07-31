@@ -153,7 +153,12 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
     try {
       if (adapter === 'codex-cli' && file.endsWith('.toml')) {
         const parsed = parseCodexAgentToml(readFileSync(absPath, 'utf8'));
-        const name = parsed.name ?? file.slice(0, -5);
+        const name = file.slice(0, -5);
+        if (parsed.name !== name) {
+          throw new Error(
+            `bundled Codex Agent name must match filename: ${parsed.name ?? '<missing>'} != ${name}`,
+          );
+        }
         if (!isSafeName(name)) continue;
         out.push(buildAgentMeta(name, absPath, {
           description: parsed.description ?? '',
@@ -177,27 +182,9 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
 function getBundledAgentPath(root: string, name: string, adapter: BundledAdapter): string {
   const dir = join(root, 'agents');
   if (adapter === 'codex-cli') {
-    const directToml = join(dir, `${name}.toml`);
-    if (existsSync(directToml)) return directToml;
-    const byTomlName = findCodexBundledAgentTomlByName(dir, name);
-    if (byTomlName) return byTomlName;
+    return join(dir, `${name}.toml`);
   }
   return join(dir, `${name}.md`);
-}
-
-function findCodexBundledAgentTomlByName(dir: string, name: string): string | null {
-  if (!existsSync(dir)) return null;
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith('.toml')) continue;
-    const absPath = join(dir, file);
-    try {
-      const parsed = parseCodexAgentToml(readFileSync(absPath, 'utf8'));
-      if (parsed.name === name) return absPath;
-    } catch {
-      // scanAgents logs parse failures; path lookup stays quiet.
-    }
-  }
-  return null;
 }
 
 function scanSkills(root: string, adapter: BundledAdapter): AssetMeta[] {

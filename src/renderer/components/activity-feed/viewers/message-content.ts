@@ -8,12 +8,7 @@ import {
   HAND_OFF_SPAWN_HEADER,
 } from '@shared/hand-off-headers';
 import { parseWirePrefix } from '@shared/wire-prefix';
-import type {
-  ContentMetadata,
-  MessageContentPayload,
-} from '@renderer/components/expandable-content';
 import { formatDisplayText } from '../format';
-import type { RenderMode } from '../shared';
 
 const HAND_OFF_HEADERS = [HAND_OFF_SPAWN_HEADER, HAND_OFF_ADOPT_HEADER] as const;
 const HAND_OFF_SEPARATOR = '\n---\n\n';
@@ -90,42 +85,6 @@ export function normalizeAgentMessage(event: AgentEvent): NormalizedAgentMessage
       : '上下文：负责人提供的说明（点开查看详情）',
     handOffSourceSessionId: metadata?.fromCallerSid,
     handOffSourceEventId: metadata?.sourceMaxEventId,
-  };
-}
-
-export function createMessageContentPayload(
-  message: NormalizedAgentMessage,
-  mode: RenderMode,
-  extraMetadata: ContentMetadata = {},
-): MessageContentPayload {
-  return {
-    kind: 'message',
-    text: message.text,
-    attachments: message.attachments.map((attachment, index) => ({
-      id: `attachment-${index + 1}`,
-      name: `附件图片 ${index + 1}`,
-      mediaType: attachment.mime,
-      size: attachment.bytes,
-    })),
-    metadata: {
-      ...extraMetadata,
-      role: message.role,
-      renderMode: mode,
-      error: message.isError,
-      ...(message.wireFrom ? { wireFrom: message.wireFrom } : {}),
-      ...(message.wireAdapter ? { wireAdapter: message.wireAdapter } : {}),
-      ...(message.wireMessageId ? { wireMessageId: message.wireMessageId } : {}),
-      ...(message.wireSenderSessionId
-        ? { wireSenderSessionId: message.wireSenderSessionId }
-        : {}),
-      ...(message.handOffLabel ? { handOff: message.handOffLabel } : {}),
-      ...(message.handOffSourceSessionId
-        ? { handOffSourceSessionId: message.handOffSourceSessionId }
-        : {}),
-      ...(message.handOffSourceEventId == null
-        ? {}
-        : { handOffSourceEventId: message.handOffSourceEventId }),
-    },
   };
 }
 

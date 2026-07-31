@@ -14,7 +14,7 @@
  *
  * **Phase 4 Step 4.3 拆分布局**:
  * - 本 facade ~120 LOC: SessionRecoverer class shell + thin recoverAndSend delegate +
- *   findFallbackCwd protected method (test override 注入点) + re-export types/helpers
+ *   findFallbackCwd protected method (test override 注入点)
  * - `recoverer/_deps.ts`: RecovererCtx + 4 thunk type + PLACEHOLDER_DEDUP_MS const
  * - `recoverer/recover-and-send-impl.ts`: recoverAndSend method 主体 (~280 LOC)
  * - `recoverer/jsonl-discovery.ts`: 3 helper (defaultCodexResumeJsonlExists / defaultCwdExists /
@@ -67,21 +67,6 @@ import type {
 } from './recoverer/_deps';
 import { recoverAndSendImpl } from './recoverer/recover-and-send-impl';
 import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
-
-// Phase 4 Step 4.3 facade re-export — 保 byte-identical external import path
-// (`import { SessionRecoverer, defaultCodexResumeJsonlExists, defaultCwdExists } from './recoverer'`
-// caller 站点零变更继续工作)
-export type {
-  RecovererCtx,
-  CreateSessionThunk,
-  SendMessageThunk,
-  JsonlExistsThunk,
-  CwdExistsThunk,
-} from './recoverer/_deps';
-export {
-  defaultCodexResumeJsonlExists,
-  defaultCwdExists,
-} from './recoverer/jsonl-discovery';
 
 export class SessionRecoverer {
   /**

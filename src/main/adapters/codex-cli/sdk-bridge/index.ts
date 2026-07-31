@@ -30,11 +30,11 @@ import type {
   ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
+import { SessionRecoverer } from './recoverer';
 import {
-  SessionRecoverer,
   defaultCodexResumeJsonlExists,
   defaultCwdExists,
-} from './recoverer';
+} from './recoverer/jsonl-discovery';
 // Phase 4 Step 4.3: createSession 主体抽到 create-session/ 子目录(facade pattern + 3 子段)。
 // facade.createSession 改为 thin delegate 调 createSessionImpl orchestrator → validate / resume / new
 // 3 子段 fn(详 create-session/_deps.ts 顶部 jsdoc 拆分说明)。

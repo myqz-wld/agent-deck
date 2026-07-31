@@ -6,7 +6,7 @@
  *
  * - external caller（__external__）对 spawn / send / shutdown 自动 deny
  * - in-process closure 强制覆盖 args.callerSessionId（验证防 prompt 注入）
- * - HTTP/stdio caller 反查 sessionManager 不存在 / 已 closed 时 deny
+ * - HTTP caller 反查 sessionManager 不存在 / 已 closed 时 deny
  * - shutdown_session(self) deny
  * - send_message 目标 session closed 时 deny
  * - list_sessions 投影 metadata 不含 events / messages
@@ -636,23 +636,18 @@ beforeEach(async () => {
 
 async function getTools(opts: {
   callerSessionIdOverride?: () => string;
-  transport?: 'in-process' | 'http' | 'stdio';
+  callerSessionId?: string;
+  transport?: 'in-process' | 'http';
 }) {
-  let invocationCaller = '__external__';
+  const callerSessionId = opts.callerSessionId ?? 'lead';
   const tools = await buildAgentDeckTools({
-    callerSessionIdOverride: opts.callerSessionIdOverride ?? (() => invocationCaller),
+    callerSessionIdOverride: opts.callerSessionIdOverride ?? (() => callerSessionId),
     transport: opts.transport ?? 'http',
+    adapterId: null,
   });
   const byName = new Map<string, any>();
   for (const t of tools) {
-    const handler = t.handler;
-    byName.set((t as any).name, {
-      ...t,
-      handler: (args: { callerSessionId?: string }, extra: unknown) => {
-        invocationCaller = args.callerSessionId || '__external__';
-        return handler(args, extra);
-      },
-    });
+    byName.set((t as any).name, t);
   }
   return byName;
 }
@@ -700,12 +695,11 @@ function parseResult(result: any): { isError?: boolean; data: any } {
 
 describe('agent-deck-mcp tools — external caller deny', () => {
   it('spawn_session denies __external__ caller', async () => {
-    const tools = await getTools({ transport: 'stdio' });
+    const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
       cwd: '/tmp',
       prompt: 'hello',
-      callerSessionId: '__external__',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -713,10 +707,9 @@ describe('agent-deck-mcp tools — external caller deny', () => {
   });
 
   it('list_sessions ALLOWS __external__ caller (read-only)', async () => {
-    const tools = await getTools({ transport: 'stdio' });
+    const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
     seedSession('lead-1');
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: '__external__',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -726,21 +719,19 @@ describe('agent-deck-mcp tools — external caller deny', () => {
   });
 
   it('shutdown_session denies __external__ caller', async () => {
-    const tools = await getTools({ transport: 'stdio' });
+    const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'target',
-      callerSessionId: '__external__',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
   });
 });
 
-describe('agent-deck-mcp tools — caller validation (HTTP/stdio)', () => {
+describe('agent-deck-mcp tools — HTTP caller validation', () => {
   it('rejects unknown callerSessionId', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'nonexistent-sid' });
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'nonexistent-sid',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -750,19 +741,18 @@ describe('agent-deck-mcp tools — caller validation (HTTP/stdio)', () => {
   });
 
   it('rejects closed callerSessionId', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'closed-lead' });
     seedSession('closed-lead', { lifecycle: 'closed' });
     const r = await tools.get('send_message').handler({
       sessionId: 'whatever',
       text: 'hi',
-      callerSessionId: 'closed-lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/is closed/);
   });
 
-  it('in-process closure overrides args.callerSessionId (anti-injection)', async () => {
+  it('in-process tools use the closure-authenticated caller', async () => {
     const realCaller = 'real-lead';
     seedSession(realCaller);
     const tools = await getTools({
@@ -770,10 +760,8 @@ describe('agent-deck-mcp tools — caller validation (HTTP/stdio)', () => {
       callerSessionIdOverride: () => realCaller,
     });
     seedSession('target');
-    // LLM 试图伪造 callerSessionId 为 fake-id；in-process 应该静默用真实 closure id
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'target',
-      callerSessionId: 'fake-id',
     }, {});
     const parsed = parseResult(r);
     // 不应该报「unknown caller」（因为 closure 注入了 real-lead），应该走完正常路径成功 close
@@ -879,7 +867,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'reviewer teammate prompt',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -902,7 +889,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo/sub',
       prompt: 'isolated task',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -919,7 +905,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli', // 不同 adapter
       cwd: '/repo',
       prompt: 'reviewer-codex agent body',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -938,7 +923,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'same adapter task',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -963,7 +947,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'cross adapter task',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -991,7 +974,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       permissionMode: 'acceptEdits',
       claudeCodeSandbox: 'workspace-write',
       extraAllowWrite: ['/explicit-root'],
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1016,7 +998,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'same codex task',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1042,7 +1023,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'cross adapter Codex task',
-      callerSessionId: 'lead',
     }, {});
     expect(parseResult(r).isError).toBeFalsy();
     expect(createSessionCalls[0].approvalPolicy).toBe('on-request');
@@ -1062,7 +1042,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'explicit approval task',
       approvalPolicy: 'untrusted',
-      callerSessionId: 'lead',
     }, {});
 
     expect(parseResult(result).isError).toBeFalsy();
@@ -1080,7 +1059,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'grok-build',
       cwd: '/repo',
       prompt: 'same Grok task',
-      callerSessionId: 'lead',
     }, {});
     expect(parseResult(inherited).isError).toBeFalsy();
     expect(createSessionCalls[0].grokSandbox).toBe('project-locked');
@@ -1092,7 +1070,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'stricter Grok task',
       grokSandbox: 'strict',
-      callerSessionId: 'lead',
     }, {});
     expect(parseResult(explicit).isError).toBeFalsy();
     expect(createSessionCalls[0].grokSandbox).toBe('strict');
@@ -1110,7 +1087,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/repo',
       prompt: 'codex teammate task',
-      callerSessionId: 'lead',
     }, {});
     const spawned = parseResult(spawn);
 
@@ -1132,7 +1108,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const followUp = await tools.get('send_message').handler({
       sessionId: spawned.data.sessionId,
       text: 'second-round prompt',
-      callerSessionId: 'lead',
     }, {});
     const sent = parseResult(followUp);
 
@@ -1160,7 +1135,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
         adapter: 'codex-cli',
         cwd: '/repo',
         prompt: 'deferred canonical child',
-        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
     );
@@ -1193,7 +1167,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
         prompt: 'codex model task',
         model: 'gpt-5.6-sol',
         thinking,
-        callerSessionId: 'lead',
       }, {});
       const parsed = parseResult(r);
       expect(parsed.isError).toBeFalsy();
@@ -1213,7 +1186,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'claude model task',
       model: 'fable',
       thinking: 'max',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1233,7 +1205,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'deepseek model task',
       model: 'deepseek-v4-pro[1m]',
       thinking: 'high',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1254,7 +1225,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'codex profile task',
       model: 'gpt-5.6-sol',
       thinking: 'xhigh',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1276,7 +1246,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'custom model task',
       model: 'claude-opus-4-8-thinking-max[1m]',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1307,7 +1276,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
         cwd: '/repo',
         prompt: 'bad thinking task',
         thinking: c.thinking,
-        callerSessionId: 'lead',
       }, {});
       const parsed = parseResult(r);
       expect(parsed.isError).toBe(true);
@@ -1325,7 +1293,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'xhigh thinking task',
       thinking: 'xhigh',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1342,7 +1309,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'p',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1369,7 +1335,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'p',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1387,7 +1352,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'p',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     // 吞幂等 → 继续 teammate addMember + 正常返回成功
@@ -1406,7 +1370,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'p',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1430,7 +1393,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'p',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1455,7 +1417,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
         adapter: 'codex-cli',
         cwd: '/repo',
         prompt: 'p',
-        callerSessionId: 'lead',
       }, {}),
     ).rejects.toThrow(/simulated DB error/);
     sessionGetThrow.sid = null;
@@ -1472,7 +1433,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'review src/foo.ts',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1511,7 +1471,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'standalone task',
       // 不传 teamName → standalone child, but still has a teamless DM reply anchor.
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1550,7 +1509,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'task body: review src/foo.ts',
       agentName: 'reviewer-claude',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1584,7 +1542,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'codex-cli',
       cwd: '/elsewhere',
       prompt: 'p',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1604,7 +1561,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'model retry task',
       model: 'gpt-unknown',
       thinking: 'ultra',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
 
@@ -1625,7 +1581,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'task body: review src/foo.ts',
       agentName: 'reviewer-claude',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1658,7 +1613,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'task body',
       agentName: 'nonexistent-agent',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -1674,7 +1628,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'plain prompt without body',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1699,7 +1652,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'task body',
       agentName: 'reviewer-claude',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1725,7 +1677,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       agentName: 'reviewer-claude',
       displayName: 'reviewer-claude · batch A',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1748,7 +1699,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'task body',
       agentName: 'reviewer-claude',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1766,7 +1716,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       cwd: '/repo',
       prompt: 'naked spawn',
       teamName: 'review-team',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1796,7 +1745,6 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         cwd: '/repo',
         prompt: 'task body',
         teamName: 'review-team',
-        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       // opts 缺省 → batonRole 默认 'teammate'
@@ -1821,7 +1769,6 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         cwd: '/repo',
         prompt: 'baton task body',
         teamName: 'review-team',
-        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'lead' },
@@ -1852,7 +1799,6 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         cwd: '/repo',
         prompt: 'task body',
         teamName: 'review-team',
-        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'teammate' },
@@ -1878,7 +1824,6 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         cwd: '/repo',
         prompt: 'hand-off task body',
         // 不传 teamName，模拟真实 hand_off_session default 路径
-        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'lead' },
@@ -1906,7 +1851,6 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         adapter: 'claude-code',
         cwd: '/repo',
         prompt: 'hand-off from reviewer at spawnDepth=2',
-        callerSessionId: 'reviewer',
       },
       { caller: { callerSessionId: 'reviewer', transport: 'in-process' } },
       { handOffMode: true, batonRole: 'lead' },
@@ -1933,7 +1877,6 @@ describe('agent-deck-mcp tools — spawn_session opts.batonRole (R37 R2 HIGH-1)'
         cwd: '/repo',
         prompt: 'reviewer task body',
         teamName: 'review-team',
-        callerSessionId: 'lead',
       },
       { caller: { callerSessionId: 'lead', transport: 'in-process' } },
       // opts 缺省 → handOffMode 默认 false，普通 spawn 路径不变
@@ -1957,7 +1900,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'work please',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -1969,7 +1911,7 @@ describe('agent-deck-mcp tools — send_message', () => {
   });
 
   it('resolves target cliSessionId aliases before team checks and enqueue', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'worker' });
     seedSession('worker');
     seedSession('lead-app-sid', {
       agentId: 'codex-cli',
@@ -1980,7 +1922,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'lead-cli-sid',
       text: 'benchmark result',
-      callerSessionId: 'worker',
     }, {});
 
     const parsed = parseResult(r);
@@ -2034,7 +1975,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       text: 'reply after handoff',
       teamId: 'team-X',
       replyToMessageId: 'old-handoff-wire',
-      callerSessionId: 'lead',
     }, {});
 
     const parsed = parseResult(result);
@@ -2055,7 +1995,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'ghost',
       text: 'hi',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2071,7 +2010,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'hi',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2090,7 +2028,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'hi teamless',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -2111,7 +2048,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'hi',
       teamId: 'team-stale',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2129,7 +2065,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'hi',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2145,7 +2080,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'hi',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2178,7 +2112,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'reply',
       replyToMessageId: 'other-pair-teamless',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2209,7 +2142,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'my teamless reply',
       replyToMessageId: 'same-pair-teamless',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -2243,7 +2175,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'team reply',
       replyToMessageId: 'teamless-original',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2259,7 +2190,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'hi',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2277,7 +2207,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'reply text',
       replyToMessageId: 'ghost-msg-id',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2311,7 +2240,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'reply text',
       replyToMessageId: 'cross-team-original',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2341,7 +2269,6 @@ describe('agent-deck-mcp tools — send_message', () => {
       sessionId: 'teammate',
       text: 'my reply',
       replyToMessageId: 'same-team-original',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -2367,7 +2294,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'retry later',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
 
@@ -2386,7 +2312,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
       text: 'invalid payload',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
 
@@ -2403,7 +2328,6 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     seedSession('lead');
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'lead', // 同 caller
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2416,7 +2340,6 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     seedSession('lead');
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'ghost',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
@@ -2430,7 +2353,6 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     seedSession('teammate', { lifecycle: 'closed' });
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'teammate',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -2444,7 +2366,6 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     seedSession('teammate', { lifecycle: 'active' });
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'teammate',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
@@ -2460,7 +2381,6 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
 
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'teammate',
-      callerSessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
 
@@ -2473,7 +2393,7 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
 
 describe('agent-deck-mcp tools — list_sessions', () => {
   it('defaults to caller-related sessions only', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('parent');
     seedSession('caller', { spawnedBy: 'parent', spawnDepth: 1 });
     seedSession('child', { spawnedBy: 'caller', spawnDepth: 2 });
@@ -2488,7 +2408,6 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     mockTeamsById.set('team-y', { name: 'team-y' });
 
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'caller',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -2504,7 +2423,7 @@ describe('agent-deck-mcp tools — list_sessions', () => {
   });
 
   it('keeps predecessor descendants visible to the current handoff owner', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'successor' });
     seedSession('source', { lifecycle: 'closed' });
     seedSession('successor');
     seedSession('source-child', { spawnedBy: 'source', spawnDepth: 1 });
@@ -2512,7 +2431,6 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     handoffPredecessors.set('successor', ['source']);
 
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'successor',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -2532,7 +2450,6 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
     mockTeamsById.set('team-x', { name: 'team-x' });
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'lead',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -2554,13 +2471,12 @@ describe('agent-deck-mcp tools — list_sessions', () => {
   });
 
   it('respects adapterFilter', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller', { agentId: 'claude-code' });
     seedSession('claude-child', { agentId: 'claude-code', spawnedBy: 'caller' });
     seedSession('codex-child', { agentId: 'codex-cli', spawnedBy: 'caller' });
     seedSession('unrelated-codex', { agentId: 'codex-cli' });
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'caller',
       statusFilter: 'active',
       adapterFilter: 'codex-cli',
       limit: 50,
@@ -2571,14 +2487,13 @@ describe('agent-deck-mcp tools — list_sessions', () => {
   });
 
   it('respects spawnedByFilter (REVIEW_28 E 段)', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'leadA' });
     seedSession('leadA');
     seedSession('leadB');
     seedSession('a-c1', { spawnedBy: 'leadA' });
     seedSession('a-c2', { spawnedBy: 'leadA' });
     seedSession('b-c1', { spawnedBy: 'leadB' });
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'leadA',
       statusFilter: 'active',
       spawnedByFilter: 'leadA',
       limit: 50,
@@ -2590,13 +2505,12 @@ describe('agent-deck-mcp tools — list_sessions', () => {
   });
 
   it('keeps explicit spawnedByFilter broad for reset rescue', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedSession('old-lead');
     seedSession('old-child', { spawnedBy: 'old-lead' });
     seedSession('unrelated');
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'caller',
       statusFilter: 'active',
       spawnedByFilter: 'old-lead',
       limit: 50,
@@ -2608,14 +2522,13 @@ describe('agent-deck-mcp tools — list_sessions', () => {
   });
 
   it('supports offset for explicit spawnedByFilter rescue pages', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedSession('old-lead');
     seedSession('old-child-1', { spawnedBy: 'old-lead', lastEventAt: 300 });
     seedSession('old-child-2', { spawnedBy: 'old-lead', lastEventAt: 200 });
     seedSession('old-child-3', { spawnedBy: 'old-lead', lastEventAt: 100 });
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'caller',
       statusFilter: 'active',
       spawnedByFilter: 'old-lead',
       limit: 1,
@@ -2635,7 +2548,6 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     seedSession('codex-child', { spawnedBy: 'lead', agentId: 'codex-cli' });
     seedSession('orphan-claude', { spawnedBy: null, agentId: 'claude-code' });
     const r = await tools.get('list_sessions').handler({
-      callerSessionId: 'lead',
       statusFilter: 'active',
       spawnedByFilter: 'lead',
       adapterFilter: 'claude-code',
@@ -2662,7 +2574,6 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
     mockTeamsById.set('team-x', { name: 'team-x' });
     const r = await tools.get('get_session').handler({
-      callerSessionId: 'lead',
       sessionId: 'teammate',
     }, {});
     const parsed = parseResult(r);
@@ -2684,7 +2595,6 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     const r = await tools.get('get_session').handler({
-      callerSessionId: 'lead',
       sessionId: 'ghost',
     }, {});
     const parsed = parseResult(r);
@@ -2704,7 +2614,6 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     mockTeamsById.set('team-review-team', { name: 'review-team' });
 
     const r = await tools.get('get_session').handler({
-      callerSessionId: 'lead',
       sessionId: 'lead',
     }, {});
     const parsed = parseResult(r);
@@ -2714,12 +2623,11 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
   });
 
   it('returns an empty teamName when no universal team membership exists', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'standalone-session' });
     // 不注入 mock memberships，模拟「session 不在 universal team backend members 表」。
     seedSession('standalone-session', { cwd: '/repo' });
 
     const r = await tools.get('get_session').handler({
-      callerSessionId: 'standalone-session',
       sessionId: 'standalone-session',
     }, {});
     const parsed = parseResult(r);
@@ -2731,14 +2639,13 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
 
 describe('agent-deck-mcp tools — list_session_events', () => {
   it('allows self reads and returns paged normalized events', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedEvent('caller', 1, { payload: { role: 'assistant', text: 'newest' }, ts: 300 });
     seedEvent('caller', 2, { payload: { role: 'assistant', text: 'middle' }, ts: 200 });
     seedEvent('caller', 3, { payload: { role: 'assistant', text: 'oldest' }, ts: 100 });
 
     const r = await tools.get('list_session_events').handler({
-      callerSessionId: 'caller',
       sessionId: 'caller',
       limit: 2,
       offset: 0,
@@ -2752,19 +2659,19 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('allows spawn ancestor and descendant reads', async () => {
-    const tools = await getTools({ transport: 'http' });
     seedSession('parent');
     seedSession('child', { spawnedBy: 'parent', spawnDepth: 1 });
     seedEvent('parent', 1);
     seedEvent('child', 2);
 
-    const parentReadsChild = await tools.get('list_session_events').handler({
-      callerSessionId: 'parent',
+    const parentTools = await getTools({ transport: 'http', callerSessionId: 'parent' });
+    const childTools = await getTools({ transport: 'http', callerSessionId: 'child' });
+
+    const parentReadsChild = await parentTools.get('list_session_events').handler({
       sessionId: 'child',
       limit: 10,
     }, {});
-    const childReadsParent = await tools.get('list_session_events').handler({
-      callerSessionId: 'child',
+    const childReadsParent = await childTools.get('list_session_events').handler({
       sessionId: 'parent',
       limit: 10,
     }, {});
@@ -2776,7 +2683,7 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('preserves predecessor and predecessor-descendant reads for a chained handoff owner', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'successor' });
     seedSession('source', { lifecycle: 'closed' });
     seedSession('middle', { lifecycle: 'closed' });
     seedSession('successor');
@@ -2786,12 +2693,10 @@ describe('agent-deck-mcp tools — list_session_events', () => {
     seedEvent('source-child', 2);
 
     const sourceRead = await tools.get('list_session_events').handler({
-      callerSessionId: 'successor',
       sessionId: 'source',
       limit: 10,
     }, {});
     const childRead = await tools.get('list_session_events').handler({
-      callerSessionId: 'successor',
       sessionId: 'source-child',
       limit: 10,
     }, {});
@@ -2801,14 +2706,13 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('allows shared active team reads', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedSession('peer');
     setSharedTeams('caller', 'peer', ['team-x']);
     seedEvent('peer', 1);
 
     const r = await tools.get('list_session_events').handler({
-      callerSessionId: 'caller',
       sessionId: 'peer',
       limit: 10,
     }, {});
@@ -2819,13 +2723,12 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('rejects unrelated sessions without reading events', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedSession('unrelated');
     seedEvent('unrelated', 1);
 
     const r = await tools.get('list_session_events').handler({
-      callerSessionId: 'caller',
       sessionId: 'unrelated',
       limit: 10,
     }, {});
@@ -2837,9 +2740,8 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('rejects external callers even though the tool is read-only', async () => {
-    const tools = await getTools({ transport: 'stdio' });
+    const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
     const r = await tools.get('list_session_events').handler({
-      callerSessionId: '__external__',
       sessionId: 'anything',
       limit: 10,
     }, {});
@@ -2849,11 +2751,10 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('rejects missing targets before reading events', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
 
     const r = await tools.get('list_session_events').handler({
-      callerSessionId: 'caller',
       sessionId: 'ghost',
       limit: 10,
     }, {});
@@ -2864,7 +2765,7 @@ describe('agent-deck-mcp tools — list_session_events', () => {
   });
 
   it('does not treat inactive or archived team history as shared active visibility', async () => {
-    const tools = await getTools({ transport: 'http' });
+    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedSession('old-peer');
     mockMembershipsBySession.set('caller', [{ teamId: 'old-team' }]);
@@ -2872,7 +2773,6 @@ describe('agent-deck-mcp tools — list_session_events', () => {
     mockTeamsById.set('old-team', { name: 'old-team' });
 
     const r = await tools.get('list_session_events').handler({
-      callerSessionId: 'caller',
       sessionId: 'old-peer',
       limit: 10,
     }, {});

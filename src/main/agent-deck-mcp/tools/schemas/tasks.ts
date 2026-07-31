@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type { TaskRecord } from '@shared/types';
-import { SDK_READ_CALLER_SESSION_ID_DESCRIPTION, SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 
 /**
  * Task tool status 枚举（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 0.5 + R2 F-R2-4 修法）：
@@ -17,18 +16,12 @@ export const STATUS_VALUES = [
   'blocked',
   'abandoned',
 ] as const;
-export type TaskStatusValue = (typeof STATUS_VALUES)[number];
 
 // =============== TASK_* (plan task-mcp-merge-into-agent-deck-mcp-20260521 合并 5 个 task tool) ===============
 //
 // 5 个 task tool schema：从原 src/main/task-manager/tools.ts 抽出，转 agent-deck-mcp 同款 SHAPE 模式。
 //
-// **D5 修法**：schema 加 callerSessionId?（与现有 10 个 simple tool 同款 — in-process closure
-// override 优先于 args 字段）。task_create owner_session_id 不在 schema 暴露（closure 强制注入
-// ctx.caller.callerSessionId）。
-//
-// 协议: callerSessionId 字段在 in-process / HTTP / stdio 三 transport 行为见 SPAWN_SESSION_SCHEMA
-// 同字段注释。task 5 个 tool 同款语义。
+// Task ownership is always derived from the transport-authenticated caller context.
 
 export const TASK_CREATE_SCHEMA = {
   subject: z
@@ -80,12 +73,6 @@ export const TASK_CREATE_SCHEMA = {
     .describe(
       'Omit for a personal task visible only to the owner. Pass a team id for a team task visible and writable by active team members; the caller must be an active member.',
     ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_LIST_SCHEMA = {
@@ -122,22 +109,10 @@ export const TASK_LIST_SCHEMA = {
     .min(0)
     .optional()
     .describe('Number of matching tasks to skip before returning results. Default 0.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_READ_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_GET_SCHEMA = {
   taskId: z.string().describe('Task UUID returned by task_create.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_UPDATE_SCHEMA = {
@@ -195,12 +170,6 @@ export const TASK_UPDATE_SCHEMA = {
     .describe(
       'Omit to leave unchanged. Pass a team id to make the task team-bound; the caller must be an active member. Pass null to make it personal to the caller.',
     ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const TASK_DELETE_SCHEMA = {
@@ -209,12 +178,6 @@ export const TASK_DELETE_SCHEMA = {
     .boolean()
     .optional()
     .describe('Default false. Pass true to recursively delete writable downstream tasks listed in blocks; non-writable downstream tasks are skipped.'),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 // Args type infer（与现有 10 个 simple tool 同款 z.infer<z.ZodObject<typeof SCHEMA>>）

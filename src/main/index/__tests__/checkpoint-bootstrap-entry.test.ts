@@ -123,7 +123,6 @@ vi.mock('../../session/lifecycle-scheduler', () => ({
 }));
 vi.mock('../../teams/team-lifecycle-scheduler', () => ({
   TeamLifecycleScheduler: mocks.makeScheduler('teamScheduler'),
-  setTeamLifecycleScheduler: vi.fn(),
 }));
 vi.mock('../../store/issue-lifecycle-scheduler', () => ({
   IssueLifecycleScheduler: mocks.makeScheduler('issueScheduler'),
@@ -135,7 +134,6 @@ vi.mock('../../store/message-lifecycle-scheduler', () => ({
 }));
 vi.mock('../../store/token-usage-lifecycle-scheduler', () => ({
   TokenUsageLifecycleScheduler: mocks.makeScheduler('tokenScheduler'),
-  setTokenUsageLifecycleScheduler: vi.fn(),
 }));
 vi.mock('../../store/storage-maintenance', () => ({
   StorageMaintenanceScheduler: mocks.makeScheduler('storageScheduler'),

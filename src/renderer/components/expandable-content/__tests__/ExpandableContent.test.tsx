@@ -11,8 +11,6 @@ import {
 } from '@testing-library/react';
 import {
   ExpandableContent,
-  createAuthorizedContentReferenceId,
-  type ExpandableContentPayload,
   type MessageContentPayload,
 } from '..';
 
@@ -258,106 +256,6 @@ describe('ExpandableContent', () => {
     expect(screen.queryByText('新选择')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '展开内容' }));
     expect(screen.getByText('新选择')).toBeTruthy();
-  });
-
-  it('preserves typed payload and authorized references without text flattening', () => {
-    const authorization = {
-      sessionId: 'session-1',
-      grantId: 'grant-1',
-      capability: 'read-image' as const,
-    };
-    const imageReference = {
-      kind: 'image' as const,
-      referenceId: createAuthorizedContentReferenceId('image-asset-42'),
-      authorization,
-      mediaType: 'image/png',
-      alt: '界面截图',
-    };
-    const diffReference = {
-      kind: 'diff' as const,
-      referenceId: createAuthorizedContentReferenceId('diff-asset-9'),
-      authorization: {
-        ...authorization,
-        capability: 'read-diff' as const,
-      },
-      presentation: 'image-diff' as const,
-    };
-    const payload: ExpandableContentPayload = {
-      kind: 'message',
-      text: '消息正文',
-      attachments: [
-        {
-          id: 'attachment-1',
-          name: '截图.png',
-          mediaType: 'image/png',
-          reference: imageReference,
-        },
-      ],
-      relatedReferences: [diffReference],
-    };
-    const observed: ExpandableContentPayload[] = [];
-    render(
-      <ExpandableContent
-        identity={messageIdentity}
-        payload={payload}
-        title="载荷详情"
-      >
-        {({ payload: received }) => {
-          observed.push(received);
-          return <p>{received.kind}</p>;
-        }}
-      </ExpandableContent>,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '展开内容' }));
-    const received = observed.at(-1);
-    expect(received).toBe(payload);
-    if (received?.kind !== 'message') throw new Error('expected message payload');
-    expect(received.attachments[0]?.reference).toBe(imageReference);
-    expect(received.relatedReferences?.[0]).toBe(diffReference);
-    const typedPayloads: readonly ExpandableContentPayload[] = [
-      {
-        kind: 'tool',
-        toolName: 'inspect',
-        input: { target: 'opaque-target', options: ['metadata'] },
-        result: { status: 'success', value: { matches: 2 } },
-      },
-      {
-        kind: 'plan-review',
-        document: { text: '# 计划', format: 'markdown' },
-        annotations: [
-          {
-            id: 'annotation-1',
-            text: '需要补充验证',
-            start: 0,
-            end: 4,
-            metadata: { source: 'reviewer' },
-          },
-        ],
-        review: {
-          requestId: 'request-1',
-          status: 'pending',
-          metadata: { round: 1 },
-        },
-      },
-      { kind: 'image', reference: imageReference },
-      { kind: 'diff', reference: diffReference },
-      {
-        kind: 'diagnostic',
-        text: '诊断文本',
-        severity: 'warning',
-        metadata: { source: 'renderer' },
-      },
-    ];
-    expect(typedPayloads.map((item) => item.kind)).toEqual([
-      'tool',
-      'plan-review',
-      'image',
-      'diff',
-      'diagnostic',
-    ]);
-    expect(() => createAuthorizedContentReferenceId('/tmp/raw-image.png')).toThrow();
-    expect(() => createAuthorizedContentReferenceId('data:image/png;base64,AAAA')).toThrow();
   });
 
   it('keeps at most one heavy view mounted across nested layers', async () => {

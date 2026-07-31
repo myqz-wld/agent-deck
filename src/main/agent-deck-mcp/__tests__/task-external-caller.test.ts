@@ -15,7 +15,7 @@
  *   验证攻击向量阻断 + 合法路径通过 + read-only 例外
  * - **本测试**：聚焦 D6 + D8 task tool 视角，按 EXTERNAL_CALLER_ALLOWED 矩阵 1:1 验证 5 tool deny / allow 矩阵
  *
- * R2 F-R2-5 修订：HTTP + stdio external transport 都覆盖。
+ * HTTP global-token external callers exercise the live external transport.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -69,34 +69,6 @@ describe('task tool external caller 决策矩阵（D6）', () => {
     it.each(['task_list'] as const)('1 读 tool ALLOW: %s (v024 D8: task_get 移出 read-only allow)', (tool) => {
       const denial = denyExternalIfNotAllowed(tool, httpExtCtx);
       expect(denial).toBeNull();
-    });
-  });
-
-  describe('stdio transport (sentinel — transport-stdio.ts force)', () => {
-    const stdioExtCtx = ctx(EXTERNAL_CALLER_SENTINEL, 'stdio');
-
-    it.each(['task_create', 'task_update', 'task_delete', 'task_get'] as const)(
-      '4 写/read DENY tool 全 DENY: %s (v024 D8 task_get 加入)',
-      (tool) => {
-        const denial = denyExternalIfNotAllowed(tool, stdioExtCtx);
-        expect(denial).not.toBeNull();
-        expect(denial?.isError).toBe(true);
-      },
-    );
-
-    it.each(['task_list'] as const)('1 读 tool ALLOW: %s (v024 D8: task_get 移出 read-only allow)', (tool) => {
-      const denial = denyExternalIfNotAllowed(tool, stdioExtCtx);
-      expect(denial).toBeNull();
-    });
-
-    it('stdio + 非 sentinel callerSid（transport 漏改假设）+ 写 → invariant violation DENY', () => {
-      // helpers.ts (a) 兜底：stdio + 非 sentinel callerSid → DENY 防 transport 层漏改回归
-      const malformed = ctx('attacker-injected-sid', 'stdio');
-      const denial = denyExternalIfNotAllowed('task_create', malformed);
-      expect(denial).not.toBeNull();
-      expect(JSON.parse(denial!.content[0].text).error).toMatch(
-        /not allowed for stdio transport with non-sentinel/,
-      );
     });
   });
 

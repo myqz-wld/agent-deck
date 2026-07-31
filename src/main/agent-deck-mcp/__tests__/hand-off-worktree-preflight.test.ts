@@ -16,7 +16,6 @@ function transition(
 ): WorktreeTransitionRecord {
   return {
     sessionId: 'caller-sid',
-    formatVersion: 1,
     generation: 2,
     direction: phase === 'active' ? 'enter' : 'exit',
     phase,

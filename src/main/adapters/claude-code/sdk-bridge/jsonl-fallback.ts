@@ -55,7 +55,7 @@ import type {
   JsonlExistsThunk,
   JsonlMtimeMsThunk,
   LatestConversationMessageTsThunk,
-} from './recoverer';
+} from './recoverer/_deps';
 import {
   buildCwdFallbackContextRestoredText,
   buildCwdFallbackInstructionOnlyText,

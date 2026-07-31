@@ -3,7 +3,7 @@
  * + plan task-team-id-restore-20260525 §Phase G3 v024 重写 D2 + MED-2 修法）。
  *
  * D7 决策：ingest team-task-* AgentEvent **仅在 in-process transport**；
- * HTTP / stdio external transport skip ingest（避免 codex SDK 子进程 SessionDetail
+ * HTTP external transport skip ingest（避免 codex SDK 子进程 SessionDetail
  * 渲染 team-task-* event 未实证风险）。
  *
  * v024 plan §D2 + MED-2 修法（Round 1+3）:teamName 改取 args.teamId lookup
@@ -184,8 +184,8 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.teamId lo
     expect(mockSessionManager.ingest).not.toHaveBeenCalled(); // ingest skip
   });
 
-  // 注：stdio + write tool 在 withMcpGuard 永远 sentinel deny（EXTERNAL_CALLER_ALLOWED.task_create=false）—
-  // stdio transport 不存在合法调 write tool 路径；D7 ingest 分流仅在 in-process vs HTTP 之间区分。
+  // HTTP global-token write calls are denied before ingest; D7 only distinguishes in-process from
+  // authenticated HTTP execution.
 });
 
 describe('task_update — D7 ingest 分流（仅 pending→completed 触发）+ v024 D3 写权限校验前置', () => {

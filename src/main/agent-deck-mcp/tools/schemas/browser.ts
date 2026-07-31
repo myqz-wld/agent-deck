@@ -1,25 +1,16 @@
 import { z } from 'zod';
 
-import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 
 /**
  * Browser tool schemas (cross-adapter in-app browser).
  *
- * Every browser tool is a write tool from the external-caller point of view: it needs a real Agent
- * Deck session identity to own its tabs, so `callerSessionId` always carries the write description
- * and external callers are rejected in `EXTERNAL_CALLER_ALLOWED`.
+ * Every browser tool needs a transport-authenticated Agent Deck session identity to own its tabs,
+ * so external callers are rejected in `EXTERNAL_CALLER_ALLOWED`.
  *
  * Element targeting uses `ref` values produced by `browser_snapshot`, never CSS selectors. Refs are
  * tied to the snapshot that produced them, so a stale ref fails loudly instead of clicking the
  * wrong element after the page changed.
  */
-
-const callerSessionId = z
-  .string()
-  .min(1)
-  .max(128)
-  .optional()
-  .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION);
 
 const tabId = z
   .number()
@@ -57,10 +48,9 @@ export const BROWSER_OPEN_SCHEMA = {
     .describe(
       'Show the browser window to the user. Defaults to false: keep browser work in the background unless the user asked to watch the page.',
     ),
-  callerSessionId,
 };
 
-export const BROWSER_TABS_SCHEMA = { callerSessionId };
+export const BROWSER_TABS_SCHEMA = {};
 
 export const BROWSER_NAVIGATE_SCHEMA = {
   url: z
@@ -74,7 +64,6 @@ export const BROWSER_NAVIGATE_SCHEMA = {
     .optional()
     .describe('Reload the current page instead of navigating. Use after code changes without hot reload.'),
   tabId,
-  callerSessionId,
 };
 
 export const BROWSER_WAIT_SCHEMA = {
@@ -110,13 +99,11 @@ export const BROWSER_WAIT_SCHEMA = {
     .optional()
     .describe('Required quiet window for network-idle. Defaults to 500ms; valid only for that kind.'),
   tabId,
-  callerSessionId,
 };
 
 export const BROWSER_CLOSE_SCHEMA = {
   tabId,
   all: z.boolean().optional().describe('Close every tab owned by this session.'),
-  callerSessionId,
 };
 
 export const BROWSER_SNAPSHOT_SCHEMA = {
@@ -134,7 +121,6 @@ export const BROWSER_SNAPSHOT_SCHEMA = {
     .max(400)
     .optional()
     .describe('Maximum interactive elements to return. Defaults to 120.'),
-  callerSessionId,
 };
 
 export const BROWSER_SCREENSHOT_SCHEMA = {
@@ -150,10 +136,9 @@ export const BROWSER_SCREENSHOT_SCHEMA = {
     .max(2_560)
     .optional()
     .describe('Downscale the image to at most this width. Defaults to 1024 to keep the payload small.'),
-  callerSessionId,
 };
 
-export const BROWSER_CLICK_SCHEMA = { ref, tabId, callerSessionId };
+export const BROWSER_CLICK_SCHEMA = { ref, tabId };
 
 export const BROWSER_TYPE_SCHEMA = {
   ref,
@@ -167,7 +152,6 @@ export const BROWSER_TYPE_SCHEMA = {
     .optional()
     .describe('Press Enter after typing. Defaults to false.'),
   tabId,
-  callerSessionId,
 };
 
 export const BROWSER_PRESS_SCHEMA = {
@@ -177,7 +161,6 @@ export const BROWSER_PRESS_SCHEMA = {
     .max(16)
     .describe('Key to press on the focused element, such as Enter, Tab, Escape, ArrowDown, or a single character.'),
   tabId,
-  callerSessionId,
 };
 
 export const BROWSER_SCROLL_SCHEMA = {
@@ -206,7 +189,6 @@ export const BROWSER_SCROLL_SCHEMA = {
     .optional()
     .describe('Horizontal scroll delta in pixels. Defaults to 0.'),
   tabId,
-  callerSessionId,
 };
 
 export const BROWSER_READ_CONSOLE_SCHEMA = {
@@ -218,7 +200,6 @@ export const BROWSER_READ_CONSOLE_SCHEMA = {
     .max(200)
     .optional()
     .describe('Maximum entries to return, newest last. Defaults to 50.'),
-  callerSessionId,
 };
 
 export const BROWSER_READ_NETWORK_SCHEMA = {
@@ -230,7 +211,6 @@ export const BROWSER_READ_NETWORK_SCHEMA = {
     .max(200)
     .optional()
     .describe('Maximum entries to return, newest last. Defaults to 50.'),
-  callerSessionId,
 };
 
 export const BROWSER_EVALUATE_SCHEMA = {
@@ -242,5 +222,4 @@ export const BROWSER_EVALUATE_SCHEMA = {
       'JavaScript expression evaluated in the page. Awaited when it returns a promise. Prefer it for reading computed state that a snapshot does not expose.',
     ),
   tabId,
-  callerSessionId,
 };

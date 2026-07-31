@@ -41,8 +41,11 @@ import {
   buildCodexJsonlMissingContextRestoredText,
   buildCodexJsonlMissingInstructionOnlyText,
 } from './codex-recoverer-messages';
-import type { CreateSessionThunk, JsonlExistsThunk } from './recoverer';
-import type { PrepareRecoveryContinuationThunk } from './recoverer/_deps';
+import type {
+  CreateSessionThunk,
+  JsonlExistsThunk,
+  PrepareRecoveryContinuationThunk,
+} from './recoverer/_deps';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
 import type { AgentEnqueueOptions } from '@main/adapters/types';
 import log from '@main/utils/logger';

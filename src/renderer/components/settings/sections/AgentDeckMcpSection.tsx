@@ -89,7 +89,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
       </div>
 
       <div className="mt-3 border-t border-deck-border/50 pt-3">
-        <div className="text-[11px] font-medium text-deck-text/85">三种连接方式（默认全部启用）</div>
+        <div className="text-[11px] font-medium text-deck-text/85">两种连接方式（默认全部启用）</div>
         <table className="mt-1.5 w-full border-collapse text-[10px] leading-snug">
           <tbody>
             <tr className="border-b border-deck-border/40">
@@ -103,12 +103,6 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
               <td className="py-1 text-deck-muted/80">
                 Codex CLI 和 Grok Build 自动连接；外部客户端可连接
                 <code className="rounded bg-white/5 px-1">/mcp</code>（需要下方 Token）
-              </td>
-            </tr>
-            <tr>
-              <td className="py-1 pr-2 align-top font-medium text-deck-text/85">stdio</td>
-              <td className="py-1 text-deck-muted/80">
-                外部客户端通过 <code className="rounded bg-white/5 px-1">agent-deck mcp</code> 连接，仅可读取
               </td>
             </tr>
           </tbody>

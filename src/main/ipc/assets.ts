@@ -16,7 +16,6 @@
  * - `AssetMeta.adapter` user 资产也带 ('claude-code' | 'codex-cli' | 'grok-build')，null 删除
  * - `AssetsGetContent` / `AssetsRevealInFolder` source==='user' 时也必传 adapter
  *   （user 资产现也按 adapter 派发到不同 root：~/.claude/{agents,skills}/ vs ~/.codex/{agents,skills}/）
- * - `validateAdapterKind` 保留为 adapter/kind 兼容性收口点；当前三种 adapter 的 agent/skill 组合都支持
  */
 import { shell } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
@@ -24,9 +23,8 @@ import type {
   AssetAdapter,
   AssetKind,
   AssetSource,
-  UserAssetAdapter,
 } from '@shared/types';
-import { ASSET_LIMITS, isNativeAssetName, validateAdapterKind } from '@shared/types';
+import { ASSET_LIMITS, isNativeAssetName } from '@shared/types';
 import { on, IpcInputError, parseStringId } from './_helpers';
 import {
   getBundledAssets,
@@ -49,11 +47,6 @@ import { listClaudeGatewayProfiles } from '@main/adapters/claude-code/gateway-pr
 const KIND_VALUES: ReadonlyArray<AssetKind> = ['agent', 'skill'];
 const SOURCE_VALUES: ReadonlyArray<AssetSource> = ['bundled', 'user'];
 const ADAPTER_VALUES: ReadonlyArray<AssetAdapter> = [
-  'claude-code',
-  'codex-cli',
-  'grok-build',
-];
-const USER_ADAPTER_VALUES: ReadonlyArray<UserAssetAdapter> = [
   'claude-code',
   'codex-cli',
   'grok-build',
@@ -92,19 +85,6 @@ function parseAdapterRequired(value: unknown): AssetAdapter {
   return value as AssetAdapter;
 }
 
-function parseUserAdapterRequired(value: unknown): UserAssetAdapter {
-  if (
-    typeof value !== 'string' ||
-    !USER_ADAPTER_VALUES.includes(value as UserAssetAdapter)
-  ) {
-    throw new IpcInputError(
-      'adapter',
-      `must be one of ${USER_ADAPTER_VALUES.join('|')} for user assets, got ${String(value)}`,
-    );
-  }
-  return value as UserAssetAdapter;
-}
-
 function parseAssetName(value: unknown, source: AssetSource): string {
   const maxLength = source === 'user' ? ASSET_LIMITS.nativeName : ASSET_LIMITS.name;
   const name = parseStringId('name', value, maxLength);
@@ -134,11 +114,7 @@ export function registerAssetsIpc(): void {
       if (r.ok) return { ok: true, content: r.content };
       return { ok: false, content: '', reason: r.reason };
     }
-    // source === 'user'：adapter/kind 兼容性仍从 shared helper 收口
-    const userAdapter = parseUserAdapterRequired(adapter);
-    const valid = validateAdapterKind(userAdapter, kind);
-    if (!valid.ok) return { ok: false, content: '', reason: valid.reason };
-    const r = getUserAssetContent(kind, name, userAdapter, pathHint);
+    const r = getUserAssetContent(kind, name, adapter, pathHint);
     if (r.ok) return { ok: true, content: r.content };
     return { ok: false, content: '', reason: r.reason };
   });
@@ -183,10 +159,7 @@ export function registerAssetsIpc(): void {
     if (source === 'bundled') {
       path = getBundledAssetPath(kind, name, adapter);
     } else {
-      const userAdapter = parseUserAdapterRequired(adapter);
-      const valid = validateAdapterKind(userAdapter, kind);
-      if (!valid.ok) return { ok: false, reason: valid.reason };
-      path = getUserAssetPath(kind, name, userAdapter, pathHint);
+      path = getUserAssetPath(kind, name, adapter, pathHint);
     }
     if (!path) return { ok: false, reason: `not found: ${source}/${kind}/${name}` };
     try {

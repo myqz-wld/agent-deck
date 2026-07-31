@@ -328,6 +328,7 @@ async function spawn(args: Record<string, unknown>, leadSid = 'lead-1') {
   const tools = await buildAgentDeckTools({
     callerSessionIdOverride: () => leadSid,
     transport: 'http',
+    adapterId: null,
   });
   const spawnTool = tools.find((t) => t.name === 'spawn_session');
   if (!spawnTool) throw new Error('spawn_session tool not found');

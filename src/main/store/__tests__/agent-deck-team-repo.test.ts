@@ -274,7 +274,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     repo.addMember({ teamId: t.id, sessionId: 'sess-old', role: 'lead' });
     expect(repo.listActiveMembers(t.id).map((m) => m.sessionId)).toEqual(['sess-old']);
 
-    // 模拟 fork rename: NEW 不在 sessions 表，走 toExists=false 分支 INSERT 复制 + 子表迁移 + DELETE OLD
+    // The canonical target is created by the rename and inherits the temporary row's references.
     expect(() => renameWithDb(db, 'sess-old', 'sess-new')).not.toThrow();
 
     // OLD 已删，NEW 已建
@@ -291,7 +291,6 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     const msgRepo = createAgentDeckMessageRepo(db);
     insertSession(db, 'sA');
     insertSession(db, 'sB');
-    insertSession(db, 'sC');
     const t = repo.create({ name: 'msg-test' });
     repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'lead' });
     repo.addMember({ teamId: t.id, sessionId: 'sB', role: 'teammate' });
@@ -333,12 +332,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     ).toBe('parent-new');
   });
 
-  // **REVIEW_83 MED 回归 test (reviewer-codex R2 单方 + lead 现场验证)**: renameWithDb 必须迁移
-  // tasks.owner_session_id / issues.source_session_id / issues.resolution_session_id /
-  // issue_appendices.appended_session_id —— 否则 DELETE OLD 触发 tasks FK ON DELETE CASCADE
-  // 物理删 task + issues/appendix FK ON DELETE SET NULL 断归属。清单写于 v021 早于 v023(tasks)/
-  // v026(issues) 加 FK,从未补这三表 → rename 违反「OLD 整迁 NEW」不变量(现 latent / 防未来 footgun)。
-  it('renameWithDb 内迁移 tasks.owner_session_id（防 DELETE OLD 触发 CASCADE 删 task）REVIEW_83 MED', () => {
+  it('renameWithDb 内迁移 tasks.owner_session_id，避免删除临时行时级联丢失 task', () => {
     insertSession(db, 'task-old');
     // OLD 拥有一个 personal task
     const taskId = crypto.randomUUID();
@@ -363,7 +357,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     ).toBe(0);
   });
 
-  it('renameWithDb 内迁移 issues source/resolution + appendix appended_session_id（防 DELETE OLD SET NULL 断归属）REVIEW_83 MED', () => {
+  it('renameWithDb 内迁移 issue 与 appendix 的 session 归属', () => {
     insertSession(db, 'iss-old');
     insertSession(db, 'iss-other');
     const issueId = crypto.randomUUID();
@@ -396,43 +390,13 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(apxRow.appended_session_id).toBe('iss-new');
   });
 
-  // **REVIEW_88 MED 回归 test (reviewer-codex)**: renameWithDb toExists=true 分支 spawned_by +
-  // spawn_depth 必须一起无条件按 OLD 覆盖。修前 spawned_by truthy guard（OLD null 跳过保留 NEW）
-  // 但 spawn_depth 无条件覆盖 → OLD root(spawned_by=NULL,depth=0) + NEW child(spawned_by='parent',
-  // depth=1) rename 后变脏 spawn-chain `spawned_by='parent',depth=0`。
-  it('renameWithDb toExists=true: OLD root 覆盖 NEW child 的 spawned_by + spawn_depth 一致（REVIEW_88 MED）', () => {
-    insertSession(db, 'parent');
-    insertSession(db, 'old-root'); // OLD 是 root: spawned_by=NULL, spawn_depth=0
-    insertSession(db, 'new-child'); // NEW 预存为 child: spawned_by='parent', spawn_depth=1
-    db.prepare(`UPDATE sessions SET spawned_by = ?, spawn_depth = 1 WHERE id = ?`).run(
-      'parent',
-      'new-child',
-    );
-
-    // toExists=true 路径（new-child 已存在）：rename old-root → new-child
-    renameWithDb(db, 'old-root', 'new-child');
-
-    const row = db
-      .prepare(`SELECT spawned_by, spawn_depth FROM sessions WHERE id = ?`)
-      .get('new-child') as { spawned_by: string | null; spawn_depth: number };
-    // **关键断言**: 二者一致按 OLD(root) 覆盖 — spawned_by=NULL + spawn_depth=0（非脏 'parent'+0）。
-    // 修前：spawned_by 保留 NEW 旧值 'parent'（truthy guard 跳过 null），spawn_depth 被 OLD 覆盖 0
-    // → 脏 spawn-chain（child 指针 + root depth）。
-    expect(row.spawned_by).toBeNull();
-    expect(row.spawn_depth).toBe(0);
-  });
-
-  // **plan codex-recover-network-dirs-parity-20260602 回归 test**: renameWithDb 两分支必须搬运
-  // network_access_enabled + additional_directories（防御性 parity，与 model/extra_allow_write
-  // 同段迁移；防 future caller rename 已设此列的 session 时静默丢值）。
-  it('renameWithDb toExists=false INSERT: network/dirs 跟到 toId', () => {
+  it('renameWithDb 将 network/dirs 搬到 canonical id', () => {
     insertSession(db, 'net-old');
     // 直接 SQL 设新列（insertSession helper 不含这俩）
     db.prepare(
       `UPDATE sessions SET network_access_enabled = 1, additional_directories = ? WHERE id = ?`,
     ).run(JSON.stringify(['/home/.claude', '/tmp']), 'net-old');
 
-    // toExists=false 路径（net-new 不存在）→ 走 INSERT 全列复制
     renameWithDb(db, 'net-old', 'net-new');
 
     const row = db
@@ -442,39 +406,6 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     expect(row.additional_directories).toBe(JSON.stringify(['/home/.claude', '/tmp']));
     // OLD 已删
     expect(db.prepare(`SELECT id FROM sessions WHERE id = ?`).get('net-old')).toBeUndefined();
-  });
-
-  it('renameWithDb toExists=true: OLD network/dirs 覆盖到已存在的 NEW 行', () => {
-    insertSession(db, 'net-old2');
-    insertSession(db, 'net-new2'); // NEW 预存（toExists=true 分支）
-    db.prepare(
-      `UPDATE sessions SET network_access_enabled = 1, additional_directories = ? WHERE id = ?`,
-    ).run(JSON.stringify(['/home/.codex']), 'net-old2');
-
-    renameWithDb(db, 'net-old2', 'net-new2');
-
-    const row = db
-      .prepare(`SELECT network_access_enabled, additional_directories FROM sessions WHERE id = ?`)
-      .get('net-new2') as { network_access_enabled: number | null; additional_directories: string | null };
-    // OLD 值覆盖到 NEW（防御性 parity）
-    expect(row.network_access_enabled).toBe(1);
-    expect(row.additional_directories).toBe(JSON.stringify(['/home/.codex']));
-  });
-
-  it('renameWithDb toExists=true: network_access_enabled=0(false) 也覆盖（!= null guard 非 truthy）', () => {
-    insertSession(db, 'net-old3');
-    insertSession(db, 'net-new3');
-    // OLD 显式 false(0)，NEW 预存 true(1) → != null guard 应让 OLD 0 覆盖 NEW 1
-    db.prepare(`UPDATE sessions SET network_access_enabled = 0 WHERE id = ?`).run('net-old3');
-    db.prepare(`UPDATE sessions SET network_access_enabled = 1 WHERE id = ?`).run('net-new3');
-
-    renameWithDb(db, 'net-old3', 'net-new3');
-
-    const row = db
-      .prepare(`SELECT network_access_enabled FROM sessions WHERE id = ?`)
-      .get('net-new3') as { network_access_enabled: number | null };
-    // 关键: OLD 显式 0(false) 覆盖 NEW 1 —— 若用 truthy guard 会漏掉 0 错误保留 NEW 的 1
-    expect(row.network_access_enabled).toBe(0);
   });
 
   it('findActiveMembershipsBySession 仅返回 active', () => {

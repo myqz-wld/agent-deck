@@ -2,7 +2,7 @@
  * TokenUsageLifecycleScheduler tests.
  *
  * Covers the fixed 365d retention policy, single refresh event after deletion,
- * failure isolation, singleton holder, and start/stop timer lifecycle.
+ * failure isolation and start/stop timer lifecycle.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import log from 'electron-log/main';
@@ -20,8 +20,6 @@ vi.mock('@main/store/token-usage-repo', () => ({
 vi.mock('@main/event-bus', () => ({ eventBus: mocks.eventBus }));
 
 import {
-  getTokenUsageLifecycleScheduler,
-  setTokenUsageLifecycleScheduler,
   TOKEN_USAGE_GC_BATCH_LIMIT,
   TOKEN_USAGE_RETENTION_DAYS,
   TokenUsageLifecycleScheduler,
@@ -36,13 +34,11 @@ beforeEach(() => {
   mockEventBus.emit.mockReset();
   (tokenUsageGcLogger.warn as ReturnType<typeof vi.fn>).mockClear();
   (tokenUsageGcLogger.info as ReturnType<typeof vi.fn>).mockClear();
-  setTokenUsageLifecycleScheduler(null);
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-  setTokenUsageLifecycleScheduler(null);
 });
 
 describe('TokenUsageLifecycleScheduler.scan', () => {
@@ -274,17 +270,5 @@ describe('TokenUsageLifecycleScheduler.start/stop', () => {
     vi.advanceTimersByTime(500);
 
     expect(mockRepo.deleteOlderThan).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('TokenUsageLifecycleScheduler singleton holder', () => {
-  it('stores and clears the active scheduler', () => {
-    const s = new TokenUsageLifecycleScheduler();
-
-    setTokenUsageLifecycleScheduler(s);
-    expect(getTokenUsageLifecycleScheduler()).toBe(s);
-
-    setTokenUsageLifecycleScheduler(null);
-    expect(getTokenUsageLifecycleScheduler()).toBeNull();
   });
 });

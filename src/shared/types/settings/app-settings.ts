@@ -276,13 +276,12 @@ export interface AppSettings {
   /**
    * Agent Deck MCP server 总开关（默认 true / R2 / B'0 ADR §7）。
    *
-   * 开 → 三 transport 同时启用：
+   * 开 → 两种 transport 同时启用：
    * - in-process（claude SDK 会话自动挂，B'3）
    * - HTTP（fastify HookServer `/mcp` 路由，B'4 + codex 自动注入）
-   * - stdio（`agent-deck mcp` 子命令，B'1，外部 MCP client 用）
    *
-   * 关 → in-process 不挂 + HTTP 路由 401 + stdio 子命令报「未启用」 +
-   * Codex config.toml 自动剥离 `mcp_servers.agent_deck` 段。
+   * 关 → in-process 不挂 + HTTP 路由 401 + Codex config.toml 自动剥离
+   * `mcp_servers.agent_deck` 段。
    *
    * 与资产注入开关同模式：spawn-time 注入，关掉只影响**下次新建会话**。
    * HTTP 路由 hot-toggle 立即生效。
@@ -293,7 +292,7 @@ export interface AppSettings {
    */
   enableAgentDeckMcp: boolean;
   /**
-   * MCP HTTP / stdio transport Bearer token（默认 null → 首次启用时 settings-store
+   * MCP HTTP transport Bearer token（默认 null → 首次启用时 settings-store
    * 自动生成 32 字节 hex 持久化）。与 hookServerToken **独立**：
    * - hook token 嵌进每个 CLI 子进程 spawn 的 hook 命令，泄漏面广
    * - mcp token 通过 Codex app-server thread options 的 `bearer_token_env_var` 引用
@@ -310,12 +309,6 @@ export interface AppSettings {
    * Hot-toggle 立即生效。
    */
   mcpHttpEnabled: boolean;
-  /**
-   * stdio 子命令开关（默认 true；仅在 enableAgentDeckMcp 开时生效）。
-   * 影响 `agent-deck mcp` 子命令是否真启 stdio transport，OFF 时报「未启用」错退出。
-   * external caller 默认 deny spawn_session（详 B'0 §4.3）。
-   */
-  mcpStdioEnabled: boolean;
   /**
    * MCP `spawn_session` 防递归：spawn 链最大深度（默认 3，范围 [1, 10]）。
    * 触顶 → handler 返回 isError「spawn depth N >= max M」。

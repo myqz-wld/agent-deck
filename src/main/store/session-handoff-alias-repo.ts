@@ -82,50 +82,6 @@ export function findSessionHandOffSuccessor(sourceSessionId: string): string | n
   return findSessionHandOffSuccessorWithDb(getDb(), sourceSessionId);
 }
 
-export function listSessionHandOffPredecessorsWithDb(
-  db: Database,
-  successorSessionId: string,
-): string[] {
-  return db
-    .prepare(
-      `SELECT source_session_id
-         FROM session_handoff_aliases
-        WHERE successor_session_id = ?
-        ORDER BY created_at ASC, source_session_id ASC`,
-    )
-    .pluck()
-    .all(successorSessionId) as string[];
-}
-
-export function listSessionHandOffPredecessors(successorSessionId: string): string[] {
-  return listSessionHandOffPredecessorsWithDb(getDb(), successorSessionId);
-}
-
-export function listSessionHandOffAliasesForSuccessorsWithDb(
-  db: Database,
-  successorSessionIds: readonly string[],
-  maxRowsPerSuccessor = MAX_ALIAS_LOOKUP_ROWS_PER_SUCCESSOR,
-  offsetsBySuccessor: ReadonlyMap<string, number> = new Map(),
-): SessionHandOffAliasRow[] {
-  const ids = [...new Set(successorSessionIds)];
-  const rowLimit = Math.max(
-    0,
-    Math.min(Math.trunc(maxRowsPerSuccessor), MAX_ALIAS_LOOKUP_ROWS_PER_SUCCESSOR),
-  );
-  if (rowLimit === 0) return [];
-  return listSessionHandOffAliasPagesWithDb(db, ids.map((successorSessionId, index) => ({
-    requestKey: String(index),
-    successorSessionId,
-    offset: Math.max(0, Math.trunc(offsetsBySuccessor.get(successorSessionId) ?? 0)),
-    limit: rowLimit,
-  }))).map(({ sourceSessionId, successorSessionId }) => ({
-    sourceSessionId,
-    successorSessionId,
-  })).sort((left, right) =>
-    left.successorSessionId.localeCompare(right.successorSessionId) ||
-    left.sourceSessionId.localeCompare(right.sourceSessionId));
-}
-
 /** Execute independently bounded pages in batched SQL, including repeated successors per owner. */
 export function listSessionHandOffAliasPagesWithDb(
   db: Database,
@@ -193,19 +149,6 @@ export function probeSessionHandOffAliasesWithDb(
     requestKey: request.requestKey,
     exhausted: !present.has(request.successorSessionId),
   }));
-}
-
-export function listSessionHandOffAliasesForSuccessors(
-  successorSessionIds: readonly string[],
-  maxRowsPerSuccessor?: number,
-  offsetsBySuccessor?: ReadonlyMap<string, number>,
-): SessionHandOffAliasRow[] {
-  return listSessionHandOffAliasesForSuccessorsWithDb(
-    getDb(),
-    successorSessionIds,
-    maxRowsPerSuccessor,
-    offsetsBySuccessor,
-  );
 }
 
 export function listSessionHandOffAliasPages(

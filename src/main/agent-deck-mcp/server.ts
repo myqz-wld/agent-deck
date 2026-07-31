@@ -1,20 +1,16 @@
 /**
  * Agent Deck MCP server 顶层入口（B'0 ADR §2 / §9）。
  *
- * 三 transport 共享同一份 buildAgentDeckTools 输出（tools.ts），但实例化路径不同：
+ * 两种 transport 共享同一份 buildAgentDeckTools 输出（tools.ts），但实例化路径不同：
  * - in-process（B'3）：用 mcp-sdk `McpServer`，挂到 sdk-bridge query options.mcpServers
  * - HTTP（B'4）：用 mcp-sdk `McpServer` + `StreamableHTTPServerTransport`，
  *   挂到 fastify HookServer 的 `/mcp` route（rate-limit + Bearer token）
- * - stdio（B'1）：用 mcp-sdk `McpServer` + `StdioServerTransport`，
- *   通过 `agent-deck mcp` 子命令的子进程入口启动
  *
  * 调用者契约：
  * - in-process（B'3，per-session 实例化）：
  *   `await getAgentDeckMcpServerForSession(callerSessionIdProvider)` → 挂 query.mcpServers
  * - HTTP（应用全局单例，跟 HookServer 一起启停）：
  *   `await registerAgentDeckMcpHttpRoutes(routeRegistry)` → fastify 自动挂 /mcp
- * - stdio（cli.ts 子进程子命令入口）：
- *   `await runAgentDeckMcpStdio()` → 接管当前进程 stdin/stdout
  */
 
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';

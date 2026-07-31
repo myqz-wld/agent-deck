@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
-import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
 // =============== HAND_OFF_SESSION (session baton) ===============
@@ -40,12 +39,6 @@ export const HAND_OFF_SESSION_SHAPE = {
       'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway, or a Codex native config with profile.',
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 // enter_worktree / exit_worktree provide one asynchronous, provider-observed cwd transition
@@ -80,12 +73,6 @@ export const ENTER_WORKTREE_SCHEMA = {
     .describe(
       'Optional absolute root, maximum 4096 characters, used only when worktreePath is omitted. Omit both path fields to use <main-repo>/.agent-deck/worktrees after ensuring the main repository .gitignore contains the exact .agent-deck/ entry. This field changes only directory placement and never names or creates a Git ref.',
     ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const EXIT_WORKTREE_SCHEMA = {
@@ -104,12 +91,6 @@ export const EXIT_WORKTREE_SCHEMA = {
     .describe(
       'Optional boolean, default false. With false, the tool checks tracked and untracked dirty state before acceptance and again immediately before removal, refusing when either check finds changes. Set true only after the user explicitly authorizes permanent deletion of those uncommitted files; it enables forced worktree removal but does not bypass lease/path/repository/reference checks or the durable-HEAD check. The tool never creates, renames, switches, or deletes Git branches or other refs.',
     ),
-  callerSessionId: z
-    .string()
-    .min(1)
-    .max(128)
-    .optional()
-    .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
 export const HAND_OFF_SESSION_ARGS_SCHEMA = z.object(HAND_OFF_SESSION_SHAPE).strict();

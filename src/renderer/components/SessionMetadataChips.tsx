@@ -5,7 +5,6 @@ import {
   CODEX_DEFAULT_BUCKET,
   normalizeModel,
 } from '@shared/model-normalize';
-import { formatThinkingLevel } from '@shared/session-metadata';
 
 interface Props {
   session: SessionRecord;
@@ -15,7 +14,7 @@ interface Props {
 
 export function SessionMetadataChips({ session, branch, compact = false }: Props): JSX.Element {
   const model = formatModelLabel(session.model);
-  const thinking = session.thinking ? formatThinkingLevel(session.thinking) : '默认';
+  const thinking = session.thinking ?? '默认';
   const chipClass = compact
     ? 'rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-deck-muted/80'
     : 'rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-deck-muted/85';

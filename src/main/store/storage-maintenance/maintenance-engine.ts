@@ -1,8 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import {
-  runSnapshotGcSlice,
-  type SnapshotMaintenanceSliceResult,
-} from './file-snapshots';
+import { runSnapshotGcSlice, type SnapshotMaintenanceSliceResult } from './file-snapshots';
 
 export interface MaintenanceEngineOptions {
   yieldDelayMs?: number;
@@ -10,10 +7,8 @@ export interface MaintenanceEngineOptions {
   errorRetryMs?: number;
 }
 
-export type StorageMaintenanceSliceResult = SnapshotMaintenanceSliceResult;
-
 export interface MaintenanceEngineTick {
-  result: StorageMaintenanceSliceResult | null;
+  result: SnapshotMaintenanceSliceResult | null;
   error: { task: 'file-snapshot-gc'; message: string } | null;
   nextDelayMs: number;
 }
@@ -28,11 +23,11 @@ export class StorageMaintenanceEngine {
   ) {}
 
   runTick(now = Date.now()): MaintenanceEngineTick {
-    let result: StorageMaintenanceSliceResult | null = null;
+    let result: SnapshotMaintenanceSliceResult | null = null;
     let error: MaintenanceEngineTick['error'] = null;
     if (now >= this.retryAt) {
       try {
-        result = this.runOneSlice();
+        result = runSnapshotGcSlice(this.db);
         this.retryAt = 0;
       } catch (cause) {
         error = { task: 'file-snapshot-gc', message: boundedMaintenanceError(cause) };
@@ -45,12 +40,6 @@ export class StorageMaintenanceEngine {
       nextDelayMs: this.nextScheduleDelay(now),
     };
   }
-
-  /** Public deterministic seam; production invokes it only inside the maintenance worker. */
-  runOneSlice(): StorageMaintenanceSliceResult {
-    return runSnapshotGcSlice(this.db);
-  }
-
   private nextScheduleDelay(now: number): number {
     if (this.retryAt > now) return Math.max(1, this.retryAt - now);
     const pending = Number(

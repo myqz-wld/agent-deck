@@ -5,10 +5,8 @@ import { app, BrowserWindow, globalShortcut } from 'electron';
 import { closeDb } from '../store/db';
 import { adapterRegistry } from '../adapters/registry';
 import { setLifecycleScheduler } from '../session/lifecycle-scheduler';
-import { setTeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import { setIssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import { setMessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
-import { setTokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
 import { summarizer } from '../session/summarizer';
 import { stopContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
 import { stopAllSounds } from '../notify/sound';
@@ -100,7 +98,6 @@ export function registerLifecycleHooks(
         state.scheduler?.stop();
         setLifecycleScheduler(null);
         state.teamScheduler?.stop();
-        setTeamLifecycleScheduler(null);
         // plan issue-tracker-mcp-20260529 §Step 3.7.2.5: stop IssueLifecycleScheduler 防 timer
         // 在 quit 期间继续碰 DB（与现有 LifecycleScheduler / TeamLifecycleScheduler 同款 stop 模式）
         state.issueScheduler?.stop();
@@ -110,7 +107,6 @@ export function registerLifecycleHooks(
         state.messageScheduler?.stop();
         setMessageLifecycleScheduler(null);
         state.tokenUsageScheduler?.stop();
-        setTokenUsageLifecycleScheduler(null);
         const messageWatcherStop = universalMessageWatcher.stop()
           .then((result) => {
             if (!result.drained) {

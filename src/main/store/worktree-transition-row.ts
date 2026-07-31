@@ -7,7 +7,6 @@ import type {
 
 export interface WorktreeTransitionRow {
   session_id: string;
-  format_version: number;
   generation: number;
   direction: WorktreeTransitionDirection;
   phase: WorktreeTransitionPhase;
@@ -44,7 +43,6 @@ export function rowToWorktreeTransition(
 ): WorktreeTransitionRecord {
   return {
     sessionId: row.session_id,
-    formatVersion: 1,
     generation: row.generation,
     direction: row.direction,
     phase: row.phase,

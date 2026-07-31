@@ -35,9 +35,3 @@ export interface UploadedAttachmentRef {
   mime: string;
   bytes: number;
 }
-
-/** sendMessage / createSession 共用 message envelope。text 单独算 100KB 上限不变。 */
-export interface UserMessageEnvelope {
-  text: string;
-  attachments?: UploadedAttachmentInput[];
-}

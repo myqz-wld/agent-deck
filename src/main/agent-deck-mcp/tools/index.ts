@@ -60,7 +60,7 @@ import { buildBrowserTools } from './browser-tools';
 
 export interface BuildAgentDeckToolsDeps {
   /** Authenticated caller profile; external/global transports have no adapter profile. */
-  adapterId?: SessionAdapterId | null;
+  adapterId: SessionAdapterId | null;
   /** Resolves the authenticated session id, or the external-caller sentinel, for every tool call. */
   callerSessionIdOverride: (extra?: unknown) => string;
   /** transport 类型，写入 CallerContext.transport 字段供 handler 决策。 */

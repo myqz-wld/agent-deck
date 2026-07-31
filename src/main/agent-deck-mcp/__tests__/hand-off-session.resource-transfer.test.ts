@@ -67,7 +67,6 @@ vi.mock('@main/utils/logger', () => ({
 
 function activeLease() {
   return {
-    formatVersion: 1,
     sessionId: 'caller-sid',
     generation: 3,
     direction: 'enter',

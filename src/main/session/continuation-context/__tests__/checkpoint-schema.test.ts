@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONTINUATION_CHECKPOINT_JSON_SCHEMA,
   canonicalizeContinuationCheckpoint,
   continuationCheckpointSchema,
   type ContinuationCheckpoint,
@@ -67,23 +66,5 @@ describe('continuation checkpoint schema', () => {
     const value = baseCheckpoint();
     value.risks.push({ ...value.goals[0], text: 'duplicate' });
     expect(continuationCheckpointSchema.safeParse(value).success).toBe(false);
-  });
-
-  it('exports a closed, required-section provider JSON schema', () => {
-    expect(CONTINUATION_CHECKPOINT_JSON_SCHEMA).toMatchObject({
-      type: 'object',
-      additionalProperties: false,
-      required: expect.arrayContaining(['formatVersion', 'goals', 'unresolvedErrors']),
-      properties: expect.objectContaining({
-        formatVersion: { type: 'integer', const: 1 },
-        goals: expect.objectContaining({ type: 'array' }),
-      }),
-    });
-    const goals = (CONTINUATION_CHECKPOINT_JSON_SCHEMA as {
-      properties: {
-        goals: { items: { properties: Record<string, unknown>; required: string[] } };
-      };
-    }).properties.goals;
-    expect(goals.items.required).toEqual(Object.keys(goals.items.properties));
   });
 });

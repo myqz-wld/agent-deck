@@ -6,8 +6,6 @@
  * - recoverAndSend thin delegate → `./recoverer/recover-and-send-impl.ts:recoverAndSendImpl`
  * - emitFallbackMessage class 内 private method 收口（user Q3 confirm 推荐方案）
  * - findFallbackCwd protected method 留 class 内（test 通过 extend facade override）
- * - 5 thunk type / 1 ctx interface re-export from `./recoverer/_deps.ts`
- * - 2 default helper re-export from `./recoverer/jsonl-discovery.ts`
  *
  * **State 所有权**：
  * - `recovering` Map：**SHARED**，与 lifecycle.restartWithPermissionMode 双方读写同一份
@@ -45,29 +43,6 @@ import type {
   RecovererCtx,
   SendMessageThunk,
 } from './recoverer/_deps';
-
-// re-export 5 thunk type + 1 ctx interface — caller 仍按
-// `import { SessionRecoverer, RecovererCtx, ... } from '@main/adapters/claude-code/sdk-bridge/recoverer'`
-// 方式 import (Step 4.4 facade re-export 保 import path byte-identical)。
-export type {
-  CaptureRecoveryContinuationThunk,
-  CleanupRecoveryContinuationThunk,
-  CreateSessionThunk,
-  CwdExistsThunk,
-  JsonlExistsThunk,
-  JsonlMtimeMsThunk,
-  LatestConversationMessageTsThunk,
-  PrepareRecoveryContinuationThunk,
-  RecovererCtx,
-  SendMessageThunk,
-};
-
-// re-export 2 default fn — facade.ctor 默认值 + sdk-bridge.ts:46 import 链兼容
-export {
-  defaultCwdExists,
-  defaultResumeJsonlMtimeMs,
-  defaultResumeJsonlExists,
-} from './recoverer/jsonl-discovery';
 
 export class SessionRecoverer {
   /**

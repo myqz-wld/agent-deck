@@ -42,16 +42,15 @@ export function createEnterWithDb(
     deleteWorktreeTransitionInputsWithDb(db, input.sessionId);
     db.prepare(
       `INSERT INTO worktree_cwd_transitions
-        (session_id, format_version, generation, direction, phase, original_cwd, target_cwd,
+        (session_id, generation, direction, phase, original_cwd, target_cwd,
          main_repo, worktree_path, base_commit, tool_use_id,
          continuation_key, continuation_delivered, discard_changes,
          requested_at, updated_at, last_error)
        VALUES
-        (@session_id, 1, @generation, 'enter', 'creating', @original_cwd, @target_cwd,
+        (@session_id, @generation, 'enter', 'creating', @original_cwd, @target_cwd,
          @main_repo, @worktree_path, @base_commit, @tool_use_id,
          @continuation_key, 0, 0, @requested_at, @requested_at, NULL)
        ON CONFLICT(session_id) DO UPDATE SET
-         format_version = 1,
          generation = excluded.generation,
          direction = excluded.direction,
          phase = excluded.phase,

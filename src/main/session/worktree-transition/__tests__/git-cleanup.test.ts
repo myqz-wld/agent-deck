@@ -58,7 +58,6 @@ function transition(
 ): WorktreeTransitionRecord {
   return {
     sessionId: 'session-a',
-    formatVersion: 1,
     generation: 1,
     direction: 'enter',
     phase: 'active',

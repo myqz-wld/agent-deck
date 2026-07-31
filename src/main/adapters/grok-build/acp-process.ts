@@ -216,12 +216,6 @@ export class GrokAcpProcess {
   }
 }
 
-export function selectGrokAuthMethod(
-  authMethods: readonly AuthMethod[] | undefined,
-): AuthMethod | null {
-  return orderedGrokAuthMethods(authMethods)[0] ?? null;
-}
-
 function orderedGrokAuthMethods(
   authMethods: readonly AuthMethod[] | undefined,
 ): AuthMethod[] {

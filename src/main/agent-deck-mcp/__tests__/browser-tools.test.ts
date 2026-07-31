@@ -73,7 +73,7 @@ function sessionCtx(sessionId: string): HandlerContext {
 }
 
 function externalCtx(): HandlerContext {
-  return { caller: { callerSessionId: EXTERNAL_CALLER_SENTINEL, transport: 'stdio' } };
+  return { caller: { callerSessionId: EXTERNAL_CALLER_SENTINEL, transport: 'http' } };
 }
 
 function payload(result: { content: Array<{ type: string; text?: string }> }): any {

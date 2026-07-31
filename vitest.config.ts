@@ -7,9 +7,7 @@ import { resolve } from 'path';
  *
  * Alias 与 electron.vite.config.ts 保持一致，让测试文件可以用 `@main` / `@shared` / `@renderer` 引用。
  *
- * Plan runtime-logging-electron-log-20260529 §Step 3.5.1.5 新增 `@renderer` alias 给
- * `src/renderer/utils/__tests__/logger-guard.test.ts` 类 renderer 端测试用 (虽然现有 renderer
- * 测试都用相对路径未撞过, 加上 alias 与 electron.vite.config.ts 一致避免后续踩坑).
+ * Keep all three aliases aligned with electron.vite.config.ts so tests exercise production imports.
  */
 export default defineConfig({
   resolve: {

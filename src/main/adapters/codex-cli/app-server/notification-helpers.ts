@@ -16,16 +16,6 @@ export function getNotificationTurnId(notification: CodexAppServerNotification):
   return typeof turn?.id === 'string' ? turn.id : null;
 }
 
-export function isTerminalForTurn(
-  notification: CodexAppServerNotification,
-  activeTurnId: string | null,
-  turnStartSeen: boolean,
-): boolean {
-  const state = classifyTerminalForTurn(notification, activeTurnId);
-  if (state === 'terminal' || state === 'malformed') return true;
-  return !activeTurnId && turnStartSeen && state === 'unattributed-completion';
-}
-
 export type TerminalNotificationState =
   | 'none'
   | 'retrying'

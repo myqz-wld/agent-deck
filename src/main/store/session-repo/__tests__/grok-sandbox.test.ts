@@ -51,16 +51,4 @@ describe.skipIf(!bindingAvailable)('session Grok sandbox persistence', () => {
     expect(sessionRepo.get('old')).toBeNull();
     expect(sessionRepo.get('new')?.grokSandbox).toBe('project-locked');
   });
-
-  it('lets the source identity clear a stale target profile during merge rename', () => {
-    insertSession(db, 'source');
-    insertSession(db, 'target');
-    sessionRepo.setGrokSandbox('source', null);
-    sessionRepo.setGrokSandbox('target', 'strict');
-
-    renameWithDb(db, 'source', 'target');
-
-    expect(sessionRepo.get('source')).toBeNull();
-    expect(sessionRepo.get('target')?.grokSandbox).toBeNull();
-  });
 });

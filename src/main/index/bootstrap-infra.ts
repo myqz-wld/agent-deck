@@ -39,10 +39,7 @@ import { codexCliAdapter } from '../adapters/codex-cli';
 import { grokBuildAdapter } from '../adapters/grok-build';
 import { sessionManager, setSessionCloseFn, setSessionRenameHookFn } from '../session/manager';
 import { LifecycleScheduler, setLifecycleScheduler } from '../session/lifecycle-scheduler';
-import {
-  TeamLifecycleScheduler,
-  setTeamLifecycleScheduler,
-} from '../teams/team-lifecycle-scheduler';
+import { TeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import {
   IssueLifecycleScheduler,
   setIssueLifecycleScheduler,
@@ -51,10 +48,7 @@ import {
   MessageLifecycleScheduler,
   setMessageLifecycleScheduler,
 } from '../store/message-lifecycle-scheduler';
-import {
-  TokenUsageLifecycleScheduler,
-  setTokenUsageLifecycleScheduler,
-} from '../store/token-usage-lifecycle-scheduler';
+import { TokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
 import { StorageMaintenanceScheduler } from '../store/storage-maintenance';
 import { summarizer } from '../session/summarizer';
 import { startContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
@@ -318,7 +312,6 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // ungraceful 退出 / hook 绕过 sessionManager 的场景定期清理幽灵 team)。
   state.teamScheduler = new TeamLifecycleScheduler();
   state.teamScheduler.start();
-  setTeamLifecycleScheduler(state.teamScheduler);
   // plan issue-tracker-mcp-20260529 §Step 3.7.2 / §D13 / §D20: Issue Tracker GC scheduler。
   // 默认 6h tick — retention 单位是 day,GC 漂移几小时无害。aretentionDays=0 跳过该路径 GC。
   state.issueScheduler = new IssueLifecycleScheduler({
@@ -338,7 +331,6 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // This intentionally has no settings panel control; it is only a background storage guard.
   state.tokenUsageScheduler = new TokenUsageLifecycleScheduler();
   state.tokenUsageScheduler.start();
-  setTokenUsageLifecycleScheduler(state.tokenUsageScheduler);
   // v041 only creates empty targets and durable cursors. A persistent SQLite worker takes over live
   // PASSIVE checkpoints after its ready handshake, then starts adaptive backfill after a 15s grace.
   // Codec work, maintenance writes, and their commit/checkpoint tails never execute on Electron main.
