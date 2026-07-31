@@ -131,7 +131,6 @@ export function makeDebouncedTeamSender<T>(
  */
 export type CallerArchiveFailedToolName = EventMap['caller-archive-failed'][0]['toolName'];
 export const TOOL_DISPLAY_NAME: Record<CallerArchiveFailedToolName, string> = {
-  archive_plan: 'plan 归档',
   hand_off_session: '会话接力',
   SessionHandOffCommit: '会话接力',
 };

@@ -135,7 +135,7 @@ describe.skipIf(!bindingAvailable)('session-repo / cwd_release_marker (plan P1 S
     // P5 Round 1 reviewer-codex MED-2 修法后:rename toExists=true 分支**无条件**用 fromRow
     // 覆盖 cwd_release_marker(rename.ts:283）。marker 是 transient session state(worktree 持有
     // 标记),rename = OLD 接管 NEW 身份 → OLD null 必须清掉 NEW 的 stale marker,否则 codex SDK
-    // 隐式 fork 后 stale marker 跟到新 sid 触发 archive_plan 状态 4 误 reject。
+    // 隐式 fork 后 stale marker 会错误归属到新 sid，干扰 structured exit / legacy adoption。
     expect(sessionRepo.get('sid-OLD')?.cwdReleaseMarker).toBeNull();
 
     renameWithDb(db, 'sid-OLD', 'sid-NEW');

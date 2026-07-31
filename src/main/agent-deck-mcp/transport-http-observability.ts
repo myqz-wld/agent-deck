@@ -76,8 +76,6 @@ const TOOL_OPERATIONS = new Map<string, McpHttpOperation>([
   ['enter_worktree', operation('lifecycle', 5)],
   ['exit_worktree', operation('lifecycle', 6)],
   ['shutdown_session', operation('lifecycle', 7)],
-  ['shutdown_baton_teammates', operation('lifecycle', 8)],
-  ['archive_plan', operation('lifecycle', 9)],
   ['send_message', operation('local', 10)],
   ['list_sessions', operation('local', 11)],
   ['get_session', operation('local', 12)],

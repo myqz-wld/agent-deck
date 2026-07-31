@@ -14,8 +14,6 @@ const harness = vi.hoisted(() => ({
   preflight: vi.fn(async () => {}),
   cleanup: vi.fn(async () => ({
     worktreeRemoved: true,
-    branchDeleted: false,
-    branchError: null as string | null,
   })),
 }));
 
@@ -70,8 +68,6 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
         targetCwd: string;
         mainRepo: string;
         worktreePath: string;
-        workBranch: string;
-        baseBranch: string;
         baseCommit: string;
         toolUseId: string;
         continuationKey: string;
@@ -83,8 +79,8 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
           targetCwd: input.targetCwd,
           mainRepo: input.mainRepo,
           worktreePath: input.worktreePath,
-          workBranch: input.workBranch,
-          baseBranch: input.baseBranch,
+          workBranch: '',
+          baseBranch: '',
           baseCommit: input.baseCommit,
           toolUseId: input.toolUseId,
           continuationKey: input.continuationKey,
@@ -98,13 +94,10 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
         originalCwd: string;
         mainRepo: string;
         worktreePath: string;
-        workBranch: string;
-        baseBranch: string;
-        baseCommit: string;
+        headCommit: string;
         toolUseId: string;
         continuationKey: string;
         discardChanges: boolean;
-        deleteBranch: boolean;
         requestedAt: number;
       }) => {
         harness.adopt(input);
@@ -116,13 +109,13 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
           targetCwd: input.originalCwd,
           mainRepo: input.mainRepo,
           worktreePath: input.worktreePath,
-          workBranch: input.workBranch,
-          baseBranch: input.baseBranch,
-          baseCommit: input.baseCommit,
+          workBranch: '',
+          baseBranch: 'HEAD',
+          baseCommit: input.headCommit,
           toolUseId: input.toolUseId,
           continuationKey: input.continuationKey,
           discardChanges: input.discardChanges,
-          deleteBranch: input.deleteBranch,
+          deleteBranch: false,
           requestedAt: input.requestedAt,
           updatedAt: input.requestedAt,
         });
@@ -153,7 +146,6 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
           toolUseId: string;
           continuationKey: string;
           discardChanges: boolean;
-          deleteBranch: boolean;
           requestedAt: number;
         },
       ) => {
@@ -166,7 +158,7 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
           continuationKey: options.continuationKey,
           continuationDelivered: false,
           discardChanges: options.discardChanges,
-          deleteBranch: options.deleteBranch,
+          deleteBranch: false,
         };
         return harness.record;
       },
@@ -246,10 +238,7 @@ function enterDeps() {
     runGit: async (args: string[]) => {
       const command = args.join(' ');
       if (command === 'rev-parse --git-common-dir') return '/repo/.git';
-      if (command.includes('refs/heads/main^{commit}')) return 'a'.repeat(40);
-      if (command.includes('refs/heads/agent-deck/task')) {
-        throw new Error('branch absent');
-      }
+      if (command.includes('HEAD^{commit}')) return 'a'.repeat(40);
       return '';
     },
   };
@@ -269,8 +258,6 @@ beforeEach(() => {
   harness.cleanup.mockReset();
   harness.cleanup.mockResolvedValue({
     worktreeRemoved: true,
-    branchDeleted: false,
-    branchError: null,
   });
 });
 
@@ -278,8 +265,7 @@ describe('structured automatic worktree handlers', () => {
   it('accepts enter only after durable preparation and arms exact-result correlation', async () => {
     const result = await enterWorktreeHandler(
       {
-        baseBranch: 'main',
-        workBranch: 'agent-deck/task',
+        startPoint: 'HEAD',
         worktreePath: '/repo/.agent-deck/worktrees/task',
       },
       ctx(),
@@ -290,6 +276,8 @@ describe('structured automatic worktree handlers', () => {
       direction: 'enter',
       state: 'waiting-tool-result',
       effectiveFrom: 'automatic-next-turn',
+      startCommit: 'a'.repeat(40),
+      headMode: 'detached',
       markerSet: true,
     });
     expect(harness.bind).toHaveBeenCalledWith(
@@ -305,13 +293,15 @@ describe('structured automatic worktree handlers', () => {
   it('returns an existing enter acceptance idempotently without creating git state again', async () => {
     harness.record = transition('enter_waiting_tool_result');
     const result = await enterWorktreeHandler(
-      { baseBranch: 'main' },
+      { startPoint: 'HEAD' },
       ctx(),
       { implDeps: enterDeps() },
     );
     expect(assertStructuredParity(result)).toMatchObject({
       transitionId: 'caller-sid:1',
       state: 'waiting-tool-result',
+      startCommit: 'a'.repeat(40),
+      headMode: 'legacy-attached',
     });
     expect(harness.reserve).not.toHaveBeenCalled();
     expect(harness.arm).not.toHaveBeenCalled();
@@ -320,7 +310,7 @@ describe('structured automatic worktree handlers', () => {
   it('accepts structured exit after preflight without removing the worktree in the handler', async () => {
     harness.record = transition('active', { continuationDelivered: true });
     const result = await exitWorktreeHandler(
-      { discardChanges: false, deleteBranch: false },
+      { discardChanges: false },
       ctx(),
     );
     expect(assertStructuredParity(result)).toMatchObject({
@@ -338,14 +328,19 @@ describe('structured automatic worktree handlers', () => {
   });
 
   it('adopts a detached legacy worktree and returns async acceptance without inline cleanup', async () => {
-    const gitValues = ['/repo/.git', '', 'a'.repeat(40), ''];
+    const gitValues = [
+      '/repo/.git',
+      'a'.repeat(40),
+      'refs/heads/main',
+      '',
+    ];
     const runGit = vi.fn(async (_args: string[], _cwd: string) => {
       const next = gitValues.shift();
       if (next === undefined) throw new Error('runGit mock exhausted');
       return next;
     });
     const result = await exitWorktreeHandler(
-      { discardChanges: false, deleteBranch: false },
+      { discardChanges: false },
       ctx(),
       {
         implDeps: {
@@ -364,12 +359,10 @@ describe('structured automatic worktree handlers', () => {
       direction: 'exit',
       state: 'waiting-tool-result',
       worktreePath: '/repo/.agent-deck/worktrees/legacy',
-      workBranch: null,
     });
     expect(harness.adopt).toHaveBeenCalledWith(
       expect.objectContaining({
-        workBranch: '',
-        baseBranch: 'HEAD',
+        headCommit: 'a'.repeat(40),
         originalCwd: '/repo',
       }),
     );
@@ -386,7 +379,12 @@ describe('structured automatic worktree handlers', () => {
   });
 
   it('falls back to the legacy marker when an adopted exit cannot be armed', async () => {
-    const gitValues = ['/repo/.git', '', 'a'.repeat(40), ''];
+    const gitValues = [
+      '/repo/.git',
+      'a'.repeat(40),
+      'refs/heads/main',
+      '',
+    ];
     harness.arm.mockImplementationOnce(() => {
       throw new Error('adapter cannot arm');
     });

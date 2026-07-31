@@ -469,7 +469,7 @@ export class CodexSdkBridge {
    * （直接 existsSync，异常 fail-safe 退化返回 true 让 SDK 自己 try）。
    *
    * recoverer 拿这个判定 sessionRepo.cwd 是否还有效；不存在时走 `findFallbackCwd` 启发式
-   * fallback 路径（典型：K2 老 session cwd=worktree 后 worktree 被 archive_plan 删 /
+   * fallback 路径（典型：老 session cwd=worktree 后 worktree 被 exit_worktree 或手工删除 /
    * 用户手动 git worktree remove / 跨设备同步丢目录）。
    */
   protected cwdExists(cwd: string): boolean {

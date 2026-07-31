@@ -91,9 +91,8 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
     ).toBe(true);
   });
 
-  // **REVIEW_49 R1 follow-up 回归 test**: archive() 同步清 cwd_release_marker
-  // (baton phase 2 archive caller 后 marker 应清空避免 unarchive 复活带 stale marker
-  // 撞 archive-plan-impl:627 cwdReleaseMarker thunk 拿 stale 路径)
+  // **REVIEW_49 R1 follow-up 回归 test**: archive() 同步清 cwd_release_marker，
+  // 避免 unarchive 复活时重新携带已失效的 worktree ownership marker。
   it('archive() → 同步清 cwd_release_marker（REVIEW_49 R1 follow-up）', async () => {
     // 预置一个 active session 携带 worktree marker
     const ev = makeEvent({

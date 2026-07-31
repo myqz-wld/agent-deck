@@ -68,8 +68,7 @@ export interface Row {
   grok_usage_watermark: string | null;
   /** Added in v058; optional keeps historical migration fixtures readable. */
   context_usage?: string | null;
-  // plan codex-handoff-team-alignment-20260518 P1 Step 1.1 / 不变量 5 + D2：mcp enter_worktree marker
-  // 标记 caller 显式持有的 worktreePath（archive_plan 预检 4 态分流用），NULL = 未持有 marker。
+  // Compatibility mirror of the session-owned worktree path; NULL = no marker.
   cwd_release_marker: string | null;
   spawned_by: string | null;
   spawn_depth: number;

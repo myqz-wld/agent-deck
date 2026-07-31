@@ -57,8 +57,7 @@ export interface CallerContext {
 /**
  * Agent Deck MCP tool names. The public registry exposes 19 core tools everywhere, plus 14
  * `browser_*` tools on adapters whose runtime profile sets `mcpBrowserTools` (Codex CLI keeps using
- * the official Browser plugin instead). Archive/teammate cleanup names are retained only as
- * deny-by-default guard keys for old internal handlers.
+ * the official Browser plugin instead).
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -69,13 +68,9 @@ export const AGENT_DECK_TOOL_NAMES = {
   getSession: 'get_session',
   listSessionEvents: 'list_session_events',
   shutdownSession: 'shutdown_session',
-  // Retained guard key, not registered by buildAgentDeckTools.
-  archivePlan: 'archive_plan',
   handOffSession: 'hand_off_session',
   enterWorktree: 'enter_worktree',
   exitWorktree: 'exit_worktree',
-  // Retained guard key, not registered by buildAgentDeckTools.
-  shutdownBatonTeammates: 'shutdown_baton_teammates',
   // plan task-mcp-merge-into-agent-deck-mcp-20260521：5 个 task tool 合并入 agent-deck namespace
   // （工具名从 mcp__tasks__task_* 切到 mcp__agent-deck__task_*，breaking change）。
   taskCreate: 'task_create',
@@ -113,8 +108,7 @@ export type AgentDeckToolName =
   (typeof AGENT_DECK_TOOL_NAMES)[keyof typeof AGENT_DECK_TOOL_NAMES];
 
 /**
- * External caller allow-list. Unknown or omitted entries are treated as denied by helper code;
- * retired guard keys remain explicit false so old imports never become callable through external transport.
+ * External caller allow-list. Unknown or omitted entries are treated as denied by helper code.
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   spawn_session: false,
@@ -126,11 +120,9 @@ export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
   // Requires a real caller identity for self/spawn/team visibility checks even though it is read-only.
   list_session_events: false,
   shutdown_session: false,
-  archive_plan: false,
   hand_off_session: false,
   enter_worktree: false,
   exit_worktree: false,
-  shutdown_baton_teammates: false,
   // task tools (plan task-mcp-merge-into-agent-deck-mcp-20260521 §D6 R1 F1 + v024 §D8)
   task_create: false,
   task_update: false,

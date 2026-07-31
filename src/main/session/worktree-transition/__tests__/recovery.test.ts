@@ -11,13 +11,9 @@ const harness = vi.hoisted(() => ({
   runtimeCwd: null as string | null,
   cleanup: vi.fn(async () => ({
     worktreeRemoved: true,
-    branchDeleted: false,
-    branchError: null,
   })),
   rollback: vi.fn(async () => ({
     worktreeRemoved: true,
-    branchDeleted: true,
-    branchError: null,
   })),
   status: vi.fn(),
   upsert: vi.fn(),
@@ -169,8 +165,8 @@ function record(
     targetCwd: direction === 'enter' ? '/repo/worktree' : '/repo',
     mainRepo: '/repo',
     worktreePath: '/repo/worktree',
-    workBranch: 'agent-deck/task',
-    baseBranch: 'main',
+    workBranch: '',
+    baseBranch: '',
     baseCommit: 'a'.repeat(40),
     toolUseId: 'tool-a',
     continuationKey: 'cwd:test:3',
@@ -195,14 +191,10 @@ beforeEach(() => {
   harness.cleanup.mockReset();
   harness.cleanup.mockResolvedValue({
     worktreeRemoved: true,
-    branchDeleted: false,
-    branchError: null,
   });
   harness.rollback.mockReset();
   harness.rollback.mockResolvedValue({
     worktreeRemoved: true,
-    branchDeleted: true,
-    branchError: null,
   });
   harness.status.mockClear();
   harness.upsert.mockClear();
@@ -222,6 +214,12 @@ describe('worktree transition startup recovery', () => {
       expect.objectContaining({ userEventAlreadyPersisted: true }),
     );
     expect(harness.record.phase).toBe('cleared');
+    expect(harness.status).toHaveBeenCalledWith(
+      'session-a',
+      expect.not.stringContaining('branch'),
+      false,
+      3,
+    );
   });
 
   it('completes an acknowledged enter with continuation before buffered input', async () => {

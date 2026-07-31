@@ -7,6 +7,10 @@ import {
   preflightStructuredWorktreeExit,
 } from '@main/session/worktree-transition/git-cleanup';
 import {
+  DirtyWorktreeError,
+  UnreferencedWorktreeHeadError,
+} from '@main/session/worktree-transition/git-safety';
+import {
   worktreeTransitionId,
   type WorktreeTransitionRecord,
 } from '@main/session/worktree-transition/types';
@@ -73,7 +77,7 @@ export interface ExitWorktreeHandlerDeps {
 
 /**
  * 默认 sessionRepo seam:callerMarker / callerCwd 反查 sessionRepo;
- * clearCwdReleaseMarker 写 DB null。与 archive-plan / enter-worktree handler 同款 —
+ * clearCwdReleaseMarker 写 DB null。与 enter-worktree handler 同款 —
  * sessionRepo 在 handler 层 import 触发 electron load OK,但 impl 不能 import。
  */
 const DEFAULT_SESSION_DEPS: Required<
@@ -113,7 +117,6 @@ export const exitWorktreeHandler = withMcpGuard(
             state: 'waiting-tool-result',
             effectiveFrom: 'automatic-next-turn',
             worktreePath: transition.worktreePath,
-            workBranch: transition.workBranch || null,
           } satisfies ExitWorktreeResult);
         }
         if (transition.phase === 'cleanup_pending') {
@@ -134,9 +137,7 @@ export const exitWorktreeHandler = withMcpGuard(
               expected: 'cleanup_pending',
               next: 'cleared',
               updatedAt: Date.now(),
-              lastError: cleanup.branchError
-                ? `Worktree removed, but branch deletion failed: ${cleanup.branchError}`
-                : null,
+              lastError: null,
             });
             return structuredOk({
               transitionId: worktreeTransitionId(cleared),
@@ -144,8 +145,6 @@ export const exitWorktreeHandler = withMcpGuard(
               state: 'completed-cleanup',
               effectiveFrom: 'already-effective',
               worktreePath: cleared.worktreePath,
-              workBranch: cleared.workBranch || null,
-              branchDeleted: cleanup.branchDeleted,
               worktreeRemoved: cleanup.worktreeRemoved,
               markerCleared: true,
             } satisfies ExitWorktreeResult);
@@ -183,9 +182,7 @@ export const exitWorktreeHandler = withMcpGuard(
         } catch (error) {
           return err(
             error instanceof Error ? error.message : String(error),
-            args.discardChanges
-              ? 'The structured worktree lease and marker were retained.'
-              : 'Commit, stash, copy, or otherwise preserve changes before retrying. Pass discardChanges=true only with explicit user authorization.',
+            preflightRecoveryHint(error, args.discardChanges === true),
             { markerCleared: false },
           );
         }
@@ -212,7 +209,6 @@ export const exitWorktreeHandler = withMcpGuard(
               toolUseId,
               continuationKey: `worktree-cwd:${randomUUID()}`,
               discardChanges: args.discardChanges === true,
-              deleteBranch: args.deleteBranch === true,
               requestedAt: Date.now(),
             },
           );
@@ -249,7 +245,6 @@ export const exitWorktreeHandler = withMcpGuard(
           callerSessionId,
           worktreePathOverride: args.worktreePath,
           discardChanges: args.discardChanges,
-          deleteBranch: args.deleteBranch,
         },
         mergedDeps,
       );
@@ -267,8 +262,6 @@ export const exitWorktreeHandler = withMcpGuard(
           state: 'completed-legacy',
           effectiveFrom: 'already-effective',
           worktreePath: prepared.worktreePath,
-          workBranch: null,
-          branchDeleted: false,
           worktreeRemoved: false,
           markerCleared: prepared.markerCleared,
         } satisfies ExitWorktreeResult);
@@ -296,14 +289,11 @@ export const exitWorktreeHandler = withMcpGuard(
           originalCwd: prepared.originalCwd,
           mainRepo: prepared.mainRepo,
           worktreePath: prepared.worktreePath,
-          workBranch: prepared.workBranch,
-          baseBranch: prepared.baseBranch,
-          baseCommit: prepared.baseCommit,
+          headCommit: prepared.headCommit,
           toolUseId,
           continuationKey:
             `${LEGACY_EXIT_CONTINUATION_KEY_PREFIX}${randomUUID()}`,
           discardChanges: args.discardChanges === true,
-          deleteBranch: args.deleteBranch === true,
           requestedAt: Date.now(),
         });
         worktreeTransitionCoordinator.bindToolInvocation(
@@ -351,8 +341,22 @@ function waitingResult(record: WorktreeTransitionRecord) {
     state: 'waiting-tool-result',
     effectiveFrom: 'automatic-next-turn',
     worktreePath: record.worktreePath,
-    workBranch: record.workBranch || null,
   } satisfies ExitWorktreeResult);
+}
+
+function preflightRecoveryHint(
+  error: unknown,
+  discardChanges: boolean,
+): string {
+  if (error instanceof DirtyWorktreeError) {
+    return 'Commit, stash, copy, or otherwise preserve the listed changes, then retry. Pass discardChanges=true only with explicit user authorization to permanently remove them.';
+  }
+  if (error instanceof UnreferencedWorktreeHeadError) {
+    return 'Create a local branch or tag that contains the reported HEAD commit, then retry. discardChanges does not authorize losing commits.';
+  }
+  return discardChanges
+    ? 'The lease, marker, worktree, and every Git ref were retained. Resolve the reported identity or reference condition, then retry.'
+    : 'The lease, marker, worktree, and every Git ref were retained. Resolve the reported condition, preserve any needed work, then retry.';
 }
 
 function armError(error: unknown) {

@@ -321,23 +321,14 @@ export interface SessionRecord {
    */
   contextUsage?: SessionContextUsage | null;
   /**
-   * mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
-   * 不变量 5 + D2）：caller 走 mcp `enter_worktree` 进 worktree 时设为 worktreePath 绝对路径,
-   * 结构化 `exit_worktree` 完成清理后清回 null。会话 close/archive 在结构化 lease 未结算时
-   * 保留它供恢复；只有 legacy marker 或已结算 lease 沿用历史清理行为。
+   * Compatibility mirror for the session-owned worktree path. `enter_worktree` stores the absolute
+   * path here together with its structured lease; completed `exit_worktree` cleanup clears it.
+   * Close/archive preserves an unsettled structured lease so recovery can finish safely.
    *
-   * 与 archive_plan 预检 4 态分流配合解锁场景 C（codex / 外部 caller 走 mcp 路径进 worktree）：
-   * - !inWorktree                  → 放过（caller 已 ExitWorktree, 现有 claude builtin 路径）
-   * - inWorktree + marker == wt    → 放过（caller 持 mcp enter_worktree marker, 跨 adapter 路径）
-   * - inWorktree + marker == null  → reject（走 claude builtin 路径但忘 ExitWorktree）
-   * - inWorktree + marker != wt    → reject（marker 指向另一个 worktree, 不允许跨 worktree archive）
+   * This is per-session transient ownership state. SDK fork/recover rename paths must copy it from
+   * the source row so retries, handoff transfer, and legacy-marker adoption still identify the
+   * exact owned worktree. A null/undefined value means the session has no compatibility marker.
    *
-   * per-session 字段（非全局）,不同 caller 各自持自己 marker。SDK fork / recover rename 路径
-   * 必须把此列从 fromRow 复制到 NEW 行（详 session-repo/rename.ts），否则 codex teammate
-   * enter_worktree 设的 marker 在 fork 后丢失,下次 archive_plan 预检走「在 worktree 内 +
-   * 无 marker」分支 reject（plan H1 关键修法 — 20 列扩展 + toExists UPDATE 覆盖块）。
-   *
-   * null/undefined: 未持有 marker（caller 走 claude builtin 路径或还没调 mcp enter_worktree）。
    * 持久化层: sessions.cwd_release_marker TEXT 列 (v020), 绝对路径 string / NULL。
    */
   cwdReleaseMarker?: string | null;

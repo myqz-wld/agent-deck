@@ -34,11 +34,21 @@ export class WorktreeToolInvocationRegistry {
   private readonly registrations = new Map<string, ToolInvocationRegistration>();
 
   observe(event: AgentEvent): void {
-    if (event.source !== 'sdk' || event.kind !== 'tool-use-start') return;
+    if (event.source !== 'sdk') return;
     const payload = eventPayload(event);
-    const direction = directionForWorktreeToolName(payload.toolName);
     const toolUseId =
       typeof payload.toolUseId === 'string' ? payload.toolUseId : null;
+    if (event.kind === 'tool-use-end') {
+      if (!toolUseId) return;
+      const key = this.key(event.sessionId, toolUseId);
+      const existing = this.registrations.get(key);
+      if (existing?.claimedGeneration === null) {
+        this.registrations.delete(key);
+      }
+      return;
+    }
+    if (event.kind !== 'tool-use-start') return;
+    const direction = directionForWorktreeToolName(payload.toolName);
     if (!direction || !toolUseId) return;
     this.prune(event.ts);
     const key = this.key(event.sessionId, toolUseId);

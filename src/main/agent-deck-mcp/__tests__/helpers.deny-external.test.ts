@@ -59,7 +59,6 @@ describe('denyExternalIfNotAllowed — 5 场景 unit test', () => {
     const c = ctx('real-in-process-owner-sid', 'in-process');
     expect(denyExternalIfNotAllowed('spawn_session', c)).toBeNull();
     expect(denyExternalIfNotAllowed('send_message', c)).toBeNull();
-    expect(denyExternalIfNotAllowed('archive_plan', c)).toBeNull();
     expect(denyExternalIfNotAllowed('hand_off_session', c)).toBeNull();
   });
 
@@ -101,7 +100,6 @@ describe('denyExternalIfNotAllowed — 5 场景 unit test', () => {
     const c = ctx('codex-teammate-1', 'http');
     expect(denyExternalIfNotAllowed('spawn_session', c)).toBeNull();
     expect(denyExternalIfNotAllowed('send_message', c)).toBeNull();
-    expect(denyExternalIfNotAllowed('archive_plan', c)).toBeNull();
     expect(denyExternalIfNotAllowed('hand_off_session', c)).toBeNull();
   });
 
@@ -115,7 +113,6 @@ describe('denyExternalIfNotAllowed — 5 场景 unit test', () => {
     expect(denyExternalIfNotAllowed('spawn_session', c)?.isError).toBe(true);
     expect(denyExternalIfNotAllowed('send_message', c)?.isError).toBe(true);
     expect(denyExternalIfNotAllowed('shutdown_session', c)?.isError).toBe(true);
-    expect(denyExternalIfNotAllowed('archive_plan', c)?.isError).toBe(true);
     expect(denyExternalIfNotAllowed('hand_off_session', c)?.isError).toBe(true);
     expect(denyExternalIfNotAllowed('enter_worktree', c)?.isError).toBe(true);
     expect(denyExternalIfNotAllowed('exit_worktree', c)?.isError).toBe(true);
@@ -164,7 +161,6 @@ describe('denyExternalIfNotAllowed — stdio invariant violation 兜底（B-HIGH
     const c = ctx('codex-teammate-real-sid', 'http');
     expect(denyExternalIfNotAllowed('spawn_session', c)).toBeNull();
     expect(denyExternalIfNotAllowed('send_message', c)).toBeNull();
-    expect(denyExternalIfNotAllowed('archive_plan', c)).toBeNull();
   });
 
   it('in-process + 非 sentinel callerSid（正常 closure override）+ 写 tool → null（in-process 不受守门约束）', () => {
@@ -177,19 +173,15 @@ describe('denyExternalIfNotAllowed — stdio invariant violation 兜底（B-HIGH
 
 describe('denyExternalIfNotAllowed — core write tools × 3 transport 全覆盖矩阵', () => {
   // 矩阵覆盖：sentinel × 3 transport × core write tools 全 DENY
-  // **R3 fix-7 (M1 reviewer-claude LOW)**: 加 'shutdown_baton_teammates' 第 8 个写 tool
-  // (Phase 5.3 新增 mcp tool,types.ts EXTERNAL_CALLER_ALLOWED.shutdown_baton_teammates=false)
   const writeTools = [
     'spawn_session',
     'send_message',
     'present_plan',
     'present_diff',
     'shutdown_session',
-    'archive_plan',
     'hand_off_session',
     'enter_worktree',
     'exit_worktree',
-    'shutdown_baton_teammates',
   ] as const;
   const transports: CallerContext['transport'][] = ['in-process', 'http', 'stdio'];
 

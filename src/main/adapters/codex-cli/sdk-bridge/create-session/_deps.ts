@@ -1,7 +1,7 @@
 /**
  * Phase 4 Step 4.3 共享 types — createSession 拆分 (orchestrator + 3 子段) 类型层。
  *
- * **拆分布局**（与 hand-off-session / archive-plan-impl 同款 facade pattern）：
+ * **拆分布局**（facade + focused implementation modules）：
  * - `create-session-impl.ts` orchestrator: try/catch + prepare inline + 调度 validate/resume/new
  * - `create-session-validate.ts`: prompt empty/cap + sid 分配 + token allocate
  * - `create-session-resume.ts`: resume path (thread_id 已知)
