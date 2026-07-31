@@ -12,7 +12,7 @@ import {
 
 interface SpawnAgentRuntimeSelection {
   gateway?: string;
-  profile?: string;
+  provider?: string;
   model?: string;
   modelReasoningEffort?: SpawnCodexReasoningEffort;
   claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
@@ -24,7 +24,7 @@ type SpawnRuntimeSelectionResult =
       ok: true;
       inherit: boolean;
       gateway?: string;
-      profile?: string;
+      provider?: string;
       modelOptions: SpawnModelOptions;
     }
   | {
@@ -44,8 +44,8 @@ export function resolveSpawnRuntimeSelection(input: {
   try {
     inherited = normalizeSessionModelOptions(args.adapter, {
       provider:
-        (args.adapter === 'codex-cli' ? args.profile : args.gateway) ??
-        (args.adapter === 'codex-cli' ? agent.profile : agent.gateway) ??
+        (args.adapter === 'codex-cli' ? args.provider : args.gateway) ??
+        (args.adapter === 'codex-cli' ? agent.provider : agent.gateway) ??
         (inherit ? leadRecord?.runtimeProvider ?? undefined : undefined),
       model: agent.model ?? (inherit ? leadRecord?.model ?? undefined : undefined),
       thinking: inherit ? leadRecord?.thinking ?? undefined : undefined,
@@ -56,9 +56,9 @@ export function resolveSpawnRuntimeSelection(input: {
       error: error instanceof Error ? error.message : String(error),
       hint:
         args.adapter === 'grok-build'
-          ? 'Remove gateway/profile and select a Grok model alias instead.'
+          ? 'Remove gateway/provider/profile and select a Grok model alias instead.'
           : args.adapter === 'codex-cli'
-            ? 'Use a valid Codex config profile id, or omit profile.'
+            ? 'Use a valid model_provider id declared in $CODEX_HOME/config.toml, or omit provider.'
             : 'Use a valid Claude Gateway profile id, or omit gateway.',
     };
   }
@@ -85,7 +85,7 @@ export function resolveSpawnRuntimeSelection(input: {
     ok: true,
     inherit,
     gateway: args.adapter === 'claude-code' ? inherited.provider ?? undefined : undefined,
-    profile: args.adapter === 'codex-cli' ? inherited.provider ?? undefined : undefined,
+    provider: args.adapter === 'codex-cli' ? inherited.provider ?? undefined : undefined,
     modelOptions: modelOptions.options,
   };
 }

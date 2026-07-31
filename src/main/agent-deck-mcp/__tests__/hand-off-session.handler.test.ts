@@ -490,7 +490,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       sessionId: 'successor-sid',
       adapter: 'codex-cli',
       gateway: null,
-      profile: null,
+      provider: null,
       cwd: '/repo',
       callerClosed: 'ok',
       continuationContext: {

@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
@@ -14,7 +14,7 @@ import {
 } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { getCodexConfigPath } from '@main/codex-config/toml-writer';
-import { resolveCodexConfigProfile } from '@main/codex-config/profiles';
+import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 import {
   claudeGatewaySettingsPath,
   type ResolvedClaudeGatewayProfile,
@@ -41,11 +41,7 @@ interface ResolveOptions {
 interface ResolveDeps {
   settings?: CreationSettings;
   userHome?: string;
-  readCodexConfig?: (
-    cwd: string,
-    signal?: AbortSignal,
-    profile?: string,
-  ) => Promise<ConfigRecord>;
+  readCodexConfig?: (cwd: string, signal?: AbortSignal) => Promise<ConfigRecord>;
   resolveClaudeProfile?: (
     provider: string | null | undefined,
   ) => ResolvedClaudeGatewayProfile | null;
@@ -189,40 +185,39 @@ async function resolveCodexDefaults(
   deps: ResolveDeps,
 ): Promise<SessionCreationDefaults> {
   const configPath = deps.codexConfigPath ?? getCodexConfigPath();
-  const requestedProfile = options.provider?.trim() || '';
-  const profile = requestedProfile
-    ? resolveCodexConfigProfile(requestedProfile, { codexHome: dirname(configPath) })
-    : null;
-  const [config, fileContent, profileContent] = await Promise.all([
-    readBoundedCodexConfig(options.cwd, deps, profile?.id),
+  const requestedProvider = options.provider?.trim() || undefined;
+  if (requestedProvider) resolveCodexModelProvider(requestedProvider, configPath);
+  const [config, fileContent] = await Promise.all([
+    readBoundedCodexConfig(options.cwd, deps),
     readConfigText(configPath, 'codex-config', deps),
-    profile
-      ? readConfigText(profile.configPath, 'codex-config', deps)
-      : Promise.resolve(null),
   ]);
 
+  // config/read can report Codex's implicit built-in provider even when the user did not select
+  // one. Do not turn that effective default into an explicit override that our config-backed
+  // validator cannot later reproduce. A provider is surfaced only when native config discovery
+  // can resolve it; otherwise an empty selection delegates back to Codex.
+  const configuredProvider =
+    nonBlank(config.model_provider) ??
+    readTopLevelQuotedString(fileContent, 'model_provider');
+  const provider =
+    requestedProvider ?? resolveDiscoveredCodexProvider(configuredProvider, configPath);
   const model =
     nonBlank(config.model) ??
-    readTopLevelQuotedString(profileContent, 'model') ??
     readTopLevelQuotedString(fileContent, 'model') ??
     '';
   const configuredThinking = config.model_reasoning_effort;
-  const fileThinking =
-    readTopLevelQuotedString(profileContent, 'model_reasoning_effort') ??
-    readTopLevelQuotedString(fileContent, 'model_reasoning_effort');
+  const fileThinking = readTopLevelQuotedString(fileContent, 'model_reasoning_effort');
   const thinking = isCodexThinkingLevel(configuredThinking)
     ? configuredThinking
     : isCodexThinkingLevel(fileThinking)
       ? fileThinking
       : 'high';
   const configuredApproval = config.approval_policy;
-  const fileApproval =
-    readTopLevelQuotedString(profileContent, 'approval_policy') ??
-    readTopLevelQuotedString(fileContent, 'approval_policy');
+  const fileApproval = readTopLevelQuotedString(fileContent, 'approval_policy');
 
   return {
     ...base,
-    provider: requestedProfile,
+    provider,
     model,
     thinking,
     approvalPolicy: isCodexApprovalPolicy(configuredApproval)
@@ -231,6 +226,18 @@ async function resolveCodexDefaults(
         ? fileApproval
         : 'on-request',
   };
+}
+
+function resolveDiscoveredCodexProvider(
+  provider: string | null,
+  configPath: string,
+): string {
+  if (!provider) return '';
+  try {
+    return resolveCodexModelProvider(provider, configPath)?.id ?? '';
+  } catch {
+    return '';
+  }
 }
 
 async function resolveGrokDefaults(
@@ -252,9 +259,8 @@ async function resolveGrokDefaults(
 async function readEffectiveCodexConfig(
   cwd: string,
   signal?: AbortSignal,
-  profile?: string,
 ): Promise<ConfigRecord> {
-  const client = await getCodexInstance(profile);
+  const client = await getCodexInstance();
   const response = await client.request<{ config?: unknown }>(
     'config/read',
     { includeLayers: false, cwd },
@@ -344,7 +350,6 @@ async function readConfigText(
 async function readBoundedCodexConfig(
   cwd: string,
   deps: ResolveDeps,
-  profile?: string,
 ): Promise<ConfigRecord> {
   // The race fences pre-client acquisition and injected readers. The same deadline controller is
   // threaded into B6's client.request, so an active provider RPC is aborted and its generation is
@@ -366,11 +371,7 @@ async function readBoundedCodexConfig(
   });
   try {
     const config = await Promise.race([
-      (deps.readCodexConfig ?? readEffectiveCodexConfig)(
-        cwd,
-        controller.signal,
-        profile,
-      ),
+      (deps.readCodexConfig ?? readEffectiveCodexConfig)(cwd, controller.signal),
       timeout,
     ]);
     if (!isRecord(config)) {

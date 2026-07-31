@@ -23,7 +23,7 @@ const {
     prompt?: string;
     agentId?: string;
     gateway?: string;
-    profile?: string;
+    provider?: string;
     model?: string;
     modelReasoningEffort?: string;
     developerInstructions?: string;
@@ -77,7 +77,7 @@ vi.mock('@main/adapters/registry', () => ({
           cwd: string;
           prompt?: string;
           gateway?: string;
-          profile?: string;
+          provider?: string;
           model?: string;
         }) => {
           const sid = `spawned-${nextSpawnedSid++}`;
@@ -87,7 +87,7 @@ vi.mock('@main/adapters/registry', () => ({
             prompt: opts.prompt,
             agentId: opts.agentId,
             gateway: opts.gateway,
-            profile: opts.profile,
+            provider: opts.provider,
             model: opts.model,
             modelReasoningEffort: (opts as any).modelReasoningEffort,
             developerInstructions: (opts as any).developerInstructions,

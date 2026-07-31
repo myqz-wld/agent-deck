@@ -16,7 +16,7 @@ describe('adapter target runtime control contracts', () => {
       'extraAllowWrite',
     ]);
     expect(targetRuntimeFieldsForAdapter('codex-cli')).toEqual([
-      'profile',
+      'provider',
       'model',
       'thinking',
       'approvalPolicy',
@@ -38,6 +38,12 @@ describe('adapter target runtime control contracts', () => {
     expect(firstUnsupportedTargetRuntimeField('codex-cli', {
       permissionMode: 'plan',
     })).toBe('permissionMode');
+    expect(firstUnsupportedTargetRuntimeField('codex-cli', {
+      provider: 'openrouter',
+    })).toBeNull();
+    expect(firstUnsupportedTargetRuntimeField('codex-cli', {
+      profile: 'work',
+    })).toBe('profile');
     expect(firstUnsupportedTargetRuntimeField('grok-build', {
       gateway: 'openai',
     })).toBe('gateway');
@@ -70,7 +76,7 @@ describe('adapter target runtime control contracts', () => {
     expect(
       unsupportedTargetRuntimeFieldMessage('claude-code', 'profile'),
     ).toBe(
-      'profile 与 Claude Code 不兼容；仅 Codex CLI 支持',
+      'profile 已停用；内置 Codex app-server 不支持 --profile。Codex CLI 请改用 provider=<model_provider>，或省略该字段以使用 $CODEX_HOME/config.toml',
     );
     expect(
       unsupportedTargetRuntimeFieldMessage('codex-cli', 'grokSandbox'),

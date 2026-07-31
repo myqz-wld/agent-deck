@@ -8,7 +8,7 @@ afterEach(cleanup);
 describe('AdapterConfigHelp', () => {
   it.each([
     ['claude', 'Claude Code', '~/.claude/settings.json'],
-    ['codex', 'Codex CLI', '~/.codex/config.toml'],
+    ['codex', 'Codex CLI', '$CODEX_HOME/config.toml'],
     ['grok', 'Grok Build', '~/.grok/config.toml'],
   ] as const)('uses the shared help template for %s', (adapter, name, configPath) => {
     const { container } = render(<AdapterConfigHelp adapter={adapter} />);

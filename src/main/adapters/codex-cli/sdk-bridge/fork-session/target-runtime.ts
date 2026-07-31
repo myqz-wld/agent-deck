@@ -4,12 +4,14 @@ import {
   readTopLevelModelFromCodexConfig,
   readTopLevelModelReasoningEffortFromCodexConfig,
 } from '@main/codex-config/toml-writer';
-import { codexConfigProfilePath } from '@main/codex-config/profiles';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { MAX_MESSAGE_LENGTH } from '../constants';
 import type { CreateSessionOpts } from '../create-session/_deps';
-import { resolveCodexReasoningEffort } from '../create-session/reasoning-effort-resolve';
+import {
+  hasCodexReasoningConfigLayer,
+  resolveCodexReasoningEffort,
+} from '../create-session/reasoning-effort-resolve';
 import {
   buildCodexThreadOptions,
   type CodexThreadOptions,
@@ -38,10 +40,7 @@ export function resolveCodexForkTargetRuntime(
 
   const cwd = resolveSpawnCwd(opts);
   const sandboxMode = opts.codexSandbox ?? settingsStore.get('codexSandbox');
-  const hasReasoningConfigLayer =
-    opts.profile !== undefined ||
-    (opts.codexConfigOverrides !== undefined &&
-      Object.prototype.hasOwnProperty.call(opts.codexConfigOverrides, 'model_reasoning_effort'));
+  const hasReasoningConfigLayer = hasCodexReasoningConfigLayer(opts.codexConfigOverrides);
   const reasoning = resolveCodexReasoningEffort({
     explicit: opts.modelReasoningEffort,
     isResume: false,
@@ -57,18 +56,13 @@ export function resolveCodexForkTargetRuntime(
     cwd,
     sandboxMode,
     effectiveDeveloperInstructions,
-    persistedModel:
-      opts.model ??
-      (opts.profile
-        ? readTopLevelModelFromCodexConfig(codexConfigProfilePath(opts.profile))
-        : null) ??
-      readTopLevelModelFromCodexConfig() ??
-      CODEX_DEFAULT_BUCKET,
+    persistedModel: opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET,
     persistedReasoningEffort: reasoning.sessionValue,
     threadOptions: buildCodexThreadOptions({
       workingDirectory: cwd,
       sandboxMode,
       approvalPolicy: opts.approvalPolicy,
+      provider: opts.provider,
       model: opts.model,
       modelReasoningEffort: reasoning.threadValue,
       developerInstructions: effectiveDeveloperInstructions,

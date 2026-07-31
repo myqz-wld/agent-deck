@@ -30,7 +30,7 @@ export interface NormalizedModel {
 
 /**
  * codex 未显式指定 model 的占位 bucket（session-finalize effective model 兜底值）。
- * plan §已知踩坑 1：交互式 codex 走 ~/.codex/config.toml 默认时，effective model resolve
+ * plan §已知踩坑 1：交互式 codex 走 $CODEX_HOME/config.toml（默认 ~/.codex）时，effective model resolve
  * 不到具体值 → 落此占位，UI 显示「Codex (默认模型)」让用户理解统计合并局限。
  */
 export const CODEX_DEFAULT_BUCKET = 'codex-default';

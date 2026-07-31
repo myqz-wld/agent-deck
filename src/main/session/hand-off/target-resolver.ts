@@ -24,6 +24,8 @@ export interface HandOffTargetRequest {
   adapter: SessionAdapterId;
   cwd: string;
   gateway?: unknown;
+  provider?: unknown;
+  /** Retired public selector retained only to return an explicit compatibility error. */
   profile?: unknown;
   model?: unknown;
   thinking?: unknown;
@@ -91,10 +93,10 @@ export function resolveHandOffTarget(input: {
   }
   const requestedModel =
     request.model !== undefined ? request.model : sameAdapter ? source.model ?? null : null;
-  const requestedRuntimeProfile =
+  const requestedRuntimeProvider =
     request.adapter === 'codex-cli'
-      ? request.profile !== undefined
-        ? request.profile
+      ? request.provider !== undefined
+        ? request.provider
         : sameAdapter
           ? source.runtimeProvider ?? null
           : null
@@ -112,7 +114,7 @@ export function resolveHandOffTarget(input: {
         ? source.thinking ?? null
         : null;
   const modelOptions = resolveCreateSessionModelOptions(request.adapter, {
-    provider: requestedRuntimeProfile,
+    provider: requestedRuntimeProvider,
     model: requestedModel,
     thinking: requestedThinking,
   });
@@ -195,8 +197,8 @@ export function resolveHandOffTarget(input: {
     ...(request.adapter === 'claude-code' && modelOptions.gateway
       ? { gateway: modelOptions.gateway }
       : {}),
-    ...(request.adapter === 'codex-cli' && modelOptions.profile
-      ? { profile: modelOptions.profile }
+    ...(request.adapter === 'codex-cli' && modelOptions.provider
+      ? { provider: modelOptions.provider }
       : {}),
     ...(modelOptions.model ? { model: modelOptions.model } : {}),
     ...(modelOptions.claudeCodeEffortLevel
@@ -237,7 +239,7 @@ export function resolveHandOffTarget(input: {
     }
   }
   const model = modelOptions.model ?? null;
-  const provider = modelOptions.gateway ?? modelOptions.profile ?? null;
+  const provider = modelOptions.gateway ?? modelOptions.provider ?? null;
   const thinking =
     modelOptions.modelReasoningEffort ??
     modelOptions.claudeCodeEffortLevel ??

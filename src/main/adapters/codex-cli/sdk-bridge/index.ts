@@ -16,6 +16,7 @@ import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-se
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { RestartController, type RestartCtx } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
+import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type {
   AgentCwdTransition,
   AgentCwdTransitionSwitchResult,
@@ -62,7 +63,7 @@ import type { SessionRecord } from '@shared/types';
 import { CodexPermissionHost } from './permission-host';
 import { CodexSessionLifecycleCoordinator } from './session-lifecycle-coordinator';
 import { CodexCwdTransitionController } from './cwd-transition-controller';
-import { resolveCodexConfigProfile } from '@main/codex-config/profiles';
+import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 
 const logger = log.scope('codex-bridge');
 
@@ -204,18 +205,21 @@ export class CodexSdkBridge {
       operations: this.recovering,
       agentId: AGENT_ID,
       emit: opts.emit,
-      validate: (options) => {
-        resolveCodexConfigProfile(options.provider);
+      validate: (sessionId, options, previous) => {
+        if (options.provider !== previous.provider) {
+          resolveCodexModelProvider(options.provider);
+          if (this.sessions.has(sessionId)) {
+            throw new Error(
+              '当前 Codex 版本不支持为已加载的会话切换 model_provider；请新建会话，或在会话进入休眠后再切换。',
+            );
+          }
+        }
       },
       applyLive: async (sessionId, options, previous) => {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
         if (options.provider !== previous.provider) {
-          if (internal.currentTurn || internal.turnLoopRunning) {
-            throw new Error('Codex config profile cannot change during an active turn');
-          }
-          await this.closeSession(sessionId);
-          return true;
+          throw new Error('Codex live model_provider change passed the validation boundary');
         }
         await internal.thread.updateModelOptions(
           options.model,
@@ -258,14 +262,11 @@ export class CodexSdkBridge {
   private async ensureCodex(
     sessionId: string,
     sessionToken: string,
-    profile?: string,
   ): Promise<CodexAppServerClient> {
-    const resolvedProfile = resolveCodexConfigProfile(profile);
     const client = ensureCodexClient({
       clients: this.codexBySession,
       sessionId,
       sessionToken,
-      profile: resolvedProfile?.id,
       hookServer: this.opts.hookServer,
     });
     this.permissionHost.bindClient(client);
@@ -286,8 +287,7 @@ export class CodexSdkBridge {
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
       // arrow 闭包 facade `this`,运行时晚解析 → this.ensureCodex 一定已绑定
-      ensureCodex: (sid, token, profile) =>
-        this.ensureCodex(sid, token, profile),
+      ensureCodex: (sid, token) => this.ensureCodex(sid, token),
     });
   }
 
@@ -304,8 +304,7 @@ export class CodexSdkBridge {
       codexBySession: this.codexBySession,
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
-      ensureCodex: (sid, token, profile) =>
-        this.ensureCodex(sid, token, profile),
+      ensureCodex: (sid, token) => this.ensureCodex(sid, token),
       lifecycle: {
         allocateToken: (sid) => mcpSessionTokenMap.allocate(sid),
         resolveToken: (token) => mcpSessionTokenMap.get(token),
@@ -398,15 +397,8 @@ export class CodexSdkBridge {
     await this.restartController.setCodexApprovalPolicy(sessionId, policy);
   }
 
-  async setSessionModelOptions(
-    sessionId: string,
-    options: { profile: string | null; model: string | null; thinking: string | null },
-  ): Promise<void> {
-    await this.sessionModelController.setOptions(sessionId, {
-      provider: options.profile,
-      model: options.model,
-      thinking: options.thinking,
-    });
+  async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {
+    await this.sessionModelController.setOptions(sessionId, options);
   }
 
   /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */

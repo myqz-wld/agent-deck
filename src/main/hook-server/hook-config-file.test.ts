@@ -1,9 +1,14 @@
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import {
   chmodSync,
+  closeSync,
+  constants,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
+  readSync,
   readdirSync,
   rmSync,
   statSync,
@@ -31,6 +36,75 @@ function sessionStartGroup(command: string): HookGroup {
   return {
     hooks: [{ type: 'command', command }],
   };
+}
+
+function waitForWriterReady(child: ChildProcess): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('FIFO writer did not become ready'));
+    }, 1_000);
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      child.stdout?.removeListener('data', onData);
+      child.removeListener('error', onError);
+      child.removeListener('exit', onExit);
+    };
+    const onData = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null): void => {
+      cleanup();
+      reject(new Error(`FIFO writer exited before ready (${code ?? 'signal'})`));
+    };
+    child.stdout?.once('data', onData);
+    child.once('error', onError);
+    child.once('exit', onExit);
+  });
+}
+
+function waitForChildExit(child: ChildProcess): Promise<number | null> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(child.exitCode);
+  }
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('FIFO writer exceeded its bounded lifetime'));
+    }, 1_000);
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+}
+
+function startBoundedFifoWriter(fifoPath: string, payload: string): ChildProcess {
+  return spawn(
+    process.execPath,
+    [
+      '-e',
+      [
+        "const fs = require('node:fs');",
+        'const fd = fs.openSync(process.argv[1], fs.constants.O_WRONLY);',
+        "fs.writeFileSync(fd, process.argv[2], 'utf8');",
+        "process.stdout.write('ready\\n');",
+        'setTimeout(() => fs.closeSync(fd), 250);',
+      ].join(' '),
+      fifoPath,
+      payload,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
 }
 
 describe('hook config file writer', () => {
@@ -156,6 +230,143 @@ describe('hook config file writer', () => {
     expect(lstatSync(path).isSymbolicLink()).toBe(true);
     expect(readFileSync(target, 'utf8')).toBe('{"custom":true}\n');
   });
+
+  it('does not replace a dangling hook-config symlink mistaken for an absent file', () => {
+    mkdirSync(join(root, 'nested'), { recursive: true });
+    const missingTarget = join(root, 'missing-user-owned.json');
+    symlinkSync(missingTarget, path);
+
+    expect(() =>
+      updateHookConfig(
+        path,
+        () => ({
+          changes: [
+            {
+              path: ['hooks', 'SessionStart'],
+              value: [sessionStartGroup('agent-deck-hook')],
+            },
+          ],
+        }),
+        DEFAULT_OPTIONS,
+      ),
+    ).toThrow('symbolic link');
+
+    expect(lstatSync(path).isSymbolicLink()).toBe(true);
+    expect(
+      readdirSync(join(root, 'nested')).filter((name) =>
+        name.includes('.tmp.'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('detects a dangling symlink that replaces an absent target during CAS', () => {
+    const missingTarget = join(root, 'missing-competing.json');
+
+    expect(() =>
+      updateHookConfig(
+        path,
+        () => ({
+          changes: [
+            {
+              path: ['hooks', 'SessionStart'],
+              value: [sessionStartGroup('agent-deck-hook')],
+            },
+          ],
+        }),
+        {
+          ...DEFAULT_OPTIONS,
+          beforeCommit: () => symlinkSync(missingTarget, path),
+        },
+      ),
+    ).toThrow('changed type while Agent Deck was preparing hooks');
+
+    expect(lstatSync(path).isSymbolicLink()).toBe(true);
+    expect(
+      readdirSync(join(root, 'nested')).filter((name) =>
+        name.includes('.tmp.'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('rejects a symlink to a FIFO before reading it with bounded process cleanup', async () => {
+    mkdirSync(join(root, 'nested'), { recursive: true });
+    const fifoPath = join(root, 'hook-config-fifo');
+    execFileSync('mkfifo', [fifoPath], { timeout: 1_000 });
+    symlinkSync(fifoPath, path);
+    const payload = '{"mustRemainUnread":true}\n';
+    const guardFd = openSync(
+      fifoPath,
+      constants.O_RDONLY | constants.O_NONBLOCK,
+    );
+    const writer = startBoundedFifoWriter(fifoPath, payload);
+
+    try {
+      await waitForWriterReady(writer);
+      expect(() =>
+        updateHookConfig(
+          path,
+          () => ({ changes: [] }),
+          DEFAULT_OPTIONS,
+        ),
+      ).toThrow('symbolic link');
+      expect(await waitForChildExit(writer)).toBe(0);
+
+      const remaining = Buffer.alloc(Buffer.byteLength(payload) + 1);
+      const bytesRead = readSync(
+        guardFd,
+        remaining,
+        0,
+        remaining.length,
+        null,
+      );
+      expect(remaining.subarray(0, bytesRead).toString('utf8')).toBe(payload);
+    } finally {
+      if (writer.exitCode === null && writer.signalCode === null) {
+        writer.kill('SIGKILL');
+        await waitForChildExit(writer).catch(() => undefined);
+      }
+      closeSync(guardFd);
+    }
+  }, 3_000);
+
+  it('rejects a non-regular FIFO before reading it with bounded process cleanup', async () => {
+    mkdirSync(join(root, 'nested'), { recursive: true });
+    execFileSync('mkfifo', [path], { timeout: 1_000 });
+    const payload = '{"fifoMustRemainUnread":true}\n';
+    const guardFd = openSync(
+      path,
+      constants.O_RDONLY | constants.O_NONBLOCK,
+    );
+    const writer = startBoundedFifoWriter(path, payload);
+
+    try {
+      await waitForWriterReady(writer);
+      expect(() =>
+        updateHookConfig(
+          path,
+          () => ({ changes: [] }),
+          DEFAULT_OPTIONS,
+        ),
+      ).toThrow('not a regular file');
+      expect(await waitForChildExit(writer)).toBe(0);
+
+      const remaining = Buffer.alloc(Buffer.byteLength(payload) + 1);
+      const bytesRead = readSync(
+        guardFd,
+        remaining,
+        0,
+        remaining.length,
+        null,
+      );
+      expect(remaining.subarray(0, bytesRead).toString('utf8')).toBe(payload);
+    } finally {
+      if (writer.exitCode === null && writer.signalCode === null) {
+        writer.kill('SIGKILL');
+        await waitForChildExit(writer).catch(() => undefined);
+      }
+      closeSync(guardFd);
+    }
+  }, 3_000);
 
   it('detects a competing write before rename and removes its temporary file', () => {
     mkdirSync(join(root, 'nested'), { recursive: true });

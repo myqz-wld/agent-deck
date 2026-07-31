@@ -56,16 +56,16 @@ describe('session model option normalization', () => {
         thinking: 'ultra',
       }),
     ).toEqual({
-      profile: 'team.alpha',
+      provider: 'team.alpha',
       model: 'provider/custom-model',
       modelReasoningEffort: 'ultra',
     });
   });
 
-  it('rejects an unsafe Codex config profile id', () => {
-    expect(() =>
-      normalizeSessionModelOptions('codex-cli', { provider: '../escape' }),
-    ).toThrow(/safe Codex config profile id/);
+  it('does not reinterpret native Codex model_provider ids as filenames', () => {
+    expect(
+      normalizeSessionModelOptions('codex-cli', { provider: 'gateway/edge' }),
+    ).toMatchObject({ provider: 'gateway/edge' });
   });
 
   it('rejects an adapter-invalid thinking value', () => {
@@ -173,7 +173,7 @@ describe('SessionModelController', () => {
 
   it('rejects an invalid selection before changing persisted or live state', async () => {
     const validate = vi.fn(() => {
-      throw new Error('missing profile');
+      throw new Error('missing model_provider');
     });
     const applyLive = vi.fn();
     const emit = vi.fn();
@@ -191,9 +191,13 @@ describe('SessionModelController', () => {
         model: 'new-model',
         thinking: 'high',
       }),
-    ).rejects.toThrow('missing profile');
+    ).rejects.toThrow('missing model_provider');
 
-    expect(validate).toHaveBeenCalledOnce();
+    expect(validate).toHaveBeenCalledWith(
+      'session-1',
+      { provider: 'missing', model: 'new-model', thinking: 'high' },
+      { provider: null, model: 'old-model', thinking: 'low' },
+    );
     expect(record).toMatchObject({
       runtimeProvider: null,
       model: 'old-model',
@@ -206,5 +210,34 @@ describe('SessionModelController', () => {
         payload: expect.objectContaining({ text: expect.stringContaining('原设置未变。') }),
       }),
     );
+  });
+
+  it('rejects a live provider switch before changing DB or live thread state', async () => {
+    record.runtimeProvider = 'working-provider';
+    const validate = vi.fn(() => {
+      throw new Error('当前 Codex 版本不支持为已加载的会话切换 model_provider');
+    });
+    const applyLive = vi.fn();
+    const controller = new SessionModelController({
+      operations: new Map(),
+      agentId: 'codex-cli',
+      emit: vi.fn(),
+      validate,
+      applyLive,
+    });
+
+    await expect(controller.setOptions('session-1', {
+      provider: 'new-provider',
+      model: 'new-model',
+      thinking: 'high',
+    })).rejects.toThrow(/不支持.*切换 model_provider/);
+
+    expect(record).toMatchObject({
+      runtimeProvider: 'working-provider',
+      model: 'old-model',
+      thinking: 'low',
+    });
+    expect(applyLive).not.toHaveBeenCalled();
+    expect(upsertEmit).not.toHaveBeenCalled();
   });
 });

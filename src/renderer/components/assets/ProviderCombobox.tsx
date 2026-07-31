@@ -17,7 +17,7 @@ interface Props {
 }
 
 /**
- * App-styled free-text combobox for Claude Gateway and Codex config profile ids.
+ * App-styled free-text combobox for Claude Gateway and Codex model_provider ids.
  *
  * DeckSelect intentionally accepts only a closed value set. Provider ids are user-defined in
  * the provider's config, so this keeps free-text input while replacing the browser-native

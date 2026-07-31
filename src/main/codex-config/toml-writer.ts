@@ -1,19 +1,19 @@
-/** Side-effect-free bounded readers for Codex `~/.codex/config.toml`. */
+/** Side-effect-free bounded readers for Codex `$CODEX_HOME/config.toml`. */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import {
   isCodexThinkingLevel,
   type CodexThinkingLevel,
 } from '@shared/session-metadata';
+import { getCodexHome } from './plugin-assets';
 
-/** ~/.codex/config.toml 绝对路径（不依赖 Electron app.getPath，便于单测）。 */
+/** `$CODEX_HOME/config.toml` 绝对路径（不依赖 Electron app.getPath，便于单测）。 */
 export function getCodexConfigPath(): string {
-  return join(homedir(), '.codex', 'config.toml');
+  return join(getCodexHome(), 'config.toml');
 }
 
 /**
- * 读 `~/.codex/config.toml` 顶层 `model = "..."`（plan model-token-stats-and-dashboard-20260602
+ * 读 `$CODEX_HOME/config.toml` 顶层 `model = "..."`（plan model-token-stats-and-dashboard-20260602
  * §Phase 1 A4c / deep-review R2 G1 双方独立 + R3 LOW-1）。
  *
  * codex 不显式传 model 时走 config.toml 默认；token 统计需要 effective model 才能按模型拆分，
@@ -22,7 +22,7 @@ export function getCodexConfigPath(): string {
  * **不引 TOML parser 依赖**（REVIEW_2 约定：@iarna/toml ~120KB / 半截
  * config.toml 解析失败教训）—— 行级扫描：
  * - **section-aware**：遇第一个 `[section]` header 立即停（顶层 key 必在任何 table header 之前；
- *   不停会误读 `[profiles.foo]` / `[model_providers.*]` 段内的 `model = ...`）
+ *   不停会误读 `[model_providers.*]` 等段内的 `model = ...`）
  * - **精确锚 `model` 后紧跟 `=`/空格**：排除 `model_provider` / `model_providers` 误命中
  * - **正则直接捕获首个引号 token**（basic `"..."` / literal `'...'`）：尾部 inline comment
  *   `model = "x" # primary` 自然忽略；basic 走 parseTomlString（含转义）、literal 无转义剥引号
@@ -35,7 +35,7 @@ export function readTopLevelModelFromCodexConfig(
   return readTopLevelQuotedStringFromCodexConfig('model', configPath);
 }
 
-/** Read the base Codex provider selection without resolving profile layering. */
+/** Read the native top-level Codex provider selection. */
 export function readTopLevelModelProviderFromCodexConfig(
   configPath: string = getCodexConfigPath(),
 ): string | null {
@@ -50,9 +50,6 @@ export function readTopLevelModelProviderFromCodexConfig(
 export function readTopLevelModelReasoningEffortFromCodexConfig(
   configPath: string = getCodexConfigPath(),
 ): CodexThinkingLevel | null {
-  // An active profile may override the top-level effort. Without a full layered TOML resolver,
-  // reporting the base value as effective would be worse than keeping the session display unset.
-  if (readTopLevelQuotedStringFromCodexConfig('profile', configPath)) return null;
   const value = readTopLevelQuotedStringFromCodexConfig(
     'model_reasoning_effort',
     configPath,
@@ -63,7 +60,7 @@ export function readTopLevelModelReasoningEffortFromCodexConfig(
 /**
  * Minimal section-aware reader for a quoted top-level string in Codex config.toml.
  *
- * It intentionally stops at the first table header so a profile/provider-local key cannot be
+ * It intentionally stops at the first table header so a provider-local key cannot be
  * mistaken for a global default. Reads are side-effect free; unsupported bare or multiline TOML
  * values return null and remain Codex-owned.
  */

@@ -101,7 +101,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
-  if (raw.profile !== undefined) out.profile = raw.profile;
+  if (raw.provider !== undefined) out.provider = raw.provider;
   if (raw.resume !== undefined) out.resume = raw.resume;
   if (raw.teamName !== undefined) out.teamName = raw.teamName;
   if (raw.attachments !== undefined) out.attachments = raw.attachments;
@@ -332,7 +332,7 @@ void _assertClaudePassthroughCoversArm;
 /** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 3 个 main-only 字段除外）。 */
 const _CODEX_PASSTHROUGH_KEYS = {
   prompt: 0,
-  profile: 0,
+  provider: 0,
   resume: 0,
   teamName: 0,
   attachments: 0,

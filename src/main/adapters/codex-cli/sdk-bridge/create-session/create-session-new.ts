@@ -19,7 +19,6 @@
  */
 import { persistSessionFields } from '../session-finalize';
 import { readTopLevelModelFromCodexConfig } from '@main/codex-config/toml-writer';
-import { codexConfigProfilePath } from '@main/codex-config/profiles';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from '../constants';
@@ -106,21 +105,16 @@ export async function runCreateSessionNewPath(
   // settingsStore.get('codexSandbox') 三层 fallback)。
   // plan model-token-stats §Phase 1 A4c（deep-review R1 F2 双方独立）：codex turn.completed 不带
   // model，token 统计从 sessions.model 取。新建路径 resolve effective model 持久化，避免交互式
-  // codex（不显式传 model 走 ~/.codex/config.toml 默认）落 null → 全折进 unknown bucket。
+  // codex（不显式传 model 走 $CODEX_HOME/config.toml 默认）落 null → 全折进 unknown bucket。
   // effective = opts.model > config.toml 顶层 model > 'codex-default' 占位。**仅新建路径**做此
   // resolve（resume 路径保留 sessions.model 原值，不在此覆盖）。
   const effectiveModel =
-    opts.model ??
-    (opts.profile
-      ? readTopLevelModelFromCodexConfig(codexConfigProfilePath(opts.profile))
-      : null) ??
-    readTopLevelModelFromCodexConfig() ??
-    CODEX_DEFAULT_BUCKET;
+    opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET;
   persistSessionFields({
     sessionId: internal.applicationSid,
     sandboxMode,
     approvalPolicy: opts.approvalPolicy,
-    profile: opts.profile,
+    provider: opts.provider,
     model: effectiveModel,
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,

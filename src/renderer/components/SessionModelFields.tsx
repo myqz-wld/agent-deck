@@ -82,7 +82,7 @@ export function SessionModelFields({
     const request =
       adapterId === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexConfigProfiles();
+        : window.api.listCodexModelProviders();
     void request
       .then((options) => {
         if (!cancelled) setProviderOptions(options);
@@ -104,22 +104,22 @@ export function SessionModelFields({
       {providerEnabled && onProviderChange && (
         <div className="flex min-w-0 flex-col gap-1">
           <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-            {adapterId === 'claude-code' ? 'Gateway' : 'Profile'}
+            {adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
           </label>
           <ProviderCombobox
             value={provider}
             options={providerOptions}
             disabled={disabled}
-            ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Profile'}
+            ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
             placeholder={
               adapterId === 'claude-code'
                 ? '留空使用 settings.json'
-                : '留空使用 ~/.codex/config.toml'
+                : '留空使用 config.toml'
             }
             emptyMessage={
               adapterId === 'claude-code'
                 ? '没有发现 Gateway profile'
-                : '没有发现 Codex profile，可直接输入 profile 名'
+                : '没有发现 Codex provider，请检查 $CODEX_HOME/config.toml'
             }
             onChange={onProviderChange}
           />

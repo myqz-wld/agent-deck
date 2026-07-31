@@ -50,7 +50,7 @@ export function isNativeAssetName(name: string): boolean {
 export interface BundledAgentRuntimeOverride {
   model?: string;
   thinking?: string;
-  /** Claude Gateway profile id or Codex native independent config profile id. */
+  /** Claude Gateway profile id or Codex native `model_provider`. */
   provider?: string;
 }
 
@@ -64,10 +64,11 @@ export interface BundledAgentRuntimeMeta {
   override: BundledAgentRuntimeOverride;
 }
 
-export interface CodexConfigProfileOption {
+export interface CodexModelProviderOption {
   id: string;
-  /** Absolute native `$CODEX_HOME/<id>.config.toml` path; Agent Deck never rewrites it. */
-  configPath: string;
+  name?: string;
+  /** True only for the native top-level `model_provider`. */
+  configuredAsTopLevelDefault: boolean;
 }
 
 export interface ClaudeGatewayProfileOption {
@@ -120,7 +121,7 @@ export interface AssetMeta {
   model?: string;
   /** agent only。Claude `effort` / Codex `model_reasoning_effort` 的统一展示值。 */
   thinking?: string;
-  /** agent only。Claude 映射到 Gateway profile；Codex bundled override 映射到 config profile。 */
+  /** agent only。Claude 映射到 Gateway profile；Codex 映射到 native `model_provider`。 */
   provider?: string;
   /** bundled agent only。让 UI 展示 effective 值并能删除差异记录恢复 packaged 默认。 */
   bundledAgentRuntime?: BundledAgentRuntimeMeta;

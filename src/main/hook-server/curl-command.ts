@@ -39,6 +39,8 @@ export function buildHookCurlCommand(options: HookCurlCommandOptions): string {
   const relayConfigPath = shellSingleQuote(options.relayConfigPath);
   const curl = [
     'curl',
+    // curl only honors --disable for the default curlrc when it is the first argument.
+    '--disable',
     '--config',
     relayConfigPath,
     '--header "X-Agent-Deck-Origin: ${AGENT_DECK_ORIGIN:-cli}"',

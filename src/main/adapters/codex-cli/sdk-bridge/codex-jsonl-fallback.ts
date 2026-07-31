@@ -74,8 +74,8 @@ export interface CodexJsonlFallbackOpts {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** rec.codexApprovalPolicy ?? undefined; recovery preserves the session's resolved policy. */
   approvalPolicy?: CodexApprovalPolicy;
-  /** rec.runtimeProvider ?? undefined; fresh fallback must retain the config profile. */
-  profile?: string;
+  /** rec.runtimeProvider ?? undefined; fresh fallback must retain model_provider. */
+  provider?: string;
   /** rec.model ?? undefined (Codex runtime v0.131.0+ per-thread override) */
   model?: string;
   /** rec.thinking when it is a valid Codex reasoning level. */
@@ -188,7 +188,7 @@ export async function maybeCodexJsonlFallback(
     resume: opts.sessionId,
     // **R3 HIGH-G + R7 HIGH-R7-1 修订**: 显式 mode 字段触发 fresh CLI thread + 复用 applicationSid
     resumeMode: 'fresh-cli-reuse-app',
-    profile: opts.profile,
+    provider: opts.provider,
     codexSandbox: opts.codexSandbox,
     approvalPolicy: opts.approvalPolicy,
     model: toCodexModelOverride(opts.model),
