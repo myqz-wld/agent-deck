@@ -188,7 +188,11 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
   return (
     <details className="mb-2 rounded border border-deck-border/80 bg-white/[0.02] px-2 py-1.5">
       <summary className="cursor-pointer select-none text-[10px] text-deck-muted">
-        Provider、模型与思考程度
+        {session.agentId === 'codex-cli'
+          ? 'Profile'
+          : session.agentId === 'claude-code'
+            ? 'Gateway'
+            : '运行时'}、模型与思考程度
         <span className="ml-1 text-deck-muted/60">（下一轮生效）</span>
       </summary>
       <div className="mt-2 space-y-2">
@@ -204,7 +208,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
           onThinkingChange={(next) => updateSelection({ thinking: next }, true)}
         />
         <p className="text-[9px] text-deck-muted/65">
-          当前回复不会中断，修改会自动保存并在下一轮生效；模型和思考档位以模型提供商的校验为准。
+          当前回复不会中断，修改会自动保存并在下一轮生效；模型和思考档位由目标运行时校验。
         </p>
         <ErrorBanner message={error} prefix="运行时设置失败" onDismiss={() => setError(null)} />
       </div>

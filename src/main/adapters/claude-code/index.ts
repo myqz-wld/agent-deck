@@ -77,7 +77,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       prompt: opts.prompt,
-      provider: opts.provider,
+      gateway: opts.gateway,
       permissionMode: opts.permissionMode,
       resume: opts.resume,
       teamName: opts.teamName,
@@ -108,7 +108,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
-      provider: opts.provider,
+      gateway: opts.gateway,
       permissionMode: opts.permissionMode,
       teamName: opts.teamName,
       attachments: opts.attachments,
@@ -134,7 +134,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
       throw new Error(`Claude native fork requires target adapter "${ADAPTER_ID}".`);
     }
     if (!this.bridge) throw new Error('adapter not initialized');
-    assertClaudeGatewayForkTranscriptRootCompatible(target.provider);
+    assertClaudeGatewayForkTranscriptRootCompatible(target.gateway);
   }
 
   async createForkedSession(
@@ -291,7 +291,11 @@ class ClaudeCodeAdapter implements AgentAdapter {
     options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
-    await this.bridge.setSessionModelOptions(sessionId, options);
+    await this.bridge.setSessionModelOptions(sessionId, {
+      gateway: options.provider,
+      model: options.model,
+      thinking: options.thinking,
+    });
   }
 
   async restartWithPermissionMode(

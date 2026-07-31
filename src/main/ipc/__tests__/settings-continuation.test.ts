@@ -33,9 +33,7 @@ vi.mock('@main/adapters/claude-code/sdk-injection', () => ({
   resetUserAgentDeckClaudeMd: vi.fn(),
   saveUserAgentDeckClaudeMd: vi.fn(),
 }));
-vi.mock('@main/codex-config/toml-writer', () => ({ writeMcpServersToCodexConfig: vi.fn() }));
 vi.mock('@main/codex-config/agents-md-installer', () => ({
-  syncAgentDeckSection: vi.fn(),
   getActiveCodexAgentsMd: vi.fn(),
   getBuiltinCodexAgentsMd: vi.fn(),
   saveUserCodexAgentsMd: vi.fn(),

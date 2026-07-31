@@ -31,8 +31,6 @@ export interface BuildCodexThreadOptionsArgs {
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /** spawn handler custom-agent TOML `model` 字段 */
   model?: string;
-  /** Native model_provider id; explicit selection overrides custom-agent config. */
-  provider?: string;
   /** Explicit caller/session value only; reviewer agent names never change this field. */
   networkAccessEnabled?: boolean;
   /** Caller 缺省 → 不写字段 → SDK 走默认值。 */
@@ -86,10 +84,6 @@ export interface CodexThreadOptions {
 
 export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): CodexThreadOptions {
   const model = toCodexModelOverride(args.model);
-  const configOverrides =
-    args.provider !== undefined
-      ? { ...(args.configOverrides ?? {}), model_provider: args.provider }
-      : args.configOverrides;
   const writableRoots = mergeCodexWritableRoots(
     args.additionalDirectories,
     args.extraAllowWrite,
@@ -112,7 +106,9 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.baseInstructions !== undefined && args.baseInstructions.trim().length > 0
       ? { baseInstructions: args.baseInstructions.trim() }
       : {}),
-    ...(configOverrides !== undefined ? { configOverrides } : {}),
+    ...(args.configOverrides !== undefined
+      ? { configOverrides: args.configOverrides }
+      : {}),
     ...(args.useBaseConfig !== undefined ? { useBaseConfig: args.useBaseConfig } : {}),
     ...(args.dynamicTools !== undefined ? { dynamicTools: [] } : {}),
     ...(args.environments !== undefined ? { environments: [] } : {}),

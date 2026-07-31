@@ -1,7 +1,6 @@
 import { useCallback, useState, type JSX } from 'react';
 import log from '@renderer/utils/logger';
 import type {
-  CodexMcpServerConfigShared,
   CodexPermissionScanResult,
   CodexSandboxMode,
 } from '@shared/types';
@@ -88,8 +87,6 @@ export function CodexPermissionsPanel({
         </div>
       </section>
 
-      <McpServersPanel title="Agent Deck 设置中的 Codex CLI MCP servers" servers={data.appManagedMcpServers} />
-      <McpServersPanel title="Codex CLI config.toml marker 段中的 MCP servers" servers={data.config.markerManagedMcpServers} />
       <CodexConfigPanel data={data} />
     </div>
   );
@@ -117,33 +114,6 @@ function formatAgentDeckMcpDetail(data: CodexPermissionScanResult): string {
   if (mcp.toolTimeoutSec === null) return '下次新建 Codex CLI 会话时生效';
   if (mcp.toolTimeoutSec === 0) return '下次新建 Codex CLI 会话时生效 · tool timeout 不限制';
   return `下次新建 Codex CLI 会话时生效 · tool timeout ${mcp.toolTimeoutSec}s`;
-}
-
-function McpServersPanel({ title, servers }: { title: string; servers: CodexMcpServerConfigShared[] }): JSX.Element {
-  return (
-    <section className="rounded-md border border-deck-border/60 bg-white/[0.02] p-2">
-      <header className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-deck-muted">
-        <span>{title}</span><span>{servers.length}</span>
-      </header>
-      {servers.length === 0 ? (
-        <div className="text-[10px] text-deck-muted">未配置</div>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {servers.map((server) => (
-            <li key={server.name} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px]">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-deck-text/90">{server.name}</span>
-                <span className="text-[10px] text-deck-muted">{server.url ? 'http' : 'stdio'}</span>
-              </div>
-              <div className="mt-0.5 break-all font-mono text-[10px] text-deck-muted">
-                {server.url ?? [server.command, ...(server.args ?? [])].filter(Boolean).join(' ')}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
 }
 
 function CodexConfigPanel({ data }: { data: CodexPermissionScanResult }): JSX.Element {

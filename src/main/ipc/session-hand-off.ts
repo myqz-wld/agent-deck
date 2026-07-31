@@ -145,9 +145,18 @@ const coordinator = new UiHandOffCoordinator({
     if (!adapter.createTrustedContinuationSession) {
       throw new Error(`目标 adapter 不支持受信任的会话续接上下文：${selection.adapter}`);
     }
+    const { provider: selectedRuntime, ...selectionWithoutRuntime } = selection;
     return resolveHandOffTarget({
       source,
-      request: { ...selection, cwd: source.cwd },
+      request: {
+        ...selectionWithoutRuntime,
+        ...(selection.adapter === 'codex-cli'
+          ? { profile: selectedRuntime }
+          : selection.adapter === 'claude-code'
+            ? { gateway: selectedRuntime }
+            : {}),
+        cwd: source.cwd,
+      },
       sourceMaxEventId,
     });
   },

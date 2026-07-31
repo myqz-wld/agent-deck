@@ -102,7 +102,7 @@ class CodexCliAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       prompt: opts.prompt,
-      provider: opts.provider,
+      profile: opts.profile,
       resume: opts.resume,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
@@ -136,7 +136,7 @@ class CodexCliAdapter implements AgentAdapter {
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
-      provider: opts.provider,
+      profile: opts.profile,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
       model: opts.model,
@@ -177,7 +177,7 @@ class CodexCliAdapter implements AgentAdapter {
     return this.bridge.createForkedSession(source, {
       cwd: target.cwd,
       prompt: target.prompt,
-      provider: target.provider,
+      profile: target.profile,
       codexSandbox: target.codexSandbox,
       attachments: target.attachments,
       model: target.model,
@@ -292,7 +292,11 @@ class CodexCliAdapter implements AgentAdapter {
     options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
-    await this.bridge.setSessionModelOptions(sessionId, options);
+    await this.bridge.setSessionModelOptions(sessionId, {
+      profile: options.provider,
+      model: options.model,
+      thinking: options.thinking,
+    });
   }
 
   /**
@@ -398,7 +402,13 @@ class CodexCliAdapter implements AgentAdapter {
       events,
       formatEventsForPrompt,
       evidenceContext,
-      runtime,
+      runtime
+        ? {
+            profile: runtime.provider,
+            model: runtime.model,
+            thinking: runtime.thinking,
+          }
+        : undefined,
     );
   }
 

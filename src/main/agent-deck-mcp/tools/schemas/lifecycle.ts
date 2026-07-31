@@ -37,7 +37,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Deepseek is selected with adapter="claude-code" and provider="deepseek".',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway, or a Codex native config with profile.',
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
   callerSessionId: z
@@ -123,8 +123,10 @@ export type ExitWorktreeArgs = z.infer<z.ZodObject<typeof EXIT_WORKTREE_SCHEMA>>
 export interface HandOffSessionResult {
   sessionId: string;
   adapter: 'claude-code' | 'codex-cli' | 'grok-build';
-  /** Resolved Claude Gateway profile or Codex model_provider; null means provider-native default. */
-  provider: string | null;
+  /** Resolved Claude Gateway profile; null for Codex/Grok or Claude-native default. */
+  gateway: string | null;
+  /** Resolved native Codex config profile; null for Claude/Grok or Codex base config.toml. */
+  profile: string | null;
   cwd: string;
   continuationContext: {
     version: number;

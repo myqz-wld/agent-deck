@@ -4,35 +4,11 @@
  * 拆分自 src/shared/types/settings.ts（Phase 4 Step 4.10）；entity 域：
  * - **AppSettings**：30+ 字段聚合 interface（hook server / sound / lifecycle /
  *   summary / continuation checkpoint LLM / window / sandbox / mcp 等所有设置项 SSOT）
- * - **CodexMcpServerConfigShared**：仅供 AppSettings.codexMcpServers 字段使用的子结构
  * - **HookInstallStatus**：hook 安装状态（与 settings UI hook section 紧贴）
  */
 
 import type { SessionThinkingLevel } from '../../session-metadata';
 import type { BundledAgentRuntimeOverrideMap } from '../assets';
-
-/**
- * Codex MCP server 配置（CHANGELOG_<X> A4b 起跨进程共享）。
- *
- * 字段集对应 codex CLI `~/.codex/config.toml` 的 `[mcp_servers.X]` 段。
- * 与 src/main/codex-config/toml-writer.ts 的 CodexMcpServerConfig 同形态——
- * 后者是 main-only 镜像（toml-writer 是 main 模块），shared 这里是给
- * AppSettings + IPC + renderer 复用的同结构。
- *
- * 不在 main 单独定义 / shared 单独定义两个差异类型 —— 字段集就是 codex CLI
- * 的 wire format，跨进程一致。
- */
-export interface CodexMcpServerConfigShared {
-  /** server 名称，用作 [mcp_servers.<name>] 段名。codex 内部用此名识别 tool 出处。 */
-  name: string;
-  /** stdio transport：command + args + env */
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  /** http transport：url + bearer_token_env_var */
-  url?: string;
-  bearerTokenEnvVar?: string;
-}
 
 export type GeneratorAdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
 
@@ -68,7 +44,7 @@ export interface AppSettings {
   summaryTimeoutMs: number;
   /** 周期简报使用的隔离运行时 adapter，与被总结会话自身的 adapter 无关。 */
   summaryAdapter: GeneratorAdapterId;
-  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
+  /** Claude Gateway profile id 或 Codex config profile id；Grok 必须为空。 */
   summaryRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   summaryModel: string;
@@ -76,7 +52,7 @@ export interface AppSettings {
   summaryThinking: SessionThinkingLevel;
   /** 续接检查点生成器 adapter，与 successor adapter 独立。 */
   continuationCheckpointAdapter: GeneratorAdapterId;
-  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
+  /** Claude Gateway profile id 或 Codex config profile id；Grok 必须为空。 */
   continuationCheckpointRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   continuationCheckpointModel: string;
@@ -300,20 +276,6 @@ export interface AppSettings {
    * Defaults to `workspace`; custom user/project sandbox.toml profile names remain valid.
    */
   grokSandbox: string;
-  /**
-   * Codex MCP servers 配置（CHANGELOG_<X> A4b）。Agent Deck 自管的 mcp_servers 段
-   * 写入 `~/.codex/config.toml` 用 marker 包裹，**不破坏**用户手写的其他段。
-   * 详见 `src/main/codex-config/toml-writer.ts`。
-   *
-   * 字段值：CodexMcpServerConfigShared 数组。空数组 = 不写 server（marker 仍写入但内容为空）。
-   *
-   * 改这个设置 → ipc/settings.ts apply* 调 writeMcpServersToCodexConfig 同步写盘 →
-   * 下次新建 codex 会话生效。已在跑的 thread 已按 spawn-time 加载的 mcp_servers 配置
-   * 跑，关掉不会撤销。
-   *
-   * 与 settings.codexCliPath 同模式：spawn-time options，不影响在跑会话。
-   */
-  codexMcpServers: CodexMcpServerConfigShared[];
   /**
    * Teammate 权限 auto-approve 档位（**R3.E6 删除占位字段，下方 R3 新字段取代**）。
    * 老 inbox 协议下线后，新 universal team backend 不需要档位选择 —— teammate 调工具走自己

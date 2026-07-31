@@ -129,7 +129,7 @@ describe('spawn Agent bundled runtime overrides', () => {
     expect(mocks.getBundledAgentRuntimeOverride).not.toHaveBeenCalled();
   });
 
-  it('returns a bundled Codex provider for the native per-thread model_provider layer', () => {
+  it('returns a bundled Codex config profile without promoting agent model_provider config', () => {
     mocks.resolveCodexAgentContent.mockReturnValue({
       ok: true,
       agent: {
@@ -140,7 +140,7 @@ describe('spawn Agent bundled runtime overrides', () => {
         developerInstructions: 'review',
         model: 'gpt-5.6-sol',
         modelReasoningEffort: 'xhigh',
-        config: { feature: true },
+        config: { feature: true, model_provider: 'agent-provider' },
       },
     });
     mocks.getBundledAgentRuntimeOverride.mockReturnValue({
@@ -151,11 +151,12 @@ describe('spawn Agent bundled runtime overrides', () => {
 
     expect(resolveSpawnAgent('reviewer-codex', 'codex-cli', '/repo')).toMatchObject({
       ok: true,
-      provider: 'fable',
+      profile: 'fable',
       model: 'qw-pro-5',
       modelReasoningEffort: 'high',
       codexConfigOverrides: {
         feature: true,
+        model_provider: 'agent-provider',
       },
     });
   });

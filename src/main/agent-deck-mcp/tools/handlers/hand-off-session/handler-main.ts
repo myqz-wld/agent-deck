@@ -80,7 +80,7 @@ export const handOffSessionHandler = withMcpGuard(
       );
       return err(
         `caller session has unsupported adapter: ${callerRow.agentId}`,
-        'Pass adapter explicitly as claude-code, codex-cli, or grok-build. For Deepseek use adapter="claude-code" with provider="deepseek".',
+        'Pass adapter explicitly as claude-code, codex-cli, or grok-build. For Deepseek use adapter="claude-code" with gateway="deepseek".',
       );
     }
 
@@ -381,7 +381,8 @@ export const handOffSessionHandler = withMcpGuard(
         response = ok({
           sessionId: execution.successorSessionId,
           adapter: targetAdapter,
-          provider: target.spec.provider ?? null,
+          gateway: targetAdapter === 'claude-code' ? target.spec.provider ?? null : null,
+          profile: targetAdapter === 'codex-cli' ? target.spec.provider ?? null : null,
           cwd: finalCwd,
           continuationContext: {
             version: prepared.version,

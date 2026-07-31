@@ -23,7 +23,8 @@ type SpawnAssetAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
 export type ResolvedSpawnAgent =
   | {
       ok: true;
-      provider?: string;
+      gateway?: string;
+      profile?: string;
       developerInstructions?: string;
       model?: string;
       modelReasoningEffort?: SpawnCodexReasoningEffort;
@@ -157,13 +158,13 @@ function resolveClaudeSpawnAgent(
       ? getBundledAgentRuntimeOverride('claude-code', resolved.agent.name)
       : {};
   const model = override.model ?? resolved.agent.model;
-  const provider = override.provider ?? resolved.agent.provider;
+  const gateway = override.provider ?? resolved.agent.gateway;
   const effort =
     (override.thinking as SpawnClaudeCodeEffortLevel | undefined) ??
     resolved.agent.effortLevel;
   return {
     ok: true,
-    provider,
+    gateway,
     model,
     claudeAgentName: resolved.agent.name,
     ...(resolved.agent.source === 'plugin'
@@ -191,11 +192,9 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
       ? getBundledAgentRuntimeOverride('codex-cli', resolved.agent.name)
       : {};
   const model = override.model ?? resolved.agent.model;
-  const provider =
-    override.provider ??
-    (typeof resolved.agent.config.model_provider === 'string'
-      ? resolved.agent.config.model_provider.trim() || undefined
-      : undefined);
+  // A bundled app-owned override may select a native process profile. Custom-agent
+  // `model_provider` remains part of its config layer and is not reinterpreted as a profile name.
+  const profile = override.provider;
   const effort =
     (override.thinking as SpawnCodexReasoningEffort | undefined) ??
     resolved.agent.modelReasoningEffort;
@@ -204,7 +203,7 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
   };
   return {
     ok: true,
-    provider,
+    profile,
     developerInstructions: buildCodexCustomAgentInstructions(resolved.agent),
     model,
     modelReasoningEffort: effort,

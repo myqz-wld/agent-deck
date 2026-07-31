@@ -209,7 +209,7 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
     expect(opts.resume).toBe(sid);
     expect(opts.resumeCliSid).toBe('cli-sid-PM'); // §不变量 8: resumeCliSid: rec.cliSessionId ?? currentSid
-    expect(opts.provider).toBe('deepseek');
+    expect(opts.gateway).toBe('deepseek');
     expect(opts.claudeAgentName).toBe('reviewer-claude');
     expect(opts.claudePluginDir).toBe('/plugins/reviewer-claude');
     expect(opts.permissionMode).toBe('plan');
@@ -301,7 +301,7 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     const opts = createSessionSpy.mock.calls[0][0] as RestartCreateOpts;
     expect(opts.resume).toBe(sid);
     expect(opts.resumeMode).toBe('fresh-cli-reuse-app');
-    expect(opts.provider).toBe('deepseek');
+    expect(opts.gateway).toBe('deepseek');
     expect(opts.claudeAgentName).toBe('reviewer-claude');
     expect(opts.claudePluginDir).toBe('/plugins/reviewer-claude');
     expect('resumeCliSid' in opts).toBe(false);

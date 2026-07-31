@@ -15,7 +15,7 @@ function errorMessage(run: () => unknown): string {
 }
 
 describe('bundled Agent runtime override validation', () => {
-  it('normalizes supported model, thinking, and Codex provider fields', () => {
+  it('normalizes supported model, thinking, and Codex profile fields', () => {
     expect(
       normalizeBundledAgentRuntimeOverride('codex-cli', {
         model: '  qw-pro-5 ',

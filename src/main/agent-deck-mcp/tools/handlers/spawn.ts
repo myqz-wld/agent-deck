@@ -89,7 +89,8 @@ export const spawnSessionHandler = withMcpGuard(
     let promptToUse = args.prompt;
     // Agent runtime fields flow into createSession after explicit tool arguments take precedence.
     let modelFromAgent: string | undefined;
-    let providerFromAgent: string | undefined;
+    let gatewayFromAgent: string | undefined;
+    let profileFromAgent: string | undefined;
     let modelReasoningEffortFromAgent: SpawnCodexReasoningEffort | undefined;
     let claudeCodeEffortLevelFromAgent: SpawnClaudeCodeEffortLevel | undefined;
     let grokReasoningEffortFromAgent: SpawnGrokReasoningEffort | undefined;
@@ -105,7 +106,8 @@ export const spawnSessionHandler = withMcpGuard(
     if (args.agentName) {
       const agent = resolveSpawnAgent(args.agentName, args.adapter, args.cwd);
       if (!agent.ok) return err(agent.error, agent.hint);
-      providerFromAgent = agent.provider;
+      gatewayFromAgent = agent.gateway;
+      profileFromAgent = agent.profile;
       modelFromAgent = agent.model;
       modelReasoningEffortFromAgent = agent.modelReasoningEffort;
       claudeCodeEffortLevelFromAgent = agent.claudeCodeEffortLevel;
@@ -142,7 +144,8 @@ export const spawnSessionHandler = withMcpGuard(
       args,
       leadRecord,
       agent: {
-        provider: providerFromAgent,
+        gateway: gatewayFromAgent,
+        profile: profileFromAgent,
         model: modelFromAgent,
         modelReasoningEffort: modelReasoningEffortFromAgent,
         claudeCodeEffortLevel: claudeCodeEffortLevelFromAgent,
@@ -152,7 +155,8 @@ export const spawnSessionHandler = withMcpGuard(
     if (!runtimeSelection.ok) return err(runtimeSelection.error, runtimeSelection.hint);
     const {
       inherit: shouldInheritAdapterSettings,
-      provider: resolvedProvider,
+      gateway: resolvedGateway,
+      profile: resolvedProfile,
       modelOptions: resolvedModelOptions,
     } = runtimeSelection;
 
@@ -191,7 +195,8 @@ export const spawnSessionHandler = withMcpGuard(
       effectiveClaudeCodeSandbox,
       effectiveGrokSandbox,
       effectiveExtraAllowWrite,
-      provider: resolvedProvider,
+      gateway: resolvedGateway,
+      profile: resolvedProfile,
       modelOptions: resolvedModelOptions,
       developerInstructions: developerInstructionsFromAgent,
       codexConfigOverrides: codexConfigOverridesFromAgent,
@@ -419,7 +424,14 @@ export const spawnSessionHandler = withMcpGuard(
     return structuredOk({
       sessionId: sid,
       adapter: args.adapter,
-      provider: created?.runtimeProvider ?? resolvedProvider ?? null,
+      gateway:
+        args.adapter === 'claude-code'
+          ? created?.runtimeProvider ?? resolvedGateway ?? null
+          : null,
+      profile:
+        args.adapter === 'codex-cli'
+          ? created?.runtimeProvider ?? resolvedProfile ?? null
+          : null,
       cwd: args.cwd,
       teamId,
       teamName: args.teamName ?? null,

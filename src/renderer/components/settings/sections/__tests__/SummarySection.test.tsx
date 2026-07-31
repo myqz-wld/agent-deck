@@ -39,7 +39,7 @@ beforeEach(() => {
     value: {
       summarizerLastErrors: vi.fn().mockResolvedValue({}),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexConfigProfiles: vi.fn().mockResolvedValue([]),
     },
   });
 });
@@ -65,7 +65,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
     expect(
-      screen.getByText('留空时使用所选 Codex CLI provider 的默认模型。'),
+      screen.getByText('留空时使用所选 Codex CLI profile 的默认模型。'),
     ).toBeTruthy();
     expect(
       (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)

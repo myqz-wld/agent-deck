@@ -17,17 +17,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-skills-installer');
-
-/** Historical user-level managed directory. Kept only for cleanup. */
-export function getCodexSkillsAgentDeckDir(): string {
-  return join(homedir(), '.codex', 'skills', 'agent-deck');
-}
 
 /** App-owned substituted skills extra root passed to Codex app-server. */
 export function getCodexSkillsExtraRootDir(): string {
@@ -48,7 +42,6 @@ export function getBuiltinCodexSkillsSourceDir(): string {
  * Returns [] when the settings toggle is disabled or the source directory is missing.
  */
 export function getCodexSkillExtraRootsForSession(): string[] {
-  cleanupHistoricalUserDir();
   if (!settingsStore.get('injectAgentDeckCodexSkills')) return [];
 
   const mirrorDir = getCodexSkillsExtraRootDir();
@@ -60,15 +53,12 @@ export function getCodexSkillExtraRootsForSession(): string[] {
 }
 
 /**
- * Compatibility entry point used by bootstrap and settings apply hooks.
+ * Prepare the app-owned mirror used by bootstrap and settings apply hooks.
  *
- * - Always removes the historical `~/.codex/skills/agent-deck` managed directory.
  * - When enabled, mirrors bundled skills to app userData and returns skill names.
  * - When disabled, removes the app-owned mirror and returns [].
  */
 export function syncSkills(): string[] | null {
-  cleanupHistoricalUserDir();
-
   const mirrorDir = getCodexSkillsExtraRootDir();
   if (!settingsStore.get('injectAgentDeckCodexSkills')) {
     removeDirIfExists(mirrorDir);
@@ -90,15 +80,6 @@ export function syncSkills(): string[] | null {
   } catch (err) {
     logger.warn(`[codex-skills] prepare skill extra root failed: ${mirrorDir}`, err);
     return null;
-  }
-}
-
-function cleanupHistoricalUserDir(): void {
-  const dir = getCodexSkillsAgentDeckDir();
-  try {
-    removeDirIfExists(dir);
-  } catch (err) {
-    logger.warn(`[codex-skills] cleanup historical user dir failed: ${dir}`, err);
   }
 }
 

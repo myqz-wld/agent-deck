@@ -70,6 +70,8 @@ export interface CodexAppServerRunResult {
 
 export interface CodexAppServerOptions {
   codexPathOverride?: string | null;
+  /** Native `$CODEX_HOME/<name>.config.toml` profile selected at process startup. */
+  profile?: string | null;
   config?: CodexConfigObject | null;
   env: Record<string, string>;
   cwd?: string;

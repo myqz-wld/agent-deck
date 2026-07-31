@@ -2,7 +2,6 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { stringifyMcpServersSection } from '@main/codex-config/toml-writer';
 import type { AppSettings } from '@shared/types';
 import { scanCodexSettings } from '../codex-scanner';
 
@@ -12,30 +11,22 @@ function makeTmpConfigPath(): string {
 
 type CodexScanSettings = Pick<
   AppSettings,
-  'codexSandbox' | 'codexMcpServers' | 'enableAgentDeckMcp' | 'mcpHttpEnabled' | 'permissionTimeoutMs'
+  'codexSandbox' | 'enableAgentDeckMcp' | 'mcpHttpEnabled' | 'permissionTimeoutMs'
 >;
 
 const baseSettings: CodexScanSettings = {
   codexSandbox: 'workspace-write',
-  codexMcpServers: [{ name: 'app-managed', command: 'node', args: ['server.js'] }],
   enableAgentDeckMcp: true,
   mcpHttpEnabled: true,
   permissionTimeoutMs: 90_000,
 };
 
 describe('scanCodexSettings', () => {
-  it('reports session sandbox override, model, app-managed MCP, and marker-managed MCP', async () => {
+  it('reports session sandbox override, model, and dynamic Agent Deck MCP state', async () => {
     const configPath = makeTmpConfigPath();
     writeFileSync(
       configPath,
-      [
-        'model = "gpt-5.5"',
-        '',
-        stringifyMcpServersSection([
-          { name: 'marker-managed', url: 'https://example.test/mcp', bearerTokenEnvVar: 'TOKEN' },
-        ]),
-        '',
-      ].join('\n'),
+      'model = "gpt-5.5"\n\n[mcp_servers.user-owned]\ncommand = "node"\n',
       'utf8',
     );
 
@@ -50,10 +41,7 @@ describe('scanCodexSettings', () => {
     expect(result.config.path).toBe(configPath);
     expect(result.config.exists).toBe(true);
     expect(result.config.topLevelModel).toBe('gpt-5.5');
-    expect(result.config.markerManagedMcpServers).toEqual([
-      { name: 'marker-managed', url: 'https://example.test/mcp', bearerTokenEnvVar: 'TOKEN' },
-    ]);
-    expect(result.appManagedMcpServers).toEqual(baseSettings.codexMcpServers);
+    expect(result.config.raw).toContain('[mcp_servers.user-owned]');
     expect(result.effective).toMatchObject({
       sandboxMode: 'read-only',
       sandboxSource: 'session',

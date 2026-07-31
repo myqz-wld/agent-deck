@@ -127,12 +127,48 @@ describe('resolveSessionCreationDefaults', () => {
     );
 
     expect(defaults).toMatchObject({
-      provider: 'openai',
+      provider: '',
       model: 'gpt-5.6-sol',
       thinking: 'ultra',
       approvalPolicy: 'untrusted',
       codexSandbox: 'read-only',
     });
+  });
+
+  it('starts Codex config resolution under a native independent profile', async () => {
+    const root = tempRoot();
+    const configPath = join(root, 'config.toml');
+    writeFileSync(configPath, 'model = "base-model"\napproval_policy = "on-request"\n');
+    writeFileSync(
+      join(root, 'openrouter.config.toml'),
+      'model = "profile-fallback"\nmodel_reasoning_effort = "max"\napproval_policy = "never"\n',
+    );
+    const readCodexConfig = vi.fn(async (
+      _cwd: string,
+      _signal?: AbortSignal,
+      profile?: string,
+    ) => ({
+      model: 'profile-effective',
+      model_reasoning_effort: 'ultra',
+      approval_policy: 'untrusted',
+      selected_profile: profile,
+    }));
+
+    await expect(resolveSessionCreationDefaults(
+      'codex-cli',
+      { cwd: root, provider: 'openrouter' },
+      { settings, codexConfigPath: configPath, readCodexConfig },
+    )).resolves.toMatchObject({
+      provider: 'openrouter',
+      model: 'profile-effective',
+      thinking: 'ultra',
+      approvalPolicy: 'untrusted',
+    });
+    expect(readCodexConfig).toHaveBeenCalledWith(
+      root,
+      expect.any(AbortSignal),
+      'openrouter',
+    );
   });
 
   it('falls back to the top-level Codex approval policy when config/read is unavailable', async () => {
@@ -215,7 +251,7 @@ describe('resolveSessionCreationDefaults', () => {
     await expect(
       resolveSessionCreationDefaults('codex-cli', { cwd: root }, deps),
     ).resolves.toMatchObject({
-      provider: 'openai',
+      provider: '',
       model: 'gpt-recovered',
       approvalPolicy: 'on-request',
     });

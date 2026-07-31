@@ -31,7 +31,7 @@ describe('resolveHandOffTarget', () => {
     });
 
     expect(result.createOptions).toMatchObject({
-      agentId: 'codex-cli', cwd: '/target', provider: 'openai', model: 'gpt-source',
+      agentId: 'codex-cli', cwd: '/target', profile: 'openai', model: 'gpt-source',
       modelReasoningEffort: 'high', codexSandbox: 'read-only',
       approvalPolicy: 'never',
       extraAllowWrite: ['/extra'], networkAccessEnabled: true,
@@ -54,7 +54,7 @@ describe('resolveHandOffTarget', () => {
       source: source(),
       request: {
         adapter: 'claude-code',
-        provider: 'deepseek',
+        gateway: 'deepseek',
         cwd: '/target',
         model: 'deepseek-v4-pro[1m]',
         thinking: 'max',
@@ -64,7 +64,7 @@ describe('resolveHandOffTarget', () => {
 
     expect(result.createOptions).toMatchObject({
       agentId: 'claude-code',
-      provider: 'deepseek',
+      gateway: 'deepseek',
       model: 'deepseek-v4-pro[1m]',
       claudeCodeEffortLevel: 'max', permissionMode: 'bypassPermissions',
       claudeCodeSandbox: DEFAULT_SETTINGS.claudeCodeSandbox,
@@ -268,7 +268,7 @@ describe('resolveHandOffTarget', () => {
     ['claude-code', 'additionalDirectories', { additionalDirectories: [] }],
     ['claude-code', 'sessionMode', { sessionMode: 'ask' }],
     ['codex-cli', 'grokSandbox', { grokSandbox: 'strict' }],
-    ['grok-build', 'provider', { provider: 'xai' }],
+    ['grok-build', 'gateway', { gateway: 'xai' }],
     ['grok-build', 'extraAllowWrite', { extraAllowWrite: [] }],
   ] as const)(
     'rejects %s-incompatible explicit %s before preparation',
@@ -299,12 +299,12 @@ describe('resolveHandOffTarget', () => {
         request: {
           adapter: 'grok-build',
           cwd: '/target',
-          provider: 'xai',
+          gateway: 'xai',
         },
         sourceMaxEventId: 42,
       }),
     ).toThrow(
-      'provider 与 Grok Build 不兼容；仅 Claude Code 或 Codex CLI 支持',
+      'gateway 与 Grok Build 不兼容；仅 Claude Code 支持',
     );
     expect(() =>
       resolveHandOffTarget({

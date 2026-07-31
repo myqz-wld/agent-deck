@@ -180,7 +180,7 @@ export class RestartController {
               recoveryCapture,
               recoveryCaptureError,
               minHealJsonlMtimeMs: rec.lastEventAt,
-              provider: rec.runtimeProvider ?? undefined,
+              gateway: rec.runtimeProvider ?? undefined,
               claudeAgentName: rec.agentProfileName ?? undefined,
               claudePluginDir: rec.agentPluginDir ?? undefined,
               permissionMode: mode,
@@ -199,7 +199,7 @@ export class RestartController {
             cwd: rec.cwd,
             prompt: handoffPrompt,
             resume: currentSid,
-            provider: rec.runtimeProvider ?? undefined,
+            gateway: rec.runtimeProvider ?? undefined,
             claudeAgentName: rec.agentProfileName ?? undefined,
             claudePluginDir: rec.agentPluginDir ?? undefined,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订**:
@@ -393,7 +393,7 @@ export class RestartController {
               recoveryCapture,
               recoveryCaptureError,
               minHealJsonlMtimeMs: rec.lastEventAt,
-              provider: rec.runtimeProvider ?? undefined,
+              gateway: rec.runtimeProvider ?? undefined,
               claudeAgentName: rec.agentProfileName ?? undefined,
               claudePluginDir: rec.agentPluginDir ?? undefined,
               permissionMode: rec.permissionMode ?? undefined, // 透传保留用户辛苦切的 mode (不被 sandbox 切档静默重置)
@@ -412,7 +412,7 @@ export class RestartController {
             cwd: rec.cwd,
             prompt: handoffPrompt,
             resume: currentSid,
-            provider: rec.runtimeProvider ?? undefined,
+            gateway: rec.runtimeProvider ?? undefined,
             claudeAgentName: rec.agentProfileName ?? undefined,
             claudePluginDir: rec.agentPluginDir ?? undefined,
             // **plan reverse-rename-sid-stability-20260520 §C.1 R3 MED-R3-2 修订** (同 restartWithPermissionMode):

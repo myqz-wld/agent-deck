@@ -141,7 +141,7 @@ export function ProviderModelThinkingFields({
     const request =
       adapter === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexModelProviders();
+        : window.api.listCodexConfigProfiles();
     void request
       .then((options) => {
         if (!cancelled) setProviderOptions(options);
@@ -176,16 +176,16 @@ export function ProviderModelThinkingFields({
             <ProviderCombobox
               value={runtimeProvider}
               options={providerOptions}
-              ariaLabel={`${label} ${adapter === 'claude-code' ? 'Gateway' : 'provider'}`}
+              ariaLabel={`${label} ${adapter === 'claude-code' ? 'Gateway' : 'profile'}`}
               placeholder={
                 adapter === 'claude-code'
                   ? 'Gateway（留空使用原生配置）'
-                  : 'Provider（留空跟随 config.toml）'
+                  : 'Profile（留空使用 ~/.codex/config.toml）'
               }
               emptyMessage={
                 adapter === 'claude-code'
                   ? '没有发现 Gateway profile'
-                  : '没有匹配项，可直接输入 provider'
+                  : '没有发现 Codex profile，可直接输入 profile 名'
               }
               onChange={onRuntimeProviderChange}
             />

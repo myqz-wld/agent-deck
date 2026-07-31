@@ -319,7 +319,8 @@ describe('spawn_session public output contract', () => {
           expect.arrayContaining([
             'sessionId',
             'adapter',
-            'provider',
+            'gateway',
+            'profile',
             'cwd',
             'teamId',
             'teamName',
@@ -429,7 +430,8 @@ describe('spawn_session public output contract', () => {
     const base = {
       sessionId: 'target-session',
       adapter: 'claude-code',
-      provider: null,
+      gateway: null,
+      profile: null,
       cwd: '/repo',
       teamId: null,
       teamName: null,

@@ -100,7 +100,7 @@ function latestConversationMessageTs(
  *   resumeCliSid 是 runtime guard reject 非法组合)
  */
 interface PersistedClaudeRecoveryOptions {
-  provider?: string;
+  gateway?: string;
   claudeAgentName?: string;
   claudePluginDir?: string;
   permissionMode?: PermissionMode;
@@ -422,7 +422,7 @@ export async function maybeJsonlFallback(
     trustedContinuation: recovery.turn,
     resume: opts.sessionId, // applicationSid 复用 (不变量 2)
     resumeMode: 'fresh-cli-reuse-app', // 触发 index.ts:419 createSession finalize guard 跳过 finalizeSessionStart
-    provider: opts.provider,
+    gateway: opts.gateway,
     claudeAgentName: opts.claudeAgentName,
     claudePluginDir: opts.claudePluginDir,
     permissionMode: opts.permissionMode,

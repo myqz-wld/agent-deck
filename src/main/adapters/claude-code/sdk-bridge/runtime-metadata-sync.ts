@@ -4,7 +4,7 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import log from '@main/utils/logger';
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
-import type { ClaudeProviderModelAliases, InternalSession } from './types';
+import type { ClaudeGatewayModelAliases, InternalSession } from './types';
 
 const logger = log.scope('claude-runtime-metadata');
 const CLAUDE_ALIAS_MODEL_RE = /^(?:claude-)?(fable|opus|sonnet|haiku)(?:-|$)/i;
@@ -19,8 +19,8 @@ function resolveRuntimeModel(internal: InternalSession, reportedModel: unknown):
   if (!trimmed) return null;
   const match = CLAUDE_ALIAS_MODEL_RE.exec(trimmed);
   if (!match) return trimmed;
-  const alias = match[1].toLowerCase() as keyof ClaudeProviderModelAliases;
-  return internal.providerModelAliases?.[alias] ?? trimmed;
+  const alias = match[1].toLowerCase() as keyof ClaudeGatewayModelAliases;
+  return internal.gatewayModelAliases?.[alias] ?? trimmed;
 }
 
 function emitUpdatedSession(internal: InternalSession): void {

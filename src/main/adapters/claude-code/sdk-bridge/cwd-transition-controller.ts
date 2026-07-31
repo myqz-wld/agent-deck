@@ -143,7 +143,7 @@ export class ClaudeCwdTransitionController {
       trustedContinuation: prepared.turn,
       resume: transition.sessionId,
       resumeMode: 'fresh-cli-reuse-app',
-      provider: record.runtimeProvider ?? undefined,
+      gateway: record.runtimeProvider ?? undefined,
       claudeAgentName: record.agentProfileName ?? undefined,
       claudePluginDir: record.agentPluginDir ?? undefined,
       permissionMode: record.permissionMode ?? undefined,

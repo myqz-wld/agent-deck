@@ -5,6 +5,7 @@ import {
   type GrokThinkingLevel,
 } from '@shared/session-metadata';
 import { getAdapterRuntimeProfile } from './runtime-profiles';
+import { CODEX_CONFIG_PROFILE_ID_PATTERN } from '@shared/codex-config-profile';
 
 export interface SessionModelOptions {
   provider: string | null;
@@ -13,7 +14,8 @@ export interface SessionModelOptions {
 }
 
 export interface CreateSessionModelOptions {
-  provider?: string;
+  gateway?: string;
+  profile?: string;
   model?: string;
   claudeCodeEffortLevel?: ClaudeThinkingLevel;
   modelReasoningEffort?: CodexThinkingLevel;
@@ -71,6 +73,16 @@ export function normalizeSessionModelOptions(
         'must be a safe Claude Gateway profile id',
       );
     }
+    if (
+      provider &&
+      adapterId === 'codex-cli' &&
+      !CODEX_CONFIG_PROFILE_ID_PATTERN.test(provider)
+    ) {
+      throw new SessionModelOptionsError(
+        'provider',
+        'must be a safe Codex config profile id',
+      );
+    }
   }
 
   let model: string | null = null;
@@ -102,7 +114,7 @@ export function normalizeSessionModelOptions(
   return { provider, model, thinking };
 }
 
-/** Map provider-neutral UI values to the adapter-native createSession option names. */
+/** Map shared UI values to each adapter's native createSession option names. */
 export function resolveCreateSessionModelOptions(
   adapterId: AgentId,
   input: { provider?: unknown; model?: unknown; thinking?: unknown },
@@ -111,7 +123,7 @@ export function resolveCreateSessionModelOptions(
   const model = normalized.model;
   if (adapterId === 'codex-cli') {
     return {
-      ...(normalized.provider !== null ? { provider: normalized.provider } : {}),
+      ...(normalized.provider !== null ? { profile: normalized.provider } : {}),
       ...(model !== null ? { model } : {}),
       ...(normalized.thinking !== null
         ? { modelReasoningEffort: normalized.thinking as CodexThinkingLevel }
@@ -127,7 +139,7 @@ export function resolveCreateSessionModelOptions(
     };
   }
   return {
-    ...(normalized.provider !== null ? { provider: normalized.provider } : {}),
+    ...(normalized.provider !== null ? { gateway: normalized.provider } : {}),
     ...(model !== null ? { model } : {}),
     ...(normalized.thinking !== null
       ? { claudeCodeEffortLevel: normalized.thinking as ClaudeThinkingLevel }

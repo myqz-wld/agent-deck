@@ -23,7 +23,8 @@ import { resolveContinuationTargetSnapshot } from '../continuation-context/resol
 export interface HandOffTargetRequest {
   adapter: SessionAdapterId;
   cwd: string;
-  provider?: unknown;
+  gateway?: unknown;
+  profile?: unknown;
   model?: unknown;
   thinking?: unknown;
   permissionMode?: SelectablePermissionMode;
@@ -90,11 +91,19 @@ export function resolveHandOffTarget(input: {
   }
   const requestedModel =
     request.model !== undefined ? request.model : sameAdapter ? source.model ?? null : null;
-  const requestedProvider =
-    request.provider !== undefined
-      ? request.provider
-      : sameAdapter && request.adapter !== 'grok-build'
-        ? source.runtimeProvider ?? null
+  const requestedRuntimeProfile =
+    request.adapter === 'codex-cli'
+      ? request.profile !== undefined
+        ? request.profile
+        : sameAdapter
+          ? source.runtimeProvider ?? null
+          : null
+      : request.adapter === 'claude-code'
+        ? request.gateway !== undefined
+          ? request.gateway
+          : sameAdapter
+            ? source.runtimeProvider ?? null
+            : null
         : null;
   const requestedThinking =
     request.thinking !== undefined
@@ -103,7 +112,7 @@ export function resolveHandOffTarget(input: {
         ? source.thinking ?? null
         : null;
   const modelOptions = resolveCreateSessionModelOptions(request.adapter, {
-    provider: requestedProvider,
+    provider: requestedRuntimeProfile,
     model: requestedModel,
     thinking: requestedThinking,
   });
@@ -183,7 +192,22 @@ export function resolveHandOffTarget(input: {
       : null;
   const createOptions = buildCreateSessionOptions(request.adapter, {
     cwd: request.cwd,
-    ...modelOptions,
+    ...(request.adapter === 'claude-code' && modelOptions.gateway
+      ? { gateway: modelOptions.gateway }
+      : {}),
+    ...(request.adapter === 'codex-cli' && modelOptions.profile
+      ? { profile: modelOptions.profile }
+      : {}),
+    ...(modelOptions.model ? { model: modelOptions.model } : {}),
+    ...(modelOptions.claudeCodeEffortLevel
+      ? { claudeCodeEffortLevel: modelOptions.claudeCodeEffortLevel }
+      : {}),
+    ...(modelOptions.modelReasoningEffort
+      ? { modelReasoningEffort: modelOptions.modelReasoningEffort }
+      : {}),
+    ...(modelOptions.reasoningEffort
+      ? { reasoningEffort: modelOptions.reasoningEffort }
+      : {}),
     ...omitUndefined({
       permissionMode,
       approvalPolicy: codexApprovalPolicy ?? undefined,
@@ -213,7 +237,7 @@ export function resolveHandOffTarget(input: {
     }
   }
   const model = modelOptions.model ?? null;
-  const provider = modelOptions.provider ?? null;
+  const provider = modelOptions.gateway ?? modelOptions.profile ?? null;
   const thinking =
     modelOptions.modelReasoningEffort ??
     modelOptions.claudeCodeEffortLevel ??

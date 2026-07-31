@@ -17,14 +17,13 @@ import type {
 import { settingsStore } from '@main/store/settings-store';
 import {
   getCodexConfigPath,
-  readMcpServersFromCodexConfig,
   readTopLevelModelFromCodexConfig,
 } from '@main/codex-config/toml-writer';
 import { permissionTimeoutMsToCodexToolTimeoutSec } from '@main/codex-config/agent-deck-mcp-injector';
 
 type CodexScanSettings = Pick<
   AppSettings,
-  'codexSandbox' | 'codexMcpServers' | 'enableAgentDeckMcp' | 'mcpHttpEnabled' | 'permissionTimeoutMs'
+  'codexSandbox' | 'enableAgentDeckMcp' | 'mcpHttpEnabled' | 'permissionTimeoutMs'
 >;
 
 interface ScanCodexSettingsOptions {
@@ -75,10 +74,9 @@ export async function scanCodexSettings(
   const sandboxMode = hasSessionSandbox ? sessionSandbox : settings.codexSandbox;
   const agentDeckMcpEnabled = settings.enableAgentDeckMcp && settings.mcpHttpEnabled;
 
-  const [configRaw, topLevelModel, markerManagedMcpServers] = await Promise.all([
+  const [configRaw, topLevelModel] = await Promise.all([
     readRawConfig(configPath),
     Promise.resolve(readTopLevelModelFromCodexConfig(configPath)),
-    Promise.resolve(readMcpServersFromCodexConfig(configPath)),
   ]);
 
   return {
@@ -89,9 +87,7 @@ export async function scanCodexSettings(
       raw: configRaw.raw,
       readError: configRaw.readError,
       topLevelModel,
-      markerManagedMcpServers,
     },
-    appManagedMcpServers: settings.codexMcpServers,
     effective: {
       sandboxMode,
       sandboxSource: hasSessionSandbox ? 'session' : 'settings',

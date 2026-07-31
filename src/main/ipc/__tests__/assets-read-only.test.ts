@@ -21,8 +21,8 @@ vi.mock('@main/bundled-agent-runtime-overrides', () => ({
   saveBundledAgentRuntimeOverride: vi.fn(),
   resetBundledAgentRuntimeOverride: vi.fn(),
 }));
-vi.mock('@main/codex-config/model-providers', () => ({
-  listCodexModelProviders: vi.fn(() => []),
+vi.mock('@main/codex-config/profiles', () => ({
+  listCodexConfigProfiles: vi.fn(() => []),
 }));
 vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
   listClaudeGatewayProfiles: vi.fn(() => []),

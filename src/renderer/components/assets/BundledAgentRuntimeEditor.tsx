@@ -53,14 +53,14 @@ export function BundledAgentRuntimeEditor({
     const request =
       asset.adapter === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexModelProviders();
+        : window.api.listCodexConfigProfiles();
     void request
       .then((items) => {
         if (!cancelled) setProviders(items);
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          const runtime = asset.adapter === 'claude-code' ? 'Claude Gateway' : 'Codex provider';
+          const runtime = asset.adapter === 'claude-code' ? 'Claude Gateway' : 'Codex profile';
           setError(`${runtime} 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
         }
       });
@@ -72,6 +72,7 @@ export function BundledAgentRuntimeEditor({
   const normalizedModel = model.trim();
   const normalizedThinking = thinking.trim();
   const normalizedProvider = provider.trim();
+  const providerLabel = asset.adapter === 'codex-cli' ? 'Profile' : 'Gateway';
   const dirty =
     normalizedModel !== (asset.model ?? '') ||
     normalizedThinking !== (asset.thinking ?? '') ||
@@ -86,11 +87,11 @@ export function BundledAgentRuntimeEditor({
           : null;
   const providerError =
     normalizedProvider.length > ASSET_LIMITS.provider
-      ? `provider 太长（最多 ${ASSET_LIMITS.provider} 字）`
+      ? `${providerLabel} 太长（最多 ${ASSET_LIMITS.provider} 字）`
       : defaults.provider && !normalizedProvider
-        ? '内建默认 provider 不能为空；如需撤销自定义值，请恢复默认'
+        ? `内建默认 ${providerLabel} 不能为空；如需撤销自定义值，请恢复默认`
         : invalidSingleLine(normalizedProvider)
-          ? 'provider 必须是单行可打印文本'
+          ? `${providerLabel} 必须是单行可打印文本`
           : null;
   const hasError = Boolean(modelError || providerError);
   const hasOverride = Object.keys(runtime.override).length > 0;
@@ -226,7 +227,7 @@ export function BundledAgentRuntimeEditor({
 
           {asset.adapter !== 'grok-build' && (
             <RuntimeField
-              label={asset.adapter === 'claude-code' ? 'Gateway' : 'provider'}
+              label={providerLabel}
               error={providerError}
             >
               <ProviderCombobox
@@ -234,7 +235,7 @@ export function BundledAgentRuntimeEditor({
                 onChange={setProvider}
                 disabled={busy}
                 options={providers}
-                ariaLabel={asset.adapter === 'claude-code' ? 'Gateway' : 'provider'}
+                ariaLabel={providerLabel}
                 placeholder={
                   asset.adapter === 'claude-code'
                     ? '留空则使用 Claude 原生配置'
@@ -243,7 +244,7 @@ export function BundledAgentRuntimeEditor({
                 emptyMessage={
                   asset.adapter === 'claude-code'
                     ? '没有匹配的 Gateway profile'
-                    : '没有匹配项，可直接输入自定义 provider'
+                    : '没有发现 Codex profile，可直接输入 profile 名'
                 }
               />
               <DefaultHint
@@ -323,7 +324,7 @@ function invalidSingleLine(value: string): boolean {
 
 function nativeConfigHint(adapter: AssetMeta['adapter']): string {
   if (adapter === 'codex-cli') {
-    return 'provider 定义仍由 ~/.codex/config.toml 的 [model_providers.<id>] 管理。';
+    return 'Codex profile 由 $CODEX_HOME/<name>.config.toml 管理；这里只保存 profile 名。';
   }
   if (adapter === 'grok-build') {
     return '自定义模型别名仍由 ~/.grok/config.toml 的 [model.<alias>] 管理。';

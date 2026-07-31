@@ -4,10 +4,9 @@
  * 不写 ~/.codex/config.toml 持久化（避免污染用户配置）；改走 codex SDK `Codex({ config })`
  * 字段动态注入 — codex SDK 内部把 config object flatten 成 `--config key=value` CLI flag。
  *
- * 与 R1.A4b（用户在 Settings 面板手配的 codexMcpServers 持久化到 ~/.codex/config.toml）
- * 是 **互补关系**：用户手写的 server 走 toml 持久化、codex 启动自动加载；agent-deck
- * 自管的 'agent-deck' server 走 SDK config 动态注入，下次重启 codex 时按当时 settings
- * 重新计算（无脏文件残留）。
+ * 用户自己的 server 由 Codex 原生 config.toml 管理；agent-deck 自管的 'agent-deck'
+ * server 走 SDK config 动态注入，下次重启 Codex 时按当时 settings 重新计算
+ *（无脏文件残留）。
  *
  * 注入条件（任一 false → 返回 null，不注入）：
  * - settings.enableAgentDeckMcp === true
@@ -92,8 +91,7 @@ export function buildAgentDeckMcpConfigForCodex(
  * 合并 buildAgentDeckMcpConfigForCodex 输出与用户已有的 SDK config（如未来扩展）。
  * 当前仅是单一来源，但保留合并函数便于 R1 后续叠加更多 codex SDK config 字段。
  *
- * 合并策略：浅 merge mcp_servers 段，agent-deck 名固定不会与用户手配冲突
- *（用户在 Settings UI 编辑 codexMcpServers 时 Settings 应该禁用 'agent-deck' 名 reserved）。
+ * 合并策略：浅 merge mcp_servers 段；agent-deck 名固定保留给应用动态注入。
  */
 export function mergeCodexConfig(
   existing: CodexConfigObject | null,

@@ -24,7 +24,7 @@
  * spike-A3 实测：5 codex 并发 oneshot 复用 codex app-server 单例，总耗 10s + 单进程
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
  */
-import type { AgentEvent, RuntimeSelection } from '@shared/types';
+import type { AgentEvent } from '@shared/types';
 import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
 import { isCodexThinkingLevel, type CodexThinkingLevel } from '@shared/session-metadata';
 import { settingsStore } from '@main/store/settings-store';
@@ -60,7 +60,11 @@ export async function summariseCodexSessionViaOneshot(
   events: AgentEvent[],
   formatEvents: (events: AgentEvent[]) => string,
   evidenceContext?: string,
-  runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
+  runtime?: {
+    profile?: string;
+    model?: string;
+    thinking?: string;
+  },
 ): Promise<string | null> {
   const activity = formatEvents(events);
   if (!activity && !evidenceContext) return null;
@@ -95,7 +99,7 @@ export async function summariseCodexSessionViaOneshot(
     model: resolveCodexSummaryModel(
       runtime?.model ?? settingsStore.get('summaryModel'),
     ),
-    provider: runtime?.provider?.trim() || undefined,
+    profile: runtime?.profile?.trim() || undefined,
     // R37 P2-H：runner 自己内置 timeout（同 claude path 走 settings.summaryTimeoutMs；
     // 原 caller summarizer/index.ts 起 Promise.race 已删除）。timer 先赢 → 抛
     // `__codex_summarizer_timeout__` 让 caller catch 走 fallback 路径。

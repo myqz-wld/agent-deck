@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   skillExtraRoots: vi.fn(),
   appServerClient: vi.fn((options: CodexAppServerOptions) => ({
     options,
+    profile: options.profile?.trim() || null,
     isProcessAlive: false,
     request: vi.fn(),
     dispose: vi.fn(),
@@ -113,6 +114,7 @@ describe('ensureCodexClient', () => {
       clients,
       sessionId,
       sessionToken,
+      profile: 'openrouter',
       hookServer: hookServer as never,
       envOverrideExtra: { B20_TEST_ENV: 'preserved' },
     });
@@ -120,6 +122,7 @@ describe('ensureCodexClient', () => {
       clients,
       sessionId,
       sessionToken: 'must-not-reconfigure-the-cached-client',
+      profile: 'openrouter',
       hookServer: null as never,
     });
 
@@ -132,6 +135,7 @@ describe('ensureCodexClient', () => {
     const options = mocks.appServerClient.mock.calls[0]?.[0];
     expect(options).toMatchObject({
       codexPathOverride: '/opt/codex-test',
+      profile: 'openrouter',
       config: {
         mcp_servers: {
           'agent-deck': {
@@ -153,6 +157,29 @@ describe('ensureCodexClient', () => {
     for (const method of Object.values(mocks.logger)) expect(method).not.toHaveBeenCalled();
     expect(JSON.stringify(Object.values(mocks.logger).flatMap((method) => method.mock.calls)))
       .not.toContain(sessionId);
+  });
+
+  it('rejects reusing one session client under a different process profile', () => {
+    const clients = new Map();
+    mocks.settingsGet.mockReturnValue(null);
+    mocks.settingsGetAll.mockReturnValue({});
+    mocks.skillExtraRoots.mockReturnValue([]);
+
+    ensureCodexClient({
+      clients,
+      sessionId: 'session',
+      sessionToken: 'token',
+      profile: 'first',
+      hookServer: null as never,
+    });
+
+    expect(() => ensureCodexClient({
+      clients,
+      sessionId: 'session',
+      sessionToken: 'token',
+      profile: 'second',
+      hookServer: null as never,
+    })).toThrow(/profile mismatch/);
   });
 });
 

@@ -38,8 +38,8 @@ export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-ac
 export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
-  /** Native Codex model_provider applied through the per-thread config layer. */
-  provider?: string;
+  /** Native Codex config profile selected for the per-session app-server process. */
+  profile?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
   /** 传 thread_id 表示恢复历史会话；codex 从 ~/.codex/sessions/<id>.jsonl 重放 */
@@ -202,6 +202,7 @@ export interface CreateSessionDeps {
   ensureCodex: (
     sessionId: string,
     sessionToken: string,
+    profile?: string,
     envOverrideExtra?: Readonly<Record<string, string>>,
   ) => Promise<CodexAppServerClient>;
 }

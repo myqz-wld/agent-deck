@@ -48,7 +48,7 @@ export interface ClaudeCreateOpts {
   cwd: string;
   prompt?: string;
   /** Claude Gateway profile id. The adapter resolves it to one session-local settings file. */
-  provider?: string;
+  gateway?: string;
   permissionMode?: PermissionMode;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
@@ -153,8 +153,8 @@ export interface ClaudeCreateOpts {
 export interface CodexCreateOpts {
   cwd: string;
   prompt?: string;
-  /** Native Codex `model_provider` id applied as a per-thread config override. */
-  provider?: string;
+  /** Native Codex config profile id applied when starting the session app-server process. */
+  profile?: string;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
   /**
@@ -311,8 +311,10 @@ export type CreateSessionOptions =
 export interface CreateSessionOptionsRaw {
   cwd: string;
   prompt?: string;
-  /** Claude Gateway profile id or Codex model_provider; Grok rejects this field. */
-  provider?: string;
+  /** Claude Gateway profile id; only the Claude adapter consumes this field. */
+  gateway?: string;
+  /** Native Codex config profile id; only the Codex adapter consumes this field. */
+  profile?: string;
   permissionMode?: PermissionMode;
   resume?: string;
   teamName?: string;

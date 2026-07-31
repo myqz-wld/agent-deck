@@ -12,10 +12,6 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
-  'gpt-5.5',
-  'gpt-5.4',
-  'deepseek-v4-flash',
-  'deepseek-v4-pro[1m]',
   'grok-4.5',
 ] as const;
 export type SpawnSessionModelValue = (typeof SPAWN_SESSION_MODEL_VALUES)[number];
@@ -40,7 +36,7 @@ export const SPAWN_SESSION_SCHEMA = {
   adapter: z
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .describe(
-      'Required target adapter: "claude-code" (Claude Code), "codex-cli" (Codex CLI), or "grok-build" (Grok Build). Deepseek and OpenRouter are Claude Gateway providers, not adapters. Fresh sessions may change adapter; contextMode "fork" requires the exact authenticated caller adapter and runtime provider.',
+      'Required target adapter: "claude-code" (Claude Code), "codex-cli" (Codex CLI), or "grok-build" (Grok Build). Deepseek and OpenRouter may name a Claude Gateway or a Codex config profile; neither is an adapter. Fresh sessions may change adapter; contextMode "fork" requires the exact authenticated caller adapter and adapter-native runtime selector.',
     ),
   cwd: z
     .string()
@@ -64,7 +60,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .enum(['fresh', 'fork'])
     .optional()
     .describe(
-      'Optional provider-context policy; omission defaults to "fresh". "fresh" starts without authenticated caller provider history and may change adapter or cwd. "fork" natively forks only the authenticated caller and requires an active, unarchived in-app SDK caller with a resumable native id, exact caller adapter, exact runtime provider (including native-default versus override), native fork support, and cwd resolving to the same real directory. It accepts no source-session id or turn count. The child receives provider history plus current native user input through the safe active-turn boundary; it excludes the caller assistant\'s unfinished reasoning/output/tool use and this spawn_session frame. A first-turn Codex CLI fork uses an independent zero-prefix thread and replays current UserInput values before prompt. Fork failure never silently downgrades: follow the hint or retry with "fresh". Success adds contextMode:"fork" and forkedFromSessionId together.',
+      'Optional provider-context policy; omission defaults to "fresh". "fresh" starts without authenticated caller provider history and may change adapter or cwd. "fork" natively forks only the authenticated caller and requires an active, unarchived in-app SDK caller with a resumable native id, exact caller adapter, exact adapter-native runtime selector (Claude gateway, Codex profile, or native default), native fork support, and cwd resolving to the same real directory. It accepts no source-session id or turn count. The child receives provider history plus current native user input through the safe active-turn boundary; it excludes the caller assistant\'s unfinished reasoning/output/tool use and this spawn_session frame. A first-turn Codex CLI fork uses an independent zero-prefix thread and replays current UserInput values before prompt. Fork failure never silently downgrades: follow the hint or retry with "fresh". Success adds contextMode:"fork" and forkedFromSessionId together.',
     ),
   teamName: z
     .string()
@@ -90,7 +86,7 @@ export const SPAWN_SESSION_SCHEMA = {
     )
     .optional()
     .describe(
-      `Optional adapter-native agent selector: one 1-${SPAWN_SESSION_AGENT_NAME_COMPONENT_MAX_LENGTH} character name or plugin:name with each component 1-${SPAWN_SESSION_AGENT_NAME_COMPONENT_MAX_LENGTH} characters, using only letters, digits, dot, underscore, and hyphen. Resolution is adapter-scoped: bundled Agent Deck reviewers, then project direct/plugin agents, then user direct/plugin agents; unknown or ambiguous names reject before creation. Claude Code uses native Plugin Agent selection, Codex CLI supports the Agent Deck agents/*.toml extension, and Grok Build passes its native profile through ACP. Agent assets can contribute model/provider/reasoning and adapter-native configuration; explicit public runtime fields win where exposed. A selected Codex agent configuration can affect sandbox, network, and readable/writable roots. The bundled reviewer-* identity itself grants no hidden elevation. Omit for a general teammate and use displayName only for a label.`,
+      `Optional adapter-native agent selector: one 1-${SPAWN_SESSION_AGENT_NAME_COMPONENT_MAX_LENGTH} character name or plugin:name with each component 1-${SPAWN_SESSION_AGENT_NAME_COMPONENT_MAX_LENGTH} characters, using only letters, digits, dot, underscore, and hyphen. Resolution is adapter-scoped: bundled Agent Deck reviewers, then project direct/plugin agents, then user direct/plugin agents; unknown or ambiguous names reject before creation. Claude Code uses native Plugin Agent selection, Codex CLI supports the Agent Deck agents/*.toml extension, and Grok Build passes its native profile through ACP. Agent assets can contribute model/reasoning and adapter-native configuration; an app-owned bundled-Agent runtime override can also select a Claude Gateway or Codex config profile, and explicit public runtime fields win where exposed. A Codex Agent TOML model_provider remains native thread configuration and is not promoted to the process profile. A selected Codex agent configuration can affect sandbox, network, and readable/writable roots. The bundled reviewer-* identity itself grants no hidden elevation. Omit for a general teammate and use displayName only for a label.`,
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
   /** Explicit human-readable label; the result may instead fall back to the longer agentName. */
@@ -189,12 +185,19 @@ export const SPAWN_SESSION_OUTPUT_SCHEMA = z
   .object({
     sessionId: z.string().min(1).describe('Canonical Agent Deck target session id.'),
     adapter: z.enum(['claude-code', 'codex-cli', 'grok-build']),
-    provider: z
+    gateway: z
       .string()
       .min(1)
       .nullable()
       .describe(
-        'Recorded Claude Gateway profile or Codex model_provider; null means no provider override was recorded and the adapter/provider native default applies. Grok Build returns null.',
+        'Recorded Claude Gateway profile; null for Codex/Grok or when Claude uses its native default.',
+      ),
+    profile: z
+      .string()
+      .min(1)
+      .nullable()
+      .describe(
+        'Recorded native Codex config profile; null means the target is not Codex or Codex uses base config.toml.',
       ),
     cwd: z.string().min(1).max(4096).describe('Requested absolute target working directory.'),
     teamId: z
@@ -271,6 +274,20 @@ export const SPAWN_SESSION_OUTPUT_SCHEMA = z
         code: 'custom',
         path: ['contextMode'],
         message: 'contextMode and forkedFromSessionId must be present together',
+      });
+    }
+    if (result.adapter !== 'claude-code' && result.gateway !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['gateway'],
+        message: 'gateway is only populated for Claude Code',
+      });
+    }
+    if (result.adapter !== 'codex-cli' && result.profile !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['profile'],
+        message: 'profile is only populated for Codex CLI',
       });
     }
   });

@@ -4,6 +4,7 @@ import {
   readTopLevelModelFromCodexConfig,
   readTopLevelModelReasoningEffortFromCodexConfig,
 } from '@main/codex-config/toml-writer';
+import { codexConfigProfilePath } from '@main/codex-config/profiles';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { MAX_MESSAGE_LENGTH } from '../constants';
@@ -38,8 +39,8 @@ export function resolveCodexForkTargetRuntime(
   const cwd = resolveSpawnCwd(opts);
   const sandboxMode = opts.codexSandbox ?? settingsStore.get('codexSandbox');
   const hasReasoningConfigLayer =
-    opts.codexConfigOverrides !== undefined &&
-    (Object.prototype.hasOwnProperty.call(opts.codexConfigOverrides, 'profile') ||
+    opts.profile !== undefined ||
+    (opts.codexConfigOverrides !== undefined &&
       Object.prototype.hasOwnProperty.call(opts.codexConfigOverrides, 'model_reasoning_effort'));
   const reasoning = resolveCodexReasoningEffort({
     explicit: opts.modelReasoningEffort,
@@ -56,13 +57,18 @@ export function resolveCodexForkTargetRuntime(
     cwd,
     sandboxMode,
     effectiveDeveloperInstructions,
-    persistedModel: opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET,
+    persistedModel:
+      opts.model ??
+      (opts.profile
+        ? readTopLevelModelFromCodexConfig(codexConfigProfilePath(opts.profile))
+        : null) ??
+      readTopLevelModelFromCodexConfig() ??
+      CODEX_DEFAULT_BUCKET,
     persistedReasoningEffort: reasoning.sessionValue,
     threadOptions: buildCodexThreadOptions({
       workingDirectory: cwd,
       sandboxMode,
       approvalPolicy: opts.approvalPolicy,
-      provider: opts.provider,
       model: opts.model,
       modelReasoningEffort: reasoning.threadValue,
       developerInstructions: effectiveDeveloperInstructions,

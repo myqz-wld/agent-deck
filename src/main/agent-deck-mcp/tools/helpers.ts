@@ -378,7 +378,8 @@ export function projectSession(s: SessionRecord) {
   return {
     sessionId: s.id,
     adapter: s.agentId,
-    provider: s.runtimeProvider ?? null,
+    gateway: s.agentId === 'claude-code' ? s.runtimeProvider ?? null : null,
+    profile: s.agentId === 'codex-cli' ? s.runtimeProvider ?? null : null,
     cwd: s.cwd,
     lifecycle: s.lifecycle,
     title: s.title,

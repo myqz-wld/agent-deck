@@ -17,7 +17,7 @@ interface Props {
 }
 
 /**
- * App-styled free-text combobox for Claude Gateway and Codex model_provider ids.
+ * App-styled free-text combobox for Claude Gateway and Codex config profile ids.
  *
  * DeckSelect intentionally accepts only a closed value set. Provider ids are user-defined in
  * the provider's config, so this keeps free-text input while replacing the browser-native
@@ -97,7 +97,7 @@ export function ProviderCombobox({
       />
       <button
         type="button"
-        aria-label="展开 provider 选项"
+        aria-label="展开配置选项"
         tabIndex={-1}
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}

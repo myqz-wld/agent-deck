@@ -293,7 +293,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       {
         prompt: 'continue',
         adapter: 'claude-code',
-        provider: 'deepseek',
+        gateway: 'deepseek',
         cwd: '/repo',
       },
       ctx(),
@@ -303,7 +303,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(success.isError).toBeFalsy();
     expect(seenTargets[0]).toMatchObject({
       agentId: 'claude-code',
-      provider: 'deepseek',
+      gateway: 'deepseek',
       cwd: '/repo',
       permissionMode: 'bypassPermissions',
       awaitCanonicalId: true,
@@ -490,6 +490,8 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(data).toMatchObject({
       sessionId: 'successor-sid',
       adapter: 'codex-cli',
+      gateway: null,
+      profile: null,
       cwd: '/repo',
       callerClosed: 'ok',
       continuationContext: {

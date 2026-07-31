@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
@@ -14,6 +14,7 @@ import {
 } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import { getCodexConfigPath } from '@main/codex-config/toml-writer';
+import { resolveCodexConfigProfile } from '@main/codex-config/profiles';
 import {
   claudeGatewaySettingsPath,
   type ResolvedClaudeGatewayProfile,
@@ -40,7 +41,11 @@ interface ResolveOptions {
 interface ResolveDeps {
   settings?: CreationSettings;
   userHome?: string;
-  readCodexConfig?: (cwd: string, signal?: AbortSignal) => Promise<ConfigRecord>;
+  readCodexConfig?: (
+    cwd: string,
+    signal?: AbortSignal,
+    profile?: string,
+  ) => Promise<ConfigRecord>;
   resolveClaudeProfile?: (
     provider: string | null | undefined,
   ) => ResolvedClaudeGatewayProfile | null;
@@ -184,39 +189,40 @@ async function resolveCodexDefaults(
   deps: ResolveDeps,
 ): Promise<SessionCreationDefaults> {
   const configPath = deps.codexConfigPath ?? getCodexConfigPath();
-  const [config, fileContent] = await Promise.all([
-    readBoundedCodexConfig(options.cwd, deps),
+  const requestedProfile = options.provider?.trim() || '';
+  const profile = requestedProfile
+    ? resolveCodexConfigProfile(requestedProfile, { codexHome: dirname(configPath) })
+    : null;
+  const [config, fileContent, profileContent] = await Promise.all([
+    readBoundedCodexConfig(options.cwd, deps, profile?.id),
     readConfigText(configPath, 'codex-config', deps),
+    profile
+      ? readConfigText(profile.configPath, 'codex-config', deps)
+      : Promise.resolve(null),
   ]);
 
-  const requestedProvider = options.provider?.trim();
-  const provider =
-    requestedProvider ||
-    nonBlank(config.model_provider) ||
-    readTopLevelQuotedString(fileContent, 'model_provider') ||
-    '';
   const model =
     nonBlank(config.model) ??
+    readTopLevelQuotedString(profileContent, 'model') ??
     readTopLevelQuotedString(fileContent, 'model') ??
     '';
   const configuredThinking = config.model_reasoning_effort;
-  const fileThinking = readTopLevelQuotedString(fileContent, 'model_reasoning_effort');
+  const fileThinking =
+    readTopLevelQuotedString(profileContent, 'model_reasoning_effort') ??
+    readTopLevelQuotedString(fileContent, 'model_reasoning_effort');
   const thinking = isCodexThinkingLevel(configuredThinking)
     ? configuredThinking
     : isCodexThinkingLevel(fileThinking)
       ? fileThinking
       : 'high';
   const configuredApproval = config.approval_policy;
-  // If app-server config/read is temporarily unavailable, retain the top-level global policy.
-  // An active profile may override it, so do not present the base value as effective in that case.
   const fileApproval =
-    readTopLevelQuotedString(fileContent, 'profile') === null
-      ? readTopLevelQuotedString(fileContent, 'approval_policy')
-      : null;
+    readTopLevelQuotedString(profileContent, 'approval_policy') ??
+    readTopLevelQuotedString(fileContent, 'approval_policy');
 
   return {
     ...base,
-    provider,
+    provider: requestedProfile,
     model,
     thinking,
     approvalPolicy: isCodexApprovalPolicy(configuredApproval)
@@ -248,8 +254,9 @@ async function resolveGrokDefaults(
 async function readEffectiveCodexConfig(
   cwd: string,
   signal?: AbortSignal,
+  profile?: string,
 ): Promise<ConfigRecord> {
-  const client = await getCodexInstance();
+  const client = await getCodexInstance(profile);
   const response = await client.request<{ config?: unknown }>(
     'config/read',
     { includeLayers: false, cwd },
@@ -339,6 +346,7 @@ async function readConfigText(
 async function readBoundedCodexConfig(
   cwd: string,
   deps: ResolveDeps,
+  profile?: string,
 ): Promise<ConfigRecord> {
   // The race fences pre-client acquisition and injected readers. The same deadline controller is
   // threaded into B6's client.request, so an active provider RPC is aborted and its generation is
@@ -360,7 +368,11 @@ async function readBoundedCodexConfig(
   });
   try {
     const config = await Promise.race([
-      (deps.readCodexConfig ?? readEffectiveCodexConfig)(cwd, controller.signal),
+      (deps.readCodexConfig ?? readEffectiveCodexConfig)(
+        cwd,
+        controller.signal,
+        profile,
+      ),
       timeout,
     ]);
     if (!isRecord(config)) {

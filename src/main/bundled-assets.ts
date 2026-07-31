@@ -159,10 +159,6 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
           description: parsed.description ?? '',
           model: parsed.model ?? '',
           model_reasoning_effort: parsed.modelReasoningEffort ?? '',
-          model_provider:
-            typeof parsed.config.model_provider === 'string'
-              ? parsed.config.model_provider
-              : '',
         }, 'bundled', adapter));
         continue;
       }
@@ -256,11 +252,9 @@ function buildAgentMeta(
     model: fm.model,
     thinking: fm.effort || fm.model_reasoning_effort || undefined,
     provider:
-      adapter === 'codex-cli'
-        ? fm.model_provider || undefined
-        : adapter === 'claude-code'
-          ? fm.provider || undefined
-          : undefined,
+      adapter === 'claude-code'
+        ? (fm.gateway ?? fm.provider) || undefined
+        : undefined,
     absPath,
   };
 }

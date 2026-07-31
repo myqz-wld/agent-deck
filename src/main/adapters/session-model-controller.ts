@@ -11,6 +11,11 @@ export interface SessionModelControllerContext {
   operations: Map<string, Promise<unknown>>;
   agentId: string;
   emit: (event: AgentEvent) => void;
+  /** Validate the requested selection before any persisted or live state is changed. */
+  validate?: (
+    options: SessionModelOptions,
+    previous: SessionModelOptions,
+  ) => Promise<void> | void;
   /** Returns false when no provider query/thread is currently in memory. */
   applyLive: (
     sessionId: string,
@@ -54,8 +59,11 @@ export class SessionModelController {
     }
 
     const operation = (async () => {
+      let persistenceAttempted = false;
       let liveAttempted = false;
       try {
+        await this.ctx.validate?.(options, previous);
+        persistenceAttempted = true;
         sessionRepo.setRuntimeProvider(sessionId, options.provider);
         sessionRepo.setModel(sessionId, options.model);
         sessionRepo.setThinking(sessionId, options.thinking);
@@ -71,14 +79,19 @@ export class SessionModelController {
           );
         }
       } catch (error) {
-        try {
-          sessionRepo.setRuntimeProvider(sessionId, previous.provider);
-          sessionRepo.setModel(sessionId, previous.model);
-          sessionRepo.setThinking(sessionId, previous.thinking);
-          const reverted = sessionRepo.get(sessionId);
-          if (reverted) eventBus.emit('session-upserted', reverted);
-        } catch (rollbackError) {
-          logger.warn(`[${this.ctx.agentId}] DB model-option rollback failed for ${sessionId}:`, rollbackError);
+        if (persistenceAttempted) {
+          try {
+            sessionRepo.setRuntimeProvider(sessionId, previous.provider);
+            sessionRepo.setModel(sessionId, previous.model);
+            sessionRepo.setThinking(sessionId, previous.thinking);
+            const reverted = sessionRepo.get(sessionId);
+            if (reverted) eventBus.emit('session-upserted', reverted);
+          } catch (rollbackError) {
+            logger.warn(
+              `[${this.ctx.agentId}] DB model-option rollback failed for ${sessionId}:`,
+              rollbackError,
+            );
+          }
         }
         if (liveAttempted) {
           try {
@@ -97,7 +110,7 @@ export class SessionModelController {
           payload: {
             text:
               `⚠ 切换 provider、模型或思考程度失败：${error instanceof Error ? error.message : String(error)}。` +
-              '已恢复原设置。',
+              (persistenceAttempted ? '已恢复原设置。' : '原设置未变。'),
             error: true,
           },
           ts: Date.now(),

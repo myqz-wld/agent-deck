@@ -52,7 +52,7 @@ export type CreateSessionThunk = (opts: {
   prompt?: string;
   trustedContinuation?: TrustedContinuationInitialTurn;
   /** Persisted Claude Gateway profile restored for native resume and fresh-history recovery. */
-  provider?: string;
+  gateway?: string;
   /** Persisted Claude Agent selection restored for every recovery query. */
   claudeAgentName?: string;
   /** Persisted Claude Plugin root restored together with the Agent selection. */

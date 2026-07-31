@@ -24,7 +24,7 @@ interface Props {
 
 const DEFAULT_THINKING_OPTION: DeckSelectOption<SessionThinkingChoice> = {
   value: '',
-  label: '跟随 provider 默认值',
+  label: '跟随运行时默认值',
 };
 
 function thinkingLevelsForAdapter(adapterId: string): readonly SessionThinkingLevel[] {
@@ -82,7 +82,7 @@ export function SessionModelFields({
     const request =
       adapterId === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexModelProviders();
+        : window.api.listCodexConfigProfiles();
     void request
       .then((options) => {
         if (!cancelled) setProviderOptions(options);
@@ -104,22 +104,22 @@ export function SessionModelFields({
       {providerEnabled && onProviderChange && (
         <div className="flex min-w-0 flex-col gap-1">
           <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-            {adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
+            {adapterId === 'claude-code' ? 'Gateway' : 'Profile'}
           </label>
           <ProviderCombobox
             value={provider}
             options={providerOptions}
             disabled={disabled}
-            ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
+            ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Profile'}
             placeholder={
               adapterId === 'claude-code'
                 ? '留空使用 settings.json'
-                : '留空使用 config.toml'
+                : '留空使用 ~/.codex/config.toml'
             }
             emptyMessage={
               adapterId === 'claude-code'
                 ? '没有发现 Gateway profile'
-                : '没有匹配项，可直接输入 provider'
+                : '没有发现 Codex profile，可直接输入 profile 名'
             }
             onChange={onProviderChange}
           />

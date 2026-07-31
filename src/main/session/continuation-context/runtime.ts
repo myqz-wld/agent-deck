@@ -264,7 +264,7 @@ async function runCodexCheckpoint(input: {
   const abort = () => controller.abort();
   input.request.signal?.addEventListener('abort', abort, { once: true });
   try {
-    const codex = await getCodexInstance();
+    const codex = await getCodexInstance(input.generator.provider);
     const thread = codex.startThread(
       buildCodexCompactorThreadOptions({
         generator: input.generator,

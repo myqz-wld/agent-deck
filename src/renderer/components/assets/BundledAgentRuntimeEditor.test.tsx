@@ -67,16 +67,15 @@ describe('BundledAgentRuntimeEditor', () => {
     expect(screen.getByRole('option', { name: 'xhigh' })).toBeTruthy();
   });
 
-  it('saves only runtime deltas and keeps Codex provider definitions native', async () => {
+  it('saves only runtime deltas and keeps Codex profile files native', async () => {
     const saveBundledAgentRuntime = vi.fn().mockResolvedValue({ ok: true });
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
-        listCodexModelProviders: vi.fn().mockResolvedValue([
+        listCodexConfigProfiles: vi.fn().mockResolvedValue([
           {
             id: 'fable',
-            name: 'Fable Gateway',
-            configuredAsTopLevelDefault: false,
+            configPath: '/home/user/.codex/fable.config.toml',
           },
         ]),
         saveBundledAgentRuntime,
@@ -98,7 +97,7 @@ describe('BundledAgentRuntimeEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '思考等级' }));
     fireEvent.click(screen.getByRole('option', { name: 'high' }));
-    fireEvent.change(screen.getByLabelText('provider'), {
+    fireEvent.change(screen.getByLabelText('Profile'), {
       target: { value: 'fable' },
     });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
@@ -121,7 +120,7 @@ describe('BundledAgentRuntimeEditor', () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexConfigProfiles: vi.fn().mockResolvedValue([]),
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime,
         confirmDialog: vi.fn(),
@@ -151,11 +150,11 @@ describe('BundledAgentRuntimeEditor', () => {
     );
   });
 
-  it('requires restore-default instead of saving an empty packaged provider', async () => {
+  it('requires restore-default instead of saving an empty packaged profile', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexConfigProfiles: vi.fn().mockResolvedValue([]),
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime: vi.fn(),
         confirmDialog: vi.fn(),
@@ -179,12 +178,12 @@ describe('BundledAgentRuntimeEditor', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('provider'), {
+    fireEvent.change(screen.getByLabelText('Profile'), {
       target: { value: '' },
     });
 
     expect(
-      screen.getByText('内建默认 provider 不能为空；如需撤销自定义值，请恢复默认'),
+      screen.getByText('内建默认 Profile 不能为空；如需撤销自定义值，请恢复默认'),
     ).toBeTruthy();
     expect(
       (screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled,

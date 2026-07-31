@@ -40,8 +40,8 @@ export interface PersistSessionFieldsArgs {
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** Explicit override only; undefined preserves provider-owned approval policy. */
   approvalPolicy?: CodexApprovalPolicy;
-  /** Native Codex model_provider; undefined preserves an existing session value. */
-  provider?: string;
+  /** Native Codex config profile id; undefined preserves an existing session value. */
+  profile?: string;
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.5 + prompt-asset-review-optimize-20260527 修订:
    * opts.model 透传值(Codex runtime v0.131.0+ ThreadOptions.model 已支持 per-thread override,
@@ -97,7 +97,7 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     sessionId,
     sandboxMode,
     approvalPolicy,
-    provider,
+    profile,
     model,
     modelReasoningEffort,
     extraAllowWrite,
@@ -123,12 +123,12 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     }
   }
 
-  if (provider !== undefined) {
+  if (profile !== undefined) {
     try {
-      sessionRepo.setRuntimeProvider(sessionId, provider);
+      sessionRepo.setRuntimeProvider(sessionId, profile);
     } catch (err) {
       logger.warn(
-        `[codex-bridge] setRuntimeProvider(${sessionId}, ${provider}) 失败`,
+        `[codex-bridge] setRuntimeProvider(${sessionId}, ${profile}) 失败`,
         err,
       );
     }

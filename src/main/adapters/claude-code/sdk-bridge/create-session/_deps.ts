@@ -24,7 +24,7 @@ import type {
   InitialSessionRegistration,
 } from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
-import type { ClaudeProviderModelAliases } from '../types';
+import type { ClaudeGatewayModelAliases } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
@@ -41,7 +41,7 @@ export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
   /** Claude Gateway profile id persisted with the session. */
-  provider?: string;
+  gateway?: string;
   /** Resolved profile settings file passed to SDK options.settings for this child only. */
   settingsPath?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
@@ -80,7 +80,7 @@ export interface CreateSessionOpts {
   /** Bridge profile fallback, applied only after an explicit model and a resumed session model. */
   profileDefaultModel?: string;
   /** Non-sensitive model alias metadata read from the selected Gateway settings file. */
-  providerModelAliases?: ClaudeProviderModelAliases;
+  gatewayModelAliases?: ClaudeGatewayModelAliases;
   /**
    * Per-session Claude Code thinking / effort override. Passed to SDK `query({ options.effort })`.
    * Undefined preserves user settings / provider defaults.

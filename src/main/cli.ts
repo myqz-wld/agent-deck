@@ -52,8 +52,10 @@ export interface CliNewSession {
   resume?: string;
   /** Free-form provider model id for the lead session only. */
   model?: string;
-  /** Claude Code Gateway profile id or Codex CLI native model_provider for the lead session. */
-  provider?: string;
+  /** Claude Code Gateway profile id for the lead session. */
+  gateway?: string;
+  /** Codex CLI native config profile for the lead session. */
+  profile?: string;
   /** Adapter-aware reasoning level for the lead session only. */
   thinking?: string;
   focus: boolean;
@@ -118,7 +120,8 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'codex-sandbox',
   'grok-sandbox',
   'model',
-  'provider',
+  'gateway',
+  'profile',
   'thinking',
   'team',     // R3.E10
   'member',   // R3.E10
@@ -188,6 +191,11 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
 
   if (sub.sub === 'new') {
     const f = parseFlags(sub.args);
+    if (f.has('provider')) {
+      throw new Error(
+        'agent-deck new: --provider 已移除；Claude Code 请用 --gateway，Codex CLI 请用 --profile',
+      );
+    }
     // cwd 缺省 → 用户主目录（与 renderer NewSessionDialog 行为一致）。
     // wrapper 脚本 resources/bin/agent-deck 在 shell 端已用 $PWD 兜底，
     // 这里再兜一层是给「直接调 .app 二进制 / 第三方调用」的场景。
@@ -201,7 +209,8 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     const prompt = asString(f.get('prompt')) ?? '你好';
     const resume = asString(f.get('resume'));
     const model = asString(f.get('model'));
-    const provider = asString(f.get('provider'));
+    const gateway = asString(f.get('gateway'));
+    const profile = asString(f.get('profile'));
     const thinking = asString(f.get('thinking'));
 
     const pmRaw = asString(f.get('permission-mode'));
@@ -258,6 +267,8 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
     }
     if (isAgentId(agent)) {
       const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(agent, {
+        ...(gateway !== undefined ? { gateway } : {}),
+        ...(profile !== undefined ? { profile } : {}),
         ...(permissionMode !== undefined ? { permissionMode } : {}),
         ...(approvalPolicy !== undefined ? { approvalPolicy } : {}),
         ...(codexSandbox !== undefined ? { codexSandbox } : {}),
@@ -313,7 +324,8 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       approvalPolicy,
       resume,
       ...(model !== undefined ? { model } : {}),
-      ...(provider !== undefined ? { provider } : {}),
+      ...(gateway !== undefined ? { gateway } : {}),
+      ...(profile !== undefined ? { profile } : {}),
       ...(thinking !== undefined ? { thinking } : {}),
       focus,
       ...(codexSandbox !== undefined ? { codexSandbox } : {}),

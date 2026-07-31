@@ -350,7 +350,7 @@ function toAssetMeta(asset: ClaudePluginAsset): AssetMeta {
           tools: asset.frontmatter.tools,
           model: asset.frontmatter.model,
           thinking: asset.frontmatter.effort,
-          provider: asset.frontmatter.provider,
+          provider: asset.frontmatter.gateway ?? asset.frontmatter.provider,
         }
       : {}),
     absPath: asset.path,

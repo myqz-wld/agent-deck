@@ -178,7 +178,7 @@ export async function createSessionImpl(
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
       applicationSid: opts.resume ?? tempKey,
-      providerModelAliases: opts.providerModelAliases,
+      gatewayModelAliases: opts.gatewayModelAliases,
     });
     internalForCleanup = internal;
 
@@ -258,7 +258,7 @@ export async function createSessionImpl(
         cwd: opts.cwd,
         prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
-        runtimeProvider: opts.provider,
+        runtimeProvider: opts.gateway,
         claudeAgentName: opts.claudeAgentName,
         claudePluginDir: opts.claudePluginDir,
         claudeModel: internal.runtimeModel ?? claudeModel,
@@ -284,7 +284,7 @@ export async function createSessionImpl(
             cwd: opts.cwd,
             prompt: initialTurn.persistedUserText,
             claudeSandboxMode,
-            runtimeProvider: opts.provider,
+            runtimeProvider: opts.gateway,
             claudeAgentName: opts.claudeAgentName,
             claudePluginDir: opts.claudePluginDir,
             claudeModel: internal.runtimeModel ?? claudeModel,
@@ -354,7 +354,7 @@ export async function createSessionImpl(
         cwd: opts.cwd,
         prompt: initialTurn.persistedUserText,
         claudeSandboxMode,
-        runtimeProvider: opts.provider,
+        runtimeProvider: opts.gateway,
         claudeAgentName: opts.claudeAgentName,
         claudePluginDir: opts.claudePluginDir,
         claudeModel: internal.runtimeModel ?? claudeModel,
