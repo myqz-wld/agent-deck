@@ -11,7 +11,8 @@ import {
 } from './spawn-model-options';
 
 interface SpawnAgentRuntimeSelection {
-  provider?: string;
+  gateway?: string;
+  profile?: string;
   model?: string;
   modelReasoningEffort?: SpawnCodexReasoningEffort;
   claudeCodeEffortLevel?: SpawnClaudeCodeEffortLevel;
@@ -22,7 +23,8 @@ type SpawnRuntimeSelectionResult =
   | {
       ok: true;
       inherit: boolean;
-      provider?: string;
+      gateway?: string;
+      profile?: string;
       modelOptions: SpawnModelOptions;
     }
   | {
@@ -42,8 +44,8 @@ export function resolveSpawnRuntimeSelection(input: {
   try {
     inherited = normalizeSessionModelOptions(args.adapter, {
       provider:
-        args.provider ??
-        agent.provider ??
+        (args.adapter === 'codex-cli' ? args.profile : args.gateway) ??
+        (args.adapter === 'codex-cli' ? agent.profile : agent.gateway) ??
         (inherit ? leadRecord?.runtimeProvider ?? undefined : undefined),
       model: agent.model ?? (inherit ? leadRecord?.model ?? undefined : undefined),
       thinking: inherit ? leadRecord?.thinking ?? undefined : undefined,
@@ -54,8 +56,10 @@ export function resolveSpawnRuntimeSelection(input: {
       error: error instanceof Error ? error.message : String(error),
       hint:
         args.adapter === 'grok-build'
-          ? 'Remove provider and select a Grok model alias instead.'
-          : 'Use a valid Claude Gateway profile id or Codex model_provider id, or omit provider.',
+          ? 'Remove gateway/profile and select a Grok model alias instead.'
+          : args.adapter === 'codex-cli'
+            ? 'Use a valid Codex config profile id, or omit profile.'
+            : 'Use a valid Claude Gateway profile id, or omit gateway.',
     };
   }
 
@@ -80,7 +84,8 @@ export function resolveSpawnRuntimeSelection(input: {
   return {
     ok: true,
     inherit,
-    provider: inherited.provider ?? undefined,
+    gateway: args.adapter === 'claude-code' ? inherited.provider ?? undefined : undefined,
+    profile: args.adapter === 'codex-cli' ? inherited.provider ?? undefined : undefined,
     modelOptions: modelOptions.options,
   };
 }

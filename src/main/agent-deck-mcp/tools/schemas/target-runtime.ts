@@ -12,14 +12,24 @@ import {
 } from '@shared/types';
 import { MAX_GROK_SANDBOX_PROFILE_LENGTH } from '@shared/grok-sandbox';
 
-const provider = z
+const gateway = z
   .string()
   .trim()
   .min(1)
   .max(128)
   .optional()
   .describe(
-    'Optional non-null provider override, trimmed to 1-128 characters. Claude Code accepts a Gateway profile id from ~/.claude/gateways; Codex CLI accepts a model_provider id from ~/.codex/config.toml; Grok Build rejects this field. Spawn precedence is explicit value, selected Agent runtime, persisted same-adapter source, then adapter/provider default. Omission never cross-inherits a source provider; null and empty-after-trim values reject.',
+    'Optional non-null Claude Code Gateway profile id from ~/.claude/gateways, trimmed to 1-128 characters. Only Claude Code accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then Claude defaults. Omission never cross-inherits; null and empty-after-trim values reject.',
+  );
+
+const profile = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .optional()
+  .describe(
+    'Optional non-null Codex CLI native config profile id, trimmed to 1-128 characters. It selects an existing $CODEX_HOME/<id>.config.toml and starts app-server with codex --profile <id>; Agent Deck never writes the file. Only Codex CLI accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then base config.toml. Omission never cross-inherits; null and empty-after-trim values reject.',
   );
 
 const model = z
@@ -29,7 +39,7 @@ const model = z
   .max(256)
   .optional()
   .describe(
-    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, and gpt-5.4; and Grok Build grok-4.5. Suggestions are not an allowlist; the selected provider validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > provider default. Omission never cross-inherits; null and empty-after-trim values reject.',
+    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna; and Grok Build grok-4.5. Suggestions are not an allowlist; the selected provider validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > provider default. Omission never cross-inherits; null and empty-after-trim values reject.',
   );
 
 const thinking = z
@@ -106,12 +116,13 @@ const extraAllowWrite = z
   );
 
 /**
- * Flat compatibility projection used by the current MCP tool factories. The public call shape
- * stays stable, while the adapter-specific schemas below are the ownership SSOT and every
- * user-facing handler rejects fields outside the selected target contract.
+ * Flat projection used by the current MCP tool factories. Claude and Codex intentionally expose
+ * different selector names (`gateway` and `profile`); the adapter-specific schemas below are the
+ * ownership SSOT and every user-facing handler rejects the other adapter's field.
  */
 export const MCP_TARGET_RUNTIME_SUPERSET_SHAPE = {
-  provider,
+  gateway,
+  profile,
   model,
   thinking,
   permissionMode,
@@ -161,7 +172,7 @@ function schemaForAdapter(adapterId: SessionAdapterId) {
 
 /**
  * Adapter-layered schemas used for validation, documentation tests, and future schema transports.
- * They deliberately contain only fields the target provider can honor.
+ * They deliberately contain only fields the target adapter can honor.
  */
 export const MCP_TARGET_RUNTIME_SCHEMAS = {
   'claude-code': schemaForAdapter('claude-code'),

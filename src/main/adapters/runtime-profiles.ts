@@ -37,7 +37,7 @@ export interface AdapterRuntimeProfile {
     permissionModes: readonly SelectablePermissionMode[];
     sessionModes: readonly AdapterSessionMode[];
     /** Provider selector exposed at session creation, when the provider supports one. */
-    providerOverride: 'claude-gateway' | 'codex-model-provider' | 'none';
+    providerOverride: 'claude-gateway' | 'codex-config-profile' | 'none';
     /** Provider-native sandbox family. */
     sandbox: 'claude' | 'codex' | 'grok';
     /** Whether a session may add writable roots outside cwd. */
@@ -131,7 +131,7 @@ const profiles = {
     runtimeControls: {
       permissionModes: [],
       sessionModes: [],
-      providerOverride: 'codex-model-provider',
+      providerOverride: 'codex-config-profile',
       sandbox: 'codex',
       extraAllowWrite: true,
     },

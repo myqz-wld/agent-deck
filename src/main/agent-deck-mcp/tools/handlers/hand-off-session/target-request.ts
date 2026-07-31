@@ -11,7 +11,8 @@ export function buildHandOffTargetRequest(
   return {
     adapter,
     cwd,
-    ...(args.provider !== undefined ? { provider: args.provider } : {}),
+    ...(args.gateway !== undefined ? { gateway: args.gateway } : {}),
+    ...(args.profile !== undefined ? { profile: args.profile } : {}),
     ...(args.model !== undefined ? { model: args.model } : {}),
     ...(args.thinking !== undefined ? { thinking: args.thinking } : {}),
     ...(args.permissionMode !== undefined ? { permissionMode: args.permissionMode } : {}),

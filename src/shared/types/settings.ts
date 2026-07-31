@@ -3,7 +3,7 @@
  *
  * Phase 4 Step 4.10 拆分（plan deep-project-review-comprehensive-20260528）：
  * 原 544 LOC 单文件按 entity 域拆 4 子模块：
- * - `./settings/app-settings` — AppSettings + CodexMcpServerConfigShared + HookInstallStatus
+ * - `./settings/app-settings` — AppSettings + HookInstallStatus
  * - `./settings/defaults` — DEFAULT_SETTINGS const
  * - `./settings/permission-scan` — 7 permission scan types（SettingsSource / SettingsPermissionsBlock /
  *   SettingsLayer / MergedRule / MergedDirectory / MergedPermissions / PermissionScanResult）
@@ -13,7 +13,6 @@
  */
 
 export type {
-  CodexMcpServerConfigShared,
   AppSettings,
   GeneratorAdapterId,
   HookInstallStatus,

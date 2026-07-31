@@ -32,7 +32,7 @@ export interface ClaudeCustomAgentContent {
   pluginDir?: string;
   definition: AgentDefinition;
   /** Agent Deck runtime-only Claude Gateway profile id; never forwarded inside AgentDefinition. */
-  provider?: string;
+  gateway?: string;
   model?: string;
   effortLevel?: ClaudeCustomAgentEffortLevel;
 }
@@ -132,7 +132,7 @@ function buildClaudeAgent(
   const tools = withClaudeFamilyReviewerMessagingTools(agentName, parseCsvList(fm.tools));
   const skills = parseCsvList(fm.skills);
   const model = fm.model?.trim() || undefined;
-  const provider = fm.provider?.trim() || undefined;
+  const gateway = (fm.gateway ?? fm.provider)?.trim() || undefined;
   const definition: AgentDefinition = {
     description: fm.description?.trim() || agentName,
     prompt: body,
@@ -149,7 +149,7 @@ function buildClaudeAgent(
       ...(sourcePath ? { sourcePath } : {}),
       ...(pluginDir ? { pluginDir } : {}),
       definition,
-      ...(provider ? { provider } : {}),
+      ...(gateway ? { gateway } : {}),
       ...(model ? { model } : {}),
       ...(effortLevel ? { effortLevel } : {}),
     },

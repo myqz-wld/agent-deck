@@ -44,6 +44,7 @@ export interface CreateCodexForkDeps {
   ensureCodex(
     sessionId: string,
     sessionToken: string,
+    profile?: string,
     envOverrideExtra?: Readonly<Record<string, string>>,
   ): Promise<CodexAppServerClient>;
   lifecycle: CodexForkLifecycleOps;
@@ -98,6 +99,7 @@ export async function createCodexForkedSession(
     const targetClient = await deps.ensureCodex(
       tempId,
       sessionToken,
+      target.profile,
       target.envOverrideExtra,
     );
     cleanupState.targetClient = targetClient;
@@ -204,7 +206,7 @@ export async function createCodexForkedSession(
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,
       approvalPolicy: target.approvalPolicy,
-      provider: target.provider,
+      profile: target.profile,
       model: runtime.persistedModel,
       modelReasoningEffort: runtime.persistedReasoningEffort,
       extraAllowWrite: target.extraAllowWrite,

@@ -23,12 +23,12 @@ function comparableConfigRoot(configRoot: string): string {
  * used by the main-process Claude SDK.
  */
 export function assertClaudeGatewayForkTranscriptRootCompatible(
-  provider: string | null | undefined,
+  gateway: string | null | undefined,
   paths: ClaudeGatewayPaths = defaultClaudeGatewayPaths(),
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): void {
   const mainProcessRoot = getClaudeConfigRoot(env);
-  const profile = resolveClaudeGatewayProfile(provider, paths);
+  const profile = resolveClaudeGatewayProfile(gateway, paths);
   const gatewayRoot = profile?.configRoot ?? mainProcessRoot;
   if (
     comparableConfigRoot(gatewayRoot) === comparableConfigRoot(mainProcessRoot)

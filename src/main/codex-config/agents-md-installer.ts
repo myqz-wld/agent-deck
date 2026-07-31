@@ -15,11 +15,7 @@
  * 加载优先级（与 sdk-injection.ts 同模式）：
  * - 用户副本 `<userData>/agent-deck-codex-agents.md` → 优先（用户自定义 codex 视角约定）
  * - 内置 `resources/codex-config/CODEX_AGENTS.md` → 回落（codex 视角默认约定）
- * - 都失败 → throw（D5 fallback 策略，让 caller syncAgentDeckSection 决定是否阻断启动）
- *
- * `syncAgentDeckSection()` is retained as a compatibility cleanup hook: it only
- * removes an old Agent Deck marker section from `~/.codex/AGENTS.md` and never
- * appends a new one.
+ * - 都失败 → throw（D5 fallback 策略，由会话注入入口降级并记录错误）
  *
  * 不实现：
  * - 双向同步（用户改 Agent Deck 段反向回 <userData>）—— D5 决策不做
@@ -30,22 +26,13 @@
 import { app } from 'electron';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-agents-md');
 
-const MARKER_START = '<!-- === Agent Deck START - DO NOT EDIT THIS BLOCK === -->';
-const MARKER_END = '<!-- === Agent Deck END === -->';
-
 const USER_AGENTS_MD_FILENAME = 'agent-deck-codex-agents.md';
-
-/** ~/.codex/AGENTS.md 绝对路径（不依赖 app.getPath，便于单测）。 */
-export function getCodexAgentsMdPath(): string {
-  return join(homedir(), '.codex', 'AGENTS.md');
-}
 
 /** 用户副本 codex AGENTS.md 内容的绝对路径（与 settings.json 同 userData 目录）。 */
 function getUserCodexAgentsMdPath(): string {
@@ -125,56 +112,6 @@ export function getAgentDeckCodexDeveloperInstructions(): string | undefined {
 }
 
 /**
- * Cleanup an old Agent Deck marker section from ~/.codex/AGENTS.md.
- *
- * Agent Deck now injects CODEX_AGENTS.md per session through app-server
- * developerInstructions. This function never appends a section; it only removes
- * the historical managed block if present, preserving all user-authored content.
- *
- * @returns 写入后的完整文件内容（用于测试 / 调试）；跳过时返回 null
- */
-export function syncAgentDeckSection(
-  configPath: string = getCodexAgentsMdPath(),
-): string | null {
-  let existing = '';
-  if (existsSync(configPath)) {
-    try {
-      existing = readFileSync(configPath, 'utf8');
-    } catch (err) {
-      logger.warn(`[codex-agents-md] 读 ${configPath} 失败:`, err);
-      return null;
-    }
-  }
-
-  const next = removeMarkerSection(existing);
-  if (next === existing) return existing;
-  atomicWrite(configPath, next);
-  return next;
-}
-
-/**
- * 拿当前 Agent Deck 段（marker 之间）的内容，给设置面板预览用。
- * 段不存在 / 文件不存在返回 null。
- */
-export function readAgentDeckSection(
-  configPath: string = getCodexAgentsMdPath(),
-): string | null {
-  if (!existsSync(configPath)) return null;
-  let content = '';
-  try {
-    content = readFileSync(configPath, 'utf8');
-  } catch {
-    return null;
-  }
-  const sectionRe = new RegExp(
-    `${escapeRegex(MARKER_START)}([\\s\\S]*?)${escapeRegex(MARKER_END)}`,
-    'm',
-  );
-  const m = sectionRe.exec(content);
-  return m ? m[1].trim() : null;
-}
-
-/**
  * 读取「当前生效」的 codex CODEX_AGENTS.md 原文(不含 marker / banner / header,只是 raw markdown
  * 内容主体),给设置面板用。isCustom = true 表示当前是用户副本,false 表示回落到内置。
  *
@@ -232,26 +169,4 @@ export function resetUserCodexAgentsMd(): void {
     }
   }
   invalidateCodexAgentsMdContent();
-}
-
-// ────────────────────────────────────────────────────────── helpers
-
-function removeMarkerSection(existing: string): string {
-  if (!existing.trim()) return existing;
-  const sectionRe = new RegExp(
-    `\\n*${escapeRegex(MARKER_START)}[\\s\\S]*?${escapeRegex(MARKER_END)}\\n*`,
-    'm',
-  );
-  return existing.replace(sectionRe, existing.match(sectionRe) ? '\n' : '');
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-}
-
-function atomicWrite(path: string, content: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmp, content, 'utf8');
-  renameSync(tmp, path);
 }

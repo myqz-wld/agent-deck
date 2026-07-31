@@ -140,7 +140,7 @@ export const IpcInvoke = {
   AssetsSaveBundledAgentRuntime: 'assets:save-bundled-agent-runtime',
   AssetsResetBundledAgentRuntime: 'assets:reset-bundled-agent-runtime',
   AssetsListClaudeGatewayProfiles: 'assets:list-claude-gateway-profiles',
-  AssetsListCodexModelProviders: 'assets:list-codex-model-providers',
+  AssetsListCodexConfigProfiles: 'assets:list-codex-config-profiles',
 
   // Runtime logging.
   /** Settings LogsSection 「打开日志目录」 — shell.openPath(app.getPath('logs')). */

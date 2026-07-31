@@ -82,9 +82,7 @@ describe('B18 permission viewers', () => {
         raw,
         readError: null,
         topLevelModel: 'gpt-5.6-sol',
-        markerManagedMcpServers: [],
       },
-      appManagedMcpServers: [],
       effective: {
         sandboxMode: 'read-only',
         sandboxSource: 'settings',
@@ -210,9 +208,7 @@ describe('B18 permission viewers', () => {
         raw: `note = "${rawMarker}"\n`,
         readError: readMarker,
         topLevelModel: null,
-        markerManagedMcpServers: [],
       },
-      appManagedMcpServers: [],
       effective: {
         sandboxMode: 'read-only',
         sandboxSource: 'settings',

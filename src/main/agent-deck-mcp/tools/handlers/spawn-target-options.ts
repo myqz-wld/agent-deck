@@ -16,7 +16,8 @@ export interface SpawnTargetOptionsInput {
   effectiveClaudeCodeSandbox: SpawnSessionArgs['claudeCodeSandbox'];
   effectiveGrokSandbox?: SpawnSessionArgs['grokSandbox'] | null;
   effectiveExtraAllowWrite: readonly string[] | undefined;
-  provider: string | undefined;
+  gateway?: string;
+  profile?: string;
   modelOptions: SpawnModelOptions;
   developerInstructions: string | undefined;
   codexConfigOverrides: CodexConfigObject | undefined;
@@ -53,7 +54,8 @@ export function buildSpawnTargetOptions(input: SpawnTargetOptionsInput): CreateS
       claudeCodeSandbox: input.effectiveClaudeCodeSandbox,
       grokSandbox: input.effectiveGrokSandbox,
       teamName: args.teamName,
-      provider: input.provider,
+      gateway: input.gateway,
+      profile: input.profile,
       model: input.modelOptions.model,
       modelReasoningEffort: input.modelOptions.modelReasoningEffort,
       claudeCodeEffortLevel: input.modelOptions.claudeCodeEffortLevel,

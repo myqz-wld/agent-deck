@@ -25,7 +25,7 @@
  *    injection hook; the SDK reads SKILL.md / agent body files itself. So we materialise a
  *    substituted copy at startup. Module flag avoids re-install per spawn.
  *
- * 3. `codex-config/agents-md-installer.ts:syncAgentDeckSection`
+ * 3. `codex-config/agents-md-installer.ts:getAgentDeckCodexDeveloperInstructions`
  *    — **substitute-on-session-injection (app-server `developerInstructions`)**.
  *    Why: Agent Deck no longer mutates user-level `~/.codex/AGENTS.md`. The active
  *    CODEX_AGENTS.md source is substituted when building the per-session app-server payload.

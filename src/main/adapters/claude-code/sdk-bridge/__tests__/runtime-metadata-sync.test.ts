@@ -51,13 +51,13 @@ describe('Claude SDK runtime metadata sync', () => {
     const internal = makeInternalSession({
       cwd: '/repo',
       applicationSid: 'sid-deepseek',
-      providerModelAliases: aliases,
+      gatewayModelAliases: aliases,
     });
     vi.mocked(sessionRepo.get).mockReturnValue(null);
 
     syncClaudeRuntimeModel(internal, 'claude-haiku-4-5');
     expect(internal.runtimeModel).toBe('deepseek-v4-flash');
-    expect(internal.providerModelAliases).toEqual({
+    expect(internal.gatewayModelAliases).toEqual({
       fable: 'deepseek-v4-pro[1m]',
       opus: 'deepseek-v4-pro[1m]',
       sonnet: 'deepseek-v4-pro[1m]',

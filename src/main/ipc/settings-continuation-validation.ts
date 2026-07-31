@@ -16,6 +16,7 @@ import {
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { IpcInputError } from './_helpers';
 import { CLAUDE_GATEWAY_PROFILE_ID_PATTERN } from '@main/adapters/claude-code/gateway-profiles';
+import { CODEX_CONFIG_PROFILE_ID_PATTERN } from '@shared/codex-config-profile';
 
 const GENERATOR_ADAPTERS: readonly GeneratorAdapterId[] = [
   'claude-code',
@@ -61,6 +62,16 @@ function assertRuntimeProvider(
     throw new IpcInputError(
       field,
       `必须是安全的 ${getAdapterRuntimeProfile(adapter).displayName} Gateway profile id`,
+    );
+  }
+  if (
+    adapter === 'codex-cli' &&
+    value.trim() &&
+    !CODEX_CONFIG_PROFILE_ID_PATTERN.test(value.trim())
+  ) {
+    throw new IpcInputError(
+      field,
+      `必须是安全的 ${getAdapterRuntimeProfile(adapter).displayName} config profile id`,
     );
   }
 }

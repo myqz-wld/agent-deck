@@ -263,10 +263,6 @@ function toAssetMeta(asset: CodexPluginAsset): AssetMeta {
       ? {
           model: asset.parsed.model,
           thinking: asset.parsed.modelReasoningEffort,
-          provider:
-            typeof asset.parsed.config.model_provider === 'string'
-              ? asset.parsed.config.model_provider
-              : undefined,
         }
       : {}),
     absPath: asset.path,

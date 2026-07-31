@@ -19,6 +19,7 @@
  */
 import { persistSessionFields } from '../session-finalize';
 import { readTopLevelModelFromCodexConfig } from '@main/codex-config/toml-writer';
+import { codexConfigProfilePath } from '@main/codex-config/profiles';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from '../constants';
@@ -109,12 +110,17 @@ export async function runCreateSessionNewPath(
   // effective = opts.model > config.toml 顶层 model > 'codex-default' 占位。**仅新建路径**做此
   // resolve（resume 路径保留 sessions.model 原值，不在此覆盖）。
   const effectiveModel =
-    opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET;
+    opts.model ??
+    (opts.profile
+      ? readTopLevelModelFromCodexConfig(codexConfigProfilePath(opts.profile))
+      : null) ??
+    readTopLevelModelFromCodexConfig() ??
+    CODEX_DEFAULT_BUCKET;
   persistSessionFields({
     sessionId: internal.applicationSid,
     sandboxMode,
     approvalPolicy: opts.approvalPolicy,
-    provider: opts.provider,
+    profile: opts.profile,
     model: effectiveModel,
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,

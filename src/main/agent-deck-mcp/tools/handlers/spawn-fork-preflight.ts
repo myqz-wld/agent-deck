@@ -72,12 +72,14 @@ export async function validateSpawnForkPreflight(
   const targetProvider =
     input.target.agentId === 'grok-build'
       ? null
-      : input.target.provider?.trim() || null;
+      : input.target.agentId === 'codex-cli'
+        ? input.target.profile?.trim() || null
+        : input.target.gateway?.trim() || null;
   const callerProvider = caller.runtimeProvider?.trim() || null;
   if (callerProvider !== targetProvider) {
     return reject(
-      `contextMode "fork" requires caller runtime provider "${callerProvider ?? 'native default'}", received "${targetProvider ?? 'native default'}".`,
-      `Retry with provider ${callerProvider ? `"${callerProvider}"` : 'omitted'} or use contextMode "fresh".`,
+      `contextMode "fork" requires caller runtime profile "${callerProvider ?? 'native default'}", received "${targetProvider ?? 'native default'}".`,
+      `Retry with ${input.target.agentId === 'codex-cli' ? 'profile' : 'gateway'} ${callerProvider ? `"${callerProvider}"` : 'omitted'} or use contextMode "fresh".`,
     );
   }
   if (

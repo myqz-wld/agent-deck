@@ -42,7 +42,7 @@ describe('Claude adapter native fork wiring', () => {
       prompt: 'delegated prompt',
       permissionMode: 'bypassPermissions' as const,
       teamName: 'fork-team',
-      provider: 'deepseek',
+      gateway: 'deepseek',
       model: 'claude-opus-4-8',
       claudeCodeEffortLevel: 'xhigh' as const,
       claudeAgentName: 'reviewer-claude',
@@ -61,7 +61,7 @@ describe('Claude adapter native fork wiring', () => {
     expect(bridge.createSession).toHaveBeenCalledWith({
       cwd: target.cwd,
       prompt: target.prompt,
-      provider: target.provider,
+      gateway: target.gateway,
       permissionMode: target.permissionMode,
       resume: 'fork-native-id',
       teamName: target.teamName,

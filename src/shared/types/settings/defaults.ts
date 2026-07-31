@@ -84,7 +84,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   claudeCodeSandbox: 'workspace-write',
   codexSandbox: 'workspace-write',
   grokSandbox: 'workspace',
-  codexMcpServers: [],
   // R3.E6 删 autoApproveTeammateMode；REMOVED_KEYS 自动清历史
   // B'0 ADR §7：Agent Deck MCP server 默认 ON（task tools 跟随，详 enableAgentDeckMcp jsdoc）
   enableAgentDeckMcp: true,

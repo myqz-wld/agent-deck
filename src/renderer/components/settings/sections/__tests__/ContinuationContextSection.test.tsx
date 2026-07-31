@@ -34,7 +34,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexConfigProfiles: vi.fn().mockResolvedValue([]),
     },
   });
 });
@@ -66,7 +66,7 @@ describe('ContinuationContextSection', () => {
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText('留空时使用所选 Codex CLI provider 的默认模型。'),
+      screen.getByText('留空时使用所选 Codex CLI profile 的默认模型。'),
     ).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: '上下文整理模型 model' }) as HTMLInputElement)

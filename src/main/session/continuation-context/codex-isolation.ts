@@ -40,9 +40,6 @@ export function buildCodexCompactorThreadOptions(input: {
   const configOverrides: CodexConfigObject = {
     features: { ...DISABLED_EXECUTABLE_FEATURES },
     mcp_servers: {},
-    ...(input.generator.provider
-      ? { model_provider: input.generator.provider }
-      : {}),
   };
   return {
     workingDirectory: input.emptyWorkingDirectory,

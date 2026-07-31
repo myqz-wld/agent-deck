@@ -321,7 +321,8 @@ export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SC
 export interface ProjectedSession {
   sessionId: string;
   adapter: string;
-  provider: string | null;
+  gateway: string | null;
+  profile: string | null;
   cwd: string;
   lifecycle: 'active' | 'dormant' | 'closed';
   title: string | null;

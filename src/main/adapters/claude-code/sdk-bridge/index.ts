@@ -44,7 +44,6 @@ import { StreamProcessor } from './stream-processor';
 import { ClaudeCwdTransitionController } from './cwd-transition-controller';
 import { RestartController } from './restart-controller';
 import { SessionModelController } from '@main/adapters/session-model-controller';
-import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type {
   AgentCwdTransition,
   AgentCwdTransitionSwitchResult,
@@ -454,8 +453,15 @@ export class ClaudeSdkBridge {
     return setClaudePermissionMode({ sessions: this.sessions, sessionId, mode });
   }
 
-  async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {
-    await this.sessionModelController.setOptions(sessionId, options);
+  async setSessionModelOptions(
+    sessionId: string,
+    options: { gateway: string | null; model: string | null; thinking: string | null },
+  ): Promise<void> {
+    await this.sessionModelController.setOptions(sessionId, {
+      provider: options.gateway,
+      model: options.model,
+      thinking: options.thinking,
+    });
   }
 
   /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */

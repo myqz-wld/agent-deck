@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import type { ClaudeGatewayProfileOption } from '@shared/types';
-import type { ClaudeProviderModelAliases } from './sdk-bridge/types';
+import type { ClaudeGatewayModelAliases } from './sdk-bridge/types';
 
 export const CLAUDE_GATEWAY_PROFILE_ID_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -22,7 +22,7 @@ export interface ResolvedClaudeGatewayProfile {
   settingsPath: string;
   configRoot?: string;
   defaultModel?: string;
-  modelAliases: ClaudeProviderModelAliases;
+  modelAliases: ClaudeGatewayModelAliases;
 }
 
 export function defaultClaudeGatewayPaths(): ClaudeGatewayPaths {
@@ -75,10 +75,10 @@ export function listClaudeGatewayProfiles(
 }
 
 export function resolveClaudeGatewayProfile(
-  provider: string | null | undefined,
+  gateway: string | null | undefined,
   paths: ClaudeGatewayPaths = defaultClaudeGatewayPaths(),
 ): ResolvedClaudeGatewayProfile | null {
-  const id = provider?.trim();
+  const id = gateway?.trim();
   if (!id) return null;
   assertClaudeGatewayProfileId(id);
   const settingsPath = claudeGatewaySettingsPath(id, paths);

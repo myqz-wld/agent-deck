@@ -42,6 +42,8 @@ export interface EnsureCodexClientOptions {
   clients: Map<string, CodexAppServerClient>;
   sessionId: string;
   sessionToken: string;
+  /** Resolved native Codex config profile id for this process. */
+  profile?: string;
   hookServer: CodexBridgeOptions['hookServer'];
   envOverrideExtra?: Readonly<Record<string, string>>;
 }
@@ -51,11 +53,20 @@ export function ensureCodexClient({
   clients,
   sessionId,
   sessionToken,
+  profile,
   hookServer,
   envOverrideExtra,
 }: EnsureCodexClientOptions): CodexAppServerClient {
+  const normalizedProfile = profile?.trim() || null;
   const cached = clients.get(sessionId);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.profile !== normalizedProfile) {
+      throw new Error(
+        `Codex app-server profile mismatch for session ${sessionId}; close the existing runtime before selecting another profile.`,
+      );
+    }
+    return cached;
+  }
 
   const codexCliPath = settingsStore.get('codexCliPath');
   const userCodexPath = codexCliPath && codexCliPath.trim();
@@ -72,6 +83,7 @@ export function ensureCodexClient({
 
   const client = new CodexAppServerClient({
     codexPathOverride: userCodexPath || null,
+    profile: normalizedProfile,
     config: codexConfig,
     env: envOverride,
     skillExtraRoots: getCodexSkillExtraRootsForSession(),

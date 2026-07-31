@@ -94,6 +94,20 @@ async function loadSettingsStore() {
   return mod.settingsStore;
 }
 
+describe('settings-store retired Codex MCP field cleanup', () => {
+  it('deletes codexMcpServers from persisted settings and public snapshots', async () => {
+    mockRawStore = {
+      codexMcpServers: [{ name: 'legacy', command: 'node', args: ['server.js'] }],
+    };
+
+    const settings = await loadSettingsStore();
+    const all = settings.getAll() as unknown as { codexMcpServers?: unknown };
+
+    expect(mockDelete).toHaveBeenCalledWith('codexMcpServers');
+    expect(all.codexMcpServers).toBeUndefined();
+  });
+});
+
 describe('settings-store smart migration — enableTaskManager → enableAgentDeckMcp (4 格)', () => {
   it('(1) legacy true + 无 explicit enableAgentDeckMcp → set enableAgentDeckMcp=true + warn + legacy deleted', async () => {
     (settingsStoreLogger.info as ReturnType<typeof vi.fn>).mockClear();

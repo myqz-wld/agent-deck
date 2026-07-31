@@ -65,7 +65,7 @@ export type AgentId = (typeof AGENT_IDS)[number];
 function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
   const out: ClaudeCreateOpts = { cwd: raw.cwd };
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
-  if (raw.provider !== undefined) out.provider = raw.provider;
+  if (raw.gateway !== undefined) out.gateway = raw.gateway;
   if (raw.permissionMode !== undefined) out.permissionMode = raw.permissionMode;
   if (raw.resume !== undefined) out.resume = raw.resume;
   if (raw.teamName !== undefined) out.teamName = raw.teamName;
@@ -101,7 +101,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
-  if (raw.provider !== undefined) out.provider = raw.provider;
+  if (raw.profile !== undefined) out.profile = raw.profile;
   if (raw.resume !== undefined) out.resume = raw.resume;
   if (raw.teamName !== undefined) out.teamName = raw.teamName;
   if (raw.attachments !== undefined) out.attachments = raw.attachments;
@@ -314,7 +314,7 @@ type OmitKey<T, K extends PropertyKey> = { [P in Exclude<keyof T, K>]: unknown }
 /** claude arm 中 narrow 应从 raw 透传的字段（cwd 必填恒挑除外）。漏挑某字段时此清单与 arm key 集不一致 → 报错。 */
 const _CLAUDE_PASSTHROUGH_KEYS = {
   prompt: 0,
-  provider: 0,
+  gateway: 0,
   permissionMode: 0,
   resume: 0,
   teamName: 0,
@@ -339,7 +339,7 @@ void _assertClaudePassthroughCoversArm;
 /** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 3 个 main-only 字段除外）。 */
 const _CODEX_PASSTHROUGH_KEYS = {
   prompt: 0,
-  provider: 0,
+  profile: 0,
   resume: 0,
   teamName: 0,
   attachments: 0,

@@ -114,9 +114,20 @@ export async function createSessionImpl(
     // 不抽子段(user mini-spike confirm 3 子段 validate/resume/new 不含 prepare),inline 在
     // orchestrator try 头紧贴 dispatch 之前 — 让 prepare 失败走 catch 触发 rollback。
     //
+    // The persisted provider-neutral field is a process-level native Codex config profile.
+    // Resolve it before constructing the per-session app-server client so resume and fresh
+    // recovery cannot accidentally reuse the base config process.
+    const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
+    const sessionProfile =
+      opts.profile ?? resumeRec?.runtimeProvider ?? undefined;
     // plan §P3 Step 3.5: 透传 envOverrideExtra（generic 透传机制,目前无 hot caller）到
     // ensureCodex,让 codex 子进程 env merge extra 字段。
-    const codex = await deps.ensureCodex(initialSid, sessionToken, opts.envOverrideExtra);
+    const codex = await deps.ensureCodex(
+      initialSid,
+      sessionToken,
+      sessionProfile,
+      opts.envOverrideExtra,
+    );
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
     // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
@@ -131,17 +142,14 @@ export async function createSessionImpl(
     // REVIEW_79 INFO (reviewer-claude) 修法:同一 row 单读复用。修前 persistedSandbox(取
     // .codexSandbox) 与 effectiveResumeThreadId(取 .cliSessionId) 各调一次 sessionRepo.get(opts.resume)
     // 同步读同一行(两读间无 await,better-sqlite3 同步单线程值一致无 race,纯冗余)。
-    const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
-    const sessionProvider =
-      opts.provider ?? resumeRec?.runtimeProvider ?? undefined;
     const sessionApprovalPolicy =
       opts.approvalPolicy ?? resumeRec?.codexApprovalPolicy ?? undefined;
     const persistedSandbox = resumeRec?.codexSandbox ?? null;
     const sandboxMode =
       opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
     const hasReasoningConfigLayer =
-      opts.codexConfigOverrides !== undefined &&
-      (Object.prototype.hasOwnProperty.call(opts.codexConfigOverrides, 'profile') ||
+      sessionProfile !== undefined ||
+      (opts.codexConfigOverrides !== undefined &&
         Object.prototype.hasOwnProperty.call(
           opts.codexConfigOverrides,
           'model_reasoning_effort',
@@ -158,12 +166,12 @@ export async function createSessionImpl(
     });
     const effectiveOpts =
       sessionModelReasoningEffort === opts.modelReasoningEffort &&
-      sessionProvider === opts.provider &&
+      sessionProfile === opts.profile &&
       sessionApprovalPolicy === opts.approvalPolicy
         ? opts
         : {
             ...opts,
-            provider: sessionProvider,
+            profile: sessionProfile,
             approvalPolicy: sessionApprovalPolicy,
             modelReasoningEffort: sessionModelReasoningEffort,
           };
@@ -198,7 +206,6 @@ export async function createSessionImpl(
           workingDirectory: cwd,
           sandboxMode,
           approvalPolicy: sessionApprovalPolicy,
-          provider: sessionProvider,
           model: opts.model,
           modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,
@@ -214,7 +221,6 @@ export async function createSessionImpl(
           workingDirectory: cwd,
           sandboxMode,
           approvalPolicy: sessionApprovalPolicy,
-          provider: sessionProvider,
           model: opts.model,
           modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,

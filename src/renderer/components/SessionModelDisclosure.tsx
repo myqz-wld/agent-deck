@@ -29,7 +29,7 @@ export function SessionModelDisclosure({
   const providerLabel =
     adapterId === 'grok-build'
       ? null
-      : `${adapterId === 'claude-code' ? 'Gateway' : 'Provider'}：${provider || '原生'}`;
+      : `${adapterId === 'claude-code' ? 'Gateway' : 'Profile'}：${provider || '原生'}`;
   const summary = [
     providerLabel,
     `模型：${model || '配置文件'}`,

@@ -34,14 +34,12 @@ import {
 } from '@main/adapters/grok-build/resources';
 import { probeGrokAuthentication } from '@main/adapters/grok-build/auth-probe';
 import { resolveGrokBinary } from '@main/adapters/grok-build/resolve-grok-binary';
-// NOTE(REVIEW_<X>)：以下三个 codex-config 模块**必须**走 static import，不要改回 dynamic import。
-// 同一模块在多处 dynamic import（settings.ts × 3 + index.ts × 2）会让 vite SSR/rollup 把模块代码 inline
+// NOTE(REVIEW_<X>)：以下两个 codex-config 模块**必须**走 static import，不要改回 dynamic import。
+// 同一模块在多处 dynamic import（settings.ts × 2 + index.ts × 2）会让 vite SSR/rollup 把模块代码 inline
 // 进主 index.js，独立 chunk 文件只剩 require 空壳没有 export → 运行时 dynamic import 拿到空对象 →
-// 「X is not a function」（dev 模式 ESM 直 import 测不出，只在打包后炸）。三个模块顶部都纯 import + export
+// 「X is not a function」（dev 模式 ESM 直 import 测不出，只在打包后炸）。两个模块顶部都纯 import + export
 // function，无副作用，static import 与 dynamic import 等价（只是模块解析时机提前到 main 启动时）。
-import { writeMcpServersToCodexConfig } from '@main/codex-config/toml-writer';
 import {
-  syncAgentDeckSection,
   getActiveCodexAgentsMd,
   getBuiltinCodexAgentsMd,
   saveUserCodexAgentsMd,
@@ -235,44 +233,7 @@ function applyGrokCliPath(p: Partial<AppSettings>, next: AppSettings): void {
  */
 
 /**
- * CHANGELOG_<X> A4b：codexMcpServers 改了 → 把 Agent Deck 自管的 mcp_servers 段
- * 同步写到 ~/.codex/config.toml（marker 包裹 / atomic write，不破坏用户其他段）。
- *
- * 即改即生效**对下次新建 codex 会话**：codex 子进程 startThread 时按当时
- * config.toml 加载 mcp_servers 配置，已在跑的 thread 不撤销（与 codexSandbox /
- * claudeCodeSandbox 同模式：spawn-time options 不可热切）。
- *
- * 写盘失败只 warn，不阻断 settings 保存（settings DB 一定要先写，让 UI 状态稳定；
- * 写 codex config 失败用户可以手动重试 / 看 console 日志）。
- */
-function applyCodexMcpServers(p: Partial<AppSettings>, next: AppSettings): void {
-  if (!('codexMcpServers' in p)) return;
-  try {
-    writeMcpServersToCodexConfig(next.codexMcpServers);
-  } catch (err) {
-    logger.warn('[settings] writeMcpServersToCodexConfig 失败', err);
-  }
-}
-
-/**
- * CHANGELOG_<X> D1：injectAgentDeckCodexAgentsMd 改了 → 清理历史 Agent Deck marker 段。
- * 新会话通过 app-server `developerInstructions` 注入 CODEX_AGENTS.md，不再写用户级 AGENTS.md。
- *
- * 与 applyCodexMcpServers 同模式：spawn-time options（thread options 不热重载），
- * 改后**下次新建 codex 会话**生效。
- */
-function applyCodexAgentsMd(p: Partial<AppSettings>, _next: AppSettings): void {
-  if (!('injectAgentDeckCodexAgentsMd' in p)) return;
-  try {
-    syncAgentDeckSection();
-  } catch (err) {
-    logger.warn('[settings] syncAgentDeckSection 失败', err);
-  }
-}
-
-/**
  * CHANGELOG_<X> D2：injectAgentDeckCodexSkills 改了 → 准备 / 移除 app-owned skills extraRoot。
- * 同时清理历史 `~/.codex/skills/agent-deck/` 托管目录，保留用户其他 skills。
  */
 function applyCodexSkills(p: Partial<AppSettings>, _next: AppSettings): void {
   if (!('injectAgentDeckCodexSkills' in p)) return;
@@ -383,8 +344,6 @@ export function registerSettingsIpc(): void {
       applyCodexCliPath,
       applyClaudeCliPath,
       applyGrokCliPath,
-      applyCodexMcpServers,
-      applyCodexAgentsMd,
       applyCodexSkills,
       applySummaryInterval,
       applyContinuationCheckpointRefresh,

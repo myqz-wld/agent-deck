@@ -106,7 +106,7 @@ export async function runCreateSessionResumePath(
     sessionId: resumeId,
     sandboxMode,
     approvalPolicy: opts.approvalPolicy,
-    provider: opts.provider,
+    profile: opts.profile,
     model: opts.model,
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,

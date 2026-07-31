@@ -1,4 +1,4 @@
-import type { AppSettings, CodexMcpServerConfigShared } from './app-settings';
+import type { AppSettings } from './app-settings';
 
 /** Shared contracts for bounded Claude Code and Codex CLI permission settings scans. */
 
@@ -96,12 +96,10 @@ export interface CodexConfigLayer {
   raw: string | null;
   readError: string | null;
   topLevelModel: string | null;
-  markerManagedMcpServers: CodexMcpServerConfigShared[];
 }
 
 export interface CodexPermissionScanResult {
   adapter: 'codex-cli';
   config: CodexConfigLayer;
-  appManagedMcpServers: CodexMcpServerConfigShared[];
   effective: CodexEffectivePermissions;
 }

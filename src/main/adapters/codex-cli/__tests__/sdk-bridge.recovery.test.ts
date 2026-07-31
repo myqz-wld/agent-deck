@@ -146,7 +146,7 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
       cwd: '/tmp/work',
       prompt: 'hi',
       resume: 'sess-1',
-      provider: 'openai-compatible',
+      profile: 'openai-compatible',
       codexSandbox: 'workspace-write',
       model: 'gpt-5',
       modelReasoningEffort: 'high',
@@ -326,7 +326,7 @@ describe('codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B）
       prompt: undefined,
       resume: 'sess-no-jsonl',
       resumeMode: 'fresh-cli-reuse-app',
-      provider: 'openai-compatible',
+      profile: 'openai-compatible',
       // codexSandbox + model 仍要透传（HIGH-1 同款防静默降级）
       codexSandbox: 'read-only',
       model: 'gpt-5-codex',

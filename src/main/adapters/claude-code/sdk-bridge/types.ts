@@ -96,7 +96,7 @@ export interface LiveTokenEstimateState {
   currentDecodeLastDeltaTs?: number;
 }
 
-export interface ClaudeProviderModelAliases {
+export interface ClaudeGatewayModelAliases {
   fable?: string;
   opus?: string;
   sonnet?: string;
@@ -152,7 +152,7 @@ export interface InternalSession {
   /** Last effective effort observed from a main-thread Stop/StopFailure hook. */
   runtimeEffort?: ClaudeCodeEffortLevel;
   /** Provider-only Claude alias mapping extracted from the child env (never contains credentials). */
-  providerModelAliases?: ClaudeProviderModelAliases;
+  gatewayModelAliases?: ClaudeGatewayModelAliases;
   /**
    * Removes a private derived Gateway settings file after the SDK stream or startup attempt ends.
    * The file never contains the Gateway `env`; credentials stay in the per-child environment.
@@ -334,7 +334,7 @@ export function makeInternalSession(opts: {
   cwd: string;
   permissionMode?: PermissionMode;
   applicationSid: string;
-  providerModelAliases?: ClaudeProviderModelAliases;
+  gatewayModelAliases?: ClaudeGatewayModelAliases;
 }): InternalSession {
   let resolveStreamDrained!: () => void;
   const streamDrained = new Promise<void>((resolve) => {
@@ -345,7 +345,7 @@ export function makeInternalSession(opts: {
     cliSessionId: null,
     runtimeModel: undefined,
     runtimeEffort: undefined,
-    providerModelAliases: opts.providerModelAliases,
+    gatewayModelAliases: opts.gatewayModelAliases,
     cwd: opts.cwd,
     query: undefined as unknown as Query,
     permissionMode: opts.permissionMode ?? 'default',

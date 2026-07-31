@@ -68,6 +68,9 @@ const REMOVED_KEYS: readonly string[] = [
   'summaryReasoning',
   'continuationCheckpointProvider',
   'resumeRecentMessagesCount',
+  // The Codex external-MCP settings UI was retired in 2026-05. The legacy marker wrapper is removed
+  // independently during bootstrap; any server tables inside it become user-owned config.
+  'codexMcpServers',
   '__resumeRecentMessagesDefault20260710Done',
 ];
 

@@ -126,7 +126,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       cwd: '/tmp/work',
       prompt: 'hi',
       resume: 'sess-1',
-      provider: 'deepseek',
+      gateway: 'deepseek',
       claudeAgentName: 'reviewer-claude',
       claudePluginDir: '/plugins/reviewer-claude',
       permissionMode: 'dontAsk',
@@ -328,7 +328,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       prompt: undefined,
       resume: 'sess-no-jsonl',
       resumeMode: 'fresh-cli-reuse-app',
-      provider: 'deepseek',
+      gateway: 'deepseek',
       claudeAgentName: 'plugin:auditor',
       claudePluginDir: '/plugins/auditor',
       permissionMode: 'acceptEdits', // 但 permissionMode 仍要复原

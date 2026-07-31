@@ -61,7 +61,7 @@ beforeEach(() => {
         sessionCreationDefaults('untrusted'),
       ),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexConfigProfiles: vi.fn().mockResolvedValue([]),
       issuesResolveInNewSession,
     },
   });
@@ -73,7 +73,7 @@ afterEach(() => {
 });
 
 describe('ResolveInNewSessionDialog model options', () => {
-  it('把问题解决会话选择的 provider、模型与思考程度透传给 IPC', async () => {
+  it('把问题解决会话选择的 Codex profile、模型与思考程度透传给 IPC', async () => {
     const issue = makeIssue();
     const updated = { ...issue, resolutionSessionId: 'resolution-session' };
     issuesResolveInNewSession.mockResolvedValue({
@@ -94,7 +94,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
-    fireEvent.change(await screen.findByLabelText('Provider'), {
+    fireEvent.change(await screen.findByLabelText('Profile'), {
       target: { value: 'openai-custom' },
     });
     fireEvent.change(screen.getByLabelText('模型'), {
@@ -142,7 +142,7 @@ describe('ResolveInNewSessionDialog model options', () => {
         ]),
         getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
         listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexConfigProfiles: vi.fn().mockResolvedValue([]),
         issuesResolveInNewSession,
       },
     });

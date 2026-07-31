@@ -56,14 +56,14 @@ describe('spawn adapter runtime controls', () => {
     });
   });
 
-  it('rejects a Grok provider override at the runtime-control boundary', () => {
+  it('rejects a Grok gateway override at the runtime-control boundary', () => {
     expect(validateSpawnRuntimeControls({
       adapter: 'grok-build',
       cwd: '/repo',
       prompt: 'work',
-      provider: 'xai',
+      gateway: 'xai',
     })).toMatchObject({
-      error: expect.stringContaining('provider'),
+      error: expect.stringContaining('gateway'),
     });
   });
 

@@ -93,6 +93,8 @@ export class CodexAppServerClient {
 
   get baseConfig(): CodexConfigObject | null { return this.opts.config ?? null; }
 
+  get profile(): string | null { return this.opts.profile?.trim() || null; }
+
   get generation(): number { return this.generationController.generation; }
 
   /** True only for the live generation or its synchronous synthetic retirement terminal. */
@@ -310,7 +312,7 @@ export class CodexAppServerClient {
       prependResolvedCodexPathDirs(env);
     }
 
-    const child = spawn(command, ['app-server', '--stdio'], {
+    const child = spawn(command, buildCodexAppServerArgs(this.profile), {
       ...(this.opts.cwd ? { cwd: this.opts.cwd } : {}),
       env,
       stdio: 'pipe',
@@ -460,9 +462,16 @@ function readErrorCode(error: unknown): string | null {
 }
 
 export const __testables = {
+  buildCodexAppServerArgs,
   buildThreadStartParams,
   buildThreadResumeParams,
   buildThreadForkParams,
   buildTurnStartParams,
   buildThreadConfig,
 };
+
+function buildCodexAppServerArgs(profile: string | null): string[] {
+  return profile
+    ? ['--profile', profile, 'app-server', '--stdio']
+    : ['app-server', '--stdio'];
+}

@@ -17,11 +17,18 @@ describe('MCP target runtime schemas', () => {
 
   it('accepts only Claude controls in the Claude schema', () => {
     expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
+      gateway: 'deepseek',
       permissionMode: 'auto',
       claudeCodeSandbox: 'strict',
       extraAllowWrite: ['/repo-2'],
       thinking: 'max',
     }).success).toBe(true);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
+      profile: 'openrouter',
+    }).success).toBe(false);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
+      provider: 'deepseek',
+    }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
       codexSandbox: 'read-only',
     }).success).toBe(false);
@@ -32,11 +39,15 @@ describe('MCP target runtime schemas', () => {
 
   it('accepts Codex approval and writable roots but not Claude controls', () => {
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
+      profile: 'openrouter',
       approvalPolicy: 'on-request',
       codexSandbox: 'workspace-write',
       extraAllowWrite: ['/repo-2'],
       thinking: 'ultra',
     }).success).toBe(true);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
+      gateway: 'deepseek',
+    }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
       approvalPolicy: 'always',
     }).success).toBe(false);
@@ -62,7 +73,7 @@ describe('MCP target runtime schemas', () => {
       grokSandbox: ' project-locked ',
     })).toMatchObject({ grokSandbox: 'project-locked' });
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
-      provider: 'xai',
+      gateway: 'xai',
     }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['grok-build'].safeParse({
       codexSandbox: 'read-only',

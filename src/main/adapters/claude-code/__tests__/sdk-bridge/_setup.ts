@@ -36,7 +36,7 @@ export interface CreateSessionCall {
   cwd: string;
   prompt?: string;
   trustedContinuation?: TrustedContinuationInitialTurn;
-  provider?: string;
+  gateway?: string;
   claudeAgentName?: string;
   claudePluginDir?: string;
   resume?: string;
@@ -125,7 +125,7 @@ export class TestBridge extends ClaudeSdkBridge {
     cwd: string;
     prompt?: string;
     trustedContinuation?: TrustedContinuationInitialTurn;
-    provider?: string;
+    gateway?: string;
     claudeAgentName?: string;
     claudePluginDir?: string;
     permissionMode?: PermissionMode;
@@ -143,7 +143,7 @@ export class TestBridge extends ClaudeSdkBridge {
       cwd: opts.cwd,
       prompt: opts.prompt,
       trustedContinuation: opts.trustedContinuation,
-      provider: opts.provider,
+      gateway: opts.gateway,
       claudeAgentName: opts.claudeAgentName,
       claudePluginDir: opts.claudePluginDir,
       resume: opts.resume,

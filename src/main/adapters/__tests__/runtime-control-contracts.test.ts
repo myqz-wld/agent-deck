@@ -8,7 +8,7 @@ import {
 describe('adapter target runtime control contracts', () => {
   it('keeps Claude, Codex, and Grok provider-native controls separate', () => {
     expect(targetRuntimeFieldsForAdapter('claude-code')).toEqual([
-      'provider',
+      'gateway',
       'model',
       'thinking',
       'permissionMode',
@@ -16,7 +16,7 @@ describe('adapter target runtime control contracts', () => {
       'extraAllowWrite',
     ]);
     expect(targetRuntimeFieldsForAdapter('codex-cli')).toEqual([
-      'provider',
+      'profile',
       'model',
       'thinking',
       'approvalPolicy',
@@ -39,8 +39,8 @@ describe('adapter target runtime control contracts', () => {
       permissionMode: 'plan',
     })).toBe('permissionMode');
     expect(firstUnsupportedTargetRuntimeField('grok-build', {
-      provider: 'openai',
-    })).toBe('provider');
+      gateway: 'openai',
+    })).toBe('gateway');
     expect(firstUnsupportedTargetRuntimeField('grok-build', {
       extraAllowWrite: [],
     })).toBe('extraAllowWrite');
@@ -63,9 +63,14 @@ describe('adapter target runtime control contracts', () => {
 
   it('uses canonical adapter display names in incompatibility messages', () => {
     expect(
-      unsupportedTargetRuntimeFieldMessage('grok-build', 'provider'),
+      unsupportedTargetRuntimeFieldMessage('grok-build', 'gateway'),
     ).toBe(
-      'provider 与 Grok Build 不兼容；仅 Claude Code 或 Codex CLI 支持',
+      'gateway 与 Grok Build 不兼容；仅 Claude Code 支持',
+    );
+    expect(
+      unsupportedTargetRuntimeFieldMessage('claude-code', 'profile'),
+    ).toBe(
+      'profile 与 Claude Code 不兼容；仅 Codex CLI 支持',
     );
     expect(
       unsupportedTargetRuntimeFieldMessage('codex-cli', 'grokSandbox'),

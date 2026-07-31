@@ -334,7 +334,7 @@ export async function recoverAndSendImpl(
           recoveryCapture,
           recoveryCaptureError,
           minHealJsonlMtimeMs: rec.lastEventAt,
-          provider: rec.runtimeProvider ?? undefined,
+          gateway: rec.runtimeProvider ?? undefined,
           claudeAgentName: rec.agentProfileName ?? undefined,
           claudePluginDir: rec.agentPluginDir ?? undefined,
           permissionMode: rec.permissionMode ?? undefined,
@@ -389,7 +389,7 @@ export async function recoverAndSendImpl(
         cwd: effectiveCwd, // CHANGELOG_99:正常 resume 路径下 cwd 存在,effectiveCwd === rec.cwd
         prompt: text,
         resume: sessionId,
-        provider: rec.runtimeProvider ?? undefined,
+        gateway: rec.runtimeProvider ?? undefined,
         claudeAgentName: rec.agentProfileName ?? undefined,
         claudePluginDir: rec.agentPluginDir ?? undefined,
         // **plan reverse-rename-sid-stability-20260520 §A.4-pre S6.5 R6 HIGH-R6-1 双方共识必修**:

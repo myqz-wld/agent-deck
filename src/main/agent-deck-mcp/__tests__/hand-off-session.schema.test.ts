@@ -7,12 +7,14 @@ describe('hand_off_session schema — unified Continuation Context', () => {
       prompt: 'Read /tmp/handoff-123.md, then continue the plan at ref/plans/example.md.',
       cwd: '/repo',
       adapter: 'codex-cli',
+      profile: '  openrouter  ',
       model: '  provider/custom-model  ',
       thinking: 'ultra',
     });
 
     expect(result.success).toBe(true);
     if (result.success) {
+      expect(result.data.profile).toBe('openrouter');
       expect(result.data.model).toBe('provider/custom-model');
       expect(result.data.thinking).toBe('ultra');
     }
@@ -23,6 +25,22 @@ describe('hand_off_session schema — unified Continuation Context', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.adapter).toBeUndefined();
+  });
+
+  it('accepts a Claude Gateway and rejects the retired provider selector', () => {
+    expect(HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      prompt: 'continue',
+      adapter: 'claude-code',
+      gateway: ' deepseek ',
+    })).toMatchObject({
+      success: true,
+      data: { gateway: 'deepseek' },
+    });
+    expect(HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      prompt: 'continue',
+      adapter: 'claude-code',
+      provider: 'deepseek',
+    }).success).toBe(false);
   });
 
   it.each(['auto', 'bypassPermissions'] as const)(

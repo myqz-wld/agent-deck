@@ -63,8 +63,8 @@ export async function runCodexOneshot(opts: {
    * 优先级链解析后传入;undefined → fallback `~/.codex/config.toml` 顶层 model 配置。
    */
   model?: string;
-  /** Native model_provider id selected for this isolated thread. */
-  provider?: string;
+  /** Native `$CODEX_HOME/<name>.config.toml` profile selected for this process. */
+  profile?: string;
   /** Timeout 毫秒；<= 0 不起 timer。 */
   timeoutMs: number;
   /** Timer 触发 reject 的 summary-specific errorMessage。 */
@@ -82,7 +82,7 @@ export async function runCodexOneshot(opts: {
   const controller = new AbortController();
   const isolatedCwd = mkdtempSync(join(tmpdir(), 'agent-deck-periodic-summary-'));
   const work = (async () => {
-    const codex = await getCodexInstance();
+    const codex = await getCodexInstance(opts.profile);
     const model = toCodexModelOverride(opts.model);
 
     const thread = codex.startThread({
@@ -98,7 +98,6 @@ export async function runCodexOneshot(opts: {
       configOverrides: {
         features: { ...DISABLED_EXECUTABLE_FEATURES },
         mcp_servers: {},
-        ...(opts.provider ? { model_provider: opts.provider } : {}),
       },
       useBaseConfig: false,
       networkAccessEnabled: false,

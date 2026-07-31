@@ -45,19 +45,27 @@ describe('session model option normalization', () => {
         thinking: 'max',
       }),
     ).toEqual({
-      provider: 'deepseek',
+      gateway: 'deepseek',
       model: 'deepseek-v4-pro[1m]',
       claudeCodeEffortLevel: 'max',
     });
     expect(
       resolveCreateSessionModelOptions('codex-cli', {
+        provider: '  team.alpha ',
         model: 'provider/custom-model',
         thinking: 'ultra',
       }),
     ).toEqual({
+      profile: 'team.alpha',
       model: 'provider/custom-model',
       modelReasoningEffort: 'ultra',
     });
+  });
+
+  it('rejects an unsafe Codex config profile id', () => {
+    expect(() =>
+      normalizeSessionModelOptions('codex-cli', { provider: '../escape' }),
+    ).toThrow(/safe Codex config profile id/);
   });
 
   it('rejects an adapter-invalid thinking value', () => {
@@ -159,6 +167,43 @@ describe('SessionModelController', () => {
       expect.objectContaining({
         sessionId: 'session-1',
         payload: expect.objectContaining({ error: true }),
+      }),
+    );
+  });
+
+  it('rejects an invalid selection before changing persisted or live state', async () => {
+    const validate = vi.fn(() => {
+      throw new Error('missing profile');
+    });
+    const applyLive = vi.fn();
+    const emit = vi.fn();
+    const controller = new SessionModelController({
+      operations: new Map(),
+      agentId: 'codex-cli',
+      emit,
+      validate,
+      applyLive,
+    });
+
+    await expect(
+      controller.setOptions('session-1', {
+        provider: 'missing',
+        model: 'new-model',
+        thinking: 'high',
+      }),
+    ).rejects.toThrow('missing profile');
+
+    expect(validate).toHaveBeenCalledOnce();
+    expect(record).toMatchObject({
+      runtimeProvider: null,
+      model: 'old-model',
+      thinking: 'low',
+    });
+    expect(applyLive).not.toHaveBeenCalled();
+    expect(upsertEmit).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ text: expect.stringContaining('原设置未变。') }),
       }),
     );
   });

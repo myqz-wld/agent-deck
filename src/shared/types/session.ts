@@ -128,7 +128,7 @@ export interface SessionRecord {
    * Adapter-scoped runtime provider.
    *
    * - claude-code: Gateway profile id resolved from ~/.claude/gateways/<id>.json
-   * - codex-cli: native `model_provider` id from ~/.codex/config.toml
+   * - codex-cli: native profile id from `$CODEX_HOME/<id>.config.toml`
    * - grok-build: always null; Grok keeps native model-alias routing
    */
   runtimeProvider?: string | null;
@@ -407,7 +407,7 @@ export type SessionAdapterId = RuntimeAdapterId;
 
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
-  /** Claude Gateway profile id or Codex model_provider; null delegates to native defaults. */
+  /** Claude Gateway profile id or Codex config profile id; null delegates to native defaults. */
   provider?: string | null;
   /** Empty/null delegates model selection to the target provider. */
   model?: string | null;

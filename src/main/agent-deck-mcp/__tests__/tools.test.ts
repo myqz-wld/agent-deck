@@ -196,7 +196,8 @@ const createSessionCalls: Array<{
   codexSandbox?: string;
   claudeCodeSandbox?: string;
   grokSandbox?: string | null;
-  provider?: string;
+  gateway?: string;
+  profile?: string;
   model?: string;
   modelReasoningEffort?: string;
   claudeCodeEffortLevel?: string;
@@ -232,7 +233,8 @@ vi.mock('@main/adapters/registry', () => ({
           codexSandbox?: string;
           claudeCodeSandbox?: string;
           grokSandbox?: string | null;
-          provider?: string;
+          gateway?: string;
+          profile?: string;
           model?: string;
           modelReasoningEffort?: string;
           claudeCodeEffortLevel?: string;
@@ -261,7 +263,8 @@ vi.mock('@main/adapters/registry', () => ({
             codexSandbox: opts.codexSandbox,
             claudeCodeSandbox: opts.claudeCodeSandbox,
             grokSandbox: opts.grokSandbox,
-            provider: opts.provider,
+            gateway: opts.gateway,
+            profile: opts.profile,
             model: opts.model,
             modelReasoningEffort: opts.modelReasoningEffort,
             claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
@@ -786,20 +789,26 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
-      'gpt-5.5',
-      'gpt-5.4',
-      'deepseek-v4-flash',
-      'deepseek-v4-pro[1m]',
       'grok-4.5',
     ]);
     expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('fable-5');
     expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.6');
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.5');
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.4');
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('deepseek-v4-pro[1m]');
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('deepseek-v4-pro');
+    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('deepseek-v4-flash');
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('claude-opus-4-8').success).toBe(true);
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('').success).toBe(false);
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('fable-5');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-sol');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-terra');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-luna');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-5.5');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-5.4');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('deepseek-v4-pro[1m]');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('deepseek-v4-pro');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('deepseek-v4-flash');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('Suggestions are not an allowlist');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain(
       'explicit model > resolved agent model > same-adapter source session > provider default',
@@ -830,14 +839,18 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('authenticated caller');
     expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('same real directory');
     expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('never silently downgrades');
+    expect(SPAWN_SESSION_SCHEMA).toHaveProperty('gateway');
+    expect(SPAWN_SESSION_SCHEMA).toHaveProperty('profile');
+    expect(SPAWN_SESSION_SCHEMA).not.toHaveProperty('provider');
   });
 
   it('tool description points callers to the field schemas and self-correcting hint', async () => {
     const tools = await getTools({ transport: 'http' });
     const description = tools.get('spawn_session').description as string;
     expect(description).toContain('Required fields: adapter, absolute cwd');
-    expect(description).toContain('Use provider for a Claude Gateway profile');
-    expect(description).toContain('Explicit runtime values and resolved Agent runtime values win');
+    expect(description).toContain('Use gateway only for a Claude Gateway');
+    expect(description).toContain('Use profile only for a native Codex config');
+    expect(description).toContain('Explicit runtime values and resolved bundled-Agent runtime values win');
     expect(description).toContain('persisted same-adapter caller');
     expect(description).toContain('cross-adapter targets use their own defaults');
     expect(description).toContain('no explicit or inherited approval uses on-request');
@@ -1207,7 +1220,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     seedSession('lead', { cwd: '/repo', agentId: 'claude-code' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'claude-code',
-      provider: 'deepseek',
+      gateway: 'deepseek',
       cwd: '/repo',
       prompt: 'deepseek model task',
       model: 'deepseek-v4-pro[1m]',
@@ -1218,9 +1231,33 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0].adapter).toBe('claude-code');
-    expect(createSessionCalls[0].provider).toBe('deepseek');
+    expect(createSessionCalls[0].gateway).toBe('deepseek');
     expect(createSessionCalls[0].model).toBe('deepseek-v4-pro[1m]');
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
+  });
+
+  it('passes an explicit native Codex profile through the Codex adapter', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead', { cwd: '/repo', agentId: 'codex-cli' });
+    const r = await tools.get('spawn_session').handler({
+      adapter: 'codex-cli',
+      profile: 'openrouter',
+      cwd: '/repo',
+      prompt: 'codex profile task',
+      model: 'gpt-5.6-sol',
+      thinking: 'xhigh',
+      callerSessionId: 'lead',
+    }, {});
+    const parsed = parseResult(r);
+    expect(parsed.isError).toBeFalsy();
+    expect(createSessionCalls).toHaveLength(1);
+    expect(createSessionCalls[0]).toMatchObject({
+      adapter: 'codex-cli',
+      profile: 'openrouter',
+      model: 'gpt-5.6-sol',
+      modelReasoningEffort: 'xhigh',
+    });
+    expect(createSessionCalls[0].gateway).toBeUndefined();
   });
 
   it('passes custom provider model names through to the target SDK', async () => {

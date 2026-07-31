@@ -18,7 +18,7 @@ export interface RestartCreateOpts {
   prompt?: string;
   trustedContinuation?: TrustedContinuationInitialTurn;
   /** Persisted Claude Gateway profile retained across a cold restart. */
-  provider?: string;
+  gateway?: string;
   /** Persisted Claude Agent selection retained across a cold restart. */
   claudeAgentName?: string;
   /** Persisted Claude Plugin root retained across a cold restart. */

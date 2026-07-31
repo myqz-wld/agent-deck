@@ -96,14 +96,14 @@ describe('agent-deck new model options', () => {
     });
   });
 
-  it('parses provider, free-form model, and thinking for the lead session', () => {
+  it('parses a Codex profile, free-form model, and thinking for the lead session', () => {
     expect(
       parseCliInvocation([
         '/Applications/Agent Deck',
         'new',
         '--adapter',
         'codex',
-        '--provider',
+        '--profile',
         'fable',
         '--model',
         'provider/custom-model',
@@ -113,10 +113,38 @@ describe('agent-deck new model options', () => {
     ).toMatchObject({
       kind: 'new-session',
       agent: 'codex-cli',
-      provider: 'fable',
+      profile: 'fable',
       model: 'provider/custom-model',
       thinking: 'ultra',
     });
+  });
+
+  it('parses a Claude Gateway with the adapter-native flag', () => {
+    expect(
+      parseCliInvocation([
+        '/Applications/Agent Deck',
+        'new',
+        '--adapter',
+        'claude',
+        '--gateway',
+        'deepseek',
+      ]),
+    ).toMatchObject({
+      kind: 'new-session',
+      agent: 'claude-code',
+      gateway: 'deepseek',
+    });
+  });
+
+  it('rejects the retired cross-adapter provider flag', () => {
+    expect(() =>
+      parseCliInvocation([
+        '/Applications/Agent Deck',
+        'new',
+        '--provider',
+        'deepseek',
+      ]),
+    ).toThrow(/--provider 已移除.*--gateway.*--profile/);
   });
 
   it('does not alias the retired Deepseek adapter name', () => {

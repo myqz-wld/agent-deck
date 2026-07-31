@@ -53,8 +53,8 @@ export type CreateSessionThunk = (opts: {
   prompt?: string;
   /** Main-only branded recovery turn. Never accepted from renderer/public adapter options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
-  /** Persisted Codex model_provider restored for native resume and fresh-thread recovery. */
-  provider?: string;
+  /** Persisted Codex config profile restored for native resume and fresh-thread recovery. */
+  profile?: string;
   resume?: string;
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** Persisted per-session approval selection restored for recovery. */

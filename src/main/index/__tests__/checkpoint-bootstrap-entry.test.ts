@@ -65,7 +65,11 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('electron', () => ({
-  app: { on: vi.fn(), exit: vi.fn() },
+  app: {
+    on: vi.fn(),
+    exit: vi.fn(),
+    getPath: vi.fn(() => '/tmp/agent-deck-test-user-data'),
+  },
   dialog: { showErrorBox: vi.fn() },
   powerMonitor: mocks.powerMonitor,
 }));
@@ -163,7 +167,6 @@ vi.mock('../../browser-use/server', () => ({
 vi.mock('../../browser-use/screenshot-store', () => ({
   reapBrowserScreenshotsAtStartup: mocks.browserScreenshotReap,
 }));
-vi.mock('../../codex-config/agents-md-installer', () => ({ syncAgentDeckSection: vi.fn() }));
 vi.mock('../../codex-config/skills-installer', () => ({ syncSkills: vi.fn() }));
 vi.mock('../../login-item', () => ({ syncLoginItemSetting: vi.fn() }));
 vi.mock('@main/utils/logger', () => ({

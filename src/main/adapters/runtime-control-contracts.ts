@@ -2,7 +2,8 @@ import type { SessionAdapterId } from '@shared/types';
 import { getAdapterRuntimeProfile } from './runtime-profiles';
 
 export const ADAPTER_TARGET_RUNTIME_FIELDS = [
-  'provider',
+  'gateway',
+  'profile',
   'model',
   'thinking',
   'permissionMode',
@@ -33,7 +34,8 @@ export function targetRuntimeFieldsForAdapter(
 ): readonly AdapterTargetRuntimeField[] {
   const profile = getAdapterRuntimeProfile(adapterId);
   const fields: AdapterTargetRuntimeField[] = [];
-  if (profile.runtimeControls.providerOverride !== 'none') fields.push('provider');
+  if (profile.runtimeControls.providerOverride === 'claude-gateway') fields.push('gateway');
+  if (profile.runtimeControls.providerOverride === 'codex-config-profile') fields.push('profile');
   if (profile.capabilities.canSetSessionModelOptions) fields.push('model', 'thinking');
   if (profile.capabilities.canSetPermissionMode) fields.push('permissionMode');
   if (profile.runtimeControls.sandbox === 'codex') fields.push('approvalPolicy');
