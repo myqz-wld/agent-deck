@@ -19,6 +19,7 @@ import { PlanQuoteContextMenu, type PlanQuoteMenuState } from './PlanQuoteContex
 import { PlanQuotePreview } from './PlanQuotePreview';
 import { PlanReviewConversation } from './PlanReviewConversation';
 import { PlanReviewDecisionFooter } from './PlanReviewDecisionFooter';
+import { ExpandableReviewTextField } from './review-detail/ExpandableReviewTextField';
 import {
   PLAN_QUOTE_ARIA_SHORTCUT, PLAN_QUOTE_SHORTCUT, isPlanQuoteShortcut,
   quotedPlanText, selectedTextWithin,
@@ -391,18 +392,23 @@ export function PlanDeepReviewDialog({
                   />
                 ))}
               </div>
-              <textarea
-                ref={questionRef}
-                data-testid="plan-review-question"
+              <ExpandableReviewTextField
+                textareaRef={questionRef}
+                sessionId={sourceSessionId}
+                requestId={request.requestId}
+                fieldId="question"
+                title="向审阅会话提问"
+                triggerLabel="放大提问输入框"
+                testId="plan-review-question"
                 value={question}
-                onChange={(event) => patchDraft(request.requestId, {
-                  question: event.target.value,
+                onChange={(value) => patchDraft(request.requestId, {
+                  question: value,
                 })}
                 onKeyDown={onQuestionKeyDown}
                 disabled={busy}
-                aria-label="向审阅会话提问"
+                ariaLabel="向审阅会话提问"
                 placeholder="询问计划；Enter 发送，Shift+Enter 换行"
-                className="min-h-20 w-full resize-y rounded border border-deck-border bg-black/30 px-2 py-1.5 text-[11px] text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25 disabled:opacity-50"
+                compactClassName="min-h-20 rounded border border-deck-border bg-black/30 py-1.5 pl-2 text-[11px] text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25 disabled:opacity-50"
               />
               <div className="mt-1.5 flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate text-[9px] text-status-error">
@@ -421,6 +427,8 @@ export function PlanDeepReviewDialog({
           </section>
         </div>
         <PlanReviewDecisionFooter
+          sessionId={sourceSessionId}
+          requestId={request.requestId}
           feedback={feedback}
           feedbackRef={feedbackRef}
           busy={busy}
