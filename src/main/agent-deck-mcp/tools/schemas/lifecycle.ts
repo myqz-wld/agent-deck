@@ -228,59 +228,87 @@ export type EnterWorktreeResult = z.infer<
   typeof ENTER_WORKTREE_OUTPUT_SCHEMA
 >;
 
-const EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA = z
+/**
+ * MCP SDK output schemas must normalize to one object schema. Cross-field checks retain the
+ * discriminated result contract without publishing a top-level Zod union that the SDK cannot
+ * validate or expose through tools/list.
+ */
+export const EXIT_WORKTREE_OUTPUT_SCHEMA = z
   .object({
     transitionId: z
       .string()
       .min(1)
-      .describe('Durable session:generation identity for the accepted exit transition.'),
+      .describe('Durable session:generation identity for the accepted or completed exit transition.'),
     direction: z
       .literal('exit')
       .describe('Confirms that this result belongs to exit_worktree.'),
     state: z
-      .literal('waiting-tool-result')
-      .describe('The restore-first transition is durably accepted but has not completed cleanup yet.'),
+      .enum(['waiting-tool-result', 'completed-cleanup'])
+      .describe('waiting-tool-result means restoration is durably accepted; completed-cleanup means a cleanup_pending retry finished after restoration.'),
     effectiveFrom: z
-      .literal('automatic-next-turn')
-      .describe('The provider must observe this exact result before Agent Deck ends the old turn and restores cwd.'),
+      .enum(['automatic-next-turn', 'already-effective'])
+      .describe('Must be automatic-next-turn for waiting-tool-result and already-effective for completed-cleanup.'),
     worktreePath: z
       .string()
       .min(1)
-      .describe('Absolute owned worktree path scheduled for removal after cwd restoration.'),
-  })
-  .strict();
-
-const EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA = z
-  .object({
-    transitionId: z
-      .string()
-      .min(1)
-      .describe('Durable session:generation identity of the completed exit transition.'),
-    direction: z
-      .literal('exit')
-      .describe('Confirms that this result belongs to exit_worktree.'),
-    state: z
-      .literal('completed-cleanup')
-      .describe('A cleanup_pending retry completed after cwd had already been restored.'),
-    effectiveFrom: z
-      .literal('already-effective')
-      .describe('The caller session was already running from its original cwd before this retry returned.'),
-    worktreePath: z
-      .string()
-      .min(1)
-      .describe('Absolute owned worktree path checked by this cleanup retry.'),
+      .describe('Absolute owned worktree path scheduled for removal or checked by the cleanup retry.'),
     worktreeRemoved: z
       .boolean()
-      .describe('True when this retry removed the worktree; false when it was already absent.'),
+      .optional()
+      .describe('Required only for completed-cleanup: true when removed, false when already absent.'),
   })
-  .strict();
+  .strict()
+  .superRefine((result, ctx) => {
+    if (result.state === 'waiting-tool-result') {
+      if (result.effectiveFrom !== 'automatic-next-turn') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['effectiveFrom'],
+          message: 'waiting-tool-result requires effectiveFrom=automatic-next-turn',
+        });
+      }
+      if (result.worktreeRemoved !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['worktreeRemoved'],
+          message: 'waiting-tool-result must omit worktreeRemoved',
+        });
+      }
+      return;
+    }
 
-/** exit_worktree success is accepted restoration or a completed cleanup retry. */
-export const EXIT_WORKTREE_OUTPUT_SCHEMA = z.discriminatedUnion('state', [
-  EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA,
-  EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA,
-]);
+    if (result.effectiveFrom !== 'already-effective') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['effectiveFrom'],
+        message: 'completed-cleanup requires effectiveFrom=already-effective',
+      });
+    }
+    if (result.worktreeRemoved === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['worktreeRemoved'],
+        message: 'completed-cleanup requires worktreeRemoved',
+      });
+    }
+  });
 
-export type ExitWorktreeResult = z.infer<
-  typeof EXIT_WORKTREE_OUTPUT_SCHEMA
+type ExitWorktreeOutput = z.infer<typeof EXIT_WORKTREE_OUTPUT_SCHEMA>;
+type ExitWorktreeResultBase = Omit<
+  ExitWorktreeOutput,
+  'state' | 'effectiveFrom' | 'worktreeRemoved'
 >;
+
+export type ExitWorktreeResult = ExitWorktreeResultBase &
+  (
+    | {
+        state: 'waiting-tool-result';
+        effectiveFrom: 'automatic-next-turn';
+        worktreeRemoved?: never;
+      }
+    | {
+        state: 'completed-cleanup';
+        effectiveFrom: 'already-effective';
+        worktreeRemoved: boolean;
+      }
+  );
