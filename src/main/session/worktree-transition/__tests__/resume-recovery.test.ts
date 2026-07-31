@@ -30,6 +30,7 @@ vi.mock('@main/store/session-repo', () => ({
 vi.mock('@main/store/worktree-transition-repo', () => ({
   worktreeTransitionRepo: {
     get: () => harness.transition,
+    listRecoverable: () => (harness.transition ? [harness.transition] : []),
   },
 }));
 
@@ -98,19 +99,52 @@ beforeEach(() => {
 });
 
 describe('worktree transition resume recovery', () => {
-  it('recovers a pending transition after an explicit session revival', async () => {
+  it.each([
+    { lifecycle: 'closed' as const },
+    { archivedAt: 10 },
+  ])('recovers a startup-deferred transition after revival: %o', async (blocked) => {
+    harness.session = session(blocked);
     startWorktreeTransitionResumeRecovery();
+    harness.session = session();
     harness.listener?.(harness.session!);
     await Promise.resolve();
     await Promise.resolve();
     expect(harness.recover).toHaveBeenCalledWith('session-a');
   });
 
-  it('retains pending state while closed or archived and ignores settled leases', async () => {
+  it.each([
+    'enter_waiting_tool_result',
+    'interrupting_enter_turn',
+    'switching_to_worktree',
+  ] as const)(
+    'does not mistake an ordinary active-session upsert during %s for revival',
+    async (phase) => {
+      harness.transition = null;
+      startWorktreeTransitionResumeRecovery();
+      harness.transition = transition(phase);
+      harness.listener?.(harness.session!);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(harness.recover).not.toHaveBeenCalled();
+    },
+  );
+
+  it('tracks a transition that becomes closed after startup and recovers it on revival', async () => {
     startWorktreeTransitionResumeRecovery();
-    harness.listener?.(session({ lifecycle: 'closed' }));
-    harness.listener?.(session({ archivedAt: 10 }));
+    harness.session = session({ lifecycle: 'closed' });
+    harness.listener?.(harness.session);
+    harness.session = session();
+    harness.listener?.(harness.session);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(harness.recover).toHaveBeenCalledWith('session-a');
+  });
+
+  it('drops deferred state for a settled lease', async () => {
+    harness.session = session({ lifecycle: 'closed' });
+    startWorktreeTransitionResumeRecovery();
     harness.transition = transition('active');
+    harness.session = session();
     harness.listener?.(harness.session!);
     await Promise.resolve();
     expect(harness.recover).not.toHaveBeenCalled();
