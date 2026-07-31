@@ -53,7 +53,7 @@ describe('adapter runtime profiles', () => {
       runtimeControls: {
         permissionModes: [],
         sessionModes: [],
-        providerOverride: 'codex-config-profile',
+        providerOverride: 'codex-model-provider',
         sandbox: 'codex',
         extraAllowWrite: true,
       },

@@ -12,10 +12,6 @@ const mocks = vi.hoisted(() => {
     settingsStore: {
       get: vi.fn(() => null),
     },
-    resolveCodexConfigProfile: vi.fn((value: string | null | undefined) => {
-      const id = value?.trim();
-      return id ? { id, configPath: `/profiles/${id}.config.toml` } : null;
-    }),
   };
 });
 
@@ -25,9 +21,6 @@ vi.mock('@main/adapters/codex-cli/app-server/client', () => ({
 
 vi.mock('@main/store/settings-store', () => ({
   settingsStore: mocks.settingsStore,
-}));
-vi.mock('@main/codex-config/profiles', () => ({
-  resolveCodexConfigProfile: mocks.resolveCodexConfigProfile,
 }));
 
 import { getCodexInstance, invalidateCodexInstance } from '../codex-instance-pool';
@@ -39,7 +32,6 @@ describe('codex oneshot instance pool', () => {
     mocks.CodexAppServerClient.mockClear();
     mocks.settingsStore.get.mockReset();
     mocks.settingsStore.get.mockReturnValue(null);
-    mocks.resolveCodexConfigProfile.mockClear();
   });
 
   afterEach(() => {
@@ -58,21 +50,14 @@ describe('codex oneshot instance pool', () => {
     );
   });
 
-  it('keeps independent app-server clients for separate native profiles', async () => {
-    const first = await getCodexInstance('first');
-    const second = await getCodexInstance('second');
-    const cachedFirst = await getCodexInstance('first');
+  it('shares one base app-server process across thread model providers', async () => {
+    const first = await getCodexInstance();
+    const second = await getCodexInstance();
 
-    expect(first).not.toBe(second);
-    expect(cachedFirst).toBe(first);
-    expect(mocks.CodexAppServerClient).toHaveBeenCalledTimes(2);
-    expect(mocks.CodexAppServerClient).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ profile: 'first' }),
-    );
-    expect(mocks.CodexAppServerClient).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ profile: 'second' }),
+    expect(second).toBe(first);
+    expect(mocks.CodexAppServerClient).toHaveBeenCalledTimes(1);
+    expect(mocks.CodexAppServerClient).toHaveBeenCalledWith(
+      expect.not.objectContaining({ profile: expect.anything() }),
     );
   });
 });

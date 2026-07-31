@@ -16,7 +16,7 @@ import {
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { IpcInputError } from './_helpers';
 import { CLAUDE_GATEWAY_PROFILE_ID_PATTERN } from '@main/adapters/claude-code/gateway-profiles';
-import { CODEX_CONFIG_PROFILE_ID_PATTERN } from '@shared/codex-config-profile';
+import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 
 const GENERATOR_ADAPTERS: readonly GeneratorAdapterId[] = [
   'claude-code',
@@ -41,6 +41,7 @@ function assertRuntimeProvider(
   field: string,
   adapter: GeneratorAdapterId,
   value: unknown,
+  validateSelection: boolean,
 ): void {
   if (typeof value !== 'string') {
     throw new IpcInputError(field, 'must be string');
@@ -64,15 +65,15 @@ function assertRuntimeProvider(
       `必须是安全的 ${getAdapterRuntimeProfile(adapter).displayName} Gateway profile id`,
     );
   }
-  if (
-    adapter === 'codex-cli' &&
-    value.trim() &&
-    !CODEX_CONFIG_PROFILE_ID_PATTERN.test(value.trim())
-  ) {
-    throw new IpcInputError(
-      field,
-      `必须是安全的 ${getAdapterRuntimeProfile(adapter).displayName} config profile id`,
-    );
+  if (adapter === 'codex-cli' && value.trim() && validateSelection) {
+    try {
+      resolveCodexModelProvider(value.trim());
+    } catch (error) {
+      throw new IpcInputError(
+        field,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 }
 
@@ -111,7 +112,12 @@ export function validateContinuationAndSummarySettingsPatch(
       'summaryRuntimeProvider' in patch
         ? patch.summaryRuntimeProvider
         : current.summaryRuntimeProvider;
-    assertRuntimeProvider('summaryRuntimeProvider', adapter, runtimeProvider);
+    assertRuntimeProvider(
+      'summaryRuntimeProvider',
+      adapter,
+      runtimeProvider,
+      'summaryRuntimeProvider' in patch || 'summaryAdapter' in patch,
+    );
     const thinking =
       'summaryThinking' in patch ? patch.summaryThinking : current.summaryThinking;
     if (!isValidGeneratorThinking(adapter, thinking)) {
@@ -145,6 +151,8 @@ export function validateContinuationAndSummarySettingsPatch(
     'continuationCheckpointRuntimeProvider',
     adapter,
     runtimeProvider,
+    'continuationCheckpointRuntimeProvider' in patch ||
+      'continuationCheckpointAdapter' in patch,
   );
   if ('continuationCheckpointModel' in patch) {
     if (typeof patch.continuationCheckpointModel !== 'string') {

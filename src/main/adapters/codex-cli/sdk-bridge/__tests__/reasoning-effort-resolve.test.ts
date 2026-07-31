@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolveCodexReasoningEffort } from '../create-session/reasoning-effort-resolve';
+import {
+  hasCodexReasoningConfigLayer,
+  resolveCodexReasoningEffort,
+} from '../create-session/reasoning-effort-resolve';
 
 describe('resolveCodexReasoningEffort', () => {
+  it('treats only genuine reasoning overrides as a separate config layer', () => {
+    expect(hasCodexReasoningConfigLayer(undefined)).toBe(false);
+    expect(hasCodexReasoningConfigLayer({ model_provider: 'openrouter' })).toBe(false);
+    expect(hasCodexReasoningConfigLayer({ profile: 'review' })).toBe(true);
+    expect(hasCodexReasoningConfigLayer({ model_reasoning_effort: 'max' })).toBe(true);
+  });
+
   it('uses an explicit session value without reading global config', () => {
     const readConfigured = vi.fn(() => 'low' as const);
     expect(

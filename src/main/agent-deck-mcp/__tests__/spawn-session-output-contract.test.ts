@@ -313,6 +313,8 @@ describe('spawn_session public output contract', () => {
       await withClient(server, async (client) => {
         const listed = await client.listTools();
         const spawn = listed.tools.find((tool) => tool.name === 'spawn_session');
+        const listSessions = listed.tools.find((tool) => tool.name === 'list_sessions');
+        const getSession = listed.tools.find((tool) => tool.name === 'get_session');
 
         expect(spawn?.outputSchema).toMatchObject({ type: 'object' });
         expect(spawn?.outputSchema?.required).toEqual(
@@ -320,7 +322,7 @@ describe('spawn_session public output contract', () => {
             'sessionId',
             'adapter',
             'gateway',
-            'profile',
+            'provider',
             'cwd',
             'teamId',
             'teamName',
@@ -335,6 +337,29 @@ describe('spawn_session public output contract', () => {
         expect(spawn?.inputSchema.properties).not.toHaveProperty(
           'parentSessionId',
         );
+        for (const projectionTool of [listSessions, getSession]) {
+          expect(projectionTool?.outputSchema).toMatchObject({ type: 'object' });
+          expect(projectionTool?.outputSchema?.required).toEqual(
+            expect.arrayContaining(
+              projectionTool?.name === 'list_sessions'
+                ? ['total', 'hasMore', 'sessions']
+                : [
+                    'sessionId',
+                    'adapter',
+                    'gateway',
+                    'provider',
+                    'cwd',
+                    'lifecycle',
+                    'title',
+                    'lastEventAt',
+                    'teamName',
+                    'teams',
+                    'spawnedBy',
+                    'spawnDepth',
+                  ],
+            ),
+          );
+        }
       });
     },
   );
@@ -427,7 +452,7 @@ describe('spawn_session public output contract', () => {
       sessionId: 'target-session',
       adapter: 'claude-code',
       gateway: null,
-      profile: null,
+      provider: null,
       cwd: '/repo',
       teamId: null,
       teamName: null,

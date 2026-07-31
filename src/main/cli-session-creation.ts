@@ -42,7 +42,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
   let sessionModelOptions;
   try {
     sessionModelOptions = resolveCreateSessionModelOptions(inv.agent, {
-      provider: inv.agent === 'codex-cli' ? inv.profile : inv.gateway,
+      provider: inv.agent === 'codex-cli' ? inv.provider : inv.gateway,
       model: inv.model,
       thinking: inv.thinking,
     });
@@ -51,7 +51,7 @@ export async function applyCliInvocation(inv: CliInvocation): Promise<void> {
       const field =
         error.field === 'provider'
           ? inv.agent === 'codex-cli'
-            ? 'profile'
+            ? 'provider'
             : 'gateway'
           : error.field;
       throw new Error(`agent-deck new: --${field} ${error.message}`);

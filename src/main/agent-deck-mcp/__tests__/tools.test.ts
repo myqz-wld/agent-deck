@@ -195,7 +195,7 @@ const createSessionCalls: Array<{
   claudeCodeSandbox?: string;
   grokSandbox?: string | null;
   gateway?: string;
-  profile?: string;
+  provider?: string;
   model?: string;
   modelReasoningEffort?: string;
   claudeCodeEffortLevel?: string;
@@ -232,7 +232,7 @@ vi.mock('@main/adapters/registry', () => ({
           claudeCodeSandbox?: string;
           grokSandbox?: string | null;
           gateway?: string;
-          profile?: string;
+          provider?: string;
           model?: string;
           modelReasoningEffort?: string;
           claudeCodeEffortLevel?: string;
@@ -262,7 +262,7 @@ vi.mock('@main/adapters/registry', () => ({
             claudeCodeSandbox: opts.claudeCodeSandbox,
             grokSandbox: opts.grokSandbox,
             gateway: opts.gateway,
-            profile: opts.profile,
+            provider: opts.provider,
             model: opts.model,
             modelReasoningEffort: opts.modelReasoningEffort,
             claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
@@ -849,7 +849,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('never silently downgrades');
     expect(SPAWN_SESSION_SCHEMA).toHaveProperty('gateway');
     expect(SPAWN_SESSION_SCHEMA).toHaveProperty('profile');
-    expect(SPAWN_SESSION_SCHEMA).not.toHaveProperty('provider');
+    expect(SPAWN_SESSION_SCHEMA).toHaveProperty('provider');
+    expect(SPAWN_SESSION_SCHEMA.profile.safeParse('work').success).toBe(false);
   });
 
   it('tool description points callers to the field schemas and self-correcting hint', async () => {
@@ -857,7 +858,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const description = tools.get('spawn_session').description as string;
     expect(description).toContain('Required fields: adapter, absolute cwd');
     expect(description).toContain('Use gateway only for a Claude Gateway');
-    expect(description).toContain('Use profile only for a native Codex config');
+    expect(description).toContain('Use provider only for a Codex native model_provider');
+    expect(description).toContain('retired profile field is rejected');
     expect(description).toContain('Explicit runtime values and resolved bundled-Agent runtime values win');
     expect(description).toContain('persisted same-adapter caller');
     expect(description).toContain('cross-adapter targets use their own defaults');
@@ -1244,14 +1246,14 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
   });
 
-  it('passes an explicit native Codex profile through the Codex adapter', async () => {
+  it('passes an explicit native Codex model_provider through the Codex adapter', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'codex-cli' });
     const r = await tools.get('spawn_session').handler({
       adapter: 'codex-cli',
-      profile: 'openrouter',
+      provider: 'openrouter',
       cwd: '/repo',
-      prompt: 'codex profile task',
+      prompt: 'codex provider task',
       model: 'gpt-5.6-sol',
       thinking: 'xhigh',
       callerSessionId: 'lead',
@@ -1261,7 +1263,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls).toHaveLength(1);
     expect(createSessionCalls[0]).toMatchObject({
       adapter: 'codex-cli',
-      profile: 'openrouter',
+      provider: 'openrouter',
       model: 'gpt-5.6-sol',
       modelReasoningEffort: 'xhigh',
     });
@@ -2525,8 +2527,13 @@ describe('agent-deck-mcp tools — list_sessions', () => {
 
   it('projects metadata only (no events / messages)', async () => {
     const tools = await getTools({ transport: 'http' });
-    seedSession('lead', { spawnDepth: 0 });
-    seedSession('teammate', { spawnedBy: 'lead', spawnDepth: 1 });
+    seedSession('lead', { spawnDepth: 0, runtimeProvider: 'deepseek' });
+    seedSession('teammate', {
+      agentId: 'codex-cli',
+      runtimeProvider: 'openrouter',
+      spawnedBy: 'lead',
+      spawnDepth: 1,
+    });
     // plan team-cohesion-fix-20260513 Phase A：teamName 走 universal team backend 投影 → mock 注入 membership
     mockMembershipsBySession.set('lead', [{ teamId: 'team-x' }]);
     mockMembershipsBySession.set('teammate', [{ teamId: 'team-x' }]);
@@ -2538,10 +2545,15 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
+    expect((r as any).structuredContent).toEqual(parsed.data);
+    const { LIST_SESSIONS_OUTPUT_SCHEMA } = await import('../tools/schemas');
+    expect(LIST_SESSIONS_OUTPUT_SCHEMA.safeParse(parsed.data).success).toBe(true);
     expect(parsed.data.sessions).toHaveLength(2);
     const teammate = parsed.data.sessions.find((s: any) => s.sessionId === 'teammate');
     expect(teammate).toMatchObject({
-      adapter: 'claude-code',
+      adapter: 'codex-cli',
+      gateway: null,
+      provider: 'openrouter',
       cwd: '/repo',
       lifecycle: 'active',
       teamName: 'team-x',
@@ -2551,6 +2563,11 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     // 不暴露 SessionRecord 内部字段（events / activity 等都不在投影）
     expect(teammate).not.toHaveProperty('activity');
     expect(teammate).not.toHaveProperty('source');
+    expect(teammate.teams).toEqual([{ teamId: 'team-x', teamName: 'team-x' }]);
+    expect(parsed.data.sessions.find((s: any) => s.sessionId === 'lead')).toMatchObject({
+      gateway: 'deepseek',
+      provider: null,
+    });
   });
 
   it('respects adapterFilter', async () => {
@@ -2667,6 +2684,9 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
+    expect((r as any).structuredContent).toEqual(parsed.data);
+    const { GET_SESSION_OUTPUT_SCHEMA } = await import('../tools/schemas');
+    expect(GET_SESSION_OUTPUT_SCHEMA.safeParse(parsed.data).success).toBe(true);
     expect(parsed.data).toMatchObject({
       sessionId: 'teammate',
       adapter: 'claude-code',

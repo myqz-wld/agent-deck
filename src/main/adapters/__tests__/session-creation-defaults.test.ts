@@ -13,6 +13,7 @@ import {
 } from '../session-creation-defaults';
 
 const roots: string[] = [];
+const originalCodexHome = process.env.CODEX_HOME;
 const settings = {
   claudeCodeSandbox: 'strict' as const,
   codexSandbox: 'read-only' as const,
@@ -30,6 +31,8 @@ afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
+  if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = originalCodexHome;
 });
 
 describe('resolveSessionCreationDefaults', () => {
@@ -108,7 +111,7 @@ describe('resolveSessionCreationDefaults', () => {
     });
   });
 
-  it('reads Codex effective config while keeping the Agent Deck sandbox setting', async () => {
+  it('reads Codex effective config without turning an undiscoverable default into an override', async () => {
     const root = tempRoot();
     const defaults = await resolveSessionCreationDefaults(
       'codex-cli',
@@ -135,23 +138,17 @@ describe('resolveSessionCreationDefaults', () => {
     });
   });
 
-  it('starts Codex config resolution under a native independent profile', async () => {
+  it('keeps a selected native model_provider while reading base config', async () => {
     const root = tempRoot();
     const configPath = join(root, 'config.toml');
-    writeFileSync(configPath, 'model = "base-model"\napproval_policy = "on-request"\n');
     writeFileSync(
-      join(root, 'openrouter.config.toml'),
-      'model = "profile-fallback"\nmodel_reasoning_effort = "max"\napproval_policy = "never"\n',
+      configPath,
+      'model = "base-model"\napproval_policy = "on-request"\n[model_providers.openrouter]\nname = "OpenRouter"\n',
     );
-    const readCodexConfig = vi.fn(async (
-      _cwd: string,
-      _signal?: AbortSignal,
-      profile?: string,
-    ) => ({
-      model: 'profile-effective',
+    const readCodexConfig = vi.fn(async () => ({
+      model: 'base-effective',
       model_reasoning_effort: 'ultra',
       approval_policy: 'untrusted',
-      selected_profile: profile,
     }));
 
     await expect(resolveSessionCreationDefaults(
@@ -160,15 +157,45 @@ describe('resolveSessionCreationDefaults', () => {
       { settings, codexConfigPath: configPath, readCodexConfig },
     )).resolves.toMatchObject({
       provider: 'openrouter',
-      model: 'profile-effective',
+      model: 'base-effective',
       thinking: 'ultra',
       approvalPolicy: 'untrusted',
     });
-    expect(readCodexConfig).toHaveBeenCalledWith(
-      root,
-      expect.any(AbortSignal),
-      'openrouter',
+    expect(readCodexConfig).toHaveBeenCalledWith(root, expect.any(AbortSignal));
+  });
+
+  it('surfaces an effective provider when native config declares it', async () => {
+    const root = tempRoot();
+    const configPath = join(root, 'config.toml');
+    writeFileSync(configPath, '[model_providers.openrouter]\nname = "OpenRouter"\n');
+
+    await expect(resolveSessionCreationDefaults(
+      'codex-cli',
+      { cwd: root },
+      {
+        settings,
+        codexConfigPath: configPath,
+        readCodexConfig: async () => ({ model_provider: 'openrouter' }),
+      },
+    )).resolves.toMatchObject({ provider: 'openrouter' });
+  });
+
+  it('uses CODEX_HOME/config.toml when resolving Codex defaults', async () => {
+    const root = tempRoot();
+    process.env.CODEX_HOME = root;
+    writeFileSync(
+      join(root, 'config.toml'),
+      'model_provider = "team"\nmodel = "gpt-custom-home"\n[model_providers.team]\nname = "Team"\n',
     );
+
+    await expect(resolveSessionCreationDefaults(
+      'codex-cli',
+      { cwd: root },
+      { settings, readCodexConfig: async () => ({}) },
+    )).resolves.toMatchObject({
+      provider: 'team',
+      model: 'gpt-custom-home',
+    });
   });
 
   it('falls back to the top-level Codex approval policy when config/read is unavailable', async () => {

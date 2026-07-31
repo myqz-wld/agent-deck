@@ -38,8 +38,8 @@ export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-ac
 export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
-  /** Native Codex config profile selected for the per-session app-server process. */
-  profile?: string;
+  /** Native Codex model_provider applied at the thread boundary. */
+  provider?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
   /** 传 thread_id 表示恢复历史会话；codex 从 ~/.codex/sessions/<id>.jsonl 重放 */
@@ -57,7 +57,7 @@ export interface CreateSessionOpts {
    *   字段 → runtime 真正按 agent TOML 标的 model 跑
    * - 同时 setModel 持久化到 sessions 表(UI / resume 一致 + DB 记账)
    *
-   * model 字段未传 → Codex runtime fallback 到 user `~/.codex/config.toml` 顶层 `model` 配置。
+   * model 字段未传 → Codex runtime fallback 到 `$CODEX_HOME/config.toml` 顶层 `model` 配置。
    */
   model?: string;
   /**
@@ -192,7 +192,6 @@ export interface CreateSessionDeps {
   ensureCodex: (
     sessionId: string,
     sessionToken: string,
-    profile?: string,
   ) => Promise<CodexAppServerClient>;
 }
 

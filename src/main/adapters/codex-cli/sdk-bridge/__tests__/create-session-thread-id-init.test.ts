@@ -27,6 +27,7 @@ import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-st
 const appServerClientMock = vi.hoisted(() => {
   const state = {
     nextThread: null as unknown,
+    startThreadOptions: [] as unknown[],
     resumeThreadSyncThrow: null as Error | null,
     constructorThrow: null as Error | null,
     CodexAppServerClient: vi.fn(() => {
@@ -37,7 +38,8 @@ const appServerClientMock = vi.hoisted(() => {
           if (!state.nextThread) throw new Error('test setup forgot nextThread');
           return state.nextThread;
         }),
-        startThread: vi.fn((_opts: unknown) => {
+        startThread: vi.fn((opts: unknown) => {
+          state.startThreadOptions.push(opts);
           if (!state.nextThread) throw new Error('test setup forgot nextThread');
           return state.nextThread;
         }),
@@ -47,6 +49,14 @@ const appServerClientMock = vi.hoisted(() => {
   };
   return state;
 });
+
+const reasoningConfigMock = vi.hoisted(() => ({
+  readTopLevel: vi.fn(() => 'xhigh' as const),
+}));
+const modelProviderMock = vi.hoisted(() => ({
+  resolve: vi.fn((provider: string | null | undefined) =>
+    provider?.trim() ? { id: provider.trim(), configuredAsTopLevelDefault: false } : null),
+}));
 
 // 与 early-err-cleanup test 同款入口模块 stub
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
@@ -64,6 +74,13 @@ vi.mock('@main/paths', () => ({
 vi.mock('@main/store/settings-store', () => ({
   settingsStore: makeSettingsStoreMock(),
 }));
+vi.mock('@main/codex-config/toml-writer', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@main/codex-config/toml-writer')>()),
+  readTopLevelModelReasoningEffortFromCodexConfig: reasoningConfigMock.readTopLevel,
+}));
+vi.mock('@main/codex-config/model-providers', () => ({
+  resolveCodexModelProvider: modelProviderMock.resolve,
+}));
 vi.mock('@main/codex-config/agent-deck-mcp-injector', () => ({
   buildAgentDeckMcpConfigForCodex: () => null,
   mergeCodexConfig: (a: unknown) => a,
@@ -80,6 +97,7 @@ vi.mock('@main/store/session-repo', () => ({
     overrides: {
       get: vi.fn(),
       setCodexSandbox: vi.fn(),
+      setRuntimeProvider: vi.fn(),
       setModel: vi.fn(),
       setThinking: vi.fn(),
       setExtraAllowWrite: vi.fn(),
@@ -204,13 +222,19 @@ beforeEach(() => {
   emits.length = 0;
   nextThread = null;
   appServerClientMock.nextThread = null;
+  appServerClientMock.startThreadOptions.length = 0;
   appServerClientMock.resumeThreadSyncThrow = null;
   appServerClientMock.constructorThrow = null;
   appServerClientMock.CodexAppServerClient.mockClear();
   mcpSessionTokenMap.clearAll();
   vi.mocked(sessionRepo.get).mockReset();
   vi.mocked(sessionRepo.setCodexSandbox).mockReset();
+  vi.mocked(sessionRepo.setRuntimeProvider).mockReset();
   vi.mocked(sessionRepo.setModel).mockReset();
+  vi.mocked(sessionRepo.setThinking).mockReset();
+  reasoningConfigMock.readTopLevel.mockReset();
+  reasoningConfigMock.readTopLevel.mockReturnValue('xhigh');
+  modelProviderMock.resolve.mockClear();
   vi.mocked(sessionManager.claimAsSdk).mockReset();
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.renameSdkSession).mockReset();
@@ -467,6 +491,79 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
 });
 
 describe('codex createSession new path latency', () => {
+  it('an explicit model provider still inherits the top-level reasoning effort', async () => {
+    vi.useFakeTimers();
+    const pushThread = new PushThread();
+    appServerClientMock.nextThread = pushThread;
+
+    const handle = await makeBridge().createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      provider: 'openrouter',
+      codexSandbox: 'workspace-write',
+    });
+
+    expect(reasoningConfigMock.readTopLevel).toHaveBeenCalledOnce();
+    expect(appServerClientMock.startThreadOptions).toHaveLength(1);
+    expect(appServerClientMock.startThreadOptions[0]).toMatchObject({
+      modelProvider: 'openrouter',
+    });
+    expect(appServerClientMock.startThreadOptions[0]).not.toHaveProperty(
+      'modelReasoningEffort',
+    );
+    expect(sessionRepo.setThinking).toHaveBeenCalledWith(handle.sessionId, 'xhigh');
+  });
+
+  it('rejects a loaded-thread provider switch before changing DB or live options', async () => {
+    vi.useFakeTimers();
+    const pushThread = new PushThread();
+    appServerClientMock.nextThread = pushThread;
+    const bridge = makeBridge();
+    const handle = await bridge.createSession({
+      cwd: '/repo',
+      prompt: 'hi',
+      provider: 'working-provider',
+      model: 'gpt-old',
+      modelReasoningEffort: 'low',
+      codexSandbox: 'workspace-write',
+    });
+    vi.mocked(sessionRepo.get).mockReturnValue({
+      id: handle.sessionId,
+      agentId: 'codex-cli',
+      cwd: '/repo',
+      title: 't',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 1,
+      lastEventAt: 2,
+      endedAt: null,
+      archivedAt: null,
+      runtimeProvider: 'working-provider',
+      model: 'gpt-old',
+      thinking: 'low',
+    } as unknown as ReturnType<typeof sessionRepo.get>);
+    vi.mocked(sessionRepo.setRuntimeProvider).mockClear();
+    vi.mocked(sessionRepo.setModel).mockClear();
+    vi.mocked(sessionRepo.setThinking).mockClear();
+
+    await expect(bridge.setSessionModelOptions(handle.sessionId, {
+      provider: 'new-provider',
+      model: 'gpt-new',
+      thinking: 'high',
+    })).rejects.toThrow(/已加载的会话切换 model_provider/);
+
+    expect(modelProviderMock.resolve).toHaveBeenCalledWith('new-provider');
+    expect(sessionRepo.setRuntimeProvider).not.toHaveBeenCalled();
+    expect(sessionRepo.setModel).not.toHaveBeenCalled();
+    expect(sessionRepo.setThinking).not.toHaveBeenCalled();
+    expect(appServerClientMock.startThreadOptions[0]).toMatchObject({
+      modelProvider: 'working-provider',
+      model: 'gpt-old',
+      modelReasoningEffort: 'low',
+    });
+  });
+
   it('awaitCanonicalId waits for thread.started and returns the post-rename real id', async () => {
     const pushThread = new PushThread();
     appServerClientMock.nextThread = pushThread;

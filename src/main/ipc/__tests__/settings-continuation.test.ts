@@ -40,6 +40,12 @@ vi.mock('@main/codex-config/agents-md-installer', () => ({
   resetUserCodexAgentsMd: vi.fn(),
 }));
 vi.mock('@main/codex-config/skills-installer', () => ({ syncSkills: vi.fn() }));
+vi.mock('@main/codex-config/model-providers', () => ({
+  resolveCodexModelProvider: vi.fn((value: string) => {
+    if (value === 'missing') throw new Error('Codex model_provider "missing" 不存在');
+    return { id: value };
+  }),
+}));
 vi.mock('../session-hand-off', () => ({
   invalidateSessionHandOffPreparationsForSettingsChange: invalidatePreparations,
 }));
@@ -240,6 +246,23 @@ describe('SettingsSet continuation validation', () => {
         current(),
       ),
     ).toThrow(/continuationCheckpointRuntimeProvider/);
+  });
+
+  it('rejects nonexistent Codex generator providers before overwriting settings', () => {
+    settingsStoreMocks.getAll.mockReset().mockReturnValue(current({
+      summaryAdapter: 'codex-cli',
+      summaryRuntimeProvider: 'openai',
+    }));
+    settingsStoreMocks.patch.mockReset();
+    const handle = vi.mocked(ipcMain.handle);
+    handle.mockClear();
+    registerSettingsIpc();
+    const setHandler = handle.mock.calls.find(([channel]) => channel === IpcInvoke.SettingsSet)?.[1];
+
+    expect(() => setHandler!({} as never, {
+      summaryRuntimeProvider: 'missing',
+    })).toThrow(/model_provider.*不存在/);
+    expect(settingsStoreMocks.patch).not.toHaveBeenCalled();
   });
 
   it('uses canonical runtime display names in generator validation errors', () => {

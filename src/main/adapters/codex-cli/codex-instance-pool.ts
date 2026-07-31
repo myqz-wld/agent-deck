@@ -6,9 +6,8 @@
  */
 import { CodexAppServerClient } from '@main/adapters/codex-cli/app-server/client';
 import { settingsStore } from '@main/store/settings-store';
-import { resolveCodexConfigProfile } from '@main/codex-config/profiles';
 
-const cachedCodexByProfile = new Map<string, CodexAppServerClient>();
+let cachedCodex: CodexAppServerClient | null = null;
 let cachedPath: string | null = null;
 
 function snapshotProcessEnv(): Record<string, string> {
@@ -32,27 +31,20 @@ function snapshotProcessEnv(): Record<string, string> {
  * 不接受 mcp_servers config 注入 — live session bridge 需要 mcp 注入因此自带
  * `private codex` cache（详 `sdk-bridge/index.ts:131-141`），不走本 pool。
  */
-export async function getCodexInstance(
-  profile?: string | null,
-): Promise<CodexAppServerClient> {
+export async function getCodexInstance(): Promise<CodexAppServerClient> {
   const path = settingsStore.get('codexCliPath');
   const overridePath = (path && path.trim()) || null;
   if (cachedPath !== overridePath) {
     disposeCachedCodexInstances();
     cachedPath = overridePath;
   }
-  const resolvedProfile = resolveCodexConfigProfile(profile);
-  const profileId = resolvedProfile?.id ?? '';
-  const cached = cachedCodexByProfile.get(profileId);
-  if (cached) return cached;
-  const client = new CodexAppServerClient({
+  if (cachedCodex) return cachedCodex;
+  cachedCodex = new CodexAppServerClient({
     codexPathOverride: overridePath,
-    profile: resolvedProfile?.id ?? null,
     config: null,
     env: snapshotProcessEnv(),
   });
-  cachedCodexByProfile.set(profileId, client);
-  return client;
+  return cachedCodex;
 }
 
 /**
@@ -68,6 +60,6 @@ export function invalidateCodexInstance(): void {
 }
 
 function disposeCachedCodexInstances(): void {
-  for (const client of cachedCodexByProfile.values()) client.dispose();
-  cachedCodexByProfile.clear();
+  cachedCodex?.dispose();
+  cachedCodex = null;
 }

@@ -23,7 +23,7 @@ interface Props {
 }
 
 function modelHint(adapter: GeneratorAdapterId, runtimeProvider: string): string {
-  if (adapter === 'codex-cli') return '留空时使用所选 Codex CLI profile 的默认模型';
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex CLI provider 的默认模型';
   if (adapter === 'grok-build') return '留空时使用 Grok Build 配置中的默认模型';
   return runtimeProvider
     ? `留空时使用 ${runtimeProvider} Gateway 的 Sonnet 路由`

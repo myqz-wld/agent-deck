@@ -1,13 +1,22 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { AppSettings } from '@shared/types';
 import { scanCodexSettings } from '../codex-scanner';
 
 function makeTmpConfigPath(): string {
   return join(mkdtempSync(join(tmpdir(), 'codex-permission-scan-')), 'config.toml');
 }
+
+const roots: string[] = [];
+const originalCodexHome = process.env.CODEX_HOME;
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = originalCodexHome;
+});
 
 type CodexScanSettings = Pick<
   AppSettings,
@@ -84,5 +93,17 @@ describe('scanCodexSettings', () => {
       toolTimeoutSec: null,
       reason: 'Agent Deck MCP 已关闭',
     });
+  });
+
+  it('scans config.toml from CODEX_HOME by default', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codex-permission-home-'));
+    roots.push(root);
+    process.env.CODEX_HOME = root;
+    writeFileSync(join(root, 'config.toml'), 'model = "gpt-custom-home"\n', 'utf8');
+
+    const result = await scanCodexSettings({ appSettings: baseSettings });
+
+    expect(result.config.path).toBe(join(root, 'config.toml'));
+    expect(result.config.topLevelModel).toBe('gpt-custom-home');
   });
 });

@@ -44,7 +44,7 @@ export interface AppSettings {
   summaryTimeoutMs: number;
   /** 周期简报使用的隔离运行时 adapter，与被总结会话自身的 adapter 无关。 */
   summaryAdapter: GeneratorAdapterId;
-  /** Claude Gateway profile id 或 Codex config profile id；Grok 必须为空。 */
+  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
   summaryRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   summaryModel: string;
@@ -52,7 +52,7 @@ export interface AppSettings {
   summaryThinking: SessionThinkingLevel;
   /** 续接检查点生成器 adapter，与 successor adapter 独立。 */
   continuationCheckpointAdapter: GeneratorAdapterId;
-  /** Claude Gateway profile id 或 Codex config profile id；Grok 必须为空。 */
+  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
   continuationCheckpointRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   continuationCheckpointModel: string;
@@ -132,7 +132,7 @@ export interface AppSettings {
    * Codex CLI 二进制绝对路径（Codex app-server executable override）。
    * - null：用 @openai/codex 自带的 vendored 二进制（已打包进 .app）
    * - 绝对路径：覆盖为外部 codex（例如用户自装的更新版 `which codex` 给的路径）
-   * agent-deck 不读不写 codex 鉴权（`~/.codex/config.toml` / 环境变量），全由用户终端配置。
+   * agent-deck 不读不写 codex 鉴权（`$CODEX_HOME/config.toml` / 环境变量），全由用户终端配置。
    */
   codexCliPath: string | null;
   /**
@@ -298,7 +298,7 @@ export interface AppSettings {
    * - hook token 嵌进每个 CLI 子进程 spawn 的 hook 命令，泄漏面广
    * - mcp token 通过 Codex app-server thread options 的 `bearer_token_env_var` 引用
    *   `AGENT_DECK_MCP_TOKEN`，并在 Settings UI 显示给用户复制（外部 MCP client 用），
-   *   不再持久写入 `~/.codex/config.toml`
+   *   不再持久写入 `$CODEX_HOME/config.toml`
    *
    * in-process transport 不走 token（同进程闭包，B'3）。用户**不应**在 UI 上修改此值；
    * 仅在被泄漏需要轮换时手动清掉持久化文件让它重生成。

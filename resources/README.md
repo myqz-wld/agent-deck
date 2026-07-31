@@ -22,16 +22,17 @@ Packaged app conventions, Agents, and Skills are immutable runtime resources. Th
 may attach an app-owned runtime delta to a bundled Agent without editing this directory:
 
 - Claude, Codex, and Grok bundled Agents may override model and thinking.
-- Claude and Codex bundled Agents may additionally override a Gateway profile or a native Codex
-  config profile backed by `$CODEX_HOME/<name>.config.toml`.
+- Claude bundled Agents may additionally override a Gateway profile. Codex bundled Agents may
+  select a native `model_provider` declared in `${CODEX_HOME:-~/.codex}/config.toml`.
 - Reset removes the whole app-owned delta and exposes the packaged Agent defaults again.
 - Bundled Skills have no runtime override. Direct and Plugin Agents/Skills remain owned by their
   native adapter directories and are read-only in the Assets Library; Agent Deck provides no
   create, edit, delete, install, or enable operation for them.
 
 Provider endpoints, credentials, and alias definitions stay in each adapter's native configuration.
-The resource layer stores only adapter-native selector ids (Claude Gateway or Codex profile); it
-neither copies credentials nor writes user-level Claude, Codex, or Grok configuration.
+The resource layer stores only adapter-native selector ids (Claude Gateway or Codex
+`model_provider`); it neither copies credentials nor writes user-level Claude, Codex, or Grok
+configuration.
 
 ## claude-config/
 
@@ -55,11 +56,12 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 - `agent-deck-plugin/skills/*/SKILL.md`: After resource placeholder replacement, mirrored into the Codex skills extraRoot under app userData and injected into in-app Codex sessions through app-server `skills/extraRoots/set`; it is not written to the user-level `~/.codex/skills/agent-deck/`.
 - Native Codex Plugins contribute Skills. Agent Deck additionally recognizes Plugin `agents/*.toml` as an Agent Deck extension and maps the same supported custom-agent fields into the existing Codex app-server session configuration; this is not a native Codex Plugin Agent component.
 - `spawn_session(agentName=...)` resolves bundled Agents, project `.codex/agents`, user `${CODEX_HOME:-~/.codex}/agents`, and the Plugin TOML extension. Plugin selectors use `<plugin>:<agent>`.
-- The public `profile` selector resolves an existing `$CODEX_HOME/<profile>.config.toml` and starts
-  that session's app-server as `codex --profile <profile> app-server --stdio`. Agent Deck does not
-  copy the file or reinterpret a custom Agent TOML `model_provider` as the process profile.
+- The public `provider` selector names a native `model_provider` available from
+  `${CODEX_HOME:-~/.codex}/config.toml` (including its top-level default) and applies it through the
+  app-server's supported thread configuration. The retired `profile` selector is rejected because
+  the bundled Codex app-server cannot load `$CODEX_HOME/<name>.config.toml` profiles.
 - The Assets Library shows user-root Agents/Skills, native Plugin Skills, and Plugin TOML Agent extensions. All direct and Plugin files are inspection-only and stay under Codex CLI ownership.
-- Agent Deck reads native Codex configuration but does not write `~/.codex/config.toml`, `~/.codex/AGENTS.md`, `~/.codex/skills/agent-deck/`, or native config-profile files.
+- Agent Deck reads native Codex configuration but does not write `${CODEX_HOME:-~/.codex}/config.toml`, `~/.codex/AGENTS.md`, or `~/.codex/skills/agent-deck/`.
 
 ## grok-config/
 

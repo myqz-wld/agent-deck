@@ -308,31 +308,63 @@ export type GetSessionArgs = z.infer<z.ZodObject<typeof GET_SESSION_SCHEMA>>;
 export type ListSessionEventsArgs = z.infer<z.ZodObject<typeof LIST_SESSION_EVENTS_SCHEMA>>;
 export type ShutdownSessionArgs = z.infer<z.ZodObject<typeof SHUTDOWN_SESSION_SCHEMA>>;
 
-/** sessions.list_sessions / get_session 共享的 metadata 投影（与 helpers.ts projectSession 对齐 — 字段漂移此处 satisfies 必拦）。 */
-export interface ProjectedSession {
-  sessionId: string;
-  adapter: string;
-  gateway: string | null;
-  profile: string | null;
-  cwd: string;
-  lifecycle: 'active' | 'dormant' | 'closed';
-  title: string | null;
-  lastEventAt: number | null;
-  teamName: string | null;
-  teams: Array<{ teamId: string; teamName: string }>;
-  spawnedBy: string | null;
-  spawnDepth: number;
-}
+/** Runtime-published metadata projection shared by list_sessions and get_session. */
+export const PROJECTED_SESSION_OUTPUT_SCHEMA = z
+  .object({
+    sessionId: z.string().min(1).describe('Canonical Agent Deck session id.'),
+    adapter: z
+      .string()
+      .min(1)
+      .describe(
+        'Persisted adapter id. Current sessions use claude-code, codex-cli, or grok-build.',
+      ),
+    gateway: z
+      .string()
+      .min(1)
+      .nullable()
+      .describe('Claude Gateway id; null for Codex/Grok or Claude-native default.'),
+    provider: z
+      .string()
+      .min(1)
+      .nullable()
+      .describe('Codex model_provider id; null for Claude/Grok or Codex config.toml default.'),
+    cwd: z.string().min(1).max(4096),
+    lifecycle: z.enum(['active', 'dormant', 'closed']),
+    title: z.string().nullable(),
+    lastEventAt: z.number().int().nonnegative().nullable(),
+    teamName: z.string().min(1).nullable(),
+    teams: z
+      .array(
+        z
+          .object({
+            teamId: z.string().min(1),
+            teamName: z.string().min(1),
+          })
+          .strict(),
+      )
+      .describe('All active team memberships visible on this session.'),
+    spawnedBy: z.string().min(1).nullable(),
+    spawnDepth: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type ProjectedSession = z.infer<typeof PROJECTED_SESSION_OUTPUT_SCHEMA>;
 
 /** list_sessions ok return shape（list.ts handler）。 */
-export interface ListSessionsResult {
-  total: number;
-  /** True when another page may be available with offset + limit. */
-  hasMore: boolean;
-  sessions: ProjectedSession[];
-}
+export const LIST_SESSIONS_OUTPUT_SCHEMA = z
+  .object({
+    total: z.number().int().nonnegative(),
+    hasMore: z
+      .boolean()
+      .describe('True when another page may be available with offset + limit.'),
+    sessions: z.array(PROJECTED_SESSION_OUTPUT_SCHEMA),
+  })
+  .strict();
+
+export type ListSessionsResult = z.infer<typeof LIST_SESSIONS_OUTPUT_SCHEMA>;
 
 /** get_session ok return shape（get.ts handler）。 */
+export const GET_SESSION_OUTPUT_SCHEMA = PROJECTED_SESSION_OUTPUT_SCHEMA;
 export type GetSessionResult = ProjectedSession;
 
 /** list_session_events ok return shape（list-session-events.ts handler）。 */

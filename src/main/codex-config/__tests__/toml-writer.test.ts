@@ -1,12 +1,20 @@
 /** Side-effect-free bounded Codex config reader tests. */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  getCodexConfigPath,
   readTopLevelModelFromCodexConfig,
   readTopLevelModelReasoningEffortFromCodexConfig,
 } from '../toml-writer';
+
+const originalCodexHome = process.env.CODEX_HOME;
+
+afterEach(() => {
+  if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = originalCodexHome;
+});
 
 function makeTmp(): string {
   return join(mkdtempSync(join(tmpdir(), 'codex-toml-')), 'config.toml');
@@ -27,8 +35,8 @@ describe('readTopLevelModelFromCodexConfig (section-aware)', () => {
     expect(readTopLevelModelFromCodexConfig(path)).toBe('gpt-5.5');
   });
 
-  it('无顶层 model 但 [profiles.foo] 段内有 model → 返 null（section-aware 不误读）', () => {
-    const path = writeConfig('model_provider = "x"\n\n[profiles.foo]\nmodel = "gpt-x"\n');
+  it('无顶层 model 但 table 段内有 model → 返 null（section-aware 不误读）', () => {
+    const path = writeConfig('model_provider = "x"\n\n[other.foo]\nmodel = "gpt-x"\n');
     expect(readTopLevelModelFromCodexConfig(path)).toBeNull();
   });
 
@@ -77,7 +85,7 @@ describe('readTopLevelModelReasoningEffortFromCodexConfig', () => {
     'reads supported top-level effort %s',
     (effort) => {
       const path = writeConfig(
-        `model = "gpt-5.6-sol"\nmodel_reasoning_effort = "${effort}"\n[profiles.fast]\nmodel_reasoning_effort = "low"\n`,
+        `model = "gpt-5.6-sol"\nmodel_reasoning_effort = "${effort}"\n[model_providers.fast]\nmodel_reasoning_effort = "low"\n`,
       );
       const before = readFileSync(path, 'utf8');
       expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBe(effort);
@@ -98,16 +106,8 @@ describe('readTopLevelModelReasoningEffortFromCodexConfig', () => {
     expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBe('max');
   });
 
-  it('does not read a profile-local effort', () => {
-    const path = writeConfig('[profiles.fast]\nmodel_reasoning_effort = "ultra"\n');
-    expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBeNull();
-  });
-
-  it('stays unset when an active profile could override the top-level effort', () => {
-    const path = writeConfig(
-      'profile = "fast"\nmodel_reasoning_effort = "high"\n' +
-        '[profiles.fast]\nmodel_reasoning_effort = "ultra"\n',
-    );
+  it('does not read a provider-local effort', () => {
+    const path = writeConfig('[model_providers.fast]\nmodel_reasoning_effort = "ultra"\n');
     expect(readTopLevelModelReasoningEffortFromCodexConfig(path)).toBeNull();
   });
 
@@ -122,5 +122,12 @@ describe('readTopLevelModelReasoningEffortFromCodexConfig', () => {
         writeConfig('model_reasoning_effort = ultra\n'),
       ),
     ).toBeNull();
+  });
+});
+
+describe('getCodexConfigPath', () => {
+  it('honors a custom CODEX_HOME', () => {
+    process.env.CODEX_HOME = '/tmp/agent-deck-custom-codex-home';
+    expect(getCodexConfigPath()).toBe('/tmp/agent-deck-custom-codex-home/config.toml');
   });
 });

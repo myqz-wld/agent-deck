@@ -18,6 +18,7 @@ vi.mock('./bundled-assets', () => ({
       name,
       qualifiedName: name,
       description: frontmatter.description ?? '',
+      provider: frontmatter.model_provider || undefined,
       absPath,
     }),
     buildSkillMeta: (
@@ -98,5 +99,25 @@ describe('read-only user asset path resolution', () => {
         qualifiedName: 'plugin:demo-plugin/demo-skill',
       }),
     ]);
+  });
+
+  it('preserves a native Codex Agent model_provider in read-only metadata', () => {
+    const agentRoot = join(process.env.CODEX_HOME!, 'agents');
+    mkdirSync(agentRoot, { recursive: true });
+    writeFileSync(
+      join(agentRoot, 'reviewer.toml'),
+      [
+        'name = "reviewer"',
+        'description = "provider metadata"',
+        'model_provider = "native-team"',
+      ].join('\n'),
+      'utf8',
+    );
+
+    expect(
+      listUserAssets().agents.find(
+        (asset) => asset.adapter === 'codex-cli' && asset.name === 'reviewer',
+      ),
+    ).toMatchObject({ provider: 'native-team' });
   });
 });

@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
+import {
+  firstUnsupportedTargetRuntimeField,
+  unsupportedTargetRuntimeFieldMessage,
+} from '@main/adapters/runtime-control-contracts';
 import { SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION } from './shared';
 import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
@@ -37,7 +41,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway, or a Codex native config with profile.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway or a Codex model_provider with provider; the retired profile input is rejected.',
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
   callerSessionId: z
@@ -112,7 +116,19 @@ export const EXIT_WORKTREE_SCHEMA = {
     .describe(SDK_WRITE_CALLER_SESSION_ID_DESCRIPTION),
 };
 
-export const HAND_OFF_SESSION_ARGS_SCHEMA = z.object(HAND_OFF_SESSION_SHAPE).strict();
+export const HAND_OFF_SESSION_ARGS_SCHEMA = z
+  .object(HAND_OFF_SESSION_SHAPE)
+  .strict()
+  .superRefine((args, ctx) => {
+    if (!args.adapter) return;
+    const unsupported = firstUnsupportedTargetRuntimeField(args.adapter, args);
+    if (!unsupported) return;
+    ctx.addIssue({
+      code: 'custom',
+      path: [unsupported],
+      message: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
+    });
+  });
 
 export type HandOffSessionArgs = z.infer<typeof HAND_OFF_SESSION_ARGS_SCHEMA>;
 export type EnterWorktreeArgs = z.infer<z.ZodObject<typeof ENTER_WORKTREE_SCHEMA>>;
@@ -125,8 +141,8 @@ export interface HandOffSessionResult {
   adapter: 'claude-code' | 'codex-cli' | 'grok-build';
   /** Resolved Claude Gateway profile; null for Codex/Grok or Claude-native default. */
   gateway: string | null;
-  /** Resolved native Codex config profile; null for Claude/Grok or Codex base config.toml. */
-  profile: string | null;
+  /** Resolved Codex model_provider; null for Claude/Grok or Codex config.toml default. */
+  provider: string | null;
   cwd: string;
   continuationContext: {
     version: number;

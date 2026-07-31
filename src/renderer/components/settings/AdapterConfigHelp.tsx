@@ -31,7 +31,7 @@ const CONFIGS: Record<'claude' | 'codex' | 'grok', AdapterHelpConfig> = {
   },
   codex: {
     name: 'Codex CLI',
-    configPaths: <InlineCode>~/.codex/config.toml</InlineCode>,
+    configPaths: <InlineCode>$CODEX_HOME/config.toml</InlineCode>,
     managedFeatures: '模型、权限、沙盒和 MCP',
     terminalIntegration: (
       <>

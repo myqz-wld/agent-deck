@@ -16,8 +16,8 @@ import { sessionOwnershipLineages } from '@main/session/hand-off/ownership';
 import { EXTERNAL_CALLER_SENTINEL } from '../../types';
 import {
   isRelatedSessionVisible,
-  ok,
   projectSession,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -161,7 +161,7 @@ export const listSessionsHandler = withMcpGuard(
     // plan team-cohesion-fix-20260513 Phase A Step A7：projectSession 不再自反查 universal
     // team backend，依赖 caller 传 enriched SessionRecord。collectOutputPage 已按 page batch enrich
     // 并做默认 caller-related 过滤，避免 list_sessions 默认暴露无关 active sessions。
-    return ok({
+    return structuredOk({
       total: page.length,
       hasMore,
       sessions: page.map(projectSession),
