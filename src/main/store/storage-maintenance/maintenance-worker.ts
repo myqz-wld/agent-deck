@@ -1,7 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
-import { StorageMaintenanceEngine } from './maintenance-engine';
+import { boundedMaintenanceError, StorageMaintenanceEngine } from './maintenance-engine';
 import {
   STORAGE_MAINTENANCE_WORKER_KIND,
   type StorageMaintenanceCheckpointResult,
@@ -9,7 +9,6 @@ import {
   type StorageMaintenanceWorkerData,
   type StorageMaintenanceWorkerMessage,
 } from './maintenance-worker-contract';
-import { boundedMaintenanceError } from './state';
 
 interface CheckpointRow {
   busy: number;
@@ -72,11 +71,7 @@ function runWorker(data: StorageMaintenanceWorkerData): void {
       throw new Error(`storage maintenance worker requires WAL mode (actual=${journalMode})`);
     }
     db.pragma(`wal_autocheckpoint = ${data.autoCheckpointPages}`);
-    const engine = new StorageMaintenanceEngine(
-      db,
-      data.restartEligible,
-      data.engineOptions,
-    );
+    const engine = new StorageMaintenanceEngine(db, data.engineOptions);
 
     const checkpoint = (): StorageMaintenanceCheckpointResult => {
       const result = runPassiveCheckpoint(db);
@@ -150,7 +145,6 @@ function isWorkerData(value: unknown): value is StorageMaintenanceWorkerData {
   const data = value as Record<string, unknown>;
   return data.kind === STORAGE_MAINTENANCE_WORKER_KIND &&
     typeof data.dbPath === 'string' && data.dbPath.length > 0 &&
-    Array.isArray(data.restartEligible) &&
     typeof data.engineOptions === 'object' && data.engineOptions !== null &&
     isPositiveInteger(data.autoCheckpointPages) &&
     isPositiveInteger(data.checkpointIntervalMs) &&

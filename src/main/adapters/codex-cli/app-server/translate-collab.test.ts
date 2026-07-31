@@ -15,20 +15,17 @@ function collect() {
 }
 
 describe('Codex app-server collaboration translation', () => {
-  it('preserves all app-server collab-agent parameters and completion state', () => {
+  it('preserves the current app-server collab tool item shape', () => {
     const { emit, events } = collect();
     const item = {
       id: 'agent-2',
-      type: 'collabAgentToolCall',
-      tool: 'spawnAgent',
+      type: 'collabToolCall',
+      tool: 'spawn_agent',
       senderThreadId: 'lead-thread',
-      receiverThreadIds: ['child-thread'],
+      receiverThreadId: null,
+      newThreadId: 'child-thread',
       prompt: 'inspect the adapter',
-      model: 'gpt-5.6-codex',
-      reasoningEffort: 'xhigh',
-      agentsStates: {
-        'child-thread': { status: 'running', message: null },
-      },
+      agentStatus: 'running',
       status: 'completed',
     };
 
@@ -44,10 +41,8 @@ describe('Codex app-server collaboration translation', () => {
     const toolInput = {
       collab_tool: 'spawn_agent',
       sender_thread_id: 'lead-thread',
-      receiver_thread_ids: ['child-thread'],
+      new_thread_id: 'child-thread',
       prompt: 'inspect the adapter',
-      model: 'gpt-5.6-codex',
-      reasoning_effort: 'xhigh',
     };
     expect(events).toEqual([
       {
@@ -65,10 +60,8 @@ describe('Codex app-server collaboration translation', () => {
           toolName: 'Agent',
           toolInput,
           toolResult: {
-            receiver_thread_ids: ['child-thread'],
-            agents_states: {
-              'child-thread': { status: 'running', message: null },
-            },
+            new_thread_id: 'child-thread',
+            agent_status: 'running',
           },
           status: 'completed',
           error: undefined,
@@ -174,7 +167,7 @@ describe('Codex app-server collaboration translation', () => {
       {
         type: 'function_call',
         namespace: 'collaboration',
-        name: 'send_input',
+        name: 'send_message',
         call_id: 'call-complete-input',
         arguments: JSON.stringify(completeInput),
       },
@@ -196,7 +189,7 @@ describe('Codex app-server collaboration translation', () => {
     expect(events.map((event) => event.payload)).toEqual([
       {
         toolName: 'Agent',
-        toolInput: { ...completeInput, collab_tool: 'send_input' },
+        toolInput: { ...completeInput, collab_tool: 'send_message' },
         toolUseId: 'call-complete-input',
       },
       {
@@ -231,17 +224,17 @@ describe('Codex app-server collaboration translation', () => {
         visibleText: "Follow-up tasks can't target the root agent",
       },
       {
-        name: 'send_input',
+        name: 'interrupt_agent',
         output: 'target agent is missing an agent_path',
         visibleText: 'target agent is missing an agent_path',
       },
       {
-        name: 'resume_agent',
+        name: 'interrupt_agent',
         output: 'agent with id agent-7 not found',
         visibleText: 'agent with id agent-7 not found',
       },
       {
-        name: 'close_agent',
+        name: 'interrupt_agent',
         output: 'root is not a spawned agent',
         visibleText: 'root is not a spawned agent',
       },
@@ -251,7 +244,7 @@ describe('Codex app-server collaboration translation', () => {
         visibleText: 'timeout_ms must be greater than zero',
       },
       {
-        name: 'resume_agent',
+        name: 'followup_task',
         output: [{ type: 'input_text', text: 'agent with id agent-8 is closed' }],
         visibleText: 'agent with id agent-8 is closed',
       },
@@ -310,7 +303,7 @@ describe('Codex app-server collaboration translation', () => {
     ).toMatchObject({ status: 'failed', error: 'Codex collaboration call failed' });
   });
 
-  it('keeps complete Codex 0.144 collaboration parameters across schema variants', () => {
+  it('keeps complete provider-native and Agent Deck collaboration parameters', () => {
     const { emit, events } = collect();
     const state = createCodexAppServerTranslateState();
     const calls = [
@@ -325,7 +318,7 @@ describe('Codex app-server collaboration translation', () => {
         }),
       },
       {
-        name: 'send_input',
+        name: 'send_message',
         call_id: 'send-v1',
         arguments: JSON.stringify({
           id: 'agent-7',
@@ -334,14 +327,34 @@ describe('Codex app-server collaboration translation', () => {
         }),
       },
       {
+        name: 'interrupt_agent',
+        call_id: 'interrupt-v1',
+        arguments: JSON.stringify({ id: 'agent-7' }),
+      },
+      {
+        name: 'wait_agent',
+        call_id: 'wait-v1',
+        arguments: JSON.stringify({ targets: ['agent-7', 'agent-8'], timeout_ms: 20000 }),
+      },
+      {
+        name: 'send_input',
+        call_id: 'provider-send-v1',
+        arguments: JSON.stringify({ id: 'agent-7', message: 'provider input' }),
+      },
+      {
         name: 'resume_agent',
-        call_id: 'resume-v1',
+        call_id: 'provider-resume-v1',
         arguments: JSON.stringify({ id: 'agent-7' }),
       },
       {
         name: 'wait',
-        call_id: 'wait-v1',
-        arguments: JSON.stringify({ targets: ['agent-7', 'agent-8'], timeout_ms: 20000 }),
+        call_id: 'provider-wait-v1',
+        arguments: JSON.stringify({ ids: ['agent-7'], timeout_ms: 15000 }),
+      },
+      {
+        name: 'close_agent',
+        call_id: 'provider-close-v1',
+        arguments: JSON.stringify({ id: 'agent-7' }),
       },
     ];
 
@@ -371,7 +384,7 @@ describe('Codex app-server collaboration translation', () => {
       {
         toolName: 'Agent',
         toolInput: {
-          collab_tool: 'send_input',
+          collab_tool: 'send_message',
           id: 'agent-7',
           message: 'visible send message',
           interrupt: true,
@@ -380,8 +393,8 @@ describe('Codex app-server collaboration translation', () => {
       },
       {
         toolName: 'Agent',
-        toolInput: { collab_tool: 'resume_agent', id: 'agent-7' },
-        toolUseId: 'resume-v1',
+        toolInput: { collab_tool: 'interrupt_agent', id: 'agent-7' },
+        toolUseId: 'interrupt-v1',
       },
       {
         toolName: 'Agent',
@@ -391,6 +404,34 @@ describe('Codex app-server collaboration translation', () => {
           targets: ['agent-7', 'agent-8'],
         },
         toolUseId: 'wait-v1',
+      },
+      {
+        toolName: 'Agent',
+        toolInput: {
+          collab_tool: 'send_input',
+          id: 'agent-7',
+          message: 'provider input',
+        },
+        toolUseId: 'provider-send-v1',
+      },
+      {
+        toolName: 'Agent',
+        toolInput: { collab_tool: 'resume_agent', id: 'agent-7' },
+        toolUseId: 'provider-resume-v1',
+      },
+      {
+        toolName: 'Agent',
+        toolInput: {
+          collab_tool: 'wait',
+          ids: ['agent-7'],
+          timeout_ms: 15000,
+        },
+        toolUseId: 'provider-wait-v1',
+      },
+      {
+        toolName: 'Agent',
+        toolInput: { collab_tool: 'close_agent', id: 'agent-7' },
+        toolUseId: 'provider-close-v1',
       },
     ]);
     expect(JSON.stringify(events)).toContain('visible spawn message');
@@ -408,7 +449,7 @@ describe('Codex app-server collaboration translation', () => {
           item: {
             type: 'function_call',
             namespace: 'collaboration',
-            name: 'wait_agent',
+            name: 'wait',
             call_id: 'call-wait-1',
             arguments: '{"timeout_ms":30000}',
           },
@@ -423,14 +464,13 @@ describe('Codex app-server collaboration translation', () => {
         params: {
           item: {
             id: 'call-wait-1',
-            type: 'collabAgentToolCall',
+            type: 'collabToolCall',
             tool: 'wait',
             senderThreadId: 'lead-thread',
-            receiverThreadIds: [],
+            receiverThreadId: null,
+            newThreadId: null,
             prompt: null,
-            model: null,
-            reasoningEffort: null,
-            agentsStates: {},
+            agentStatus: null,
             status: 'inProgress',
           },
         },
@@ -444,19 +484,19 @@ describe('Codex app-server collaboration translation', () => {
       kind: 'tool-use-start',
       payload: {
         toolUseId: 'call-wait-1',
-        toolInput: { collab_tool: 'wait_agent', timeout_ms: 30000 },
+        toolInput: { collab_tool: 'wait', timeout_ms: 30000 },
       },
     });
     expect(events[1]).toMatchObject({
       kind: 'tool-use-start',
       payload: {
         toolUseId: 'call-wait-1',
-        toolInput: { collab_tool: 'wait_agent' },
+        toolInput: { collab_tool: 'wait' },
       },
     });
     expect(mergeToolUsePayload(events[0].payload, events[1].payload)).toMatchObject({
       toolInput: {
-        collab_tool: 'wait_agent',
+        collab_tool: 'wait',
         timeout_ms: 30000,
         sender_thread_id: 'lead-thread',
       },

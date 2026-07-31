@@ -118,16 +118,6 @@ export interface CreateSessionOpts {
    */
   additionalDirectories?: readonly string[];
   /**
-   * plan §P3 Step 3.5 + §D1 ADR §(c) per-session env 增量字段：merge 到 codex 子进程
-   * envOverride 末尾（优先级最高，与 caller / options-builder spread 一致）。bridge 不主动
-   * enforce default — undefined / 空 object 不新增字段;generic 透传机制(目前无 hot caller —
-   * reviewer-claude wrapper 路径已改 cross-adapter native 删除;字段保留供未来 caller 重用)。
-   *
-   * 注入路径：ensureCodex 接收 envOverrideExtra 参数后 `Object.assign(envOverride,
-   * opts.envOverrideExtra ?? {})`（后写覆盖前写，options-builder spread 字段最终生效）。
-   */
-  envOverrideExtra?: Readonly<Record<string, string>>;
-  /**
    * plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 internal plumbing
    * (codex 端镜像 claude bridge createSession opts.handOff):hand-off cold-start prompt
    * metadata。spawn 主路径 first user message emit 时 spread 进 events.payload(thread-loop
@@ -203,7 +193,6 @@ export interface CreateSessionDeps {
     sessionId: string,
     sessionToken: string,
     profile?: string,
-    envOverrideExtra?: Readonly<Record<string, string>>,
   ) => Promise<CodexAppServerClient>;
 }
 

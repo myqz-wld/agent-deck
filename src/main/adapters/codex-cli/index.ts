@@ -10,7 +10,7 @@ import type {
   ForkSessionSource,
 } from '../types';
 import type {
-  AgentEvent,
+  StoredAgentEvent,
   CodexApprovalPolicy,
   ProviderUsageSnapshot,
   PermissionResponse,
@@ -38,7 +38,7 @@ const ADAPTER_ID = 'codex-cli';
  * - ✅ hook installer + hook routes for external terminal Codex sessions
  * - ✅ app-server native command / file / permission / MCP tool approval requests
  * - ❌ 通用 AskUserQuestion / ExitPlanMode（MCP tool approval 的 requestUserInput
- *   compatibility path 由 permission queue 单独承接）
+ *   由 permission queue 单独承接）
  * - ❌ 通用 setPermissionMode
  * - ✅ Codex approvalPolicy 可持久化热切，下一次 turn/start 生效
  *
@@ -116,7 +116,6 @@ class CodexCliAdapter implements AgentAdapter {
       approvalPolicy: opts.approvalPolicy,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
-      envOverrideExtra: opts.envOverrideExtra,
       // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 7 步(facade wrapper):
       // 显式 spread handOff,否则 facade 白名单 spread 会丢字段 → bridge 拿不到 metadata。
       handOff: opts.handOff,
@@ -147,7 +146,6 @@ class CodexCliAdapter implements AgentAdapter {
       approvalPolicy: opts.approvalPolicy,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
-      envOverrideExtra: opts.envOverrideExtra,
       handOff: opts.handOff,
       awaitCanonicalId: opts.awaitCanonicalId,
       initialSessionRegistration: opts.initialSessionRegistration,
@@ -188,7 +186,6 @@ class CodexCliAdapter implements AgentAdapter {
       approvalPolicy: target.approvalPolicy,
       networkAccessEnabled: target.networkAccessEnabled,
       additionalDirectories: target.additionalDirectories,
-      envOverrideExtra: target.envOverrideExtra,
       handOff: target.handOff,
       awaitCanonicalId: true,
       initialSessionRegistration: target.initialSessionRegistration,
@@ -360,25 +357,19 @@ class CodexCliAdapter implements AgentAdapter {
     if (!this.bridge) {
       return unavailableUsageSnapshot(
         'codex-cli',
-        'Codex',
         'Codex 暂时无法读取额度信息',
       );
     }
     return this.bridge.getUsageSnapshot();
   }
 
-  /**
-   * Codex 专属 sandbox 切换。方法名沿用旧 IPC 兼容；bridge 内部持久化新档位并
-   * patch live app-server thread options，让下一次 turn/start 使用新 sandbox。
-   * 失败时 bridge 内部已 emit error message + 回滚 sessionRepo.codexSandbox。
-   */
-  async restartWithCodexSandbox(
+  /** Persist and apply a Codex sandbox selection to subsequent turns. */
+  async setCodexSandbox(
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
-    handoffPrompt: string,
-  ): Promise<string> {
+  ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
-    return this.bridge.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
+    return this.bridge.setCodexSandbox(sessionId, sandbox);
   }
 
   /** Persist a Codex approval policy and apply it to the next app-server turn. */
@@ -393,7 +384,7 @@ class CodexCliAdapter implements AgentAdapter {
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
   async summariseEvents(
     cwd: string,
-    events: AgentEvent[],
+    events: StoredAgentEvent[],
     evidenceContext?: string,
     runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
   ): Promise<string | null> {
@@ -413,12 +404,12 @@ class CodexCliAdapter implements AgentAdapter {
   }
 
   // 不实现：通用 respondAskUserQuestion / respondExitPlanMode / setPermissionMode。
-  // MCP tool approval 的 requestUserInput compatibility path 复用 respondPermission。
+  // MCP tool approval 的 requestUserInput 复用 respondPermission。
 }
 
 /**
  * Typed export（D2）：caller `adapterRegistry.get('codex-cli')` 拿到本 class 实例后,
- * 自动暴露 codex 专属方法（setCodexApprovalPolicy / restartWithCodexSandbox /
+ * 自动暴露 codex 专属方法（setCodexApprovalPolicy / setCodexSandbox /
  * setCodexCliPath 等）TS visible。
  */
 export type { CodexCliAdapter };

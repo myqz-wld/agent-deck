@@ -69,14 +69,13 @@ beforeEach(() => {
 
 const caller = (sid: string) => ({
   callerSessionId: sid,
-  parentSessionId: sid,
   transport: 'http' as const,
 });
 
 describe('applySpawnGuards — depth 上限', () => {
   it('caller depth >= max → deny', () => {
     seedSession('lead', { spawnDepth: 3 });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli');
+    const r = applySpawnGuards(caller('lead'));
     expect('isError' in r).toBe(true);
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
@@ -91,7 +90,7 @@ describe('applySpawnGuards — depth 上限', () => {
 
   it('caller depth < max → 通过该规则', () => {
     seedSession('lead', { spawnDepth: 2 });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli');
+    const r = applySpawnGuards(caller('lead'));
     expect('ok' in r).toBe(true);
     if ('ok' in r) {
       expect(r.spawnLimits).toMatchObject({
@@ -107,7 +106,7 @@ describe('applySpawnGuards — depth 上限', () => {
   // 现 handOffMode 跳全部)。故意推翻 REVIEW_46/47 「archiveCaller=false 退化 normal spawn」修法。
   it('handOffMode=true → caller depth >= max 仍通过(跳过 depth check,§D4 修法)', () => {
     seedSession('lead', { spawnDepth: 3 });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { handOffMode: true });
+    const r = applySpawnGuards(caller('lead'), { handOffMode: true });
     expect('ok' in r).toBe(true);
     if ('ok' in r) {
       // parentDepth 字段仍返回真实值(下游 spawn handler 在 handOffMode 路径不消费 +1 但显式返不增成本)
@@ -123,10 +122,10 @@ describe('applySpawnGuards — depth 上限', () => {
     seedSession('c1', { spawnedBy: 'lead', lifecycle: 'active' });
     // 即使 caller depth 撞顶 + DB 已有 1 child(fan-out=1) + 已起 1 次(rate=1),
     // handOffMode=true 路径都无脑通过 — hand-off 是平级接力,完全不进 spawn-guards 防御
-    const r1 = applySpawnGuards(caller('lead'), '/p1', 'codex-cli', { handOffMode: true });
+    const r1 = applySpawnGuards(caller('lead'), { handOffMode: true });
     expect('ok' in r1).toBe(true);
     if ('ok' in r1) r1.fanOutSlot.release();
-    const r2 = applySpawnGuards(caller('lead'), '/p2', 'codex-cli', { handOffMode: true });
+    const r2 = applySpawnGuards(caller('lead'), { handOffMode: true });
     expect('ok' in r2).toBe(true);
     if ('ok' in r2) r2.fanOutSlot.release();
   });
@@ -137,7 +136,7 @@ describe('applySpawnGuards — depth 上限', () => {
     seedSession('lead');
     const initialInflight = inFlightChildren.get('lead');
     const initialTokenCount = spawnRateLimiter.currentCount;
-    const r = applySpawnGuards(caller('lead'), '/p1', 'codex-cli', { handOffMode: true });
+    const r = applySpawnGuards(caller('lead'), { handOffMode: true });
     expect('ok' in r).toBe(true);
     if ('ok' in r) {
       // hand-off 路径不调 inFlightChildren.inc(没进计数表)
@@ -152,7 +151,7 @@ describe('applySpawnGuards — depth 上限', () => {
 
   it('handOffMode=false(默认)→ depth check 仍 enforce(普通 spawn 不受 handOffMode 影响)', () => {
     seedSession('lead', { spawnDepth: 3 });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli', { handOffMode: false });
+    const r = applySpawnGuards(caller('lead'), { handOffMode: false });
     expect('isError' in r).toBe(true);
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
@@ -166,7 +165,7 @@ describe('applySpawnGuards — spawn-rate 滑动窗口', () => {
     settingsState.mcpSpawnRatePerMinute = 3;
     seedSession('lead');
     for (let i = 0; i < 3; i++) {
-      const r = applySpawnGuards(caller('lead'), `/p${i}`, 'codex-cli');
+      const r = applySpawnGuards(caller('lead'));
       expect('ok' in r).toBe(true);
       if ('ok' in r) r.fanOutSlot.release();
     }
@@ -175,9 +174,9 @@ describe('applySpawnGuards — spawn-rate 滑动窗口', () => {
   it('超 limit → deny + retry hint', () => {
     settingsState.mcpSpawnRatePerMinute = 2;
     seedSession('lead');
-    applySpawnGuards(caller('lead'), '/p1', 'codex-cli');
-    applySpawnGuards(caller('lead'), '/p2', 'codex-cli');
-    const r = applySpawnGuards(caller('lead'), '/p3', 'codex-cli');
+    applySpawnGuards(caller('lead'));
+    applySpawnGuards(caller('lead'));
+    const r = applySpawnGuards(caller('lead'));
     expect('isError' in r).toBe(true);
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
@@ -197,7 +196,7 @@ describe('applySpawnGuards — fan-out', () => {
     seedSession('lead');
     seedSession('c1', { spawnedBy: 'lead', lifecycle: 'active' });
     seedSession('c2', { spawnedBy: 'lead', lifecycle: 'active' });
-    const r = applySpawnGuards(caller('lead'), '/elsewhere', 'codex-cli');
+    const r = applySpawnGuards(caller('lead'));
     expect('isError' in r).toBe(true);
     if ('isError' in r) {
       const data = JSON.parse(r.content[0].text);
@@ -215,21 +214,21 @@ describe('applySpawnGuards — fan-out', () => {
     seedSession('lead');
     seedSession('c1', { spawnedBy: 'lead', lifecycle: 'active' });
     // 第一次通过 → in-flight = 1（DB child + 1 in-flight = 2，下次再 spawn 触顶）
-    const r1 = applySpawnGuards(caller('lead'), '/p1', 'codex-cli');
+    const r1 = applySpawnGuards(caller('lead'));
     expect('ok' in r1).toBe(true);
     // 第二次因 in-flight + DB child = 2 触顶
-    const r2 = applySpawnGuards(caller('lead'), '/p2', 'codex-cli');
+    const r2 = applySpawnGuards(caller('lead'));
     expect('isError' in r2).toBe(true);
     if ('ok' in r1) r1.fanOutSlot.release();
     // release 后 in-flight = 0，第三次又能通过（DB child 仍 1，inflight 0，effective+1=2 ≤ 2 不 deny）
-    const r3 = applySpawnGuards(caller('lead'), '/p3', 'codex-cli');
+    const r3 = applySpawnGuards(caller('lead'));
     expect('ok' in r3).toBe(true);
   });
 
   it('release 幂等', () => {
     settingsState.mcpMaxFanOutPerParent = 1;
     seedSession('lead');
-    const r = applySpawnGuards(caller('lead'), '/p1', 'codex-cli');
+    const r = applySpawnGuards(caller('lead'));
     expect('ok' in r).toBe(true);
     if ('ok' in r) {
       r.fanOutSlot.release();
@@ -247,7 +246,7 @@ describe('applySpawnGuards — fan-out', () => {
     seedSession('greedy-c1', { spawnedBy: 'greedy', lifecycle: 'active' });
     // greedy 已达 fan-out=1，连 spam 5 次 spawn 全被 fan-out deny
     for (let i = 0; i < 5; i++) {
-      const r = applySpawnGuards(caller('greedy'), `/p${i}`, 'codex-cli');
+      const r = applySpawnGuards(caller('greedy'));
       expect('isError' in r).toBe(true);
     }
     // spawn-rate token 应该一个都没消耗
@@ -255,7 +254,7 @@ describe('applySpawnGuards — fan-out', () => {
     // 别的 lead 还能正常用 3 次 quota
     seedSession('honest');
     for (let i = 0; i < 3; i++) {
-      const r = applySpawnGuards(caller('honest'), `/h${i}`, 'codex-cli');
+      const r = applySpawnGuards(caller('honest'));
       expect('ok' in r).toBe(true);
       if ('ok' in r) r.fanOutSlot.release();
     }

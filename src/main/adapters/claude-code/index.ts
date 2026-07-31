@@ -11,7 +11,7 @@ import type {
   PermissionMode,
 } from '../types';
 import type {
-  AgentEvent,
+  StoredAgentEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
@@ -375,7 +375,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
   async summariseEvents(
     cwd: string,
-    events: AgentEvent[],
+    events: StoredAgentEvent[],
     evidenceContext?: string,
     runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
   ): Promise<string | null> {

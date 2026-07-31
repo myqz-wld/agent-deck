@@ -24,9 +24,9 @@ const reactivateHandOffSource = vi.hoisted(() =>
 );
 const disposeSessionBrowser = vi.hoisted(() => vi.fn(async () => {}));
 const worktreeLifecycle = vi.hoisted(() => ({
-  mayClearMarker: vi.fn(() => true),
   assertDelete: vi.fn(),
 }));
+const renameLease = vi.hoisted(() => vi.fn());
 
 vi.mock('@main/store/session-repo', () => ({ sessionRepo: makeSessionRepoMock() }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: makeEventRepoMock() }));
@@ -37,8 +37,14 @@ vi.mock('@main/session/hand-off/source-reactivation', () => ({
   reactivateHandOffSource,
 }));
 vi.mock('@main/session/worktree-transition/lifecycle-policy', () => ({
-  mayClearLegacyWorktreeMarker: worktreeLifecycle.mayClearMarker,
   assertWorktreeTransitionAllowsDelete: worktreeLifecycle.assertDelete,
+}));
+vi.mock('@main/store/worktree-transition-repo', () => ({
+  worktreeTransitionRepo: { renameLease },
+}));
+vi.mock('@main/store/db', () => ({
+  getDb: () => ({ transaction: (run: () => void) => run }),
+  isDbClosed: () => false,
 }));
 // REVIEW_31 Bug 5：sessionManager.list/delete/markClosed 调真 agent-deck-team-repo →
 // 真 getDb() throws「Database not initialized」。无 team 联动 mock 让主路径走通。
@@ -53,9 +59,8 @@ beforeEach(async () => {
   await resetMocks();
   reactivateHandOffSource.mockClear();
   disposeSessionBrowser.mockClear();
-  worktreeLifecycle.mayClearMarker.mockReset();
-  worktreeLifecycle.mayClearMarker.mockReturnValue(true);
   worktreeLifecycle.assertDelete.mockReset();
+  renameLease.mockReset();
 });
 
 afterEach(() => {
@@ -89,63 +94,6 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
           (e.payload as SessionRecord)?.archivedAt !== null,
       ),
     ).toBe(true);
-  });
-
-  // **REVIEW_49 R1 follow-up 回归 test**: archive() 同步清 cwd_release_marker，
-  // 避免 unarchive 复活时重新携带已失效的 worktree ownership marker。
-  it('archive() → 同步清 cwd_release_marker（REVIEW_49 R1 follow-up）', async () => {
-    // 预置一个 active session 携带 worktree marker
-    const ev = makeEvent({
-      sessionId: 'sess-with-marker',
-      source: 'sdk',
-      kind: 'session-start',
-      payload: { cwd: '/tmp/repo/.claude/worktrees/plan-x' },
-    });
-    sessionManager.ingest(ev);
-    // 模拟 enter_worktree 设过 marker(实际生产路径走 mcp tool / sessionRepo.setCwdReleaseMarker)
-    const before = mockSessions.get('sess-with-marker');
-    if (before) {
-      mockSessions.set('sess-with-marker', {
-        ...before,
-        cwdReleaseMarker: '/tmp/repo/.claude/worktrees/plan-x',
-      });
-    }
-    expect(mockSessions.get('sess-with-marker')?.cwdReleaseMarker).toBe(
-      '/tmp/repo/.claude/worktrees/plan-x',
-    );
-
-    await sessionManager.archive('sess-with-marker');
-
-    // **关键断言**: archive() 后 cwdReleaseMarker 已清空
-    expect(mockSessions.get('sess-with-marker')?.cwdReleaseMarker).toBeNull();
-    // archivedAt 已设
-    expect(mockSessions.get('sess-with-marker')?.archivedAt).not.toBeNull();
-  });
-
-  it('archive() retains the legacy marker projection while a structured lease is unsettled', async () => {
-    sessionManager.ingest(
-      makeEvent({
-        sessionId: 'sess-structured-marker',
-        source: 'sdk',
-        kind: 'session-start',
-        payload: { cwd: '/tmp/repo/.agent-deck/worktrees/task' },
-      }),
-    );
-    const before = mockSessions.get('sess-structured-marker');
-    if (before) {
-      mockSessions.set('sess-structured-marker', {
-        ...before,
-        cwdReleaseMarker: '/tmp/repo/.agent-deck/worktrees/task',
-      });
-    }
-    worktreeLifecycle.mayClearMarker.mockReturnValue(false);
-
-    await sessionManager.archive('sess-structured-marker');
-
-    expect(
-      mockSessions.get('sess-structured-marker')?.cwdReleaseMarker,
-    ).toBe('/tmp/repo/.agent-deck/worktrees/task');
-    expect(mockSessions.get('sess-structured-marker')?.archivedAt).not.toBeNull();
   });
 
   it('unarchive() → 清 archivedAt 且不动 lifecycle（CLAUDE.md「正交」约定）', async () => {

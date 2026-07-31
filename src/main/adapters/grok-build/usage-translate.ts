@@ -80,44 +80,17 @@ export function translateGrokUsage(
   state: GrokTranslationState,
 ): AgentEvent | null {
   if (!usage) return null;
-  const baselineReady = state.standardUsageBaselineReady;
   const previous = state.turnStartUsage;
   const observed = standardUsageWatermark(usage);
   const frontierCoveredMetricScope =
-    previous === null && baselineReady
+    previous === null
       ? 0
       : cumulativeFrontierCoveredMetricScope(observed, previous);
   // ACP standard usage is cumulative. Preserve previously known optional dimensions when a later
   // snapshot omits them, but derive this turn's delta only from fields reported in this snapshot.
-  let current = mergeWatermarks(state.lastUsage, observed);
-  if (!baselineReady && state.currentExtensionUsage) {
-    current = mergeWatermarks(current, state.currentExtensionUsage);
-  }
+  const current = mergeWatermarks(state.lastUsage, observed);
   state.lastUsage = current;
-  state.standardUsageBaselineReady = true;
   state.standardUsageObservedForCurrentTurn = true;
-
-  // A legacy recovered session has no durable cumulative watermark. Its first
-  // standard snapshot is a baseline, not a turn delta. If an extension already supplied exact
-  // fields for this turn, upsert that same canonical row with the newly durable baseline.
-  if (!baselineReady) {
-    if (!state.currentExtensionPromptId || !state.currentExtensionUsage) return null;
-    rememberCanonicalGrokUsage(
-      state,
-      state.currentExtensionPromptId,
-      state.currentExtensionUsage,
-      true,
-      frontierCoveredMetricScope,
-    );
-    return usageEvent({
-      sessionId,
-      messageId: state.currentExtensionPromptId,
-      model,
-      usage: state.currentExtensionUsage,
-      watermark: current,
-      frontierCoveredMetricScope,
-    });
-  }
   const standardDelta: GrokUsageWatermark = {
     totalTokens: usageDelta(
       observed.totalTokens,
@@ -327,10 +300,7 @@ export function translateGrokTurnUsage(
       watermarkPositiveDelta(canonical, previousCanonical),
       frontierCoveredMetricScope,
     );
-    if (
-      state.standardUsageBaselineReady &&
-      hasPositiveWatermarkValue(correction)
-    ) {
+    if (hasPositiveWatermarkValue(correction)) {
       state.lastUsage = addPartialUsageToCumulative(
         state.lastUsage,
         correction,
@@ -340,7 +310,7 @@ export function translateGrokTurnUsage(
       state,
       messageId,
       canonical,
-      state.standardUsageBaselineReady,
+      true,
       frontierCoveredMetricScope,
     );
     cancelPendingGrokStandardUsage(state);
@@ -374,17 +344,14 @@ export function translateGrokTurnUsage(
     watermarkPositiveDelta(canonical, previousCanonical),
     frontierCoveredMetricScope,
   );
-  if (
-    state.standardUsageBaselineReady &&
-    hasPositiveWatermarkValue(correction)
-  ) {
+  if (hasPositiveWatermarkValue(correction)) {
     state.lastUsage = addPartialUsageToCumulative(state.lastUsage, correction);
   }
   rememberCanonicalGrokUsage(
     state,
     messageId,
     canonical,
-    state.standardUsageBaselineReady,
+    true,
     frontierCoveredMetricScope,
   );
   cancelPendingGrokStandardUsage(state);
@@ -393,8 +360,7 @@ export function translateGrokTurnUsage(
     messageId,
     model: resolvedModel,
     usage: canonical,
-    watermark:
-      state.standardUsageBaselineReady ? state.lastUsage : null,
+    watermark: state.lastUsage,
     ts: grokExtensionTimestampMs(notification),
   });
 }

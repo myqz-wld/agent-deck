@@ -251,7 +251,6 @@ describe('Grok runtime recovery profile', () => {
 
     expect(runtime.translation).toMatchObject({
       lastUsage: watermark,
-      standardUsageBaselineReady: true,
     });
 
     persistGrokUsageWatermark(runtime);
@@ -259,14 +258,6 @@ describe('Grok runtime recovery profile', () => {
       record.id,
       watermark,
     );
-  });
-
-  it('treats the first standard usage snapshot as baseline for legacy recovered rows', () => {
-    const runtime = recoverGrokRuntime(makeRecord());
-    expect(runtime.translation).toMatchObject({
-      lastUsage: null,
-      standardUsageBaselineReady: false,
-    });
   });
 
   it('makes a UI-style background runtime ready before draining its prequeued initial turn', async () => {

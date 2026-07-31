@@ -142,10 +142,6 @@ vi.mock('@main/store/settings-store', () => ({
   }),
 }));
 
-vi.mock('@main/store/event-repo', () => ({
-  eventRepo: { listForSessionRange: () => [] },
-}));
-
 const addMemberCalls: Array<{
   teamId: string;
   sessionId: string;
@@ -219,6 +215,8 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         lastAttemptAt: null,
         deliveringSince: null,
         replyToMessageId: input.replyToMessageId ?? null,
+        deliveryGeneration: 0,
+        deliveryLeaseToSessionId: null,
       };
       mockMessages.set(id, msg);
       return msg;
@@ -337,13 +335,24 @@ async function spawn(args: Record<string, unknown>, leadSid = 'lead-1') {
   return (spawnTool as any).handler(args, undefined);
 }
 
-function parseToolResult(r: { isError?: boolean; content: Array<{ text: string }> }): {
+function parseToolResult(r: {
+  isError?: boolean;
+  content?: Array<{ text: string }>;
+  structuredContent?: Record<string, unknown>;
+}): {
   isError?: boolean;
   parsed: Record<string, unknown>;
 } {
+  const parsed = r.isError
+    ? JSON.parse(r.content?.[0]?.text ?? '{}') as Record<string, unknown>
+    : r.structuredContent;
+  if (!r.isError) {
+    expect(r.content).toEqual([]);
+    expect(parsed).toBeDefined();
+  }
   return {
     isError: r.isError,
-    parsed: JSON.parse(r.content[0].text) as Record<string, unknown>,
+    parsed: parsed!,
   };
 }
 

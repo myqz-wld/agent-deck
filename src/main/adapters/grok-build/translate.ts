@@ -25,7 +25,6 @@ export {
 
 export function createGrokTranslationState(options: {
   lastUsage?: GrokUsageWatermark | null;
-  standardUsageBaselineReady?: boolean;
 } = {}): GrokTranslationState {
   return {
     toolNames: new Map(),
@@ -36,7 +35,6 @@ export function createGrokTranslationState(options: {
     assistantObservedForCurrentTurn: false,
     currentAssistantText: '',
     lastUsage: options.lastUsage ?? null,
-    standardUsageBaselineReady: options.standardUsageBaselineReady ?? true,
     standardUsageObservedForCurrentTurn: false,
     extensionUsageForCurrentTurn: false,
     usageSource: 'none',

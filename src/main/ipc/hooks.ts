@@ -1,8 +1,4 @@
-/**
- * Hook install / uninstall / status IPC handlers.
- *
- * Backward compatibility: older renderer calls omit adapterId and still target Claude Code.
- */
+/** Hook install / uninstall / status IPC handlers. */
 import { IpcInvoke } from '@shared/ipc-channels';
 import { adapterRegistry } from '@main/adapters/registry';
 import { IpcInputError, on, parseHookScope, parseHookCwd } from './_helpers';
@@ -10,7 +6,6 @@ import { IpcInputError, on, parseHookScope, parseHookCwd } from './_helpers';
 type HookAdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
 
 function parseHookAdapter(value: unknown): HookAdapterId {
-  if (value === undefined || value === null) return 'claude-code';
   if (value === 'claude-code' || value === 'codex-cli' || value === 'grok-build') {
     return value;
   }

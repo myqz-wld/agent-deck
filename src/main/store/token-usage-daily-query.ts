@@ -9,8 +9,6 @@ export interface TokenDailySqlRow {
   day: string;
   providerTotalTokens: number | null;
   providerTotalApplicable: number;
-  inputTokens: number | null;
-  inputApplicable: number;
   inputTotalTokens: number | null;
   inputTotalApplicable: number;
   outputTokens: number | null;
@@ -51,10 +49,6 @@ export function buildTokenUsageDailyQuery(
                   AS providerTotalTokens,
                 ${scopedApplicable(TOKEN_USAGE_METRIC.total)}
                   AS providerTotalApplicable,
-                ${completeScopedSum('input_tokens', TOKEN_USAGE_METRIC.input)}
-                  AS inputTokens,
-                ${scopedApplicable(TOKEN_USAGE_METRIC.input)}
-                  AS inputApplicable,
                 CASE
                   WHEN ${scopedCount(TOKEN_USAGE_METRIC.input)} = 0 THEN NULL
                   WHEN ${scopedCount(TOKEN_USAGE_METRIC.input)} = SUM(
@@ -130,8 +124,6 @@ export function mapTokenDailyRows(rows: TokenDailySqlRow[]): TokenDailyRow[] {
     day: row.day,
     providerTotalTokens: row.providerTotalTokens,
     providerTotalApplicable: row.providerTotalApplicable > 0,
-    inputTokens: row.inputTokens,
-    inputApplicable: row.inputApplicable > 0,
     inputTotalTokens: row.inputTotalTokens,
     inputTotalApplicable: row.inputTotalApplicable > 0,
     outputTokens: row.outputTokens,

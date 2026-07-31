@@ -5,19 +5,12 @@
  * 不引入 Electron / Node 特有 API。
  *
  * 设计依据：`docs/agent-deck-team-protocol.md` (E0 ADR §2.4)。
- *
- * 与老 `team.ts` 的关系：
- * - 老 team.ts (TeamMember / TeamConfig / TeamSnapshot / TeamSummary / TeamDataChangedEvent /
- *   TeamTaskPayload / TeamTeammateIdlePayload) 在 PR-A 阶段保留（不破坏老 backend）
- * - PR-B (E6) 阶段整文件删除，所有 renderer / IPC 同步重写
- * - 老类型与本文件类型**无任何兼容 alias**：硬切策略下，老 inbox 协议 + fs watcher 的语义
- *   不对应新 backend 任何概念
  */
 
 /**
  * Team member 角色二态。
  *
- * - 'lead'：可发起 spawn / 接 cross-adapter message / wait_reply teammate；一个 team 至少 1 个 lead
+ * - 'lead'：可发起 spawn 并收发 cross-adapter message；一个 team 至少 1 个 lead
  *   （上限 10，invariant 由 repo 层 + vitest 强制，不走 SQL trigger）
  * - 'teammate'：仅参与 message 收发，不主动 spawn 其它 member
  */
@@ -70,7 +63,7 @@ export interface AgentDeckTeam {
    *   'last-lead-deleted'  — 自动归档（lead session delete 触发）
    *   'scheduler'          — D7 主动归档（长期无活动）
    *   'user-action'        — 用户在 TeamDetail 主动归档
-   *   null                 — 未归档 OR v016 升级前的旧归档数据
+   *   null                 — 未归档
    * unarchive 联动（manager._unarchiveTeamsForRevivedLead）只对 'last-lead-archived' 反向复活，
    * 其他保留归档（避免覆盖用户主动归档语义）。
    */
@@ -89,7 +82,7 @@ export interface AgentDeckTeam {
  * Active membership + team name 拼盘（团队凝聚力修复 plan team-cohesion-fix-20260513 Phase A）。
  *
  * 用途：
- * - SessionRecord.teams 数组元素（v012 废 sessions.team_name 后投影至此）
+ * - SessionRecord.teams 数组元素
  * - PendingTab / SessionList / SessionCard 显示团队 + 角色 chip 的数据源
  * - 批量 helper `findActiveMembershipsBySessionIds` 的返回 element
  *
@@ -136,7 +129,7 @@ export interface AgentDeckMessage {
    * SQLite CHECK(length(body) <= 102400) 兜底）。
    *
    * watcher 投递前会拼上 §4.4 统一 wire 前缀 `[from <displayName> @ <adapterId>][msg <id>]\n`
-   * （Phase B7 加 `[msg <id>]` 让 teammate 能 regex 提 messageId 调 reply_message），
+   * （`[msg <id>]` 供 teammate 作为 send_message.replyToMessageId 使用），
    * 但 DB body 列存的是**原始 body 字符串**（前缀拼装在 watcher 内存里完成，不写回 DB）。
    * adapter 端调 receiveTeammateMessage 时收到的是「带前缀的完整 body」。
    */
@@ -164,15 +157,13 @@ export interface AgentDeckMessage {
    * Monotonic durable claim epoch. A claim increments this value before adapter dispatch; every
    * claimed terminal/retry transition must compare the returned generation.
    */
-  /** Optional only for pre-v054 serialized/test fixtures. Repository reads always materialize it. */
-  deliveryGeneration?: number;
-  /** Destination snapshotted by the active claim; optional only for pre-v054 fixtures. */
-  deliveryLeaseToSessionId?: string | null;
+  deliveryGeneration: number;
+  /** Destination snapshotted by the active claim; null outside delivering. */
+  deliveryLeaseToSessionId: string | null;
   /**
-   * plan team-cohesion-fix-20260513 Phase B Step B1：对话链关联（v015 加列）。
+   * 对话链关联。
    * - NULL：普通消息（不是某条的 reply）
-   * - 非 NULL：指向另一条 messages.id；wait_reply(message_id) 通过 `WHERE reply_to_message_id = ?` 查 reply
-   * - reply_message tool（语法糖）入口必填；send_message tool 入口可选（普通发 / 续问）
+   * - 非 NULL：指向另一条 messages.id；send_message 用它发回复或续问
    * - 原 msg 被 hardDelete 时 ON DELETE SET NULL（reply 仍可读，关联断开）
    */
   replyToMessageId: string | null;

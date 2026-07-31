@@ -54,7 +54,7 @@ export const IpcInvoke = {
   AdapterSetSessionMode: 'adapter:set-session-mode',
   AdapterSetSessionModelOptions: 'adapter:set-session-model-options',
   AdapterSetCodexApprovalPolicy: 'adapter:set-codex-approval-policy',
-  AdapterRestartWithCodexSandbox: 'adapter:restart-with-codex-sandbox',
+  AdapterSetCodexSandbox: 'adapter:set-codex-sandbox',
   AdapterRestartWithClaudeCodeSandbox: 'adapter:restart-with-claude-code-sandbox',
   AdapterRestartWithGrokSandbox: 'adapter:restart-with-grok-sandbox',
   AdapterListPending: 'adapter:list-pending',

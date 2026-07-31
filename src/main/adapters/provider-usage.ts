@@ -22,7 +22,7 @@ export interface CodexRateLimitSnapshotLike {
 }
 
 export interface CodexAccountRateLimitsResponseLike {
-  rateLimits?: CodexRateLimitSnapshotLike | null;
+  rateLimits: CodexRateLimitSnapshotLike;
   rateLimitsByLimitId?: Record<string, CodexRateLimitSnapshotLike | undefined> | null;
 }
 
@@ -47,7 +47,6 @@ type ClaudeRateLimitWindow =
 
 interface SnapshotBase {
   provider: ProviderUsageProviderId;
-  label: string;
   status: ProviderUsageStatus;
   message?: string;
   updatedAt?: number;
@@ -71,42 +70,29 @@ export function usageSnapshot(
   };
 }
 
-export function unsupportedUsageSnapshot(
-  provider: ProviderUsageProviderId,
-  label: string,
-  message: string,
-  updatedAt?: number,
-): ProviderUsageSnapshot {
-  return usageSnapshot({ provider, label, status: 'unsupported', message, updatedAt });
-}
-
 export function notSubscribedUsageSnapshot(
   provider: ProviderUsageProviderId,
-  label: string,
   message: string,
   updatedAt?: number,
 ): ProviderUsageSnapshot {
-  return usageSnapshot({ provider, label, status: 'not_subscribed', message, updatedAt });
+  return usageSnapshot({ provider, status: 'not_subscribed', message, updatedAt });
 }
 
 export function unavailableUsageSnapshot(
   provider: ProviderUsageProviderId,
-  label: string,
   message: string,
   updatedAt?: number,
 ): ProviderUsageSnapshot {
-  return usageSnapshot({ provider, label, status: 'unavailable', message, updatedAt });
+  return usageSnapshot({ provider, status: 'unavailable', message, updatedAt });
 }
 
 export function errorUsageSnapshot(
   provider: ProviderUsageProviderId,
-  label: string,
   err: unknown,
   updatedAt?: number,
 ): ProviderUsageSnapshot {
   return usageSnapshot({
     provider,
-    label,
     status: 'error',
     message: formatErrorMessage(err),
     updatedAt,
@@ -121,7 +107,6 @@ export function buildClaudeUsageSnapshot(
   if (response.subscription_type === null && !response.rate_limits_available) {
     return notSubscribedUsageSnapshot(
       'claude-code',
-      label,
       `当前 ${label} 账号没有可展示的额度信息`,
       updatedAt,
     );
@@ -130,7 +115,6 @@ export function buildClaudeUsageSnapshot(
   if (!response.rate_limits_available || !response.rate_limits) {
     return unavailableUsageSnapshot(
       'claude-code',
-      label,
       `当前 ${label} 登录方式暂不支持读取额度信息`,
       updatedAt,
     );
@@ -145,7 +129,6 @@ export function buildClaudeUsageSnapshot(
   if (!hasWindowData) {
     return unavailableUsageSnapshot(
       'claude-code',
-      label,
       `${label} 暂未返回可展示的额度信息`,
       updatedAt,
     );
@@ -154,7 +137,6 @@ export function buildClaudeUsageSnapshot(
   return usageSnapshot(
     {
       provider: 'claude-code',
-      label,
       status: 'ok',
       updatedAt,
     },
@@ -171,7 +153,6 @@ export function buildCodexUsageSnapshot(
   if (!limits) {
     return unavailableUsageSnapshot(
       'codex-cli',
-      label,
       `${label} 暂未返回账户额度信息`,
       updatedAt,
     );
@@ -185,7 +166,6 @@ export function buildCodexUsageSnapshot(
   if (!hasWindowData) {
     return unavailableUsageSnapshot(
       'codex-cli',
-      label,
       `${label} 暂未返回可展示的额度信息`,
       updatedAt,
     );
@@ -194,7 +174,6 @@ export function buildCodexUsageSnapshot(
   return usageSnapshot(
     {
       provider: 'codex-cli',
-      label,
       status: 'ok',
       updatedAt,
     },
@@ -211,7 +190,6 @@ export function buildGrokUsageSnapshot(
   if (!config) {
     return unavailableUsageSnapshot(
       'grok-build',
-      label,
       `${label} 暂未返回账户额度信息`,
       updatedAt,
     );
@@ -230,7 +208,6 @@ export function buildGrokUsageSnapshot(
   if (usedPercent === null && periodEnd === null) {
     return unavailableUsageSnapshot(
       'grok-build',
-      label,
       `${label} 暂未返回可展示的额度信息`,
       updatedAt,
     );
@@ -240,7 +217,6 @@ export function buildGrokUsageSnapshot(
   return usageSnapshot(
     {
       provider: 'grok-build',
-      label,
       status: 'ok',
       updatedAt,
     },
@@ -300,9 +276,8 @@ function chooseCodexRateLimitSnapshot(
   return (
     byLimit?.codex ??
     values.find((entry) => entry.limitId === 'codex') ??
-    response.rateLimits ??
     values[0] ??
-    null
+    response.rateLimits
   );
 }
 

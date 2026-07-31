@@ -1,14 +1,14 @@
-/** v037 revision read-model tests backed by the registered production migration. */
+/** Event revision read-model tests backed by the current schema. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { eventRepo } from '../event-repo';
 import {
-  createEventRevisionRepo,
+  createEventRevisionReadRepo,
   eventRevisionRepo,
   MAX_EVENT_REVISION_PAGE_SIZE,
   type EventRevisionRepo,
 } from '../event-revision-repo';
-import { MIGRATIONS } from '../migrations';
+import { CURRENT_SCHEMA_SQL } from '../schema';
 import { bindingAvailable } from './_binding-probe';
 
 const dbHolder: { current: Database.Database | null } = { current: null };
@@ -24,13 +24,7 @@ function makeDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const migration of MIGRATIONS) {
-    if (migration.version >= 37) break;
-    db.exec(migration.sql);
-  }
-  const v037 = MIGRATIONS.find((migration) => migration.version === 37);
-  if (!v037) throw new Error('v037 event_revisions migration must be registered for this suite');
-  db.exec(v037.sql);
+  db.exec(CURRENT_SCHEMA_SQL);
   return db;
 }
 
@@ -54,26 +48,26 @@ function insertEvent(
   return Number(info.lastInsertRowid);
 }
 
-function expressionIndexName(db: Database.Database): string {
+function revisionIndexName(db: Database.Database): string {
   const indexes = db
     .prepare(
       `SELECT name, sql FROM sqlite_master
        WHERE type = 'index' AND tbl_name = 'events' AND sql IS NOT NULL`,
     )
     .all() as { name: string; sql: string }[];
-  const index = indexes.find(({ sql }) => /COALESCE\s*\(\s*change_revision\s*,\s*id\s*\)/i.test(sql));
-  expect(index, 'v037 expression index exists').toBeDefined();
+  const index = indexes.find(({ sql }) => /\(\s*session_id\s*,\s*change_revision\s*,\s*id\s*\)/i.test(sql));
+  expect(index, 'event revision keyset index exists').toBeDefined();
   return index!.name;
 }
 
-describe.skipIf(!bindingAvailable)('event revision repository / v037 effective-revision keyset', () => {
+describe.skipIf(!bindingAvailable)('event revision repository / effective-revision keyset', () => {
   let db: Database.Database;
   let repo: EventRevisionRepo;
 
   beforeEach(() => {
     db = makeDb();
     dbHolder.current = db;
-    repo = createEventRevisionRepo(db);
+    repo = createEventRevisionReadRepo(db);
     insertSession(db, 'session-a');
   });
 
@@ -95,11 +89,10 @@ describe.skipIf(!bindingAvailable)('event revision repository / v037 effective-r
     });
   });
 
-  it('returns raw malformed payloads, legacy NULL revisions, inclusive coverage, and id tie-breaks', () => {
+  it('returns raw malformed payloads with inclusive coverage and id tie-breaks', () => {
     const id1 = insertEvent(db, 'session-a', '{malformed JSON', 1);
-    const id2 = insertEvent(db, 'session-a', '{"text":"legacy"}', 2);
+    const id2 = insertEvent(db, 'session-a', '{"text":"second"}', 2);
     const id3 = insertEvent(db, 'session-a', '{"text":"same revision"}', 3);
-    db.prepare(`UPDATE events SET change_revision = NULL WHERE id = ?`).run(id1);
     db.prepare(`UPDATE events SET change_revision = 50 WHERE id IN (?, ?)`)
       .run(id2, id3);
 
@@ -142,20 +135,20 @@ describe.skipIf(!bindingAvailable)('event revision repository / v037 effective-r
       if (ids[index] !== index + 1) throw new Error(`keyset gap/duplicate at ${index}: ${ids[index]}`);
     }
 
-    const expressionIndex = expressionIndexName(db);
+    const revisionIndex = revisionIndexName(db);
     const plan = db.prepare(
       `EXPLAIN QUERY PLAN
-       SELECT id, session_id, COALESCE(change_revision, id) AS effective_revision,
+       SELECT id, session_id, change_revision AS effective_revision,
               kind, payload_json, ts, tool_use_id
        FROM events
        WHERE session_id = ?
-         AND COALESCE(change_revision, id) <= ?
-         AND (COALESCE(change_revision, id), id) > (?, ?)
-       ORDER BY COALESCE(change_revision, id) ASC, id ASC
+         AND change_revision <= ?
+         AND (change_revision, id) > (?, ?)
+       ORDER BY change_revision ASC, id ASC
        LIMIT ?`,
     ).all('session-a', throughRevision, 0, 0, 257) as { detail: string }[];
     const details = plan.map((row) => row.detail).join('\n');
-    expect(details).toContain(expressionIndex);
+    expect(details).toContain(revisionIndex);
     expect(details).not.toMatch(/\bSCAN\s+events\b/i);
     expect(details).not.toMatch(/USE TEMP B-TREE/i);
   }, 30_000);

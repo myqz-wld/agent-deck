@@ -25,10 +25,8 @@ interface Row {
   kind: string;
   before_blob: string | null;
   after_blob: string | null;
-  before_snapshot?: string | null;
-  after_snapshot?: string | null;
-  before_snapshot_hash?: Buffer | null;
-  after_snapshot_hash?: Buffer | null;
+  before_snapshot_hash: Buffer | null;
+  after_snapshot_hash: Buffer | null;
   before_snapshot_codec?: unknown;
   before_snapshot_raw_bytes?: unknown;
   before_snapshot_compressed_bytes?: unknown;
@@ -64,12 +62,10 @@ function rowToRecord(r: Row, snapshots: FileSnapshotReader): FileChangeRecord {
     afterBlob: r.after_blob,
     beforeSnapshot: snapshots.read(
       snapshotSelection(r, 'before'),
-      r.before_snapshot,
       `id=${r.id} session=${r.session_id} side=before`,
     ),
     afterSnapshot: snapshots.read(
       snapshotSelection(r, 'after'),
-      r.after_snapshot,
       `id=${r.id} session=${r.session_id} side=after`,
     ),
     metadata,
@@ -169,9 +165,9 @@ export const fileChangeRepo = {
           .prepare(
             `INSERT INTO file_changes
              (session_id, file_path, kind, before_blob, after_blob,
-              before_snapshot, after_snapshot, before_snapshot_hash, after_snapshot_hash,
+              before_snapshot_hash, after_snapshot_hash,
               metadata_json, tool_call_id, ts)
-             VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             rec.sessionId,

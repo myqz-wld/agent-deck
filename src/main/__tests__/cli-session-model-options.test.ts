@@ -24,7 +24,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'claude',
+      'claude-code',
     ])).toMatchObject({
       kind: 'new-session',
       agent: 'claude-code',
@@ -47,7 +47,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'codex',
+      'codex-cli',
     ])).toMatchObject({
       kind: 'new-session',
       agent: 'codex-cli',
@@ -73,7 +73,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'grok',
+      'grok-build',
     ]);
     expect(delegated).toMatchObject({
       kind: 'new-session',
@@ -102,7 +102,7 @@ describe('agent-deck new model options', () => {
         '/Applications/Agent Deck',
         'new',
         '--adapter',
-        'codex',
+        'codex-cli',
         '--profile',
         'fable',
         '--model',
@@ -125,7 +125,7 @@ describe('agent-deck new model options', () => {
         '/Applications/Agent Deck',
         'new',
         '--adapter',
-        'claude',
+        'claude-code',
         '--gateway',
         'deepseek',
       ]),
@@ -136,7 +136,7 @@ describe('agent-deck new model options', () => {
     });
   });
 
-  it('rejects the retired cross-adapter provider flag', () => {
+  it('rejects the unsupported cross-adapter provider flag', () => {
     expect(() =>
       parseCliInvocation([
         '/Applications/Agent Deck',
@@ -144,21 +144,18 @@ describe('agent-deck new model options', () => {
         '--provider',
         'deepseek',
       ]),
-    ).toThrow(/--provider 已移除.*--gateway.*--profile/);
+    ).toThrow('未知参数 --provider');
   });
 
-  it('does not alias the retired Deepseek adapter name', () => {
-    expect(
+  it('rejects a provider profile used as an adapter name', () => {
+    expect(() =>
       parseCliInvocation([
         '/Applications/Agent Deck',
         'new',
         '--adapter',
         'deepseek',
       ]),
-    ).toMatchObject({
-      kind: 'new-session',
-      agent: 'deepseek',
-    });
+    ).toThrow('--adapter 取值无效');
   });
 
   it('rejects a value-less thinking flag instead of silently using a default', () => {
@@ -175,7 +172,7 @@ describe('agent-deck new model options', () => {
           '/Applications/Agent Deck',
           'new',
           '--adapter',
-          'claude',
+          'claude-code',
           '--permission-mode',
           permissionMode,
         ]),
@@ -187,13 +184,13 @@ describe('agent-deck new model options', () => {
     },
   );
 
-  it('rejects the retired dontAsk Claude permission mode', () => {
+  it('rejects an unsupported Claude permission mode', () => {
     expect(() =>
       parseCliInvocation([
         '/Applications/Agent Deck',
         'new',
         '--adapter',
-        'claude',
+        'claude-code',
         '--permission-mode',
         'dontAsk',
       ]),
@@ -205,7 +202,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'codex',
+      'codex-cli',
       '--permission-mode',
       'bypassPermissions',
     ])).toThrow('--permission-mode 与 adapter "codex-cli" 不兼容');
@@ -213,7 +210,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'grok',
+      'grok-build',
       '--permission-mode',
       'plan',
     ])).toThrow('--permission-mode 与 adapter "grok-build" 不兼容');
@@ -224,7 +221,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'claude',
+      'claude-code',
       '--codex-sandbox',
       'read-only',
     ])).toThrow('--codex-sandbox 与 adapter "claude-code" 不兼容');
@@ -235,7 +232,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'claude',
+      'claude-code',
       '--approval-policy',
       'never',
     ])).toThrow('--approval-policy 与 adapter "claude-code" 不兼容');
@@ -243,7 +240,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'codex',
+      'codex-cli',
       '--approval-policy',
       'automatic',
     ])).toThrow('--approval-policy 取值无效');
@@ -254,7 +251,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'grok',
+      'grok-build',
       '--grok-sandbox',
       ' project-locked ',
     ])).toMatchObject({
@@ -266,7 +263,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'codex',
+      'codex-cli',
       '--grok-sandbox',
       'strict',
     ])).toThrow('--grok-sandbox 与 adapter "codex-cli" 不兼容');
@@ -274,7 +271,7 @@ describe('agent-deck new model options', () => {
       '/Applications/Agent Deck',
       'new',
       '--adapter',
-      'grok',
+      'grok-build',
       '--grok-sandbox',
       'strict\nworkspace',
     ])).toThrow('--grok-sandbox 取值无效');

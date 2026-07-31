@@ -99,12 +99,12 @@ export function registerAdapterSandboxRestartIpc(): void {
   );
 
   on(
-    IpcInvoke.AdapterRestartWithCodexSandbox,
-    async (_e, agentId, sessionId, sandbox, handoffPrompt) => {
+    IpcInvoke.AdapterSetCodexSandbox,
+    async (_e, agentId, sessionId, sandbox) => {
       const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-      if (!adapter?.capabilities.canRestartWithCodexSandbox || !adapter.restartWithCodexSandbox) {
+      if (!adapter?.capabilities.canSetCodexSandbox || !adapter.setCodexSandbox) {
         throw new Error(
-          `当前适配器不支持使用 ${codexCliDisplayName} 沙盒重启`,
+          `当前适配器不支持修改 ${codexCliDisplayName} 沙盒`,
         );
       }
       const sid = parseStringId('sessionId', sessionId);
@@ -115,11 +115,7 @@ export function registerAdapterSandboxRestartIpc(): void {
           'required (one of workspace-write|read-only|danger-full-access)',
         );
       }
-      const prompt =
-        typeof handoffPrompt === 'string' && handoffPrompt.trim()
-          ? handoffPrompt
-          : SDK_RESTART_RESUME_PROMPT;
-      return adapter.restartWithCodexSandbox(sid, profile, prompt);
+      return adapter.setCodexSandbox(sid, profile);
     },
   );
 

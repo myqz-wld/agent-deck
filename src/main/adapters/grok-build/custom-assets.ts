@@ -365,7 +365,7 @@ function toAssetMeta(asset: GrokAssetDescriptor): AssetMeta {
       ? {
           tools: asset.frontmatter.tools,
           model: asset.frontmatter.model,
-          thinking: asset.frontmatter.effort || asset.frontmatter.model_reasoning_effort || undefined,
+          thinking: asset.frontmatter.effort || undefined,
         }
       : {}),
     absPath: asset.path,

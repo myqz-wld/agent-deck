@@ -7,9 +7,8 @@
  * MED-3 (send teamId 跨污染) 修法：replyToMessageId 给定时反查 original.teamId
  * 必须 === resolved teamId，避免 caller 把 team A 消息挂到 team B 的 reply chain。
  *
- * CHANGELOG_100 / plan mcp-tool-simplify-20260514：删 reply_message tool 后所有 reply
- * 改走 send_message + replyToMessageId；J fix 删 → reply 与普通 message 同款 dispatch
- * 进 receiver SDK conversation flow，receiver 自动看到 reply 作为 user-role message。
+ * Replies use send_message + replyToMessageId and follow the ordinary durable dispatch path into
+ * the receiver SDK conversation as a user-role message.
  *
  * R37 P1 Step 1.1：5 行 deny external + caller 反查 boilerplate 走 withMcpGuard wrapper。
  *

@@ -51,8 +51,6 @@ export function createGrokRuntime(
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState({
       lastUsage: existing?.grokUsageWatermark ?? null,
-      standardUsageBaselineReady:
-        existing === null || existing.grokUsageWatermark != null,
     }),
   };
 }
@@ -91,7 +89,6 @@ export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState({
       lastUsage: record.grokUsageWatermark ?? null,
-      standardUsageBaselineReady: record.grokUsageWatermark != null,
     }),
   };
 }

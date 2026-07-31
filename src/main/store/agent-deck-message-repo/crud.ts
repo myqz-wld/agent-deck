@@ -146,11 +146,5 @@ export function createCrud(db: Database) {
     return rows.map(rowToRecord);
   }
 
-  // CHANGELOG_100 / plan mcp-tool-simplify-20260514: deleted findRepliesByMessageId
-  // along with wait_reply / check_reply tools. The reply_to_message_id column is kept as
-  // DB metadata for chain visibility (`agent_deck_messages` schema unchanged), but the
-  // reverse-lookup SQL helper is no longer needed since reply now flows through the same
-  // dispatch path as any other message.
-
   return { insert, get, listByTeam, listBySession };
 }

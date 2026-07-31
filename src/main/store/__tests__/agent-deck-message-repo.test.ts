@@ -21,12 +21,13 @@ import {
 import {
   createAgentDeckMessageRepo,
   deliveryLeaseOf,
-  MessageInvariantError,
-  MAX_BODY_LENGTH,
-  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
   type AgentDeckMessageRepo,
 } from '../agent-deck-message-repo';
-import v054 from '../migrations/v054_message_delivery_generation.sql?raw';
+import {
+  MAX_BODY_LENGTH,
+  MessageInvariantError,
+  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
+} from '../message-delivery-state';
 import { LIST_EXPIRED_FOR_GC_SQL } from '../agent-deck-message-repo/gc';
 import { bindingAvailable, makeMemoryDb, insertSession } from './agent-deck-repos/_setup';
 
@@ -37,7 +38,6 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / insert + invariant
   let teamId: string;
   beforeEach(() => {
     db = makeMemoryDb();
-    db.exec(v054);
     teamRepo = createAgentDeckTeamRepo(db);
     msgRepo = createAgentDeckMessageRepo(db);
     insertSession(db, 'sA');
@@ -86,7 +86,6 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
   let teamId: string;
   beforeEach(() => {
     db = makeMemoryDb();
-    db.exec(v054);
     const teamRepo = createAgentDeckTeamRepo(db);
     msgRepo = createAgentDeckMessageRepo(db);
     insertSession(db, 'sA');

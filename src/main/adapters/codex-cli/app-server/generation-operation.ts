@@ -33,7 +33,6 @@ export interface CodexGenerationLifecycleHost {
   getSkillExtraRoots(): readonly string[] | undefined;
   abortServerRequests(): void;
   rejectPending(error: Error): void;
-  clearCompatibilityCache(): void;
   dispatchNotification(notification: CodexAppServerNotification): void;
 }
 
@@ -281,7 +280,6 @@ export class CodexGenerationController {
     this.host.rejectPending(error);
     const retiredGeneration = this.processGeneration;
     this.processGeneration += 1;
-    this.host.clearCompatibilityCache();
     this.terminalDispatchGeneration = retiredGeneration;
     try {
       this.host.dispatchNotification({
@@ -302,7 +300,6 @@ export class CodexGenerationController {
 
   private clearReadiness(error: Error): void {
     this.initializePromise = null;
-    this.host.clearCompatibilityCache();
     this.host.abortServerRequests();
     this.host.rejectPending(error);
   }

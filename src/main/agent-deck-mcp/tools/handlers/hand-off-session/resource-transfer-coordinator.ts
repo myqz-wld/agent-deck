@@ -2,7 +2,6 @@ import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { getDb } from '@main/store/db';
-import { sessionRepo } from '@main/store/session-repo';
 import { taskRepo } from '@main/store/task-repo';
 import {
   countDeliveringMessagesForSessionWithDb,
@@ -17,7 +16,6 @@ import {
   transferActiveLeaseWithDb,
 } from '@main/store/worktree-transition-repo';
 import log from '@main/utils/logger';
-import type { SessionRecord } from '@shared/types';
 import type { HandOffSessionResult } from '../../schemas';
 
 const logger = log.scope('mcp-handoff-transfer');
@@ -51,25 +49,16 @@ function safeEmitTeamMemberChanged(
   }
 }
 
-function transferWorktreeMarker(
-  callerRow: SessionRecord,
+function transferWorktreeLease(
+  callerSessionId: string,
   newSessionId: string,
-): HandOffResourceTransferResult['worktreeMarker'] {
-  const transitionCandidate = getWorktreeTransition(callerRow.id);
-  // Test seams and older generated resource-transfer doubles may return a generic query row.
-  // Only a versioned transition record can supersede the legacy marker contract.
-  const transition =
-    transitionCandidate?.formatVersion === 1 &&
-    transitionCandidate.sessionId === callerRow.id &&
-    typeof transitionCandidate.generation === 'number' &&
-    typeof transitionCandidate.phase === 'string'
-      ? transitionCandidate
-      : null;
+): HandOffResourceTransferResult['worktreeLease'] {
+  const transition = getWorktreeTransition(callerSessionId);
   if (transition && transition.phase !== 'cleared') {
     if (transition.phase !== 'active') {
       return {
         status: 'failed',
-        marker: transition.worktreePath,
+        worktreePath: transition.worktreePath,
         error:
           `pending-transition:${transition.sessionId}:${transition.generation}:${transition.phase}`,
       };
@@ -77,44 +66,32 @@ function transferWorktreeMarker(
     try {
       transferActiveLeaseWithDb(
         getDb(),
-        callerRow.id,
+        callerSessionId,
         newSessionId,
         Date.now(),
       );
-      return { status: 'ok', marker: transition.worktreePath };
+      return { status: 'ok', worktreePath: transition.worktreePath };
     } catch (e) {
       return {
         status: 'failed',
-        marker: transition.worktreePath,
+        worktreePath: transition.worktreePath,
         error: errorMessage(e),
       };
     }
   }
-  const marker = callerRow.cwdReleaseMarker ?? null;
-  if (!marker) return { status: 'skipped', marker: null };
-  try {
-    sessionRepo.setCwdReleaseMarker(newSessionId, marker);
-    return { status: 'ok', marker };
-  } catch (e) {
-    return { status: 'failed', marker, error: errorMessage(e) };
-  }
+  return { status: 'skipped', worktreePath: null };
 }
 
-function rollbackWorktreeMarker(
-  result: HandOffResourceTransferResult['worktreeMarker'],
-  newSessionId: string,
-): HandOffResourceTransferResult['worktreeMarker'] {
+function rolledBackWorktreeLease(
+  result: HandOffResourceTransferResult['worktreeLease'],
+  reason: string,
+): HandOffResourceTransferResult['worktreeLease'] {
   if (result.status !== 'ok') return result;
-  try {
-    sessionRepo.setCwdReleaseMarker(newSessionId, null);
-    return { status: 'skipped', marker: result.marker };
-  } catch (e) {
-    return {
-      status: 'failed',
-      marker: result.marker,
-      error: `rollback-failed: ${errorMessage(e)}`,
-    };
-  }
+  return {
+    status: 'skipped',
+    worktreePath: result.worktreePath,
+    error: `rolled back because ${reason}`,
+  };
 }
 
 function skippedTeams(reason: string): HandOffResourceTransferResult['teams'] {
@@ -298,7 +275,7 @@ function transferFailed(result: HandOffResourceTransferResult): boolean {
   return (
     result.tasks.status === 'failed' ||
     result.teams.status === 'failed' ||
-    result.worktreeMarker.status === 'failed'
+    result.worktreeLease.status === 'failed'
   );
 }
 
@@ -356,25 +333,23 @@ function rollbackTasks(
 
 function transferHandOffResourcesInTransaction(input: {
   callerSessionId: string;
-  callerRow: SessionRecord;
   newSessionId: string;
 }, postCommitEvents: Array<() => void>): HandOffResourceTransferResult {
-  const marker = transferWorktreeMarker(input.callerRow, input.newSessionId);
-  if (marker.status === 'failed') {
+  const lease = transferWorktreeLease(input.callerSessionId, input.newSessionId);
+  if (lease.status === 'failed') {
     return {
-      teams: skippedTeams('skipped team transfer because worktree marker transfer failed'),
-      tasks: failedTasks('skipped task transfer because worktree marker transfer failed'),
-      worktreeMarker: marker,
+      teams: skippedTeams('skipped team transfer because worktree lease transfer failed'),
+      tasks: failedTasks('skipped task transfer because worktree lease transfer failed'),
+      worktreeLease: lease,
     };
   }
 
   const tasks = transferTasks(input.callerSessionId, input.newSessionId);
   if (tasks.status === 'failed') {
-    const rolledBackMarker = rollbackWorktreeMarker(marker, input.newSessionId);
     return {
       teams: skippedTeams('skipped team transfer because task transfer failed'),
       tasks,
-      worktreeMarker: rolledBackMarker,
+      worktreeLease: rolledBackWorktreeLease(lease, 'task transfer failed'),
     };
   }
 
@@ -386,8 +361,11 @@ function transferHandOffResourcesInTransaction(input: {
       input.newSessionId,
       'team transfer failed',
     );
-    const rolledBackMarker = rollbackWorktreeMarker(marker, input.newSessionId);
-    return { tasks: rolledBackTasks, teams, worktreeMarker: rolledBackMarker };
+    return {
+      tasks: rolledBackTasks,
+      teams,
+      worktreeLease: rolledBackWorktreeLease(lease, 'team transfer failed'),
+    };
   }
 
   retargetPendingMessages(input.callerSessionId, input.newSessionId);
@@ -398,19 +376,18 @@ function transferHandOffResourcesInTransaction(input: {
     input.newSessionId,
   );
 
-  return { tasks, teams, worktreeMarker: marker };
+  return { tasks, teams, worktreeLease: lease };
 }
 
 export function transferHandOffResources(input: {
   callerSessionId: string;
-  callerRow: SessionRecord;
   newSessionId: string;
 }): HandOffResourceTransferResult {
   const postCommitEvents: Array<() => void> = [];
   const tx = getDb().transaction(() => {
     const result = transferHandOffResourcesInTransaction(input, postCommitEvents);
     // A returned failure is still a transaction failure: throw a private sentinel so SQLite rolls
-    // back marker, task, and team writes even when one of the best-effort compensations also failed.
+    // back lease, task, and team writes even when one of the best-effort compensations also failed.
     if (transferFailed(result)) throw new ResourceTransferAborted(result);
     return result;
   });

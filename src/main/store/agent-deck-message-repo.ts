@@ -35,26 +35,11 @@
  * - 自循环防御：caller-side insert 校验 from != to
  * - 100KB body：caller-side validation + SQLite CHECK 兜底
  *
- * **CHANGELOG_109 / R37 P2-N Step 3.6**：状态机常量（MAX_RETRY / MAX_BODY_LENGTH /
- * BACKOFF_TIERS / VALID_MESSAGE_STATUSES）+ 纯 helpers（backoffMs / coerceMessageStatus /
- * buildFindEligibleWhereSql）+ MessageInvariantError 已抽到 `./message-delivery-state.ts`，
- * 本文件 re-export 全部 named export 保 back-compat（外部 caller 无须改 import 路径）。
- * 新代码请直接从 `@main/store/message-delivery-state` import；本文件保持只暴露 repo +
- * factory + input shapes 的 narrow API。
+ * Delivery-state constants and helpers live in `message-delivery-state.ts`; this facade exposes
+ * only repository construction, repository types, and GC contracts.
  */
 import type { Database } from 'better-sqlite3';
 import { getDb } from './db';
-import {
-  BACKOFF_TIERS,
-  MAX_BODY_LENGTH,
-  MAX_RETRY,
-  MESSAGE_DELIVERY_DURABILITY,
-  MessageInvariantError,
-  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
-  buildFindEligibleWhereSql,
-  coerceMessageStatus,
-  backoffMs,
-} from './message-delivery-state';
 import { createCrud } from './agent-deck-message-repo/crud';
 import { createDispatch } from './agent-deck-message-repo/dispatch';
 import { createStateMachine } from './agent-deck-message-repo/state-machine';
@@ -62,19 +47,6 @@ import { createGc, GC_BATCH_LIMIT, LIST_EXPIRED_FOR_GC_SQL } from './agent-deck-
 
 // gc retention 常量 / SQL re-export（scheduler 引用 GC_BATCH_LIMIT 作 SSOT；测试引用 SQL 跑 EXPLAIN）
 export { GC_BATCH_LIMIT, LIST_EXPIRED_FOR_GC_SQL };
-
-// back-compat re-export（旧 caller 仍可 `from '@main/store/agent-deck-message-repo'` 取常量）
-export {
-  BACKOFF_TIERS,
-  MAX_BODY_LENGTH,
-  MAX_RETRY,
-  MESSAGE_DELIVERY_DURABILITY,
-  MessageInvariantError,
-  UNCERTAIN_DELIVERY_ON_RESTART_REASON,
-  backoffMs,
-  buildFindEligibleWhereSql,
-  coerceMessageStatus,
-};
 
 // 类型 + interface re-export（外部 caller 不感知子模块拆分）
 export type {

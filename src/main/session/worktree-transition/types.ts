@@ -27,17 +27,11 @@ export interface WorktreeTransitionRecord {
   targetCwd: string;
   mainRepo: string;
   worktreePath: string;
-  /** v059 compatibility only. New detached enters persist an empty string. */
-  workBranch: string;
-  /** v059 compatibility only. New detached enters persist an empty string. */
-  baseBranch: string;
   baseCommit: string;
   toolUseId: string | null;
   continuationKey: string;
   continuationDelivered: boolean;
   discardChanges: boolean;
-  /** v059 compatibility only. New exits persist false and cleanup never mutates branches. */
-  deleteBranch: boolean;
   requestedAt: number;
   updatedAt: number;
   lastError: string | null;
@@ -56,21 +50,6 @@ export interface NewWorktreeTransition {
 }
 
 export interface WorktreeExitOptions {
-  toolUseId: string;
-  continuationKey: string;
-  discardChanges: boolean;
-  requestedAt: number;
-}
-
-/** Metadata required to upgrade a pre-v059 marker or an explicitly named orphan worktree. */
-export interface LegacyWorktreeExitAdoption {
-  sessionId: string;
-  /** Exact marker value observed before preflight; null permits an explicit orphan-path claim. */
-  expectedMarker: string | null;
-  originalCwd: string;
-  mainRepo: string;
-  worktreePath: string;
-  headCommit: string;
   toolUseId: string;
   continuationKey: string;
   discardChanges: boolean;

@@ -9,10 +9,10 @@
  * 纯函数无 SQLite / 无 better-sqlite3 binding 依赖，任何 Node 版本都能跑。
  */
 import { describe, expect, it } from 'vitest';
-import type { AgentEvent } from '@shared/types';
+import type { StoredAgentEvent } from '@shared/types';
 import { formatEventsForPrompt } from '../summarizer/event-formatter';
 
-function msg(id: number, ts: number, text: string): AgentEvent & { id: number } {
+function msg(id: number, ts: number, text: string): StoredAgentEvent {
   return {
     id,
     sessionId: 's1',
@@ -58,7 +58,7 @@ describe('formatEventsForPrompt — 排序契约', () => {
 
   it('取末尾 60 条有效行（最新一段）而非前 60', () => {
     // 造 65 条递增 ts，期望保留最新 60（ts 6..65），丢弃最旧 5（ts 1..5）
-    const events: (AgentEvent & { id: number })[] = [];
+    const events: StoredAgentEvent[] = [];
     for (let i = 1; i <= 65; i++) events.push(msg(i, i * 1000, `m${i}`));
     const out = formatEventsForPrompt(events);
     // 最旧 5 条不在
@@ -70,7 +70,7 @@ describe('formatEventsForPrompt — 排序契约', () => {
   });
 
   it('filters noise before the line cap and includes concrete tool results', () => {
-    const events: (AgentEvent & { id: number })[] = [];
+    const events: StoredAgentEvent[] = [];
     events.push(msg(1, 1, 'meaningful assistant state'));
     for (let index = 0; index < 80; index += 1) {
       events.push({
@@ -101,7 +101,8 @@ describe('formatEventsForPrompt — 排序契约', () => {
   });
 
   it('labels interrupted tool results without claiming completion', () => {
-    const event: AgentEvent = {
+    const event: StoredAgentEvent = {
+      id: 1,
       sessionId: 's1',
       agentId: 'codex-cli',
       kind: 'tool-use-end',
@@ -118,7 +119,8 @@ describe('formatEventsForPrompt — 排序契约', () => {
   });
 
   it('labels synthesized Codex terminal reconciliation as aborted', () => {
-    const event: AgentEvent = {
+    const event: StoredAgentEvent = {
+      id: 1,
       sessionId: 's1',
       agentId: 'codex-cli',
       kind: 'tool-use-end',
@@ -129,8 +131,9 @@ describe('formatEventsForPrompt — 排序契约', () => {
   });
 
   it('includes compaction and subagent lifecycle without replaying display-only deltas', () => {
-    const events: AgentEvent[] = [
+    const events: StoredAgentEvent[] = [
       {
+        id: 1,
         sessionId: 's1',
         agentId: 'claude-code',
         kind: 'message-display',
@@ -138,6 +141,7 @@ describe('formatEventsForPrompt — 排序契约', () => {
         ts: 1,
       },
       {
+        id: 2,
         sessionId: 's1',
         agentId: 'claude-code',
         kind: 'context-compaction-end',
@@ -145,6 +149,7 @@ describe('formatEventsForPrompt — 排序契约', () => {
         ts: 2,
       },
       {
+        id: 3,
         sessionId: 's1',
         agentId: 'claude-code',
         kind: 'subagent-start',
@@ -158,18 +163,9 @@ describe('formatEventsForPrompt — 排序契约', () => {
     expect(out).not.toContain('partial duplicate');
   });
 
-  it('无 id 字段时降级到纯 ts 排序（兼容无 id caller，?? 0 兜底不抛错）', () => {
-    const noId = [
-      { sessionId: 's1', agentId: 'claude-code', kind: 'message', payload: { text: 'a', role: 'assistant' }, ts: 1000, source: 'sdk' },
-      { sessionId: 's1', agentId: 'claude-code', kind: 'message', payload: { text: 'b', role: 'assistant' }, ts: 2000, source: 'sdk' },
-    ] as AgentEvent[];
-    expect(() => formatEventsForPrompt(noId)).not.toThrow();
-    const out = formatEventsForPrompt(noId);
-    expect(out.indexOf('a')).toBeLessThan(out.indexOf('b'));
-  });
-
   it('周期总结和 hand-off 输入保留 Codex 协作 Agent 的安全参数', () => {
-    const event: AgentEvent = {
+    const event: StoredAgentEvent = {
+      id: 1,
       sessionId: 's1',
       agentId: 'codex-cli',
       kind: 'tool-use-start',

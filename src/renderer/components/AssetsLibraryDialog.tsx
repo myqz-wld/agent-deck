@@ -85,7 +85,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       if (u.status === 'fulfilled') setUser(u.value);
       else errs.push(`用户资产读取失败：${(u.reason as Error).message}`);
       if (s.status === 'fulfilled') {
-        setSettings({ ...DEFAULT_SETTINGS, ...((s.value as Partial<AppSettings>) ?? {}) });
+        setSettings(s.value);
       } else {
         errs.push(`设置读取失败：${errorMessage(s.reason)}`);
         setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
@@ -112,9 +112,9 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
     const seq = ++updateSeqRef.current;
     setUpdateError(null);
     try {
-      const next = (await window.api.setSettings(patch)) as Partial<AppSettings> | undefined;
+      const next = await window.api.setSettings(patch);
       if (seq !== updateSeqRef.current) return;
-      setSettings({ ...DEFAULT_SETTINGS, ...((next ?? {}) as Partial<AppSettings>) });
+      setSettings(next);
     } catch (err) {
       if (seq !== updateSeqRef.current) return;
       setUpdateError(`保存设置失败：${(err as Error).message ?? String(err)}`);

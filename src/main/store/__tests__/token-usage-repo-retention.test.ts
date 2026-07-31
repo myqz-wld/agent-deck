@@ -11,7 +11,7 @@ import {
 
 describe.skipIf(!bindingAvailable)('token-usage-repo / 去硬 FK（F3）', () => {
   it('session 删除后 token_usage row 仍保留（无 FK CASCADE/SET NULL）', () => {
-    const db = makeMemoryDb(':memory:', 55);
+    const db = makeMemoryDb();
     const repo = createTokenUsageRepo(db);
     insertSession(db, 'sess-x');
     repo.insert(usage({ sessionId: 'sess-x' }));

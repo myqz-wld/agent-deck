@@ -6,63 +6,42 @@ type RawCollabEmit = (
 
 const RAW_COLLAB_TOOL_NAMES = new Set([
   'spawn_agent',
+  'send_input',
+  'resume_agent',
+  'wait',
+  'close_agent',
   'list_agents',
   'send_message',
   'followup_task',
   'interrupt_agent',
-  'resume_agent',
-  'close_agent',
-  'send_input',
   'wait_agent',
-  'wait',
 ]);
 
-export function collabAgentToolInput(item: AnyRecord): Record<string, unknown> {
-  const prompt = firstString(item.prompt, item.instructions, item.input, item.task);
-  const description = firstString(item.description, item.title, item.summary);
-  const subagentType = firstString(
-    item.subagent_type,
-    item.subagentType,
-    item.agentName,
-    item.agent,
-    item.name,
-  );
+export function collabToolInput(item: AnyRecord): Record<string, unknown> {
+  const prompt = nullableString(item.prompt);
   const input: Record<string, unknown> = {
-    ...(subagentType ? { subagent_type: subagentType } : {}),
-    ...(stringField(item.tool) ? { collab_tool: normalizeCollabToolName(item.tool) } : {}),
+    ...(stringField(item.tool) ? { collab_tool: stringField(item.tool) } : {}),
     ...(stringField(item.senderThreadId) ? { sender_thread_id: item.senderThreadId } : {}),
-    ...(Array.isArray(item.receiverThreadIds)
-      ? { receiver_thread_ids: stringArray(item.receiverThreadIds) }
-      : {}),
+    ...(stringField(item.receiverThreadId) ? { receiver_thread_id: item.receiverThreadId } : {}),
+    ...(stringField(item.newThreadId) ? { new_thread_id: item.newThreadId } : {}),
     ...(prompt ? { prompt } : {}),
-    ...(description ? { description } : {}),
   };
-  if ('model' in item) input.model = nullableString(item.model);
-  if ('reasoningEffort' in item) input.reasoning_effort = nullableString(item.reasoningEffort);
   return input;
 }
 
-export function collabAgentToolResult(item: AnyRecord): unknown {
-  for (const legacyResult of [item.result, item.output, item.content, item.contentItems]) {
-    if (legacyResult !== undefined && legacyResult !== null) return legacyResult;
-  }
+export function collabToolResult(item: AnyRecord): unknown {
   const result: Record<string, unknown> = {};
-  if (Array.isArray(item.receiverThreadIds)) {
-    result.receiver_thread_ids = stringArray(item.receiverThreadIds);
+  if (stringField(item.receiverThreadId)) result.receiver_thread_id = item.receiverThreadId;
+  if (stringField(item.newThreadId)) result.new_thread_id = item.newThreadId;
+  if (item.agentStatus !== undefined && item.agentStatus !== null) {
+    result.agent_status = item.agentStatus;
   }
-  const states = asRecord(item.agentsStates);
-  if (states) result.agents_states = states;
   return Object.keys(result).length > 0 ? result : '';
 }
 
-export function collabAgentErrorMessage(item: AnyRecord): string | undefined {
-  const err = asRecord(item.error);
-  return stringField(err?.message) || stringField(item.errorMessage) || undefined;
-}
-
 /**
- * Codex v2 only emits normalized collabAgentToolCall items for a subset of collaboration calls,
- * and those items omit call arguments such as wait_agent.timeout_ms. The raw response stream has
+ * Codex v2 normalized collabToolCall items omit call arguments such as wait timeout_ms. The raw
+ * response stream has
  * every function call. Keep the complete local tool input and output, matching Claude tool-event
  * visibility. This intentionally includes encrypted-looking message strings: they are still the
  * only representation Codex exposed to the local client and remain useful for transcript parity.
@@ -115,32 +94,13 @@ export function translateRawCollabResponseItem(
 }
 
 function rawCollabToolInput(toolName: string, rawArguments: unknown): Record<string, unknown> {
-  const collabTool = normalizeCollabToolName(toolName);
   const parsed = parseJsonValue(rawArguments);
   const args = asRecord(parsed);
-  if (args) return { ...args, collab_tool: collabTool };
+  if (args) return { ...args, collab_tool: toolName };
   return {
-    collab_tool: collabTool,
+    collab_tool: toolName,
     ...(rawArguments === undefined ? {} : { arguments: parsed }),
   };
-}
-
-function normalizeCollabToolName(value: unknown): string {
-  const name = stringField(value);
-  switch (name) {
-    case 'spawnAgent':
-      return 'spawn_agent';
-    case 'sendInput':
-      return 'send_input';
-    case 'resumeAgent':
-      return 'resume_agent';
-    case 'closeAgent':
-      return 'close_agent';
-    case 'wait':
-      return 'wait_agent';
-    default:
-      return name;
-  }
 }
 
 function parseJsonValue(value: unknown): unknown {
@@ -186,24 +146,12 @@ function rawCollabOutputFailed(value: unknown): boolean {
   return leadingFailure.test(text) || providerFailurePhrase.test(text);
 }
 
-function firstString(...values: unknown[]): string {
-  for (const value of values) {
-    const text = stringField(value);
-    if (text) return text;
-  }
-  return '';
-}
-
 function nullableString(value: unknown): string | null {
   return value === null ? null : stringField(value) || null;
 }
 
 function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
-}
-
-function stringArray(value: unknown[]): string[] {
-  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function asRecord(value: unknown): AnyRecord | null {

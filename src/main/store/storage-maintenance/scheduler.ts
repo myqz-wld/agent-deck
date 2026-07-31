@@ -10,10 +10,7 @@ import {
 } from './maintenance-worker-contract';
 import { StorageMaintenanceDiagnostics } from './scheduler-diagnostics';
 import { MainWalCheckpointLease } from './main-checkpoint-lease';
-import { readMaintenanceState, type StorageMaintenanceTask } from './state';
 import log from '@main/utils/logger';
-
-export { isActiveMaintenancePhase } from './maintenance-engine';
 
 const logger = log.scope('storage-maintenance');
 const DEFAULT_AUTO_CHECKPOINT_PAGES = 1_000;
@@ -81,7 +78,6 @@ export class StorageMaintenanceScheduler {
   private inFlight: InFlightRequest | null = null;
   private mainDb: Database | null = null;
   private readonly checkpointLease = new MainWalCheckpointLease();
-  private restartEligible: StorageMaintenanceTask[] = [];
   private maintenanceStartsAt = 0;
   private nextSliceAt = 0;
   private stopWaiter: { promise: Promise<void>; resolve: () => void } | null = null;
@@ -102,9 +98,6 @@ export class StorageMaintenanceScheduler {
     if (!this.stopped || this.terminalDisabled) return;
     this.stopped = false;
     this.mainDb = this.dependencies.getDatabase();
-    this.restartEligible = (['event-search-v1', 'file-snapshot-blobs-v1'] as const).filter(
-      (task) => readMaintenanceState(this.mainDb!, task)?.phase === 'awaiting-restart',
-    );
     this.maintenanceStartsAt = this.dependencies.now() + (this.options.initialDelayMs ?? 15_000);
     this.nextSliceAt = this.maintenanceStartsAt;
     this.spawnWorker();
@@ -136,7 +129,6 @@ export class StorageMaintenanceScheduler {
     const workerData: StorageMaintenanceWorkerData = {
       kind: STORAGE_MAINTENANCE_WORKER_KIND,
       dbPath: this.mainDb!.name,
-      restartEligible: [...this.restartEligible],
       engineOptions: {
         yieldDelayMs: this.options.yieldDelayMs,
         idleDelayMs: this.options.idleDelayMs,

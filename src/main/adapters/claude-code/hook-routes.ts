@@ -55,9 +55,8 @@ function makeRoute(
 }
 
 /**
- * Universal team backend owns team lifecycle state. Legacy Claude Code experimental team
- * events (task-created / task-completed / teammate-idle) are intentionally not registered,
- * and hook traffic never writes team_name back into that backend.
+ * Universal team backend owns team lifecycle state. Provider-specific team events are not
+ * registered, and hook traffic never writes team state into that backend.
  */
 export function buildHookRoutes(
   emit: (e: AgentEvent) => void,

@@ -23,7 +23,7 @@ import {
 
 /**
  * 测试 inject seam:test 通过 depsOverride.implDeps 注入 mock git/fs/sessionRepo 走纯 in-memory。
- * 默认 handler 自己注入 sessionRepo 的真实 callerCwd / setCwdReleaseMarker 调用,impl 其他 fs/git
+ * 默认 handler 注入 sessionRepo 的真实 callerCwd，impl 其他 fs/git
  * deps fallback impl 的 DEFAULT_DEPS(真 execFile / fs)。
  */
 export interface EnterWorktreeHandlerDeps {
@@ -31,13 +31,12 @@ export interface EnterWorktreeHandlerDeps {
 }
 
 /**
- * 默认 sessionRepo seam:callerCwd 反查 sessionRepo.get(sid).cwd;setCwdReleaseMarker 写 DB。
+ * 默认 sessionRepo seam: callerCwd 反查 sessionRepo.get(sid).cwd。
  * sessionRepo 在 handler 层 import 触发 electron load OK,但 impl
  * 不能 import(让 impl test 走 deps inject 时不撞 electron)。
  */
-const DEFAULT_SESSION_DEPS: Required<Pick<EnterWorktreeDeps, 'callerCwd' | 'setCwdReleaseMarker'>> = {
+const DEFAULT_SESSION_DEPS: Required<Pick<EnterWorktreeDeps, 'callerCwd'>> = {
   callerCwd: (sid) => sessionRepo.get(sid)?.cwd ?? null,
-  setCwdReleaseMarker: (sid, marker) => sessionRepo.setCwdReleaseMarker(sid, marker),
 };
 
 export const enterWorktreeHandler = withMcpGuard(
@@ -56,8 +55,7 @@ export const enterWorktreeHandler = withMcpGuard(
     if (existing && existing.phase !== 'cleared') {
       if (
         existing.direction === 'enter' &&
-        (existing.phase === 'creating' ||
-          existing.phase === 'enter_waiting_tool_result')
+        existing.phase === 'enter_waiting_tool_result'
       ) {
         return structuredOk({
           transitionId: worktreeTransitionId(existing),
@@ -66,10 +64,7 @@ export const enterWorktreeHandler = withMcpGuard(
           effectiveFrom: 'automatic-next-turn',
           worktreePath: existing.worktreePath,
           startCommit: existing.baseCommit,
-          headMode: existing.workBranch
-            ? 'legacy-attached'
-            : 'detached',
-          markerSet: existing.phase !== 'creating',
+          headMode: 'detached',
         } satisfies EnterWorktreeResult);
       }
       return err(
@@ -78,6 +73,8 @@ export const enterWorktreeHandler = withMcpGuard(
         )} in phase ${existing.phase}`,
         existing.phase === 'active'
           ? 'Nested enter_worktree is not allowed. Finish and call exit_worktree first.'
+          : existing.phase === 'creating'
+            ? 'The original enter_worktree call is still creating the detached worktree. Retry after it finishes or recovery clears the transition.'
           : 'Retry after the current automatic cwd transition settles.',
       );
     }
@@ -208,7 +205,6 @@ export const enterWorktreeHandler = withMcpGuard(
       worktreePath: transition.worktreePath,
       startCommit: transition.baseCommit,
       headMode: 'detached',
-      markerSet: true,
     } satisfies EnterWorktreeResult);
   },
 );

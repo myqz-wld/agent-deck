@@ -148,21 +148,14 @@ describe('MCP slow-request thresholds', () => {
 
 describe('TC4b integration: production lambda → makeCallerContext → 写 tool deny', () => {
   it('global fallback → lambda 返 SENTINEL → makeCallerContext 用 __external__', () => {
-    // 模拟 tools/index.ts makeCtx 逻辑（plan §Phase 1.1b 简化后流程）：
-    //   const overridden = callerSessionIdOverride?.(extra) ?? null;
-    //   const callerSid = overridden ?? args.callerSessionId;
-    //   return { caller: makeCallerContext(callerSid, args.parentSessionId, transport) };
-    //
-    // 新合约 lambda 返 SENTINEL（不是 null），直接进 makeCallerContext，callerSid='__external__'。
+    // makeCtx uses the required transport provider directly; public args cannot supply identity.
     const extra = {
       authInfo: { resolvedSid: null, fallbackToGlobal: true } satisfies McpAuthInfo,
     };
     const overridden = resolveCallerSidForReadOnly(extra);
     expect(overridden).toBe(EXTERNAL_CALLER_SENTINEL);
 
-    const args: { callerSessionId?: string } = {}; // external caller 不传 callerSessionId
-    const callerSid = overridden ?? args.callerSessionId;
-    const ctx = makeCallerContext(callerSid, undefined, 'http');
+    const ctx = makeCallerContext(overridden, 'http');
 
     // SENTINEL 直传 makeCallerContext，callerSessionId 仍为 __external__
     expect(ctx.callerSessionId).toBe(EXTERNAL_CALLER_SENTINEL);
@@ -170,18 +163,15 @@ describe('TC4b integration: production lambda → makeCallerContext → 写 tool
 
   it('spoofing 兜底：fallbackToGlobal=true + args 塞伪 sid → lambda 优先 SENTINEL → 写 tool deny', () => {
     // 攻击场景（B-HIGH-1 反驳轮）：global token caller 传 args.callerSessionId='active-victim-sid'
-    // 试图以 victim 身份调 spawn_session。production lambda 早 return SENTINEL **优先于** args
-    // fallback，让 deny 命中（不会因为 lambda 返 null 让 args 字段 escape 到 spoof 路径）。
+    // 试图以 victim 身份调 spawn_session。身份只取 production provider，所以伪造字段无效。
     const extra = {
       authInfo: { resolvedSid: null, fallbackToGlobal: true } satisfies McpAuthInfo,
     };
     const overridden = resolveCallerSidForReadOnly(extra);
-    const args = { callerSessionId: 'active-victim-sid' };
-    // **关键**：overridden = SENTINEL (truthy)，?? 短路返 SENTINEL，args 伪 sid 不生效
-    const callerSid = overridden ?? args.callerSessionId;
+    const callerSid = overridden;
     expect(callerSid).toBe(EXTERNAL_CALLER_SENTINEL);
 
-    const ctx = makeCallerContext(callerSid, undefined, 'http');
+    const ctx = makeCallerContext(callerSid, 'http');
     const denial = denyExternalIfNotAllowed('spawn_session', ctx);
     expect(denial).not.toBeNull();
     expect(denial?.isError).toBe(true);
@@ -191,20 +181,18 @@ describe('TC4b integration: production lambda → makeCallerContext → 写 tool
 
   it('per-session 合法路径：lambda 返 resolvedSid + args 塞伪 sid → resolvedSid 优先', () => {
     // codex teammate 真正 callerSessionId 由 HookServer.checkMcpAuth 反查 token 解析,
-    // 即使 codex agent 在 args.callerSessionId 伪造一个 fake sid,lambda 返的 resolvedSid
-    // 优先（makeCtx: `overridden ?? args.callerSessionId` — overridden 非 null 短路 args）。
+    // 即使 Codex agent 在公开参数里伪造 sid，身份仍只取 token 解析出的 resolvedSid。
     const extra = {
       authInfo: { resolvedSid: 'real-sid', fallbackToGlobal: false } satisfies McpAuthInfo,
     };
     const overridden = resolveCallerSidForReadOnly(extra);
-    const args = { callerSessionId: 'fake-injected-sid' };
-    const callerSid = overridden ?? args.callerSessionId;
+    const callerSid = overridden;
     expect(callerSid).toBe('real-sid'); // 不是 'fake-injected-sid'
   });
 
   it('makeCallerContext __external__ + list_sessions（read-only） → 不拒绝（read-only 例外）', () => {
     // EXTERNAL_CALLER_ALLOWED.list_sessions=true（read-only 允许 external）
-    const ctx = makeCallerContext(EXTERNAL_CALLER_SENTINEL, undefined, 'http');
+    const ctx = makeCallerContext(EXTERNAL_CALLER_SENTINEL, 'http');
     const denial = denyExternalIfNotAllowed('list_sessions', ctx);
     expect(denial).toBeNull();
   });

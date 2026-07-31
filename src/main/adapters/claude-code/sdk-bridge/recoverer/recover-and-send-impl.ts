@@ -95,7 +95,7 @@ export async function recoverAndSendImpl(
   // **dormant 不在范围**:ensure 仅 closed→active 复活(dormant 走 manager.ts:261 return existing
   // 不复活);dormant 是正常 resume 主路径,复活成 active 是 desired 不需回滚。
   // **修法**:wasClosed 标记 + 两条失败路径走 sessionManager.markClosed(invariant-respecting
-  // 再关闭:清 cwd_release_marker + leave team membership + emit session-upserted 让 UI 自洽,
+  // 再关闭:leave team membership + emit session-upserted 让 UI 自洽,
   // REVIEW_56 明确 raw setLifecycle 绕过 markClosed 是「第四入口」反模式;markClosed guard
   // active→closed 通过,team-leave 幂等无害 — 会话首次 closed 时已 left)。
   const wasClosed = rec.lifecycle === 'closed';

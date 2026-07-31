@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentEvent, AppSettings } from '@shared/types';
+import type { AppSettings, StoredAgentEvent } from '@shared/types';
 import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 
 const settings = vi.hoisted(() => {
@@ -38,11 +38,13 @@ const calls: Array<{
   };
 }> = [];
 const events = [{
+  id: 1,
   sessionId: 's1',
+  agentId: 'claude-code',
   ts: 1,
   kind: 'message',
   payload: { role: 'assistant', text: '正在处理测试任务' },
-}] as unknown as AgentEvent[];
+}] satisfies StoredAgentEvent[];
 
 function installSdk(): void {
   loadSdkMock.mockResolvedValue({

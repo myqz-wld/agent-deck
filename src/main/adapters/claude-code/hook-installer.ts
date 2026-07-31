@@ -113,7 +113,7 @@ export class HookInstaller {
     return buildHookCurlCommand({
       relayConfigPath,
       tag: currentTag(event),
-      compatibilityGuardEnvironment: 'GROK_HOOK_EVENT',
+      skipWhenEnvironmentSet: 'GROK_HOOK_EVENT',
     });
   }
 

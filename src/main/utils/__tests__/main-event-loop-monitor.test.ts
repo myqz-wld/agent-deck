@@ -265,33 +265,6 @@ describe('startMainEventLoopMonitor', () => {
     monitor.stop();
   });
 
-  it('retains the legacy delay observer shape without cooldown-driven repeats', () => {
-    let now = 0;
-    const onDelay = vi.fn();
-    const stop = startMainEventLoopMonitor({
-      sampleIntervalMs: 100,
-      warnThresholdMs: 200,
-      warningCooldownMs: 1_000,
-      suspendThresholdMs: 10_000,
-      now: () => now,
-      onDelay,
-    });
-
-    now = 400;
-    vi.advanceTimersByTime(100);
-    now = 800;
-    vi.advanceTimersByTime(100);
-
-    expect(onDelay).toHaveBeenCalledOnce();
-    expect(onDelay).toHaveBeenCalledWith({
-      lagMs: 300,
-      sampleIntervalMs: 100,
-      suppressedSinceLastWarning: 0,
-      maxSuppressedLagMs: 0,
-    });
-    stop();
-  });
-
   it('stop clears the interval and prevents future sampling', () => {
     const monitor = startHarness();
     expect(vi.getTimerCount()).toBe(1);

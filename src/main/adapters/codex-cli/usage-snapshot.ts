@@ -4,7 +4,6 @@ import { CodexAppServerClient } from './app-server/client';
 import {
   buildCodexUsageSnapshot,
   errorUsageSnapshot,
-  providerUsageLabel,
   unavailableUsageSnapshot,
   type CodexAccountRateLimitsResponseLike,
 } from '../provider-usage';
@@ -12,7 +11,6 @@ import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { getProviderUsageProbeCwd } from '@main/paths';
 import { PROVIDER_USAGE_REFETCH_MS } from '@shared/constants/provider-usage';
 
-const CODEX_USAGE_LABEL = providerUsageLabel('codex-cli');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
 const BACKGROUND_USAGE_IDLE_DISPOSE_MS = PROVIDER_USAGE_REFETCH_MS;
 const CODEX_USAGE_UNAVAILABLE_MESSAGE =
@@ -88,7 +86,7 @@ export async function readCodexUsageSnapshotInBackground(
     if (isExpectedCodexUsageUnavailable(err)) {
       return codexUsageUnavailableSnapshot();
     }
-    return errorUsageSnapshot('codex-cli', CODEX_USAGE_LABEL, err);
+    return errorUsageSnapshot('codex-cli', err);
   } finally {
     if (disposeAfterRead) {
       client.dispose();
@@ -153,7 +151,6 @@ function clearCachedUsageClientIdleTimer(): void {
 export function codexUsageUnavailableSnapshot(): ProviderUsageSnapshot {
   return unavailableUsageSnapshot(
     'codex-cli',
-    CODEX_USAGE_LABEL,
     CODEX_USAGE_UNAVAILABLE_MESSAGE,
   );
 }

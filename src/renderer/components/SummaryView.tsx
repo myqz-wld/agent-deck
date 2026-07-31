@@ -102,6 +102,5 @@ function formatTrigger(t: SummaryRecord['trigger']): string {
 
 function formatGenerationSource(source: SummaryRecord['generationSource']): string {
   if (source === 'llm') return 'AI 总结';
-  if (source === 'legacy') return '历史总结';
   return '降级总结';
 }

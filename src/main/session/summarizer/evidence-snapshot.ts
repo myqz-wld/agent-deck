@@ -5,7 +5,7 @@ import {
   createContinuationCheckpointRepo,
   type ContinuationCheckpointRecord,
 } from '@main/store/continuation-checkpoint-repo';
-import { createEventRevisionRepo, type RawEventRevisionRow } from '@main/store/event-revision-repo';
+import { createEventRevisionReadRepo, type RawEventRevisionRow } from '@main/store/event-revision-repo';
 import { classifyContinuationMessage } from '../continuation-context/message-classifier';
 import { normalizeContinuationEvent } from '../continuation-context/event-normalizer';
 import { projectContinuationCheckpoint } from '../continuation-context/checkpoint-projection';
@@ -60,14 +60,14 @@ function activityRows(
   const usableAfter = afterRevision !== null;
   const rows = db
     .prepare(
-      `SELECT id, session_id, COALESCE(change_revision, id) AS effective_revision,
+      `SELECT id, session_id, change_revision AS effective_revision,
               kind, payload_json, ts, tool_use_id
          FROM events
         WHERE session_id = ?
-          AND COALESCE(change_revision, id) <= ?
-          ${usableAfter ? 'AND COALESCE(change_revision, id) > ?' : ''}
+          AND change_revision <= ?
+          ${usableAfter ? 'AND change_revision > ?' : ''}
           AND kind NOT IN ('thinking', 'token-usage', 'message-display')
-        ORDER BY COALESCE(change_revision, id) DESC, id DESC
+        ORDER BY change_revision DESC, id DESC
         LIMIT ?`,
     )
     .all(
@@ -117,18 +117,18 @@ function recentRawUserCandidates(
 ) {
   const rows = db
     .prepare(
-      `SELECT id, session_id, COALESCE(change_revision, id) AS effective_revision,
+      `SELECT id, session_id, change_revision AS effective_revision,
               kind, payload_json, ts, tool_use_id
          FROM events
         WHERE session_id = ?
-          AND COALESCE(change_revision, id) <= ?
+          AND change_revision <= ?
           AND kind = 'message'
           AND CASE WHEN json_valid(payload_json) THEN (
             json_extract(payload_json, '$.role') = 'user'
             AND COALESCE(json_extract(payload_json, '$.error'), 0) != 1
             AND COALESCE(json_extract(payload_json, '$.synthetic'), 0) != 1
           ) ELSE 0 END
-        ORDER BY COALESCE(change_revision, id) DESC, id DESC
+        ORDER BY change_revision DESC, id DESC
         LIMIT ?`,
     )
     .all(sessionId, throughRevision, MAX_RAW_USER_CANDIDATES + 1) as EvidenceRow[];
@@ -195,10 +195,10 @@ export function capturePeriodicSummaryEvidence(
   db: Database = getDb(),
 ): PeriodicSummaryEvidenceSnapshot | null {
   const capture = db.transaction(() => {
-    const revisionState = createEventRevisionRepo(db).state(sessionId);
+    const revisionState = createEventRevisionReadRepo(db).state(sessionId);
     if (!revisionState) return null;
     const afterRevision =
-      previous?.sourceEventRevision != null &&
+      previous !== null &&
       previous.sourceRebuildAfterRevision === revisionState.rebuildAfterRevision &&
       previous.sourceEventRevision >= revisionState.rebuildAfterRevision &&
       previous.sourceEventRevision <= revisionState.revision

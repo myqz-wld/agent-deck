@@ -118,7 +118,7 @@ function resolveGrokSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAge
       hint: `Grok bundled/project/user/plugin agent lookup failed: ${lookupReason}`,
     };
   }
-  const rawThinking = (source.frontmatter.effort ?? source.frontmatter.model_reasoning_effort)?.trim();
+  const rawThinking = source.frontmatter.effort?.trim();
   if (rawThinking && !isGrokThinkingLevel(rawThinking)) {
     return {
       ok: false,

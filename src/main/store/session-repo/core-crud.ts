@@ -26,10 +26,6 @@ export function upsert(rec: SessionRecord): void {
   // CHANGELOG_<X> A2a：codex_sandbox 同样必须参与 INSERT / UPDATE，避免 spread 调用
   // 时静默丢弃用户在 NewSessionDialog 选过的 sandbox 档位。
   // CHANGELOG_74：claude_code_sandbox 同款（claude OS 沙盒 per-session 覆盖与 codex 对称）。
-  // R4·F2：generic_pty_config 同款 — 老 PTY-based session 的 spawn config 必须
-  // 在 upsert 时透传，否则 lifecycle 复活路径丢失 config，resume 按错 args 重 spawn。
-  // (plan remove-aider-generic-pty-adapters-20260520 后 adapter 已删,新 session
-  // 永远 binding null;column 保留兼容老 SQLite rows。)
   // plan model-wiring-and-handoff-20260514 Step 1.3：model 同款 — spawn 时 frontmatter `model`
   // 透传给 SDK 后持久化，让 SDK resume / dormant 唤醒后保持模型一致；upsert 必须参与
   // 否则 lifecycle 复活路径丢字段，resume 拿不到 model。
@@ -37,14 +33,10 @@ export function upsert(rec: SessionRecord): void {
   // 透传的 SDK sandbox 额外可写根 spawn 时持久化,让 recoverer / SDK resume 路径还原
   // sandbox.allowWrite,与 codex_sandbox / claude_code_sandbox / model 同 per-session
   // resilience 模式;upsert 必须参与否则 lifecycle 复活路径丢字段。
-  // cwd_release_marker mirrors the session-owned worktree path for transition recovery. Upsert
-  // must preserve it so lifecycle revival and SDK rename/fork paths retain exact ownership.
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
   // 不再参与 INSERT / UPDATE / spread，团队归属走 universal team backend SSOT。
-  // cwd_release_marker mirrors the session-owned worktree path for transition recovery. Upsert
-  // must preserve it so lifecycle revival and SDK rename/fork paths retain exact ownership.
   // plan reverse-rename-sid-stability-20260520 §A.1 / 设计决策 D1 / 不变量 2:cli_session_id
-  // 列扩 (列 21,与 v020 cwd_release_marker pattern 同款 upsert 透传) — 让 lifecycle 复活路径不
+  // 参与 upsert 透传，让 lifecycle 复活路径不
   // 丢 cli_session_id;rename 路径 §A.2 重写规则:spawn 主路径 (toExists=false INSERT) hardcode
   // toId / toExists=true 分支保留 NEW 行已有 cli_session_id 不覆盖(详 rename.ts)。
   // plan team-cohesion-fix-20260513 Phase A Step A9：team_name 列已 v014 drop，
@@ -56,8 +48,8 @@ export function upsert(rec: SessionRecord): void {
   getDb()
     .prepare(
       `INSERT INTO sessions
-       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, cwd_release_marker, spawned_by, spawn_depth, generic_pty_config, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
-       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @codex_approval_policy, @claude_code_sandbox, @grok_sandbox, @model, @thinking, @extra_allow_write, @cwd_release_marker, @spawned_by, @spawn_depth, @generic_pty_config, @cli_session_id, @network_access_enabled, @additional_directories, @grok_usage_watermark, @pinned_at, @hidden_from_history)
+       (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, spawned_by, spawn_depth, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
+       VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @codex_approval_policy, @claude_code_sandbox, @grok_sandbox, @model, @thinking, @extra_allow_write, @spawned_by, @spawn_depth, @cli_session_id, @network_access_enabled, @additional_directories, @grok_usage_watermark, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
          runtime_provider = excluded.runtime_provider,
          cwd = excluded.cwd,
@@ -80,10 +72,8 @@ export function upsert(rec: SessionRecord): void {
          model = excluded.model,
          thinking = excluded.thinking,
          extra_allow_write = excluded.extra_allow_write,
-         cwd_release_marker = excluded.cwd_release_marker,
          spawned_by = excluded.spawned_by,
          spawn_depth = excluded.spawn_depth,
-         generic_pty_config = excluded.generic_pty_config,
          cli_session_id = excluded.cli_session_id,
          network_access_enabled = excluded.network_access_enabled,
          additional_directories = excluded.additional_directories,
@@ -117,10 +107,8 @@ export function upsert(rec: SessionRecord): void {
         rec.extraAllowWrite && rec.extraAllowWrite.length > 0
           ? JSON.stringify(rec.extraAllowWrite)
           : null,
-      cwd_release_marker: rec.cwdReleaseMarker ?? null,
       spawned_by: rec.spawnedBy ?? null,
       spawn_depth: rec.spawnDepth ?? 0,
-      generic_pty_config: null,
       cli_session_id: rec.cliSessionId ?? null,
       // plan codex-recover-network-dirs-parity-20260602：boolean→int 手转（better-sqlite3 拒绝
       // raw boolean bind）。null（未设）保持 null 走 SDK 默认；additional_directories 同
@@ -419,31 +407,6 @@ export function setGrokUsageWatermark(
 export function setCwd(id: string, cwd: string): void {
   const result = getDb().prepare(`UPDATE sessions SET cwd = ? WHERE id = ?`).run(cwd, id);
   if (result.changes !== 1) throw new Error(`Cannot update cwd for missing session ${id}.`);
-}
-
-/**
- * 写入 mcp enter_worktree marker（plan codex-handoff-team-alignment-20260518 P1 Step 1.1 /
- * 不变量 5 + D2）。
- *
- * 调用方:
- * - structured worktree transition repository atomically mirrors the lease here after creation;
- * - successful exit cleanup clears it together with the structured transition;
- * - legacy callers may still use the setters directly during the compatibility window.
- *
- * marker = worktreePath 绝对路径（caller 当前持有）；marker = null 视为「未持有 marker」
- * （caller 走 claude builtin 路径或还没调 mcp enter_worktree）。
- *
- * SDK fork / recover rename 路径必须把此列从 fromRow 复制到 NEW 行（详 rename.ts），
- * 否则 transition retry、handoff transfer 或 legacy adoption 会丢失 worktree ownership。
- *
- * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。
- */
-export function setCwdReleaseMarker(id: string, marker: string | null): void {
-  getDb().prepare(`UPDATE sessions SET cwd_release_marker = ? WHERE id = ?`).run(marker, id);
-}
-
-export function clearCwdReleaseMarker(id: string): void {
-  setCwdReleaseMarker(id, null);
 }
 
 /**

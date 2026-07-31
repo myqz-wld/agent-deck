@@ -7,7 +7,7 @@ import type { Database } from 'better-sqlite3';
 export const DEFAULT_EVENT_REVISION_PAGE_SIZE = 500;
 export const MAX_EVENT_REVISION_PAGE_SIZE = 1_000;
 
-/** Durable per-session cursor maintained by v037 triggers. */
+/** Durable per-session cursor maintained by the event revision triggers. */
 export interface SessionEventRevisionState {
   sessionId: string;
   revision: number;
@@ -111,7 +111,7 @@ export function createEventRevisionReadRepo(db: Database): EventRevisionRepo {
       id: nonNegativeInteger(input.after.id, 0),
     };
     const whereAfter = after
-      ? `\n            AND (COALESCE(change_revision, id), id) > (?, ?)`
+      ? `\n            AND (change_revision, id) > (?, ?)`
       : '';
     const params = after
       ? [input.sessionId, throughRevision, after.revision, after.id, boundedLimit(input.limit)]
@@ -120,15 +120,15 @@ export function createEventRevisionReadRepo(db: Database): EventRevisionRepo {
       .prepare(
         `SELECT id,
                 session_id,
-                COALESCE(change_revision, id) AS effective_revision,
+                change_revision AS effective_revision,
                 kind,
                 payload_json,
                 ts,
                 tool_use_id
            FROM events
           WHERE session_id = ?
-            AND COALESCE(change_revision, id) <= ?${whereAfter}
-          ORDER BY COALESCE(change_revision, id) ASC, id ASC
+            AND change_revision <= ?${whereAfter}
+          ORDER BY change_revision ASC, id ASC
           LIMIT ?`,
       )
       .all(...params) as RawEventRow[];
@@ -137,6 +137,3 @@ export function createEventRevisionReadRepo(db: Database): EventRevisionRepo {
 
   return { state, listRawEvents };
 }
-
-/** Backward-compatible name for process-local DB-injected callers. */
-export const createEventRevisionRepo = createEventRevisionReadRepo;

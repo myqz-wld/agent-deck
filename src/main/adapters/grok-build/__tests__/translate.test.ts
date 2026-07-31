@@ -424,42 +424,6 @@ describe('Grok ACP event translation', () => {
     });
   });
 
-  it('uses the first cumulative snapshot only as a baseline after legacy recovery', () => {
-    const state = createGrokTranslationState({
-      lastUsage: null,
-      standardUsageBaselineReady: false,
-    });
-
-    beginGrokTurn(state, 'app-session', 'grok-4.5', 'legacy-turn');
-    expect(
-      translateGrokUsage(
-        'app-session',
-        'grok-4.5',
-        { totalTokens: 100, inputTokens: 80, outputTokens: 20 },
-        state,
-      ),
-    ).toBeNull();
-    expect(state.lastUsage).toMatchObject({
-      totalTokens: 100,
-      inputTokens: 80,
-      outputTokens: 20,
-    });
-
-    beginGrokTurn(state, 'app-session', 'grok-4.5');
-    expect(
-      translateGrokUsage(
-        'app-session',
-        'grok-4.5',
-        { totalTokens: 112, inputTokens: 88, outputTokens: 24 },
-        state,
-      )?.payload,
-    ).toMatchObject({
-      totalTokens: 12,
-      inputTokens: 8,
-      outputTokens: 4,
-    });
-  });
-
   it('continues cumulative deltas from a persisted recovery watermark', () => {
     const state = createGrokTranslationState({
       lastUsage: {
@@ -470,7 +434,6 @@ describe('Grok ACP event translation', () => {
         cachedReadTokens: 10,
         cachedWriteTokens: null,
       },
-      standardUsageBaselineReady: true,
     });
 
     beginGrokTurn(state, 'app-session', 'grok-4.5', 'recovered-turn');
@@ -1244,7 +1207,6 @@ describe('Grok ACP event translation', () => {
         cachedReadTokens: null,
         cachedWriteTokens: null,
       },
-      standardUsageBaselineReady: true,
     });
     beginGrokTurn(state, 'app-session', 'grok-4.5', 'turn-covered-grace');
     const standard = translateGrokUsage(
@@ -1352,7 +1314,6 @@ describe('Grok ACP event translation', () => {
         cachedReadTokens: null,
         cachedWriteTokens: null,
       },
-      standardUsageBaselineReady: true,
     });
     beginGrokTurn(state, 'app-session', 'grok-4.5', 'turn-covered-late');
     const standard = translateGrokUsage(

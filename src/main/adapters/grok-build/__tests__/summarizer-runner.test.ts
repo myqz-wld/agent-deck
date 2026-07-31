@@ -38,6 +38,7 @@ describe('Grok periodic summary runner', () => {
   it('uses the configured custom model and Grok effort in an isolated oneshot', async () => {
     const result = await summariseGrokSessionViaOneshot('/repo', [
       {
+        id: 1,
         sessionId: 'grok-session',
         agentId: 'grok-build',
         kind: 'message',

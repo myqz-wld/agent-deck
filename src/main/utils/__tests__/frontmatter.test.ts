@@ -81,21 +81,18 @@ describe('frontmatter round-trip', () => {
     expect(parseFrontmatter(written)).toEqual(fm);
   });
 
-  // 向后兼容：bundled plugin md（reviewer-claude.md / SKILL.md）历史用裸字符串 form
-  it('parses legacy bare form (bundled plugin)', () => {
-    const legacy = '---\nname: reviewer-claude\ndescription: 异构对抗 review\ntools: Read, Grep\n---\n\nbody.\n';
-    expect(parseFrontmatter(legacy)).toEqual({
+  it('parses unquoted scalar fields', () => {
+    const unquoted = '---\nname: reviewer-claude\ndescription: 异构对抗 review\ntools: Read, Grep\n---\n\nbody.\n';
+    expect(parseFrontmatter(unquoted)).toEqual({
       name: 'reviewer-claude',
       description: '异构对抗 review',
       tools: 'Read, Grep',
     });
   });
 
-  it('parses legacy bare form with leading hash inside description', () => {
-    // 历史 bundled 写法：description: text with # inside（裸 form 且 # 不被当注释 —— app parser
-    // 用 `(.*)$` 贪婪捕获，与 YAML 标准在「裸 form」下行为一致：# 作为 value 一部分）
-    const legacy = '---\nname: x\ndescription: text with # hash\n---\n\nbody.\n';
-    expect(parseFrontmatter(legacy)).toEqual({
+  it('keeps a hash inside an unquoted description', () => {
+    const unquoted = '---\nname: x\ndescription: text with # hash\n---\n\nbody.\n';
+    expect(parseFrontmatter(unquoted)).toEqual({
       name: 'x',
       description: 'text with # hash',
     });

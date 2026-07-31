@@ -23,23 +23,15 @@ const STOP_TIMEOUT_MS = 2_000;
 const DELETE_TIMEOUT_MS = 3_000;
 
 interface GrokHeadlessEnvelope {
-  /** Current Grok Build JSON headless response fields. */
   content?: unknown;
   structuredOutput?: unknown;
   error?: unknown;
-  /** Compatibility with older/test response shapes. */
-  text?: unknown;
-  type?: unknown;
-  message?: unknown;
   stopReason?: unknown;
   usage?: {
     inputTokens?: unknown;
     outputTokens?: unknown;
     contextWindowTokens?: unknown;
-    input_tokens?: unknown;
-    output_tokens?: unknown;
   };
-  modelUsage?: unknown;
 }
 
 export interface GrokOneshotResult {
@@ -260,15 +252,14 @@ async function captureHeadlessResult(
       { cause: error },
     );
   }
-  if (code !== 0 || parsed.type === 'error' || parsed.error) {
+  if (code !== 0 || parsed.error) {
     const detail = headlessErrorDetail(parsed, diagnostics, code, signal);
     throw new Error(`Grok Build 单次运行失败：${detail}`);
   }
 
   const value =
     parsed.structuredOutput ??
-    parsed.content ??
-    parsed.text;
+    parsed.content;
   const text =
     typeof value === 'string'
       ? value
@@ -282,15 +273,9 @@ async function captureHeadlessResult(
   }
   return {
     text,
-    inputTokens: usageNumber(
-      parsed.usage?.inputTokens ?? parsed.usage?.input_tokens,
-    ),
-    outputTokens: usageNumber(
-      parsed.usage?.outputTokens ?? parsed.usage?.output_tokens,
-    ),
-    contextWindowTokens:
-      usageNumber(parsed.usage?.contextWindowTokens) ??
-      contextWindow(parsed.modelUsage),
+    inputTokens: usageNumber(parsed.usage?.inputTokens),
+    outputTokens: usageNumber(parsed.usage?.outputTokens),
+    contextWindowTokens: usageNumber(parsed.usage?.contextWindowTokens),
     stopReason: typeof parsed.stopReason === 'string' ? parsed.stopReason : null,
   };
 }
@@ -301,7 +286,6 @@ function headlessErrorDetail(
   code: number | null,
   signal: NodeJS.Signals | null,
 ): string {
-  if (typeof parsed.message === 'string') return parsed.message;
   if (typeof parsed.error === 'string') return parsed.error;
   if (parsed.error) return JSON.stringify(parsed.error);
   return diagnostics.trim() || `process exited with ${signal ?? code ?? 'unknown status'}`;
@@ -311,21 +295,6 @@ function usageNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : null;
-}
-
-function contextWindow(modelUsage: unknown): number | null {
-  if (!modelUsage || typeof modelUsage !== 'object') return null;
-  const values = Object.values(modelUsage as Record<string, unknown>)
-    .map((entry) =>
-      entry && typeof entry === 'object'
-        ? usageNumber(
-            (entry as Record<string, unknown>).contextWindow ??
-              (entry as Record<string, unknown>).contextWindowTokens,
-          )
-        : null,
-    )
-    .filter((entry): entry is number => entry !== null);
-  return values.length ? Math.min(...values) : null;
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {

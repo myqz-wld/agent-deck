@@ -49,7 +49,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
   deliveryLeaseOf: (message: AgentDeckMessage): LeaseLike => ({
     messageId: message.id,
     toSessionId: message.toSessionId,
-    generation: message.deliveryGeneration ?? 0,
+    generation: message.deliveryGeneration,
   }),
   agentDeckMessageRepo: {
     findEligible: () =>
@@ -66,7 +66,7 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
       currentMessage.status = 'delivering';
       currentMessage.lastAttemptAt = now;
       currentMessage.deliveringSince = now;
-      currentMessage.deliveryGeneration = (currentMessage.deliveryGeneration ?? 0) + 1;
+      currentMessage.deliveryGeneration += 1;
       currentMessage.deliveryLeaseToSessionId = currentMessage.toSessionId;
       return cloneCurrent();
     },
@@ -106,16 +106,6 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         ? 1
         : 0,
     countDelivering: () => currentMessage.status === 'delivering' ? 1 : 0,
-    // Legacy behavior is retained only as a regression tripwire. If start() calls this API again,
-    // the row becomes pending and the test observes a second adapter injection.
-    resetDeliveringOnStartup: () => {
-      if (currentMessage.status !== 'delivering') return 0;
-      currentMessage.status = 'pending';
-      currentMessage.statusReason = 'legacy restart retry';
-      currentMessage.deliveringSince = null;
-      currentMessage.deliveryLeaseToSessionId = null;
-      return 1;
-    },
     terminalizeDeliveringOnStartup: () => {
       if (currentMessage.status !== 'delivering') return 0;
       currentMessage.status = 'failed';

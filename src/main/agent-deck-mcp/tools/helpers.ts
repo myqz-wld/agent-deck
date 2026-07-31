@@ -37,26 +37,13 @@ export type HandlerResult = {
   isError?: boolean;
 };
 
-/**
- * Tool handler 共用：把 zod 解析后的 callerSessionId（args 字段）规范为
- * CallerContext。in-process transport 在外层 wrapper 内会**再次**用 closure
- * 覆盖 callerSessionId（强制语义防 prompt 注入伪造）。
- */
+/** Builds the shared handler context from a transport-authenticated caller id. */
 export function makeCallerContext(
-  rawCallerSid: string | null | undefined,
-  rawParentSid: string | undefined,
+  callerSessionId: string,
   transport: CallerContext['transport'],
 ): CallerContext {
-  // REVIEW_32 HIGH-9：callerSessionId 改 optional 后，in-process 走 override 注入真实 sid；
-  // external (HTTP/stdio) 没 override → 用占位 EXTERNAL_CALLER_SENTINEL，下游 denyExternalIfNotAllowed
-  // 兜底拒绝需要真实 session 上下文的 tool。空字符串 / null 都视为缺省。
-  // REVIEW_56 §F8 修法 (Plan-Review Round 1 + spike 决策): raw '__external__' literal 替换为
-  // EXTERNAL_CALLER_SENTINEL const (types.ts:16 已 SSOT);其他 user-facing error / hint message
-  // text (L81/L96/L104/L190) 故意保留字面值方便用户 grep 定位,不替换。
-  const callerSid = rawCallerSid && rawCallerSid.length > 0 ? rawCallerSid : EXTERNAL_CALLER_SENTINEL;
   return {
-    callerSessionId: callerSid,
-    parentSessionId: rawParentSid ?? callerSid,
+    callerSessionId,
     transport,
   };
 }
@@ -156,12 +143,12 @@ export function ok(data: unknown): HandlerResult {
   };
 }
 
-/** Return the same JSON in the legacy text channel and the MCP structured success channel. */
+/** Return a successful MCP result through the structured content channel. */
 export function structuredOk<T extends Record<string, unknown>>(
   data: T,
 ): HandlerResult {
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+    content: [],
     structuredContent: data,
   };
 }
@@ -169,12 +156,8 @@ export function structuredOk<T extends Record<string, unknown>>(
 /**
  * 构造 error result。
  *
- * **R3 fix-5 (M5 codex Batch B MED-2)**: 加 optional `extras` 第三参 — partial-success error
- * path 透传额外结构化字段（如 exit-worktree handler 的 `markerCleared` 状态）给 MCP caller。
- * 旧 caller (仅 message + hint) 行为不变 — extras 缺省时仍 serialize `{error, hint?}`。
- *
- * 使用约束: extras 仅用于结构化 partial-success 字段（caller 需要根据这些字段决定 retry / 兜底
- * 行为）。普通 error 不传 extras（避免无意义 noise）。
+ * Optional extras add machine-readable recovery context while the text body remains a single JSON
+ * error object. Ordinary errors should use only message and hint.
  */
 export function err(
   message: string,
@@ -390,7 +373,3 @@ export function projectSession(s: SessionRecord) {
     spawnDepth: s.spawnDepth ?? 0,
   };
 }
-
-// 测试 hooks（保留 _internalOk / _internalErr 老 export 名，向后兼容；当前无 caller 但保留
-// 以防 external 测试依赖）
-export { ok as _internalOk, err as _internalErr };

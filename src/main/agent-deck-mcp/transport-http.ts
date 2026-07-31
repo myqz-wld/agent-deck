@@ -79,7 +79,7 @@ export function resolveAuthenticatedAdapterId(
 
 /** Build a fresh SDK server and register the tools visible to the authenticated adapter. */
 export async function buildAgentDeckMcpServerForExternalTransport(
-  transportName: 'http' | 'stdio',
+  transportName: 'http',
   adapterId: SessionAdapterId | null,
   mcpServerModule?: AgentDeckMcpServerModule,
 ) {
@@ -88,10 +88,8 @@ export async function buildAgentDeckMcpServerForExternalTransport(
     name: 'agent-deck',
     version: '0.1.0',
   });
-  const callerSessionIdOverride =
-    transportName === 'http' ? resolveCallerSidForReadOnly : null;
   const adapted = await buildAgentDeckTools({
-    callerSessionIdOverride,
+    callerSessionIdOverride: resolveCallerSidForReadOnly,
     transport: transportName,
     adapterId,
   });

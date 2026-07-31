@@ -274,47 +274,6 @@ describe('CodexPermissionController', () => {
     });
   });
 
-  it('maps legacy denial and timeout to the exact app-server response vocabulary', async () => {
-    const active = makeSession();
-    const { controller } = makeController();
-    const denial = controller.handle(
-      active,
-      {
-        id: 3,
-        method: 'execCommandApproval',
-        params: { conversationId: 'thread-1', command: ['git', 'push'] },
-      },
-      new AbortController().signal,
-    );
-    const [denialRequest] = controller.list(active);
-    expect(denialRequest.toolName).toBe('Codex CLI 命令');
-    controller.respond(active, denialRequest.requestId, {
-      decision: 'deny',
-      message: 'Not approved',
-    });
-    await expect(Promise.resolve(denial)).resolves.toEqual({
-      handled: true,
-      result: { decision: { denied: { rejection: 'Not approved' } } },
-    });
-
-    const timeout = controller.handle(
-      active,
-      {
-        id: 4,
-        method: 'applyPatchApproval',
-        params: { conversationId: 'thread-1', fileChanges: {} },
-      },
-      new AbortController().signal,
-    );
-    const [timeoutRequest] = controller.list(active);
-    expect(timeoutRequest.toolName).toBe('Codex CLI 文件修改');
-    controller.cancel(active, 'timed-out');
-    await expect(Promise.resolve(timeout)).resolves.toEqual({
-      handled: true,
-      result: { decision: 'timed_out' },
-    });
-  });
-
   it('cancels a pending request when app-server resolves it elsewhere', async () => {
     const active = makeSession();
     const { controller, events } = makeController();

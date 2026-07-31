@@ -20,6 +20,5 @@ describe('session-metadata thinking levels', () => {
 
   it('formats concrete and historical display values', () => {
     expect(formatThinkingLevel('ultra')).toBe('ultra');
-    expect(formatThinkingLevel('minimal')).toBe('minimal');
   });
 });

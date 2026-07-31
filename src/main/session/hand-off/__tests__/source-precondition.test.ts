@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { SessionRecord } from '@shared/types';
-import { createEventRevisionRepo } from '@main/store/event-revision-repo';
+import { createEventRevisionReadRepo } from '@main/store/event-revision-repo';
 import {
   bindingAvailable,
   insertSession,
@@ -70,7 +70,7 @@ describe.skipIf(!bindingAvailable)('handoff source append-only cutover policy', 
       role: 'assistant',
       text: 'captured assistant state',
     });
-    const reader = createEventRevisionRepo(db);
+    const reader = createEventRevisionReadRepo(db);
     const state = reader.state(SOURCE_ID)!;
     boundary = {
       eventRevision: state.revision,
@@ -247,18 +247,6 @@ describe.skipIf(!bindingAvailable)('handoff source append-only cutover policy', 
       compatibleEventRows: 1_001,
       lateMessages: [{ eventId, text: 'page-two input' }],
     });
-  });
-
-  it('accepts an appended legacy row whose change_revision is null', () => {
-    const eventId = insertEvent(db, 'message', { role: 'assistant', text: 'legacy append' });
-    db.prepare(`UPDATE events SET change_revision = NULL WHERE id = ?`).run(eventId);
-
-    expect(
-      checkHandOffSourcePrecondition(
-        { sourceSessionId: SOURCE_ID, expected: boundary },
-        deps,
-      ),
-    ).toMatchObject({ ok: true, compatibleEventRows: 1 });
   });
 
   it('supports a capture boundary with no existing event ids', () => {

@@ -73,7 +73,7 @@ export type { CodexSessionHandle, CodexBridgeOptions } from './types';
  *
  * - app-server native approval requests bridge into Agent Deck's permission UI
  * - 无通用 AskUserQuestion / ExitPlanMode；MCP tool approval 的 requestUserInput
- *   compatibility path 复用 permission queue
+ *   复用 permission queue
  * - 无 setPermissionMode（同上）
  * - 无 hook 通道时序竞争（codex 无 hook），不调 sessionManager.expectSdkSession
  * - 同一 thread 不能并发 turn（codex CLI 共享 ~/.codex/sessions 文件），用 pendingMessages 串行
@@ -114,11 +114,7 @@ export class CodexSdkBridge {
    * 调用走 this.threadLoop.xxx 委托。
    */
   private threadLoop: ThreadLoop;
-  /**
-   * R37 P2-E Step 3.4c：RestartController sub-class 持 restartWithCodexSandbox method。
-   * public 名称保留兼容旧 IPC；当前实现只持久化 + patch live app-server thread options，
-   * 不再 close/create Codex thread。
-   */
+  /** Applies next-turn Codex sandbox changes without replacing the app-server thread. */
   private restartController: RestartController;
   private sessionModelController: SessionModelController;
   private messageController: MessageController;
@@ -263,7 +259,6 @@ export class CodexSdkBridge {
     sessionId: string,
     sessionToken: string,
     profile?: string,
-    envOverrideExtra?: Readonly<Record<string, string>>,
   ): Promise<CodexAppServerClient> {
     const resolvedProfile = resolveCodexConfigProfile(profile);
     const client = ensureCodexClient({
@@ -272,7 +267,6 @@ export class CodexSdkBridge {
       sessionToken,
       profile: resolvedProfile?.id,
       hookServer: this.opts.hookServer,
-      envOverrideExtra,
     });
     this.permissionHost.bindClient(client);
     return client;
@@ -292,8 +286,8 @@ export class CodexSdkBridge {
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
       // arrow 闭包 facade `this`,运行时晚解析 → this.ensureCodex 一定已绑定
-      ensureCodex: (sid, token, profile, extra) =>
-        this.ensureCodex(sid, token, profile, extra),
+      ensureCodex: (sid, token, profile) =>
+        this.ensureCodex(sid, token, profile),
     });
   }
 
@@ -310,8 +304,8 @@ export class CodexSdkBridge {
       codexBySession: this.codexBySession,
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
-      ensureCodex: (sid, token, profile, extra) =>
-        this.ensureCodex(sid, token, profile, extra),
+      ensureCodex: (sid, token, profile) =>
+        this.ensureCodex(sid, token, profile),
       lifecycle: {
         allocateToken: (sid) => mcpSessionTokenMap.allocate(sid),
         resolveToken: (token) => mcpSessionTokenMap.get(token),
@@ -389,19 +383,12 @@ export class CodexSdkBridge {
     return this.messageController.removePendingOutgoingMessage(sessionId, messageId);
   }
 
-  /**
-   * 兼容旧 IPC 名称的 Codex sandbox 切换入口。
-   *
-   * app-server Codex 每次 `turn/start` 都携带 sandboxPolicy，因此这里不再冷重启：
-   * 持久化 sessionRepo.codexSandbox 后 patch live thread options，当前 turn 继续跑，
-   * 下一条 pending/user message 使用新 sandbox。
-   */
-  async restartWithCodexSandbox(
+  /** Persist and apply the Codex sandbox to the next turn without restarting app-server. */
+  async setCodexSandbox(
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
-    handoffPrompt: string,
-  ): Promise<string> {
-    return this.restartController.restartWithCodexSandbox(sessionId, sandbox, handoffPrompt);
+  ): Promise<void> {
+    return this.restartController.setCodexSandbox(sessionId, sandbox);
   }
 
   async setCodexApprovalPolicy(

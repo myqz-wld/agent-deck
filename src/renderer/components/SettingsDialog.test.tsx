@@ -121,7 +121,7 @@ describe('SettingsDialog adapter views', () => {
     expectRawBackendDetailsHidden();
   });
 
-  it('uses canonical executable and sandbox copy, including legacy Grok Build profiles', async () => {
+  it('uses canonical executable and sandbox copy, including custom Grok Build profiles', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {

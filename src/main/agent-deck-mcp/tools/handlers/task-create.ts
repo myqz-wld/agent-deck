@@ -4,8 +4,7 @@
  * plan task-mcp-merge-into-agent-deck-mcp-20260521：从 src/main/task-manager/tools.ts
  * 抽出，转 makeCtx + HandlerContext.caller 模式（与现有 10 个 agent-deck-mcp tool 同款）。
  *
- * **D5**: schema 走 makeCtx(args, extra)，callerSessionId 从 HandlerContext.caller.callerSessionId
- * 拿（in-process closure override / HTTP authn / stdio sentinel 三路径已收口）
+ * **D5**: callerSessionId comes from HandlerContext after transport authentication.
  * **D6**: EXTERNAL_CALLER_ALLOWED.task_create = false，withMcpGuard 自动 deny stdio sentinel
  * **D7**: ingest 仅在 in-process transport（claude SDK session events 流看得到 team-task-*）；
  *   HTTP transport（codex SDK 子进程）skip ingest（codex SessionDetail 渲染 team-task-* event 未实证）

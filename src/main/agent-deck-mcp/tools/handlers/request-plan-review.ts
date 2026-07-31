@@ -9,23 +9,6 @@ import {
 } from '../helpers';
 import type { RequestPlanReviewArgs, RequestPlanReviewResult } from '../schemas';
 
-export function resolvePlanReviewTimeoutMs(
-  requestedTimeoutMs: number | undefined,
-  permissionTimeoutMs?: number,
-): number | undefined {
-  if (permissionTimeoutMs === undefined) {
-    return requestedTimeoutMs && requestedTimeoutMs > 0
-      ? requestedTimeoutMs
-      : undefined;
-  }
-  const settingTimeoutMs = Number.isFinite(permissionTimeoutMs)
-    ? Math.max(0, permissionTimeoutMs)
-    : 0;
-  if (settingTimeoutMs === 0) return requestedTimeoutMs;
-  if (!requestedTimeoutMs || requestedTimeoutMs <= 0) return settingTimeoutMs;
-  return Math.min(requestedTimeoutMs, settingTimeoutMs);
-}
-
 export const requestPlanReviewHandler = withMcpGuard(
   'present_plan',
   async (args: RequestPlanReviewArgs, ctx: HandlerContext) => {
@@ -44,14 +27,11 @@ export const requestPlanReviewHandler = withMcpGuard(
           'Do not retry. Ask the user to start a new Agent Deck session and present the plan there.',
         );
       }
-      const timeoutMs = resolvePlanReviewTimeoutMs(args.timeoutMs);
-
       const decision = await planReviewService.request({
         sessionId: callerSid,
         agentId: session.agentId,
         plan: args.plan,
         ...(args.title ? { title: args.title } : {}),
-        ...(timeoutMs && timeoutMs > 0 ? { timeoutMs } : {}),
       });
 
       return ok(decision satisfies RequestPlanReviewResult);

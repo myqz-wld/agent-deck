@@ -241,9 +241,7 @@ async function resolveGrokDefaults(
     deps.grokConfigPath ?? join(deps.userHome ?? homedir(), '.grok', 'config.toml');
   const content = await readConfigText(configPath, 'grok-config', deps);
   const model = readTopLevelQuotedString(content, 'model') ?? 'grok-4.5';
-  const configuredThinking =
-    readTopLevelQuotedString(content, 'reasoning_effort') ??
-    readTopLevelQuotedString(content, 'effort');
+  const configuredThinking = readTopLevelQuotedString(content, 'reasoning_effort');
   return {
     ...base,
     model,
@@ -277,7 +275,7 @@ function readClaudeSettings(records: Array<ConfigRecord | null>): {
     model = nonBlank(parsed.model) ?? model;
     const env = isRecord(parsed.env) ? parsed.env : {};
     envModel = nonBlank(env.ANTHROPIC_MODEL) ?? envModel;
-    const effort = parsed.effortLevel ?? parsed.effort;
+    const effort = parsed.effortLevel;
     if (isClaudeThinkingLevel(effort)) thinking = effort;
   }
   const effectiveModel = model ?? envModel;

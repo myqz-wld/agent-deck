@@ -120,13 +120,10 @@ export async function createSessionImpl(
     const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
     const sessionProfile =
       opts.profile ?? resumeRec?.runtimeProvider ?? undefined;
-    // plan §P3 Step 3.5: 透传 envOverrideExtra（generic 透传机制,目前无 hot caller）到
-    // ensureCodex,让 codex 子进程 env merge extra 字段。
     const codex = await deps.ensureCodex(
       initialSid,
       sessionToken,
       sessionProfile,
-      opts.envOverrideExtra,
     );
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：

@@ -1,9 +1,6 @@
 import type { SessionRecord } from '@shared/types';
 import { getDb } from '../db';
-import {
-  buildKeywordPredicate,
-  shouldIncludeLegacyEventIndex,
-} from '../search-predicate';
+import { buildKeywordPredicate } from '../search-predicate';
 import { rowToRecord, type Row } from './types';
 
 /** User-facing History data source. Internal runtime rows are excluded in every filter mode. */
@@ -54,9 +51,7 @@ export function listHistory(
     params.to_ts = opts.toTs;
   }
   if (opts.keyword) {
-    const pred = buildKeywordPredicate(opts.keyword, {
-      includeLegacyEventIndex: shouldIncludeLegacyEventIndex(db),
-    });
+    const pred = buildKeywordPredicate(opts.keyword);
     conditions.push(pred.sql);
     Object.assign(params, pred.params);
   }

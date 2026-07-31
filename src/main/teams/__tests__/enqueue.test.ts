@@ -36,6 +36,8 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         lastAttemptAt: null,
         deliveringSince: null,
         replyToMessageId: input.replyToMessageId ?? null,
+        deliveryGeneration: 0,
+        deliveryLeaseToSessionId: null,
       };
       return msg;
     },

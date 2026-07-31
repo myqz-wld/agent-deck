@@ -17,11 +17,7 @@ export type GrokThinkingLevel = (typeof GROK_THINKING_LEVELS)[number];
 export function isGrokThinkingLevel(value: unknown): value is GrokThinkingLevel {
   return GROK_THINKING_LEVELS.includes(value as GrokThinkingLevel);
 }
-/** Retained only to read pre-removal persisted settings and session metadata. */
-export type LegacySessionThinkingLevel = 'minimal';
-export type SessionThinkingLevel =
-  | (typeof SESSION_THINKING_LEVELS)[number]
-  | LegacySessionThinkingLevel;
+export type SessionThinkingLevel = (typeof SESSION_THINKING_LEVELS)[number];
 
 export function isClaudeThinkingLevel(value: unknown): value is ClaudeThinkingLevel {
   return typeof value === 'string' && (CLAUDE_THINKING_LEVELS as readonly string[]).includes(value);
@@ -38,9 +34,6 @@ export function isSessionThinkingLevel(value: unknown): value is SessionThinking
 export function formatThinkingLevel(value: string | null | undefined): string {
   if (!value) return 'default';
   switch (value) {
-    case 'minimal':
-      // Historical session rows can retain the removed value for display only.
-      return 'minimal';
     case 'low':
       return 'low';
     case 'medium':

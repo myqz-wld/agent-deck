@@ -22,7 +22,7 @@ describe('adapter runtime profiles', () => {
         canSetPermissionMode: true,
         canRestartWithPermissionMode: true,
         canRestartWithClaudeCodeSandbox: true,
-        canRestartWithCodexSandbox: false,
+        canSetCodexSandbox: false,
         canRestartWithGrokSandbox: false,
       },
       runtimeControls: {
@@ -46,7 +46,7 @@ describe('adapter runtime profiles', () => {
         canSetPermissionMode: false,
         canSetSessionMode: false,
         canRestartWithPermissionMode: false,
-        canRestartWithCodexSandbox: true,
+        canSetCodexSandbox: true,
         canRestartWithClaudeCodeSandbox: false,
         canRestartWithGrokSandbox: false,
       },

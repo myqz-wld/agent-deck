@@ -422,16 +422,18 @@ describe('translateCodexAppServerNotification', () => {
     ]);
   });
 
-  it('maps Codex collab agent tool calls to the existing Agent renderer contract', () => {
+  it('maps current Codex collab tool calls to the existing Agent renderer contract', () => {
     const { emit, events } = collect();
     const item = {
       id: 'agent-1',
-      type: 'collabAgentToolCall',
-      agentName: 'reviewer-codex',
+      type: 'collabToolCall',
+      tool: 'spawn_agent',
+      senderThreadId: 'lead-thread',
+      receiverThreadId: null,
+      newThreadId: 'review-thread',
       prompt: 'review this patch',
-      result: 'no blockers',
+      agentStatus: 'completed',
       status: 'completed',
-      success: true,
     };
 
     translateCodexAppServerNotification(
@@ -448,7 +450,12 @@ describe('translateCodexAppServerNotification', () => {
         kind: 'tool-use-start',
         payload: {
           toolName: 'Agent',
-          toolInput: { subagent_type: 'reviewer-codex', prompt: 'review this patch' },
+          toolInput: {
+            collab_tool: 'spawn_agent',
+            sender_thread_id: 'lead-thread',
+            new_thread_id: 'review-thread',
+            prompt: 'review this patch',
+          },
           toolUseId: 'agent-1',
         },
       },
@@ -457,8 +464,16 @@ describe('translateCodexAppServerNotification', () => {
         payload: {
           toolUseId: 'agent-1',
           toolName: 'Agent',
-          toolInput: { subagent_type: 'reviewer-codex', prompt: 'review this patch' },
-          toolResult: 'no blockers',
+          toolInput: {
+            collab_tool: 'spawn_agent',
+            sender_thread_id: 'lead-thread',
+            new_thread_id: 'review-thread',
+            prompt: 'review this patch',
+          },
+          toolResult: {
+            new_thread_id: 'review-thread',
+            agent_status: 'completed',
+          },
           status: 'completed',
           error: undefined,
         },

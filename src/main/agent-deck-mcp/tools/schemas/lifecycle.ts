@@ -7,7 +7,7 @@ import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
 // hand_off_session starts a fresh successor SDK session with a provider-neutral Continuation
 // Context (会话续接上下文), commits one durable logical-ownership move, and closes the caller only
-// after mandatory transfer succeeds. Tasks, active teams, the worktree marker, and in-flight
+// after mandatory transfer succeeds. Tasks, active teams, the active worktree lease, and in-flight
 // message endpoints move directly; only the latest successor retains issue authority, while
 // pending plan gates and related trajectory visibility follow the handoff chain and historical
 // provenance remains unchanged. Only the
@@ -96,7 +96,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path to exit. Omit it to use the caller session structured lease or legacy marker set by enter_worktree. An override must match that owned path exactly. Existing marker-only or explicitly named registered worktrees are adopted into the same restore-first flow. Branch names are not part of worktree identity, so renaming or switching a branch does not block exit. State waiting-tool-result means restoration was accepted, not that cleanup finished; completed-legacy is returned only when the target path is already absent.',
+      'Optional absolute worktree path to exit. Omit it to use the caller session structured lease. An override must match that lease exactly; a path without an active caller-owned lease is rejected. Branch names are not part of worktree identity, so renaming or switching a branch does not block exit. State waiting-tool-result means restoration was accepted, not that cleanup finished.',
     ),
   discardChanges: z
     .boolean()
@@ -170,7 +170,11 @@ export interface HandOffSessionResult {
       skipped: Array<{ teamId: string; role: 'lead' | 'teammate'; reason: string }>;
       failed: Array<{ teamId: string; role: 'lead' | 'teammate'; reason: string }>;
     };
-    worktreeMarker: { status: 'ok' | 'skipped' | 'failed'; marker: string | null; error?: string };
+    worktreeLease: {
+      status: 'ok' | 'skipped' | 'failed';
+      worktreePath: string | null;
+      error?: string;
+    };
   };
 }
 
@@ -199,11 +203,8 @@ export const ENTER_WORKTREE_OUTPUT_SCHEMA = z
       .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i)
       .describe('Frozen 40- or 64-hex Git commit object id resolved from startPoint before creation.'),
     headMode: z
-      .enum(['detached', 'legacy-attached'])
-      .describe('Creation mode. New calls always return "detached". "legacy-attached" appears only when idempotently reporting a pre-upgrade transition that had already created a branch-attached worktree; the retry does not mutate that branch or ref.'),
-    markerSet: z
-      .boolean()
-      .describe('True after the durable cwd-release marker is stored; false only for an idempotent response while initial creation is still settling.'),
+      .literal('detached')
+      .describe('Creation mode. enter_worktree always creates a detached HEAD and never mutates a branch or ref.'),
   })
   .strict();
 
@@ -255,44 +256,13 @@ const EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA = z
     worktreeRemoved: z
       .boolean()
       .describe('True when this retry removed the worktree; false when it was already absent.'),
-    markerCleared: z
-      .literal(true)
-      .describe('Confirms that the caller no longer owns a worktree cleanup marker.'),
   })
   .strict();
 
-const EXIT_WORKTREE_LEGACY_OUTPUT_SCHEMA = z
-  .object({
-    transitionId: z
-      .null()
-      .describe('Null because no asynchronous transition was needed for an already-absent target.'),
-    direction: z
-      .literal('exit')
-      .describe('Confirms that this result belongs to exit_worktree.'),
-    state: z
-      .literal('completed-legacy')
-      .describe('The requested legacy target was already absent, so no worktree removal ran.'),
-    effectiveFrom: z
-      .literal('already-effective')
-      .describe('No provider turn boundary or cwd transition remains pending.'),
-    worktreePath: z
-      .string()
-      .min(1)
-      .describe('Absolute target path that was already absent.'),
-    worktreeRemoved: z
-      .literal(false)
-      .describe('Always false because the target did not exist when this call ran.'),
-    markerCleared: z
-      .boolean()
-      .describe('True when a stale caller marker was cleared; false when no marker existed or clearing failed.'),
-  })
-  .strict();
-
-/** exit_worktree success is accepted restoration, completed cleanup, or an already-absent target. */
+/** exit_worktree success is accepted restoration or a completed cleanup retry. */
 export const EXIT_WORKTREE_OUTPUT_SCHEMA = z.discriminatedUnion('state', [
   EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA,
   EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA,
-  EXIT_WORKTREE_LEGACY_OUTPUT_SCHEMA,
 ]);
 
 export type ExitWorktreeResult = z.infer<

@@ -337,20 +337,20 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
     expect(archiveCalls).toEqual(['ended-at-authoritative']);
   });
 
-  it('falls back to lastEventAt for legacy closed rows without endedAt', () => {
+  it('falls back to lastEventAt for an incomplete closed row without endedAt', () => {
     const now = Date.now();
     teams = [{
-      id: 'legacy-close-time',
-      name: 'Legacy',
+      id: 'incomplete-close-time',
+      name: 'Incomplete',
       createdAt: now - 120 * 60_000,
       archivedAt: null,
     }];
-    teamMembers.set('legacy-close-time', [{
-      sessionId: 'legacy-session',
+    teamMembers.set('incomplete-close-time', [{
+      sessionId: 'incomplete-session',
       joinedAt: now - 120 * 60_000,
     }]);
-    sessions.set('legacy-session', {
-      id: 'legacy-session',
+    sessions.set('incomplete-session', {
+      id: 'incomplete-session',
       lifecycle: 'closed',
       endedAt: null,
       lastEventAt: now - 31 * 60_000,
@@ -358,7 +358,7 @@ describe('TeamLifecycleScheduler.scan() — REVIEW_33 H4 两阶段（先收集�
 
     new TeamLifecycleScheduler({ graceMs: 30 * 60_000 }).scan();
 
-    expect(archiveCalls).toEqual(['legacy-close-time']);
+    expect(archiveCalls).toEqual(['incomplete-close-time']);
   });
 
   it('starts grace from the newest of close, member join, and team creation', () => {

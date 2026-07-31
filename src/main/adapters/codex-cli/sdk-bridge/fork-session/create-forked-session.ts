@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { AGENT_DECK_MCP_TOKEN_ENV } from '@main/codex-config/agent-deck-mcp-injector';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../../types/fork-session';
 import type { CodexAppServerClient } from '../../app-server/client';
 import type { CodexBridgeOptions, InternalSession } from '../types';
@@ -45,7 +44,6 @@ export interface CreateCodexForkDeps {
     sessionId: string,
     sessionToken: string,
     profile?: string,
-    envOverrideExtra?: Readonly<Record<string, string>>,
   ): Promise<CodexAppServerClient>;
   lifecycle: CodexForkLifecycleOps;
   resolveTargetRuntime?: (opts: CreateSessionOpts) => CodexForkTargetRuntime;
@@ -59,14 +57,6 @@ export async function createCodexForkedSession(
   target: CreateSessionOpts,
   deps: CreateCodexForkDeps,
 ): Promise<ForkedSessionHandle> {
-  if (
-    target.envOverrideExtra &&
-    Object.prototype.hasOwnProperty.call(target.envOverrideExtra, AGENT_DECK_MCP_TOKEN_ENV)
-  ) {
-    throw new Error(
-      `Codex native fork does not allow envOverrideExtra to replace ${AGENT_DECK_MCP_TOKEN_ENV}; the child must use its target-owned token.`,
-    );
-  }
   const sourceClient = deps.codexBySession.get(source.applicationSessionId);
   if (!sourceClient) {
     throw new Error(
@@ -100,7 +90,6 @@ export async function createCodexForkedSession(
       tempId,
       sessionToken,
       target.profile,
-      target.envOverrideExtra,
     );
     cleanupState.targetClient = targetClient;
     if (targetClient === sourceClient) {

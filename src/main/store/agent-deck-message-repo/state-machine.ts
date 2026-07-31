@@ -180,7 +180,7 @@ export function createStateMachine(db: Database) {
       cur.status !== 'delivering' ||
       cur.to_session_id !== lease.toSessionId ||
       cur.delivery_lease_to_session_id !== lease.toSessionId ||
-      (cur.delivery_generation ?? 0) !== lease.generation
+      cur.delivery_generation !== lease.generation
     ) return null;
 
     const newAttemptCount = cur.attempt_count + 1;

@@ -22,7 +22,6 @@ describe('options-builder Codex runtime defaults', () => {
     expect(opts.approvalPolicy).toBe('on-request');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
-    expect(opts.envOverrideExtra).toBeUndefined();
     expect('agentName' in opts).toBe(false);
   });
 
@@ -50,7 +49,6 @@ describe('options-builder Codex runtime defaults', () => {
     expect(opts.approvalPolicy).toBe('on-request');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
-    expect(opts.envOverrideExtra).toBeUndefined();
 
     const optsWithCallerSandbox = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
@@ -74,7 +72,6 @@ describe('options-builder Codex runtime defaults', () => {
     expect('approvalPolicy' in opts).toBe(false);
     expect('networkAccessEnabled' in opts).toBe(false);
     expect('additionalDirectories' in opts).toBe(false);
-    expect('envOverrideExtra' in opts).toBe(false);
   });
 });
 

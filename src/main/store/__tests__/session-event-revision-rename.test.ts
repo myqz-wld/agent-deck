@@ -85,7 +85,7 @@ describe.skipIf(!bindingAvailable)('session rename / v037 event revision boundar
     expect(
       db
         .prepare(
-          `SELECT id, session_id, COALESCE(change_revision, id) AS effective_revision
+          `SELECT id, session_id, change_revision AS effective_revision
              FROM events
             WHERE session_id = ?
             ORDER BY id`,

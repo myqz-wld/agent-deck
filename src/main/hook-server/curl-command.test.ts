@@ -23,11 +23,11 @@ describe('buildHookCurlCommand', () => {
     expect(command).toContain('X-Agent-Deck-Origin: ${AGENT_DECK_ORIGIN:-cli}');
   });
 
-  it('retains the Claude Code compatibility guard without forwarding the body', () => {
+  it('suppresses duplicate cross-provider hook delivery without forwarding the body', () => {
     const command = buildHookCurlCommand({
       relayConfigPath: '/tmp/agent-deck/hook-relay/sessionstart.curlrc',
       tag: 'agent-deck-hook-v2-claude-code-sessionstart',
-      compatibilityGuardEnvironment: 'GROK_HOOK_EVENT',
+      skipWhenEnvironmentSet: 'GROK_HOOK_EVENT',
     });
 
     expect(command).toContain(

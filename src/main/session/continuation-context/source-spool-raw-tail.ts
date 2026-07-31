@@ -10,7 +10,7 @@ import { utf8ByteLength } from './token-estimator';
 export interface CaptureSpoolRawTailResult {
   spoolBytes: number;
   retainedRawTokens: number;
-  rawWarnings: Array<'legacy-wrapper-excluded' | 'legacy-wrapper-unwrapped'>;
+  rawWarnings: Array<'context-wrapper-excluded'>;
   rawScanTruncated: boolean;
 }
 
@@ -25,26 +25,26 @@ export function captureSpoolRawTail(input: {
   initialSpoolBytes: number;
 }): CaptureSpoolRawTailResult {
   const rawCandidates: ClassifiedContinuationMessage[] = [];
-  const rawWarnings = new Set<'legacy-wrapper-excluded' | 'legacy-wrapper-unwrapped'>();
+  const rawWarnings = new Set<'context-wrapper-excluded'>();
   let rawCursor: { revision: number; id: number } | null = null;
   let rawScanBytes = 0;
   let rawScanTruncated = false;
   for (;;) {
     const params: Array<string | number> = [input.sessionId, input.captureRevision];
     const cursorClause = rawCursor
-      ? `AND (COALESCE(change_revision, id), id) < (?, ?)`
+      ? `AND (change_revision, id) < (?, ?)`
       : '';
     if (rawCursor) params.push(rawCursor.revision, rawCursor.id);
     params.push(128);
     const rows = input.db
       .prepare(
-        `SELECT id, COALESCE(change_revision, id) AS effective_revision,
+        `SELECT id, change_revision AS effective_revision,
                 kind, payload_json, ts
            FROM events
           WHERE session_id = ?
-            AND COALESCE(change_revision, id) <= ?
+            AND change_revision <= ?
             ${cursorClause}
-          ORDER BY COALESCE(change_revision, id) DESC, id DESC
+          ORDER BY change_revision DESC, id DESC
           LIMIT ?`,
       )
       .all(...params) as Array<{

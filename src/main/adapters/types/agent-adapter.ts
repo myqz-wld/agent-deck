@@ -2,14 +2,14 @@
 // Phase 4 Step 4.9 拆分:AgentAdapter 主接口 declaration(纯 declaration)。
 // 收纳:AgentAdapter (init/shutdown/createSession/interruptSession/closeSession/
 // sendMessage/respondPermission/respondAskUserQuestion/respondExitPlanMode/
-// setPermissionMode/setCodexApprovalPolicy/restartWithPermissionMode/restartWithCodexSandbox/
+// setPermissionMode/setCodexApprovalPolicy/restartWithPermissionMode/setCodexSandbox/
 // restartWithClaudeCodeSandbox/listPending/listAllPending/setPermissionTimeoutMs/
 // setCodexCliPath/installIntegration/uninstallIntegration/integrationStatus/
 // receiveTeammateMessage/notifyTeammateEvent/summariseEvents)。
 // ────────────────────────────────────────────────────────────────────────────
 
 import type {
-  AgentEvent,
+  StoredAgentEvent,
   AgentDeckTeammateEvent,
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
@@ -196,21 +196,11 @@ export interface AgentAdapter {
     handoffPrompt: string,
   ): Promise<string>;
 
-  /**
-   * Codex 专属 sandbox 切换。方法名沿用旧 cold-restart IPC 兼容；app-server Codex
-   * 实现应持久化新档位并让下一次 turn/start 使用它，不能为了切 sandbox 中断当前 turn。
-   *
-   * - 失败时内部 emit error message + 回滚 sessionRepo.codexSandbox 到旧档
-   * - 返回 sessionId 用于追踪（接口签名与旧 restart API 对齐保留 string 返回）
-   *
-   * capabilities.canRestartWithCodexSandbox: true 时调用方才能调此方法；其他 adapter
-   * 字段无意义不实现。
-   */
-  restartWithCodexSandbox?(
+  /** Persist a Codex sandbox choice and apply it to subsequent turns without interrupting. */
+  setCodexSandbox?(
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
-    handoffPrompt: string,
-  ): Promise<string>;
+  ): Promise<void>;
 
   /**
    * Codex approval-policy next-turn apply. Persist the per-session choice and patch live thread
@@ -325,7 +315,7 @@ export interface AgentAdapter {
    */
   summariseEvents?(
     cwd: string,
-    events: AgentEvent[],
+    events: StoredAgentEvent[],
     evidenceContext?: string,
     runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
   ): Promise<string | null>;

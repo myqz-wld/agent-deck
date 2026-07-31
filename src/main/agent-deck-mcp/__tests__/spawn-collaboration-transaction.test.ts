@@ -335,14 +335,20 @@ async function spawn(contextMode: 'fresh' | 'fork' = 'fresh') {
     {
       caller: {
         callerSessionId: 'caller',
-        parentSessionId: 'caller',
         transport: 'in-process',
       },
     },
   );
+  const data = result.isError
+    ? JSON.parse(result.content[0].text) as Record<string, unknown>
+    : result.structuredContent;
+  if (!result.isError) {
+    expect(result.content).toEqual([]);
+    expect(data).toBeDefined();
+  }
   return {
     result,
-    data: JSON.parse(result.content[0].text) as Record<string, unknown>,
+    data: data as Record<string, unknown>,
   };
 }
 

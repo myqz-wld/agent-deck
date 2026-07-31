@@ -203,7 +203,7 @@ function historyUsageEvent(
     totalTokens: usageNumber(usage.totalTokens),
     inputTokens: usageNumber(usage.inputTokens),
     outputTokens: usageNumber(usage.outputTokens),
-    reasoningTokens: usageNumber(usage.reasoningTokens ?? usage.thoughtTokens),
+    reasoningTokens: usageNumber(usage.reasoningTokens),
     cacheReadTokens: usageNumber(usage.cachedReadTokens),
     cacheCreationTokens: usageNumber(usage.cachedWriteTokens),
     ts: grokExtensionTimestampMs(notification, fallbackNow),
@@ -222,7 +222,6 @@ function hasUsageValues(usage: GrokTurnUsage): boolean {
     usage.cachedReadTokens,
     usage.cachedWriteTokens,
     usage.reasoningTokens,
-    usage.thoughtTokens,
   ].some((value) => finiteNumber(value) !== null);
 }
 

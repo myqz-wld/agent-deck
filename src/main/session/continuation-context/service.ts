@@ -210,10 +210,7 @@ export async function prepareContinuationContextWithDependencies(
     for (const code of metadata.rawWarnings) {
       warnings.push({
         code,
-        message:
-          code === 'legacy-wrapper-unwrapped'
-            ? 'A valid legacy continuation wrapper was reduced to its authoritative instruction.'
-            : 'A malformed legacy continuation wrapper was excluded from retained history.',
+        message: 'A generated continuation context was excluded from retained history.',
       });
     }
 

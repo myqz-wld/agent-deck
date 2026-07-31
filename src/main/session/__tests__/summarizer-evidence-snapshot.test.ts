@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent, SummaryRecord } from '@shared/types';
-import { MIGRATIONS } from '@main/store/migrations';
+import { CURRENT_SCHEMA_SQL } from '@main/store/schema';
 import { bindingAvailable } from '@main/store/__tests__/_binding-probe';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
-import { createEventRevisionRepo } from '@main/store/event-revision-repo';
+import { createEventRevisionReadRepo } from '@main/store/event-revision-repo';
 import { formatEventsForPrompt } from '../summarizer/event-formatter';
 import { capturePeriodicSummaryEvidence } from '../summarizer/evidence-snapshot';
 
@@ -12,7 +12,7 @@ function makeDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const migration of MIGRATIONS) db.exec(migration.sql);
+  db.exec(CURRENT_SCHEMA_SQL);
   db.prepare(
     `INSERT INTO sessions
        (id, agent_id, cwd, title, source, lifecycle, activity, started_at, last_event_at)
@@ -36,7 +36,7 @@ function insertEvent(
   );
 }
 
-function previous(revision: number | null): SummaryRecord {
+function previous(revision: number): SummaryRecord {
   return {
     id: 1,
     sessionId: 'summary-evidence',
@@ -44,8 +44,8 @@ function previous(revision: number | null): SummaryRecord {
     trigger: 'time',
     ts: 2,
     sourceEventRevision: revision,
-    sourceRebuildAfterRevision: revision === null ? null : 0,
-    generationSource: revision === null ? 'legacy' : 'llm',
+    sourceRebuildAfterRevision: 0,
+    generationSource: 'llm',
   };
 }
 
@@ -92,7 +92,7 @@ describe.skipIf(!bindingAvailable)('periodic summary evidence snapshot', () => {
         { role: 'user', text: '保留既定目标' },
         20,
       );
-      const state = createEventRevisionRepo(db).state('summary-evidence')!;
+      const state = createEventRevisionReadRepo(db).state('summary-evidence')!;
       const result = createContinuationCheckpointRepo(db).commit({
         sessionId: 'summary-evidence',
         expectedHeadId: null,
@@ -131,7 +131,7 @@ describe.skipIf(!bindingAvailable)('periodic summary evidence snapshot', () => {
     const db = makeDb();
     try {
       insertEvent(db, 'message', { role: 'assistant', text: 'old activity' }, 30);
-      const oldRevision = createEventRevisionRepo(db).state('summary-evidence')!.revision;
+      const oldRevision = createEventRevisionReadRepo(db).state('summary-evidence')!.revision;
       for (let index = 0; index < 130; index += 1) {
         insertEvent(db, 'file-changed', { filePath: `/repo/file-${index}.ts` }, 31 + index);
       }

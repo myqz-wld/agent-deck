@@ -64,8 +64,7 @@ describe('continuation generator defaults', () => {
     expect(resolveContinuationGeneratorSnapshot().model).toBe('claude-sonnet-explicit');
   });
 
-  it('leaves a blank Codex model unset despite a legacy hand-off environment override', () => {
-    vi.stubEnv('CODEX_HANDOFF_MODEL', 'hidden-codex-model');
+  it('leaves a blank Codex model unset', () => {
     state.settings = {
       continuationCheckpointAdapter: 'codex-cli',
       continuationCheckpointRuntimeProvider: 'openai',

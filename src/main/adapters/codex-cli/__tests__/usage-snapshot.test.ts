@@ -116,7 +116,6 @@ describe('ensureCodexClient', () => {
       sessionToken,
       profile: 'openrouter',
       hookServer: hookServer as never,
-      envOverrideExtra: { B20_TEST_ENV: 'preserved' },
     });
     const cached = ensureCodexClient({
       clients,
@@ -149,10 +148,8 @@ describe('ensureCodexClient', () => {
       env: {
         AGENT_DECK_MCP_TOKEN: sessionToken,
         AGENT_DECK_ORIGIN: 'sdk',
-        B20_TEST_ENV: 'preserved',
       },
       skillExtraRoots: ['/app-owned/codex-skills'],
-      nodeReplSandboxMetaCompatibility: true,
     });
     for (const method of Object.values(mocks.logger)) expect(method).not.toHaveBeenCalled();
     expect(JSON.stringify(Object.values(mocks.logger).flatMap((method) => method.mock.calls)))
@@ -221,6 +218,13 @@ describe('CodexSdkBridge getUsageSnapshot', () => {
         limitId: 'codex',
         primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: null },
         secondary: null,
+      },
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: 'codex',
+          primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
       },
     });
     setCodexClients(bridge, [{ isProcessAlive: true, request }]);

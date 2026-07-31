@@ -66,7 +66,6 @@ export interface ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResul
   drainMessageDeliveries?: (sourceSessionId: string) => Promise<boolean>;
   transferResources: (input: {
     callerSessionId: string;
-    callerRow: SessionRecord;
     newSessionId: string;
   }) => ResourceTransfer;
   resourceTransferFailed: (result: ResourceTransfer) => boolean;
@@ -167,7 +166,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
           eventId: -(index + 1),
           text: message.text,
           attachments: message.attachments ?? [],
-          origin: 'legacy-unwrapped' as const,
+          origin: 'user' as const,
         })),
       });
       createdLateAttachments.push(...created);
@@ -333,7 +332,6 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
   try {
     resourceTransfer = input.transferResources({
       callerSessionId: input.source.id,
-      callerRow: input.source,
       newSessionId: successorSessionId,
     });
   } catch (error) {

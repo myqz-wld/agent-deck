@@ -6,7 +6,6 @@ import {
   assertStoredSnapshotMatches,
   decodeFileSnapshotBlob,
   encodeFileSnapshot,
-  encodePersistedFileSnapshot,
   FILE_SNAPSHOT_CODEC,
 } from '../file-snapshot-codec';
 
@@ -36,18 +35,6 @@ describe('file snapshot codec', () => {
       ).toBe(source);
     }
     expect(encodeFileSnapshot(null)).toBeNull();
-  });
-
-  it('does not truncate an already-persisted v040 truncation marker a second time', () => {
-    const source = 'a'.repeat(PAYLOAD_LIMITS.MAX_FILE_SNAPSHOT_BYTES + 16);
-    const persisted = safeTruncateFileSnapshot(source)!;
-    expect(Buffer.byteLength(persisted, 'utf8')).toBeGreaterThan(
-      PAYLOAD_LIMITS.MAX_FILE_SNAPSHOT_BYTES,
-    );
-
-    const encoded = encodePersistedFileSnapshot(persisted)!;
-    expect(encoded.raw.toString('utf8')).toBe(persisted);
-    expect(encoded.digest.equals(createHash('sha256').update(persisted).digest())).toBe(true);
   });
 
   it('rejects invalid lengths, compressed data, digests, and UTF-8', () => {

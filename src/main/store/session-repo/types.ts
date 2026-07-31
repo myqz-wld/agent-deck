@@ -66,13 +66,9 @@ export interface Row {
   network_access_enabled: number | null;
   additional_directories: string | null;
   grok_usage_watermark: string | null;
-  /** Added in v058; optional keeps historical migration fixtures readable. */
-  context_usage?: string | null;
-  // Compatibility mirror of the session-owned worktree path; NULL = no marker.
-  cwd_release_marker: string | null;
+  context_usage: string | null;
   spawned_by: string | null;
   spawn_depth: number;
-  generic_pty_config: string | null;
   /**
    * plan reverse-rename-sid-stability-20260520 §A.1 / §设计决策 D1 / §不变量 2:
    * CLI 当前 thread sid。允许 6 处反向 rename 路径下变化(详 D2 表 6 处),与 sessions.id
@@ -132,7 +128,6 @@ export function rowToRecord(r: Row): SessionRecord {
     }),
     grokUsageWatermark: parseGrokUsageWatermarkJson(r.grok_usage_watermark, r.id),
     contextUsage: parseSessionContextUsageJson(r.context_usage, r.id),
-    cwdReleaseMarker: r.cwd_release_marker ?? null,
     spawnedBy: r.spawned_by ?? null,
     spawnDepth: r.spawn_depth ?? 0,
     cliSessionId: r.cli_session_id ?? null,
@@ -187,11 +182,9 @@ function nullableTokenCount(value: unknown, positive: boolean): number | null | 
 }
 
 function normalizeStoredGrokSandbox(
-  raw: string | null | undefined,
+  raw: string | null,
   sessionId: string,
 ): string | null {
-  // Older migration fixtures and compatibility projections may not yet select the v053 column.
-  // Treat a missing property exactly like the nullable database default.
   if (raw == null) return null;
   try {
     return normalizeGrokSandboxProfile(raw);
@@ -248,7 +241,7 @@ function parseGrokUsageWatermarkJson(
  * warn 一次,避免沙盒额外目录 / codex additionalDirectories 悄悄退化成未设置。
  *
  * 写入端(setExtraAllowWrite / setAdditionalDirectories / upsert)做 JSON.stringify;读取端二次
- * 校验防止用户手改 DB / migration 故障 / 历史脏数据等情形(过滤掉非数组 / 非 string 元素 /
+ * 校验防止用户手改 DB 或损坏数据等情形(过滤掉非数组 / 非 string 元素 /
  * 空数组 → null,与 caller 不传对应字段行为对齐 — sandbox.allowWrite 不增 root /
  * additionalDirectories 不增目录)。
  */

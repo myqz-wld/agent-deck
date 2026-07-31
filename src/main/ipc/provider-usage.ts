@@ -175,7 +175,6 @@ async function readAdapterSnapshot(
   if (!adapter) {
     const snapshot = unavailableUsageSnapshot(
       provider,
-      label,
       `${label} 暂时无法读取额度信息`,
     );
     observeProviderUsage(provider, seq, snapshot.status, elapsedSince(startedAt));
@@ -184,7 +183,6 @@ async function readAdapterSnapshot(
   if (!adapter.getUsageSnapshot) {
     const snapshot = unavailableUsageSnapshot(
       provider,
-      label,
       `${label} 暂不支持读取额度信息`,
     );
     observeProviderUsage(provider, seq, snapshot.status, elapsedSince(startedAt));
@@ -223,12 +221,11 @@ async function readAdapterSnapshot(
       );
       return stale?.snapshot ?? unavailableUsageSnapshot(
         provider,
-        label,
         `${label} 额度读取超时，已跳过本次刷新`,
       );
     }
     observeProviderUsage(provider, seq, 'error', elapsedSince(startedAt));
-    return errorUsageSnapshot(provider, label, err);
+    return errorUsageSnapshot(provider, err);
   }
 }
 

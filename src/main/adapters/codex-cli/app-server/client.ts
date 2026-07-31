@@ -37,7 +37,7 @@ import {
   buildTurnStartParams,
 } from './thread-params';
 import { CodexAppServerThread } from './thread';
-import { clearNodeReplCompatibilityCache, prepareNodeReplCompatibility } from './node-repl-compat';
+import { prepareNodeReplBrowserBootstrap } from './node-repl-browser-bootstrap';
 import { requestCodexRaw, type CodexPendingRequest } from './request-raw';
 import { CodexServerRequestHost } from './server-request-host';
 import log from '@main/utils/logger';
@@ -86,7 +86,6 @@ export class CodexAppServerClient {
       getSkillExtraRoots: () => this.opts.skillExtraRoots,
       abortServerRequests: () => this.serverRequestHost.abortAll(),
       rejectPending: (error) => this.rejectAll(error),
-      clearCompatibilityCache: () => clearNodeReplCompatibilityCache(this),
       dispatchNotification: (notification) => this.dispatchNotification(notification),
     });
   }
@@ -161,8 +160,8 @@ export class CodexAppServerClient {
     options: CodexThreadOptions,
     operation?: CodexGenerationOperation,
   ): Promise<CodexThreadOptions> {
-    return this.opts.nodeReplSandboxMetaCompatibility
-      ? prepareNodeReplCompatibility(this, options, this.baseConfig, operation)
+    return this.opts.nodeReplBrowserBootstrap
+      ? prepareNodeReplBrowserBootstrap(this, options, this.baseConfig, operation)
       : Promise.resolve(options);
   }
   readThread(threadId: string): Promise<CodexAppServerThreadReadResult> {

@@ -8,7 +8,6 @@ import {
   errorUsageSnapshot,
   notSubscribedUsageSnapshot,
   unavailableUsageSnapshot,
-  unsupportedUsageSnapshot,
 } from '../provider-usage';
 
 describe('provider usage snapshots', () => {
@@ -115,20 +114,22 @@ describe('provider usage snapshots', () => {
   it('maps Codex primary and secondary windows and normalizes epoch seconds', () => {
     const snapshot = buildCodexUsageSnapshot(
       {
-        rateLimits: {
-          limitId: 'codex',
-          primary: {
-            usedPercent: 24.4,
-            windowDurationMins: 300,
-            resetsAt: 1781497190,
-          },
-          secondary: {
-            usedPercent: 55,
-            windowDurationMins: 10080,
-            resetsAt: 1782101990000,
+        rateLimits: {},
+        rateLimitsByLimitId: {
+          codex: {
+            limitId: 'codex',
+            primary: {
+              usedPercent: 24.4,
+              windowDurationMins: 300,
+              resetsAt: 1781497190,
+            },
+            secondary: {
+              usedPercent: 55,
+              windowDurationMins: 10080,
+              resetsAt: 1782101990000,
+            },
           },
         },
-        rateLimitsByLimitId: null,
       },
       789,
     );
@@ -157,13 +158,12 @@ describe('provider usage snapshots', () => {
     ]);
   });
 
-  it('prefers Codex multi-bucket entry over the legacy single bucket', () => {
+  it('selects the Codex bucket from the current multi-bucket response', () => {
     const snapshot = buildCodexUsageSnapshot(
       {
         rateLimits: {
-          limitId: 'fallback',
-          primary: { usedPercent: 1, windowDurationMins: 300, resetsAt: null },
-          secondary: null,
+          limitId: 'codex',
+          primary: { usedPercent: 99, windowDurationMins: 300, resetsAt: null },
         },
         rateLimitsByLimitId: {
           codex: {
@@ -178,6 +178,23 @@ describe('provider usage snapshots', () => {
 
     expect(snapshot.status).toBe('ok');
     expect(snapshot.windows[0].usedPercent).toBe(42);
+  });
+
+  it('uses the required current Codex snapshot when the optional bucket map is null', () => {
+    const snapshot = buildCodexUsageSnapshot(
+      {
+        rateLimits: {
+          limitId: 'codex',
+          primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
+        rateLimitsByLimitId: null,
+      },
+      112,
+    );
+
+    expect(snapshot.status).toBe('ok');
+    expect(snapshot.windows[0]).toMatchObject({ usedPercent: 18, windowMinutes: 300 });
   });
 
   it('maps Grok weekly billing usage and reset metadata', () => {
@@ -232,10 +249,9 @@ describe('provider usage snapshots', () => {
 
   it('uses runtime-profile labels for every non-success status', () => {
     const snapshots = [
-      errorUsageSnapshot('claude-code', 'legacy-label', new Error('private')),
-      unavailableUsageSnapshot('codex-cli', 'legacy-label', 'unavailable'),
-      notSubscribedUsageSnapshot('grok-build', 'legacy-label', 'not subscribed'),
-      unsupportedUsageSnapshot('codex-cli', 'legacy-label', 'unsupported'),
+      errorUsageSnapshot('claude-code', new Error('private')),
+      unavailableUsageSnapshot('codex-cli', 'unavailable'),
+      notSubscribedUsageSnapshot('grok-build', 'not subscribed'),
     ];
 
     expect(
@@ -244,7 +260,6 @@ describe('provider usage snapshots', () => {
       { provider: 'claude-code', label: 'Claude Code', status: 'error' },
       { provider: 'codex-cli', label: 'Codex CLI', status: 'unavailable' },
       { provider: 'grok-build', label: 'Grok Build', status: 'not_subscribed' },
-      { provider: 'codex-cli', label: 'Codex CLI', status: 'unsupported' },
     ]);
   });
 });

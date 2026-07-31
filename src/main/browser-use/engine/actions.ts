@@ -206,9 +206,8 @@ export async function screenshot(
   if (options.fullPage === true) {
     const metrics = (await tab.cdp.send('Page.getLayoutMetrics')) as {
       cssContentSize?: { width?: number; height?: number };
-      contentSize?: { width?: number; height?: number };
     };
-    const contentSize = metrics.cssContentSize ?? metrics.contentSize;
+    const contentSize = metrics.cssContentSize;
     const width = contentSize?.width;
     const height = contentSize?.height;
     if (

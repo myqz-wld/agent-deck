@@ -22,7 +22,6 @@ export interface GrokExtensionNotification {
 export interface GrokExtensionUpdate {
   sessionUpdate?: string;
   prompt_id?: string;
-  promptId?: string;
   stop_reason?: string;
   agent_result?: string;
   agentResult?: string;
@@ -37,7 +36,6 @@ export interface GrokTurnUsage {
   cachedReadTokens?: number;
   cachedWriteTokens?: number;
   reasoningTokens?: number;
-  thoughtTokens?: number;
   modelCalls?: number;
   apiDurationMs?: number;
   modelUsage?: Record<string, GrokTurnUsage>;
@@ -140,7 +138,7 @@ export function finiteNumber(value: unknown): number | null {
 }
 
 export function extensionPromptId(update: GrokExtensionUpdate): string | null {
-  const promptId = update.prompt_id ?? update.promptId;
+  const promptId = update.prompt_id;
   return typeof promptId === 'string' && promptId.trim() ? promptId : null;
 }
 

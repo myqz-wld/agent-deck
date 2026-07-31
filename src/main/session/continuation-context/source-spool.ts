@@ -5,7 +5,7 @@ import {
   type ContinuationCheckpointRecord,
 } from '@main/store/continuation-checkpoint-repo';
 import {
-  createEventRevisionRepo,
+  createEventRevisionReadRepo,
   type EventRevisionCursor,
   type RawEventRevisionRow,
 } from '@main/store/event-revision-repo';
@@ -45,7 +45,7 @@ export interface ContinuationSpoolMetadata {
   uncoveredRevisionRange: { from: number; to: number } | null;
   spoolBytes: number;
   rawTailTokens: number;
-  rawWarnings: Array<'legacy-wrapper-excluded' | 'legacy-wrapper-unwrapped'>;
+  rawWarnings: Array<'context-wrapper-excluded'>;
   rawScanTruncated: boolean;
   consumed: boolean;
 }
@@ -148,7 +148,7 @@ export class ContinuationSourceSpoolStore {
     const now = input.now ?? Date.now();
     const spoolId = randomUUID();
     const transaction = this.db.transaction(() => {
-      const revisionRepo = createEventRevisionRepo(this.db);
+      const revisionRepo = createEventRevisionReadRepo(this.db);
       const state = revisionRepo.state(input.sessionId);
       if (!state) throw new Error(`Cannot capture continuation source for missing session ${input.sessionId}`);
       // events rows can be updated in place and their change_revision moves forward. Without MVCC,
@@ -167,7 +167,7 @@ export class ContinuationSourceSpoolStore {
       const maxEventId = this.db
         .prepare(
           `SELECT MAX(id) FROM events
-            WHERE session_id = ? AND COALESCE(change_revision, id) <= ?`,
+            WHERE session_id = ? AND change_revision <= ?`,
         )
         .pluck()
         .get(input.sessionId, captureRevision) as number | null;

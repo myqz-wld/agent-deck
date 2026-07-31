@@ -59,15 +59,6 @@ export const REQUEST_PLAN_REVIEW_SCHEMA = {
     .max(120)
     .optional()
     .describe('Optional short title shown above the plan presentation card.'),
-  timeoutMs: z
-    .number()
-    .int()
-    .min(1_000)
-    .max(86_400_000)
-    .optional()
-    .describe(
-      'Optional compatibility timeout in milliseconds. Omit for an indefinite blocking wait. If an explicit timeout expires, the tool returns timeout but Agent Deck keeps the plan pending; the caller must stop and wait, and a later user decision resumes the current owning session (the latest committed handoff successor, when present) as a new user turn.',
-    ),
   callerSessionId: z
     .string()
     .min(1)

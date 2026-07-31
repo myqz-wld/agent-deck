@@ -37,7 +37,7 @@ export interface AdapterCapabilities {
    * 与 canRestartWithPermissionMode 正交：codex 没有 PermissionMode 概念，
    * 这是 codex 专属的 capability。
    */
-  canRestartWithCodexSandbox: boolean;
+  canSetCodexSandbox: boolean;
   /**
    * 是否支持「冷切」claude OS sandbox 档位（CHANGELOG_74）：销毁旧 SDK 子进程 + 用新档位
    * createSession resume 重建。SDK 的 sandbox options 是 query() spawn-time 锁定，无法热切。

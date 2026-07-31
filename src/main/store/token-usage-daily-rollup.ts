@@ -53,11 +53,11 @@ export function createTokenUsageDailyRollup(
     `INSERT INTO token_usage_daily_rollup (
        day, model_bucket, sort_order,
        provider_total_tokens, provider_total_applicable,
-       input_tokens, input_applicable, input_total_tokens, input_total_applicable,
+       input_total_tokens, input_total_applicable,
        output_tokens, output_applicable, reasoning_tokens, reasoning_applicable,
        cache_read_tokens, cache_read_applicable,
        cache_creation_tokens, cache_creation_applicable
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   const project = db.transaction((timezoneFingerprint: string): TokenDailyRow[] => {
@@ -126,8 +126,6 @@ export function createTokenUsageDailyRollup(
         sortOrder++,
         row.providerTotalTokens,
         Number(row.providerTotalApplicable),
-        row.inputTokens,
-        Number(row.inputApplicable),
         row.inputTotalTokens,
         Number(row.inputTotalApplicable),
         row.outputTokens,
@@ -223,8 +221,6 @@ function readProjection(db: Database): TokenDailyRow[] {
     `SELECT model_bucket AS bucketKey, day,
             provider_total_tokens AS providerTotalTokens,
             provider_total_applicable AS providerTotalApplicable,
-            input_tokens AS inputTokens,
-            input_applicable AS inputApplicable,
             input_total_tokens AS inputTotalTokens,
             input_total_applicable AS inputTotalApplicable,
             output_tokens AS outputTokens,

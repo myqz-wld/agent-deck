@@ -98,7 +98,6 @@ export interface TokenRateRow {
 /**
  * 按 model bucket × 本地日期聚合的每日明细行（dailyByModel 查询返回，数据 tab 表格用）。
  * - day：本地日期 'YYYY-MM-DD'（SQL date(ts/1000,'unixepoch','localtime')）
- * - inputTokens：provider 原始上报的输入 token 总和（仅作兼容保留）
  * - inputTotalTokens：按 adapter 统一后的输入总量，缓存读/写已计入
  * - outputTokens：输出总量，推理 token 已包含在内
  * - reasoning/cacheRead/cacheCreation：对应总量中的分项
@@ -109,8 +108,6 @@ export interface TokenDailyRow {
   /** Exact provider total, available only when every row in the bucket/day reports it. */
   providerTotalTokens: number | null;
   providerTotalApplicable: boolean;
-  inputTokens: number | null;
-  inputApplicable: boolean;
   inputTotalTokens: number | null;
   inputTotalApplicable: boolean;
   outputTokens: number | null;

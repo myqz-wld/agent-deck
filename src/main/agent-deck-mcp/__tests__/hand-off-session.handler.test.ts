@@ -117,7 +117,7 @@ function successfulTransfer() {
       skipped: [],
       failed: [],
     },
-    worktreeMarker: { status: 'ok' as const, marker: '/repo' },
+    worktreeLease: { status: 'ok' as const, worktreePath: '/repo' },
   };
 }
 
@@ -255,7 +255,6 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     );
     expect(transferResources).toHaveBeenCalledWith({
       callerSessionId: 'caller-sid',
-      callerRow: expect.objectContaining({ id: 'caller-sid' }),
       newSessionId: 'successor-sid',
     });
   });
@@ -338,7 +337,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
         skipped: [],
         failed: [{ teamId: 'team-a', role: 'lead' as const, reason: 'swap failed' }],
       },
-      worktreeMarker: { status: 'skipped' as const, marker: null },
+      worktreeLease: { status: 'skipped' as const, worktreePath: null },
     };
 
     const result = await handOffSessionHandler(

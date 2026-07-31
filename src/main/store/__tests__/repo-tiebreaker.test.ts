@@ -2,54 +2,21 @@
  * REVIEW_91（Batch G4）回归测试 — 同毫秒 ts 排序 tie-breaker。
  *
  * 双 reviewer（claude + codex）独立共识：event-repo 的 findTeamEvents /
- * findLatestAssistantMessage / listForSessionRange 与 summary-repo 的 listForSession /
+ * findLatestAssistantMessage 与 summary-repo 的 listForSession /
  * latestForSession / latestForSessions 都缺 `id` 二级键，同毫秒 ts 下 SQLite 返回顺序不稳定。
  *
  * 复发主题：本项目 deep review 已在 team-repo（G2）/ message-repo（G3）/ event-formatter（E2）
  * 三连命中同款，G4 在 store 层补齐 event + summary 剩余查询。
  *
- * 每个 it 都「同毫秒插 ≥2 行，断言取到 id 最大（DESC）/ 最小（ASC，仅 range）那条」。
- * temp-revert 验证：把对应 ORDER BY 的 `, id DESC`/`, id ASC` 去掉，本 test 应 FAIL。
+ * 每个 it 都「同毫秒插 ≥2 行，断言取到 id 最大（DESC）那条」。
+ * temp-revert 验证：把对应 ORDER BY 的 `, id DESC` 去掉，本 test 应 FAIL。
  *
  * 走 vi.mock('@main/store/db') 注入 in-memory testDb + 动态 import 生产 repo 跑真 SQL
  * （harness 模式照搬 v025-migration.test.ts sub-case C）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import v001 from '../migrations/v001_init.sql?raw';
-import v002 from '../migrations/v002_sessions_source.sql?raw';
-import v003 from '../migrations/v003_split_archive_from_lifecycle.sql?raw';
-import v004 from '../migrations/v004_sessions_permission_mode.sql?raw';
-import v005 from '../migrations/v005_fts.sql?raw';
-import v006 from '../migrations/v006_sessions_team_name.sql?raw';
-import v007 from '../migrations/v007_tasks.sql?raw';
-import v008 from '../migrations/v008_sessions_codex_sandbox.sql?raw';
-import v009 from '../migrations/v009_mcp_spawn_chain.sql?raw';
-import v010 from '../migrations/v010_agent_deck_teams.sql?raw';
-import v011 from '../migrations/v011_tasks_team_id.sql?raw';
-import v012 from '../migrations/v012_sessions_generic_pty_config.sql?raw';
-import v013 from '../migrations/v013_sessions_claude_code_sandbox.sql?raw';
-import v014 from '../migrations/v014_drop_sessions_team_name.sql?raw';
-import v015 from '../migrations/v015_agent_deck_messages_reply_to.sql?raw';
-import v016 from '../migrations/v016_agent_deck_teams_archive_reason.sql?raw';
-import v017 from '../migrations/v017_agent_deck_team_members_cascade.sql?raw';
-import v018 from '../migrations/v018_sessions_model.sql?raw';
-import v019 from '../migrations/v019_sessions_extra_allow_write.sql?raw';
-import v020 from '../migrations/v020_sessions_cwd_release_marker.sql?raw';
-import v021 from '../migrations/v021_sessions_cli_session_id.sql?raw';
-import v022 from '../migrations/v022_events_tool_use_dedup.sql?raw';
-import v023 from '../migrations/v023_tasks_owner_session_id_rewrite.sql?raw';
-import v024 from '../migrations/v024_tasks_add_team_id.sql?raw';
-import v025 from '../migrations/v025_events_tool_use_end_dedup.sql?raw';
-import v026 from '../migrations/v026_issues.sql?raw';
-import v037 from '../migrations/v037_event_revisions.sql?raw';
-import v040 from '../migrations/v040_summary_revision_metadata.sql?raw';
-
-const ALL_MIGRATIONS = [
-  v001, v002, v003, v004, v005, v006, v007, v008, v009, v010, v011, v012,
-  v013, v014, v015, v016, v017, v018, v019, v020, v021, v022, v023, v024,
-  v025, v026, v037, v040,
-];
+import { CURRENT_SCHEMA_SQL } from '../schema';
 
 // vi.mock 闭包 dbHolder：动态 import 的生产 repo 通过 getDb() 拿到本文件注入的 testDb。
 const dbHolder: { current: Database.Database | null } = { current: null };
@@ -68,7 +35,7 @@ function makeDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   db.pragma('trusted_schema = ON');
-  for (const sql of ALL_MIGRATIONS) db.exec(sql);
+  db.exec(CURRENT_SCHEMA_SQL);
   return db;
 }
 
@@ -136,7 +103,7 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / event-repo', () => {
     expect(latest?.text).toBe('NEW');
   });
 
-  it('bounds assistant fallback by captured revision and optional legacy timestamp', () => {
+  it('bounds assistant fallback by captured revision', () => {
     insertAssistantMessage(testDb, 'sess-A', 'OLD', 5_000);
     const captured = (
       testDb.prepare(
@@ -152,7 +119,6 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / event-repo', () => {
       mod.eventRepo.findLatestAssistantMessageAtOrBeforeRevision(
         'sess-A',
         captured + 1,
-        6_000,
       )?.text,
     ).toBe('NEW');
   });
@@ -172,14 +138,6 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / event-repo', () => {
   it('latestConversationMessageTs and maxEventId return null for an empty session', () => {
     expect(mod.eventRepo.latestConversationMessageTs('sess-A')).toBeNull();
     expect(mod.eventRepo.maxEventId('sess-A')).toBeNull();
-  });
-
-  it('listForSessionRange 同毫秒按 id ASC 升序（方向跟 ts ASC 一致）', () => {
-    const id1 = insertGenericEvent(testDb, 'sess-A', 'message', 8000, 'first');
-    const id2 = insertGenericEvent(testDb, 'sess-A', 'message', 8000, 'second');
-    const rows = mod.eventRepo.listForSessionRange('sess-A', 8000, 9000);
-    // 同毫秒下应按 id 升序：first(id1) 在 second(id2) 之前
-    expect(rows.map((r) => r.id)).toEqual([id1, id2]);
   });
 
   it('findTeamEvents 同毫秒按 id DESC（跨 session 聚合稳定）', () => {
@@ -227,7 +185,15 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / summary-repo', () =>
   });
 
   function seedSummary(content: string, ts: number): number {
-    return mod.summaryRepo.insert({ sessionId: 'sess-A', content, trigger: 'manual', ts }).id;
+    return mod.summaryRepo.insert({
+      sessionId: 'sess-A',
+      content,
+      trigger: 'manual',
+      ts,
+      sourceEventRevision: 0,
+      sourceRebuildAfterRevision: 0,
+      generationSource: 'llm',
+    }).id;
   }
 
   it('latestForSession 同毫秒取最晚插入（id DESC）', () => {

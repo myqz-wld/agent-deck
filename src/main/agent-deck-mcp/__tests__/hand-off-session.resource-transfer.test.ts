@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SessionRecord } from '@shared/types';
 import { transferHandOffResources } from '../tools/handlers/hand-off-session/resource-transfer-coordinator';
 
 const mocks = vi.hoisted(() => ({
   eventEmit: vi.fn(),
   notifyTeamMembershipChanged: vi.fn(),
-  setCwdReleaseMarker: vi.fn(),
   teamRepo: {
     findActiveMembershipsBySession: vi.fn(),
     findActiveTeamMembershipsBySession: vi.fn(),
@@ -50,10 +48,6 @@ vi.mock('@main/session/manager', () => ({
   sessionManager: { notifyTeamMembershipChanged: mocks.notifyTeamMembershipChanged },
 }));
 
-vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: { setCwdReleaseMarker: mocks.setCwdReleaseMarker },
-}));
-
 vi.mock('@main/store/worktree-transition-repo', () => ({
   getWorktreeTransition: mocks.getWorktreeTransition,
   transferActiveLeaseWithDb: mocks.transferActiveLease,
@@ -71,21 +65,15 @@ vi.mock('@main/utils/logger', () => ({
   default: { scope: () => ({ warn: mocks.warn }) },
 }));
 
-function callerRow(overrides: Partial<SessionRecord> = {}): SessionRecord {
+function activeLease() {
   return {
-    id: 'caller-sid',
-    agentId: 'claude-code',
-    cwd: '/repo',
-    title: 'caller',
-    source: 'sdk',
-    lifecycle: 'active',
-    activity: 'idle',
-    startedAt: 1,
-    lastEventAt: 1,
-    endedAt: null,
-    archivedAt: null,
-    ...overrides,
-  } as SessionRecord;
+    formatVersion: 1,
+    sessionId: 'caller-sid',
+    generation: 3,
+    direction: 'enter',
+    phase: 'active',
+    worktreePath: '/repo/.agent-deck/worktrees/w1',
+  };
 }
 
 beforeEach(() => {
@@ -111,44 +99,32 @@ beforeEach(() => {
 
 describe('transferHandOffResources', () => {
   it('moves a settled structured lease in the same ownership transaction', () => {
-    mocks.getWorktreeTransition.mockReturnValue({
-      formatVersion: 1,
-      sessionId: 'caller-sid',
-      generation: 3,
-      direction: 'enter',
-      phase: 'active',
-      worktreePath: '/repo/.agent-deck/worktrees/w1',
-    });
+    mocks.getWorktreeTransition.mockReturnValue(activeLease());
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow({
-        cwd: '/repo/.agent-deck/worktrees/w1',
-        cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1',
-      }),
       newSessionId: 'successor-sid',
     });
 
-    expect(result.worktreeMarker).toEqual({
+    expect(result.worktreeLease).toEqual({
       status: 'ok',
-      marker: '/repo/.agent-deck/worktrees/w1',
+      worktreePath: '/repo/.agent-deck/worktrees/w1',
     });
     expect(mocks.transferActiveLease).toHaveBeenCalledWith(
       expect.anything(), 'caller-sid', 'successor-sid', expect.any(Number),
     );
-    expect(mocks.setCwdReleaseMarker).not.toHaveBeenCalled();
   });
 
-  it('transfers lead memberships, teammate memberships, tasks, and marker', () => {
+  it('transfers lead memberships, teammate memberships, tasks, and active lease', () => {
     mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-lead', role: 'lead' },
       { teamId: 'team-mate', role: 'teammate' },
     ]);
     mocks.taskRepo.reassignOwner.mockReturnValue(4);
+    mocks.getWorktreeTransition.mockReturnValue(activeLease());
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow({ cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1' }),
       newSessionId: 'successor-sid',
     });
 
@@ -163,7 +139,10 @@ describe('transferHandOffResources', () => {
         failed: [],
       },
       tasks: { status: 'ok', count: 4 },
-      worktreeMarker: { status: 'ok', marker: '/repo/.agent-deck/worktrees/w1' },
+      worktreeLease: {
+        status: 'ok',
+        worktreePath: '/repo/.agent-deck/worktrees/w1',
+      },
     });
     expect(mocks.teamRepo.swapLead).toHaveBeenCalledWith(
       'team-lead',
@@ -178,10 +157,6 @@ describe('transferHandOffResources', () => {
     expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
       policy: 'preserve-team',
     });
-    expect(mocks.setCwdReleaseMarker).toHaveBeenCalledWith(
-      'successor-sid',
-      '/repo/.agent-deck/worktrees/w1',
-    );
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.retargetMessages).toHaveBeenCalledWith(
       'caller-sid',
@@ -209,7 +184,6 @@ describe('transferHandOffResources', () => {
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow(),
       newSessionId: 'successor-sid',
     });
 
@@ -221,7 +195,7 @@ describe('transferHandOffResources', () => {
         failed: [],
       },
       tasks: { status: 'ok', count: 1 },
-      worktreeMarker: { status: 'skipped', marker: null },
+      worktreeLease: { status: 'skipped', worktreePath: null },
     });
     expect(mocks.teamRepo.swapLead).not.toHaveBeenCalled();
     expect(mocks.teamRepo.addMember).not.toHaveBeenCalled();
@@ -259,7 +233,6 @@ describe('transferHandOffResources', () => {
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow(),
       newSessionId: 'successor-sid',
     });
 
@@ -277,7 +250,7 @@ describe('transferHandOffResources', () => {
     );
   });
 
-  it('rolls back tasks and marker when team transfer fails', () => {
+  it('reports the lease rollback when team transfer fails', () => {
     mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
       { teamId: 'team-lead', role: 'lead' },
     ]);
@@ -285,10 +258,10 @@ describe('transferHandOffResources', () => {
     mocks.taskRepo.reassignOwner
       .mockReturnValueOnce(2)
       .mockReturnValueOnce(2);
+    mocks.getWorktreeTransition.mockReturnValue(activeLease());
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow({ cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1' }),
       newSessionId: 'successor-sid',
     });
 
@@ -301,9 +274,10 @@ describe('transferHandOffResources', () => {
       count: 0,
       error: 'team transfer failed',
     });
-    expect(result.worktreeMarker).toEqual({
+    expect(result.worktreeLease).toEqual({
       status: 'skipped',
-      marker: '/repo/.agent-deck/worktrees/w1',
+      worktreePath: '/repo/.agent-deck/worktrees/w1',
+      error: 'rolled back because team transfer failed',
     });
     expect(mocks.taskRepo.reassignOwner).toHaveBeenNthCalledWith(
       1,
@@ -317,12 +291,6 @@ describe('transferHandOffResources', () => {
       'caller-sid',
       { policy: 'preserve-team' },
     );
-    expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(
-      1,
-      'successor-sid',
-      '/repo/.agent-deck/worktrees/w1',
-    );
-    expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(2, 'successor-sid', null);
   });
 
   it('rolls back earlier team mutations when a later team transfer fails', () => {
@@ -334,10 +302,10 @@ describe('transferHandOffResources', () => {
       .mockReturnValueOnce({ swapped: true })
       .mockReturnValueOnce({ swapped: false, reason: 'membership race' })
       .mockReturnValueOnce({ swapped: true });
+    mocks.getWorktreeTransition.mockReturnValue(activeLease());
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow({ cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1' }),
       newSessionId: 'successor-sid',
     });
 
@@ -373,27 +341,21 @@ describe('transferHandOffResources', () => {
     expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
       policy: 'preserve-team',
     });
-    expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(
-      1,
-      'successor-sid',
-      '/repo/.agent-deck/worktrees/w1',
-    );
-    expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(2, 'successor-sid', null);
     expect(mocks.eventEmit).not.toHaveBeenCalled();
     expect(mocks.notifyTeamMembershipChanged).not.toHaveBeenCalled();
     expect(mocks.retargetMessages).not.toHaveBeenCalled();
     expect(mocks.recordAlias).not.toHaveBeenCalled();
   });
 
-  it('rolls back marker and skips teams when task transfer fails', () => {
+  it('rolls back the lease and skips teams when task transfer fails', () => {
     mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([]);
     mocks.taskRepo.reassignOwner.mockImplementation(() => {
       throw new Error('task db failed');
     });
+    mocks.getWorktreeTransition.mockReturnValue(activeLease());
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow({ cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1' }),
       newSessionId: 'successor-sid',
     });
 
@@ -414,16 +376,11 @@ describe('transferHandOffResources', () => {
       count: 0,
       error: 'task db failed',
     });
-    expect(result.worktreeMarker).toEqual({
+    expect(result.worktreeLease).toEqual({
       status: 'skipped',
-      marker: '/repo/.agent-deck/worktrees/w1',
+      worktreePath: '/repo/.agent-deck/worktrees/w1',
+      error: 'rolled back because task transfer failed',
     });
-    expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(
-      1,
-      'successor-sid',
-      '/repo/.agent-deck/worktrees/w1',
-    );
-    expect(mocks.setCwdReleaseMarker).toHaveBeenNthCalledWith(2, 'successor-sid', null);
     expect(mocks.teamRepo.findActiveMembershipsBySession).not.toHaveBeenCalled();
   });
 
@@ -433,7 +390,6 @@ describe('transferHandOffResources', () => {
 
     expect(() => transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow(),
       newSessionId: 'successor-sid',
     })).toThrow('message delivery drain incomplete');
 
@@ -442,9 +398,9 @@ describe('transferHandOffResources', () => {
     expect(mocks.eventEmit).not.toHaveBeenCalled();
   });
 
-  it('transaction rollback restores ownership even when every manual compensation fails', () => {
+  it('transaction rollback restores lease ownership when later compensation fails', () => {
     const durable = {
-      marker: null as string | null,
+      leaseOwner: 'caller-sid',
       taskOwner: 'caller-sid',
       teamALead: 'caller-sid',
     };
@@ -457,9 +413,9 @@ describe('transferHandOffResources', () => {
         throw error;
       }
     });
-    mocks.setCwdReleaseMarker.mockImplementation((_sid: string, marker: string | null) => {
-      if (marker === null) throw new Error('marker compensation failed');
-      durable.marker = marker;
+    mocks.getWorktreeTransition.mockReturnValue(activeLease());
+    mocks.transferActiveLease.mockImplementation(() => {
+      durable.leaseOwner = 'successor-sid';
     });
     mocks.taskRepo.reassignOwner.mockImplementation((oldSid: string, newSid: string) => {
       if (oldSid === 'successor-sid') throw new Error('task compensation failed');
@@ -481,15 +437,17 @@ describe('transferHandOffResources', () => {
 
     const result = transferHandOffResources({
       callerSessionId: 'caller-sid',
-      callerRow: callerRow({ cwdReleaseMarker: '/repo/.agent-deck/worktrees/w1' }),
       newSessionId: 'successor-sid',
     });
 
     expect(result.teams.status).toBe('failed');
     expect(result.tasks).toMatchObject({ status: 'failed', count: 1 });
-    expect(result.worktreeMarker).toMatchObject({ status: 'failed' });
+    expect(result.worktreeLease).toMatchObject({
+      status: 'skipped',
+      worktreePath: '/repo/.agent-deck/worktrees/w1',
+    });
     expect(durable).toEqual({
-      marker: null,
+      leaseOwner: 'caller-sid',
       taskOwner: 'caller-sid',
       teamALead: 'caller-sid',
     });

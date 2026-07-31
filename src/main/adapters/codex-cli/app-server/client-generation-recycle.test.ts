@@ -110,7 +110,6 @@ describe('Codex app-server generation recycle', () => {
     const client = new CodexAppServerClient({
       env: {},
       config: null,
-      nodeReplSandboxMetaCompatibility: true,
     });
     installFakeChild(client, (message, respond) => {
       if (message.method === 'initialize') respond(message.id, {});

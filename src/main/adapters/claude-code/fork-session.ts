@@ -115,9 +115,9 @@ function isSafeTopLevelUser(
     return false;
   }
   if (!hasQueryingOrigin(entry)) return false;
-  if (hasOwn(entry, 'tool_use_result') || hasOwn(entry, 'toolUseResult')) return false;
+  if (hasOwn(entry, 'tool_use_result')) return false;
 
-  const rawParentToolUseId = entry.parent_tool_use_id ?? entry.parentToolUseId;
+  const rawParentToolUseId = entry.parent_tool_use_id;
   if (rawParentToolUseId !== undefined && rawParentToolUseId !== null) return false;
   if (activeMessage.parent_tool_use_id !== null) return false;
   return hasNonToolResultContent(entry);

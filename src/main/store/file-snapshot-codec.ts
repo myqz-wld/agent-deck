@@ -40,20 +40,6 @@ export function encodeFileSnapshot(
   return encodeRawSnapshot(Buffer.from(truncated, 'utf8'));
 }
 
-/** Preserve an already-persisted v040 snapshot byte-for-byte; it may already include a marker. */
-export function encodePersistedFileSnapshot(
-  snapshot: string | null | undefined,
-): EncodedFileSnapshot | null {
-  if (snapshot == null) return null;
-  const raw = Buffer.from(snapshot, 'utf8');
-  if (raw.length > MAX_STORED_RAW_BYTES) {
-    throw new FileSnapshotBlobError(
-      `persisted snapshot exceeds compatibility bound (${raw.length} bytes)`,
-    );
-  }
-  return encodeRawSnapshot(raw);
-}
-
 function encodeRawSnapshot(raw: Buffer): EncodedFileSnapshot {
   const digest = createHash('sha256').update(raw).digest();
   const data = deflateRawSync(raw, { level: 1 });

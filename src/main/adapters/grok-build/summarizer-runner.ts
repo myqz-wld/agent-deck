@@ -1,4 +1,4 @@
-import type { AgentEvent, RuntimeSelection } from '@shared/types';
+import type { RuntimeSelection, StoredAgentEvent } from '@shared/types';
 import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
 import {
   isGrokThinkingLevel,
@@ -27,7 +27,7 @@ export function resolveGrokSummaryReasoning(configured: unknown): GrokThinkingLe
 /** Run a bounded, hardened Grok Build oneshot for the session-list display summary. */
 export async function summariseGrokSessionViaOneshot(
   cwd: string,
-  events: AgentEvent[],
+  events: StoredAgentEvent[],
   evidenceContext?: string,
   runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
 ): Promise<string | null> {

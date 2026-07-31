@@ -15,7 +15,6 @@
  * 不变量验证（从 R2 reviewer-codex MED-2 修法建议）：
  * - settings 非空 → ThreadOptions.model = settings 值
  * - settings 空 → ThreadOptions 不含 model 字段（fallback config.toml）
- * - 历史 `CODEX_SUMMARY_MODEL` env 不能偷偷覆盖空 settings
  * - 全空格字符串 → trim 后视为空 → 不 spread
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -209,8 +208,7 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
 });
 
 describe('Codex summary runner reasoning settings', () => {
-  it('keeps a blank model unset despite a legacy summary environment override', async () => {
-    vi.stubEnv('CODEX_SUMMARY_MODEL', 'hidden-codex-model');
+  it('keeps a blank summary model unset', async () => {
     const { resolveCodexSummaryModel } = await import('../summarizer-runner');
 
     expect(resolveCodexSummaryModel(undefined)).toBeUndefined();

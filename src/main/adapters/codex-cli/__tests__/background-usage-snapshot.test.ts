@@ -12,10 +12,12 @@ describe('readCodexUsageSnapshotInBackground', () => {
 
   it('reads account rate limits through a transient client only', async () => {
     const request = vi.fn().mockResolvedValue({
-      rateLimits: {
-        limitId: 'codex',
-        primary: { usedPercent: 31, windowDurationMins: 300, resetsAt: null },
-        secondary: { usedPercent: 52, windowDurationMins: 10080, resetsAt: null },
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: 'codex',
+          primary: { usedPercent: 31, windowDurationMins: 300, resetsAt: null },
+          secondary: { usedPercent: 52, windowDurationMins: 10080, resetsAt: null },
+        },
       },
     });
     const dispose = vi.fn();
@@ -86,10 +88,12 @@ describe('readCodexUsageSnapshotInBackground', () => {
 
   it('reuses the cached app-server client for background quota reads', async () => {
     const request = vi.fn().mockResolvedValue({
-      rateLimits: {
-        limitId: 'codex',
-        primary: { usedPercent: 41, windowDurationMins: 300, resetsAt: null },
-        secondary: null,
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: 'codex',
+          primary: { usedPercent: 41, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
       },
     });
     const dispose = vi.fn();
@@ -129,10 +133,12 @@ describe('readCodexUsageSnapshotInBackground', () => {
       })
       .mockReturnValueOnce({
         request: vi.fn().mockResolvedValue({
-          rateLimits: {
-            limitId: 'codex',
-            primary: { usedPercent: 44, windowDurationMins: 300, resetsAt: null },
-            secondary: null,
+          rateLimitsByLimitId: {
+            codex: {
+              limitId: 'codex',
+              primary: { usedPercent: 44, windowDurationMins: 300, resetsAt: null },
+              secondary: null,
+            },
           },
         }),
         dispose: secondDispose,
@@ -162,10 +168,12 @@ describe('readCodexUsageSnapshotInBackground', () => {
   it('clears the cached client idle timer while a reused quota read is in flight', async () => {
     vi.useFakeTimers();
     type RateLimitsResponse = {
-      rateLimits: {
-        limitId: string;
-        primary: { usedPercent: number; windowDurationMins: number; resetsAt: null };
-        secondary: null;
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: string;
+          primary: { usedPercent: number; windowDurationMins: number; resetsAt: null };
+          secondary: null;
+        };
       };
     };
     let resolveSecond: (value: RateLimitsResponse) => void = () => {
@@ -175,10 +183,12 @@ describe('readCodexUsageSnapshotInBackground', () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
-        rateLimits: {
-          limitId: 'codex',
-          primary: { usedPercent: 41, windowDurationMins: 300, resetsAt: null },
-          secondary: null,
+        rateLimitsByLimitId: {
+          codex: {
+            limitId: 'codex',
+            primary: { usedPercent: 41, windowDurationMins: 300, resetsAt: null },
+            secondary: null,
+          },
         },
       })
       .mockImplementationOnce(
@@ -209,10 +219,12 @@ describe('readCodexUsageSnapshotInBackground', () => {
     expect(dispose).not.toHaveBeenCalled();
 
     resolveSecond({
-      rateLimits: {
-        limitId: 'codex',
-        primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: null },
-        secondary: null,
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: 'codex',
+          primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
       },
     });
     const second = await secondPromise;

@@ -13,8 +13,6 @@
  * - spawn_session same-cwd same-adapter 是合法路径（REVIEW_28 移除 §6.2 后）
  *
  * 完整防递归 3 条规则（depth / fan-out / spawn-rate）的单测放 spawn-guards.test.ts。
- * CHANGELOG_100：删 wait_reply / reply_message / check_reply 三 tool 后，wait-reply-coordinator
- * 文件已删（无对应 backfill 测试）。所有 reply 现在走 send_message + replyToMessageId。
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -337,10 +335,8 @@ vi.mock('@main/store/settings-store', () => ({
   }),
 }));
 
-// eventRepo backfill 单元用空数组（B'2.b backfill 行为在专门测试里覆盖）
 vi.mock('@main/store/event-repo', () => ({
   eventRepo: {
-    listForSessionRange: () => [],
     listForSession: (sessionId: string, limit = 200, offset = 0) => {
       listForSessionCalls.push({ sessionId, limit, offset });
       return (eventStore.get(sessionId) ?? []).slice(offset, offset + limit);
@@ -482,6 +478,8 @@ vi.mock('@main/store/agent-deck-message-repo', () => ({
         lastAttemptAt: null,
         deliveringSince: null,
         replyToMessageId: input.replyToMessageId ?? null,
+        deliveryGeneration: 0,
+        deliveryLeaseToSessionId: null,
       };
       insertedMessages.push({
         id,
@@ -637,15 +635,25 @@ beforeEach(async () => {
 // ─── 测试 helpers ─────────────────────────────────────────────────────
 
 async function getTools(opts: {
-  callerSessionIdOverride?: () => string | null;
+  callerSessionIdOverride?: () => string;
   transport?: 'in-process' | 'http' | 'stdio';
 }) {
+  let invocationCaller = '__external__';
   const tools = await buildAgentDeckTools({
-    callerSessionIdOverride: opts.callerSessionIdOverride ?? null,
+    callerSessionIdOverride: opts.callerSessionIdOverride ?? (() => invocationCaller),
     transport: opts.transport ?? 'http',
   });
   const byName = new Map<string, any>();
-  for (const t of tools) byName.set((t as any).name, t);
+  for (const t of tools) {
+    const handler = t.handler;
+    byName.set((t as any).name, {
+      ...t,
+      handler: (args: { callerSessionId?: string }, extra: unknown) => {
+        invocationCaller = args.callerSessionId || '__external__';
+        return handler(args, extra);
+      },
+    });
+  }
   return byName;
 }
 
@@ -684,8 +692,8 @@ function seedEvent(sessionId: string, id: number, opts: Partial<AgentEvent> = {}
 }
 
 function parseResult(result: any): { isError?: boolean; data: any } {
-  const content = result.content?.[0]?.text;
-  return { isError: result.isError, data: JSON.parse(content) };
+  const data = result.structuredContent ?? JSON.parse(result.content?.[0]?.text);
+  return { isError: result.isError, data };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────
@@ -2010,6 +2018,8 @@ describe('agent-deck-mcp tools — send_message', () => {
       lastAttemptAt: 1_000,
       deliveringSince: null,
       replyToMessageId: null,
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
     });
     const { handOffCutoverCoordinator } = await import(
       '@main/session/hand-off/cutover-coordinator'
@@ -2161,6 +2171,8 @@ describe('agent-deck-mcp tools — send_message', () => {
       statusReason: null,
       sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
       replyToMessageId: null,
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
     });
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
@@ -2190,6 +2202,8 @@ describe('agent-deck-mcp tools — send_message', () => {
       statusReason: null,
       sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
       replyToMessageId: null,
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
     });
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
@@ -2222,6 +2236,8 @@ describe('agent-deck-mcp tools — send_message', () => {
       statusReason: null,
       sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
       replyToMessageId: null,
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
     });
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
@@ -2252,9 +2268,6 @@ describe('agent-deck-mcp tools — send_message', () => {
     expect(parsed.data.hint).toBe('Retry with teamId set to one of the listed IDs.');
   });
 
-  // CHANGELOG_100 R2 fix (claude MED-1 + codex LOW-2 双方共识)：replyToMessageId 核心防御
-  // 测试覆盖。删 wait_reply describe (含 mockMessages.set 的 replyToMessageId fixture) 后，
-  // send.ts:91-105 的 reject path 必须由 send_message describe 自己覆盖。
   it('rejects replyToMessageId pointing to non-existent message', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
@@ -2291,6 +2304,8 @@ describe('agent-deck-mcp tools — send_message', () => {
       statusReason: null,
       sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
       replyToMessageId: null,
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
     });
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
@@ -2319,6 +2334,8 @@ describe('agent-deck-mcp tools — send_message', () => {
       statusReason: null,
       sentAt: 1000, deliveredAt: 1100, attemptCount: 1, lastAttemptAt: 1000, deliveringSince: null,
       replyToMessageId: null,
+      deliveryGeneration: 1,
+      deliveryLeaseToSessionId: null,
     });
     const r = await tools.get('send_message').handler({
       sessionId: 'teammate',
@@ -2696,20 +2713,18 @@ describe('agent-deck-mcp tools — get_session (REVIEW_28 F 段)', () => {
     expect(parsed.data.teamName).toBe('review-team');
   });
 
-  it('falls back to empty teamName when no universal team membership (v014 后无 sessions.teamName 兜底)', async () => {
+  it('returns an empty teamName when no universal team membership exists', async () => {
     const tools = await getTools({ transport: 'http' });
-    // 不注入 mock memberships，模拟「session 不在 universal team backend members 表」
-    // plan team-cohesion-fix-20260513 Phase A Step A9：v014 drop sessions.teamName 后老 fallback 已删，
-    // teamName: null
-    seedSession('legacy-session', { cwd: '/repo' });
+    // 不注入 mock memberships，模拟「session 不在 universal team backend members 表」。
+    seedSession('standalone-session', { cwd: '/repo' });
 
     const r = await tools.get('get_session').handler({
-      callerSessionId: 'legacy-session',
-      sessionId: 'legacy-session',
+      callerSessionId: 'standalone-session',
+      sessionId: 'standalone-session',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
-    // 反查空 → projectSession 投影 teamName: null（无老 sessions.teamName 兜底）
+    // 反查空 → projectSession 投影 teamName: null。
     expect(parsed.data.teamName).toBeNull();
   });
 });

@@ -330,7 +330,7 @@ export const eventRepo = {
     }
   },
 
-  /** Revision-bounded equivalent used by v040 periodic summaries. */
+  /** Revision-bounded equivalent used by periodic summaries. */
   findLatestAssistantMessageAfterRevision(
     sessionId: string,
     afterRevision: number,
@@ -341,14 +341,14 @@ export const eventRepo = {
         `SELECT id, payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
-           AND COALESCE(change_revision, id) > ?
-           AND COALESCE(change_revision, id) <= ?
+           AND change_revision > ?
+           AND change_revision <= ?
            AND CASE WHEN json_valid(payload_json) THEN (
              json_extract(payload_json, '$.role') = 'assistant'
              AND (json_extract(payload_json, '$.error') IS NULL
                   OR json_extract(payload_json, '$.error') = 0)
            ) ELSE 0 END
-         ORDER BY COALESCE(change_revision, id) DESC, id DESC
+         ORDER BY change_revision DESC, id DESC
          LIMIT 1`,
       )
       .get(sessionId, afterRevision, throughRevision) as
@@ -372,33 +372,28 @@ export const eventRepo = {
     }
   },
 
-  /** Latest assistant message inside a frozen revision boundary, optionally after a legacy ts. */
+  /** Latest assistant message inside a frozen revision boundary. */
   findLatestAssistantMessageAtOrBeforeRevision(
     sessionId: string,
     throughRevision: number,
-    sinceTs?: number,
   ): { text: string; ts: number } | null {
-    const sinceClause = sinceTs === undefined ? '' : 'AND ts >= ?';
-    const params =
-      sinceTs === undefined
-        ? [sessionId, throughRevision]
-        : [sessionId, throughRevision, sinceTs];
     const row = getDb()
       .prepare(
         `SELECT id, payload_json, ts FROM events
          WHERE session_id = ?
            AND kind = 'message'
-           AND COALESCE(change_revision, id) <= ?
-           ${sinceClause}
+           AND change_revision <= ?
            AND CASE WHEN json_valid(payload_json) THEN (
              json_extract(payload_json, '$.role') = 'assistant'
              AND (json_extract(payload_json, '$.error') IS NULL
                   OR json_extract(payload_json, '$.error') = 0)
            ) ELSE 0 END
-         ORDER BY COALESCE(change_revision, id) DESC, id DESC
+         ORDER BY change_revision DESC, id DESC
          LIMIT 1`,
       )
-      .get(...params) as { id: number; payload_json: string; ts: number } | undefined;
+      .get(sessionId, throughRevision) as
+      | { id: number; payload_json: string; ts: number }
+      | undefined;
     if (!row) return null;
     try {
       const payload = JSON.parse(row.payload_json) as { text?: string };
@@ -474,27 +469,4 @@ export const eventRepo = {
     return r !== undefined;
   },
 
-  /**
-   * Agent Deck MCP wait_reply backfill（R2 / B'0 ADR §3.3.4）：拉指定时间窗内的事件
-   * 给 caller 各自 since_ts filter 用。窗口通常很短（caller since_ts → coordinator
-   * baseline_ts，绝大多数 < 5s），所以不分页直接 ASC 全拉。
-   * 边界：fromTs 闭、toTs 开，与 [since_ts, baseline_ts) 语义一致。
-   * 同毫秒 ts 加 `id ASC` tie-breaker（方向跟 ts ASC 一致 — DESC 配 id DESC / ASC 配
-   * id ASC），保证 backfill 时序稳定（REVIEW_91）。
-   */
-  listForSessionRange(
-    sessionId: string,
-    fromTs: number,
-    toTs: number,
-    limit = 500,
-  ): (AgentEvent & { id: number })[] {
-    const rows = getDb()
-      .prepare(
-        `SELECT * FROM events
-         WHERE session_id = ? AND ts >= ? AND ts < ?
-         ORDER BY ts ASC, id ASC LIMIT ?`,
-      )
-      .all(sessionId, fromTs, toTs, limit) as Row[];
-    return rowsToEvents(rows);
-  },
 };

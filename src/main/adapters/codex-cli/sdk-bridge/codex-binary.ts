@@ -16,10 +16,8 @@
  * `codexPathOverride` 短路 SDK 自己的 resolve。dev 模式 `process.resourcesPath` 指向 Electron
  * 自身 Resources（无对应 unpacked 结构），返回 null 让 SDK 走默认 resolve（dev 没 asar 没问题）。
  *
- * **vendor 双布局**（Codex runtime ≥ 0.135 改了 vendor 子目录名）：
- * - 新布局：二进制 `vendor/<triple>/bin/<binName>` + helper PATH `vendor/<triple>/codex-path/`（0.135+）
- * - 旧布局：二进制 `vendor/<triple>/codex/<binName>` + helper PATH `vendor/<triple>/path/`（≤ 0.134）
- * 与 SDK 内部 `resolveNativePackage` 同款双探测：先 new 后 legacy，跨 SDK 版本都稳。
+ * Current Codex packages store the binary at `vendor/<triple>/bin/<binName>` and helpers at
+ * `vendor/<triple>/codex-path/`.
  *
  * **pathDirs（bundled helper PATH）**：SDK 自己 resolve 二进制时会把 `<vendor>/codex-path`（内含
  * bundled ripgrep `rg` 等）prepend 进子进程 PATH（`prependPathDirs`）。但本模块走 `codexPathOverride`
@@ -98,12 +96,7 @@ function nodeModulesVendorTripleDir(): string | null {
   }
 }
 
-/**
- * 是否 new 布局（0.135+）。与 SDK `resolveNativePackage` 同款**双条件**：`bin/<binName>` 是文件
- * **且** `codex-package.json` 是文件（batch-B reviewer-claude LOW —— 旧实现只判 bin/ 单条件，畸形
- * 布局「有 bin/codex 但无 codex-package.json」时会与 SDK 分叉：SDK fallback legacy 而本模块认 new）。
- * 用 isFile（statSync().isFile()）而非 existsSync 对齐 SDK（目录撞名也不误判）。
- */
+/** Match the current SDK package layout only when both binary and manifest are regular files. */
 function isFile(p: string): boolean {
   try {
     return statSync(p).isFile();
@@ -112,7 +105,7 @@ function isFile(p: string): boolean {
   }
 }
 
-function isNewLayout(vendorTripleDir: string, binName: string): boolean {
+function isCurrentLayout(vendorTripleDir: string, binName: string): boolean {
   return (
     isFile(join(vendorTripleDir, 'bin', binName)) &&
     isFile(join(vendorTripleDir, 'codex-package.json'))
@@ -124,11 +117,7 @@ export function resolveBundledCodexBinary(): string | null {
   if (!vendorTripleDir) return null;
   const spec = currentPlatformSpec();
   if (!spec) return null;
-  // vendor 双布局（与 SDK resolveNativePackage 同款先 new 后 legacy）：
-  // new (0.135+) = vendor/<triple>/bin/<binName> + codex-package.json；legacy (≤0.134) = vendor/<triple>/codex/<binName>
-  if (isNewLayout(vendorTripleDir, spec.binName)) return join(vendorTripleDir, 'bin', spec.binName);
-  const legacyLayout = join(vendorTripleDir, 'codex', spec.binName);
-  if (isFile(legacyLayout)) return legacyLayout;
+  if (isCurrentLayout(vendorTripleDir, spec.binName)) return join(vendorTripleDir, 'bin', spec.binName);
   return null;
 }
 
@@ -137,9 +126,7 @@ export function resolveNodeModulesCodexBinary(): string | null {
   if (!vendorTripleDir) return null;
   const spec = currentPlatformSpec();
   if (!spec) return null;
-  if (isNewLayout(vendorTripleDir, spec.binName)) return join(vendorTripleDir, 'bin', spec.binName);
-  const legacyLayout = join(vendorTripleDir, 'codex', spec.binName);
-  if (isFile(legacyLayout)) return legacyLayout;
+  if (isCurrentLayout(vendorTripleDir, spec.binName)) return join(vendorTripleDir, 'bin', spec.binName);
   return null;
 }
 
@@ -148,7 +135,7 @@ export function resolveCodexBinary(): string | null {
 }
 
 /**
- * bundled codex helper PATH 目录（含 ripgrep 等）。与二进制双布局对齐：new=codex-path / legacy=path。
+ * bundled codex helper PATH 目录（含 ripgrep 等）。
  * 仅返回**实际存在**的目录（与 SDK `existingDirs` 同语义）；dev / 不支持平台 / 目录缺失 → []。
  */
 export function resolveBundledCodexPathDirs(): string[] {
@@ -156,11 +143,8 @@ export function resolveBundledCodexPathDirs(): string[] {
   if (!vendorTripleDir) return [];
   const spec = currentPlatformSpec();
   if (!spec) return [];
-  // 与 resolveBundledCodexBinary 共用 isNewLayout 双条件判定（new → codex-path/；legacy → path/）。
-  // 必须用 spec.binName（win32 = codex.exe）—— 硬编码 'codex' 会让 win32 new 布局误判 legacy → 返 []。
-  const candidate = isNewLayout(vendorTripleDir, spec.binName)
-    ? join(vendorTripleDir, 'codex-path')
-    : join(vendorTripleDir, 'path');
+  if (!isCurrentLayout(vendorTripleDir, spec.binName)) return [];
+  const candidate = join(vendorTripleDir, 'codex-path');
   return existsSync(candidate) ? [candidate] : [];
 }
 
@@ -169,9 +153,8 @@ export function resolveNodeModulesCodexPathDirs(): string[] {
   if (!vendorTripleDir) return [];
   const spec = currentPlatformSpec();
   if (!spec) return [];
-  const candidate = isNewLayout(vendorTripleDir, spec.binName)
-    ? join(vendorTripleDir, 'codex-path')
-    : join(vendorTripleDir, 'path');
+  if (!isCurrentLayout(vendorTripleDir, spec.binName)) return [];
+  const candidate = join(vendorTripleDir, 'codex-path');
   return existsSync(candidate) ? [candidate] : [];
 }
 

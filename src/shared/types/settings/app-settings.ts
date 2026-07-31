@@ -48,7 +48,7 @@ export interface AppSettings {
   summaryRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   summaryModel: string;
-  /** adapter 对应的思考等级；历史 minimal 在迁移时收口为 low。 */
+  /** adapter 对应的思考等级。 */
   summaryThinking: SessionThinkingLevel;
   /** 续接检查点生成器 adapter，与 successor adapter 独立。 */
   continuationCheckpointAdapter: GeneratorAdapterId;
@@ -228,11 +228,6 @@ export interface AppSettings {
    * 改这个开关只影响**下次新建**的会话或按 agentName 新建 teammate；已运行会话不重读。
    */
   injectAgentDeckClaudeAgents: boolean;
-  // R3.E6 (PR-B) 删除：原 `agentTeamsEnabled` / `autoApproveTeammateMode` 字段下线，
-  // 由新 universal team backend 取代（详 docs/agent-deck-team-protocol.md）。
-  // plan task-mcp-merge-into-agent-deck-mcp-20260521：原 `enableTaskManager` 字段下线，
-  // 5 个 task tool 合并入 agent-deck-mcp namespace，跟随 enableAgentDeckMcp 开关；
-  // settings-store REMOVED_KEYS + smart migration 守护老用户 ON 值不丢失能力。
   /**
    * Claude Code SDK 子进程的 OS 级沙盒档位（默认 'workspace-write'）。SDK 0.2.118 内置
    * sandbox 能力（macOS Seatbelt / Linux bubblewrap），默认开启文件系统 + 网络 OS 级隔离。
@@ -276,13 +271,6 @@ export interface AppSettings {
    * Defaults to `workspace`; custom user/project sandbox.toml profile names remain valid.
    */
   grokSandbox: string;
-  /**
-   * Teammate 权限 auto-approve 档位（**R3.E6 删除占位字段，下方 R3 新字段取代**）。
-   * 老 inbox 协议下线后，新 universal team backend 不需要档位选择 —— teammate 调工具走自己
-   * adapter 的 canUseTool / hook（即「自己 session 的权限边界」），不再走 lead inbox。
-   */
-  // (字段删除；settings-store REMOVED_KEYS 自动清历史)
-
   // ─────────────────────────────────────── Agent Deck MCP server (R2 / B'0 ADR §7)
 
   /**

@@ -2,7 +2,7 @@
 export function buildCwdMissingErrorText(badCwd: string): string {
   return (
     `⚠ 此会话的 cwd 已不存在: ${badCwd}\n` +
-    `应用尝试启发式 fallback (含 .claude/worktrees/ 路径反推 / 父目录 walk) 但未找到合适的替代目录。\n` +
+    `应用尝试沿父目录查找安全 fallback，但未找到合适的替代目录。\n` +
     `请新建会话;或如确认这条会话不再需要,可右键归档。`
   );
 }

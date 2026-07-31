@@ -6,14 +6,12 @@ import { resolveClaudeBinary } from './resolve-claude-binary';
 import {
   buildClaudeUsageSnapshot,
   errorUsageSnapshot,
-  providerUsageLabel,
 } from '../provider-usage';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { sessionManager } from '@main/session/manager';
 import { getProviderUsageProbeCwd } from '@main/paths';
 import type { InternalSession } from './sdk-bridge/types';
 
-const CLAUDE_USAGE_LABEL = providerUsageLabel('claude-code');
 const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
 const HOOK_CLAIM_HOLD_MS = 60_000;
 
@@ -47,7 +45,7 @@ export async function readClaudeBridgeUsageSnapshot(
       await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
     return buildClaudeUsageSnapshot(usage);
   } catch (error) {
-    return errorUsageSnapshot('claude-code', CLAUDE_USAGE_LABEL, error);
+    return errorUsageSnapshot('claude-code', error);
   }
 }
 
@@ -121,7 +119,7 @@ export async function readClaudeUsageSnapshotInBackground(
     });
     return buildClaudeUsageSnapshot(usage);
   } catch (err) {
-    return errorUsageSnapshot('claude-code', CLAUDE_USAGE_LABEL, err);
+    return errorUsageSnapshot('claude-code', err);
   } finally {
     controller.abort();
     q?.close();
