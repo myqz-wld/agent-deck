@@ -53,14 +53,14 @@ export function BundledAgentRuntimeEditor({
     const request =
       asset.adapter === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexConfigProfiles();
+        : window.api.listCodexModelProviders();
     void request
       .then((items) => {
         if (!cancelled) setProviders(items);
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          const runtime = asset.adapter === 'claude-code' ? 'Claude Gateway' : 'Codex profile';
+          const runtime = asset.adapter === 'claude-code' ? 'Claude Gateway' : 'Codex provider';
           setError(`${runtime} 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
         }
       });
@@ -72,7 +72,7 @@ export function BundledAgentRuntimeEditor({
   const normalizedModel = model.trim();
   const normalizedThinking = thinking.trim();
   const normalizedProvider = provider.trim();
-  const providerLabel = asset.adapter === 'codex-cli' ? 'Profile' : 'Gateway';
+  const providerLabel = asset.adapter === 'codex-cli' ? 'Provider' : 'Gateway';
   const dirty =
     normalizedModel !== (asset.model ?? '') ||
     normalizedThinking !== (asset.thinking ?? '') ||
@@ -244,7 +244,7 @@ export function BundledAgentRuntimeEditor({
                 emptyMessage={
                   asset.adapter === 'claude-code'
                     ? '没有匹配的 Gateway profile'
-                    : '没有发现 Codex profile，可直接输入 profile 名'
+                    : '没有发现 Codex provider，请检查 $CODEX_HOME/config.toml'
                 }
               />
               <DefaultHint
@@ -252,7 +252,7 @@ export function BundledAgentRuntimeEditor({
                 fallback={
                   asset.adapter === 'claude-code'
                     ? '使用 ~/.claude/settings.json'
-                    : '跟随 ~/.codex/config.toml'
+                    : '跟随 $CODEX_HOME/config.toml'
                 }
               />
             </RuntimeField>
@@ -324,7 +324,7 @@ function invalidSingleLine(value: string): boolean {
 
 function nativeConfigHint(adapter: AssetMeta['adapter']): string {
   if (adapter === 'codex-cli') {
-    return 'Codex profile 由 $CODEX_HOME/<name>.config.toml 管理；这里只保存 profile 名。';
+    return 'provider 定义仍由 $CODEX_HOME/config.toml 的 [model_providers.<id>] 管理。';
   }
   if (adapter === 'grok-build') {
     return '自定义模型别名仍由 ~/.grok/config.toml 的 [model.<alias>] 管理。';

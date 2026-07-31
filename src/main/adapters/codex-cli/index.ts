@@ -27,6 +27,7 @@ import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter'
 import { unavailableUsageSnapshot } from '../provider-usage';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { getAdapterRuntimeProfile } from '../runtime-profiles';
+import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -99,10 +100,11 @@ class CodexCliAdapter implements AgentAdapter {
 
   async createSession(opts: CodexCreateOpts & { agentId: 'codex-cli' }): Promise<string> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    const provider = resolveCodexModelProvider(opts.provider)?.id;
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       prompt: opts.prompt,
-      profile: opts.profile,
+      provider,
       resume: opts.resume,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
@@ -132,10 +134,11 @@ class CodexCliAdapter implements AgentAdapter {
     if (opts.agentId !== ADAPTER_ID || !this.bridge) {
       throw new Error('Codex trusted continuation requires an initialized Codex adapter');
     }
+    const provider = resolveCodexModelProvider(opts.provider)?.id;
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
-      profile: opts.profile,
+      provider,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
       model: opts.model,
@@ -161,6 +164,7 @@ class CodexCliAdapter implements AgentAdapter {
       throw new Error(`Codex native fork received target adapter ${target.agentId}.`);
     }
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    resolveCodexModelProvider(target.provider);
     this.bridge.validateForkSession(source);
   }
 
@@ -172,10 +176,11 @@ class CodexCliAdapter implements AgentAdapter {
       throw new Error(`Codex native fork received target adapter ${target.agentId}.`);
     }
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    const provider = resolveCodexModelProvider(target.provider)?.id;
     return this.bridge.createForkedSession(source, {
       cwd: target.cwd,
       prompt: target.prompt,
-      profile: target.profile,
+      provider,
       codexSandbox: target.codexSandbox,
       attachments: target.attachments,
       model: target.model,
@@ -289,11 +294,7 @@ class CodexCliAdapter implements AgentAdapter {
     options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
-    await this.bridge.setSessionModelOptions(sessionId, {
-      profile: options.provider,
-      model: options.model,
-      thinking: options.thinking,
-    });
+    await this.bridge.setSessionModelOptions(sessionId, options);
   }
 
   /**
@@ -393,13 +394,7 @@ class CodexCliAdapter implements AgentAdapter {
       events,
       formatEventsForPrompt,
       evidenceContext,
-      runtime
-        ? {
-            profile: runtime.provider,
-            model: runtime.model,
-            thinking: runtime.thinking,
-          }
-        : undefined,
+      runtime,
     );
   }
 

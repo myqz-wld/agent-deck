@@ -13,6 +13,7 @@ export interface SessionModelControllerContext {
   emit: (event: AgentEvent) => void;
   /** Validate the requested selection before any persisted or live state is changed. */
   validate?: (
+    sessionId: string,
     options: SessionModelOptions,
     previous: SessionModelOptions,
   ) => Promise<void> | void;
@@ -62,7 +63,7 @@ export class SessionModelController {
       let persistenceAttempted = false;
       let liveAttempted = false;
       try {
-        await this.ctx.validate?.(options, previous);
+        await this.ctx.validate?.(sessionId, options, previous);
         persistenceAttempted = true;
         sessionRepo.setRuntimeProvider(sessionId, options.provider);
         sessionRepo.setModel(sessionId, options.model);

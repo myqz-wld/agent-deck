@@ -151,7 +151,7 @@ const coordinator = new UiHandOffCoordinator({
       request: {
         ...selectionWithoutRuntime,
         ...(selection.adapter === 'codex-cli'
-          ? { profile: selectedRuntime }
+          ? { provider: selectedRuntime }
           : selection.adapter === 'claude-code'
             ? { gateway: selectedRuntime }
             : {}),

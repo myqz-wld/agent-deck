@@ -1,7 +1,7 @@
 /**
  * Agent Deck MCP server 自动注入 codex 配置（B'0 ADR §9 / R1.A5 + R1.D7 + B'4）。
  *
- * 不写 ~/.codex/config.toml 持久化（避免污染用户配置）；改走 codex SDK `Codex({ config })`
+ * 不写 $CODEX_HOME/config.toml 持久化（避免污染用户配置）；改走 codex SDK `Codex({ config })`
  * 字段动态注入 — codex SDK 内部把 config object flatten 成 `--config key=value` CLI flag。
  *
  * 用户自己的 server 由 Codex 原生 config.toml 管理；agent-deck 自管的 'agent-deck'

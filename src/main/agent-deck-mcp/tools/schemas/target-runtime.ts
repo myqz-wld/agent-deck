@@ -22,14 +22,25 @@ const gateway = z
     'Optional non-null Claude Code Gateway profile id from ~/.claude/gateways, trimmed to 1-128 characters. Only Claude Code accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then Claude defaults. Omission never cross-inherits; null and empty-after-trim values reject.',
   );
 
-const profile = z
+const provider = z
   .string()
   .trim()
   .min(1)
   .max(128)
   .optional()
   .describe(
-    'Optional non-null Codex CLI native config profile id, trimmed to 1-128 characters. It selects an existing $CODEX_HOME/<id>.config.toml and starts app-server with codex --profile <id>; Agent Deck never writes the file. Only Codex CLI accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then base config.toml. Omission never cross-inherits; null and empty-after-trim values reject.',
+    'Optional non-null Codex CLI model_provider id, trimmed to 1-128 characters. It must be available from $CODEX_HOME/config.toml, either as its top-level model_provider or a [model_providers.<id>] definition, and is passed as a supported per-thread model_provider override; Agent Deck never writes the file. Only Codex CLI accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then Codex config.toml. Omission never cross-inherits; null and empty-after-trim values reject.',
+  );
+
+const profile = z
+  .string()
+  .optional()
+  .refine((value) => value === undefined, {
+    message:
+      'Codex profile is unavailable because the bundled Codex app-server does not support --profile. Replace profile with provider=<model_provider id>, or omit it to use $CODEX_HOME/config.toml.',
+  })
+  .describe(
+    'Retired input retained only for a self-contained migration error. Every provided value is rejected; use provider for a Codex model_provider id, gateway for Claude, or omit both for native defaults.',
   );
 
 const model = z
@@ -117,11 +128,12 @@ const extraAllowWrite = z
 
 /**
  * Flat projection used by the current MCP tool factories. Claude and Codex intentionally expose
- * different selector names (`gateway` and `profile`); the adapter-specific schemas below are the
- * ownership SSOT and every user-facing handler rejects the other adapter's field.
+ * different selector names (`gateway` and `provider`). `profile` is a reject-only migration seam;
+ * the adapter-specific schemas below are the ownership SSOT.
  */
 export const MCP_TARGET_RUNTIME_SUPERSET_SHAPE = {
   gateway,
+  provider,
   profile,
   model,
   thinking,

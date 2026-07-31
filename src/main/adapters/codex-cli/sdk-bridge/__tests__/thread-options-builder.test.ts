@@ -5,7 +5,7 @@
  * 覆盖 thread-options-builder.ts `buildCodexThreadOptions` 的字段收口逻辑：
  * - approvalPolicy 缺省时省略（交还 Codex config / provider default）；caller 显式时透传
  * - skipGitRepoCheck 恒 true
- * - model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled /
+ * - provider / model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled /
  *   additionalDirectories 条件 spread（undefined → 字段不出现）
  * - modelReasoningSummary 默认 auto，让应用内 Codex 会话请求可展示的思路摘要
  * - additionalDirectories / extraAllowWrite 合并去重并浅拷贝
@@ -86,6 +86,7 @@ describe('buildCodexThreadOptions', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
+      provider: '  openrouter  ',
       model: 'gpt-5.5-codex',
       modelReasoningEffort: 'ultra',
       modelReasoningSummary: 'none',
@@ -98,6 +99,7 @@ describe('buildCodexThreadOptions', () => {
       networkAccessEnabled: true,
       additionalDirectories: ['/a', '/b'],
     });
+    expect(opts.modelProvider).toBe('openrouter');
     expect(opts.model).toBe('gpt-5.5-codex');
     expect(opts.modelReasoningEffort).toBe('ultra');
     expect(opts.modelReasoningSummary).toBe('none');
@@ -118,6 +120,19 @@ describe('buildCodexThreadOptions', () => {
       configOverrides: { model_provider: 'agent-default' },
     });
 
+    expect(options.configOverrides).toEqual({ model_provider: 'agent-default' });
+    expect(options).not.toHaveProperty('modelProvider');
+  });
+
+  it('keeps an explicit session model_provider separate from custom config', () => {
+    const options = buildCodexThreadOptions({
+      workingDirectory: '/repo/x',
+      sandboxMode: 'workspace-write',
+      provider: 'session-provider',
+      configOverrides: { model_provider: 'agent-default' },
+    });
+
+    expect(options.modelProvider).toBe('session-provider');
     expect(options.configOverrides).toEqual({ model_provider: 'agent-default' });
   });
 

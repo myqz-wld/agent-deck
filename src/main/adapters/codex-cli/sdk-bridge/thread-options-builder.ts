@@ -31,6 +31,8 @@ export interface BuildCodexThreadOptionsArgs {
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /** spawn handler custom-agent TOML `model` 字段 */
   model?: string;
+  /** Native Codex model provider selected for this thread. */
+  provider?: string;
   /** Explicit caller/session value only; reviewer agent names never change this field. */
   networkAccessEnabled?: boolean;
   /** Caller 缺省 → 不写字段 → SDK 走默认值。 */
@@ -67,6 +69,7 @@ export interface CodexThreadOptions {
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   skipGitRepoCheck: boolean;
   model?: string;
+  modelProvider?: string;
   modelReasoningEffort?: CodexReasoningEffort;
   modelReasoningSummary?: CodexReasoningSummary;
   developerInstructions?: string;
@@ -95,6 +98,7 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
       ? { approvalPolicy: args.approvalPolicy }
       : {}),
     skipGitRepoCheck: true,
+    ...(args.provider?.trim() ? { modelProvider: args.provider.trim() } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(args.modelReasoningEffort !== undefined
       ? { modelReasoningEffort: args.modelReasoningEffort }

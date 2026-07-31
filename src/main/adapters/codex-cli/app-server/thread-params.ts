@@ -69,6 +69,9 @@ function buildThreadCommonParams(
       ? { approvalPolicy: options.approvalPolicy }
       : {}),
     ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.modelProvider !== undefined
+      ? { modelProvider: options.modelProvider }
+      : {}),
     ...(options.developerInstructions !== undefined
       ? { developerInstructions: options.developerInstructions }
       : {}),

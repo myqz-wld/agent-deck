@@ -42,7 +42,7 @@ type Defaults = {
   codexSandbox?: CodexSandboxChoice;
   claudeCodeSandbox?: ClaudeSandboxChoice;
   grokSandbox?: GrokSandboxChoice;
-  /** Claude Gateway profile id or Codex config profile id. */
+  /** Claude Gateway profile id or Codex native `model_provider` id. */
   provider?: string;
   /** 自由文本；空白输入会清除记忆并重新采用配置文件模型。 */
   model?: string;

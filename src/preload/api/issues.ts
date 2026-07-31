@@ -50,7 +50,7 @@ export interface IssuesResolveInNewSessionArgs {
   codexSandbox?: string;
   claudeCodeSandbox?: string;
   grokSandbox?: string;
-  /** Claude Gateway profile id or Codex config profile id. */
+  /** Claude Gateway profile id or Codex native `model_provider` id. */
   provider?: string;
   /** optional — 空值不传，使用目标 provider 默认模型。 */
   model?: string;

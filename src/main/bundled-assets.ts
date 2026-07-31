@@ -163,6 +163,10 @@ function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
         out.push(buildAgentMeta(name, absPath, {
           description: parsed.description ?? '',
           model: parsed.model ?? '',
+          model_provider:
+            typeof parsed.config.model_provider === 'string'
+              ? parsed.config.model_provider
+              : '',
           model_reasoning_effort: parsed.modelReasoningEffort ?? '',
         }, 'bundled', adapter));
         continue;
@@ -235,7 +239,9 @@ function buildAgentMeta(
     provider:
       adapter === 'claude-code'
         ? fm.gateway || undefined
-        : undefined,
+        : adapter === 'codex-cli'
+          ? fm.model_provider || undefined
+          : undefined,
     absPath,
   };
 }
