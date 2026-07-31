@@ -165,6 +165,33 @@ describe('PlanDeepReviewDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('uses top-right expand actions instead of drag resizing for both text fields', async () => {
+    renderDialog();
+
+    const question = screen.getByTestId('plan-review-question');
+    const feedback = screen.getByTestId('plan-review-feedback');
+    expect(question.className).toContain('resize-none');
+    expect(question.className).not.toContain('resize-y');
+    expect(feedback.className).toContain('resize-none');
+    expect(feedback.className).not.toContain('resize-y');
+    expect(screen.getByRole('button', { name: '放大提问输入框' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '放大修改意见输入框' })).toBeTruthy();
+
+    fireEvent.change(question, { target: { value: 'Inspect the lifecycle.' } });
+    fireEvent.click(screen.getByRole('button', { name: '放大提问输入框' }));
+    const expandedQuestion = screen.getByRole('textbox', { name: '向审阅会话提问（展开）' });
+    expect((expandedQuestion as HTMLTextAreaElement).value).toBe('Inspect the lifecycle.');
+    fireEvent.change(expandedQuestion, { target: { value: 'Inspect the retry lifecycle.' } });
+    fireEvent.click(screen.getByRole('button', { name: '关闭展开内容' }));
+    expect((question as HTMLTextAreaElement).value).toBe('Inspect the retry lifecycle.');
+
+    fireEvent.click(screen.getByRole('button', { name: '放大修改意见输入框' }));
+    const expandedFeedback = screen.getByRole('textbox', { name: '修改意见（展开）' });
+    fireEvent.change(expandedFeedback, { target: { value: 'Add a rollback check.' } });
+    fireEvent.click(screen.getByRole('button', { name: '关闭展开内容' }));
+    expect((feedback as HTMLTextAreaElement).value).toBe('Add a rollback check.');
+  });
+
   it('quotes selected plan text with the platform shortcut without a selection mode', async () => {
     renderDialog();
     await waitFor(() => expect(

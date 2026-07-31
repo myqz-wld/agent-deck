@@ -1,6 +1,9 @@
 import type { JSX, RefObject } from 'react';
+import { ExpandableReviewTextField } from './review-detail/ExpandableReviewTextField';
 
 interface Props {
+  sessionId: string;
+  requestId: string;
   feedback: string;
   feedbackRef: RefObject<HTMLTextAreaElement | null>;
   busy: boolean;
@@ -15,6 +18,8 @@ interface Props {
 }
 
 export function PlanReviewDecisionFooter({
+  sessionId,
+  requestId,
   feedback,
   feedbackRef,
   busy,
@@ -49,16 +54,21 @@ export function PlanReviewDecisionFooter({
             {generating ? '正在生成意见…' : '根据上下文生成意见'}
           </button>
         </div>
-        <textarea
-          ref={feedbackRef}
+        <ExpandableReviewTextField
+          textareaRef={feedbackRef}
+          sessionId={sessionId}
+          requestId={requestId}
+          fieldId="feedback"
+          title="修改意见"
+          triggerLabel="放大修改意见输入框"
           id="plan-review-feedback"
-          data-testid="plan-review-feedback"
+          testId="plan-review-feedback"
           value={feedback}
-          onChange={(event) => onFeedbackChange(event.target.value)}
+          onChange={onFeedbackChange}
           disabled={busy}
-          aria-describedby="plan-review-feedback-help"
+          ariaDescribedBy="plan-review-feedback-help"
           placeholder="输入希望调整的内容，或先让审阅会话生成草稿"
-          className="min-h-16 max-h-32 w-full resize-y rounded border border-deck-border bg-black/30 px-2 py-1.5 text-[11px] text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25 disabled:opacity-50"
+          compactClassName="min-h-16 max-h-32 rounded border border-deck-border bg-black/30 py-1.5 pl-2 text-[11px] text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25 disabled:opacity-50"
         />
       </section>
       <div
