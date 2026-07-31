@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-30 | `REVIEW_201_legacy-exit-worktree-adoption.md` | Bounded legacy worktree exit | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-30 | `REVIEW_200_automatic-worktree-transition-safety.md` | Automatic worktree cwd boundary | 0 CRITICAL / 3 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-30 | `REVIEW_199_grok-application-id-fence.md` | Grok stable identity deletion fence | 0 CRITICAL / 2 HIGH fixed |
 | 2026-07-30 | `REVIEW_198_grok-extension-terminal-delivery.md` | Real Grok terminal delivery | 0 CRITICAL / 2 HIGH fixed / 1 MEDIUM fixed / 1 LOW fixed |

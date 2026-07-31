@@ -158,7 +158,7 @@ export const EXIT_WORKTREE_SCHEMA = {
     .refine((p) => p.startsWith('/'), 'Must be absolute path')
     .optional()
     .describe(
-      'Optional absolute worktree path to exit. Omit it to use the caller session structured lease or legacy marker set by enter_worktree. Passing a different path while the caller owns a lease or marker is rejected. For a structured lease, success state waiting-tool-result means automatic restoration was accepted, not that cleanup already finished.',
+      'Optional absolute worktree path to exit. Omit it to use the caller session structured lease or legacy marker set by enter_worktree. Passing a different path while the caller owns a lease or marker is rejected. An existing legacy marker or explicit registered path is adopted into the restore-first structured exit flow. State waiting-tool-result means automatic restoration was accepted, not that cleanup already finished; completed-legacy is returned only when the target path is already absent.',
     ),
   discardChanges: z
     .boolean()
@@ -328,7 +328,8 @@ const EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA = z
     state: z.literal('waiting-tool-result'),
     effectiveFrom: z.literal('automatic-next-turn'),
     worktreePath: z.string().min(1),
-    workBranch: z.string().min(1),
+    /** Null when an adopted legacy worktree is detached. */
+    workBranch: z.string().min(1).nullable(),
   })
   .strict();
 
@@ -360,7 +361,7 @@ const EXIT_WORKTREE_LEGACY_OUTPUT_SCHEMA = z
   })
   .strict();
 
-/** exit_worktree success is either accepted async restoration or completed cleanup/legacy work. */
+/** exit_worktree success is accepted restoration, completed cleanup, or an already-absent target. */
 export const EXIT_WORKTREE_OUTPUT_SCHEMA = z.discriminatedUnion('state', [
   EXIT_WORKTREE_WAITING_OUTPUT_SCHEMA,
   EXIT_WORKTREE_COMPLETED_OUTPUT_SCHEMA,

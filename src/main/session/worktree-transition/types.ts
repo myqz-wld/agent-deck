@@ -62,6 +62,25 @@ export interface WorktreeExitOptions {
   requestedAt: number;
 }
 
+/** Metadata required to upgrade a pre-v059 marker or an explicitly named orphan worktree. */
+export interface LegacyWorktreeExitAdoption {
+  sessionId: string;
+  /** Exact marker value observed before preflight; null permits an explicit orphan-path claim. */
+  expectedMarker: string | null;
+  originalCwd: string;
+  mainRepo: string;
+  worktreePath: string;
+  /** Empty means the registered legacy worktree is detached. */
+  workBranch: string;
+  baseBranch: string;
+  baseCommit: string;
+  toolUseId: string;
+  continuationKey: string;
+  discardChanges: boolean;
+  deleteBranch: boolean;
+  requestedAt: number;
+}
+
 export interface WorktreeTransitionQueuedInput {
   sessionId: string;
   generation: number;

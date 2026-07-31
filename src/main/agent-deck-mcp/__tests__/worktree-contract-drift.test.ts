@@ -17,7 +17,7 @@ import {
 const ENTER_ACCEPTANCE_SENTENCE =
   'A success with `state: "waiting-tool-result"` is durable asynchronous acceptance, not proof that the current turn already runs in the worktree.';
 const EXIT_ACCEPTANCE_SENTENCE =
-  'For a structured lease, success with `state: "waiting-tool-result"` accepts the reverse transition; it does not mean the worktree was already removed.';
+  'For a structured lease or an existing legacy marker/path, success with `state: "waiting-tool-result"` accepts the reverse transition; it does not mean the worktree was already removed.';
 
 describe('worktree MCP contract drift', () => {
   it('publishes automatic next-turn semantics and strict success schemas', async () => {
@@ -44,6 +44,12 @@ describe('worktree MCP contract drift', () => {
     );
     expect(exit?.description).toContain(
       'second dirty check immediately before removal',
+    );
+    expect(exit?.description).toContain(
+      'adopted into the same structured restore-first flow',
+    );
+    expect(exit?.description).toContain(
+      '`completed-legacy` is synchronous only when the target path is already absent',
     );
     expect(exit?.description).toContain('`completed-cleanup`');
 
@@ -76,6 +82,16 @@ describe('worktree MCP contract drift', () => {
     expect(EXIT_WORKTREE_OUTPUT_SCHEMA.safeParse(exitPayload).success).toBe(
       true,
     );
+    expect(
+      EXIT_WORKTREE_OUTPUT_SCHEMA.safeParse({
+        transitionId: 'session-a:3',
+        direction: 'exit',
+        state: 'waiting-tool-result',
+        effectiveFrom: 'automatic-next-turn',
+        worktreePath: '/repo/detached-worktree',
+        workBranch: null,
+      }).success,
+    ).toBe(true);
     const response = structuredOk(enterPayload);
     expect(response.structuredContent).toEqual(enterPayload);
     expect(JSON.parse(response.content[0]!.text)).toEqual(
@@ -91,6 +107,10 @@ describe('worktree MCP contract drift', () => {
     );
     const claude = readFileSync(
       resolve(root, 'resources/claude-config/CLAUDE.md'),
+      'utf8',
+    );
+    const grok = readFileSync(
+      resolve(root, 'resources/grok-config/GROK_AGENTS.md'),
       'utf8',
     );
     for (const instructions of [codex, claude]) {
@@ -109,5 +129,14 @@ describe('worktree MCP contract drift', () => {
         'After entering the worktree, point read/write commands',
       );
     }
+    expect(grok).toContain(
+      '`exit_worktree` adopts an existing legacy marker/path into the same restore-first flow',
+    );
+    expect(grok).toContain(
+      '`completed-legacy` means the target was already absent',
+    );
+    expect(grok).not.toContain(
+      'entering a worktree does not change the current process directory',
+    );
   });
 });

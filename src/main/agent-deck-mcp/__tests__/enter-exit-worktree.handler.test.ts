@@ -9,6 +9,8 @@ const harness = vi.hoisted(() => ({
   arm: vi.fn(),
   release: vi.fn(),
   releasePreparation: vi.fn(async () => {}),
+  adopt: vi.fn(),
+  legacyRelease: vi.fn(),
   preflight: vi.fn(async () => {}),
   cleanup: vi.fn(async () => ({
     worktreeRemoved: true,
@@ -89,6 +91,55 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
           requestedAt: input.requestedAt,
           updatedAt: input.requestedAt,
         });
+        return harness.record;
+      },
+      adoptLegacyExit: (input: {
+        sessionId: string;
+        originalCwd: string;
+        mainRepo: string;
+        worktreePath: string;
+        workBranch: string;
+        baseBranch: string;
+        baseCommit: string;
+        toolUseId: string;
+        continuationKey: string;
+        discardChanges: boolean;
+        deleteBranch: boolean;
+        requestedAt: number;
+      }) => {
+        harness.adopt(input);
+        harness.record = transition('exit_preflight', {
+          sessionId: input.sessionId,
+          generation: (harness.record?.generation ?? 0) + 1,
+          direction: 'exit',
+          originalCwd: input.originalCwd,
+          targetCwd: input.originalCwd,
+          mainRepo: input.mainRepo,
+          worktreePath: input.worktreePath,
+          workBranch: input.workBranch,
+          baseBranch: input.baseBranch,
+          baseCommit: input.baseCommit,
+          toolUseId: input.toolUseId,
+          continuationKey: input.continuationKey,
+          discardChanges: input.discardChanges,
+          deleteBranch: input.deleteBranch,
+          requestedAt: input.requestedAt,
+          updatedAt: input.requestedAt,
+        });
+        return harness.record;
+      },
+      releaseLegacyExitAdoption: (input: {
+        updatedAt: number;
+        lastError: string;
+      }) => {
+        harness.legacyRelease(input);
+        harness.record = {
+          ...harness.record!,
+          phase: 'cleared',
+          targetCwd: harness.record!.originalCwd,
+          updatedAt: input.updatedAt,
+          lastError: input.lastError,
+        };
         return harness.record;
       },
       markEnterCreated: () => {
@@ -211,6 +262,8 @@ beforeEach(() => {
   harness.arm.mockClear();
   harness.release.mockClear();
   harness.releasePreparation.mockClear();
+  harness.adopt.mockClear();
+  harness.legacyRelease.mockClear();
   harness.preflight.mockReset();
   harness.preflight.mockResolvedValue(undefined);
   harness.cleanup.mockReset();
@@ -282,6 +335,144 @@ describe('structured automatic worktree handlers', () => {
       expect.objectContaining({ phase: 'exit_preflight', direction: 'exit' }),
     );
     expect(harness.record?.phase).toBe('exit_waiting_tool_result');
+  });
+
+  it('adopts a detached legacy worktree and returns async acceptance without inline cleanup', async () => {
+    const gitValues = ['/repo/.git', '', 'a'.repeat(40), ''];
+    const runGit = vi.fn(async (_args: string[], _cwd: string) => {
+      const next = gitValues.shift();
+      if (next === undefined) throw new Error('runGit mock exhausted');
+      return next;
+    });
+    const result = await exitWorktreeHandler(
+      { discardChanges: false, deleteBranch: false },
+      ctx(),
+      {
+        implDeps: {
+          runGit,
+          exists: () => true,
+          realpath: (value) => value,
+          callerMarker: () => '/repo/.agent-deck/worktrees/legacy',
+          callerCwd: () => '/repo/.agent-deck/worktrees/legacy',
+          clearCwdReleaseMarker: vi.fn(),
+        },
+      },
+    );
+
+    expect(assertStructuredParity(result)).toMatchObject({
+      transitionId: 'caller-sid:1',
+      direction: 'exit',
+      state: 'waiting-tool-result',
+      worktreePath: '/repo/.agent-deck/worktrees/legacy',
+      workBranch: null,
+    });
+    expect(harness.adopt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workBranch: '',
+        baseBranch: 'HEAD',
+        originalCwd: '/repo',
+      }),
+    );
+    expect(runGit.mock.calls.map(([args]) => args)).not.toContainEqual([
+      'worktree',
+      'remove',
+      '/repo/.agent-deck/worktrees/legacy',
+    ]);
+    expect(harness.cleanup).not.toHaveBeenCalled();
+    expect(harness.arm).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'exit_preflight', direction: 'exit' }),
+    );
+    expect(harness.record?.phase).toBe('exit_waiting_tool_result');
+  });
+
+  it('falls back to the legacy marker when an adopted exit cannot be armed', async () => {
+    const gitValues = ['/repo/.git', '', 'a'.repeat(40), ''];
+    harness.arm.mockImplementationOnce(() => {
+      throw new Error('adapter cannot arm');
+    });
+    const result = await exitWorktreeHandler(
+      {},
+      ctx(),
+      {
+        implDeps: {
+          runGit: async () => {
+            const next = gitValues.shift();
+            if (next === undefined) throw new Error('runGit mock exhausted');
+            return next;
+          },
+          exists: () => true,
+          realpath: (value) => value,
+          callerMarker: () => '/repo/.agent-deck/worktrees/legacy',
+          callerCwd: () => '/repo',
+          clearCwdReleaseMarker: vi.fn(),
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(harness.releasePreparation).toHaveBeenCalledOnce();
+    expect(harness.legacyRelease).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: 'adapter cannot arm',
+      }),
+    );
+    expect(harness.record?.phase).toBe('cleared');
+    expect(harness.cleanup).not.toHaveBeenCalled();
+  });
+
+  it('completes legacy compatibility synchronously only for an absent target', async () => {
+    const clearMarker = vi.fn();
+    const result = await exitWorktreeHandler(
+      {},
+      ctx(),
+      {
+        implDeps: {
+          runGit: vi.fn(),
+          exists: () => false,
+          realpath: (value) => value,
+          callerMarker: () => '/repo/.agent-deck/worktrees/missing',
+          callerCwd: () => '/repo',
+          clearCwdReleaseMarker: clearMarker,
+        },
+      },
+    );
+
+    expect(assertStructuredParity(result)).toMatchObject({
+      transitionId: null,
+      state: 'completed-legacy',
+      worktreePath: '/repo/.agent-deck/worktrees/missing',
+      worktreeRemoved: false,
+      markerCleared: true,
+    });
+    expect(clearMarker).toHaveBeenCalledWith('caller-sid');
+    expect(harness.reserve).not.toHaveBeenCalled();
+    expect(harness.adopt).not.toHaveBeenCalled();
+  });
+
+  it('rejects a mismatched legacy path before Git or transition reservation', async () => {
+    const runGit = vi.fn();
+    const result = await exitWorktreeHandler(
+      { worktreePath: '/repo/.agent-deck/worktrees/other' },
+      ctx(),
+      {
+        implDeps: {
+          runGit,
+          exists: () => true,
+          realpath: (value) => value,
+          callerMarker: () => '/repo/.agent-deck/worktrees/legacy',
+          callerCwd: () => '/repo',
+          clearCwdReleaseMarker: vi.fn(),
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0]?.text ?? '{}').error).toContain(
+      'does not match caller marker',
+    );
+    expect(runGit).not.toHaveBeenCalled();
+    expect(harness.reserve).not.toHaveBeenCalled();
+    expect(harness.adopt).not.toHaveBeenCalled();
   });
 
   it('returns an existing exit acceptance idempotently without repeating preflight', async () => {

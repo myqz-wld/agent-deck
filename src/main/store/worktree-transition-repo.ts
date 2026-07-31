@@ -5,6 +5,7 @@ import {
   assertWorktreeTransitionStep,
 } from '@main/session/worktree-transition/state-machine';
 import type {
+  LegacyWorktreeExitAdoption,
   NewWorktreeTransition,
   WorktreeExitOptions,
   WorktreeTransitionDirection,
@@ -16,6 +17,10 @@ import {
   renameWorktreeTransitionInputsWithDb,
 } from './worktree-transition-input-repo';
 import {
+  adoptLegacyExitWithDb,
+  releaseLegacyExitAdoptionWithDb,
+} from './worktree-transition-legacy-adoption';
+import {
   getWorktreeTransitionWithDb as getWithDb,
   requireWorktreeTransitionGeneration as requireGeneration,
   rowToWorktreeTransition as rowToRecord,
@@ -24,6 +29,10 @@ import {
 } from './worktree-transition-row';
 
 export { WorktreeTransitionConflictError } from './worktree-transition-row';
+export {
+  adoptLegacyExitWithDb,
+  releaseLegacyExitAdoptionWithDb,
+} from './worktree-transition-legacy-adoption';
 
 export function createEnterWithDb(
   db: Database.Database,
@@ -381,6 +390,14 @@ export const worktreeTransitionRepo = {
   listPathReferences: listWorktreePathReferences,
   createEnter(input: NewWorktreeTransition) {
     return createEnterWithDb(getDb(), input);
+  },
+  adoptLegacyExit(input: LegacyWorktreeExitAdoption) {
+    return adoptLegacyExitWithDb(getDb(), input);
+  },
+  releaseLegacyExitAdoption(
+    input: Parameters<typeof releaseLegacyExitAdoptionWithDb>[1],
+  ) {
+    return releaseLegacyExitAdoptionWithDb(getDb(), input);
   },
   markEnterCreated(sessionId: string, generation: number, updatedAt: number) {
     return markEnterCreatedWithDb(getDb(), sessionId, generation, updatedAt);
