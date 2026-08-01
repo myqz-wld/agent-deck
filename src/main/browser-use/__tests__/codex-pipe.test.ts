@@ -6,6 +6,29 @@ import { describe, expect, it, vi } from 'vitest';
 import { CodexPipeBrowserFront } from '../fronts/codex-pipe';
 import { FakeSession } from '../engine/__tests__/_fakes';
 import { BrowserEngine } from '../engine/registry';
+import type { EngineTab } from '../engine/tab';
+
+interface InspectableTargetState {
+  targetIdsBySessionId: Map<string, string>;
+  targetSessionsById: Map<string, string>;
+}
+
+function targetStates(front: CodexPipeBrowserFront): Map<number, InspectableTargetState> {
+  return (
+    front as unknown as { targets: Map<number, InspectableTargetState> }
+  ).targets;
+}
+
+function cdpSubscriptionCounts(tab: EngineTab): { detach: number; message: number } {
+  const cdp = tab.cdp as unknown as {
+    detachListeners: Set<unknown>;
+    messageListeners: Set<unknown>;
+  };
+  return {
+    detach: cdp.detachListeners.size,
+    message: cdp.messageListeners.size,
+  };
+}
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -184,6 +207,166 @@ describe('CodexPipeBrowserFront', () => {
     expect(window.destroy).toHaveBeenCalledOnce();
     await session.dispose();
     expect(window.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('releases target metadata and subscriptions across attach-close-create churn', async () => {
+    const windows: FakeWindow[] = [];
+    const engine = new BrowserEngine({
+      createWindow: () => {
+        const window = new FakeWindow();
+        windows.push(window);
+        return window as unknown as BrowserWindow;
+      },
+    });
+    const session = new CodexPipeBrowserFront(
+      { notify: vi.fn() },
+      { appVersion: '1.2.3', engine, showWindows: false },
+    );
+    const params = { session_id: 'codex-churn', turn_id: 'turn-1' };
+    const owner = { kind: 'codex-pipe', id: params.session_id } as const;
+
+    const createAttached = async (): Promise<{
+      handle: NonNullable<ReturnType<BrowserEngine['peek']>>;
+      tab: EngineTab;
+      tabId: number;
+      window: FakeWindow;
+    }> => {
+      const created = await session.handleRequest('createTab', params) as { id: number };
+      await session.handleRequest('attachTarget', {
+        ...params,
+        tabId: created.id,
+        targetId: `iframe-${created.id}`,
+      });
+      const handle = engine.peek(owner);
+      const window = windows.at(-1);
+      if (handle == null || window == null) throw new Error('expected a live browser tab');
+      const tab = handle.requireTab(created.id);
+      const state = targetStates(session).get(created.id);
+      expect(state?.targetIdsBySessionId.size).toBe(1);
+      expect(state?.targetSessionsById.size).toBe(1);
+      expect(cdpSubscriptionCounts(tab)).toEqual({ detach: 1, message: 1 });
+      expect(targetStates(session).size).toBe(1);
+      return { handle, tab, tabId: created.id, window };
+    };
+    const expectReleased = (tabId: number, tab: EngineTab): void => {
+      expect(targetStates(session).has(tabId)).toBe(false);
+      expect(cdpSubscriptionCounts(tab)).toEqual({ detach: 0, message: 0 });
+    };
+
+    const pageClosed = await createAttached();
+    await session.handleRequest('executeCdp', {
+      ...params,
+      target: { tabId: pageClosed.tabId },
+      method: 'Page.close',
+    });
+    await session.handleRequest('executeCdp', {
+      ...params,
+      target: { tabId: pageClosed.tabId },
+      method: 'Page.close',
+    });
+    expectReleased(pageClosed.tabId, pageClosed.tab);
+
+    const targetClosed = await createAttached();
+    const targetId = `agent-deck-iab-tab:${targetClosed.tabId}`;
+    await session.handleRequest('executeCdp', {
+      ...params,
+      method: 'Target.closeTarget',
+      commandParams: { targetId },
+    });
+    await session.handleRequest('executeCdp', {
+      ...params,
+      method: 'Target.closeTarget',
+      commandParams: { targetId },
+    });
+    expectReleased(targetClosed.tabId, targetClosed.tab);
+
+    const finalized = await createAttached();
+    await session.handleRequest('finalizeTabs', { ...params, keep: [] });
+    await session.handleRequest('finalizeTabs', { ...params, keep: [] });
+    expectReleased(finalized.tabId, finalized.tab);
+
+    const registryClosed = await createAttached();
+    registryClosed.handle.closeTab(registryClosed.tabId);
+    registryClosed.handle.closeTab(registryClosed.tabId);
+    expectReleased(registryClosed.tabId, registryClosed.tab);
+
+    const windowClosed = await createAttached();
+    windowClosed.window.close();
+    windowClosed.window.close();
+    expectReleased(windowClosed.tabId, windowClosed.tab);
+
+    const disposed = await createAttached();
+    await session.dispose();
+    await session.dispose();
+    expectReleased(disposed.tabId, disposed.tab);
+    expect(targetStates(session).size).toBe(0);
+  });
+
+  it('prunes stale targets when listing and finalizing without masking live close errors', async () => {
+    const windows: FakeWindow[] = [];
+    const engine = new BrowserEngine({
+      createWindow: () => {
+        const window = new FakeWindow();
+        windows.push(window);
+        return window as unknown as BrowserWindow;
+      },
+    });
+    const session = new CodexPipeBrowserFront(
+      { notify: vi.fn() },
+      { appVersion: '1.2.3', engine, showWindows: false },
+    );
+    const params = { session_id: 'codex-prune', turn_id: 'turn-1' };
+    const owner = { kind: 'codex-pipe', id: params.session_id } as const;
+
+    const createAttached = async (): Promise<{ tab: EngineTab; tabId: number; window: FakeWindow }> => {
+      const created = await session.handleRequest('createTab', params) as { id: number };
+      await session.handleRequest('attach', { ...params, tabId: created.id });
+      const handle = engine.peek(owner);
+      const window = windows.at(-1);
+      if (handle == null || window == null) throw new Error('expected a live browser tab');
+      return { tab: handle.requireTab(created.id), tabId: created.id, window };
+    };
+
+    const staleOnList = await createAttached();
+    const liveOnList = await createAttached();
+    staleOnList.window.destroyed = true;
+    await expect(
+      session.handleRequest('executeCdp', {
+        ...params,
+        target: { tabId: liveOnList.tabId },
+        method: 'Target.getTargets',
+      }),
+    ).resolves.toEqual({
+      targetInfos: [expect.objectContaining({ targetId: `agent-deck-iab-tab:${liveOnList.tabId}` })],
+    });
+    expect([...targetStates(session).keys()]).toEqual([liveOnList.tabId]);
+    expect(cdpSubscriptionCounts(staleOnList.tab)).toEqual({ detach: 0, message: 0 });
+    await session.handleRequest('executeCdp', {
+      ...params,
+      target: { tabId: liveOnList.tabId },
+      method: 'Page.close',
+    });
+
+    const staleOnFinalize = await createAttached();
+    staleOnFinalize.window.destroyed = true;
+    await expect(
+      session.handleRequest('finalizeTabs', { ...params, keep: [staleOnFinalize.tabId] }),
+    ).resolves.toEqual({});
+    expect(targetStates(session).size).toBe(0);
+    expect(cdpSubscriptionCounts(staleOnFinalize.tab)).toEqual({ detach: 0, message: 0 });
+
+    const liveFailure = await createAttached();
+    liveFailure.window.destroy.mockImplementationOnce(() => {
+      throw new Error('live close failed');
+    });
+    await expect(
+      session.handleRequest('finalizeTabs', { ...params, keep: [] }),
+    ).rejects.toThrow('live close failed');
+    expect(targetStates(session).has(liveFailure.tabId)).toBe(true);
+    expect(cdpSubscriptionCounts(liveFailure.tab)).toEqual({ detach: 1, message: 1 });
+
+    await session.dispose();
+    expect(cdpSubscriptionCounts(liveFailure.tab)).toEqual({ detach: 0, message: 0 });
   });
 
   it('releases only its own lease when two connections use one claimed owner', async () => {

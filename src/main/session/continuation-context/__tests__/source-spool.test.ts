@@ -83,7 +83,6 @@ describe.skipIf(!bindingAvailable)('continuation SQLite TEMP source spool', () =
       uncoveredRevisionRange: null,
       checkpoint: null,
       checkpointThroughRevision: 0,
-      consumed: false,
       rawScanTruncated: false,
     });
     expect(metadata.runtimeFingerprint).toMatch(/^[a-f0-9]{64}$/);
@@ -207,32 +206,15 @@ describe.skipIf(!bindingAvailable)('continuation SQLite TEMP source spool', () =
     expect(spool.readSourceRows(metadata.spoolId)).toEqual([]);
   });
 
-  it('supports atomic consume, TTL/session cleanup, and LRU byte eviction', () => {
+  it('expires and removes a source spool when metadata is read after its TTL', () => {
     insertMessage(db, 'source', 'user', 'one');
-    const first = spool.capture({
+    const metadata = spool.capture({
       sessionId: 'source',
       rawRetentionCeilingTokens: 8_000,
       now: 1000,
       ttlMs: 100,
     });
-    const second = spool.capture({
-      sessionId: 'source',
-      rawRetentionCeilingTokens: 8_000,
-      now: 1100,
-      ttlMs: 1000,
-    });
-    expect(spool.markConsumed(second.spoolId)).toBe(true);
-    expect(spool.markConsumed(second.spoolId)).toBe(false);
-    expect(spool.purgeExpired(1100)).toBe(1);
-    expect(() => spool.metadata(first.spoolId)).toThrow(/not found/);
-
-    const third = spool.capture({
-      sessionId: 'source',
-      rawRetentionCeilingTokens: 8_000,
-      now: 1200,
-    });
-    expect(spool.evictToByteLimit(third.spoolBytes)).toBeGreaterThanOrEqual(1);
-    spool.cleanupSession('source');
-    expect(() => spool.metadata(third.spoolId)).toThrow(/not found/);
+    expect(() => spool.metadata(metadata.spoolId, 1100)).toThrow(/expired/);
+    expect(() => spool.metadata(metadata.spoolId)).toThrow(/not found/);
   });
 });

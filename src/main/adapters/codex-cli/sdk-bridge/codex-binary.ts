@@ -22,7 +22,7 @@
  * **pathDirs（bundled helper PATH）**：SDK 自己 resolve 二进制时会把 `<vendor>/codex-path`（内含
  * bundled ripgrep `rg` 等）prepend 进子进程 PATH（`prependPathDirs`）。但本模块走 `codexPathOverride`
  * 短路 SDK resolve → SDK 把 `pathDirs` 置空（CodexExec 构造：传了 executablePath 就 `pathDirs=[]`）→
- * bundled `rg` 不进子进程 PATH。caller（ensureCodex / pool）必须自己 `prependBundledCodexPathDirs`
+ * bundled `rg` 不进子进程 PATH。caller 必须自己 `prependResolvedCodexPathDirs`
  * 把 helper dir 注入传给 SDK 的 `env.PATH`，否则目标机系统 PATH 无 rg 时 codex 文件搜索类功能退化。
  *
  * 与 package.json 的 `build.asarUnpack`（@openai/codex* 系列）配合：unpack 把物理文件复制到
@@ -185,14 +185,6 @@ function pathEnvKey(env: Record<string, string>, platform: NodeJS.Platform): str
  * caller 在 `new Codex({ env })` 前调，补回 codexPathOverride 短路掉的 bundled helper PATH 注入。
  * dev / 无 bundled helper → no-op。
  */
-export function prependBundledCodexPathDirs(
-  env: Record<string, string>,
-  platform: NodeJS.Platform = process.platform,
-): void {
-  const pathDirs = resolveBundledCodexPathDirs();
-  prependCodexPathDirs(env, pathDirs, platform);
-}
-
 export function prependResolvedCodexPathDirs(
   env: Record<string, string>,
   platform: NodeJS.Platform = process.platform,

@@ -11,6 +11,7 @@ import type { ImageSource, LoadImageBlobResult } from '@shared/types';
 import { on } from './_helpers';
 import { ALLOWED_IMAGE_EXTS, MIME_BY_EXT, MAX_IMAGE_BYTES } from './_image-constants';
 import { loadUploadedImage } from '@main/store/image-uploads';
+import { isPlatformAbsolutePath } from '@main/platform-paths';
 
 /**
  * 加载一张图片：双白名单（防 renderer 越权读任意磁盘）+ ext + size 校验。
@@ -28,7 +29,7 @@ async function loadImageBlob(
     return { ok: false, reason: 'unsupported_source' };
   }
   const reqPath = source.path;
-  if (!reqPath.startsWith('/')) {
+  if (!isPlatformAbsolutePath(reqPath)) {
     return { ok: false, reason: 'denied' };
   }
 

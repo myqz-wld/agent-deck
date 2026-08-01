@@ -97,7 +97,7 @@ export interface SessionManagerInternalState {
    *
    * - **自增入口**(close intent 起点): lifecycle.closeImpl(adapter close 前) /
    *   lifecycle.markClosedImpl(transition guard 后,覆盖 scheduler 衰减 / rollback / 非 UI close) /
-   *   lifecycle.deleteImpl(起点)。**markDormant 不自增**(dormant 可恢复非 close intent)。
+   *   lifecycle.deleteImpl(起点)。
    * - **读取入口**: facade.getCloseEpoch → recover 入口捕获 baseline + 多检查点比对(jsonl-fallback
    *   await 后 + createSession pre-registration await 后)。
    * - **delete 清理**: deleteImpl 末尾删 entry 防 Map 随删除会话无界增长 — 安全因 recover guard

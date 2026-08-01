@@ -95,8 +95,8 @@ describe('resolveCodexAgentContent', () => {
       effort,
     });
 
-    const { getUserCodexAgentContent } = await import('./custom-agents');
-    const result = getUserCodexAgentContent('future-effort');
+    const { resolveCodexAgentContent } = await import('./custom-agents');
+    const result = resolveCodexAgentContent('future-effort', project);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -225,8 +225,8 @@ describe('resolveCodexAgentContent', () => {
       body: 'Edit prompt assets.',
     });
 
-    const { getUserCodexAgentContent } = await import('./custom-agents');
-    const result = getUserCodexAgentContent('prompt-editor');
+    const { resolveCodexAgentContent } = await import('./custom-agents');
+    const result = resolveCodexAgentContent('prompt-editor', project);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -247,8 +247,8 @@ describe('resolveCodexAgentContent', () => {
       'utf8',
     );
 
-    const { getUserCodexAgentContent } = await import('./custom-agents');
-    const result = getUserCodexAgentContent('skill-filter');
+    const { resolveCodexAgentContent } = await import('./custom-agents');
+    const result = resolveCodexAgentContent('skill-filter', project);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;

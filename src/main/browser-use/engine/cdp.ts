@@ -59,6 +59,7 @@ export class CdpBridge {
   private readonly inFlightRequestIds = new Set<string>();
   private listenersInstalled = false;
   private consoleEnabled = false;
+  private consoleEnablePromise: Promise<void> | null = null;
   private networkDomainEnabled = false;
   private networkTrackingEnabled = false;
   private networkCaptureEnabled = false;
@@ -111,11 +112,27 @@ export class CdpBridge {
     return () => this.detachListeners.delete(listener);
   }
 
-  async enableConsoleCapture(): Promise<void> {
-    if (this.consoleEnabled) return;
-    this.consoleEnabled = true;
-    await this.send('Runtime.enable');
-    await this.send('Log.enable');
+  enableConsoleCapture(): Promise<void> {
+    if (this.consoleEnabled) return Promise.resolve();
+    if (this.consoleEnablePromise != null) return this.consoleEnablePromise;
+
+    const enabling = this.send('Runtime.enable')
+      .then(() => {
+        if (this.consoleEnablePromise !== enabling) return;
+        return this.send('Log.enable');
+      })
+      .then(() => {
+        if (this.consoleEnablePromise === enabling) this.consoleEnabled = true;
+      })
+      .catch((error) => {
+        if (this.consoleEnablePromise === enabling) this.consoleEnabled = false;
+        throw error;
+      })
+      .finally(() => {
+        if (this.consoleEnablePromise === enabling) this.consoleEnablePromise = null;
+      });
+    this.consoleEnablePromise = enabling;
+    return enabling;
   }
 
   async enableNetworkCapture(): Promise<void> {
@@ -327,6 +344,7 @@ export class CdpBridge {
 
   private resetDomainState(): void {
     this.consoleEnabled = false;
+    this.consoleEnablePromise = null;
     this.networkDomainEnabled = false;
     this.networkTrackingEnabled = false;
     this.networkCaptureEnabled = false;

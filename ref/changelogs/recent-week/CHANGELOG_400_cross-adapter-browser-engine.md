@@ -105,7 +105,7 @@ why the browser tool definitions live in `tools/browser-tools.ts` instead of bei
 
 ## Notes
 
-The plan for this work is archived as `ref/plans/recent-3-days/PLAN_19_cross-adapter-browser-engine.md`
+The plan for this work is archived as `ref/plans/recent-week/PLAN_19_cross-adapter-browser-engine.md`
 with the deferred validation, the traps, and the known functional gaps recorded for the next session.
 Prompt-asset backups were discarded on purpose: the pre-change content of all three bundled assets is
 recoverable from git history at `9a8cf9aa`. The file renames under `src/main/browser-use/` mean

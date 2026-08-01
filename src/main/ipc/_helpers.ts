@@ -180,32 +180,6 @@ export function parseGrokSandboxProfile(value: unknown): string | null {
   }
 }
 
-/**
- * 校验 Agent Teams 团队名（M1）。规则：
- * - undefined / null / 空串 / 全空白 → null（不属于任何 team，DB 列保 NULL）
- * - 必须是 string；长度 ≤ 64；只允许字母数字 . _ -
- * 同步 Claude Code 自身对 ~/.claude/teams/<name>/ 目录命名的限制（避免路径越权 +
- * 跨平台兼容），且与 M2 fs 路径前缀校验匹配。
- */
-export function parseTeamName(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== 'string') {
-    throw new IpcInputError('teamName', `not a string: ${String(value)}`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length > 64) {
-    throw new IpcInputError('teamName', `length > 64 (got ${trimmed.length})`);
-  }
-  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) {
-    throw new IpcInputError(
-      'teamName',
-      `must match /^[A-Za-z0-9._-]+$/, got "${trimmed}"`,
-    );
-  }
-  return trimmed;
-}
-
 export function parseStringIdArray(field: string, value: unknown, maxItems = 500): string[] {
   if (!Array.isArray(value)) {
     throw new IpcInputError(field, 'must be array');

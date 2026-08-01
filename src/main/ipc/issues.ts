@@ -1,24 +1,4 @@
-/**
- * Issue Tracker IPC handlers（plan issue-tracker-mcp-20260529 §Step 3.5）。
- *
- * 6 个 channel 给 UI Issues tab 用（agent 不消费 — mcp tool report_issue / append_issue_context
- * 走另一条通道,与本文件正交）。
- *
- * **§D14 选定路径 (b)**: IssuesResolveInNewSession 走 `adapter.createSession(buildCreateSessionOptions)`
- * adapter 层 API（绕 mcp tool 层 spawn-guards 三道防御 — UI 触发不是 agent spawn agent）。
- * `createIssueResolutionSession` helper 11 项边界硬化复用 IPC AdapterCreateSession (`adapters.ts:105-182`)
- * 已生产多年的同款 pattern（参考 spike1-spawn-from-ipc.md 静态实证 6/6 pass）。
- *
- * **§D14 UI throttle 兜底**: in-flight Promise dedupe Map 守门 — 同 issueId 并发 click 期间
- * return 同 Promise,spawn 完成后清条目。
- *
- * **§D15 状态机**: IssuesUpdate 的 status patch transition 副作用走 issueRepo.update 内置（不在
- * 本文件复写）— 7 transition + 1 partial patch undefined idempotent + 1 zod enum reject 共 9 case
- * 已在 Step 3.2.2 repo 层 test 覆盖 8 case + 本文件 Step 3.5.6 IPC test 覆盖第 9 case (zod reject)。
- *
- * **handler 函数全 named export 模式**: ipcMain.handle 注册时直接调 named handler,test 端 import
- * 同 handler 验业务（避免 mock electron ipcMain 复杂度;与 session-hand-off-finalize.ts 同款 pattern）。
- */
+/** Issue Tracker UI IPC handlers, including deduplicated resolution-session creation. */
 
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
@@ -39,6 +19,7 @@ import {
 } from '@main/adapters/session-model-options';
 import { sessionManager } from '@main/session/manager';
 import { issueRepo } from '@main/store/issue-repo';
+import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import log from '@main/utils/logger';
 import {
@@ -56,9 +37,70 @@ import type { IssueRecord } from '@shared/types';
 
 const logger = log.scope('ipc-issues');
 
-// ═══════════════════════════════════════════════════════════════════════════
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export class IssueResolutionRollbackIncompleteError extends Error {
+  readonly code = 'ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE';
+  readonly retryValid = false as const;
+
+  constructor(readonly sessionId: string, cause: unknown, diagnostics: string[]) {
+    super(
+      `ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE: retryValid=false; sid=${sessionId}; `
+        + `restart Agent Deck or manually clean up this session before retrying; `
+        + `rollback=${diagnostics.join('; ')}; original=${errorText(cause)}`,
+      { cause },
+    );
+    this.name = 'IssueResolutionRollbackIncompleteError';
+  }
+}
+
+const incompleteRollbackByIssue = new Map<string, {
+  adapterId: string; sessionId: string; error: IssueResolutionRollbackIncompleteError;
+}>();
+
+async function rejectAfterCreatedSessionFailure(
+  issueId: string,
+  adapterId: string,
+  sessionId: string,
+  cause: unknown,
+): Promise<never> {
+  const diagnostics: string[] = [];
+  let providerClosed = false;
+  const adapter = adapterRegistry.get(adapterId);
+  if (!adapter?.closeSessionForRollback) {
+    diagnostics.push(`adapter ${adapterId} does not expose strict rollback close`);
+  } else {
+    try {
+      await adapter.closeSessionForRollback(sessionId);
+      providerClosed = true;
+    } catch (error) {
+      diagnostics.push(`strict adapter close failed: ${errorText(error)}`);
+    }
+  }
+  try {
+    await sessionManager.close(sessionId);
+  } catch (error) {
+    diagnostics.push(`session manager close failed: ${errorText(error)}`);
+  }
+  let durableClosed = false;
+  try {
+    const record = sessionRepo.get(sessionId);
+    durableClosed = record?.lifecycle === 'closed';
+    if (!durableClosed) diagnostics.push(`durable lifecycle is ${record?.lifecycle ?? 'missing'}`);
+  } catch (error) {
+    diagnostics.push(`durable lifecycle verification failed: ${errorText(error)}`);
+  }
+  if (!providerClosed || !durableClosed) {
+    const error = new IssueResolutionRollbackIncompleteError(sessionId, cause, diagnostics);
+    incompleteRollbackByIssue.set(issueId, { adapterId, sessionId, error });
+    throw error;
+  }
+  throw cause;
+}
+
 // zod schemas (§D7 / §D15 — status strict enum 第 9 case 在此层 reject)
-// ═══════════════════════════════════════════════════════════════════════════
 
 const ISSUE_STATUS_ENUM = z.enum(['open', 'in-progress', 'resolved']);
 const ISSUE_SEVERITY_ENUM = z.enum(['low', 'medium', 'high']);
@@ -74,11 +116,7 @@ export const LIST_FILTER_SCHEMA = z.object({
   offset: z.number().int().min(0).optional(),
 }).optional();
 
-/**
- * UI 端 IssuesUpdate patch 入参。**status zod 严格 enum**（§D7 + §D15 第 9 case — repo 层不再校验,
- * zod 是唯一守门）。`resolutionSessionId` 不开放 UI 改（由 IssuesResolveInNewSession handler 内部
- * 写,UI 走专用 channel 不能直接 patch — 防止 UI 端误改导致 GC 时钟错位）。
- */
+/** UI patch schema; resolutionSessionId remains exclusive to the resolution-session handler. */
 export const UPDATE_PATCH_SCHEMA = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().min(1).max(2000).optional(),
@@ -89,10 +127,7 @@ export const UPDATE_PATCH_SCHEMA = z.object({
   labels: z.array(z.string().min(1).max(64)).max(16).optional(),
 }).strict();
 
-/**
- * UI 「Resolve in new session」args。adapter / cwd / prompt 三必填（dialog D8 模板预填）;
- * permissionMode / sandbox optional 让 dialog 用户可选,默认走 adapter / settings 全局值。
- */
+/** UI "Resolve in new session" arguments. */
 export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   issueId: z.string().min(1).max(128),
   adapter: z.string().min(1).max(64),
@@ -109,12 +144,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   thinking: z.string().optional(), // resolveCreateSessionModelOptions 内按 adapter 白名单校验
 }).strict();
 
-// ═══════════════════════════════════════════════════════════════════════════
-// createIssueResolutionSession helper —— §Step 3.5.1 抽出 (D14 UI throttle 兜底前置)
-//
-// 11 项边界硬化（与 ipc/adapters.ts:105-182 AdapterCreateSession 同款,复用经过生产验证的
-// pattern — 详 spike1-spawn-from-ipc.md 静态实证 6/6 pass）。
-// ═══════════════════════════════════════════════════════════════════════════
+// Resolution-session creation mirrors AdapterCreateSession boundary checks.
 
 interface CreateIssueResolutionSessionInput {
   adapter: string;
@@ -208,8 +238,7 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
     }
     throw error;
   }
-  // §9 调 adapter.createSession（§8 不支持 attachments — buildCreateSessionOptions 不传 attachments
-  // 字段 → builder 走 attachments=[] 默认；helper signature 无 attachments 字段保接口最小）
+  // Attachments are intentionally unavailable on this path.
   const createOptions = buildCreateSessionOptions(validAdapterId, {
     cwd: input.cwd,
     prompt: input.prompt,
@@ -224,29 +253,27 @@ export async function createIssueResolutionSession(input: CreateIssueResolutionS
     createOptions.approvalPolicy = approvalPolicy;
   }
   const sid = await a.createSession(createOptions);
-  // §10 关键:recordCreatedPermissionMode 持久化（与 ipc/adapters.ts:182 同款 — 保证后续 SDK session
-  // resume / recoverAndSend 从 sessionRepo 拿回用户主动选的 permissionMode 复原；漏调 = 项目
-  // CLAUDE.md §会话恢复 / 断连 UX 硬约束破坏「用户上次主动选过的 acceptEdits / plan / bypassPermissions
-  // 必须复原,恢复路径不能默认 default」）
-  sessionManager.recordCreatedPermissionMode(sid, input.permissionMode ?? undefined);
+  if (input.permissionMode !== null && a.capabilities.canSetPermissionMode) {
+    try {
+      sessionManager.recordCreatedPermissionMode(sid, input.permissionMode);
+    } catch (error) {
+      logger.warn(
+        `[IssuesResolveInNewSession] recordCreatedPermissionMode(${sid}) failed`,
+        error,
+      );
+    }
+  }
   return sid;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// §D14 UI throttle 兜底: in-flight Promise dedupe Map
-// 同 issueId 并发 click 期间二次调用 return 同 Promise（避免 React 双 click / race 起 N 个并发
-// SDK session）。spawn 完成 / 失败 finally 清条目让下次调用重新走 createSession。
-// ═══════════════════════════════════════════════════════════════════════════
+// Concurrent clicks for one issue share the same in-flight creation.
 const inFlightResolve = new Map<string, Promise<{ sessionId: string; issue: IssueRecord }>>();
 
 /** Test seam — vitest 端清 dedupe Map 让 beforeEach 干净（不暴露给生产 caller）。 */
 export function _resetInFlightResolveForTesting(): void {
   inFlightResolve.clear();
+  incompleteRollbackByIssue.clear();
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Named handler exports (test 直接 import — 与 session-hand-off-finalize pattern 一致)
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function issuesListHandler(filters: unknown): IssueRecord[] {
   const parseRes = LIST_FILTER_SCHEMA.safeParse(filters);
@@ -272,8 +299,7 @@ export function issuesUpdateHandler(id: unknown, patch: unknown): IssueRecord {
   }
   const updated = issueRepo.update(validId, parseRes.data);
   if (!updated) throw new IpcInputError('id', `issue ${validId} not found`);
-  // detail 视图带 appendices；update 返回/emit 必须补齐（与 get/softDelete/undelete/resolve
-  // handler 对称），否则 save 后 store/detail 的现场补充记录被裸记录覆盖消失直到重新 fetch
+  // Keep the returned detail snapshot complete after a patch.
   updated.appendices = issueRepo.listAppendices(validId);
   eventBus.emit('issue-changed', {
     kind: 'updated',
@@ -332,7 +358,13 @@ export async function issuesResolveInNewSessionHandler(
   }
   const args = parseRes.data;
 
-  // §D14 UI throttle 兜底: 同 issueId 并发 click 期间 return 同 Promise
+  const blocked = incompleteRollbackByIssue.get(args.issueId);
+  if (blocked) {
+    logger.warn('[IssuesResolveInNewSession] blocked by incomplete rollback', {
+      issueId: args.issueId, adapter: blocked.adapterId, sid: blocked.sessionId,
+    });
+    throw blocked.error;
+  }
   const cached = inFlightResolve.get(args.issueId);
   if (cached) {
     logger.info('[IssuesResolveInNewSession] reuse in-flight resolve', {
@@ -343,25 +375,21 @@ export async function issuesResolveInNewSessionHandler(
   }
 
   const promise = (async () => {
-    // §1 拿 issue（cwd fallback 链需要 issue.cwd）
     const issue = issueRepo.get(args.issueId);
     if (!issue) {
       throw new IpcInputError('issueId', `issue ${args.issueId} not found`);
     }
-    // 入口守门: resolved / 已软删的 issue 不允许再起解决会话（UI 已隐藏按钮，但直接 IPC
-    // 调用绕不过；同时是 spawn race 的第一道防线）
+    // Direct IPC callers cannot bypass the resolved/deleted gate.
     if (issue.status === 'resolved') {
       throw new IpcInputError('issueId', `issue ${args.issueId} 已是 resolved，无需再起会话`);
     }
     if (issue.deletedAt !== null) {
       throw new IpcInputError('issueId', `issue ${args.issueId} 已删除，无法起会话`);
     }
-    // §4 cwd fallback: non-empty args.cwd > non-empty issue.cwd > homedir
     const cwd =
       (args.cwd && args.cwd.trim().length > 0 && args.cwd.trim())
       || (issue.cwd && issue.cwd.trim().length > 0 && issue.cwd.trim())
       || homedir();
-    // §7 默认 sandbox / permissionMode 走 adapter 默认 + 应用 settings 白名单 — parseXxx 接 unknown
     const permissionMode = parsePermissionMode(args.permissionMode);
     const sessionMode = parseAdapterSessionMode(args.sessionMode);
     const approvalPolicy = parseCodexApprovalPolicy(args.approvalPolicy);
@@ -383,7 +411,6 @@ export async function issuesResolveInNewSessionHandler(
       thinking: args.thinking ?? null,
       promptLength: args.prompt.length,
     });
-    // §9-§10 起 SDK session + recordCreatedPermissionMode
     const sid = await createIssueResolutionSession({
       adapter: args.adapter,
       cwd,
@@ -403,41 +430,47 @@ export async function issuesResolveInNewSessionHandler(
       adapter: args.adapter,
       sid,
     });
-    // §11 写回 resolutionSessionId + status='in-progress'（不是 resolved — 让 user 后续手工 resolve）。
-    // spawn 是异步窗口：用户可能在此期间 resolve / soft-delete 该 issue。re-read 后只在 issue
-    // 仍 actionable（未 resolved + 未删）时才覆盖 status，否则只回写 resolutionSessionId 保住
-    // 已起 session 的 link，不踩用户并发操作。
-    const fresh = issueRepo.get(args.issueId);
-    if (!fresh) {
-      // 罕见 race: spawn 完成期间 issue 被另一处 hardDelete — sid 已起,记日志
-      logger.warn('[IssuesResolveInNewSession] issue disappeared after spawn', {
+    // Re-read after creation; preserve concurrent resolve/delete state while replacing the link.
+    let updated: IssueRecord;
+    let stillActionable: boolean;
+    try {
+      const fresh = issueRepo.get(args.issueId);
+      if (!fresh) {
+        throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
+      }
+      stillActionable = fresh.status !== 'resolved' && fresh.deletedAt === null;
+      const linked = issueRepo.update(args.issueId, {
+        resolutionSessionId: sid,
+        ...(stillActionable ? { status: 'in-progress' as const } : {}),
+      });
+      if (!linked) {
+        throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
+      }
+      linked.appendices = issueRepo.listAppendices(args.issueId);
+      updated = linked;
+    } catch (error) {
+      logger.warn('[IssuesResolveInNewSession] required post-create linkage failed', {
         issueId: args.issueId,
         sid,
+        error: errorText(error),
       });
-      throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
+      return rejectAfterCreatedSessionFailure(args.issueId, args.adapter, sid, error);
     }
-    const stillActionable = fresh.status !== 'resolved' && fresh.deletedAt === null;
-    const updated = issueRepo.update(args.issueId, {
-      resolutionSessionId: sid,
-      ...(stillActionable ? { status: 'in-progress' as const } : {}),
-    });
-    if (!updated) {
-      logger.warn('[IssuesResolveInNewSession] issue disappeared before link update', {
-        issueId: args.issueId,
+    try {
+      eventBus.emit('issue-changed', {
+        kind: 'updated',
+        issueId: updated.id,
+        issue: updated,
+        sourceSessionId: updated.sourceSessionId,
+        ts: Date.now(),
+      });
+    } catch (error) {
+      logger.warn('[IssuesResolveInNewSession] issue-changed notification failed', {
+        issueId: updated.id,
         sid,
-        freshStatus: fresh.status,
-        freshDeletedAt: fresh.deletedAt,
+        error: errorText(error),
       });
-      throw new IpcInputError('issueId', `issue ${args.issueId} disappeared during spawn`);
     }
-    updated.appendices = issueRepo.listAppendices(args.issueId);
-    eventBus.emit('issue-changed', {
-      kind: 'updated',
-      issueId: updated.id,
-      issue: updated,
-      sourceSessionId: updated.sourceSessionId,
-      ts: Date.now(),
-    });
     logger.info('[IssuesResolveInNewSession] linked resolution session', {
       issueId: updated.id,
       sid,
@@ -451,14 +484,9 @@ export async function issuesResolveInNewSessionHandler(
   try {
     return await promise;
   } finally {
-    // spawn 完成 / 失败 都清条目让下次调用重新走 createSession（不缓存失败 sid）
     inFlightResolve.delete(args.issueId);
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 主 registerIssuesIpc — ipcMain.handle 注册 6 个 channel 直调 named handler
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function registerIssuesIpc(): void {
   on(IpcInvoke.IssuesList, (_e, filters) => issuesListHandler(filters));

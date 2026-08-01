@@ -79,14 +79,6 @@ function buildThreadCommonParams(
   };
 }
 
-export const __testables = {
-  buildThreadStartParams,
-  buildThreadResumeParams,
-  buildThreadForkParams,
-  buildTurnStartParams,
-  buildThreadConfig,
-};
-
 export function buildThreadConfig(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,

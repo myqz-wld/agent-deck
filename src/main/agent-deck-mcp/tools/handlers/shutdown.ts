@@ -18,6 +18,7 @@
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
+import log from '@main/utils/logger';
 
 import {
   err,
@@ -27,9 +28,16 @@ import {
 } from '../helpers';
 import type { ShutdownSessionArgs, ShutdownSessionResult } from '../schemas';
 
+const logger = log.scope('mcp-shutdown');
+
 export const shutdownSessionHandler = withMcpGuard(
   'shutdown_session',
   async (args: ShutdownSessionArgs, ctx: HandlerContext) => {
+    logger.info('[mcp shutdown_session] shutdown requested', {
+      callerSessionId: ctx.caller.callerSessionId,
+      targetSessionId: args.sessionId,
+      reason: args.reason ?? null,
+    });
     if (args.sessionId === ctx.caller.callerSessionId) {
       return err(
         'cannot shutdown self',

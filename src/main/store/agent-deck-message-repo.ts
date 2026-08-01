@@ -43,24 +43,18 @@ import { getDb } from './db';
 import { createCrud } from './agent-deck-message-repo/crud';
 import { createDispatch } from './agent-deck-message-repo/dispatch';
 import { createStateMachine } from './agent-deck-message-repo/state-machine';
-import { createGc, GC_BATCH_LIMIT, LIST_EXPIRED_FOR_GC_SQL } from './agent-deck-message-repo/gc';
+import { createGc, GC_BATCH_LIMIT } from './agent-deck-message-repo/gc';
 
-// gc retention 常量 / SQL re-export（scheduler 引用 GC_BATCH_LIMIT 作 SSOT；测试引用 SQL 跑 EXPLAIN）
-export { GC_BATCH_LIMIT, LIST_EXPIRED_FOR_GC_SQL };
+// Scheduler imports the GC batch limit from the repository facade.
+export { GC_BATCH_LIMIT };
 
-// 类型 + interface re-export（外部 caller 不感知子模块拆分）
+// Types used by facade consumers.
 export type {
   AgentDeckMessageRepo,
-  FindEligibleExcludingTargetsOptions,
-  FindEligibleOptions,
-  InsertMessageInput,
-  ListExpiredForGcOptions,
-  ListMessagesByTeamOptions,
   MessageDeliveryLease,
 } from './agent-deck-message-repo/_deps';
 export { deliveryLeaseOf } from './agent-deck-message-repo/_deps';
 export {
-  countDeliveringMessagesWithDb,
   countDeliveringMessagesForSessionWithDb,
   retargetPendingMessagesForHandOffWithDb,
 } from './agent-deck-message-repo/state-machine';
@@ -96,7 +90,7 @@ export const agentDeckMessageRepo: AgentDeckMessageRepo = {
   findEligibleExcludingTargets: (opts) => defaultRepo().findEligibleExcludingTargets(opts),
   claim: (messageId, now) => defaultRepo().claim(messageId, now),
   markDelivered: (messageId, now) => defaultRepo().markDelivered(messageId, now),
-  markFailed: (messageId, reason) => defaultRepo().markFailed(messageId, reason),
+  markFailed: (lease, reason) => defaultRepo().markFailed(lease, reason),
   retryAfterFail: (messageId, reason, now) => defaultRepo().retryAfterFail(messageId, reason, now),
   cancel: (messageId, reason) => defaultRepo().cancel(messageId, reason),
   countPendingForTarget: (toSessionId) => defaultRepo().countPendingForTarget(toSessionId),

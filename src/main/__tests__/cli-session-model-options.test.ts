@@ -136,19 +136,6 @@ describe('agent-deck new model options', () => {
     });
   });
 
-  it('rejects the retired Codex profile flag with a migration hint', () => {
-    expect(() =>
-      parseCliInvocation([
-        '/Applications/Agent Deck',
-        'new',
-        '--adapter',
-        'codex-cli',
-        '--profile',
-        'work',
-      ]),
-    ).toThrow(/--profile 已停用.*--provider <model_provider>.*config\.toml/);
-  });
-
   it('rejects the Codex provider flag for non-Codex adapters', () => {
     expect(() =>
       parseCliInvocation([

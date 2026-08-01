@@ -25,7 +25,7 @@
  *   - member left_at + team archived 双路径独立覆盖（plan §不变量 13 + 已知踩坑 2）
  *
  * **测试策略**：mock taskRepo / sessionRepo / agentDeckTeamRepo / eventBus / sessionManager；
- * 直接调 handler(args, ctx) 验证业务逻辑（绕开 withMcpGuard wrapper deny 链 — 由 helpers/spoofing tests 覆盖）。
+ * 直接调 wrapped handler(args, ctx)，默认给每个真实 caller 一条 active durable session row。
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -238,8 +238,8 @@ describe('task_create — v024 D1+D2 personal default + D3 teamId 校验', () =>
 
     expect(result.isError).toBe(true);
     const payload = JSON.parse(result.content[0].text);
-    expect(payload.error).toContain('is not available in the session store');
-    expect(payload.hint).toMatch(/Retry once after session initialization completes/);
+    expect(payload.error).toBe('unknown callerSessionId: sess-tempkey');
+    expect(payload.hint).toMatch(/per-session MCP token/);
     expect(mockTaskRepo.create).not.toHaveBeenCalled();
   });
 

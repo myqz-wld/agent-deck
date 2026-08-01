@@ -366,10 +366,9 @@ export class MessageController {
     if (!currentTurn) throw new Error('Codex 当前没有可中断的 active turn。');
     const currentTurnId = session.currentTurnId;
 
-    // The AbortSignal only owns turn/start submission. Once app-server has accepted the turn,
-    // aborting that controller cannot stop model work (including context compaction). Send the
-    // provider-native interrupt as well, while retaining the local abort for the pre-acceptance
-    // race where no turn id exists yet.
+    // Abort first so the shared cancellation owner covers the turn/start acceptance race. Once a
+    // turn id exists, thread.interrupt awaits that same owner: the provider-native interrupt stays
+    // exactly-once while failures remain visible to this public controller.
     currentTurn.abort();
     if (!currentTurnId) return;
     try {

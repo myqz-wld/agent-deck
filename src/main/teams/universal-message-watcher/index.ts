@@ -27,9 +27,8 @@ import { getProcessRunId } from '@main/utils/run-context';
 
 const logger = log.scope('universal-message-watcher');
 
-// Public module facade for the watcher and its rate limiter.
-export { PerKeyRateLimiter, messageRateLimiter } from './rate-limiter';
-export { enqueueAgentDeckMessage, type EnqueueMessageInput } from './enqueue';
+export { messageRateLimiter } from './rate-limiter';
+export { enqueueAgentDeckMessage } from './enqueue';
 export { teamEventDispatcher } from './team-event-dispatcher';
 
 /** 默认 poll 节奏；测试可注入更短 tick 加速。 */

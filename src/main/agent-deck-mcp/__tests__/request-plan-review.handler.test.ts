@@ -187,8 +187,8 @@ describe('present_plan handler', () => {
       makeCtx('missing-caller'),
     );
     expect(parseResult(missing)).toEqual({
-      error: 'caller session "missing-caller" not in sessions table — cannot display plan review',
-      hint: 'Retry once after session initialization completes. If it persists, stop; present_plan requires a live Agent Deck session.',
+      error: 'unknown callerSessionId: missing-caller',
+      hint: 'Use a per-session MCP token issued by Agent Deck, or the global MCP token for read-only external access.',
     });
 
     mocks.sessions.set('closed-caller', makeSession('closed-caller', { lifecycle: 'closed' }));
@@ -197,8 +197,8 @@ describe('present_plan handler', () => {
       makeCtx('closed-caller'),
     );
     expect(parseResult(closed)).toEqual({
-      error: 'caller session "closed-caller" is closed',
-      hint: 'Do not retry. Ask the user to start a new Agent Deck session and present the plan there.',
+      error: 'callerSessionId closed-caller is closed',
+      hint: 'Closed sessions cannot initiate new MCP tool calls. Open a new session via the application.',
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });

@@ -16,8 +16,8 @@
  *     这里仅验 handler 调用透传 args.logsRef 不破坏
  * 11. report_issue / append_issue_context external caller deny（EXTERNAL_CALLER_ALLOWED 矩阵）
  *
- * **测试策略**：mock issueRepo / sessionRepo / eventBus；直接调 handler(args, ctx) 验业务逻辑
- * （绕开 withMcpGuard wrapper deny 链 — 由 helpers / external-caller 测试覆盖,详 §11 矩阵节）。
+ * **测试策略**：mock issueRepo / sessionRepo / eventBus；直接调 wrapped handler(args, ctx)，
+ * 并为业务授权用例提供 active durable caller row。
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -132,6 +132,19 @@ beforeEach(() => {
     lifecycle: 'active',
     cwd: '/repo/from-session',
   });
+  for (const sessionId of [
+    'sess-anyone',
+    'sess-attacker',
+    'sess-new-after-handoff',
+    'sess-old-pre-handoff',
+    'sess-orig',
+    'sess-resolution-successor',
+    'sess-resolver',
+    'sess-source-successor',
+    'sess-third-party',
+  ]) {
+    mockSessions.set(sessionId, { id: sessionId, lifecycle: 'active', cwd: '/repo' });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -224,16 +237,18 @@ describe('report_issue — happy path + cwd 兜底 + 默认值', () => {
     expect(result.isError).toBeFalsy();
   });
 
-  it('cwd 兜底：args.cwd 未传 + caller 不在 sessions 表 → null', async () => {
+  it('rejects a caller missing from the durable session store before issue creation', async () => {
     mockSessions.clear(); // 模拟 caller 不在 sessions 表
     mockIssueRepo.create.mockReturnValue(makeIssue({ cwd: null, sourceSessionId: 'ghost-caller' }));
-    await reportIssueHandler(
+    const result = await reportIssueHandler(
       { title: 'T', description: 'D' },
       makeCtx('ghost-caller'),
     );
-    expect(mockIssueRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: null, branchName: null }),
-    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      error: 'unknown callerSessionId: ghost-caller',
+    });
+    expect(mockIssueRepo.create).not.toHaveBeenCalled();
   });
 
   it('默认值：handler 不显式传 kind / severity，让 repo 走自己 default（zod schema parse 透传）', async () => {

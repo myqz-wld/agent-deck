@@ -432,14 +432,11 @@ describe('spawn_session public output contract', () => {
 
       expect(result.isError).toBe(true);
       expect(errorPayload).toMatchObject({
-        phase: 'team-preflight',
-        retryValid: false,
-        residualState: [],
+        error: 'unknown callerSessionId: missing-caller',
       });
-      expect(errorPayload.nextAction).toContain(
-        'Do not retry this team spawn until',
+      expect(errorPayload.hint).toContain(
+        'per-session MCP token',
       );
-      expect(JSON.stringify(errorPayload)).not.toContain('missing-caller');
       expect(state.createCalls).toHaveLength(0);
       expect(state.teamMutations).toHaveLength(0);
     });

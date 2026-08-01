@@ -48,11 +48,7 @@
 import type { Database } from 'better-sqlite3';
 import { getDb } from './db';
 import {
-  type ApplyHandOffSkipResult,
-  type ReassignOwnerPolicy,
   type TaskCreateInput,
-  type TaskListOptions,
-  type TaskListTeamIdFilter,
   type TaskRepo,
 } from './task-repo/_deps';
 import { createCrud } from './task-repo/task-repo-crud';
@@ -60,13 +56,9 @@ import { createList } from './task-repo/task-repo-list';
 import { createDelete } from './task-repo/task-repo-delete';
 import { createHandoff } from './task-repo/task-repo-handoff';
 
-// Re-export public types(byte-identical 让外部 import path 不动)
+// Types used by facade consumers.
 export type {
-  ApplyHandOffSkipResult,
-  ReassignOwnerPolicy,
   TaskCreateInput,
-  TaskListOptions,
-  TaskListTeamIdFilter,
   TaskRepo,
 };
 

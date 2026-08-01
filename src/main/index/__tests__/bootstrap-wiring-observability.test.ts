@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IpcEvent } from '@shared/ipc-channels';
+import type { CallerArchiveFailedEvent } from '@shared/types';
 
 const mocks = vi.hoisted(() => {
   const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -273,7 +274,7 @@ describe('bootstrap wiring observability', () => {
   it('keeps archive channels independent across signature changes and recovery', async () => {
     await initializeWiring();
     const archiveDispatch = listener('caller-archive-failed');
-    const payload = {
+    const payload: CallerArchiveFailedEvent = {
       sessionId: '12345678-private-session-id',
       toolName: 'hand_off_session',
       reason: 'RAW_ARCHIVE_REASON token=private /Users/private/repo',

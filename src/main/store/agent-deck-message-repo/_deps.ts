@@ -261,7 +261,7 @@ export interface AgentDeckMessageRepo {
   ): AgentDeckMessage | null;
   /** 失败超出 MAX_RETRY 或 caller 主动放弃 → terminal */
   markFailed(
-    messageIdOrLease: string | MessageDeliveryLease,
+    lease: MessageDeliveryLease,
     reason: string,
   ): AgentDeckMessage | null;
   /**

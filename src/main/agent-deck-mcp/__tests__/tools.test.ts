@@ -836,9 +836,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('same real directory');
     expect(SPAWN_SESSION_SCHEMA.contextMode.description).toContain('never silently downgrades');
     expect(SPAWN_SESSION_SCHEMA).toHaveProperty('gateway');
-    expect(SPAWN_SESSION_SCHEMA).toHaveProperty('profile');
     expect(SPAWN_SESSION_SCHEMA).toHaveProperty('provider');
-    expect(SPAWN_SESSION_SCHEMA.profile.safeParse('work').success).toBe(false);
   });
 
   it('tool description points callers to the field schemas and self-correcting hint', async () => {
@@ -847,7 +845,6 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(description).toContain('Required fields: adapter, absolute cwd');
     expect(description).toContain('Use gateway only for a Claude Gateway');
     expect(description).toContain('Use provider only for a Codex native model_provider');
-    expect(description).toContain('retired profile field is rejected');
     expect(description).toContain('Explicit runtime values and resolved bundled-Agent runtime values win');
     expect(description).toContain('persisted same-adapter caller');
     expect(description).toContain('cross-adapter targets use their own defaults');

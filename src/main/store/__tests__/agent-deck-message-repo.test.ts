@@ -159,6 +159,40 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     });
   });
 
+  it.each([
+    ['source -> successor', 'sA', 'sB'],
+    ['successor -> source', 'sB', 'sA'],
+  ] as const)(
+    'terminalizes a pending %s envelope before handoff endpoint collapse',
+    (_orientation, fromSessionId, toSessionId) => {
+      const message = msgRepo.insert({
+        teamId,
+        fromSessionId,
+        toSessionId,
+        body: 'must not become a self-message',
+      });
+
+      expect(msgRepo.retargetPendingForHandOff('sA', 'sB')).toBe(0);
+      const terminal = msgRepo.get(message.id);
+      expect(terminal).toMatchObject({
+        fromSessionId,
+        toSessionId,
+        status: 'cancelled',
+        deliveryGeneration: 0,
+        deliveryLeaseToSessionId: null,
+      });
+      expect(terminal?.statusReason).toContain('handoff-endpoint-collapse');
+      expect(terminal?.statusReason?.length).toBeLessThanOrEqual(500);
+      expect(
+        (db.prepare(
+          `SELECT count(*) AS c
+             FROM agent_deck_messages
+            WHERE status = 'pending' AND from_session_id = to_session_id`,
+        ).get() as { c: number }).c,
+      ).toBe(0);
+    },
+  );
+
   it('markDelivered: delivering → delivered（terminal）', () => {
     const m = msgRepo.insert({ teamId, fromSessionId: 'sA', toSessionId: 'sB', body: 'hi' });
     const claimed = msgRepo.claim(m.id, Date.now())!;
@@ -168,7 +202,7 @@ describe.skipIf(!bindingAvailable)('agent-deck-message-repo / state machine', ()
     expect(delivered?.deliveringSince).toBeNull();
     // 不可再变
     expect(msgRepo.claim(m.id, Date.now())).toBeNull();
-    expect(msgRepo.markFailed(m.id, 'late')).toBeNull();
+    expect(msgRepo.markFailed(deliveryLeaseOf(claimed), 'late')).toBeNull();
   });
 
   it('retryAfterFail：attempt_count++ + status=pending；达 MAX_RETRY=3 自动 markFailed', () => {

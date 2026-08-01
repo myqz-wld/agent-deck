@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import {
   TextDiffRenderer,
-  normalizeCodexChangeKind,
   normalizeUnifiedDiffMetadata,
   reconstructUnifiedDiffSnapshots,
 } from './TextDiffRenderer';
@@ -38,10 +37,6 @@ vi.mock('@renderer/lib/monaco-local', () => ({
 afterEach(() => cleanup());
 
 describe('TextDiffRenderer codex metadata', () => {
-  it('normalizes old persisted changeKind objects', () => {
-    expect(normalizeCodexChangeKind({ type: 'update', move_path: null })).toBe('update');
-  });
-
   it('normalizes codex unified diff metadata', () => {
     expect(normalizeUnifiedDiffMetadata('\n@@ -1 +1 @@\n-old\n+new\n')).toBe(
       '\n@@ -1 +1 @@\n-old\n+new\n',
@@ -223,25 +218,4 @@ describe('TextDiffRenderer codex metadata', () => {
     expect(container.querySelector('pre')?.className).toContain('pb-6');
   });
 
-  it('renders codex fallback when changeKind is an object and diff is absent', () => {
-    render(
-      <TextDiffRenderer
-        payload={{
-          kind: 'text',
-          filePath: '/tmp/a.ts',
-          before: null,
-          after: null,
-          metadata: {
-            source: 'codex',
-            changeKind: { type: 'update', move_path: null },
-            patchStatus: 'completed',
-          },
-          ts: 1,
-        }}
-      />,
-    );
-
-    expect(screen.getByText('update')).toBeTruthy();
-    expect(screen.getByText(/Codex 未提供可显示的差异内容/)).toBeTruthy();
-  });
 });

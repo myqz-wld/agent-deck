@@ -25,8 +25,8 @@ related_review: REVIEW_182
 - Work branch: `feat/browser-p0-p1-hardening`
 - Agent Deck tasks: T0 `c6cf7daa-5042-4c50-be7f-183e7854049a`; validation T5
   `f9fc017b-353e-4d01-9a02-31a58cef6eee`
-- Related final plan: `ref/plans/recent-3-days/PLAN_19_cross-adapter-browser-engine.md`
-- Review record: `ref/reviews/recent-3-days/REVIEW_182_browser-engine-p0-p1-solo-audit.md`
+- Related final plan: `ref/plans/recent-week/PLAN_19_cross-adapter-browser-engine.md`
+- Review record: `ref/reviews/recent-week/REVIEW_182_browser-engine-p0-p1-solo-audit.md`
 - Implementation commits: `53830804`, `28074a89`, `e4db8ffd`, `f965b127`, `506a20d9`,
   `29d06fc2`, `7ca304b5`
 - Last completed step: the same standalone `gpt-5.6-sol` / `max` reviewer verified all 12 findings

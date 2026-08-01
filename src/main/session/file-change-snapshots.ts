@@ -101,25 +101,13 @@ function replaceLast(content: string, needle: string, replacement: string): stri
 }
 
 function isDeleteChange(metadata: Record<string, unknown>): boolean {
-  const kind = metadata.changeKind;
-  if (kind === 'delete') return true;
-  if (kind && typeof kind === 'object' && !Array.isArray(kind)) {
-    return (kind as { type?: unknown }).type === 'delete';
-  }
-  return false;
+  return metadata.changeKind === 'delete';
 }
 
 function isAddChange(metadata: Record<string, unknown>): boolean {
   const kind = metadata.changeKind;
   if (typeof kind === 'string') {
     return ['add', 'added', 'new', 'create', 'created'].includes(kind.toLowerCase());
-  }
-  if (kind && typeof kind === 'object' && !Array.isArray(kind)) {
-    const type = (kind as { type?: unknown }).type;
-    return (
-      typeof type === 'string' &&
-      ['add', 'added', 'new', 'create', 'created'].includes(type.toLowerCase())
-    );
   }
   return false;
 }

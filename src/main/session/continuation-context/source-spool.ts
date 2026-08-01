@@ -47,7 +47,6 @@ export interface ContinuationSpoolMetadata {
   rawTailTokens: number;
   rawWarnings: Array<'context-wrapper-excluded'>;
   rawScanTruncated: boolean;
-  consumed: boolean;
 }
 
 interface MetaRow {
@@ -67,7 +66,6 @@ interface MetaRow {
   raw_tail_tokens: number;
   raw_warnings_json: string;
   raw_scan_truncated: number;
-  consumed: number;
 }
 
 interface SourceRow {
@@ -111,8 +109,7 @@ export class ContinuationSourceSpoolStore {
         spool_bytes INTEGER NOT NULL,
         raw_tail_tokens INTEGER NOT NULL,
         raw_warnings_json TEXT NOT NULL,
-        raw_scan_truncated INTEGER NOT NULL DEFAULT 0,
-        consumed INTEGER NOT NULL DEFAULT 0
+        raw_scan_truncated INTEGER NOT NULL DEFAULT 0
       );
       CREATE TEMP TABLE IF NOT EXISTS continuation_source_spool (
         preparation_id TEXT NOT NULL,
@@ -272,8 +269,8 @@ export class ContinuationSourceSpoolStore {
              preparation_id, session_id, created_at, expires_at, last_accessed_at,
              capture_revision, rebuild_after_revision, max_event_id, runtime_fingerprint, checkpoint_json,
              checkpoint_through_revision, materialized_through_revision, spool_bytes,
-             raw_tail_tokens, raw_warnings_json, raw_scan_truncated, consumed
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+             raw_tail_tokens, raw_warnings_json, raw_scan_truncated
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           spoolId,
@@ -334,7 +331,6 @@ export class ContinuationSourceSpoolStore {
       rawTailTokens: row.raw_tail_tokens,
       rawWarnings: JSON.parse(row.raw_warnings_json) as ContinuationSpoolMetadata['rawWarnings'],
       rawScanTruncated: row.raw_scan_truncated === 1,
-      consumed: row.consumed === 1,
     };
   }
 
@@ -374,17 +370,6 @@ export class ContinuationSourceSpoolStore {
     ).map((json) => JSON.parse(json) as RawContinuationUserInput);
   }
 
-  markConsumed(spoolId: string): boolean {
-    return (
-      this.db
-        .prepare(
-          `UPDATE continuation_spool_meta SET consumed = 1
-            WHERE preparation_id = ? AND consumed = 0`,
-        )
-        .run(spoolId).changes === 1
-    );
-  }
-
   cleanup(spoolId: string): void {
     const tx = this.db.transaction(() => {
       this.db.prepare(`DELETE FROM continuation_source_spool WHERE preparation_id = ?`).run(spoolId);
@@ -392,44 +377,6 @@ export class ContinuationSourceSpoolStore {
       this.db.prepare(`DELETE FROM continuation_spool_meta WHERE preparation_id = ?`).run(spoolId);
     });
     tx.immediate();
-  }
-
-  cleanupSession(sessionId: string): void {
-    const ids = this.db
-      .prepare(`SELECT preparation_id FROM continuation_spool_meta WHERE session_id = ?`)
-      .pluck()
-      .all(sessionId) as string[];
-    ids.forEach((id) => this.cleanup(id));
-  }
-
-  purgeExpired(now = Date.now()): number {
-    const ids = this.db
-      .prepare(`SELECT preparation_id FROM continuation_spool_meta WHERE expires_at <= ?`)
-      .pluck()
-      .all(now) as string[];
-    ids.forEach((id) => this.cleanup(id));
-    return ids.length;
-  }
-
-  evictToByteLimit(maxBytes: number): number {
-    ensurePositiveSafeInteger(maxBytes, 'maxBytes');
-    const rows = this.db
-      .prepare(
-        `SELECT preparation_id, spool_bytes FROM continuation_spool_meta
-          ORDER BY last_accessed_at DESC, created_at DESC`,
-      )
-      .all() as Array<{ preparation_id: string; spool_bytes: number }>;
-    let retainedBytes = 0;
-    let evicted = 0;
-    for (const row of rows) {
-      if (retainedBytes + row.spool_bytes <= maxBytes) {
-        retainedBytes += row.spool_bytes;
-      } else {
-        this.cleanup(row.preparation_id);
-        evicted += 1;
-      }
-    }
-    return evicted;
   }
 
   cleanupAll(): void {

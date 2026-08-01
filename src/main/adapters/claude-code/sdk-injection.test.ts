@@ -32,7 +32,6 @@ function writePluginSource(): void {
 
 async function loadModules(): Promise<{
   settingsStore: typeof import('@main/store/settings-store').settingsStore;
-  getClaudeAgentDeckPluginPath: typeof import('./sdk-injection').getClaudeAgentDeckPluginPath;
   getAgentDeckPluginsForSession: typeof import('./sdk-injection').getAgentDeckPluginsForSession;
   setPluginMirrorFilesystemForTests: typeof import('./sdk-injection').__setPluginMirrorFilesystemForTests;
 }> {
@@ -41,7 +40,6 @@ async function loadModules(): Promise<{
     {
       __setPluginMirrorFilesystemForTests: setPluginMirrorFilesystemForTests,
       getAgentDeckPluginsForSession,
-      getClaudeAgentDeckPluginPath,
     },
   ] = await Promise.all([
     import('@main/store/settings-store'),
@@ -49,7 +47,6 @@ async function loadModules(): Promise<{
   ]);
   return {
     settingsStore,
-    getClaudeAgentDeckPluginPath,
     getAgentDeckPluginsForSession,
     setPluginMirrorFilesystemForTests,
   };
@@ -115,13 +112,12 @@ describe('getAgentDeckPluginsForSession', () => {
     expect(existsSync(mirrorRoot)).toBe(false);
   });
 
-  it('returns null and omits the bundled plugin when its source is missing', async () => {
-    const { settingsStore, getAgentDeckPluginsForSession, getClaudeAgentDeckPluginPath } = await loadModules();
+  it('omits the bundled plugin when its source is missing', async () => {
+    const { settingsStore, getAgentDeckPluginsForSession } = await loadModules();
     settingsStore.set('injectAgentDeckClaudeSkills', true);
     settingsStore.set('injectAgentDeckClaudeAgents', true);
     rmSync(sourceRoot, { recursive: true, force: true });
 
-    expect(getClaudeAgentDeckPluginPath()).toBeNull();
     expect(getAgentDeckPluginsForSession()).toEqual([]);
     expect(existsSync(mirrorRoot)).toBe(false);
   });

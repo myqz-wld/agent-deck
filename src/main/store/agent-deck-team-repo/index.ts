@@ -47,15 +47,11 @@ import { createMemberCrudHelpers } from './member-crud';
 import { createMemberQueryHelpers } from './member-query';
 import type { AddMemberInput, CreateTeamInput, ListTeamsOptions } from './types';
 
-// 错误类与 input/option 类型 re-export，保持外部 caller 能从 facade 一处拿到所有 surface
-// （`from '@main/store/agent-deck-team-repo'` 一行覆盖 9 大 export）。
+export { TeamInvariantError } from './types';
 export {
-  TeamInvariantError,
-  TeamNotFoundError,
-  type AddMemberInput,
-  type CreateTeamInput,
-  type ListTeamsOptions,
-} from './types';
+  transferTeammateMembershipWithDb,
+  type TeammateMembershipTransferResult,
+} from './membership-transfer';
 
 export interface AgentDeckTeamRepo {
   // ─── team CRUD ───

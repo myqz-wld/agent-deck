@@ -56,7 +56,7 @@ export function resolveSpawnRuntimeSelection(input: {
       error: error instanceof Error ? error.message : String(error),
       hint:
         args.adapter === 'grok-build'
-          ? 'Remove gateway/provider/profile and select a Grok model alias instead.'
+          ? 'Remove gateway/provider and select a Grok model alias instead.'
           : args.adapter === 'codex-cli'
             ? 'Use a valid model_provider id declared in $CODEX_HOME/config.toml, or omit provider.'
             : 'Use a valid Claude Gateway profile id, or omit gateway.',

@@ -58,8 +58,7 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 - `spawn_session(agentName=...)` resolves bundled Agents, project `.codex/agents`, user `${CODEX_HOME:-~/.codex}/agents`, and the Plugin TOML extension. Plugin selectors use `<plugin>:<agent>`.
 - The public `provider` selector names a native `model_provider` available from
   `${CODEX_HOME:-~/.codex}/config.toml` (including its top-level default) and applies it through the
-  app-server's supported thread configuration. The retired `profile` selector is rejected because
-  the bundled Codex app-server cannot load `$CODEX_HOME/<name>.config.toml` profiles.
+  app-server's supported thread configuration.
 - The Assets Library shows user-root Agents/Skills, native Plugin Skills, and Plugin TOML Agent extensions. All direct and Plugin files are inspection-only and stay under Codex CLI ownership.
 - Agent Deck reads native Codex configuration but does not write `${CODEX_HOME:-~/.codex}/config.toml`, `~/.codex/AGENTS.md`, or `~/.codex/skills/agent-deck/`.
 

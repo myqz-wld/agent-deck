@@ -109,4 +109,4 @@ required.
   `.prompt-asset-improver/local/` in the implementation worktree. The durable restore source after
   normal worktree cleanup is base commit `ebfc62ff3fb9cd16a6f8bdb16c6de7332544d716`.
 - The completed implementation plan is
-  `ref/plans/recent-3-days/PLAN_22_grok-native-sandbox-controls.md`.
+  `ref/plans/recent-week/PLAN_22_grok-native-sandbox-controls.md`.

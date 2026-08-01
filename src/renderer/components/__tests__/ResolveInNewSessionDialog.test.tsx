@@ -257,4 +257,25 @@ describe('ResolveInNewSessionDialog model options', () => {
       expect(request.prompt).toContain('status: "open"');
     });
   });
+
+  it('shows an incomplete rollback sid and disables blind resubmission', async () => {
+    const failure = 'ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE: retryValid=false; sid=orphan-sid-7; restart Agent Deck or manually clean up this session before retrying';
+    issuesResolveInNewSession.mockRejectedValue(new Error(failure));
+    render(
+      <ResolveInNewSessionDialog
+        issue={makeIssue()}
+        onClose={vi.fn()}
+        onResolved={vi.fn()}
+      />,
+    );
+
+    await screen.findByText('Codex');
+    const submit = screen.getByRole('button', { name: '新建会话' }) as HTMLButtonElement;
+    fireEvent.click(submit);
+
+    expect((await screen.findByText(failure)).textContent).toContain('sid=orphan-sid-7');
+    await waitFor(() => expect(submit.disabled).toBe(true));
+    fireEvent.click(submit);
+    expect(issuesResolveInNewSession).toHaveBeenCalledTimes(1);
+  });
 });

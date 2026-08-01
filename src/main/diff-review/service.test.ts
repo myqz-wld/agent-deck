@@ -62,7 +62,7 @@ describe('DiffReviewService handoff ownership', () => {
     const { service, deliverLateDecision } = setup();
     const decision = request(service);
 
-    expect(service.respond('source', 'diff-1', { decision: 'approve' })).toBe(true);
+    await expect(service.respond('source', 'diff-1', { decision: 'approve' })).resolves.toBe(true);
     await expect(decision).resolves.toEqual({ decision: 'approved' });
     expect(deliverLateDecision).not.toHaveBeenCalled();
   });
@@ -85,10 +85,10 @@ describe('DiffReviewService handoff ownership', () => {
       { sessionId: 'successor-1', type: 'diff-review' },
     ]);
 
-    expect(service.respond('successor-1', 'diff-1', { decision: 'approve' })).toBe(true);
+    const response = service.respond('successor-1', 'diff-1', { decision: 'approve' });
     await vi.waitFor(() => expect(deliverLateDecision).toHaveBeenCalledOnce());
     // An identical double-submit observes the same in-flight operation and does not enqueue again.
-    expect(service.respond('successor-1', 'diff-1', { decision: 'approve' })).toBe(true);
+    const duplicate = service.respond('successor-1', 'diff-1', { decision: 'approve' });
     expect(deliverLateDecision).toHaveBeenCalledOnce();
     expect(deliverLateDecision).toHaveBeenCalledWith(expect.objectContaining({
       sourceSessionId: 'source',
@@ -96,6 +96,7 @@ describe('DiffReviewService handoff ownership', () => {
     }));
 
     delivery.resolve();
+    await expect(Promise.all([response, duplicate])).resolves.toEqual([true, true]);
     await vi.waitFor(() => expect(service.listPending('successor-1')).toEqual([]));
   });
 
@@ -107,10 +108,10 @@ describe('DiffReviewService handoff ownership', () => {
     service.rehomeForHandOff('source', 'successor-1');
     await expect(decision).resolves.toEqual({ decision: 'timeout' });
 
-    expect(service.respond('successor-1', 'diff-1', {
+    const response = service.respond('successor-1', 'diff-1', {
       decision: 'revise',
       feedback: 'add rollback coverage',
-    })).toBe(true);
+    });
     await vi.waitFor(() => expect(deliverLateDecision).toHaveBeenCalledOnce());
     expect(service.rehomeForHandOff('successor-1', 'successor-2')).toBe(1);
     expect(service.listPending('successor-2')).toHaveLength(1);
@@ -119,6 +120,7 @@ describe('DiffReviewService handoff ownership', () => {
     }));
 
     delivery.resolve();
+    await expect(response).resolves.toBe(true);
     await vi.waitFor(() => expect(service.listPending('successor-2')).toEqual([]));
   });
 
@@ -129,14 +131,35 @@ describe('DiffReviewService handoff ownership', () => {
     // A prepared/revoked cutover does not call rehomeForHandOff.
     expect(service.listPending('source')).toHaveLength(1);
     expect(service.listPending('successor-1')).toEqual([]);
-    expect(service.respond('source', 'diff-1', {
+    await expect(service.respond('source', 'diff-1', {
       decision: 'revise',
       feedback: 'keep working',
-    })).toBe(true);
+    })).resolves.toBe(true);
     await expect(decision).resolves.toEqual({
       decision: 'revise',
       feedback: 'keep working',
     });
     expect(deliverLateDecision).not.toHaveBeenCalled();
+  });
+
+  it('rejects a failed transferred delivery and restores the pending gate for retry', async () => {
+    const deliverLateDecision = vi.fn()
+      .mockRejectedValueOnce(new Error('late delivery failed'))
+      .mockResolvedValueOnce(undefined);
+    const { service } = setup({ deliverLateDecision });
+    const decision = request(service);
+    service.rehomeForHandOff('source', 'successor-1');
+    await expect(decision).resolves.toEqual({ decision: 'timeout' });
+
+    await expect(service.respond('successor-1', 'diff-1', {
+      decision: 'approve',
+    })).rejects.toThrow('late delivery failed');
+    expect(service.listPending('successor-1')).toHaveLength(1);
+
+    await expect(service.respond('successor-1', 'diff-1', {
+      decision: 'approve',
+    })).resolves.toBe(true);
+    expect(deliverLateDecision).toHaveBeenCalledTimes(2);
+    expect(service.listPending('successor-1')).toEqual([]);
   });
 });

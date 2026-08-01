@@ -18,12 +18,18 @@ import { useStartupDataPreload } from './hooks/use-startup-data-preload';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
 import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
 import { loadStableSnapshot } from './lib/load-stable-snapshot';
-import type { AppSettings, SessionRecord } from '@shared/types';
+import { MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH } from '@shared/types';
+import type { AppSettings, CallerArchiveFailedEvent, SessionRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
 
 registerBuiltinDiffRenderers();
 
 const logger = log.scope('renderer-app');
+
+function boundedArchiveReason(reason: string): string {
+  if (reason.length <= MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH) return reason;
+  return `${reason.slice(0, MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH - 1)}…`;
+}
 
 export function App(): JSX.Element {
   useEventBridge();
@@ -60,6 +66,17 @@ export function App(): JSX.Element {
   // deep-review H2 LOW：history row 快速连点 A→B 时，A 的 getSession 若后 resolve 会覆盖 B 的
   // 选择（旧响应覆盖新选择）。递增 seq，then 内只接受最新 seq 的响应。
   const historySelectSeqRef = useRef(0);
+  const [archiveFailure, setArchiveFailure] = useState<CallerArchiveFailedEvent | null>(null);
+  const [archiveRetryError, setArchiveRetryError] = useState<string | null>(null);
+  const [archiveRetrying, setArchiveRetrying] = useState(false);
+  const archiveFailureGeneration = useRef(0);
+
+  useEffect(() => window.api.onCallerArchiveFailed((payload) => {
+    archiveFailureGeneration.current += 1;
+    setArchiveFailure({ ...payload, reason: boundedArchiveReason(payload.reason) });
+    setArchiveRetryError(null);
+    setArchiveRetrying(false);
+  }), []);
 
   // 初始化：从设置读取 alwaysOnTop / windowTransparent，并同步主进程（让 vibrancy 跟透明开关匹配）
   // deep-review H2 LOW：cancelled flag 防 StrictMode 双 mount / unmount 后 setState（App 根组件
@@ -337,6 +354,24 @@ export function App(): JSX.Element {
     }
   };
 
+  const retryCallerArchive = async (): Promise<void> => {
+    if (!archiveFailure || archiveFailure.reasonKind === 'row-missing') return;
+    const generation = archiveFailureGeneration.current;
+    setArchiveRetrying(true);
+    setArchiveRetryError(null);
+    try {
+      await window.api.archiveSession(archiveFailure.sessionId);
+      if (generation === archiveFailureGeneration.current) setArchiveFailure(null);
+    } catch (error) {
+      if (generation === archiveFailureGeneration.current) {
+        const reason = error instanceof Error ? error.message : String(error);
+        setArchiveRetryError(boundedArchiveReason(reason));
+      }
+    } finally {
+      if (generation === archiveFailureGeneration.current) setArchiveRetrying(false);
+    }
+  };
+
   return (
     <FloatingFrame transparent={windowTransparent}>
       <div className="flex h-full flex-col">
@@ -360,6 +395,33 @@ export function App(): JSX.Element {
           onOpenLibrary={() => setAssetsLibraryOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
+
+        {archiveFailure && (
+          <div role="alert" className="mx-3 mt-2 flex items-start gap-2 rounded border border-red-500/50 bg-red-500/10 p-2 text-[11px] text-red-100">
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold">原会话归档失败</div>
+              <div className="break-all text-red-100/90">{archiveFailure.reason}</div>
+              {archiveRetryError && <div className="mt-1 break-all">重试归档失败：{archiveRetryError}</div>}
+            </div>
+            {archiveFailure.reasonKind !== 'row-missing' && (
+              <button type="button" disabled={archiveRetrying} onClick={() => void retryCallerArchive()} className="shrink-0 rounded bg-red-400 px-2 py-1 font-semibold text-black disabled:opacity-50">
+                {archiveRetrying ? '重试中…' : '重试归档'}
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="关闭归档失败提示"
+              onClick={() => {
+                archiveFailureGeneration.current += 1;
+                setArchiveFailure(null);
+                setArchiveRetryError(null);
+              }}
+              className="shrink-0 rounded px-1 text-red-100/80 hover:bg-white/10"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         <main className="flex-1 overflow-hidden">
           {detailSession ? (

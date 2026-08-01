@@ -128,11 +128,11 @@ describe('present_diff handler', () => {
     expect(String(event.payload.requestId)).toMatch(/^mcp-diff-/);
 
     expect(diffReviewService.listPending('codex-1')).toHaveLength(1);
-    expect(
+    await expect(
       diffReviewService.respond('codex-1', event.payload.requestId, {
         decision: 'approve',
       }),
-    ).toBe(true);
+    ).resolves.toBe(true);
 
     const result = await pending;
     expect(result.isError).toBeFalsy();
@@ -160,12 +160,12 @@ describe('present_diff handler', () => {
 
     await vi.waitFor(() => expect(mocks.ingest).toHaveBeenCalledTimes(1));
     const requestId = mocks.ingest.mock.calls[0][0].payload.requestId;
-    expect(
+    await expect(
       diffReviewService.respond('codex-1', requestId, {
         decision: 'revise',
         feedback: '  keep the incoming title only  ',
       }),
-    ).toBe(true);
+    ).resolves.toBe(true);
 
     const result = await pending;
     expect(parseResult(result)).toEqual({
@@ -343,8 +343,8 @@ describe('present_diff handler', () => {
       makeCtx('missing-caller'),
     );
     expect(parseResult(missing)).toEqual({
-      error: 'caller session "missing-caller" not in sessions table — cannot display diff review',
-      hint: 'Retry once after session initialization completes. If it persists, stop; present_diff requires a live Agent Deck session.',
+      error: 'unknown callerSessionId: missing-caller',
+      hint: 'Use a per-session MCP token issued by Agent Deck, or the global MCP token for read-only external access.',
     });
 
     mocks.sessions.set('closed-caller', makeSession('closed-caller', { lifecycle: 'closed' }));
@@ -353,8 +353,8 @@ describe('present_diff handler', () => {
       makeCtx('closed-caller'),
     );
     expect(parseResult(closed)).toEqual({
-      error: 'caller session "closed-caller" is closed',
-      hint: 'Do not retry. Ask the user to start a new Agent Deck session and present the diff there.',
+      error: 'callerSessionId closed-caller is closed',
+      hint: 'Closed sessions cannot initiate new MCP tool calls. Open a new session via the application.',
     });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });

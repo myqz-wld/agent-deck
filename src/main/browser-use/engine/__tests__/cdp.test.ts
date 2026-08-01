@@ -9,6 +9,24 @@ function makeBridge(): { bridge: CdpBridge; target: FakeDebugger } {
   return { bridge: new CdpBridge(() => target as unknown as Electron.Debugger), target };
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  reject: (error: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let reject!: (error: unknown) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
+function sentMethods(target: FakeDebugger): string[] {
+  return target.sendCommand.mock.calls.map(([method]) => method);
+}
+
 describe('CdpBridge event forwarding', () => {
   it('normalizes the empty top-level session id to undefined', async () => {
     const { bridge, target } = makeBridge();
@@ -79,6 +97,107 @@ describe('CdpBridge log capture', () => {
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({ level: 'warning', text: 'hydration mismatch 42' });
     expect(entries[1]).toMatchObject({ level: 'error', text: 'Uncaught TypeError' });
+  });
+
+  it('shares one console enable promise across concurrent callers', async () => {
+    const { bridge, target } = makeBridge();
+    const runtime = deferred<void>();
+    const log = deferred<void>();
+    target.sendCommand.mockImplementation(async (method, params, sessionId) => {
+      if (method === 'Runtime.enable') await runtime.promise;
+      if (method === 'Log.enable') await log.promise;
+      return { method, params, sessionId };
+    });
+
+    const first = bridge.enableConsoleCapture();
+    const second = bridge.enableConsoleCapture();
+
+    expect(second).toBe(first);
+    expect(sentMethods(target).filter((method) => method === 'Runtime.enable')).toHaveLength(1);
+    expect(sentMethods(target)).not.toContain('Log.enable');
+
+    runtime.resolve();
+    await vi.waitFor(() => {
+      expect(sentMethods(target).filter((method) => method === 'Log.enable')).toHaveLength(1);
+    });
+    log.resolve();
+    await Promise.all([first, second]);
+    await bridge.enableConsoleCapture();
+
+    expect(sentMethods(target).filter((method) => method === 'Runtime.enable')).toHaveLength(1);
+    expect(sentMethods(target).filter((method) => method === 'Log.enable')).toHaveLength(1);
+  });
+
+  it('stays disabled and retries both domains after Runtime.enable fails', async () => {
+    const { bridge, target } = makeBridge();
+    let rejectRuntime = true;
+    target.sendCommand.mockImplementation(async (method, params, sessionId) => {
+      if (method === 'Runtime.enable' && rejectRuntime) {
+        rejectRuntime = false;
+        throw new Error('runtime enable failed');
+      }
+      return { method, params, sessionId };
+    });
+
+    await expect(bridge.enableConsoleCapture()).rejects.toThrow('runtime enable failed');
+    expect(sentMethods(target)).toEqual(['Runtime.enable']);
+
+    await bridge.enableConsoleCapture();
+    await bridge.enableConsoleCapture();
+    expect(sentMethods(target)).toEqual([
+      'Runtime.enable',
+      'Runtime.enable',
+      'Log.enable',
+    ]);
+  });
+
+  it('retries Runtime and Log after Log.enable fails following Runtime success', async () => {
+    const { bridge, target } = makeBridge();
+    let rejectLog = true;
+    target.sendCommand.mockImplementation(async (method, params, sessionId) => {
+      if (method === 'Log.enable' && rejectLog) {
+        rejectLog = false;
+        throw new Error('log enable failed');
+      }
+      return { method, params, sessionId };
+    });
+
+    await expect(bridge.enableConsoleCapture()).rejects.toThrow('log enable failed');
+    expect(sentMethods(target)).toEqual(['Runtime.enable', 'Log.enable']);
+
+    await bridge.enableConsoleCapture();
+    await bridge.enableConsoleCapture();
+    expect(sentMethods(target)).toEqual([
+      'Runtime.enable',
+      'Log.enable',
+      'Runtime.enable',
+      'Log.enable',
+    ]);
+  });
+
+  it('invalidates a stale enable attempt on detach without clobbering the retry', async () => {
+    const { bridge, target } = makeBridge();
+    const staleRuntime = deferred<void>();
+    let runtimeCalls = 0;
+    target.sendCommand.mockImplementation(async (method, params, sessionId) => {
+      if (method === 'Runtime.enable') {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) await staleRuntime.promise;
+      }
+      return { method, params, sessionId };
+    });
+
+    const stale = bridge.enableConsoleCapture();
+    target.detach();
+    const current = bridge.enableConsoleCapture();
+    await current;
+    expect(sentMethods(target)).toEqual(['Runtime.enable', 'Runtime.enable', 'Log.enable']);
+
+    staleRuntime.resolve();
+    await stale;
+    await bridge.enableConsoleCapture();
+
+    expect(sentMethods(target)).toEqual(['Runtime.enable', 'Runtime.enable', 'Log.enable']);
   });
 
   it('pairs network requests with their response or failure', async () => {

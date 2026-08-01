@@ -35,6 +35,8 @@ interface AdapterInfo {
   sessionModes: AdapterSessionMode[];
 }
 
+const INCOMPLETE_ROLLBACK_CODE = 'ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE';
+
 function logsRefLines(logsRef: LogsRef): string[] {
   return [
     `- date: ${logsRef.date}`,
@@ -114,10 +116,12 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   } = sessionOptions;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rollbackBlocked, setRollbackBlocked] = useState(false);
   const [adaptersReady, setAdaptersReady] = useState(false);
   const mountedRef = useRef(true);
   const submitSequenceRef = useRef(0);
   const submitInFlightRef = useRef(false);
+  const rollbackBlockedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -163,7 +167,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const showGrokSandbox = adapter === 'grok-build';
 
   const handleSubmit = async (): Promise<void> => {
-    if (submitInFlightRef.current) return;
+    if (submitInFlightRef.current || rollbackBlockedRef.current) return;
     setError(null);
     if (!adaptersReady) {
       setError('运行时列表不可用，无法新建会话');
@@ -197,7 +201,12 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       onResolved(result.issue);
     } catch (e) {
       if (mountedRef.current && sequence === submitSequenceRef.current) {
-        setError(e instanceof Error ? e.message : String(e));
+        const message = e instanceof Error ? e.message : String(e);
+        setError(message);
+        if (message.includes(INCOMPLETE_ROLLBACK_CODE)) {
+          rollbackBlockedRef.current = true;
+          setRollbackBlocked(true);
+        }
       }
     } finally {
       if (mountedRef.current && sequence === submitSequenceRef.current) {
@@ -366,7 +375,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={busy || !adaptersReady}
+            disabled={busy || !adaptersReady || rollbackBlocked}
             className="rounded bg-status-working/30 px-3 py-1 text-xs text-status-working hover:bg-status-working/50 disabled:opacity-50"
           >
             {!busy && <HandOffIcon className="mr-1 inline h-3 w-3" />}{busy ? '创建中…' : '新建会话'}

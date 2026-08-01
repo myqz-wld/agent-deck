@@ -25,8 +25,6 @@ export interface HandOffTargetRequest {
   cwd: string;
   gateway?: unknown;
   provider?: unknown;
-  /** Retired public selector retained only to return an explicit compatibility error. */
-  profile?: unknown;
   model?: unknown;
   thinking?: unknown;
   permissionMode?: SelectablePermissionMode;

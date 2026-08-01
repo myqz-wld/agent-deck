@@ -177,8 +177,6 @@ export async function prepareContinuationContextWithDependencies(
     if (ownsSpool) spool.cleanup(metadata.spoolId);
     throw new Error('Immutable continuation spool belongs to a different source session');
   }
-  if (metadata.consumed) throw new Error('Immutable continuation spool has already been consumed');
-
   try {
     const resolver = dependencies.capacityResolver ?? contextCapacityResolver;
     const targetCapacity = input.target.contextWindowTokens

@@ -5,9 +5,7 @@ import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
  * Session × team membership 拼装 helper（拆自 manager.ts，CHANGELOG_86 Step 4.3.1）。
  *
  * 纯 read enrich：不改 SessionRecord、不写 DB、不 emit 事件。两个 free function 由
- * SessionManagerClass.enrichWithTeams / enrichWithTeamsBatch 委托调用，保持公共 API
- * `sessionManager.enrichWithTeams(rec)` / `enrichWithTeamsBatch(recs)` 签名不变（外部
- * import 路径全部无感）。
+ * SessionManagerClass.enrichWithTeams / enrichWithTeamsBatch 委托调用。
  *
  * agentDeckTeamRepo top-level import：vi.mock('@main/store/agent-deck-team-repo') 按
  * module specifier 拦截，与 caller 在哪个文件 import 无关。
@@ -21,9 +19,7 @@ import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
  * indexed (session_id, team_id) WHERE left_at IS NULL 单 query 是 ms 级。
  *
  * 不在 sessionRepo.toSessionRecord 内做（repo 层职责单一：纯 DB row → record）；
- * 放在 sessionManager 编排层。teamName 字段（v012 删前过渡）回填为 teams[0]?.name
- * —— 让所有读 teamName 的老代码无感切到 universal team backend，修「lead session
- * teamName 不对称」bug。
+ * teams[] 投影由 sessionManager 编排层负责。
  */
 export function enrichRecordWithTeams(rec: SessionRecord): SessionRecord {
   const memberships = agentDeckTeamRepo.findActiveMembershipsBySession(rec.id);

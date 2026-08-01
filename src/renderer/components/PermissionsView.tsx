@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from 'react';
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type {
   AdapterSessionMode,
   CodexPermissionScanResult,
@@ -32,30 +32,41 @@ export function PermissionsView({
   const [data, setData] = useState<PermissionsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setErr(null);
     try {
       if (isGrok) {
-        setData(null);
+        if (generation === requestGeneration.current) setData(null);
       } else if (isCodex) {
         const result = await window.api.scanCodexSettings(sessionId);
-        setData({ adapter: 'codex', value: result });
+        if (generation === requestGeneration.current) {
+          setData({ adapter: 'codex', value: result });
+        }
       } else {
         const result = await window.api.scanCwdSettings(cwd);
-        setData({ adapter: 'claude', value: result });
+        if (generation === requestGeneration.current) {
+          setData({ adapter: 'claude', value: result });
+        }
       }
     } catch (error) {
-      setErr((error as Error).message ?? String(error));
+      if (generation === requestGeneration.current) {
+        setErr(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
-  }, [cwd, isCodex, isGrok, sessionId]);
+  }, [agentId, cwd, isCodex, isGrok, sessionId]);
 
   useEffect(() => {
     setData(null);
     void refresh();
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [refresh]);
 
   if (isGrok) return <GrokPermissionsPanel sessionMode={sessionMode} />;

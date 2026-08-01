@@ -155,4 +155,4 @@ instead of being accepted and silently discarded.
   `.prompt-asset-improver/local/` workspace. The manifest records original hashes and paths; restore
   by copying the corresponding manifest entry back to its `original_path`.
 - The completed implementation plan is archived as
-  `ref/plans/recent-3-days/PLAN_20_provider-usage-runtime-control-fidelity.md`.
+  `ref/plans/recent-week/PLAN_20_provider-usage-runtime-control-fidelity.md`.
