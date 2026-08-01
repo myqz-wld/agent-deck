@@ -280,12 +280,8 @@ function MonacoDiffView({
   );
 }
 
-export function normalizeCodexChangeKind(value: unknown): string | null {
+function normalizeCodexChangeKind(value: unknown): string | null {
   if (typeof value === 'string' && value) return value;
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const type = (value as { type?: unknown }).type;
-    return typeof type === 'string' && type ? type : null;
-  }
   return null;
 }
 

@@ -15,7 +15,6 @@ import {
 } from '@main/adapters/session-model-options';
 import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
-import { agentDeckTeamRepo, TeamInvariantError } from '@main/store/agent-deck-team-repo';
 import { eventBus } from '@main/event-bus';
 import { planReviewService } from '@main/plan-review/service';
 import { diffReviewService } from '@main/diff-review/service';
@@ -25,7 +24,6 @@ import {
   parseStringId,
   parseAdapterSessionMode,
   parsePermissionMode,
-  parseTeamName,
 } from './_helpers';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { persistAdapterAttachments } from './adapters-attachments';
@@ -99,10 +97,6 @@ export function registerAdaptersIpc(): void {
       );
     }
     const resume = typeof raw.resume === 'string' ? raw.resume : undefined;
-    // CHANGELOG_46：NewSessionDialog 已删 teamName 输入框；team 名由 lead 在会话内自由决定，
-    // 应用通过 PreToolUse hook / fs watcher / hook 三层反向同步到 sessions.team_name DB 列。
-    // 但 IPC 入口仍接 raw.teamName 兼容 CLI `agent-deck new --team-name` 命令（如有）。
-    const teamName = parseTeamName(raw.teamName);
     let sessionModelOptions;
     try {
       sessionModelOptions = resolveCreateSessionModelOptions(validAgentId, {
@@ -140,7 +134,6 @@ export function registerAdaptersIpc(): void {
         ...(permissionMode !== null ? { permissionMode } : {}),
         ...(sessionMode !== null ? { sessionMode } : {}),
         ...(resume !== undefined ? { resume } : {}),
-        ...(teamName !== null ? { teamName } : {}),
         ...(codexSandbox !== null ? { codexSandbox } : {}),
         ...(claudeCodeSandbox !== null ? { claudeCodeSandbox } : {}),
         ...(grokSandbox !== null ? { grokSandbox } : {}),
@@ -177,37 +170,6 @@ export function registerAdaptersIpc(): void {
           `[ipc createSession] recordCreatedPermissionMode(${sid}, ${permissionMode}) failed:`,
           e,
         );
-      }
-    }
-    // plan team-cohesion-fix-20260513 Phase A Step A8：删 sessionManager.recordCreatedTeamName，
-    // 改走 universal team backend ensureByName + addMember(role:'teammate')。IPC 入口
-    // (agent-deck new --team-name X) 不知道 session 是 lead 还是 teammate，按 teammate 安全加入；
-    // 如要明确 lead 角色走 spawn_session MCP tool。
-    if (teamName) {
-      try {
-        const team = agentDeckTeamRepo.ensureByName(teamName, { source: 'cli' });
-        try {
-          agentDeckTeamRepo.addMember({
-            teamId: team.id,
-            sessionId: sid,
-            role: 'teammate',
-            displayName: null,
-          });
-          sessionManager.notifyTeamMembershipChanged(sid);
-          // REVIEW_35 MED-A7：emit `agent-deck-team-member-changed` 让 universal-message-watcher
-          // dispatcher 收到 → fan-out member-joined adapter event 给同 team active member。
-          // 修前 spawn / cli / ipc.adapters 三条路径只刷 UI 不通知 adapter chain。
-          eventBus.emit('agent-deck-team-member-changed', {
-            teamId: team.id,
-            sessionId: sid,
-            kind: 'joined',
-          });
-        } catch (e) {
-          // 已 active 时 invariant 抛错；幂等成功
-          if (!(e instanceof TeamInvariantError)) throw e;
-        }
-      } catch (e) {
-        logger.warn(`[ipc adapters createSession] team ensure / addMember failed for "${teamName}":`, e);
       }
     }
     return sid;
@@ -278,7 +240,7 @@ export function registerAdaptersIpc(): void {
     const sid = parseStringId('sessionId', sessionId);
     const rid = parseStringId('requestId', requestId);
     if (
-      diffReviewService.respond(
+      await diffReviewService.respond(
         sid,
         rid,
         response as Parameters<typeof diffReviewService.respond>[2],

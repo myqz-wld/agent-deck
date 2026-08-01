@@ -36,8 +36,6 @@ import {
   toAgentCwdTransition,
 } from './transition-delivery';
 
-export { WORKTREE_TRANSITION_CONTINUATION } from './constants';
-
 const ALLOWED_FENCED_EVENTS = new Set<AgentEvent['kind']>([
   'finished',
   'session-end',

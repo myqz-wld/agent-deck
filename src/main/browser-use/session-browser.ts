@@ -24,11 +24,6 @@ export function acquireSessionBrowser(sessionId: string): BrowserOwnerHandle {
   return getBrowserEngine().acquire(sessionBrowserOwner(sessionId));
 }
 
-/** Existing handle for a session, or null when that session never opened a browser. */
-export function peekSessionBrowser(sessionId: string): BrowserOwnerHandle | null {
-  return getBrowserEngine().peek(sessionBrowserOwner(sessionId));
-}
-
 /**
  * Close every browser window owned by a session. Safe to call for sessions that never opened one,
  * and safe to call twice; failures are logged instead of breaking a lifecycle transition.

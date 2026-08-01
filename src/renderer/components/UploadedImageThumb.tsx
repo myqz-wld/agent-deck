@@ -14,8 +14,7 @@ import { sharedImageBlobCache } from '@renderer/lib/image-blob-cache';
  *   隔离边界 + ImageBlobLoader.tsx:10-13 明文「与 UploadedImageThumb 不共享」invariant)。
  * - 失败兜底（plan §D4 LOW 修）：图片可能已被 reaper 清 / 用户磁盘删了 /
  *   reapStaleUploads 提前清，渲染灰底 + reason 让用户知道发生了什么
- * - **可选 onClick**(plan §Phase 4 Step 3):message-row 调用方传入 `() => setLightboxPath(path)`
- *   实现点缩略图开 lightbox;其他 callsite(未来如有)不传 onClick 保持默认不可点击行为。
+ * - message-row 传入 `onClick` 打开 lightbox；这是当前唯一调用路径。
  */
 
 export function UploadedImageThumb({
@@ -30,12 +29,8 @@ export function UploadedImageThumb({
   size?: number;
   alt?: string;
   title?: string;
-  /**
-   * 可选点击回调(plan handoff-render-and-image-batch-20260521 §Phase 4 Step 3)。
-   * 传入 → img 加 `cursor-pointer` + onClick 触发(典型用例:message-row 开 lightbox)。
-   * 不传 → 默认不可点击(保持向后兼容)。
-   */
-  onClick?: () => void;
+  /** 点击缩略图时打开 lightbox。 */
+  onClick: () => void;
 }): JSX.Element {
   const state = useImageBlob(() => window.api.loadUploadedImage(path), path, sharedImageBlobCache);
 
@@ -84,7 +79,7 @@ export function UploadedImageThumb({
       alt={alt ?? '附件图片'}
       title={title ?? `${(state.result.bytes / 1024).toFixed(1)}KB · ${state.result.mime}`}
       style={{ width: dim, height: dim }}
-      className={`rounded border border-deck-border object-cover ${onClick ? 'cursor-pointer' : ''}`}
+      className="cursor-pointer rounded border border-deck-border object-cover"
       onClick={onClick}
     />
   );

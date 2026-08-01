@@ -1,6 +1,9 @@
 import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
-import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import {
+  agentDeckTeamRepo,
+  transferTeammateMembershipWithDb,
+} from '@main/store/agent-deck-team-repo';
 import { getDb } from '@main/store/db';
 import { taskRepo } from '@main/store/task-repo';
 import {
@@ -118,7 +121,11 @@ function transferTeams(
   const rollback: Array<() => void> = [];
 
   let memberships: ReturnType<typeof agentDeckTeamRepo.findActiveMembershipsBySession>;
-  let candidates: Array<{ teamId: string; role: 'lead' | 'teammate' }>;
+  let candidates: Array<{
+    teamId: string;
+    role: 'lead' | 'teammate';
+    displayName: string | null;
+  }>;
   try {
     memberships = agentDeckTeamRepo.findActiveMembershipsBySession(callerSessionId);
   } catch (e) {
@@ -139,7 +146,7 @@ function transferTeams(
   try {
     candidates = agentDeckTeamRepo
       .findActiveTeamMembershipsBySession(callerSessionId)
-      .map((m) => ({ teamId: m.teamId, role: m.role }));
+      .map((m) => ({ teamId: m.teamId, role: m.role, displayName: m.displayName }));
   } catch (e) {
     return {
       status: 'failed',
@@ -210,24 +217,49 @@ function transferTeams(
       }
 
       const existingBefore = agentDeckTeamRepo.findActiveMembershipIn(m.teamId, newSessionId);
-      try {
-        agentDeckTeamRepo.addMember({
-          teamId: m.teamId,
-          sessionId: newSessionId,
-          role: 'teammate',
-        });
-      } catch (e) {
-        const existing = agentDeckTeamRepo.findActiveMembershipIn(m.teamId, newSessionId);
-        if (!existing) throw e;
+      const moved = transferTeammateMembershipWithDb(
+        getDb(),
+        m.teamId,
+        callerSessionId,
+        newSessionId,
+      );
+      if (moved.transferred !== true) {
+        failed.push({ teamId: m.teamId, role, reason: moved.reason });
+        break;
       }
       transferred.push({ teamId: m.teamId, role });
-      if (!existingBefore) {
+      if (existingBefore) {
         rollback.push(() => {
-          agentDeckTeamRepo.leaveTeam(m.teamId, newSessionId);
+          const sourceActive = agentDeckTeamRepo.findActiveMembershipIn(
+            m.teamId,
+            callerSessionId,
+          );
+          if (!sourceActive) {
+            agentDeckTeamRepo.addMember({
+              teamId: m.teamId,
+              sessionId: callerSessionId,
+              role: 'teammate',
+              displayName: m.displayName,
+            });
+          }
+        });
+      } else {
+        rollback.push(() => {
+          const rolledBack = transferTeammateMembershipWithDb(
+            getDb(),
+            m.teamId,
+            newSessionId,
+            callerSessionId,
+          );
+          if (rolledBack.transferred !== true) {
+            throw new Error(rolledBack.reason);
+          }
         });
       }
       postCommitEvents.push(() => {
+        safeEmitTeamMemberChanged(m.teamId, callerSessionId, 'left');
         safeEmitTeamMemberChanged(m.teamId, newSessionId, 'joined');
+        safeNotifyMembership(callerSessionId);
         safeNotifyMembership(newSessionId);
       });
     } catch (e) {

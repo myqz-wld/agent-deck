@@ -13,9 +13,11 @@ const mocks = vi.hoisted(() => ({
     leaveTeam: vi.fn(),
     findActiveMembershipIn: vi.fn(),
   },
+  transferTeammateMembership: vi.fn(),
   taskRepo: {
     reassignOwner: vi.fn(),
   },
+  cancelCollapsedMessages: vi.fn(),
   retargetMessages: vi.fn(),
   deliveringCount: 0,
   compressAliases: vi.fn(),
@@ -31,7 +33,9 @@ vi.mock('@main/store/db', () => ({
     transaction: mocks.transaction,
     prepare: (sql: string) => ({
       get: () => ({ c: mocks.deliveringCount }),
-      run: sql.includes('UPDATE session_handoff_aliases')
+      run: sql.includes("SET status = 'cancelled'")
+        ? mocks.cancelCollapsedMessages
+        : sql.includes('UPDATE session_handoff_aliases')
         ? mocks.compressAliases
         : sql.includes('session_handoff_aliases')
         ? mocks.recordAlias
@@ -55,6 +59,7 @@ vi.mock('@main/store/worktree-transition-repo', () => ({
 
 vi.mock('@main/store/agent-deck-team-repo', () => ({
   agentDeckTeamRepo: mocks.teamRepo,
+  transferTeammateMembershipWithDb: mocks.transferTeammateMembership,
 }));
 
 vi.mock('@main/store/task-repo', () => ({
@@ -87,8 +92,10 @@ beforeEach(() => {
   mocks.teamRepo.addMember.mockReturnValue(undefined);
   mocks.teamRepo.leaveTeam.mockReturnValue(null);
   mocks.teamRepo.findActiveMembershipIn.mockReturnValue(null);
+  mocks.transferTeammateMembership.mockReturnValue({ transferred: true });
   mocks.taskRepo.reassignOwner.mockReturnValue(0);
   mocks.compressAliases.mockReturnValue({ changes: 0 });
+  mocks.cancelCollapsedMessages.mockReturnValue({ changes: 0 });
   mocks.retargetMessages.mockReturnValue({ changes: 0 });
   mocks.recordAlias.mockReturnValue({ changes: 1 });
   mocks.getWorktreeTransition.mockReturnValue(null);
@@ -148,11 +155,12 @@ describe('transferHandOffResources', () => {
       'caller-sid',
       'successor-sid',
     );
-    expect(mocks.teamRepo.addMember).toHaveBeenCalledWith({
-      teamId: 'team-mate',
-      sessionId: 'successor-sid',
-      role: 'teammate',
-    });
+    expect(mocks.transferTeammateMembership).toHaveBeenCalledWith(
+      expect.anything(),
+      'team-mate',
+      'caller-sid',
+      'successor-sid',
+    );
     expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
       policy: 'preserve-team',
     });
@@ -171,6 +179,18 @@ describe('transferHandOffResources', () => {
       expect.any(Number),
     );
     expect(mocks.compressAliases).toHaveBeenCalledWith('successor-sid', 'caller-sid');
+    expect(mocks.eventEmit).toHaveBeenCalledWith('agent-deck-team-member-changed', {
+      teamId: 'team-mate',
+      sessionId: 'caller-sid',
+      kind: 'left',
+    });
+    expect(mocks.eventEmit).toHaveBeenCalledWith('agent-deck-team-member-changed', {
+      teamId: 'team-mate',
+      sessionId: 'successor-sid',
+      kind: 'joined',
+    });
+    expect(mocks.notifyTeamMembershipChanged).toHaveBeenCalledWith('caller-sid');
+    expect(mocks.notifyTeamMembershipChanged).toHaveBeenCalledWith('successor-sid');
   });
 
   it('skips archived teams without failing the handoff resource transfer', () => {
@@ -197,7 +217,7 @@ describe('transferHandOffResources', () => {
       worktreeLease: { status: 'skipped', worktreePath: null },
     });
     expect(mocks.teamRepo.swapLead).not.toHaveBeenCalled();
-    expect(mocks.teamRepo.addMember).not.toHaveBeenCalled();
+    expect(mocks.transferTeammateMembership).not.toHaveBeenCalled();
     expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
       policy: 'preserve-team',
     });
@@ -395,6 +415,25 @@ describe('transferHandOffResources', () => {
     expect(mocks.retargetMessages).not.toHaveBeenCalled();
     expect(mocks.recordAlias).not.toHaveBeenCalled();
     expect(mocks.eventEmit).not.toHaveBeenCalled();
+  });
+
+  it('publishes teammate membership notifications only after the transaction commits', () => {
+    mocks.teamRepo.findActiveMembershipsBySession.mockReturnValue([
+      { teamId: 'team-mate', role: 'teammate', displayName: 'reviewer' },
+    ]);
+    mocks.transaction.mockImplementation((fn: () => unknown) => () => {
+      fn();
+      throw new Error('simulated commit failure');
+    });
+
+    expect(() => transferHandOffResources({
+      callerSessionId: 'caller-sid',
+      newSessionId: 'successor-sid',
+    })).toThrow('simulated commit failure');
+
+    expect(mocks.transferTeammateMembership).toHaveBeenCalledOnce();
+    expect(mocks.eventEmit).not.toHaveBeenCalled();
+    expect(mocks.notifyTeamMembershipChanged).not.toHaveBeenCalled();
   });
 
   it('transaction rollback restores lease ownership when later compensation fails', () => {

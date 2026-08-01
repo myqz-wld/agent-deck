@@ -118,10 +118,6 @@ function isDeleteChange(change: FileChangePayload): boolean {
 function readChangeKind(metadata: Record<string, unknown> | undefined): string | null {
   const raw = metadata?.changeKind;
   if (typeof raw === 'string' && raw) return raw.toLowerCase();
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    const type = (raw as { type?: unknown }).type;
-    return typeof type === 'string' && type ? type.toLowerCase() : null;
-  }
   return null;
 }
 

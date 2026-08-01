@@ -40,7 +40,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway or a Codex model_provider with provider; the retired profile input is rejected.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway or a Codex model_provider with provider.',
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
 };

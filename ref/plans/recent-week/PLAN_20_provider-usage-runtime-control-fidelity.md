@@ -181,7 +181,7 @@ Review-follow-up validation on `9baa1e4c` plus the working-tree fixes:
 - Behavior record:
   `ref/changelogs/recent-3-days/CHANGELOG_402_provider-usage-runtime-control-fidelity.md`.
 - Final review:
-  `ref/reviews/recent-3-days/REVIEW_181_provider-usage-runtime-control-fidelity.md`.
+  `ref/reviews/recent-week/REVIEW_181_provider-usage-runtime-control-fidelity.md`.
 - Prompt-asset inventory:
   `.prompt-asset-improver/local/inventory.json` (ignored local workspace).
 - Pre-edit restore manifest:

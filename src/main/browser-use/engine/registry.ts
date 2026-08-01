@@ -37,6 +37,7 @@ export function ownerPartition(owner: BrowserOwnerKey): string {
 export class BrowserOwnerHandle {
   readonly partition: string;
   private readonly tabs = new Map<number, EngineTab>();
+  private readonly tabClosedListeners = new Set<(tabId: number) => void>();
   private nextTabId = 1;
   private activeTabId: number | null = null;
   private disposed = false;
@@ -67,10 +68,7 @@ export class BrowserOwnerHandle {
       onActivated: (id) => {
         if (this.tabs.has(id)) this.activeTabId = id;
       },
-      onClosed: (id) => {
-        this.tabs.delete(id);
-        if (this.activeTabId === id) this.activeTabId = null;
-      },
+      onClosed: (id) => this.forgetTab(id),
     });
     this.tabs.set(tabId, tab);
     this.activeTabId = tabId;
@@ -133,6 +131,15 @@ export class BrowserOwnerHandle {
     this.getTab(tabId)?.close();
   }
 
+  /** Observe EngineTab removal without retaining its BrowserWindow or webContents. */
+  onTabClosed(listener: (tabId: number) => void): () => void {
+    if (this.disposed) return () => {};
+    this.tabClosedListeners.add(listener);
+    return () => {
+      this.tabClosedListeners.delete(listener);
+    };
+  }
+
   /** Close every tab except the given ids. Used by the Codex `finalizeTabs` request. */
   keepOnly(tabIds: readonly number[]): void {
     const keep = new Set(tabIds);
@@ -145,15 +152,25 @@ export class BrowserOwnerHandle {
     if (this.disposed) return;
     this.disposed = true;
     const tabs = [...this.tabs.values()];
-    this.tabs.clear();
+    for (const tab of tabs) {
+      tab.destroy();
+      // A destroyed test double or already-closed native window may not emit `closed` again.
+      this.forgetTab(tab.id);
+    }
     this.activeTabId = null;
-    for (const tab of tabs) tab.destroy();
+    this.tabClosedListeners.clear();
   }
 
   private prune(): void {
     for (const [tabId, tab] of this.tabs) {
-      if (tab.isDestroyed()) this.tabs.delete(tabId);
+      if (tab.isDestroyed()) this.forgetTab(tabId);
     }
+  }
+
+  private forgetTab(tabId: number): void {
+    if (!this.tabs.delete(tabId)) return;
+    if (this.activeTabId === tabId) this.activeTabId = null;
+    for (const listener of [...this.tabClosedListeners]) listener(tabId);
   }
 }
 

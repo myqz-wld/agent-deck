@@ -63,36 +63,6 @@ export function getClaudeAgentDeckPluginSourcePath(): string {
   return getPluginSourceDir();
 }
 
-/**
- * 返回 claude 视角已安装 agent-deck plugin mirror 的绝对路径，失败时返回 null，避免把
- * 不存在或未完成的目录传给 SDK `plugins[].path`。
- * SDK 会读 `<plugin>/.claude-plugin/plugin.json` + 自动扫 `<plugin>/skills/` 与
- * `<plugin>/agents/` 子目录。调用方按 settings 传入 includeSkills / includeAgents，mirror 会
- * 裁掉禁用的子目录。
- *
- * codex 视角同款路径在 `src/main/adapters/codex-cli/codex-config-paths.ts:getCodexAgentDeckPluginPath`，
- * 双 root scan 各自直接 import 在 `src/main/bundled-assets.ts`（P5 Round 1 reviewer-claude MED
- * 修法删除原 agent-deck-plugin-paths.ts 死代码 dispatcher — 0 production caller，违反 §提示词
- * 资产维护 约束 2）。
- *
- * **CHANGELOG_169 plugin mirror（REVIEW deep-review R2 reviewer-codex HIGH 修法）**：
- * SDK 直接读 plugin root 下 SKILL.md / agent body 等文件，**绕过** `getAgentDeckSystemPromptAppend`
- * 的 placeholder substitute。所以 plugin 内文档里写的 `{{AGENT_DECK_RESOURCES}}/...` 占位符
- * 必须在镜像安装时替换，否则 agent 会看到不可执行的字面占位符路径。
- *
- * Fix：用户每次 spawn 时 lazy 跑 `ensurePluginMirrorInstalled()` —— 在
- * `<userData>/agent-deck-plugin/` 的 sibling staging 目录 cp source plugin，并对所有 .md 文件
- * 做 placeholder substitute（in-place），完成后才 rename 发布。返回的 plugin path 指向 mirror
- * 而非原 source。SDK 扫 mirror 拿到 substituted 内容。
- *
- * 同一进程仅缓存已成功发布的 mirror signature；安装失败不缓存，下一次会话会重试，当前
- * 会话则得到 null。substitute 输出依赖 runtime constants `app.isPackaged`，source mtime 不是
- * 权威 staleness 判据；plugin 文件总量 ~10 KB IO 成本忽略不计。
- */
-export function getClaudeAgentDeckPluginPath(): string | null {
-  return ensurePluginMirrorInstalled({ includeSkills: true, includeAgents: true });
-}
-
 /** 返回 plugin source dir（dev=<repo>/resources/.../agent-deck-plugin, prod=<.app>/Contents/Resources/...） */
 function getPluginSourceDir(): string {
   if (app.isPackaged) {

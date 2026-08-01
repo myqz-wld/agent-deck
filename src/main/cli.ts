@@ -110,7 +110,6 @@ const VALUE_REQUIRED_FLAGS = new Set([
   'model',
   'gateway',
   'provider',
-  'profile',
   'thinking',
   'team',     // R3.E10
   'member',   // R3.E10
@@ -188,11 +187,6 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
 
   if (sub.sub === 'new') {
     const f = parseFlags(sub.args);
-    if (f.has('profile')) {
-      throw new Error(
-        'agent-deck new: --profile 已停用；当前内置 Codex app-server 不支持加载 profile。Codex CLI 请改用 --provider <model_provider>，或省略该参数以使用 config.toml',
-      );
-    }
     // cwd 缺省 → 用户主目录（与 renderer NewSessionDialog 行为一致）。
     // wrapper 脚本 resources/bin/agent-deck 在 shell 端已用 $PWD 兜底，
     // 这里再兜一层是给「直接调 .app 二进制 / 第三方调用」的场景。

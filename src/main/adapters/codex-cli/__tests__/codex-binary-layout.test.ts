@@ -104,16 +104,11 @@ describe('resolveBundledCodexBinary current vendor layout', () => {
   });
 });
 
-describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg helper PATH）', () => {
-  it('dev 模式 → pathDirs []，prepend no-op', async () => {
+describe('resolveBundledCodexPathDirs / prependResolvedCodexPathDirs（bundled rg helper PATH）', () => {
+  it('dev 模式 → bundled pathDirs []', async () => {
     electronState.isPackaged = false;
-    const { resolveBundledCodexPathDirs, prependBundledCodexPathDirs } = await import(
-      '../sdk-bridge/codex-binary'
-    );
+    const { resolveBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
     expect(resolveBundledCodexPathDirs()).toEqual([]);
-    const env = { PATH: '/usr/bin' };
-    prependBundledCodexPathDirs(env);
-    expect(env.PATH).toBe('/usr/bin'); // 未改
     electronState.isPackaged = true;
   });
 
@@ -125,13 +120,13 @@ describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
     writeFileSync(join(dir, 'codex-package.json'), '{}\n');
     writeFileSync(join(dir, 'codex-path', 'rg'), '#!/bin/sh\n');
-    const { resolveBundledCodexPathDirs, prependBundledCodexPathDirs } = await import(
+    const { resolveBundledCodexPathDirs, prependResolvedCodexPathDirs } = await import(
       '../sdk-bridge/codex-binary'
     );
     const helperDir = join(dir, 'codex-path');
     expect(resolveBundledCodexPathDirs()).toEqual([helperDir]);
     const env = { PATH: '/usr/bin:/bin' };
-    prependBundledCodexPathDirs(env);
+    prependResolvedCodexPathDirs(env);
     expect(env.PATH).toBe(`${helperDir}:/usr/bin:/bin`);
   });
 
@@ -143,10 +138,10 @@ describe('resolveBundledCodexPathDirs / prependBundledCodexPathDirs（bundled rg
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\n');
     writeFileSync(join(dir, 'codex-package.json'), '{}\n');
     writeFileSync(join(dir, 'codex-path', 'rg'), '#!/bin/sh\n');
-    const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    const { prependResolvedCodexPathDirs } = await import('../sdk-bridge/codex-binary');
     const helperDir = join(dir, 'codex-path');
     const env = { PATH: `${helperDir}:/usr/bin` }; // 已含 helperDir
-    prependBundledCodexPathDirs(env);
+    prependResolvedCodexPathDirs(env);
     expect(env.PATH).toBe(`${helperDir}:/usr/bin`); // 去重不重复
   });
 
@@ -219,9 +214,9 @@ describe('resolveBundledCodexPathDirs win32 binName=codex.exe 回归', () => {
     writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件
     writeFileSync(join(dir, 'codex-path', 'rg.exe'), 'MZ\n');
     const helperDir = join(dir, 'codex-path');
-    const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    const { prependResolvedCodexPathDirs } = await import('../sdk-bridge/codex-binary');
     const env: Record<string, string> = { Path: 'C:\\Windows\\System32;C:\\Windows' };
-    prependBundledCodexPathDirs(env, 'win32');
+    prependResolvedCodexPathDirs(env, 'win32');
     // helper prepend 到原 Path（用 win32 路径分隔符 ; — 测试机 darwin join 用 / 但 delimiter 由
     // node:path 决定；此处只断言 key 选择 + helper 在最前，不依赖 delimiter 具体值）
     expect(env.Path.startsWith(helperDir)).toBe(true);
@@ -239,10 +234,10 @@ describe('resolveBundledCodexPathDirs win32 binName=codex.exe 回归', () => {
     writeFileSync(join(dir, 'codex-package.json'), '{}\n'); // new 布局双条件
     writeFileSync(join(dir, 'codex-path', 'rg.exe'), 'MZ\n');
     const helperDir = join(dir, 'codex-path');
-    const { prependBundledCodexPathDirs } = await import('../sdk-bridge/codex-binary');
+    const { prependResolvedCodexPathDirs } = await import('../sdk-bridge/codex-binary');
     // pathEnvKey 优先选 'Path'（即便也有 'PATH'）
     const env: Record<string, string> = { Path: 'C:\\sys', PATH: 'C:\\stale' };
-    prependBundledCodexPathDirs(env, 'win32');
+    prependResolvedCodexPathDirs(env, 'win32');
     expect(env.Path.startsWith(helperDir)).toBe(true);
     expect(env.Path).toContain('C:\\sys');
     expect(env.PATH).toBeUndefined(); // 其他大小写变体被删

@@ -1,7 +1,7 @@
 /**
  * codex 视角 agent-deck plugin 路径解析。
  *
- * 与 claude-code/sdk-injection.getClaudeAgentDeckPluginPath 同模式：dev / prod 自动分流。
+ * 与 Claude plugin source path 同模式：dev / prod 自动分流。
  *
  * 关键差异：codex app-server **没有 Claude SDK 的 plugins[] 字段**。本路径由
  * bundled-assets / custom-agent loader 扫描 Codex TOML reviewer agents；skills 通过

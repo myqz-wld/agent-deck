@@ -73,21 +73,6 @@ export function markRecentlyDeletedImpl(
   }
 }
 
-/** Advance an unpinned active session to dormant and publish the committed row. */
-export function markDormantImpl(sessionId: string): void {
-  const r = sessionRepo.get(sessionId);
-  if (!r || r.lifecycle !== 'active' || r.pinnedAt != null) return;
-  const now = Date.now();
-  const updated = sessionRepo.batchAdvanceLifecycle(
-    [sessionId],
-    'active',
-    'dormant',
-    now,
-    now,
-  )[0];
-  if (updated) eventBus.emit('session-upserted', updated);
-}
-
 /**
  * Advance active or dormant to closed. The close epoch changes before
  * persistence so in-flight recovery cancels. Browser disposal stays

@@ -4,8 +4,6 @@ import { getAdapterRuntimeProfile } from './runtime-profiles';
 export const ADAPTER_TARGET_RUNTIME_FIELDS = [
   'gateway',
   'provider',
-  // Retained only so old callers receive an adapter-owned rejection instead of silent filtering.
-  'profile',
   'model',
   'thinking',
   'permissionMode',
@@ -79,9 +77,6 @@ export function unsupportedTargetRuntimeFieldMessage(
   adapterId: SessionAdapterId,
   field: AdapterTargetRuntimeField,
 ): string {
-  if (field === 'profile') {
-    return 'profile 已停用；内置 Codex app-server 不支持 --profile。Codex CLI 请改用 provider=<model_provider>，或省略该字段以使用 $CODEX_HOME/config.toml';
-  }
   const owners = targetRuntimeFieldAdapters(field);
   const ownerText =
     owners.length > 0

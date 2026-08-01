@@ -15,6 +15,7 @@ import type {
   AgentDeckTeam,
   AgentDeckTeamMemberChangedEvent,
   AgentEvent,
+  CallerArchiveFailedEvent,
   IssueChangedEvent,
   SessionRecord,
   SummaryRecord,
@@ -62,30 +63,7 @@ export interface EventMap {
    * 触发点忘加 TOOL_DISPLAY_NAME 映射时 tsc 编译期 fail(强制完整覆盖)。reasonKind 加 'probe-throw'
    * 区分 DB 异常 (可重试) 与 row 真不存在 (重试无效),给 UI 准确决策依据。
    */
-  'caller-archive-failed': [{
-    sessionId: string;
-    /**
-     * 触发的工具名(union narrow):
-     * - 'hand_off_session': mcp tool 名(用户在 codex/claude 调用 mcp 时熟悉)
-     * - 'SessionHandOffCommit': UI IPC channel 内部名(用户 UI 看不到,main listener 通过
-     *   TOOL_DISPLAY_NAME 映射成「会话接力」)
-     * 加新 emit 触发点必须先在此 union 加值,否则 hand-off finalization
-     * 调用处 tsc 报错(✅ feature)。
-     */
-    toolName: 'hand_off_session' | 'SessionHandOffCommit';
-    /** 完整 reason 描述（含 stringified Error 或 'not in sessions table' 类提示），UI 显示用 */
-    reason: string;
-    /**
-     * 失败子类，决定 UI 是否显示「重试归档」按钮:
-     * - 'row-missing': row 真不存在 (getSession 返回 null 或 setArchived 抛 SessionRowMissingError) →
-     *   重试无效,UI 仅告知;K3 IPC SessionArchive handler 视为幂等静默 (row 已不在 = 等价已归档无害)
-     * - 'probe-throw': getSession 自身抛错 (SQLite locked / DB read failure 等) → 状态未知,可重试,
-     *   UI 显示「重试归档」按钮(与 'archive-throw' 同款重试路径,但 reason 文案区分 DB probe 错)
-     * - 'archive-throw': row 存在但 archive 函数抛错 (FK constraint / DB locked 等非 SessionRowMissingError) →
-     *   row 仍存在,可重试,UI 显示「重试归档」按钮
-     */
-    reasonKind: 'row-missing' | 'probe-throw' | 'archive-throw';
-  }];
+  'caller-archive-failed': [CallerArchiveFailedEvent];
 
   // ──────────── R3.E9 universal team backend events（ADR §6.5）────────────
   /** repo.create 成功后；payload = AgentDeckTeam（裸，不含 members）。 */

@@ -106,20 +106,6 @@ export function resolveCodexAgentContent(
   };
 }
 
-export function getUserCodexAgentContent(
-  agentName: string,
-): { ok: true; agent: CodexCustomAgentContent } | { ok: false; reason: string } {
-  if (!CODEX_AGENT_NAME_RE.test(agentName)) {
-    return { ok: false, reason: `invalid Codex agent name: ${agentName}` };
-  }
-  if (CODEX_DIRECT_AGENT_NAME_RE.test(agentName)) {
-    const direct = findCodexAgentInDirs(agentName, 'user', [getUserCodexAgentsDir()]);
-    if (direct.ok || !direct.reason.startsWith('not found')) return direct;
-  }
-  const plugin = resolveCodexUserPluginAgentContent(agentName);
-  return plugin.ok ? buildPluginContent(plugin.agent) : plugin;
-}
-
 export function getBundledCodexAgentsDir(): string {
   return join(getCodexAgentDeckPluginPath(), 'agents');
 }

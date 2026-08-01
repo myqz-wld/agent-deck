@@ -41,9 +41,6 @@ describe('adapter target runtime control contracts', () => {
     expect(firstUnsupportedTargetRuntimeField('codex-cli', {
       provider: 'openrouter',
     })).toBeNull();
-    expect(firstUnsupportedTargetRuntimeField('codex-cli', {
-      profile: 'work',
-    })).toBe('profile');
     expect(firstUnsupportedTargetRuntimeField('grok-build', {
       gateway: 'openai',
     })).toBe('gateway');
@@ -72,11 +69,6 @@ describe('adapter target runtime control contracts', () => {
       unsupportedTargetRuntimeFieldMessage('grok-build', 'gateway'),
     ).toBe(
       'gateway 与 Grok Build 不兼容；仅 Claude Code 支持',
-    );
-    expect(
-      unsupportedTargetRuntimeFieldMessage('claude-code', 'profile'),
-    ).toBe(
-      'profile 已停用；内置 Codex app-server 不支持 --profile。Codex CLI 请改用 provider=<model_provider>，或省略该字段以使用 $CODEX_HOME/config.toml',
     );
     expect(
       unsupportedTargetRuntimeFieldMessage('codex-cli', 'grokSandbox'),

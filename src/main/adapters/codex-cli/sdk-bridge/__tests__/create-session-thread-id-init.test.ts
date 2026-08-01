@@ -62,7 +62,6 @@ const modelProviderMock = vi.hoisted(() => ({
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
   resolveBundledCodexBinary: () => null,
   resolveCodexBinary: () => null,
-  prependBundledCodexPathDirs: vi.fn(),
   prependResolvedCodexPathDirs: vi.fn(),
 }));
 vi.mock('@main/store/image-uploads', () => ({

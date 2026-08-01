@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   setCodexApprovalPolicy: vi.fn(),
   restartWithGrokSandbox: vi.fn(),
   resolveCreationDefaults: vi.fn(),
+  respondDiffReview: vi.fn(),
 }));
 
 vi.mock('@main/adapters/registry', () => ({
@@ -43,7 +44,9 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 }));
 vi.mock('@main/event-bus', () => ({ eventBus: {} }));
 vi.mock('@main/plan-review/service', () => ({ planReviewService: {} }));
-vi.mock('@main/diff-review/service', () => ({ diffReviewService: {} }));
+vi.mock('@main/diff-review/service', () => ({
+  diffReviewService: { respond: mocks.respondDiffReview },
+}));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: mocks.deleteUpload,
   loadUploadedImage: mocks.loadUploaded,
@@ -100,6 +103,7 @@ describe('adapter outgoing queue IPC', () => {
       mime: 'image/png',
       bytes: 5,
     });
+    mocks.respondDiffReview.mockResolvedValue(true);
     registerAdaptersIpc();
   });
 
@@ -122,6 +126,23 @@ describe('adapter outgoing queue IPC', () => {
         turnCorrelationId: result.messageId,
       },
     }));
+  });
+
+  it('awaits transferred diff-review delivery and propagates a late-delivery failure', async () => {
+    mocks.respondDiffReview.mockRejectedValueOnce(new Error('late delivery failed'));
+
+    await expect(handler(IpcInvoke.AdapterRespondDiffReview)(
+      {},
+      'codex-cli',
+      'successor',
+      'diff-1',
+      { decision: 'approve' },
+    )).rejects.toThrow('late delivery failed');
+    expect(mocks.respondDiffReview).toHaveBeenCalledWith(
+      'successor',
+      'diff-1',
+      { decision: 'approve' },
+    );
   });
 
   it('returns a safe pending snapshot and deletes queued uploads only after removal wins', async () => {

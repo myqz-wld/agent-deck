@@ -24,9 +24,6 @@ describe('MCP target runtime schemas', () => {
       thinking: 'max',
     }).success).toBe(true);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
-      profile: 'openrouter',
-    }).success).toBe(false);
-    expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
       provider: 'deepseek',
     }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['claude-code'].safeParse({
@@ -45,9 +42,6 @@ describe('MCP target runtime schemas', () => {
       extraAllowWrite: ['/repo-2'],
       thinking: 'ultra',
     }).success).toBe(true);
-    expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
-      profile: 'openrouter',
-    }).success).toBe(false);
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
       gateway: 'deepseek',
     }).success).toBe(false);

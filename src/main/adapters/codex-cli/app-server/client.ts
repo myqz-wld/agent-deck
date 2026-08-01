@@ -230,6 +230,29 @@ export class CodexAppServerClient {
     this.serverRequestHost.setHandler(handler);
   }
 
+  /** Write one provider-native interrupt without starting or awaiting a new process. */
+  sendTurnInterrupt(
+    expectedGeneration: number,
+    threadId: string,
+    turnId: string,
+  ): boolean {
+    if (this.closed || this.generation !== expectedGeneration || !this.child) return false;
+    return this.writeTurnInterrupt(this.child, threadId, turnId) === 'sent';
+  }
+
+  /** Fence an unacknowledged accepted turn after its one interrupt has already been written. */
+  recycleGeneration(
+    expectedGeneration: number,
+    error: Error,
+    phase: string,
+  ): boolean {
+    return this.generationController.recycleControlPlaneGeneration(
+      expectedGeneration,
+      error,
+      phase,
+    );
+  }
+
   /**
    * Best-effort interrupt followed by a fenced process recycle.
    *
@@ -256,22 +279,7 @@ export class CodexAppServerClient {
       return false;
     }
 
-    let interruptWrite: 'sent' | 'failed' = 'sent';
-    try {
-      const id = this.nextId++;
-      child.stdin.write(`${JSON.stringify({
-        method: 'turn/interrupt',
-        id,
-        params: { threadId, turnId },
-      })}\n`);
-    } catch (interruptErr) {
-      interruptWrite = 'failed';
-      logger.debug('[codex-app-server] watchdog interrupt write failed', {
-        event: 'codex_turn_watchdog_interrupt_write_failed',
-        errorName: interruptErr instanceof Error ? interruptErr.name : 'unknown',
-        errorCode: readErrorCode(interruptErr),
-      });
-    }
+    const interruptWrite = this.writeTurnInterrupt(child, threadId, turnId);
 
     // Recycling is process-wide. Emit a process-level terminal (no turn/thread filter) so any
     // other accepted turns sharing this generation also close instead of waiting on dead queues.
@@ -297,6 +305,29 @@ export class CodexAppServerClient {
     this.closed = true;
     this.generationController.dispose(new Error('Codex app-server disposed'));
     this.notificationListeners.clear();
+  }
+
+  private writeTurnInterrupt(
+    child: ChildProcessWithoutNullStreams,
+    threadId: string,
+    turnId: string,
+  ): 'sent' | 'failed' {
+    try {
+      const id = this.nextId++;
+      child.stdin.write(`${JSON.stringify({
+        method: 'turn/interrupt',
+        id,
+        params: { threadId, turnId },
+      })}\n`);
+      return 'sent';
+    } catch (interruptError) {
+      logger.debug('[codex-app-server] turn interrupt write failed', {
+        event: 'codex_turn_interrupt_write_failed',
+        errorName: interruptError instanceof Error ? interruptError.name : 'unknown',
+        errorCode: readErrorCode(interruptError),
+      });
+      return 'failed';
+    }
   }
 
   private ensureProcess(): ChildProcessWithoutNullStreams {

@@ -32,6 +32,7 @@ import {
   MAX_IMAGE_BYTES,
 } from '@main/ipc/_image-constants';
 import log from '@main/utils/logger';
+import { isPathWithinRoot, isPlatformAbsolutePath } from '@main/platform-paths';
 
 const logger = log.scope('store-image-uploads');
 
@@ -127,7 +128,7 @@ export async function loadUploadedImage(reqPath: string): Promise<LoadImageBlobR
   if (!reqPath || typeof reqPath !== 'string') {
     return { ok: false, reason: 'unsupported_source', detail: 'path missing' };
   }
-  if (!reqPath.startsWith('/')) {
+  if (!isPlatformAbsolutePath(reqPath)) {
     return { ok: false, reason: 'denied', detail: 'path must be absolute' };
   }
 
@@ -149,8 +150,7 @@ export async function loadUploadedImage(reqPath: string): Promise<LoadImageBlobR
       return getImageUploadsDir(); // 目录不存在时（首次启动尚未写过）回退原路径
     }
   })();
-  const prefix = uploadsDirReal.endsWith(sep) ? uploadsDirReal : uploadsDirReal + sep;
-  if (!real.startsWith(prefix)) {
+  if (!isPathWithinRoot(uploadsDirReal, real)) {
     return { ok: false, reason: 'denied', detail: 'path not under uploads dir' };
   }
 

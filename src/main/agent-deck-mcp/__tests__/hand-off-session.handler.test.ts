@@ -11,8 +11,18 @@ import type {
 import { sessionManager } from '@main/session/manager';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { sessionRepo } from '@main/store/session-repo';
+import {
+  createAgentDeckTeamRepo,
+  transferTeammateMembershipWithDb,
+} from '@main/store/agent-deck-team-repo';
+import {
+  bindingAvailable,
+  insertSession,
+  makeMemoryDb,
+} from '@main/store/__tests__/agent-deck-repos/_setup';
 import type { SessionRecord } from '@shared/types';
 import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
+import { shutdownSessionHandler } from '../tools/handlers/shutdown';
 import type { HandOffSessionHandlerDeps } from '../tools/handlers/hand-off-session/_deps';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 
@@ -263,6 +273,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     vi.spyOn(sessionRepo, 'get')
       .mockReturnValueOnce(callerRow())
       .mockReturnValueOnce(callerRow())
+      .mockReturnValueOnce(callerRow())
       .mockImplementationOnce(() => {
         throw new Error('database unavailable during final probe');
       });
@@ -393,6 +404,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
   it('does not create a successor if the source closes during preparation', async () => {
     vi.spyOn(sessionRepo, 'get')
       .mockReturnValueOnce(callerRow())
+      .mockReturnValueOnce(callerRow())
       .mockReturnValueOnce(callerRow({ lifecycle: 'closed', endedAt: 2 }));
     const createSuccessor = vi.fn();
     const cleanupSpool = vi.fn();
@@ -452,6 +464,106 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(data.warnings).toEqual(['source-finalization-failed']);
     expect(result.content[0]?.text).not.toContain('source close secret detail');
   });
+
+  it('rejects a second mutating call from the in-process predecessor after successful handoff', async () => {
+    let currentSource = callerRow();
+    const successor = callerRow({ id: 'successor-sid', title: 'successor' });
+    vi.spyOn(sessionRepo, 'get').mockImplementation((sessionId) => {
+      if (sessionId === currentSource.id) return currentSource;
+      if (sessionId === successor.id) return successor;
+      return null;
+    });
+    const close = vi.spyOn(sessionManager, 'close').mockImplementation(async () => undefined);
+
+    const handoff = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({
+        finalizeSource: () => {
+          currentSource = {
+            ...currentSource,
+            lifecycle: 'closed',
+            endedAt: Date.now(),
+          };
+        },
+      }),
+    );
+    expect(handoff.isError).toBeFalsy();
+
+    const shutdown = await shutdownSessionHandler(
+      { sessionId: 'successor-sid', reason: 'predecessor must no longer control successor' },
+      ctx(),
+    );
+
+    expect(shutdown.isError).toBe(true);
+    expect(shutdown.content[0]?.text).toContain('callerSessionId caller-sid is closed');
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it.skipIf(!bindingAvailable)(
+    'keeps the real SQLite teammate move committed when source finalization fails',
+    async () => {
+      const db = makeMemoryDb();
+      try {
+        insertSession(db, 'team-lead');
+        insertSession(db, 'caller-sid');
+        insertSession(db, 'successor-sid');
+        const teamRepo = createAgentDeckTeamRepo(db);
+        const team = teamRepo.create({ name: 'handoff-finalization-boundary' });
+        teamRepo.addMember({ teamId: team.id, sessionId: 'team-lead', role: 'lead' });
+        teamRepo.addMember({
+          teamId: team.id,
+          sessionId: 'caller-sid',
+          role: 'teammate',
+          displayName: 'batch-s',
+        });
+        vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+
+        const result = await handOffSessionHandler(
+          { prompt: 'continue' },
+          ctx(),
+          testDeps({
+            transferResources: () => {
+              const membership = transferTeammateMembershipWithDb(
+                db,
+                team.id,
+                'caller-sid',
+                'successor-sid',
+              );
+              if (membership.transferred !== true) throw new Error(membership.reason);
+              return {
+                tasks: { status: 'ok', count: 0 },
+                teams: {
+                  status: 'ok',
+                  transferred: [{ teamId: team.id, role: 'teammate' }],
+                  skipped: [],
+                  failed: [],
+                },
+                worktreeLease: { status: 'skipped', worktreePath: null },
+              };
+            },
+            finalizeSource: () => {
+              throw new Error('simulated crash before best-effort finalization');
+            },
+          }),
+        );
+
+        expect(result.isError).toBeFalsy();
+        expect(parseResult(result)).toMatchObject({
+          callerClosed: 'failed',
+          warnings: ['source-finalization-failed'],
+        });
+        expect(teamRepo.findActiveMembershipIn(team.id, 'caller-sid')).toBeNull();
+        expect(teamRepo.findActiveMembershipIn(team.id, 'successor-sid')).toMatchObject({
+          role: 'teammate',
+          displayName: 'batch-s',
+          leftAt: null,
+        });
+      } finally {
+        db.close();
+      }
+    },
+  );
 
   it('carries provider input queued before the cutover lease into the successor', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());

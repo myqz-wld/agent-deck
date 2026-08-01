@@ -18,7 +18,7 @@ import {
   type BrowserOwnerHandle,
   type BrowserOwnerLease,
 } from '../engine/registry';
-import { CDP_TIMEOUT_MS } from '../engine/types';
+import { CDP_TIMEOUT_MS, type TabInfo } from '../engine/types';
 import type { EngineTab } from '../engine/tab';
 
 export interface BrowserUseNotifier {
@@ -50,6 +50,7 @@ export class CodexPipeBrowserFront {
   private readonly targets = new Map<number, TabTargets>();
   private boundSessionId: string | null = null;
   private lease: BrowserOwnerLease | null = null;
+  private unsubscribeTabClosed: (() => void) | null = null;
   private disposed = false;
 
   constructor(
@@ -79,7 +80,7 @@ export class CodexPipeBrowserFront {
       case 'getInfo':
         return this.getInfo();
       case 'getTabs':
-        return this.requireHandle().listTabInfos();
+        return this.listTabInfos();
       case 'getUserTabs':
         return [];
       case 'getUserHistory':
@@ -113,10 +114,10 @@ export class CodexPipeBrowserFront {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    for (const targets of this.targets.values()) {
-      for (const unsubscribe of targets.unsubscribe) unsubscribe();
-    }
-    this.targets.clear();
+    const unsubscribeTabClosed = this.unsubscribeTabClosed;
+    this.unsubscribeTabClosed = null;
+    unsubscribeTabClosed?.();
+    for (const tabId of [...this.targets.keys()]) this.disposeTarget(tabId);
     const lease = this.lease;
     this.lease = null;
     await lease?.release();
@@ -126,9 +127,13 @@ export class CodexPipeBrowserFront {
     const sessionId = requireString(params, 'session_id');
     if (this.boundSessionId == null) {
       this.boundSessionId = sessionId;
-      this.lease = this.engine.acquireLease({
+      const lease = this.engine.acquireLease({
         kind: 'codex-pipe',
         id: sessionId,
+      });
+      this.lease = lease;
+      this.unsubscribeTabClosed = lease.handle.onTabClosed((tabId) => {
+        this.disposeTarget(tabId);
       });
       return;
     }
@@ -157,12 +162,8 @@ export class CodexPipeBrowserFront {
     if (this.disposed) throw new Error('Browser-use session is closed.');
     const handle = this.requireHandle();
     const tab = await handle.openTab({ show: this.showWindows });
-    this.targets.set(tab.id, {
-      targetIdsBySessionId: new Map(),
-      targetSessionsById: new Map(),
-      subscribed: false,
-      unsubscribe: [],
-    });
+    this.tabTargets(tab.id);
+    this.pruneTargets(handle);
     return { ...tab.info(handle.isActive(tab.id)) };
   }
 
@@ -214,19 +215,19 @@ export class CodexPipeBrowserFront {
     const target = asRecord(params.target);
     const method = requireString(params, 'method');
     const handle = this.requireHandle();
-    const tabId = optionalPositiveInteger(target.tabId) ?? (await this.ensureTabForCdp(method));
-    const tab = handle.requireTab(tabId);
-    await this.attach(tabId);
-
     const commandParams = isRecord(params.commandParams) ? params.commandParams : {};
-    if (method === 'Target.getTargets') return this.getTargetInfos(tab);
     if (method === 'Target.closeTarget') {
       return this.closeSyntheticTarget(requireString(commandParams, 'targetId'));
     }
+    const tabId = optionalPositiveInteger(target.tabId) ?? (await this.ensureTabForCdp(method));
     if (method === 'Page.close') {
-      tab.close();
+      this.closePage(tabId);
       return {};
     }
+
+    const tab = handle.requireTab(tabId);
+    await this.attach(tabId);
+    if (method === 'Target.getTargets') return this.getTargetInfos(tab);
 
     const explicitSessionId = typeof target.sessionId === 'string' ? target.sessionId : undefined;
     const targetId = typeof target.targetId === 'string' ? target.targetId : undefined;
@@ -251,6 +252,8 @@ export class CodexPipeBrowserFront {
    * `page` target and merged with the real child targets the debugger does report.
    */
   private async getTargetInfos(tab: EngineTab): Promise<UnknownRecord> {
+    const handle = this.requireHandle();
+    this.pruneTargets(handle);
     const nativeResult = await tab.cdp.send('Target.getTargets', {});
     const nativeTargets =
       isRecord(nativeResult) && Array.isArray(nativeResult.targetInfos)
@@ -259,7 +262,7 @@ export class CodexPipeBrowserFront {
             return candidate.type === 'iframe' || candidate.type === 'other';
           })
         : [];
-    const topLevelTargets = this.requireHandle().listTabs().map((candidate) => ({
+    const topLevelTargets = handle.listTabs().map((candidate) => ({
       attached: true,
       canAccessOpener: false,
       id: syntheticTargetId(candidate.id),
@@ -273,12 +276,28 @@ export class CodexPipeBrowserFront {
   }
 
   private closeSyntheticTarget(targetId: string): UnknownRecord {
-    const tab = this.requireHandle()
-      .listTabs()
-      .find((candidate) => syntheticTargetId(candidate.id) === targetId);
-    if (tab == null) throw new Error(`Unknown browser target: ${targetId}`);
-    tab.close();
+    const tabId = parseSyntheticTargetId(targetId);
+    if (tabId == null) throw new Error(`Unknown browser target: ${targetId}`);
+    const handle = this.requireHandle();
+    const tab = handle.getTab(tabId);
+    try {
+      tab?.close();
+    } finally {
+      this.pruneTargets(handle);
+      if (tab == null) this.disposeTarget(tabId);
+    }
     return { success: true };
+  }
+
+  private closePage(tabId: number): void {
+    const handle = this.requireHandle();
+    const tab = handle.getTab(tabId);
+    try {
+      tab?.close();
+    } finally {
+      this.pruneTargets(handle);
+      if (tab == null) this.disposeTarget(tabId);
+    }
   }
 
   private finalizeTabs(params: UnknownRecord): UnknownRecord {
@@ -288,8 +307,20 @@ export class CodexPipeBrowserFront {
       const tabId = optionalPositiveInteger(entry.tabId);
       return tabId == null ? [] : [tabId];
     });
-    this.requireHandle().keepOnly(keepIds);
+    const handle = this.requireHandle();
+    this.pruneTargets(handle);
+    try {
+      handle.keepOnly(keepIds);
+    } finally {
+      this.pruneTargets(handle);
+    }
     return {};
+  }
+
+  private listTabInfos(): TabInfo[] {
+    const handle = this.requireHandle();
+    this.pruneTargets(handle);
+    return handle.listTabInfos();
   }
 
   private async ensureTabForCdp(method: string): Promise<number> {
@@ -355,6 +386,23 @@ export class CodexPipeBrowserFront {
     return targets;
   }
 
+  private disposeTarget(tabId: number): void {
+    const targets = this.targets.get(tabId);
+    if (targets == null) return;
+    this.targets.delete(tabId);
+    targets.targetIdsBySessionId.clear();
+    targets.targetSessionsById.clear();
+    targets.subscribed = false;
+    for (const unsubscribe of targets.unsubscribe.splice(0)) unsubscribe();
+  }
+
+  private pruneTargets(handle: BrowserOwnerHandle): void {
+    const liveTabIds = new Set(handle.listTabs().map((tab) => tab.id));
+    for (const tabId of [...this.targets.keys()]) {
+      if (!liveTabIds.has(tabId)) this.disposeTarget(tabId);
+    }
+  }
+
   private rememberTargetSession(tabId: number, targetId: string, sessionId: string): void {
     const targets = this.tabTargets(tabId);
     targets.targetSessionsById.set(targetId, sessionId);
@@ -384,6 +432,11 @@ export class CodexPipeBrowserFront {
 
 function syntheticTargetId(tabId: number): string {
   return `agent-deck-iab-tab:${tabId}`;
+}
+
+function parseSyntheticTargetId(targetId: string): number | null {
+  const match = /^agent-deck-iab-tab:([1-9]\d*)$/.exec(targetId);
+  return match == null ? null : optionalPositiveInteger(Number(match[1]));
 }
 
 function asRecord(value: unknown): UnknownRecord {

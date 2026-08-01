@@ -77,7 +77,7 @@ src/main/session/__tests__/manager-delete.test.ts
 src/main/session/__tests__/lifecycle-scheduler.test.ts
 src/main/index/bootstrap-infra.ts
 src/main/index/lifecycle-hooks.ts
-ref/plans/recent-3-days/PLAN_19_cross-adapter-browser-engine.md
+ref/plans/recent-week/PLAN_19_cross-adapter-browser-engine.md
 ref/changelogs/recent-3-days/CHANGELOG_403_browser-waits-open-dom-retention.md
 ```
 

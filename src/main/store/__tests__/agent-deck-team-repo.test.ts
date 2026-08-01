@@ -19,6 +19,7 @@ import type Database from 'better-sqlite3';
 import {
   createAgentDeckTeamRepo,
   TeamInvariantError,
+  transferTeammateMembershipWithDb,
   type AgentDeckTeamRepo,
 } from '../agent-deck-team-repo';
 import { createAgentDeckMessageRepo } from '../agent-deck-message-repo';
@@ -187,6 +188,102 @@ describe.skipIf(!bindingAvailable)('agent-deck-team-repo / member CRUD', () => {
     repo.leaveTeam(t.id, 'sA');
     repo.addMember({ teamId: t.id, sessionId: 'sA', role: 'teammate', displayName: 'renamed' });
     expect(repo.findActiveMembershipIn(t.id, 'sA')?.displayName).toBe('renamed');
+  });
+
+  it('atomically transfers a teammate membership and is idempotent after commit', () => {
+    insertSession(db, 'lead');
+    insertSession(db, 'source');
+    insertSession(db, 'successor');
+    const t = repo.create({ name: 'handoff-team' });
+    repo.addMember({ teamId: t.id, sessionId: 'lead', role: 'lead' });
+    repo.addMember({
+      teamId: t.id,
+      sessionId: 'source',
+      role: 'teammate',
+      displayName: 'reviewer-codex',
+    });
+
+    expect(
+      transferTeammateMembershipWithDb(db, t.id, 'source', 'successor'),
+    ).toEqual({ transferred: true });
+    expect(repo.findActiveMembershipIn(t.id, 'source')).toBeNull();
+    expect(repo.findActiveMembershipIn(t.id, 'successor')).toMatchObject({
+      role: 'teammate',
+      displayName: 'reviewer-codex',
+      leftAt: null,
+    });
+
+    const committedRows = repo.listAllMembers(t.id);
+    expect(
+      transferTeammateMembershipWithDb(db, t.id, 'source', 'successor'),
+    ).toEqual({ transferred: true });
+    expect(repo.listAllMembers(t.id)).toEqual(committedRows);
+  });
+
+  it('rejoins a historical successor without clobbering its display name', () => {
+    insertSession(db, 'lead');
+    insertSession(db, 'source');
+    insertSession(db, 'successor');
+    const t = repo.create({ name: 'handoff-rejoin-team' });
+    repo.addMember({ teamId: t.id, sessionId: 'lead', role: 'lead' });
+    repo.addMember({
+      teamId: t.id,
+      sessionId: 'successor',
+      role: 'teammate',
+      displayName: 'successor-alias',
+    });
+    repo.leaveTeam(t.id, 'successor');
+    repo.addMember({
+      teamId: t.id,
+      sessionId: 'source',
+      role: 'teammate',
+      displayName: 'source-alias',
+    });
+
+    expect(
+      transferTeammateMembershipWithDb(db, t.id, 'source', 'successor'),
+    ).toEqual({ transferred: true });
+    expect(repo.findActiveMembershipIn(t.id, 'source')).toBeNull();
+    expect(repo.findActiveMembershipIn(t.id, 'successor')).toMatchObject({
+      role: 'teammate',
+      displayName: 'successor-alias',
+      leftAt: null,
+    });
+  });
+
+  it('rolls back the source leave when successor publication fails', () => {
+    insertSession(db, 'lead');
+    insertSession(db, 'source');
+    insertSession(db, 'successor');
+    const t = repo.create({ name: 'handoff-rollback-team' });
+    repo.addMember({ teamId: t.id, sessionId: 'lead', role: 'lead' });
+    repo.addMember({
+      teamId: t.id,
+      sessionId: 'source',
+      role: 'teammate',
+      displayName: 'source-alias',
+    });
+    db.exec(
+      `CREATE TRIGGER fail_handoff_successor_insert
+       BEFORE INSERT ON agent_deck_team_members
+       WHEN NEW.session_id = 'successor'
+       BEGIN
+         SELECT RAISE(ABORT, 'forced successor insert failure');
+       END`,
+    );
+
+    const result = transferTeammateMembershipWithDb(db, t.id, 'source', 'successor');
+
+    expect(result).toMatchObject({
+      transferred: false,
+      reason: expect.stringContaining('forced successor insert failure'),
+    });
+    expect(repo.findActiveMembershipIn(t.id, 'source')).toMatchObject({
+      role: 'teammate',
+      displayName: 'source-alias',
+      leftAt: null,
+    });
+    expect(repo.findActiveMembershipIn(t.id, 'successor')).toBeNull();
   });
 
   it('lead 数上限 = 10 / 第 11 个 lead addMember throw（reviewer schema 不变量）', () => {

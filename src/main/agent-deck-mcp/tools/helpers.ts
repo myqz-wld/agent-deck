@@ -143,15 +143,14 @@ export function err(
 }
 
 /**
- * caller 反查（HTTP transport 用；in-process 已通过 closure 强制覆盖跳过）：
- * - external caller（__external__）已被 denyExternalIfNotAllowed 拦下，不到这里
- * - in-process closure 覆盖后的 caller 也直接信任
- * - HTTP：transport-authenticated callerSessionId 必须能反查到 sessionRepo 且未 closed
+ * Durable caller lifecycle authorization, separate from transport identity acquisition:
+ * - HTTP per-session tokens and in-process closures establish the trusted caller id;
+ * - every real caller id must still resolve in sessionRepo and remain non-closed;
+ * - the external sentinel is the only exception, after the per-tool capability guard above.
  *
  * 返回 null 表示通过；返回错误对象表示 deny。
  */
 export function validateExternalCaller(caller: CallerContext): HandlerResult | null {
-  if (caller.transport === 'in-process') return null;
   if (caller.callerSessionId === EXTERNAL_CALLER_SENTINEL) return null;
   const session = sessionRepo.get(caller.callerSessionId);
   if (!session) {

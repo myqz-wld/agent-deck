@@ -179,9 +179,3 @@ function stripNulls(value: JsonValue | undefined): JsonValue | undefined {
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
-
-export const __testables = {
-  buildWrappedServer,
-  mergeJsonObjects,
-  readNodeReplServer,
-};

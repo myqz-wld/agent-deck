@@ -14,6 +14,7 @@
 import { IpcEvent } from '@shared/ipc-channels';
 import type {
   AgentEvent,
+  CallerArchiveFailedEvent,
   IssueChangedEvent,
   SessionRecord,
   SummaryRecord,
@@ -68,4 +69,6 @@ export const eventsApi = {
     subscribe<boolean>(IpcEvent.CompactToggled, cb),
   onSessionFocusRequest: (cb: (sessionId: string) => void): (() => void) =>
     subscribe<string>(IpcEvent.SessionFocusRequest, cb),
+  onCallerArchiveFailed: (cb: (event: CallerArchiveFailedEvent) => void): (() => void) =>
+    subscribe<CallerArchiveFailedEvent>(IpcEvent.CallerArchiveFailed, cb),
 };

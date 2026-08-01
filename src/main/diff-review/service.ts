@@ -25,6 +25,7 @@ interface PendingMcpDiffReview {
   state: 'active' | 'transferred';
   resolutionState: 'pending' | 'resolving' | 'cancelled';
   lateResponse: DiffReviewResponse | null;
+  deliveryPromise: Promise<void> | null;
 }
 
 export interface RequestDiffReviewInput extends Omit<DiffReviewRequest, 'type' | 'requestId'> {
@@ -125,6 +126,7 @@ export class DiffReviewService {
       state: 'active',
       resolutionState: 'pending',
       lateResponse: null,
+      deliveryPromise: null,
     };
     if (input.timeoutMs && input.timeoutMs > 0) {
       entry.timer = setTimeout(() => {
@@ -172,14 +174,21 @@ export class DiffReviewService {
     return cancelled;
   }
 
-  respond(sessionId: string, requestId: string, response: DiffReviewResponse): boolean {
+  async respond(
+    sessionId: string,
+    requestId: string,
+    response: DiffReviewResponse,
+  ): Promise<boolean> {
     const entry = this.pending.get(requestId);
     if (!entry || entry.ownerSessionId !== sessionId) return false;
     if (entry.resolutionState === 'resolving') {
       if (
         entry.lateResponse &&
         lateResponseSignature(entry.lateResponse) === lateResponseSignature(response)
-      ) return true;
+      ) {
+        await entry.deliveryPromise;
+        return true;
+      }
       throw new Error('This diff decision is already being submitted.');
     }
     if (entry.resolutionState !== 'pending') return false;
@@ -192,8 +201,14 @@ export class DiffReviewService {
       }
       entry.lateResponse ??= { ...response };
       entry.resolutionState = 'resolving';
-      void this.deliverTransferredDecision(entry);
-      return true;
+      const delivery = this.deliverTransferredDecision(entry);
+      entry.deliveryPromise = delivery;
+      try {
+        await delivery;
+        return true;
+      } finally {
+        if (entry.deliveryPromise === delivery) entry.deliveryPromise = null;
+      }
     }
     this.pending.delete(requestId);
     if (entry.timer) clearTimeout(entry.timer);
@@ -310,6 +325,7 @@ export class DiffReviewService {
           error: safeErrorSummary(error),
         }),
       );
+      throw error;
     }
   }
 

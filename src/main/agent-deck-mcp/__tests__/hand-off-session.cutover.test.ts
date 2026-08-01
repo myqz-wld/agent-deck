@@ -285,6 +285,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
   it('rejects stale inherited target options from a mismatched source-row/runtime pair', async () => {
     vi.spyOn(sessionRepo, 'get')
       .mockReturnValueOnce(source())
+      .mockReturnValueOnce(source())
       .mockReturnValue(source({ model: 'gpt-changed-after-row-read' }));
     const createSuccessor = vi.fn();
     const cleanupSpool = vi.fn();

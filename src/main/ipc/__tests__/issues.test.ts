@@ -34,7 +34,9 @@ const mocks = vi.hoisted(() => ({
   },
   sessionManager: {
     recordCreatedPermissionMode: vi.fn(),
+    close: vi.fn(),
   },
+  sessionRepo: { get: vi.fn() },
   eventBus: { emit: vi.fn() },
   buildCreateSessionOptions: vi.fn((agentId: string, opts: Record<string, unknown>) => ({ agentId, ...opts })),
 }));
@@ -42,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@main/store/issue-repo', () => ({ issueRepo: mocks.issueRepo }));
 vi.mock('@main/adapters/registry', () => ({ adapterRegistry: mocks.adapterRegistry }));
 vi.mock('@main/session/manager', () => ({ sessionManager: mocks.sessionManager }));
+vi.mock('@main/store/session-repo', () => ({ sessionRepo: mocks.sessionRepo }));
 vi.mock('@main/event-bus', () => ({ eventBus: mocks.eventBus }));
 vi.mock('@main/adapters/options-builder', () => ({
   buildCreateSessionOptions: mocks.buildCreateSessionOptions,
@@ -53,6 +56,7 @@ import {
   issuesUndeleteHandler,
   issuesResolveInNewSessionHandler,
   createIssueResolutionSession,
+  IssueResolutionRollbackIncompleteError,
   _resetInFlightResolveForTesting,
 } from '../issues';
 import type { IssueRecord } from '@shared/types';
@@ -61,6 +65,7 @@ const mockIssueRepo = mocks.issueRepo;
 const mockAdapterRegistry = mocks.adapterRegistry;
 const mockSessionManager = mocks.sessionManager;
 const mockEventBus = mocks.eventBus;
+const mockSessionRepo = mocks.sessionRepo;
 
 function makeIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
   const now = Date.now();
@@ -89,8 +94,13 @@ function makeIssue(overrides: Partial<IssueRecord> = {}): IssueRecord {
 function makeAdapter(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'claude-code',
-    capabilities: { canCreateSession: true, canAcceptAttachments: false },
+    capabilities: {
+      canCreateSession: true,
+      canAcceptAttachments: false,
+      canSetPermissionMode: true,
+    },
     createSession: vi.fn().mockResolvedValue('new-sid-123'),
+    closeSessionForRollback: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -104,6 +114,8 @@ beforeEach(() => {
   mockIssueRepo.listAppendices.mockReset().mockReturnValue([]);
   mockAdapterRegistry.get.mockReset();
   mockSessionManager.recordCreatedPermissionMode.mockReset();
+  mockSessionManager.close.mockReset().mockResolvedValue(undefined);
+  mockSessionRepo.get.mockReset().mockReturnValue({ lifecycle: 'closed' });
   mockEventBus.emit.mockReset();
   mocks.buildCreateSessionOptions.mockClear();
   _resetInFlightResolveForTesting();
@@ -306,7 +318,7 @@ describe('createIssueResolutionSession helper — 11 项边界硬化 (§D14 + St
     expect(mockSessionManager.recordCreatedPermissionMode).toHaveBeenCalledWith('new-sid-123', 'acceptEdits');
   });
 
-  it('§10 permissionMode=null → recordCreatedPermissionMode 调时传 undefined', async () => {
+  it('§10 permissionMode=null → capability path does not persist an implicit mode', async () => {
     mockAdapterRegistry.get.mockReturnValue(makeAdapter());
     await createIssueResolutionSession({
       adapter: 'claude-code',
@@ -316,7 +328,26 @@ describe('createIssueResolutionSession helper — 11 项边界硬化 (§D14 + St
       codexSandbox: null,
       claudeCodeSandbox: null,
     });
-    expect(mockSessionManager.recordCreatedPermissionMode).toHaveBeenCalledWith('new-sid-123', undefined);
+    expect(mockSessionManager.recordCreatedPermissionMode).not.toHaveBeenCalled();
+  });
+
+  it('§10 skips permission persistence when the adapter lacks the capability', async () => {
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({
+      capabilities: {
+        canCreateSession: true,
+        canAcceptAttachments: false,
+        canSetPermissionMode: false,
+      },
+    }));
+    await createIssueResolutionSession({
+      adapter: 'claude-code',
+      cwd: '/repo',
+      prompt: 'p',
+      permissionMode: 'acceptEdits',
+      codexSandbox: null,
+      claudeCodeSandbox: null,
+    });
+    expect(mockSessionManager.recordCreatedPermissionMode).not.toHaveBeenCalled();
   });
 
   it('Codex approvalPolicy 显式值透传到 createSession', async () => {
@@ -371,7 +402,10 @@ describe('createIssueResolutionSession helper — 11 项边界硬化 (§D14 + St
 // ═══════════════════════════════════════════════════════════════════════════
 describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + emit', () => {
   it('happy: spawn + 写回 resolutionSessionId + status="in-progress" + emit kind="updated"', async () => {
-    mockIssueRepo.get.mockReturnValue(makeIssue({ cwd: '/repo/issue-cwd' }));
+    mockIssueRepo.get.mockReturnValue(makeIssue({
+      cwd: '/repo/issue-cwd',
+      resolutionSessionId: 'old-resolution-sid',
+    }));
     mockAdapterRegistry.get.mockReturnValue(makeAdapter());
     const updated = makeIssue({ resolutionSessionId: 'new-sid-123', status: 'in-progress' });
     mockIssueRepo.update.mockReturnValue(updated);
@@ -539,7 +573,7 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
     expect(mockSessionManager.recordCreatedPermissionMode).toHaveBeenCalledWith('new-sid-123', 'acceptEdits');
   });
 
-  it('§10 permissionMode 未传 → recordCreatedPermissionMode 调时传 undefined（保持「default」语义不污染 sessionRepo）', async () => {
+  it('§10 permissionMode 未传 → does not persist an implicit default', async () => {
     mockIssueRepo.get.mockReturnValue(makeIssue());
     mockAdapterRegistry.get.mockReturnValue(makeAdapter());
     mockIssueRepo.update.mockReturnValue(makeIssue());
@@ -548,7 +582,157 @@ describe('issuesResolveInNewSessionHandler — happy + cwd fallback + dedupe + e
       adapter: 'claude-code',
       prompt: 'p',
     });
-    expect(mockSessionManager.recordCreatedPermissionMode).toHaveBeenCalledWith('new-sid-123', undefined);
+    expect(mockSessionManager.recordCreatedPermissionMode).not.toHaveBeenCalled();
+  });
+
+  it('permission persistence failure is warn-only after creation', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    const closeSessionForRollback = vi.fn().mockResolvedValue(undefined);
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ closeSessionForRollback }));
+    mockIssueRepo.update.mockReturnValue(makeIssue({ resolutionSessionId: 'new-sid-123' }));
+    mockSessionManager.recordCreatedPermissionMode.mockImplementation(() => {
+      throw new Error('permission persistence failed');
+    });
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'claude-code',
+      prompt: 'p',
+      permissionMode: 'acceptEdits',
+    })).resolves.toMatchObject({ sessionId: 'new-sid-123' });
+    expect(closeSessionForRollback).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['re-read throws', () => {
+      mockIssueRepo.get
+        .mockReturnValueOnce(makeIssue())
+        .mockImplementationOnce(() => { throw new Error('re-read failed'); });
+    }],
+    ['re-read finds no row', () => {
+      mockIssueRepo.get.mockReturnValueOnce(makeIssue()).mockReturnValueOnce(null);
+    }],
+    ['link update throws', () => {
+      mockIssueRepo.get.mockReturnValue(makeIssue());
+      mockIssueRepo.update.mockImplementation(() => { throw new Error('update failed'); });
+    }],
+    ['link update returns no row', () => {
+      mockIssueRepo.get.mockReturnValue(makeIssue());
+      mockIssueRepo.update.mockReturnValue(null);
+    }],
+    ['appendix hydration throws', () => {
+      mockIssueRepo.get.mockReturnValue(makeIssue());
+      mockIssueRepo.update.mockReturnValue(makeIssue({ resolutionSessionId: 'new-sid-123' }));
+      mockIssueRepo.listAppendices.mockImplementation(() => { throw new Error('appendix failed'); });
+    }],
+  ] as Array<[string, () => void]>)('strictly rolls back when required post-create %s', async (_label, arrangeFailure) => {
+    const closeSessionForRollback = vi.fn().mockResolvedValue(undefined);
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ closeSessionForRollback }));
+    arrangeFailure();
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'claude-code',
+      prompt: 'p',
+    })).rejects.toThrow();
+    expect(closeSessionForRollback).toHaveBeenCalledWith('new-sid-123');
+    expect(mockSessionManager.close).toHaveBeenCalledWith('new-sid-123');
+    expect(mockSessionRepo.get).toHaveBeenCalledWith('new-sid-123');
+  });
+
+  it('treats issue-changed notification failure as non-fatal after linking', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    const closeSessionForRollback = vi.fn().mockResolvedValue(undefined);
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ closeSessionForRollback }));
+    mockIssueRepo.update.mockReturnValue(makeIssue({ resolutionSessionId: 'new-sid-123' }));
+    mockEventBus.emit.mockImplementation(() => { throw new Error('event listener failed'); });
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'claude-code',
+      prompt: 'p',
+    })).resolves.toMatchObject({ sessionId: 'new-sid-123' });
+    expect(closeSessionForRollback).not.toHaveBeenCalled();
+  });
+
+  it('returns an explicit non-retryable sid when strict provider rollback fails', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    mockIssueRepo.update.mockImplementation(() => { throw new Error('update failed'); });
+    const createSession = vi.fn().mockResolvedValue('new-sid-123');
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({
+      createSession,
+      closeSessionForRollback: vi.fn().mockRejectedValue(new Error('provider still live')),
+    }));
+
+    const error = await issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'claude-code',
+      prompt: 'p',
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueResolutionRollbackIncompleteError);
+    expect(error).toMatchObject({
+      retryValid: false,
+      sessionId: 'new-sid-123',
+      code: 'ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE',
+    });
+    expect(mockSessionManager.close).toHaveBeenCalledWith('new-sid-123');
+    expect(mockSessionRepo.get).toHaveBeenCalledWith('new-sid-123');
+    expect((error as Error).message).toContain('ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE');
+    expect((error as Error).message).toContain('retryValid=false');
+    expect((error as Error).message).toContain('sid=new-sid-123');
+    expect((error as Error).message).toMatch(/restart Agent Deck.*clean up.*before retrying/);
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1', adapter: 'claude-code', prompt: 'retry',
+    })).rejects.toBe(error);
+    expect(createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an explicit non-retryable sid when durable closure cannot be proven', async () => {
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    mockIssueRepo.update.mockImplementation(() => { throw new Error('update failed'); });
+    mockSessionRepo.get.mockReturnValue({ lifecycle: 'active' });
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter());
+
+    const error = await issuesResolveInNewSessionHandler({
+      issueId: 'issue-1',
+      adapter: 'claude-code',
+      prompt: 'p',
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(IssueResolutionRollbackIncompleteError);
+    expect((error as Error).message).toContain('durable lifecycle is active');
+  });
+
+  it('keeps at most one live child when a rolled-back attempt is retried', async () => {
+    const live = new Set<string>();
+    let created = 0;
+    let maxLive = 0;
+    const createSession = vi.fn(async () => {
+      const sid = `new-sid-${++created}`;
+      live.add(sid);
+      maxLive = Math.max(maxLive, live.size);
+      return sid;
+    });
+    const closeSessionForRollback = vi.fn(async (sid: string) => { live.delete(sid); });
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({
+      createSession,
+      closeSessionForRollback,
+    }));
+    mockIssueRepo.get.mockReturnValue(makeIssue());
+    mockIssueRepo.update
+      .mockImplementationOnce(() => { throw new Error('first update failed'); })
+      .mockReturnValueOnce(makeIssue({ resolutionSessionId: 'new-sid-2' }));
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1', adapter: 'claude-code', prompt: 'p',
+    })).rejects.toThrow('first update failed');
+    expect(live.size).toBe(0);
+
+    await expect(issuesResolveInNewSessionHandler({
+      issueId: 'issue-1', adapter: 'claude-code', prompt: 'p',
+    })).resolves.toMatchObject({ sessionId: 'new-sid-2' });
+    expect(maxLive).toBe(1);
+    expect(live).toEqual(new Set(['new-sid-2']));
   });
 
   it('把 Codex 模型与思考程度映射到 adapter-native createSession 字段', async () => {

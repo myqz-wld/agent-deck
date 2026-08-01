@@ -14,7 +14,7 @@
  * 域职责：
  * - claim：pending → delivering 原子化抢占（UPDATE ... RETURNING *）
  * - markDelivered：pending shortcut 或 matching delivering lease → delivered
- * - markFailed：pending caller failure 或 matching delivering lease → failed
+ * - markFailed：matching delivering lease → failed
  * - retryAfterFail：delivering → pending 退避后重试，到 MAX_RETRY → failed
  * - cancel：pending → cancelled；claimed adapter calls must finish or drain
  * - terminalizeDeliveringOnStartup：at-most-once recovery，把不确定 delivering 终止为 failed
@@ -34,13 +34,39 @@ import {
   type MessageRow,
 } from './_deps';
 
-/** Transaction-compatible pending-only ownership move used by handoff resource transfer. */
+export const HANDOFF_SELF_MESSAGE_CANCEL_REASON =
+  'handoff-endpoint-collapse: pending message would become a successor self-message';
+
+/**
+ * Transaction-compatible pending-only ownership move used by handoff resource transfer.
+ * Pending envelopes between the source and successor are terminalized before either endpoint can
+ * be rewritten into a successor self-message. The surrounding handoff transaction owns atomicity.
+ */
 export function retargetPendingMessagesForHandOffWithDb(
   db: Database,
   sourceSessionId: string,
   successorSessionId: string,
 ): number {
   if (sourceSessionId === successorSessionId) return 0;
+
+  db.prepare(
+    `UPDATE agent_deck_messages
+        SET status = 'cancelled', status_reason = ?, delivering_since = NULL,
+            delivery_lease_to_session_id = NULL
+      WHERE status = 'pending'
+        AND from_session_id IN (?, ?)
+        AND to_session_id IN (?, ?)
+        AND (from_session_id = ? OR to_session_id = ?)`,
+  ).run(
+    HANDOFF_SELF_MESSAGE_CANCEL_REASON,
+    sourceSessionId,
+    successorSessionId,
+    sourceSessionId,
+    successorSessionId,
+    sourceSessionId,
+    sourceSessionId,
+  );
+
   return db.prepare(
     `UPDATE agent_deck_messages
         SET from_session_id = CASE WHEN from_session_id = ? THEN ? ELSE from_session_id END,
@@ -72,7 +98,7 @@ export function countDeliveringMessagesForSessionWithDb(
   return row.c;
 }
 
-export function countDeliveringMessagesWithDb(db: Database): number {
+function countDeliveringMessagesWithDb(db: Database): number {
   const row = db.prepare(
     `SELECT count(*) AS c
        FROM agent_deck_messages
@@ -136,34 +162,25 @@ export function createStateMachine(db: Database) {
   }
 
   function markFailed(
-    messageIdOrLease: string | MessageDeliveryLease,
+    lease: MessageDeliveryLease,
     reason: string,
   ): AgentDeckMessage | null {
-    const lease = typeof messageIdOrLease === 'string' ? null : messageIdOrLease;
-    const result = lease
-      ? db.prepare(
-        `UPDATE agent_deck_messages
-         SET status = 'failed', status_reason = ?, delivering_since = NULL,
-             delivery_lease_to_session_id = NULL
-         WHERE id = ? AND status = 'delivering'
-           AND to_session_id = ? AND delivery_lease_to_session_id = ?
-           AND delivery_generation = ?`,
-      ).run(
-        reason,
-        lease.messageId,
-        lease.toSessionId,
-        lease.toSessionId,
-        lease.generation,
-      )
-      : db.prepare(
-        `UPDATE agent_deck_messages
-         SET status = 'failed', status_reason = ?, delivering_since = NULL,
-             delivery_lease_to_session_id = NULL
-         WHERE id = ? AND status = 'pending'`,
-      ).run(reason, messageIdOrLease);
+    const result = db.prepare(
+      `UPDATE agent_deck_messages
+       SET status = 'failed', status_reason = ?, delivering_since = NULL,
+           delivery_lease_to_session_id = NULL
+       WHERE id = ? AND status = 'delivering'
+         AND to_session_id = ? AND delivery_lease_to_session_id = ?
+         AND delivery_generation = ?`,
+    ).run(
+      reason,
+      lease.messageId,
+      lease.toSessionId,
+      lease.toSessionId,
+      lease.generation,
+    );
     if (result.changes === 0) return null;
-    const messageId = lease ? lease.messageId : messageIdOrLease as string;
-    return getById(db, messageId);
+    return getById(db, lease.messageId);
   }
 
   function retryAfterFail(

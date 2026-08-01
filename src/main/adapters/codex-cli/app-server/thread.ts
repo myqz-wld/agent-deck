@@ -5,8 +5,6 @@ import {
   classifyTerminalForTurn,
   getNotificationThreadId,
   getNotificationTurnId,
-  readCompletedAgentMessageText,
-  readTerminalErrorText,
 } from './notification-helpers';
 import type {
   CodexAppServerNotification,
@@ -25,6 +23,8 @@ import {
   isCodexModelActivity,
 } from './first-model-event-watchdog';
 import { buildCodexTurnWatchdogDiagnostic } from './turn-watchdog-diagnostics';
+import { AcceptedTurnCancellation, AcceptedTurnCancellationOwner } from './accepted-turn-cancellation';
+import { collectCodexTurnOutput } from './turn-output';
 import log from '@main/utils/logger';
 
 const logger = log.scope('codex-app-server');
@@ -48,6 +48,7 @@ export class CodexAppServerThread {
   private readyPromise: Promise<string> | null = null;
   private readyGeneration = -1;
   private activeTurnId: string | null = null;
+  private activeTurnCancellation: AcceptedTurnCancellation | null = null;
 
   constructor(
     private readonly client: CodexAppServerClient,
@@ -143,23 +144,7 @@ export class CodexAppServerThread {
     opts?: CodexAppServerRunOptions,
   ): Promise<CodexAppServerRunResult> {
     const { events } = await this.runStreamed(input, opts);
-    const messages: string[] = [];
-    for await (const ev of events) {
-      if (ev.type !== 'server.notification') continue;
-      const terminalError = readTerminalErrorText(ev.notification);
-      if (terminalError) throw new Error(terminalError);
-      const text = readCompletedAgentMessageText(ev.notification);
-      if (text) {
-        messages.push(text);
-        if (
-          opts?.maxOutputBytes !== undefined &&
-          Buffer.byteLength(messages.join('\n'), 'utf8') > opts.maxOutputBytes
-        ) {
-          throw new Error('Codex app-server output exceeded byte limit');
-        }
-      }
-    }
-    return { finalResponse: messages.join('\n') };
+    return collectCodexTurnOutput(events, opts?.maxOutputBytes);
   }
 
   async ensureReady(signal?: AbortSignal): Promise<string> {
@@ -174,6 +159,11 @@ export class CodexAppServerThread {
   }
 
   async interrupt(turnId = this.activeTurnId): Promise<void> {
+    const cancellation = this.activeTurnCancellation;
+    if (cancellation && (!turnId || cancellation.turnId === turnId)) {
+      await cancellation.cancel(new Error('Codex turn interrupted'));
+      return;
+    }
     const threadId = this.threadId;
     if (!threadId || !turnId) return;
     // A dead process already terminated subscribers through a synthetic error. Do not restart it
@@ -189,6 +179,8 @@ export class CodexAppServerThread {
     const signal = opts?.signal;
     let unsub: Unsubscribe | null = null;
     let firstModelEventTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancellationOwner: AcceptedTurnCancellationOwner | null = null;
+    let signalAbortListener: (() => void) | null = null;
     const queue = new AsyncNotificationQueue<CodexAppServerNotification>();
     try {
       const threadId = await this.ensureThread(signal);
@@ -210,6 +202,24 @@ export class CodexAppServerThread {
       let lastScopedNotificationMethod: string | null = null;
       let lastScopedNotificationAtMs: number | null = null;
       const preAcceptanceCandidates = new Map<string, CodexAppServerNotification[]>();
+      cancellationOwner = new AcceptedTurnCancellationOwner(
+        this.client, turnGeneration, threadId,
+        (error) => queue.throw(error),
+      );
+      const attachAcceptedTurn = (turnId: string): boolean => {
+        let accepted: AcceptedTurnCancellation;
+        try {
+          accepted = cancellationOwner!.accept(turnId);
+        } catch (error) {
+          const acceptedError = error instanceof Error ? error : new Error(String(error));
+          queue.throw(acceptedError);
+          return false;
+        }
+        this.activeTurnCancellation = accepted;
+        this.activeTurnId = turnId;
+        return true;
+      };
+      signalAbortListener = () => cancellationOwner?.abort();
       const clearFirstModelEventTimer = (): void => {
         if (!firstModelEventTimer) return;
         clearTimeout(firstModelEventTimer);
@@ -276,12 +286,9 @@ export class CodexAppServerThread {
           const error = new Error(firstModelEventTimeoutMessage(timeoutMs));
           logger.warn('[codex-app-server] first model event timeout; recycle initiated',
             diagnostic('timeout', Date.now()));
-          const recycled = this.client.abortTurnAndRecycleGeneration(
-            turnGeneration,
-            threadId,
-            turnId,
-            error,
-          );
+          const recycled = cancellationOwner?.isCancelling(turnId)
+            ? this.client.recycleGeneration(turnGeneration, error, 'watchdog after cancellation')
+            : this.client.abortTurnAndRecycleGeneration(turnGeneration, threadId, turnId, error);
           if (!recycled) queue.throw(error);
         }, timeoutMs);
         firstModelEventTimer.unref();
@@ -300,12 +307,9 @@ export class CodexAppServerThread {
         const error = new Error(
           `Codex app-server returned malformed ${notification.method} for accepted turn ${turnId}`,
         );
-        const recycled = this.client.abortTurnAndRecycleGeneration(
-          turnGeneration,
-          threadId,
-          turnId,
-          error,
-        );
+        const recycled = cancellationOwner?.isCancelling(turnId)
+          ? this.client.recycleGeneration(turnGeneration, error, 'malformed terminal after cancellation')
+          : this.client.abortTurnAndRecycleGeneration(turnGeneration, threadId, turnId, error);
         if (!recycled) queue.throw(error);
       };
       const handleAcceptedNotification = (
@@ -334,6 +338,7 @@ export class CodexAppServerThread {
         if (terminalState === 'terminal') {
           terminalSeen = true;
           clearFirstModelEventTimer();
+          cancellationOwner?.cancellation?.markTerminal();
           this.activeTurnId = null;
           queue.close();
         }
@@ -348,6 +353,16 @@ export class CodexAppServerThread {
           !turnAccepted &&
           notificationTurnId
         ) {
+          if (
+            notification.method === 'turn/started' &&
+            notificationThreadId === threadId
+          ) {
+            attachAcceptedTurn(notificationTurnId);
+          }
+          if (cancellationOwner?.isCancelling(notificationTurnId)) {
+            handleAcceptedNotification(notification, notificationTurnId);
+            return;
+          }
           // readline may synchronously deliver a turn/start response and subsequent notifications
           // before the response Promise continuation runs. Retain only a bounded set of turn-scoped
           // candidates;
@@ -376,7 +391,10 @@ export class CodexAppServerThread {
       if (signal?.aborted) throw new Error('Codex turn interrupted');
 
       turnRequestIssued = true;
-      const response = await this.client.request<{ turn: { id: string } }>(
+      if (signal && signalAbortListener) signal.addEventListener('abort', signalAbortListener, { once: true });
+      if (signal?.aborted) signalAbortListener?.();
+      if (cancellationOwner.abortError) await cancellationOwner.acceptanceAbort;
+      const turnStartRequest = this.client.request<{ turn: { id: string } }>(
         'turn/start',
         buildTurnStartParams(threadId, input, this.mode.options, this.client.baseConfig, {
           ...(opts?.outputSchema !== undefined ? { outputSchema: opts.outputSchema } : {}),
@@ -385,13 +403,17 @@ export class CodexAppServerThread {
             ? { runtimeWorkspaceRoots: [...opts.runtimeWorkspaceRoots] }
             : {}),
         }),
-        signal,
       );
+      const response = signal
+        ? await Promise.race([turnStartRequest, cancellationOwner.acceptanceAbort])
+        : await turnStartRequest;
       const acceptance: TurnAcceptanceBoundary = {
         turnId: response.turn.id,
         source: 'response',
       };
-      this.activeTurnId = acceptance.turnId;
+      if (!attachAcceptedTurn(acceptance.turnId)) {
+        throw new Error('Codex app-server returned conflicting turn acceptance ids');
+      }
       turnAccepted = true;
       recordAcceptanceBoundary(acceptance.source);
       consumePreAcceptanceCandidates(acceptance.turnId);
@@ -403,7 +425,16 @@ export class CodexAppServerThread {
       }
     } finally {
       if (firstModelEventTimer) clearTimeout(firstModelEventTimer);
+      if (signal && signalAbortListener) {
+        signal.removeEventListener('abort', signalAbortListener);
+      }
+      const acceptedCancellation = cancellationOwner?.cancellation;
+      if (acceptedCancellation && !acceptedCancellation.isTerminal) {
+        await acceptedCancellation.cancel(cancellationOwner?.abortError ??
+          new Error('Codex turn consumer detached before completion'));
+      }
       unsub?.();
+      if (this.activeTurnCancellation === acceptedCancellation) this.activeTurnCancellation = null;
       this.activeTurnId = null;
       queue.close();
     }

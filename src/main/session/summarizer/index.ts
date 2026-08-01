@@ -18,9 +18,6 @@ interface GeneratedSummary {
   generationSource: SummaryRecord['generationSource'];
 }
 
-// Keep the formatter facade stable for periodic-summary callers.
-export { formatEventsForPrompt } from './event-formatter';
-
 /**
  * Summarizer 调度：定时扫描所有活跃会话，为达到「时间阈值」或「事件数阈值」
  * 的会话生成一段「会话目前在做什么」的意义层面描述。

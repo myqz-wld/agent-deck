@@ -38,7 +38,6 @@ export {
 } from './manager/hooks';
 import {
   markRecentlyDeletedImpl,
-  markDormantImpl,
   markClosedImpl,
   closeImpl,
   archiveImpl,
@@ -239,11 +238,6 @@ class SessionManagerClass {
     opts: ClosedSideEffectOptions,
   ): Promise<void> {
     return runClosedSideEffectsImpl(sessionId, opts);
-  }
-
-  /** thin delegate → manager/lifecycle.markDormantImpl (active → dormant)。 */
-  markDormant(sessionId: string): void {
-    markDormantImpl(sessionId);
   }
 
   /** thin delegate → manager/lifecycle.markClosedImpl (dormant/active → closed + side effects + close-epoch++)。 */

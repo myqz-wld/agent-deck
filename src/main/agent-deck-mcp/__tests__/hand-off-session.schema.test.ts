@@ -43,20 +43,6 @@ describe('hand_off_session schema — unified Continuation Context', () => {
     }).success).toBe(false);
   });
 
-  it('rejects the retired Codex profile selector with a migration hint', () => {
-    const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
-      prompt: 'continue',
-      adapter: 'codex-cli',
-      profile: 'work',
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0]?.message).toContain(
-        'Replace profile with provider=<model_provider id>',
-      );
-    }
-  });
-
   it.each(['auto', 'bypassPermissions'] as const)(
     'accepts the current Claude permission mode %s',
     (permissionMode) => {

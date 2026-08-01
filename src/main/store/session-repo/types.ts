@@ -101,9 +101,7 @@ export function rowToRecord(r: Row): SessionRecord {
       ? r.agent_profile_source
       : null,
     agentPluginDir: r.agent_plugin_dir ?? null,
-    // plan team-cohesion-fix-20260513 Phase A Step A9：teamName 字段不在 repo 层投影。
-    // sessionManager.enrichWithTeams / enrichWithTeamsBatch 在更高层注入 teams[] 数组 + teamName fallback。
-    // 老 sessions.team_name 列已 v014 drop。
+    // Team membership is not part of the persisted session row. SessionManager injects teams[].
     codexSandbox:
       (r.codex_sandbox as 'workspace-write' | 'read-only' | 'danger-full-access' | null) ?? null,
     codexApprovalPolicy: isCodexApprovalPolicy(r.codex_approval_policy)

@@ -268,7 +268,6 @@ describe('resolveHandOffTarget', () => {
     ['claude-code', 'additionalDirectories', { additionalDirectories: [] }],
     ['claude-code', 'sessionMode', { sessionMode: 'ask' }],
     ['codex-cli', 'grokSandbox', { grokSandbox: 'strict' }],
-    ['codex-cli', 'profile', { profile: 'work' }],
     ['grok-build', 'gateway', { gateway: 'xai' }],
     ['grok-build', 'extraAllowWrite', { extraAllowWrite: [] }],
   ] as const)(

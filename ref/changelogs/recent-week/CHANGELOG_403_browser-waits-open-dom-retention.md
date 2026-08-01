@@ -107,6 +107,6 @@ continues to use the official Browser plugin rather than the MCP browser surface
 ## Notes
 
 This hardening follows
-`ref/plans/recent-3-days/PLAN_19_cross-adapter-browser-engine.md`. Cross-origin frame refs, piercing
+`ref/plans/recent-week/PLAN_19_cross-adapter-browser-engine.md`. Cross-origin frame refs, piercing
 closed shadow roots, raw CDP, downloads/uploads, site-specific auth automation, and an attached
 `WebContentsView` remain out of scope.
