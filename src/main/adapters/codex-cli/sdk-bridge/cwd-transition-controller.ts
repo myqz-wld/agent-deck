@@ -23,6 +23,7 @@ export class CodexCwdTransitionController {
         `Codex session ${transition.sessionId} already has cwd transition generation ${current}.`,
       );
     }
+    this.requeueSubmittingSteer(session);
     session.cwdTransitionGeneration = transition.generation;
   }
 
@@ -69,6 +70,37 @@ export class CodexCwdTransitionController {
 
   runtimeCwd(sessionId: string): string | null {
     return this.sessionsOrNull(sessionId)?.cwd ?? null;
+  }
+
+  private requeueSubmittingSteer(session: InternalSession): void {
+    const submitting = session.submittingUserMessage;
+    if (!submitting || submitting.kind !== 'steer' || submitting.cancelled) return;
+    submitting.cancelled = true;
+    submitting.requestController?.abort();
+    if (session.submittingUserMessage === submitting) {
+      session.submittingUserMessage = null;
+    }
+    const pendingCount = session.pendingMessages.length;
+    session.pendingMessages.unshift(
+      packCodexInput(submitting.event.text, submitting.event.attachments),
+    );
+    const deferred = (session.pendingDeferredUserEvents ??= Array.from(
+      { length: pendingCount },
+      () => null,
+    ));
+    while (deferred.length < pendingCount) deferred.push(null);
+    deferred.unshift({ ...submitting.event });
+    const handOff = (session.pendingHandOffMessages ??= Array.from(
+      { length: pendingCount },
+      () => null,
+    ));
+    while (handOff.length < pendingCount) handOff.push(null);
+    handOff.unshift({
+      text: submitting.event.text,
+      ...(submitting.event.attachments
+        ? { attachments: submitting.event.attachments.map((ref) => ({ ...ref })) }
+        : {}),
+    });
   }
 
   private requireArmed(transition: AgentCwdTransition): InternalSession {

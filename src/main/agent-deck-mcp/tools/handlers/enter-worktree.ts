@@ -147,6 +147,7 @@ export const enterWorktreeHandler = withMcpGuard(
       );
       worktreeTransitionCoordinator.arm(transition);
     } catch (error) {
+      const failure = error instanceof Error ? error.message : String(error);
       const warnings = await rollbackPreparedWorktree(
         prepared,
         mergedDeps,
@@ -160,17 +161,10 @@ export const enterWorktreeHandler = withMcpGuard(
             (current.phase === 'creating' ||
               current.phase === 'enter_waiting_tool_result')
           ) {
-            await worktreeTransitionCoordinator.releaseAbortedPreparation(
+            transition = await worktreeTransitionCoordinator.releaseAbortedPreparation(
               current,
+              failure,
             );
-            transition = worktreeTransitionRepo.compareAndSetPhase({
-              sessionId: callerSessionId,
-              generation: transition.generation,
-              expected: current.phase,
-              next: 'cleared',
-              updatedAt: Date.now(),
-              lastError: error instanceof Error ? error.message : String(error),
-            });
           }
         } catch {
           // The primary error and explicit rollback warning below remain authoritative.
@@ -179,16 +173,12 @@ export const enterWorktreeHandler = withMcpGuard(
         worktreeTransitionRepo.setLastError(
           callerSessionId,
           transition.generation,
-          `${error instanceof Error ? error.message : String(error)}; rollback: ${warnings.join(
-            '; ',
-          )}`,
+          `${failure}; rollback: ${warnings.join('; ')}`,
           Date.now(),
         );
       }
       return err(
-        `enter_worktree preparation failed: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `enter_worktree preparation failed: ${failure}`,
         warnings.length
           ? `Rollback was incomplete and the transition lease was retained: ${warnings.join(
               '; ',

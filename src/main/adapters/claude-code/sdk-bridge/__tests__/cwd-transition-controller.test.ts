@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentCwdTransition } from '@main/adapters/types';
-import type { InternalSession } from '../types';
+import type { InternalSession, PendingUserMessage } from '../types';
 
 const sessionGet = vi.hoisted(() => vi.fn());
 vi.mock('@main/store/session-repo', () => ({
@@ -35,6 +35,13 @@ function internal(cwd: string): InternalSession {
   } as unknown as InternalSession;
 }
 
+function pending(text: string): PendingUserMessage {
+  return Object.assign(
+    vi.fn(async () => ({ type: 'user' })),
+    { handOffMessage: { text } },
+  ) as unknown as PendingUserMessage;
+}
+
 beforeEach(() => {
   sessionGet.mockReset();
   sessionGet.mockReturnValue({
@@ -48,14 +55,20 @@ beforeEach(() => {
 
 describe('ClaudeCwdTransitionController', () => {
   it('recreates the same application session through provider-neutral continuation at target cwd', async () => {
-    const sessions = new Map<string, InternalSession>([
-      ['session-a', internal('/repo')],
-    ]);
+    const source = internal('/repo');
+    const queued = pending('queued before enter');
+    source.pendingUserMessages.push(queued);
+    source.acceptedEnqueueFingerprints = new Map([['queued-key', 'fingerprint']]);
+    const sessions = new Map<string, InternalSession>([['session-a', source]]);
     const closeSession = vi.fn(async () => {
       sessions.delete('session-a');
     });
     const createSession = vi.fn(async (options: any) => {
-      sessions.set('session-a', internal(options.cwd));
+      const replacement = internal(options.cwd);
+      replacement.acceptedEnqueueFingerprints = new Map([
+        [options.initialEnqueueOptions.idempotencyKey, 'continuation'],
+      ]);
+      sessions.set('session-a', replacement);
       return { sessionId: 'session-a', abort: vi.fn() };
     });
     const capture = vi.fn((input: any) => ({
@@ -96,13 +109,22 @@ describe('ClaudeCwdTransitionController', () => {
     );
     expect(sessions.get('session-a')?.cwd).toBe('/repo/worktree');
     expect(sessions.get('session-a')?.cwdTransitionGeneration).toBe(5);
+    expect(sessions.get('session-a')?.pendingUserMessages).toEqual([queued]);
+    expect(sessions.get('session-a')?.acceptedEnqueueFingerprints).toEqual(
+      new Map([
+        ['queued-key', 'fingerprint'],
+        ['cwd:test:5', 'continuation'],
+      ]),
+    );
     expect(cleanup).toHaveBeenCalledTimes(2);
   });
 
   it('recreates the source cwd and fails closed when target creation fails', async () => {
-    const sessions = new Map<string, InternalSession>([
-      ['session-a', internal('/repo')],
-    ]);
+    const source = internal('/repo');
+    const queued = pending('queued before rollback');
+    source.pendingUserMessages.push(queued);
+    source.acceptedEnqueueFingerprints = new Map([['rollback-key', 'fingerprint']]);
+    const sessions = new Map<string, InternalSession>([['session-a', source]]);
     const createSession = vi.fn(async (options: any) => {
       if (options.cwd === '/repo/worktree') {
         throw new Error('target unavailable');
@@ -135,5 +157,9 @@ describe('ClaudeCwdTransitionController', () => {
     );
     expect(sessions.get('session-a')?.cwd).toBe('/repo');
     expect(sessions.get('session-a')?.cwdTransitionGeneration).toBe(5);
+    expect(sessions.get('session-a')?.pendingUserMessages).toEqual([queued]);
+    expect(sessions.get('session-a')?.acceptedEnqueueFingerprints).toEqual(
+      new Map([['rollback-key', 'fingerprint']]),
+    );
   });
 });

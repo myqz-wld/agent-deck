@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorktreeTransitionRecord } from '@main/session/worktree-transition/types';
+import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 
 const harness = vi.hoisted(() => ({
@@ -8,7 +9,7 @@ const harness = vi.hoisted(() => ({
   bind: vi.fn(),
   arm: vi.fn(),
   release: vi.fn(),
-  releasePreparation: vi.fn(async () => {}),
+  releasePreparation: vi.fn(),
   preflight: vi.fn(async () => {}),
   cleanup: vi.fn(async () => ({
     worktreeRemoved: true,
@@ -190,6 +191,22 @@ beforeEach(() => {
   harness.arm.mockClear();
   harness.release.mockClear();
   harness.releasePreparation.mockClear();
+  harness.releasePreparation.mockImplementation(
+    async (record: WorktreeTransitionRecord, failure: string) => {
+      harness.record = {
+        ...record,
+        direction: 'enter',
+        phase: record.direction === 'enter' ? 'cleared' : 'active',
+        targetCwd:
+          record.direction === 'enter'
+            ? record.targetCwd
+            : record.worktreePath,
+        toolUseId: null,
+        lastError: failure,
+      };
+      return harness.record;
+    },
+  );
   harness.preflight.mockReset();
   harness.preflight.mockResolvedValue(undefined);
   harness.cleanup.mockReset();
@@ -322,13 +339,71 @@ describe('structured automatic worktree handlers', () => {
     expect(harness.arm).not.toHaveBeenCalled();
   });
 
-  it('retries cleanup only after cwd restoration and reports a completed cleanup state', async () => {
+  it('does not retry cleanup until transition input is atomically sealed', async () => {
     harness.record = transition('cleanup_pending', {
       direction: 'exit',
       targetCwd: '/repo',
       continuationDelivered: true,
     });
+
     const result = await exitWorktreeHandler({}, ctx());
+
+    expect(result.isError).toBe(true);
+    expect(harness.cleanup).not.toHaveBeenCalled();
+  });
+
+  it('does not retry cleanup before the prior claimed invocation releases', async () => {
+    harness.record = transition('cleanup_pending', {
+      direction: 'exit',
+      targetCwd: '/repo',
+      toolUseId: null,
+      continuationDelivered: true,
+    });
+    worktreeToolInvocationRegistry.observe({
+      sessionId: 'caller-sid',
+      agentId: 'codex-cli',
+      kind: 'tool-use-start',
+      payload: {
+        toolUseId: 'prior-exit-tool',
+        toolName: 'mcp__agent-deck__exit_worktree',
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+    worktreeToolInvocationRegistry.reserve('caller-sid', 'exit');
+    worktreeToolInvocationRegistry.bindGeneration(
+      'caller-sid',
+      'prior-exit-tool',
+      1,
+    );
+
+    const result = await exitWorktreeHandler({}, ctx());
+    worktreeToolInvocationRegistry.release('caller-sid', 'prior-exit-tool', 1);
+
+    expect(result.isError).toBe(true);
+    expect(harness.cleanup).not.toHaveBeenCalled();
+  });
+
+  it('retries cleanup only after cwd restoration and reports a completed cleanup state', async () => {
+    harness.record = transition('cleanup_pending', {
+      direction: 'exit',
+      targetCwd: '/repo',
+      toolUseId: null,
+      continuationDelivered: true,
+    });
+    worktreeToolInvocationRegistry.observe({
+      sessionId: 'caller-sid',
+      agentId: 'codex-cli',
+      kind: 'tool-use-start',
+      payload: {
+        toolUseId: 'cleanup-retry-tool',
+        toolName: 'mcp__agent-deck__exit_worktree',
+      },
+      ts: Date.now(),
+      source: 'sdk',
+    });
+    const result = await exitWorktreeHandler({}, ctx());
+    worktreeToolInvocationRegistry.release('caller-sid', 'cleanup-retry-tool');
     expect(assertStructuredParity(result)).toMatchObject({
       transitionId: 'caller-sid:1',
       direction: 'exit',

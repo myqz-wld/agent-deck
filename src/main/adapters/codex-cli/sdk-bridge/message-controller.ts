@@ -5,6 +5,7 @@ import { packCodexInput, toCodexAppServerInput } from './input-pack';
 import type { CodexBridgeOptions, InternalSession } from './types';
 import log from '@main/utils/logger';
 import { guardHandOffSourceIngress } from '@main/session/hand-off/ingress-guard';
+import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
 import type {
   AgentEnqueueOptions,
@@ -61,7 +62,15 @@ export class MessageController {
     ) {
       return;
     }
-    await this.dispatchMessage(sessionId, text, attachments, false, true, false, options);
+    await this.dispatchMessage(
+      sessionId,
+      text,
+      attachments,
+      worktreeToolInvocationRegistry.hasPendingTransition(sessionId),
+      true,
+      false,
+      options,
+    );
   }
 
   /** Always enqueue behind the current turn; never convert a handoff tail into mid-turn steer. */
@@ -268,16 +277,32 @@ export class MessageController {
   }
 
   async steerTurn(sessionId: string, text: string): Promise<void> {
-    const session = this.ctx.sessions.get(sessionId);
-    if (!session) throw new Error('Codex 会话不在运行中，无法 mid-turn steer。');
-    assertCodexSessionAcceptsInput(session);
-
     const length = text.length;
     if (length > MAX_MESSAGE_LENGTH) {
       throw new Error(
         `单条 steer ${length.toLocaleString()} 字符超过 ${MAX_MESSAGE_LENGTH.toLocaleString()} 字符上限。请精简后再发送。`,
       );
     }
+    if (
+      guardHandOffSourceIngress({
+        sourceSessionId: sessionId,
+        agentId: AGENT_ID,
+        text,
+        emit: this.ctx.emit,
+        replay: (sourceSessionId) =>
+          this.enqueuePersistedMessage(sourceSessionId, text),
+      })
+    ) {
+      return;
+    }
+    if (worktreeToolInvocationRegistry.hasPendingTransition(sessionId)) {
+      await this.dispatchMessage(sessionId, text, undefined, true, true);
+      return;
+    }
+    const session = this.ctx.sessions.get(sessionId);
+    if (!session) throw new Error('Codex 会话不在运行中，无法 mid-turn steer。');
+    assertCodexSessionAcceptsInput(session);
+
     if (!session.currentTurn || !session.currentTurnId) {
       throw new Error('Codex 当前没有可 steer 的 active turn。');
     }

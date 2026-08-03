@@ -125,17 +125,18 @@ export class WorktreeTransitionCoordinator {
   /** Restore user inputs accepted while a preparation record existed but no cwd switch was armed. */
   async releaseAbortedPreparation(
     record: WorktreeTransitionRecord,
-  ): Promise<void> {
+    failure: string,
+  ): Promise<WorktreeTransitionRecord> {
     const adapter = this.requireAdapter(record.sessionId);
-    await replayAbortedTransitionInputs(record, adapter);
-    adapter.releaseCwdTransition?.(record.sessionId, record.generation);
-    if (record.toolUseId) {
-      this.releaseToolInvocation(
-        record.sessionId,
-        record.toolUseId,
-        record.generation,
-      );
-    }
+    const toolUseId = record.toolUseId;
+    const settled = await replayAbortedTransitionInputs(record, adapter, {
+      kind: 'phase',
+      expected: record.phase,
+      next: record.direction === 'enter' ? 'cleared' : 'active',
+      lastError: failure,
+    });
+    this.releaseTransitionOwnership(adapter, settled, toolUseId);
+    return settled;
   }
 
   /**
@@ -323,29 +324,23 @@ export class WorktreeTransitionCoordinator {
       sessionRepo.setCwd(record.sessionId, record.targetCwd);
       persisted = true;
       emitWorktreeSessionUpsert(record.sessionId);
-      await deliverTransitionWork(
+      const toolUseId = record.toolUseId;
+      record = await deliverTransitionWork(
         record,
         adapter,
         transition,
         result.continuationAccepted,
+        {
+          kind: 'phase',
+          expected: 'switching_to_worktree',
+          next: 'active',
+        },
       );
-      record = worktreeTransitionRepo.compareAndSetPhase({
-        sessionId: record.sessionId,
-        generation: record.generation,
-        expected: 'switching_to_worktree',
-        next: 'active',
-        updatedAt: Date.now(),
-      });
+      this.releaseTransitionOwnership(adapter, record, toolUseId);
       emitWorktreeTransitionStatus(
         record.sessionId,
         '已切换到 worktree，正在继续当前任务',
         false,
-        record.generation,
-      );
-      this.releaseAdapter(adapter, record);
-      this.releaseToolInvocation(
-        record.sessionId,
-        record.toolUseId!,
         record.generation,
       );
     } catch (error) {
@@ -402,36 +397,38 @@ export class WorktreeTransitionCoordinator {
       } catch (error) {
         cleanupError = error;
       }
-      await deliverTransitionWork(
+      const cleanupFailure = cleanupError
+        ? `Worktree cleanup pending: ${errorText(cleanupError)}`
+        : null;
+      const toolUseId = record.toolUseId;
+      record = await deliverTransitionWork(
         record,
         adapter,
         transition,
         result.continuationAccepted,
+        cleanupFailure
+          ? {
+              kind: 'seal',
+              expected: 'cleanup_pending',
+              lastError: cleanupFailure,
+            }
+          : {
+              kind: 'phase',
+              expected: 'cleanup_pending',
+              next: 'cleared',
+              lastError: null,
+            },
       );
+      this.releaseTransitionOwnership(adapter, record, toolUseId);
       if (cleanupError) {
-        worktreeTransitionRepo.setLastError(
-          record.sessionId,
-          record.generation,
-          `Worktree cleanup pending: ${errorText(cleanupError)}`,
-          Date.now(),
-        );
         emitWorktreeTransitionStatus(
           record.sessionId,
           `已恢复原工作目录；worktree 清理待重试：${errorText(cleanupError)}`,
           true,
           record.generation,
         );
-        this.releaseAdapter(adapter, record);
         return;
       }
-      record = worktreeTransitionRepo.compareAndSetPhase({
-        sessionId: record.sessionId,
-        generation: record.generation,
-        expected: 'cleanup_pending',
-        next: 'cleared',
-        updatedAt: Date.now(),
-        lastError: null,
-      });
       emitWorktreeSessionUpsert(record.sessionId);
       emitWorktreeTransitionStatus(
         record.sessionId,
@@ -439,14 +436,6 @@ export class WorktreeTransitionCoordinator {
         false,
         record.generation,
       );
-      this.releaseAdapter(adapter, record);
-      if (record.toolUseId) {
-        this.releaseToolInvocation(
-          record.sessionId,
-          record.toolUseId,
-          record.generation,
-        );
-      }
     } catch (error) {
       if (switched && !persisted) {
         await compensateTransitionRuntime(adapter, transition);
@@ -479,8 +468,15 @@ export class WorktreeTransitionCoordinator {
     return adapter;
   }
 
-  private releaseAdapter(adapter: AgentAdapter, record: WorktreeTransitionRecord): void {
+  private releaseTransitionOwnership(
+    adapter: AgentAdapter,
+    record: WorktreeTransitionRecord,
+    toolUseId: string | null,
+  ): void {
     adapter.releaseCwdTransition?.(record.sessionId, record.generation);
+    if (toolUseId) {
+      this.releaseToolInvocation(record.sessionId, toolUseId, record.generation);
+    }
   }
 }
 

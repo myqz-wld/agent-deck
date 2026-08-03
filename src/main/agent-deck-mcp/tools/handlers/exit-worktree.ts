@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
 import { worktreeTransitionCoordinator } from '@main/session/worktree-transition/coordinator';
+import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import {
   cleanupStructuredWorktree,
   preflightStructuredWorktreeExit,
@@ -80,7 +81,14 @@ export const exitWorktreeHandler = withMcpGuard(
 
       if (transition.phase === 'cleanup_pending') {
         tracker.set('cleanup-retry');
-        if (!transition.continuationDelivered) {
+        if (
+          !transition.continuationDelivered ||
+          transition.toolUseId !== null ||
+          worktreeToolInvocationRegistry.hasClaimedTransition(
+            callerSessionId,
+            transition.generation,
+          )
+        ) {
           return err(
             `worktree transition ${worktreeTransitionId(
               transition,
@@ -250,15 +258,10 @@ async function rollbackFailedArm(
     return;
   }
   try {
-    await worktreeTransitionCoordinator.releaseAbortedPreparation(current);
-    worktreeTransitionRepo.compareAndSetPhase({
-      sessionId: callerSessionId,
-      generation: current.generation,
-      expected: 'exit_preflight',
-      next: 'active',
-      updatedAt: Date.now(),
-      lastError: error instanceof Error ? error.message : String(error),
-    });
+    await worktreeTransitionCoordinator.releaseAbortedPreparation(
+      current,
+      error instanceof Error ? error.message : String(error),
+    );
   } catch {
     // The primary arming failure remains authoritative.
   }

@@ -52,6 +52,7 @@ describe('WorktreeToolInvocationRegistry', () => {
 
   it('claims one exact session/direction/tool id and binds its generation', () => {
     const registry = new WorktreeToolInvocationRegistry();
+    expect(registry.hasPendingTransition('session-a', 999)).toBe(false);
     registry.observe(
       toolStart(
         'session-a',
@@ -59,6 +60,8 @@ describe('WorktreeToolInvocationRegistry', () => {
         'mcp__agent-deck__enter_worktree',
       ),
     );
+    expect(registry.hasPendingTransition('session-a', 1_001)).toBe(true);
+    expect(registry.hasClaimedTransition('session-a', 7, 1_001)).toBe(false);
     registry.observe(
       toolStart(
         'session-b',
@@ -68,12 +71,16 @@ describe('WorktreeToolInvocationRegistry', () => {
     );
     expect(registry.reserve('session-a', 'enter', 1_001)).toBe('tool-a');
     registry.bindGeneration('session-a', 'tool-a', 7);
+    expect(registry.hasPendingTransition('session-a', 1_002)).toBe(true);
+    expect(registry.hasClaimedTransition('session-a', 7, 1_002)).toBe(true);
     expect(() => registry.reserve('session-a', 'enter', 1_002)).toThrow(
       'no provider-observed tool invocation',
     );
     registry.release('session-a', 'tool-a', 6);
     expect(() => registry.reserve('session-a', 'enter', 1_003)).toThrow();
     registry.release('session-a', 'tool-a', 7);
+    expect(registry.hasPendingTransition('session-a', 1_004)).toBe(false);
+    expect(registry.hasClaimedTransition('session-a', 7, 1_004)).toBe(false);
   });
 
   it('rejects ambiguous, stale, hook, and cross-direction observations', () => {

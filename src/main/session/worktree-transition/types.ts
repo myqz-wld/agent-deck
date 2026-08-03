@@ -27,6 +27,7 @@ export interface WorktreeTransitionRecord {
   mainRepo: string;
   worktreePath: string;
   baseCommit: string;
+  /** Exact provider invocation while transition ingress is open; null after the atomic drain seal. */
   toolUseId: string | null;
   continuationKey: string;
   continuationDelivered: boolean;

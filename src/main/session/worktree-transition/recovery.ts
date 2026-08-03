@@ -2,15 +2,11 @@ import { resolve } from 'node:path';
 import { adapterRegistry } from '@main/adapters/registry';
 import type { AgentAdapter } from '@main/adapters/types';
 import { sessionRepo } from '@main/store/session-repo';
-import { worktreeTransitionInputRepo } from '@main/store/worktree-transition-input-repo';
 import {
   worktreeTransitionRepo,
   WorktreeTransitionConflictError,
 } from '@main/store/worktree-transition-repo';
-import type {
-  SessionAdapterId,
-  UploadedAttachmentRef,
-} from '@shared/types';
+import type { SessionAdapterId } from '@shared/types';
 import log from '@main/utils/logger';
 import { WORKTREE_TRANSITION_CONTINUATION } from './constants';
 import {
@@ -24,6 +20,7 @@ import {
 import type {
   WorktreeTransitionRecord,
 } from './types';
+import { settleTransitionInputs } from './transition-delivery';
 
 const logger = log.scope('worktree-transition-recovery');
 const inFlight = new Map<string, Promise<void>>();
@@ -66,35 +63,7 @@ function assertRuntimeAtOrCold(
   );
 }
 
-async function enqueueBufferedInputs(
-  record: WorktreeTransitionRecord,
-  adapter: AgentAdapter,
-): Promise<void> {
-  for (const input of worktreeTransitionInputRepo.listPending(
-    record.sessionId,
-    record.generation,
-  )) {
-    await adapter.enqueueMessage!(
-      record.sessionId,
-      input.text,
-      input.attachments as UploadedAttachmentRef[],
-      {
-        bypassQueueLimit: true,
-        userEventAlreadyPersisted: true,
-        bypassWorktreeTransitionGuard: true,
-        idempotencyKey: `${record.continuationKey}:input:${input.sequence}`,
-      },
-    );
-    worktreeTransitionInputRepo.markDelivered(
-      record.sessionId,
-      record.generation,
-      input.sequence,
-      Date.now(),
-    );
-  }
-}
-
-async function enqueueContinuationAndInputs(
+async function enqueueContinuation(
   record: WorktreeTransitionRecord,
   adapter: AgentAdapter,
 ): Promise<void> {
@@ -117,7 +86,6 @@ async function enqueueContinuationAndInputs(
       Date.now(),
     );
   }
-  await enqueueBufferedInputs(record, adapter);
 }
 
 async function rollbackEnterAtOriginalCwd(
@@ -130,7 +98,6 @@ async function rollbackEnterAtOriginalCwd(
   sessionRepo.setCwd(record.sessionId, record.originalCwd);
   emitWorktreeSessionUpsert(record.sessionId);
   await rollbackUnacknowledgedEnter(record);
-  await enqueueBufferedInputs(record, adapter);
   const current = worktreeTransitionRepo.get(record.sessionId);
   if (
     current &&
@@ -140,14 +107,17 @@ async function rollbackEnterAtOriginalCwd(
       current.phase === 'interrupting_enter_turn' ||
       current.phase === 'switching_to_worktree')
   ) {
-    worktreeTransitionRepo.compareAndSetPhase({
-      sessionId: record.sessionId,
-      generation: record.generation,
-      expected: current.phase,
-      next: 'cleared',
-      updatedAt: Date.now(),
-      lastError: failure,
-    });
+    await settleTransitionInputs(
+      current,
+      adapter,
+      {
+        kind: 'phase',
+        expected: current.phase,
+        next: 'cleared',
+        lastError: failure,
+      },
+      'abort',
+    );
   }
   adapter.releaseCwdTransition?.(record.sessionId, record.generation);
   emitWorktreeSessionUpsert(record.sessionId);
@@ -178,14 +148,17 @@ export async function completeAcknowledgedEnter(
     });
   }
   if (record.phase !== 'switching_to_worktree') return;
-  await enqueueContinuationAndInputs(record, adapter);
-  record = worktreeTransitionRepo.compareAndSetPhase({
-    sessionId: record.sessionId,
-    generation: record.generation,
-    expected: 'switching_to_worktree',
-    next: 'active',
-    updatedAt: Date.now(),
-  });
+  await enqueueContinuation(record, adapter);
+  record = await settleTransitionInputs(
+    record,
+    adapter,
+    {
+      kind: 'phase',
+      expected: 'switching_to_worktree',
+      next: 'active',
+    },
+    'input',
+  );
   adapter.releaseCwdTransition?.(record.sessionId, record.generation);
   emitWorktreeSessionUpsert(record.sessionId);
   emitWorktreeTransitionStatus(
@@ -205,7 +178,6 @@ async function restoreExitAtWorktree(
   assertRuntimeAtOrCold(adapter, record, record.worktreePath);
   sessionRepo.setCwd(record.sessionId, record.worktreePath);
   emitWorktreeSessionUpsert(record.sessionId);
-  await enqueueBufferedInputs(record, adapter);
   const latest = worktreeTransitionRepo.get(record.sessionId);
   if (
     latest &&
@@ -215,14 +187,17 @@ async function restoreExitAtWorktree(
       latest.phase === 'interrupting_exit_turn' ||
       latest.phase === 'restoring_original_cwd')
   ) {
-    worktreeTransitionRepo.compareAndSetPhase({
-      sessionId: latest.sessionId,
-      generation: latest.generation,
-      expected: latest.phase,
-      next: 'active',
-      updatedAt: Date.now(),
-      lastError: failure,
-    });
+    await settleTransitionInputs(
+      latest,
+      adapter,
+      {
+        kind: 'phase',
+        expected: latest.phase,
+        next: 'active',
+        lastError: failure,
+      },
+      'abort',
+    );
   }
   adapter.releaseCwdTransition?.(record.sessionId, record.generation);
   emitWorktreeSessionUpsert(record.sessionId);
@@ -269,14 +244,28 @@ export async function completeAcknowledgedExit(
   } catch (error) {
     cleanupError = error;
   }
-  await enqueueContinuationAndInputs(record, adapter);
+  await enqueueContinuation(record, adapter);
+  const cleanupFailure = cleanupError
+    ? `Worktree cleanup pending after restart: ${errorText(cleanupError)}`
+    : null;
+  record = await settleTransitionInputs(
+    record,
+    adapter,
+    cleanupFailure
+      ? {
+          kind: 'seal',
+          expected: 'cleanup_pending',
+          lastError: cleanupFailure,
+        }
+      : {
+          kind: 'phase',
+          expected: 'cleanup_pending',
+          next: 'cleared',
+          lastError: null,
+        },
+    'input',
+  );
   if (cleanupError) {
-    worktreeTransitionRepo.setLastError(
-      record.sessionId,
-      record.generation,
-      `Worktree cleanup pending after restart: ${errorText(cleanupError)}`,
-      Date.now(),
-    );
     adapter.releaseCwdTransition?.(record.sessionId, record.generation);
     emitWorktreeTransitionStatus(
       record.sessionId,
@@ -286,14 +275,6 @@ export async function completeAcknowledgedExit(
     );
     return;
   }
-  record = worktreeTransitionRepo.compareAndSetPhase({
-    sessionId: record.sessionId,
-    generation: record.generation,
-    expected: 'cleanup_pending',
-    next: 'cleared',
-    updatedAt: Date.now(),
-    lastError: null,
-  });
   adapter.releaseCwdTransition?.(record.sessionId, record.generation);
   emitWorktreeSessionUpsert(record.sessionId);
   emitWorktreeTransitionStatus(

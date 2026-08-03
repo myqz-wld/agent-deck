@@ -13,6 +13,18 @@ interface WorktreeTransitionInputRow {
   delivered_at: number | null;
 }
 
+export class WorktreeTransitionInputClosedError extends Error {
+  constructor(
+    readonly sessionId: string,
+    readonly generation: number,
+  ) {
+    super(
+      `Worktree transition ${sessionId}:${generation} is not accepting queued input.`,
+    );
+    this.name = 'WorktreeTransitionInputClosedError';
+  }
+}
+
 function parseAttachments(value: string | null): unknown[] {
   if (!value) return [];
   try {
@@ -52,19 +64,21 @@ export function appendWorktreeTransitionInputWithDb(
   const row = db.transaction(() => {
     const transition = db
       .prepare(
-        `SELECT phase FROM worktree_cwd_transitions
+        `SELECT phase, tool_use_id FROM worktree_cwd_transitions
          WHERE session_id = ? AND generation = ?`,
       )
       .get(input.sessionId, input.generation) as
-      | { phase: string }
+      | { phase: string; tool_use_id: string | null }
       | undefined;
     if (
       !transition ||
       transition.phase === 'active' ||
-      transition.phase === 'cleared'
+      transition.phase === 'cleared' ||
+      transition.tool_use_id === null
     ) {
-      throw new Error(
-        `Worktree transition ${input.sessionId}:${input.generation} is not accepting queued input.`,
+      throw new WorktreeTransitionInputClosedError(
+        input.sessionId,
+        input.generation,
       );
     }
     const next = db
