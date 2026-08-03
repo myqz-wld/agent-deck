@@ -149,6 +149,8 @@ export interface InternalSession {
   cliSessionId: string | null;
   /** SDK system/init reported primary model, after provider alias mapping when configured. */
   runtimeModel?: string;
+  /** Exact Gateway profile id, or the native Claude runtime namespace. */
+  runtimeProvider: string;
   /** Last effective effort observed from a main-thread Stop/StopFailure hook. */
   runtimeEffort?: ClaudeCodeEffortLevel;
   /** Provider-only Claude alias mapping extracted from the child env (never contains credentials). */
@@ -334,6 +336,7 @@ export function makeInternalSession(opts: {
   cwd: string;
   permissionMode?: PermissionMode;
   applicationSid: string;
+  runtimeProvider?: string | null;
   gatewayModelAliases?: ClaudeGatewayModelAliases;
 }): InternalSession {
   let resolveStreamDrained!: () => void;
@@ -344,6 +347,7 @@ export function makeInternalSession(opts: {
     applicationSid: opts.applicationSid,
     cliSessionId: null,
     runtimeModel: undefined,
+    runtimeProvider: opts.runtimeProvider?.trim() || 'native',
     runtimeEffort: undefined,
     gatewayModelAliases: opts.gatewayModelAliases,
     cwd: opts.cwd,

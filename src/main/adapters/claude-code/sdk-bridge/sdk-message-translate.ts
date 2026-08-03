@@ -47,7 +47,8 @@ import {
 } from './user-message-acceptance';
 import {
   claudeAssistantContextTokens,
-  claudeContextWindowTokens,
+  claudeContextUsagePayload,
+  claudeContextWindowPayload,
 } from './context-usage';
 
 type EmitFn = (e: AgentEvent) => void;
@@ -150,7 +151,10 @@ export function translateSdkMessage(
     }
     const contextTokens = claudeAssistantContextTokens(m?.usage);
     if (contextTokens !== null) {
-      e('context-usage', { usedTokens: contextTokens });
+      e(
+        'context-usage',
+        claudeContextUsagePayload(internal, { usedTokens: contextTokens }),
+      );
     }
     const blocks = m?.content ?? [];
     for (let i = 0; i < blocks.length; i++) {
@@ -269,12 +273,9 @@ export function translateSdkMessage(
     }
     completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
     const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
-    const contextWindowTokens = claudeContextWindowTokens(
-      r.modelUsage,
-      internal.runtimeModel ?? fallbackModel,
-    );
-    if (contextWindowTokens !== null) {
-      e('context-usage', { windowTokens: contextWindowTokens });
+    const contextWindowPayload = claudeContextWindowPayload(internal, r.modelUsage);
+    if (contextWindowPayload !== null) {
+      e('context-usage', contextWindowPayload);
     }
     try {
       emitFinalResultUsage(e, fallbackModel, r);
@@ -303,7 +304,10 @@ export function translateSdkMessage(
       metadata.post_tokens >= 0
         ? Math.trunc(metadata.post_tokens)
         : null;
-    e('context-usage', { usedTokens: postTokens });
+    e(
+      'context-usage',
+      claudeContextUsagePayload(internal, { usedTokens: postTokens }),
+    );
     e('message', {
       text: buildClaudeCompactMessageText({
         trigger: metadata?.trigger,
