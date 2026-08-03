@@ -11,6 +11,7 @@ import type {
   ResolvedContinuationGenerator,
   ResolvedSuccessorSpec,
 } from '../../continuation-context/types';
+import { observedContextCapacity } from '../../continuation-context/__tests__/capacity-fixtures';
 import { HandOffExecutionError } from '../executor';
 import { HandOffCutoverCoordinator } from '../cutover-coordinator';
 import type { HandOffSourceCutoverResult } from '../source-precondition';
@@ -31,7 +32,7 @@ const generator: ResolvedContinuationGenerator = {
   adapter: 'claude-code',
   model: 'checkpoint-model',
   thinking: 'low',
-  contextWindowTokens: 128_000,
+  contextCapacity: observedContextCapacity(128_000),
   configFingerprint: 'generator-config-secret',
 };
 
@@ -60,6 +61,7 @@ function makeSource(overrides: Partial<SessionRecord> = {}): SessionRecord {
 function makeTarget(overrides: {
   runtimeFingerprint?: string;
   createOptions?: Partial<CreateSessionOptions>;
+  contextCapacity?: ResolvedSuccessorSpec['contextCapacity'];
 } = {}): ResolvedHandOffTarget {
   const createOptions = {
     agentId: 'codex-cli',
@@ -85,8 +87,11 @@ function makeTarget(overrides: {
     permissionMode: null,
     networkAccessEnabled: true,
     additionalDirectories: ['/tmp'],
-    contextWindowTokens: 128_000,
-    contextWindowSource: 'observed',
+    contextCapacity:
+      overrides.contextCapacity ??
+      observedContextCapacity(128_000, {
+        adapter: 'codex-cli', runtimeProvider: 'openai', model: 'target-model',
+      }),
     runtimeFingerprint: overrides.runtimeFingerprint ?? 'target-runtime-secret',
   };
   return { spec, createOptions };
@@ -170,6 +175,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
     return {
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      lowerBudgetRetry: null,
       generator,
       target: state.target.spec,
       settingsFingerprint: state.settingsFingerprint,
@@ -451,6 +457,7 @@ describe('UiHandOffCoordinator', () => {
     finishPreparation({
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      lowerBudgetRetry: null,
       generator,
       target: harness.state.target.spec,
       settingsFingerprint: harness.state.settingsFingerprint,
@@ -481,6 +488,7 @@ describe('UiHandOffCoordinator', () => {
     finishPreparation({
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      lowerBudgetRetry: null,
       generator,
       target: harness.state.target.spec,
       settingsFingerprint: harness.state.settingsFingerprint,
@@ -562,6 +570,21 @@ describe('UiHandOffCoordinator', () => {
       expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
     },
   );
+
+  it('does not self-invalidate when only a later target capacity snapshot changes', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.state.target = makeTarget({
+      contextCapacity: observedContextCapacity(64_000, {
+        adapter: 'codex-cli', runtimeProvider: 'openai', model: 'target-model',
+      }),
+    });
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).resolves.toMatchObject({ successorSessionId: 'successor-session' });
+    expect(harness.execute).toHaveBeenCalledOnce();
+  });
 
   it.each([
     ['missing', null],

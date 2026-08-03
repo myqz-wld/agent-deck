@@ -8,7 +8,7 @@ import { ContinuationSourceSpoolStore } from '../source-spool';
 import type { PreparedContinuationContext } from '../types';
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null }));
-const prepareContinuationContext = vi.hoisted(() => vi.fn());
+const prepareContinuationCandidates = vi.hoisted(() => vi.fn());
 const settingsGet = vi.hoisted(() =>
   vi.fn((key: string) => {
     if (key === 'continuationCheckpointAdapter') return 'claude-code';
@@ -27,7 +27,7 @@ vi.mock('@main/store/db', () => ({
   },
 }));
 vi.mock('@main/store/settings-store', () => ({ settingsStore: { get: settingsGet } }));
-vi.mock('../service', () => ({ prepareContinuationContext }));
+vi.mock('../service', () => ({ prepareContinuationCandidates }));
 
 import {
   captureRecoveryContinuation,
@@ -97,7 +97,7 @@ describe.skipIf(!bindingAvailable)('recovery continuation coordinator', () => {
       `INSERT INTO events (session_id, kind, payload_json, ts)
        VALUES ('source', 'message', ?, 1)`,
     ).run(JSON.stringify({ role: 'user', text: 'historical input' }));
-    prepareContinuationContext.mockReset();
+    prepareContinuationCandidates.mockReset();
     settingsGet.mockClear();
   });
 
@@ -133,14 +133,27 @@ describe.skipIf(!bindingAvailable)('recovery continuation coordinator', () => {
 
   it('uses the shared recovery core with exact limits and returns a branded turn', async () => {
     const capture = captureRecoveryContinuation({ session: session() });
-    prepareContinuationContext.mockResolvedValueOnce(prepared(capture.spoolId));
+    const primary = prepared(capture.spoolId);
+    const retry = {
+      ...prepared(capture.spoolId),
+      providerPrompt: 'smaller trusted provider prompt',
+      preparationHash: 'b'.repeat(64),
+      metrics: {
+        ...primary.metrics,
+        targetPromptCapacityTokens: 8_000,
+      },
+    };
+    prepareContinuationCandidates.mockResolvedValueOnce({
+      primary,
+      lowerBudgetRetry: retry,
+    });
 
     const result = await prepareRecoveryContinuation({
       capture,
       continuationInstruction: 'continue now',
     });
 
-    expect(prepareContinuationContext).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prepareContinuationCandidates).toHaveBeenCalledWith(expect.objectContaining({
       purpose: 'recovery',
       sourceSessionId: 'source',
       continuationInstruction: 'continue now',
@@ -157,6 +170,8 @@ describe.skipIf(!bindingAvailable)('recovery continuation coordinator', () => {
     expect(isTrustedContinuationInitialTurn(result.turn)).toBe(true);
     expect(result.turn.providerPrompt).toBe('trusted provider prompt');
     expect(result.turn.persistedUserText).toBe('continue now');
+    expect(result.lowerBudgetRetry?.prepared).toBe(retry);
+    expect(result.lowerBudgetRetry?.turn.providerPrompt).toBe('smaller trusted provider prompt');
 
     cleanupRecoveryContinuation(capture);
     expect(() => new ContinuationSourceSpoolStore(db).metadata(capture.spoolId)).toThrow(/not found/);

@@ -10,6 +10,7 @@ import type {
 } from '@main/session/continuation-context/types';
 import { sessionManager } from '@main/session/manager';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import { sessionRepo } from '@main/store/session-repo';
 import {
   createAgentDeckTeamRepo,
@@ -25,6 +26,20 @@ import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import { shutdownSessionHandler } from '../tools/handlers/shutdown';
 import type { HandOffSessionHandlerDeps } from '../tools/handlers/hand-off-session/_deps';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
+
+vi.mock('@main/session/context-window/service', () => ({
+  getContextWindowCapacityService: () => ({
+    resolve: (identity: { status: string; identity?: unknown; reason?: string }) =>
+      identity.status === 'concrete'
+        ? { status: 'unknown', identity: identity.identity, windowTokens: null, reason: 'no-observation' }
+        : { status: 'unknown', identity: null, windowTokens: null, reason: identity.reason },
+    observe: vi.fn(),
+  }),
+}));
 
 const PRIVATE_PROVIDER_CONTEXT = 'PRIVATE_PROVIDER_CONTEXT_SHOULD_NEVER_LEAK';
 const PRIVATE_SPOOL_ID = 'PRIVATE_SPOOL_ID_SHOULD_NEVER_LEAK';
@@ -106,7 +121,7 @@ function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinua
     adapter: 'claude-code',
     model: 'checkpoint-generator',
     thinking: 'medium',
-    contextWindowTokens: null,
+    contextCapacity: unknownContextCapacity(),
     configFingerprint: 'PRIVATE_GENERATOR_FINGERPRINT',
   };
   return {
@@ -114,6 +129,7 @@ function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinua
     turn: createTrustedContinuationInitialTurn(prepared, 'caller-sid'),
     generator,
     target,
+    lowerBudgetRetry: null,
     settingsFingerprint: 'PRIVATE_SETTINGS_FINGERPRINT',
   };
 }
@@ -267,6 +283,36 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       callerSessionId: 'caller-sid',
       newSessionId: 'successor-sid',
     });
+  });
+
+  it('does not reject its own preparation when only the refreshed capacity snapshot changes', async () => {
+    const source = callerRow();
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source);
+    const first = resolveHandOffTarget({
+      source,
+      request: { adapter: 'codex-cli', cwd: '/repo' },
+      sourceMaxEventId: 88,
+    });
+    const second = {
+      ...first,
+      spec: {
+        ...first.spec,
+        contextCapacity: observedContextCapacity(64_000, {
+          adapter: 'codex-cli', runtimeProvider: 'openai', model: 'gpt-source',
+        }),
+      },
+    };
+    const resolveTarget = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({ resolveTarget }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(resolveTarget).toHaveBeenCalledTimes(2);
+    expect(first.spec.runtimeFingerprint).toBe(second.spec.runtimeFingerprint);
   });
 
   it('always releases ingress ownership when the final source probe throws', async () => {

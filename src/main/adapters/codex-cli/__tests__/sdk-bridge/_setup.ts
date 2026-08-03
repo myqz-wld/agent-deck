@@ -39,6 +39,10 @@ import type {
   ContinuationQuality,
   PreparedContinuationContext,
 } from '@main/session/continuation-context/types';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
 
 export interface CreateSessionCall {
   cwd: string;
@@ -222,7 +226,7 @@ export class TestCodexBridge extends CodexSdkBridge {
         adapter: 'claude-code',
         model: 'sonnet',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'generator-test',
       },
       target: {
@@ -233,7 +237,9 @@ export class TestCodexBridge extends CodexSdkBridge {
         permissionMode: null,
         networkAccessEnabled: null,
         additionalDirectories: [],
-        contextWindowTokens: 128_000,
+        contextCapacity: observedContextCapacity(128_000, {
+          adapter: 'codex-cli', runtimeProvider: 'openai', model: session.model ?? 'test',
+        }),
         runtimeFingerprint: 'target-test',
       },
       rawRetentionCeilingTokens: 64_000,
@@ -255,6 +261,7 @@ export class TestCodexBridge extends CodexSdkBridge {
     return Promise.resolve({
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, capture.sourceSessionId),
+      lowerBudgetRetry: null,
     });
   }
 

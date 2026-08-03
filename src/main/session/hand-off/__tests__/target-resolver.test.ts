@@ -1,13 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type SessionRecord } from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
+import { createContextRuntimeIdentity } from '@main/session/context-window/identity';
 import { HandOffTargetOptionsError, resolveHandOffTarget } from '../target-resolver';
+
+const capacityResolve = vi.hoisted(() =>
+  vi.fn((identity: { status: string; identity?: unknown; reason?: string }) =>
+    identity.status === 'concrete'
+      ? { status: 'unknown', identity: identity.identity, windowTokens: null, reason: 'no-observation' }
+      : { status: 'unknown', identity: null, windowTokens: null, reason: identity.reason },
+  ),
+);
+vi.mock('@main/session/context-window/service', () => ({
+  getContextWindowCapacityService: () => ({
+    resolve: capacityResolve,
+    observe: vi.fn(),
+  }),
+}));
 
 const getSetting = vi.spyOn(settingsStore, 'get');
 
 beforeEach(() => {
   getSetting.mockImplementation(((key: keyof typeof DEFAULT_SETTINGS) =>
     DEFAULT_SETTINGS[key]) as typeof settingsStore.get);
+  capacityResolve.mockClear();
 });
 
 function source(): SessionRecord {
@@ -47,6 +63,44 @@ describe('resolveHandOffTarget', () => {
       networkAccessEnabled: true, additionalDirectories: ['/tmp'],
     });
     expect(result.spec.runtimeFingerprint).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('reuses exact native identity evidence only for an inherited equivalent runtime', () => {
+    const runtimeIdentity = createContextRuntimeIdentity({
+      adapter: 'codex-cli',
+      runtimeProvider: 'openai',
+      model: 'gpt-effective',
+      capacityConfigFingerprint: 'configured-window',
+    });
+    const withEvidence = {
+      ...source(),
+      contextUsage: {
+        usedTokens: 1_000,
+        windowTokens: 200_000,
+        updatedAt: 10,
+        runtimeIdentity,
+      },
+    };
+
+    resolveHandOffTarget({
+      source: withEvidence,
+      request: { adapter: 'codex-cli', cwd: '/target' },
+      sourceMaxEventId: 42,
+    });
+    expect(capacityResolve.mock.calls.at(-1)?.[0]).toEqual({
+      status: 'concrete',
+      identity: runtimeIdentity,
+    });
+
+    resolveHandOffTarget({
+      source: withEvidence,
+      request: { adapter: 'codex-cli', cwd: '/target', model: 'gpt-override' },
+      sourceMaxEventId: 42,
+    });
+    expect(capacityResolve.mock.calls.at(-1)?.[0]).not.toEqual({
+      status: 'concrete',
+      identity: runtimeIdentity,
+    });
   });
 
   it('uses target defaults across adapters and passes an explicit Claude Gateway profile', () => {

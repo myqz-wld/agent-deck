@@ -9,6 +9,17 @@ import type { HandOffSessionHandlerDeps } from '../tools/handlers/hand-off-sessi
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { HandOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { observedContextCapacity } from '@main/session/continuation-context/__tests__/capacity-fixtures';
+
+vi.mock('@main/session/context-window/service', () => ({
+  getContextWindowCapacityService: () => ({
+    resolve: (identity: { status: string; identity?: unknown; reason?: string }) =>
+      identity.status === 'concrete'
+        ? { status: 'unknown', identity: identity.identity, windowTokens: null, reason: 'no-observation' }
+        : { status: 'unknown', identity: null, windowTokens: null, reason: identity.reason },
+    observe: vi.fn(),
+  }),
+}));
 
 const SPOOL_ID = 'cutover-spool';
 
@@ -73,10 +84,11 @@ function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinua
       adapter: 'claude-code',
       model: 'checkpoint-generator',
       thinking: 'medium',
-      contextWindowTokens: 128_000,
+      contextCapacity: observedContextCapacity(128_000),
       configFingerprint: 'generator-config',
     },
     target,
+    lowerBudgetRetry: null,
     settingsFingerprint: 'settings',
   };
 }

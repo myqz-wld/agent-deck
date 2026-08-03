@@ -18,6 +18,13 @@ const resolveGateway = vi.hoisted(() =>
       : null,
   ),
 );
+const capacityResolve = vi.hoisted(() =>
+  vi.fn((identity: { status: string; identity?: unknown; reason?: string }): any =>
+    identity.status === 'concrete'
+      ? { status: 'unknown', identity: identity.identity, windowTokens: null, reason: 'no-observation' }
+      : { status: 'unknown', identity: null, windowTokens: null, reason: identity.reason },
+  ),
+);
 
 vi.mock('@main/store/settings-store', () => ({
   settingsStore: { get: settingsGet },
@@ -25,8 +32,20 @@ vi.mock('@main/store/settings-store', () => ({
 vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
   resolveClaudeGatewayProfile: resolveGateway,
 }));
+vi.mock('@main/session/context-window/service', () => ({
+  getContextWindowCapacityService: () => ({ resolve: capacityResolve, observe: vi.fn() }),
+}));
 
-import { resolveContinuationGeneratorSnapshot } from '../resolver';
+import {
+  resolveContinuationGeneratorConfigFingerprint,
+  resolveContinuationGeneratorSnapshot,
+  resolveContinuationTargetSnapshot,
+} from '../resolver';
+import {
+  observedContextCapacity,
+  staleContextCapacity,
+  unknownContextCapacity,
+} from './capacity-fixtures';
 
 beforeEach(() => {
   state.settings = {
@@ -37,6 +56,7 @@ beforeEach(() => {
   };
   settingsGet.mockClear();
   resolveGateway.mockClear();
+  capacityResolve.mockClear();
 });
 
 afterEach(() => {
@@ -109,5 +129,50 @@ describe('continuation generator defaults', () => {
       model: null,
       thinking: 'xhigh',
     });
+  });
+
+  it.each([
+    ['stale', staleContextCapacity()],
+    ['unknown', unknownContextCapacity()],
+  ] as const)('freezes a tagged %s generator capacity snapshot', (_status, capacity) => {
+    state.settings.continuationCheckpointModel = 'claude-sonnet-4-8';
+    capacityResolve.mockReturnValueOnce(capacity);
+
+    expect(resolveContinuationGeneratorSnapshot().contextCapacity).toEqual(capacity);
+  });
+
+  it('keeps generator configuration freshness independent from capacity resolution', () => {
+    const before = resolveContinuationGeneratorConfigFingerprint();
+    expect(capacityResolve).not.toHaveBeenCalled();
+
+    capacityResolve.mockReturnValueOnce(observedContextCapacity(200_000));
+    const first = resolveContinuationGeneratorSnapshot();
+    capacityResolve.mockReturnValueOnce(observedContextCapacity(64_000));
+    const second = resolveContinuationGeneratorSnapshot();
+
+    expect(first.configFingerprint).toBe(before);
+    expect(second.configFingerprint).toBe(before);
+    expect(first.contextCapacity).not.toEqual(second.contextCapacity);
+  });
+
+  it('excludes a frozen target capacity from its configuration fingerprint', () => {
+    const input = {
+      adapter: 'codex-cli' as const,
+      cwd: '/repo',
+      provider: 'openai',
+      model: 'gpt-5.6-sol',
+      thinking: 'high',
+      permissionMode: null,
+      sandbox: { kind: 'codex', mode: 'read-only' },
+      networkAccessEnabled: false,
+      additionalDirectories: [] as string[],
+    };
+    capacityResolve.mockReturnValueOnce(observedContextCapacity(200_000));
+    const first = resolveContinuationTargetSnapshot(input);
+    capacityResolve.mockReturnValueOnce(observedContextCapacity(64_000));
+    const second = resolveContinuationTargetSnapshot(input);
+
+    expect(first.runtimeFingerprint).toBe(second.runtimeFingerprint);
+    expect(first.contextCapacity).not.toEqual(second.contextCapacity);
   });
 });

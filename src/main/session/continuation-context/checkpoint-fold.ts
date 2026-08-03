@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import type { ContextWindowCapacityEvidence } from '@shared/types';
 import { assertContinuationPromptByteLimit } from './budget-policy';
 import {
   createContinuationCheckpointRepo,
@@ -73,7 +74,7 @@ export interface FoldContinuationCheckpointResult {
   repairCalls: number;
   inputTokens: number;
   outputTokens: number;
-  observedContextWindowTokens: number | null;
+  observedContextWindowEvidence: ContextWindowCapacityEvidence | null;
   warnings: ContinuationWarning[];
   failure: CheckpointFoldFailureDiagnostic | null;
   uncoveredRevisionRange: { from: number; to: number } | null;
@@ -121,7 +122,7 @@ export async function foldContinuationCheckpoint(
   let repairCalls = 0;
   let inputTokens = 0;
   let outputTokens = 0;
-  let observedContextWindowTokens: number | null = null;
+  let observedContextWindowEvidence: ContextWindowCapacityEvidence | null = null;
   const warnings: ContinuationWarning[] = [];
   let failure: CheckpointFoldFailureDiagnostic | null = null;
   let remainingGroups = foregroundRevisionGroups({
@@ -203,7 +204,7 @@ export async function foldContinuationCheckpoint(
       repairCalls,
       inputTokens,
       outputTokens,
-      observedContextWindowTokens,
+      observedContextWindowEvidence,
       warnings,
       failure,
       uncoveredRevisionRange:
@@ -312,11 +313,8 @@ export async function foldContinuationCheckpoint(
       foldCalls += generated.providerCalls;
       inputTokens += generated.inputTokens ?? estimateContinuationTokens(chunk.prompt);
       outputTokens += generated.outputTokens ?? estimateContinuationJsonTokens(generated.output);
-      if (generated.contextWindowTokens !== null) {
-        observedContextWindowTokens =
-          observedContextWindowTokens === null
-            ? generated.contextWindowTokens
-            : Math.min(observedContextWindowTokens, generated.contextWindowTokens);
+      if (generated.contextWindowEvidence) {
+        observedContextWindowEvidence = generated.contextWindowEvidence;
       }
     } catch (error) {
       if (error instanceof CheckpointGeneratorError) foldCalls += error.providerCalls;
@@ -386,6 +384,9 @@ export async function foldContinuationCheckpoint(
         repairCalls += repaired.providerCalls;
         inputTokens += repaired.inputTokens ?? estimateContinuationTokens(repairPrompt);
         outputTokens += repaired.outputTokens ?? estimateContinuationJsonTokens(repaired.output);
+        if (repaired.contextWindowEvidence) {
+          observedContextWindowEvidence = repaired.contextWindowEvidence;
+        }
         const repairedPatch = parseGeneratedContinuationCheckpointPatch(repaired.output);
         canonical = applyContinuationCheckpointPatch({
           previousCheckpoint: current?.checkpoint ?? null,
@@ -459,7 +460,7 @@ export async function foldContinuationCheckpoint(
     repairCalls,
     inputTokens,
     outputTokens,
-    observedContextWindowTokens,
+    observedContextWindowEvidence,
     warnings,
     failure,
     uncoveredRevisionRange,

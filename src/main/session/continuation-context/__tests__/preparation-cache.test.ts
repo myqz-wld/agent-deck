@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PreparedContinuationContext, ResolvedContinuationGenerator, ResolvedSuccessorSpec } from '../types';
 import { ContinuationPreparationCache } from '../preparation-cache';
+import { observedContextCapacity, unknownContextCapacity } from './capacity-fixtures';
 import { AsyncSingleflight } from '../singleflight';
 
 const generator: ResolvedContinuationGenerator = {
-  adapter: 'claude-code', model: null, thinking: 'low', contextWindowTokens: null, configFingerprint: 'g',
+  adapter: 'claude-code', model: null, thinking: 'low',
+  contextCapacity: unknownContextCapacity(), configFingerprint: 'g',
 };
 const target: ResolvedSuccessorSpec = {
   adapter: 'claude-code', model: null, thinking: 'low', sandbox: null, permissionMode: null,
-  networkAccessEnabled: false, additionalDirectories: [], contextWindowTokens: 128_000, runtimeFingerprint: 't',
+  networkAccessEnabled: false, additionalDirectories: [],
+  contextCapacity: observedContextCapacity(128_000, {
+    adapter: 'codex-cli', runtimeProvider: 'openai', model: 'target',
+  }), runtimeFingerprint: 't',
 };
 const prepared: PreparedContinuationContext = {
   version: 1,
@@ -134,6 +139,30 @@ describe('continuation preparation cache and singleflight', () => {
     expect(cache.size).toBe(1);
     expect(cache.peek(second.preparationId, 'owner', 101).sourceSessionId).toBe('source-2');
     expect(evicted).toHaveBeenCalledWith(expect.objectContaining({ preparationId: first.preparationId }));
+    cache.clear();
+  });
+
+  it('retains and accounts the lower-budget rendering without duplicating spool ownership', () => {
+    const cache = new ContinuationPreparationCache({ maxBytes: 10_000 });
+    const lowerBudgetRetry = {
+      ...prepared,
+      providerPrompt: 'smaller prompt',
+      preparationHash: 'retry-hash',
+      metrics: { ...prepared.metrics, targetPromptCapacityTokens: 8_000 },
+    };
+    const withoutRetry = cache.put({
+      ownerSessionId: 'owner', sourceSessionId: 'source-a', prepared, generator, target,
+      spoolBytes: 100, now: 1,
+    });
+    const withRetry = cache.put({
+      ownerSessionId: 'owner', sourceSessionId: 'source-b',
+      prepared: { ...prepared, spoolId: 'spool-b' }, lowerBudgetRetry,
+      generator, target, spoolBytes: 100, now: 2,
+    });
+
+    expect(withRetry.lowerBudgetRetry).toBe(lowerBudgetRetry);
+    expect(withRetry.spoolBytes).toBe(100);
+    expect(withRetry.bytes).toBeGreaterThan(withoutRetry.bytes);
     cache.clear();
   });
 

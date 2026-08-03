@@ -254,6 +254,13 @@ export function resolveHandOffTarget(input: {
           persistedExtraAllowWrite: extraAllowWrite,
         }
       : { kind: 'claude', mode: claudeCodeSandbox ?? null, extraAllowWrite };
+  const trustedRuntimeIdentity =
+    sameAdapter &&
+    request.model === undefined &&
+    request.provider === undefined &&
+    request.gateway === undefined
+      ? source.contextUsage?.runtimeIdentity ?? null
+      : null;
   const spec = resolveContinuationTargetSnapshot({
     adapter: request.adapter,
     cwd: request.cwd,
@@ -265,6 +272,7 @@ export function resolveHandOffTarget(input: {
     sandbox,
     networkAccessEnabled,
     additionalDirectories,
+    trustedRuntimeIdentity,
   });
   return { spec, createOptions };
 }
