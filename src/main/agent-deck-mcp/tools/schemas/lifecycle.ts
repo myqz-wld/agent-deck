@@ -149,6 +149,7 @@ export interface HandOffSessionResult {
     };
     includedUserMessages: number;
     lateMessagesDelivered: number;
+    usedLowerBudgetRetry: boolean;
     truncatedBoundaryMessages: number;
     foldCalls: number;
     repairCalls: number;

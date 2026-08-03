@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { firstUnsupportedTargetRuntimeField } from '@main/adapters/runtime-control-contracts';
-import { parseSessionHandOffTarget } from '../session-hand-off-input';
+import {
+  parseSessionHandOffPrepareRequest,
+  parseSessionHandOffTarget,
+} from '../session-hand-off-input';
 
 describe('session hand-off IPC target parsing', () => {
   it('preserves omitted adapter-owned fields instead of manufacturing explicit nulls', () => {
@@ -35,5 +38,27 @@ describe('session hand-off IPC target parsing', () => {
     });
     expect(codex).toHaveProperty('sessionMode', null);
     expect(firstUnsupportedTargetRuntimeField('codex-cli', codex)).toBe('sessionMode');
+  });
+
+  it.each([
+    'windowTokens',
+    'contextWindowTokens',
+    'contextWindowSource',
+    'runtimeKey',
+    'usedLowerBudgetRetry',
+  ])('rejects forged trusted target field %s', (field) => {
+    expect(() => parseSessionHandOffTarget({
+      adapter: 'codex-cli',
+      [field]: field === 'usedLowerBudgetRetry' ? true : 'forged',
+    })).toThrow(`request.target.${field}`);
+  });
+
+  it('rejects forged trusted fields at the outer prepare boundary', () => {
+    expect(() => parseSessionHandOffPrepareRequest({
+      sourceSessionId: 'source',
+      continuationInstruction: 'continue',
+      target: { adapter: 'codex-cli' },
+      contextCapacity: { status: 'observed', windowTokens: 1_000_000 },
+    })).toThrow('request.contextCapacity');
   });
 });

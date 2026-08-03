@@ -178,6 +178,46 @@ describe('executePreparedHandOff', () => {
     expect(result.usedLowerBudgetRetry).toBe(true);
   });
 
+  it('preserves the lower-budget diagnostic when a later transfer fails', async () => {
+    const retryTurn = {
+      ...turn,
+      providerPrompt: 'lower-budget',
+    } as TrustedContinuationInitialTurn;
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockResolvedValueOnce(acceptedCandidate('accepted-retry'));
+
+    await expect(executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck: matchingSource,
+      target,
+      turn,
+      trustedContinuationReadiness: {
+        capacityStatus: 'unknown',
+        lowerBudgetRetryTurn: retryTurn,
+      },
+      createSuccessor,
+      rollbackRejectedSuccessor: vi.fn(async () => undefined),
+      transferResources: vi.fn(() => ({ failed: true })),
+      resourceTransferFailed: (value: { failed: boolean }) => value.failed,
+      closeSuccessor: vi.fn(async () => undefined),
+      finalizeSource: vi.fn(),
+    })).rejects.toMatchObject({
+      name: 'HandOffExecutionError',
+      stage: 'transfer',
+      successorSessionId: 'accepted-retry',
+      usedLowerBudgetRetry: true,
+    });
+  });
+
   it('stops without retry or ownership mutation when rejected-primary cleanup fails', async () => {
     const transferResources = vi.fn();
     const createSuccessor = vi.fn(async () => ({

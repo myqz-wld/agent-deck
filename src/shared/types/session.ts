@@ -460,6 +460,8 @@ export interface SessionHandOffCommitResult {
   cutoverEventRevision: number;
   /** Source inputs queued behind the prepared successor turn. */
   lateMessagesDelivered: number;
+  /** True when an unknown/stale target accepted the single pre-rendered lower-budget candidate. */
+  usedLowerBudgetRetry: boolean;
   /** Successor is usable even when best-effort source close/archive reports a warning. */
   sourceFinalizationWarning: string | null;
 }
@@ -469,6 +471,8 @@ export interface SessionHandOffExecutionFailure {
   stage: 'cutover' | 'transfer';
   successorSessionId: string;
   successorCleanup: 'ok' | 'failed';
+  /** Safe retry diagnostic; never contains the trusted prompt or runtime evidence. */
+  usedLowerBudgetRetry: boolean;
   cutoverReason?: string;
   message: string;
 }

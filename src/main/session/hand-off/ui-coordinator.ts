@@ -304,6 +304,7 @@ export class UiHandOffCoordinator {
           cutoverEventRevision: result.sourceCutover.currentEventRevision,
           lateMessagesDelivered:
             result.sourceCutover.lateMessages.length + result.queuedMessagesDelivered,
+          usedLowerBudgetRetry: result.usedLowerBudgetRetry,
           sourceFinalizationWarning:
             result.sourceFinalization.ok ? null : result.sourceFinalization.error,
         };

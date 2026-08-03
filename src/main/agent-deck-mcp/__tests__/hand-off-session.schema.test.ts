@@ -101,6 +101,11 @@ describe('hand_off_session schema — unified Continuation Context', () => {
       { spoolId: 'forged-spool' },
       { runtimeFingerprint: 'forged-target' },
       { parentSessionId: 'forged-lineage' },
+      { windowTokens: 1_000_000 },
+      { contextWindowTokens: 1_000_000 },
+      { contextWindowSource: 'runtime-usage' },
+      { runtimeKey: 'forged-runtime' },
+      { usedLowerBudgetRetry: true },
     ]) {
       const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
         prompt: 'continue',

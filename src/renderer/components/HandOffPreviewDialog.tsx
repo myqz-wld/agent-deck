@@ -421,6 +421,9 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               className="space-y-2 rounded bg-status-error/10 px-3 py-2 text-[11px] text-status-error"
             >
               <div>⚠️ {executionFailureLabel(executionFailure)}</div>
+              {executionFailure.usedLowerBudgetRetry && (
+                <div>本次已采用较小范围的续接上下文重试。</div>
+              )}
               {executionFailure.successorCleanup === 'failed' && (
                 <button
                   type="button"

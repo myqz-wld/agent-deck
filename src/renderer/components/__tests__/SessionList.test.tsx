@@ -49,12 +49,20 @@ afterEach(() => {
 
 describe('SessionList metadata', () => {
   it('shows branch and context usage while deduplicating branch lookups by cwd', async () => {
+    const runtimeIdentity = {
+      version: 1 as const,
+      runtimeKey: 'codex:openai:gpt-current:default',
+      adapter: 'codex-cli' as const,
+      runtimeProvider: 'openai',
+      model: 'gpt-current',
+      capacityConfigFingerprint: 'default',
+    };
     const active = makeSession('active', {
       contextUsage: {
         usedTokens: 34_567,
         windowTokens: 272_000,
         updatedAt: 10,
-        runtimeIdentity: null,
+        runtimeIdentity,
       },
     });
     const compacting = makeSession('compacting', {
@@ -63,7 +71,7 @@ describe('SessionList metadata', () => {
         usedTokens: null,
         windowTokens: 200_000,
         updatedAt: 20,
-        runtimeIdentity: null,
+        runtimeIdentity,
       },
     });
     useSessionStore.setState({
@@ -90,7 +98,7 @@ describe('SessionList metadata', () => {
           usedTokens: null,
           windowTokens: 272_000,
           updatedAt: 30,
-          runtimeIdentity: null,
+          runtimeIdentity,
         },
       });
     });

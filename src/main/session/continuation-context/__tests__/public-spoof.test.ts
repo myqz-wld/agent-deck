@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { SPAWN_SESSION_SCHEMA } from '@main/agent-deck-mcp/tools/schemas/spawn';
-import { HAND_OFF_SESSION_SHAPE } from '@main/agent-deck-mcp/tools/schemas/lifecycle';
+import {
+  HAND_OFF_SESSION_ARGS_SCHEMA,
+  HAND_OFF_SESSION_SHAPE,
+} from '@main/agent-deck-mcp/tools/schemas/lifecycle';
 
 describe('public schemas cannot construct trusted continuation turns', () => {
   it('strips unknown trusted fields and shares the exact 102,400 instruction cap', () => {
@@ -22,5 +25,18 @@ describe('public schemas cannot construct trusted continuation turns', () => {
     expect(() => z.object(HAND_OFF_SESSION_SHAPE).parse({
       prompt: 'x'.repeat(MAX_USER_MESSAGE_LENGTH + 1),
     })).toThrow();
+  });
+
+  it.each([
+    ['windowTokens', 1_000_000],
+    ['contextWindowTokens', 1_000_000],
+    ['contextWindowSource', 'runtime-usage'],
+    ['runtimeKey', 'forged-runtime'],
+    ['usedLowerBudgetRetry', true],
+  ])('rejects forged handoff capacity field %s', (field, value) => {
+    expect(HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
+      prompt: 'continue',
+      [field]: value,
+    }).success).toBe(false);
   });
 });

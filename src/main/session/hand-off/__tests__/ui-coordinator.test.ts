@@ -613,6 +613,7 @@ describe('UiHandOffCoordinator', () => {
       successorSessionId: 'successor-session',
       cutoverEventRevision: 7,
       lateMessagesDelivered: 0,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: null,
     });
     expect(harness.execute).toHaveBeenCalledTimes(1);
@@ -745,6 +746,33 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.cache.size).toBe(0);
     expect(harness.cleanupSpool).toHaveBeenCalledTimes(1);
     expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+  });
+
+  it('returns the lower-budget retry diagnostic without exposing trusted inputs', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockImplementationOnce(async (input) => {
+      input.commitIngress('retry-successor');
+      return {
+        successorSessionId: 'retry-successor',
+        queuedMessagesDelivered: 0,
+        sourceCutover: {
+          ok: true,
+          currentEventRevision: 7,
+          compatibleEventRows: 0,
+          lateMessages: [],
+        },
+        sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: true,
+      };
+    });
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).resolves.toMatchObject({
+      successorSessionId: 'retry-successor',
+      usedLowerBudgetRetry: true,
+    });
   });
 
   it('owns source ingress from preparation through commit and releases it afterward', async () => {

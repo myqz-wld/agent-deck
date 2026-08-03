@@ -124,6 +124,7 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
   resourceTransfer: ResourceTransfer | null;
   transferError: string | null;
   cutoverReason?: HandOffSourceCutoverRejectionReason | null;
+  usedLowerBudgetRetry: boolean;
   afterClose?: () => Promise<void>;
 }): Promise<never> {
   let successorCleanup: 'ok' | 'failed' = 'ok';
@@ -151,6 +152,7 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
     input.resourceTransfer,
     input.transferError,
     input.cutoverReason ?? null,
+    input.usedLowerBudgetRetry,
   );
 }
 
@@ -234,6 +236,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: errorMessage(error),
         cutoverReason: 'late-message-delivery-failed',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(failedAttachments.length > 0
           ? {
               afterClose: () => cleanupLateMessageAttachments(failedAttachments),
@@ -251,6 +254,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: 'source-not-open',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -270,6 +274,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: 'message-delivery-drain-timeout',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -287,6 +292,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: 'source-not-open',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -309,6 +315,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: current.reason,
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -342,6 +349,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: errorMessage(error),
         cutoverReason: 'late-message-delivery-failed',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(failedAttachments.length > 0
           ? {
               afterClose: () => cleanupLateMessageAttachments(failedAttachments),
@@ -358,6 +366,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       resourceTransfer: null,
       transferError: null,
       cutoverReason: 'source-kept-changing',
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -372,6 +381,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       resourceTransfer: null,
       transferError: null,
       cutoverReason: 'source-not-open',
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -393,6 +403,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer: null,
       transferError: errorMessage(error),
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -408,6 +419,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer,
       transferError: errorMessage(error),
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -420,6 +432,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer,
       transferError: null,
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),

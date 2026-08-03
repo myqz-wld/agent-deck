@@ -407,6 +407,7 @@ export const handOffSessionHandler = withMcpGuard(
             includedUserMessages: prepared.metrics.includedUserMessages,
             lateMessagesDelivered:
               execution.sourceCutover.lateMessages.length + execution.queuedMessagesDelivered,
+            usedLowerBudgetRetry: execution.usedLowerBudgetRetry,
             truncatedBoundaryMessages: prepared.metrics.truncatedBoundaryMessages,
             foldCalls: prepared.metrics.foldCalls,
             repairCalls: prepared.metrics.repairCalls,
@@ -433,6 +434,7 @@ export const handOffSessionHandler = withMcpGuard(
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,
+                usedLowerBudgetRetry: error.usedLowerBudgetRetry,
                 resourceTransfer: null,
               },
             );
@@ -446,6 +448,7 @@ export const handOffSessionHandler = withMcpGuard(
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,
+                usedLowerBudgetRetry: error.usedLowerBudgetRetry,
                 resourceTransfer: error.resourceTransfer,
                 transferFailure: error.transferError ? 'exception' : 'reported',
               },

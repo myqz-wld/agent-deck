@@ -73,6 +73,7 @@ beforeEach(() => {
     successorSessionId: 'target-1',
     cutoverEventRevision: 42,
     lateMessagesDelivered: 0,
+    usedLowerBudgetRetry: false,
     sourceFinalizationWarning: null,
   });
   handOffCancel = vi.fn().mockResolvedValue(true);
@@ -194,6 +195,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       successorSessionId: 'target-warning',
       cutoverEventRevision: 43,
       lateMessagesDelivered: 1,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: '关闭源会话失败',
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
@@ -218,6 +220,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-successor-42',
       successorCleanup: 'failed',
+      usedLowerBudgetRetry: false,
       message: 'Source changed while the successor was being created',
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
@@ -254,6 +257,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-delivery-1',
       successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
       cutoverReason: 'late-message-delivery-failed',
       message: 'late delivery failed',
     });
@@ -264,6 +268,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
     const warning = await screen.findByRole('alert');
     expect(warning.textContent).toContain('新增消息未能转交');
+    expect(warning.textContent).toContain('已采用较小范围的续接上下文重试');
     expect(warning.textContent).toContain('请重新生成续接上下文后再试');
     expect(warning.textContent).not.toContain('消息队列');
   });
@@ -274,6 +279,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       stage: 'transfer',
       successorSessionId: 'orphan-persistent-7',
       successorCleanup: 'failed',
+      usedLowerBudgetRetry: false,
       message: 'internal transfer detail',
     });
     const onClose = vi.fn();
@@ -422,6 +428,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       successorSessionId: 'stale-target',
       cutoverEventRevision: 44,
       lateMessagesDelivered: 0,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: null,
     });
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
