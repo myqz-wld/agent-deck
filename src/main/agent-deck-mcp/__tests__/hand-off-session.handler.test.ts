@@ -447,7 +447,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(result.content[0]?.text).toContain(
       'did not produce a stable session before the readiness deadline',
     );
-    expect(result.content[0]?.text).toContain('No successor was created');
+    expect(result.content[0]?.text).toContain('No successor remains');
     expect(result.content[0]?.text).not.toContain('late candidate');
     expect(createSuccessor).not.toHaveBeenCalled();
   });

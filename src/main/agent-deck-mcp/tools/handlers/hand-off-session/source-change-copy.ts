@@ -47,7 +47,7 @@ export function executionCutoverError(
       return {
         error: 'handoff successor did not produce a stable session before the readiness deadline',
         hint:
-          'No successor was created and no resources moved. Prepare a fresh continuation context before retrying.',
+          'No successor remains and no resources moved. Prepare a fresh continuation context before retrying.',
       };
     }
     return {

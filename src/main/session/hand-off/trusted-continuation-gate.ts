@@ -321,12 +321,6 @@ async function beforeDeadline<T>(
   deadlineAt: number,
   now: () => number,
 ): Promise<T> {
-  const remainingMs = deadlineAt - now();
-  if (remainingMs <= 0) {
-    void work.catch(() => undefined);
-    throw new ReadinessDeadlineError();
-  }
-  let timer: ReturnType<typeof setTimeout> | null = null;
   const checkedWork = work.then(
     (value) => {
       assertBeforeDeadline(deadlineAt, now);
@@ -339,6 +333,11 @@ async function beforeDeadline<T>(
       throw error;
     },
   );
+  const remainingMs = deadlineAt - now();
+  if (remainingMs <= 0) {
+    return await Promise.race([checkedWork, deadlineAfterSettlementTag()]);
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
     return await Promise.race([
       checkedWork,
@@ -350,6 +349,12 @@ async function beforeDeadline<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function deadlineAfterSettlementTag(): Promise<never> {
+  return Promise.resolve().then(() => {
+    throw new ReadinessDeadlineError();
+  });
 }
 
 function assertBeforeDeadline(deadlineAt: number, now: () => number): void {
