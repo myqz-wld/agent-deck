@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HandOffExecutionError } from '@main/session/hand-off/executor';
+import { TrustedContinuationStartupFailure } from '@main/session/hand-off/trusted-continuation-gate';
 import { serializeSessionHandOffCommit } from '../session-hand-off-response';
 
 describe('session handoff IPC response serialization', () => {
@@ -10,6 +11,7 @@ describe('session handoff IPC response serialization', () => {
           successorSessionId: 'successor-ok',
           cutoverEventRevision: 45,
           lateMessagesDelivered: 2,
+          usedLowerBudgetRetry: false,
           sourceFinalizationWarning: null,
         }),
       ),
@@ -18,6 +20,7 @@ describe('session handoff IPC response serialization', () => {
       successorSessionId: 'successor-ok',
       cutoverEventRevision: 45,
       lateMessagesDelivered: 2,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: null,
     });
   });
@@ -30,6 +33,8 @@ describe('session handoff IPC response serialization', () => {
       'failed',
       null,
       null,
+      null,
+      true,
     );
 
     await expect(
@@ -39,6 +44,7 @@ describe('session handoff IPC response serialization', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-successor-42',
       successorCleanup: 'failed',
+      usedLowerBudgetRetry: true,
       message: 'source drifted after successor creation',
     });
   });
@@ -61,7 +67,58 @@ describe('session handoff IPC response serialization', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-successor-43',
       successorCleanup: 'ok',
+      usedLowerBudgetRetry: false,
       cutoverReason: 'late-message-delivery-failed',
+    });
+  });
+
+  it('serializes a startup deadline without fabricating a successor identity', async () => {
+    const executionError = new HandOffExecutionError(
+      'startup deadline expired',
+      'cutover',
+      null,
+      'pending',
+      null,
+      null,
+      'target-startup-timeout',
+      true,
+    );
+
+    await expect(
+      serializeSessionHandOffCommit(vi.fn().mockRejectedValue(executionError)),
+    ).resolves.toEqual({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'pending',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-startup-timeout',
+      message: 'startup deadline expired',
+    });
+  });
+
+  it('serializes a terminal lower-budget startup rejection without an orphan', async () => {
+    const executionError = new HandOffExecutionError(
+      'lower-budget startup failed',
+      'cutover',
+      null,
+      'ok',
+      null,
+      null,
+      'target-retry-startup-failed',
+      true,
+    );
+
+    await expect(
+      serializeSessionHandOffCommit(vi.fn().mockRejectedValue(executionError)),
+    ).resolves.toEqual({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-retry-startup-failed',
+      message: 'lower-budget startup failed',
     });
   });
 
@@ -70,5 +127,22 @@ describe('session handoff IPC response serialization', () => {
     await expect(
       serializeSessionHandOffCommit(vi.fn().mockRejectedValue(failure)),
     ).rejects.toBe(failure);
+  });
+
+  it('projects a primary startup failure without exposing provider diagnostics', async () => {
+    const privateDetail = 'PRIVATE_PROVIDER_STARTUP_DETAIL';
+    const failure = new TrustedContinuationStartupFailure();
+    Object.defineProperty(failure, 'privateDetail', { value: privateDetail });
+
+    let projected: unknown;
+    try {
+      await serializeSessionHandOffCommit(vi.fn().mockRejectedValue(failure));
+    } catch (error) {
+      projected = error;
+    }
+
+    expect(projected).toBeInstanceOf(Error);
+    expect((projected as Error).message).toContain('目标 provider 未能');
+    expect((projected as Error).message).not.toContain(privateDetail);
   });
 });

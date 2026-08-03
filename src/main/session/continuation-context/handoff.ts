@@ -4,10 +4,11 @@ import {
 } from './initial-turn';
 import {
   continuationFingerprint,
+  resolveContinuationGeneratorConfigFingerprint,
   resolveContinuationGeneratorSnapshot,
   resolveContinuationRawRetentionCeiling,
 } from './resolver';
-import { prepareContinuationContext } from './service';
+import { prepareContinuationCandidates } from './service';
 import { acquireContinuationCheckpointForegroundLease } from './checkpoint-refresh-service';
 import type {
   PreparedContinuationContext,
@@ -22,6 +23,10 @@ export const HANDOFF_CONTINUATION_MAX_REPAIR_CALLS = 1;
 export interface PreparedHandOffContinuation {
   prepared: PreparedContinuationContext;
   turn: TrustedContinuationInitialTurn;
+  lowerBudgetRetry: {
+    prepared: PreparedContinuationContext;
+    turn: TrustedContinuationInitialTurn;
+  } | null;
   generator: ResolvedContinuationGenerator;
   target: ResolvedSuccessorSpec;
   settingsFingerprint: string;
@@ -39,8 +44,9 @@ export function continuationPreparationSettingsFingerprint(input: {
 }
 
 export function resolveContinuationPreparationSettingsFingerprint(): string {
-  return continuationPreparationSettingsFingerprint({
-    generator: resolveContinuationGeneratorSnapshot(),
+  return continuationFingerprint({
+    version: 1,
+    generator: resolveContinuationGeneratorConfigFingerprint(),
     rawRetentionCeilingTokens: resolveContinuationRawRetentionCeiling(),
   });
 }
@@ -64,7 +70,7 @@ export async function prepareHandOffContinuation(input: {
     input.sourceSessionId,
   );
   try {
-    const prepared = await prepareContinuationContext({
+    const candidates = await prepareContinuationCandidates({
       purpose: 'handoff',
       sourceSessionId: input.sourceSessionId,
       continuationInstruction: input.continuationInstruction,
@@ -79,9 +85,19 @@ export async function prepareHandOffContinuation(input: {
       },
       ...(input.signal ? { signal: input.signal } : {}),
     });
+    const prepared = candidates.primary;
     return {
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, input.sourceSessionId),
+      lowerBudgetRetry: candidates.lowerBudgetRetry
+        ? {
+            prepared: candidates.lowerBudgetRetry,
+            turn: createTrustedContinuationInitialTurn(
+              candidates.lowerBudgetRetry,
+              input.sourceSessionId,
+            ),
+          }
+        : null,
       generator,
       target: input.target,
       settingsFingerprint,

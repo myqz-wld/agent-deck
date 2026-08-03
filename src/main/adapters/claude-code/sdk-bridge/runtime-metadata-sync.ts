@@ -13,14 +13,17 @@ export function isClaudeRuntimeEffort(value: unknown): value is ClaudeCodeEffort
   return isClaudeThinkingLevel(value);
 }
 
-function resolveRuntimeModel(internal: InternalSession, reportedModel: unknown): string | null {
+export function resolveClaudeRuntimeModel(
+  reportedModel: unknown,
+  gatewayModelAliases?: ClaudeGatewayModelAliases,
+): string | null {
   if (typeof reportedModel !== 'string') return null;
   const trimmed = reportedModel.trim();
   if (!trimmed) return null;
   const match = CLAUDE_ALIAS_MODEL_RE.exec(trimmed);
   if (!match) return trimmed;
   const alias = match[1].toLowerCase() as keyof ClaudeGatewayModelAliases;
-  return internal.gatewayModelAliases?.[alias] ?? trimmed;
+  return gatewayModelAliases?.[alias] ?? trimmed;
 }
 
 function emitUpdatedSession(internal: InternalSession): void {
@@ -32,7 +35,10 @@ export function syncClaudeRuntimeModel(
   internal: InternalSession,
   reportedModel: unknown,
 ): void {
-  const model = resolveRuntimeModel(internal, reportedModel);
+  const model = resolveClaudeRuntimeModel(
+    reportedModel,
+    internal.gatewayModelAliases,
+  );
   if (!model) return;
   internal.runtimeModel = model;
 

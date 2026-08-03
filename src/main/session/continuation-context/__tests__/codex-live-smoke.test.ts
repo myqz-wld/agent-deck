@@ -8,6 +8,7 @@ import {
   type CheckpointGeneratorResult,
   type ContinuationCheckpointGenerator,
 } from '../checkpoint-generator';
+import { unknownContextCapacity } from './capacity-fixtures';
 import type { ContinuationCheckpoint } from '../checkpoint-schema';
 import { createCheckpointGeneratorRuntime } from '../runtime';
 import { ContinuationSourceSpoolStore } from '../source-spool';
@@ -88,7 +89,7 @@ describe('Codex checkpoint live smoke', () => {
           adapter: 'codex-cli' as const,
           model: null,
           thinking: 'low' as const,
-          contextWindowTokens: null,
+          contextCapacity: unknownContextCapacity(),
           configFingerprint: 'codex-live-smoke-patch-v1',
         };
         const runtime = createCheckpointGeneratorRuntime(generatorSpec);

@@ -74,6 +74,12 @@ export class GrokFirstModelEventWatchdog {
     if (!isGrokModelActivity(update)) return;
     const current = this.active.get(runtime);
     if (!current) return;
+    const acceptance = runtime.trustedContinuationAcceptance;
+    if (acceptance && !isGrokTrustedContinuationModelActivity(update)) return;
+    if (acceptance) {
+      delete runtime.trustedContinuationAcceptance;
+      acceptance.acceptModelActivity();
+    }
     this.clear(runtime);
     logger.debug('[grok-turn-watchdog] first model event received', {
       event: 'grok_turn_watchdog',
@@ -100,6 +106,17 @@ export function isGrokModelActivity(update: SessionUpdate): boolean {
     && update.sessionUpdate !== 'current_mode_update'
     && update.sessionUpdate !== 'config_option_update'
     && update.sessionUpdate !== 'session_info_update';
+}
+
+/** Trusted readiness needs positive model evidence; usage/config and future update types fail closed. */
+export function isGrokTrustedContinuationModelActivity(update: SessionUpdate): boolean {
+  return update.sessionUpdate === 'agent_message_chunk'
+    || update.sessionUpdate === 'agent_thought_chunk'
+    || update.sessionUpdate === 'tool_call'
+    || update.sessionUpdate === 'tool_call_update'
+    || update.sessionUpdate === 'plan'
+    || update.sessionUpdate === 'plan_update'
+    || update.sessionUpdate === 'plan_removed';
 }
 
 export function grokFirstModelEventTimeoutMessage(timeoutMs: number): string {

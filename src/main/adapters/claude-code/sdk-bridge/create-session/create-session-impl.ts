@@ -178,12 +178,14 @@ export async function createSessionImpl(
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
       applicationSid: opts.resume ?? tempKey,
+      runtimeProvider: opts.gateway,
       gatewayModelAliases: opts.gatewayModelAliases,
       // result.modelUsage is cumulative for the native CLI thread. A normal native resume has no
       // in-memory predecessor snapshot, so the first result must establish a baseline. The
       // fresh-cli fallback starts a new native thread and can count its first result normally.
       claudeResultBaselinePending:
         Boolean(opts.resume) && opts.resumeMode !== 'fresh-cli-reuse-app',
+      trustedContinuationAcceptance: opts.trustedContinuationAcceptance,
     });
     internalForCleanup = internal;
 

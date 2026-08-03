@@ -1,6 +1,10 @@
 import type { CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
-import { executeFreshSession } from '../continuation-context/fresh-session-executor';
+import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
+import {
+  executeTrustedContinuationCandidate,
+  rollbackTrustedContinuationCandidate,
+} from '../continuation-context/fresh-session-executor';
 import type { TrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
 import {
   cleanupHandOffLateMessageAttachments,
@@ -14,6 +18,12 @@ import type {
   HandOffSourceCutoverRejectionReason,
   HandOffSourceCutoverResult,
 } from './source-precondition';
+import {
+  selectTrustedContinuationCandidate,
+  TrustedContinuationGateFailure,
+  type HandOffSuccessorCleanup,
+  type HandOffTrustedContinuationFailureReason,
+} from './trusted-continuation-gate';
 
 const MAX_LATE_MESSAGE_DELIVERY_PASSES = 8;
 
@@ -27,14 +37,18 @@ export class HandOffExecutionError<ResourceTransfer> extends Error {
   constructor(
     message: string,
     readonly stage: 'cutover' | 'transfer',
-    readonly successorSessionId: string,
-    readonly successorCleanup: 'ok' | 'failed',
+    readonly successorSessionId: string | null,
+    readonly successorCleanup: HandOffSuccessorCleanup,
     /** Structured coordinator result when transfer completed but reported failure. */
     readonly resourceTransfer: ResourceTransfer | null,
     /** Explicit error detail when the transfer callback or its result classifier threw. */
     readonly transferError: string | null,
     /** Source incompatibility detected after successor creation, when stage is cutover. */
-    readonly cutoverReason: HandOffSourceCutoverRejectionReason | null = null,
+    readonly cutoverReason:
+      | HandOffSourceCutoverRejectionReason
+      | HandOffTrustedContinuationFailureReason
+      | null = null,
+    readonly usedLowerBudgetRetry = false,
   ) {
     super(message);
     this.name = 'HandOffExecutionError';
@@ -49,10 +63,17 @@ export interface ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResul
   sourcePreconditionCheck: (input: HandOffSourceCutoverCheck) => HandOffSourceCutoverResult;
   target: CreateSessionOptions;
   turn: TrustedContinuationInitialTurn;
+  trustedContinuationReadiness?: {
+    capacityStatus: 'observed' | 'stale' | 'unknown';
+    lowerBudgetRetryTurn: TrustedContinuationInitialTurn | null;
+    /** Test seam; production uses the fixed 90-second absolute deadline. */
+    deadlineMs?: number;
+  };
   createSuccessor?: (
     target: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
-  ) => Promise<string>;
+  ) => Promise<TrustedContinuationSessionCandidate>;
+  rollbackRejectedSuccessor?: (sessionId: string) => Promise<void>;
   deliverLateMessages?: (
     input: DeliverHandOffLateMessagesInput,
   ) => Promise<UploadedAttachmentRef[]>;
@@ -89,6 +110,8 @@ export interface ExecutePreparedHandOffResult<ResourceTransfer, FinalizationResu
   sourceFinalization:
     | { ok: true; value: FinalizationResult }
     | { ok: false; error: string };
+  /** Safe diagnostic; provider prompts and runtime evidence remain private. */
+  usedLowerBudgetRetry: boolean;
 }
 
 function errorMessage(error: unknown): string {
@@ -102,6 +125,7 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
   resourceTransfer: ResourceTransfer | null;
   transferError: string | null;
   cutoverReason?: HandOffSourceCutoverRejectionReason | null;
+  usedLowerBudgetRetry: boolean;
   afterClose?: () => Promise<void>;
 }): Promise<never> {
   let successorCleanup: 'ok' | 'failed' = 'ok';
@@ -129,6 +153,7 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
     input.resourceTransfer,
     input.transferError,
     input.cutoverReason ?? null,
+    input.usedLowerBudgetRetry,
   );
 }
 
@@ -140,9 +165,39 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
 export async function executePreparedHandOff<ResourceTransfer, FinalizationResult>(
   input: ExecutePreparedHandOffInput<ResourceTransfer, FinalizationResult>,
 ): Promise<ExecutePreparedHandOffResult<ResourceTransfer, FinalizationResult>> {
-  const createSuccessor = input.createSuccessor ?? executeFreshSession;
+  const createSuccessor = input.createSuccessor ?? executeTrustedContinuationCandidate;
   const deliverLateMessages = input.deliverLateMessages ?? deliverHandOffLateMessages;
-  const successorSessionId = await createSuccessor(input.target, input.turn);
+  const readiness = input.trustedContinuationReadiness ?? {
+    capacityStatus: 'observed' as const,
+    lowerBudgetRetryTurn: null,
+  };
+  let selected: Awaited<ReturnType<typeof selectTrustedContinuationCandidate>>;
+  try {
+    selected = await selectTrustedContinuationCandidate({
+      capacityStatus: readiness.capacityStatus,
+      primaryTurn: input.turn,
+      lowerBudgetRetryTurn: readiness.lowerBudgetRetryTurn,
+      createCandidate: (turn) => createSuccessor(input.target, turn),
+      rollbackRejectedCandidate:
+        input.rollbackRejectedSuccessor ??
+        ((sessionId) => rollbackTrustedContinuationCandidate(input.target, sessionId)),
+      closeCandidateBestEffort: input.closeSuccessor,
+      ...(readiness.deadlineMs !== undefined ? { deadlineMs: readiness.deadlineMs } : {}),
+    });
+  } catch (error) {
+    if (!(error instanceof TrustedContinuationGateFailure)) throw error;
+    throw new HandOffExecutionError(
+      error.message,
+      'cutover',
+      error.successorSessionId,
+      error.successorCleanup,
+      null,
+      null,
+      error.reason,
+      error.usedLowerBudgetRetry,
+    );
+  }
+  const successorSessionId = selected.candidate.sessionId;
   const deliveredLateMessageIds = new Set<number>();
   const createdLateAttachments: UploadedAttachmentRef[] = [];
   const cleanupLateMessageAttachments =
@@ -182,6 +237,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: errorMessage(error),
         cutoverReason: 'late-message-delivery-failed',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(failedAttachments.length > 0
           ? {
               afterClose: () => cleanupLateMessageAttachments(failedAttachments),
@@ -199,6 +255,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: 'source-not-open',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -218,6 +275,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: 'message-delivery-drain-timeout',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -235,6 +293,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: 'source-not-open',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -257,6 +316,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: null,
         cutoverReason: current.reason,
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(createdLateAttachments.length > 0
           ? { afterClose: cleanupCreatedAttachments }
           : {}),
@@ -290,6 +350,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
         resourceTransfer: null,
         transferError: errorMessage(error),
         cutoverReason: 'late-message-delivery-failed',
+        usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
         ...(failedAttachments.length > 0
           ? {
               afterClose: () => cleanupLateMessageAttachments(failedAttachments),
@@ -306,6 +367,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       resourceTransfer: null,
       transferError: null,
       cutoverReason: 'source-kept-changing',
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -320,6 +382,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       resourceTransfer: null,
       transferError: null,
       cutoverReason: 'source-not-open',
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -341,6 +404,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer: null,
       transferError: errorMessage(error),
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -356,6 +420,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer,
       transferError: errorMessage(error),
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -368,6 +433,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       closeSuccessor: input.closeSuccessor,
       resourceTransfer,
       transferError: null,
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
       ...(createdLateAttachments.length > 0
         ? { afterClose: cleanupCreatedAttachments }
         : {}),
@@ -388,6 +454,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       resourceTransfer,
       sourceCutover,
       sourceFinalization: { ok: true, value },
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
     };
   } catch (error) {
     return {
@@ -396,6 +463,7 @@ export async function executePreparedHandOff<ResourceTransfer, FinalizationResul
       resourceTransfer,
       sourceCutover,
       sourceFinalization: { ok: false, error: errorMessage(error) },
+      usedLowerBudgetRetry: selected.usedLowerBudgetRetry,
     };
   }
 }

@@ -10,6 +10,7 @@ import type {
 } from '@main/session/continuation-context/types';
 import { sessionManager } from '@main/session/manager';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import { sessionRepo } from '@main/store/session-repo';
 import {
   createAgentDeckTeamRepo,
@@ -25,9 +26,31 @@ import { handOffSessionHandler } from '../tools/handlers/hand-off-session';
 import { shutdownSessionHandler } from '../tools/handlers/shutdown';
 import type { HandOffSessionHandlerDeps } from '../tools/handlers/hand-off-session/_deps';
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
+import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
+
+vi.mock('@main/session/context-window/service', () => ({
+  getContextWindowCapacityService: () => ({
+    resolve: (identity: { status: string; identity?: unknown; reason?: string }) =>
+      identity.status === 'concrete'
+        ? { status: 'unknown', identity: identity.identity, windowTokens: null, reason: 'no-observation' }
+        : { status: 'unknown', identity: null, windowTokens: null, reason: identity.reason },
+    observe: vi.fn(),
+  }),
+}));
 
 const PRIVATE_PROVIDER_CONTEXT = 'PRIVATE_PROVIDER_CONTEXT_SHOULD_NEVER_LEAK';
 const PRIVATE_SPOOL_ID = 'PRIVATE_SPOOL_ID_SHOULD_NEVER_LEAK';
+
+function acceptedCandidate(sessionId: string): TrustedContinuationSessionCandidate {
+  return {
+    sessionId,
+    acceptance: Promise.resolve({ status: 'accepted', boundary: 'model-activity' }),
+  };
+}
 
 function parseResult(result: HandlerResult): Record<string, any> {
   return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, any>;
@@ -100,13 +123,30 @@ function preparedContext(): PreparedContinuationContext {
   };
 }
 
+function lowerPreparedContext(): PreparedContinuationContext {
+  const primary = preparedContext();
+  return {
+    ...primary,
+    providerPrompt: `${PRIVATE_PROVIDER_CONTEXT}_LOWER`,
+    metrics: {
+      ...primary.metrics,
+      targetPromptCapacityTokens: 8_000,
+      estimatedPromptTokens: 7_000,
+      rawTailTokens: 2_500,
+      includedUserMessages: 21,
+    },
+    warnings: [],
+    preparationHash: 'b'.repeat(64),
+  };
+}
+
 function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinuation {
   const prepared = preparedContext();
   const generator: ResolvedContinuationGenerator = {
     adapter: 'claude-code',
     model: 'checkpoint-generator',
     thinking: 'medium',
-    contextWindowTokens: null,
+    contextCapacity: unknownContextCapacity(),
     configFingerprint: 'PRIVATE_GENERATOR_FINGERPRINT',
   };
   return {
@@ -114,6 +154,7 @@ function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinua
     turn: createTrustedContinuationInitialTurn(prepared, 'caller-sid'),
     generator,
     target,
+    lowerBudgetRetry: null,
     settingsFingerprint: 'PRIVATE_SETTINGS_FINGERPRINT',
   };
 }
@@ -168,7 +209,7 @@ function testDeps(overrides: Partial<HandOffSessionHandlerDeps> = {}): HandOffSe
       compatibleEventRows: 0,
       lateMessages: [],
     }),
-    createSuccessor: vi.fn(async () => 'successor-sid'),
+    createSuccessor: vi.fn(async () => acceptedCandidate('successor-sid')),
     transferResources: vi.fn(() => successfulTransfer()),
     closeSuccessor: vi.fn(async () => undefined),
     finalizeSource: vi.fn(async () => undefined),
@@ -222,7 +263,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       });
       expect(target).not.toHaveProperty('prompt');
       expect(turn.providerPrompt).toBe(PRIVATE_PROVIDER_CONTEXT);
-      return 'successor-sid';
+      return acceptedCandidate('successor-sid');
     });
     const transferResources = vi.fn(() => {
       order.push('transfer');
@@ -269,6 +310,194 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     });
   });
 
+  it('does not reject its own preparation when only the refreshed capacity snapshot changes', async () => {
+    const source = callerRow();
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source);
+    const first = resolveHandOffTarget({
+      source,
+      request: { adapter: 'codex-cli', cwd: '/repo' },
+      sourceMaxEventId: 88,
+    });
+    const second = {
+      ...first,
+      spec: {
+        ...first.spec,
+        contextCapacity: observedContextCapacity(64_000, {
+          adapter: 'codex-cli', runtimeProvider: 'openai', model: 'gpt-source',
+        }),
+      },
+    };
+    const resolveTarget = vi.fn().mockReturnValue(first);
+    const revalidateTarget = vi.fn().mockReturnValue(second);
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({ resolveTarget, revalidateTarget }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(resolveTarget).toHaveBeenCalledOnce();
+    expect(revalidateTarget).toHaveBeenCalledWith(
+      expect.any(Object),
+      first.spec.contextCapacity,
+    );
+    expect(first.spec.runtimeFingerprint).toBe(second.spec.runtimeFingerprint);
+  });
+
+  it('reports the preparation and metrics of the accepted lower-budget candidate', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockResolvedValueOnce(acceptedCandidate('accepted-retry'));
+    const prepareContinuation = vi.fn(async (input) => {
+      const result = preparedHandOff(input.target);
+      const lower = lowerPreparedContext();
+      return {
+        ...result,
+        lowerBudgetRetry: {
+          prepared: lower,
+          turn: createTrustedContinuationInitialTurn(lower, 'caller-sid'),
+        },
+      };
+    });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({
+        prepareContinuation,
+        createSuccessor,
+        rollbackRejectedSuccessor: vi.fn(async () => undefined),
+      }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(parseResult(result).continuationContext).toMatchObject({
+      preparationHash: 'b'.repeat(64),
+      usedLowerBudgetRetry: true,
+      includedUserMessages: 21,
+      tokenStats: {
+        targetPromptCapacity: 8_000,
+        estimatedPrompt: 7_000,
+        rawTail: 2_500,
+      },
+    });
+  });
+
+  it('returns a terminal structured diagnostic when candidate startup has no stable id', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+      let resolveCreation!: (value: TrustedContinuationSessionCandidate) => void;
+      const creation = new Promise<TrustedContinuationSessionCandidate>((resolve) => {
+        resolveCreation = resolve;
+      });
+      const closeSuccessor = vi.fn(async () => undefined);
+      const work = handOffSessionHandler(
+        { prompt: 'continue' },
+        ctx(),
+        testDeps({
+          createSuccessor: vi.fn(() => creation),
+          closeSuccessor,
+          readinessDeadlineMs: 25,
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(25);
+      const result = await work;
+      expect(result.isError).toBe(true);
+      expect(parseResult(result)).toMatchObject({
+        successorSessionId: null,
+        successorClosed: 'pending',
+        usedLowerBudgetRetry: false,
+      });
+      expect(result.content[0]?.text).toContain('startup exceeded');
+
+      resolveCreation(acceptedCandidate('late-successor'));
+      await vi.waitFor(() => expect(closeSuccessor).toHaveBeenCalledWith('late-successor'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports no cleanup when readiness expires before candidate creation begins', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const createSuccessor = vi.fn(async () => acceptedCandidate('must-not-start'));
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({ createSuccessor, readinessDeadlineMs: 0 }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseResult(result)).toMatchObject({
+      successorSessionId: null,
+      successorClosed: 'ok',
+      usedLowerBudgetRetry: false,
+    });
+    expect(result.content[0]?.text).toContain(
+      'did not produce a stable session before the readiness deadline',
+    );
+    expect(result.content[0]?.text).toContain('No successor remains');
+    expect(result.content[0]?.text).not.toContain('late candidate');
+    expect(createSuccessor).not.toHaveBeenCalled();
+  });
+
+  it('returns a terminal diagnostic when lower-budget startup rejects before a stable id', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const privateFailure = 'PRIVATE_RETRY_STARTUP_DETAIL_SHOULD_NOT_LEAK';
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockRejectedValueOnce(new Error(privateFailure));
+    const prepareContinuation = vi.fn(async (input) => {
+      const result = preparedHandOff(input.target);
+      const lower = lowerPreparedContext();
+      return {
+        ...result,
+        lowerBudgetRetry: {
+          prepared: lower,
+          turn: createTrustedContinuationInitialTurn(lower, 'caller-sid'),
+        },
+      };
+    });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({
+        prepareContinuation,
+        createSuccessor,
+        rollbackRejectedSuccessor: vi.fn(async () => undefined),
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseResult(result)).toMatchObject({
+      successorSessionId: null,
+      successorClosed: 'ok',
+      usedLowerBudgetRetry: true,
+    });
+    expect(result.content[0]?.text).toContain('lower-budget successor failed to start');
+    expect(result.content[0]?.text).not.toContain(privateFailure);
+    expect(createSuccessor).toHaveBeenCalledTimes(2);
+  });
+
   it('always releases ingress ownership when the final source probe throws', async () => {
     vi.spyOn(sessionRepo, 'get')
       .mockReturnValueOnce(callerRow())
@@ -295,7 +524,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     const seenTargets: unknown[] = [];
     const createSuccessor = vi.fn(async (target) => {
       seenTargets.push(target);
-      return 'successor-sid';
+      return acceptedCandidate('successor-sid');
     });
     const deps = testDeps({ createSuccessor });
 
@@ -611,6 +840,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
         sourceEventRevision: 77,
         cutoverEventRevision: 77,
         lateMessagesDelivered: 0,
+        usedLowerBudgetRetry: false,
         checkpoint: { id: 12, formatVersion: 1, throughRevision: 77 },
         preparationHash: 'a'.repeat(64),
         tokenStats: {

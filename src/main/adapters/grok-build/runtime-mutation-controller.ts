@@ -4,6 +4,7 @@ import type { AdapterSessionMode } from '@shared/types';
 
 import { withTimeout } from './acp-process';
 import { asRecord, errorText } from './protocol-utils';
+import { grokRuntimeIdentity } from './runtime-identity';
 import type { GrokRuntime } from './runtime-types';
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -120,10 +121,16 @@ export class GrokRuntimeMutationController {
       provider: null,
       ...previousOverride,
     });
+    runtime.runtimeIdentity = null;
+    let targetModel: string;
     try {
-      await this.requestModel(runtime, target, 'Grok ACP session/set_model');
+      targetModel = await this.requestModel(
+        runtime,
+        target,
+        'Grok ACP session/set_model',
+      );
     } catch (error) {
-      await this.disposeUnknown(
+      return this.disposeUnknown(
         runtime,
         `Grok 模型切换结果无法确认：${errorText(error)}`,
         error,
@@ -138,7 +145,7 @@ export class GrokRuntimeMutationController {
       );
     } catch (persistError) {
       try {
-        await this.requestModel(
+        const rollbackModel = await this.requestModel(
           runtime,
           previous,
           'Grok ACP session/set_model rollback',
@@ -148,6 +155,7 @@ export class GrokRuntimeMutationController {
           previousOverride.model,
           previousOverride.thinking,
         );
+        runtime.runtimeIdentity = grokRuntimeIdentity(rollbackModel);
       } catch (rollbackError) {
         await this.disposeUnknown(
           runtime,
@@ -159,7 +167,8 @@ export class GrokRuntimeMutationController {
       throw persistError;
     }
 
-    runtime.model = target.model;
+    runtime.model = targetModel;
+    runtime.runtimeIdentity = grokRuntimeIdentity(targetModel);
     runtime.modelOverride = options.model;
     runtime.thinking = options.thinking;
     runtime.thinkingOverride = options.thinking;
@@ -248,7 +257,7 @@ export class GrokRuntimeMutationController {
     runtime: GrokRuntime,
     selection: EffectiveModelSelection,
     label: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const controller = new AbortController();
     try {
       const response = await withTimeout(
@@ -286,6 +295,7 @@ export class GrokRuntimeMutationController {
             `(model=${String(reportedModel)}, thinking=${String(reportedThinking)})`,
         );
       }
+      return reportedModel;
     } finally {
       controller.abort();
     }
@@ -320,6 +330,7 @@ export class GrokRuntimeMutationController {
     message: string,
     cause: unknown,
   ): Promise<never> {
+    runtime.runtimeIdentity = null;
     let disposeError: unknown;
     try {
       await this.context.dispose(runtime);

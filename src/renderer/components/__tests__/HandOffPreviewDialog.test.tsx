@@ -73,6 +73,7 @@ beforeEach(() => {
     successorSessionId: 'target-1',
     cutoverEventRevision: 42,
     lateMessagesDelivered: 0,
+    usedLowerBudgetRetry: false,
     sourceFinalizationWarning: null,
   });
   handOffCancel = vi.fn().mockResolvedValue(true);
@@ -194,6 +195,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       successorSessionId: 'target-warning',
       cutoverEventRevision: 43,
       lateMessagesDelivered: 1,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: '关闭源会话失败',
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
@@ -218,6 +220,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-successor-42',
       successorCleanup: 'failed',
+      usedLowerBudgetRetry: false,
       message: 'Source changed while the successor was being created',
     });
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
@@ -240,12 +243,95 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByRole('button', { name: '我已关闭该会话，允许重新生成' }),
+      screen.getByRole('button', { name: '我已检查会话列表，允许重新生成' }),
     );
     expect(screen.queryByRole('alert')).toBeNull();
     expect(
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  it('blocks retry while startup cleanup is pending and never invents a session id', async () => {
+    handOffCommit.mockResolvedValueOnce({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'pending',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-startup-timeout',
+      message: 'startup deadline expired',
+    });
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+    await screen.findByLabelText('续接上下文摘录');
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
+
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toContain('续接会话启动超时');
+    expect(warning.textContent).toContain('自动尝试关闭');
+    expect(warning.textContent).toContain('已尝试使用较小范围的续接上下文');
+    expect(warning.textContent).not.toContain('null');
+    expect(
+      (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole('button', { name: '我已检查会话列表，允许重新生成' }),
+    );
+  });
+
+  it('reports a pre-creation deadline without promising late cleanup', async () => {
+    handOffCommit.mockResolvedValueOnce({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: false,
+      cutoverReason: 'target-startup-timeout',
+      message: 'private deadline detail',
+    });
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+    await screen.findByLabelText('续接上下文摘录');
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
+
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toContain('未能在准备时限内生成可用会话');
+    expect(warning.textContent).not.toContain('自动尝试关闭');
+    expect(warning.textContent).not.toContain('private deadline detail');
+    expect(
+      (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      screen.queryByRole('button', { name: '我已检查会话列表，允许重新生成' }),
+    ).toBeNull();
+  });
+
+  it('shows a safe terminal lower-budget startup failure without an orphan interlock', async () => {
+    handOffCommit.mockResolvedValueOnce({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-retry-startup-failed',
+      message: 'private provider startup detail',
+    });
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+    await screen.findByLabelText('续接上下文摘录');
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
+
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toContain('较小范围的续接会话未能启动');
+    expect(warning.textContent).toContain('已尝试使用较小范围的续接上下文');
+    expect(warning.textContent).not.toContain('private provider startup detail');
+    expect(warning.textContent).not.toContain('null');
+    expect(
+      (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      screen.queryByRole('button', { name: '我已检查会话列表，允许重新生成' }),
+    ).toBeNull();
   });
 
   it('shows an actionable cause when late-message delivery fails', async () => {
@@ -254,6 +340,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-delivery-1',
       successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
       cutoverReason: 'late-message-delivery-failed',
       message: 'late delivery failed',
     });
@@ -264,6 +351,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
     const warning = await screen.findByRole('alert');
     expect(warning.textContent).toContain('新增消息未能转交');
+    expect(warning.textContent).toContain('已尝试使用较小范围的续接上下文');
     expect(warning.textContent).toContain('请重新生成续接上下文后再试');
     expect(warning.textContent).not.toContain('消息队列');
   });
@@ -274,6 +362,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       stage: 'transfer',
       successorSessionId: 'orphan-persistent-7',
       successorCleanup: 'failed',
+      usedLowerBudgetRetry: false,
       message: 'internal transfer detail',
     });
     const onClose = vi.fn();
@@ -298,7 +387,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(true);
     fireEvent.click(
-      screen.getByRole('button', { name: '我已关闭该会话，允许重新生成' }),
+      screen.getByRole('button', { name: '我已检查会话列表，允许重新生成' }),
     );
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -422,6 +511,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       successorSessionId: 'stale-target',
       cutoverEventRevision: 44,
       lateMessagesDelivered: 0,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: null,
     });
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bindingAvailable } from '@main/store/__tests__/_binding-probe';
 import { insertSession, makeMemoryDb } from '@main/store/__tests__/agent-deck-repos/_setup';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
+import { createContextWindowCapacityService } from '@main/session/context-window/service';
+import { resolveContextRuntimeIdentity } from '@main/session/context-window/identity';
 import type { ContinuationCheckpoint } from '../checkpoint-schema';
 import type { FoldContinuationCheckpointResult } from '../checkpoint-fold';
 /*
@@ -15,10 +17,18 @@ import {
   type CheckpointGeneratorResult,
   type ContinuationCheckpointGenerator,
 } from '../checkpoint-generator';
-import { prepareContinuationContextWithDependencies } from '../service';
+import {
+  prepareContinuationCandidatesWithDependencies,
+  prepareContinuationContextWithDependencies,
+} from '../service';
 import { AsyncSingleflight } from '../singleflight';
 import { ContinuationSourceSpoolStore } from '../source-spool';
 import type { PrepareContinuationContextInput } from '../types';
+import {
+  observedContextCapacity,
+  staleContextCapacity,
+  unknownContextCapacity,
+} from './capacity-fixtures';
 
 const emptyCheckpoint: ContinuationCheckpoint = {
   formatVersion: 1,
@@ -85,12 +95,14 @@ function request(source: PrepareContinuationContextInput['source'] = { mode: 'ca
     continuationInstruction: 'Continue with the approved next step.',
     generator: {
       adapter: 'claude-code', model: 'test-generator', thinking: 'low',
-      contextWindowTokens: 128_000, configFingerprint: 'generator-v1',
+      contextCapacity: observedContextCapacity(128_000), configFingerprint: 'generator-v1',
     },
     target: {
       adapter: 'codex-cli', model: 'test-target', thinking: 'medium', sandbox: 'read-only',
       permissionMode: null, networkAccessEnabled: false, additionalDirectories: [],
-      contextWindowTokens: 128_000, runtimeFingerprint: 'target-v1',
+      contextCapacity: observedContextCapacity(128_000, {
+        adapter: 'codex-cli', runtimeProvider: 'openai', model: 'test-target',
+      }), runtimeFingerprint: 'target-v1',
     },
     source,
     limits: { rawRetentionCeilingTokens: 64_000, deadlineMs: 120_000, maxFoldCalls: 4, maxRepairCalls: 1 },
@@ -176,7 +188,7 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     insertMessage(db, 'assistant', 'assistant state that cannot fit the fold budget');
     const generator = new FakeGenerator();
     const input = request();
-    input.generator.contextWindowTokens = 2;
+    input.generator.contextCapacity = observedContextCapacity(2);
 
     const first = await prepareContinuationContextWithDependencies(input, {
       db,
@@ -332,7 +344,9 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     const input = request();
     input.generator = {
       adapter: 'codex-cli', model: 'gpt-test', thinking: 'low',
-      contextWindowTokens: 128_000, configFingerprint: 'codex-provider-failure',
+      contextCapacity: observedContextCapacity(128_000, {
+        adapter: 'codex-cli', runtimeProvider: 'openai', model: 'gpt-test',
+      }), configFingerprint: 'codex-provider-failure',
     };
     const generator = new FakeGenerator();
     generator.generate.mockRejectedValueOnce(
@@ -433,5 +447,117 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(result.providerPrompt).toContain('Continue from the trusted checkpoint.');
     expect(result.providerPrompt).not.toContain('older provider capsule');
     expect(result.providerPrompt.match(/Agent Deck Continuation Context v1/g)).toHaveLength(1);
+  });
+
+  it.each([
+    ['unknown', unknownContextCapacity()],
+    ['stale', staleContextCapacity()],
+  ] as const)(
+    'renders deterministic 64k and 32k candidates from one fold for a %s target',
+    async (_status, contextCapacity) => {
+      for (let index = 0; index < 120; index += 1) {
+        insertMessage(db, 'user', `history-${index}-${'x'.repeat(500)}`);
+      }
+      const generator = new FakeGenerator();
+      const input = request();
+      input.target.contextCapacity = contextCapacity;
+
+      const result = await prepareContinuationCandidatesWithDependencies(input, {
+        db,
+        spool,
+        generatorFactory: () => generator,
+      });
+
+      expect(generator.generate).toHaveBeenCalledTimes(1);
+      expect(result.lowerBudgetRetry).not.toBeNull();
+      expect(result.primary.metrics.targetPromptCapacityTokens).toBe(40_000);
+      expect(result.lowerBudgetRetry?.metrics.targetPromptCapacityTokens).toBe(8_000);
+      expect(result.lowerBudgetRetry?.spoolId).toBe(result.primary.spoolId);
+      expect(result.lowerBudgetRetry?.source).toEqual(result.primary.source);
+      expect(result.lowerBudgetRetry?.checkpoint).toEqual(result.primary.checkpoint);
+      expect(result.lowerBudgetRetry?.metrics.foldCalls).toBe(result.primary.metrics.foldCalls);
+      expect(result.lowerBudgetRetry?.metrics.rawTailTokens).toBeLessThan(
+        result.primary.metrics.rawTailTokens,
+      );
+      expect(result.lowerBudgetRetry?.preparationHash).not.toBe(result.primary.preparationHash);
+    },
+  );
+
+  it('uses an observed target exactly and does not manufacture a retry candidate', async () => {
+    insertMessage(db, 'user', 'known-capacity evidence');
+    const input = request();
+    input.target.contextCapacity = observedContextCapacity(96_000);
+
+    const result = await prepareContinuationCandidatesWithDependencies(input, {
+      db,
+      spool,
+      generatorFactory: () => new FakeGenerator(),
+    });
+
+    expect(result.primary.metrics.targetPromptCapacityTokens).toBe(72_000);
+    expect(result.lowerBudgetRetry).toBeNull();
+  });
+
+  it('does not let an unused lower-budget rendering reject a viable recovery', async () => {
+    const input = purposeRequest('recovery');
+    input.target.contextCapacity = unknownContextCapacity();
+    input.continuationInstruction = 'x'.repeat(36_000);
+
+    const result = await prepareContinuationCandidatesWithDependencies(input, {
+      db,
+      spool,
+      generatorFactory: () => new FakeGenerator(),
+    });
+
+    expect(result.primary.metrics.targetPromptCapacityTokens).toBe(40_000);
+    expect(result.lowerBudgetRetry).toBeNull();
+    expect(result.primary.warnings).toContainEqual(expect.objectContaining({
+      code: 'target-capacity-fallback',
+      message: expect.stringContaining('64k conservative recovery policy'),
+    }));
+    expect(result.primary.warnings.map((warning) => warning.message).join('\n'))
+      .not.toContain('32k retry');
+  });
+
+  it('persists exact generator evidence for future snapshots without resizing the current fold', async () => {
+    insertMessage(db, 'user', 'learn generator capacity');
+    const input = request();
+    input.generator.contextCapacity = unknownContextCapacity();
+    const generator = new FakeGenerator();
+    generator.generate.mockResolvedValueOnce({
+      output: emptyPatch,
+      rawText: JSON.stringify(emptyPatch),
+      inputTokens: 10,
+      outputTokens: 5,
+      contextWindowTokens: 200_000,
+      contextWindowEvidence: {
+        runtimeProvider: 'native',
+        model: 'test-generator-effective',
+        windowTokens: 200_000,
+        source: 'runtime-usage',
+      },
+      latencyMs: 1,
+      providerCalls: 1,
+      structured: true,
+    });
+
+    const result = await prepareContinuationCandidatesWithDependencies(input, {
+      db,
+      spool,
+      generatorFactory: () => generator,
+    });
+    expect(result.primary.metrics.generatorFoldInputBudgetTokens).toBe(32_000);
+
+    const identity = resolveContextRuntimeIdentity({
+      adapter: 'claude-code',
+      runtimeProvider: 'native',
+      model: 'test-generator-effective',
+    });
+    const restartedService = createContextWindowCapacityService(db);
+    expect(restartedService.resolve(identity)).toMatchObject({
+      status: 'observed',
+      windowTokens: 200_000,
+    });
+    expect(result.primary.metrics.generatorFoldInputBudgetTokens).toBe(32_000);
   });
 });

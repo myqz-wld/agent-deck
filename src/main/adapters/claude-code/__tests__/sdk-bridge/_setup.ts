@@ -31,6 +31,10 @@ import type {
 } from '@main/session/continuation-context/recovery';
 import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
 import type { AgentEnqueueOptions } from '@main/adapters/types';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
 
 export interface CreateSessionCall {
   cwd: string;
@@ -240,7 +244,7 @@ export class TestBridge extends ClaudeSdkBridge {
         adapter: 'claude-code',
         model: 'generator-model',
         thinking: 'medium',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'generator-fingerprint',
       },
       target: {
@@ -251,7 +255,7 @@ export class TestBridge extends ClaudeSdkBridge {
         permissionMode: input.session.permissionMode ?? null,
         networkAccessEnabled: null,
         additionalDirectories: [],
-        contextWindowTokens: 128_000,
+        contextCapacity: observedContextCapacity(128_000),
         runtimeFingerprint: 'target-fingerprint',
       },
       rawRetentionCeilingTokens: 64_000,
@@ -294,6 +298,7 @@ export class TestBridge extends ClaudeSdkBridge {
     return {
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
+      lowerBudgetRetry: null,
     };
   }
 

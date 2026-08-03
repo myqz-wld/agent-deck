@@ -6,10 +6,27 @@ import { SessionContextUsageChip } from '../SessionContextUsageChip';
 afterEach(cleanup);
 
 describe('SessionContextUsageChip', () => {
+  const currentIdentity = {
+    version: 1 as const,
+    runtimeKey: 'codex:openai:gpt-current:default',
+    adapter: 'codex-cli' as const,
+    runtimeProvider: 'openai',
+    model: 'gpt-current',
+    capacityConfigFingerprint: 'default',
+  };
+
   it('shows current usage, window size, percentage, and exact values', () => {
     render(
       <SessionContextUsageChip
-        usage={{ usedTokens: 34_567, windowTokens: 272_000, updatedAt: 1 }}
+        session={{
+          agentId: 'codex-cli',
+          contextUsage: {
+            usedTokens: 34_567,
+            windowTokens: 272_000,
+            updatedAt: 1,
+            runtimeIdentity: currentIdentity,
+          },
+        }}
       />,
     );
     const chip = screen.getByLabelText('上下文窗口用量');
@@ -20,7 +37,15 @@ describe('SessionContextUsageChip', () => {
   it('marks post-compaction usage as updating while retaining the window size', () => {
     render(
       <SessionContextUsageChip
-        usage={{ usedTokens: null, windowTokens: 200_000, updatedAt: 2 }}
+        session={{
+          agentId: 'codex-cli',
+          contextUsage: {
+            usedTokens: null,
+            windowTokens: 200_000,
+            updatedAt: 2,
+            runtimeIdentity: currentIdentity,
+          },
+        }}
       />,
     );
     const chip = screen.getByLabelText('上下文窗口用量');
@@ -29,9 +54,38 @@ describe('SessionContextUsageChip', () => {
   });
 
   it('keeps an explicit placeholder before a provider reports telemetry', () => {
-    render(<SessionContextUsageChip usage={null} />);
+    render(
+      <SessionContextUsageChip
+        session={{ agentId: 'codex-cli', contextUsage: null }}
+      />,
+    );
     expect(screen.getByLabelText('上下文窗口用量').textContent).toBe(
       '上下文 暂无数据',
     );
+  });
+
+  it.each([
+    ['unattributed', null],
+    [
+      'another adapter',
+      { ...currentIdentity, adapter: 'claude-code' as const, runtimeKey: 'claude:other' },
+    ],
+  ])('does not display a %s snapshot as current usage', (_label, runtimeIdentity) => {
+    render(
+      <SessionContextUsageChip
+        session={{
+          agentId: 'codex-cli',
+          contextUsage: {
+            usedTokens: 34_567,
+            windowTokens: 272_000,
+            updatedAt: 3,
+            runtimeIdentity,
+          },
+        }}
+      />,
+    );
+    const chip = screen.getByLabelText('上下文窗口用量');
+    expect(chip.textContent).toBe('上下文 旧快照');
+    expect(chip.title).toContain('未显示');
   });
 });

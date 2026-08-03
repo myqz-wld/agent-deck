@@ -4,7 +4,7 @@ import {
   classifyStreamErrorEvent,
   extractRetryProgress,
 } from '../stream-error-classifier';
-import type { AgentEventKind } from '@shared/types';
+import type { AgentEventKind, ContextRuntimeIdentityEvidence } from '@shared/types';
 import {
   isEffectiveCodexFileChange,
   isIncompleteCodexFileChangeStatus,
@@ -43,6 +43,7 @@ export function translateCodexAppServerNotification(
   emit: EmitFn,
   opts?: {
     model?: string | null;
+    runtimeIdentity?: ContextRuntimeIdentityEvidence | null;
     state?: CodexAppServerTranslateState;
     tokenUsageObservation?: CodexTokenUsageObservation;
     usageMessageNamespace?: string | null;
@@ -58,12 +59,10 @@ export function translateCodexAppServerNotification(
     case 'turn/diff/updated':
     case 'turn/plan/updated':
       return;
-
     case 'item/reasoning/summaryTextDelta': {
       trackReasoningSummaryDelta(notification.params, opts?.state);
       return;
     }
-
     case 'thread/tokenUsage/updated': {
       const observation =
         opts?.tokenUsageObservation
@@ -78,26 +77,23 @@ export function translateCodexAppServerNotification(
       translateCodexTokenUsage(notification.params, emit, {
         model: opts?.model,
         observation,
+        runtimeIdentity: opts?.runtimeIdentity,
       });
       return;
     }
-
     case 'turn/completed': {
       translateTurnCompleted(notification.params, emit);
       return;
     }
-
     case 'error': {
       translateErrorNotification(notification.params, emit);
       return;
     }
-
     case 'item/started': {
       const item = getItem(notification.params);
       if (item) translateItemStarted(item, emit);
       return;
     }
-
     case 'item/completed': {
       const item = getItem(notification.params);
       if (item) translateItemCompleted(item, emit, opts?.state);
@@ -143,7 +139,13 @@ function translateTurnCompleted(params: unknown, emit: EmitFn): void {
     const err = asRecord((turn as AnyRecord).error);
     const msg = typeof err?.message === 'string' ? err.message : 'Codex turn failed';
     emit('message', { text: `⚠ Codex 错误：${msg}`, error: true });
-    emit('finished', { ok: false, subtype: 'failed' });
+    emit('finished', {
+      ok: false,
+      subtype: 'failed',
+      ...(err?.codexErrorInfo === 'contextWindowExceeded'
+        ? { failureReason: 'context-window-exceeded' }
+        : {}),
+    });
     return;
   }
   emit('finished', { ok: false, subtype: 'error' });
@@ -159,7 +161,13 @@ function translateErrorNotification(params: unknown, emit: EmitFn): void {
     return;
   }
   emit('message', { text: `⚠ Codex 流级错误：${msg}`, error: true });
-  emit('finished', { ok: false, subtype: 'error' });
+  emit('finished', {
+    ok: false,
+    subtype: 'error',
+    ...(err?.codexErrorInfo === 'contextWindowExceeded'
+      ? { failureReason: 'context-window-exceeded' }
+      : {}),
+  });
 }
 
 function translateItemStarted(item: AnyRecord, emit: EmitFn): void {

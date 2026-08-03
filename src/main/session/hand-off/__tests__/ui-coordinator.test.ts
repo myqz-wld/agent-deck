@@ -11,7 +11,9 @@ import type {
   ResolvedContinuationGenerator,
   ResolvedSuccessorSpec,
 } from '../../continuation-context/types';
+import { observedContextCapacity } from '../../continuation-context/__tests__/capacity-fixtures';
 import { HandOffExecutionError } from '../executor';
+import { TrustedContinuationStartupFailure } from '../trusted-continuation-gate';
 import { HandOffCutoverCoordinator } from '../cutover-coordinator';
 import type { HandOffSourceCutoverResult } from '../source-precondition';
 import type { ResolvedHandOffTarget } from '../target-resolver';
@@ -31,7 +33,7 @@ const generator: ResolvedContinuationGenerator = {
   adapter: 'claude-code',
   model: 'checkpoint-model',
   thinking: 'low',
-  contextWindowTokens: 128_000,
+  contextCapacity: observedContextCapacity(128_000),
   configFingerprint: 'generator-config-secret',
 };
 
@@ -60,6 +62,7 @@ function makeSource(overrides: Partial<SessionRecord> = {}): SessionRecord {
 function makeTarget(overrides: {
   runtimeFingerprint?: string;
   createOptions?: Partial<CreateSessionOptions>;
+  contextCapacity?: ResolvedSuccessorSpec['contextCapacity'];
 } = {}): ResolvedHandOffTarget {
   const createOptions = {
     agentId: 'codex-cli',
@@ -85,8 +88,11 @@ function makeTarget(overrides: {
     permissionMode: null,
     networkAccessEnabled: true,
     additionalDirectories: ['/tmp'],
-    contextWindowTokens: 128_000,
-    contextWindowSource: 'observed',
+    contextCapacity:
+      overrides.contextCapacity ??
+      observedContextCapacity(128_000, {
+        adapter: 'codex-cli', runtimeProvider: 'openai', model: 'target-model',
+      }),
     runtimeFingerprint: overrides.runtimeFingerprint ?? 'target-runtime-secret',
   };
   return { spec, createOptions };
@@ -170,12 +176,16 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
     return {
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      lowerBudgetRetry: null,
       generator,
       target: state.target.spec,
       settingsFingerprint: state.settingsFingerprint,
     };
   });
   const resolveTarget = vi.fn(() => state.target);
+  const revalidateTarget = vi.fn(
+    (_input: unknown, _capacity: ResolvedSuccessorSpec['contextCapacity']) => state.target,
+  );
   const execute = vi.fn(
     async (input): Promise<UiHandOffExecutionResult> => {
       input.commitIngress('successor-session');
@@ -192,6 +202,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
         queuedMessagesDelivered: input.queuedMessages.length,
         sourceCutover,
         sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: false,
       };
     },
   );
@@ -213,6 +224,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
       return state.sourcePreconditionResult;
     },
     resolveTarget,
+    revalidateTarget,
     prepare,
     currentSettingsFingerprint: () => state.settingsFingerprint,
     spoolMetadata: (spoolId) => ({
@@ -256,6 +268,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
     prepare,
     preparedValues,
     resolveTarget,
+    revalidateTarget,
     selection,
     state,
     prepareOne: () =>
@@ -451,6 +464,7 @@ describe('UiHandOffCoordinator', () => {
     finishPreparation({
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      lowerBudgetRetry: null,
       generator,
       target: harness.state.target.spec,
       settingsFingerprint: harness.state.settingsFingerprint,
@@ -481,6 +495,7 @@ describe('UiHandOffCoordinator', () => {
     finishPreparation({
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, SOURCE_ID),
+      lowerBudgetRetry: null,
       generator,
       target: harness.state.target.spec,
       settingsFingerprint: harness.state.settingsFingerprint,
@@ -563,6 +578,27 @@ describe('UiHandOffCoordinator', () => {
     },
   );
 
+  it('does not self-invalidate when only a later target capacity snapshot changes', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.state.target = makeTarget({
+      contextCapacity: observedContextCapacity(64_000, {
+        adapter: 'codex-cli', runtimeProvider: 'openai', model: 'target-model',
+      }),
+    });
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).resolves.toMatchObject({ successorSessionId: 'successor-session' });
+    expect(harness.execute).toHaveBeenCalledOnce();
+    expect(harness.resolveTarget).toHaveBeenCalledOnce();
+    expect(harness.revalidateTarget).toHaveBeenCalledTimes(2);
+    expect(harness.revalidateTarget.mock.calls[1]?.[1]).toMatchObject({
+      status: 'observed',
+      windowTokens: 128_000,
+    });
+  });
+
   it.each([
     ['missing', null],
     ['closed', makeSource({ lifecycle: 'closed', endedAt: 100 })],
@@ -589,6 +625,7 @@ describe('UiHandOffCoordinator', () => {
       successorSessionId: 'successor-session',
       cutoverEventRevision: 7,
       lateMessagesDelivered: 0,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: null,
     });
     expect(harness.execute).toHaveBeenCalledTimes(1);
@@ -602,6 +639,8 @@ describe('UiHandOffCoordinator', () => {
         runtimeFingerprint: 'source-runtime-secret',
       },
       target: harness.state.target.createOptions,
+      targetCapacityStatus: 'observed',
+      lowerBudgetRetryTurn: null,
       commitIngress: expect.any(Function),
       sourceOwnershipCheck: expect.any(Function),
       turn: expect.objectContaining({
@@ -677,13 +716,14 @@ describe('UiHandOffCoordinator', () => {
   it('allows exactly one same-snapshot retry after a pre-spawn failure', async () => {
     const harness = createHarness();
     const preparation = await harness.prepareOne();
+    const firstFailure = new TrustedContinuationStartupFailure();
     harness.execute
-      .mockRejectedValueOnce(new Error('spawn failed before creation'))
+      .mockRejectedValueOnce(firstFailure)
       .mockRejectedValueOnce(new Error('retry also failed before creation'));
 
     await expect(
       harness.coordinator.commit(OWNER, preparation.preparationId),
-    ).rejects.toThrow('spawn failed before creation');
+    ).rejects.toBe(firstFailure);
     expect(harness.cache.size).toBe(1);
     expect(harness.cleanupSpool).not.toHaveBeenCalled();
     const replay = vi.fn(async () => undefined);
@@ -706,6 +746,59 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.execute).toHaveBeenCalledTimes(2);
   });
 
+  it('never exposes a same-preparation retry after a pending startup deadline', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockRejectedValueOnce(
+      new HandOffExecutionError(
+        'startup deadline expired before a stable id',
+        'cutover',
+        null,
+        'pending',
+        null,
+        null,
+        'target-startup-timeout',
+      ),
+    );
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toMatchObject({ cutoverReason: 'target-startup-timeout' });
+    expect(harness.cache.size).toBe(0);
+    expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toThrow(/not authorized/);
+    expect(harness.execute).toHaveBeenCalledOnce();
+  });
+
+  it('evicts the preparation after a lower-candidate startup rejection', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockRejectedValueOnce(
+      new HandOffExecutionError(
+        'lower-budget startup failed before a stable id',
+        'cutover',
+        null,
+        'ok',
+        null,
+        null,
+        'target-retry-startup-failed',
+        true,
+      ),
+    );
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toMatchObject({ cutoverReason: 'target-retry-startup-failed' });
+    expect(harness.cache.size).toBe(0);
+    expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toThrow(/not authorized/);
+    expect(harness.execute).toHaveBeenCalledOnce();
+  });
+
   it('keeps cancellation owner-bound and cleans its immutable spool', async () => {
     const harness = createHarness();
     const preparation = await harness.prepareOne();
@@ -719,6 +812,33 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.cache.size).toBe(0);
     expect(harness.cleanupSpool).toHaveBeenCalledTimes(1);
     expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+  });
+
+  it('returns the lower-budget retry diagnostic without exposing trusted inputs', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockImplementationOnce(async (input) => {
+      input.commitIngress('retry-successor');
+      return {
+        successorSessionId: 'retry-successor',
+        queuedMessagesDelivered: 0,
+        sourceCutover: {
+          ok: true,
+          currentEventRevision: 7,
+          compatibleEventRows: 0,
+          lateMessages: [],
+        },
+        sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: true,
+      };
+    });
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).resolves.toMatchObject({
+      successorSessionId: 'retry-successor',
+      usedLowerBudgetRetry: true,
+    });
   });
 
   it('owns source ingress from preparation through commit and releases it afterward', async () => {
@@ -752,6 +872,7 @@ describe('UiHandOffCoordinator', () => {
         lateMessages: [],
       },
       sourceFinalization: { ok: true, value: undefined },
+      usedLowerBudgetRetry: false,
     });
     await expect(firstCommit).resolves.toMatchObject({ successorSessionId: 'first-successor' });
     const next = await harness.prepareOne();
@@ -800,6 +921,7 @@ describe('UiHandOffCoordinator', () => {
           lateMessages: [],
         },
         sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: false,
       });
 
       await expect(commit).resolves.toMatchObject({
@@ -905,6 +1027,7 @@ describe('UiHandOffCoordinator', () => {
           lateMessages: [],
         },
         sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: false,
       };
     });
 

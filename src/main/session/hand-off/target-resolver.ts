@@ -5,12 +5,14 @@ import {
 } from '@main/adapters/runtime-control-contracts';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { resolveCreateSessionModelOptions } from '@main/adapters/session-model-options';
+import { resolveCodexCapacityConfigFingerprintFromConfig } from '@main/adapters/codex-cli/app-server/runtime-identity';
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { settingsStore } from '@main/store/settings-store';
 import { omitUndefined } from '@main/utils/optional-fields';
 import type {
   AdapterSessionMode,
   CodexApprovalPolicy,
+  ResolvedContextCapacity,
   SelectablePermissionMode,
   SessionAdapterId,
   SessionRecord,
@@ -18,7 +20,10 @@ import type {
 import { isSelectablePermissionMode } from '@shared/types';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 import type { ResolvedSuccessorSpec } from '../continuation-context/types';
-import { resolveContinuationTargetSnapshot } from '../continuation-context/resolver';
+import {
+  resolveContinuationTargetFromFrozenCapacity,
+  resolveContinuationTargetSnapshot,
+} from '../continuation-context/resolver';
 
 export interface HandOffTargetRequest {
   adapter: SessionAdapterId;
@@ -53,17 +58,35 @@ export class HandOffTargetOptionsError extends Error {
   }
 }
 
+export interface ResolveHandOffTargetInput {
+  source: SessionRecord;
+  request: HandOffTargetRequest;
+  sourceMaxEventId: number | null;
+}
+
 function defaultPermissionMode(
   adapter: SessionAdapterId,
 ): SelectablePermissionMode | undefined {
   return adapter === 'claude-code' ? 'bypassPermissions' : undefined;
 }
 
-export function resolveHandOffTarget(input: {
-  source: SessionRecord;
-  request: HandOffTargetRequest;
-  sourceMaxEventId: number | null;
-}): ResolvedHandOffTarget {
+export function resolveHandOffTarget(
+  input: ResolveHandOffTargetInput,
+): ResolvedHandOffTarget {
+  return resolveHandOffTargetInternal(input);
+}
+
+export function revalidateHandOffTarget(
+  input: ResolveHandOffTargetInput,
+  frozenContextCapacity: ResolvedContextCapacity,
+): ResolvedHandOffTarget {
+  return resolveHandOffTargetInternal(input, frozenContextCapacity);
+}
+
+function resolveHandOffTargetInternal(
+  input: ResolveHandOffTargetInput,
+  frozenContextCapacity?: ResolvedContextCapacity,
+): ResolvedHandOffTarget {
   const { source, request } = input;
   const sameAdapter = request.adapter === source.agentId;
   const unsupported = firstUnsupportedTargetRuntimeField(request.adapter, request);
@@ -254,7 +277,14 @@ export function resolveHandOffTarget(input: {
           persistedExtraAllowWrite: extraAllowWrite,
         }
       : { kind: 'claude', mode: claudeCodeSandbox ?? null, extraAllowWrite };
-  const spec = resolveContinuationTargetSnapshot({
+  const trustedRuntimeIdentity =
+    sameAdapter &&
+    request.model === undefined &&
+    request.provider === undefined &&
+    request.gateway === undefined
+      ? source.contextUsage?.runtimeIdentity ?? null
+      : null;
+  const targetInput = {
     adapter: request.adapter,
     cwd: request.cwd,
     provider,
@@ -265,6 +295,18 @@ export function resolveHandOffTarget(input: {
     sandbox,
     networkAccessEnabled,
     additionalDirectories,
-  });
+    ...(createOptions.agentId === 'codex-cli'
+      ? {
+          capacityConfigFingerprint:
+            resolveCodexCapacityConfigFingerprintFromConfig(
+              createOptions.codexConfigOverrides,
+            ),
+        }
+      : {}),
+    trustedRuntimeIdentity,
+  };
+  const spec = frozenContextCapacity
+    ? resolveContinuationTargetFromFrozenCapacity(targetInput, frozenContextCapacity)
+    : resolveContinuationTargetSnapshot(targetInput);
   return { spec, createOptions };
 }

@@ -42,13 +42,15 @@ import {
   reconcileClaudeFinalResultUsage,
   type ClaudeFinalResultUsage,
 } from './final-result-usage';
+import { claudeFinishedPayload } from './result-outcome';
 import {
   confirmClaudeUserMessageAcceptance,
   discardClaudeSubmittingUserMessage,
 } from './user-message-acceptance';
 import {
   claudeAssistantContextTokens,
-  claudeContextWindowTokens,
+  claudeContextUsagePayload,
+  claudeContextWindowPayload,
 } from './context-usage';
 
 type EmitFn = (e: AgentEvent) => void;
@@ -130,7 +132,10 @@ export function translateSdkMessage(
     }
     const contextTokens = claudeAssistantContextTokens(m?.usage);
     if (contextTokens !== null) {
-      e('context-usage', { usedTokens: contextTokens });
+      e(
+        'context-usage',
+        claudeContextUsagePayload(internal, { usedTokens: contextTokens }),
+      );
     }
     const blocks = m?.content ?? [];
     for (let i = 0; i < blocks.length; i++) {
@@ -232,6 +237,7 @@ export function translateSdkMessage(
       is_error?: boolean;
       result?: string;
       errors?: string[];
+      terminal_reason?: string;
     };
     // REVIEW_13 Bug 6 / P17 双通道防护陷阱再撞：result frame 在 expectedClose=true 时
     // 必须**整体静默**，不只 gate 红字 message。REVIEW_11 D'2 修法只 gate 了 message emit
@@ -265,18 +271,15 @@ export function translateSdkMessage(
       ts,
       reconciledUsage.liveRateModel,
     );
-    const contextWindowTokens = claudeContextWindowTokens(
-      r.modelUsage,
-      internal.runtimeModel ?? fallbackModel,
-    );
-    if (contextWindowTokens !== null) {
-      e('context-usage', { windowTokens: contextWindowTokens });
+    const contextWindowPayload = claudeContextWindowPayload(internal, r.modelUsage);
+    if (contextWindowPayload !== null) {
+      e('context-usage', contextWindowPayload);
     }
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
     }
-    e('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
+    e('finished', claudeFinishedPayload(r));
   } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const metadata = (msg as {
       compact_metadata?: {
@@ -292,7 +295,10 @@ export function translateSdkMessage(
       metadata.post_tokens >= 0
         ? Math.trunc(metadata.post_tokens)
         : null;
-    e('context-usage', { usedTokens: postTokens });
+    e(
+      'context-usage',
+      claudeContextUsagePayload(internal, { usedTokens: postTokens }),
+    );
     e('message', {
       text: buildClaudeCompactMessageText({
         trigger: metadata?.trigger,

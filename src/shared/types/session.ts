@@ -4,6 +4,7 @@
 
 import type { SessionTeamMembership } from './agent-deck-team';
 import type { SessionThinkingLevel } from '../session-metadata';
+import type { ContextRuntimeIdentity } from './context-window';
 
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 /**
@@ -79,11 +80,15 @@ export interface SessionContextUsage {
   usedTokens: number | null;
   windowTokens: number | null;
   updatedAt: number;
+  /** Exact runtime that owns both token fields; null means provider attribution is unavailable. */
+  runtimeIdentity: ContextRuntimeIdentity | null;
 }
 /** Partial provider update; omitted fields preserve the last known snapshot value. */
 export interface SessionContextUsageUpdate {
   usedTokens?: number | null;
   windowTokens?: number | null;
+  /** Omitted preserves identity (for compaction); null explicitly starts an unattributed snapshot. */
+  runtimeIdentity?: ContextRuntimeIdentity | null;
 }
 /** Adapter-native work mode. Currently negotiated and implemented by Grok Build ACP. */
 export const ADAPTER_SESSION_MODES = ['default', 'plan', 'ask'] as const;
@@ -455,6 +460,8 @@ export interface SessionHandOffCommitResult {
   cutoverEventRevision: number;
   /** Source inputs queued behind the prepared successor turn. */
   lateMessagesDelivered: number;
+  /** True when an unknown/stale target accepted the single pre-rendered lower-budget candidate. */
+  usedLowerBudgetRetry: boolean;
   /** Successor is usable even when best-effort source close/archive reports a warning. */
   sourceFinalizationWarning: string | null;
 }
@@ -462,8 +469,12 @@ export interface SessionHandOffCommitResult {
 /** Post-create failure details must cross Electron IPC without relying on Error serialization. */
 export interface SessionHandOffExecutionFailure {
   stage: 'cutover' | 'transfer';
-  successorSessionId: string;
-  successorCleanup: 'ok' | 'failed';
+  /** Null when the failure occurred before a stable successor identity was available. */
+  successorSessionId: string | null;
+  /** Pending means late-candidate cleanup is scheduled but cannot yet be observed synchronously. */
+  successorCleanup: 'ok' | 'failed' | 'pending';
+  /** True when lower-budget candidate startup was attempted; never exposes its trusted inputs. */
+  usedLowerBudgetRetry: boolean;
   cutoverReason?: string;
   message: string;
 }

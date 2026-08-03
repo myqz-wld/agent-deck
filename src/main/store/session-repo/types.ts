@@ -21,6 +21,7 @@ import type {
 } from '@shared/types';
 import log from '@main/utils/logger';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
+import { createContextRuntimeIdentity } from '@main/session/context-window/identity';
 
 const logger = log.scope('session-repo');
 
@@ -155,6 +156,7 @@ export function parseSessionContextUsageJson(
       usedTokens,
       windowTokens,
       updatedAt: Math.trunc(updatedAt),
+      runtimeIdentity: parseStoredContextRuntimeIdentity(parsed.runtimeIdentity),
     };
   } catch (error) {
     logger.warn('[session-repo] context usage JSON parse failed', {
@@ -164,6 +166,36 @@ export function parseSessionContextUsageJson(
     });
     return null;
   }
+}
+
+function parseStoredContextRuntimeIdentity(value: unknown): SessionContextUsage['runtimeIdentity'] {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('invalid context runtime identity');
+  }
+  const raw = value as Record<string, unknown>;
+  if (
+    raw.version !== 1 ||
+    (raw.adapter !== 'claude-code' &&
+      raw.adapter !== 'codex-cli' &&
+      raw.adapter !== 'grok-build') ||
+    typeof raw.runtimeProvider !== 'string' ||
+    typeof raw.model !== 'string' ||
+    typeof raw.capacityConfigFingerprint !== 'string' ||
+    typeof raw.runtimeKey !== 'string'
+  ) {
+    throw new Error('invalid context runtime identity');
+  }
+  const identity = createContextRuntimeIdentity({
+    adapter: raw.adapter,
+    runtimeProvider: raw.runtimeProvider,
+    model: raw.model,
+    capacityConfigFingerprint: raw.capacityConfigFingerprint,
+  });
+  if (identity.runtimeKey !== raw.runtimeKey) {
+    throw new Error('context runtime identity key mismatch');
+  }
+  return identity;
 }
 
 function nullableTokenCount(value: unknown, positive: boolean): number | null | undefined {

@@ -9,6 +9,8 @@ import {
 } from '../late-message-delivery';
 import type { HandOffSourceCutoverResult } from '../source-precondition';
 import { HandOffCutoverCoordinator } from '../cutover-coordinator';
+import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
+import { TrustedContinuationStartupFailure } from '../trusted-continuation-gate';
 
 const source: SessionRecord = {
   id: 'source', agentId: 'claude-code', cwd: '/repo', title: 'source', source: 'sdk',
@@ -33,6 +35,24 @@ function matchingSource() {
   };
 }
 
+function acceptedCandidate(sessionId: string): TrustedContinuationSessionCandidate {
+  return {
+    sessionId,
+    acceptance: Promise.resolve({ status: 'accepted', boundary: 'model-activity' }),
+  };
+}
+
+function deferredCandidate(sessionId: string) {
+  let accept!: () => void;
+  const value: TrustedContinuationSessionCandidate = {
+    sessionId,
+    acceptance: new Promise((resolve) => {
+      accept = () => resolve({ status: 'accepted', boundary: 'model-activity' });
+    }),
+  };
+  return { value, accept };
+}
+
 describe('executePreparedHandOff', () => {
   it('propagates successor startup failure before cutover, transfer, or source finalization', async () => {
     const sourcePreconditionCheck = vi.fn();
@@ -40,27 +60,250 @@ describe('executePreparedHandOff', () => {
     const closeSuccessor = vi.fn();
     const finalizeSource = vi.fn();
 
-    await expect(
-      executePreparedHandOff({
-        source,
-        sourcePrecondition,
-        sourcePreconditionCheck,
-        target,
-        turn,
-        createSuccessor: vi.fn(async () => {
-          throw new Error('Codex startup failed before thread.started');
-        }),
-        transferResources,
-        resourceTransferFailed: vi.fn(),
-        closeSuccessor,
-        finalizeSource,
+    const error = await executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck,
+      target,
+      turn,
+      createSuccessor: vi.fn(async () => {
+        throw new Error('Codex startup failed before thread.started');
       }),
-    ).rejects.toThrow(/Codex startup failed/);
+      transferResources,
+      resourceTransferFailed: vi.fn(),
+      closeSuccessor,
+      finalizeSource,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(TrustedContinuationStartupFailure);
+    expect((error as Error).message).toContain('failed to start before yielding a stable session id');
+    expect((error as Error).message).not.toContain('Codex startup failed');
 
     expect(sourcePreconditionCheck).not.toHaveBeenCalled();
     expect(transferResources).not.toHaveBeenCalled();
     expect(closeSuccessor).not.toHaveBeenCalled();
     expect(finalizeSource).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a pending startup deadline as a terminal execution failure', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveCreation!: (value: TrustedContinuationSessionCandidate) => void;
+      const creation = new Promise<TrustedContinuationSessionCandidate>((resolve) => {
+        resolveCreation = resolve;
+      });
+      const closeSuccessor = vi.fn(async () => undefined);
+      const transferResources = vi.fn();
+      const work = executePreparedHandOff({
+        source,
+        sourcePrecondition,
+        sourcePreconditionCheck: vi.fn(),
+        target,
+        turn,
+        trustedContinuationReadiness: {
+          capacityStatus: 'unknown',
+          lowerBudgetRetryTurn: null,
+          deadlineMs: 25,
+        },
+        createSuccessor: vi.fn(() => creation),
+        transferResources,
+        resourceTransferFailed: vi.fn(),
+        closeSuccessor,
+        finalizeSource: vi.fn(),
+      });
+      const assertion = expect(work).rejects.toMatchObject({
+        name: 'HandOffExecutionError',
+        stage: 'cutover',
+        successorSessionId: null,
+        successorCleanup: 'pending',
+        cutoverReason: 'target-startup-timeout',
+        usedLowerBudgetRetry: false,
+      });
+
+      await vi.advanceTimersByTimeAsync(25);
+      await assertion;
+      expect(transferResources).not.toHaveBeenCalled();
+
+      resolveCreation(acceptedCandidate('late-successor'));
+      await vi.waitFor(() => expect(closeSuccessor).toHaveBeenCalledWith('late-successor'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps source scans, late delivery, and transfer behind unknown-target model activity', async () => {
+    const pending = deferredCandidate('gated-successor');
+    const sourcePreconditionCheck = vi.fn(matchingSource);
+    const deliverLateMessages = vi.fn(async () => []);
+    const transferResources = vi.fn(() => ({ failed: false }));
+    const work = executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck,
+      target,
+      turn,
+      trustedContinuationReadiness: {
+        capacityStatus: 'unknown',
+        lowerBudgetRetryTurn: null,
+      },
+      createSuccessor: vi.fn(async () => pending.value),
+      deliverLateMessages,
+      transferResources,
+      resourceTransferFailed: (value: { failed: boolean }) => value.failed,
+      closeSuccessor: vi.fn(),
+      finalizeSource: vi.fn(),
+    });
+
+    await Promise.resolve();
+    expect(sourcePreconditionCheck).not.toHaveBeenCalled();
+    expect(deliverLateMessages).not.toHaveBeenCalled();
+    expect(transferResources).not.toHaveBeenCalled();
+
+    pending.accept();
+    await expect(work).resolves.toMatchObject({
+      successorSessionId: 'gated-successor',
+      usedLowerBudgetRetry: false,
+    });
+    expect(sourcePreconditionCheck).toHaveBeenCalled();
+    expect(transferResources).toHaveBeenCalledOnce();
+  });
+
+  it('delivers late input only to the accepted lower-budget replacement', async () => {
+    const lowerTurn = {
+      ...turn,
+      providerPrompt: 'lower-budget',
+    } as TrustedContinuationInitialTurn;
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockResolvedValueOnce(acceptedCandidate('accepted-retry'));
+    const rollbackRejectedSuccessor = vi.fn(async () => undefined);
+    const deliverLateMessages = vi.fn(async () => []);
+    const late = {
+      eventId: 51,
+      text: 'held behind ingress lease',
+      attachments: [],
+      origin: 'user' as const,
+    };
+
+    const result = await executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck: () => ({
+        ok: true,
+        currentEventRevision: 8,
+        compatibleEventRows: 1,
+        lateMessages: [late],
+      }),
+      target,
+      turn,
+      trustedContinuationReadiness: {
+        capacityStatus: 'unknown',
+        lowerBudgetRetryTurn: lowerTurn,
+      },
+      createSuccessor,
+      rollbackRejectedSuccessor,
+      deliverLateMessages,
+      transferResources: vi.fn(() => ({ failed: false })),
+      resourceTransferFailed: (value: { failed: boolean }) => value.failed,
+      closeSuccessor: vi.fn(),
+      finalizeSource: vi.fn(),
+    });
+
+    expect(rollbackRejectedSuccessor).toHaveBeenCalledWith('rejected-primary');
+    expect(createSuccessor).toHaveBeenNthCalledWith(2, target, lowerTurn);
+    expect(deliverLateMessages).toHaveBeenCalledWith(
+      expect.objectContaining({ successorSessionId: 'accepted-retry' }),
+    );
+    expect(deliverLateMessages).not.toHaveBeenCalledWith(
+      expect.objectContaining({ successorSessionId: 'rejected-primary' }),
+    );
+    expect(result.usedLowerBudgetRetry).toBe(true);
+  });
+
+  it('preserves the lower-budget diagnostic when a later transfer fails', async () => {
+    const retryTurn = {
+      ...turn,
+      providerPrompt: 'lower-budget',
+    } as TrustedContinuationInitialTurn;
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockResolvedValueOnce(acceptedCandidate('accepted-retry'));
+
+    await expect(executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck: matchingSource,
+      target,
+      turn,
+      trustedContinuationReadiness: {
+        capacityStatus: 'unknown',
+        lowerBudgetRetryTurn: retryTurn,
+      },
+      createSuccessor,
+      rollbackRejectedSuccessor: vi.fn(async () => undefined),
+      transferResources: vi.fn(() => ({ failed: true })),
+      resourceTransferFailed: (value: { failed: boolean }) => value.failed,
+      closeSuccessor: vi.fn(async () => undefined),
+      finalizeSource: vi.fn(),
+    })).rejects.toMatchObject({
+      name: 'HandOffExecutionError',
+      stage: 'transfer',
+      successorSessionId: 'accepted-retry',
+      usedLowerBudgetRetry: true,
+    });
+  });
+
+  it('stops without retry or ownership mutation when rejected-primary cleanup fails', async () => {
+    const transferResources = vi.fn();
+    const createSuccessor = vi.fn(async () => ({
+      sessionId: 'unclean-primary',
+      acceptance: Promise.resolve({
+        status: 'rejected' as const,
+        reason: 'context-window-exceeded' as const,
+      }),
+    }));
+
+    await expect(executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck: vi.fn(),
+      target,
+      turn,
+      trustedContinuationReadiness: {
+        capacityStatus: 'unknown',
+        lowerBudgetRetryTurn: turn,
+      },
+      createSuccessor,
+      rollbackRejectedSuccessor: vi.fn(async () => { throw new Error('still live'); }),
+      transferResources,
+      resourceTransferFailed: vi.fn(),
+      closeSuccessor: vi.fn(),
+      finalizeSource: vi.fn(),
+    })).rejects.toMatchObject({
+      name: 'HandOffExecutionError',
+      cutoverReason: 'target-rollback-failed',
+      successorSessionId: 'unclean-primary',
+      successorCleanup: 'failed',
+    });
+    expect(createSuccessor).toHaveBeenCalledTimes(1);
+    expect(transferResources).not.toHaveBeenCalled();
   });
 
   it('creates, transfers, then finalizes in strict order', async () => {
@@ -71,7 +314,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck: matchingSource,
       target,
       turn,
-      createSuccessor: vi.fn(async () => { order.push('create'); return 'successor'; }),
+      createSuccessor: vi.fn(async () => { order.push('create'); return acceptedCandidate('successor'); }),
       sourceOwnershipCheck: vi.fn(() => {
         order.push('guard');
         return true;
@@ -95,6 +338,7 @@ describe('executePreparedHandOff', () => {
         lateMessages: [],
       },
       sourceFinalization: { ok: true, value: 'closed' },
+      usedLowerBudgetRetry: false,
     });
   });
 
@@ -132,7 +376,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'successor-with-queued-input'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('successor-with-queued-input')),
       deliverLateMessages,
       transferResources: vi.fn(() => ({ failed: false })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
@@ -157,7 +401,7 @@ describe('executePreparedHandOff', () => {
       turn,
       createSuccessor: vi.fn(async () => {
         order.push('create');
-        return 'successor-after-drain';
+        return acceptedCandidate('successor-after-drain');
       }),
       drainMessageDeliveries: vi.fn(async () => {
         order.push('drain');
@@ -184,7 +428,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck: vi.fn(),
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'orphan-after-drain-timeout'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('orphan-after-drain-timeout')),
       drainMessageDeliveries: vi.fn(async () => false),
       transferResources,
       resourceTransferFailed: vi.fn(),
@@ -211,7 +455,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck: matchingSource,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'orphan'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('orphan')),
       transferResources: vi.fn(() => ({ failed: true })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
       closeSuccessor,
@@ -239,7 +483,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck: matchingSource,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'orphan-after-throw'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('orphan-after-throw')),
       transferResources: vi.fn(() => {
         throw new Error('transfer transaction aborted');
       }),
@@ -268,7 +512,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck: matchingSource,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'successor'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('successor')),
       transferResources: vi.fn(() => ({ failed: false })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
       closeSuccessor,
@@ -292,7 +536,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck: matchingSource,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'successor-during-finalize'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('successor-during-finalize')),
       transferResources: vi.fn(() => ({ failed: false })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
       commitIngress: (successorSessionId) => lease.commit(successorSessionId),
@@ -325,7 +569,7 @@ describe('executePreparedHandOff', () => {
       }),
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'successor-after-append'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('successor-after-append')),
       transferResources: vi.fn(() => ({ failed: false })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
       closeSuccessor: vi.fn(),
@@ -385,7 +629,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'successor-with-tail'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('successor-with-tail')),
       deliverLateMessages,
       transferResources: vi.fn(() => {
         order.push('transfer');
@@ -441,7 +685,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'successor-after-eight-batches'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('successor-after-eight-batches')),
       deliverLateMessages,
       transferResources: vi.fn(() => ({ failed: false })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
@@ -477,7 +721,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'never-quiescent-successor'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('never-quiescent-successor')),
       deliverLateMessages,
       transferResources: vi.fn(() => ({ failed: false })),
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
@@ -524,7 +768,7 @@ describe('executePreparedHandOff', () => {
       }),
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'orphan-with-undelivered-tail'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('orphan-with-undelivered-tail')),
       deliverLateMessages: vi.fn(async () => {
         throw new HandOffLateMessageDeliveryError(
           'target queue unavailable',
@@ -565,7 +809,7 @@ describe('executePreparedHandOff', () => {
       sourceOwnershipCheck: () => false,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'revoked-orphan'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('revoked-orphan')),
       transferResources,
       resourceTransferFailed: (value: { failed: boolean }) => value.failed,
       commitIngress,
@@ -618,7 +862,7 @@ describe('executePreparedHandOff', () => {
       sourcePreconditionCheck,
       target,
       turn,
-      createSuccessor: vi.fn(async () => 'orphan-after-clone'),
+      createSuccessor: vi.fn(async () => acceptedCandidate('orphan-after-clone')),
       deliverLateMessages: vi.fn(async () => [clonedAttachment]),
       cleanupLateMessageAttachments,
       transferResources: vi.fn(() => ({ failed: true })),
@@ -641,7 +885,7 @@ describe('executePreparedHandOff', () => {
     _kind,
     reason,
   ) => {
-    let finishCreate!: (sessionId: string) => void;
+    let finishCreate!: (candidate: TrustedContinuationSessionCandidate) => void;
     let signalCreateStarted!: () => void;
     const createStarted = new Promise<void>((resolve) => {
       signalCreateStarted = resolve;
@@ -658,7 +902,7 @@ describe('executePreparedHandOff', () => {
       turn,
       createSuccessor: vi.fn(
         () =>
-          new Promise<string>((resolve) => {
+          new Promise<TrustedContinuationSessionCandidate>((resolve) => {
             finishCreate = resolve;
             signalCreateStarted();
           }),
@@ -671,7 +915,7 @@ describe('executePreparedHandOff', () => {
 
     await createStarted;
     currentResult = { ok: false, reason, currentEventRevision: 8 };
-    finishCreate('stale-orphan');
+    finishCreate(acceptedCandidate('stale-orphan'));
 
     await expect(work).rejects.toMatchObject({
       name: 'HandOffExecutionError',

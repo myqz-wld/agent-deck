@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { methods, type SessionUpdate } from '@agentclientprotocol/sdk';
+import {
+  methods,
+  RequestError,
+  type SessionUpdate,
+} from '@agentclientprotocol/sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { GrokAcpProcess } from '../acp-process';
@@ -43,6 +47,7 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
     disposed: false,
     suppressUpdates: false,
     model: 'fake-model',
+    runtimeIdentity: null,
     thinking: null,
     sessionMode: null,
     grokSandbox: null,
@@ -406,6 +411,60 @@ describe('GrokTurnQueue active-turn delivery', () => {
     ).toThrow(
       '当前 Grok Build ACP 会话未声明图片输入能力。请升级 Grok Build；当 initialize 返回 image=true 后，Agent Deck 会自动开放附件。',
     );
+  });
+
+  it('classifies only structured native context rejection codes', async () => {
+    const structuredRequest = vi.fn(async () => {
+      throw new RequestError(-32_000, 'provider rejected prompt', {
+        error: { code: 'context_length_exceeded' },
+      });
+    });
+    const structuredRuntime = makeRuntime(structuredRequest);
+    const structured = makeQueue();
+    structured.queue.enqueue(structuredRuntime, 'too much structured input');
+    await vi.waitFor(() => expect(structured.emitError).toHaveBeenCalledWith(
+      'app-session',
+      'Grok Build 轮次失败：provider rejected prompt',
+      'context-window-exceeded',
+    ));
+
+    const textOnlyRequest = vi.fn(async () => {
+      throw new RequestError(-32_000, 'context_length_exceeded', {
+        error: { message: 'context_window_exceeded' },
+      });
+    });
+    const textOnlyRuntime = makeRuntime(textOnlyRequest);
+    const textOnly = makeQueue();
+    textOnly.queue.enqueue(textOnlyRuntime, 'same words only');
+    await vi.waitFor(() => expect(textOnly.emitError).toHaveBeenCalledWith(
+      'app-session',
+      'Grok Build 轮次失败：context_length_exceeded',
+    ));
+    expect(textOnly.emitError).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'context-window-exceeded',
+    );
+  });
+
+  it('marks a structured native terminal context rejection', async () => {
+    const request = vi.fn(async () => ({
+      stopReason: 'model_context_window_exceeded',
+      usage: null,
+    }));
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'too large');
+
+    await vi.waitFor(() => expect(events).toContainEqual({
+      kind: 'finished',
+      payload: {
+        ok: false,
+        subtype: 'model_context_window_exceeded',
+        failureReason: 'context-window-exceeded',
+      },
+    }));
   });
 
   it('flushes the assistant from live ACP prompt_complete when PromptResponse is lost', async () => {

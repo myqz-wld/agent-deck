@@ -1,4 +1,5 @@
 import type { SessionThinkingLevel } from '@shared/session-metadata';
+import type { ResolvedContextCapacity } from '@shared/types/context-window';
 import type {
   AdapterSessionMode,
   SessionAdapterId,
@@ -15,7 +16,8 @@ export interface ResolvedContinuationGenerator {
   provider?: string | null;
   model: string | null;
   thinking: SessionThinkingLevel;
-  contextWindowTokens: number | null;
+  /** Immutable capacity snapshot resolved together with this generator configuration. */
+  contextCapacity: ResolvedContextCapacity;
   configFingerprint: string;
 }
 
@@ -29,8 +31,8 @@ export interface ResolvedSuccessorSpec {
   sessionMode?: AdapterSessionMode | null;
   networkAccessEnabled: boolean | null;
   additionalDirectories: string[];
-  contextWindowTokens: number | null;
-  contextWindowSource?: 'observed' | 'fallback' | null;
+  /** Immutable capacity snapshot; deliberately excluded from runtimeFingerprint. */
+  contextCapacity: ResolvedContextCapacity;
   runtimeFingerprint: string;
 }
 
@@ -124,6 +126,12 @@ export interface PreparedContinuationContext {
   preparationHash: string;
   /** Internal cache/spool handle; never expose it through renderer or public MCP results. */
   spoolId: string;
+}
+
+/** One immutable fold rendered for the primary target policy and, when needed, one smaller retry. */
+export interface PreparedContinuationCandidates {
+  primary: PreparedContinuationContext;
+  lowerBudgetRetry: PreparedContinuationContext | null;
 }
 
 export interface RawContinuationUserInput {

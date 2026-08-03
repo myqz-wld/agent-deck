@@ -254,6 +254,8 @@ export async function createSessionImpl(
       threadId: effectiveResumeThreadId ?? opts.resume ?? null,
       cwd,
       thread,
+      runtimeIdentity: null,
+      trustedContinuationAcceptance: opts.trustedContinuationAcceptance,
       pendingMessages: firstInput ? [firstInput] : [],
       pendingDeferredUserEvents: firstInput ? [initialEnqueue.deferredUserEvent] : [],
       pendingHandOffMessages: firstInput

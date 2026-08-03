@@ -1,9 +1,11 @@
+import type { ResolvedContextCapacity } from '@shared/types';
 import { estimateContinuationTokens, utf8ByteLength } from './token-estimator';
 
 export const DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS = 64_000;
 export const MIN_CONTINUATION_RAW_RETENTION_TOKENS = 8_000;
 export const MAX_CONTINUATION_RAW_RETENTION_TOKENS = 128_000;
-export const DEFAULT_GENERATOR_FOLD_INPUT_TOKENS = 96_000;
+export const UNKNOWN_PRIMARY_CONTEXT_WINDOW_TOKENS = 64_000;
+export const UNKNOWN_RETRY_CONTEXT_WINDOW_TOKENS = 32_000;
 export const MAX_GENERATOR_FOLD_INPUT_TOKENS = 128_000;
 export const GENERATOR_RESPONSE_AND_RUNTIME_RESERVE_TOKENS = 32_000;
 export const CONTINUATION_PROMPT_MAX_UTF8_BYTES = 512 * 1024;
@@ -24,13 +26,16 @@ export class ContinuationBudgetError extends Error {
 
 export interface ResolveContinuationBudgetsInput {
   rawRetentionCeilingTokens: number;
-  targetContextWindowTokens: number;
-  generatorContextWindowTokens: number | null;
+  targetCapacity: ResolvedContextCapacity;
+  generatorCapacity: ResolvedContextCapacity;
+  targetVariant?: ContinuationTargetBudgetVariant;
   continuationInstruction: string;
   fixedWrapperTokens: number;
   systemProjectReserveTokens?: number;
   responseReserveTokens?: number;
 }
+
+export type ContinuationTargetBudgetVariant = 'primary' | 'lower-budget-retry';
 
 export interface ResolvedContinuationBudgets {
   rawRetentionCeilingTokens: number;
@@ -73,8 +78,27 @@ export function resolveTargetPromptCapacityTokens(
   return Math.max(0, contextWindowTokens - systemProjectReserveTokens - responseReserveTokens);
 }
 
-export function resolveGeneratorFoldInputBudgetTokens(contextWindowTokens: number | null): number {
-  if (contextWindowTokens == null) return DEFAULT_GENERATOR_FOLD_INPUT_TOKENS;
+export function targetNeedsLowerBudgetRetry(capacity: ResolvedContextCapacity): boolean {
+  return capacity.status !== 'observed';
+}
+
+export function resolveTargetContextWindowTokens(
+  capacity: ResolvedContextCapacity,
+  variant: ContinuationTargetBudgetVariant = 'primary',
+): number {
+  if (capacity.status === 'observed') return capacity.windowTokens;
+  return variant === 'lower-budget-retry'
+    ? UNKNOWN_RETRY_CONTEXT_WINDOW_TOKENS
+    : UNKNOWN_PRIMARY_CONTEXT_WINDOW_TOKENS;
+}
+
+export function resolveGeneratorFoldInputBudgetTokens(
+  capacity: ResolvedContextCapacity,
+): number {
+  const contextWindowTokens =
+    capacity.status === 'observed'
+      ? capacity.windowTokens
+      : UNKNOWN_PRIMARY_CONTEXT_WINDOW_TOKENS;
   safeNonNegative(contextWindowTokens, 'generatorContextWindowTokens');
   // The canonical checkpoint is independently capped at 24k estimated tokens. Keep another 8k
   // for app-owned instructions and provider accounting variance, then cap the input so the 512 KiB
@@ -95,7 +119,7 @@ export function resolveContinuationBudgets(
   const fixedWrapperTokens = safeNonNegative(input.fixedWrapperTokens, 'fixedWrapperTokens');
   const instructionTokens = estimateContinuationTokens(JSON.stringify(input.continuationInstruction));
   const targetPromptCapacityTokens = resolveTargetPromptCapacityTokens(
-    input.targetContextWindowTokens,
+    resolveTargetContextWindowTokens(input.targetCapacity, input.targetVariant),
     input.systemProjectReserveTokens,
     input.responseReserveTokens,
   );
@@ -120,9 +144,7 @@ export function resolveContinuationBudgets(
     rawRetentionCeilingTokens,
     targetPromptCapacityTokens,
     checkpointProjectionBudgetTokens,
-    generatorFoldInputBudgetTokens: resolveGeneratorFoldInputBudgetTokens(
-      input.generatorContextWindowTokens,
-    ),
+    generatorFoldInputBudgetTokens: resolveGeneratorFoldInputBudgetTokens(input.generatorCapacity),
     instructionTokens,
     fixedWrapperTokens,
     historicalCapacityTokens,

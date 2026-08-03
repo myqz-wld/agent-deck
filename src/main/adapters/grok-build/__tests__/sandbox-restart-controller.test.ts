@@ -28,6 +28,7 @@ function runtime(): GrokRuntime {
     disposed: false,
     suppressUpdates: false,
     model: null,
+    runtimeIdentity: null,
     thinking: null,
     sessionMode: null,
     grokSandbox: 'workspace',

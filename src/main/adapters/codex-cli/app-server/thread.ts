@@ -10,6 +10,7 @@ import type {
   CodexAppServerNotification,
   CodexAppServerRunResult,
   CodexAppServerStreamEvent,
+  CodexAppServerThreadCreateResult,
   CodexAppServerUserInput,
   JsonObject,
 } from './protocol';
@@ -26,13 +27,23 @@ import { buildCodexTurnWatchdogDiagnostic } from './turn-watchdog-diagnostics';
 import { AcceptedTurnCancellation, AcceptedTurnCancellationOwner } from './accepted-turn-cancellation';
 import { collectCodexTurnOutput } from './turn-output';
 import log from '@main/utils/logger';
+import type { ContextRuntimeIdentityEvidence } from '@shared/types';
+import { CodexRuntimeIdentityTracker } from './runtime-identity';
+import {
+  type CodexThreadMode,
+  withApprovalPolicy,
+  withModelOptions,
+  withSandboxMode,
+  withWorkingDirectory,
+} from './thread-mode';
 
 const logger = log.scope('codex-app-server');
 const MAX_PRE_ACCEPTANCE_TURNS = 8;
 type Unsubscribe = () => void;
-type ThreadMode =
-  | { mode: 'start'; options: CodexThreadOptions }
-  | { mode: 'resume'; threadId: string; options: CodexThreadOptions };
+type QueuedNotification = Extract<
+  CodexAppServerStreamEvent,
+  { type: 'server.notification' }
+>;
 
 export interface CodexAppServerRunOptions {
   signal?: AbortSignal;
@@ -49,17 +60,28 @@ export class CodexAppServerThread {
   private readyGeneration = -1;
   private activeTurnId: string | null = null;
   private activeTurnCancellation: AcceptedTurnCancellation | null = null;
+  private readonly runtimeIdentity: CodexRuntimeIdentityTracker;
 
   constructor(
     private readonly client: CodexAppServerClient,
-    private mode: ThreadMode,
+    private mode: CodexThreadMode,
     attachedGeneration?: number,
+    initialRuntime?: unknown,
   ) {
     this.threadId = mode.mode === 'resume' ? mode.threadId : null;
+    this.runtimeIdentity = new CodexRuntimeIdentityTracker(
+      client.baseConfig,
+      mode.options,
+      initialRuntime,
+    );
     if (attachedGeneration !== undefined && this.threadId) {
       this.readyGeneration = attachedGeneration;
       this.readyPromise = Promise.resolve(this.threadId);
     }
+  }
+
+  getRuntimeIdentity(): ContextRuntimeIdentityEvidence | null {
+    return this.runtimeIdentity.snapshot();
   }
 
   updateSandboxMode(
@@ -69,45 +91,19 @@ export class CodexAppServerThread {
       additionalDirectories?: readonly string[];
     } = {},
   ): void {
-    const options: CodexThreadOptions = {
-      ...this.mode.options,
-      sandboxMode,
-      ...(opts.networkAccessEnabled !== undefined
-        ? { networkAccessEnabled: opts.networkAccessEnabled }
-        : {}),
-      ...(opts.additionalDirectories !== undefined
-        ? { additionalDirectories: [...opts.additionalDirectories] }
-        : {}),
-    };
-    this.mode =
-      this.mode.mode === 'resume'
-        ? { mode: 'resume', threadId: this.mode.threadId, options }
-        : { mode: 'start', options };
+    this.mode = withSandboxMode(this.mode, sandboxMode, opts);
   }
 
   /** Apply cwd only to subsequent turn/start requests; the active turn keeps its original cwd. */
   updateWorkingDirectory(workingDirectory: string): void {
-    const options: CodexThreadOptions = {
-      ...this.mode.options,
-      workingDirectory,
-    };
-    this.mode =
-      this.mode.mode === 'resume'
-        ? { mode: 'resume', threadId: this.mode.threadId, options }
-        : { mode: 'start', options };
+    this.mode = withWorkingDirectory(this.mode, workingDirectory);
   }
 
   /** Apply an approval policy to subsequent turns without interrupting an active turn. */
   updateApprovalPolicy(
     approvalPolicy: CodexThreadOptions['approvalPolicy'] | null,
   ): void {
-    const options: CodexThreadOptions = { ...this.mode.options };
-    if (approvalPolicy === null) delete options.approvalPolicy;
-    else options.approvalPolicy = approvalPolicy;
-    this.mode =
-      this.mode.mode === 'resume'
-        ? { mode: 'resume', threadId: this.mode.threadId, options }
-        : { mode: 'start', options };
+    this.mode = withApprovalPolicy(this.mode, approvalPolicy);
   }
 
   /** Apply model / effort to subsequent turns without interrupting an active turn. */
@@ -116,20 +112,14 @@ export class CodexAppServerThread {
     effort: CodexThreadOptions['modelReasoningEffort'] | null,
   ): Promise<void> {
     const threadId = await this.ensureThread();
-    await this.client.request('thread/settings/update', {
+    await this.runtimeIdentity.updateModelSettings(
+      this.client,
       threadId,
+      this.mode.options,
       model,
       effort,
-    });
-    const options: CodexThreadOptions = { ...this.mode.options };
-    if (model === null) delete options.model;
-    else options.model = model;
-    if (effort === null) delete options.modelReasoningEffort;
-    else options.modelReasoningEffort = effort;
-    this.mode =
-      this.mode.mode === 'resume'
-        ? { mode: 'resume', threadId: this.mode.threadId, options }
-        : { mode: 'start', options };
+    );
+    this.mode = withModelOptions(this.mode, model, effort);
   }
 
   async runStreamed(
@@ -181,12 +171,16 @@ export class CodexAppServerThread {
     let firstModelEventTimer: ReturnType<typeof setTimeout> | null = null;
     let cancellationOwner: AcceptedTurnCancellationOwner | null = null;
     let signalAbortListener: (() => void) | null = null;
-    const queue = new AsyncNotificationQueue<CodexAppServerNotification>();
+    const queue = new AsyncNotificationQueue<QueuedNotification>();
     try {
       const threadId = await this.ensureThread(signal);
       if (!this.started) {
         this.started = true;
-        yield { type: 'thread.started', thread_id: threadId };
+        yield {
+          type: 'thread.started',
+          thread_id: threadId,
+          runtimeIdentity: this.getRuntimeIdentity(),
+        };
       }
 
       const turnGeneration = this.client.generation;
@@ -334,7 +328,12 @@ export class CodexAppServerThread {
         if (!modelActivitySeen && isCodexModelActivity(notification)) {
           recordFirstModelActivity(turnId);
         }
-        queue.push(notification);
+        this.runtimeIdentity.observeNotification(notification);
+        queue.push({
+          type: 'server.notification',
+          notification,
+          runtimeIdentity: this.getRuntimeIdentity(),
+        });
         if (terminalState === 'terminal') {
           terminalSeen = true;
           clearFirstModelEventTimer();
@@ -347,7 +346,16 @@ export class CodexAppServerThread {
         if (!this.client.acceptsNotificationForGeneration(turnGeneration)) return;
         const notificationThreadId = getNotificationThreadId(notification);
         if (notificationThreadId && notificationThreadId !== threadId) return;
+        if (notification.method === 'thread/settings/updated') {
+          this.runtimeIdentity.observeNotification(notification);
+          return;
+        }
         const notificationTurnId = getNotificationTurnId(notification);
+        if (notification.method === 'model/rerouted' && notificationTurnId === null) {
+          this.runtimeIdentity.observeUnscopedReroute(
+            notification, this.client.hasExclusiveNotificationSubscriber(),
+          );
+        }
         if (
           turnRequestIssued &&
           !turnAccepted &&
@@ -420,9 +428,7 @@ export class CodexAppServerThread {
       armFirstModelEventWatchdog(acceptance.turnId, acceptance.source);
       yield { type: 'turn.accepted', turn_id: acceptance.turnId };
 
-      for await (const notification of queue) {
-        yield { type: 'server.notification', notification };
-      }
+      for await (const queued of queue) yield queued;
     } finally {
       if (firstModelEventTimer) clearTimeout(firstModelEventTimer);
       if (signal && signalAbortListener) {
@@ -457,18 +463,20 @@ export class CodexAppServerThread {
       async (operation) => {
         const options = await this.client.prepareThreadOptions(this.mode.options, operation);
         if (this.threadId) {
-          const result = await operation.request<{ thread: { id: string } }>(
+          const result = await operation.request<CodexAppServerThreadCreateResult>(
             'thread/resume',
             buildThreadResumeParams(this.threadId, options, this.client.baseConfig),
           );
+          this.runtimeIdentity.observeThreadBoundary(result, options);
           this.threadId = result.thread.id;
           return this.threadId;
         }
 
-        const result = await operation.request<{ thread: { id: string } }>(
+        const result = await operation.request<CodexAppServerThreadCreateResult>(
           'thread/start',
           buildThreadStartParams(options, this.client.baseConfig),
         );
+        this.runtimeIdentity.observeThreadBoundary(result, options);
         this.threadId = result.thread.id;
         return this.threadId;
       },

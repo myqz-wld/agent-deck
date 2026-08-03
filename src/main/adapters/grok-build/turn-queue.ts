@@ -12,6 +12,7 @@ import type { UploadedAttachmentRef } from '@shared/types';
 
 import type { GrokExtensionNotification, GrokPromptCompleteNotification } from './extension';
 import { GrokLivePromptCompletion } from './live-prompt-completion';
+import { grokTurnFailureReasonFromRequestError } from './native-error';
 import { errorText } from './protocol-utils';
 import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
 import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provider-completion-recovery';
@@ -433,10 +434,10 @@ export class GrokTurnQueue {
         });
       } else if (!runtime.closed && !isCancelled(submitting)) {
         this.flushText(runtime);
-        this.options.emitError(
-          runtime.applicationSessionId,
-          `Grok Build 轮次失败：${errorText(error)}`,
-        );
+        const text = `Grok Build 轮次失败：${errorText(error)}`;
+        const failureReason = grokTurnFailureReasonFromRequestError(error);
+        if (failureReason) this.options.emitError(runtime.applicationSessionId, text, failureReason);
+        else this.options.emitError(runtime.applicationSessionId, text);
         if (error instanceof GrokFirstModelEventTimeoutError) {
           await this.options.closeSession(runtime.applicationSessionId);
         }

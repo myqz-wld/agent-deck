@@ -4,6 +4,7 @@ import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { CONTINUATION_CHECKPOINT_PATCH_JSON_SCHEMA } from '../checkpoint-patch-schema';
 import { buildCodexCompactorThreadOptions } from '../codex-isolation';
 import { createCheckpointGeneratorRuntime } from '../runtime';
+import { observedContextCapacity } from './capacity-fixtures';
 
 const harness = vi.hoisted(() => ({
   startThread: vi.fn(),
@@ -18,7 +19,11 @@ const generator = {
   adapter: 'codex-cli' as const,
   model: 'gpt-test',
   thinking: 'low' as const,
-  contextWindowTokens: 128_000,
+  contextCapacity: observedContextCapacity(128_000, {
+    adapter: 'codex-cli',
+    runtimeProvider: 'openai',
+    model: 'gpt-test',
+  }),
   configFingerprint: 'codex-test',
 };
 

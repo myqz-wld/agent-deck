@@ -23,6 +23,7 @@ import { AGENT_ID } from './constants';
 import type { InternalSession, PendingUserMessage, SdkBridgeOptions } from './types';
 import { clearLiveTokenEstimate } from './live-token-rate';
 import { translateSdkMessage } from './sdk-message-translate';
+import { observeClaudeTrustedContinuationFrame, rejectUnsettledClaudeTrustedContinuation } from './trusted-continuation-observer';
 import { resetTurnUsageAccounting } from './authoritative-reasoning-usage';
 import type { UploadedAttachmentRef } from '@shared/types';
 import log from '@main/utils/logger';
@@ -226,6 +227,7 @@ export class StreamProcessor {
     try {
       for await (const msg of internal.query) {
         const m = msg as { type: string; session_id?: string; [k: string]: unknown };
+        observeClaudeTrustedContinuationFrame(internal, m);
 
         // 第一次拿到 session_id：完成 key 切换 + 通知 createSession
         if (!realId && typeof m.session_id === 'string' && m.session_id) {
@@ -416,6 +418,7 @@ export class StreamProcessor {
         });
       }
     } finally {
+      rejectUnsettledClaudeTrustedContinuation(internal);
       try {
         // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.4 + R4 HIGH-H 修订**:
         // sid 三档链统一改用 internal.applicationSid (S2 jsdoc 双阶段化保证 spawn 路径切到 realId

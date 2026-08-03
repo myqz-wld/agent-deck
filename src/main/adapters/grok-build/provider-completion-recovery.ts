@@ -12,6 +12,11 @@ import {
   parseGrokExtensionNotification,
   type GrokExtensionNotification,
 } from './extension';
+import {
+  grokContextWindowFailureReason,
+  grokContextWindowRejectionCode,
+  structuredGrokContextWindowRejectionCode,
+} from './native-error';
 import type { GrokRuntime } from './runtime-types';
 import {
   clearGrokTurnLiveRate,
@@ -94,10 +99,16 @@ export function applyRecoveredGrokTurn(
     );
   }
   clearGrokTurnLiveRate(runtime.translation);
+  const failureReason = grokContextWindowFailureReason(
+    grokContextWindowRejectionCode(turn.stopReason) ??
+      structuredGrokContextWindowRejectionCode(turn.completion.update) ??
+      structuredGrokContextWindowRejectionCode(turn.completion._meta),
+  );
   options.emitEvent(runtime.applicationSessionId, 'finished', {
     ok: turn.stopReason === 'end_turn',
     subtype: turn.stopReason,
     recoveredFrom: 'grok-native-history',
+    ...(failureReason ? { failureReason } : {}),
   });
 }
 

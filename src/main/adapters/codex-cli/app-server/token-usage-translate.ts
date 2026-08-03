@@ -1,12 +1,14 @@
 import {
   TOKEN_USAGE_METRIC,
   type AgentEventKind,
+  type ContextRuntimeIdentityEvidence,
 } from '@shared/types';
 import {
   observeCodexTokenUsage,
   type CodexTokenUsageObservation,
 } from './token-usage-observation';
 
+type AnyRecord = Record<string, unknown>;
 type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 
 export function translateCodexTokenUsage(
@@ -15,6 +17,7 @@ export function translateCodexTokenUsage(
   opts?: {
     model?: string | null;
     observation?: CodexTokenUsageObservation;
+    runtimeIdentity?: ContextRuntimeIdentityEvidence | null;
   },
 ): void {
   const observation = opts?.observation ?? observeCodexTokenUsage(params);
@@ -24,6 +27,12 @@ export function translateCodexTokenUsage(
     emit('context-usage', {
       ...(usedTokens !== null ? { usedTokens } : {}),
       ...(windowTokens !== null ? { windowTokens } : {}),
+      ...(opts?.runtimeIdentity
+        ? { runtimeIdentity: { ...opts.runtimeIdentity } }
+        : {}),
+      ...(windowTokens !== null && opts?.runtimeIdentity
+        ? { capacitySource: 'runtime-usage' }
+        : {}),
     });
   }
 
@@ -57,6 +66,10 @@ export function translateCodexTokenUsage(
   });
 }
 
+export function readCodexContextWindowTokens(params: unknown): number | null {
+  return positiveNumberField(asRecord(asRecord(params)?.tokenUsage)?.modelContextWindow);
+}
+
 function metricBit(value: number | null, bit: number): number {
   return value === null ? 0 : bit;
 }
@@ -77,4 +90,21 @@ function hasPositiveMetric(delta: {
     delta.cachedInputTokens,
     delta.cacheWriteInputTokens,
   ].some((value) => (value ?? 0) > 0);
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value)
+    : null;
+}
+
+function positiveNumberField(value: unknown): number | null {
+  const parsed = numberField(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+function asRecord(value: unknown): AnyRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as AnyRecord)
+    : null;
 }

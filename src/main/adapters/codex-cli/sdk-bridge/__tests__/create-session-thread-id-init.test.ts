@@ -170,7 +170,11 @@ class ControlledThread {
       // 立即返回一个 events async-iterable，若 startedThreadId 非空则先 yield 一条 thread.started
       const events = (async function* () {
         if (startedThreadId !== null) {
-          yield { type: 'thread.started', thread_id: startedThreadId } as unknown;
+          yield {
+            type: 'thread.started',
+            thread_id: startedThreadId,
+            runtimeIdentity: null,
+          } as unknown;
           yield { type: 'turn.accepted', turn_id: 'turn-correlated' } as unknown;
         }
         // 之后挂起（不结束 stream，模拟 turn 还在跑）
@@ -591,7 +595,11 @@ describe('codex createSession new path latency', () => {
     });
     expect(onRegistered).toHaveBeenCalledWith(provisionalStart?.sessionId);
 
-    pushThread.push({ type: 'thread.started', thread_id: 'real-thread-1' });
+    pushThread.push({
+      type: 'thread.started',
+      thread_id: 'real-thread-1',
+      runtimeIdentity: null,
+    });
     await flushAsyncWork();
     const handle = await createPromise;
 
@@ -639,7 +647,11 @@ describe('codex createSession new path latency', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(pushThread.runStreamed).toHaveBeenCalledTimes(1);
 
-    pushThread.push({ type: 'thread.started', thread_id: 'real-thread-1' });
+    pushThread.push({
+      type: 'thread.started',
+      thread_id: 'real-thread-1',
+      runtimeIdentity: null,
+    });
     await flushAsyncWork();
 
     expect(sessionManager.renameSdkSession).toHaveBeenCalledWith(tempSid, 'real-thread-1');
@@ -716,7 +728,11 @@ describe('codex createSession new path latency', () => {
 
     await bridge.closeSession(tempSid);
     await vi.advanceTimersByTimeAsync(0);
-    pushThread.push({ type: 'thread.started', thread_id: 'real-after-close' });
+    pushThread.push({
+      type: 'thread.started',
+      thread_id: 'real-after-close',
+      runtimeIdentity: null,
+    });
     await flushAsyncWork();
 
     const sessions = (bridge as unknown as { sessions: Map<string, unknown> }).sessions;
