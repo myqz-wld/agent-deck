@@ -92,7 +92,7 @@ export function SessionList(): JSX.Element {
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">还没有会话</div>
         <div className="text-[10px] leading-relaxed">
-          点击右上角的 + 即可创建 Claude Code、Codex CLI 或 Grok Build 会话；Claude Code 可选择 Gateway。
+          点击右上角的 + 即可创建 Claude Code、Codex CLI 或 Grok Build 会话。
           <br />
           <details className="mt-1 inline-block text-left">
             <summary className="cursor-pointer text-deck-muted/70 hover:text-deck-text/85">也可接入终端会话</summary>
