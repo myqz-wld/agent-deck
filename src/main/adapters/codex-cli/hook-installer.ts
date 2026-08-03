@@ -10,6 +10,7 @@ import {
   readHookConfig,
   strictHookGroups,
   updateHookConfig,
+  withoutOwnedHookCommands,
   type HookConfigChange,
   type HookConfigDocument,
   type HookGroup,
@@ -52,18 +53,6 @@ function routeFor(event: CodexHookEvent): string {
 
 function currentTag(event: CodexHookEvent): string {
   return `${CURRENT_HOOK_TAG_PREFIX}-${event.toLowerCase()}`;
-}
-
-function cleanedGroups(
-  groups: HookGroup[],
-  currentCommand: string,
-): HookGroup[] {
-  return groups
-    .map((group) => ({
-      ...group,
-      hooks: group.hooks.filter((hook) => hook.command !== currentCommand),
-    }))
-    .filter((group) => group.hooks.length > 0);
 }
 
 function matcherFor(event: CodexHookEvent): string | undefined {
@@ -121,7 +110,7 @@ export class CodexHookInstaller {
         for (const event of CODEX_HOOK_EVENTS) {
           const command = this.currentCommand(event, true);
           const before = beforeByEvent.get(event) ?? [];
-          const next = cleanedGroups(before, command);
+          const next = withoutOwnedHookCommands(before, currentTag(event));
           const matcher = matcherFor(event);
           next.push({
             ...(matcher ? { matcher } : {}),
@@ -169,7 +158,7 @@ export class CodexHookInstaller {
         const changes: HookConfigChange[] = [];
         for (const event of CODEX_HOOK_EVENTS) {
           const before = strictHookGroups(document, hooks, event);
-          const next = cleanedGroups(before, this.currentCommand(event, false));
+          const next = withoutOwnedHookCommands(before, currentTag(event));
           const change = changedHookEvent(event, before, next);
           if (!change) continue;
           changes.push(change);

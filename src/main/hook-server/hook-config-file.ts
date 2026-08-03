@@ -251,6 +251,28 @@ export function changedHookEvent(
     : { path: ['hooks', event], value: after.length > 0 ? after : undefined };
 }
 
+/**
+ * Remove every command owned by one adapter/event tag while preserving unrelated hooks in the
+ * same group. Ownership is intentionally based on the exact trailing tag emitted by
+ * buildHookCurlCommand, so command-shape upgrades remain idempotent without claiming generic or
+ * historical user hooks.
+ */
+export function withoutOwnedHookCommands(
+  groups: HookGroup[],
+  tag: string,
+): HookGroup[] {
+  const ownershipMarker = `# ${tag}`;
+  return groups
+    .map((group) => ({
+      ...group,
+      hooks: group.hooks.filter((hook) => {
+        if (typeof hook.command !== 'string') return true;
+        return !hook.command.trimEnd().endsWith(ownershipMarker);
+      }),
+    }))
+    .filter((group) => group.hooks.length > 0);
+}
+
 function formattingOptions(text: string): FormattingOptions {
   const indent = /\r?\n([ \t]+)"/.exec(text)?.[1] ?? '  ';
   return {

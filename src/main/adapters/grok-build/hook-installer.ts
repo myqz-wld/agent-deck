@@ -10,6 +10,7 @@ import {
   readHookConfig,
   strictHookGroups,
   updateHookConfig,
+  withoutOwnedHookCommands,
   type HookConfigChange,
   type HookConfigDocument,
   type HookGroup,
@@ -54,18 +55,6 @@ function routeFor(event: GrokHookEvent): string {
 
 function currentTag(event: GrokHookEvent): string {
   return `${CURRENT_HOOK_TAG_PREFIX}-${event.toLowerCase()}`;
-}
-
-function cleanedGroups(
-  groups: HookGroup[],
-  currentCommand: string,
-): HookGroup[] {
-  return groups
-    .map((group) => ({
-      ...group,
-      hooks: group.hooks.filter((hook) => hook.command !== currentCommand),
-    }))
-    .filter((group) => group.hooks.length > 0);
 }
 
 function updateModes(scope: 'user' | 'project'): {
@@ -115,7 +104,7 @@ export class GrokHookInstaller {
         for (const event of GROK_HOOK_EVENTS) {
           const command = this.currentCommand(event, true);
           const before = beforeByEvent.get(event) ?? [];
-          const next = cleanedGroups(before, command);
+          const next = withoutOwnedHookCommands(before, currentTag(event));
           next.push({
             hooks: [
               {
@@ -153,7 +142,7 @@ export class GrokHookInstaller {
         const changes: HookConfigChange[] = [];
         for (const event of GROK_HOOK_EVENTS) {
           const before = strictHookGroups(document, hooks, event);
-          const next = cleanedGroups(before, this.currentCommand(event, false));
+          const next = withoutOwnedHookCommands(before, currentTag(event));
           const change = changedHookEvent(event, before, next);
           if (!change) continue;
           changes.push(change);
