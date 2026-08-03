@@ -344,7 +344,14 @@ describe('trusted continuation readiness gate', () => {
     expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-work-winner');
   });
 
-  it('does not schedule cleanup when primary startup rejects after the deadline', async () => {
+  it.each([
+    { label: 'primary after entry', retry: false, rejectAtEntry: false },
+    { label: 'primary at entry', retry: false, rejectAtEntry: true },
+    { label: 'retry after entry', retry: true, rejectAtEntry: false },
+    { label: 'retry at entry', retry: true, rejectAtEntry: true },
+  ])('classifies $label rejection without pending cleanup', async ({
+    retry, rejectAtEntry,
+  }) => {
     vi.useFakeTimers();
     let monotonicMs = 0;
     let rejectCreation!: (error: Error) => void;
@@ -352,59 +359,37 @@ describe('trusted continuation readiness gate', () => {
       rejectCreation = reject;
     });
     const input = baseInput();
-    input.createCandidate.mockImplementationOnce(() => creation);
-    const selection = selectTrustedContinuationCandidate({
-      ...input,
-      deadlineMs: 50,
-      now: () => monotonicMs,
-    });
-    const assertion = expect(selection).rejects.toMatchObject({
-      reason: 'target-startup-timeout',
-      successorSessionId: null,
-      successorCleanup: 'ok',
-      usedLowerBudgetRetry: false,
-    });
-
-    await vi.advanceTimersByTimeAsync(0);
-    monotonicMs = 51;
-    rejectCreation(new Error('private primary startup rejection'));
-
-    await assertion;
-    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
-  });
-
-  it('classifies retry startup rejection after the deadline without pending cleanup', async () => {
-    vi.useFakeTimers();
-    let monotonicMs = 0;
-    let rejectRetry!: (error: Error) => void;
-    const retryCreation = new Promise<TrustedContinuationSessionCandidate>((_, reject) => {
-      rejectRetry = reject;
-    });
-    const input = baseInput();
-    input.createCandidate
-      .mockResolvedValueOnce(candidate('primary', {
+    if (retry) {
+      input.createCandidate.mockResolvedValueOnce(candidate('primary', {
         status: 'rejected', reason: 'context-window-exceeded',
-      }))
-      .mockImplementationOnce(() => retryCreation);
+      }));
+    }
+    input.createCandidate.mockImplementationOnce(() => {
+      if (!rejectAtEntry) return creation;
+      monotonicMs = 51;
+      return Promise.reject(new Error('private startup rejection at entry'));
+    });
     const selection = selectTrustedContinuationCandidate({
       ...input,
       deadlineMs: 50,
       now: () => monotonicMs,
     });
     const assertion = expect(selection).rejects.toMatchObject({
-      reason: 'target-retry-startup-failed',
+      reason: retry ? 'target-retry-startup-failed' : 'target-startup-timeout',
       successorSessionId: null,
       successorCleanup: 'ok',
-      usedLowerBudgetRetry: true,
+      usedLowerBudgetRetry: retry,
     });
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(input.createCandidate).toHaveBeenCalledTimes(2);
-    monotonicMs = 51;
-    rejectRetry(new Error('private retry startup rejection'));
+    if (!rejectAtEntry) {
+      monotonicMs = 51;
+      rejectCreation(new Error('private startup rejection after entry'));
+    }
 
     await assertion;
-    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
+    expect(input.createCandidate).toHaveBeenCalledTimes(retry ? 2 : 1);
+    if (retry) expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
     expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
   });
 
