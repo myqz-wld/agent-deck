@@ -148,11 +148,11 @@ export function LayerPanel({
 
   return (
     <section className="rounded-md border border-deck-border/60 bg-white/[0.02]">
-      <header className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1.5">
+      <header className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1">
         <button
           type="button"
           onClick={() => setCollapsed((value) => !value)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
           title={collapsed ? '展开' : '折叠'}
           aria-label={`${collapsed ? '展开' : '折叠'}${SOURCE_LABEL[layer.source]}`}
           aria-expanded={!collapsed}
@@ -171,7 +171,7 @@ export function LayerPanel({
             type="button"
             onClick={() => void onOpen()}
             aria-label={`打开${SOURCE_LABEL[layer.source]}`}
-            className="inline-flex h-11 items-center gap-1 rounded bg-white/10 px-2 text-[10px] text-deck-text hover:bg-white/15"
+            className="inline-flex h-7 items-center gap-1 rounded bg-white/10 px-2 text-[10px] text-deck-text hover:bg-white/15"
             title={layer.exists ? '用系统默认应用打开' : '用系统默认应用打开（文件不存在时多数编辑器会创建空文件）'}
           >
             <ExternalLinkIcon className="h-3 w-3" />打开
