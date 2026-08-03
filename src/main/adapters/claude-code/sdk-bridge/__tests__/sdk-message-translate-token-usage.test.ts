@@ -470,6 +470,27 @@ describe('translateSdkMessage finalized Claude usage', () => {
     expect(events.some((event) => event.kind === 'finished')).toBe(false);
   });
 
+  it('propagates only the structured prompt-too-long terminal reason', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      {
+        ...resultMsg({}),
+        subtype: 'error_during_execution',
+        is_error: true,
+        terminal_reason: 'prompt_too_long',
+      },
+      internal,
+    );
+
+    expect(events.find((event) => event.kind === 'finished')?.payload).toEqual({
+      ok: false,
+      subtype: 'error_during_execution',
+      failureReason: 'context-window-exceeded',
+    });
+  });
+
   it('calibrates transient tok/s with the exact single model id', () => {
     const { emit, internal } = setup();
     internal.liveTokenEstimate = {

@@ -80,6 +80,8 @@ async function executeUiHandOff(input: {
   sourcePrecondition: HandOffSourceCutoverPrecondition;
   target: CreateSessionOptions;
   turn: TrustedContinuationInitialTurn;
+  targetCapacityStatus: 'observed' | 'stale' | 'unknown';
+  lowerBudgetRetryTurn: TrustedContinuationInitialTurn | null;
   commitIngress: (successorSessionId: string) => void;
   sourceOwnershipCheck: () => boolean;
 }): Promise<UiHandOffExecutionResult> {
@@ -90,6 +92,10 @@ async function executeUiHandOff(input: {
     sourcePreconditionCheck: checkHandOffSourcePrecondition,
     target: input.target,
     turn: input.turn,
+    trustedContinuationReadiness: {
+      capacityStatus: input.targetCapacityStatus,
+      lowerBudgetRetryTurn: input.lowerBudgetRetryTurn,
+    },
     transferResources: transferHandOffResources,
     resourceTransferFailed: transferFailed,
     commitIngress: (successorSessionId) => {

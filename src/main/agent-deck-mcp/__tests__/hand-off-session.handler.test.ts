@@ -30,6 +30,7 @@ import {
   observedContextCapacity,
   unknownContextCapacity,
 } from '@main/session/continuation-context/__tests__/capacity-fixtures';
+import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
 
 vi.mock('@main/session/context-window/service', () => ({
   getContextWindowCapacityService: () => ({
@@ -43,6 +44,13 @@ vi.mock('@main/session/context-window/service', () => ({
 
 const PRIVATE_PROVIDER_CONTEXT = 'PRIVATE_PROVIDER_CONTEXT_SHOULD_NEVER_LEAK';
 const PRIVATE_SPOOL_ID = 'PRIVATE_SPOOL_ID_SHOULD_NEVER_LEAK';
+
+function acceptedCandidate(sessionId: string): TrustedContinuationSessionCandidate {
+  return {
+    sessionId,
+    acceptance: Promise.resolve({ status: 'accepted', boundary: 'model-activity' }),
+  };
+}
 
 function parseResult(result: HandlerResult): Record<string, any> {
   return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, any>;
@@ -184,7 +192,7 @@ function testDeps(overrides: Partial<HandOffSessionHandlerDeps> = {}): HandOffSe
       compatibleEventRows: 0,
       lateMessages: [],
     }),
-    createSuccessor: vi.fn(async () => 'successor-sid'),
+    createSuccessor: vi.fn(async () => acceptedCandidate('successor-sid')),
     transferResources: vi.fn(() => successfulTransfer()),
     closeSuccessor: vi.fn(async () => undefined),
     finalizeSource: vi.fn(async () => undefined),
@@ -238,7 +246,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       });
       expect(target).not.toHaveProperty('prompt');
       expect(turn.providerPrompt).toBe(PRIVATE_PROVIDER_CONTEXT);
-      return 'successor-sid';
+      return acceptedCandidate('successor-sid');
     });
     const transferResources = vi.fn(() => {
       order.push('transfer');
@@ -341,7 +349,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     const seenTargets: unknown[] = [];
     const createSuccessor = vi.fn(async (target) => {
       seenTargets.push(target);
-      return 'successor-sid';
+      return acceptedCandidate('successor-sid');
     });
     const deps = testDeps({ createSuccessor });
 

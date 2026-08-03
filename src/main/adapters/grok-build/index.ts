@@ -29,6 +29,11 @@ import {
 import { summariseGrokSessionViaOneshot } from './summarizer-runner';
 import { buildGrokHookRoutes } from './hook-routes';
 import { GrokHookInstaller } from './hook-installer';
+import {
+  TrustedContinuationAcceptanceController,
+  trustedContinuationCandidate,
+  type TrustedContinuationSessionCandidate,
+} from '../trusted-continuation';
 
 const ADAPTER_ID = 'grok-build';
 const logger = log.scope('grok-build-adapter');
@@ -128,11 +133,12 @@ export class GrokBuildAdapter implements AgentAdapter {
   async createTrustedContinuationSession(
     opts: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
-  ): Promise<string> {
+  ): Promise<TrustedContinuationSessionCandidate> {
     if (opts.agentId !== ADAPTER_ID || !this.bridge) {
       throw new Error('Grok trusted continuation requires an initialized Grok adapter.');
     }
-    return this.bridge.createTrustedContinuationSession(
+    const acceptance = new TrustedContinuationAcceptanceController();
+    const sessionId = await this.bridge.createTrustedContinuationSession(
       {
         cwd: opts.cwd,
         attachments: opts.attachments,
@@ -153,7 +159,9 @@ export class GrokBuildAdapter implements AgentAdapter {
         initialSessionRegistration: opts.initialSessionRegistration,
       },
       turn,
+      acceptance,
     );
+    return trustedContinuationCandidate(sessionId, acceptance);
   }
 
   async interruptSession(sessionId: string): Promise<void> {

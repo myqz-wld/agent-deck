@@ -31,6 +31,10 @@ import { getNotificationTurnId } from '../app-server/notification-helpers';
 import { toCodexAppServerInput } from './input-pack';
 import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
 import log from '@main/utils/logger';
+import {
+  observeCodexTrustedContinuationNotification,
+  rejectUnsettledCodexTrustedContinuation,
+} from './trusted-continuation-observer';
 
 const logger = log.scope('codex-thread-loop');
 
@@ -401,6 +405,7 @@ export class ThreadLoop {
               }
             }
             if (ev.type === 'server.notification') {
+              observeCodexTrustedContinuationNotification(internal, ev.notification);
               internal.runtimeIdentity = ev.runtimeIdentity;
               this.trackCurrentTurnId(internal, ev.notification);
               handleCodexAppServerNotificationForLiveRate(
@@ -419,6 +424,7 @@ export class ThreadLoop {
             }
           }
         } catch (err) {
+          rejectUnsettledCodexTrustedContinuation(internal);
           // REVIEW_4 H1+M5：被 closeSession / 30s timeout fallback 主动 abort 的，静默退出。
           // 否则发 finished:interrupted 让 manager 把已删 session 复活成幽灵，
           // 或与 fallback 自己 emit 的 finished:error 凑成双 finished。

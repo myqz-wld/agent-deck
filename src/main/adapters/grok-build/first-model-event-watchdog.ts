@@ -74,6 +74,9 @@ export class GrokFirstModelEventWatchdog {
     if (!isGrokModelActivity(update)) return;
     const current = this.active.get(runtime);
     if (!current) return;
+    const acceptance = runtime.trustedContinuationAcceptance;
+    delete runtime.trustedContinuationAcceptance;
+    acceptance?.acceptModelActivity();
     this.clear(runtime);
     logger.debug('[grok-turn-watchdog] first model event received', {
       event: 'grok_turn_watchdog',

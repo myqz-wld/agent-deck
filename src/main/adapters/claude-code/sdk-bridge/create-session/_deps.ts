@@ -28,6 +28,7 @@ import type { ClaudeGatewayModelAliases } from '../types';
 import type { PermissionResponder } from '../permission-responder';
 import type { StreamProcessor } from '../stream-processor';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
 /**
  * facade ClaudeSdkBridge.createSession 入参 SSOT（原 inline opts type）。
@@ -46,6 +47,8 @@ export interface CreateSessionOpts {
   settingsPath?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
+  /** Main-only readiness observer for the initial trusted provider turn. */
+  trustedContinuationAcceptance?: TrustedContinuationAcceptanceController;
   permissionMode?: PermissionMode;
   /** 传 sessionId 表示恢复历史会话（CLI 会从 ~/.claude/projects/<cwd>/<sid>.jsonl 续上）。 */
   resume?: string;

@@ -38,3 +38,8 @@ export type {
   PendingAgentMessage,
   QueuedAgentMessage,
 } from './types/agent-adapter';
+export type {
+  TrustedContinuationAcceptance,
+  TrustedContinuationRejectionReason,
+  TrustedContinuationSessionCandidate,
+} from './trusted-continuation';
