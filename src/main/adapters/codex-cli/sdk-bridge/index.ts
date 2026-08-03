@@ -225,6 +225,7 @@ export class CodexSdkBridge {
           options.model,
           options.thinking as CreateSessionOpts['modelReasoningEffort'] | null,
         );
+        internal.runtimeIdentity = internal.thread.getRuntimeIdentity();
         return true;
       },
     });

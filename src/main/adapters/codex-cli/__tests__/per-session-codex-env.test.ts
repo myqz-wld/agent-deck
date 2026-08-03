@@ -90,6 +90,7 @@ function makeInternalSession(threadId: string | null = null): InternalSession {
     threadId,
     cwd: '/tmp/x',
     thread: {} as InternalSession['thread'],
+    runtimeIdentity: null,
     pendingMessages: [],
     currentTurn: null,
     currentTurnId: null,

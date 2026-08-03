@@ -4,7 +4,10 @@ import {
   classifyStreamErrorEvent,
   extractRetryProgress,
 } from '../stream-error-classifier';
-import type { AgentEventKind } from '@shared/types';
+import type {
+  AgentEventKind,
+  ContextRuntimeIdentityEvidence,
+} from '@shared/types';
 import {
   isEffectiveCodexFileChange,
   isIncompleteCodexFileChangeStatus,
@@ -35,7 +38,11 @@ export function createCodexAppServerTranslateState(): CodexAppServerTranslateSta
 export function translateCodexAppServerNotification(
   notification: CodexAppServerNotification,
   emit: EmitFn,
-  opts?: { model?: string | null; state?: CodexAppServerTranslateState },
+  opts?: {
+    model?: string | null;
+    runtimeIdentity?: ContextRuntimeIdentityEvidence | null;
+    state?: CodexAppServerTranslateState;
+  },
 ): void {
   switch (notification.method) {
     case 'thread/started':
@@ -119,7 +126,13 @@ function translateTurnCompleted(params: unknown, emit: EmitFn): void {
     const err = asRecord((turn as AnyRecord).error);
     const msg = typeof err?.message === 'string' ? err.message : 'Codex turn failed';
     emit('message', { text: `⚠ Codex 错误：${msg}`, error: true });
-    emit('finished', { ok: false, subtype: 'failed' });
+    emit('finished', {
+      ok: false,
+      subtype: 'failed',
+      ...(err?.codexErrorInfo === 'contextWindowExceeded'
+        ? { failureReason: 'context-window-exceeded' }
+        : {}),
+    });
     return;
   }
   emit('finished', { ok: false, subtype: 'error' });
@@ -135,7 +148,13 @@ function translateErrorNotification(params: unknown, emit: EmitFn): void {
     return;
   }
   emit('message', { text: `⚠ Codex 流级错误：${msg}`, error: true });
-  emit('finished', { ok: false, subtype: 'error' });
+  emit('finished', {
+    ok: false,
+    subtype: 'error',
+    ...(err?.codexErrorInfo === 'contextWindowExceeded'
+      ? { failureReason: 'context-window-exceeded' }
+      : {}),
+  });
 }
 
 function translateItemStarted(item: AnyRecord, emit: EmitFn): void {

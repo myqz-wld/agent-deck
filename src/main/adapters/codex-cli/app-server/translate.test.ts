@@ -140,6 +140,41 @@ describe('translateCodexAppServerNotification', () => {
     });
   });
 
+  it('pairs native context capacity with the exact effective provider and model', () => {
+    const { emit, events } = collect();
+    translateCodexAppServerNotification(
+      {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          tokenUsage: {
+            last: { totalTokens: 34_567 },
+            modelContextWindow: 272_000,
+          },
+        },
+      } as CodexAppServerNotification,
+      emit,
+      {
+        runtimeIdentity: {
+          runtimeProvider: 'openrouter',
+          model: 'gpt-5.6-sol',
+        },
+      },
+    );
+
+    expect(events[0]).toEqual({
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 34_567,
+        windowTokens: 272_000,
+        runtimeIdentity: {
+          runtimeProvider: 'openrouter',
+          model: 'gpt-5.6-sol',
+        },
+        capacitySource: 'runtime-usage',
+      },
+    });
+  });
+
   it('keeps transient app-server stream errors open and finishes fatal stream errors', () => {
     const { emit, events } = collect();
 
@@ -161,6 +196,60 @@ describe('translateCodexAppServerNotification', () => {
     expect(events).toEqual([
       { kind: 'message', payload: { text: '🔄 Codex 正在重连... 重连尝试 2/5' } },
       { kind: 'message', payload: { text: '⚠ Codex 流级错误：JSON parse failed', error: true } },
+      { kind: 'finished', payload: { ok: false, subtype: 'error' } },
+    ]);
+  });
+
+  it('classifies context overflow only from the structured native error code', () => {
+    const { emit, events } = collect();
+
+    translateCodexAppServerNotification({
+      method: 'turn/completed',
+      params: {
+        turn: {
+          status: 'failed',
+          error: {
+            message: 'too many tokens',
+            codexErrorInfo: 'contextWindowExceeded',
+          },
+        },
+      },
+    } as CodexAppServerNotification, emit);
+    translateCodexAppServerNotification({
+      method: 'error',
+      params: {
+        willRetry: false,
+        error: {
+          message: 'native overflow',
+          codexErrorInfo: 'contextWindowExceeded',
+        },
+      },
+    } as CodexAppServerNotification, emit);
+    translateCodexAppServerNotification({
+      method: 'error',
+      params: {
+        willRetry: false,
+        error: { message: 'text mentions contextWindowExceeded only' },
+      },
+    } as CodexAppServerNotification, emit);
+
+    expect(events.filter((event) => event.kind === 'finished')).toEqual([
+      {
+        kind: 'finished',
+        payload: {
+          ok: false,
+          subtype: 'failed',
+          failureReason: 'context-window-exceeded',
+        },
+      },
+      {
+        kind: 'finished',
+        payload: {
+          ok: false,
+          subtype: 'error',
+          failureReason: 'context-window-exceeded',
+        },
+      },
       { kind: 'finished', payload: { ok: false, subtype: 'error' } },
     ]);
   });

@@ -5,6 +5,7 @@
  */
 import type {
   AgentEvent,
+  ContextRuntimeIdentityEvidence,
   PermissionRequest,
   PermissionResponse,
   UploadedAttachmentRef,
@@ -78,6 +79,8 @@ export interface InternalSession {
   threadId: string | null;
   cwd: string;
   thread: CodexAppServerThread;
+  /** Exact effective app-server model/provider identity, null until a native boundary proves it. */
+  runtimeIdentity: ContextRuntimeIdentityEvidence | null;
   /**
    * 待发送 user message 串行队列（同 thread 不能并发 turn）。
    *

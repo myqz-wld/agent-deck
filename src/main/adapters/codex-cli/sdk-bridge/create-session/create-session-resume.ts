@@ -67,6 +67,7 @@ export async function runCreateSessionResumePath(
   }
   if (opts.resumeOnly) {
     const readyId = await ctx.thread.ensureReady();
+    internal.runtimeIdentity = ctx.thread.getRuntimeIdentity();
     if (opts.cancelCheck?.()) {
       throw new RecoveryCancelledError(resumeId);
     }

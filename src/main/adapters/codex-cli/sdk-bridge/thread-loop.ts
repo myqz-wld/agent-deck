@@ -27,6 +27,7 @@ import type { CodexBridgeOptions, InternalSession } from './types';
 import type {
   CodexAppServerNotification,
 } from '../app-server/client';
+import { getNotificationTurnId } from '../app-server/notification-helpers';
 import { toCodexAppServerInput } from './input-pack';
 import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
 import log from '@main/utils/logger';
@@ -324,6 +325,7 @@ export class ThreadLoop {
             //    防 SDK 升级 / CLI 行为变更。修前 `&& !internal.threadId` 保护让 resume 路径
             //    跳过 ev.thread_id 校验 → app 层 ↔ SDK actual id silent split → 历史会话静默断链。
             if (ev.type === 'thread.started') {
+              internal.runtimeIdentity = ev.runtimeIdentity;
               if (!internal.threadId) {
                 // case 1: 新建路径 — spawn 主路径 first thread.started 到达
                 // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 R3 HIGH-F + R7 HIGH-R7-1
@@ -399,6 +401,7 @@ export class ThreadLoop {
               }
             }
             if (ev.type === 'server.notification') {
+              internal.runtimeIdentity = ev.runtimeIdentity;
               this.trackCurrentTurnId(internal, ev.notification);
               handleCodexAppServerNotificationForLiveRate(
                 ev.notification,
@@ -406,7 +409,11 @@ export class ThreadLoop {
                 internal.applicationSid,
               );
               translateCodexAppServerNotification(ev.notification, emit, {
-                model: sessionRepo.get(internal.applicationSid)?.model ?? null,
+                model:
+                  ev.runtimeIdentity?.model ??
+                  sessionRepo.get(internal.applicationSid)?.model ??
+                  null,
+                runtimeIdentity: ev.runtimeIdentity,
                 state: translateState,
               });
             }
@@ -462,12 +469,12 @@ export class ThreadLoop {
     notification: CodexAppServerNotification,
   ): void {
     if (notification.method === 'turn/started') {
-      const turnId = readTurnId(notification);
+      const turnId = getNotificationTurnId(notification);
       if (turnId) internal.currentTurnId = turnId;
       return;
     }
     if (notification.method === 'turn/completed') {
-      const turnId = readTurnId(notification);
+      const turnId = getNotificationTurnId(notification);
       if (!turnId || turnId === internal.currentTurnId) {
         internal.currentTurnId = null;
       }
@@ -482,13 +489,4 @@ export class ThreadLoop {
       }
     }
   }
-}
-
-function readTurnId(notification: CodexAppServerNotification): string | null {
-  const params = notification.params;
-  if (!params || typeof params !== 'object') return null;
-  const turn = (params as { turn?: { id?: unknown } }).turn;
-  if (turn && typeof turn.id === 'string') return turn.id;
-  const turnId = (params as { turnId?: unknown }).turnId;
-  return typeof turnId === 'string' ? turnId : null;
 }

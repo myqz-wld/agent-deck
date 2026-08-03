@@ -67,27 +67,63 @@ export function readCompletedAgentMessageText(notification: CodexAppServerNotifi
 }
 
 export function readTerminalErrorText(notification: CodexAppServerNotification): string {
+  return readTerminalError(notification)?.message ?? '';
+}
+
+export interface CodexTerminalErrorEvidence {
+  message: string;
+  codexErrorInfo: string | null;
+}
+
+export class CodexAppServerTurnError extends Error {
+  constructor(
+    message: string,
+    readonly codexErrorInfo: string | null,
+  ) {
+    super(message);
+    this.name = 'CodexAppServerTurnError';
+  }
+}
+
+export function readTerminalError(
+  notification: CodexAppServerNotification,
+): CodexTerminalErrorEvidence | null {
   if (notification.method === 'turn/completed') {
     const params = asObject(notification.params);
     const turn = asObject(params?.turn);
-    if (!turn) return 'Codex app-server returned a malformed turn completion';
-    if (turn.status === 'completed') return '';
-    if (turn.status === 'interrupted') return 'Codex app-server turn interrupted';
+    if (!turn) return terminalError('Codex app-server returned a malformed turn completion');
+    if (turn.status === 'completed') return null;
+    if (turn.status === 'interrupted') return terminalError('Codex app-server turn interrupted');
     if (turn.status === 'failed') {
       const error = asObject(turn.error);
-      return typeof error?.message === 'string' && error.message.trim()
+      const message = typeof error?.message === 'string' && error.message.trim()
         ? error.message
         : 'Codex app-server turn failed';
+      return terminalError(message, error?.codexErrorInfo);
     }
-    return 'Codex app-server returned a malformed turn completion';
+    return terminalError('Codex app-server returned a malformed turn completion');
   }
-  if (notification.method !== 'error') return '';
+  if (notification.method !== 'error') return null;
   const params = asObject(notification.params);
-  if (params?.willRetry === true) return '';
+  if (params?.willRetry === true) return null;
   const error = asObject(params?.error);
-  return typeof error?.message === 'string' && error.message.trim()
+  const message = typeof error?.message === 'string' && error.message.trim()
     ? error.message
     : 'Codex app-server turn failed';
+  return terminalError(message, error?.codexErrorInfo);
+}
+
+function terminalError(
+  message: string,
+  codexErrorInfo?: unknown,
+): CodexTerminalErrorEvidence {
+  return {
+    message,
+    codexErrorInfo:
+      typeof codexErrorInfo === 'string' && codexErrorInfo.trim()
+        ? codexErrorInfo.trim()
+        : null,
+  };
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {

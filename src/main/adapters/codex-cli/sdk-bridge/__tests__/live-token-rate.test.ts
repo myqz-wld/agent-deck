@@ -25,6 +25,7 @@ function makeInternalSession(over: Partial<InternalSession> = {}): InternalSessi
     intentionallyClosed: false,
     pendingPermissions: new Map(),
     ...over,
+    runtimeIdentity: over.runtimeIdentity ?? null,
   };
 }
 
