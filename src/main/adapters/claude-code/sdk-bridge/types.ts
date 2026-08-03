@@ -103,6 +103,14 @@ export interface ClaudeGatewayModelAliases {
   haiku?: string;
 }
 
+export interface ClaudeUsageTotals {
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
 export interface InternalSession {
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 / 不变量 1+2 双轨字段**:
@@ -246,8 +254,21 @@ export interface InternalSession {
    */
   turnUsageByBucket: Map<
     string,
-    { input: number; output: number; reasoning: number; cacheRead: number; cacheCreation: number }
+    ClaudeUsageTotals
   >;
+  /**
+   * Last cumulative SDK result snapshot per raw model. Claude result.modelUsage is session-wide,
+   * while assistant usage is per API call. Keep this watermark for the native CLI lifetime so a
+   * later result contributes only its positive delta instead of recounting all earlier turns.
+   */
+  claudeResultUsageByModel?: Map<string, ClaudeUsageTotals>;
+  /** Cumulative aggregate result.usage watermark for no-model and reasoning-only dimensions. */
+  claudeAggregateResultUsage?: ClaudeUsageTotals;
+  /**
+   * A native resume starts without the provider's previous cumulative watermark. Its first result
+   * establishes the baseline; current-turn assistant rows remain authoritative during that turn.
+   */
+  claudeResultBaselinePending?: boolean;
   /** 生成中 tok/s 估算展示态。display-only；turn result / session 结束时清理。 */
   liveTokenEstimate?: LiveTokenEstimateState;
   /**
@@ -335,6 +356,7 @@ export function makeInternalSession(opts: {
   permissionMode?: PermissionMode;
   applicationSid: string;
   gatewayModelAliases?: ClaudeGatewayModelAliases;
+  claudeResultBaselinePending?: boolean;
 }): InternalSession {
   let resolveStreamDrained!: () => void;
   const streamDrained = new Promise<void>((resolve) => {
@@ -360,6 +382,9 @@ export function makeInternalSession(opts: {
     pendingFileChangeIntents: new Map(),
     seenUsageMessageIds: new Map(),
     turnUsageByBucket: new Map(),
+    claudeResultUsageByModel: new Map(),
+    claudeAggregateResultUsage: undefined,
+    claudeResultBaselinePending: opts.claudeResultBaselinePending ?? false,
     liveTokenEstimate: undefined,
     streamDrained,
     resolveStreamDrained,

@@ -47,6 +47,31 @@ describe('Grok live token rate', () => {
     });
   });
 
+  it('prefers Grok api duration over a shorter positive callback span', () => {
+    const owner = { liveRate: null };
+    beginGrokLiveTokenRate(owner, 'session-duration', 'grok-4.5', 1_000);
+    handleGrokTextForLiveRate(owner, 'first', 1_000);
+    handleGrokTextForLiveRate(owner, 'second', 2_000);
+    completeGrokLiveTokenRate(owner, 80, 2_100, 4_000);
+
+    expect(emitted.at(-1)?.payload).toMatchObject({
+      sessionId: 'session-duration',
+      tps: 20,
+    });
+  });
+
+  it('does not charge the first chunk to elapsed time after its callback', () => {
+    const owner = { liveRate: null };
+    beginGrokLiveTokenRate(owner, 'session-first-chunk', 'grok-4.5', 1_000);
+    handleGrokTextForLiveRate(owner, 'a'.repeat(120), 1_000);
+    handleGrokTextForLiveRate(owner, 'bbbb', 2_000);
+
+    expect(emitted[0]?.payload).toMatchObject({
+      sessionId: 'session-first-chunk',
+      tps: 1,
+    });
+  });
+
   it('clears the renderer display state on cancellation', () => {
     const owner = { liveRate: null };
     beginGrokLiveTokenRate(owner, 'session-3', null, 1_000);

@@ -75,14 +75,14 @@ function tokenEvents(events: AgentEvent[]): AgentEvent[] {
   return events.filter((event) => event.kind === 'token-usage');
 }
 
-describe('translateSdkMessage finalized Claude usage', () => {
+describe('translateSdkMessage reconciled Claude usage', () => {
   beforeEach(() => {
     sessionGetMock.mockReset();
     sessionGetMock.mockReturnValue({ model: 'claude-opus-4-8' } as never);
     eventBusEmitMock.mockClear();
   });
 
-  it('keeps assistant usage provisional and still emits assistant content', () => {
+  it('persists per-call assistant usage and still emits assistant content', () => {
     const { events, emit, internal } = setup();
     translateSdkMessage(
       emit,
@@ -101,7 +101,16 @@ describe('translateSdkMessage finalized Claude usage', () => {
       internal,
     );
 
-    expect(tokenEvents(events)).toEqual([]);
+    expect(tokenEvents(events)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          messageId: 'assistant-1',
+          model: 'claude-opus-4-8',
+          inputTokens: 100,
+          outputTokens: 50,
+        }),
+      }),
+    ]);
     expect(events).toContainEqual(
       expect.objectContaining({
         kind: 'context-usage',
@@ -160,7 +169,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
     expect(tokenEvents(events)).toEqual([
       expect.objectContaining({
         payload: {
-          messageId: 'result:aggregate:aggregate',
+          messageId: 'result-delta-v2:aggregate:aggregate',
           model: 'claude-opus-4-8',
           inputTokens: 100,
           outputTokens: 70,
@@ -186,7 +195,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
     );
 
     expect(tokenEvents(events)[0]?.payload).toEqual({
-      messageId: 'result:partial-aggregate:aggregate',
+      messageId: 'result-delta-v2:partial-aggregate:aggregate',
       model: 'claude-opus-4-8',
       inputTokens: 9,
       outputTokens: 4,
@@ -224,7 +233,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
     expect(tokenEvents(events)).toEqual([
       expect.objectContaining({
         payload: {
-          messageId: 'result:single-model:model:MiniMax-M3',
+          messageId: 'result-delta-v2:single-model:model:MiniMax-M3',
           model: 'MiniMax-M3',
           inputTokens: 754,
           outputTokens: 147,
@@ -293,7 +302,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
         TOKEN_USAGE_METRIC.output,
     });
     expect(usage[2]?.payload).toEqual({
-      messageId: 'result:multi-model:reasoning:unattributed',
+      messageId: 'result-delta-v2:multi-model:reasoning:unattributed',
       model: 'claude-unattributed-reasoning',
       inputTokens: null,
       outputTokens: null,
@@ -327,7 +336,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
     ).toEqual([0, 0]);
   });
 
-  it('uses stable final ids so result replay is max-upsertable', () => {
+  it('suppresses a replay of the same cumulative result snapshot', () => {
     const { events, emit, internal } = setup();
     const result = resultMsg({
       uuid: 'replay',
@@ -347,10 +356,121 @@ describe('translateSdkMessage finalized Claude usage', () => {
       tokenEvents(events).map(
         (event) => (event.payload as { messageId: string }).messageId,
       ),
-    ).toEqual([
-      'result:replay:model:claude-opus-4-8',
-      'result:replay:model:claude-opus-4-8',
+    ).toEqual(['result-delta-v2:replay:model:claude-opus-4-8']);
+  });
+
+  it('counts sequential cumulative results once and calibrates tok/s from the current turn', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(emit, 'sid-1', assistantMsg({
+      id: 'assistant-turn-1',
+      model: 'claude-opus-4-8',
+      usage: { input_tokens: 100, output_tokens: 40 },
+    }), internal);
+    translateSdkMessage(emit, 'sid-1', resultMsg({
+      uuid: 'turn-1',
+      usage: { input_tokens: 100, output_tokens: 40 },
+      modelUsage: {
+        'claude-opus-4-8': { inputTokens: 100, outputTokens: 40 },
+      },
+    }), internal);
+
+    translateSdkMessage(emit, 'sid-1', assistantMsg({
+      id: 'assistant-turn-2',
+      model: 'claude-opus-4-8',
+      usage: { input_tokens: 20, output_tokens: 10 },
+    }), internal);
+    internal.liveTokenEstimate = {
+      bucketKey: 'opus-4.8',
+      estTokensSinceFlush: 0,
+      lastFlushTs: Date.now() - 1_000,
+      hasFlushAnchor: true,
+      decodeElapsedMs: 1_000,
+    };
+    translateSdkMessage(emit, 'sid-1', resultMsg({
+      uuid: 'turn-2',
+      usage: { input_tokens: 120, output_tokens: 50 },
+      modelUsage: {
+        'claude-opus-4-8': { inputTokens: 120, outputTokens: 50 },
+      },
+    }), internal);
+
+    expect(tokenEvents(events).map((event) => event.payload)).toEqual([
+      expect.objectContaining({ messageId: 'assistant-turn-1', inputTokens: 100, outputTokens: 40 }),
+      expect.objectContaining({ messageId: 'assistant-turn-2', inputTokens: 20, outputTokens: 10 }),
     ]);
+    expect(eventBusEmitMock).toHaveBeenCalledWith(
+      'token-rate-tick',
+      expect.objectContaining({ tps: 10, bucketKey: 'opus-4.8' }),
+    );
+  });
+
+  it('emits only a final positive remainder missing from assistant usage', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(emit, 'sid-1', assistantMsg({
+      id: 'assistant-partial',
+      model: 'claude-opus-4-8',
+      usage: { input_tokens: 20, output_tokens: 7 },
+    }), internal);
+    translateSdkMessage(emit, 'sid-1', resultMsg({
+      uuid: 'partial-final',
+      usage: { input_tokens: 20, output_tokens: 10 },
+      modelUsage: {
+        'claude-opus-4-8': { inputTokens: 20, outputTokens: 10 },
+      },
+    }), internal);
+
+    expect(tokenEvents(events).map((event) => event.payload)).toEqual([
+      expect.objectContaining({ messageId: 'assistant-partial', outputTokens: 7 }),
+      expect.objectContaining({
+        messageId: 'result-delta-v2:partial-final:model:claude-opus-4-8',
+        inputTokens: 0,
+        outputTokens: 3,
+      }),
+    ]);
+  });
+
+  it('uses assistant usage while the first native-resume result establishes its baseline', () => {
+    const { events, emit, internal } = setup();
+    internal.claudeResultBaselinePending = true;
+    translateSdkMessage(emit, 'sid-1', assistantMsg({
+      id: 'assistant-resumed',
+      model: 'claude-opus-4-8',
+      usage: { input_tokens: 20, output_tokens: 5 },
+    }), internal);
+    translateSdkMessage(emit, 'sid-1', resultMsg({
+      uuid: 'resumed-baseline',
+      usage: { input_tokens: 1_000, output_tokens: 500 },
+      modelUsage: {
+        'claude-opus-4-8': { inputTokens: 1_000, outputTokens: 500 },
+      },
+    }), internal);
+
+    expect(tokenEvents(events).map((event) => event.payload)).toEqual([
+      expect.objectContaining({ messageId: 'assistant-resumed', inputTokens: 20, outputTokens: 5 }),
+    ]);
+    expect(internal.claudeResultBaselinePending).toBe(false);
+  });
+
+  it('max-merges repeated and progressive assistant frames without inflating turn totals', () => {
+    const { events, emit, internal } = setup();
+    const first = assistantMsg({
+      id: 'assistant-progressive',
+      model: 'claude-opus-4-8',
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+    translateSdkMessage(emit, 'sid-1', first, internal);
+    translateSdkMessage(emit, 'sid-1', first, internal);
+    translateSdkMessage(emit, 'sid-1', assistantMsg({
+      id: 'assistant-progressive',
+      model: 'claude-opus-4-8',
+      usage: { input_tokens: 100, output_tokens: 60 },
+    }), internal);
+
+    expect(tokenEvents(events)).toHaveLength(2);
+    expect(internal.turnUsageByBucket.get('opus-4.8')).toMatchObject({
+      input: 100,
+      output: 60,
+    });
   });
 
   it('does not persist usage or finished state during an expected close', () => {

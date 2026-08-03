@@ -16,6 +16,11 @@ import {
 } from './translate-collab';
 import log from '@main/utils/logger';
 import { translateCodexTokenUsage } from './token-usage-translate';
+import {
+  observeCodexTokenUsage,
+  type CodexTokenUsageObservation,
+  type CodexTokenUsageSnapshot,
+} from './token-usage-observation';
 
 const logger = log.scope('codex-app-server-translate');
 const GENERIC_SKILL_TOOL_NAMES = new Set(['skill', 'invoke', 'invoke_skill', 'skill.invoke']);
@@ -26,6 +31,7 @@ type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 export interface CodexAppServerTranslateState {
   reasoningSummaryByItemId: Map<string, string[]>;
   rawCollabCallsById: Map<string, Record<string, unknown>>;
+  tokenUsageWatermark?: CodexTokenUsageSnapshot;
 }
 
 export function createCodexAppServerTranslateState(): CodexAppServerTranslateState {
@@ -35,7 +41,12 @@ export function createCodexAppServerTranslateState(): CodexAppServerTranslateSta
 export function translateCodexAppServerNotification(
   notification: CodexAppServerNotification,
   emit: EmitFn,
-  opts?: { model?: string | null; state?: CodexAppServerTranslateState },
+  opts?: {
+    model?: string | null;
+    state?: CodexAppServerTranslateState;
+    tokenUsageObservation?: CodexTokenUsageObservation;
+    usageMessageNamespace?: string | null;
+  },
 ): void {
   switch (notification.method) {
     case 'thread/started':
@@ -54,7 +65,20 @@ export function translateCodexAppServerNotification(
     }
 
     case 'thread/tokenUsage/updated': {
-      translateCodexTokenUsage(notification.params, emit, opts);
+      const observation =
+        opts?.tokenUsageObservation
+        ?? observeCodexTokenUsage(
+          notification.params,
+          opts?.state?.tokenUsageWatermark,
+          opts?.usageMessageNamespace,
+        );
+      if (opts?.state && observation.watermark) {
+        opts.state.tokenUsageWatermark = observation.watermark;
+      }
+      translateCodexTokenUsage(notification.params, emit, {
+        model: opts?.model,
+        observation,
+      });
       return;
     }
 

@@ -2,6 +2,10 @@ import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { normalizeModel } from '@shared/model-normalize';
 import type { CodexAppServerNotification } from '../app-server/client';
+import {
+  observeCodexTokenUsage,
+  type CodexTokenUsageObservation,
+} from '../app-server/token-usage-observation';
 import type { InternalSession, CodexLiveTokenEstimateState } from './types';
 
 const THROTTLE_MS = 250;
@@ -50,9 +54,9 @@ function emitLiveTick(
 /**
  * 每条 Codex app-server notification 进 translate 前先过本函数，维护生成中 tok/s 展示态。
  *
- * `thread/tokenUsage/updated.tokenUsage.last` 是 app-server 提供的本次 usage delta；tok/s
- * 只用该权威 delta 除以上一条权威 usage tick 到当前 tick 的耗时。文本 delta 不再参与估算，
- * 避免非权威估算污染 tok/s。
+ * `tokenUsage.total` is the replay-safe cumulative watermark; its growth is the authoritative
+ * output delta, with `last` used only for the first observation / older servers without totals.
+ * Text deltas remain display-only and never enter the calibrated rate.
  *
  * 设计：任何异常必须吞掉（display-only，不能中断事件翻译主流程）。
  */
@@ -61,6 +65,7 @@ export function handleCodexAppServerNotificationForLiveRate(
   internal: InternalSession,
   sessionId: string,
   now = Date.now(),
+  usageObservation?: CodexTokenUsageObservation,
 ): void {
   try {
     if (notification.method === 'turn/started') {
@@ -69,7 +74,17 @@ export function handleCodexAppServerNotificationForLiveRate(
     }
 
     if (notification.method === 'thread/tokenUsage/updated') {
-      emitAppServerUsageTick(notification.params, internal, sessionId, now);
+      const observation =
+        usageObservation
+        ?? observeCodexTokenUsage(
+          notification.params,
+          internal.codexTokenUsageWatermark,
+          codexUsageMessageNamespace(internal),
+        );
+      if (!usageObservation && observation.watermark) {
+        internal.codexTokenUsageWatermark = observation.watermark;
+      }
+      emitAppServerUsageTick(observation, internal, sessionId, now);
       return;
     }
 
@@ -87,38 +102,47 @@ export function handleCodexAppServerNotificationForLiveRate(
   }
 }
 
+export function observeCodexNotificationUsage(
+  notification: CodexAppServerNotification,
+  internal: InternalSession,
+): CodexTokenUsageObservation | undefined {
+  if (notification.method !== 'thread/tokenUsage/updated') return undefined;
+  const observation = observeCodexTokenUsage(
+    notification.params,
+    internal.codexTokenUsageWatermark,
+    codexUsageMessageNamespace(internal),
+  );
+  if (observation.watermark) internal.codexTokenUsageWatermark = observation.watermark;
+  return observation;
+}
+
+function codexUsageMessageNamespace(internal: InternalSession): string {
+  // `applicationSid` survives a missing-jsonl fallback while `threadId` changes to the new native
+  // thread. Fingerprinting by the native id prevents equal cumulative tuples from colliding across
+  // those two independent provider threads.
+  return internal.threadId ?? internal.applicationSid;
+}
+
 function emitAppServerUsageTick(
-  params: unknown,
+  observation: CodexTokenUsageObservation,
   internal: InternalSession,
   sessionId: string,
   now: number,
 ): void {
   const state = internal.codexLiveTokenEstimate;
   if (!state) return;
-  const tokenUsage = readObjectField(params, 'tokenUsage');
-  const last = readObjectField(tokenUsage, 'last');
-  if (!last) return;
+  const delta = observation.delta;
+  if (!delta) return;
+  const previousTickTs = state.lastUsageTickTs;
+  // Every authoritative usage notification is a model/compaction boundary. Advancing the anchor
+  // on a zero-delta snapshot prevents later decode rate from including compaction/tool idle time.
+  state.lastUsageTickTs = now;
   // Codex reports reasoningOutputTokens as a subset of outputTokens. Use the provider total
   // directly so the display-only rate does not double-count reasoning.
-  const outputTokens = readNumberField(last, 'outputTokens');
+  const outputTokens = delta.outputTokens ?? 0;
   if (outputTokens <= 0) return;
-  const elapsedMs = Math.max(now - state.lastUsageTickTs, THROTTLE_MS);
-  state.lastUsageTickTs = now;
+  const elapsedMs = Math.max(now - previousTickTs, THROTTLE_MS);
   emitLiveTick(internal, sessionId, state, outputTokens / (elapsedMs / 1000), now);
-}
-
-function readObjectField(value: unknown, key: string): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const field = (value as Record<string, unknown>)[key];
-  return field && typeof field === 'object' && !Array.isArray(field)
-    ? (field as Record<string, unknown>)
-    : null;
-}
-
-function readNumberField(value: unknown, key: string): number {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === 'number' && Number.isFinite(field) ? field : 0;
 }
 
 /** Turn 结束 / 失败 / 用户中断时清掉生成中展示态，emit done:true 让 renderer 移除该 session 的 live 条目。 */
