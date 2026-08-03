@@ -4,11 +4,13 @@ import log from '@main/utils/logger';
 import {
   firstModelEventTimeoutMessage,
   isCodexModelActivity,
+  isCodexTrustedContinuationModelActivity,
 } from './first-model-event-watchdog';
 import type {
   CodexAppServerNotification,
   CodexAppServerStreamEvent,
 } from './protocol';
+import { collectCodexTurnOutput } from './turn-output';
 
 const THREAD_OPTIONS = {
   workingDirectory: '/repo',
@@ -59,6 +61,31 @@ describe('Codex first-model-event watchdog', () => {
       notify('item/completed', { item: { type: 'user_message' } }),
     ]) {
       expect(isCodexModelActivity(notification)).toBe(false);
+    }
+  });
+
+  it('uses a fail-closed positive activity allowlist for trusted continuations', () => {
+    for (const notification of [
+      notify('item/agentMessage/delta'),
+      notify('item/reasoning/summaryTextDelta'),
+      notify('item/started', { item: { type: 'commandExecution' } }),
+      notify('item/completed', { item: { type: 'mcpToolCall' } }),
+      notify('rawResponseItem/completed'),
+      notify('turn/plan/updated'),
+    ]) {
+      expect(isCodexTrustedContinuationModelActivity(notification)).toBe(true);
+    }
+
+    for (const notification of [
+      notify('thread/tokenUsage/updated', { tokenUsage: { last: {} } }),
+      notify('item/started', { item: { type: 'hookPrompt' } }),
+      notify('item/started', { item: { type: 'contextCompaction' } }),
+      notify('item/completed', { item: { type: 'enteredReviewMode' } }),
+      notify('item/started', { item: { type: 'futureLifecycleItem' } }),
+      notify('rawResponseItem/futureLifecycle'),
+      notify('turn/completed', { turn: { status: 'completed' } }),
+    ]) {
+      expect(isCodexTrustedContinuationModelActivity(notification)).toBe(false);
     }
   });
 
@@ -151,6 +178,54 @@ describe('Codex first-model-event watchdog', () => {
     expect(results.every((events) => eventName(events.at(-1)!) ===
       'server.notification:turn/completed')).toBe(true);
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('invalidates exact identity when an unscoped reroute is ambiguous across threads', async () => {
+    vi.useFakeTimers();
+    const client = new ConcurrentScriptedClient(50);
+    const first = collectTurn(client);
+    const second = collectTurn(client);
+
+    await vi.advanceTimersByTimeAsync(40);
+    client.emit(notify('thread/tokenUsage/updated', {
+      threadId: 'thread-1', turnId: 'turn-1',
+      tokenUsage: { modelContextWindow: 128_000 },
+    }));
+    client.emit(notify('model/rerouted', {
+      fromModel: 'gpt-1',
+      toModel: 'gpt-rerouted',
+      reason: 'fallback',
+    }));
+    client.emit(notify('thread/tokenUsage/updated', {
+      threadId: 'thread-1', turnId: 'turn-1',
+      tokenUsage: { modelContextWindow: 272_000 },
+    }));
+    client.emit(notify('item/agentMessage/delta', {
+      threadId: 'thread-1', turnId: 'turn-1', delta: 'thread one output',
+    }));
+    client.emit(notify('item/agentMessage/delta', {
+      threadId: 'thread-2', turnId: 'turn-2', delta: 'thread two output',
+    }));
+    client.emit(completedTurn('thread-1', 'turn-1'));
+    client.emit(completedTurn('thread-2', 'turn-2'));
+
+    const [firstEvents, secondEvents] = await Promise.all([first, second]);
+    const firstUsages = firstEvents.filter(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'thread/tokenUsage/updated',
+    );
+    const secondActivity = secondEvents.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'item/agentMessage/delta',
+    );
+    expect(firstUsages).toHaveLength(2);
+    expect(firstUsages[0]).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-1' },
+    });
+    expect(firstUsages[1]).toMatchObject({ runtimeIdentity: null });
+    expect(secondActivity).toMatchObject({ runtimeIdentity: null });
+    const output = await collectCodexTurnOutput(replay(firstEvents), undefined);
+    expect(output.contextWindowEvidence).toBeNull();
   });
 
   it('consumes a response-first same-stack model event before arming the watchdog', async () => {
@@ -246,6 +321,80 @@ describe('Codex first-model-event watchdog', () => {
     expect(client.recycles).toHaveLength(1);
     expect(events.map(eventName)).not.toContain('server.notification:item/agentMessage/delta');
     expect(events.map(eventName).at(-1)).toBe('server.notification:error');
+  });
+
+  it('applies a turn-id-less model reroute before attributing later turn activity', async () => {
+    vi.useFakeTimers();
+    class RerouteClient extends ScriptedClient {
+      override request<T = unknown>(method: string, params: unknown): Promise<T> {
+        if (method === 'thread/start') {
+          return Promise.resolve({
+            thread: { id: 'thread-1' },
+            model: 'gpt-old',
+            modelProvider: 'openai',
+          } as T);
+        }
+        return super.request(method, params);
+      }
+    }
+    const client = new RerouteClient(50, (current) => {
+      setTimeout(() => {
+        current.emit(notify('model/rerouted', { toModel: 'gpt-new' }));
+        current.emit(notify('item/agentMessage/delta', {
+          threadId: 'thread-1', turnId: 'turn-1', delta: 'model output',
+        }));
+        current.emit(completedTurn());
+      }, 10);
+    });
+
+    const work = collectTurn(client);
+    await vi.advanceTimersByTimeAsync(10);
+    const events = await work;
+    const activity = events.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'item/agentMessage/delta',
+    );
+    expect(activity).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-new' },
+    });
+  });
+
+  it('does not apply a late reroute scoped to another turn', async () => {
+    vi.useFakeTimers();
+    class RerouteClient extends ScriptedClient {
+      override request<T = unknown>(method: string, params: unknown): Promise<T> {
+        if (method === 'thread/start') {
+          return Promise.resolve({
+            thread: { id: 'thread-1' },
+            model: 'gpt-current',
+            modelProvider: 'openai',
+          } as T);
+        }
+        return super.request(method, params);
+      }
+    }
+    const client = new RerouteClient(50, (current) => {
+      setTimeout(() => {
+        current.emit(notify('model/rerouted', {
+          threadId: 'thread-1', turnId: 'prior-turn', toModel: 'gpt-stale',
+        }));
+        current.emit(notify('item/agentMessage/delta', {
+          threadId: 'thread-1', turnId: 'turn-1', delta: 'model output',
+        }));
+        current.emit(completedTurn());
+      }, 10);
+    });
+
+    const work = collectTurn(client);
+    await vi.advanceTimersByTimeAsync(10);
+    const events = await work;
+    const activity = events.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'item/agentMessage/delta',
+    );
+    expect(activity).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-current' },
+    });
   });
 
   it('drops prior-turn packets after the response accepts a new turn id', async () => {
@@ -380,6 +529,10 @@ class ScriptedClient extends CodexAppServerClient {
     return () => this.listeners.delete(listener);
   }
 
+  override hasExclusiveNotificationSubscriber(): boolean {
+    return this.listeners.size === 1;
+  }
+
   override abortTurnAndRecycleGeneration(
     expectedGeneration: number,
     threadId: string,
@@ -418,8 +571,13 @@ class ConcurrentScriptedClient extends CodexAppServerClient {
 
   override request<T = unknown>(method: string, params: unknown): Promise<T> {
     if (method === 'thread/start') {
-      const threadId = `thread-${this.nextThread++}`;
-      return Promise.resolve({ thread: { id: threadId } } as T);
+      const ordinal = this.nextThread++;
+      const threadId = `thread-${ordinal}`;
+      return Promise.resolve({
+        thread: { id: threadId },
+        model: `gpt-${ordinal}`,
+        modelProvider: 'openai',
+      } as T);
     }
     if (method === 'turn/start') {
       this.turnStartCalls += 1;
@@ -442,6 +600,10 @@ class ConcurrentScriptedClient extends CodexAppServerClient {
     return () => this.listeners.delete(listener);
   }
 
+  override hasExclusiveNotificationSubscriber(): boolean {
+    return this.listeners.size === 1;
+  }
+
   emit(notification: CodexAppServerNotification): void {
     for (const listener of [...this.listeners]) listener(notification);
   }
@@ -455,6 +617,10 @@ async function collectTurn(client: CodexAppServerClient): Promise<CodexAppServer
   const collected: CodexAppServerStreamEvent[] = [];
   for await (const event of events) collected.push(event);
   return collected;
+}
+
+async function* replay(events: CodexAppServerStreamEvent[]) {
+  for (const event of events) yield event;
 }
 
 function completedTurn(

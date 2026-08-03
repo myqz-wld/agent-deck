@@ -1,10 +1,7 @@
 /**
  * ThreadLoop — Codex thread 启动 + turn loop（CHANGELOG_52 Step 4b）。
- *
  * 抽自 codex-cli/sdk-bridge.ts 的 startNewThreadAndAwaitId + runTurnLoop 两个 private 方法。
- *
  * 通过 ThreadLoopCtx 注入 sessions Map ref + emit。
- *
  * 护栏（不变）：
  * - REVIEW_4 H1+M5 — runTurnLoop catch 内 `if (internal.intentionallyClosed) break` 静默退出
  * - REVIEW_4 M5 — 30s fallback 必须先 intentionallyClosed=true 再 abort，再 emit 完整序列
@@ -26,9 +23,14 @@ import {
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
 import type { CodexAppServerNotification } from '../app-server/client';
+import { getNotificationTurnId } from '../app-server/notification-helpers';
 import { toCodexAppServerInput } from './input-pack';
 import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
 import log from '@main/utils/logger';
+import {
+  observeCodexTrustedContinuationNotification,
+  rejectUnsettledCodexTrustedContinuation,
+} from './trusted-continuation-observer';
 
 const logger = log.scope('codex-thread-loop');
 
@@ -323,6 +325,7 @@ export class ThreadLoop {
             //    防 SDK 升级 / CLI 行为变更。修前 `&& !internal.threadId` 保护让 resume 路径
             //    跳过 ev.thread_id 校验 → app 层 ↔ SDK actual id silent split → 历史会话静默断链。
             if (ev.type === 'thread.started') {
+              internal.runtimeIdentity = ev.runtimeIdentity;
               if (!internal.threadId) {
                 // case 1: 新建路径 — spawn 主路径 first thread.started 到达
                 // **plan reverse-rename-sid-stability-20260520 §A.4-pre S3 R3 HIGH-F + R7 HIGH-R7-1
@@ -399,6 +402,8 @@ export class ThreadLoop {
               }
             }
             if (ev.type === 'server.notification') {
+              observeCodexTrustedContinuationNotification(internal, ev.notification);
+              internal.runtimeIdentity = ev.runtimeIdentity;
               this.trackCurrentTurnId(internal, ev.notification);
               const usageObservation = observeCodexNotificationUsage(ev.notification, internal);
               handleCodexAppServerNotificationForLiveRate(
@@ -409,7 +414,11 @@ export class ThreadLoop {
                 usageObservation,
               );
               translateCodexAppServerNotification(ev.notification, emit, {
-                model: sessionRepo.get(internal.applicationSid)?.model ?? null,
+                model:
+                  ev.runtimeIdentity?.model ??
+                  sessionRepo.get(internal.applicationSid)?.model ??
+                  null,
+                runtimeIdentity: ev.runtimeIdentity,
                 state: translateState,
                 tokenUsageObservation: usageObservation,
                 usageMessageNamespace: internal.threadId ?? internal.applicationSid,
@@ -417,6 +426,7 @@ export class ThreadLoop {
             }
           }
         } catch (err) {
+          rejectUnsettledCodexTrustedContinuation(internal);
           // REVIEW_4 H1+M5：被 closeSession / 30s timeout fallback 主动 abort 的，静默退出。
           // 否则发 finished:interrupted 让 manager 把已删 session 复活成幽灵，
           // 或与 fallback 自己 emit 的 finished:error 凑成双 finished。
@@ -467,12 +477,12 @@ export class ThreadLoop {
     notification: CodexAppServerNotification,
   ): void {
     if (notification.method === 'turn/started') {
-      const turnId = readTurnId(notification);
+      const turnId = getNotificationTurnId(notification);
       if (turnId) internal.currentTurnId = turnId;
       return;
     }
     if (notification.method === 'turn/completed') {
-      const turnId = readTurnId(notification);
+      const turnId = getNotificationTurnId(notification);
       if (!turnId || turnId === internal.currentTurnId) {
         internal.currentTurnId = null;
       }
@@ -487,13 +497,4 @@ export class ThreadLoop {
       }
     }
   }
-}
-
-function readTurnId(notification: CodexAppServerNotification): string | null {
-  const params = notification.params;
-  if (!params || typeof params !== 'object') return null;
-  const turn = (params as { turn?: { id?: unknown } }).turn;
-  if (turn && typeof turn.id === 'string') return turn.id;
-  const turnId = (params as { turnId?: unknown }).turnId;
-  return typeof turnId === 'string' ? turnId : null;
 }

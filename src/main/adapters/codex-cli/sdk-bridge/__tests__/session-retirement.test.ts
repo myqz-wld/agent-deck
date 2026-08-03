@@ -75,6 +75,7 @@ function makeInternal(
     threadId: sessionId,
     cwd: '/repo',
     thread,
+    runtimeIdentity: null,
     pendingMessages,
     currentTurn: null,
     currentTurnId: null,

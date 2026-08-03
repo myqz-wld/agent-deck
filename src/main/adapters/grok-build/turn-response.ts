@@ -5,6 +5,12 @@ import type {
   GrokTurnUsage,
 } from './extension';
 import type { GrokLivePromptOutcome } from './live-prompt-completion';
+import {
+  grokContextWindowFailureReason,
+  grokContextWindowRejectionCode,
+  structuredGrokContextWindowRejectionCode,
+  type GrokContextWindowRejectionCode,
+} from './native-error';
 import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
@@ -25,6 +31,7 @@ export function responseFromGrokLiveOutcome(
   stopReason: string;
   usage?: Usage | null;
   _meta?: Record<string, unknown> | null;
+  contextWindowRejectionCode?: GrokContextWindowRejectionCode;
 } {
   if (outcome.kind === 'response') return outcome.response;
   if (!runtime.translation.assistantObservedForCurrentTurn) {
@@ -44,6 +51,12 @@ export function responseFromGrokLiveOutcome(
   return {
     stopReason: outcome.notification.stopReason,
     usage: null,
+    ...(outcome.notification.contextWindowRejectionCode
+      ? {
+          contextWindowRejectionCode:
+            outcome.notification.contextWindowRejectionCode,
+        }
+      : {}),
   };
 }
 
@@ -53,6 +66,7 @@ export async function finalizeGrokAcpResponse(
     stopReason: string;
     usage?: Usage | null;
     _meta?: Record<string, unknown> | null;
+    contextWindowRejectionCode?: GrokContextWindowRejectionCode;
   },
   options: Pick<GrokTurnQueueOptions, 'emit' | 'emitEvent'>,
 ): Promise<void> {
@@ -96,9 +110,15 @@ export async function finalizeGrokAcpResponse(
     persistGrokUsageWatermark(runtime);
   }
   if (!runtime.closed) {
+    const rejectionCode =
+      response.contextWindowRejectionCode ??
+      grokContextWindowRejectionCode(response.stopReason) ??
+      structuredGrokContextWindowRejectionCode(response._meta);
+    const failureReason = grokContextWindowFailureReason(rejectionCode);
     options.emitEvent(runtime.applicationSessionId, 'finished', {
       ok: response.stopReason === 'end_turn',
       subtype: response.stopReason,
+      ...(failureReason ? { failureReason } : {}),
     });
   }
 }

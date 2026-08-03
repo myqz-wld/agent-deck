@@ -1,7 +1,6 @@
 import type {
   AgentEvent,
   LifecycleState,
-  SessionContextUsageUpdate,
   SessionRecord,
   TokenUsagePayload,
 } from '@shared/types';
@@ -165,52 +164,6 @@ export function dedupOrClaim(ctx: IngestContext, event: AgentEvent): { skip: boo
     return { skip: true };
   }
   return { skip: false };
-}
-
-/** Persist current-context telemetry without adding it to the activity timeline. */
-export function persistContextUsage(event: AgentEvent): void {
-  const raw =
-    event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
-      ? (event.payload as Record<string, unknown>)
-      : null;
-  if (!raw) return;
-  const update: SessionContextUsageUpdate = {};
-  if (
-    raw.usedTokens === null ||
-    (typeof raw.usedTokens === 'number' &&
-      Number.isFinite(raw.usedTokens) &&
-      raw.usedTokens >= 0)
-  ) {
-    update.usedTokens =
-      raw.usedTokens === null ? null : Math.trunc(raw.usedTokens);
-  }
-  if (
-    raw.windowTokens === null ||
-    (typeof raw.windowTokens === 'number' &&
-      Number.isFinite(raw.windowTokens) &&
-      raw.windowTokens > 0)
-  ) {
-    update.windowTokens =
-      raw.windowTokens === null ? null : Math.trunc(raw.windowTokens);
-  }
-  if (update.usedTokens === undefined && update.windowTokens === undefined) return;
-  persistContextUsageUpdate(event.sessionId, update, event.ts);
-}
-
-/** A compaction start invalidates the pre-compaction used count but preserves window size. */
-export function resetContextUsageForCompaction(event: AgentEvent): void {
-  persistContextUsageUpdate(event.sessionId, { usedTokens: null }, event.ts);
-}
-
-function persistContextUsageUpdate(
-  sessionId: string,
-  update: SessionContextUsageUpdate,
-  updatedAt: number,
-): void {
-  const contextUsage = sessionRepo.updateContextUsage(sessionId, update, updatedAt);
-  if (!contextUsage) return;
-  const record = sessionRepo.get(sessionId);
-  if (record) eventBus.emit('session-upserted', record);
 }
 
 function shouldReviveClosedSession(event: AgentEvent): boolean {

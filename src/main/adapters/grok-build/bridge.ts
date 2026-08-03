@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-
 import type {
   AgentCwdTransition,
   AgentCwdTransitionSwitchResult,
@@ -19,7 +18,6 @@ import type {
   ProviderUsageSnapshot,
   UploadedAttachmentRef,
 } from '@shared/types';
-
 import { GrokPermissionController } from './permission-controller';
 import { errorText } from './protocol-utils';
 import {
@@ -32,6 +30,7 @@ import {
 import type { GrokRuntime } from './runtime-types';
 import type { GrokSessionSetupOptions } from './session-setup';
 import { GrokTurnQueue } from './turn-queue';
+import { requireNativeSession } from './turn-queue-helpers';
 import type { GrokEnqueueOptions } from './turn-queue-types';
 import { recycleGrokTransport } from './transport-recovery';
 import {
@@ -46,9 +45,11 @@ import { GrokRuntimeLifecycleCoordinator } from './runtime-lifecycle-coordinator
 import { GrokMessageController } from './message-controller';
 import { GrokRuntimeMutationController } from './runtime-mutation-controller';
 import { GrokCwdTransitionController } from './cwd-transition-controller';
+import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
+import { observeGrokTrustedContinuationFinished } from './trusted-continuation-observer';
+import { cleanupFailedGrokStartupRegistration } from './startup-registration-cleanup';
 
 const AGENT_ID = 'grok-build';
-
 export interface GrokBuildBridgeOptions extends GrokSessionSetupOptions {
   emit: (event: AgentEvent) => void;
   onNegotiatedImageCapability?: (supported: boolean) => void;
@@ -76,7 +77,7 @@ export class GrokBuildBridge {
     this.turnQueue = new GrokTurnQueue({
       emit: options.emit,
       emitEvent: (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
-      emitError: (sessionId, text) => this.emitError(sessionId, text),
+      emitError: (sessionId, text, failureReason) => this.emitError(sessionId, text, failureReason),
       closeSession: (sessionId) => this.closeSession(sessionId),
       recycleRuntime: (runtime) => recycleGrokTransport(runtime, {
         isCurrent: (candidate) => this.isCurrentRuntime(candidate),
@@ -173,13 +174,15 @@ export class GrokBuildBridge {
   async createTrustedContinuationSession(
     opts: GrokCreateOpts,
     turn: TrustedContinuationInitialTurn,
+    acceptance: TrustedContinuationAcceptanceController,
   ): Promise<string> {
-    return this.createSessionInternal(opts, turn);
+    return this.createSessionInternal(opts, turn, acceptance);
   }
 
   private async createSessionInternal(
     opts: GrokCreateOpts,
     trustedTurn?: TrustedContinuationInitialTurn,
+    acceptance?: TrustedContinuationAcceptanceController,
   ): Promise<string> {
     const existing = opts.resume ? sessionRepo.get(opts.resume) : null;
     if (
@@ -209,6 +212,7 @@ export class GrokBuildBridge {
     sessionManager.claimAsSdk(applicationSessionId);
 
     const runtime = createGrokRuntime(applicationSessionId, opts, existing);
+    runtime.trustedContinuationAcceptance = acceptance;
     this.runtimes.set(applicationSessionId, runtime);
 
     try {
@@ -233,6 +237,7 @@ export class GrokBuildBridge {
         this.emitError(applicationSessionId, `Grok session startup failed: ${errorText(error)}`);
       }
       await this.disposeRuntime(runtime);
+      if (existing === null) await cleanupFailedGrokStartupRegistration(applicationSessionId);
       throw error;
     }
   }
@@ -447,7 +452,7 @@ export class GrokBuildBridge {
       emit: (event) => this.options.emit(event),
       emitError: (sessionId, text) => this.emitError(sessionId, text),
       isCurrentRuntime: (runtime) => this.isCurrentRuntime(runtime),
-      requireNativeSession: (runtime) => this.requireNativeSession(runtime),
+      requireNativeSession,
       onNegotiatedImageCapability: this.options.onNegotiatedImageCapability,
       confirmPromptAccepted: (runtime) => this.turnQueue.confirmPromptAccepted(runtime),
       observeModelActivity: (runtime, update) =>
@@ -459,12 +464,13 @@ export class GrokBuildBridge {
     };
   }
 
-  private emitError(sessionId: string, text: string): void {
+  private emitError(sessionId: string, text: string, failureReason?: 'context-window-exceeded'): void {
     this.emit(sessionId, 'message', { text: `⚠ ${text}`, role: 'assistant', error: true });
-    this.emit(sessionId, 'finished', { ok: false, subtype: 'error' });
+    this.emit(sessionId, 'finished', { ok: false, subtype: 'error', ...(failureReason ? { failureReason } : {}) });
   }
 
   private emit(sessionId: string, kind: AgentEvent['kind'], payload: unknown): void {
+    if (kind === 'finished') observeGrokTrustedContinuationFinished(this.runtimes.get(sessionId), payload);
     this.options.emit({
       sessionId,
       agentId: AGENT_ID,
@@ -491,10 +497,4 @@ export class GrokBuildBridge {
     return runtime;
   }
 
-  private requireNativeSession(runtime: GrokRuntime): string {
-    if (!runtime.nativeSessionId) {
-      throw new Error(`Grok session ${runtime.applicationSessionId} has no native session id.`);
-    }
-    return runtime.nativeSessionId;
-  }
 }

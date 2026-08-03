@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
 import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
+import {
+  getContextWindowCapacityService,
+  type ContextWindowCapacityService,
+} from '@main/session/context-window/service';
+import {
+  DEFAULT_CAPACITY_CONFIG_FINGERPRINT,
+  resolveContextRuntimeIdentity,
+} from '@main/session/context-window/identity';
 import { settingsStore } from '@main/store/settings-store';
 import {
   isClaudeThinkingLevel,
@@ -14,9 +22,11 @@ import {
   MIN_CONTINUATION_RAW_RETENTION_TOKENS,
   type PermissionMode,
   type AdapterSessionMode,
+  type ContextRuntimeIdentity,
+  type ContextRuntimeIdentityResolution,
+  type ResolvedContextCapacity,
   type SessionAdapterId,
 } from '@shared/types';
-import { contextCapacityResolver } from './context-capacity-resolver';
 import type { ResolvedContinuationGenerator, ResolvedSuccessorSpec } from './types';
 
 export function continuationFingerprint(value: unknown): string {
@@ -77,7 +87,20 @@ function configuredGeneratorModel(
   );
 }
 
-export function resolveContinuationGeneratorSnapshot(): ResolvedContinuationGenerator {
+interface ContinuationGeneratorConfiguration {
+  adapter: SessionAdapterId;
+  provider: string | null;
+  model: string | null;
+  thinking: SessionThinkingLevel;
+  configFingerprint: string;
+}
+
+export interface ContinuationCapacityResolutionDependencies {
+  capacityService?: ContextWindowCapacityService;
+  at?: number;
+}
+
+function resolveContinuationGeneratorConfiguration(): ContinuationGeneratorConfiguration {
   const adapter = configuredGeneratorAdapter();
   const provider =
     adapter === 'grok-build'
@@ -92,19 +115,97 @@ export function resolveContinuationGeneratorSnapshot(): ResolvedContinuationGene
     adapter,
     settingsStore.get('continuationCheckpointThinking'),
   );
+  const configFingerprint = continuationFingerprint({
+    version: 3,
+    adapter,
+    provider,
+    model,
+    thinking,
+  });
   return {
     adapter,
     provider,
     model,
     thinking,
-    contextWindowTokens: null,
-    configFingerprint: continuationFingerprint({
-      version: 2,
-      adapter,
-      provider,
-      model,
-      thinking,
-    }),
+    configFingerprint,
+  };
+}
+
+function isUnresolvedModelAlias(adapter: SessionAdapterId, model: string): boolean {
+  if (adapter === 'codex-cli') return model === 'codex-default';
+  if (/^(?:claude-)?(?:fable|opus|sonnet|haiku)$/i.test(model)) return true;
+  return adapter === 'grok-build' && /(?:^|[-_.])(?:default|latest)$/i.test(model);
+}
+
+function configuredRuntimeProvider(
+  adapter: SessionAdapterId,
+  provider: string | null | undefined,
+): string | null {
+  if (adapter === 'grok-build') return 'native';
+  if (adapter === 'claude-code') return provider?.trim() || 'native';
+  return provider?.trim() || null;
+}
+
+export function resolveContinuationRuntimeIdentity(input: {
+  adapter: SessionAdapterId;
+  provider?: string | null;
+  model: string | null;
+  /** Capacity-affecting config the target will actually receive. */
+  capacityConfigFingerprint?: string | null;
+  trustedRuntimeIdentity?: ContextRuntimeIdentity | null;
+}): ContextRuntimeIdentityResolution {
+  const runtimeProvider = configuredRuntimeProvider(input.adapter, input.provider);
+  const trusted = input.trustedRuntimeIdentity;
+  const targetCapacityConfigFingerprint =
+    input.capacityConfigFingerprint?.trim() || DEFAULT_CAPACITY_CONFIG_FINGERPRINT;
+  const trustedEquivalent = trusted
+    ? resolveContextRuntimeIdentity({
+        adapter: input.adapter,
+        runtimeProvider,
+        model: trusted.model,
+        capacityConfigFingerprint: input.capacityConfigFingerprint,
+      })
+    : null;
+  if (
+    trusted &&
+    trustedEquivalent?.status === 'concrete' &&
+    trusted.adapter === input.adapter &&
+    trusted.runtimeProvider === runtimeProvider &&
+    trusted.capacityConfigFingerprint === targetCapacityConfigFingerprint
+  ) {
+    return { status: 'concrete', identity: trusted };
+  }
+  return resolveContextRuntimeIdentity({
+    adapter: input.adapter,
+    runtimeProvider,
+    model: input.model,
+    capacityConfigFingerprint: input.capacityConfigFingerprint,
+    ...(input.model && isUnresolvedModelAlias(input.adapter, input.model)
+      ? { unavailableReason: 'unresolved-model-alias' as const }
+      : {}),
+  });
+}
+
+function resolveFrozenCapacity(
+  identity: ContextRuntimeIdentityResolution,
+  dependencies: ContinuationCapacityResolutionDependencies,
+) {
+  const service = dependencies.capacityService ?? getContextWindowCapacityService();
+  return service.resolve(identity, dependencies.at);
+}
+
+export function resolveContinuationGeneratorConfigFingerprint(): string {
+  return resolveContinuationGeneratorConfiguration().configFingerprint;
+}
+
+export function resolveContinuationGeneratorSnapshot(
+  dependencies: ContinuationCapacityResolutionDependencies = {},
+): ResolvedContinuationGenerator {
+  const configuration = resolveContinuationGeneratorConfiguration();
+  const identity = resolveContinuationRuntimeIdentity(configuration);
+  return {
+    ...configuration,
+    contextCapacity: resolveFrozenCapacity(identity, dependencies),
   };
 }
 
@@ -137,26 +238,42 @@ export interface ResolveContinuationTargetInput {
   sandbox: unknown;
   networkAccessEnabled: boolean | null;
   additionalDirectories: readonly string[];
-  contextWindowTokens?: number | null;
-  contextWindowSource?: 'observed' | 'fallback' | null;
+  /** Capacity-affecting config reconstructed from the actual target create options. */
+  capacityConfigFingerprint?: string | null;
+  /** Exact adapter-native identity inherited from an already running equivalent runtime. */
+  trustedRuntimeIdentity?: ContextRuntimeIdentity | null;
   /** Optional source DB-runtime fingerprint used by same-session recovery snapshots. */
   sourceRuntimeFingerprint?: string;
 }
 
 export function resolveContinuationTargetSnapshot(
   input: ResolveContinuationTargetInput,
+  dependencies: ContinuationCapacityResolutionDependencies = {},
+): ResolvedSuccessorSpec {
+  return resolveContinuationTargetFromFrozenCapacity(
+    input,
+    resolveFrozenCapacity(
+      resolveContinuationRuntimeIdentity({
+        adapter: input.adapter,
+        provider: input.provider,
+        model: input.model,
+        capacityConfigFingerprint: input.capacityConfigFingerprint,
+        trustedRuntimeIdentity: input.trustedRuntimeIdentity,
+      }),
+      dependencies,
+    ),
+  );
+}
+
+/** Rebuild runtime/create fingerprints without consulting mutable capacity evidence. */
+export function resolveContinuationTargetFromFrozenCapacity(
+  input: ResolveContinuationTargetInput,
+  contextCapacity: ResolvedContextCapacity,
 ): ResolvedSuccessorSpec {
   const thinking = targetThinking(input.adapter, input.thinking);
   const additionalDirectories = [...input.additionalDirectories];
-  const capacity =
-    input.contextWindowTokens == null
-      ? contextCapacityResolver.resolve(input.adapter, input.model)
-      : {
-          contextWindowTokens: input.contextWindowTokens,
-          source: input.contextWindowSource ?? ('observed' as const),
-        };
   const runtime = {
-    version: 1,
+    version: 3,
     sourceRuntimeFingerprint: input.sourceRuntimeFingerprint ?? null,
     adapter: input.adapter,
     cwd: input.cwd,
@@ -168,8 +285,8 @@ export function resolveContinuationTargetSnapshot(
     sandbox: input.sandbox,
     networkAccessEnabled: input.networkAccessEnabled,
     additionalDirectories,
-    contextWindowTokens: capacity.contextWindowTokens,
-    contextWindowSource: capacity.source,
+    capacityConfigFingerprint:
+      input.capacityConfigFingerprint?.trim() || DEFAULT_CAPACITY_CONFIG_FINGERPRINT,
   };
   return {
     adapter: input.adapter,
@@ -181,8 +298,7 @@ export function resolveContinuationTargetSnapshot(
     sessionMode: input.sessionMode ?? null,
     networkAccessEnabled: input.networkAccessEnabled,
     additionalDirectories,
-    contextWindowTokens: capacity.contextWindowTokens,
-    contextWindowSource: capacity.source,
+    contextCapacity,
     runtimeFingerprint: continuationFingerprint(runtime),
   };
 }

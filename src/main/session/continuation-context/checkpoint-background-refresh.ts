@@ -1,4 +1,8 @@
 import type { Database } from 'better-sqlite3';
+import {
+  createContextWindowCapacityService,
+  type ContextWindowCapacityService,
+} from '@main/session/context-window/service';
 import { getDb } from '@main/store/db';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
 import { resolveGeneratorFoldInputBudgetTokens } from './budget-policy';
@@ -14,7 +18,7 @@ import type {
 import type { ContinuationCheckpointGenerator } from './checkpoint-generator';
 import { resolveContinuationGeneratorSnapshot } from './resolver';
 import { createCheckpointGeneratorRuntime } from './runtime';
-import { contextCapacityResolver } from './context-capacity-resolver';
+import { observeCheckpointGeneratorCapacity } from './generator-capacity-observation';
 import {
   openCheckpointBackgroundSource,
   type CheckpointBackgroundChunkSource,
@@ -48,6 +52,7 @@ interface BackgroundCheckpointRefreshDependencies {
   db?: Database;
   now?: () => number;
   resolveGenerator?: () => ResolvedContinuationGenerator;
+  capacityService?: ContextWindowCapacityService;
   generatorFactory?: (generator: ResolvedContinuationGenerator) => ContinuationCheckpointGenerator;
   openBackgroundSource?: (
     input: OpenCheckpointBackgroundSourceInput,
@@ -120,7 +125,7 @@ export async function refreshContinuationCheckpointWithDependencies(
       generatorSpec,
       generator,
       generatorFoldInputBudgetTokens: resolveGeneratorFoldInputBudgetTokens(
-        generatorSpec.contextWindowTokens,
+        generatorSpec.contextCapacity,
       ),
       deadlineAt,
       maxFoldCalls: BACKGROUND_CHECKPOINT_MAX_FOLD_CALLS,
@@ -128,13 +133,12 @@ export async function refreshContinuationCheckpointWithDependencies(
       ...(input.signal ? { signal: input.signal } : {}),
       now,
     });
-    if (fold.observedContextWindowTokens !== null) {
-      contextCapacityResolver.observe(
-        generatorSpec.adapter,
-        generatorSpec.model,
-        fold.observedContextWindowTokens,
-      );
-    }
+    observeCheckpointGeneratorCapacity({
+      service: dependencies.capacityService ?? createContextWindowCapacityService(db),
+      adapter: generatorSpec.adapter,
+      evidence: fold.observedContextWindowEvidence,
+      observedAt: now(),
+    });
     const latest = createContinuationCheckpointRepo(db).latest(input.sessionId);
     const checkpointThroughRevision = latest?.sourceEventRevision ?? 0;
     if (checkpointThroughRevision < metadata.materializedThroughRevision) {

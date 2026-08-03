@@ -46,6 +46,27 @@ export function executionFailureLabel(
     : failure.stage === 'cutover'
       ? '源会话切换未完成'
       : '必要内容未能转移';
+  if (failure.cutoverReason === 'target-retry-startup-failed') {
+    return (
+      '较小范围的续接会话未能启动，也没有生成需要清理的新会话。源会话仍可继续使用；' +
+      '请检查目标 provider 日志，重新生成续接上下文后再试。'
+    );
+  }
+  if (
+    failure.cutoverReason === 'target-startup-timeout' &&
+    failure.successorCleanup === 'ok'
+  ) {
+    return (
+      '续接会话未能在准备时限内生成可用会话，也没有需要清理的新会话；' +
+      '请重新生成续接上下文后再试。'
+    );
+  }
+  if (failure.successorCleanup === 'pending') {
+    return (
+      '续接会话启动超时，暂时还没有可确认的会话编号。若它稍后创建，系统会自动尝试关闭；' +
+      '请先检查会话列表和应用日志，确认没有仍在运行的续接会话后再重新生成。'
+    );
+  }
   if (failure.successorCleanup === 'failed') {
     return (
       `续接会话已创建，但${failureOutcome}，且未能自动关闭。它可能仍在运行。` +

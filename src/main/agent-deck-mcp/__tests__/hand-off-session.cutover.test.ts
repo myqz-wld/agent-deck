@@ -9,8 +9,27 @@ import type { HandOffSessionHandlerDeps } from '../tools/handlers/hand-off-sessi
 import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { HandOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { observedContextCapacity } from '@main/session/continuation-context/__tests__/capacity-fixtures';
+import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
+
+vi.mock('@main/session/context-window/service', () => ({
+  getContextWindowCapacityService: () => ({
+    resolve: (identity: { status: string; identity?: unknown; reason?: string }) =>
+      identity.status === 'concrete'
+        ? { status: 'unknown', identity: identity.identity, windowTokens: null, reason: 'no-observation' }
+        : { status: 'unknown', identity: null, windowTokens: null, reason: identity.reason },
+    observe: vi.fn(),
+  }),
+}));
 
 const SPOOL_ID = 'cutover-spool';
+
+function acceptedCandidate(sessionId: string): TrustedContinuationSessionCandidate {
+  return {
+    sessionId,
+    acceptance: Promise.resolve({ status: 'accepted', boundary: 'model-activity' }),
+  };
+}
 
 function source(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -73,10 +92,11 @@ function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinua
       adapter: 'claude-code',
       model: 'checkpoint-generator',
       thinking: 'medium',
-      contextWindowTokens: 128_000,
+      contextCapacity: observedContextCapacity(128_000),
       configFingerprint: 'generator-config',
     },
     target,
+    lowerBudgetRetry: null,
     settingsFingerprint: 'settings',
   };
 }
@@ -124,7 +144,7 @@ function dependencies(
       compatibleEventRows: 0,
       lateMessages: [],
     }),
-    createSuccessor: vi.fn(async () => 'successor-sid'),
+    createSuccessor: vi.fn(async () => acceptedCandidate('successor-sid')),
     drainMessageDeliveries: vi.fn(async () => true),
     transferResources: vi.fn(() => successfulTransfer()),
     closeSuccessor: vi.fn(async () => undefined),
@@ -145,7 +165,7 @@ afterEach(() => {
 describe('hand_off_session cutover exclusion and freshness', () => {
   it('creates nothing when close intent already sealed the source', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
-    const createSuccessor = vi.fn(async () => 'must-not-exist');
+    const createSuccessor = vi.fn(async () => acceptedCandidate('must-not-exist'));
     const transferResources = vi.fn(() => successfulTransfer());
     handOffCutoverCoordinator.revokeSource('caller-sid');
 
@@ -166,12 +186,12 @@ describe('hand_off_session cutover exclusion and freshness', () => {
   it('closes the orphan when close intent arrives during successor creation', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
     let signalCreateStarted!: () => void;
-    let finishCreate!: (sessionId: string) => void;
+    let finishCreate!: (candidate: TrustedContinuationSessionCandidate) => void;
     const createStarted = new Promise<void>((resolve) => {
       signalCreateStarted = resolve;
     });
     const createSuccessor = vi.fn(
-      () => new Promise<string>((resolve) => {
+      () => new Promise<TrustedContinuationSessionCandidate>((resolve) => {
         finishCreate = resolve;
         signalCreateStarted();
       }),
@@ -187,7 +207,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
       );
       await createStarted;
       handOffCutoverCoordinator.revokeSource('caller-sid');
-      finishCreate('orphan-after-close-intent');
+      finishCreate(acceptedCandidate('orphan-after-close-intent'));
 
       const result = await pending;
       expect(result.isError).toBe(true);
@@ -227,7 +247,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
         });
       },
     );
-    const createSuccessor = vi.fn(async () => 'must-not-exist');
+    const createSuccessor = vi.fn(async () => acceptedCandidate('must-not-exist'));
     const replay = vi.fn(async () => undefined);
 
     const pending = handOffSessionHandler(
@@ -319,7 +339,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
         });
       },
     );
-    const createSuccessor = vi.fn(async () => 'only-successor');
+    const createSuccessor = vi.fn(async () => acceptedCandidate('only-successor'));
     const transferResources = vi.fn(() => successfulTransfer());
     const deps = dependencies({ prepareContinuation, createSuccessor, transferResources });
 

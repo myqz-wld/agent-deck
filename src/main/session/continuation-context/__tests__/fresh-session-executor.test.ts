@@ -1,17 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const createSession = vi.fn(async (_target: unknown) => 'ordinary-session');
-const createTrustedContinuationSession = vi.fn(
-  async (_target: unknown, _turn: unknown) => 'trusted-session',
-);
+const {
+  createSession,
+  closeSessionForRollback,
+  deleteSession,
+  createTrustedContinuationSession,
+} = vi.hoisted(() => ({
+  createSession: vi.fn(async (_target: unknown) => 'ordinary-session'),
+  closeSessionForRollback: vi.fn(async (_sessionId: string) => undefined),
+  deleteSession: vi.fn(async (_sessionId: string) => undefined),
+  createTrustedContinuationSession: vi.fn(
+    async (_target: unknown, _turn: unknown) => ({
+      sessionId: 'trusted-session',
+      acceptance: Promise.resolve({
+        status: 'accepted' as const,
+        boundary: 'model-activity' as const,
+      }),
+    }),
+  ),
+}));
 vi.mock('@main/adapters/registry', () => ({
   adapterRegistry: {
-    get: vi.fn(() => ({ createSession, createTrustedContinuationSession })),
+    get: vi.fn(() => ({
+      createSession,
+      createTrustedContinuationSession,
+      closeSessionForRollback,
+    })),
   },
+}));
+vi.mock('@main/session/manager', () => ({
+  sessionManager: { delete: deleteSession },
 }));
 
 import type { CreateSessionOptions } from '@main/adapters/types';
-import { executeFreshSession } from '../fresh-session-executor';
+import {
+  executeFreshSession,
+  rollbackTrustedContinuationCandidate,
+} from '../fresh-session-executor';
 import { createOrdinaryInitialTurn, createTrustedContinuationInitialTurn } from '../initial-turn';
 import type { PreparedContinuationContext } from '../types';
 
@@ -41,6 +66,8 @@ describe('fresh-session executor', () => {
   beforeEach(() => {
     createSession.mockClear();
     createTrustedContinuationSession.mockClear();
+    closeSessionForRollback.mockClear();
+    deleteSession.mockClear();
   });
 
   it('routes ordinary spawn through only the public create method and strips spoof fields', async () => {
@@ -68,5 +95,17 @@ describe('fresh-session executor', () => {
     await expect(
       executeFreshSession({ ...target, resume: 'old' }, createOrdinaryInitialTurn('x')),
     ).rejects.toThrow(/does not accept resume/);
+  });
+
+  it('proves runtime rollback before deleting the rejected application row', async () => {
+    const order: string[] = [];
+    closeSessionForRollback.mockImplementationOnce(async () => { order.push('runtime'); });
+    deleteSession.mockImplementationOnce(async () => { order.push('row'); });
+
+    await rollbackTrustedContinuationCandidate(target, 'rejected-candidate');
+
+    expect(order).toEqual(['runtime', 'row']);
+    expect(closeSessionForRollback).toHaveBeenCalledWith('rejected-candidate');
+    expect(deleteSession).toHaveBeenCalledWith('rejected-candidate');
   });
 });

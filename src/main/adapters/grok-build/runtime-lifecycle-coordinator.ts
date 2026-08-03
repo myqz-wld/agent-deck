@@ -96,8 +96,12 @@ export class GrokRuntimeLifecycleCoordinator {
   }
 
   private prepareDispose(runtime: GrokRuntime): void {
+    const acceptance = runtime.trustedContinuationAcceptance;
+    delete runtime.trustedContinuationAcceptance;
+    acceptance?.reject('provider-error');
     runtime.closed = true;
     runtime.ready = false;
+    runtime.runtimeIdentity = null;
     runtime.sealed = true;
     runtime.submittingMessage?.requestController?.abort();
     runtime.submittingMessage = null;

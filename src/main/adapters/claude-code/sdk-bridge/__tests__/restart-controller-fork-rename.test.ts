@@ -24,6 +24,10 @@ import { sessionRepo } from '@main/store/session-repo';
 import type { SdkSessionHandle } from '../types';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
 
 // sessionRepo / sessionManager mock 让 RestartController 不撞依赖
 const repoCache = new Map<string, SessionRecord>();
@@ -89,12 +93,12 @@ function makeCtx(opts?: {
         spoolId: `spool-${session.id}`,
         generator: {
           adapter: 'claude-code', model: null, thinking: 'medium',
-          contextWindowTokens: null, configFingerprint: 'generator',
+          contextCapacity: unknownContextCapacity(), configFingerprint: 'generator',
         },
         target: {
           adapter: 'claude-code', model: null, thinking: null, sandbox: null,
           permissionMode: null, networkAccessEnabled: null, additionalDirectories: [],
-          contextWindowTokens: 128_000, runtimeFingerprint: 'target',
+          contextCapacity: observedContextCapacity(128_000), runtimeFingerprint: 'target',
         },
         rawRetentionCeilingTokens: 64_000,
       }) satisfies CapturedRecoveryContinuation,

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bindingAvailable } from '@main/store/__tests__/_binding-probe';
 import { insertSession, makeMemoryDb } from '@main/store/__tests__/agent-deck-repos/_setup';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
+import { createContextWindowCapacityService } from '@main/session/context-window/service';
+import { resolveContextRuntimeIdentity } from '@main/session/context-window/identity';
 import type {
   CheckpointGeneratorRequest,
   CheckpointGeneratorResult,
@@ -16,6 +18,8 @@ import {
 } from '../checkpoint-background-materializer';
 import type { CheckpointBackgroundChunkSource } from '../checkpoint-background-worker-client';
 import type { ContinuationCheckpoint } from '../checkpoint-schema';
+import { estimateContinuationTokens } from '../token-estimator';
+import { observedContextCapacity, unknownContextCapacity } from './capacity-fixtures';
 
 const emptyCheckpoint: ContinuationCheckpoint = {
   formatVersion: 1,
@@ -82,7 +86,7 @@ describe.skipIf(!bindingAvailable)('background checkpoint refresh', () => {
     adapter: 'claude-code' as const,
     model: 'test',
     thinking: 'low' as const,
-    contextWindowTokens: 128_000,
+    contextCapacity: observedContextCapacity(128_000),
     configFingerprint: 'test-generator',
   };
 
@@ -219,5 +223,51 @@ describe.skipIf(!bindingAvailable)('background checkpoint refresh', () => {
       },
     )).rejects.toThrow(/made no revision progress/i);
     expect(generator.generate).not.toHaveBeenCalled();
+  });
+
+  it('uses the unknown generator policy and persists exact evidence only for later jobs', async () => {
+    insert('background capacity evidence');
+    generator.generate.mockResolvedValueOnce({
+      output: emptyPatch,
+      rawText: JSON.stringify(emptyPatch),
+      inputTokens: 10,
+      outputTokens: 5,
+      contextWindowTokens: 180_000,
+      contextWindowEvidence: {
+        runtimeProvider: 'native',
+        model: 'background-effective-model',
+        windowTokens: 180_000,
+        source: 'runtime-usage',
+      },
+      latencyMs: 1,
+      providerCalls: 1,
+      structured: true,
+    });
+
+    await refreshContinuationCheckpointWithDependencies(
+      { sessionId: 'source', trigger: 'normal', snapshot: snapshot() },
+      {
+        db,
+        openBackgroundSource,
+        resolveGenerator: () => ({
+          ...generatorSpec,
+          contextCapacity: unknownContextCapacity(),
+        }),
+        generatorFactory: () => generator,
+      },
+    );
+
+    expect(estimateContinuationTokens(generator.generate.mock.calls[0][0].prompt)).toBeLessThanOrEqual(
+      32_000,
+    );
+    const identity = resolveContextRuntimeIdentity({
+      adapter: 'claude-code',
+      runtimeProvider: 'native',
+      model: 'background-effective-model',
+    });
+    expect(createContextWindowCapacityService(db).resolve(identity)).toMatchObject({
+      status: 'observed',
+      windowTokens: 180_000,
+    });
   });
 });

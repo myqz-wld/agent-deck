@@ -20,6 +20,12 @@ export function upsert(rec: SessionRecord): void {
        (id, agent_id, runtime_provider, cwd, title, source, lifecycle, activity, started_at, last_event_at, ended_at, archived_at, permission_mode, session_mode, agent_profile_name, agent_profile_source, agent_plugin_dir, codex_sandbox, codex_approval_policy, claude_code_sandbox, grok_sandbox, model, thinking, extra_allow_write, spawned_by, spawn_depth, cli_session_id, network_access_enabled, additional_directories, grok_usage_watermark, pinned_at, hidden_from_history)
        VALUES (@id, @agent_id, @runtime_provider, @cwd, @title, @source, @lifecycle, @activity, @started_at, @last_event_at, @ended_at, @archived_at, @permission_mode, @session_mode, @agent_profile_name, @agent_profile_source, @agent_plugin_dir, @codex_sandbox, @codex_approval_policy, @claude_code_sandbox, @grok_sandbox, @model, @thinking, @extra_allow_write, @spawned_by, @spawn_depth, @cli_session_id, @network_access_enabled, @additional_directories, @grok_usage_watermark, @pinned_at, @hidden_from_history)
        ON CONFLICT(id) DO UPDATE SET
+         context_usage = CASE
+           WHEN sessions.runtime_provider IS NOT excluded.runtime_provider
+             OR sessions.model IS NOT excluded.model
+           THEN NULL
+           ELSE sessions.context_usage
+         END,
          runtime_provider = excluded.runtime_provider,
          cwd = excluded.cwd,
          title = excluded.title,
@@ -240,7 +246,14 @@ export function setAgentRuntimeProfile(
 
 /** Persist a Claude Gateway profile id or Codex model_provider id for the session. */
 export function setRuntimeProvider(id: string, provider: string | null): void {
-  getDb().prepare(`UPDATE sessions SET runtime_provider = ? WHERE id = ?`).run(provider, id);
+  getDb()
+    .prepare(
+      `UPDATE sessions
+          SET context_usage = CASE WHEN runtime_provider IS ? THEN context_usage ELSE NULL END,
+              runtime_provider = ?
+        WHERE id = ?`,
+    )
+    .run(provider, provider, id);
 }
 
 /**
@@ -305,7 +318,14 @@ export function setGrokSandbox(id: string, sandbox: string | null): void {
  * 与 setCodexSandbox / setClaudeCodeSandbox 完全对称的字面镜像。
  */
 export function setModel(id: string, model: string | null): void {
-  getDb().prepare(`UPDATE sessions SET model = ? WHERE id = ?`).run(model, id);
+  getDb()
+    .prepare(
+      `UPDATE sessions
+          SET context_usage = CASE WHEN model IS ? THEN context_usage ELSE NULL END,
+              model = ?
+        WHERE id = ?`,
+    )
+    .run(model, model, id);
 }
 
 export function setThinking(id: string, thinking: string | null): void {

@@ -11,11 +11,26 @@ import {
   parseStringId,
 } from './_helpers';
 
+const HAND_OFF_TARGET_KEYS = new Set([
+  'adapter',
+  'provider',
+  'model',
+  'thinking',
+  'sessionMode',
+  'grokSandbox',
+]);
+const HAND_OFF_PREPARE_KEYS = new Set([
+  'sourceSessionId',
+  'continuationInstruction',
+  'target',
+]);
+
 export function parseSessionHandOffTarget(value: unknown): SessionHandOffTarget {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new IpcInputError('request.target', 'must be object');
   }
   const raw = value as Record<string, unknown>;
+  rejectUnknownKeys('request.target', raw, HAND_OFF_TARGET_KEYS);
   if (typeof raw.adapter !== 'string' || !isAgentId(raw.adapter)) {
     throw new IpcInputError('request.target.adapter', 'unknown adapter');
   }
@@ -76,6 +91,7 @@ export function parseSessionHandOffPrepareRequest(
     throw new IpcInputError('request', 'must be object');
   }
   const raw = value as Record<string, unknown>;
+  rejectUnknownKeys('request', raw, HAND_OFF_PREPARE_KEYS);
   const sourceSessionId = parseStringId('request.sourceSessionId', raw.sourceSessionId);
   if (typeof raw.continuationInstruction !== 'string') {
     throw new IpcInputError('request.continuationInstruction', 'must be a string');
@@ -94,4 +110,13 @@ export function parseSessionHandOffPrepareRequest(
     continuationInstruction: raw.continuationInstruction,
     target: parseSessionHandOffTarget(raw.target),
   };
+}
+
+function rejectUnknownKeys(
+  field: string,
+  raw: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+): void {
+  const unknown = Object.keys(raw).find((key) => !allowed.has(key));
+  if (unknown) throw new IpcInputError(`${field}.${unknown}`, 'unknown field');
 }

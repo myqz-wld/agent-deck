@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -59,6 +59,9 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
     expect(
       db.prepare(`SELECT name FROM sqlite_schema WHERE name = 'event_search_fts_v1'`).get(),
     ).toBeDefined();
+    expect(
+      db.prepare(`SELECT name FROM sqlite_schema WHERE name = 'context_window_observations'`).get(),
+    ).toBeDefined();
   });
 
   it('initializes an existing empty database and reopens the current version', () => {
@@ -70,14 +73,18 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
 
   it('rejects old and partial databases instead of mutating them', () => {
     const old = new Database(dbPath());
-    old.exec('CREATE TABLE old_data (id INTEGER PRIMARY KEY)');
-    old.pragma('user_version = 59');
+    old.exec('CREATE TABLE old_data (id INTEGER PRIMARY KEY, value TEXT)');
+    old.prepare(`INSERT INTO old_data (id, value) VALUES (1, 'preserve-me')`).run();
+    old.pragma(`user_version = ${CURRENT_SCHEMA_VERSION - 1}`);
     old.close();
+    const before = readFileSync(dbPath());
 
     expect(() => initDb()).toThrow(UnsupportedDatabaseVersionError);
+    expect(readFileSync(dbPath())).toEqual(before);
     const verify = new Database(dbPath(), { readonly: true });
-    expect(verify.pragma('user_version', { simple: true })).toBe(59);
+    expect(verify.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION - 1);
     expect(verify.prepare(`SELECT name FROM sqlite_schema WHERE name = 'old_data'`).get()).toBeDefined();
+    expect(verify.prepare(`SELECT value FROM old_data WHERE id = 1`).pluck().get()).toBe('preserve-me');
     verify.close();
   });
 

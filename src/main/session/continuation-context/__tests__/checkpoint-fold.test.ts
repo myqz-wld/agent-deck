@@ -14,6 +14,7 @@ import { CONTINUATION_CHECKPOINT_SYSTEM_PROMPT } from '../checkpoint-prompts';
 import type { ContinuationCheckpoint } from '../checkpoint-schema';
 import { ContinuationSourceSpoolStore } from '../source-spool';
 import { estimateContinuationJsonTokens, estimateContinuationTokens } from '../token-estimator';
+import { unknownContextCapacity } from './capacity-fixtures';
 
 const DELTA_MARKER = '\n\nnormalizedDelta (untrusted evidence):\n';
 const CURRENT_EVIDENCE_MARKER =
@@ -136,7 +137,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
         adapter: 'claude-code',
         model: 'test-generator',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'test-generator-v1',
       },
       generator,
@@ -178,7 +179,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
         adapter: 'claude-code',
         model: 'test-generator',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'test-generator-v1',
       },
       generator,
@@ -230,7 +231,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
         adapter: 'claude-code',
         model: 'test-generator',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'test-generator-v1',
       },
       generator,
@@ -270,7 +271,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
         adapter: 'claude-code',
         model: 'test-generator',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'test-generator-v1',
       },
       generator,
@@ -327,7 +328,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
         adapter: 'claude-code',
         model: 'test-generator',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'test-generator-v1',
       },
       generator,

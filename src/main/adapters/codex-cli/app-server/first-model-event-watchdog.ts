@@ -30,6 +30,38 @@ export function isCodexModelActivity(notification: CodexAppServerNotification): 
   return itemType !== null && itemType !== 'userMessage' && itemType !== 'user_message';
 }
 
+const TRUSTED_CONTINUATION_ITEM_TYPES = new Set([
+  'agentMessage',
+  'reasoning',
+  'plan',
+  'commandExecution',
+  'mcpToolCall',
+  'dynamicToolCall',
+  'collabToolCall',
+  'webSearch',
+  'fileChange',
+]);
+
+/** Fail-closed readiness evidence: lifecycle, accounting, input hooks, and unknown items do not count. */
+export function isCodexTrustedContinuationModelActivity(
+  notification: CodexAppServerNotification,
+): boolean {
+  const { method } = notification;
+  if (method === 'turn/diff/updated' || method === 'turn/plan/updated') return true;
+  if (method === 'rawResponseItem/completed') return true;
+  if (
+    method === 'item/agentMessage/delta'
+    || method === 'item/reasoning/textDelta'
+    || method === 'item/reasoning/summaryTextDelta'
+    || method === 'item/plan/delta'
+    || method === 'item/commandExecution/outputDelta'
+    || method === 'item/mcpToolCall/progress'
+  ) return true;
+  if (method !== 'item/started' && method !== 'item/completed') return false;
+  const itemType = readItemType(notification.params);
+  return itemType !== null && TRUSTED_CONTINUATION_ITEM_TYPES.has(itemType);
+}
+
 export function firstModelEventTimeoutMessage(timeoutMs: number): string {
   const seconds = Math.max(1, Math.round(timeoutMs / 1_000));
   return (

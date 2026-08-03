@@ -7,8 +7,12 @@ import { continuationFingerprint } from '@main/session/continuation-context/reso
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { executePreparedHandOff, HandOffExecutionError } from '@main/session/hand-off/executor';
 import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
-import { checkHandOffSourcePrecondition, type HandOffSourceCutoverResult } from '@main/session/hand-off/source-precondition';
-import { HandOffTargetOptionsError, resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
+import { checkHandOffSourcePrecondition } from '@main/session/hand-off/source-precondition';
+import {
+  HandOffTargetOptionsError,
+  resolveHandOffTarget,
+  revalidateHandOffTarget,
+} from '@main/session/hand-off/target-resolver';
 import { notifySessionHandOffCommitted } from '@main/session/hand-off/ownership';
 import { sessionManager } from '@main/session/manager';
 import log from '@main/utils/logger';
@@ -18,7 +22,11 @@ import { err, ok, withMcpGuard, type HandlerContext } from '../../helpers';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
 import type { HandOffSessionHandlerDeps } from './_deps';
 import { transferHandOffResources } from './resource-transfer-coordinator';
-import { executionCutoverError, sourceChangeError } from './source-change-copy';
+import {
+  executionCutoverError,
+  safelyCheckSourcePrecondition,
+  sourceChangeError,
+} from './source-change-copy';
 import { finalizeMcpHandOffSource } from './source-finalization';
 import {
   cleanupHandOffSpool,
@@ -29,22 +37,13 @@ import {
 } from './runtime-dependencies';
 import { validateHandOffTargetAdapter } from './target-adapter-validation';
 import { buildHandOffTargetRequest } from './target-request';
+import { publicContinuationResult } from './result-projection';
 import {
   resourceTransferFailed,
   validateWorktreeHandOffPreflight,
 } from './worktree-preflight';
 
 const logger = log.scope('mcp-handoff-main');
-function safelyCheckSourcePrecondition(
-  check: NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>,
-  input: Parameters<NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>>[0],
-): HandOffSourceCutoverResult {
-  try {
-    return check(input);
-  } catch {
-    return { ok: false, reason: 'check-failed', currentEventRevision: null };
-  }
-}
 
 export const handOffSessionHandler = withMcpGuard(
   'hand_off_session',
@@ -246,13 +245,16 @@ export const handOffSessionHandler = withMcpGuard(
         );
       }
       try {
-        const refreshedTarget = (handlerDeps?.resolveTarget ?? resolveHandOffTarget)({
-          source: sourceForExecution,
-          request: targetRequest,
-          sourceMaxEventId: prepared.source.maxEventId,
-        });
+        const refreshedTarget = (handlerDeps?.revalidateTarget ?? revalidateHandOffTarget)(
+          {
+            source: sourceForExecution,
+            request: targetRequest,
+            sourceMaxEventId: prepared.source.maxEventId,
+          },
+          target.spec.contextCapacity,
+        );
         if (
-          continuationFingerprint(refreshedTarget.spec) !== continuationFingerprint(target.spec) ||
+          refreshedTarget.spec.runtimeFingerprint !== target.spec.runtimeFingerprint ||
           continuationFingerprint(refreshedTarget.createOptions) !==
           continuationFingerprint(target.createOptions)
         ) {
@@ -321,8 +323,18 @@ export const handOffSessionHandler = withMcpGuard(
           sourcePreconditionCheck: checkSourcePrecondition,
           target: target.createOptions,
           turn: continuation.turn,
+          trustedContinuationReadiness: {
+            capacityStatus: continuation.target.contextCapacity.status,
+            lowerBudgetRetryTurn: continuation.lowerBudgetRetry?.turn ?? null,
+            ...(handlerDeps?.readinessDeadlineMs !== undefined
+              ? { deadlineMs: handlerDeps.readinessDeadlineMs }
+              : {}),
+          },
           ...(handlerDeps?.createSuccessor
             ? { createSuccessor: handlerDeps.createSuccessor }
+            : {}),
+          ...(handlerDeps?.rollbackRejectedSuccessor
+            ? { rollbackRejectedSuccessor: handlerDeps.rollbackRejectedSuccessor }
             : {}),
           ...(handlerDeps?.deliverLateMessages
             ? { deliverLateMessages: handlerDeps.deliverLateMessages }
@@ -384,36 +396,14 @@ export const handOffSessionHandler = withMcpGuard(
           gateway: targetAdapter === 'claude-code' ? target.spec.provider ?? null : null,
           provider: targetAdapter === 'codex-cli' ? target.spec.provider ?? null : null,
           cwd: finalCwd,
-          continuationContext: {
-            version: prepared.version,
-            quality: prepared.quality,
-            sourceEventRevision: prepared.source.eventRevision,
+          continuationContext: publicContinuationResult({
+            primary: prepared,
+            lowerBudgetRetry: continuation.lowerBudgetRetry?.prepared ?? null,
+            usedLowerBudgetRetry: execution.usedLowerBudgetRetry,
             cutoverEventRevision: execution.sourceCutover.currentEventRevision,
-            rebuildAfterRevision: prepared.source.rebuildAfterRevision,
-            checkpoint: {
-              id: prepared.checkpoint.id,
-              formatVersion: prepared.checkpoint.formatVersion,
-              throughRevision: prepared.checkpoint.throughRevision,
-              refreshed: prepared.checkpoint.refreshed,
-            },
-            preparationHash: prepared.preparationHash,
-            tokenStats: {
-              rawRetentionCeiling: prepared.metrics.rawRetentionCeilingTokens,
-              targetPromptCapacity: prepared.metrics.targetPromptCapacityTokens,
-              checkpointProjectionBudget: prepared.metrics.checkpointProjectionBudgetTokens,
-              generatorFoldInputBudget: prepared.metrics.generatorFoldInputBudgetTokens,
-              estimatedPrompt: prepared.metrics.estimatedPromptTokens,
-              checkpoint: prepared.metrics.checkpointTokens,
-              rawTail: prepared.metrics.rawTailTokens,
-            },
-            includedUserMessages: prepared.metrics.includedUserMessages,
             lateMessagesDelivered:
               execution.sourceCutover.lateMessages.length + execution.queuedMessagesDelivered,
-            truncatedBoundaryMessages: prepared.metrics.truncatedBoundaryMessages,
-            foldCalls: prepared.metrics.foldCalls,
-            repairCalls: prepared.metrics.repairCalls,
-            warningCodes: prepared.warnings.map((warning) => warning.code),
-          },
+          }),
           callerClosed,
           warnings: lifecycleWarnings,
           resourceTransfer: execution.resourceTransfer,
@@ -435,6 +425,7 @@ export const handOffSessionHandler = withMcpGuard(
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,
+                usedLowerBudgetRetry: error.usedLowerBudgetRetry,
                 resourceTransfer: null,
               },
             );
@@ -448,6 +439,7 @@ export const handOffSessionHandler = withMcpGuard(
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,
+                usedLowerBudgetRetry: error.usedLowerBudgetRetry,
                 resourceTransfer: error.resourceTransfer,
                 transferFailure: error.transferError ? 'exception' : 'reported',
               },

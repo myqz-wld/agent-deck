@@ -16,6 +16,7 @@ import {
   patchAddingFacts,
   StaticGenerator,
 } from './checkpoint-overflow-fixtures';
+import { unknownContextCapacity } from './capacity-fixtures';
 
 describe.skipIf(!bindingAvailable)('continuation checkpoint overflow fold', () => {
   let db: Database.Database;
@@ -69,7 +70,7 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint overflow fold', () =
         adapter: 'claude-code',
         model: 'test-generator',
         thinking: 'low',
-        contextWindowTokens: null,
+        contextCapacity: unknownContextCapacity(),
         configFingerprint: 'test-generator-v1',
       },
       generator,

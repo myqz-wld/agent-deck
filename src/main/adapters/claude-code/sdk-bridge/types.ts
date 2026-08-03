@@ -20,6 +20,7 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import type { SessionAdapterId } from '@shared/types';
+import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
 export interface SdkSessionHandle {
   sessionId: string;
@@ -157,6 +158,10 @@ export interface InternalSession {
   cliSessionId: string | null;
   /** SDK system/init reported primary model, after provider alias mapping when configured. */
   runtimeModel?: string;
+  /** Exact Gateway profile id, or the native Claude runtime namespace. */
+  runtimeProvider: string;
+  /** Present only while the first trusted continuation turn crosses its native readiness boundary. */
+  trustedContinuationAcceptance?: TrustedContinuationAcceptanceController;
   /** Last effective effort observed from a main-thread Stop/StopFailure hook. */
   runtimeEffort?: ClaudeCodeEffortLevel;
   /** Provider-only Claude alias mapping extracted from the child env (never contains credentials). */
@@ -355,8 +360,10 @@ export function makeInternalSession(opts: {
   cwd: string;
   permissionMode?: PermissionMode;
   applicationSid: string;
+  runtimeProvider?: string | null;
   gatewayModelAliases?: ClaudeGatewayModelAliases;
   claudeResultBaselinePending?: boolean;
+  trustedContinuationAcceptance?: TrustedContinuationAcceptanceController;
 }): InternalSession {
   let resolveStreamDrained!: () => void;
   const streamDrained = new Promise<void>((resolve) => {
@@ -366,8 +373,10 @@ export function makeInternalSession(opts: {
     applicationSid: opts.applicationSid,
     cliSessionId: null,
     runtimeModel: undefined,
+    runtimeProvider: opts.runtimeProvider?.trim() || 'native',
     runtimeEffort: undefined,
     gatewayModelAliases: opts.gatewayModelAliases,
+    trustedContinuationAcceptance: opts.trustedContinuationAcceptance,
     cwd: opts.cwd,
     query: undefined as unknown as Query,
     permissionMode: opts.permissionMode ?? 'default',

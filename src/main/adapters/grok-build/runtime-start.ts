@@ -15,6 +15,7 @@ import { GrokPermissionController } from './permission-controller';
 import { currentModelId, currentSessionMode, errorText } from './protocol-utils';
 import { resolveGrokBinary } from './resolve-grok-binary';
 import { persistGrokUsageWatermark } from './runtime-factory';
+import { applyGrokNegotiatedModel } from './runtime-identity';
 import type { GrokRuntime } from './runtime-types';
 import {
   buildGrokMcpServers,
@@ -61,6 +62,8 @@ export async function startGrokRuntime(
 ): Promise<boolean> {
   if (!context.isCurrentRuntime(runtime) || runtime.closed) return false;
   runtime.ready = false;
+  runtime.runtimeIdentity = null;
+  runtime.nativeDefaultModel = null;
   const requestedMode = runtime.sessionMode;
   let reportedMode: AdapterSessionMode | null = null;
   const binary = await resolveGrokBinary(context.binaryPath);
@@ -85,6 +88,7 @@ export async function startGrokRuntime(
         runtime.cwd,
         notification.update,
         runtime.translation,
+        runtime.runtimeIdentity,
       )) {
         context.emit(event);
       }
@@ -217,7 +221,7 @@ export async function startGrokRuntime(
       await process.stop();
       return false;
     }
-    applyReportedModel(runtime, currentModelId(response));
+    applyGrokNegotiatedModel(runtime, currentModelId(response));
     reportedMode = currentSessionMode(response);
     runtime.sessionMode ??= reportedMode;
   } else {
@@ -235,7 +239,7 @@ export async function startGrokRuntime(
       return false;
     }
     runtime.nativeSessionId = response.sessionId;
-    applyReportedModel(runtime, currentModelId(response));
+    applyGrokNegotiatedModel(runtime, currentModelId(response));
     reportedMode = currentSessionMode(response) ?? 'default';
     runtime.sessionMode ??= reportedMode;
     sessionManager.updateCliSessionId(
@@ -292,18 +296,6 @@ export async function startGrokRuntime(
   runtime.ready = true;
   void context.drain(runtime);
   return true;
-}
-
-function applyReportedModel(
-  runtime: GrokRuntime,
-  reportedModel: string | null,
-): void {
-  if (runtime.modelOverride === undefined) {
-    runtime.model ??= reportedModel ?? runtime.nativeDefaultModel ?? null;
-    return;
-  }
-  runtime.model =
-    runtime.modelOverride ?? reportedModel ?? runtime.nativeDefaultModel ?? null;
 }
 
 export async function startGrokRuntimeInBackground(

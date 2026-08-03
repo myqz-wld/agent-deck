@@ -58,6 +58,7 @@ function resultMsg(options: {
       cacheReadInputTokens?: number;
       cacheCreationInputTokens?: number;
       contextWindow?: number;
+      canonicalModel?: string;
     }
   >;
 }) {
@@ -73,6 +74,14 @@ function resultMsg(options: {
 
 function tokenEvents(events: AgentEvent[]): AgentEvent[] {
   return events.filter((event) => event.kind === 'token-usage');
+}
+
+function contextWindowEvents(events: AgentEvent[]): AgentEvent[] {
+  return events.filter(
+    (event) =>
+      event.kind === 'context-usage' &&
+      typeof (event.payload as { windowTokens?: unknown }).windowTokens === 'number',
+  );
 }
 
 describe('translateSdkMessage reconciled Claude usage', () => {
@@ -133,7 +142,11 @@ describe('translateSdkMessage reconciled Claude usage', () => {
       'sid-1',
       resultMsg({
         modelUsage: {
-          'claude-opus-4-8': { outputTokens: 5, contextWindow: 200_000 },
+          'claude-opus-4-8': {
+            outputTokens: 5,
+            contextWindow: 200_000,
+            canonicalModel: 'claude-opus-4-8-20260801',
+          },
           'claude-haiku-4-5': { outputTokens: 2, contextWindow: 128_000 },
         },
       }),
@@ -143,9 +156,123 @@ describe('translateSdkMessage reconciled Claude usage', () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         kind: 'context-usage',
-        payload: { windowTokens: 200_000 },
+        payload: {
+          windowTokens: 200_000,
+          capacitySource: 'runtime-usage',
+          runtimeIdentity: {
+            runtimeProvider: 'native',
+            model: 'claude-opus-4-8',
+          },
+        },
       }),
     );
+  });
+
+  it('does not use pricing canonical metadata to claim another model window', () => {
+    const { events, emit, internal } = setup();
+    internal.runtimeModel = 'claude-opus-4-8';
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        modelUsage: {
+          'provider-secondary': {
+            outputTokens: 5,
+            contextWindow: 999_999,
+            canonicalModel: 'claude-opus-4-8',
+          },
+        },
+      }),
+      internal,
+    );
+
+    expect(contextWindowEvents(events)).toEqual([]);
+  });
+
+  it('does not bucket-match a secondary model or collapse equal ambiguous windows', () => {
+    const { events, emit, internal } = setup();
+    internal.runtimeModel = 'claude-opus-4-8';
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        modelUsage: {
+          'claude-opus-4-7': { outputTokens: 5, contextWindow: 200_000 },
+          'claude-haiku-4-5': { outputTokens: 2, contextWindow: 200_000 },
+        },
+      }),
+      internal,
+    );
+
+    expect(contextWindowEvents(events)).toEqual([]);
+  });
+
+  it('rejects an alias-only primary model without authoritative mapping', () => {
+    const { events, emit, internal } = setup();
+    internal.runtimeModel = 'sonnet';
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      assistantMsg({
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+      internal,
+    );
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        modelUsage: {
+          sonnet: { outputTokens: 5, contextWindow: 200_000 },
+        },
+      }),
+      internal,
+    );
+
+    expect(contextWindowEvents(events)).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'context-usage',
+        payload: { usedTokens: 15 },
+      }),
+    );
+  });
+
+  it('keeps Gateway runtime identity ahead of SDK pricing canonical metadata', () => {
+    const { events, emit, internal } = setup();
+    internal.runtimeProvider = 'deepseek';
+    internal.gatewayModelAliases = {
+      sonnet: 'deepseek-v4-pro[1m]',
+    };
+    internal.runtimeModel = 'deepseek-v4-pro[1m]';
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        modelUsage: {
+          'claude-sonnet-4-5': {
+            outputTokens: 5,
+            contextWindow: 1_000_000,
+            canonicalModel: 'claude-sonnet-4-5-20250929',
+          },
+          'claude-haiku-4-5': { outputTokens: 2, contextWindow: 128_000 },
+        },
+      }),
+      internal,
+    );
+
+    expect(contextWindowEvents(events)).toEqual([
+      expect.objectContaining({
+        payload: {
+          windowTokens: 1_000_000,
+          capacitySource: 'runtime-usage',
+          runtimeIdentity: {
+            runtimeProvider: 'deepseek',
+            model: 'deepseek-v4-pro[1m]',
+          },
+        },
+      }),
+    ]);
   });
 
   it('persists one exact aggregate row when modelUsage is absent', () => {
@@ -487,6 +614,27 @@ describe('translateSdkMessage reconciled Claude usage', () => {
 
     expect(tokenEvents(events)).toEqual([]);
     expect(events.some((event) => event.kind === 'finished')).toBe(false);
+  });
+
+  it('propagates only the structured prompt-too-long terminal reason', () => {
+    const { events, emit, internal } = setup();
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      {
+        ...resultMsg({}),
+        subtype: 'error_during_execution',
+        is_error: true,
+        terminal_reason: 'prompt_too_long',
+      },
+      internal,
+    );
+
+    expect(events.find((event) => event.kind === 'finished')?.payload).toEqual({
+      ok: false,
+      subtype: 'error_during_execution',
+      failureReason: 'context-window-exceeded',
+    });
   });
 
   it('calibrates transient tok/s with the exact single model id', () => {

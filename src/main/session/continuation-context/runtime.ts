@@ -4,10 +4,13 @@ import { join } from 'node:path';
 import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
+import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
+import { claudeContextWindowObservation } from '@main/adapters/claude-code/sdk-bridge/context-usage';
+import { resolveClaudeRuntimeModel } from '@main/adapters/claude-code/sdk-bridge/runtime-metadata-sync';
+import type { ClaudeGatewayModelAliases } from '@main/adapters/claude-code/sdk-bridge/types';
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
-import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
 import { runGrokOneshot } from '@main/session/oneshot-llm';
 import { settingsStore } from '@main/store/settings-store';
 import {
@@ -48,23 +51,13 @@ function usageNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
 }
 
-function contextWindow(modelUsage: unknown): number | null {
-  if (!modelUsage || typeof modelUsage !== 'object') return null;
-  const windows = Object.values(modelUsage as Record<string, unknown>)
-    .map((entry) =>
-      entry && typeof entry === 'object'
-        ? usageNumber((entry as Record<string, unknown>).contextWindow)
-        : null,
-    )
-    .filter((entry): entry is number => entry !== null);
-  return windows.length > 0 ? Math.min(...windows) : null;
-}
-
 async function runClaudeFamilyCheckpoint(input: {
   generator: ResolvedContinuationGenerator;
   request: CheckpointGeneratorRequest;
   structured: boolean;
   settingsPath?: string;
+  runtimeProvider: string;
+  gatewayModelAliases?: ClaudeGatewayModelAliases;
 }): Promise<ClaudeRuntimeResult> {
   if (input.request.remainingCalls < 1) {
     throw new CheckpointGeneratorError('No checkpoint generator calls remain', 'provider-error');
@@ -115,8 +108,17 @@ async function runClaudeFamilyCheckpoint(input: {
     });
     const work = (async (): Promise<ClaudeRuntimeResult> => {
       let assistantText = '';
+      let primaryModel = resolveClaudeRuntimeModel(
+        input.generator.model,
+        input.gatewayModelAliases,
+      );
       for await (const message of q) {
         const current = message as Record<string, unknown>;
+        if (current.type === 'system' && current.subtype === 'init') {
+          primaryModel =
+            resolveClaudeRuntimeModel(current.model, input.gatewayModelAliases) ??
+            primaryModel;
+        }
         if (current.type === 'assistant') {
           const content = (current.message as { content?: Array<Record<string, unknown>> } | undefined)?.content;
           for (const block of content ?? []) {
@@ -140,6 +142,22 @@ async function runClaudeFamilyCheckpoint(input: {
           }
         }
         if (current.type !== 'result') continue;
+        const capacity = claudeContextWindowObservation(
+          current.modelUsage as Record<
+            string,
+            { contextWindow?: number; canonicalModel?: string }
+          > | null | undefined,
+          primaryModel,
+          input.gatewayModelAliases,
+        );
+        const contextWindowEvidence = capacity
+          ? {
+              runtimeProvider: input.runtimeProvider,
+              model: capacity.model,
+              windowTokens: capacity.windowTokens,
+              source: 'runtime-usage' as const,
+            }
+          : null;
         const subtype = current.subtype;
         if (subtype === 'error_max_structured_output_retries') {
           return {
@@ -147,7 +165,8 @@ async function runClaudeFamilyCheckpoint(input: {
             rawText: assistantText,
             inputTokens: null,
             outputTokens: null,
-            contextWindowTokens: contextWindow(current.modelUsage),
+            contextWindowTokens: capacity?.windowTokens ?? null,
+            contextWindowEvidence,
             latencyMs: Date.now() - startedAt,
             structured: input.structured,
             schemaUnsupported: true,
@@ -167,7 +186,8 @@ async function runClaudeFamilyCheckpoint(input: {
           ...checked,
           inputTokens: usageNumber(usage?.input_tokens),
           outputTokens: usageNumber(usage?.output_tokens),
-          contextWindowTokens: contextWindow(current.modelUsage),
+          contextWindowTokens: capacity?.windowTokens ?? null,
+          contextWindowEvidence,
           latencyMs: Date.now() - startedAt,
           structured: input.structured,
           schemaUnsupported: false,
@@ -218,6 +238,8 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
       request,
       structured: cached !== false,
       settingsPath: profile?.settingsPath,
+      runtimeProvider: profile?.id ?? 'native',
+      gatewayModelAliases: profile?.modelAliases,
     });
     if (!first.schemaUnsupported) {
       if (usesGateway && cached === undefined && first.structured) {
@@ -239,6 +261,8 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
       request: { ...request, remainingCalls: request.remainingCalls - 1 },
       structured: false,
       settingsPath: profile?.settingsPath,
+      runtimeProvider: profile?.id ?? 'native',
+      gatewayModelAliases: profile?.modelAliases,
     });
     const { schemaUnsupported: _ignored, ...result } = fallback;
     return { ...result, providerCalls: 2 };
@@ -295,7 +319,8 @@ async function runCodexCheckpoint(input: {
       ...checked,
       inputTokens: null,
       outputTokens: null,
-      contextWindowTokens: null,
+      contextWindowTokens: result.contextWindowEvidence?.windowTokens ?? null,
+      contextWindowEvidence: result.contextWindowEvidence,
       latencyMs: Date.now() - startedAt,
       providerCalls: 1,
       structured: true,

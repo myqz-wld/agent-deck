@@ -244,15 +244,50 @@ describe('Codex app-server thread params', () => {
   it('updates a live thread model and effort without starting a turn', async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     class RecordingClient extends CodexAppServerClient {
+      emitSettings = true;
+      private readonly testListeners = new Set<(notification: {
+        method: string;
+        params?: unknown;
+      }) => void>();
+
+      override subscribe(listener: (notification: {
+        method: string;
+        params?: unknown;
+      }) => void): () => void {
+        this.testListeners.add(listener);
+        return () => this.testListeners.delete(listener);
+      }
+
       override request<T = unknown>(method: string, params: unknown): Promise<T> {
         calls.push({ method, params });
         if (method === 'thread/start') {
-          return Promise.resolve({ thread: { id: 'thread-1' } } as T);
+          return Promise.resolve({
+            thread: { id: 'thread-1', turns: [] },
+            model: 'effective-old-model',
+            modelProvider: 'provider-old',
+          } as T);
+        }
+        if (method === 'thread/settings/update' && this.emitSettings) {
+          for (const listener of this.testListeners) {
+            listener({
+              method: 'thread/settings/updated',
+              params: {
+                threadId: 'thread-1',
+                threadSettings: {
+                  model: 'effective-new-model',
+                  modelProvider: 'provider-new',
+                },
+              },
+            });
+          }
         }
         return Promise.resolve({} as T);
       }
     }
-    const client = new RecordingClient({ env: {}, config: null });
+    const client = new RecordingClient({
+      env: {},
+      config: { model_context_window: 272_000 },
+    });
     const thread = client.startThread({
       workingDirectory: '/repo',
       sandboxMode: 'workspace-write',
@@ -262,7 +297,23 @@ describe('Codex app-server thread params', () => {
       modelReasoningEffort: 'low',
     });
 
+    await thread.ensureReady();
+    expect(thread.getRuntimeIdentity()).toEqual({
+      runtimeProvider: 'provider-old',
+      model: 'effective-old-model',
+      capacityConfigFingerprint: 'model-context-window:272000',
+    });
+
     await thread.updateModelOptions('new-model', 'high');
+    expect(thread.getRuntimeIdentity()).toEqual({
+      runtimeProvider: 'provider-new',
+      model: 'effective-new-model',
+      capacityConfigFingerprint: 'model-context-window:272000',
+    });
+
+    client.emitSettings = false;
+    await thread.updateModelOptions('unproved-model', null);
+    expect(thread.getRuntimeIdentity()).toBeNull();
 
     expect(calls).toEqual([
       {
@@ -272,6 +323,10 @@ describe('Codex app-server thread params', () => {
       {
         method: 'thread/settings/update',
         params: { threadId: 'thread-1', model: 'new-model', effort: 'high' },
+      },
+      {
+        method: 'thread/settings/update',
+        params: { threadId: 'thread-1', model: 'unproved-model', effort: null },
       },
     ]);
   });

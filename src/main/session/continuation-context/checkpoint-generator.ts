@@ -1,3 +1,4 @@
+import type { ContextWindowCapacityEvidence } from '@shared/types';
 import {
   continuationCheckpointPatchSchema,
   type ContinuationCheckpointPatch,
@@ -40,6 +41,8 @@ export interface CheckpointGeneratorResult {
   inputTokens: number | null;
   outputTokens: number | null;
   contextWindowTokens: number | null;
+  /** Adapter-attributed capacity evidence; consumers may persist it for future preparations. */
+  contextWindowEvidence?: ContextWindowCapacityEvidence | null;
   latencyMs: number;
   providerCalls: number;
   structured: boolean;

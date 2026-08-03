@@ -28,6 +28,11 @@ import { unavailableUsageSnapshot } from '../provider-usage';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { getAdapterRuntimeProfile } from '../runtime-profiles';
 import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
+import {
+  TrustedContinuationAcceptanceController,
+  trustedContinuationCandidate,
+  type TrustedContinuationSessionCandidate,
+} from '../trusted-continuation';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -130,14 +135,16 @@ class CodexCliAdapter implements AgentAdapter {
   async createTrustedContinuationSession(
     opts: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
-  ): Promise<string> {
+  ): Promise<TrustedContinuationSessionCandidate> {
     if (opts.agentId !== ADAPTER_ID || !this.bridge) {
       throw new Error('Codex trusted continuation requires an initialized Codex adapter');
     }
     const provider = resolveCodexModelProvider(opts.provider)?.id;
+    const acceptance = new TrustedContinuationAcceptanceController();
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
+      trustedContinuationAcceptance: acceptance,
       provider,
       codexSandbox: opts.codexSandbox,
       attachments: opts.attachments,
@@ -153,7 +160,7 @@ class CodexCliAdapter implements AgentAdapter {
       awaitCanonicalId: opts.awaitCanonicalId,
       initialSessionRegistration: opts.initialSessionRegistration,
     });
-    return handle.sessionId;
+    return trustedContinuationCandidate(handle.sessionId, acceptance);
   }
 
   async validateForkSession(

@@ -14,11 +14,13 @@ import type { PreparedHandOffContinuation } from '../continuation-context/handof
 import { createTrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
 import { continuationFingerprint } from '../continuation-context/resolver';
 import type { ContinuationSpoolMetadata } from '../continuation-context/source-spool';
-import {
-  estimateContinuationTokens,
-  utf8ByteLength,
-} from '../continuation-context/token-estimator';
 import type { ResolvedHandOffTarget } from './target-resolver';
+import { publicHandOffPreparation } from './ui-preparation-view';
+export {
+  boundedContinuationPreview,
+  UI_CONTINUATION_PREVIEW_MAX_BYTES,
+  UI_CONTINUATION_PREVIEW_MAX_TOKENS,
+} from './ui-preparation-view';
 import {
   HandOffCutoverCoordinator,
   handOffCutoverCoordinator,
@@ -33,13 +35,12 @@ import type {
   HandOffSourceCutoverCheck,
   HandOffSourceCutoverResult,
 } from './source-precondition';
-export const UI_CONTINUATION_PREVIEW_MAX_BYTES = 32 * 1024;
-export const UI_CONTINUATION_PREVIEW_MAX_TOKENS = 8_000;
 export interface UiHandOffExecutionResult {
   successorSessionId: string;
   queuedMessagesDelivered: number;
   sourceCutover: Extract<HandOffSourceCutoverResult, { ok: true }>;
   sourceFinalization: ExecutePreparedHandOffResult<unknown, unknown>['sourceFinalization'];
+  usedLowerBudgetRetry: boolean;
 }
 
 export interface UiHandOffCoordinatorDependencies {
@@ -56,6 +57,14 @@ export interface UiHandOffCoordinatorDependencies {
     selection: SessionHandOffTarget;
     sourceMaxEventId: number | null;
   }) => ResolvedHandOffTarget;
+  revalidateTarget: (
+    input: {
+      source: SessionRecord;
+      selection: SessionHandOffTarget;
+      sourceMaxEventId: number | null;
+    },
+    frozenContextCapacity: ResolvedHandOffTarget['spec']['contextCapacity'],
+  ) => ResolvedHandOffTarget;
   prepare: (input: {
     sourceSessionId: string;
     continuationInstruction: string;
@@ -70,6 +79,8 @@ export interface UiHandOffCoordinatorDependencies {
     sourcePrecondition: HandOffSourceCutoverPrecondition;
     target: CreateSessionOptions;
     turn: ReturnType<typeof createTrustedContinuationInitialTurn>;
+    targetCapacityStatus: 'observed' | 'stale' | 'unknown';
+    lowerBudgetRetryTurn: ReturnType<typeof createTrustedContinuationInitialTurn> | null;
     commitIngress: (successorSessionId: string) => void;
     sourceOwnershipCheck: () => boolean;
   }) => Promise<UiHandOffExecutionResult>;
@@ -82,6 +93,7 @@ interface FrozenUiPreparation {
   targetSelection: SessionHandOffTarget;
   createOptions: CreateSessionOptions;
   targetRuntimeFingerprint: string;
+  targetContextCapacity: ResolvedHandOffTarget['spec']['contextCapacity'];
   createOptionsFingerprint: string;
   preparedIntegrityFingerprint: string;
   queuedMessages: QueuedAgentMessage[];
@@ -116,50 +128,6 @@ function requireUiSourceReady(
     throw new Error('源会话仍在运行，请等待当前任务完成或先中断，再开始接力。');
   }
   return open;
-}
-
-function prefixAtBoundary(bytes: Buffer, length: number): Buffer {
-  let end = Math.min(bytes.length, Math.max(0, length));
-  while (end > 0 && end < bytes.length && (bytes[end] & 0xc0) === 0x80) end -= 1;
-  return bytes.subarray(0, end);
-}
-
-function suffixAtBoundary(bytes: Buffer, length: number): Buffer {
-  let start = Math.max(0, bytes.length - Math.max(0, length));
-  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
-  return bytes.subarray(start);
-}
-
-/** Keep both provenance at the front and the authoritative instruction at the end. */
-export function boundedContinuationPreview(text: string): {
-  preview: string;
-  truncated: boolean;
-} {
-  if (
-    utf8ByteLength(text) <= UI_CONTINUATION_PREVIEW_MAX_BYTES &&
-    estimateContinuationTokens(text) <= UI_CONTINUATION_PREVIEW_MAX_TOKENS
-  ) {
-    return { preview: text, truncated: false };
-  }
-  const bytes = Buffer.from(text, 'utf8');
-  const marker = Buffer.from('\n…[续接上下文预览已截断；完整内容仅保留在主进程]\n', 'utf8');
-  let retainedBytes = Math.min(
-    UI_CONTINUATION_PREVIEW_MAX_BYTES - marker.length,
-    Math.floor((UI_CONTINUATION_PREVIEW_MAX_TOKENS * 4) / 1.15) - marker.length,
-  );
-  for (;;) {
-    const prefix = prefixAtBoundary(bytes, Math.ceil(retainedBytes / 2));
-    const suffix = suffixAtBoundary(bytes, Math.floor(retainedBytes / 2));
-    const preview = `${prefix.toString('utf8')}${marker.toString('utf8')}${suffix.toString('utf8')}`;
-    if (
-      utf8ByteLength(preview) <= UI_CONTINUATION_PREVIEW_MAX_BYTES &&
-      estimateContinuationTokens(preview) <= UI_CONTINUATION_PREVIEW_MAX_TOKENS
-    ) {
-      return { preview, truncated: true };
-    }
-    retainedBytes -= 128;
-    if (retainedBytes <= 0) throw new Error('无法在预览预算内生成截断标记');
-  }
 }
 
 function frozen(entry: CachedContinuationPreparation): FrozenUiPreparation {
@@ -224,23 +192,33 @@ export class UiHandOffCoordinator {
       ) {
         throw new Error('源会话在目标解析与历史冻结之间发生变化。');
       }
-      const preparedIntegrityFingerprint = continuationFingerprint(handOff.prepared);
+      const preparedIntegrityFingerprint = continuationFingerprint({
+        primary: handOff.prepared,
+        lowerBudgetRetry: handOff.lowerBudgetRetry?.prepared ?? null,
+      });
       const snapshot: FrozenUiPreparation = {
         sourceRuntimeFingerprint,
         settingsFingerprint: handOff.settingsFingerprint,
         targetSelection: { ...input.target },
         createOptions: target.createOptions,
         targetRuntimeFingerprint: target.spec.runtimeFingerprint,
+        targetContextCapacity: target.spec.contextCapacity,
         createOptionsFingerprint,
         preparedIntegrityFingerprint,
         queuedMessages,
       };
-      this.assertFresh({ sourceSessionId: source.id, prepared: handOff.prepared, snapshot });
+      this.assertFresh({
+        sourceSessionId: source.id,
+        prepared: handOff.prepared,
+        lowerBudgetRetry: handOff.lowerBudgetRetry?.prepared ?? null,
+        snapshot,
+      });
       let leasePreparationId: string | null = null;
       const entry = this.deps.cache.put({
         ownerSessionId: input.ownerSessionId,
         sourceSessionId: source.id,
         prepared: handOff.prepared,
+        lowerBudgetRetry: handOff.lowerBudgetRetry?.prepared ?? null,
         generator: handOff.generator,
         target: handOff.target,
         frozen: snapshot,
@@ -259,7 +237,7 @@ export class UiHandOffCoordinator {
         ingressCommitted: false,
       });
       cachedPreparationId = entry.preparationId;
-      return this.publicPreparation(entry);
+      return publicHandOffPreparation(entry);
     } catch (error) {
       try {
         if (cachedPreparationId) this.deps.cache.delete(cachedPreparationId);
@@ -289,6 +267,7 @@ export class UiHandOffCoordinator {
         this.assertFresh({
           sourceSessionId: entry.sourceSessionId,
           prepared: entry.prepared,
+          lowerBudgetRetry: entry.lowerBudgetRetry,
           snapshot: frozen(entry),
         });
       } catch (error) {
@@ -314,6 +293,13 @@ export class UiHandOffCoordinator {
           },
           target: frozen(entry).createOptions,
           turn: createTrustedContinuationInitialTurn(entry.prepared, entry.sourceSessionId),
+          targetCapacityStatus: entry.target.contextCapacity.status,
+          lowerBudgetRetryTurn: entry.lowerBudgetRetry
+            ? createTrustedContinuationInitialTurn(
+                entry.lowerBudgetRetry,
+                entry.sourceSessionId,
+              )
+            : null,
           sourceOwnershipCheck: () => !leaseState.revoked && cutoverLease.canCommit(),
           commitIngress: (successorSessionId) => {
             if (!cutoverLease.commit(successorSessionId)) {
@@ -328,6 +314,7 @@ export class UiHandOffCoordinator {
           cutoverEventRevision: result.sourceCutover.currentEventRevision,
           lateMessagesDelivered:
             result.sourceCutover.lateMessages.length + result.queuedMessagesDelivered,
+          usedLowerBudgetRetry: result.usedLowerBudgetRetry,
           sourceFinalizationWarning:
             result.sourceFinalization.ok ? null : result.sourceFinalization.error,
         };
@@ -423,6 +410,7 @@ export class UiHandOffCoordinator {
   private assertFresh(input: {
     sourceSessionId: string;
     prepared: CachedContinuationPreparation['prepared'];
+    lowerBudgetRetry: CachedContinuationPreparation['lowerBudgetRetry'];
     snapshot: FrozenUiPreparation;
   }): void {
     const source = requireUiSourceReady(
@@ -447,11 +435,14 @@ export class UiHandOffCoordinator {
     if (this.deps.currentSettingsFingerprint() !== input.snapshot.settingsFingerprint) {
       throw new Error('续接检查点生成器或原始历史预算已变化。');
     }
-    const currentTarget = this.deps.resolveTarget({
-      source,
-      selection: input.snapshot.targetSelection,
-      sourceMaxEventId: input.prepared.source.maxEventId,
-    });
+    const currentTarget = this.deps.revalidateTarget(
+      {
+        source,
+        selection: input.snapshot.targetSelection,
+        sourceMaxEventId: input.prepared.source.maxEventId,
+      },
+      input.snapshot.targetContextCapacity,
+    );
     if (
       currentTarget.spec.runtimeFingerprint !== input.snapshot.targetRuntimeFingerprint ||
       continuationFingerprint(currentTarget.createOptions) !==
@@ -460,41 +451,14 @@ export class UiHandOffCoordinator {
       throw new Error('目标会话运行时已变化。');
     }
     if (
-      continuationFingerprint(input.prepared) !== input.snapshot.preparedIntegrityFingerprint ||
-      !input.prepared.preparationHash
+      continuationFingerprint({
+        primary: input.prepared,
+        lowerBudgetRetry: input.lowerBudgetRetry,
+      }) !== input.snapshot.preparedIntegrityFingerprint ||
+      !input.prepared.preparationHash ||
+      (input.lowerBudgetRetry !== null && !input.lowerBudgetRetry.preparationHash)
     ) {
       throw new Error('准备内容完整性校验失败。');
     }
-  }
-  private publicPreparation(entry: CachedContinuationPreparation): SessionHandOffPreparation {
-    const bounded = boundedContinuationPreview(entry.prepared.providerPrompt);
-    return {
-      preparationId: entry.preparationId,
-      preview: bounded.preview,
-      previewTruncated: bounded.truncated,
-      quality: entry.prepared.quality,
-      source: {
-        eventRevision: entry.prepared.source.eventRevision,
-        rebuildAfterRevision: entry.prepared.source.rebuildAfterRevision,
-      },
-      checkpoint: { ...entry.prepared.checkpoint },
-      metrics: {
-        estimatedPromptTokens: entry.prepared.metrics.estimatedPromptTokens,
-        checkpointTokens: entry.prepared.metrics.checkpointTokens,
-        rawTailTokens: entry.prepared.metrics.rawTailTokens,
-        includedUserMessages: entry.prepared.metrics.includedUserMessages,
-        truncatedBoundaryMessages: entry.prepared.metrics.truncatedBoundaryMessages,
-        rawRetentionCeilingTokens: entry.prepared.metrics.rawRetentionCeilingTokens,
-        elapsedMs: entry.prepared.metrics.elapsedMs,
-      },
-      warnings: entry.prepared.warnings.map(({ code, message }) => ({ code, message })),
-      target: {
-        adapter: entry.target.adapter,
-        provider: entry.target.provider ?? null,
-        model: entry.target.model,
-        thinking: entry.target.thinking,
-        sessionMode: entry.target.sessionMode ?? null,
-      },
-    };
   }
 }

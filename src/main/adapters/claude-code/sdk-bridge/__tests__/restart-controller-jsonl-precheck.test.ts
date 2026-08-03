@@ -26,6 +26,10 @@ import type {
   PreparedRecoveryContinuation,
 } from '@main/session/continuation-context/recovery';
 import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
 
 const repoCache = new Map<string, SessionRecord>();
 const setPermissionModeSpy = vi.fn();
@@ -63,12 +67,13 @@ function captureFor(session: SessionRecord): CapturedRecoveryContinuation {
     spoolId: `spool-${session.id}`,
     generator: {
       adapter: 'claude-code', model: null, thinking: 'medium',
-      contextWindowTokens: null, configFingerprint: 'generator',
+      contextCapacity: unknownContextCapacity(), configFingerprint: 'generator',
     },
     target: {
       adapter: 'claude-code', model: session.model ?? null, thinking: null, sandbox: null,
       permissionMode: session.permissionMode ?? null, networkAccessEnabled: null,
-      additionalDirectories: [], contextWindowTokens: 128_000, runtimeFingerprint: 'target',
+      additionalDirectories: [], contextCapacity: observedContextCapacity(128_000),
+      runtimeFingerprint: 'target',
     },
     rawRetentionCeilingTokens: 64_000,
   };
@@ -99,6 +104,7 @@ function prepareFor(
   return {
     prepared,
     turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
+    lowerBudgetRetry: null,
   };
 }
 

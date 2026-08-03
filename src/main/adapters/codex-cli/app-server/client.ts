@@ -147,12 +147,13 @@ export class CodexAppServerClient {
   resumeThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
     return new CodexAppServerThread(this, { mode: 'resume', threadId, options });
   }
-  adoptThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
-    return new CodexAppServerThread(
-      this,
-      { mode: 'resume', threadId, options },
-      this.isProcessAlive ? this.generation : undefined,
-    );
+  adoptThread(
+    threadId: string,
+    options: CodexThreadOptions,
+    initialRuntime?: Pick<CodexAppServerThreadCreateResult, 'model' | 'modelProvider'>,
+  ): CodexAppServerThread {
+    return new CodexAppServerThread(this, { mode: 'resume', threadId, options },
+      this.isProcessAlive ? this.generation : undefined, initialRuntime);
   }
   prepareThreadOptions(
     options: CodexThreadOptions,
@@ -222,6 +223,7 @@ export class CodexAppServerClient {
     return () => this.notificationListeners.delete(listener);
   }
 
+  hasExclusiveNotificationSubscriber(): boolean { return this.notificationListeners.size === 1; }
   /**
    * Install the host callback for app-server initiated requests. Codex uses these requests for
    * native command, file-change, and expanded permission approvals.

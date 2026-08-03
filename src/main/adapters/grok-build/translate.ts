@@ -1,4 +1,8 @@
-import type { AgentEvent, GrokUsageWatermark } from '@shared/types';
+import type {
+  AgentEvent,
+  ContextRuntimeIdentityEvidence,
+  GrokUsageWatermark,
+} from '@shared/types';
 import { normalizeAgentToolKind } from '@shared/tool-kind';
 import type {
   ContentBlock,
@@ -62,6 +66,7 @@ export function translateGrokUpdate(
   cwd: string,
   update: SessionUpdate,
   state: GrokTranslationState,
+  runtimeIdentity?: ContextRuntimeIdentityEvidence | null,
 ): AgentEvent[] {
   const ts = Date.now();
   const event = (kind: AgentEvent['kind'], payload: unknown): AgentEvent => ({
@@ -263,6 +268,12 @@ export function translateGrokUpdate(
         event('context-usage', {
           usedTokens: Math.trunc(update.used),
           windowTokens: Math.trunc(update.size),
+          ...(runtimeIdentity
+            ? {
+                runtimeIdentity: { ...runtimeIdentity },
+                capacitySource: 'runtime-usage',
+              }
+            : {}),
         }),
       ];
   }
