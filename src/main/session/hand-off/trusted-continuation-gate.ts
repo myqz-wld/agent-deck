@@ -59,6 +59,13 @@ class ReadinessDeadlineError extends Error {
   }
 }
 
+class PostDeadlineWorkRejectionError extends ReadinessDeadlineError {
+  constructor(readonly rejection: unknown) {
+    super();
+    this.name = 'PostDeadlineWorkRejectionError';
+  }
+}
+
 export async function selectTrustedContinuationCandidate(
   input: SelectTrustedContinuationCandidateInput,
 ): Promise<SelectedTrustedContinuationCandidate> {
@@ -163,6 +170,10 @@ async function createBeforeDeadline(
   try {
     return await beforeDeadline(creation, deadlineAt, now);
   } catch (error) {
+    if (error instanceof PostDeadlineWorkRejectionError) {
+      if (usedLowerBudgetRetry) throw retryStartupFailure(error.rejection);
+      throw startupRejectedAfterDeadlineFailure(error.rejection);
+    }
     if (error instanceof ReadinessDeadlineError) {
       scheduleLateCandidateCleanup(creation, input.closeCandidateBestEffort);
       throw startupTimeoutFailure(usedLowerBudgetRetry);
@@ -191,6 +202,20 @@ function startupTimeoutFailure(
     'pending',
     'target-startup-timeout',
     usedLowerBudgetRetry,
+  );
+}
+
+function startupRejectedAfterDeadlineFailure(error: unknown): TrustedContinuationGateFailure {
+  logger.warn(
+    '[handoff readiness] primary candidate creation rejected after the startup deadline',
+    error,
+  );
+  return new TrustedContinuationGateFailure(
+    'Trusted continuation startup rejected after the shared readiness deadline without yielding a stable session id',
+    null,
+    'ok',
+    'target-startup-timeout',
+    false,
   );
 }
 
@@ -308,7 +333,9 @@ async function beforeDeadline<T>(
       return value;
     },
     (error: unknown) => {
-      assertBeforeDeadline(deadlineAt, now);
+      if (deadlineAt - now() <= 0) {
+        throw new PostDeadlineWorkRejectionError(error);
+      }
       throw error;
     },
   );

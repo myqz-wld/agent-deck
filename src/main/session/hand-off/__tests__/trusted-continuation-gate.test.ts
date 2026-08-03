@@ -344,6 +344,70 @@ describe('trusted continuation readiness gate', () => {
     expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-work-winner');
   });
 
+  it('does not schedule cleanup when primary startup rejects after the deadline', async () => {
+    vi.useFakeTimers();
+    let monotonicMs = 0;
+    let rejectCreation!: (error: Error) => void;
+    const creation = new Promise<TrustedContinuationSessionCandidate>((_, reject) => {
+      rejectCreation = reject;
+    });
+    const input = baseInput();
+    input.createCandidate.mockImplementationOnce(() => creation);
+    const selection = selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 50,
+      now: () => monotonicMs,
+    });
+    const assertion = expect(selection).rejects.toMatchObject({
+      reason: 'target-startup-timeout',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    monotonicMs = 51;
+    rejectCreation(new Error('private primary startup rejection'));
+
+    await assertion;
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+  });
+
+  it('classifies retry startup rejection after the deadline without pending cleanup', async () => {
+    vi.useFakeTimers();
+    let monotonicMs = 0;
+    let rejectRetry!: (error: Error) => void;
+    const retryCreation = new Promise<TrustedContinuationSessionCandidate>((_, reject) => {
+      rejectRetry = reject;
+    });
+    const input = baseInput();
+    input.createCandidate
+      .mockResolvedValueOnce(candidate('primary', {
+        status: 'rejected', reason: 'context-window-exceeded',
+      }))
+      .mockImplementationOnce(() => retryCreation);
+    const selection = selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 50,
+      now: () => monotonicMs,
+    });
+    const assertion = expect(selection).rejects.toMatchObject({
+      reason: 'target-retry-startup-failed',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(input.createCandidate).toHaveBeenCalledTimes(2);
+    monotonicMs = 51;
+    rejectRetry(new Error('private retry startup rejection'));
+
+    await assertion;
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+  });
+
   it('attributes a retry startup deadline to the lower-budget attempt', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(17_000);

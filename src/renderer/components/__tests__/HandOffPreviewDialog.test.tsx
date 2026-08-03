@@ -295,7 +295,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
 
     const warning = await screen.findByRole('alert');
-    expect(warning.textContent).toContain('尚未开始创建就已超过准备时限');
+    expect(warning.textContent).toContain('未能在准备时限内生成可用会话');
     expect(warning.textContent).not.toContain('自动尝试关闭');
     expect(warning.textContent).not.toContain('private deadline detail');
     expect(
