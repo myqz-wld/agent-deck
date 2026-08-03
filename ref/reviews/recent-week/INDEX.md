@@ -15,6 +15,22 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-07-30 | `REVIEW_202_worktree-resume-recovery-race.md` | Revival-only worktree recovery | 0 CRITICAL / 1 HIGH fixed |
+| 2026-07-30 | `REVIEW_201_legacy-exit-worktree-adoption.md` | Bounded legacy worktree exit | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-30 | `REVIEW_200_automatic-worktree-transition-safety.md` | Automatic worktree cwd boundary | 0 CRITICAL / 3 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-30 | `REVIEW_199_grok-application-id-fence.md` | Grok stable identity deletion fence | 0 CRITICAL / 2 HIGH fixed |
+| 2026-07-30 | `REVIEW_198_grok-extension-terminal-delivery.md` | Real Grok terminal delivery | 0 CRITICAL / 2 HIGH fixed / 1 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-30 | `REVIEW_197_runtime-log-signal-quality.md` | Runtime log signal quality | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-30 | `REVIEW_196_grok-durable-turn-delivery.md` | Durable Grok turn delivery | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
+| 2026-07-29 | `REVIEW_195_grok-live-acp-terminal.md` | Grok live ACP completion delivery | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
+| 2026-07-29 | `REVIEW_194_claude-gateway-sandbox-startup.md` | Claude Gateway sandbox startup | 0 CRITICAL / 2 HIGH fixed |
+| 2026-07-29 | `REVIEW_193_grok-delivery-token-metric-scope.md` | Provider delivery, interrupts, and token fidelity | 0 CRITICAL / 3 HIGH fixed / 1 MEDIUM fixed / 1 INFO |
+| 2026-07-29 | `REVIEW_192_grok-acp-silent-turn-recovery.md` | Grok ACP silent-turn recovery | 0 CRITICAL / 2 HIGH fixed / 1 MEDIUM fixed |
+| 2026-07-29 | `REVIEW_191_expandable-dialog-close-control.md` | Expandable dialog close control | 0 CRITICAL / 0 HIGH / 1 LOW fixed |
+| 2026-07-29 | `REVIEW_190_first-message-image-control-spacing.md` | First-message image control spacing | 0 CRITICAL / 0 HIGH / 1 LOW fixed |
+| 2026-07-29 | `REVIEW_189_grok-pending-chat-duplication.md` | Grok pending/chat duplication | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
+| 2026-07-29 | `REVIEW_188_maintenance-timeout-terminal-policy.md` | Storage maintenance terminal timeout policy | 0 CRITICAL / 1 HIGH fixed / 1 LOW residual |
+| 2026-07-29 | `REVIEW_187_whole-project-quality-refresh.md` | Whole-project final integration and performance audit | 0 CRITICAL / 4 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed / 5 residuals |
 | 2026-07-27 | `REVIEW_186_adapter-hook-contract-normalization.md` | Cross-adapter hook contract normalization | 0 CRITICAL / 4 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-27 | `REVIEW_185_codex-mcp-lifecycle-approval-bridge.md` | Codex MCP lifecycle approval bridge | 0 CRITICAL / 1 HIGH fixed |
 | 2026-07-27 | `REVIEW_184_transparent-usage-refresh-latency.md` | Transparent artifact and provider refresh latency | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
@@ -24,14 +40,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-07-27 | `REVIEW_180_bundled-grok-package-preflight.md` | Bundled Grok package completeness | 0 CRITICAL / 1 HIGH fixed |
 | 2026-07-27 | `REVIEW_179_transparent-scroll-compositor.md` | Transparent scroll compositor audit | 0 CRITICAL / 1 HIGH fixed |
 | 2026-07-27 | `REVIEW_178_grok-tool-rendering-transparent-compositor.md` | Grok tool-event identity and transparent-window compositor refresh | 0 CRITICAL / 2 HIGH fixed / 1 MEDIUM fixed |
-| 2026-07-26 | `REVIEW_177_session-owned-iab-backend.md` | Session-owned Browser backend and dependency refresh | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
-| 2026-07-26 | `REVIEW_176_agent-plugin-recovery-state.md` | Claude/Grok Agent and Plugin recovery state | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed |
-| 2026-07-26 | `REVIEW_175_node-repl-browser-process-bootstrap.md` | Browser process bootstrap compatibility | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
-| 2026-07-26 | `REVIEW_174_grok-custom-assets-test-isolation.md` | Grok custom-assets test isolation | 0 CRITICAL / 0 HIGH / 1 LOW fixed |
-| 2026-07-26 | `REVIEW_173_tool-input-alias-recursion.md` | Renderer tool-summary alias recursion | 0 CRITICAL / 1 HIGH fixed |
-| 2026-07-25 | `REVIEW_172_asset-library-cross-adapter-display.md` | Cross-adapter asset discovery and card layout | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-24 | `REVIEW_171_grok-token-usage-data-panel.md` | Grok token usage, history backfill, and live rates | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |
-| 2026-07-24 | `REVIEW_170_grok-mid-turn-interjection.md` | Grok active-turn input and FIFO fallback | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
-| 2026-07-23 | `REVIEW_169_grok-auth-asset-boundaries.md` | Grok ACP authentication and asset-edit boundaries | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
-| 2026-07-23 | `REVIEW_168_bundled-agent-runtime-overrides.md` | Bundled Agent runtime override boundaries | 0 CRITICAL / 1 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-23 | `REVIEW_167_grok-build-adapter-boundaries.md` | Grok ACP lifecycle and adapter-profile boundaries | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
