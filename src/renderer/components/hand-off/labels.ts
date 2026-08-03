@@ -57,7 +57,7 @@ export function executionFailureLabel(
     failure.successorCleanup === 'ok'
   ) {
     return (
-      '续接会话尚未开始创建就已超过准备时限，没有生成需要清理的新会话；' +
+      '续接会话未能在准备时限内生成可用会话，也没有需要清理的新会话；' +
       '请重新生成续接上下文后再试。'
     );
   }

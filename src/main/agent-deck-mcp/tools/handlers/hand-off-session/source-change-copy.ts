@@ -45,7 +45,7 @@ export function executionCutoverError(
   if (reason === 'target-startup-timeout') {
     if (successorCleanup === 'ok') {
       return {
-        error: 'handoff readiness expired before successor startup began',
+        error: 'handoff successor did not produce a stable session before the readiness deadline',
         hint:
           'No successor was created and no resources moved. Prepare a fresh continuation context before retrying.',
       };
