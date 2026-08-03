@@ -4,6 +4,7 @@ import type {
   HandOffSourceCutoverResult,
 } from '@main/session/hand-off/source-precondition';
 import type { HandOffTrustedContinuationFailureReason } from '@main/session/hand-off/trusted-continuation-gate';
+import type { HandOffSuccessorCleanup } from '@main/session/hand-off/trusted-continuation-gate';
 
 export function safelyCheckSourcePrecondition(
   check: (input: HandOffSourceCutoverCheck) => HandOffSourceCutoverResult,
@@ -38,9 +39,16 @@ export function executionCutoverError(
     | HandOffSourceCutoverRejectionReason
     | HandOffTrustedContinuationFailureReason
     | null,
-  successorSessionId: string,
-  successorCleanup: 'ok' | 'failed',
+  successorSessionId: string | null,
+  successorCleanup: HandOffSuccessorCleanup,
 ): { error: string; hint: string } {
+  if (reason === 'target-startup-timeout') {
+    return {
+      error: 'handoff successor startup exceeded the trusted continuation readiness deadline',
+      hint:
+        'No resources moved and no stable successor id was available. A late candidate will be closed automatically; inspect the session list and application logs before retrying.',
+    };
+  }
   const prefix =
     `No resources moved. Orphan successor ${successorSessionId} cleanup: ${successorCleanup}.`;
   if (reason === 'late-message-delivery-failed') {

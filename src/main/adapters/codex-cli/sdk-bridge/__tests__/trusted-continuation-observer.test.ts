@@ -67,4 +67,44 @@ describe('Codex trusted continuation observer', () => {
       status: 'rejected', reason: 'provider-error',
     });
   });
+
+  it('ignores pre-model accounting, hooks, compaction, and unknown item types', async () => {
+    const h = harness();
+    for (const candidate of [
+      notification('thread/tokenUsage/updated', { tokenUsage: { last: {} } }),
+      notification('item/started', { item: { type: 'hookPrompt' } }),
+      notification('item/started', { item: { type: 'contextCompaction' } }),
+      notification('item/started', { item: { type: 'futureLifecycleItem' } }),
+    ]) {
+      observeCodexTrustedContinuationNotification(h.internal, candidate);
+    }
+    expect(await remainsPending(h.acceptance.acceptance)).toBe(true);
+
+    observeCodexTrustedContinuationNotification(
+      h.internal,
+      notification('error', {
+        willRetry: false,
+        error: { message: 'too large', codexErrorInfo: 'contextWindowExceeded' },
+      }),
+    );
+    await expect(h.acceptance.acceptance).resolves.toEqual({
+      status: 'rejected', reason: 'context-window-exceeded',
+    });
+  });
+
+  it('classifies a failed terminal before treating completion as acceptance', async () => {
+    const h = harness();
+    observeCodexTrustedContinuationNotification(
+      h.internal,
+      notification('turn/completed', {
+        turn: {
+          status: 'failed',
+          error: { message: 'too large', codexErrorInfo: 'contextWindowExceeded' },
+        },
+      }),
+    );
+    await expect(h.acceptance.acceptance).resolves.toEqual({
+      status: 'rejected', reason: 'context-window-exceeded',
+    });
+  });
 });

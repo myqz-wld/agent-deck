@@ -22,7 +22,11 @@ import {
 } from '@main/session/hand-off/executor';
 import { checkHandOffSourcePrecondition } from '@main/session/hand-off/source-precondition';
 import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
-import { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
+import {
+  resolveHandOffTarget,
+  revalidateHandOffTarget,
+  type ResolveHandOffTargetInput,
+} from '@main/session/hand-off/target-resolver';
 import { notifySessionHandOffCommitted } from '@main/session/hand-off/ownership';
 import {
   UiHandOffCoordinator,
@@ -134,6 +138,35 @@ async function executeUiHandOff(input: {
   return result;
 }
 
+function uiHandOffTargetInput(input: {
+  source: SessionRecord;
+  selection: Parameters<UiHandOffCoordinator['prepare']>[0]['target'];
+  sourceMaxEventId: number | null;
+}): ResolveHandOffTargetInput {
+  const { source, selection, sourceMaxEventId } = input;
+  const adapter = adapterRegistry.get(selection.adapter);
+  if (!adapter?.createSession || !adapter.capabilities.canCreateSession) {
+    throw new Error(`目标 adapter 无法创建会话：${selection.adapter}`);
+  }
+  if (!adapter.createTrustedContinuationSession) {
+    throw new Error(`目标 adapter 不支持受信任的会话续接上下文：${selection.adapter}`);
+  }
+  const { provider: selectedRuntime, ...selectionWithoutRuntime } = selection;
+  return {
+    source,
+    request: {
+      ...selectionWithoutRuntime,
+      ...(selection.adapter === 'codex-cli'
+        ? { provider: selectedRuntime }
+        : selection.adapter === 'claude-code'
+          ? { gateway: selectedRuntime }
+          : {}),
+      cwd: source.cwd,
+    },
+    sourceMaxEventId,
+  };
+}
+
 const coordinator = new UiHandOffCoordinator({
   cache: preparationCache,
   getSession: (sessionId) => sessionRepo.get(sessionId),
@@ -143,29 +176,9 @@ const coordinator = new UiHandOffCoordinator({
     continuationSessionRuntimeFingerprint(getDb(), sessionId),
   snapshotQueuedMessages: snapshotHandOffQueuedMessages,
   sourcePreconditionCheck: checkHandOffSourcePrecondition,
-  resolveTarget: ({ source, selection, sourceMaxEventId }) => {
-    const adapter = adapterRegistry.get(selection.adapter);
-    if (!adapter?.createSession || !adapter.capabilities.canCreateSession) {
-      throw new Error(`目标 adapter 无法创建会话：${selection.adapter}`);
-    }
-    if (!adapter.createTrustedContinuationSession) {
-      throw new Error(`目标 adapter 不支持受信任的会话续接上下文：${selection.adapter}`);
-    }
-    const { provider: selectedRuntime, ...selectionWithoutRuntime } = selection;
-    return resolveHandOffTarget({
-      source,
-      request: {
-        ...selectionWithoutRuntime,
-        ...(selection.adapter === 'codex-cli'
-          ? { provider: selectedRuntime }
-          : selection.adapter === 'claude-code'
-            ? { gateway: selectedRuntime }
-            : {}),
-        cwd: source.cwd,
-      },
-      sourceMaxEventId,
-    });
-  },
+  resolveTarget: (input) => resolveHandOffTarget(uiHandOffTargetInput(input)),
+  revalidateTarget: (input, capacity) =>
+    revalidateHandOffTarget(uiHandOffTargetInput(input), capacity),
   prepare: prepareHandOffContinuation,
   currentSettingsFingerprint: resolveContinuationPreparationSettingsFingerprint,
   spoolMetadata: (spoolId) => spool().metadata(spoolId),

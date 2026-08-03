@@ -109,6 +109,43 @@ describe.skipIf(!bindingAvailable)('runtime-bound session context usage', () => 
     });
   });
 
+  it('does not persist an observation from an out-of-order snapshot event', () => {
+    const currentIdentity = runtime();
+    const staleIdentity = runtime('stale-provider', 'stale-model');
+    sessionRepo.updateContextUsage(
+      'session-a',
+      { usedTokens: 10_000, windowTokens: 128_000, runtimeIdentity: currentIdentity },
+      300,
+    );
+
+    sessionRepo.updateContextUsage(
+      'session-a',
+      { usedTokens: 5_000, windowTokens: 64_000, runtimeIdentity: staleIdentity },
+      250,
+      {
+        identity: staleIdentity,
+        windowTokens: 64_000,
+        source: 'runtime-usage',
+        observedAt: 250,
+        originSessionId: 'session-a',
+      },
+    );
+
+    expect(sessionRepo.get('session-a')?.contextUsage?.runtimeIdentity).toEqual(currentIdentity);
+    expect(createContextWindowObservationRepo(currentDb!).get(staleIdentity)).toBeNull();
+  });
+
+  it('normalizes unsafe token counts without throwing into the ingest path', () => {
+    const identity = runtime();
+    expect(
+      sessionRepo.updateContextUsage(
+        'session-a',
+        { usedTokens: 1e20, windowTokens: 1e20, runtimeIdentity: identity },
+        400,
+      ),
+    ).toMatchObject({ usedTokens: null, windowTokens: null });
+  });
+
   it('atomically stores a session snapshot and durable capacity observation', () => {
     const identity = runtime();
     const usage = sessionRepo.updateContextUsage(

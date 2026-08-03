@@ -498,6 +498,21 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(result.lowerBudgetRetry).toBeNull();
   });
 
+  it('does not let an unused lower-budget rendering reject a viable recovery', async () => {
+    const input = purposeRequest('recovery');
+    input.target.contextCapacity = unknownContextCapacity();
+    input.continuationInstruction = 'x'.repeat(36_000);
+
+    const result = await prepareContinuationCandidatesWithDependencies(input, {
+      db,
+      spool,
+      generatorFactory: () => new FakeGenerator(),
+    });
+
+    expect(result.primary.metrics.targetPromptCapacityTokens).toBe(40_000);
+    expect(result.lowerBudgetRetry).toBeNull();
+  });
+
   it('persists exact generator evidence for future snapshots without resizing the current fold', async () => {
     insertMessage(db, 'user', 'learn generator capacity');
     const input = request();

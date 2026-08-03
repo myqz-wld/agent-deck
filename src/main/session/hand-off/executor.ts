@@ -21,6 +21,7 @@ import type {
 import {
   selectTrustedContinuationCandidate,
   TrustedContinuationGateFailure,
+  type HandOffSuccessorCleanup,
   type HandOffTrustedContinuationFailureReason,
 } from './trusted-continuation-gate';
 
@@ -36,8 +37,8 @@ export class HandOffExecutionError<ResourceTransfer> extends Error {
   constructor(
     message: string,
     readonly stage: 'cutover' | 'transfer',
-    readonly successorSessionId: string,
-    readonly successorCleanup: 'ok' | 'failed',
+    readonly successorSessionId: string | null,
+    readonly successorCleanup: HandOffSuccessorCleanup,
     /** Structured coordinator result when transfer completed but reported failure. */
     readonly resourceTransfer: ResourceTransfer | null,
     /** Explicit error detail when the transfer callback or its result classifier threw. */

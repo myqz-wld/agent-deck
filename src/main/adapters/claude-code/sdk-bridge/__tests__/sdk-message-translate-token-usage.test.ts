@@ -204,7 +204,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
     );
   });
 
-  it('attributes an authoritative Gateway canonical model in its own provider namespace', () => {
+  it('keeps Gateway runtime identity ahead of SDK pricing canonical metadata', () => {
     const { events, emit, internal } = setup();
     internal.runtimeProvider = 'deepseek';
     internal.gatewayModelAliases = {
@@ -219,6 +219,7 @@ describe('translateSdkMessage finalized Claude usage', () => {
           'claude-sonnet-4-5': {
             outputTokens: 5,
             contextWindow: 1_000_000,
+            canonicalModel: 'claude-sonnet-4-5-20250929',
           },
           'claude-haiku-4-5': { outputTokens: 2, contextWindow: 128_000 },
         },

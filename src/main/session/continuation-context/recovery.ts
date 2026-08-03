@@ -203,15 +203,7 @@ export async function prepareRecoveryContinuation(input: {
     return {
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
-      lowerBudgetRetry: candidates.lowerBudgetRetry
-        ? {
-            prepared: candidates.lowerBudgetRetry,
-            turn: createTrustedContinuationInitialTurn(
-              candidates.lowerBudgetRetry,
-              input.capture.sourceSessionId,
-            ),
-          }
-        : null,
+      lowerBudgetRetry: null,
     };
   } finally {
     releaseForeground();

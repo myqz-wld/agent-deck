@@ -20,11 +20,11 @@ export function updateContextUsage(
 ): SessionContextUsage | null {
   const db = getDb();
   return db.transaction(() => {
-    const usage = updateContextUsageWithDb(db, sessionId, update, updatedAt);
-    if (usage && observation) {
+    const result = applyContextUsageWithDb(db, sessionId, update, updatedAt);
+    if (result.applied && observation) {
       createContextWindowObservationRepo(db).observe(observation);
     }
-    return usage;
+    return result.usage;
   })();
 }
 
@@ -34,15 +34,28 @@ export function updateContextUsageWithDb(
   update: SessionContextUsageUpdate,
   updatedAt: number,
 ): SessionContextUsage | null {
+  return applyContextUsageWithDb(db, sessionId, update, updatedAt).usage;
+}
+
+function applyContextUsageWithDb(
+  db: Database,
+  sessionId: string,
+  update: SessionContextUsageUpdate,
+  updatedAt: number,
+): { usage: SessionContextUsage | null; applied: boolean } {
   const row = db
     .prepare(`SELECT context_usage FROM sessions WHERE id = ?`)
     .get(sessionId) as { context_usage: string | null } | undefined;
-  if (!row) return null;
+  if (!row) return { usage: null, applied: false };
 
   const current = parseSessionContextUsageJson(row.context_usage, sessionId);
-  if (!Number.isFinite(updatedAt) || updatedAt < 0) return current;
+  if (!Number.isFinite(updatedAt) || updatedAt < 0) {
+    return { usage: current, applied: false };
+  }
   const timestamp = Math.trunc(updatedAt);
-  if (current && current.updatedAt > timestamp) return current;
+  if (current && current.updatedAt > timestamp) {
+    return { usage: current, applied: false };
+  }
   const runtimeIdentity = normalizeRuntimeIdentityUpdate(update.runtimeIdentity);
   const identityChanged =
     update.runtimeIdentity !== undefined &&
@@ -67,7 +80,7 @@ export function updateContextUsageWithDb(
     JSON.stringify(next),
     sessionId,
   );
-  return next;
+  return { usage: next, applied: true };
 }
 
 function normalizeRuntimeIdentityUpdate(
@@ -87,13 +100,13 @@ function normalizeRuntimeIdentityUpdate(
 }
 
 function normalizeUsedTokens(value: number | null): number | null {
-  return value !== null && Number.isFinite(value) && value >= 0
+  return value !== null && Number.isSafeInteger(value) && value >= 0
     ? Math.trunc(value)
     : null;
 }
 
 function normalizeWindowTokens(value: number | null): number | null {
-  return value !== null && Number.isFinite(value) && value > 0
+  return value !== null && Number.isSafeInteger(value) && value > 0
     ? Math.trunc(value)
     : null;
 }

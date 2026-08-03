@@ -182,6 +182,9 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
     };
   });
   const resolveTarget = vi.fn(() => state.target);
+  const revalidateTarget = vi.fn(
+    (_input: unknown, _capacity: ResolvedSuccessorSpec['contextCapacity']) => state.target,
+  );
   const execute = vi.fn(
     async (input): Promise<UiHandOffExecutionResult> => {
       input.commitIngress('successor-session');
@@ -220,6 +223,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
       return state.sourcePreconditionResult;
     },
     resolveTarget,
+    revalidateTarget,
     prepare,
     currentSettingsFingerprint: () => state.settingsFingerprint,
     spoolMetadata: (spoolId) => ({
@@ -263,6 +267,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
     prepare,
     preparedValues,
     resolveTarget,
+    revalidateTarget,
     selection,
     state,
     prepareOne: () =>
@@ -585,6 +590,12 @@ describe('UiHandOffCoordinator', () => {
       harness.coordinator.commit(OWNER, preparation.preparationId),
     ).resolves.toMatchObject({ successorSessionId: 'successor-session' });
     expect(harness.execute).toHaveBeenCalledOnce();
+    expect(harness.resolveTarget).toHaveBeenCalledOnce();
+    expect(harness.revalidateTarget).toHaveBeenCalledTimes(2);
+    expect(harness.revalidateTarget.mock.calls[1]?.[1]).toMatchObject({
+      status: 'observed',
+      windowTokens: 128_000,
+    });
   });
 
   it.each([
@@ -731,6 +742,32 @@ describe('UiHandOffCoordinator', () => {
       harness.coordinator.commit(OWNER, preparation.preparationId),
     ).rejects.toThrow(/not authorized/);
     expect(harness.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('never exposes a same-preparation retry after a pending startup deadline', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockRejectedValueOnce(
+      new HandOffExecutionError(
+        'startup deadline expired before a stable id',
+        'cutover',
+        null,
+        'pending',
+        null,
+        null,
+        'target-startup-timeout',
+      ),
+    );
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toMatchObject({ cutoverReason: 'target-startup-timeout' });
+    expect(harness.cache.size).toBe(0);
+    expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toThrow(/not authorized/);
+    expect(harness.execute).toHaveBeenCalledOnce();
   });
 
   it('keeps cancellation owner-bound and cleans its immutable spool', async () => {

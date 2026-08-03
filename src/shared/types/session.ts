@@ -469,8 +469,10 @@ export interface SessionHandOffCommitResult {
 /** Post-create failure details must cross Electron IPC without relying on Error serialization. */
 export interface SessionHandOffExecutionFailure {
   stage: 'cutover' | 'transfer';
-  successorSessionId: string;
-  successorCleanup: 'ok' | 'failed';
+  /** Null until a startup that exceeded the deadline eventually yields its stable identity. */
+  successorSessionId: string | null;
+  /** Pending means late-candidate cleanup is scheduled but cannot yet be observed synchronously. */
+  successorCleanup: 'ok' | 'failed' | 'pending';
   /** Safe retry diagnostic; never contains the trusted prompt or runtime evidence. */
   usedLowerBudgetRetry: boolean;
   cutoverReason?: string;

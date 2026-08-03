@@ -243,12 +243,40 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByRole('button', { name: '我已关闭该会话，允许重新生成' }),
+      screen.getByRole('button', { name: '我已检查会话列表，允许重新生成' }),
     );
     expect(screen.queryByRole('alert')).toBeNull();
     expect(
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  it('blocks retry while startup cleanup is pending and never invents a session id', async () => {
+    handOffCommit.mockResolvedValueOnce({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'pending',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-startup-timeout',
+      message: 'startup deadline expired',
+    });
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
+    await screen.findByLabelText('续接上下文摘录');
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
+
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toContain('续接会话启动超时');
+    expect(warning.textContent).toContain('自动尝试关闭');
+    expect(warning.textContent).toContain('已采用较小范围的续接上下文重试');
+    expect(warning.textContent).not.toContain('null');
+    expect(
+      (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole('button', { name: '我已检查会话列表，允许重新生成' }),
+    );
   });
 
   it('shows an actionable cause when late-message delivery fails', async () => {
@@ -304,7 +332,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
       (screen.getByRole('button', { name: '生成续接上下文' }) as HTMLButtonElement).disabled,
     ).toBe(true);
     fireEvent.click(
-      screen.getByRole('button', { name: '我已关闭该会话，允许重新生成' }),
+      screen.getByRole('button', { name: '我已检查会话列表，允许重新生成' }),
     );
     expect(screen.queryByRole('alert')).toBeNull();
   });
