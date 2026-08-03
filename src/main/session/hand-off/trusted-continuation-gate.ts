@@ -5,6 +5,7 @@ import type {
 import log from '@main/utils/logger';
 import type { TrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
 
+/** Platform-monotonic runtime budget; wall-clock changes do not affect it. */
 export const HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS = 90_000;
 const logger = log.scope('handoff-readiness');
 
@@ -301,9 +302,19 @@ async function beforeDeadline<T>(
     throw new ReadinessDeadlineError();
   }
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const checkedWork = work.then(
+    (value) => {
+      assertBeforeDeadline(deadlineAt, now);
+      return value;
+    },
+    (error: unknown) => {
+      assertBeforeDeadline(deadlineAt, now);
+      throw error;
+    },
+  );
   try {
     return await Promise.race([
-      work,
+      checkedWork,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new ReadinessDeadlineError()), remainingMs);
         timer.unref?.();
@@ -312,4 +323,8 @@ async function beforeDeadline<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function assertBeforeDeadline(deadlineAt: number, now: () => number): void {
+  if (deadlineAt - now() <= 0) throw new ReadinessDeadlineError();
 }
