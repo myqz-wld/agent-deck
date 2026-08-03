@@ -319,6 +319,31 @@ describe('trusted continuation readiness gate', () => {
     }
   });
 
+  it('rejects work observed after the deadline before its timer callback runs', async () => {
+    vi.useFakeTimers();
+    let monotonicMs = 0;
+    const pending = pendingCandidate('late-work-winner');
+    const input = baseInput();
+    input.createCandidate.mockResolvedValue(pending.candidate);
+    const selection = selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 50,
+      now: () => monotonicMs,
+    });
+    const assertion = expect(selection).rejects.toMatchObject({
+      reason: 'target-acceptance-timeout',
+      successorSessionId: 'late-work-winner',
+      usedLowerBudgetRetry: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    monotonicMs = 51;
+    pending.settle({ status: 'accepted', boundary: 'model-activity' });
+
+    await assertion;
+    expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-work-winner');
+  });
+
   it('attributes a retry startup deadline to the lower-budget attempt', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(17_000);
@@ -357,7 +382,7 @@ describe('trusted continuation readiness gate', () => {
     input.createCandidate.mockResolvedValueOnce(candidate('primary', {
       status: 'rejected', reason: 'context-window-exceeded',
     }));
-    const times = [0, 0, 0, 0, 0, 99, 100];
+    const times = [0, 0, 0, 0, 0, 0, 0, 0, 99, 100];
 
     await expect(selectTrustedContinuationCandidate({
       ...input,
@@ -373,7 +398,7 @@ describe('trusted continuation readiness gate', () => {
     expect(input.createCandidate).toHaveBeenCalledTimes(1);
   });
 
-  it('does not start the lower candidate after strict cleanup consumes the shared deadline', async () => {
+  it('treats rollback completion at the deadline as unproved and does not retry', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(20_000);
     const input = baseInput();
@@ -387,14 +412,15 @@ describe('trusted continuation readiness gate', () => {
       ...input, deadlineMs: 50, now: Date.now,
     });
     const assertion = expect(selection).rejects.toMatchObject({
-      reason: 'target-acceptance-timeout',
+      reason: 'target-rollback-failed',
       successorSessionId: 'primary',
-      successorCleanup: 'ok',
+      successorCleanup: 'failed',
       usedLowerBudgetRetry: false,
     });
 
     await vi.advanceTimersByTimeAsync(50);
     await assertion;
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
     expect(input.createCandidate).toHaveBeenCalledTimes(1);
   });
 });
