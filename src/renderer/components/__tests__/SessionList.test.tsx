@@ -48,6 +48,15 @@ afterEach(() => {
 });
 
 describe('SessionList metadata', () => {
+  it('keeps the empty-state creation hint concise', () => {
+    render(<SessionList />);
+
+    expect(
+      screen.getByText('点击右上角的 + 即可创建 Claude Code、Codex CLI 或 Grok Build 会话。'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Claude Code 可选择 Gateway/)).toBeNull();
+  });
+
   it('shows branch and context usage while deduplicating branch lookups by cwd', async () => {
     const runtimeIdentity = {
       version: 1 as const,
