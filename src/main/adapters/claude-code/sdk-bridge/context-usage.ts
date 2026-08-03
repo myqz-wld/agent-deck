@@ -1,4 +1,5 @@
-import { normalizeModel } from '@shared/model-normalize';
+import type { ClaudeGatewayModelAliases, InternalSession } from './types';
+import { resolveClaudeRuntimeModel } from './runtime-metadata-sync';
 
 interface ClaudeAssistantUsage {
   input_tokens?: number;
@@ -10,6 +11,28 @@ interface ClaudeAssistantUsage {
 interface ClaudeModelUsage {
   contextWindow?: number;
   canonicalModel?: string;
+}
+
+export interface ClaudeContextWindowObservation {
+  model: string;
+  windowTokens: number;
+}
+
+export function claudeContextUsagePayload(
+  internal: InternalSession,
+  payload: Record<string, unknown>,
+  model = internal.runtimeModel,
+): Record<string, unknown> {
+  const concreteModel = model?.trim();
+  return concreteModel && !isAliasOnly(concreteModel)
+    ? {
+        ...payload,
+        runtimeIdentity: {
+          runtimeProvider: internal.runtimeProvider,
+          model: concreteModel,
+        },
+      }
+    : payload;
 }
 
 export function claudeAssistantContextTokens(
@@ -26,39 +49,70 @@ export function claudeAssistantContextTokens(
   );
 }
 
-export function claudeContextWindowTokens(
+/**
+ * Attribute a finalized window only to the exact SDK-initialized primary model.
+ * modelUsage may include fallback/subagent entries, so bucket matching and equal-window collapse
+ * are intentionally forbidden.
+ */
+export function claudeContextWindowObservation(
   modelUsage: Record<string, ClaudeModelUsage> | null | undefined,
-  preferredModel: string | null | undefined,
-): number | null {
+  primaryModel: string | null | undefined,
+  gatewayModelAliases?: ClaudeGatewayModelAliases,
+): ClaudeContextWindowObservation | null {
   const entries = Object.entries(modelUsage ?? {})
     .map(([model, usage]) => ({
-      model,
-      canonicalModel: usage.canonicalModel,
+      model: model.trim(),
+      canonicalModel: nonBlank(usage.canonicalModel),
+      mappedModel: resolveClaudeRuntimeModel(model, gatewayModelAliases),
       windowTokens: positiveTokenCount(usage.contextWindow),
     }))
     .filter(
       (entry): entry is typeof entry & { windowTokens: number } =>
-        entry.windowTokens !== null,
+        entry.model.length > 0 && entry.windowTokens !== null,
     );
   if (entries.length === 0) return null;
-  const preferred = preferredModel?.trim();
-  if (preferred) {
-    const exact = entries.find(
-      (entry) =>
-        entry.model === preferred || entry.canonicalModel === preferred,
-    );
-    if (exact) return exact.windowTokens;
-    const bucket = normalizeModel(preferred).bucketKey;
-    const matches = entries.filter(
-      (entry) =>
-        normalizeModel(entry.model).bucketKey === bucket ||
-        normalizeModel(entry.canonicalModel).bucketKey === bucket,
-    );
-    if (matches.length === 1) return matches[0].windowTokens;
-  }
-  if (entries.length === 1) return entries[0].windowTokens;
-  const distinct = new Set(entries.map((entry) => entry.windowTokens));
-  return distinct.size === 1 ? entries[0].windowTokens : null;
+  const primary = nonBlank(primaryModel);
+  if (!primary) return null;
+  const exact = entries.filter(
+    (entry) =>
+      entry.model === primary ||
+      entry.canonicalModel === primary ||
+      entry.mappedModel === primary,
+  );
+  if (exact.length !== 1) return null;
+  const match = exact[0];
+  const concreteModel = match.canonicalModel ?? match.mappedModel ?? match.model;
+  if (isAliasOnly(concreteModel)) return null;
+  return { model: concreteModel, windowTokens: match.windowTokens };
+}
+
+export function claudeContextWindowPayload(
+  internal: InternalSession,
+  modelUsage: Record<string, ClaudeModelUsage> | null | undefined,
+): Record<string, unknown> | null {
+  const observation = claudeContextWindowObservation(
+    modelUsage,
+    internal.runtimeModel,
+    internal.gatewayModelAliases,
+  );
+  return observation
+    ? claudeContextUsagePayload(
+        internal,
+        {
+          windowTokens: observation.windowTokens,
+          capacitySource: 'runtime-usage',
+        },
+        observation.model,
+      )
+    : null;
+}
+
+function isAliasOnly(model: string): boolean {
+  return /^(?:claude-)?(?:fable|opus|sonnet|haiku)(?:-latest)?$/i.test(model);
+}
+
+function nonBlank(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function tokenCount(value: unknown): number | null {

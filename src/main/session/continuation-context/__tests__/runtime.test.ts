@@ -17,6 +17,7 @@ vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
       ? {
           id: 'deepseek',
           settingsPath: '/home/test/.claude/gateways/deepseek.json',
+          modelAliases: { sonnet: 'deepseek-test' },
           models: [],
         }
       : null,
@@ -56,7 +57,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
           formatVersion: 1, additions: [], updates: [],
         },
         usage: { input_tokens: 12, output_tokens: 3 },
-        modelUsage: { model: { contextWindow: 200_000 } },
+        modelUsage: { 'claude-test': { contextWindow: 200_000 } },
       },
     ]));
     const runtime = createCheckpointGeneratorRuntime({
@@ -75,7 +76,74 @@ describe('isolated Claude-family checkpoint runtime', () => {
     });
     expect(call.options.cwd).toMatch(/agent-deck-continuation-compactor-/);
     expect(call.options.cwd).not.toContain('Repository/agent-deck');
-    expect(result).toMatchObject({ structured: true, inputTokens: 12, outputTokens: 3, contextWindowTokens: 200_000 });
+    expect(result).toMatchObject({
+      structured: true,
+      inputTokens: 12,
+      outputTokens: 3,
+      contextWindowTokens: 200_000,
+      contextWindowEvidence: {
+        runtimeProvider: 'native',
+        model: 'claude-test',
+        windowTokens: 200_000,
+        source: 'runtime-usage',
+      },
+    });
+  });
+
+  it('does not attribute an ambiguous multi-model result to the configured primary', async () => {
+    query.mockReturnValueOnce(iterable([
+      {
+        type: 'result', subtype: 'success', structured_output: {
+          formatVersion: 1, additions: [], updates: [],
+        },
+        modelUsage: {
+          'claude-opus-4-7': { contextWindow: 200_000 },
+          'claude-haiku-4-5': { contextWindow: 200_000 },
+        },
+      },
+    ]));
+    const runtime = createCheckpointGeneratorRuntime({
+      adapter: 'claude-code', model: 'claude-opus-4-8', thinking: 'low',
+      contextWindowTokens: null, configFingerprint: 'ambiguous-claude-runtime',
+    });
+
+    const result = await runtime.generate(request);
+
+    expect(result.contextWindowTokens).toBeNull();
+    expect(result.contextWindowEvidence).toBeNull();
+  });
+
+  it('uses authoritative Gateway alias metadata for checkpoint capacity identity', async () => {
+    query.mockReturnValueOnce(iterable([
+      { type: 'system', subtype: 'init', model: 'claude-sonnet-4-5' },
+      {
+        type: 'result', subtype: 'success', structured_output: {
+          formatVersion: 1, additions: [], updates: [],
+        },
+        modelUsage: {
+          'claude-sonnet-4-5': {
+            contextWindow: 1_000_000,
+          },
+          'claude-haiku-4-5': { contextWindow: 128_000 },
+        },
+      },
+    ]));
+    const runtime = createCheckpointGeneratorRuntime({
+      adapter: 'claude-code', provider: 'deepseek', model: 'sonnet', thinking: 'max',
+      contextWindowTokens: null, configFingerprint: 'gateway-capacity-runtime',
+    });
+
+    const result = await runtime.generate(request);
+
+    expect(result).toMatchObject({
+      contextWindowTokens: 1_000_000,
+      contextWindowEvidence: {
+        runtimeProvider: 'deepseek',
+        model: 'deepseek-test',
+        windowTokens: 1_000_000,
+        source: 'runtime-usage',
+      },
+    });
   });
 
   it('rejects any observed tool request even though the registry was explicitly empty', async () => {

@@ -6,6 +6,20 @@ export type ContextWindowObservationSource =
   | 'runtime-metadata'
   | 'runtime-usage';
 
+/** Adapter-owned raw identity evidence; the ingestion boundary builds the stable runtime key. */
+export interface ContextRuntimeIdentityEvidence {
+  runtimeProvider: string;
+  model: string;
+  capacityConfigFingerprint?: string;
+}
+
+/** Capacity and identity must travel together so callers cannot misattribute a bare window. */
+export interface ContextWindowCapacityEvidence
+  extends ContextRuntimeIdentityEvidence {
+  windowTokens: number;
+  source: ContextWindowObservationSource;
+}
+
 /** Exact provider runtime identity. Aliases are not concrete unless an adapter resolves them. */
 export interface ContextRuntimeIdentity {
   version: 1;
