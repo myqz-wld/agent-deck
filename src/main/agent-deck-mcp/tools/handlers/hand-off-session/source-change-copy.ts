@@ -1,4 +1,20 @@
-import type { HandOffSourceCutoverRejectionReason } from '@main/session/hand-off/source-precondition';
+import type {
+  HandOffSourceCutoverCheck,
+  HandOffSourceCutoverRejectionReason,
+  HandOffSourceCutoverResult,
+} from '@main/session/hand-off/source-precondition';
+import type { HandOffTrustedContinuationFailureReason } from '@main/session/hand-off/trusted-continuation-gate';
+
+export function safelyCheckSourcePrecondition(
+  check: (input: HandOffSourceCutoverCheck) => HandOffSourceCutoverResult,
+  input: HandOffSourceCutoverCheck,
+): HandOffSourceCutoverResult {
+  try {
+    return check(input);
+  } catch {
+    return { ok: false, reason: 'check-failed', currentEventRevision: null };
+  }
+}
 
 export function sourceChangeError(reason: HandOffSourceCutoverRejectionReason): {
   error: string;
@@ -18,7 +34,10 @@ export function sourceChangeError(reason: HandOffSourceCutoverRejectionReason): 
 }
 
 export function executionCutoverError(
-  reason: HandOffSourceCutoverRejectionReason | null,
+  reason:
+    | HandOffSourceCutoverRejectionReason
+    | HandOffTrustedContinuationFailureReason
+    | null,
   successorSessionId: string,
   successorCleanup: 'ok' | 'failed',
 ): { error: string; hint: string } {
@@ -36,6 +55,12 @@ export function executionCutoverError(
       error: 'source message delivery did not drain before handoff cutover',
       hint:
         `${prefix} The source remains active; retry after its active cross-session delivery reaches a durable terminal or retry state.`,
+    };
+  }
+  if (reason?.startsWith('target-')) {
+    return {
+      error: 'handoff successor did not cross the trusted continuation readiness boundary',
+      hint: `${prefix} The source remains active; inspect the target provider and retry when appropriate.`,
     };
   }
   return {

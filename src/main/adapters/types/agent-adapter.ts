@@ -27,6 +27,7 @@ import type { AdapterContext, PermissionMode } from './adapter-context';
 import type { AdapterCapabilities } from './capabilities';
 import type { CreateSessionOptions } from './create-session-opts';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { TrustedContinuationSessionCandidate } from '../trusted-continuation';
 import type { ForkedSessionHandle, ForkSessionSource } from './fork-session';
 
 /** One provider input accepted by the source adapter but not yet started as a provider turn. */
@@ -87,7 +88,7 @@ export interface AgentAdapter {
   createTrustedContinuationSession?(
     opts: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
-  ): Promise<string>;
+  ): Promise<TrustedContinuationSessionCandidate>;
   /** Read-only provider eligibility checks that must run before spawn capacity is reserved. */
   validateForkSession?(
     source: ForkSessionSource,

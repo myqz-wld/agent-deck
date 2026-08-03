@@ -255,6 +255,7 @@ export async function createSessionImpl(
       cwd,
       thread,
       runtimeIdentity: null,
+      trustedContinuationAcceptance: opts.trustedContinuationAcceptance,
       pendingMessages: firstInput ? [firstInput] : [],
       pendingDeferredUserEvents: firstInput ? [initialEnqueue.deferredUserEvent] : [],
       pendingHandOffMessages: firstInput

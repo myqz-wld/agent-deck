@@ -14,6 +14,7 @@ import type { HookServer } from '@main/hook-server/server';
 import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexInput } from './input-pack';
 import type { QueuedAgentMessage } from '@main/adapters/types';
+import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
 export interface CodexDeferredUserEvent {
   text: string;
@@ -81,6 +82,8 @@ export interface InternalSession {
   thread: CodexAppServerThread;
   /** Exact effective app-server model/provider identity, null until a native boundary proves it. */
   runtimeIdentity: ContextRuntimeIdentityEvidence | null;
+  /** Present only while the first trusted continuation turn crosses its native readiness boundary. */
+  trustedContinuationAcceptance?: TrustedContinuationAcceptanceController;
   /**
    * 待发送 user message 串行队列（同 thread 不能并发 turn）。
    *

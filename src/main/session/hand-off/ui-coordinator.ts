@@ -40,6 +40,7 @@ export interface UiHandOffExecutionResult {
   queuedMessagesDelivered: number;
   sourceCutover: Extract<HandOffSourceCutoverResult, { ok: true }>;
   sourceFinalization: ExecutePreparedHandOffResult<unknown, unknown>['sourceFinalization'];
+  usedLowerBudgetRetry: boolean;
 }
 
 export interface UiHandOffCoordinatorDependencies {
@@ -70,6 +71,8 @@ export interface UiHandOffCoordinatorDependencies {
     sourcePrecondition: HandOffSourceCutoverPrecondition;
     target: CreateSessionOptions;
     turn: ReturnType<typeof createTrustedContinuationInitialTurn>;
+    targetCapacityStatus: 'observed' | 'stale' | 'unknown';
+    lowerBudgetRetryTurn: ReturnType<typeof createTrustedContinuationInitialTurn> | null;
     commitIngress: (successorSessionId: string) => void;
     sourceOwnershipCheck: () => boolean;
   }) => Promise<UiHandOffExecutionResult>;
@@ -280,6 +283,13 @@ export class UiHandOffCoordinator {
           },
           target: frozen(entry).createOptions,
           turn: createTrustedContinuationInitialTurn(entry.prepared, entry.sourceSessionId),
+          targetCapacityStatus: entry.target.contextCapacity.status,
+          lowerBudgetRetryTurn: entry.lowerBudgetRetry
+            ? createTrustedContinuationInitialTurn(
+                entry.lowerBudgetRetry,
+                entry.sourceSessionId,
+              )
+            : null,
           sourceOwnershipCheck: () => !leaseState.revoked && cutoverLease.canCommit(),
           commitIngress: (successorSessionId) => {
             if (!cutoverLease.commit(successorSessionId)) {

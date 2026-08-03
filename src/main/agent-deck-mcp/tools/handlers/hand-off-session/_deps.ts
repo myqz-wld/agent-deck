@@ -12,6 +12,7 @@ import type { resolveHandOffTarget } from '@main/session/hand-off/target-resolve
 import type { SessionAdapterId, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import type { transferHandOffResources } from './resource-transfer-coordinator';
 import type { WorktreeTransitionRecord } from '@main/session/worktree-transition/types';
+import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
 
 export interface HandOffTargetValidationError {
   error: string;
@@ -40,7 +41,7 @@ export interface HandOffSessionHandlerDeps {
   createSuccessor?: (
     target: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
-  ) => Promise<string>;
+  ) => Promise<TrustedContinuationSessionCandidate>;
   deliverLateMessages?: (
     input: DeliverHandOffLateMessagesInput,
   ) => Promise<UploadedAttachmentRef[]>;

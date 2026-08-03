@@ -198,6 +198,7 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
         queuedMessagesDelivered: input.queuedMessages.length,
         sourceCutover,
         sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: false,
       };
     },
   );
@@ -625,6 +626,8 @@ describe('UiHandOffCoordinator', () => {
         runtimeFingerprint: 'source-runtime-secret',
       },
       target: harness.state.target.createOptions,
+      targetCapacityStatus: 'observed',
+      lowerBudgetRetryTurn: null,
       commitIngress: expect.any(Function),
       sourceOwnershipCheck: expect.any(Function),
       turn: expect.objectContaining({
@@ -775,6 +778,7 @@ describe('UiHandOffCoordinator', () => {
         lateMessages: [],
       },
       sourceFinalization: { ok: true, value: undefined },
+      usedLowerBudgetRetry: false,
     });
     await expect(firstCommit).resolves.toMatchObject({ successorSessionId: 'first-successor' });
     const next = await harness.prepareOne();
@@ -823,6 +827,7 @@ describe('UiHandOffCoordinator', () => {
           lateMessages: [],
         },
         sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: false,
       });
 
       await expect(commit).resolves.toMatchObject({
@@ -928,6 +933,7 @@ describe('UiHandOffCoordinator', () => {
           lateMessages: [],
         },
         sourceFinalization: { ok: true, value: undefined },
+        usedLowerBudgetRetry: false,
       };
     });
 

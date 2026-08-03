@@ -33,6 +33,11 @@ import { settingsStore } from '@main/store/settings-store';
 import { summariseViaLlm } from '@main/session/summarizer/llm-runners';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { getAdapterRuntimeProfile } from '../runtime-profiles';
+import {
+  TrustedContinuationAcceptanceController,
+  trustedContinuationCandidate,
+  type TrustedContinuationSessionCandidate,
+} from '../trusted-continuation';
 
 const ADAPTER_ID = 'claude-code';
 
@@ -101,13 +106,15 @@ class ClaudeCodeAdapter implements AgentAdapter {
   async createTrustedContinuationSession(
     opts: CreateSessionOptions,
     turn: TrustedContinuationInitialTurn,
-  ): Promise<string> {
+  ): Promise<TrustedContinuationSessionCandidate> {
     if (opts.agentId !== ADAPTER_ID || !this.bridge) {
       throw new Error('Claude trusted continuation requires an initialized Claude adapter');
     }
+    const acceptance = new TrustedContinuationAcceptanceController();
     const handle = await this.bridge.createSession({
       cwd: opts.cwd,
       trustedContinuation: turn,
+      trustedContinuationAcceptance: acceptance,
       gateway: opts.gateway,
       permissionMode: opts.permissionMode,
       teamName: opts.teamName,
@@ -123,7 +130,7 @@ class ClaudeCodeAdapter implements AgentAdapter {
       awaitCanonicalId: opts.awaitCanonicalId,
       initialSessionRegistration: opts.initialSessionRegistration,
     });
-    return handle.sessionId;
+    return trustedContinuationCandidate(handle.sessionId, acceptance);
   }
 
   async validateForkSession(

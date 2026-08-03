@@ -16,6 +16,7 @@ import type {
 
 import type { GrokAcpProcess } from './acp-process';
 import type { GrokTranslationState } from './translate';
+import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
 export interface GrokPendingMessage extends PendingAgentMessage {
   providerText?: string;
@@ -68,6 +69,8 @@ export interface GrokRuntime {
   model: string | null;
   /** Exact model identity reported by the native ACP session; never derived from a request alias. */
   runtimeIdentity: ContextRuntimeIdentityEvidence | null;
+  /** Present only while the first trusted continuation turn crosses its native readiness boundary. */
+  trustedContinuationAcceptance?: TrustedContinuationAcceptanceController;
   /** Persisted explicit override; null delegates to the ACP-reported native default. */
   modelOverride?: string | null;
   /** Native default reported by ACP initialize, never guessed by Agent Deck. */

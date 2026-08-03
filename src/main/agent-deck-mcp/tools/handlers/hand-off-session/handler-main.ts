@@ -7,7 +7,7 @@ import { continuationFingerprint } from '@main/session/continuation-context/reso
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { executePreparedHandOff, HandOffExecutionError } from '@main/session/hand-off/executor';
 import { snapshotHandOffQueuedMessages } from '@main/session/hand-off/queued-message-snapshot';
-import { checkHandOffSourcePrecondition, type HandOffSourceCutoverResult } from '@main/session/hand-off/source-precondition';
+import { checkHandOffSourcePrecondition } from '@main/session/hand-off/source-precondition';
 import { HandOffTargetOptionsError, resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import { notifySessionHandOffCommitted } from '@main/session/hand-off/ownership';
 import { sessionManager } from '@main/session/manager';
@@ -18,7 +18,11 @@ import { err, ok, withMcpGuard, type HandlerContext } from '../../helpers';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
 import type { HandOffSessionHandlerDeps } from './_deps';
 import { transferHandOffResources } from './resource-transfer-coordinator';
-import { executionCutoverError, sourceChangeError } from './source-change-copy';
+import {
+  executionCutoverError,
+  safelyCheckSourcePrecondition,
+  sourceChangeError,
+} from './source-change-copy';
 import { finalizeMcpHandOffSource } from './source-finalization';
 import {
   cleanupHandOffSpool,
@@ -35,16 +39,6 @@ import {
 } from './worktree-preflight';
 
 const logger = log.scope('mcp-handoff-main');
-function safelyCheckSourcePrecondition(
-  check: NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>,
-  input: Parameters<NonNullable<HandOffSessionHandlerDeps['sourcePreconditionCheck']>>[0],
-): HandOffSourceCutoverResult {
-  try {
-    return check(input);
-  } catch {
-    return { ok: false, reason: 'check-failed', currentEventRevision: null };
-  }
-}
 
 export const handOffSessionHandler = withMcpGuard(
   'hand_off_session',
@@ -321,6 +315,10 @@ export const handOffSessionHandler = withMcpGuard(
           sourcePreconditionCheck: checkSourcePrecondition,
           target: target.createOptions,
           turn: continuation.turn,
+          trustedContinuationReadiness: {
+            capacityStatus: continuation.target.contextCapacity.status,
+            lowerBudgetRetryTurn: continuation.lowerBudgetRetry?.turn ?? null,
+          },
           ...(handlerDeps?.createSuccessor
             ? { createSuccessor: handlerDeps.createSuccessor }
             : {}),

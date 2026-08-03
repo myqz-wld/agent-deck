@@ -180,6 +180,7 @@ export async function createSessionImpl(
       applicationSid: opts.resume ?? tempKey,
       runtimeProvider: opts.gateway,
       gatewayModelAliases: opts.gatewayModelAliases,
+      trustedContinuationAcceptance: opts.trustedContinuationAcceptance,
     });
     internalForCleanup = internal;
 

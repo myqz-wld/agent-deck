@@ -42,6 +42,10 @@ import {
   type ClaudeFinalResultUsage,
 } from './final-result-usage';
 import {
+  claudeFinishedPayload,
+  claudeResultOutputTokens,
+} from './result-outcome';
+import {
   confirmClaudeUserMessageAcceptance,
   discardClaudeSubmittingUserMessage,
 } from './user-message-acceptance';
@@ -65,17 +69,6 @@ function resolveClaudeFallbackModel(internal: InternalSession, sessionId: string
   } catch {
     return CLAUDE_DEFAULT_BUCKET;
   }
-}
-
-function resultOutputTokens(r: {
-  usage?: { output_tokens?: number };
-  modelUsage?: Record<string, { outputTokens?: number }>;
-}): number {
-  const entries = Object.values(r.modelUsage ?? {});
-  if (entries.length > 0) {
-    return entries.reduce((sum, usage) => sum + (usage.outputTokens ?? 0), 0);
-  }
-  return r.usage?.output_tokens ?? 0;
 }
 
 function resultLiveRateModel(r: {
@@ -248,6 +241,7 @@ export function translateSdkMessage(
       is_error?: boolean;
       result?: string;
       errors?: string[];
+      terminal_reason?: string;
     };
     // REVIEW_13 Bug 6 / P17 双通道防护陷阱再撞：result frame 在 expectedClose=true 时
     // 必须**整体静默**，不只 gate 红字 message。REVIEW_11 D'2 修法只 gate 了 message emit
@@ -271,7 +265,13 @@ export function translateSdkMessage(
       resetTurnUsageAccounting(internal);
       return;
     }
-    completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
+    completeLiveTokenEstimate(
+      internal,
+      sessionId,
+      claudeResultOutputTokens(r),
+      ts,
+      resultLiveRateModel(r),
+    );
     const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
     const contextWindowPayload = claudeContextWindowPayload(internal, r.modelUsage);
     if (contextWindowPayload !== null) {
@@ -288,7 +288,7 @@ export function translateSdkMessage(
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
     }
-    e('finished', { ok: r.subtype === 'success' && !r.is_error, subtype: r.subtype });
+    e('finished', claudeFinishedPayload(r));
   } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const metadata = (msg as {
       compact_metadata?: {
