@@ -28,6 +28,7 @@ function makeRuntime(overrides: Partial<GrokRuntime> = {}): GrokRuntime {
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState(),
     ...overrides,
+    runtimeIdentity: overrides.runtimeIdentity ?? null,
     grokSandbox: overrides.grokSandbox ?? null,
     restartingSandbox: overrides.restartingSandbox ?? false,
   };

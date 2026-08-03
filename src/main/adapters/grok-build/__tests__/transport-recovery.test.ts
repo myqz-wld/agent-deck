@@ -23,6 +23,7 @@ function makeRuntime(process: GrokAcpProcess): GrokRuntime {
     disposed: false,
     suppressUpdates: true,
     model: null,
+    runtimeIdentity: null,
     thinking: null,
     sessionMode: null,
     grokSandbox: null,

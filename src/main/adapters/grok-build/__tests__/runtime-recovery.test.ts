@@ -147,6 +147,7 @@ describe('Grok runtime recovery profile', () => {
       },
     });
     expect(runtime.nativeDefaultModel).toBeNull();
+    expect(runtime.runtimeIdentity).toBeNull();
 
     const startOptions = acpStartMock.mock.calls[0]![0] as {
       onGrokExtensionUpdate: (notification: {
@@ -263,7 +264,7 @@ describe('Grok runtime recovery profile', () => {
   it('makes a UI-style background runtime ready before draining its prequeued initial turn', async () => {
     const runtime = createGrokRuntime(
       'app-background',
-      { cwd: '/repo', prompt: 'hello' } as GrokCreateOpts,
+      { cwd: '/repo', prompt: 'hello', model: 'grok-latest' } as GrokCreateOpts,
       null,
     );
     runtime.queue.push({ id: 'initial-message', text: 'hello' });
@@ -271,6 +272,7 @@ describe('Grok runtime recovery profile', () => {
       if (method === methods.agent.session.new) {
         return {
           sessionId: 'native-background',
+          models: { currentModelId: 'grok-4.5', availableModels: [] },
           modes: { currentModeId: 'default', availableModes: [] },
         };
       }
@@ -319,6 +321,34 @@ describe('Grok runtime recovery profile', () => {
     await startGrokRuntimeInBackground(runtime, context, persist);
 
     expect(runtime.nativeSessionId).toBe('native-background');
+    expect(runtime).toMatchObject({
+      model: 'grok-latest',
+      modelOverride: 'grok-latest',
+      runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
+    });
+    const startOptions = acpStartMock.mock.calls[0]![0] as {
+      onSessionUpdate: (notification: {
+        sessionId: string;
+        update: {
+          sessionUpdate: 'usage_update';
+          used: number;
+          size: number;
+        };
+      }) => void;
+    };
+    startOptions.onSessionUpdate({
+      sessionId: 'native-background',
+      update: { sessionUpdate: 'usage_update', used: 12_000, size: 256_000 },
+    });
+    expect(context.emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 12_000,
+        windowTokens: 256_000,
+        capacitySource: 'runtime-usage',
+        runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
+      },
+    }));
     expect(drain).toHaveBeenCalledWith(runtime);
     expect(persist).toHaveBeenCalledWith(runtime);
   });

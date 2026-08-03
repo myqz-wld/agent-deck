@@ -19,12 +19,30 @@ describe('Grok ACP event translation', () => {
       '/repo',
       { sessionUpdate: 'usage_update', used: 65_432, size: 131_072 },
       createGrokTranslationState(),
+      { runtimeProvider: 'native', model: 'grok-4.5' },
     );
 
     expect(event).toMatchObject({
       kind: 'context-usage',
-      payload: { usedTokens: 65_432, windowTokens: 131_072 },
+      payload: {
+        usedTokens: 65_432,
+        windowTokens: 131_072,
+        runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
+        capacitySource: 'runtime-usage',
+      },
     });
+  });
+
+  it('keeps unattributed ACP usage session-scoped and non-authoritative', () => {
+    const [event] = translateGrokUpdate(
+      'app-session',
+      '/repo',
+      { sessionUpdate: 'usage_update', used: 10, size: 20 },
+      createGrokTranslationState(),
+      null,
+    );
+
+    expect(event?.payload).toEqual({ usedTokens: 10, windowTokens: 20 });
   });
 
   it('maps text, thought, tool, diff, and plan updates', () => {

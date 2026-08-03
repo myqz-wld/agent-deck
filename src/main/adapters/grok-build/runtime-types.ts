@@ -8,6 +8,7 @@ import type {
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type {
   AdapterSessionMode,
+  ContextRuntimeIdentityEvidence,
   HandOffMetadata,
   PermissionRequest,
   UploadedAttachmentRef,
@@ -63,8 +64,10 @@ export interface GrokRuntime {
   closed: boolean;
   disposed: boolean;
   suppressUpdates: boolean;
-  /** Effective provider model used by the live ACP session. */
+  /** Requested/selected model label used for setup and token accounting; it may be an alias. */
   model: string | null;
+  /** Exact model identity reported by the native ACP session; never derived from a request alias. */
+  runtimeIdentity: ContextRuntimeIdentityEvidence | null;
   /** Persisted explicit override; null delegates to the ACP-reported native default. */
   modelOverride?: string | null;
   /** Native default reported by ACP initialize, never guessed by Agent Deck. */
