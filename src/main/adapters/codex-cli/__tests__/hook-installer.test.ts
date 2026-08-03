@@ -145,6 +145,71 @@ describe('CodexHookInstaller', () => {
     );
   });
 
+  it('replaces tagged command variants instead of appending duplicate hooks', async () => {
+    const hooksPath = join(home, '.codex', 'hooks.json');
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    const tag = 'agent-deck-hook-v2-codex-cli-pretooluse';
+    const userHook = '/usr/local/bin/user-hook';
+    writeFileSync(
+      hooksPath,
+      JSON.stringify(
+        {
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: '^Bash$',
+                hooks: [
+                  { type: 'command', command: userHook },
+                  { type: 'command', command: `curl --config '/tmp/old-a' # ${tag}` },
+                ],
+              },
+              {
+                matcher: '.*',
+                hooks: [
+                  { type: 'command', command: `curl --legacy '/tmp/old-b' # ${tag}` },
+                ],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    const { CodexHookInstaller } = await import('../hook-installer');
+    const installer = new CodexHookInstaller(47_821, TOKEN, relayRoot);
+    installer.install({ scope: 'user' });
+
+    const data = JSON.parse(readFileSync(hooksPath, 'utf8')) as {
+      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
+    };
+    const preToolCommands = data.hooks.PreToolUse.flatMap((group) => group.hooks);
+    expect(data.hooks.PreToolUse).toHaveLength(2);
+    expect(data.hooks.PreToolUse[0]).toEqual({
+      matcher: '^Bash$',
+      hooks: [{ type: 'command', command: userHook }],
+    });
+    expect(preToolCommands.filter((hook) => hook.command.endsWith(`# ${tag}`))).toHaveLength(1);
+    expect(preToolCommands.at(-1)?.command).toContain('curl --disable --config');
+
+    data.hooks.PreToolUse[1].hooks[0].command =
+      `curl --future-shape '/tmp/future' # ${tag}`;
+    writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    installer.uninstall({ scope: 'user' });
+
+    const after = JSON.parse(readFileSync(hooksPath, 'utf8')) as {
+      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
+    };
+    expect(after.hooks.PreToolUse).toEqual([
+      {
+        matcher: '^Bash$',
+        hooks: [{ type: 'command', command: userHook }],
+      },
+    ]);
+  });
+
   it('uninstalls only exact Agent Deck hooks', async () => {
     const { CodexHookInstaller } = await import('../hook-installer');
     const installer = new CodexHookInstaller(47_821, TOKEN, relayRoot);

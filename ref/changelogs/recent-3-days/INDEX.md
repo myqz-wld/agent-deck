@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-03 | `CHANGELOG_429_hook-ownership-and-provider-dependencies.md` | Keep hooks idempotent and refresh provider dependencies |
 | 2026-08-03 | `CHANGELOG_428_provider-token-accounting-and-rate-repair.md` | Repair provider token totals and tok/s calibration |
 | 2026-07-31 | `CHANGELOG_427_compatibility-and-defect-remediation.md` | Clean compatibility seams and close all REVIEW_208 defects |
 | 2026-07-31 | `CHANGELOG_426_exit-worktree-output-schema-compatibility.md` | Publish a callable exit_worktree result schema |

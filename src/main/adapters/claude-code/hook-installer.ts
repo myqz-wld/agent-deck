@@ -10,6 +10,7 @@ import {
   readHookConfig,
   strictHookGroups,
   updateHookConfig,
+  withoutOwnedHookCommands,
   type HookConfigChange,
   type HookConfigDocument,
   type HookGroup,
@@ -27,7 +28,7 @@ const logger = log.scope('claude-hook-installer');
  * 注入/卸载本应用使用的 Claude Code hook。
  *
  * Hook config stores no bearer token. Commands reference private relay curl configs under
- * Agent Deck userData; ownership requires the exact adapter/event v2 command.
+ * Agent Deck userData; ownership requires the exact trailing adapter/event v2 tag.
  */
 
 const CURRENT_HOOK_TAG_PREFIX = 'agent-deck-hook-v2-claude-code';
@@ -69,18 +70,6 @@ function settingsPath(scope: 'user' | 'project', cwd?: string): string {
     throw new Error('project scope requires cwd');
   }
   return join(cwd, '.claude', 'settings.json');
-}
-
-function cleanedGroups(
-  groups: HookGroup[],
-  currentCommand: string,
-): HookGroup[] {
-  return groups
-    .map((group) => ({
-      ...group,
-      hooks: group.hooks.filter((hook) => hook.command !== currentCommand),
-    }))
-    .filter((group) => group.hooks.length > 0);
 }
 
 function updateModes(scope: 'user' | 'project'): {
@@ -132,7 +121,7 @@ export class HookInstaller {
         for (const event of CLAUDE_HOOK_EVENTS) {
           const command = this.currentCommand(event, true);
           const before = activeBefore.get(event) ?? [];
-          const next = cleanedGroups(before, command);
+          const next = withoutOwnedHookCommands(before, currentTag(event));
           const matcher = [
             'PreToolUse',
             'PermissionRequest',
@@ -180,10 +169,7 @@ export class HookInstaller {
         const changes: HookConfigChange[] = [];
         for (const event of CLAUDE_HOOK_EVENTS) {
           const before = strictHookGroups(document, hooks, event);
-          const next = cleanedGroups(
-            before,
-            this.currentCommand(event, false),
-          );
+          const next = withoutOwnedHookCommands(before, currentTag(event));
           const change = changedHookEvent(event, before, next);
           if (!change) continue;
           changes.push(change);

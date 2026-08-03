@@ -24,6 +24,7 @@ import {
   hooksObject,
   strictHookGroups,
   updateHookConfig,
+  withoutOwnedHookCommands,
   type HookGroup,
 } from './hook-config-file';
 
@@ -118,6 +119,34 @@ describe('hook config file writer', () => {
 
   afterEach(() => {
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it('removes exact owned tag variants while preserving generic and user hooks', () => {
+    const tag = 'agent-deck-hook-v2-codex-cli-stop';
+    expect(
+      withoutOwnedHookCommands(
+        [
+          sessionStartGroup(`curl --old # ${tag}`),
+          {
+            matcher: '.*',
+            hooks: [
+              { command: `curl --new # ${tag}   ` },
+              { command: 'echo user-hook # agent-deck-hook' },
+              { type: 'prompt' },
+            ],
+          },
+        ],
+        tag,
+      ),
+    ).toEqual([
+      {
+        matcher: '.*',
+        hooks: [
+          { command: 'echo user-hook # agent-deck-hook' },
+          { type: 'prompt' },
+        ],
+      },
+    ]);
   });
 
   it('changes only an event subtree while preserving comments and unrelated fields', () => {
