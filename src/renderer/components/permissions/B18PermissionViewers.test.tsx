@@ -124,6 +124,51 @@ describe('B18 permission viewers', () => {
     })).toBeNull();
   });
 
+  it('keeps permission-file headers compact across Codex and Claude cards', () => {
+    const layer: SettingsLayer = {
+      source: 'user',
+      path: '/Users/example/.claude/settings.json',
+      exists: false,
+      raw: null,
+      parseError: null,
+      permissions: null,
+    };
+    const codexData: CodexPermissionScanResult = {
+      adapter: 'codex-cli',
+      config: {
+        path: '/Users/example/.codex/config.toml',
+        exists: false,
+        raw: null,
+        readError: null,
+        topLevelModel: null,
+      },
+      effective: {
+        sandboxMode: 'read-only',
+        sandboxSource: 'settings',
+        approvalPolicy: null,
+        approvalSource: 'codex-config',
+        skipGitRepoCheck: true,
+        agentDeckMcp: {
+          enabled: false,
+          httpEnabled: false,
+          injectedForNewSessions: false,
+          toolTimeoutSec: null,
+          reason: 'disabled',
+        },
+      },
+    };
+
+    const { rerender } = render(
+      <CodexPermissionsPanel data={codexData} loading={false} onRefresh={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: '折叠 Codex CLI config.toml' }).className).toContain('h-7');
+    expect(screen.getByRole('button', { name: '打开 Codex CLI config.toml' }).className).toContain('h-7');
+
+    rerender(<LayerPanel layer={layer} cwd="/workspace/project" />);
+    expect(screen.getByRole('button', { name: '折叠全局设置' }).className).toContain('h-7');
+    expect(screen.getByRole('button', { name: '打开全局设置' }).className).toContain('h-7');
+  });
+
   it('uses canonical adapter names while keeping protocol identifiers intact', () => {
     render(<GrokPermissionsPanel sessionMode="ask" />);
     expect(screen.getByText('Grok Build 当前运行权限')).toBeTruthy();
