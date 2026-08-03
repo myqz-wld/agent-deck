@@ -31,6 +31,18 @@ export class CodexRuntimeIdentityTracker {
     this.current = applyCodexRuntimeIdentityNotification(this.current, notification);
   }
 
+  /** An unattributed reroute is exact only with one subscriber; ambiguity invalidates evidence. */
+  observeUnscopedReroute(
+    notification: CodexAppServerNotification,
+    attributable: boolean,
+  ): void {
+    if (!attributable) {
+      this.current = null;
+      return;
+    }
+    this.observeNotification(notification);
+  }
+
   async updateModelSettings(
     client: CodexAppServerClient,
     threadId: string,

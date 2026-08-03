@@ -10,6 +10,7 @@ import type {
   CodexAppServerNotification,
   CodexAppServerStreamEvent,
 } from './protocol';
+import { collectCodexTurnOutput } from './turn-output';
 
 const THREAD_OPTIONS = {
   workingDirectory: '/repo',
@@ -179,7 +180,7 @@ describe('Codex first-model-event watchdog', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it('does not fan out an unscoped model reroute across concurrent threads', async () => {
+  it('invalidates exact identity when an unscoped reroute is ambiguous across threads', async () => {
     vi.useFakeTimers();
     const client = new ConcurrentScriptedClient(50);
     const first = collectTurn(client);
@@ -191,20 +192,32 @@ describe('Codex first-model-event watchdog', () => {
       toModel: 'gpt-rerouted',
       reason: 'fallback',
     }));
+    client.emit(notify('thread/tokenUsage/updated', {
+      threadId: 'thread-1', turnId: 'turn-1',
+      tokenUsage: { modelContextWindow: 272_000 },
+    }));
+    client.emit(notify('item/agentMessage/delta', {
+      threadId: 'thread-1', turnId: 'turn-1', delta: 'thread one output',
+    }));
     client.emit(notify('item/agentMessage/delta', {
       threadId: 'thread-2', turnId: 'turn-2', delta: 'thread two output',
     }));
     client.emit(completedTurn('thread-1', 'turn-1'));
     client.emit(completedTurn('thread-2', 'turn-2'));
 
-    const [, secondEvents] = await Promise.all([first, second]);
-    const activity = secondEvents.find(
+    const [firstEvents, secondEvents] = await Promise.all([first, second]);
+    const firstUsage = firstEvents.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'thread/tokenUsage/updated',
+    );
+    const secondActivity = secondEvents.find(
       (event) => event.type === 'server.notification'
         && event.notification.method === 'item/agentMessage/delta',
     );
-    expect(activity).toMatchObject({
-      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-2' },
-    });
+    expect(firstUsage).toMatchObject({ runtimeIdentity: null });
+    expect(secondActivity).toMatchObject({ runtimeIdentity: null });
+    const output = await collectCodexTurnOutput(replay(firstEvents), undefined);
+    expect(output.contextWindowEvidence).toBeNull();
   });
 
   it('consumes a response-first same-stack model event before arming the watchdog', async () => {
@@ -596,6 +609,10 @@ async function collectTurn(client: CodexAppServerClient): Promise<CodexAppServer
   const collected: CodexAppServerStreamEvent[] = [];
   for await (const event of events) collected.push(event);
   return collected;
+}
+
+async function* replay(events: CodexAppServerStreamEvent[]) {
+  for (const event of events) yield event;
 }
 
 function completedTurn(
