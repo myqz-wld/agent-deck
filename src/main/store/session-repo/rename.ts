@@ -100,6 +100,11 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
       fromRow.context_usage ?? null,
       toId,
     );
+    db.prepare(
+      `UPDATE context_window_observations
+          SET origin_session_id = ?
+        WHERE origin_session_id = ?`,
+    ).run(toId, fromId);
     // Move FK-owned history before deleting the temporary row.
     db.prepare(`UPDATE events SET session_id = ? WHERE session_id = ?`).run(toId, fromId);
     recomputeEventRevisionAfterRename(db, toId);
