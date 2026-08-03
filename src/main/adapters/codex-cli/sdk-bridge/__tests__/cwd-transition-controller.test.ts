@@ -77,4 +77,37 @@ describe('CodexCwdTransitionController', () => {
     );
     expect(internal.thread.updateWorkingDirectory).not.toHaveBeenCalled();
   });
+
+  it('cancels and requeues a steer that was still awaiting provider acceptance', () => {
+    const internal = session();
+    const requestController = new AbortController();
+    internal.submittingUserMessage = {
+      event: { text: 'in-flight correction', turnCorrelationId: 'steer-1' },
+      cancelled: false,
+      kind: 'steer',
+      requestController,
+    };
+    const controller = new CodexCwdTransitionController({
+      sessions: new Map([['session-a', internal]]),
+      runTurnLoop: vi.fn(async () => {}),
+    });
+
+    controller.arm(transition());
+
+    expect(requestController.signal.aborted).toBe(true);
+    expect(internal.submittingUserMessage).toBeNull();
+    expect(internal.pendingMessages).toEqual([
+      'in-flight correction',
+      'ordinary',
+    ]);
+    expect(internal.pendingDeferredUserEvents).toEqual([
+      { text: 'in-flight correction', turnCorrelationId: 'steer-1' },
+      null,
+    ]);
+    expect(internal.pendingHandOffMessages).toEqual([
+      { text: 'in-flight correction' },
+      null,
+    ]);
+    expect(internal.cwdTransitionGeneration).toBe(2);
+  });
 });

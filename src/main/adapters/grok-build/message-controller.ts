@@ -1,5 +1,6 @@
 import type { AgentEnqueueOptions } from '@main/adapters/types';
 import { guardHandOffSourceIngress } from '@main/session/hand-off/ingress-guard';
+import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
 
 interface GrokMessageControllerContext {
@@ -30,7 +31,7 @@ export class GrokMessageController {
       text,
       attachments,
       options,
-      false,
+      worktreeToolInvocationRegistry.hasPendingTransition(sessionId),
     );
   }
 
@@ -46,6 +47,10 @@ export class GrokMessageController {
 
   async steerTurn(sessionId: string, text: string): Promise<void> {
     if (this.guard(sessionId, text, undefined, undefined)) return;
+    if (worktreeToolInvocationRegistry.hasPendingTransition(sessionId)) {
+      await this.context.dispatch(sessionId, text, undefined, undefined, true);
+      return;
+    }
     await this.context.steer(sessionId, text);
   }
 

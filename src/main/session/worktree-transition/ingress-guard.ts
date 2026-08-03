@@ -3,8 +3,12 @@ import type {
   SessionAdapterId,
   UploadedAttachmentRef,
 } from '@shared/types';
-import { worktreeTransitionInputRepo } from '@main/store/worktree-transition-input-repo';
+import {
+  worktreeTransitionInputRepo,
+  WorktreeTransitionInputClosedError,
+} from '@main/store/worktree-transition-input-repo';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
+import type { WorktreeTransitionQueuedInput } from './types';
 import { isPendingWorktreeTransition } from './state-machine';
 import log from '@main/utils/logger';
 import { isDbInitialized } from '@main/store/db';
@@ -31,19 +35,27 @@ export function guardWorktreeTransitionIngress(
   if (
     !transition ||
     !isPendingWorktreeTransition(transition.phase) ||
-    (transition.phase === 'cleanup_pending' &&
-      transition.continuationDelivered)
+    transition.toolUseId === null
   ) {
     return false;
   }
-  const queued = worktreeTransitionInputRepo.append({
-    sessionId: input.sessionId,
-    generation: transition.generation,
-    agentId: input.agentId,
-    text: input.text,
-    attachments: input.attachments,
-    createdAt: Date.now(),
-  });
+  let queued: WorktreeTransitionQueuedInput;
+  try {
+    queued = worktreeTransitionInputRepo.append({
+      sessionId: input.sessionId,
+      generation: transition.generation,
+      agentId: input.agentId,
+      text: input.text,
+      attachments: input.attachments,
+      createdAt: Date.now(),
+    });
+  } catch (error) {
+    // The phase/tool id can settle after the optimistic read above. The append transaction is the
+    // authority: a closed buffer means this same input must continue into the live post-switch
+    // adapter queue instead of surfacing a retryable transport error.
+    if (error instanceof WorktreeTransitionInputClosedError) return false;
+    throw error;
+  }
   try {
     input.emit({
       sessionId: input.sessionId,

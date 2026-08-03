@@ -9,7 +9,23 @@ import {
   WORKTREE_TRANSITION_CONTINUATION,
   WORKTREE_TRANSITION_FAILURE_CONTINUATION,
 } from './constants';
-import type { WorktreeTransitionRecord } from './types';
+import type {
+  WorktreeTransitionPhase,
+  WorktreeTransitionRecord,
+} from './types';
+
+export type WorktreeInputSettlement =
+  | {
+      kind: 'phase';
+      expected: WorktreeTransitionPhase;
+      next: 'active' | 'cleared';
+      lastError?: string | null;
+    }
+  | {
+      kind: 'seal';
+      expected: 'cleanup_pending';
+      lastError: string;
+    };
 
 export function toAgentCwdTransition(
   record: WorktreeTransitionRecord,
@@ -31,9 +47,23 @@ export function toAgentCwdTransition(
 export async function replayAbortedTransitionInputs(
   record: WorktreeTransitionRecord,
   adapter: AgentAdapter,
+  settlement: WorktreeInputSettlement,
+): Promise<WorktreeTransitionRecord> {
+  return settleTransitionInputs(
+    record,
+    adapter,
+    settlement,
+    'abort',
+  );
+}
+
+async function replayTransitionInputBatch(
+  record: WorktreeTransitionRecord,
+  adapter: AgentAdapter,
+  idempotencyKind: 'abort' | 'input',
 ): Promise<void> {
   if (!adapter.enqueueMessage) {
-    throw new Error(`${adapter.id} cannot replay aborted transition input.`);
+    throw new Error(`${adapter.id} cannot replay transition-buffered input.`);
   }
   for (const input of worktreeTransitionInputRepo.listPending(
     record.sessionId,
@@ -47,7 +77,7 @@ export async function replayAbortedTransitionInputs(
         bypassQueueLimit: true,
         userEventAlreadyPersisted: true,
         bypassWorktreeTransitionGuard: true,
-        idempotencyKey: `${record.continuationKey}:abort:${input.sequence}`,
+        idempotencyKey: `${record.continuationKey}:${idempotencyKind}:${input.sequence}`,
       },
     );
     worktreeTransitionInputRepo.markDelivered(
@@ -59,12 +89,41 @@ export async function replayAbortedTransitionInputs(
   }
 }
 
+export async function settleTransitionInputs(
+  record: WorktreeTransitionRecord,
+  adapter: AgentAdapter,
+  settlement: WorktreeInputSettlement,
+  idempotencyKind: 'abort' | 'input',
+): Promise<WorktreeTransitionRecord> {
+  while (true) {
+    await replayTransitionInputBatch(record, adapter, idempotencyKind);
+    const result = settlement.kind === 'phase'
+      ? worktreeTransitionRepo.settleAfterInputDrain({
+          sessionId: record.sessionId,
+          generation: record.generation,
+          expected: settlement.expected,
+          next: settlement.next,
+          updatedAt: Date.now(),
+          lastError: settlement.lastError,
+        })
+      : worktreeTransitionRepo.sealInputAfterDrain({
+          sessionId: record.sessionId,
+          generation: record.generation,
+          expected: settlement.expected,
+          updatedAt: Date.now(),
+          lastError: settlement.lastError,
+        });
+    if (result.settled) return result.record;
+  }
+}
+
 export async function deliverTransitionWork(
   record: WorktreeTransitionRecord,
   adapter: AgentAdapter,
   transition: AgentCwdTransition,
   continuationAccepted: boolean,
-): Promise<void> {
+  settlement: WorktreeInputSettlement,
+): Promise<WorktreeTransitionRecord> {
   if (!record.continuationDelivered) {
     if (!continuationAccepted) {
       if (!adapter.enqueueCwdTransitionContinuation) {
@@ -84,31 +143,12 @@ export async function deliverTransitionWork(
       Date.now(),
     );
   }
-  if (!adapter.enqueueMessage) {
-    throw new Error(`${adapter.id} cannot replay transition-buffered input.`);
-  }
-  for (const input of worktreeTransitionInputRepo.listPending(
-    record.sessionId,
-    record.generation,
-  )) {
-    await adapter.enqueueMessage(
-      record.sessionId,
-      input.text,
-      input.attachments as UploadedAttachmentRef[],
-      {
-        bypassQueueLimit: true,
-        userEventAlreadyPersisted: true,
-        bypassWorktreeTransitionGuard: true,
-        idempotencyKey: `${record.continuationKey}:input:${input.sequence}`,
-      },
-    );
-    worktreeTransitionInputRepo.markDelivered(
-      record.sessionId,
-      record.generation,
-      input.sequence,
-      Date.now(),
-    );
-  }
+  return settleTransitionInputs(
+    record,
+    adapter,
+    settlement,
+    'input',
+  );
 }
 
 export async function compensateTransitionRuntime(

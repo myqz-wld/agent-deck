@@ -177,4 +177,32 @@ describe('GrokCwdTransitionController', () => {
     expect(live.disposed).toBe(true);
     expect(live.runtimeMutationInProgress).toBe(false);
   });
+
+  it('cancels and requeues an interjection still awaiting provider acceptance', () => {
+    const live = runtime();
+    const requestController = new AbortController();
+    const message = { id: 'message-1', text: 'in-flight correction' };
+    live.running = true;
+    live.submittingMessage = {
+      message,
+      status: 'submitting',
+      promptRequestIssued: true,
+      kind: 'interject',
+      requestController,
+    };
+    const harness = controllerFor(live, async () => true);
+
+    harness.controller.arm(transition());
+
+    expect(requestController.signal.aborted).toBe(true);
+    expect(live.submittingMessage).toBeNull();
+    expect(live.queue).toEqual([
+      expect.objectContaining({
+        id: 'message-1',
+        text: 'in-flight correction',
+        deferUserEventUntilTurnStart: true,
+      }),
+    ]);
+    expect(live.cwdTransitionGeneration).toBe(8);
+  });
 });

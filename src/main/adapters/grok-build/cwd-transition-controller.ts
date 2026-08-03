@@ -23,6 +23,19 @@ export class GrokCwdTransitionController {
         `Grok session ${transition.sessionId} already has cwd transition generation ${current}.`,
       );
     }
+    const submitting = runtime.submittingMessage;
+    if (
+      submitting?.kind === 'interject' &&
+      submitting.status !== 'cancelled'
+    ) {
+      submitting.status = 'cancelled';
+      submitting.requestController?.abort();
+      if (runtime.submittingMessage === submitting) {
+        runtime.submittingMessage = null;
+      }
+      submitting.message.deferUserEventUntilTurnStart = true;
+      runtime.queue.unshift(submitting.message);
+    }
     runtime.cwdTransitionGeneration = transition.generation;
   }
 

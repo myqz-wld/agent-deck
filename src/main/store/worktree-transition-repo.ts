@@ -22,6 +22,10 @@ import {
   WorktreeTransitionConflictError,
   type WorktreeTransitionRow,
 } from './worktree-transition-row';
+import {
+  sealWorktreeTransitionInputAfterDrainWithDb,
+  settleWorktreeTransitionAfterInputDrainWithDb,
+} from './worktree-transition-drain-repo';
 
 export { WorktreeTransitionConflictError } from './worktree-transition-row';
 export function createEnterWithDb(
@@ -383,6 +387,16 @@ export const worktreeTransitionRepo = {
   },
   compareAndSetPhase(input: Parameters<typeof compareAndSetPhaseWithDb>[1]) {
     return compareAndSetPhaseWithDb(getDb(), input);
+  },
+  settleAfterInputDrain(
+    input: Parameters<typeof settleWorktreeTransitionAfterInputDrainWithDb>[1],
+  ) {
+    return settleWorktreeTransitionAfterInputDrainWithDb(getDb(), input);
+  },
+  sealInputAfterDrain(
+    input: Parameters<typeof sealWorktreeTransitionInputAfterDrainWithDb>[1],
+  ) {
+    return sealWorktreeTransitionInputAfterDrainWithDb(getDb(), input);
   },
   markContinuationDelivered(
     sessionId: string,

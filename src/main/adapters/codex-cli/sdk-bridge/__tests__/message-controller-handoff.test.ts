@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import { MessageController } from '../message-controller';
 import { MAX_PENDING_MESSAGES } from '../constants';
 import type { InternalSession } from '../types';
@@ -187,6 +188,47 @@ describe('MessageController handoff rollback recovery', () => {
     })));
     expect(controller.listPendingOutgoingMessages(sessionId)).toEqual([]);
   });
+
+  it.each(['send', 'steer'] as const)(
+    'queues %s instead of steering after a worktree tool start is observed',
+    async (kind) => {
+      const sessionId = 'codex-worktree-preflight';
+      const session = internal(sessionId);
+      const steer = vi.fn(async () => undefined);
+      session.currentTurn = new AbortController();
+      session.currentTurnId = 'turn-1';
+      session.thread = { steer } as unknown as InternalSession['thread'];
+      const controller = new MessageController({
+        sessions: new Map([[sessionId, session]]),
+        emit: vi.fn(),
+        recoverAndSend: vi.fn(async () => undefined),
+        runTurnLoop: vi.fn(async () => undefined),
+      });
+      worktreeToolInvocationRegistry.observe({
+        sessionId,
+        agentId: 'codex-cli',
+        kind: 'tool-use-start',
+        payload: {
+          toolUseId: 'enter-tool',
+          toolName: 'mcp__agent-deck__enter_worktree',
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+
+      try {
+        if (kind === 'send') {
+          await controller.sendMessage(sessionId, 'arrived during preflight');
+        } else {
+          await controller.steerTurn(sessionId, 'arrived during preflight');
+        }
+        expect(steer).not.toHaveBeenCalled();
+        expect(session.pendingMessages).toEqual(['arrived during preflight']);
+      } finally {
+        worktreeToolInvocationRegistry.release(sessionId, 'enter-tool');
+      }
+    },
+  );
 
   it('cancels an active steer without interrupting the running turn', async () => {
     const sessionId = 'codex-cancel-steer';

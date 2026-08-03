@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 
 const guard = vi.hoisted(() => vi.fn());
 
@@ -59,4 +60,49 @@ describe('GrokMessageController handoff ingress', () => {
       true,
     );
   });
+
+  it.each(['send', 'steer'] as const)(
+    'forces %s into the queue while worktree preflight owns the turn',
+    async (kind) => {
+      const dispatch = vi.fn(async () => undefined);
+      const steer = vi.fn(async () => undefined);
+      const controller = new GrokMessageController({
+        emit: vi.fn(),
+        dispatch,
+        steer,
+      });
+      worktreeToolInvocationRegistry.observe({
+        sessionId: 'session-preflight',
+        agentId: 'grok-build',
+        kind: 'tool-use-start',
+        payload: {
+          toolUseId: 'enter-tool',
+          toolName: 'mcp__agent-deck__enter_worktree',
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+
+      try {
+        if (kind === 'send') {
+          await controller.sendMessage('session-preflight', 'hello');
+        } else {
+          await controller.steerTurn('session-preflight', 'hello');
+        }
+        expect(dispatch).toHaveBeenCalledWith(
+          'session-preflight',
+          'hello',
+          undefined,
+          undefined,
+          true,
+        );
+        expect(steer).not.toHaveBeenCalled();
+      } finally {
+        worktreeToolInvocationRegistry.release(
+          'session-preflight',
+          'enter-tool',
+        );
+      }
+    },
+  );
 });

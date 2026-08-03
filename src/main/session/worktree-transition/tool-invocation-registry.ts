@@ -88,6 +88,27 @@ export class WorktreeToolInvocationRegistry {
     return candidates[0]!.toolUseId;
   }
 
+  /** True from provider tool-start observation through transition settlement or rollback. */
+  hasPendingTransition(sessionId: string, now = Date.now()): boolean {
+    this.prune(now);
+    return [...this.registrations.values()].some(
+      (entry) => entry.sessionId === sessionId,
+    );
+  }
+
+  hasClaimedTransition(
+    sessionId: string,
+    generation: number,
+    now = Date.now(),
+  ): boolean {
+    this.prune(now);
+    return [...this.registrations.values()].some(
+      (entry) =>
+        entry.sessionId === sessionId &&
+        entry.claimedGeneration === generation,
+    );
+  }
+
   bindGeneration(
     sessionId: string,
     toolUseId: string,

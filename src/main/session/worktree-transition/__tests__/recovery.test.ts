@@ -106,6 +106,31 @@ vi.mock('@main/store/worktree-transition-repo', async (importOriginal) => {
         if (harness.record) harness.record.continuationDelivered = true;
         return true;
       },
+      settleAfterInputDrain: (input: {
+        next: WorktreeTransitionRecord['phase'];
+        lastError?: string | null;
+      }) => {
+        harness.record = {
+          ...harness.record!,
+          phase: input.next,
+          direction: input.next === 'active' ? 'enter' : harness.record!.direction,
+          targetCwd:
+            input.next === 'active'
+              ? harness.record!.worktreePath
+              : harness.record!.targetCwd,
+          toolUseId: null,
+          lastError: input.lastError ?? null,
+        };
+        return { settled: true, record: harness.record };
+      },
+      sealInputAfterDrain: (input: { lastError: string }) => {
+        harness.record = {
+          ...harness.record!,
+          toolUseId: null,
+          lastError: input.lastError,
+        };
+        return { settled: true, record: harness.record };
+      },
       setLastError: (
         _sessionId: string,
         _generation: number,

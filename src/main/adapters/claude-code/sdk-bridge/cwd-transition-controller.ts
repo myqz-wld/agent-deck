@@ -2,6 +2,7 @@ import type {
   AgentCwdTransition,
   AgentCwdTransitionSwitchResult,
 } from '@main/adapters/types';
+import { rememberAcceptedEnqueue } from '@main/adapters/enqueue-idempotency';
 import type {
   CapturedRecoveryContinuation,
   PreparedRecoveryContinuation,
@@ -34,6 +35,11 @@ interface ClaudeCwdTransitionContext {
   cleanup: (capture: CapturedRecoveryContinuation) => void;
 }
 
+interface ClaudeTransitionQueueState {
+  pending: InternalSession['pendingUserMessages'];
+  accepted: Map<string, string>;
+}
+
 export class ClaudeCwdTransitionController {
   constructor(private readonly context: ClaudeCwdTransitionContext) {}
 
@@ -62,6 +68,10 @@ export class ClaudeCwdTransitionController {
     }
     const record = sessionRepo.get(transition.sessionId);
     if (!record) throw new Error(`session ${transition.sessionId} not found`);
+    const queueState: ClaudeTransitionQueueState = {
+      pending: [...current.pendingUserMessages],
+      accepted: new Map(current.acceptedEnqueueFingerprints),
+    };
 
     const targetCapture = this.context.capture({
       session: record,
@@ -85,6 +95,7 @@ export class ClaudeCwdTransitionController {
           record,
           transition.targetCwd,
           target,
+          queueState,
         );
         return { continuationAccepted: true };
       } catch (targetError) {
@@ -99,6 +110,7 @@ export class ClaudeCwdTransitionController {
             record,
             transition.fromCwd,
             source,
+            queueState,
           );
         } catch (rollbackError) {
           throw new Error(
@@ -137,6 +149,7 @@ export class ClaudeCwdTransitionController {
     record: SessionRecord,
     cwd: string,
     prepared: PreparedRecoveryContinuation,
+    queueState: ClaudeTransitionQueueState,
   ): Promise<void> {
     await this.context.createSession({
       cwd,
@@ -161,6 +174,23 @@ export class ClaudeCwdTransitionController {
     });
     const replacement = this.requireSession(transition.sessionId);
     replacement.cwdTransitionGeneration = transition.generation;
+    const accepted = (replacement.acceptedEnqueueFingerprints ??= new Map());
+    const replacementAccepted = [...accepted];
+    accepted.clear();
+    for (const [key, fingerprint] of queueState.accepted) {
+      rememberAcceptedEnqueue(accepted, key, fingerprint);
+    }
+    for (const [key, fingerprint] of replacementAccepted) {
+      const existing = accepted.get(key);
+      if (existing !== undefined && existing !== fingerprint) {
+        throw new Error(
+          `Claude cwd transition enqueue key ${key} changed payload during runtime replacement.`,
+        );
+      }
+      accepted.delete(key);
+      rememberAcceptedEnqueue(accepted, key, fingerprint);
+    }
+    replacement.pendingUserMessages.push(...queueState.pending);
   }
 
   private requireArmed(transition: AgentCwdTransition): InternalSession {

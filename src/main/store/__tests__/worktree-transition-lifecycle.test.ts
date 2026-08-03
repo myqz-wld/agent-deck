@@ -3,11 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type BetterSqlite3 from 'better-sqlite3';
 import { CURRENT_SCHEMA_SQL } from '../schema';
 import {
+  beginExitPreflightWithDb,
   compareAndSetPhaseWithDb,
   createEnterWithDb,
+  markContinuationDeliveredWithDb,
   markEnterCreatedWithDb,
 } from '../worktree-transition-repo';
-import { appendWorktreeTransitionInputWithDb } from '../worktree-transition-input-repo';
+import {
+  appendWorktreeTransitionInputWithDb,
+  markWorktreeTransitionInputDeliveredWithDb,
+  WorktreeTransitionInputClosedError,
+} from '../worktree-transition-input-repo';
+import {
+  sealWorktreeTransitionInputAfterDrainWithDb,
+  settleWorktreeTransitionAfterInputDrainWithDb,
+} from '../worktree-transition-drain-repo';
 import { bindingAvailable } from './_binding-probe';
 
 let currentDb: BetterSqlite3.Database | null = null;
@@ -93,19 +103,26 @@ describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', ()
       requestedAt: 10,
     });
     markEnterCreatedWithDb(currentDb!, 'session-a', creating.generation, 11);
-    appendWorktreeTransitionInputWithDb(currentDb!, {
+    const input = appendWorktreeTransitionInputWithDb(currentDb!, {
       sessionId: 'session-a',
       generation: creating.generation,
       agentId: 'codex-cli',
       text: 'settled input',
       createdAt: 11,
     });
-    compareAndSetPhaseWithDb(currentDb!, {
+    markWorktreeTransitionInputDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      creating.generation,
+      input.sequence,
+      12,
+    );
+    settleWorktreeTransitionAfterInputDrainWithDb(currentDb!, {
       sessionId: 'session-a',
       generation: creating.generation,
       expected: 'enter_waiting_tool_result',
       next: 'cleared',
-      updatedAt: 12,
+      updatedAt: 13,
     });
 
     expect(() => assertWorktreeTransitionAllowsDelete('session-a')).not.toThrow();
@@ -126,5 +143,249 @@ describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', ()
         `SELECT COUNT(*) FROM worktree_cwd_transition_inputs WHERE session_id = ?`,
       ).pluck().get('session-a'),
     ).toBe(0);
+  });
+
+  it('atomically drains late inputs before sealing an acknowledged enter', () => {
+    insertClosedSession('session-a');
+    const created = createEnterWithDb(currentDb!, {
+      sessionId: 'session-a',
+      originalCwd: '/repo',
+      targetCwd: '/repo/.agent-deck/worktrees/task',
+      mainRepo: '/repo',
+      worktreePath: '/repo/.agent-deck/worktrees/task',
+      baseCommit: 'a'.repeat(40),
+      toolUseId: 'tool-enter',
+      continuationKey: 'cwd:test:enter',
+      requestedAt: 10,
+    });
+    markEnterCreatedWithDb(currentDb!, 'session-a', created.generation, 11);
+    compareAndSetPhaseWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'enter_waiting_tool_result',
+      next: 'interrupting_enter_turn',
+      updatedAt: 12,
+    });
+    compareAndSetPhaseWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'interrupting_enter_turn',
+      next: 'switching_to_worktree',
+      updatedAt: 13,
+    });
+    markContinuationDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      created.generation,
+      'cwd:test:enter',
+      14,
+    );
+    const first = appendWorktreeTransitionInputWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      agentId: 'codex-cli',
+      text: 'first',
+      createdAt: 15,
+    });
+    markWorktreeTransitionInputDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      created.generation,
+      first.sequence,
+      16,
+    );
+    const late = appendWorktreeTransitionInputWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      agentId: 'codex-cli',
+      text: 'late',
+      createdAt: 17,
+    });
+
+    expect(settleWorktreeTransitionAfterInputDrainWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'switching_to_worktree',
+      next: 'active',
+      updatedAt: 18,
+    })).toMatchObject({ settled: false });
+
+    markWorktreeTransitionInputDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      created.generation,
+      late.sequence,
+      19,
+    );
+    const settled = settleWorktreeTransitionAfterInputDrainWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'switching_to_worktree',
+      next: 'active',
+      updatedAt: 20,
+    });
+    expect(settled).toMatchObject({
+      settled: true,
+      record: { phase: 'active', toolUseId: null },
+    });
+    expect(() => appendWorktreeTransitionInputWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      agentId: 'codex-cli',
+      text: 'post-seal',
+      createdAt: 21,
+    })).toThrow(WorktreeTransitionInputClosedError);
+  });
+
+  it('can seal a failed enter at the original cwd without a success continuation', () => {
+    insertClosedSession('session-a');
+    const created = createEnterWithDb(currentDb!, {
+      sessionId: 'session-a',
+      originalCwd: '/repo',
+      targetCwd: '/repo/.agent-deck/worktrees/task',
+      mainRepo: '/repo',
+      worktreePath: '/repo/.agent-deck/worktrees/task',
+      baseCommit: 'a'.repeat(40),
+      toolUseId: 'tool-enter',
+      continuationKey: 'cwd:test:rollback',
+      requestedAt: 10,
+    });
+    markEnterCreatedWithDb(currentDb!, 'session-a', created.generation, 11);
+    compareAndSetPhaseWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'enter_waiting_tool_result',
+      next: 'interrupting_enter_turn',
+      updatedAt: 12,
+    });
+    compareAndSetPhaseWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'interrupting_enter_turn',
+      next: 'switching_to_worktree',
+      updatedAt: 13,
+    });
+
+    expect(settleWorktreeTransitionAfterInputDrainWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'switching_to_worktree',
+      next: 'cleared',
+      updatedAt: 14,
+      lastError: 'target switch failed',
+    })).toMatchObject({
+      settled: true,
+      record: {
+        phase: 'cleared',
+        toolUseId: null,
+        continuationDelivered: false,
+      },
+    });
+  });
+
+  it('keeps cleanup authority while atomically sealing failed-exit ingress', () => {
+    insertClosedSession('session-a');
+    const created = createEnterWithDb(currentDb!, {
+      sessionId: 'session-a',
+      originalCwd: '/repo',
+      targetCwd: '/repo/.agent-deck/worktrees/task',
+      mainRepo: '/repo',
+      worktreePath: '/repo/.agent-deck/worktrees/task',
+      baseCommit: 'a'.repeat(40),
+      toolUseId: 'tool-enter',
+      continuationKey: 'cwd:test:enter',
+      requestedAt: 10,
+    });
+    markEnterCreatedWithDb(currentDb!, 'session-a', created.generation, 11);
+    compareAndSetPhaseWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'enter_waiting_tool_result',
+      next: 'interrupting_enter_turn',
+      updatedAt: 12,
+    });
+    compareAndSetPhaseWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'interrupting_enter_turn',
+      next: 'switching_to_worktree',
+      updatedAt: 13,
+    });
+    markContinuationDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      created.generation,
+      'cwd:test:enter',
+      14,
+    );
+    settleWorktreeTransitionAfterInputDrainWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'switching_to_worktree',
+      next: 'active',
+      updatedAt: 15,
+    });
+    beginExitPreflightWithDb(currentDb!, 'session-a', created.generation, {
+      toolUseId: 'tool-exit',
+      continuationKey: 'cwd:test:exit',
+      discardChanges: false,
+      requestedAt: 16,
+    });
+    for (const [expected, next, updatedAt] of [
+      ['exit_preflight', 'exit_waiting_tool_result', 17],
+      ['exit_waiting_tool_result', 'interrupting_exit_turn', 18],
+      ['interrupting_exit_turn', 'restoring_original_cwd', 19],
+      ['restoring_original_cwd', 'cleanup_pending', 20],
+    ] as const) {
+      compareAndSetPhaseWithDb(currentDb!, {
+        sessionId: 'session-a',
+        generation: created.generation,
+        expected,
+        next,
+        updatedAt,
+      });
+    }
+    markContinuationDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      created.generation,
+      'cwd:test:exit',
+      21,
+    );
+    const pending = appendWorktreeTransitionInputWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      agentId: 'codex-cli',
+      text: 'during cleanup',
+      createdAt: 22,
+    });
+    expect(sealWorktreeTransitionInputAfterDrainWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'cleanup_pending',
+      updatedAt: 23,
+      lastError: 'cleanup failed',
+    })).toMatchObject({ settled: false });
+    markWorktreeTransitionInputDeliveredWithDb(
+      currentDb!,
+      'session-a',
+      created.generation,
+      pending.sequence,
+      24,
+    );
+    expect(sealWorktreeTransitionInputAfterDrainWithDb(currentDb!, {
+      sessionId: 'session-a',
+      generation: created.generation,
+      expected: 'cleanup_pending',
+      updatedAt: 25,
+      lastError: 'cleanup failed',
+    })).toMatchObject({
+      settled: true,
+      record: {
+        phase: 'cleanup_pending',
+        toolUseId: null,
+        lastError: 'cleanup failed',
+      },
+    });
   });
 });

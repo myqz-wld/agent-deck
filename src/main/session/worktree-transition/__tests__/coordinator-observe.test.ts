@@ -8,7 +8,7 @@ const harness = vi.hoisted(() => ({
   switchCwd: vi.fn(async () => ({ continuationAccepted: false })),
   release: vi.fn(),
   setCwd: vi.fn(),
-  deliver: vi.fn(async () => {}),
+  deliver: vi.fn(),
   compareAndSetPhase: vi.fn(),
   setLastError: vi.fn(),
   emitStatus: vi.fn(),
@@ -123,6 +123,20 @@ beforeEach(() => {
   harness.release.mockClear();
   harness.setCwd.mockClear();
   harness.deliver.mockClear();
+  harness.deliver.mockImplementation(async (...args: unknown[]) => {
+    const settlement = args[4] as {
+      kind: 'phase' | 'seal';
+      next?: WorktreeTransitionRecord['phase'];
+      lastError?: string | null;
+    };
+    harness.record = {
+      ...harness.record!,
+      ...(settlement.kind === 'phase' ? { phase: settlement.next! } : {}),
+      toolUseId: null,
+      lastError: settlement.lastError ?? null,
+    };
+    return harness.record;
+  });
   harness.compareAndSetPhase.mockReset();
   harness.compareAndSetPhase.mockImplementation((input) => {
     harness.record = {
