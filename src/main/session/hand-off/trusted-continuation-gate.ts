@@ -42,6 +42,7 @@ export interface SelectTrustedContinuationCandidateInput {
   rollbackRejectedCandidate: (sessionId: string) => Promise<void>;
   closeCandidateBestEffort: (sessionId: string) => Promise<void>;
   deadlineMs?: number;
+  /** Injectable monotonic clock for deterministic deadline tests. */
   now?: () => number;
 }
 
@@ -67,7 +68,7 @@ export async function selectTrustedContinuationCandidate(
     };
   }
 
-  const now = input.now ?? Date.now;
+  const now = input.now ?? (() => Math.floor(performance.now()));
   const deadlineAt = now() + (input.deadlineMs ?? HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS);
   const primary = await createBeforeDeadline(
     input, input.primaryTurn, deadlineAt, now, false,
