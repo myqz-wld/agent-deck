@@ -5,6 +5,7 @@ import {
 } from '@main/adapters/runtime-control-contracts';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { resolveCreateSessionModelOptions } from '@main/adapters/session-model-options';
+import { resolveCodexCapacityConfigFingerprintFromConfig } from '@main/adapters/codex-cli/app-server/runtime-identity';
 import type { CreateSessionOptions } from '@main/adapters/types';
 import { settingsStore } from '@main/store/settings-store';
 import { omitUndefined } from '@main/utils/optional-fields';
@@ -294,6 +295,14 @@ function resolveHandOffTargetInternal(
     sandbox,
     networkAccessEnabled,
     additionalDirectories,
+    ...(createOptions.agentId === 'codex-cli'
+      ? {
+          capacityConfigFingerprint:
+            resolveCodexCapacityConfigFingerprintFromConfig(
+              createOptions.codexConfigOverrides,
+            ),
+        }
+      : {}),
     trustedRuntimeIdentity,
   };
   const spec = frozenContextCapacity

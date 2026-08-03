@@ -10,6 +10,7 @@ import {
 import type { HandOffSourceCutoverResult } from '../source-precondition';
 import { HandOffCutoverCoordinator } from '../cutover-coordinator';
 import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
+import { TrustedContinuationStartupFailure } from '../trusted-continuation-gate';
 
 const source: SessionRecord = {
   id: 'source', agentId: 'claude-code', cwd: '/repo', title: 'source', source: 'sdk',
@@ -59,22 +60,27 @@ describe('executePreparedHandOff', () => {
     const closeSuccessor = vi.fn();
     const finalizeSource = vi.fn();
 
-    await expect(
-      executePreparedHandOff({
-        source,
-        sourcePrecondition,
-        sourcePreconditionCheck,
-        target,
-        turn,
-        createSuccessor: vi.fn(async () => {
-          throw new Error('Codex startup failed before thread.started');
-        }),
-        transferResources,
-        resourceTransferFailed: vi.fn(),
-        closeSuccessor,
-        finalizeSource,
+    const error = await executePreparedHandOff({
+      source,
+      sourcePrecondition,
+      sourcePreconditionCheck,
+      target,
+      turn,
+      createSuccessor: vi.fn(async () => {
+        throw new Error('Codex startup failed before thread.started');
       }),
-    ).rejects.toThrow(/Codex startup failed/);
+      transferResources,
+      resourceTransferFailed: vi.fn(),
+      closeSuccessor,
+      finalizeSource,
+    }).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(TrustedContinuationStartupFailure);
+    expect((error as Error).message).toContain('failed to start before yielding a stable session id');
+    expect((error as Error).message).not.toContain('Codex startup failed');
 
     expect(sourcePreconditionCheck).not.toHaveBeenCalled();
     expect(transferResources).not.toHaveBeenCalled();

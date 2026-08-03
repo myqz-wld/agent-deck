@@ -210,6 +210,45 @@ describe('SessionManager.ingest 时序', () => {
     expect(mockEvents).toHaveLength(0);
   });
 
+  it('drops an over-escaped runtime identity without throwing from context telemetry ingest', () => {
+    mockSessions.set('OVERSIZED_CONTEXT_IDENTITY', {
+      id: 'OVERSIZED_CONTEXT_IDENTITY',
+      agentId: 'codex-cli',
+      cwd: '/tmp',
+      title: 'oversized context identity',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    expect(() => sessionManager.ingest(makeEvent({
+      sessionId: 'OVERSIZED_CONTEXT_IDENTITY',
+      agentId: 'codex-cli',
+      source: 'sdk',
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 1_000,
+        windowTokens: 128_000,
+        capacitySource: 'runtime-usage',
+        runtimeIdentity: {
+          runtimeProvider: '\u0000'.repeat(700),
+          model: 'gpt-safe',
+        },
+      },
+      ts: 200,
+    }))).not.toThrow();
+
+    expect(mockSessions.get('OVERSIZED_CONTEXT_IDENTITY')?.contextUsage).toMatchObject({
+      usedTokens: 1_000,
+      windowTokens: 128_000,
+      runtimeIdentity: null,
+    });
+  });
+
   it('persists handoff-buffered user input without falsely starting source activity', () => {
     mockSessions.set('HANDOFF_BUFFERED_IDLE', {
       id: 'HANDOFF_BUFFERED_IDLE',

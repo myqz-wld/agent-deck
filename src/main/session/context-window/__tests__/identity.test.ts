@@ -75,4 +75,22 @@ describe('context runtime identity', () => {
       }),
     ).toEqual({ status: 'unavailable', reason: 'unresolved-model-alias' });
   });
+
+  it('rejects identities whose escaped runtime key cannot satisfy the durable schema bound', () => {
+    expect(
+      resolveContextRuntimeIdentity({
+        adapter: 'codex-cli',
+        runtimeProvider: '\u0000'.repeat(700),
+        model: 'gpt-safe',
+      }),
+    ).toEqual({ status: 'unavailable', reason: 'invalid-runtime-identity' });
+
+    expect(
+      resolveContextRuntimeIdentity({
+        adapter: 'codex-cli',
+        runtimeProvider: 'openai',
+        model: 'x'.repeat(1_025),
+      }),
+    ).toEqual({ status: 'unavailable', reason: 'invalid-runtime-identity' });
+  });
 });

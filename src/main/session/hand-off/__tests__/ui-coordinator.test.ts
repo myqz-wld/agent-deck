@@ -13,6 +13,7 @@ import type {
 } from '../../continuation-context/types';
 import { observedContextCapacity } from '../../continuation-context/__tests__/capacity-fixtures';
 import { HandOffExecutionError } from '../executor';
+import { TrustedContinuationStartupFailure } from '../trusted-continuation-gate';
 import { HandOffCutoverCoordinator } from '../cutover-coordinator';
 import type { HandOffSourceCutoverResult } from '../source-precondition';
 import type { ResolvedHandOffTarget } from '../target-resolver';
@@ -715,13 +716,14 @@ describe('UiHandOffCoordinator', () => {
   it('allows exactly one same-snapshot retry after a pre-spawn failure', async () => {
     const harness = createHarness();
     const preparation = await harness.prepareOne();
+    const firstFailure = new TrustedContinuationStartupFailure();
     harness.execute
-      .mockRejectedValueOnce(new Error('spawn failed before creation'))
+      .mockRejectedValueOnce(firstFailure)
       .mockRejectedValueOnce(new Error('retry also failed before creation'));
 
     await expect(
       harness.coordinator.commit(OWNER, preparation.preparationId),
-    ).rejects.toThrow('spawn failed before creation');
+    ).rejects.toBe(firstFailure);
     expect(harness.cache.size).toBe(1);
     expect(harness.cleanupSpool).not.toHaveBeenCalled();
     const replay = vi.fn(async () => undefined);

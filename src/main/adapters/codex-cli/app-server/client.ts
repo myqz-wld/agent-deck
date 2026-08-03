@@ -223,6 +223,7 @@ export class CodexAppServerClient {
     return () => this.notificationListeners.delete(listener);
   }
 
+  hasExclusiveNotificationSubscriber(): boolean { return this.notificationListeners.size === 1; }
   /**
    * Install the host callback for app-server initiated requests. Codex uses these requests for
    * native command, file-change, and expanded permission approvals.

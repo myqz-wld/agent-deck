@@ -33,6 +33,14 @@ export class TrustedContinuationGateFailure extends Error {
   }
 }
 
+/** Safe pre-spawn failure: no stable id exists, so UI may retain its one-shot retry lease. */
+export class TrustedContinuationStartupFailure extends Error {
+  constructor() {
+    super('Trusted continuation successor failed to start before yielding a stable session id');
+    this.name = 'TrustedContinuationStartupFailure';
+  }
+}
+
 export interface SelectTrustedContinuationCandidateInput {
   capacityStatus: 'observed' | 'stale' | 'unknown';
   primaryTurn: TrustedContinuationInitialTurn;
@@ -71,7 +79,7 @@ export async function selectTrustedContinuationCandidate(
 ): Promise<SelectedTrustedContinuationCandidate> {
   if (input.capacityStatus === 'observed') {
     return {
-      candidate: await input.createCandidate(input.primaryTurn),
+      candidate: await createPrimaryCandidate(input, input.primaryTurn),
       usedLowerBudgetRetry: false,
     };
   }
@@ -164,7 +172,7 @@ async function createBeforeDeadline(
   try {
     creation = input.createCandidate(turn);
   } catch (error) {
-    if (!usedLowerBudgetRetry) throw error;
+    if (!usedLowerBudgetRetry) throw primaryStartupFailure(error);
     throw retryStartupFailure(error);
   }
   try {
@@ -179,8 +187,27 @@ async function createBeforeDeadline(
       throw startupTimeoutFailure(usedLowerBudgetRetry);
     }
     if (usedLowerBudgetRetry) throw retryStartupFailure(error);
-    throw error;
+    throw primaryStartupFailure(error);
   }
+}
+
+async function createPrimaryCandidate(
+  input: SelectTrustedContinuationCandidateInput,
+  turn: TrustedContinuationInitialTurn,
+): Promise<TrustedContinuationSessionCandidate> {
+  try {
+    return await input.createCandidate(turn);
+  } catch (error) {
+    throw primaryStartupFailure(error);
+  }
+}
+
+function primaryStartupFailure(error: unknown): TrustedContinuationStartupFailure {
+  logger.warn(
+    '[handoff readiness] primary candidate creation rejected before a stable session id',
+    error,
+  );
+  return new TrustedContinuationStartupFailure();
 }
 
 function preCreationDeadlineFailure(): TrustedContinuationGateFailure {
