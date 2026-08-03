@@ -189,6 +189,24 @@ CREATE TABLE sessions (
   cli_session_id TEXT
 );
 
+CREATE TABLE context_window_observations (
+  runtime_key                    TEXT PRIMARY KEY NOT NULL CHECK(length(runtime_key) <= 4096),
+  identity_version               INTEGER NOT NULL CHECK(identity_version = 1),
+  adapter                        TEXT NOT NULL
+    CHECK(adapter IN ('claude-code', 'codex-cli', 'grok-build')),
+  runtime_provider               TEXT NOT NULL
+    CHECK(length(trim(runtime_provider)) BETWEEN 1 AND 1024),
+  model                          TEXT NOT NULL
+    CHECK(length(trim(model)) BETWEEN 1 AND 1024),
+  capacity_config_fingerprint    TEXT NOT NULL
+    CHECK(length(trim(capacity_config_fingerprint)) BETWEEN 1 AND 1024),
+  window_tokens                  INTEGER NOT NULL CHECK(window_tokens > 0),
+  source                         TEXT NOT NULL
+    CHECK(source IN ('effective-config', 'runtime-metadata', 'runtime-usage')),
+  observed_at                    INTEGER NOT NULL CHECK(observed_at >= 0),
+  origin_session_id              TEXT REFERENCES sessions(id) ON DELETE SET NULL
+);
+
 CREATE TABLE summaries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -518,6 +536,9 @@ CREATE INDEX idx_tasks_team_id
 
 CREATE INDEX idx_tasks_updated_at
   ON tasks(updated_at DESC);
+
+CREATE INDEX idx_context_window_observations_observed_at
+  ON context_window_observations(observed_at DESC);
 
 CREATE INDEX idx_team_members_active_session
   ON agent_deck_team_members(session_id, team_id) WHERE left_at IS NULL;
