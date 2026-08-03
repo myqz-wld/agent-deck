@@ -187,6 +187,10 @@ describe('Codex first-model-event watchdog', () => {
     const second = collectTurn(client);
 
     await vi.advanceTimersByTimeAsync(40);
+    client.emit(notify('thread/tokenUsage/updated', {
+      threadId: 'thread-1', turnId: 'turn-1',
+      tokenUsage: { modelContextWindow: 128_000 },
+    }));
     client.emit(notify('model/rerouted', {
       fromModel: 'gpt-1',
       toModel: 'gpt-rerouted',
@@ -206,7 +210,7 @@ describe('Codex first-model-event watchdog', () => {
     client.emit(completedTurn('thread-2', 'turn-2'));
 
     const [firstEvents, secondEvents] = await Promise.all([first, second]);
-    const firstUsage = firstEvents.find(
+    const firstUsages = firstEvents.filter(
       (event) => event.type === 'server.notification'
         && event.notification.method === 'thread/tokenUsage/updated',
     );
@@ -214,7 +218,11 @@ describe('Codex first-model-event watchdog', () => {
       (event) => event.type === 'server.notification'
         && event.notification.method === 'item/agentMessage/delta',
     );
-    expect(firstUsage).toMatchObject({ runtimeIdentity: null });
+    expect(firstUsages).toHaveLength(2);
+    expect(firstUsages[0]).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-1' },
+    });
+    expect(firstUsages[1]).toMatchObject({ runtimeIdentity: null });
     expect(secondActivity).toMatchObject({ runtimeIdentity: null });
     const output = await collectCodexTurnOutput(replay(firstEvents), undefined);
     expect(output.contextWindowEvidence).toBeNull();

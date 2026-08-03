@@ -1,3 +1,7 @@
+import type {
+  ContextRuntimeIdentityEvidence,
+  ContextWindowCapacityEvidence,
+} from '@shared/types';
 import {
   CodexAppServerTurnError,
   readTerminalError,
@@ -24,6 +28,12 @@ export async function collectCodexTurnOutput(
         terminalError.codexErrorInfo,
       );
     }
+    if (
+      contextWindowEvidence &&
+      !capacityEvidenceMatchesIdentity(contextWindowEvidence, event.runtimeIdentity)
+    ) {
+      contextWindowEvidence = null;
+    }
     const contextWindowTokens = readCodexContextWindowTokens(
       event.notification.params,
     );
@@ -45,4 +55,15 @@ export async function collectCodexTurnOutput(
     }
   }
   return { finalResponse: messages.join('\n'), contextWindowEvidence };
+}
+
+function capacityEvidenceMatchesIdentity(
+  evidence: ContextWindowCapacityEvidence,
+  identity: ContextRuntimeIdentityEvidence | null,
+): boolean {
+  return identity !== null &&
+    evidence.runtimeProvider === identity.runtimeProvider &&
+    evidence.model === identity.model &&
+    (evidence.capacityConfigFingerprint ?? null) ===
+      (identity.capacityConfigFingerprint ?? null);
 }
