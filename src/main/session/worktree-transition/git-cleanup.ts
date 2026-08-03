@@ -7,6 +7,7 @@ import {
 } from '@main/agent-deck-mcp/tools/handlers/_shared/default-impl-deps';
 import { getDb } from '@main/store/db';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
+import type { LifecycleState } from '@shared/types/session';
 import type { WorktreeTransitionRecord } from './types';
 import {
   assertWorktreeClean,
@@ -116,24 +117,79 @@ export async function preflightStructuredWorktreeExit(
   return { exists: true };
 }
 
+interface PersistedCwdReferences {
+  blocking: string[];
+  closed: Array<{ id: string; cwd: string }>;
+}
+
 async function persistedCwdReferences(
   normalizedWorktreePath: string,
-): Promise<string[]> {
-  const references: string[] = [];
+): Promise<PersistedCwdReferences> {
+  const result: PersistedCwdReferences = {
+    blocking: [],
+    closed: [],
+  };
   const rows = getDb()
-    .prepare(`SELECT id, cwd FROM sessions ORDER BY id`)
-    .all() as Array<{ id: string; cwd: string }>;
+    .prepare(`SELECT id, cwd, lifecycle FROM sessions ORDER BY id`)
+    .all() as Array<{
+      id: string;
+      cwd: string;
+      lifecycle: LifecycleState;
+    }>;
   for (const row of rows) {
     if (
-      isSameOrInsideWorktreePath(
+      !isSameOrInsideWorktreePath(
         normalizedPath(row.cwd),
         normalizedWorktreePath,
       )
     ) {
-      references.push(row.id);
+      continue;
+    }
+    if (row.lifecycle === 'closed') {
+      result.closed.push({ id: row.id, cwd: row.cwd });
+    } else {
+      result.blocking.push(row.id);
     }
   }
-  return references;
+  return result;
+}
+
+function releaseClosedPersistedCwdReferences(
+  references: PersistedCwdReferences['closed'],
+  record: WorktreeTransitionRecord,
+): void {
+  if (references.length === 0) return;
+  const db = getDb();
+  db.transaction(() => {
+    const update = db.prepare(
+      `UPDATE sessions
+          SET cwd = ?
+        WHERE id = ? AND cwd = ? AND lifecycle = 'closed'`,
+    );
+    const read = db.prepare(`SELECT cwd, lifecycle FROM sessions WHERE id = ?`);
+    for (const reference of references) {
+      const updated = update.run(
+        record.originalCwd,
+        reference.id,
+        reference.cwd,
+      );
+      if (updated.changes === 1) continue;
+      const current = read.get(reference.id) as
+        | { cwd: string; lifecycle: LifecycleState }
+        | undefined;
+      if (
+        current &&
+        isSameOrInsideWorktreePath(
+          normalizedPath(current.cwd),
+          normalizedPath(record.worktreePath),
+        )
+      ) {
+        throw new Error(
+          `closed session ${reference.id} changed while releasing its historical worktree cwd; cleanup is fail-closed.`,
+        );
+      }
+    }
+  })();
 }
 
 async function liveCwdReferences(
@@ -182,7 +238,7 @@ async function assertNoWorktreeReferences(
       );
     }
   }
-  const all = [...persisted, ...live, ...leases];
+  const all = [...persisted.blocking, ...live, ...leases];
   if (all.length > 0) {
     throw new Error(
       `worktree is still referenced by ${all.join(', ')}; cleanup is fail-closed.`,
@@ -199,6 +255,9 @@ async function assertNoWorktreeReferences(
       );
     }
   }
+  // Closed rows retain history but not cleanup ownership. Move their future
+  // recovery cwd to the restored repository only after runtime and lease fences pass.
+  releaseClosedPersistedCwdReferences(persisted.closed, record);
 }
 
 /** Restore-first cleanup. This performs the mandatory second dirty check immediately before rm. */

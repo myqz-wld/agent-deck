@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-03 | `REVIEW_213_closed-session-worktree-cleanup.md` | Closed-session worktree ownership | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-03 | `REVIEW_212_context-window-observation-unification.md` | Deep review of observed continuation capacity | 0 CRITICAL / 0 HIGH / all material findings fixed |
 | 2026-08-03 | `REVIEW_211_provider-token-accounting-and-rate-repair.md` | Provider token totals and tok/s | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
 | 2026-08-03 | `REVIEW_210_worktree-inflight-message-continuity.md` | Worktree in-flight message continuity | 0 CRITICAL / 3 HIGH fixed / 1 MEDIUM fixed |
