@@ -62,6 +62,52 @@ describe('collectCodexTurnOutput', () => {
     expect(result.contextWindowEvidence).toBeNull();
   });
 
+  it('discards earlier capacity evidence when runtime identity becomes ambiguous', async () => {
+    const result = await collectCodexTurnOutput(stream([
+      {
+        type: 'server.notification',
+        runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-old' },
+        notification: {
+          method: 'thread/tokenUsage/updated',
+          params: { tokenUsage: { modelContextWindow: 272_000 } },
+        },
+      },
+      {
+        type: 'server.notification',
+        runtimeIdentity: null,
+        notification: {
+          method: 'item/agentMessage/delta',
+          params: { delta: 'post-reroute output' },
+        },
+      },
+    ]), 10_000);
+
+    expect(result.contextWindowEvidence).toBeNull();
+  });
+
+  it('discards earlier capacity evidence when the exact runtime identity changes', async () => {
+    const result = await collectCodexTurnOutput(stream([
+      {
+        type: 'server.notification',
+        runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-old' },
+        notification: {
+          method: 'thread/tokenUsage/updated',
+          params: { tokenUsage: { modelContextWindow: 272_000 } },
+        },
+      },
+      {
+        type: 'server.notification',
+        runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-new' },
+        notification: {
+          method: 'item/agentMessage/delta',
+          params: { delta: 'post-reroute output' },
+        },
+      },
+    ]), 10_000);
+
+    expect(result.contextWindowEvidence).toBeNull();
+  });
+
   it('preserves structured context-window overflow metadata on terminal errors', async () => {
     const work = collectCodexTurnOutput(stream([{
       type: 'server.notification',

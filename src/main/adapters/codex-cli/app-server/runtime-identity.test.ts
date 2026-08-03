@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
+import type { CodexAppServerClient } from './client';
 import {
+  CodexRuntimeIdentityTracker,
   applyCodexRuntimeIdentityNotification,
   resolveCodexThreadRuntimeIdentity,
 } from './runtime-identity';
@@ -85,5 +87,87 @@ describe('Codex app-server runtime identity', () => {
       method: 'thread/settings/updated',
       params: { threadSettings: { model: 'missing-provider' } },
     })).toBeNull();
+  });
+
+  it('restores the previous identity when a settings request fails without intervening evidence', async () => {
+    const tracker = new CodexRuntimeIdentityTracker(null, options, {
+      thread: { id: 'thread-1' },
+      model: 'gpt-old',
+      modelProvider: 'openai',
+    });
+    const client = {
+      subscribe: vi.fn(() => vi.fn()),
+      request: vi.fn().mockRejectedValue(new Error('settings rejected')),
+    } as unknown as CodexAppServerClient;
+
+    await expect(tracker.updateModelSettings(
+      client, 'thread-1', options, 'gpt-new', null,
+    )).rejects.toThrow('settings rejected');
+
+    expect(tracker.snapshot()).toEqual({
+      runtimeProvider: 'openai',
+      model: 'gpt-old',
+    });
+  });
+
+  it('does not resurrect the previous identity after an ambiguous reroute', async () => {
+    const tracker = new CodexRuntimeIdentityTracker(null, options, {
+      thread: { id: 'thread-1' },
+      model: 'gpt-old',
+      modelProvider: 'openai',
+    });
+    const client = {
+      subscribe: vi.fn(() => vi.fn()),
+      request: vi.fn().mockImplementation(async () => {
+        tracker.observeUnscopedReroute({
+          method: 'model/rerouted',
+          params: { toModel: 'gpt-rerouted' },
+        }, false);
+        throw new Error('settings rejected');
+      }),
+    } as unknown as CodexAppServerClient;
+
+    await expect(tracker.updateModelSettings(
+      client, 'thread-1', options, 'gpt-new', null,
+    )).rejects.toThrow('settings rejected');
+
+    expect(tracker.snapshot()).toBeNull();
+  });
+
+  it('does not overwrite a newer invalidation when a settings request succeeds', async () => {
+    const tracker = new CodexRuntimeIdentityTracker(null, options, {
+      thread: { id: 'thread-1' },
+      model: 'gpt-old',
+      modelProvider: 'openai',
+    });
+    let settingsListener: ((notification: {
+      method: string;
+      params?: unknown;
+    }) => void) | null = null;
+    const client = {
+      subscribe: vi.fn((listener) => {
+        settingsListener = listener;
+        return vi.fn();
+      }),
+      request: vi.fn().mockImplementation(async () => {
+        settingsListener?.({
+          method: 'thread/settings/updated',
+          params: {
+            threadId: 'thread-1',
+            threadSettings: { model: 'gpt-new', modelProvider: 'openai' },
+          },
+        });
+        tracker.observeUnscopedReroute({
+          method: 'model/rerouted',
+          params: { toModel: 'gpt-rerouted' },
+        }, false);
+      }),
+    } as unknown as CodexAppServerClient;
+
+    await tracker.updateModelSettings(
+      client, 'thread-1', options, 'gpt-new', null,
+    );
+
+    expect(tracker.snapshot()).toBeNull();
   });
 });

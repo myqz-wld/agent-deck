@@ -8,6 +8,8 @@ import { buildThreadConfig } from './thread-params';
 
 export class CodexRuntimeIdentityTracker {
   private current: ContextRuntimeIdentityEvidence | null;
+  /** Advances even for null-to-null invalidation so stale async rollback cannot restore identity. */
+  private identityRevision = 0;
 
   constructor(
     private readonly baseConfig: CodexConfigObject | null,
@@ -24,11 +26,15 @@ export class CodexRuntimeIdentityTracker {
   }
 
   observeThreadBoundary(response: unknown, options: CodexThreadOptions): void {
-    this.current = resolveCodexThreadRuntimeIdentity(response, options, this.baseConfig);
+    this.commitIdentity(resolveCodexThreadRuntimeIdentity(response, options, this.baseConfig));
   }
 
   observeNotification(notification: CodexAppServerNotification): void {
-    this.current = applyCodexRuntimeIdentityNotification(this.current, notification);
+    if (
+      notification.method !== 'thread/settings/updated' &&
+      notification.method !== 'model/rerouted'
+    ) return;
+    this.commitIdentity(applyCodexRuntimeIdentityNotification(this.current, notification));
   }
 
   /** An unattributed reroute is exact only with one subscriber; ambiguity invalidates evidence. */
@@ -37,7 +43,7 @@ export class CodexRuntimeIdentityTracker {
     attributable: boolean,
   ): void {
     if (!attributable) {
-      this.current = null;
+      this.commitIdentity(null);
       return;
     }
     this.observeNotification(notification);
@@ -53,27 +59,40 @@ export class CodexRuntimeIdentityTracker {
     const previous = this.current;
     const fingerprint = resolveCodexCapacityConfigFingerprint(options, this.baseConfig);
     let observed: ContextRuntimeIdentityEvidence | null = null;
+    let settingsNotificationSeen = false;
     const unsubscribe = client.subscribe((notification) => {
       if (
         notification.method !== 'thread/settings/updated' ||
         getNotificationThreadId(notification) !== threadId
       ) return;
+      settingsNotificationSeen = true;
       observed = applyCodexRuntimeIdentityNotification(
         null,
         notification,
         fingerprint ?? undefined,
       );
     });
-    this.current = null;
+    const updateRevision = this.commitIdentity(null);
     try {
       await client.request('thread/settings/update', { threadId, model, effort });
     } catch (error) {
-      this.current = previous;
+      // Restore only our own provisional null; any later identity evidence or invalidation wins.
+      if (!settingsNotificationSeen && this.identityRevision === updateRevision) {
+        this.commitIdentity(previous);
+      }
       throw error;
     } finally {
       unsubscribe();
     }
-    this.current = observed;
+    if (this.identityRevision === updateRevision) {
+      this.commitIdentity(observed);
+    }
+  }
+
+  private commitIdentity(identity: ContextRuntimeIdentityEvidence | null): number {
+    this.current = identity;
+    this.identityRevision += 1;
+    return this.identityRevision;
   }
 }
 
