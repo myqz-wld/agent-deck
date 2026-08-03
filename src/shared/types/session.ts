@@ -4,6 +4,7 @@
 
 import type { SessionTeamMembership } from './agent-deck-team';
 import type { SessionThinkingLevel } from '../session-metadata';
+import type { ContextRuntimeIdentity } from './context-window';
 
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 /**
@@ -79,11 +80,15 @@ export interface SessionContextUsage {
   usedTokens: number | null;
   windowTokens: number | null;
   updatedAt: number;
+  /** Exact runtime that owns both token fields; null means provider attribution is unavailable. */
+  runtimeIdentity: ContextRuntimeIdentity | null;
 }
 /** Partial provider update; omitted fields preserve the last known snapshot value. */
 export interface SessionContextUsageUpdate {
   usedTokens?: number | null;
   windowTokens?: number | null;
+  /** Omitted preserves identity (for compaction); null explicitly starts an unattributed snapshot. */
+  runtimeIdentity?: ContextRuntimeIdentity | null;
 }
 /** Adapter-native work mode. Currently negotiated and implemented by Grok Build ACP. */
 export const ADAPTER_SESSION_MODES = ['default', 'plan', 'ask'] as const;

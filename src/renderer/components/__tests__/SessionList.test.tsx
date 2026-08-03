@@ -54,6 +54,7 @@ describe('SessionList metadata', () => {
         usedTokens: 34_567,
         windowTokens: 272_000,
         updatedAt: 10,
+        runtimeIdentity: null,
       },
     });
     const compacting = makeSession('compacting', {
@@ -62,6 +63,7 @@ describe('SessionList metadata', () => {
         usedTokens: null,
         windowTokens: 200_000,
         updatedAt: 20,
+        runtimeIdentity: null,
       },
     });
     useSessionStore.setState({
@@ -88,6 +90,7 @@ describe('SessionList metadata', () => {
           usedTokens: null,
           windowTokens: 272_000,
           updatedAt: 30,
+          runtimeIdentity: null,
         },
       });
     });

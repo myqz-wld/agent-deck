@@ -9,7 +9,12 @@ describe('SessionContextUsageChip', () => {
   it('shows current usage, window size, percentage, and exact values', () => {
     render(
       <SessionContextUsageChip
-        usage={{ usedTokens: 34_567, windowTokens: 272_000, updatedAt: 1 }}
+        usage={{
+          usedTokens: 34_567,
+          windowTokens: 272_000,
+          updatedAt: 1,
+          runtimeIdentity: null,
+        }}
       />,
     );
     const chip = screen.getByLabelText('上下文窗口用量');
@@ -20,7 +25,12 @@ describe('SessionContextUsageChip', () => {
   it('marks post-compaction usage as updating while retaining the window size', () => {
     render(
       <SessionContextUsageChip
-        usage={{ usedTokens: null, windowTokens: 200_000, updatedAt: 2 }}
+        usage={{
+          usedTokens: null,
+          windowTokens: 200_000,
+          updatedAt: 2,
+          runtimeIdentity: null,
+        }}
       />,
     );
     const chip = screen.getByLabelText('上下文窗口用量');

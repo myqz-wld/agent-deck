@@ -46,7 +46,17 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     // ─── core CRUD ───
     get: (id: string) => sessions.get(id) ?? null,
     upsert: (rec: SessionRecord) => {
-      sessions.set(rec.id, rec);
+      const current = sessions.get(rec.id);
+      const runtimeChanged =
+        current !== undefined &&
+        ((current.runtimeProvider ?? null) !== (rec.runtimeProvider ?? null) ||
+          (current.model ?? null) !== (rec.model ?? null));
+      sessions.set(rec.id, {
+        ...rec,
+        contextUsage: runtimeChanged
+          ? null
+          : rec.contextUsage ?? current?.contextUsage ?? null,
+      });
     },
     delete: (id: string) => {
       sessions.delete(id);
@@ -153,6 +163,16 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       return updated;
     },
     setPermissionMode: vi.fn(),
+    setRuntimeProvider: (id: string, provider: string | null) => {
+      const r = sessions.get(id);
+      if (!r) return;
+      sessions.set(id, {
+        ...r,
+        runtimeProvider: provider,
+        contextUsage:
+          (r.runtimeProvider ?? null) === provider ? r.contextUsage : null,
+      });
+    },
     setTitle: (id: string, title: string) => {
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, title });
@@ -160,7 +180,15 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     setCodexSandbox: vi.fn(),
     setCodexApprovalPolicy: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
-    setModel: vi.fn(),
+    setModel: (id: string, model: string | null) => {
+      const r = sessions.get(id);
+      if (!r) return;
+      sessions.set(id, {
+        ...r,
+        model,
+        contextUsage: (r.model ?? null) === model ? r.contextUsage : null,
+      });
+    },
     setThinking: vi.fn(),
     setAgentRuntimeProfile: vi.fn(),
     // R3 reviewer-claude LOW 修法:与 setClaudeCodeSandbox / setModel 同款 vi.fn 桩
@@ -178,16 +206,28 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     ) => {
       const record = sessions.get(id);
       if (!record) return null;
+      const current = record.contextUsage ?? null;
+      if (current && current.updatedAt > updatedAt) return current;
+      const nextIdentity =
+        update.runtimeIdentity === undefined
+          ? current?.runtimeIdentity ?? null
+          : update.runtimeIdentity;
+      const identityChanged =
+        update.runtimeIdentity !== undefined &&
+        (current?.runtimeIdentity?.runtimeKey ?? null) !==
+          (nextIdentity?.runtimeKey ?? null);
+      const base = identityChanged ? null : current;
       const contextUsage = {
         usedTokens:
           update.usedTokens !== undefined
             ? update.usedTokens
-            : record.contextUsage?.usedTokens ?? null,
+            : base?.usedTokens ?? null,
         windowTokens:
           update.windowTokens !== undefined
             ? update.windowTokens
-            : record.contextUsage?.windowTokens ?? null,
+            : base?.windowTokens ?? null,
         updatedAt,
+        runtimeIdentity: nextIdentity,
       };
       sessions.set(id, { ...record, contextUsage });
       return contextUsage;

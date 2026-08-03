@@ -15,10 +15,12 @@ import {
   persistEventRow,
   persistFileChange,
   advanceState,
-  persistContextUsage,
-  resetContextUsageForCompaction,
   persistTokenUsage,
 } from './manager-ingest-pipeline';
+import {
+  persistContextUsage,
+  resetContextUsageForCompaction,
+} from './context-window/ingest';
 import {
   type SessionManagerInternalState,
   type UpsertOptions,

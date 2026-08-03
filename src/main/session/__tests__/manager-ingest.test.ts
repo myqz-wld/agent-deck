@@ -123,6 +123,7 @@ describe('SessionManager.ingest 时序', () => {
       usedTokens: 80_000,
       windowTokens: 200_000,
       updatedAt: 200,
+      runtimeIdentity: null,
     });
     expect(mockEvents).toHaveLength(0);
 
@@ -137,10 +138,76 @@ describe('SessionManager.ingest 时序', () => {
       usedTokens: null,
       windowTokens: 200_000,
       updatedAt: 300,
+      runtimeIdentity: null,
     });
     expect(mockEvents.map((event) => event.kind)).toEqual([
       'context-compaction-start',
     ]);
+  });
+
+  it('binds partial context telemetry to one exact runtime and resets on identity change', () => {
+    mockSessions.set('IDENTITY_CONTEXT_SESSION', {
+      id: 'IDENTITY_CONTEXT_SESSION',
+      agentId: 'codex-cli',
+      runtimeProvider: 'openai',
+      model: 'gpt-a',
+      cwd: '/tmp',
+      title: 'identity context session',
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      startedAt: 0,
+      lastEventAt: 100,
+      endedAt: null,
+      archivedAt: null,
+    });
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'IDENTITY_CONTEXT_SESSION',
+      agentId: 'codex-cli',
+      source: 'sdk',
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 40_000,
+        windowTokens: 128_000,
+        capacitySource: 'runtime-usage',
+        runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-a' },
+      },
+      ts: 200,
+    }));
+    const first = mockSessions.get('IDENTITY_CONTEXT_SESSION')?.contextUsage;
+    expect(first).toMatchObject({
+      usedTokens: 40_000,
+      windowTokens: 128_000,
+      runtimeIdentity: {
+        adapter: 'codex-cli',
+        runtimeProvider: 'openai',
+        model: 'gpt-a',
+      },
+    });
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'IDENTITY_CONTEXT_SESSION',
+      agentId: 'codex-cli',
+      source: 'sdk',
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 1_000,
+        runtimeIdentity: { runtimeProvider: 'azure', model: 'gpt-b' },
+      },
+      ts: 300,
+    }));
+    expect(mockSessions.get('IDENTITY_CONTEXT_SESSION')?.contextUsage).toMatchObject({
+      usedTokens: 1_000,
+      windowTokens: null,
+      updatedAt: 300,
+      runtimeIdentity: {
+        adapter: 'codex-cli',
+        runtimeProvider: 'azure',
+        model: 'gpt-b',
+      },
+    });
+    expect(mockEvents).toHaveLength(0);
   });
 
   it('persists handoff-buffered user input without falsely starting source activity', () => {
