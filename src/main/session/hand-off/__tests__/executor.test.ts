@@ -82,6 +82,52 @@ describe('executePreparedHandOff', () => {
     expect(finalizeSource).not.toHaveBeenCalled();
   });
 
+  it('normalizes a pending startup deadline as a terminal execution failure', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveCreation!: (value: TrustedContinuationSessionCandidate) => void;
+      const creation = new Promise<TrustedContinuationSessionCandidate>((resolve) => {
+        resolveCreation = resolve;
+      });
+      const closeSuccessor = vi.fn(async () => undefined);
+      const transferResources = vi.fn();
+      const work = executePreparedHandOff({
+        source,
+        sourcePrecondition,
+        sourcePreconditionCheck: vi.fn(),
+        target,
+        turn,
+        trustedContinuationReadiness: {
+          capacityStatus: 'unknown',
+          lowerBudgetRetryTurn: null,
+          deadlineMs: 25,
+        },
+        createSuccessor: vi.fn(() => creation),
+        transferResources,
+        resourceTransferFailed: vi.fn(),
+        closeSuccessor,
+        finalizeSource: vi.fn(),
+      });
+      const assertion = expect(work).rejects.toMatchObject({
+        name: 'HandOffExecutionError',
+        stage: 'cutover',
+        successorSessionId: null,
+        successorCleanup: 'pending',
+        cutoverReason: 'target-startup-timeout',
+        usedLowerBudgetRetry: false,
+      });
+
+      await vi.advanceTimersByTimeAsync(25);
+      await assertion;
+      expect(transferResources).not.toHaveBeenCalled();
+
+      resolveCreation(acceptedCandidate('late-successor'));
+      await vi.waitFor(() => expect(closeSuccessor).toHaveBeenCalledWith('late-successor'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps source scans, late delivery, and transfer behind unknown-target model activity', async () => {
     const pending = deferredCandidate('gated-successor');
     const sourcePreconditionCheck = vi.fn(matchingSource);

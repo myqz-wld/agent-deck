@@ -21,6 +21,7 @@ import {
   type AdapterSessionMode,
   type ContextRuntimeIdentity,
   type ContextRuntimeIdentityResolution,
+  type ResolvedContextCapacity,
   type SessionAdapterId,
 } from '@shared/types';
 import type { ResolvedContinuationGenerator, ResolvedSuccessorSpec } from './types';
@@ -229,17 +230,27 @@ export function resolveContinuationTargetSnapshot(
   input: ResolveContinuationTargetInput,
   dependencies: ContinuationCapacityResolutionDependencies = {},
 ): ResolvedSuccessorSpec {
+  return resolveContinuationTargetFromFrozenCapacity(
+    input,
+    resolveFrozenCapacity(
+      resolveContinuationRuntimeIdentity({
+        adapter: input.adapter,
+        provider: input.provider,
+        model: input.model,
+        trustedRuntimeIdentity: input.trustedRuntimeIdentity,
+      }),
+      dependencies,
+    ),
+  );
+}
+
+/** Rebuild runtime/create fingerprints without consulting mutable capacity evidence. */
+export function resolveContinuationTargetFromFrozenCapacity(
+  input: ResolveContinuationTargetInput,
+  contextCapacity: ResolvedContextCapacity,
+): ResolvedSuccessorSpec {
   const thinking = targetThinking(input.adapter, input.thinking);
   const additionalDirectories = [...input.additionalDirectories];
-  const contextCapacity = resolveFrozenCapacity(
-    resolveContinuationRuntimeIdentity({
-      adapter: input.adapter,
-      provider: input.provider,
-      model: input.model,
-      trustedRuntimeIdentity: input.trustedRuntimeIdentity,
-    }),
-    dependencies,
-  );
   const runtime = {
     version: 2,
     sourceRuntimeFingerprint: input.sourceRuntimeFingerprint ?? null,

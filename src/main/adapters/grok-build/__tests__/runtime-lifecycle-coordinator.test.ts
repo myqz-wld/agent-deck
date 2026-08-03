@@ -5,6 +5,7 @@ import { createGrokTranslationState } from '../translate';
 import { GrokRuntimeLifecycleCoordinator } from '../runtime-lifecycle-coordinator';
 import { sessionManager } from '@main/session/manager';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
 vi.mock('@main/session/manager', () => ({
   sessionManager: { releaseSdkClaim: vi.fn() },
@@ -97,6 +98,19 @@ describe('Grok runtime lifecycle coordinator', () => {
     expect(h.target.runtimeIdentity).toBeNull();
     expect(mcpSessionTokenMap.release).toHaveBeenCalledWith('child');
     expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('child');
+  });
+
+  it('rejects unsettled trusted readiness when rollback closes the runtime', async () => {
+    const h = harness();
+    const acceptance = new TrustedContinuationAcceptanceController();
+    h.target.trustedContinuationAcceptance = acceptance;
+
+    await h.coordinator.closeForRollback('child');
+
+    await expect(acceptance.acceptance).resolves.toEqual({
+      status: 'rejected', reason: 'provider-error',
+    });
+    expect(h.target.trustedContinuationAcceptance).toBeUndefined();
   });
 
   it('rejects stop failure while retaining the process and runtime for retry', async () => {

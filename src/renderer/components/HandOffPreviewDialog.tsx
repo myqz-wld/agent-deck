@@ -152,7 +152,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     if (
       prepareInFlight.current ||
       !instruction.trim() ||
-      executionFailure?.successorCleanup === 'failed'
+      (executionFailure && executionFailure.successorCleanup !== 'ok')
     ) {
       return;
     }
@@ -212,7 +212,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       if (sequence !== requestSequence.current) {
         if (
           response.status === 'execution-error'
-          && response.successorCleanup === 'failed'
+          && response.successorCleanup !== 'ok'
         ) {
           pendingOrphanAcknowledgements.set(sessionId, response);
         }
@@ -221,7 +221,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       preparationId.current = null;
       setPreparation(null);
       if (response.status === 'execution-error') {
-        if (response.successorCleanup === 'failed') {
+        if (response.successorCleanup !== 'ok') {
           pendingOrphanAcknowledgements.set(sessionId, response);
         }
         setExecutionFailure(response);
@@ -371,7 +371,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             disabled={
               busy ||
               !instruction.trim() ||
-              executionFailure?.successorCleanup === 'failed'
+              (executionFailure !== null && executionFailure.successorCleanup !== 'ok')
             }
             className="self-start rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
@@ -424,7 +424,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               {executionFailure.usedLowerBudgetRetry && (
                 <div>本次已采用较小范围的续接上下文重试。</div>
               )}
-              {executionFailure.successorCleanup === 'failed' && (
+              {executionFailure.successorCleanup !== 'ok' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -433,7 +433,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                   }}
                   className="rounded border border-status-error/40 px-2 py-1 text-[10px] hover:bg-status-error/10"
                 >
-                  我已关闭该会话，允许重新生成
+                  我已检查会话列表，允许重新生成
                 </button>
               )}
             </div>

@@ -5,6 +5,7 @@ import {
   GrokFirstModelEventTimeoutError,
   GrokFirstModelEventWatchdog,
   isGrokModelActivity,
+  isGrokTrustedContinuationModelActivity,
 } from '../first-model-event-watchdog';
 import type { GrokRuntime } from '../runtime-types';
 import { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
@@ -29,6 +30,28 @@ describe('Grok first-model-event watchdog', () => {
     expect(isGrokModelActivity(update('agent_thought_chunk'))).toBe(true);
     expect(isGrokModelActivity(update('agent_message_chunk'))).toBe(true);
     expect(isGrokModelActivity(update('tool_call'))).toBe(true);
+  });
+
+  it('uses only positive model evidence for trusted continuation readiness', () => {
+    for (const kind of [
+      'agent_message_chunk',
+      'agent_thought_chunk',
+      'tool_call',
+      'tool_call_update',
+      'plan',
+      'plan_update',
+      'plan_removed',
+    ] as const) {
+      expect(isGrokTrustedContinuationModelActivity(update(kind))).toBe(true);
+    }
+    for (const kind of [
+      'usage_update',
+      'user_message_chunk',
+      'config_option_update',
+      'session_info_update',
+    ] as const) {
+      expect(isGrokTrustedContinuationModelActivity(update(kind))).toBe(false);
+    }
   });
 
   it('rejects a prompt that never produces model activity', async () => {
@@ -92,6 +115,10 @@ describe('Grok first-model-event watchdog', () => {
     }));
 
     watchdog.observe(candidate, update('user_message_chunk'));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    watchdog.observe(candidate, update('usage_update'));
     await Promise.resolve();
     expect(settled).toBe(false);
 

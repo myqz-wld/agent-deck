@@ -165,7 +165,8 @@ export async function prepareContinuationCandidatesWithDependencies(
       continuationInstruction: input.continuationInstruction,
       fixedWrapperTokens: wrapperTokens,
     });
-    const retryBudgets = targetNeedsLowerBudgetRetry(input.target.contextCapacity)
+    const retryBudgets = input.purpose === 'handoff' &&
+      targetNeedsLowerBudgetRetry(input.target.contextCapacity)
       ? resolveContinuationBudgets({
           rawRetentionCeilingTokens: input.limits.rawRetentionCeilingTokens,
           targetCapacity: input.target.contextCapacity,

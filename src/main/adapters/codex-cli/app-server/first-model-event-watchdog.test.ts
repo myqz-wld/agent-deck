@@ -4,6 +4,7 @@ import log from '@main/utils/logger';
 import {
   firstModelEventTimeoutMessage,
   isCodexModelActivity,
+  isCodexTrustedContinuationModelActivity,
 } from './first-model-event-watchdog';
 import type {
   CodexAppServerNotification,
@@ -59,6 +60,30 @@ describe('Codex first-model-event watchdog', () => {
       notify('item/completed', { item: { type: 'user_message' } }),
     ]) {
       expect(isCodexModelActivity(notification)).toBe(false);
+    }
+  });
+
+  it('uses a fail-closed positive activity allowlist for trusted continuations', () => {
+    for (const notification of [
+      notify('item/agentMessage/delta'),
+      notify('item/reasoning/summaryTextDelta'),
+      notify('item/started', { item: { type: 'commandExecution' } }),
+      notify('item/completed', { item: { type: 'mcpToolCall' } }),
+      notify('rawResponseItem/completed'),
+      notify('turn/plan/updated'),
+    ]) {
+      expect(isCodexTrustedContinuationModelActivity(notification)).toBe(true);
+    }
+
+    for (const notification of [
+      notify('thread/tokenUsage/updated', { tokenUsage: { last: {} } }),
+      notify('item/started', { item: { type: 'hookPrompt' } }),
+      notify('item/started', { item: { type: 'contextCompaction' } }),
+      notify('item/completed', { item: { type: 'enteredReviewMode' } }),
+      notify('item/started', { item: { type: 'futureLifecycleItem' } }),
+      notify('turn/completed', { turn: { status: 'completed' } }),
+    ]) {
+      expect(isCodexTrustedContinuationModelActivity(notification)).toBe(false);
     }
   });
 
@@ -246,6 +271,42 @@ describe('Codex first-model-event watchdog', () => {
     expect(client.recycles).toHaveLength(1);
     expect(events.map(eventName)).not.toContain('server.notification:item/agentMessage/delta');
     expect(events.map(eventName).at(-1)).toBe('server.notification:error');
+  });
+
+  it('applies a turn-id-less model reroute before attributing later turn activity', async () => {
+    vi.useFakeTimers();
+    class RerouteClient extends ScriptedClient {
+      override request<T = unknown>(method: string, params: unknown): Promise<T> {
+        if (method === 'thread/start') {
+          return Promise.resolve({
+            thread: { id: 'thread-1' },
+            model: 'gpt-old',
+            modelProvider: 'openai',
+          } as T);
+        }
+        return super.request(method, params);
+      }
+    }
+    const client = new RerouteClient(50, (current) => {
+      setTimeout(() => {
+        current.emit(notify('model/rerouted', { toModel: 'gpt-new' }));
+        current.emit(notify('item/agentMessage/delta', {
+          threadId: 'thread-1', turnId: 'turn-1', delta: 'model output',
+        }));
+        current.emit(completedTurn());
+      }, 10);
+    });
+
+    const work = collectTurn(client);
+    await vi.advanceTimersByTimeAsync(10);
+    const events = await work;
+    const activity = events.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'item/agentMessage/delta',
+    );
+    expect(activity).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-new' },
+    });
   });
 
   it('drops prior-turn packets after the response accepts a new turn id', async () => {

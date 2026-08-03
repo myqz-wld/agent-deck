@@ -71,6 +71,31 @@ describe('session handoff IPC response serialization', () => {
     });
   });
 
+  it('serializes a startup deadline without fabricating a successor identity', async () => {
+    const executionError = new HandOffExecutionError(
+      'startup deadline expired',
+      'cutover',
+      null,
+      'pending',
+      null,
+      null,
+      'target-startup-timeout',
+      true,
+    );
+
+    await expect(
+      serializeSessionHandOffCommit(vi.fn().mockRejectedValue(executionError)),
+    ).resolves.toEqual({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'pending',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-startup-timeout',
+      message: 'startup deadline expired',
+    });
+  });
+
   it('keeps pre-spawn and unknown failures on the rejecting IPC path', async () => {
     const failure = new Error('provider create failed before a successor existed');
     await expect(

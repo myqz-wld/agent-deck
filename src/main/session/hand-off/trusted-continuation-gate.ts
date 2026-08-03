@@ -2,11 +2,16 @@ import type {
   TrustedContinuationAcceptance,
   TrustedContinuationSessionCandidate,
 } from '@main/adapters/trusted-continuation';
+import log from '@main/utils/logger';
 import type { TrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
 
 export const HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS = 90_000;
+const logger = log.scope('handoff-readiness');
+
+export type HandOffSuccessorCleanup = 'ok' | 'failed' | 'pending';
 
 export type HandOffTrustedContinuationFailureReason =
+  | 'target-startup-timeout'
   | 'target-acceptance-timeout'
   | 'target-context-rejected'
   | 'target-provider-rejected'
@@ -16,8 +21,8 @@ export type HandOffTrustedContinuationFailureReason =
 export class TrustedContinuationGateFailure extends Error {
   constructor(
     message: string,
-    readonly successorSessionId: string,
-    readonly successorCleanup: 'ok' | 'failed',
+    readonly successorSessionId: string | null,
+    readonly successorCleanup: HandOffSuccessorCleanup,
     readonly reason: HandOffTrustedContinuationFailureReason,
     readonly usedLowerBudgetRetry: boolean,
   ) {
@@ -63,7 +68,9 @@ export async function selectTrustedContinuationCandidate(
 
   const now = input.now ?? Date.now;
   const deadlineAt = now() + (input.deadlineMs ?? HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS);
-  const primary = await createBeforeDeadline(input, input.primaryTurn, deadlineAt, now);
+  const primary = await createBeforeDeadline(
+    input, input.primaryTurn, deadlineAt, now, false,
+  );
   const primaryAcceptance = await acceptanceBeforeDeadline(
     primary,
     input.closeCandidateBestEffort,
@@ -118,6 +125,7 @@ export async function selectTrustedContinuationCandidate(
     input.lowerBudgetRetryTurn,
     deadlineAt,
     now,
+    true,
   );
   const retryAcceptance = await acceptanceBeforeDeadline(
     retry,
@@ -139,20 +147,55 @@ async function createBeforeDeadline(
   turn: TrustedContinuationInitialTurn,
   deadlineAt: number,
   now: () => number,
+  usedLowerBudgetRetry: boolean,
 ): Promise<TrustedContinuationSessionCandidate> {
-  if (deadlineAt - now() <= 0) throw new ReadinessDeadlineError();
+  if (deadlineAt - now() <= 0) throw startupTimeoutFailure(usedLowerBudgetRetry);
   const creation = input.createCandidate(turn);
   try {
     return await beforeDeadline(creation, deadlineAt, now);
   } catch (error) {
     if (error instanceof ReadinessDeadlineError) {
-      void creation.then(
-        (late) => input.closeCandidateBestEffort(late.sessionId).catch(() => undefined),
-        () => undefined,
-      );
+      scheduleLateCandidateCleanup(creation, input.closeCandidateBestEffort);
+      throw startupTimeoutFailure(usedLowerBudgetRetry);
     }
     throw error;
   }
+}
+
+function startupTimeoutFailure(
+  usedLowerBudgetRetry: boolean,
+): TrustedContinuationGateFailure {
+  return new TrustedContinuationGateFailure(
+    'Trusted continuation startup exceeded the shared readiness deadline before a stable session id was available',
+    null,
+    'pending',
+    'target-startup-timeout',
+    usedLowerBudgetRetry,
+  );
+}
+
+function scheduleLateCandidateCleanup(
+  creation: Promise<TrustedContinuationSessionCandidate>,
+  close: (sessionId: string) => Promise<void>,
+): void {
+  void creation.then(
+    async (late) => {
+      try {
+        await close(late.sessionId);
+        logger.warn(
+          `[handoff readiness] late startup candidate cleanup session=${late.sessionId} cleanup=ok`,
+        );
+      } catch (error) {
+        logger.warn(
+          `[handoff readiness] late startup candidate cleanup session=${late.sessionId} cleanup=failed`,
+          error,
+        );
+      }
+    },
+    (error) => {
+      logger.warn('[handoff readiness] candidate creation rejected after startup deadline', error);
+    },
+  );
 }
 
 async function acceptanceBeforeDeadline(

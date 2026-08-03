@@ -21,7 +21,7 @@ export function persistContextUsage(event: AgentEvent): void {
   if (
     raw.usedTokens === null ||
     (typeof raw.usedTokens === 'number' &&
-      Number.isFinite(raw.usedTokens) &&
+      Number.isSafeInteger(raw.usedTokens) &&
       raw.usedTokens >= 0)
   ) {
     update.usedTokens =
@@ -30,7 +30,7 @@ export function persistContextUsage(event: AgentEvent): void {
   if (
     raw.windowTokens === null ||
     (typeof raw.windowTokens === 'number' &&
-      Number.isFinite(raw.windowTokens) &&
+      Number.isSafeInteger(raw.windowTokens) &&
       raw.windowTokens > 0)
   ) {
     update.windowTokens =

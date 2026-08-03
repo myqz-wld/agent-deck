@@ -131,7 +131,7 @@ describe.skipIf(!bindingAvailable)('recovery continuation coordinator', () => {
     cleanupRecoveryContinuation(capture);
   });
 
-  it('uses the shared recovery core with exact limits and returns a branded turn', async () => {
+  it('uses the shared recovery core with exact limits and ignores handoff-only retry rendering', async () => {
     const capture = captureRecoveryContinuation({ session: session() });
     const primary = prepared(capture.spoolId);
     const retry = {
@@ -170,8 +170,7 @@ describe.skipIf(!bindingAvailable)('recovery continuation coordinator', () => {
     expect(isTrustedContinuationInitialTurn(result.turn)).toBe(true);
     expect(result.turn.providerPrompt).toBe('trusted provider prompt');
     expect(result.turn.persistedUserText).toBe('continue now');
-    expect(result.lowerBudgetRetry?.prepared).toBe(retry);
-    expect(result.lowerBudgetRetry?.turn.providerPrompt).toBe('smaller trusted provider prompt');
+    expect(result.lowerBudgetRetry).toBeNull();
 
     cleanupRecoveryContinuation(capture);
     expect(() => new ContinuationSourceSpoolStore(db).metadata(capture.spoolId)).toThrow(/not found/);

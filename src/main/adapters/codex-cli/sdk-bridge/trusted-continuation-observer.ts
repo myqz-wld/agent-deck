@@ -1,4 +1,4 @@
-import { isCodexModelActivity } from '../app-server/first-model-event-watchdog';
+import { isCodexTrustedContinuationModelActivity } from '../app-server/first-model-event-watchdog';
 import {
   readTerminalError,
 } from '../app-server/notification-helpers';
@@ -12,11 +12,6 @@ export function observeCodexTrustedContinuationNotification(
 ): void {
   const acceptance = internal.trustedContinuationAcceptance;
   if (!acceptance) return;
-  if (isCodexModelActivity(notification)) {
-    delete internal.trustedContinuationAcceptance;
-    acceptance.acceptModelActivity();
-    return;
-  }
   const terminalError = readTerminalError(notification);
   if (terminalError) {
     delete internal.trustedContinuationAcceptance;
@@ -28,6 +23,11 @@ export function observeCodexTrustedContinuationNotification(
     return;
   }
   if (notification.method === 'turn/completed') {
+    delete internal.trustedContinuationAcceptance;
+    acceptance.acceptModelActivity();
+    return;
+  }
+  if (isCodexTrustedContinuationModelActivity(notification)) {
     delete internal.trustedContinuationAcceptance;
     acceptance.acceptModelActivity();
   }

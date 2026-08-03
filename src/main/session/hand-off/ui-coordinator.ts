@@ -57,6 +57,14 @@ export interface UiHandOffCoordinatorDependencies {
     selection: SessionHandOffTarget;
     sourceMaxEventId: number | null;
   }) => ResolvedHandOffTarget;
+  revalidateTarget: (
+    input: {
+      source: SessionRecord;
+      selection: SessionHandOffTarget;
+      sourceMaxEventId: number | null;
+    },
+    frozenContextCapacity: ResolvedHandOffTarget['spec']['contextCapacity'],
+  ) => ResolvedHandOffTarget;
   prepare: (input: {
     sourceSessionId: string;
     continuationInstruction: string;
@@ -85,6 +93,7 @@ interface FrozenUiPreparation {
   targetSelection: SessionHandOffTarget;
   createOptions: CreateSessionOptions;
   targetRuntimeFingerprint: string;
+  targetContextCapacity: ResolvedHandOffTarget['spec']['contextCapacity'];
   createOptionsFingerprint: string;
   preparedIntegrityFingerprint: string;
   queuedMessages: QueuedAgentMessage[];
@@ -193,6 +202,7 @@ export class UiHandOffCoordinator {
         targetSelection: { ...input.target },
         createOptions: target.createOptions,
         targetRuntimeFingerprint: target.spec.runtimeFingerprint,
+        targetContextCapacity: target.spec.contextCapacity,
         createOptionsFingerprint,
         preparedIntegrityFingerprint,
         queuedMessages,
@@ -425,11 +435,14 @@ export class UiHandOffCoordinator {
     if (this.deps.currentSettingsFingerprint() !== input.snapshot.settingsFingerprint) {
       throw new Error('续接检查点生成器或原始历史预算已变化。');
     }
-    const currentTarget = this.deps.resolveTarget({
-      source,
-      selection: input.snapshot.targetSelection,
-      sourceMaxEventId: input.prepared.source.maxEventId,
-    });
+    const currentTarget = this.deps.revalidateTarget(
+      {
+        source,
+        selection: input.snapshot.targetSelection,
+        sourceMaxEventId: input.prepared.source.maxEventId,
+      },
+      input.snapshot.targetContextCapacity,
+    );
     if (
       currentTarget.spec.runtimeFingerprint !== input.snapshot.targetRuntimeFingerprint ||
       continuationFingerprint(currentTarget.createOptions) !==

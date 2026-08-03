@@ -123,6 +123,23 @@ function preparedContext(): PreparedContinuationContext {
   };
 }
 
+function lowerPreparedContext(): PreparedContinuationContext {
+  const primary = preparedContext();
+  return {
+    ...primary,
+    providerPrompt: `${PRIVATE_PROVIDER_CONTEXT}_LOWER`,
+    metrics: {
+      ...primary.metrics,
+      targetPromptCapacityTokens: 8_000,
+      estimatedPromptTokens: 7_000,
+      rawTailTokens: 2_500,
+      includedUserMessages: 21,
+    },
+    warnings: [],
+    preparationHash: 'b'.repeat(64),
+  };
+}
+
 function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinuation {
   const prepared = preparedContext();
   const generator: ResolvedContinuationGenerator = {
@@ -310,17 +327,105 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
         }),
       },
     };
-    const resolveTarget = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const resolveTarget = vi.fn().mockReturnValue(first);
+    const revalidateTarget = vi.fn().mockReturnValue(second);
 
     const result = await handOffSessionHandler(
       { prompt: 'continue' },
       ctx(),
-      testDeps({ resolveTarget }),
+      testDeps({ resolveTarget, revalidateTarget }),
     );
 
     expect(result.isError).toBeFalsy();
-    expect(resolveTarget).toHaveBeenCalledTimes(2);
+    expect(resolveTarget).toHaveBeenCalledOnce();
+    expect(revalidateTarget).toHaveBeenCalledWith(
+      expect.any(Object),
+      first.spec.contextCapacity,
+    );
     expect(first.spec.runtimeFingerprint).toBe(second.spec.runtimeFingerprint);
+  });
+
+  it('reports the preparation and metrics of the accepted lower-budget candidate', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockResolvedValueOnce(acceptedCandidate('accepted-retry'));
+    const prepareContinuation = vi.fn(async (input) => {
+      const result = preparedHandOff(input.target);
+      const lower = lowerPreparedContext();
+      return {
+        ...result,
+        lowerBudgetRetry: {
+          prepared: lower,
+          turn: createTrustedContinuationInitialTurn(lower, 'caller-sid'),
+        },
+      };
+    });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({
+        prepareContinuation,
+        createSuccessor,
+        rollbackRejectedSuccessor: vi.fn(async () => undefined),
+      }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(parseResult(result).continuationContext).toMatchObject({
+      preparationHash: 'b'.repeat(64),
+      usedLowerBudgetRetry: true,
+      includedUserMessages: 21,
+      tokenStats: {
+        targetPromptCapacity: 8_000,
+        estimatedPrompt: 7_000,
+        rawTail: 2_500,
+      },
+    });
+  });
+
+  it('returns a terminal structured diagnostic when candidate startup has no stable id', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+      let resolveCreation!: (value: TrustedContinuationSessionCandidate) => void;
+      const creation = new Promise<TrustedContinuationSessionCandidate>((resolve) => {
+        resolveCreation = resolve;
+      });
+      const closeSuccessor = vi.fn(async () => undefined);
+      const work = handOffSessionHandler(
+        { prompt: 'continue' },
+        ctx(),
+        testDeps({
+          createSuccessor: vi.fn(() => creation),
+          closeSuccessor,
+          readinessDeadlineMs: 25,
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(25);
+      const result = await work;
+      expect(result.isError).toBe(true);
+      expect(parseResult(result)).toMatchObject({
+        successorSessionId: null,
+        successorClosed: 'pending',
+        usedLowerBudgetRetry: false,
+      });
+      expect(result.content[0]?.text).toContain('startup exceeded');
+
+      resolveCreation(acceptedCandidate('late-successor'));
+      await vi.waitFor(() => expect(closeSuccessor).toHaveBeenCalledWith('late-successor'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('always releases ingress ownership when the final source probe throws', async () => {
