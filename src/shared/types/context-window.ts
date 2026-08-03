@@ -33,6 +33,7 @@ export interface ContextRuntimeIdentity {
 export type ContextRuntimeIdentityUnavailableReason =
   | 'missing-runtime-provider'
   | 'missing-model'
+  | 'invalid-runtime-identity'
   | 'unresolved-model-alias'
   | 'ambiguous-model'
   | 'unsupported-runtime';

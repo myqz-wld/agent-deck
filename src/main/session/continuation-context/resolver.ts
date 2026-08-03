@@ -4,7 +4,10 @@ import {
   getContextWindowCapacityService,
   type ContextWindowCapacityService,
 } from '@main/session/context-window/service';
-import { resolveContextRuntimeIdentity } from '@main/session/context-window/identity';
+import {
+  DEFAULT_CAPACITY_CONFIG_FINGERPRINT,
+  resolveContextRuntimeIdentity,
+} from '@main/session/context-window/identity';
 import { settingsStore } from '@main/store/settings-store';
 import {
   isClaudeThinkingLevel,
@@ -147,14 +150,28 @@ export function resolveContinuationRuntimeIdentity(input: {
   adapter: SessionAdapterId;
   provider?: string | null;
   model: string | null;
+  /** Capacity-affecting config the target will actually receive. */
+  capacityConfigFingerprint?: string | null;
   trustedRuntimeIdentity?: ContextRuntimeIdentity | null;
 }): ContextRuntimeIdentityResolution {
   const runtimeProvider = configuredRuntimeProvider(input.adapter, input.provider);
   const trusted = input.trustedRuntimeIdentity;
+  const targetCapacityConfigFingerprint =
+    input.capacityConfigFingerprint?.trim() || DEFAULT_CAPACITY_CONFIG_FINGERPRINT;
+  const trustedEquivalent = trusted
+    ? resolveContextRuntimeIdentity({
+        adapter: input.adapter,
+        runtimeProvider,
+        model: trusted.model,
+        capacityConfigFingerprint: input.capacityConfigFingerprint,
+      })
+    : null;
   if (
     trusted &&
+    trustedEquivalent?.status === 'concrete' &&
     trusted.adapter === input.adapter &&
-    trusted.runtimeProvider === runtimeProvider
+    trusted.runtimeProvider === runtimeProvider &&
+    trusted.capacityConfigFingerprint === targetCapacityConfigFingerprint
   ) {
     return { status: 'concrete', identity: trusted };
   }
@@ -162,6 +179,7 @@ export function resolveContinuationRuntimeIdentity(input: {
     adapter: input.adapter,
     runtimeProvider,
     model: input.model,
+    capacityConfigFingerprint: input.capacityConfigFingerprint,
     ...(input.model && isUnresolvedModelAlias(input.adapter, input.model)
       ? { unavailableReason: 'unresolved-model-alias' as const }
       : {}),
@@ -220,6 +238,8 @@ export interface ResolveContinuationTargetInput {
   sandbox: unknown;
   networkAccessEnabled: boolean | null;
   additionalDirectories: readonly string[];
+  /** Capacity-affecting config reconstructed from the actual target create options. */
+  capacityConfigFingerprint?: string | null;
   /** Exact adapter-native identity inherited from an already running equivalent runtime. */
   trustedRuntimeIdentity?: ContextRuntimeIdentity | null;
   /** Optional source DB-runtime fingerprint used by same-session recovery snapshots. */
@@ -237,6 +257,7 @@ export function resolveContinuationTargetSnapshot(
         adapter: input.adapter,
         provider: input.provider,
         model: input.model,
+        capacityConfigFingerprint: input.capacityConfigFingerprint,
         trustedRuntimeIdentity: input.trustedRuntimeIdentity,
       }),
       dependencies,
@@ -252,7 +273,7 @@ export function resolveContinuationTargetFromFrozenCapacity(
   const thinking = targetThinking(input.adapter, input.thinking);
   const additionalDirectories = [...input.additionalDirectories];
   const runtime = {
-    version: 2,
+    version: 3,
     sourceRuntimeFingerprint: input.sourceRuntimeFingerprint ?? null,
     adapter: input.adapter,
     cwd: input.cwd,
@@ -264,6 +285,8 @@ export function resolveContinuationTargetFromFrozenCapacity(
     sandbox: input.sandbox,
     networkAccessEnabled: input.networkAccessEnabled,
     additionalDirectories,
+    capacityConfigFingerprint:
+      input.capacityConfigFingerprint?.trim() || DEFAULT_CAPACITY_CONFIG_FINGERPRINT,
   };
   return {
     adapter: input.adapter,

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HandOffExecutionError } from '@main/session/hand-off/executor';
+import { TrustedContinuationStartupFailure } from '@main/session/hand-off/trusted-continuation-gate';
 import { serializeSessionHandOffCommit } from '../session-hand-off-response';
 
 describe('session handoff IPC response serialization', () => {
@@ -126,5 +127,22 @@ describe('session handoff IPC response serialization', () => {
     await expect(
       serializeSessionHandOffCommit(vi.fn().mockRejectedValue(failure)),
     ).rejects.toBe(failure);
+  });
+
+  it('projects a primary startup failure without exposing provider diagnostics', async () => {
+    const privateDetail = 'PRIVATE_PROVIDER_STARTUP_DETAIL';
+    const failure = new TrustedContinuationStartupFailure();
+    Object.defineProperty(failure, 'privateDetail', { value: privateDetail });
+
+    let projected: unknown;
+    try {
+      await serializeSessionHandOffCommit(vi.fn().mockRejectedValue(failure));
+    } catch (error) {
+      projected = error;
+    }
+
+    expect(projected).toBeInstanceOf(Error);
+    expect((projected as Error).message).toContain('目标 provider 未能');
+    expect((projected as Error).message).not.toContain(privateDetail);
   });
 });

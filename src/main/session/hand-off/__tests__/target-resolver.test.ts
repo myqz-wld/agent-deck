@@ -70,7 +70,6 @@ describe('resolveHandOffTarget', () => {
       adapter: 'codex-cli',
       runtimeProvider: 'openai',
       model: 'gpt-effective',
-      capacityConfigFingerprint: 'configured-window',
     });
     const withEvidence = {
       ...source(),
@@ -100,6 +99,39 @@ describe('resolveHandOffTarget', () => {
     expect(capacityResolve.mock.calls.at(-1)?.[0]).not.toEqual({
       status: 'concrete',
       identity: runtimeIdentity,
+    });
+  });
+
+  it('does not reuse a capacity override that the successor create options cannot reproduce', () => {
+    const overriddenIdentity = createContextRuntimeIdentity({
+      adapter: 'codex-cli',
+      runtimeProvider: 'openai',
+      model: 'gpt-effective',
+      capacityConfigFingerprint: 'model-context-window:272000',
+    });
+    const withEvidence = {
+      ...source(),
+      contextUsage: {
+        usedTokens: 1_000,
+        windowTokens: 272_000,
+        updatedAt: 10,
+        runtimeIdentity: overriddenIdentity,
+      },
+    };
+
+    resolveHandOffTarget({
+      source: withEvidence,
+      request: { adapter: 'codex-cli', cwd: '/target' },
+      sourceMaxEventId: 42,
+    });
+
+    expect(capacityResolve.mock.calls.at(-1)?.[0]).toMatchObject({
+      status: 'concrete',
+      identity: {
+        runtimeProvider: 'openai',
+        model: 'gpt-source',
+        capacityConfigFingerprint: 'default',
+      },
     });
   });
 

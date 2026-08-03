@@ -122,7 +122,16 @@ export function resolveCodexCapacityConfigFingerprint(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
 ): string | null {
-  const configured = buildThreadConfig(options, baseConfig).model_context_window;
+  return resolveCodexCapacityConfigFingerprintFromConfig(
+    buildThreadConfig(options, baseConfig),
+  );
+}
+
+/** Rebuild the capacity-affecting identity component from the exact config sent to app-server. */
+export function resolveCodexCapacityConfigFingerprintFromConfig(
+  config: Record<string, unknown> | null | undefined,
+): string | null {
+  const configured = config?.model_context_window;
   if (
     typeof configured !== 'number' ||
     !Number.isSafeInteger(configured) ||

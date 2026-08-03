@@ -7,6 +7,7 @@ import type {
 
 export const DEFAULT_CAPACITY_CONFIG_FINGERPRINT = 'default';
 const MAX_IDENTITY_COMPONENT_LENGTH = 1_024;
+export const MAX_CONTEXT_RUNTIME_KEY_LENGTH = 4_096;
 
 export interface ResolveContextRuntimeIdentityInput {
   adapter: SessionAdapterId;
@@ -21,6 +22,10 @@ function normalizedComponent(value: string | null | undefined): string | null {
   return normalized.length > 0 && normalized.length <= MAX_IDENTITY_COMPONENT_LENGTH
     ? normalized
     : null;
+}
+
+function componentIsTooLong(value: string | null | undefined): boolean {
+  return (value?.trim().length ?? 0) > MAX_IDENTITY_COMPONENT_LENGTH;
 }
 
 export function contextRuntimeKey(input: {
@@ -45,6 +50,13 @@ export function resolveContextRuntimeIdentity(
   if (input.unavailableReason) {
     return { status: 'unavailable', reason: input.unavailableReason };
   }
+  if (
+    componentIsTooLong(input.runtimeProvider) ||
+    componentIsTooLong(input.model) ||
+    componentIsTooLong(input.capacityConfigFingerprint)
+  ) {
+    return { status: 'unavailable', reason: 'invalid-runtime-identity' };
+  }
   const runtimeProvider = normalizedComponent(input.runtimeProvider);
   if (!runtimeProvider) {
     return { status: 'unavailable', reason: 'missing-runtime-provider' };
@@ -63,6 +75,12 @@ export function resolveContextRuntimeIdentity(
     runtimeKey: '',
   };
   identity.runtimeKey = contextRuntimeKey(identity);
+  // SQLite constrains the serialized key, not only its decomposed columns. JSON escaping can
+  // expand otherwise valid control-heavy components well beyond their source length; reject that
+  // evidence before it reaches the observation transaction so telemetry cannot break a session.
+  if (identity.runtimeKey.length > MAX_CONTEXT_RUNTIME_KEY_LENGTH) {
+    return { status: 'unavailable', reason: 'invalid-runtime-identity' };
+  }
   return { status: 'concrete', identity };
 }
 

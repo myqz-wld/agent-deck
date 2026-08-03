@@ -47,9 +47,9 @@ import { GrokRuntimeMutationController } from './runtime-mutation-controller';
 import { GrokCwdTransitionController } from './cwd-transition-controller';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 import { observeGrokTrustedContinuationFinished } from './trusted-continuation-observer';
+import { cleanupFailedGrokStartupRegistration } from './startup-registration-cleanup';
 
 const AGENT_ID = 'grok-build';
-
 export interface GrokBuildBridgeOptions extends GrokSessionSetupOptions {
   emit: (event: AgentEvent) => void;
   onNegotiatedImageCapability?: (supported: boolean) => void;
@@ -237,6 +237,7 @@ export class GrokBuildBridge {
         this.emitError(applicationSessionId, `Grok session startup failed: ${errorText(error)}`);
       }
       await this.disposeRuntime(runtime);
+      if (existing === null) await cleanupFailedGrokStartupRegistration(applicationSessionId);
       throw error;
     }
   }

@@ -351,7 +351,8 @@ export class CodexAppServerThread {
           return;
         }
         const notificationTurnId = getNotificationTurnId(notification);
-        if (notification.method === 'model/rerouted' && notificationTurnId === null) {
+        if (notification.method === 'model/rerouted' && notificationTurnId === null &&
+          this.client.hasExclusiveNotificationSubscriber()) {
           this.runtimeIdentity.observeNotification(notification);
         }
         if (

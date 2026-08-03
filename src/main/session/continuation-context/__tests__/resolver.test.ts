@@ -39,8 +39,10 @@ vi.mock('@main/session/context-window/service', () => ({
 import {
   resolveContinuationGeneratorConfigFingerprint,
   resolveContinuationGeneratorSnapshot,
+  resolveContinuationRuntimeIdentity,
   resolveContinuationTargetSnapshot,
 } from '../resolver';
+import { createContextRuntimeIdentity } from '../../context-window/identity';
 import {
   observedContextCapacity,
   staleContextCapacity,
@@ -174,5 +176,37 @@ describe('continuation generator defaults', () => {
 
     expect(first.runtimeFingerprint).toBe(second.runtimeFingerprint);
     expect(first.contextCapacity).not.toEqual(second.contextCapacity);
+  });
+});
+
+describe('continuation runtime identity equivalence', () => {
+  it('reuses trusted Codex evidence only when the target rebuilds the same capacity config', () => {
+    const trusted = createContextRuntimeIdentity({
+      adapter: 'codex-cli',
+      runtimeProvider: 'openai',
+      model: 'gpt-effective',
+      capacityConfigFingerprint: 'model-context-window:272000',
+    });
+
+    expect(resolveContinuationRuntimeIdentity({
+      adapter: 'codex-cli',
+      provider: 'openai',
+      model: 'gpt-configured',
+      capacityConfigFingerprint: 'model-context-window:272000',
+      trustedRuntimeIdentity: trusted,
+    })).toEqual({ status: 'concrete', identity: trusted });
+
+    expect(resolveContinuationRuntimeIdentity({
+      adapter: 'codex-cli',
+      provider: 'openai',
+      model: 'gpt-configured',
+      trustedRuntimeIdentity: trusted,
+    })).toMatchObject({
+      status: 'concrete',
+      identity: {
+        model: 'gpt-configured',
+        capacityConfigFingerprint: 'default',
+      },
+    });
   });
 });

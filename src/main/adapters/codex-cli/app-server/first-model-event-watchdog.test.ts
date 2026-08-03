@@ -179,6 +179,34 @@ describe('Codex first-model-event watchdog', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  it('does not fan out an unscoped model reroute across concurrent threads', async () => {
+    vi.useFakeTimers();
+    const client = new ConcurrentScriptedClient(50);
+    const first = collectTurn(client);
+    const second = collectTurn(client);
+
+    await vi.advanceTimersByTimeAsync(40);
+    client.emit(notify('model/rerouted', {
+      fromModel: 'gpt-1',
+      toModel: 'gpt-rerouted',
+      reason: 'fallback',
+    }));
+    client.emit(notify('item/agentMessage/delta', {
+      threadId: 'thread-2', turnId: 'turn-2', delta: 'thread two output',
+    }));
+    client.emit(completedTurn('thread-1', 'turn-1'));
+    client.emit(completedTurn('thread-2', 'turn-2'));
+
+    const [, secondEvents] = await Promise.all([first, second]);
+    const activity = secondEvents.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'item/agentMessage/delta',
+    );
+    expect(activity).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-2' },
+    });
+  });
+
   it('consumes a response-first same-stack model event before arming the watchdog', async () => {
     vi.useFakeTimers();
     const client = new ScriptedClient(50, undefined, 0, false, (current) => {
@@ -480,6 +508,10 @@ class ScriptedClient extends CodexAppServerClient {
     return () => this.listeners.delete(listener);
   }
 
+  override hasExclusiveNotificationSubscriber(): boolean {
+    return this.listeners.size === 1;
+  }
+
   override abortTurnAndRecycleGeneration(
     expectedGeneration: number,
     threadId: string,
@@ -518,8 +550,13 @@ class ConcurrentScriptedClient extends CodexAppServerClient {
 
   override request<T = unknown>(method: string, params: unknown): Promise<T> {
     if (method === 'thread/start') {
-      const threadId = `thread-${this.nextThread++}`;
-      return Promise.resolve({ thread: { id: threadId } } as T);
+      const ordinal = this.nextThread++;
+      const threadId = `thread-${ordinal}`;
+      return Promise.resolve({
+        thread: { id: threadId },
+        model: `gpt-${ordinal}`,
+        modelProvider: 'openai',
+      } as T);
     }
     if (method === 'turn/start') {
       this.turnStartCalls += 1;
@@ -540,6 +577,10 @@ class ConcurrentScriptedClient extends CodexAppServerClient {
   override subscribe(listener: (notification: CodexAppServerNotification) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  override hasExclusiveNotificationSubscriber(): boolean {
+    return this.listeners.size === 1;
   }
 
   emit(notification: CodexAppServerNotification): void {
