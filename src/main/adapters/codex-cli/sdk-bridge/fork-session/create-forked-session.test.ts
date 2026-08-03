@@ -39,7 +39,11 @@ describe('Codex native fork lifecycle', () => {
       h.runtime.threadOptions,
     );
     expect(h.targetClient.startThreadEager).not.toHaveBeenCalled();
-    expect(h.targetClient.adoptThread).toHaveBeenCalledWith(CHILD_ID, h.runtime.threadOptions);
+    expect(h.targetClient.adoptThread).toHaveBeenCalledWith(
+      CHILD_ID,
+      h.runtime.threadOptions,
+      expect.objectContaining({ thread: expect.objectContaining({ id: CHILD_ID }) }),
+    );
     expect(h.targetClient.injectThreadItems).toHaveBeenCalledWith(
       CHILD_ID,
       [expect.objectContaining({ type: 'message', role: 'developer' })],

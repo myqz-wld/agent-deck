@@ -1,6 +1,7 @@
 import {
   TOKEN_USAGE_METRIC,
   type AgentEventKind,
+  type ContextRuntimeIdentityEvidence,
 } from '@shared/types';
 
 type AnyRecord = Record<string, unknown>;
@@ -9,16 +10,25 @@ type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 export function translateCodexTokenUsage(
   params: unknown,
   emit: EmitFn,
-  opts?: { model?: string | null },
+  opts?: {
+    model?: string | null;
+    runtimeIdentity?: ContextRuntimeIdentityEvidence | null;
+  },
 ): void {
   const usage = asRecord(asRecord(params)?.tokenUsage);
   const last = asRecord(usage?.last);
   const usedTokens = numberField(last?.totalTokens);
-  const windowTokens = positiveNumberField(usage?.modelContextWindow);
+  const windowTokens = readCodexContextWindowTokens(params);
   if (usedTokens !== null || windowTokens !== null) {
     emit('context-usage', {
       ...(usedTokens !== null ? { usedTokens } : {}),
       ...(windowTokens !== null ? { windowTokens } : {}),
+      ...(opts?.runtimeIdentity
+        ? { runtimeIdentity: { ...opts.runtimeIdentity } }
+        : {}),
+      ...(windowTokens !== null && opts?.runtimeIdentity
+        ? { capacitySource: 'runtime-usage' }
+        : {}),
     });
   }
   if (!last) return;
@@ -53,6 +63,10 @@ export function translateCodexTokenUsage(
     // whenever any usage was reported so Provider total remains strict across partial rows.
     metricScope: reportedScope | TOKEN_USAGE_METRIC.total,
   });
+}
+
+export function readCodexContextWindowTokens(params: unknown): number | null {
+  return positiveNumberField(asRecord(asRecord(params)?.tokenUsage)?.modelContextWindow);
 }
 
 function metricBit(value: number | null, bit: number): number {

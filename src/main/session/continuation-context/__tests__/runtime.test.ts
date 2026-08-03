@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const query = vi.fn();
 const runGrokOneshot = vi.hoisted(() => vi.fn());
+const codexRuntime = vi.hoisted(() => ({
+  run: vi.fn(),
+  startThread: vi.fn(),
+}));
 vi.mock('@main/adapters/claude-code/sdk-loader', () => ({
   loadSdk: vi.fn(async () => ({ query })),
 }));
@@ -28,6 +32,11 @@ vi.mock('@main/store/settings-store', () => ({
 }));
 vi.mock('@main/session/oneshot-llm', () => ({
   runGrokOneshot,
+}));
+vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
+  getCodexInstance: vi.fn(async () => ({
+    startThread: codexRuntime.startThread,
+  })),
 }));
 
 import { clearGatewayCheckpointCapabilityCache, createCheckpointGeneratorRuntime } from '../runtime';
@@ -217,6 +226,50 @@ describe('isolated Claude-family checkpoint runtime', () => {
       outputTokens: 4,
       contextWindowTokens: 1_048_576,
       providerCalls: 1,
+    });
+  });
+});
+
+describe('isolated Codex checkpoint runtime', () => {
+  beforeEach(() => {
+    codexRuntime.run.mockReset();
+    codexRuntime.startThread.mockReset();
+    codexRuntime.startThread.mockReturnValue({ run: codexRuntime.run });
+  });
+
+  it('returns exact native provider/model capacity evidence without a headroom adjustment', async () => {
+    codexRuntime.run.mockResolvedValue({
+      finalResponse: JSON.stringify({ formatVersion: 1, additions: [], updates: [] }),
+      contextWindowEvidence: {
+        runtimeProvider: 'openrouter',
+        model: 'gpt-5.6-sol-effective',
+        windowTokens: 272_000,
+        source: 'runtime-usage',
+      },
+    });
+    const runtime = createCheckpointGeneratorRuntime({
+      adapter: 'codex-cli',
+      provider: 'openrouter',
+      model: 'gpt-5.6-sol',
+      thinking: 'high',
+      contextWindowTokens: null,
+      configFingerprint: 'codex-runtime',
+    });
+
+    const result = await runtime.generate(request);
+
+    expect(codexRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-5.6-sol',
+      configOverrides: expect.objectContaining({ model_provider: 'openrouter' }),
+    }));
+    expect(result).toMatchObject({
+      contextWindowTokens: 272_000,
+      contextWindowEvidence: {
+        runtimeProvider: 'openrouter',
+        model: 'gpt-5.6-sol-effective',
+        windowTokens: 272_000,
+        source: 'runtime-usage',
+      },
     });
   });
 });

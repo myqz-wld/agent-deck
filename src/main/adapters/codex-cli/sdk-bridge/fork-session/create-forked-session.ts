@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../../types/fork-session';
 import type { CodexAppServerClient } from '../../app-server/client';
+import { resolveCodexThreadRuntimeIdentity } from '../../app-server/runtime-identity';
 import type { CodexBridgeOptions, InternalSession } from '../types';
 import type { CreateSessionOpts } from '../create-session/_deps';
 import type { ThreadLoop } from '../thread-loop';
@@ -141,7 +142,12 @@ export async function createCodexForkedSession(
       applicationSid: tempId,
       threadId: canonicalId,
       cwd: runtime.cwd,
-      thread: targetClient.adoptThread(canonicalId, runtime.threadOptions),
+      thread: targetClient.adoptThread(canonicalId, runtime.threadOptions, nativeResult),
+      runtimeIdentity: resolveCodexThreadRuntimeIdentity(
+        nativeResult,
+        runtime.threadOptions,
+        targetClient.baseConfig,
+      ),
       pendingMessages: [
         packCodexAppServerInput(
           buildForkedFirstTurnInput(

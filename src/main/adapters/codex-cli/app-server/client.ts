@@ -147,12 +147,13 @@ export class CodexAppServerClient {
   resumeThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
     return new CodexAppServerThread(this, { mode: 'resume', threadId, options });
   }
-  adoptThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
-    return new CodexAppServerThread(
-      this,
-      { mode: 'resume', threadId, options },
-      this.isProcessAlive ? this.generation : undefined,
-    );
+  adoptThread(
+    threadId: string,
+    options: CodexThreadOptions,
+    initialRuntime?: Pick<CodexAppServerThreadCreateResult, 'model' | 'modelProvider'>,
+  ): CodexAppServerThread {
+    return new CodexAppServerThread(this, { mode: 'resume', threadId, options },
+      this.isProcessAlive ? this.generation : undefined, initialRuntime);
   }
   prepareThreadOptions(
     options: CodexThreadOptions,

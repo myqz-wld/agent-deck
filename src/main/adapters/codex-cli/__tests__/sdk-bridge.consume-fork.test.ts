@@ -130,6 +130,7 @@ function makeInternalSession(
     threadId,
     cwd: '/tmp/x',
     thread: thread as unknown as InternalSession['thread'],
+    runtimeIdentity: null,
     pendingMessages: ['hi' as CodexInput],
     currentTurn: null,
     currentTurnId: null,
@@ -143,7 +144,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
   it('case 1 (新建路径): !threadId → 设 internal.threadId + claimAsSdk + firstIdCb(NEW_ID)', async () => {
     const bridge = makeBridge();
     const thread = makeFakeThread([
-      { type: 'thread.started', thread_id: 'NEW_ID' },
+      { type: 'thread.started', thread_id: 'NEW_ID', runtimeIdentity: null },
     ]);
     const internal = makeInternalSession(thread, null); // threadId = null = 新建路径
     const tempKey = 'temp-uuid';
@@ -175,7 +176,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     const bridge = makeBridge();
     const SAME_ID = 'same-id';
     const thread = makeFakeThread([
-      { type: 'thread.started', thread_id: SAME_ID },
+      { type: 'thread.started', thread_id: SAME_ID, runtimeIdentity: null },
     ]);
     const internal = makeInternalSession(thread, SAME_ID); // threadId 已设(resume path)
     const sessionsMap = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
@@ -210,7 +211,7 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     const NEW_ID = 'new-fork-id';
     // 模拟 SDK resumeThread 返回的 thread 在 thread.started 事件里给出新 id（罕见 + future-proof）
     const thread = makeFakeThread([
-      { type: 'thread.started', thread_id: NEW_ID },
+      { type: 'thread.started', thread_id: NEW_ID, runtimeIdentity: null },
     ]);
     const internal = makeInternalSession(thread, OLD_ID); // resume path: threadId 已设
     // 反向 rename 后 sessions Map key = applicationSid (= OLD_ID for resume path); cli sid 维度 internal.threadId
@@ -241,6 +242,51 @@ describe('codex ThreadLoop.runTurnLoop thread.started 三态（symmetry-plan P2 
     expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith(internal.applicationSid, NEW_ID);
     // 5. 旧 sessionManager.renameSdkSession 不再调 (反向 rename 不动 sessions.id)
     expect(sessionManager.renameSdkSession).not.toHaveBeenCalled();
+  });
+
+  it('carries exact runtime identity into native context-usage events', async () => {
+    const bridge = makeBridge();
+    const runtimeIdentity = {
+      runtimeProvider: 'openrouter',
+      model: 'gpt-5.6-sol-effective',
+    };
+    const thread = makeFakeThread([
+      {
+        type: 'thread.started',
+        thread_id: 'runtime-thread',
+        runtimeIdentity,
+      },
+      {
+        type: 'server.notification',
+        runtimeIdentity,
+        notification: {
+          method: 'thread/tokenUsage/updated',
+          params: {
+            tokenUsage: {
+              last: { totalTokens: 12_345 },
+              modelContextWindow: 272_000,
+            },
+          },
+        },
+      },
+    ]);
+    const internal = makeInternalSession(thread, 'runtime-thread');
+    const threadLoop = (bridge as unknown as {
+      threadLoop: { runTurnLoop: (i: InternalSession, k: string) => Promise<void> };
+    }).threadLoop;
+
+    await threadLoop.runTurnLoop(internal, 'runtime-thread');
+
+    expect(internal.runtimeIdentity).toEqual(runtimeIdentity);
+    expect(emits).toContainEqual(expect.objectContaining({
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 12_345,
+        windowTokens: 272_000,
+        runtimeIdentity,
+        capacitySource: 'runtime-usage',
+      },
+    }));
   });
 
   it('runTurnLoop intentionallyClosed catch: 主动 abort → 静默退出不 emit finished:interrupted', async () => {

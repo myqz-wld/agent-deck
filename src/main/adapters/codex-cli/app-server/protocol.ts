@@ -1,4 +1,8 @@
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type {
+  ContextRuntimeIdentityEvidence,
+  ContextWindowCapacityEvidence,
+} from '@shared/types';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue | undefined };
@@ -38,6 +42,8 @@ export interface CodexAppServerThreadReadResult {
 
 export interface CodexAppServerThreadCreateResult {
   thread: CodexAppServerThreadInfo;
+  model: string;
+  modelProvider: string;
 }
 
 export type CodexAppServerNotification = { method: string; params?: unknown };
@@ -60,12 +66,21 @@ export type CodexAppServerServerRequestHandler = (
   | Promise<CodexAppServerServerRequestDisposition>;
 
 export type CodexAppServerStreamEvent =
-  | { type: 'thread.started'; thread_id: string }
+  | {
+      type: 'thread.started';
+      thread_id: string;
+      runtimeIdentity: ContextRuntimeIdentityEvidence | null;
+    }
   | { type: 'turn.accepted'; turn_id: string }
-  | { type: 'server.notification'; notification: CodexAppServerNotification };
+  | {
+      type: 'server.notification';
+      notification: CodexAppServerNotification;
+      runtimeIdentity: ContextRuntimeIdentityEvidence | null;
+    };
 
 export interface CodexAppServerRunResult {
   finalResponse: string;
+  contextWindowEvidence: ContextWindowCapacityEvidence | null;
 }
 
 export interface CodexAppServerOptions {
