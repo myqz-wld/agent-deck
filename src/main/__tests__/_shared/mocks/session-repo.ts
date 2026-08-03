@@ -163,7 +163,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
       return updated;
     },
     setPermissionMode: vi.fn(),
-    setRuntimeProvider: (id: string, provider: string | null) => {
+    setRuntimeProvider: vi.fn((id: string, provider: string | null) => {
       const r = sessions.get(id);
       if (!r) return;
       sessions.set(id, {
@@ -172,7 +172,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
         contextUsage:
           (r.runtimeProvider ?? null) === provider ? r.contextUsage : null,
       });
-    },
+    }),
     setTitle: (id: string, title: string) => {
       const r = sessions.get(id);
       if (r) sessions.set(id, { ...r, title });
@@ -180,7 +180,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
     setCodexSandbox: vi.fn(),
     setCodexApprovalPolicy: vi.fn(),
     setClaudeCodeSandbox: vi.fn(),
-    setModel: (id: string, model: string | null) => {
+    setModel: vi.fn((id: string, model: string | null) => {
       const r = sessions.get(id);
       if (!r) return;
       sessions.set(id, {
@@ -188,7 +188,7 @@ export function makeSessionRepoMock(opts: SessionRepoMockOptions = {}): SessionR
         model,
         contextUsage: (r.model ?? null) === model ? r.contextUsage : null,
       });
-    },
+    }),
     setThinking: vi.fn(),
     setAgentRuntimeProfile: vi.fn(),
     // R3 reviewer-claude LOW 修法:与 setClaudeCodeSandbox / setModel 同款 vi.fn 桩
