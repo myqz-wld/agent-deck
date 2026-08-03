@@ -230,7 +230,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
           <div className="truncate text-[10px] text-deck-muted">{session.cwd}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
             <SessionMetadataChips session={session} branch={gitBranch} compact />
-            <SessionContextUsageChip usage={session.contextUsage} />
+            <SessionContextUsageChip session={session} />
           </div>
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-1">

@@ -10,6 +10,7 @@ describe('session handoff IPC response serialization', () => {
           successorSessionId: 'successor-ok',
           cutoverEventRevision: 45,
           lateMessagesDelivered: 2,
+          usedLowerBudgetRetry: false,
           sourceFinalizationWarning: null,
         }),
       ),
@@ -18,6 +19,7 @@ describe('session handoff IPC response serialization', () => {
       successorSessionId: 'successor-ok',
       cutoverEventRevision: 45,
       lateMessagesDelivered: 2,
+      usedLowerBudgetRetry: false,
       sourceFinalizationWarning: null,
     });
   });
@@ -30,6 +32,8 @@ describe('session handoff IPC response serialization', () => {
       'failed',
       null,
       null,
+      null,
+      true,
     );
 
     await expect(
@@ -39,6 +43,7 @@ describe('session handoff IPC response serialization', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-successor-42',
       successorCleanup: 'failed',
+      usedLowerBudgetRetry: true,
       message: 'source drifted after successor creation',
     });
   });
@@ -61,6 +66,7 @@ describe('session handoff IPC response serialization', () => {
       stage: 'cutover',
       successorSessionId: 'orphan-successor-43',
       successorCleanup: 'ok',
+      usedLowerBudgetRetry: false,
       cutoverReason: 'late-message-delivery-failed',
     });
   });

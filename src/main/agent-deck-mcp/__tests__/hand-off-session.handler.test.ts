@@ -665,6 +665,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
         sourceEventRevision: 77,
         cutoverEventRevision: 77,
         lateMessagesDelivered: 0,
+        usedLowerBudgetRetry: false,
         checkpoint: { id: 12, formatVersion: 1, throughRevision: 77 },
         preparationHash: 'a'.repeat(64),
         tokenStats: {

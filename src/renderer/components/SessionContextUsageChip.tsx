@@ -1,12 +1,12 @@
 import type { JSX } from 'react';
-import type { SessionContextUsage } from '@shared/types';
+import type { SessionRecord } from '@shared/types';
 
 interface Props {
-  usage: SessionContextUsage | null | undefined;
+  session: Pick<SessionRecord, 'agentId' | 'contextUsage'>;
 }
 
-export function SessionContextUsageChip({ usage }: Props): JSX.Element {
-  const display = contextUsageDisplay(usage);
+export function SessionContextUsageChip({ session }: Props): JSX.Element {
+  const display = contextUsageDisplay(session);
   return (
     <span
       aria-label="上下文窗口用量"
@@ -18,16 +18,31 @@ export function SessionContextUsageChip({ usage }: Props): JSX.Element {
   );
 }
 
-function contextUsageDisplay(usage: SessionContextUsage | null | undefined): {
+function contextUsageDisplay(
+  session: Pick<SessionRecord, 'agentId' | 'contextUsage'>,
+): {
   label: string;
   title: string;
   className: string;
 } {
+  const usage = session.contextUsage;
   if (!usage) {
     return {
       label: '上下文 暂无数据',
       title: 'Provider 尚未报告当前上下文用量和窗口大小',
       className: 'text-deck-muted/65',
+    };
+  }
+  // Persisted provider/model selections may be delegated defaults or aliases, so the renderer
+  // must not second-guess the native concrete model. Main atomically clears this snapshot when
+  // those selections change; this final boundary rejects unattributed or cross-adapter snapshots.
+  if (!usage.runtimeIdentity || usage.runtimeIdentity.adapter !== session.agentId) {
+    return {
+      label: '上下文 旧快照',
+      title: usage.runtimeIdentity
+        ? '上下文快照属于其他 adapter，未显示可能过期的 token 用量'
+        : 'Provider 快照缺少可验证的 runtime identity，未显示可能过期的 token 用量',
+      className: 'text-amber-300/80',
     };
   }
   const { usedTokens, windowTokens } = usage;
