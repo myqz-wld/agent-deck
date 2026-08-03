@@ -15,6 +15,10 @@ import type {
   ContinuationQuality,
   PreparedContinuationContext,
 } from '@main/session/continuation-context/types';
+import {
+  observedContextCapacity,
+  unknownContextCapacity,
+} from '@main/session/continuation-context/__tests__/capacity-fixtures';
 
 const emits: AgentEvent[] = [];
 const capture: CapturedRecoveryContinuation = {
@@ -24,7 +28,7 @@ const capture: CapturedRecoveryContinuation = {
     adapter: 'claude-code',
     model: null,
     thinking: 'medium',
-    contextWindowTokens: null,
+    contextCapacity: unknownContextCapacity(),
     configFingerprint: 'generator',
   },
   target: {
@@ -35,7 +39,7 @@ const capture: CapturedRecoveryContinuation = {
     permissionMode: null,
     networkAccessEnabled: null,
     additionalDirectories: [],
-    contextWindowTokens: 128_000,
+    contextCapacity: observedContextCapacity(128_000),
     runtimeFingerprint: 'target',
   },
   rawRetentionCeilingTokens: 64_000,
@@ -73,7 +77,11 @@ function preparedRecovery(
     preparationHash: 'b'.repeat(64),
     spoolId: 'spool-test',
   };
-  return { prepared, turn: createTrustedContinuationInitialTurn(prepared, sourceSessionId) };
+  return {
+    prepared,
+    turn: createTrustedContinuationInitialTurn(prepared, sourceSessionId),
+    lowerBudgetRetry: null,
+  };
 }
 
 interface MakeCtxOptions {

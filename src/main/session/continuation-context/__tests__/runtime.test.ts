@@ -40,6 +40,7 @@ vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
 }));
 
 import { clearGatewayCheckpointCapabilityCache, createCheckpointGeneratorRuntime } from '../runtime';
+import { unknownContextCapacity } from './capacity-fixtures';
 
 function iterable(messages: unknown[]): AsyncIterable<unknown> & { interrupt: () => Promise<void> } {
   return {
@@ -71,7 +72,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
     ]));
     const runtime = createCheckpointGeneratorRuntime({
       adapter: 'claude-code', model: 'claude-test', thinking: 'low',
-      contextWindowTokens: null, configFingerprint: 'claude-runtime',
+      contextCapacity: unknownContextCapacity(), configFingerprint: 'claude-runtime',
     });
     const result = await runtime.generate(request);
     const call = query.mock.calls[0][0];
@@ -113,7 +114,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
     ]));
     const runtime = createCheckpointGeneratorRuntime({
       adapter: 'claude-code', model: 'claude-opus-4-8', thinking: 'low',
-      contextWindowTokens: null, configFingerprint: 'ambiguous-claude-runtime',
+      contextCapacity: unknownContextCapacity(), configFingerprint: 'ambiguous-claude-runtime',
     });
 
     const result = await runtime.generate(request);
@@ -139,7 +140,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
     ]));
     const runtime = createCheckpointGeneratorRuntime({
       adapter: 'claude-code', provider: 'deepseek', model: 'sonnet', thinking: 'max',
-      contextWindowTokens: null, configFingerprint: 'gateway-capacity-runtime',
+      contextCapacity: unknownContextCapacity(), configFingerprint: 'gateway-capacity-runtime',
     });
 
     const result = await runtime.generate(request);
@@ -161,7 +162,8 @@ describe('isolated Claude-family checkpoint runtime', () => {
       { type: 'result', subtype: 'success', structured_output: {} },
     ]));
     const runtime = createCheckpointGeneratorRuntime({
-      adapter: 'claude-code', model: null, thinking: 'low', contextWindowTokens: null,
+      adapter: 'claude-code', model: null, thinking: 'low',
+      contextCapacity: unknownContextCapacity(),
       configFingerprint: 'malicious-runtime',
     });
     await expect(runtime.generate(request)).rejects.toMatchObject({ code: 'tool-use-observed' });
@@ -177,7 +179,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
       .mockReturnValueOnce(iterable([{ type: 'result', subtype: 'success', result: checkpointJson, usage: {}, modelUsage: {} }]));
     const runtime = createCheckpointGeneratorRuntime({
       adapter: 'claude-code', provider: 'deepseek', model: 'deepseek-test', thinking: 'max',
-      contextWindowTokens: null, configFingerprint: 'deepseek-runtime',
+      contextCapacity: unknownContextCapacity(), configFingerprint: 'deepseek-runtime',
     });
     const first = await runtime.generate(request);
     const second = await runtime.generate(request);
@@ -203,7 +205,7 @@ describe('isolated Claude-family checkpoint runtime', () => {
       adapter: 'grok-build',
       model: 'fable',
       thinking: 'xhigh',
-      contextWindowTokens: null,
+      contextCapacity: unknownContextCapacity(),
       configFingerprint: 'grok-runtime',
     });
 
@@ -252,7 +254,7 @@ describe('isolated Codex checkpoint runtime', () => {
       provider: 'openrouter',
       model: 'gpt-5.6-sol',
       thinking: 'high',
-      contextWindowTokens: null,
+      contextCapacity: unknownContextCapacity(),
       configFingerprint: 'codex-runtime',
     });
 

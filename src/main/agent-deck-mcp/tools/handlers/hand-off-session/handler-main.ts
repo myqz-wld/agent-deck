@@ -252,7 +252,7 @@ export const handOffSessionHandler = withMcpGuard(
           sourceMaxEventId: prepared.source.maxEventId,
         });
         if (
-          continuationFingerprint(refreshedTarget.spec) !== continuationFingerprint(target.spec) ||
+          refreshedTarget.spec.runtimeFingerprint !== target.spec.runtimeFingerprint ||
           continuationFingerprint(refreshedTarget.createOptions) !==
           continuationFingerprint(target.createOptions)
         ) {

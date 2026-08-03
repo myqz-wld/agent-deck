@@ -1,39 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import type { SessionAdapterId } from '@shared/types/session';
 import {
   CONTINUATION_PROMPT_MAX_UTF8_BYTES,
   ContinuationBudgetError,
   assertContinuationPromptByteLimit,
   resolveContinuationBudgets,
   resolveGeneratorFoldInputBudgetTokens,
+  targetNeedsLowerBudgetRetry,
   validateRawRetentionCeiling,
 } from '../budget-policy';
 import {
-  ContextCapacityResolver,
-  DEFAULT_UNSEEN_MODEL_CONTEXT_WINDOW_TOKENS,
-} from '../context-capacity-resolver';
+  observedContextCapacity,
+  staleContextCapacity,
+  unknownContextCapacity,
+} from './capacity-fixtures';
 
 describe('continuation budget policy', () => {
   it('keeps all four budgets distinct', () => {
     const budgets = resolveContinuationBudgets({
       rawRetentionCeilingTokens: 64_000,
-      targetContextWindowTokens: 128_000,
-      generatorContextWindowTokens: null,
+      targetCapacity: observedContextCapacity(128_000),
+      generatorCapacity: unknownContextCapacity(),
       continuationInstruction: 'Continue from the validated checkpoint.',
       fixedWrapperTokens: 1_000,
     });
     expect(budgets.rawRetentionCeilingTokens).toBe(64_000);
     expect(budgets.targetPromptCapacityTokens).toBe(104_000);
     expect(budgets.checkpointProjectionBudgetTokens).toBe(12_000);
-    expect(budgets.generatorFoldInputBudgetTokens).toBe(96_000);
+    expect(budgets.generatorFoldInputBudgetTokens).toBe(32_000);
     expect(budgets.initialRawTailBudgetTokens).toBeLessThanOrEqual(64_000);
   });
 
   it('returns unused historical capacity to neither unrelated budget during resolution', () => {
     const budgets = resolveContinuationBudgets({
       rawRetentionCeilingTokens: 8_000,
-      targetContextWindowTokens: 40_000,
-      generatorContextWindowTokens: 200_000,
+      targetCapacity: observedContextCapacity(40_000),
+      generatorCapacity: observedContextCapacity(200_000),
       continuationInstruction: 'next',
       fixedWrapperTokens: 500,
       systemProjectReserveTokens: 4_000,
@@ -50,8 +51,8 @@ describe('continuation budget policy', () => {
     expect(() =>
       resolveContinuationBudgets({
         rawRetentionCeilingTokens: 64_000,
-        targetContextWindowTokens: 8_000,
-        generatorContextWindowTokens: null,
+        targetCapacity: observedContextCapacity(8_000),
+        generatorCapacity: unknownContextCapacity(),
         continuationInstruction: 'x'.repeat(10_000),
         fixedWrapperTokens: 10,
         systemProjectReserveTokens: 4_000,
@@ -68,20 +69,29 @@ describe('continuation budget policy', () => {
     ).toThrow(/UTF-8 bytes/);
   });
 
-  it('uses a conservative per-model observed-window cache and fallback', () => {
-    const resolver = new ContextCapacityResolver();
-    const adapter: SessionAdapterId = 'codex-cli';
-    expect(resolver.resolve(adapter, 'custom')).toEqual({
-      contextWindowTokens: DEFAULT_UNSEEN_MODEL_CONTEXT_WINDOW_TOKENS,
-      source: 'fallback',
+  it.each([
+    ['unknown', unknownContextCapacity()],
+    ['stale', staleContextCapacity()],
+  ] as const)('uses deterministic 64k/32k policies for %s capacity', (_status, capacity) => {
+    const primary = resolveContinuationBudgets({
+      rawRetentionCeilingTokens: 64_000,
+      targetCapacity: capacity,
+      generatorCapacity: capacity,
+      continuationInstruction: 'next',
+      fixedWrapperTokens: 0,
     });
-    resolver.observe(adapter, 'custom', 200_000);
-    resolver.observe(adapter, 'custom', 180_000);
-    resolver.observe(adapter, 'custom', Number.NaN);
-    expect(resolver.resolve(adapter, 'custom')).toEqual({
-      contextWindowTokens: 180_000,
-      source: 'observed',
+    const retry = resolveContinuationBudgets({
+      rawRetentionCeilingTokens: 64_000,
+      targetCapacity: capacity,
+      generatorCapacity: capacity,
+      targetVariant: 'lower-budget-retry',
+      continuationInstruction: 'next',
+      fixedWrapperTokens: 0,
     });
-    expect(resolveGeneratorFoldInputBudgetTokens(null)).toBe(96_000);
+    expect(primary.targetPromptCapacityTokens).toBe(40_000);
+    expect(retry.targetPromptCapacityTokens).toBe(8_000);
+    expect(primary.generatorFoldInputBudgetTokens).toBe(32_000);
+    expect(resolveGeneratorFoldInputBudgetTokens(capacity)).toBe(32_000);
+    expect(targetNeedsLowerBudgetRetry(capacity)).toBe(true);
   });
 });

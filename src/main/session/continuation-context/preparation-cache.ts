@@ -18,6 +18,7 @@ export interface CachedContinuationPreparation {
   consumed: boolean;
   retryAvailable: boolean;
   prepared: PreparedContinuationContext;
+  lowerBudgetRetry: PreparedContinuationContext | null;
   generator: ResolvedContinuationGenerator;
   target: ResolvedSuccessorSpec;
   frozen?: {
@@ -67,6 +68,7 @@ export class ContinuationPreparationCache {
     ownerSessionId: string;
     sourceSessionId: string;
     prepared: PreparedContinuationContext;
+    lowerBudgetRetry?: PreparedContinuationContext | null;
     generator: ResolvedContinuationGenerator;
     target: ResolvedSuccessorSpec;
     frozen?: CachedContinuationPreparation['frozen'];
@@ -83,12 +85,17 @@ export class ContinuationPreparationCache {
       spoolBytes +
       utf8ByteLength(input.prepared.providerPrompt) +
       utf8ByteLength(input.prepared.persistedUserText) +
+      (input.lowerBudgetRetry
+        ? utf8ByteLength(input.lowerBudgetRetry.providerPrompt) +
+          utf8ByteLength(input.lowerBudgetRetry.persistedUserText)
+        : 0) +
       utf8ByteLength(
         JSON.stringify({
           generator: input.generator,
           target: input.target,
           frozen: input.frozen,
           preparationHash: input.prepared.preparationHash,
+          retryPreparationHash: input.lowerBudgetRetry?.preparationHash ?? null,
         }),
       );
     if (bytes > this.maxBytes) throw new Error('Prepared continuation context exceeds cache byte limit');
@@ -102,6 +109,7 @@ export class ContinuationPreparationCache {
       consumed: false,
       retryAvailable: true,
       prepared: input.prepared,
+      lowerBudgetRetry: input.lowerBudgetRetry ?? null,
       generator: input.generator,
       target: input.target,
       frozen: input.frozen,

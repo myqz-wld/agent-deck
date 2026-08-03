@@ -8,7 +8,7 @@ import {
   createTrustedContinuationInitialTurn,
   type TrustedContinuationInitialTurn,
 } from './initial-turn';
-import { prepareContinuationContext } from './service';
+import { prepareContinuationCandidates } from './service';
 import { acquireContinuationCheckpointForegroundLease } from './checkpoint-refresh-service';
 import {
   assertSessionAdapterId,
@@ -53,6 +53,10 @@ export interface CapturedRecoveryContinuation {
 export interface PreparedRecoveryContinuation {
   prepared: PreparedContinuationContext;
   turn: TrustedContinuationInitialTurn;
+  lowerBudgetRetry: {
+    prepared: PreparedContinuationContext;
+    turn: TrustedContinuationInitialTurn;
+  } | null;
 }
 
 function resolveTarget(
@@ -127,6 +131,11 @@ function resolveTarget(
     sandbox,
     networkAccessEnabled,
     additionalDirectories,
+    ...(overrides.model === undefined &&
+    overrides.provider === undefined &&
+    session.contextUsage?.runtimeIdentity
+      ? { trustedRuntimeIdentity: session.contextUsage.runtimeIdentity }
+      : {}),
     sourceRuntimeFingerprint,
   });
 }
@@ -175,7 +184,7 @@ export async function prepareRecoveryContinuation(input: {
     input.capture.sourceSessionId,
   );
   try {
-    const prepared = await prepareContinuationContext({
+    const candidates = await prepareContinuationCandidates({
       purpose: 'recovery',
       sourceSessionId: input.capture.sourceSessionId,
       continuationInstruction: input.continuationInstruction,
@@ -190,9 +199,19 @@ export async function prepareRecoveryContinuation(input: {
       },
       ...(input.signal ? { signal: input.signal } : {}),
     });
+    const prepared = candidates.primary;
     return {
       prepared,
       turn: createTrustedContinuationInitialTurn(prepared, input.capture.sourceSessionId),
+      lowerBudgetRetry: candidates.lowerBudgetRetry
+        ? {
+            prepared: candidates.lowerBudgetRetry,
+            turn: createTrustedContinuationInitialTurn(
+              candidates.lowerBudgetRetry,
+              input.capture.sourceSessionId,
+            ),
+          }
+        : null,
     };
   } finally {
     releaseForeground();
