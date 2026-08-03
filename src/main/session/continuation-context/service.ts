@@ -112,7 +112,9 @@ function initialWarnings(
       message:
         `Target context capacity is ${input.target.contextCapacity.status} for ` +
         `${input.target.adapter}/${input.target.model ?? 'default'}; ` +
-        'using tagged 64k primary and 32k retry policies.',
+        (input.purpose === 'handoff'
+          ? 'using tagged 64k primary and 32k retry policies.'
+          : 'using the tagged 64k conservative recovery policy.'),
     });
   }
   if (metadata.uncoveredRevisionRange || metadata.rawScanTruncated) {

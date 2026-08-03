@@ -161,6 +161,25 @@ describe('trusted continuation readiness gate', () => {
     expect(input.createCandidate).toHaveBeenCalledTimes(2);
   });
 
+  it('makes a lower-candidate startup rejection terminal without inventing an orphan', async () => {
+    const input = baseInput();
+    input.createCandidate
+      .mockResolvedValueOnce(candidate('primary', {
+        status: 'rejected', reason: 'context-window-exceeded',
+      }))
+      .mockRejectedValueOnce(new Error('private retry startup detail'));
+
+    await expect(selectTrustedContinuationCandidate(input)).rejects.toMatchObject({
+      reason: 'target-retry-startup-failed',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
+    });
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+    expect(input.createCandidate).toHaveBeenCalledTimes(2);
+  });
+
   it('uses one absolute deadline and starts best-effort cleanup on timeout', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
@@ -206,6 +225,22 @@ describe('trusted continuation readiness gate', () => {
     });
   });
 
+  it('does not report pending cleanup when the deadline expires before creation starts', async () => {
+    const input = baseInput();
+
+    await expect(selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 0,
+    })).rejects.toMatchObject({
+      reason: 'target-startup-timeout',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: false,
+    });
+    expect(input.createCandidate).not.toHaveBeenCalled();
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+  });
+
   it('attributes a retry startup deadline to the lower-budget attempt', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(17_000);
@@ -235,6 +270,27 @@ describe('trusted continuation readiness gate', () => {
     await vi.waitFor(() => {
       expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-retry');
     });
+  });
+
+  it('does not attribute a retry when the deadline jumps forward before retry creation', async () => {
+    const input = baseInput();
+    input.createCandidate.mockResolvedValueOnce(candidate('primary', {
+      status: 'rejected', reason: 'context-window-exceeded',
+    }));
+    const times = [0, 0, 0, 0, 0, 99, 100];
+
+    await expect(selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 100,
+      now: () => times.shift() ?? 100,
+    })).rejects.toMatchObject({
+      reason: 'target-startup-timeout',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: false,
+    });
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
+    expect(input.createCandidate).toHaveBeenCalledTimes(1);
   });
 
   it('does not start the lower candidate after strict cleanup consumes the shared deadline', async () => {

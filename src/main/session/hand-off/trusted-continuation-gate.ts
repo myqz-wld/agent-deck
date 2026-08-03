@@ -12,6 +12,7 @@ export type HandOffSuccessorCleanup = 'ok' | 'failed' | 'pending';
 
 export type HandOffTrustedContinuationFailureReason =
   | 'target-startup-timeout'
+  | 'target-retry-startup-failed'
   | 'target-acceptance-timeout'
   | 'target-context-rejected'
   | 'target-provider-rejected'
@@ -149,8 +150,14 @@ async function createBeforeDeadline(
   now: () => number,
   usedLowerBudgetRetry: boolean,
 ): Promise<TrustedContinuationSessionCandidate> {
-  if (deadlineAt - now() <= 0) throw startupTimeoutFailure(usedLowerBudgetRetry);
-  const creation = input.createCandidate(turn);
+  if (deadlineAt - now() <= 0) throw preCreationDeadlineFailure();
+  let creation: Promise<TrustedContinuationSessionCandidate>;
+  try {
+    creation = input.createCandidate(turn);
+  } catch (error) {
+    if (!usedLowerBudgetRetry) throw error;
+    throw retryStartupFailure(error);
+  }
   try {
     return await beforeDeadline(creation, deadlineAt, now);
   } catch (error) {
@@ -158,8 +165,19 @@ async function createBeforeDeadline(
       scheduleLateCandidateCleanup(creation, input.closeCandidateBestEffort);
       throw startupTimeoutFailure(usedLowerBudgetRetry);
     }
+    if (usedLowerBudgetRetry) throw retryStartupFailure(error);
     throw error;
   }
+}
+
+function preCreationDeadlineFailure(): TrustedContinuationGateFailure {
+  return new TrustedContinuationGateFailure(
+    'Trusted continuation readiness expired before candidate startup began',
+    null,
+    'ok',
+    'target-startup-timeout',
+    false,
+  );
 }
 
 function startupTimeoutFailure(
@@ -171,6 +189,20 @@ function startupTimeoutFailure(
     'pending',
     'target-startup-timeout',
     usedLowerBudgetRetry,
+  );
+}
+
+function retryStartupFailure(error: unknown): TrustedContinuationGateFailure {
+  logger.warn(
+    '[handoff readiness] lower-budget candidate creation rejected before a stable session id',
+    error,
+  );
+  return new TrustedContinuationGateFailure(
+    'The lower-budget trusted continuation could not start before yielding a stable session id',
+    null,
+    'ok',
+    'target-retry-startup-failed',
+    true,
   );
 }
 

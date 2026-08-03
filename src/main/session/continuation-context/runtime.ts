@@ -149,7 +149,6 @@ async function runClaudeFamilyCheckpoint(input: {
           > | null | undefined,
           primaryModel,
           input.gatewayModelAliases,
-          input.runtimeProvider,
         );
         const contextWindowEvidence = capacity
           ? {

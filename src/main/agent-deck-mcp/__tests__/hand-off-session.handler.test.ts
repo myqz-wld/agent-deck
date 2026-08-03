@@ -428,6 +428,76 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     }
   });
 
+  it('reports no cleanup when readiness expires before candidate creation begins', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const createSuccessor = vi.fn(async () => acceptedCandidate('must-not-start'));
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({ createSuccessor, readinessDeadlineMs: 0 }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseResult(result)).toMatchObject({
+      successorSessionId: null,
+      successorClosed: 'ok',
+      usedLowerBudgetRetry: false,
+    });
+    expect(result.content[0]?.text).toContain(
+      'readiness expired before successor startup began',
+    );
+    expect(result.content[0]?.text).toContain('No successor was created');
+    expect(result.content[0]?.text).not.toContain('late candidate');
+    expect(createSuccessor).not.toHaveBeenCalled();
+  });
+
+  it('returns a terminal diagnostic when lower-budget startup rejects before a stable id', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(callerRow());
+    const privateFailure = 'PRIVATE_RETRY_STARTUP_DETAIL_SHOULD_NOT_LEAK';
+    const createSuccessor = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: 'rejected-primary',
+        acceptance: Promise.resolve({
+          status: 'rejected',
+          reason: 'context-window-exceeded',
+        }),
+      })
+      .mockRejectedValueOnce(new Error(privateFailure));
+    const prepareContinuation = vi.fn(async (input) => {
+      const result = preparedHandOff(input.target);
+      const lower = lowerPreparedContext();
+      return {
+        ...result,
+        lowerBudgetRetry: {
+          prepared: lower,
+          turn: createTrustedContinuationInitialTurn(lower, 'caller-sid'),
+        },
+      };
+    });
+
+    const result = await handOffSessionHandler(
+      { prompt: 'continue' },
+      ctx(),
+      testDeps({
+        prepareContinuation,
+        createSuccessor,
+        rollbackRejectedSuccessor: vi.fn(async () => undefined),
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseResult(result)).toMatchObject({
+      successorSessionId: null,
+      successorClosed: 'ok',
+      usedLowerBudgetRetry: true,
+    });
+    expect(result.content[0]?.text).toContain('lower-budget successor failed to start');
+    expect(result.content[0]?.text).not.toContain(privateFailure);
+    expect(createSuccessor).toHaveBeenCalledTimes(2);
+  });
+
   it('always releases ingress ownership when the final source probe throws', async () => {
     vi.spyOn(sessionRepo, 'get')
       .mockReturnValueOnce(callerRow())

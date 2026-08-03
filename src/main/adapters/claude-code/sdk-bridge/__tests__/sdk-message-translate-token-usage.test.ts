@@ -133,7 +133,11 @@ describe('translateSdkMessage finalized Claude usage', () => {
       'sid-1',
       resultMsg({
         modelUsage: {
-          'claude-opus-4-8': { outputTokens: 5, contextWindow: 200_000 },
+          'claude-opus-4-8': {
+            outputTokens: 5,
+            contextWindow: 200_000,
+            canonicalModel: 'claude-opus-4-8-20260801',
+          },
           'claude-haiku-4-5': { outputTokens: 2, contextWindow: 128_000 },
         },
       }),

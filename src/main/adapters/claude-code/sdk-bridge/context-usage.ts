@@ -58,7 +58,6 @@ export function claudeContextWindowObservation(
   modelUsage: Record<string, ClaudeModelUsage> | null | undefined,
   primaryModel: string | null | undefined,
   gatewayModelAliases?: ClaudeGatewayModelAliases,
-  runtimeProvider = 'native',
 ): ClaudeContextWindowObservation | null {
   const entries = Object.entries(modelUsage ?? {})
     .map(([model, usage]) => ({
@@ -81,12 +80,8 @@ export function claudeContextWindowObservation(
       entry.mappedModel === primary,
   );
   if (exact.length !== 1) return null;
-  const match = exact[0];
-  const concreteModel = runtimeProvider !== 'native' || gatewayModelAliases !== undefined
-    ? match.mappedModel ?? match.model
-    : match.canonicalModel ?? match.mappedModel ?? match.model;
-  if (isAliasOnly(concreteModel)) return null;
-  return { model: concreteModel, windowTokens: match.windowTokens };
+  if (isAliasOnly(primary)) return null;
+  return { model: primary, windowTokens: exact[0].windowTokens };
 }
 
 export function claudeContextWindowPayload(
@@ -97,7 +92,6 @@ export function claudeContextWindowPayload(
     modelUsage,
     internal.runtimeModel,
     internal.gatewayModelAliases,
-    internal.runtimeProvider,
   );
   return observation
     ? claudeContextUsagePayload(

@@ -43,10 +43,24 @@ export function executionCutoverError(
   successorCleanup: HandOffSuccessorCleanup,
 ): { error: string; hint: string } {
   if (reason === 'target-startup-timeout') {
+    if (successorCleanup === 'ok') {
+      return {
+        error: 'handoff readiness expired before successor startup began',
+        hint:
+          'No successor was created and no resources moved. Prepare a fresh continuation context before retrying.',
+      };
+    }
     return {
       error: 'handoff successor startup exceeded the trusted continuation readiness deadline',
       hint:
         'No resources moved and no stable successor id was available. A late candidate will be closed automatically; inspect the session list and application logs before retrying.',
+    };
+  }
+  if (reason === 'target-retry-startup-failed') {
+    return {
+      error: 'handoff lower-budget successor failed to start',
+      hint:
+        'The lower-budget attempt produced no stable successor id, no cleanup is required, and the source remains active. Inspect the target provider logs, then prepare a fresh handoff before retrying.',
     };
   }
   const prefix =

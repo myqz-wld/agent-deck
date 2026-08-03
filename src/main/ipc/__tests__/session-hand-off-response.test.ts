@@ -96,6 +96,31 @@ describe('session handoff IPC response serialization', () => {
     });
   });
 
+  it('serializes a terminal lower-budget startup rejection without an orphan', async () => {
+    const executionError = new HandOffExecutionError(
+      'lower-budget startup failed',
+      'cutover',
+      null,
+      'ok',
+      null,
+      null,
+      'target-retry-startup-failed',
+      true,
+    );
+
+    await expect(
+      serializeSessionHandOffCommit(vi.fn().mockRejectedValue(executionError)),
+    ).resolves.toEqual({
+      status: 'execution-error',
+      stage: 'cutover',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
+      cutoverReason: 'target-retry-startup-failed',
+      message: 'lower-budget startup failed',
+    });
+  });
+
   it('keeps pre-spawn and unknown failures on the rejecting IPC path', async () => {
     const failure = new Error('provider create failed before a successor existed');
     await expect(

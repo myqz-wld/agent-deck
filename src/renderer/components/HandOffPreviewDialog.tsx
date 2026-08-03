@@ -422,7 +422,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             >
               <div>⚠️ {executionFailureLabel(executionFailure)}</div>
               {executionFailure.usedLowerBudgetRetry && (
-                <div>本次已采用较小范围的续接上下文重试。</div>
+                <div>本次已尝试使用较小范围的续接上下文。</div>
               )}
               {executionFailure.successorCleanup !== 'ok' && (
                 <button
