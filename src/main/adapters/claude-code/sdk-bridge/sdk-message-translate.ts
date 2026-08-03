@@ -38,7 +38,8 @@ import { resetTurnUsageAccounting } from './authoritative-reasoning-usage';
 import type { InternalSession } from './types';
 import { syncClaudeRuntimeModel } from './runtime-metadata-sync';
 import {
-  emitFinalResultUsage,
+  emitClaudeAssistantUsage,
+  reconcileClaudeFinalResultUsage,
   type ClaudeFinalResultUsage,
 } from './final-result-usage';
 import {
@@ -64,27 +65,6 @@ function resolveClaudeFallbackModel(internal: InternalSession, sessionId: string
   } catch {
     return CLAUDE_DEFAULT_BUCKET;
   }
-}
-
-function resultOutputTokens(r: {
-  usage?: { output_tokens?: number };
-  modelUsage?: Record<string, { outputTokens?: number }>;
-}): number {
-  const entries = Object.values(r.modelUsage ?? {});
-  if (entries.length > 0) {
-    return entries.reduce((sum, usage) => sum + (usage.outputTokens ?? 0), 0);
-  }
-  return r.usage?.output_tokens ?? 0;
-}
-
-function resultLiveRateModel(r: {
-  modelUsage?: Record<string, { outputTokens?: number }>;
-}): string | null {
-  const entries = Object.entries(r.modelUsage ?? {});
-  const outputEntries = entries.filter(([, usage]) => (usage.outputTokens ?? 0) > 0);
-  if (outputEntries.length === 1) return outputEntries[0][0];
-  if (entries.length === 1) return entries[0][0];
-  return null;
 }
 
 function compactFailureText(msg: { compact_result?: unknown; compact_error?: unknown }): string | null {
@@ -196,10 +176,18 @@ export function translateSdkMessage(
         pushFileChangeIntent(internal, block.name, block.input, block.id);
       }
     }
-    // Assistant BetaUsage may contain nullable cache fields and is only a provisional view of the
-    // turn. Durable accounting waits for the finalized SDK result below. Live tok/s continues to
-    // use stream events and the result calibration path, so this does not make display feedback
-    // wait for persistence.
+    // Assistant usage is per API call, unlike cumulative result.modelUsage. Persist it under the
+    // provider message id; repeated/progressive frames max-merge safely in token_usage.
+    try {
+      emitClaudeAssistantUsage(
+        e,
+        resolveClaudeFallbackModel(internal, sessionId),
+        m,
+        internal,
+      );
+    } catch {
+      // Usage telemetry must never interrupt assistant content translation.
+    }
   } else if (msg.type === 'user') {
     const m = msg.message as {
       content?: { type: string; tool_use_id?: string; content?: unknown; is_error?: boolean }[];
@@ -267,21 +255,22 @@ export function translateSdkMessage(
       resetTurnUsageAccounting(internal);
       return;
     }
-    completeLiveTokenEstimate(internal, sessionId, resultOutputTokens(r), ts, resultLiveRateModel(r));
     const fallbackModel = resolveClaudeFallbackModel(internal, sessionId);
+    const reconciledUsage = reconcileClaudeFinalResultUsage(e, fallbackModel, r, internal);
+    resetTurnUsageAccounting(internal);
+    completeLiveTokenEstimate(
+      internal,
+      sessionId,
+      reconciledUsage.outputTokens,
+      ts,
+      reconciledUsage.liveRateModel,
+    );
     const contextWindowTokens = claudeContextWindowTokens(
       r.modelUsage,
       internal.runtimeModel ?? fallbackModel,
     );
     if (contextWindowTokens !== null) {
       e('context-usage', { windowTokens: contextWindowTokens });
-    }
-    try {
-      emitFinalResultUsage(e, fallbackModel, r);
-    } catch {
-      // Usage telemetry must never interrupt result/finished translation.
-    } finally {
-      resetTurnUsageAccounting(internal);
     }
     if (r.is_error || (r.subtype && r.subtype !== 'success')) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';

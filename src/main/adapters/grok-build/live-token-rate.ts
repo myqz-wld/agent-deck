@@ -43,13 +43,16 @@ export function handleGrokTextForLiveRate(
   if (!state || !text) return;
   state.firstTextTs ??= now;
   state.lastTextTs = now;
-  state.estTokensSinceFlush += estimateGrokTokensFromText(text);
 
   if (!state.hasFlushAnchor) {
     state.hasFlushAnchor = true;
     state.lastFlushTs = now;
+    // This chunk was generated before its callback timestamp. Counting it against time after the
+    // callback creates an artificial first live spike, so start estimation with the next chunk.
+    state.estTokensSinceFlush = 0;
     return;
   }
+  state.estTokensSinceFlush += estimateGrokTokensFromText(text);
   const elapsedMs = now - state.lastFlushTs;
   if (elapsedMs < THROTTLE_MS) return;
   const elapsedSec = elapsedMs / 1000;
@@ -84,11 +87,9 @@ export function completeGrokLiveTokenRate(
   const streamElapsedMs =
     first !== undefined && last !== undefined && last > first ? last - first : 0;
   const elapsedMs =
-    streamElapsedMs > 0
-      ? streamElapsedMs
-      : typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0
-        ? durationMs
-        : 0;
+    typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0
+      ? durationMs
+      : streamElapsedMs;
   if (!Number.isFinite(outputTokens) || outputTokens <= 0 || elapsedMs <= 0) {
     eventBus.emit('token-rate-tick', {
       sessionId: state.sessionId,

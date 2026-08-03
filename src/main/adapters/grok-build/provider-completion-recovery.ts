@@ -90,6 +90,7 @@ export function applyRecoveredGrokTurn(
     completeGrokTurnLiveRate(
       runtime.translation,
       typeof payload.outputTokens === 'number' ? payload.outputTokens : 0,
+      turn.completion.update?.usage?.apiDurationMs,
     );
   }
   clearGrokTurnLiveRate(runtime.translation);

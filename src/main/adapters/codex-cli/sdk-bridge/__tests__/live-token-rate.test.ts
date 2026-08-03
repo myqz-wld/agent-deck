@@ -8,7 +8,10 @@ vi.mock('@main/store/session-repo', () => ({
 }));
 
 import { eventBus } from '@main/event-bus';
-import { handleCodexAppServerNotificationForLiveRate } from '../live-token-rate';
+import {
+  handleCodexAppServerNotificationForLiveRate,
+  observeCodexNotificationUsage,
+} from '../live-token-rate';
 
 const emitMock = vi.mocked(eventBus.emit);
 
@@ -39,6 +42,30 @@ function usageDelta(outputTokens: number, reasoningOutputTokens = 0): CodexAppSe
         inputTokens: 0,
         outputTokens,
         reasoningOutputTokens,
+        cachedInputTokens: 0,
+      },
+    },
+  });
+}
+
+function cumulativeUsage(
+  totalOutputTokens: number,
+  lastOutputTokens: number,
+): CodexAppServerNotification {
+  return notify('thread/tokenUsage/updated', {
+    tokenUsage: {
+      total: {
+        totalTokens: totalOutputTokens,
+        inputTokens: 0,
+        outputTokens: totalOutputTokens,
+        reasoningOutputTokens: 0,
+        cachedInputTokens: 0,
+      },
+      last: {
+        totalTokens: lastOutputTokens,
+        inputTokens: 0,
+        outputTokens: lastOutputTokens,
+        reasoningOutputTokens: 0,
         cachedInputTokens: 0,
       },
     },
@@ -96,6 +123,32 @@ describe('codex app-server live-token-rate', () => {
     );
 
     expect(emitMock).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a repeated positive last snapshot and rates only cumulative output growth', () => {
+    const internal = makeInternalSession();
+
+    handleCodexAppServerNotificationForLiveRate(notify('turn/started'), internal, 'sid-1', 1000);
+    handleCodexAppServerNotificationForLiveRate(cumulativeUsage(20, 20), internal, 'sid-1', 1500);
+    handleCodexAppServerNotificationForLiveRate(cumulativeUsage(20, 20), internal, 'sid-1', 2000);
+    handleCodexAppServerNotificationForLiveRate(cumulativeUsage(30, 10), internal, 'sid-1', 2500);
+
+    expect(emitMock).toHaveBeenCalledTimes(2);
+    expect(emitMock.mock.calls[0]?.[1]).toMatchObject({ tps: 40, ts: 1500 });
+    expect(emitMock.mock.calls[1]?.[1]).toMatchObject({ tps: 20, ts: 2500 });
+  });
+
+  it('fingerprints cumulative usage by native thread id after an application-session fallback', () => {
+    const internal = makeInternalSession({
+      applicationSid: 'stable-app-sid',
+      threadId: 'replacement-native-thread',
+    });
+
+    const observation = observeCodexNotificationUsage(cumulativeUsage(20, 20), internal);
+
+    expect(observation?.messageId).toBe(
+      'codex-usage-v2:replacement-native-thread:20-0-20-0-0-x',
+    );
   });
 
   it('turn/completed emits done tick and clears live state without recomputing usage', () => {

@@ -21,12 +21,11 @@ import {
 import {
   handleCodexAppServerNotificationForLiveRate,
   clearCodexLiveTokenEstimate,
+  observeCodexNotificationUsage,
 } from './live-token-rate';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
-import type {
-  CodexAppServerNotification,
-} from '../app-server/client';
+import type { CodexAppServerNotification } from '../app-server/client';
 import { toCodexAppServerInput } from './input-pack';
 import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
 import log from '@main/utils/logger';
@@ -374,6 +373,7 @@ export class ThreadLoop {
                     `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
                 );
                 internal.threadId = newId;
+                internal.codexTokenUsageWatermark = undefined;
                 // **R5 HIGH-R5-1 + R6 MED-R6-1 + R7 MED-R7-1 修订**: 第一参数 internal.applicationSid
                 // (app sid 维度,不变量 1) 而非 oldId (cli sid 维度);走 manager 黑名单链确保
                 // OLD_CLI_ID 进 recentlyDeleted 60s 防迟到 hook event 复活幽灵 record (不变量 5)。
@@ -400,14 +400,19 @@ export class ThreadLoop {
             }
             if (ev.type === 'server.notification') {
               this.trackCurrentTurnId(internal, ev.notification);
+              const usageObservation = observeCodexNotificationUsage(ev.notification, internal);
               handleCodexAppServerNotificationForLiveRate(
                 ev.notification,
                 internal,
                 internal.applicationSid,
+                Date.now(),
+                usageObservation,
               );
               translateCodexAppServerNotification(ev.notification, emit, {
                 model: sessionRepo.get(internal.applicationSid)?.model ?? null,
                 state: translateState,
+                tokenUsageObservation: usageObservation,
+                usageMessageNamespace: internal.threadId ?? internal.applicationSid,
               });
             }
           }

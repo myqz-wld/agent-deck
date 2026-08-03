@@ -78,11 +78,19 @@ export async function finalizeGrokAcpResponse(
   if (usageEvent) {
     if (runtime.translation.extensionUsageForCurrentTurn && !runtime.closed) {
       options.emit(usageEvent);
-      completeRateFromEvent(runtime, usageEvent.payload);
+      completeRateFromEvent(
+        runtime,
+        usageEvent.payload,
+        completion?.update?.usage?.apiDurationMs,
+      );
     } else if (await waitForGrokStandardUsage(runtime.translation) && !runtime.closed) {
       options.emit(usageEvent);
       markGrokStandardUsageEmitted(runtime.translation, usageEvent);
-      completeRateFromEvent(runtime, usageEvent.payload);
+      completeRateFromEvent(
+        runtime,
+        usageEvent.payload,
+        completion?.update?.usage?.apiDurationMs,
+      );
     }
   } else if (runtime.translation.lastUsage !== previousWatermark) {
     persistGrokUsageWatermark(runtime);
@@ -120,7 +128,11 @@ function completionFromPromptResponse(response: {
   };
 }
 
-function completeRateFromEvent(runtime: GrokRuntime, payload: unknown): void {
+function completeRateFromEvent(
+  runtime: GrokRuntime,
+  payload: unknown,
+  durationMs?: number,
+): void {
   const outputTokens =
     payload && typeof payload === 'object'
       ? (payload as { outputTokens?: unknown }).outputTokens
@@ -128,5 +140,6 @@ function completeRateFromEvent(runtime: GrokRuntime, payload: unknown): void {
   completeGrokTurnLiveRate(
     runtime.translation,
     typeof outputTokens === 'number' ? outputTokens : 0,
+    durationMs,
   );
 }

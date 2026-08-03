@@ -11,6 +11,7 @@ import type {
 } from '@shared/types';
 import type { HookServer } from '@main/hook-server/server';
 import type { CodexAppServerThread } from '../app-server/client';
+import type { CodexTokenUsageSnapshot } from '../app-server/token-usage-observation';
 import type { CodexInput } from './input-pack';
 import type { QueuedAgentMessage } from '@main/adapters/types';
 
@@ -122,6 +123,8 @@ export interface InternalSession {
   intentionallyClosed: boolean;
   /** 生成中 tok/s display-only app-server usage 状态（不写库，turn 末清掉）。 */
   codexLiveTokenEstimate?: CodexLiveTokenEstimateState;
+  /** Thread-lifetime cumulative usage watermark; survives turn boundaries and rejects replays. */
+  codexTokenUsageWatermark?: CodexTokenUsageSnapshot;
   /** app-server initiated native approval requests awaiting a response in Agent Deck. */
   pendingPermissions: Map<string, CodexPendingPermission>;
 }

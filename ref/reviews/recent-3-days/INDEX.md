@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-03 | `REVIEW_211_provider-token-accounting-and-rate-repair.md` | Provider token totals and tok/s | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
 | 2026-08-03 | `REVIEW_210_worktree-inflight-message-continuity.md` | Worktree in-flight message continuity | 0 CRITICAL / 3 HIGH fixed / 1 MEDIUM fixed |
 | 2026-07-31 | `REVIEW_209_review-208-defect-remediation.md` | Final integration of all REVIEW_208 findings | 0 CRITICAL / 4 HIGH fixed / 10 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-31 | `REVIEW_208_compatibility-and-defect-audit.md` | Compatibility cleanup and functional defect audit | 4 HIGH / 10 MEDIUM / 1 LOW; closed by REVIEW_209 |
