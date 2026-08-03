@@ -159,6 +159,27 @@ describe('translateSdkMessage finalized Claude usage', () => {
     );
   });
 
+  it('does not use pricing canonical metadata to claim another model window', () => {
+    const { events, emit, internal } = setup();
+    internal.runtimeModel = 'claude-opus-4-8';
+    translateSdkMessage(
+      emit,
+      'sid-1',
+      resultMsg({
+        modelUsage: {
+          'provider-secondary': {
+            outputTokens: 5,
+            contextWindow: 999_999,
+            canonicalModel: 'claude-opus-4-8',
+          },
+        },
+      }),
+      internal,
+    );
+
+    expect(contextWindowEvents(events)).toEqual([]);
+  });
+
   it('does not bucket-match a secondary model or collapse equal ambiguous windows', () => {
     const { events, emit, internal } = setup();
     internal.runtimeModel = 'claude-opus-4-8';

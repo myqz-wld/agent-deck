@@ -123,6 +123,31 @@ describe('isolated Claude-family checkpoint runtime', () => {
     expect(result.contextWindowEvidence).toBeNull();
   });
 
+  it('does not use pricing canonical metadata as checkpoint capacity authority', async () => {
+    query.mockReturnValueOnce(iterable([
+      {
+        type: 'result', subtype: 'success', structured_output: {
+          formatVersion: 1, additions: [], updates: [],
+        },
+        modelUsage: {
+          'provider-secondary': {
+            contextWindow: 999_999,
+            canonicalModel: 'claude-test',
+          },
+        },
+      },
+    ]));
+    const runtime = createCheckpointGeneratorRuntime({
+      adapter: 'claude-code', model: 'claude-test', thinking: 'low',
+      contextCapacity: unknownContextCapacity(), configFingerprint: 'canonical-only-runtime',
+    });
+
+    const result = await runtime.generate(request);
+
+    expect(result.contextWindowTokens).toBeNull();
+    expect(result.contextWindowEvidence).toBeNull();
+  });
+
   it('uses authoritative Gateway alias metadata for checkpoint capacity identity', async () => {
     query.mockReturnValueOnce(iterable([
       { type: 'system', subtype: 'init', model: 'claude-sonnet-4-5' },

@@ -180,13 +180,36 @@ describe('trusted continuation readiness gate', () => {
     expect(input.createCandidate).toHaveBeenCalledTimes(2);
   });
 
+  it('normalizes a synchronous lower-candidate startup throw', async () => {
+    const input = baseInput();
+    input.createCandidate
+      .mockResolvedValueOnce(candidate('primary', {
+        status: 'rejected', reason: 'context-window-exceeded',
+      }))
+      .mockImplementationOnce(() => {
+        throw new Error('private synchronous retry startup detail');
+      });
+
+    await expect(selectTrustedContinuationCandidate(input)).rejects.toMatchObject({
+      reason: 'target-retry-startup-failed',
+      successorSessionId: null,
+      successorCleanup: 'ok',
+      usedLowerBudgetRetry: true,
+    });
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+    expect(input.createCandidate).toHaveBeenCalledTimes(2);
+  });
+
   it('uses one absolute deadline and starts best-effort cleanup on timeout', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
     const pending = pendingCandidate('timed-out');
     const input = baseInput();
     input.createCandidate.mockResolvedValue(pending.candidate);
-    const selection = selectTrustedContinuationCandidate({ ...input, deadlineMs: 50 });
+    const selection = selectTrustedContinuationCandidate({
+      ...input, deadlineMs: 50, now: Date.now,
+    });
     const assertion = expect(selection).rejects.toMatchObject({
       reason: 'target-acceptance-timeout',
       successorSessionId: 'timed-out',
@@ -207,7 +230,9 @@ describe('trusted continuation readiness gate', () => {
     });
     const input = baseInput();
     input.createCandidate.mockImplementationOnce(() => creation);
-    const selection = selectTrustedContinuationCandidate({ ...input, deadlineMs: 50 });
+    const selection = selectTrustedContinuationCandidate({
+      ...input, deadlineMs: 50, now: Date.now,
+    });
     const assertion = expect(selection).rejects.toMatchObject({
       reason: 'target-startup-timeout',
       successorSessionId: null,
@@ -241,6 +266,59 @@ describe('trusted continuation readiness gate', () => {
     expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
   });
 
+  it('does not extend the production deadline when the wall clock moves backwards', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    let monotonicMs = 0;
+    const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => monotonicMs);
+    let settled = false;
+    let outcome: Promise<{ error: unknown }> | null = null;
+    try {
+      const primary = pendingCandidate('clock-primary');
+      const retry = pendingCandidate('clock-retry');
+      const input = baseInput();
+      input.createCandidate
+        .mockResolvedValueOnce(primary.candidate)
+        .mockResolvedValueOnce(retry.candidate);
+      const selection = selectTrustedContinuationCandidate({ ...input, deadlineMs: 50 });
+      outcome = selection.then(
+        () => ({ error: null }),
+        (error: unknown) => ({ error }),
+      );
+      void outcome.then(() => { settled = true; });
+
+      await vi.advanceTimersByTimeAsync(0);
+      monotonicMs = 10;
+      await vi.advanceTimersByTimeAsync(10);
+      vi.setSystemTime(900);
+      primary.settle({ status: 'rejected', reason: 'context-window-exceeded' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      monotonicMs = 49;
+      await vi.advanceTimersByTimeAsync(39);
+      expect(settled).toBe(false);
+      monotonicMs = 50;
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+
+      const result = await outcome;
+      expect(result.error).toMatchObject({
+        reason: 'target-acceptance-timeout',
+        successorSessionId: 'clock-retry',
+        usedLowerBudgetRetry: true,
+      });
+      expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('clock-primary');
+      expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('clock-retry');
+    } finally {
+      if (outcome && !settled) {
+        monotonicMs = 500;
+        await vi.advanceTimersByTimeAsync(500);
+        await outcome;
+      }
+      performanceNow.mockRestore();
+    }
+  });
+
   it('attributes a retry startup deadline to the lower-budget attempt', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(17_000);
@@ -254,7 +332,9 @@ describe('trusted continuation readiness gate', () => {
         status: 'rejected', reason: 'context-window-exceeded',
       }))
       .mockImplementationOnce(() => retryCreation);
-    const selection = selectTrustedContinuationCandidate({ ...input, deadlineMs: 50 });
+    const selection = selectTrustedContinuationCandidate({
+      ...input, deadlineMs: 50, now: Date.now,
+    });
     const assertion = expect(selection).rejects.toMatchObject({
       reason: 'target-startup-timeout',
       successorSessionId: null,
@@ -303,7 +383,9 @@ describe('trusted continuation readiness gate', () => {
     input.rollbackRejectedCandidate.mockImplementation(
       () => new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
     );
-    const selection = selectTrustedContinuationCandidate({ ...input, deadlineMs: 50 });
+    const selection = selectTrustedContinuationCandidate({
+      ...input, deadlineMs: 50, now: Date.now,
+    });
     const assertion = expect(selection).rejects.toMatchObject({
       reason: 'target-acceptance-timeout',
       successorSessionId: 'primary',

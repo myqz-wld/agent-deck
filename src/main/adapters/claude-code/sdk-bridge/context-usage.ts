@@ -10,6 +10,7 @@ interface ClaudeAssistantUsage {
 
 interface ClaudeModelUsage {
   contextWindow?: number;
+  /** SDK pricing lookup metadata; never authoritative runtime-entry ownership. */
   canonicalModel?: string;
 }
 
@@ -62,7 +63,6 @@ export function claudeContextWindowObservation(
   const entries = Object.entries(modelUsage ?? {})
     .map(([model, usage]) => ({
       model: model.trim(),
-      canonicalModel: nonBlank(usage.canonicalModel),
       mappedModel: resolveClaudeRuntimeModel(model, gatewayModelAliases),
       windowTokens: positiveTokenCount(usage.contextWindow),
     }))
@@ -76,7 +76,6 @@ export function claudeContextWindowObservation(
   const exact = entries.filter(
     (entry) =>
       entry.model === primary ||
-      entry.canonicalModel === primary ||
       entry.mappedModel === primary,
   );
   if (exact.length !== 1) return null;
