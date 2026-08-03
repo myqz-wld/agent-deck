@@ -48,7 +48,7 @@ export function isCodexTrustedContinuationModelActivity(
 ): boolean {
   const { method } = notification;
   if (method === 'turn/diff/updated' || method === 'turn/plan/updated') return true;
-  if (method.startsWith('rawResponseItem/')) return true;
+  if (method === 'rawResponseItem/completed') return true;
   if (
     method === 'item/agentMessage/delta'
     || method === 'item/reasoning/textDelta'

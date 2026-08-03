@@ -770,6 +770,33 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.execute).toHaveBeenCalledOnce();
   });
 
+  it('evicts the preparation after a lower-candidate startup rejection', async () => {
+    const harness = createHarness();
+    const preparation = await harness.prepareOne();
+    harness.execute.mockRejectedValueOnce(
+      new HandOffExecutionError(
+        'lower-budget startup failed before a stable id',
+        'cutover',
+        null,
+        'ok',
+        null,
+        null,
+        'target-retry-startup-failed',
+        true,
+      ),
+    );
+
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toMatchObject({ cutoverReason: 'target-retry-startup-failed' });
+    expect(harness.cache.size).toBe(0);
+    expect(harness.cleanupSpool).toHaveBeenCalledWith('spool-secret-1');
+    await expect(
+      harness.coordinator.commit(OWNER, preparation.preparationId),
+    ).rejects.toThrow(/not authorized/);
+    expect(harness.execute).toHaveBeenCalledOnce();
+  });
+
   it('keeps cancellation owner-bound and cleans its immutable spool', async () => {
     const harness = createHarness();
     const preparation = await harness.prepareOne();

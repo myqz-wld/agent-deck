@@ -81,6 +81,7 @@ describe('Codex first-model-event watchdog', () => {
       notify('item/started', { item: { type: 'contextCompaction' } }),
       notify('item/completed', { item: { type: 'enteredReviewMode' } }),
       notify('item/started', { item: { type: 'futureLifecycleItem' } }),
+      notify('rawResponseItem/futureLifecycle'),
       notify('turn/completed', { turn: { status: 'completed' } }),
     ]) {
       expect(isCodexTrustedContinuationModelActivity(notification)).toBe(false);
@@ -306,6 +307,44 @@ describe('Codex first-model-event watchdog', () => {
     );
     expect(activity).toMatchObject({
       runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-new' },
+    });
+  });
+
+  it('does not apply a late reroute scoped to another turn', async () => {
+    vi.useFakeTimers();
+    class RerouteClient extends ScriptedClient {
+      override request<T = unknown>(method: string, params: unknown): Promise<T> {
+        if (method === 'thread/start') {
+          return Promise.resolve({
+            thread: { id: 'thread-1' },
+            model: 'gpt-current',
+            modelProvider: 'openai',
+          } as T);
+        }
+        return super.request(method, params);
+      }
+    }
+    const client = new RerouteClient(50, (current) => {
+      setTimeout(() => {
+        current.emit(notify('model/rerouted', {
+          threadId: 'thread-1', turnId: 'prior-turn', toModel: 'gpt-stale',
+        }));
+        current.emit(notify('item/agentMessage/delta', {
+          threadId: 'thread-1', turnId: 'turn-1', delta: 'model output',
+        }));
+        current.emit(completedTurn());
+      }, 10);
+    });
+
+    const work = collectTurn(client);
+    await vi.advanceTimersByTimeAsync(10);
+    const events = await work;
+    const activity = events.find(
+      (event) => event.type === 'server.notification'
+        && event.notification.method === 'item/agentMessage/delta',
+    );
+    expect(activity).toMatchObject({
+      runtimeIdentity: { runtimeProvider: 'openai', model: 'gpt-current' },
     });
   });
 

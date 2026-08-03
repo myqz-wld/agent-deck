@@ -511,6 +511,12 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
 
     expect(result.primary.metrics.targetPromptCapacityTokens).toBe(40_000);
     expect(result.lowerBudgetRetry).toBeNull();
+    expect(result.primary.warnings).toContainEqual(expect.objectContaining({
+      code: 'target-capacity-fallback',
+      message: expect.stringContaining('64k conservative recovery policy'),
+    }));
+    expect(result.primary.warnings.map((warning) => warning.message).join('\n'))
+      .not.toContain('32k retry');
   });
 
   it('persists exact generator evidence for future snapshots without resizing the current fold', async () => {

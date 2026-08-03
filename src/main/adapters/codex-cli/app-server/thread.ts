@@ -346,14 +346,14 @@ export class CodexAppServerThread {
         if (!this.client.acceptsNotificationForGeneration(turnGeneration)) return;
         const notificationThreadId = getNotificationThreadId(notification);
         if (notificationThreadId && notificationThreadId !== threadId) return;
-        if (
-          notification.method === 'thread/settings/updated'
-          || notification.method === 'model/rerouted'
-        ) {
+        if (notification.method === 'thread/settings/updated') {
           this.runtimeIdentity.observeNotification(notification);
-          if (notification.method === 'thread/settings/updated') return;
+          return;
         }
         const notificationTurnId = getNotificationTurnId(notification);
+        if (notification.method === 'model/rerouted' && notificationTurnId === null) {
+          this.runtimeIdentity.observeNotification(notification);
+        }
         if (
           turnRequestIssued &&
           !turnAccepted &&
