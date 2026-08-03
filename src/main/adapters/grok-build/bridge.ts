@@ -76,7 +76,7 @@ export class GrokBuildBridge {
     this.turnQueue = new GrokTurnQueue({
       emit: options.emit,
       emitEvent: (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
-      emitError: (sessionId, text) => this.emitError(sessionId, text),
+      emitError: (sessionId, text, failureReason) => this.emitError(sessionId, text, failureReason),
       closeSession: (sessionId) => this.closeSession(sessionId),
       recycleRuntime: (runtime) => recycleGrokTransport(runtime, {
         isCurrent: (candidate) => this.isCurrentRuntime(candidate),
@@ -459,9 +459,9 @@ export class GrokBuildBridge {
     };
   }
 
-  private emitError(sessionId: string, text: string): void {
+  private emitError(sessionId: string, text: string, failureReason?: 'context-window-exceeded'): void {
     this.emit(sessionId, 'message', { text: `⚠ ${text}`, role: 'assistant', error: true });
-    this.emit(sessionId, 'finished', { ok: false, subtype: 'error' });
+    this.emit(sessionId, 'finished', { ok: false, subtype: 'error', ...(failureReason ? { failureReason } : {}) });
   }
 
   private emit(sessionId: string, kind: AgentEvent['kind'], payload: unknown): void {

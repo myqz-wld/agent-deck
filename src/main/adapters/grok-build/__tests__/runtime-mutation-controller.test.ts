@@ -44,6 +44,7 @@ function runtime(
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState(),
     ...overrides,
+    runtimeIdentity: overrides.runtimeIdentity ?? null,
   };
 }
 
@@ -117,6 +118,7 @@ describe('GrokRuntimeMutationController', () => {
     );
     expect(active).toMatchObject({
       model: 'native-model',
+      runtimeIdentity: { runtimeProvider: 'native', model: 'native-model' },
       modelOverride: null,
       thinking: null,
       thinkingOverride: null,
@@ -190,6 +192,7 @@ describe('GrokRuntimeMutationController', () => {
       );
       expect(active).toMatchObject({
         model: 'old-model',
+        runtimeIdentity: { runtimeProvider: 'native', model: 'old-model' },
         modelOverride: 'old-model',
         thinking: 'low',
         thinkingOverride: 'low',
@@ -223,6 +226,7 @@ describe('GrokRuntimeMutationController', () => {
 
     expect(dispose).toHaveBeenCalledOnce();
     expect(active.disposed).toBe(true);
+    expect(active.runtimeIdentity).toBeNull();
   });
 
   it('disposes with unchanged durable state when the provider rejects the target request', async () => {
@@ -244,6 +248,7 @@ describe('GrokRuntimeMutationController', () => {
       modelOverride: 'old-model',
       thinkingOverride: 'low',
       disposed: true,
+      runtimeIdentity: null,
     });
   });
 
@@ -280,6 +285,7 @@ describe('GrokRuntimeMutationController', () => {
         thinking: 'low',
         thinkingOverride: 'low',
         disposed: true,
+        runtimeIdentity: null,
       });
     },
   );

@@ -98,6 +98,7 @@ export class GrokRuntimeLifecycleCoordinator {
   private prepareDispose(runtime: GrokRuntime): void {
     runtime.closed = true;
     runtime.ready = false;
+    runtime.runtimeIdentity = null;
     runtime.sealed = true;
     runtime.submittingMessage?.requestController?.abort();
     runtime.submittingMessage = null;

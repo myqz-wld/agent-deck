@@ -1,3 +1,9 @@
+import {
+  grokContextWindowRejectionCode,
+  structuredGrokContextWindowRejectionCode,
+  type GrokContextWindowRejectionCode,
+} from './native-error';
+
 export const GROK_EXTENSION_UPDATE_METHOD = '_x.ai/session/update';
 export const GROK_EXTENSION_NOTIFICATION_METHOD = '_x.ai/session_notification';
 export const GROK_PROMPT_COMPLETE_METHOD = '_x.ai/session/prompt_complete';
@@ -49,6 +55,7 @@ export interface GrokPromptCompleteNotification {
   agentResult?: string | null;
   turnId?: number;
   cancelTrigger?: string;
+  contextWindowRejectionCode?: GrokContextWindowRejectionCode;
 }
 
 export function parseGrokExtensionNotification(
@@ -71,6 +78,8 @@ export function parseGrokPromptCompleteNotification(
   const stopReason = nonEmptyString(params.stopReason);
   const agentResult = nonEmptyString(params.agentResult);
   const cancelTrigger = nonEmptyString(params.cancelTrigger);
+  const contextWindowRejectionCode =
+    structuredGrokContextWindowRejectionCode(params);
   return {
     ...(sessionId ? { sessionId } : {}),
     ...(promptId ? { promptId } : {}),
@@ -84,6 +93,7 @@ export function parseGrokPromptCompleteNotification(
       ? { turnId: params.turnId as number }
       : {}),
     ...(cancelTrigger ? { cancelTrigger } : {}),
+    ...(contextWindowRejectionCode ? { contextWindowRejectionCode } : {}),
   };
 }
 
@@ -108,11 +118,16 @@ export function grokPromptCompleteFromExtension(
   const stopReason = nonEmptyString(update.stop_reason) ?? 'end_turn';
   const agentResult =
     nonEmptyString(update.agent_result) ?? nonEmptyString(update.agentResult);
+  const contextWindowRejectionCode =
+    grokContextWindowRejectionCode(stopReason) ??
+    structuredGrokContextWindowRejectionCode(update) ??
+    structuredGrokContextWindowRejectionCode(notification._meta);
   return {
     ...(notification.sessionId ? { sessionId: notification.sessionId } : {}),
     promptId,
     stopReason,
     ...(agentResult ? { agentResult } : { agentResult: null }),
+    ...(contextWindowRejectionCode ? { contextWindowRejectionCode } : {}),
   };
 }
 

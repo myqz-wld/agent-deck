@@ -12,12 +12,12 @@ export function currentModelId(value: unknown): string | null {
   const root = asRecord(value);
   const models = asRecord(root.models);
   const sessionModel = models.currentModelId;
-  if (typeof sessionModel === 'string' && sessionModel.trim()) return sessionModel;
+  if (typeof sessionModel === 'string' && sessionModel.trim()) return sessionModel.trim();
 
   const modelState = asRecord(asRecord(root._meta).modelState);
   const initializedModel = modelState.currentModelId;
   return typeof initializedModel === 'string' && initializedModel.trim()
-    ? initializedModel
+    ? initializedModel.trim()
     : null;
 }
 

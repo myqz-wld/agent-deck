@@ -31,6 +31,7 @@ function runtime(stop: () => Promise<void>): GrokRuntime {
     disposed: false,
     suppressUpdates: false,
     model: 'grok',
+    runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
     thinking: null,
     sessionMode: null,
     grokSandbox: null,
@@ -93,6 +94,7 @@ describe('Grok runtime lifecycle coordinator', () => {
     expect(h.runtimes.size).toBe(0);
     expect(h.target.process).toBeNull();
     expect(h.target.disposed).toBe(true);
+    expect(h.target.runtimeIdentity).toBeNull();
     expect(mcpSessionTokenMap.release).toHaveBeenCalledWith('child');
     expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('child');
   });
