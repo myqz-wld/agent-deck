@@ -64,19 +64,26 @@ boundaries:
 - `src/composition/` is the outer layer that selects concrete host implementations.
 - `src/clients/` contains transport clients; SSH is owned by the Electron host process, not the
   renderer.
+- `src/gateways/im/` contains the transport-neutral Feishu session-console gateway, including
+  owner-equivalent enrollment, bounded notification delivery, approval cards, and replay fencing.
 - `src/hosts/` contains the Electron, daemon, restricted SSH bridge, Relay, local Worker, and
-  appliance host boundaries.
+  appliance host boundaries. Its host-only instance manager plans and executes exact per-instance
+  Full/Relay lifecycle operations without exposing them to Core sessions or remote clients.
 - `deploy/linux/full/` and `deploy/linux/relay/` contain fail-closed Quadlet/preflight foundations
-  for the full Server Core and relay-only appliances.
+  for the full Server Core and relay-only appliances; `deploy/linux/manager/` adds static policy
+  checks for their host lifecycle manager.
 
 The current preload surface remains available while it is migrated in vertical slices. Its complete
 invoke-channel ownership is recorded in `src/contracts/current-api-classification.ts`, so new local
 IPC methods cannot acquire remote or Feishu semantics implicitly.
 
 The remote-host directories are an implementation foundation, not a supported deployment claim
-yet. Native Linux packaging, real Ubuntu/EL9 isolation evidence, end-to-end SSH provisioning,
-renderer migration, and Feishu support remain gated work. The existing standalone desktop remains
-the supported runtime during this staged migration.
+yet. The Feishu gateway and Linux instance manager currently use injected ports and deterministic
+tests; production SDK/storage adapters, host composition, native Linux packaging, real Ubuntu/EL9
+isolation evidence, end-to-end SSH provisioning, and renderer migration remain gated work. Relay
+session listing/selection/runtime update and project-based creation also remain fail-closed until
+Core exposes cwd-free session projections and opaque project references. The existing standalone
+desktop remains the supported runtime during this staged migration.
 
 ## Documentation
 
