@@ -22,8 +22,10 @@ import { CliFooter } from './CliFooter';
 import { DiffTab } from './DiffTab';
 import { TasksPanel } from './TasksPanel';
 import { SessionContextUsageChip } from '../SessionContextUsageChip';
-import { decodeBlob, groupFileChanges, pickLatestChange } from './helpers';
+import { decodeBlob, groupFileChanges } from './helpers';
 import { useFileChanges } from './use-file-changes';
+import { useFileChangeSelection } from './use-file-change-selection';
+import { useFileChangePayload } from './use-file-change-payload';
 import { useSessionGitBranch } from '@renderer/hooks/use-session-git-branches';
 
 type Tab = 'activity' | 'tasks' | 'diff' | 'summary' | 'messages' | 'permissions';
@@ -37,8 +39,6 @@ interface Props {
 
 export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('activity');
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [selectedChangeId, setSelectedChangeId] = useState<number | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
@@ -46,9 +46,21 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   const fileChanges = useFileChanges({
     sessionId: session.id,
     enabled: tab === 'diff',
-    selectedChangeId,
+    workspaceKey: session.cwd,
   });
   const changes = fileChanges.changes;
+  const selection = useFileChangeSelection({
+    changes,
+    sessionId: session.id,
+    workspaceKey: session.cwd,
+  });
+  const selectedFilePath = selection.selectedFilePath;
+  const selectedChangeId = selection.selectedChangeId;
+  const selectedFileChange = useFileChangePayload({
+    sessionId: session.id,
+    selectedChangeId,
+    workspaceKey: session.cwd,
+  });
   const [handOffOpen, setHandOffOpen] = useState(false);
   /** 最近被 SDK 自动取消的权限/提问，用于 toast 提示「不是你做的，是 SDK 取消的」。 */
   const [cancelToasts, setCancelToasts] = useState<{ id: string; text: string; ts: number }[]>([]);
@@ -107,8 +119,6 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
 
   useEffect(() => {
     setTab('activity');
-    setSelectedFilePath(null);
-    setSelectedChangeId(null);
     setDiffMode('single');
     setFinalDiff(null);
     setFinalDiffLoading(false);
@@ -119,19 +129,10 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   }, [session.id]);
 
   useEffect(() => {
-    if (!changes) return;
-    const latest = pickLatestChange(changes);
-    setSelectedFilePath((current) =>
-      current && changes.some((change) => change.filePath === current)
-        ? current
-        : latest?.filePath ?? null,
-    );
-    setSelectedChangeId((current) =>
-      current !== null && changes.some((change) => change.id === current)
-        ? current
-        : latest?.id ?? null,
-    );
-  }, [changes]);
+    setDiffMode('single');
+    setFinalDiff(null);
+    setFinalDiffLoading(false);
+  }, [session.id, session.cwd]);
 
   // 按文件分组：组内升序（旧→新）+ 文件按最近改动倒序，同毫秒带 id tiebreaker（详 groupFileChanges）。
   const fileGroups = useMemo(() => (changes ? groupFileChanges(changes) : []), [changes]);
@@ -142,8 +143,8 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
   );
 
   const selectedChange =
-    fileChanges.selectedPayload?.id === selectedChangeId
-      ? fileChanges.selectedPayload
+    selectedFileChange.selectedPayload?.id === selectedChangeId
+      ? selectedFileChange.selectedPayload
       : null;
   const selectedGroupLastId = selectedGroup?.lastId ?? null;
 
@@ -214,8 +215,7 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     session.archivedAt === null &&
     (session.lifecycle === 'active' || session.lifecycle === 'dormant');
   const selectFileGroup = (group: NonNullable<typeof selectedGroup>): void => {
-    setSelectedFilePath(group.filePath);
-    setSelectedChangeId(group.items[group.items.length - 1].id);
+    selection.selectFile(group.filePath, group.items[group.items.length - 1].id);
     setFinalDiff(null);
   };
 
@@ -317,9 +317,12 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
             changes={changes}
             diffError={fileChanges.error}
             hasMore={fileChanges.hasMore}
+            loadedCount={fileChanges.loadedCount}
             loadingMore={fileChanges.loadingMore}
-            payloadLoading={fileChanges.payloadLoading}
-            payloadError={fileChanges.payloadError}
+            lastLoadSummary={fileChanges.lastLoadSummary}
+            hasNewerChanges={selection.hasNewerChanges}
+            payloadLoading={selectedFileChange.payloadLoading}
+            payloadError={selectedFileChange.payloadError}
             fileGroups={fileGroups}
             selectedFilePath={selectedFilePath}
             selectedGroup={selectedGroup}
@@ -331,11 +334,16 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
             finalDiffPayload={finalDiffPayload}
             onSelectFile={selectFileGroup}
             onSelectChange={(id) => {
-              setSelectedChangeId(id);
+              selection.selectChange(id);
               setDiffMode('single');
             }}
             onDiffModeChange={setDiffMode}
             onLoadMore={() => void fileChanges.loadMore()}
+            onFollowLatest={() => {
+              selection.followLatest();
+              setDiffMode('single');
+              setFinalDiff(null);
+            }}
             onRetry={() => void fileChanges.retry()}
           />
         )}

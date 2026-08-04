@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 describe('CheckpointRefreshDiagnosticCoordinator', () => {
-  it('keeps fast success silent, warns at the slow threshold, and recovers once', () => {
+  it('keeps fast success silent, reports slow success at info, and recovers from failures', () => {
     let now = 0;
     const coordinator = new CheckpointRefreshDiagnosticCoordinator(() => now);
 
@@ -47,18 +47,20 @@ describe('CheckpointRefreshDiagnosticCoordinator', () => {
     coordinator.begin('session-secret', 'safety', now);
     now += SLOW_THRESHOLD_MS;
     coordinator.complete('session-secret', { trigger: 'safety', partial: false });
-    expect(mocks.logger.warn).toHaveBeenCalledOnce();
-    expect(mocks.logger.warn.mock.calls[0]?.[0]).toBe(
-      'checkpoint refresh state degraded',
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+    expect(mocks.logger.info).toHaveBeenCalledOnce();
+    expect(mocks.logger.info.mock.calls[0]?.[0]).toBe(
+      'checkpoint refresh completed slowly',
     );
-    expect(diagnostic('warn')).toEqual({
+    expect(diagnostic('info')).toEqual({
       event: 'checkpoint-refresh-state',
       runId: 'checkpoint-refresh-test-run',
+      sessionRef: expect.any(String),
       state: 'slow:safety',
       previousState: 'healthy',
       transition: 'transition',
       durationMs: SLOW_THRESHOLD_MS,
-      abnormalDurationMs: 0,
+      observationWindowMs: 0,
       suppressedCount: 0,
       suppressedCountCapped: false,
       maxDurationMs: SLOW_THRESHOLD_MS,
@@ -67,38 +69,56 @@ describe('CheckpointRefreshDiagnosticCoordinator', () => {
     });
 
     now += 1_000;
+    coordinator.fail('session-secret', {
+      trigger: 'safety',
+      category: 'provider-error',
+      reason: 'provider-error',
+    });
+    expect(mocks.logger.warn).toHaveBeenCalledOnce();
+
+    now += 1_000;
     coordinator.begin('session-secret', 'safety', now);
     now += 1;
     coordinator.complete('session-secret', { trigger: 'safety', partial: false });
-    expect(mocks.logger.info).toHaveBeenCalledOnce();
-    expect(mocks.logger.info.mock.calls[0]?.[0]).toBe(
+    expect(mocks.logger.info).toHaveBeenCalledTimes(2);
+    expect(mocks.logger.info.mock.calls[1]?.[0]).toBe(
       'checkpoint refresh state recovered',
     );
-    expect(diagnostic('info')).toMatchObject({
+    expect(diagnostic('info', 1)).toMatchObject({
       state: 'healthy',
-      previousState: 'slow:safety',
+      previousState: 'failure:safety:provider-error:provider-error',
       transition: 'transition',
       durationMs: 1,
-      maxDurationMs: SLOW_THRESHOLD_MS,
     });
 
     coordinator.complete('session-secret', { trigger: 'safety', partial: false });
-    expect(mocks.logger.info).toHaveBeenCalledOnce();
+    expect(mocks.logger.info).toHaveBeenCalledTimes(2);
   });
 
-  it('distinguishes partial and allowlisted failure signatures including safety', () => {
+  it('distinguishes progressing and stalled partial refreshes from allowlisted failures', () => {
     let now = 0;
     const coordinator = new CheckpointRefreshDiagnosticCoordinator(() => now);
 
     coordinator.begin('partial-secret', 'normal', now);
     now = 100;
-    coordinator.complete('partial-secret', { trigger: 'normal', partial: true });
-    expect(diagnostic('warn')).toMatchObject({
-      state: 'partial:normal',
+    coordinator.complete('partial-secret', {
+      trigger: 'normal',
+      partial: true,
+      progress: {
+        previousCheckpointRevision: 10,
+        checkpointThroughRevision: 50,
+        captureRevision: 100,
+      },
+    });
+    expect(diagnostic('info')).toMatchObject({
+      state: 'partial-progress:normal',
       previousState: null,
       transition: 'initial',
       durationMs: 100,
+      progressedRevisionCount: 40,
+      remainingRevisionCount: 50,
     });
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
 
     now = 200;
     coordinator.begin('partial-secret', 'safety', now);
@@ -108,9 +128,9 @@ describe('CheckpointRefreshDiagnosticCoordinator', () => {
       category: 'timeout',
       reason: 'timeout',
     });
-    expect(diagnostic('warn', 1)).toMatchObject({
+    expect(diagnostic('warn')).toMatchObject({
       state: 'failure:safety:timeout:timeout',
-      previousState: 'partial:normal',
+      previousState: 'partial-progress:normal',
       transition: 'transition',
       durationMs: 100,
     });
@@ -121,10 +141,28 @@ describe('CheckpointRefreshDiagnosticCoordinator', () => {
       category: 'snapshot-error',
       reason: 'unclassified',
     });
-    expect(diagnostic('warn', 2)).toMatchObject({
+    expect(diagnostic('warn', 1)).toMatchObject({
       state: 'failure:snapshot:snapshot-error:unclassified',
       previousState: null,
       durationMs: null,
+    });
+
+    now = 500;
+    coordinator.begin('stalled-secret', 'normal', now);
+    now = 600;
+    coordinator.complete('stalled-secret', {
+      trigger: 'normal',
+      partial: true,
+      progress: {
+        previousCheckpointRevision: 50,
+        checkpointThroughRevision: 50,
+        captureRevision: 100,
+      },
+    });
+    expect(diagnostic('warn', 2)).toMatchObject({
+      state: 'partial-stalled:normal',
+      progressedRevisionCount: 0,
+      remainingRevisionCount: 50,
     });
   });
 
@@ -162,7 +200,7 @@ describe('CheckpointRefreshDiagnosticCoordinator', () => {
       state: 'failure:safety:provider-error:provider-error',
       previousState: 'failure:safety:provider-error:provider-error',
       transition: 'periodic-summary',
-      abnormalDurationMs: SUMMARY_INTERVAL_MS,
+      observationWindowMs: SUMMARY_INTERVAL_MS,
       suppressedCount: 9_999,
       suppressedCountCapped: true,
       maxDurationMs: 100,

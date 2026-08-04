@@ -126,6 +126,14 @@ export class ContinuationCheckpointRefreshService {
               this.diagnostics.complete(context.sessionId, {
                 trigger: context.trigger,
                 partial: true,
+                progress: {
+                  previousCheckpointRevision:
+                    context.snapshot?.checkpointEventRevision ?? 0,
+                  checkpointThroughRevision: error.checkpointThroughRevision,
+                  captureRevision:
+                    context.snapshot?.sourceEventRevision ??
+                    error.materializedThroughRevision,
+                },
               });
             }
             return;
@@ -338,6 +346,11 @@ export class ContinuationCheckpointRefreshService {
           partial:
             result.checkpointThroughRevision < result.captureRevision ||
             result.uncoveredRevisionRange !== null,
+          progress: {
+            previousCheckpointRevision: request.snapshot.checkpointEventRevision,
+            checkpointThroughRevision: result.checkpointThroughRevision,
+            captureRevision: result.captureRevision,
+          },
         });
       }
       if (
