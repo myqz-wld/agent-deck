@@ -1,6 +1,12 @@
 /** Session-store revisions, merge, composer lifecycle, and bounded summary regressions. */
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { AgentEvent, PermissionRequest, SessionRecord, SummaryRecord } from '@shared/types';
+import type {
+  AgentEvent,
+  PermissionRequest,
+  SessionRecord,
+  StoredAgentEvent,
+  SummaryRecord,
+} from '@shared/types';
 import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import {
   attachmentInputs,
@@ -471,5 +477,30 @@ describe('tool-use-start merge — preserve command identity during output delta
       aggregatedOutput: 'src/b.ts\n',
       status: 'inProgress',
     });
+  });
+});
+
+describe('generic activity event identity', () => {
+  it('deduplicates repeated live events before they can produce duplicate React keys', () => {
+    const duplicate = makeEvent('sid-1', 'file-changed', { filePath: '/repo/a.ts' }, 1);
+    const { pushEvent } = useSessionStore.getState();
+
+    pushEvent(duplicate);
+    pushEvent({ ...duplicate, payload: { filePath: '/repo/a.ts' } });
+
+    expect(useSessionStore.getState().recentEventsBySession.get('sid-1')).toHaveLength(1);
+  });
+
+  it('deduplicates the same durable row while preserving identical rows with different ids', () => {
+    const base = makeEvent('sid-1', 'message', { text: 'same' }, 1);
+    useSessionStore.getState().setRecentEvents('sid-1', [
+      { ...base, id: 2 } as StoredAgentEvent,
+      { ...base, id: 2 } as StoredAgentEvent,
+      { ...base, id: 1 } as StoredAgentEvent,
+    ]);
+
+    const events = useSessionStore.getState().recentEventsBySession.get('sid-1') ?? [];
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => (event as AgentEvent & { id?: number }).id)).toEqual([2, 1]);
   });
 });

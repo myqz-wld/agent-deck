@@ -14,6 +14,10 @@ import { initWiring } from './index/bootstrap-wiring';
 import { registerLifecycleHooks } from './index/lifecycle-hooks';
 import { safeDiagnostic } from './utils/safe-diagnostic';
 import { getProcessRunId } from './utils/run-context';
+import {
+  mainBootstrapErrorDiagnostic,
+  type MainBootstrapStage,
+} from './index/bootstrap-diagnostics';
 
 type BootstrapFailurePhase = 'bootstrap' | 'error-dialog' | 'database-close';
 
@@ -27,7 +31,11 @@ function createMainLogger(): ReturnType<typeof log.scope> | null {
 
 const logger = createMainLogger();
 
-function logBootstrapFailure(phase: BootstrapFailurePhase): void {
+function logBootstrapFailure(
+  phase: BootstrapFailurePhase,
+  stage: MainBootstrapStage,
+  error: unknown,
+): void {
   try {
     logger?.error(
       'main bootstrap failed',
@@ -35,7 +43,9 @@ function logBootstrapFailure(phase: BootstrapFailurePhase): void {
         event: 'main-bootstrap',
         runId: getProcessRunId(),
         phase,
+        stage,
         outcome: 'failed',
+        error: mainBootstrapErrorDiagnostic(error),
       }),
     );
   } catch {
@@ -58,32 +68,36 @@ if (!gotLock) {
 if (gotLock) {
   // All bootstrap components share one mutable state object.
   const state = createInitialBootstrapState();
+  let bootstrapStage: MainBootstrapStage = 'electron-ready';
 
   // Keep the completion promise so second-instance handling can await initialization.
   const bootstrappedPromise = app.whenReady().then(async () => {
+    bootstrapStage = 'infrastructure';
     const settings = await initInfra(state);
     // A null snapshot means infrastructure already handled its fatal shutdown. Otherwise wiring
     // consumes the same settings snapshot to avoid a second read.
     if (!settings) return;
+    bootstrapStage = 'wiring';
     initWiring(settings);
+    bootstrapStage = 'complete';
   });
   bootstrappedPromise.catch((err) => {
     // Fatal bootstrap actions remain ordered: user-visible dialog, best-effort database close,
     // then exit. Diagnostic and secondary failures cannot interrupt that sequence.
-    logBootstrapFailure('bootstrap');
+    logBootstrapFailure('bootstrap', bootstrapStage, err);
     try {
       const msg = err instanceof Error ? `${err.message}\n\n${err.stack ?? ''}` : String(err);
       dialog.showErrorBox(
         'Agent Deck 启动失败',
         `应用初始化未完成,将退出。错误详情:\n\n${msg.slice(0, 2000)}`,
       );
-    } catch {
-      logBootstrapFailure('error-dialog');
+    } catch (dialogError) {
+      logBootstrapFailure('error-dialog', bootstrapStage, dialogError);
     }
     try {
       closeDb();
-    } catch {
-      logBootstrapFailure('database-close');
+    } catch (databaseError) {
+      logBootstrapFailure('database-close', bootstrapStage, databaseError);
     }
     app.exit(1);
   });

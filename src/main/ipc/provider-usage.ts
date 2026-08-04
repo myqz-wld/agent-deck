@@ -33,7 +33,7 @@ const PROVIDER_ORDER: ReadonlyArray<ProviderUsageProviderId> = [
 
 const PROVIDER_USAGE_READ_TIMEOUT_ERROR = '__provider_usage_read_timeout__';
 export const PROVIDER_USAGE_READ_TIMEOUT_MS = 5_000;
-export const PROVIDER_USAGE_SLOW_READ_MS = 2_000;
+export const PROVIDER_USAGE_SLOW_READ_MS = 4_000;
 export const PROVIDER_USAGE_LOG_SUMMARY_INTERVAL_MS = 60 * 60_000;
 
 type ProviderUsageDiagnosticState =
@@ -255,18 +255,18 @@ function observeProviderUsage(
     const signature = providerUsageDiagnosticState(outcome, durationMs);
     const decision = providerUsageLogState.observe(provider, {
       signature,
-      abnormal: signature !== 'healthy',
+      abnormal: signature !== 'healthy' && signature !== 'slow',
       metric: durationMs,
     });
 
     if (decision.kind === 'repeat') return;
-    if (decision.kind === 'initial' && !decision.current.abnormal) return;
     if (decision.kind === 'periodic-summary') {
       writeProviderUsageDiagnostic(
         'warn',
         'provider usage state remains degraded',
         provider,
         decision,
+        durationMs,
       );
       return;
     }
@@ -276,6 +276,7 @@ function observeProviderUsage(
         'provider usage state degraded',
         provider,
         decision,
+        durationMs,
       );
       return;
     }
@@ -285,6 +286,17 @@ function observeProviderUsage(
         'provider usage state recovered',
         provider,
         decision,
+        durationMs,
+      );
+      return;
+    }
+    if (decision.current.signature === 'slow') {
+      writeProviderUsageDiagnostic(
+        'info',
+        'provider usage read completed slowly',
+        provider,
+        decision,
+        durationMs,
       );
     }
   } catch {
@@ -320,6 +332,7 @@ function writeProviderUsageDiagnostic(
   message: string,
   provider: ProviderUsageProviderId,
   decision: LogStateDecision<ProviderUsageDiagnosticState>,
+  observedDurationMs: number,
 ): void {
   const priorAbnormal: LogStateSnapshot<ProviderUsageDiagnosticState> | null =
     decision.flushed?.abnormal ? decision.flushed : null;
@@ -339,8 +352,10 @@ function writeProviderUsageDiagnostic(
       state: decision.current.signature,
       previousState: decision.flushed?.signature ?? null,
       transition: decision.kind,
-      abnormalDurationMs: aggregate.abnormalDurationMs,
-      maxDurationMs: aggregate.maxMetric,
+      observedDurationMs,
+      observationWindowMs: aggregate.stateDurationMs,
+      maxDurationMs:
+        decision.current.signature === 'slow' ? observedDurationMs : aggregate.maxMetric,
       suppressedCount: suppressed.suppressedCount,
       suppressedCountCapped: suppressed.suppressedCountCapped,
       slowThresholdMs: PROVIDER_USAGE_SLOW_READ_MS,

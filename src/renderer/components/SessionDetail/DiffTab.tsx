@@ -4,6 +4,7 @@ import type { DiffPayload, FileChangeSummary, FileFinalDiffResult } from '@share
 import { DiffViewer } from '../diff/DiffViewer';
 import { ChangeTimeline } from './ChangeTimeline';
 import type { FileChangeGroup } from './helpers';
+import type { FileChangeLoadSummary } from './use-file-changes';
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from '../icons';
 
 type DiffMode = 'single' | 'final';
@@ -14,7 +15,10 @@ interface Props {
   changes: FileChangeSummary[] | null;
   diffError: string | null;
   hasMore: boolean;
+  loadedCount: number;
   loadingMore: boolean;
+  lastLoadSummary: FileChangeLoadSummary | null;
+  hasNewerChanges: boolean;
   payloadLoading: boolean;
   payloadError: string | null;
   fileGroups: FileGroup[];
@@ -30,6 +34,7 @@ interface Props {
   onSelectChange: (id: number) => void;
   onDiffModeChange: (mode: DiffMode) => void;
   onLoadMore: () => void;
+  onFollowLatest: () => void;
   onRetry: () => void;
 }
 
@@ -38,7 +43,10 @@ export function DiffTab({
   changes,
   diffError,
   hasMore,
+  loadedCount,
   loadingMore,
+  lastLoadSummary,
+  hasNewerChanges,
   payloadLoading,
   payloadError,
   fileGroups,
@@ -54,6 +62,7 @@ export function DiffTab({
   onSelectChange,
   onDiffModeChange,
   onLoadMore,
+  onFollowLatest,
   onRetry,
 }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false);
@@ -130,7 +139,7 @@ export function DiffTab({
               disabled={loadingMore}
               className="rounded bg-white/[0.05] px-2 py-1 hover:bg-white/[0.1] disabled:opacity-50"
             >
-              {loadingMore ? '加载中…' : '继续查找'}
+              {loadingMore ? '加载中…' : '继续查找更早改动'}
             </button>
           )}
         </div>
@@ -149,6 +158,15 @@ export function DiffTab({
             </div>
           )}
           <div className="flex shrink-0 flex-wrap gap-1">
+            {hasNewerChanges && (
+              <button
+                type="button"
+                onClick={onFollowLatest}
+                className="rounded bg-status-working/15 px-2 py-1 text-[10px] text-status-working hover:bg-status-working/25"
+              >
+                有新改动，查看最新
+              </button>
+            )}
             {fileGroups.map((g) => (
               <button
                 key={g.filePath}
@@ -176,10 +194,16 @@ export function DiffTab({
                 disabled={loadingMore}
                 className="rounded bg-white/[0.05] px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.1] disabled:opacity-50"
               >
-                {loadingMore ? '加载中…' : '加载更多'}
+                {loadingMore ? '加载中…' : '加载更早改动'}
               </button>
             )}
           </div>
+
+          {lastLoadSummary && (
+            <div className="shrink-0 text-[10px] text-deck-muted" role="status">
+              {`已加载 ${lastLoadSummary.addedChangeCount} 条更早改动（新增 ${lastLoadSummary.addedFileCount} 个文件），当前共 ${loadedCount} 条${lastLoadSummary.exhausted ? '；已加载全部' : ''}`}
+            </div>
+          )}
 
           {selectedGroup && (
             <div className="flex shrink-0 items-center gap-1">
