@@ -7,6 +7,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: ['@agentclientprotocol/sdk'] })],
     resolve: {
       alias: {
+        '@composition': resolve(__dirname, 'src/composition'),
+        '@contracts': resolve(__dirname, 'src/contracts'),
+        '@core': resolve(__dirname, 'src/core'),
+        '@protocol': resolve(__dirname, 'src/protocol'),
         '@shared': resolve(__dirname, 'src/shared'),
         '@main': resolve(__dirname, 'src/main'),
       },
@@ -19,6 +23,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
+        '@contracts': resolve(__dirname, 'src/contracts'),
+        '@protocol': resolve(__dirname, 'src/protocol'),
         '@shared': resolve(__dirname, 'src/shared'),
       },
     },
@@ -30,6 +36,8 @@ export default defineConfig({
     root: 'src/renderer',
     resolve: {
       alias: {
+        '@contracts': resolve(__dirname, 'src/contracts'),
+        '@protocol': resolve(__dirname, 'src/protocol'),
         '@shared': resolve(__dirname, 'src/shared'),
         '@renderer': resolve(__dirname, 'src/renderer'),
       },

@@ -45,12 +45,27 @@ Use these commands for day-to-day development and validation:
 | Command | Purpose |
 | --- | --- |
 | `pnpm dev` | Start the app in development mode |
-| `pnpm typecheck` | Run TypeScript checks |
+| `pnpm check:architecture` | Enforce Core, protocol, contract, and Relay import boundaries |
+| `pnpm typecheck` | Run architecture and TypeScript checks |
 | `pnpm test` | Run the test suite |
 | `pnpm build` | Build the application |
 | `pnpm dist:mac`, `pnpm dist:win`, or `pnpm dist:linux` | Build an installer on the matching host OS |
 
 Installer builds contain platform-specific agent runtimes, so cross-platform packaging is not supported.
+
+### Architecture boundaries
+
+Host-separation work keeps visualization and application behavior behind explicit inward-facing
+boundaries:
+
+- `src/contracts/` contains JSON-safe topology, access, capability, client, and method contracts.
+- `src/core/` contains host-neutral application ports and may not import Electron or transports.
+- `src/protocol/` contains host-neutral framing and wire contracts.
+- `src/composition/` is the outer layer that selects concrete host implementations.
+
+The current preload surface remains available while it is migrated in vertical slices. Its complete
+invoke-channel ownership is recorded in `src/contracts/current-api-classification.ts`, so new local
+IPC methods cannot acquire remote or Feishu semantics implicitly.
 
 ## Documentation
 
