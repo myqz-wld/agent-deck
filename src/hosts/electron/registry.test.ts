@@ -9,6 +9,7 @@ import {
   type CoreMethodMap,
   type HostHello,
 } from '@contracts/index';
+import { CURRENT_PROTOCOL_VERSION } from '@protocol/version';
 import { SshAgentDeckClient } from '@clients/ssh';
 import {
   FakeSpawnHarness,
@@ -54,7 +55,7 @@ function remoteProfile(
 
 function standaloneHello(clientId: string): HostHello {
   return {
-    protocolVersion: { major: 1, minor: 0 },
+    protocolVersion: { ...CURRENT_PROTOCOL_VERSION },
     appVersion: 'host-test',
     topology: 'standalone',
     instanceId: 'local',
@@ -84,7 +85,7 @@ function remoteHello(profile: RemoteElectronHostProfile): HostHello {
   const relay = profile.topology === 'relay';
   const instanceId = profile.ssh.expectedInstanceId as string;
   return {
-    protocolVersion: { major: 1, minor: 0 },
+    protocolVersion: { ...CURRENT_PROTOCOL_VERSION },
     appVersion: 'host-test',
     topology: profile.topology,
     instanceId,

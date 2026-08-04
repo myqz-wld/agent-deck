@@ -59,7 +59,9 @@ Host-separation work keeps visualization and application behavior behind explici
 boundaries:
 
 - `src/contracts/` contains JSON-safe topology, access, capability, client, and method contracts.
-- `src/core/` contains host-neutral application ports and may not import Electron or transports.
+- `src/core/` contains host-neutral application ports and may not import Electron or transports. Its
+  session-console dispatcher validates bounded cwd-free session projections and opaque project
+  references around an authoritative Core-owned project authority.
 - `src/protocol/` contains host-neutral framing, bridge admission, and Relay wire contracts.
 - `src/composition/` is the outer layer that selects concrete host implementations.
 - `src/clients/` contains transport clients; SSH is owned by the Electron host process, not the
@@ -78,11 +80,12 @@ invoke-channel ownership is recorded in `src/contracts/current-api-classificatio
 IPC methods cannot acquire remote or Feishu semantics implicitly.
 
 The remote-host directories are an implementation foundation, not a supported deployment claim
-yet. The Feishu gateway and Linux instance manager currently use injected ports and deterministic
-tests; production SDK/storage adapters, host composition, native Linux packaging, real Ubuntu/EL9
-isolation evidence, end-to-end SSH provisioning, and renderer migration remain gated work. Relay
-session listing/selection/runtime update and project-based creation also remain fail-closed until
-Core exposes cwd-free session projections and opaque project references. The existing standalone
+yet. Protocol 2.0 adds bounded `session.console.*` and `project.*` methods: Feishu can paginate,
+select, create, and inspect runtime state without receiving a workspace path, and the older
+cwd-bearing desktop methods are outside the Feishu allowlist. The Gateway, Core dispatcher, and
+Linux instance manager still use injected ports and deterministic tests; production Core runtime,
+Feishu SDK/storage, host composition, native Linux packaging, real Ubuntu/EL9 isolation evidence,
+end-to-end SSH provisioning, and renderer migration remain gated work. The existing standalone
 desktop remains the supported runtime during this staged migration.
 
 ## Documentation

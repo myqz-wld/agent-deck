@@ -8,11 +8,12 @@ export type FeishuCommand =
   | { kind: 'help' }
   | { kind: 'history'; cursor?: string }
   | { kind: 'pending' }
+  | { kind: 'projects'; cursor?: string }
   | { kind: 'runtime-get' }
   | { kind: 'runtime-update'; expectedRevision: number; patch: JsonObject }
   | { kind: 'select'; sessionId: string }
   | { kind: 'send'; text: string }
-  | { kind: 'sessions'; offset: number }
+  | { kind: 'sessions'; cursor?: string }
   | { kind: 'subscribe'; subscribed: boolean };
 
 function exactArgument(
@@ -41,14 +42,15 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
   }
   if (!input.startsWith('/')) return { kind: 'send', text: bounded };
   if (input === '/help') return { kind: 'help' };
-  if (input === '/sessions') return { kind: 'sessions', offset: 0 };
+  if (input === '/sessions') return { kind: 'sessions' };
   if (input.startsWith('/sessions ')) {
-    const [, rawOffset] = exactArgument(input, /^\/sessions ([0-9]+)$/, '/sessions [offset]');
-    const offset = Number(rawOffset);
-    if (!Number.isSafeInteger(offset)) {
-      throw new FeishuGatewayError('invalid_command', 'offset 超出有效范围');
-    }
-    return { kind: 'sessions', offset };
+    const [, cursor] = exactArgument(input, /^\/sessions ([^\s]+)$/, '/sessions [cursor]');
+    return { kind: 'sessions', cursor: stableToken(cursor, 'cursor', 512) };
+  }
+  if (input === '/projects') return { kind: 'projects' };
+  if (input.startsWith('/projects ')) {
+    const [, cursor] = exactArgument(input, /^\/projects ([^\s]+)$/, '/projects [cursor]');
+    return { kind: 'projects', cursor: stableToken(cursor, 'cursor', 512) };
   }
   if (input.startsWith('/select')) {
     const [, sessionId] = exactArgument(input, /^\/select ([^\s]+)$/, '/select <session-id>');
@@ -100,7 +102,8 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
 }
 
 export const FEISHU_HELP_TEXT = [
-  '/sessions [offset] — 列出 session',
+  '/sessions [cursor] — 分页列出 session',
+  '/projects [cursor] — 分页列出可创建 session 的 project',
   '/select <session-id> — 选择 session',
   '/create <adapter-id> <project-alias> — 创建 session',
   '/history [cursor] — 查看历史',

@@ -14,7 +14,6 @@ import {
   onlyClient,
   pending,
   select,
-  session,
   setup,
 } from './__tests__/fixture';
 
@@ -252,7 +251,7 @@ describe('credential recheck at Core mutation boundaries', () => {
     await select(gateway);
     const client = onlyClient(clients);
     let release!: (value: unknown) => void;
-    client.requestHook = (call) => call.method === 'session.get'
+    client.requestHook = (call) => call.method === 'session.console.get'
       ? new Promise((resolve) => {
           release = resolve;
         })
@@ -262,7 +261,13 @@ describe('credential recheck at Core mutation boundaries', () => {
     );
     await flush();
     store.enroll({ ...credential, status: 'revoked' });
-    release({ session: session('session-1'), revision: 10 });
+    release({
+      session: {
+        id: 'session-1', adapterId: 'codex-cli', title: 'Session', status: 'idle',
+        createdAt: 1, updatedAt: 2,
+      },
+      revision: 10,
+    });
     await expect(handling).resolves.toMatchObject({ code: 'revoked' });
     expect(client.calls.filter((call) => call.method === 'session.runtime.update')).toHaveLength(0);
     expect(client.closed).toBe(true);

@@ -59,7 +59,7 @@ describe('strict Feishu schemas and deterministic grammar', () => {
         },
       }),
     ).toThrowError(/action.extra is unknown/);
-    expect(() => parseFeishuCommand('/sessions later')).toThrowError(/用法/);
+    expect(() => parseFeishuCommand('/sessions later extra')).toThrowError(/用法/);
     expect(() => parseFeishuCommand('/does-not-exist')).toThrowError(/未知命令/);
     expect(() => parseFeishuCommand('/runtime-set 1 {"unknown":undefined}')).toThrowError(
       /有效 JSON/,
@@ -298,7 +298,6 @@ describe('subscription fanout and isolation', () => {
       clientFactory: factory,
       transport: new FakeTransport(),
       nonce: testNonce,
-      projectAuthority: null,
     });
     await restarted.start();
     expect(created).toHaveLength(1);

@@ -149,12 +149,16 @@ describe('Feishu session-console methods', () => {
       limits: { maxSessions: 1, maxHistoryEntries: 1 },
     });
     await gateway.handle(messageEvent('sessions', '/sessions'));
-    expect(transport.messages.at(-1)?.text).toContain('/sessions 1');
+    expect(transport.messages.at(-1)?.text).toContain('/sessions session-page-1');
 
     await gateway.handle(messageEvent('create', '/create codex-cli project'));
     const client = onlyClient(clients);
-    const create = client.calls.find((call) => call.method === 'session.create');
-    expect(create?.params).toEqual({ adapterId: 'codex-cli', cwd: '/srv/project', options: {} });
+    const create = client.calls.find((call) => call.method === 'session.console.create');
+    expect(create?.params).toEqual({
+      adapterId: 'codex-cli',
+      projectRef: 'opaque-project-1',
+      options: {},
+    });
     expect(create?.options?.idempotencyKey).toBe('feishu:create');
 
     client.histories.set('session-3', [
@@ -202,6 +206,9 @@ describe('Feishu session-console methods', () => {
       /outside the fixed Feishu/,
     );
     expect(() => assertFeishuMethod(client.hello, 'session.list')).toThrowError(
+      /outside the fixed Feishu/,
+    );
+    expect(() => assertFeishuMethod(client.hello, 'session.console.list')).toThrowError(
       /does not advertise/,
     );
   });
@@ -316,7 +323,6 @@ describe('delivery/restart and Relay offline behavior', () => {
       clientFactory: factory,
       transport,
       nonce: testNonce,
-      projectAuthority: null,
     });
     const duplicate = await restarted.handle(event);
     expect(duplicate).toMatchObject({ duplicate: true, code: 'deduplicated' });
