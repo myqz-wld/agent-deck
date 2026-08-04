@@ -4,6 +4,7 @@ import { methods } from '@agentclientprotocol/sdk';
 import type { GrokCreateOpts } from '@main/adapters/types';
 import type { SessionRecord } from '@shared/types';
 import type { GrokAcpProcess } from '../acp-process';
+import { GROK_SESSION_INFO_METHOD } from '../context-usage';
 import type { GrokRuntimeStartContext } from '../runtime-start';
 import type { GrokRuntime } from '../runtime-types';
 
@@ -276,6 +277,13 @@ describe('Grok runtime recovery profile', () => {
           modes: { currentModeId: 'default', availableModes: [] },
         };
       }
+      if (method === GROK_SESSION_INFO_METHOD) {
+        return {
+          result: {
+            context: { used: 7_500, total: 500_000, usagePct: 2 },
+          },
+        };
+      }
       return {};
     });
     const process = {
@@ -326,6 +334,22 @@ describe('Grok runtime recovery profile', () => {
       modelOverride: 'grok-latest',
       runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
     });
+    await vi.waitFor(() => expect(context.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'context-usage',
+        payload: {
+          usedTokens: 7_500,
+          windowTokens: 500_000,
+          capacitySource: 'runtime-usage',
+          runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
+        },
+      }),
+    ));
+    expect(request).toHaveBeenCalledWith(
+      GROK_SESSION_INFO_METHOD,
+      { sessionId: 'native-background' },
+      expect.objectContaining({ cancellationSignal: expect.any(AbortSignal) }),
+    );
     const startOptions = acpStartMock.mock.calls[0]![0] as {
       onSessionUpdate: (notification: {
         sessionId: string;
