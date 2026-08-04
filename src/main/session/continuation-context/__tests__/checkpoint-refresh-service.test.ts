@@ -527,7 +527,7 @@ describe('continuation checkpoint refresh service integration', () => {
     const activeSession = session('partial-safety', 'working');
     let checkpointThroughRevision = 0;
     let estimatedTokens = 48_000;
-    vi.mocked(logger.warn).mockImplementationOnce(() => {
+    vi.mocked(logger.info).mockImplementationOnce(() => {
       throw new Error('diagnostic sink must not affect refresh');
     });
     const refresh = vi.fn(async (): Promise<BackgroundCheckpointRefreshResult> => {
@@ -578,22 +578,17 @@ describe('continuation checkpoint refresh service integration', () => {
 
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
     expect(checkpointThroughRevision).toBe(100);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'checkpoint refresh state degraded',
-      expect.objectContaining({
-        event: 'checkpoint-refresh-state',
-        state: 'partial:safety',
-        transition: 'initial',
-      }),
-    );
     expect(logger.info).toHaveBeenCalledWith(
-      'checkpoint refresh state recovered',
+      'checkpoint refresh made partial progress',
       expect.objectContaining({
         event: 'checkpoint-refresh-state',
-        state: 'healthy',
-        previousState: 'partial:safety',
+        state: 'partial-progress:safety',
+        transition: 'initial',
+        progressedRevisionCount: 50,
+        remainingRevisionCount: 50,
       }),
     );
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('logs content-free bounded checkpoint progress as a partial state', async () => {
@@ -628,13 +623,15 @@ describe('continuation checkpoint refresh service integration', () => {
     service.start();
 
     await vi.waitFor(() => {
-      expect(logger.warn).toHaveBeenCalledWith(
-        'checkpoint refresh state degraded',
+      expect(logger.info).toHaveBeenCalledWith(
+        'checkpoint refresh made partial progress',
         expect.objectContaining({
           event: 'checkpoint-refresh-state',
-          state: 'partial:safety',
+          state: 'partial-progress:safety',
           previousState: null,
           transition: 'initial',
+          progressedRevisionCount: 40,
+          remainingRevisionCount: 50,
           suppressedCount: 0,
           suppressedCountCapped: false,
           slowThresholdMs: 30_000,
@@ -650,6 +647,7 @@ describe('continuation checkpoint refresh service integration', () => {
     expect(emitted).not.toContain('/Users/private');
     expect(emitted).not.toContain('token=secret');
     expect(emitted).not.toContain('sessionId');
-    expect(emitted).not.toContain('Revision');
+    expect(emitted).not.toContain('checkpointThroughRevision');
+    expect(emitted).not.toContain('captureRevision');
   });
 });

@@ -1,5 +1,13 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  logger: { info: vi.fn(), warn: vi.fn() },
+}));
+
+vi.mock('@main/utils/logger', () => ({
+  default: { scope: () => mocks.logger },
+}));
 import {
   CodexGenerationController,
   type CodexGenerationLifecycleHost,
@@ -8,6 +16,7 @@ import type { CodexAppServerNotification } from './protocol';
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.clearAllMocks();
 });
 
 describe('CodexGenerationController', () => {
@@ -85,6 +94,28 @@ describe('CodexGenerationController', () => {
     expect(kill).toHaveBeenCalledWith('SIGKILL');
     expect(harness.rejectPending).toHaveBeenCalledOnce();
     expect(harness.notifications).toHaveLength(1);
+  });
+
+  it('logs expected accepted-turn cancellation below warning severity', () => {
+    const harness = createHarness(async () => ({}));
+
+    expect(harness.controller.recycleControlPlaneGeneration(
+      0,
+      new Error('expected cancellation'),
+      'accepted turn cancellation',
+    )).toBe(true);
+
+    expect(mocks.logger.info).toHaveBeenCalledWith(
+      '[codex-app-server] control-plane generation recycled',
+      expect.objectContaining({
+        phase: 'accepted_turn_cancellation',
+        outcome: 'retired_expected',
+      }),
+    );
+    expect(mocks.logger.warn).not.toHaveBeenCalledWith(
+      '[codex-app-server] control-plane generation recycled',
+      expect.anything(),
+    );
   });
 });
 

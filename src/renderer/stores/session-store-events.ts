@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
+import { agentEventIdentity } from '@renderer/lib/agent-event-identity';
 
 export function upsertEvent(
   arr: AgentEvent[],
@@ -23,12 +24,15 @@ export function upsertEvent(
       return [normalizedEvent, ...arr].slice(0, limit);
     }
   }
+  const identity = agentEventIdentity(event);
+  if (arr.some((existing) => agentEventIdentity(existing) === identity)) return arr;
   return [event, ...arr].slice(0, limit);
 }
 
 export function dedupeRecentEvents(events: AgentEvent[], limit: number): AgentEvent[] {
   const seenStart = new Map<string, number>();
   const seenEnd = new Map<string, number>();
+  const seenEvents = new Set<string>();
   const deduped: AgentEvent[] = [];
   for (const e of events) {
     if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
@@ -45,6 +49,9 @@ export function dedupeRecentEvents(events: AgentEvent[], limit: number): AgentEv
         continue;
       }
     }
+    const identity = agentEventIdentity(e);
+    if (seenEvents.has(identity)) continue;
+    seenEvents.add(identity);
     deduped.push(e);
   }
   return deduped.slice(0, limit);
