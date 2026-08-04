@@ -1,8 +1,9 @@
 import type {
   JsonObject,
   PendingRequestDto,
+  ProjectReferenceDto,
   SessionHistoryEntryDto,
-  SessionListItemDto,
+  SessionConsoleSummaryDto,
   SessionRuntimeControlsDto,
 } from '@contracts/index';
 import { FeishuGatewayError } from './errors';
@@ -99,9 +100,9 @@ function pendingCard(
 }
 
 export function renderSessionList(
-  sessions: readonly SessionListItemDto[],
-  offset: number,
-  total: number,
+  sessions: readonly SessionConsoleSummaryDto[],
+  nextCursor: string | null,
+  total: number | null,
   maximumBytes: number,
   revision: number,
 ): SessionConsoleView {
@@ -109,10 +110,30 @@ export function renderSessionList(
     (session) =>
       `${session.id} · ${session.adapterId} · ${session.status} · ${session.title ?? '未命名'}`,
   );
-  const next = offset + sessions.length < total ? `\n下一页：/sessions ${offset + sessions.length}` : '';
+  const count = total === null ? `${sessions.length}` : `${sessions.length}/${total}`;
+  const next = nextCursor ? `\n下一页：/sessions ${nextCursor}` : '';
   return {
-    text: truncateUtf8(`Sessions (${offset + 1}-${offset + sessions.length}/${total})\n${lines.join('\n')}${next}`, maximumBytes),
+    text: truncateUtf8(`Sessions（本页 ${count}）\n${lines.join('\n')}${next}`, maximumBytes),
     sessions,
+    revision,
+  };
+}
+
+export function renderProjectList(
+  projects: readonly ProjectReferenceDto[],
+  nextCursor: string | null,
+  total: number | null,
+  maximumBytes: number,
+  revision: number,
+): SessionConsoleView {
+  const lines = projects.map(
+    (project) => `${project.alias} · ${project.title ?? '未命名'}`,
+  );
+  const count = total === null ? `${projects.length}` : `${projects.length}/${total}`;
+  const next = nextCursor ? `\n下一页：/projects ${nextCursor}` : '';
+  return {
+    text: truncateUtf8(`Projects（本页 ${count}）\n${lines.join('\n')}${next}`, maximumBytes),
+    projects,
     revision,
   };
 }

@@ -9,8 +9,9 @@ import type {
   JsonObject,
   JsonValue,
   PendingRequestDto,
+  ProjectReferenceDto,
   SessionHistoryEntryDto,
-  SessionListItemDto,
+  SessionConsoleSummaryDto,
 } from '@contracts/index';
 
 export const DEFAULT_FEISHU_CALLBACK_WINDOW_MS = 2_800;
@@ -287,22 +288,17 @@ export interface FeishuGatewayClock {
   setTimer(callback: () => void, delayMs: number): { cancel(): void };
 }
 
-export interface FeishuServerProjectAuthorityPort {
-  /** Resolves only aliases allowed by the Server Core host project authority. */
-  resolve(alias: string): string | null;
-}
-
 export interface FeishuGatewayLimits {
   maxEventBytes: number;
   maxTextBytes: number;
   maxOutputBytes: number;
   maxSessions: number;
+  maxProjects: number;
   maxHistoryEntries: number;
   maxPendingCards: number;
   maxQueuedNotificationsPerChat: number;
   maxTransportAttemptsPerCallback: number;
   maxEventAttempts: number;
-  maxSessionResults: number;
   maxPendingResults: number;
   maxCoreResponseBytes: number;
   maxCoreJsonDepth: number;
@@ -331,7 +327,6 @@ export interface FeishuGatewayOptions {
   clientFactory: FeishuAgentDeckClientFactory;
   transport: FeishuTransportPort;
   nonce: PendingActionNoncePort;
-  projectAuthority: FeishuServerProjectAuthorityPort | null;
   audit?: FeishuAuditPort;
   observer?: FeishuGatewayObserver;
   clock?: FeishuGatewayClock;
@@ -355,7 +350,8 @@ export interface ConnectedFeishuClient {
 
 export interface SessionConsoleView {
   text: string;
-  sessions?: readonly SessionListItemDto[];
+  sessions?: readonly SessionConsoleSummaryDto[];
+  projects?: readonly ProjectReferenceDto[];
   history?: readonly SessionHistoryEntryDto[];
   pending?: readonly PendingRequestDto[];
   cards?: readonly FeishuPendingCard[];

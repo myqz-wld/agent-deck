@@ -4,6 +4,9 @@ import type { AuthoritativeCoreLocation, DeploymentTopology } from './topology';
 export const AgentDeckCapability = {
   SessionsRead: 'sessions.read',
   SessionsWrite: 'sessions.write',
+  SessionConsoleRead: 'session-console.read',
+  SessionConsoleCreate: 'session-console.create',
+  ProjectsRead: 'projects.read',
   SessionHistory: 'sessions.history',
   SessionRuntimeRead: 'sessions.runtime.read',
   SessionRuntimeWrite: 'sessions.runtime.write',

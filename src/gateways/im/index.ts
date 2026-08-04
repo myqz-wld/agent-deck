@@ -18,7 +18,6 @@ export * from './pending-action';
 export * from './redaction';
 export * from './render';
 export * from './runtime-policy';
-export * from './server-projects';
 export * from './store';
 export * from './subscription-events';
 export * from './types';

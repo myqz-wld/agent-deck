@@ -3,16 +3,20 @@ import { assertFeishuMethod } from './client-pool';
 import {
   coreIdentifier,
   coreRevision,
+  validateProjectListResult,
+  validateProjectResolveResult,
   validateHistoryEntries,
   validatePendingRequests,
   validateRuntimeControls,
-  validateSessionItem,
-  validateSessionList,
+  validateSessionConsoleCreateResult,
+  validateSessionConsoleGetResult,
+  validateSessionConsoleListResult,
 } from './core-output';
 import { FeishuGatewayError } from './errors';
 import {
   renderHistory,
   renderPending,
+  renderProjectList,
   renderRuntime,
   renderSessionList,
   type RenderContext,
@@ -32,7 +36,6 @@ import type {
 
 export interface FeishuCommandExecutorOptions {
   store: FeishuGatewayStore;
-  resolveProject(alias: string): string | null;
   nonce: PendingActionNoncePort;
   limits: FeishuGatewayLimits;
   pendingPresentationLifetimeMs: number;
@@ -63,52 +66,67 @@ export class FeishuCommandExecutor {
     const client = connected.client;
     const mutation = {
       idempotencyKey: `feishu:${event.eventId}`,
-      deadlineMs: remaining(),
     };
     if (command.kind === 'help') return { text: FEISHU_HELP_TEXT, revision: null };
     if (command.kind === 'sessions') {
-      if (credential.topology === 'relay') {
-        throw new FeishuGatewayError(
-          'capability_unavailable',
-          'Relay requires a cwd-free session-console list projection',
-        );
-      }
-      assertFeishuMethod(connected.hello, 'session.list');
-      const result = await client.request(
-        'session.list',
-        {},
+      assertFeishuMethod(connected.hello, 'session.console.list');
+      const raw = await client.request(
+        'session.console.list',
+        {
+          ...(command.cursor ? { cursor: command.cursor } : {}),
+          limit: this.options.limits.maxSessions,
+        },
         { deadlineMs: remaining() },
       );
-      const sessions = validateSessionList(result.sessions, this.options.limits);
-      const revision = coreRevision(result.revision);
-      const page = sessions.slice(
-        command.offset,
-        command.offset + this.options.limits.maxSessions,
+      const result = validateSessionConsoleListResult(
+        raw,
+        this.options.limits.maxSessions,
+        this.options.limits,
       );
       return renderSessionList(
-        page,
-        command.offset,
-        sessions.length,
+        result.sessions,
+        result.nextCursor,
+        result.total,
         this.options.limits.maxOutputBytes,
-        revision,
+        result.revision,
+      );
+    }
+    if (command.kind === 'projects') {
+      assertFeishuMethod(connected.hello, 'project.list');
+      const raw = await client.request(
+        'project.list',
+        {
+          ...(command.cursor ? { cursor: command.cursor } : {}),
+          limit: this.options.limits.maxProjects,
+        },
+        { deadlineMs: remaining() },
+      );
+      const result = validateProjectListResult(
+        raw,
+        this.options.limits.maxProjects,
+        this.options.limits,
+      );
+      return renderProjectList(
+        result.projects,
+        result.nextCursor,
+        result.total,
+        this.options.limits.maxOutputBytes,
+        result.revision,
       );
     }
     if (command.kind === 'select') {
-      if (credential.topology === 'relay') {
-        throw new FeishuGatewayError(
-          'capability_unavailable',
-          'Relay requires a cwd-free session-console get projection',
-        );
-      }
-      assertFeishuMethod(connected.hello, 'session.get');
-      const result = await client.request(
-        'session.get',
+      assertFeishuMethod(connected.hello, 'session.console.get');
+      const raw = await client.request(
+        'session.console.get',
         { sessionId: command.sessionId },
         { deadlineMs: remaining() },
       );
+      const result = validateSessionConsoleGetResult(
+        raw,
+        command.sessionId,
+        this.options.limits,
+      );
       if (!result.session) throw new FeishuGatewayError('not_found', 'Session 不存在');
-      validateSessionItem(result.session, this.options.limits, command.sessionId);
-      coreRevision(result.revision);
       assertFeishuMethod(connected.hello, 'pending.list');
       const pending = await client.request(
         'pending.list',
@@ -140,23 +158,32 @@ export class FeishuCommandExecutor {
       };
     }
     if (command.kind === 'create') {
-      if (credential.topology === 'relay') {
-        throw new FeishuGatewayError(
-          'capability_unavailable',
-          'Relay requires an opaque authoritative-Core project reference',
-        );
-      }
-      const cwd = this.options.resolveProject(command.projectAlias);
-      if (!cwd) throw new FeishuGatewayError('not_found', '未知 project alias');
-      assertFeishuMethod(connected.hello, 'session.create');
-      await this.options.beforeMutation(credential, event.chatId);
-      const result = await client.request(
-        'session.create',
-        { adapterId: command.adapterId, cwd, options: {} },
-        mutation,
+      assertFeishuMethod(connected.hello, 'project.resolve');
+      const rawProject = await client.request(
+        'project.resolve',
+        { alias: command.projectAlias },
+        { deadlineMs: remaining() },
       );
-      const sessionId = coreIdentifier(result.sessionId, 'session.create.sessionId');
-      const revision = coreRevision(result.revision);
+      const resolved = validateProjectResolveResult(
+        rawProject,
+        command.projectAlias,
+        this.options.limits,
+      );
+      if (!resolved.project) throw new FeishuGatewayError('not_found', '未知 project alias');
+      assertFeishuMethod(connected.hello, 'session.console.create');
+      await this.options.beforeMutation(credential, event.chatId);
+      const raw = await client.request(
+        'session.console.create',
+        {
+          adapterId: command.adapterId,
+          projectRef: resolved.project.projectRef,
+          options: {},
+        },
+        { ...mutation, deadlineMs: remaining() },
+      );
+      const result = validateSessionConsoleCreateResult(raw, this.options.limits);
+      const sessionId = result.sessionId;
+      const revision = result.revision;
       this.options.store.putContext({
         ...context,
         activeSessionId: sessionId,
@@ -194,7 +221,7 @@ export class FeishuCommandExecutor {
       const result = await client.request(
         'session.send',
         { sessionId, text: command.text },
-        mutation,
+        { ...mutation, deadlineMs: remaining() },
       );
       coreIdentifier(result.messageId, 'session.send.messageId');
       return {
@@ -229,25 +256,19 @@ export class FeishuCommandExecutor {
       );
     }
     if (command.kind === 'runtime-update') {
-      if (credential.topology === 'relay') {
-        throw new FeishuGatewayError(
-          'capability_unavailable',
-          'Relay runtime update requires a cwd-free session-console get projection',
-        );
-      }
-      assertFeishuMethod(connected.hello, 'session.get');
-      const session = await client.request(
-        'session.get',
+      assertFeishuMethod(connected.hello, 'session.console.get');
+      const rawSession = await client.request(
+        'session.console.get',
         { sessionId },
         { deadlineMs: remaining() },
       );
-      if (!session.session) throw new FeishuGatewayError('not_found', 'Session 不存在');
-      const validatedSession = validateSessionItem(
-        session.session,
-        this.options.limits,
+      const session = validateSessionConsoleGetResult(
+        rawSession,
         sessionId,
+        this.options.limits,
       );
-      coreRevision(session.revision);
+      if (!session.session) throw new FeishuGatewayError('not_found', 'Session 不存在');
+      const validatedSession = session.session;
       assertAdapterOwnedRuntimePatch(validatedSession.adapterId, command.patch);
       assertFeishuMethod(connected.hello, 'session.runtime.update');
       await this.options.beforeMutation(credential, event.chatId);

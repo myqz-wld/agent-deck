@@ -13,17 +13,31 @@ import {
   messageEvent,
   onlyClient,
   pending,
+  project,
   select,
   session,
+  sessionSummary,
   setup,
   testNonce,
 } from './__tests__/fixture';
 
 describe('bounded Core response processing', () => {
   it('rejects oversized session and pending arrays before output or context selection', async () => {
-    const sessions = setup({ limits: { maxSessionResults: 2 } });
+    const sessions = setup({ limits: { maxSessions: 2 } });
     await sessions.gateway.handle(messageEvent('session-bound-prime', '/sessions'));
-    onlyClient(sessions.clients).sessions.set('session-3', session('session-3'));
+    const sessionClient = onlyClient(sessions.clients);
+    sessionClient.requestHook = (call) => call.method === 'session.console.list'
+      ? {
+          sessions: [
+            sessionSummary(session('session-1')),
+            sessionSummary(session('session-2')),
+            sessionSummary(session('session-3')),
+          ],
+          nextCursor: null,
+          total: 3,
+          revision: 10,
+        }
+      : undefined;
     sessions.transport.messages.length = 0;
     expect((await sessions.gateway.handle(messageEvent('session-array-huge', '/sessions'))).code).toBe(
       'invalid_core_response',
@@ -124,7 +138,6 @@ describe('pinned instance/topology and Relay cwd-free projection', () => {
         clientFactory: (input) => new FakeCoreClient(input),
         transport: new FakeTransport(),
         nonce: testNonce,
-        projectAuthority: null,
       }),
     ).toThrowError(/pinned gateway/);
 
@@ -146,7 +159,7 @@ describe('pinned instance/topology and Relay cwd-free projection', () => {
     });
   });
 
-  it('fails Relay session list/get/runtime-update before consuming a cwd-bearing DTO', async () => {
+  it('uses cwd-free session/project methods for Relay list/select/runtime-update', async () => {
     const relayCredential: EnrolledFeishuCredential = { ...credential, topology: 'relay' };
     const store = new InMemoryFeishuGatewayStore();
     store.enroll(relayCredential);
@@ -159,31 +172,34 @@ describe('pinned instance/topology and Relay cwd-free projection', () => {
       updatedAt: 1,
     });
     const clients: FakeCoreClient[] = [];
+    const transport = new FakeTransport();
     const gateway = new FeishuSessionConsoleGateway({
       appVersion: 'test',
       binding: { ...gatewayBinding, topology: 'relay' },
       store,
       clientFactory: (input) => {
         const client = new FakeCoreClient(input);
+        client.sessions.set('session-1', session('session-1'));
+        client.projects.set('project-1', project());
         clients.push(client);
         return client;
       },
-      transport: new FakeTransport(),
+      transport,
       nonce: testNonce,
-      projectAuthority: null,
     });
-    expect((await gateway.handle(messageEvent('relay-list', '/sessions'))).code).toBe(
-      'capability_unavailable',
-    );
-    expect((await gateway.handle(messageEvent('relay-select', '/select session-1'))).code).toBe(
-      'capability_unavailable',
-    );
+    expect((await gateway.handle(messageEvent('relay-list', '/sessions'))).code).toBe('accepted');
+    expect((await gateway.handle(messageEvent('relay-select', '/select session-1'))).code).toBe('accepted');
     expect(
       (await gateway.handle(
         messageEvent('relay-runtime', '/runtime-set 10 {"approvalPolicy":"never"}'),
       )).code,
-    ).toBe('capability_unavailable');
-    expect(clients.flatMap((client) => client.calls)).toHaveLength(0);
+    ).toBe('accepted');
+    const calls = clients.flatMap((client) => client.calls);
+    expect(calls.some((call) => call.method === 'session.console.list')).toBe(true);
+    expect(calls.some((call) => call.method === 'session.console.get')).toBe(true);
+    expect(calls.some((call) => call.method === 'session.runtime.update')).toBe(true);
+    expect(JSON.stringify(calls)).not.toContain('cwd');
+    expect(transport.messages.length).toBeGreaterThan(0);
   });
 });
 
@@ -194,7 +210,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     const client = onlyClient(clients);
     let release!: (value: unknown) => void;
     client.requestHook = (call) =>
-      call.method === 'session.list'
+      call.method === 'session.console.list'
         ? new Promise((resolve) => {
             release = resolve;
           })
@@ -203,7 +219,12 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     const handling = gateway.handle(messageEvent('revoked-in-flight', '/sessions'));
     await flush();
     store.enroll({ ...credential, status: 'revoked' });
-    release({ sessions: [session('session-1')], revision: 10 });
+    release({
+      sessions: [sessionSummary(session('session-1'))],
+      nextCursor: null,
+      total: 1,
+      revision: 10,
+    });
     await expect(handling).resolves.toMatchObject({ code: 'revoked' });
     expect(transport.messages).toHaveLength(0);
     expect(client.closed).toBe(true);

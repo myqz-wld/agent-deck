@@ -12,7 +12,6 @@ import {
 import { executePendingCardAction } from './pending-action';
 import { deliverCoreNotification } from './notification-delivery';
 import { truncateUtf8 } from './redaction';
-import { assertProjectAuthorityTopology, resolveServerCoreProject } from './server-projects';
 import type {
   ConnectedFeishuClient,
   EnrolledFeishuCredential,
@@ -84,7 +83,6 @@ export class FeishuSessionConsoleGateway {
     this.binding = validateGatewayBinding(options.binding);
     this.store = new ValidatedFeishuGatewayStore(options.store, this.binding, this.limits);
     assertStoreBoundToGateway(this.store, this.binding);
-    assertProjectAuthorityTopology(this.binding, options.projectAuthority);
     this.lifecycle = new FeishuGatewayLifecycle(this.clock, this.callbackWindowMs);
     this.lanes = new FeishuNotificationLanes(
       this.limits.maxNotificationLanes,
@@ -113,8 +111,6 @@ export class FeishuSessionConsoleGateway {
     );
     this.commandExecutor = new FeishuCommandExecutor({
       store: this.store,
-      resolveProject: (alias) =>
-        resolveServerCoreProject(this.binding, options.projectAuthority, alias),
       nonce: options.nonce,
       limits: this.limits,
       pendingPresentationLifetimeMs: this.pendingPresentationLifetimeMs,

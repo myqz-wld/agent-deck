@@ -5,6 +5,7 @@ import { PassThrough } from 'node:stream';
 import type { ClientHello, HostHello, JsonValue } from '@contracts/index';
 import { AgentDeckCapability, isJsonObject } from '@contracts/index';
 import { encodeJsonFrame, LengthPrefixedJsonDecoder } from '@protocol/frame';
+import { CURRENT_PROTOCOL_VERSION } from '@protocol/version';
 
 import type { SpawnSshProcess, StrictSshSpawnOptions } from '../types';
 
@@ -125,7 +126,7 @@ export function makeClientHello(
   lastEventRevision = 0,
 ): ClientHello {
   return {
-    protocolVersion: { major: 1, minor: 0 },
+    protocolVersion: { ...CURRENT_PROTOCOL_VERSION },
     appVersion: '0.1.0-test',
     clientId,
     requestedTopology: topology,
@@ -140,7 +141,7 @@ export function makeHostHello(
 ): HostHello {
   const relay = topology === 'relay';
   return {
-    protocolVersion: { major: 1, minor: 0 },
+    protocolVersion: { ...CURRENT_PROTOCOL_VERSION },
     appVersion: '0.1.0-host',
     topology,
     instanceId: relay ? 'relay-a' : 'server-a',

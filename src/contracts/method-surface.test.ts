@@ -20,6 +20,13 @@ describe('fixed Core transport surfaces', () => {
       expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, method)).toBe(true);
     }
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'system.health')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.list')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.get')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.create')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.list')).toBe(true);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.get')).toBe(true);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'project.resolve')).toBe(true);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.create')).toBe(true);
   });
 
   it('does not treat the restricted Relay Worker attachment as a Core client surface', () => {

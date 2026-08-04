@@ -5,4 +5,5 @@ export * from './current-api-classification';
 export * from './json';
 export * from './method-surface';
 export * from './methods';
+export * from './session-console';
 export * from './topology';

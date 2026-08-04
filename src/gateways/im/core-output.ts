@@ -2,8 +2,17 @@ import {
   type JsonObject,
   type JsonValue,
   type PendingRequestDto,
+  parseProjectListResult,
+  parseProjectResolveResult,
+  parseSessionConsoleCreateResult,
+  parseSessionConsoleGetResult,
+  parseSessionConsoleListResult,
+  type ProjectListResult,
+  type ProjectResolveResult,
   type SessionHistoryEntryDto,
-  type SessionListItemDto,
+  type SessionConsoleCreateResult,
+  type SessionConsoleGetResult,
+  type SessionConsoleListResult,
   type SessionRuntimeControlsDto,
 } from '@contracts/index';
 import { assertBoundedCoreValue } from './core-bounds';
@@ -44,46 +53,66 @@ function coreTime(value: unknown, field: string): number {
   return coreRevision(value, field);
 }
 
-function coreText(value: unknown, field: string, maximumBytes: number): string {
-  if (
-    typeof value !== 'string' ||
-    new TextEncoder().encode(value).byteLength > maximumBytes ||
-    CONTROL.test(value)
-  ) {
-    fail(field);
-  }
-  return value;
-}
-
-export function validateSessionItem(
-  value: SessionListItemDto,
-  limits: FeishuGatewayLimits,
-  expectedId?: string,
-): SessionListItemDto {
-  assertBoundedCoreValue(value, limits, 'session');
-  if (!value || typeof value !== 'object') fail('session');
-  const id = coreIdentifier(value.id, 'session.id');
-  if (expectedId !== undefined && id !== expectedId) fail('session.id');
-  const title = value.title === null ? null : coreText(value.title, 'session.title', 512);
-  const cwd = coreText(value.cwd, 'session.cwd', 4_096);
-  if (cwd.length === 0) fail('session.cwd');
-  return {
-    id,
-    adapterId: coreIdentifier(value.adapterId, 'session.adapterId', 128),
-    cwd,
-    title,
-    status: coreIdentifier(value.status, 'session.status', 128),
-    createdAt: coreTime(value.createdAt, 'session.createdAt'),
-    updatedAt: coreTime(value.updatedAt, 'session.updatedAt'),
-  };
-}
-
-export function validateSessionList(
+function contractResult<T>(
   value: unknown,
   limits: FeishuGatewayLimits,
-): SessionListItemDto[] {
-  assertBoundedCoreValue(value, limits, 'session list', limits.maxSessionResults);
-  return (value as SessionListItemDto[]).map((item) => validateSessionItem(item, limits));
+  field: string,
+  parse: () => T,
+): T {
+  assertBoundedCoreValue(value, limits, field);
+  try {
+    return parse();
+  } catch {
+    fail(field);
+  }
+}
+
+export function validateSessionConsoleListResult(
+  value: unknown,
+  requestedLimit: number,
+  limits: FeishuGatewayLimits,
+): SessionConsoleListResult {
+  return contractResult(value, limits, 'session-console list', () =>
+    parseSessionConsoleListResult(value, requestedLimit));
+}
+
+export function validateSessionConsoleGetResult(
+  value: unknown,
+  expectedId: string,
+  limits: FeishuGatewayLimits,
+): SessionConsoleGetResult {
+  const result = contractResult(value, limits, 'session-console get', () =>
+    parseSessionConsoleGetResult(value));
+  if (result.session && result.session.id !== expectedId) fail('session-console get session.id');
+  return result;
+}
+
+export function validateProjectListResult(
+  value: unknown,
+  requestedLimit: number,
+  limits: FeishuGatewayLimits,
+): ProjectListResult {
+  return contractResult(value, limits, 'project list', () =>
+    parseProjectListResult(value, requestedLimit));
+}
+
+export function validateProjectResolveResult(
+  value: unknown,
+  expectedAlias: string,
+  limits: FeishuGatewayLimits,
+): ProjectResolveResult {
+  const result = contractResult(value, limits, 'project resolve', () =>
+    parseProjectResolveResult(value));
+  if (result.project && result.project.alias !== expectedAlias) fail('project resolve alias');
+  return result;
+}
+
+export function validateSessionConsoleCreateResult(
+  value: unknown,
+  limits: FeishuGatewayLimits,
+): SessionConsoleCreateResult {
+  return contractResult(value, limits, 'session-console create', () =>
+    parseSessionConsoleCreateResult(value));
 }
 
 export function validateHistoryEntries(

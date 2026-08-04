@@ -1,5 +1,15 @@
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from './capabilities';
 import type { JsonObject, JsonValue } from './json';
+import type {
+  ProjectListParams,
+  ProjectListResult,
+  ProjectResolveResult,
+  SessionConsoleCreateParams,
+  SessionConsoleCreateResult,
+  SessionConsoleGetResult,
+  SessionConsoleListParams,
+  SessionConsoleListResult,
+} from './session-console';
 
 export interface SessionListItemDto {
   id: string;
@@ -52,6 +62,26 @@ export type CoreMethodMap = {
   'session.create': {
     params: { adapterId: string; cwd: string; options: JsonObject };
     result: { sessionId: string; revision: number };
+  };
+  'session.console.list': {
+    params: SessionConsoleListParams;
+    result: SessionConsoleListResult;
+  };
+  'session.console.get': {
+    params: { sessionId: string };
+    result: SessionConsoleGetResult;
+  };
+  'project.list': {
+    params: ProjectListParams;
+    result: ProjectListResult;
+  };
+  'project.resolve': {
+    params: { alias: string };
+    result: ProjectResolveResult;
+  };
+  'session.console.create': {
+    params: SessionConsoleCreateParams;
+    result: SessionConsoleCreateResult;
   };
   'session.history': {
     params: { sessionId: string; cursor?: string; limit?: number };
@@ -128,9 +158,14 @@ const mutationMethod = (
 
 export const CORE_METHOD_METADATA = {
   'system.health': readMethod(AgentDeckCapability.SessionsRead, 'none'),
-  'session.list': readMethod(AgentDeckCapability.SessionsRead),
-  'session.get': readMethod(AgentDeckCapability.SessionsRead),
-  'session.create': mutationMethod(AgentDeckCapability.SessionsWrite),
+  'session.list': readMethod(AgentDeckCapability.SessionsRead, 'none'),
+  'session.get': readMethod(AgentDeckCapability.SessionsRead, 'none'),
+  'session.create': mutationMethod(AgentDeckCapability.SessionsWrite, 'optional', 'none'),
+  'session.console.list': readMethod(AgentDeckCapability.SessionConsoleRead),
+  'session.console.get': readMethod(AgentDeckCapability.SessionConsoleRead),
+  'project.list': readMethod(AgentDeckCapability.ProjectsRead),
+  'project.resolve': readMethod(AgentDeckCapability.ProjectsRead),
+  'session.console.create': mutationMethod(AgentDeckCapability.SessionConsoleCreate),
   'session.history': readMethod(AgentDeckCapability.SessionHistory),
   'session.send': mutationMethod(AgentDeckCapability.SessionsWrite),
   'session.interrupt': mutationMethod(AgentDeckCapability.SessionsWrite),

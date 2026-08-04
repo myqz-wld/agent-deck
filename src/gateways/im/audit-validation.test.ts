@@ -19,6 +19,7 @@ import {
   messageEvent,
   onlyClient,
   pending,
+  project,
   select,
   session,
   setup,
@@ -161,7 +162,7 @@ describe('whole outbound message bounds', () => {
   });
 });
 
-describe('Relay project isolation and Server Core path validation', () => {
+describe('authoritative project-reference isolation', () => {
   const relayCredential: EnrolledFeishuCredential = { ...credential, topology: 'relay' };
 
   it('never resolves or emits cwd for Relay create', async () => {
@@ -175,48 +176,46 @@ describe('Relay project isolation and Server Core path validation', () => {
       store,
       clientFactory: (input) => {
         const client = new FakeCoreClient(input);
+        client.projects.set('project-1', project());
         clients.push(client);
         return client;
       },
       transport,
       nonce: testNonce,
-      projectAuthority: null,
     });
     const result = await gateway.handle(messageEvent('relay-create', '/create codex-cli project'));
-    expect(result.code).toBe('capability_unavailable');
-    expect(clients.flatMap((client) => client.calls)).not.toContainEqual(
-      expect.objectContaining({ method: 'session.create' }),
+    expect(result.code).toBe('accepted');
+    expect(clients.flatMap((client) => client.calls)).toContainEqual(
+      expect.objectContaining({
+        method: 'session.console.create',
+        params: { adapterId: 'codex-cli', projectRef: 'opaque-project-1', options: {} },
+      }),
     );
-    expect(JSON.stringify(clients.flatMap((client) => client.calls))).not.toContain('cwd');
+    expect(JSON.stringify(clients.flatMap((client) => client.calls))).not.toMatch(/cwd|workspace/);
     expect(store.exportMetadataSnapshot()).not.toMatch(/cwd|\/worker\/workspace/);
-    expect(transport.messages).toHaveLength(0);
+    expect(transport.messages).toHaveLength(1);
   });
 
-  it('rejects Relay cwd configuration and invalid Server Core paths', async () => {
-    const relayStore = new InMemoryFeishuGatewayStore();
-    relayStore.enroll(relayCredential);
-    expect(() =>
-      new FeishuSessionConsoleGateway({
-        appVersion: 'test',
-        binding: { ...gatewayBinding, topology: 'relay' },
-        store: relayStore,
-        clientFactory: (input) => new FakeCoreClient(input),
-        transport: new FakeTransport(),
-        nonce: testNonce,
-        projectAuthority: { resolve: () => '/worker/workspace' },
-      }),
-    ).toThrowError(/Relay gateway configuration/);
-    for (const [index, cwd] of [
-      'relative/path',
-      '/srv/../srv/project',
-      '/srv/project\u0000hidden',
-    ].entries()) {
-      const invalid = setup({ projectAuthority: { resolve: () => cwd } });
+  it('rejects path-shaped or cwd-bearing project responses before creation', async () => {
+    const malformedProjects = [
+      { ...project(), projectRef: '/worker/workspace' },
+      { ...project(), cwd: '/server/workspace' },
+    ];
+    for (const [index, malformed] of malformedProjects.entries()) {
+      const invalid = setup();
+      await invalid.gateway.handle(messageEvent(`project-prime-${index}`, '/projects'));
+      const client = onlyClient(invalid.clients);
+      client.requestHook = (call) => call.method === 'project.resolve'
+        ? { project: malformed, revision: 10 }
+        : undefined;
+      invalid.transport.messages.length = 0;
       expect(
         (await invalid.gateway.handle(
-          messageEvent(`invalid-authority-path-${index}`, '/create codex-cli project'),
+          messageEvent(`invalid-project-ref-${index}`, '/create codex-cli project'),
         )).code,
-      ).toBe('invalid_configuration');
+      ).toBe('invalid_core_response');
+      expect(client.calls.some((call) => call.method === 'session.console.create')).toBe(false);
+      expect(invalid.transport.messages).toHaveLength(0);
     }
   });
 });

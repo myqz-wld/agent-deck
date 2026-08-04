@@ -158,7 +158,6 @@ describe('subscription and lifecycle failure surfaces', () => {
       },
       transport: new FakeTransport(),
       nonce: testNonce,
-      projectAuthority: null,
       observer,
     });
     const failure = await restarted.start().catch((error: unknown) => error);

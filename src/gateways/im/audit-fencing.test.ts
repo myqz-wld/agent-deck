@@ -19,8 +19,8 @@ import {
   flush,
   messageEvent,
   onlyClient,
+  project,
   select,
-  session,
   setup,
 } from './__tests__/fixture';
 
@@ -93,7 +93,7 @@ describe('callback deadline and delivery generation fencing', () => {
     const factory = (input: ConstructorParameters<typeof FakeCoreClient>[0]) => {
       const client = new FakeCoreClient(input);
       client.requestHook = (call) =>
-        call.method === 'session.list'
+        call.method === 'session.console.list'
           ? new Promise((resolve) => {
               resolveList = resolve;
             })
@@ -112,11 +112,50 @@ describe('callback deadline and delivery generation fencing', () => {
     await expect(handling).rejects.toMatchObject({
       code: 'platform_window_exceeded',
     });
-    resolveList({ sessions: [session('session-1')], revision: 10 });
+    resolveList({
+      sessions: [{
+        id: 'session-1', adapterId: 'codex-cli', title: 'Session', status: 'idle',
+        createdAt: 1, updatedAt: 2,
+      }],
+      nextCursor: null,
+      total: 1,
+      revision: 10,
+    });
     await flush();
     await flush();
     expect(transport.attempts).toHaveLength(0);
     expect(transport.messages).toHaveLength(0);
+  });
+
+  it('does not start create after a late project resolution exhausts the callback window', async () => {
+    let resolveProject!: (value: unknown) => void;
+    let created!: FakeCoreClient;
+    const clock = new ManualClock();
+    const transport = new FakeTransport();
+    const { gateway } = setup({
+      clientFactory: (input) => {
+        created = new FakeCoreClient(input);
+        created.projects.set('project-1', project());
+        created.requestHook = (call) => call.method === 'project.resolve'
+          ? new Promise((resolve) => {
+              resolveProject = resolve;
+            })
+          : undefined;
+        return created;
+      },
+      transport,
+      callbackWindowMs: 10,
+      clock,
+    });
+    const handling = gateway.handle(messageEvent('late-project', '/create codex-cli project'));
+    await flush();
+    clock.advance(10);
+    await expect(handling).rejects.toMatchObject({ code: 'platform_window_exceeded' });
+    resolveProject({ project: project(), revision: 10 });
+    await flush();
+    await flush();
+    expect(created.calls.some((call) => call.method === 'session.console.create')).toBe(false);
+    expect(transport.attempts).toHaveLength(0);
   });
 
   it.each(['resolve', 'reject'] as const)(

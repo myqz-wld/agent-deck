@@ -75,7 +75,9 @@ describe('daemon framed connection', () => {
   });
 
   it('enforces the fixed Feishu method surface after a valid Feishu hello', async () => {
-    const runtime = createRuntime({ supportedMethods: ['system.health', 'session.list'] });
+    const runtime = createRuntime({
+      supportedMethods: ['system.health', 'session.list', 'session.console.list'],
+    });
     const host = createHost(runtime);
     await host.start();
     const stream = new TestDuplex();
@@ -94,9 +96,28 @@ describe('daemon framed connection', () => {
     });
     stream.feed(hello('chat-1'));
     await waitFor(() => Boolean(findMessage(stream, 'hello-result')), 'Feishu hello');
+    expect(findMessage(stream, 'hello-result')).toMatchObject({
+      hello: { capabilities: ['session-console.read'] },
+    });
     stream.feed(request('health-1'));
+    stream.feed(request('legacy-list-1', 'session.list'));
+    stream.feed({
+      ...request('console-list-1', 'session.console.list'),
+      params: { limit: 25 },
+    });
     await waitFor(() => Boolean(findMessage(stream, 'error', 'health-1')), 'surface error');
+    await waitFor(
+      () => Boolean(findMessage(stream, 'error', 'legacy-list-1')),
+      'legacy surface error',
+    );
+    await waitFor(
+      () => Boolean(findMessage(stream, 'result', 'console-list-1')),
+      'cwd-free list result',
+    );
     expect(findMessage(stream, 'error', 'health-1')).toMatchObject({
+      error: { code: 'access_denied' },
+    });
+    expect(findMessage(stream, 'error', 'legacy-list-1')).toMatchObject({
       error: { code: 'access_denied' },
     });
     await host.stop();

@@ -9,9 +9,12 @@ import {
   type HostHello,
   type JsonObject,
   type PendingRequestDto,
+  type ProjectReferenceDto,
   type SessionHistoryEntryDto,
+  type SessionConsoleSummaryDto,
   type SessionListItemDto,
 } from '@contracts/index';
+import { CURRENT_PROTOCOL_VERSION } from '@protocol/version';
 import {
   FeishuSessionConsoleGateway,
   InMemoryFeishuGatewayStore,
@@ -57,6 +60,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
   readonly listenerHistory: Array<(event: AgentDeckEventEnvelope) => void> = [];
   readonly subscribeRevisions: number[] = [];
   readonly sessions = new Map<string, SessionListItemDto>();
+  readonly projects = new Map<string, ProjectReferenceDto>();
   readonly histories = new Map<string, SessionHistoryEntryDto[]>();
   readonly pending = new Map<string, PendingRequestDto[]>();
   readonly runtime = new Map<string, { adapterId: string; values: JsonObject; revision: number }>();
@@ -79,7 +83,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
     capabilities = [...new Set(Object.values(CORE_METHOD_METADATA).map((item) => item.capability))],
   ) {
     this.hello = {
-      protocolVersion: { major: 1, minor: 0 },
+      protocolVersion: { ...CURRENT_PROTOCOL_VERSION },
       appVersion: 'fake-core',
       topology: input.topology,
       instanceId: input.instanceId,
@@ -126,6 +130,53 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       if (hooked !== undefined) return hooked;
     }
     switch (method) {
+      case 'session.console.list': {
+        const sessions = [...this.sessions.values()].map(sessionSummary);
+        const offset = fakeCursorOffset(params.cursor);
+        const limit = params.limit as number;
+        const end = Math.min(offset + limit, sessions.length);
+        return {
+          sessions: sessions.slice(offset, end),
+          nextCursor: end < sessions.length ? `session-page-${end}` : null,
+          total: sessions.length,
+          revision: this.revision,
+        };
+      }
+      case 'session.console.get': {
+        const result = this.sessions.get(params.sessionId as string);
+        return {
+          session: result ? sessionSummary(result) : null,
+          revision: this.revision,
+        };
+      }
+      case 'project.list': {
+        const projects = [...this.projects.values()];
+        const offset = fakeCursorOffset(params.cursor);
+        const limit = params.limit as number;
+        const end = Math.min(offset + limit, projects.length);
+        return {
+          projects: projects.slice(offset, end),
+          nextCursor: end < projects.length ? `project-page-${end}` : null,
+          total: projects.length,
+          revision: this.revision,
+        };
+      }
+      case 'project.resolve':
+        return {
+          project: [...this.projects.values()].find(
+            (project) => project.alias === params.alias,
+          ) ?? null,
+          revision: this.revision,
+        };
+      case 'session.console.create': {
+        const project = [...this.projects.values()].find(
+          (candidate) => candidate.projectRef === params.projectRef,
+        );
+        if (!project) return { sessionId: 'missing-project', revision: this.revision };
+        const id = `session-${this.sessions.size + 1}`;
+        this.sessions.set(id, session(id, params.adapterId as string));
+        return { sessionId: id, revision: ++this.revision };
+      }
       case 'session.list':
         return { sessions: [...this.sessions.values()], revision: this.revision };
       case 'session.get':
@@ -278,6 +329,31 @@ export function session(
   };
 }
 
+export function sessionSummary(value: SessionListItemDto): SessionConsoleSummaryDto {
+  return {
+    id: value.id,
+    adapterId: value.adapterId,
+    title: value.title,
+    status: value.status,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
+
+export function project(
+  alias = 'project',
+  projectId = 'project-1',
+  projectRef = 'opaque-project-1',
+): ProjectReferenceDto {
+  return { projectId, projectRef, alias, title: `Project ${alias}` };
+}
+
+function fakeCursorOffset(value: unknown): number {
+  if (typeof value !== 'string') return 0;
+  const match = value.match(/(?:^|page-)([0-9]+)$/);
+  return match ? Number(match[1]) : 0;
+}
+
 export function pending(
   id = 'pending-1',
   sessionId = 'session-1',
@@ -352,6 +428,7 @@ export function setup(
     const client = new FakeCoreClient(input);
     client.sessions.set('session-1', session('session-1'));
     client.sessions.set('session-2', session('session-2', 'claude-code'));
+    client.projects.set('project-1', project());
     clients.set(input.clientId, client);
     return client;
   };
@@ -363,10 +440,6 @@ export function setup(
     nonce: testNonce,
     ...overrides,
     binding: overrides.binding ?? gatewayBinding,
-    projectAuthority:
-      overrides.projectAuthority === undefined
-        ? { resolve: (alias) => (alias === 'project' ? '/srv/project' : null) }
-        : overrides.projectAuthority,
   });
   return { gateway, store, transport, clients };
 }
