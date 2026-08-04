@@ -57,10 +57,23 @@ not a claim that remote deployment is ready for end users.
 
 - P2 focused matrix: 22 files / 200 tests passed after Lead audit corrections.
 - Architecture boundaries and both Node and web TypeScript projects passed.
+- Full Electron-ABI suite: 543 files / 4,382 tests passed; one opt-in live smoke skipped.
+- Production Electron build passed.
 - Linux manager exact-template/static policy checks, shell syntax checks, production file-size checks,
   and whitespace checks passed.
 - Real Feishu, systemd, Podman, SELinux/AppArmor, quota, egress, SSH, and Linux platform acceptance
   were not run and are not claimed.
+
+## Post-main integration
+
+- Committed the P2 implementation as `ff68d539e7e52c9e592e8c6d44c11640a773e12a`.
+- Fetched and merged then-current `origin/main` at
+  `465446c4988a30eb7ddd6e81562ea28a990e5b2b`; the conflict-free merge commit is
+  `2abd3f7534d8ed0c51f0c2cd8d00387ae2710f77`.
+- Re-ran `pnpm typecheck`, the complete P2 focused matrix, `pnpm test`, `pnpm build`, Full appliance
+  preflight, Relay exact-template/tamper checks, manager static policy, shell syntax, file-size, and
+  whitespace gates after the merge. All required gates passed with the single documented opt-in
+  smoke skip.
 
 ## Do Not Split Protection
 
