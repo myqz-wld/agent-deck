@@ -7,6 +7,7 @@ import type {
 } from '@shared/types';
 
 import { GrokAcpProcess, withTimeout } from './acp-process';
+import { scheduleGrokContextUsageRefresh } from './context-usage';
 import type {
   GrokExtensionNotification,
   GrokPromptCompleteNotification,
@@ -294,6 +295,11 @@ export async function startGrokRuntime(
   // allowed a stale suppression flag to discard every live model update while a prompt ran.
   runtime.suppressUpdates = false;
   runtime.ready = true;
+  scheduleGrokContextUsageRefresh(runtime, {
+    emit: context.emit,
+    isCurrentRuntime: context.isCurrentRuntime,
+    requestTimeoutMs: context.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+  });
   void context.drain(runtime);
   return true;
 }

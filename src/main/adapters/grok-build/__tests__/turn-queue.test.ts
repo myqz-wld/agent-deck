@@ -10,6 +10,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import type { GrokAcpProcess } from '../acp-process';
+import { GROK_SESSION_INFO_METHOD } from '../context-usage';
 import { GrokTurnQueue } from '../turn-queue';
 import { requireNativeSession } from '../turn-queue-helpers';
 import type { GrokRuntime } from '../runtime-types';
@@ -773,6 +774,42 @@ describe('GrokTurnQueue active-turn delivery', () => {
         cacheCreationTokens: null,
       }),
     });
+  });
+
+  it('actively refreshes current context after a completed turn', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === methods.agent.session.prompt) {
+        return { stopReason: 'end_turn' as const, usage: undefined };
+      }
+      if (method === GROK_SESSION_INFO_METHOD) {
+        return {
+          result: {
+            context: { used: 9_658, total: 500_000, usagePct: 2 },
+          },
+        };
+      }
+      return {};
+    });
+    const runtime = makeRuntime(request);
+    runtime.runtimeIdentity = { runtimeProvider: 'native', model: 'grok-4.5' };
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'refresh context');
+
+    await vi.waitFor(() => expect(events).toContainEqual({
+      kind: 'context-usage',
+      payload: {
+        usedTokens: 9_658,
+        windowTokens: 500_000,
+        capacitySource: 'runtime-usage',
+        runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.5' },
+      },
+    }));
+    expect(request).toHaveBeenCalledWith(
+      GROK_SESSION_INFO_METHOD,
+      { sessionId: 'native-session' },
+      expect.objectContaining({ cancellationSignal: expect.any(AbortSignal) }),
+    );
   });
 
   it('surfaces and recycles a prompt with no first model event', async () => {

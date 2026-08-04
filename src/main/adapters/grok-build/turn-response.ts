@@ -4,6 +4,7 @@ import type {
   GrokExtensionNotification,
   GrokTurnUsage,
 } from './extension';
+import { scheduleGrokContextUsageRefresh } from './context-usage';
 import type { GrokLivePromptOutcome } from './live-prompt-completion';
 import {
   grokContextWindowFailureReason,
@@ -120,6 +121,9 @@ export async function finalizeGrokAcpResponse(
       subtype: response.stopReason,
       ...(failureReason ? { failureReason } : {}),
     });
+    if (runtime.ready) {
+      scheduleGrokContextUsageRefresh(runtime, { emit: options.emit });
+    }
   }
 }
 
