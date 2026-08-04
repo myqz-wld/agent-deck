@@ -61,6 +61,31 @@ export function createGrokTranslationState(options: {
   };
 }
 
+export function createGrokContextUsageEvent(
+  sessionId: string,
+  usage: { usedTokens: number; windowTokens: number },
+  runtimeIdentity: ContextRuntimeIdentityEvidence | null | undefined,
+  ts = Date.now(),
+): AgentEvent {
+  return {
+    sessionId,
+    agentId: AGENT_ID,
+    kind: 'context-usage',
+    payload: {
+      usedTokens: usage.usedTokens,
+      windowTokens: usage.windowTokens,
+      ...(runtimeIdentity
+        ? {
+            runtimeIdentity: { ...runtimeIdentity },
+            capacitySource: 'runtime-usage',
+          }
+        : {}),
+    },
+    ts,
+    source: 'sdk',
+  };
+}
+
 export function translateGrokUpdate(
   sessionId: string,
   cwd: string,
@@ -265,16 +290,15 @@ export function translateGrokUpdate(
         return [];
       }
       return [
-        event('context-usage', {
-          usedTokens: Math.trunc(update.used),
-          windowTokens: Math.trunc(update.size),
-          ...(runtimeIdentity
-            ? {
-                runtimeIdentity: { ...runtimeIdentity },
-                capacitySource: 'runtime-usage',
-              }
-            : {}),
-        }),
+        createGrokContextUsageEvent(
+          sessionId,
+          {
+            usedTokens: Math.trunc(update.used),
+            windowTokens: Math.trunc(update.size),
+          },
+          runtimeIdentity,
+          ts,
+        ),
       ];
   }
 }
