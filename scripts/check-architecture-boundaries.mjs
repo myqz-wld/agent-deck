@@ -65,6 +65,7 @@ const rules = [
     name: 'relay',
     root: 'src/hosts/relay',
     forbiddenTargets: [
+      'src/clients',
       'src/core',
       'src/main/adapters',
       'src/main/browser-use',
