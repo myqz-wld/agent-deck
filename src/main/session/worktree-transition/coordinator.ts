@@ -17,7 +17,6 @@ import type {
   WorktreeTransitionDirection,
   WorktreeTransitionRecord,
 } from './types';
-import { resolve } from 'node:path';
 import {
   emitWorktreeSessionUpsert,
   emitWorktreeTransitionStatus,
@@ -35,37 +34,14 @@ import {
   replayAbortedTransitionInputs,
   toAgentCwdTransition,
 } from './transition-delivery';
-
-const ALLOWED_FENCED_EVENTS = new Set<AgentEvent['kind']>([
-  'finished',
-  'session-end',
-  'context-usage',
-  'token-usage',
-]);
-
-function payload(event: AgentEvent): Record<string, unknown> {
-  return event.payload && typeof event.payload === 'object'
-    ? (event.payload as Record<string, unknown>)
-    : {};
-}
-
-function isSuccessfulToolResult(event: AgentEvent): boolean {
-  const value = payload(event);
-  const status =
-    typeof value.status === 'string' ? value.status.toLowerCase() : '';
-  return (
-    (value.error == null || value.error === false) &&
-    !['failed', 'error', 'denied', 'cancelled', 'canceled'].includes(status)
-  );
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function samePath(left: string | null, right: string): boolean {
-  return left !== null && resolve(left) === resolve(right);
-}
+import {
+  ALLOWED_FENCED_EVENTS,
+  eventPayload,
+  isSameWorktreePath,
+  isSuccessfulToolResult,
+  worktreeErrorText,
+} from './coordinator-helpers';
+import { worktreeTransitionDiagnostics } from './diagnostics';
 
 /**
  * Owns provider observation, expected interruption, runtime/DB compensation and delivery order.
@@ -144,6 +120,7 @@ export class WorktreeTransitionCoordinator {
    * accounting are always retained.
    */
   observe(event: AgentEvent): boolean {
+    worktreeTransitionDiagnostics.observeEvent(event);
     worktreeToolInvocationRegistry.observe(event);
     if (event.source !== 'sdk') return true;
     const record = worktreeTransitionRepo.get(event.sessionId);
@@ -151,7 +128,7 @@ export class WorktreeTransitionCoordinator {
       return true;
     }
 
-    const value = payload(event);
+    const value = eventPayload(event);
     const toolUseId =
       typeof value.toolUseId === 'string' ? value.toolUseId : null;
     const isMatchingToolResult =
@@ -160,6 +137,7 @@ export class WorktreeTransitionCoordinator {
       toolUseId === record.toolUseId;
     if (isMatchingToolResult) {
       if (!isSuccessfulToolResult(event)) {
+        worktreeTransitionDiagnostics.observeToolResult(record, false);
         const failure =
           'Provider reported the transition MCP tool result as failed; no interrupt was issued.';
         worktreeTransitionRepo.setLastError(
@@ -172,7 +150,7 @@ export class WorktreeTransitionCoordinator {
           void recoverWorktreeTransition(record.sessionId).catch((error) => {
             emitWorktreeTransitionStatus(
               record.sessionId,
-              `⚠ 工作目录切换撤销未完成：${errorText(error)}`,
+              `⚠ 工作目录切换撤销未完成：${worktreeErrorText(error)}`,
               true,
               record.generation,
             );
@@ -190,6 +168,7 @@ export class WorktreeTransitionCoordinator {
           : 'interrupting_exit_turn';
       if (record.phase === expected) {
         try {
+          worktreeTransitionDiagnostics.observeToolResult(record, true);
           worktreeTransitionRepo.compareAndSetPhase({
             sessionId: record.sessionId,
             generation: record.generation,
@@ -251,7 +230,7 @@ export class WorktreeTransitionCoordinator {
       worktreeTransitionRepo.setLastError(
         sessionId,
         generation,
-        `Expected provider interrupt failed: ${errorText(error)}`,
+        `Expected provider interrupt failed: ${worktreeErrorText(error)}`,
         Date.now(),
       );
     }
@@ -267,7 +246,7 @@ export class WorktreeTransitionCoordinator {
           worktreeTransitionRepo.setLastError(
             sessionId,
             generation,
-            errorText(error),
+            worktreeErrorText(error),
             Date.now(),
           );
         } catch {
@@ -275,7 +254,7 @@ export class WorktreeTransitionCoordinator {
         }
         emitWorktreeTransitionStatus(
           sessionId,
-          `⚠ 工作目录自动切换未完成：${errorText(error)}`,
+          `⚠ 工作目录自动切换未完成：${worktreeErrorText(error)}`,
           true,
           generation,
         );
@@ -307,6 +286,7 @@ export class WorktreeTransitionCoordinator {
   private async finalizeEnter(
     initial: WorktreeTransitionRecord,
   ): Promise<void> {
+    const trace = worktreeTransitionDiagnostics.start(initial);
     let record = worktreeTransitionRepo.compareAndSetPhase({
       sessionId: initial.sessionId,
       generation: initial.generation,
@@ -321,8 +301,11 @@ export class WorktreeTransitionCoordinator {
     try {
       const result = await adapter.switchCwdForTransition!(transition);
       switched = true;
+      trace.markCwdSwitched();
+      if (result.continuationAccepted) trace.markContinuationReady();
       sessionRepo.setCwd(record.sessionId, record.targetCwd);
       persisted = true;
+      trace.markCwdPersisted();
       emitWorktreeSessionUpsert(record.sessionId);
       const toolUseId = record.toolUseId;
       record = await deliverTransitionWork(
@@ -336,6 +319,7 @@ export class WorktreeTransitionCoordinator {
           next: 'active',
         },
       );
+      trace.complete(record, adapter.id, result.continuationAccepted);
       this.releaseTransitionOwnership(adapter, record, toolUseId);
       emitWorktreeTransitionStatus(
         record.sessionId,
@@ -344,6 +328,7 @@ export class WorktreeTransitionCoordinator {
         record.generation,
       );
     } catch (error) {
+      trace.fail(error);
       if (switched && !persisted) {
         await compensateTransitionRuntime(adapter, transition);
       }
@@ -351,12 +336,12 @@ export class WorktreeTransitionCoordinator {
       if (!current || current.generation !== initial.generation) throw error;
       if (current.phase === 'active' || current.phase === 'cleared') return;
       const runtimeCwd = adapter.getRuntimeCwd?.(current.sessionId) ?? null;
-      if (samePath(runtimeCwd, current.worktreePath)) {
+      if (isSameWorktreePath(runtimeCwd, current.worktreePath)) {
         await completeAcknowledgedEnter(current);
         return;
       }
-      if (samePath(runtimeCwd, current.originalCwd)) {
-        await abortFailedEnterAtOriginalCwd(current, errorText(error));
+      if (isSameWorktreePath(runtimeCwd, current.originalCwd)) {
+        await abortFailedEnterAtOriginalCwd(current, worktreeErrorText(error));
         return;
       }
       throw error;
@@ -366,6 +351,7 @@ export class WorktreeTransitionCoordinator {
   private async finalizeExit(
     initial: WorktreeTransitionRecord,
   ): Promise<void> {
+    const trace = worktreeTransitionDiagnostics.start(initial);
     let record = worktreeTransitionRepo.compareAndSetPhase({
       sessionId: initial.sessionId,
       generation: initial.generation,
@@ -380,8 +366,11 @@ export class WorktreeTransitionCoordinator {
     try {
       const result = await adapter.switchCwdForTransition!(transition);
       switched = true;
+      trace.markCwdSwitched();
+      if (result.continuationAccepted) trace.markContinuationReady();
       sessionRepo.setCwd(record.sessionId, record.originalCwd);
       persisted = true;
+      trace.markCwdPersisted();
       emitWorktreeSessionUpsert(record.sessionId);
       record = worktreeTransitionRepo.compareAndSetPhase({
         sessionId: record.sessionId,
@@ -392,13 +381,18 @@ export class WorktreeTransitionCoordinator {
       });
 
       let cleanupError: unknown;
+      let cleanupFailed = false;
       try {
+        trace.markCleanupStarted();
         await cleanupStructuredWorktree(record);
       } catch (error) {
+        cleanupFailed = true;
         cleanupError = error;
+      } finally {
+        trace.markCleanupFinished();
       }
-      const cleanupFailure = cleanupError
-        ? `Worktree cleanup pending: ${errorText(cleanupError)}`
+      const cleanupFailure = cleanupFailed
+        ? `Worktree cleanup pending: ${worktreeErrorText(cleanupError)}`
         : null;
       const toolUseId = record.toolUseId;
       record = await deliverTransitionWork(
@@ -419,11 +413,17 @@ export class WorktreeTransitionCoordinator {
               lastError: null,
             },
       );
+      trace.complete(
+        record,
+        adapter.id,
+        result.continuationAccepted,
+        cleanupFailed,
+      );
       this.releaseTransitionOwnership(adapter, record, toolUseId);
-      if (cleanupError) {
+      if (cleanupFailed) {
         emitWorktreeTransitionStatus(
           record.sessionId,
-          `已恢复原工作目录；worktree 清理待重试：${errorText(cleanupError)}`,
+          `已恢复原工作目录；worktree 清理待重试：${worktreeErrorText(cleanupError)}`,
           true,
           record.generation,
         );
@@ -437,6 +437,7 @@ export class WorktreeTransitionCoordinator {
         record.generation,
       );
     } catch (error) {
+      trace.fail(error);
       if (switched && !persisted) {
         await compensateTransitionRuntime(adapter, transition);
       }
@@ -444,12 +445,12 @@ export class WorktreeTransitionCoordinator {
       if (!current || current.generation !== initial.generation) throw error;
       if (current.phase === 'active' || current.phase === 'cleared') return;
       const runtimeCwd = adapter.getRuntimeCwd?.(current.sessionId) ?? null;
-      if (samePath(runtimeCwd, current.originalCwd)) {
+      if (isSameWorktreePath(runtimeCwd, current.originalCwd)) {
         await completeAcknowledgedExit(current);
         return;
       }
-      if (samePath(runtimeCwd, current.worktreePath)) {
-        await restoreFailedExitAtWorktree(current, errorText(error));
+      if (isSameWorktreePath(runtimeCwd, current.worktreePath)) {
+        await restoreFailedExitAtWorktree(current, worktreeErrorText(error));
         return;
       }
       throw error;

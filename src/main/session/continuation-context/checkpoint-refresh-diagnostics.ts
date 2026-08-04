@@ -6,6 +6,7 @@ import {
 import log from '@main/utils/logger';
 import { getProcessRunId } from '@main/utils/run-context';
 import { safeDiagnostic } from '@main/utils/safe-diagnostic';
+import { runScopedCorrelationId } from '@main/utils/runtime-correlation';
 import type {
   CheckpointFoldFailureCategory,
   CheckpointFoldFailureReason,
@@ -32,8 +33,20 @@ type DiagnosticReason =
 type CheckpointRefreshDiagnosticState =
   | 'healthy'
   | `slow:${CheckpointRefreshTrigger}`
-  | `partial:${CheckpointRefreshTrigger}`
+  | `partial-progress:${CheckpointRefreshTrigger}`
+  | `partial-stalled:${CheckpointRefreshTrigger}`
   | `failure:${DiagnosticTrigger}:${DiagnosticCategory}:${DiagnosticReason}`;
+
+interface RefreshProgressObservation {
+  previousCheckpointRevision: number;
+  checkpointThroughRevision: number;
+  captureRevision: number;
+}
+
+interface RefreshProgressDetails {
+  progressedRevisionCount: number;
+  remainingRevisionCount: number;
+}
 
 interface SessionDiagnosticEntry {
   startedAtMs: number | null;
@@ -118,7 +131,11 @@ export class CheckpointRefreshDiagnosticCoordinator {
 
   complete(
     sessionId: string,
-    input: { trigger: CheckpointRefreshTrigger; partial: boolean },
+    input: {
+      trigger: CheckpointRefreshTrigger;
+      partial: boolean;
+      progress?: RefreshProgressObservation;
+    },
   ): void {
     try {
       const current = this.readClock();
@@ -129,12 +146,22 @@ export class CheckpointRefreshDiagnosticCoordinator {
       entry.startedAtMs = null;
       entry.trigger = null;
       if (durationMs === null && !input.partial) return;
+      const progress = refreshProgressDetails(input.progress);
       const state: CheckpointRefreshDiagnosticState = input.partial
-        ? `partial:${input.trigger}`
+        ? progress && progress.progressedRevisionCount > 0
+          ? `partial-progress:${input.trigger}`
+          : `partial-stalled:${input.trigger}`
         : durationMs !== null && durationMs >= CHECKPOINT_REFRESH_SLOW_THRESHOLD_MS
           ? `slow:${input.trigger}`
           : 'healthy';
-      this.observe(sessionId, entry, state, state !== 'healthy', durationMs);
+      this.observe(
+        sessionId,
+        entry,
+        state,
+        state.startsWith('failure:') || state.startsWith('partial-stalled:'),
+        durationMs,
+        progress,
+      );
     } catch {
       // Diagnostics cannot affect refresh results, persistence, or scheduling.
     }
@@ -159,6 +186,7 @@ export class CheckpointRefreshDiagnosticCoordinator {
         `failure:${input.trigger}:${category}:${reason}`,
         true,
         durationMs,
+        null,
       );
     } catch {
       // Diagnostics cannot affect handled failures, retry, or scheduling.
@@ -237,6 +265,7 @@ export class CheckpointRefreshDiagnosticCoordinator {
     state: CheckpointRefreshDiagnosticState,
     abnormal: boolean,
     durationMs: number | null,
+    progress: RefreshProgressDetails | null,
   ): void {
     let decision: LogStateDecision<CheckpointRefreshDiagnosticState>;
     try {
@@ -249,16 +278,25 @@ export class CheckpointRefreshDiagnosticCoordinator {
       this.entries.delete(sessionId);
       return;
     }
-    emitDecision(decision, durationMs);
+    emitDecision(sessionId, decision, durationMs, progress);
   }
 }
 
 function emitDecision(
+  sessionId: string,
   decision: LogStateDecision<CheckpointRefreshDiagnosticState>,
   durationMs: number | null,
+  progress: RefreshProgressDetails | null,
 ): void {
   if (decision.kind === 'repeat') return;
-  if (decision.kind === 'initial' && !decision.current.abnormal) return;
+  const isSlow = decision.current.signature.startsWith('slow:');
+  const isPartialProgress = decision.current.signature.startsWith('partial-progress:');
+  if (
+    decision.kind === 'initial' &&
+    !decision.current.abnormal &&
+    !isSlow &&
+    !isPartialProgress
+  ) return;
 
   const priorAbnormal: LogStateSnapshot<CheckpointRefreshDiagnosticState> | null =
     decision.flushed?.abnormal ? decision.flushed : null;
@@ -272,14 +310,17 @@ function emitDecision(
   const details = safeDiagnostic({
     event: 'checkpoint-refresh-state',
     runId: getProcessRunId(),
+    sessionRef: runScopedCorrelationId('checkpoint', sessionId),
     state: decision.current.signature,
     previousState: decision.flushed?.signature ?? null,
     transition: decision.kind,
     durationMs,
-    abnormalDurationMs: aggregate.abnormalDurationMs,
+    observationWindowMs: aggregate.stateDurationMs,
     suppressedCount: suppressed.suppressedCount,
     suppressedCountCapped: suppressed.suppressedCountCapped,
-    maxDurationMs: aggregate.maxMetric,
+    maxDurationMs:
+      isSlow || isPartialProgress ? durationMs : aggregate.maxMetric,
+    ...(progress ?? {}),
     slowThresholdMs: CHECKPOINT_REFRESH_SLOW_THRESHOLD_MS,
     summaryIntervalMs: CHECKPOINT_REFRESH_SUMMARY_INTERVAL_MS,
   });
@@ -294,6 +335,10 @@ function emitDecision(
       );
     } else if (priorAbnormal) {
       logger.info('checkpoint refresh state recovered', details);
+    } else if (isPartialProgress) {
+      logger.info('checkpoint refresh made partial progress', details);
+    } else if (isSlow) {
+      logger.info('checkpoint refresh completed slowly', details);
     }
   } catch {
     // Diagnostic sinks cannot affect checkpoint refresh behavior.
@@ -326,4 +371,23 @@ function measuredDuration(startedAtMs: number | null, current: number): number |
   const elapsed = current - startedAtMs;
   if (!Number.isFinite(elapsed) || elapsed < 0) return null;
   return Math.min(MAX_NUMERIC_VALUE, elapsed);
+}
+
+function refreshProgressDetails(
+  progress: RefreshProgressObservation | undefined,
+): RefreshProgressDetails | null {
+  if (!progress) return null;
+  const previous = validRevision(progress.previousCheckpointRevision);
+  const through = validRevision(progress.checkpointThroughRevision);
+  const capture = validRevision(progress.captureRevision);
+  if (previous === null || through === null || capture === null) return null;
+  return {
+    progressedRevisionCount: Math.max(0, through - previous),
+    remainingRevisionCount: Math.max(0, capture - through),
+  };
+}
+
+function validRevision(value: number): number | null {
+  if (!Number.isSafeInteger(value) || value < 0) return null;
+  return value;
 }

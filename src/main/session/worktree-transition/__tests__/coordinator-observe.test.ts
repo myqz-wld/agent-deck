@@ -13,6 +13,17 @@ const harness = vi.hoisted(() => ({
   setLastError: vi.fn(),
   emitStatus: vi.fn(),
   recover: vi.fn(async () => {}),
+  diagnosticObserveEvent: vi.fn(),
+  diagnosticObserveToolResult: vi.fn(),
+  diagnosticTrace: {
+    markCwdSwitched: vi.fn(),
+    markCwdPersisted: vi.fn(),
+    markCleanupStarted: vi.fn(),
+    markCleanupFinished: vi.fn(),
+    markContinuationReady: vi.fn(),
+    complete: vi.fn(),
+    fail: vi.fn(),
+  },
 }));
 
 vi.mock('@main/adapters/registry', () => ({
@@ -74,6 +85,14 @@ vi.mock('../transition-delivery', () => ({
   deliverTransitionWork: harness.deliver,
   replayAbortedTransitionInputs: vi.fn(async () => {}),
   compensateTransitionRuntime: vi.fn(async () => {}),
+}));
+
+vi.mock('../diagnostics', () => ({
+  worktreeTransitionDiagnostics: {
+    observeEvent: harness.diagnosticObserveEvent,
+    observeToolResult: harness.diagnosticObserveToolResult,
+    start: vi.fn(() => harness.diagnosticTrace),
+  },
 }));
 
 import { WorktreeTransitionCoordinator } from '../coordinator';
@@ -149,6 +168,9 @@ beforeEach(() => {
   harness.setLastError.mockClear();
   harness.emitStatus.mockClear();
   harness.recover.mockClear();
+  harness.diagnosticObserveEvent.mockClear();
+  harness.diagnosticObserveToolResult.mockClear();
+  Object.values(harness.diagnosticTrace).forEach((method) => method.mockClear());
 });
 
 describe('WorktreeTransitionCoordinator provider observation', () => {
@@ -175,6 +197,10 @@ describe('WorktreeTransitionCoordinator provider observation', () => {
       ),
     ).toBe(true);
     expect(harness.record?.phase).toBe('interrupting_enter_turn');
+    expect(harness.diagnosticObserveToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ generation: 4 }),
+      true,
+    );
     await Promise.resolve();
     await Promise.resolve();
     expect(harness.interrupt).toHaveBeenCalledOnce();
@@ -200,6 +226,10 @@ describe('WorktreeTransitionCoordinator provider observation', () => {
     );
     expect(harness.interrupt).not.toHaveBeenCalled();
     expect(harness.recover).toHaveBeenCalledWith('session-a');
+    expect(harness.diagnosticObserveToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ generation: 4 }),
+      false,
+    );
   });
 
   it('fences late old-turn work while retaining terminal and usage events', () => {
@@ -238,6 +268,13 @@ describe('WorktreeTransitionCoordinator provider observation', () => {
       '/repo/worktree',
     );
     expect(harness.deliver).toHaveBeenCalledOnce();
+    expect(harness.diagnosticTrace.markCwdSwitched).toHaveBeenCalledOnce();
+    expect(harness.diagnosticTrace.markCwdPersisted).toHaveBeenCalledOnce();
+    expect(harness.diagnosticTrace.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'active' }),
+      'codex-cli',
+      false,
+    );
     expect(harness.record?.phase).toBe('active');
     expect(harness.release).toHaveBeenCalledWith('session-a', 4);
   });

@@ -309,12 +309,14 @@ export class CodexGenerationController {
     expectedGeneration: number,
     termination: { sigtermSent: boolean; sigkillScheduled: boolean },
   ): void {
-    logger.warn(
+    const normalizedPhase = boundedPhase(phase);
+    const expectedCancellation = normalizedPhase === 'accepted_turn_cancellation';
+    logger[expectedCancellation ? 'info' : 'warn'](
       '[codex-app-server] control-plane generation recycled',
       safeDiagnostic({
         event: 'codex_app_server_control_plane_recycle',
-        phase: boundedPhase(phase),
-        outcome: 'retired',
+        phase: normalizedPhase,
+        outcome: expectedCancellation ? 'retired_expected' : 'retired',
         expectedGeneration,
         actualGeneration: this.processGeneration,
         ...termination,

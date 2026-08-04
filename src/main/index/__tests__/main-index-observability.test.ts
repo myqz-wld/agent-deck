@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => {
     primaryError: null as Error | null,
     loggerScope: vi.fn(() => logger),
     safeDiagnostic: vi.fn((value: unknown) => value),
+    mainBootstrapErrorDiagnostic: vi.fn(() => ({
+      name: 'SafeBootstrapError',
+      message: 'redacted bootstrap failure',
+      fingerprint: '0123456789ab',
+    })),
     getProcessRunId: vi.fn(() => 'main-index-test-run'),
     requestSingleInstanceLock: vi.fn(() => true),
     whenReady: vi.fn(() => Promise.resolve()),
@@ -47,6 +52,10 @@ vi.mock('@main/utils/safe-diagnostic', () => ({
   safeDiagnostic: mocks.safeDiagnostic,
 }));
 
+vi.mock('@main/index/bootstrap-diagnostics', () => ({
+  mainBootstrapErrorDiagnostic: mocks.mainBootstrapErrorDiagnostic,
+}));
+
 vi.mock('@main/utils/run-context', () => ({
   getProcessRunId: mocks.getProcessRunId,
 }));
@@ -75,7 +84,13 @@ const bootstrapDiagnostic = {
   event: 'main-bootstrap',
   runId: 'main-index-test-run',
   phase: 'bootstrap',
+  stage: 'infrastructure',
   outcome: 'failed',
+  error: {
+    name: 'SafeBootstrapError',
+    message: 'redacted bootstrap failure',
+    fingerprint: '0123456789ab',
+  },
 };
 
 function dialogDiagnostic(phase: 'error-dialog' | 'database-close') {
@@ -83,7 +98,13 @@ function dialogDiagnostic(phase: 'error-dialog' | 'database-close') {
     event: 'main-bootstrap',
     runId: 'main-index-test-run',
     phase,
+    stage: 'infrastructure',
     outcome: 'failed',
+    error: {
+      name: 'SafeBootstrapError',
+      message: 'redacted bootstrap failure',
+      fingerprint: '0123456789ab',
+    },
   };
 }
 
@@ -123,6 +144,11 @@ describe('main index terminal bootstrap observability', () => {
     mocks.loggerScope.mockReturnValue(mocks.logger);
     mocks.logger.error.mockImplementation(() => mocks.calls.push('logger.error'));
     mocks.safeDiagnostic.mockImplementation((value: unknown) => value);
+    mocks.mainBootstrapErrorDiagnostic.mockReturnValue({
+      name: 'SafeBootstrapError',
+      message: 'redacted bootstrap failure',
+      fingerprint: '0123456789ab',
+    });
     mocks.getProcessRunId.mockReturnValue('main-index-test-run');
     mocks.requestSingleInstanceLock.mockReturnValue(true);
     mocks.whenReady.mockResolvedValue(undefined);
@@ -203,6 +229,11 @@ describe('main index terminal bootstrap observability', () => {
     ['process run id', () => mocks.getProcessRunId.mockImplementation(() => {
       throw new Error('RAW_RUN_ID_MARKER');
     })],
+    ['bootstrap error diagnostic', () => {
+      mocks.mainBootstrapErrorDiagnostic.mockImplementation(() => {
+        throw new Error('RAW_BOOTSTRAP_DIAGNOSTIC_MARKER');
+      });
+    }],
   ])('contains %s failure without obscuring the primary error', async (_name, fail) => {
     fail();
 

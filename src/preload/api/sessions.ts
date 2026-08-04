@@ -8,7 +8,6 @@
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type {
-  AgentEvent,
   FileFinalDiffResult,
   FileChangePage,
   FileChangePayload,
@@ -16,6 +15,7 @@ import type {
   SessionHandOffPreparation,
   SessionHandOffPrepareRequest,
   SessionRecord,
+  StoredAgentEvent,
   SummaryRecord,
   TaskRecord,
 } from '@shared/types';
@@ -52,7 +52,7 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionSetPinned, id, pinned),
   deleteSession: (id: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.SessionDelete, id),
-  listEvents: (id: string, limit?: number): Promise<AgentEvent[]> =>
+  listEvents: (id: string, limit?: number): Promise<StoredAgentEvent[]> =>
     ipcRenderer.invoke(IpcInvoke.SessionListEvents, id, limit),
   listFileChangePage: (
     id: string,

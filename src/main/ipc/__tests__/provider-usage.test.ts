@@ -441,19 +441,33 @@ describe('providerUsageSnapshotHandler cache', () => {
           }),
       )
       .mockResolvedValueOnce(snapshot('claude-code', 2))
-      .mockReturnValueOnce(new Promise<ProviderUsageSnapshot>(() => {}));
+      .mockReturnValueOnce(new Promise<ProviderUsageSnapshot>(() => {}))
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProviderUsageSnapshot>((resolve) => {
+            setTimeout(
+              () => resolve(snapshot('claude-code', 3)),
+              PROVIDER_USAGE_SLOW_READ_MS,
+            );
+          }),
+      );
     setupClaudeAdapter(claude);
 
     const slowRead = providerUsageSnapshotHandler();
     await vi.advanceTimersByTimeAsync(PROVIDER_USAGE_SLOW_READ_MS);
     await slowRead;
-    expect(mocks.logger.warn).toHaveBeenCalledWith(
-      'provider usage state degraded',
+    expect(mocks.logger.info).toHaveBeenCalledWith(
+      'provider usage read completed slowly',
       expect.objectContaining({
         provider: 'claude-code',
         state: 'slow',
+        observedDurationMs: PROVIDER_USAGE_SLOW_READ_MS,
         maxDurationMs: PROVIDER_USAGE_SLOW_READ_MS,
       }),
+    );
+    expect(mocks.logger.warn).not.toHaveBeenCalledWith(
+      'provider usage state degraded',
+      expect.objectContaining({ state: 'slow' }),
     );
 
     await providerUsageSnapshotHandler({ force: true });
@@ -466,6 +480,18 @@ describe('providerUsageSnapshotHandler cache', () => {
       expect.objectContaining({
         provider: 'claude-code',
         state: 'timeout-cached',
+      }),
+    );
+
+    const recoveredSlowRead = providerUsageSnapshotHandler({ force: true });
+    await vi.advanceTimersByTimeAsync(PROVIDER_USAGE_SLOW_READ_MS);
+    await recoveredSlowRead;
+    expect(mocks.logger.info).toHaveBeenLastCalledWith(
+      'provider usage state recovered',
+      expect.objectContaining({
+        provider: 'claude-code',
+        state: 'slow',
+        previousState: 'timeout-cached',
       }),
     );
 
