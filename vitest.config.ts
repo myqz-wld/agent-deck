@@ -12,6 +12,10 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     alias: {
+      '@composition': resolve('src/composition'),
+      '@contracts': resolve('src/contracts'),
+      '@core': resolve('src/core'),
+      '@protocol': resolve('src/protocol'),
       '@shared': resolve('src/shared'),
       '@main': resolve('src/main'),
       '@renderer': resolve('src/renderer'),

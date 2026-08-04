@@ -1,0 +1,29 @@
+import { describe, expect, it } from 'vitest';
+
+import { IpcInvoke } from '@shared/ipc-channels';
+
+import { CORE_METHOD_METADATA } from './methods';
+import { CURRENT_API_CLASSIFICATION } from './current-api-classification';
+
+describe('current API migration classification', () => {
+  it('classifies every existing invoke channel exactly once', () => {
+    expect(Object.keys(CURRENT_API_CLASSIFICATION).sort()).toEqual(
+      Object.keys(IpcInvoke).sort(),
+    );
+  });
+
+  it('never exposes client-host or split methods directly to Feishu', () => {
+    for (const classification of Object.values(CURRENT_API_CLASSIFICATION)) {
+      if (classification.feishu === 'session-console') {
+        expect(classification.executionOwner).toBe('authoritative-core');
+        expect(classification.sshMigration).toBe('core-protocol');
+      }
+    }
+  });
+
+  it('requires idempotency for every initial Core mutation', () => {
+    for (const metadata of Object.values(CORE_METHOD_METADATA)) {
+      expect(metadata.idempotency).toBe(metadata.mutation ? 'required' : 'forbidden');
+    }
+  });
+});

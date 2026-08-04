@@ -1,0 +1,64 @@
+import type { AccessContext } from './access';
+import type { AuthoritativeCoreLocation, DeploymentTopology } from './topology';
+
+export const AgentDeckCapability = {
+  SessionsRead: 'sessions.read',
+  SessionsWrite: 'sessions.write',
+  SessionHistory: 'sessions.history',
+  SessionRuntimeRead: 'sessions.runtime.read',
+  SessionRuntimeWrite: 'sessions.runtime.write',
+  PendingRead: 'pending.read',
+  PendingRespond: 'pending.respond',
+  SubscriptionsWrite: 'subscriptions.write',
+  Teams: 'teams',
+  Tasks: 'tasks',
+  Issues: 'issues',
+  Files: 'files',
+  Blobs: 'blobs',
+  Browser: 'browser',
+  Assets: 'assets',
+  ProviderDiagnostics: 'providers.diagnostics',
+  CredentialAdministration: 'credentials.admin',
+  Replay: 'events.replay',
+} as const;
+
+export type AgentDeckCapability =
+  (typeof AgentDeckCapability)[keyof typeof AgentDeckCapability];
+
+export interface ProtocolVersion {
+  major: number;
+  minor: number;
+}
+
+export interface ClientHello {
+  protocolVersion: ProtocolVersion;
+  appVersion: string;
+  clientId: string;
+  requestedTopology: DeploymentTopology;
+  lastEventRevision?: number;
+}
+
+export interface AuthoritativeCoreDescriptor {
+  id: string;
+  location: AuthoritativeCoreLocation;
+  generation: number | null;
+}
+
+export interface AgentDeckTransportLimits {
+  maxFrameBytes: number;
+  maxBlobBytes: number;
+  maxConcurrentRequests: number;
+  maxQueuedEvents: number;
+}
+
+export interface HostHello {
+  protocolVersion: ProtocolVersion;
+  appVersion: string;
+  topology: DeploymentTopology;
+  instanceId: string;
+  authoritativeCore: AuthoritativeCoreDescriptor;
+  access: AccessContext;
+  capabilities: readonly AgentDeckCapability[];
+  limits: AgentDeckTransportLimits;
+  eventRevision: number;
+}

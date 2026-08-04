@@ -2,6 +2,8 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
   "include": [
     "src/renderer/**/*",
+    "src/contracts/**/*",
+    "src/protocol/**/*",
     "src/shared/**/*",
     "src/preload/index.d.ts",
     "src/preload/api/**/*.ts"
@@ -11,6 +13,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
+      "@contracts/*": ["src/contracts/*"],
+      "@protocol/*": ["src/protocol/*"],
       "@shared/*": ["src/shared/*"],
       "@renderer/*": ["src/renderer/*"]
     }
