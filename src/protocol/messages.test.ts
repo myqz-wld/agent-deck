@@ -60,6 +60,25 @@ describe('protocol message envelope', () => {
     ).toThrowError('idempotencyKey must be null or a non-empty string');
   });
 
+  it.each(['cancelled', 'internal_error'] as const)(
+    'accepts the shared %s terminal error code',
+    (code) => {
+      expect(() =>
+        assertProtocolMessageEnvelope({
+          type: 'error',
+          requestId: 'request-terminal',
+          error: {
+            code,
+            message: 'Request reached a terminal state',
+            retryable: false,
+            currentRevision: null,
+            details: null,
+          },
+        }),
+      ).not.toThrow();
+    },
+  );
+
   it('validates topology-bound host identity and transport surfaces', () => {
     const hello = {
       protocolVersion: { major: 1, minor: 0 },

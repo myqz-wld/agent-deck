@@ -60,12 +60,23 @@ boundaries:
 
 - `src/contracts/` contains JSON-safe topology, access, capability, client, and method contracts.
 - `src/core/` contains host-neutral application ports and may not import Electron or transports.
-- `src/protocol/` contains host-neutral framing and wire contracts.
+- `src/protocol/` contains host-neutral framing, bridge admission, and Relay wire contracts.
 - `src/composition/` is the outer layer that selects concrete host implementations.
+- `src/clients/` contains transport clients; SSH is owned by the Electron host process, not the
+  renderer.
+- `src/hosts/` contains the Electron, daemon, restricted SSH bridge, Relay, local Worker, and
+  appliance host boundaries.
+- `deploy/linux/full/` and `deploy/linux/relay/` contain fail-closed Quadlet/preflight foundations
+  for the full Server Core and relay-only appliances.
 
 The current preload surface remains available while it is migrated in vertical slices. Its complete
 invoke-channel ownership is recorded in `src/contracts/current-api-classification.ts`, so new local
 IPC methods cannot acquire remote or Feishu semantics implicitly.
+
+The remote-host directories are an implementation foundation, not a supported deployment claim
+yet. Native Linux packaging, real Ubuntu/EL9 isolation evidence, end-to-end SSH provisioning,
+renderer migration, and Feishu support remain gated work. The existing standalone desktop remains
+the supported runtime during this staged migration.
 
 ## Documentation
 

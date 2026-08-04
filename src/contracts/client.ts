@@ -62,10 +62,12 @@ export interface AgentDeckClient<Methods = AgentDeckMethodMap> {
 export const AgentDeckClientErrorCode = {
   AccessDenied: 'access_denied',
   AlreadyDecided: 'already_decided',
+  Cancelled: 'cancelled',
   CapabilityUnavailable: 'capability_unavailable',
   Conflict: 'conflict',
   DeadlineExceeded: 'deadline_exceeded',
   IncompatibleProtocol: 'incompatible_protocol',
+  InternalError: 'internal_error',
   InvalidRequest: 'invalid_request',
   NotFound: 'not_found',
   ProviderLost: 'provider_lost',
