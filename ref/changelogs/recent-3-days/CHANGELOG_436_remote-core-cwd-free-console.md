@@ -3,7 +3,7 @@ changelog_id: 435
 changed_at: 2026-08-04
 ---
 
-# CHANGELOG_435_remote-core-cwd-free-console: Add cwd-free remote session contracts
+# CHANGELOG_436_remote-core-cwd-free-console: Add cwd-free remote session contracts
 
 ## Summary
 

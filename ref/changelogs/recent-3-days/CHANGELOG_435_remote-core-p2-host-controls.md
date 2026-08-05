@@ -3,7 +3,7 @@ changelog_id: 434
 changed_at: 2026-08-04
 ---
 
-# CHANGELOG_434_remote-core-p2-host-controls: Add bounded remote host controls
+# CHANGELOG_435_remote-core-p2-host-controls: Add bounded remote host controls
 
 ## Summary
 
