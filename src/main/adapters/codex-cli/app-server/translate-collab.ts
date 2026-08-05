@@ -1,5 +1,5 @@
 type AnyRecord = Record<string, unknown>;
-type RawCollabEmit = (
+type CollabEmit = (
   kind: 'tool-use-start' | 'tool-use-end',
   payload: Record<string, unknown>,
 ) => void;
@@ -17,19 +17,116 @@ const RAW_COLLAB_TOOL_NAMES = new Set([
   'wait_agent',
 ]);
 
-export function collabToolInput(item: AnyRecord): Record<string, unknown> {
+export function translateNormalizedCollabItemStarted(
+  item: AnyRecord,
+  emit: CollabEmit,
+): boolean {
+  if (item.type === 'collabAgentToolCall') {
+    emit('tool-use-start', {
+      toolName: 'Agent',
+      toolInput: collabAgentToolInput(item),
+      toolUseId: item.id,
+    });
+    return true;
+  }
+  if (item.type === 'collabToolCall') {
+    emit('tool-use-start', {
+      toolName: 'Agent',
+      toolInput: legacyCollabToolInput(item),
+      toolUseId: item.id,
+    });
+    return true;
+  }
+  if (item.type !== 'subAgentActivity') return false;
+  emit('tool-use-start', {
+    toolName: 'Agent',
+    toolInput: subAgentActivityInput(item),
+    toolUseId: item.id,
+  });
+  return true;
+}
+
+export function translateNormalizedCollabItemCompleted(
+  item: AnyRecord,
+  emit: CollabEmit,
+): boolean {
+  if (item.type === 'collabAgentToolCall') {
+    emit('tool-use-end', {
+      toolUseId: item.id,
+      toolName: 'Agent',
+      toolInput: collabAgentToolInput(item),
+      toolResult: collabAgentToolResult(item),
+      status: item.status,
+      error: item.status === 'failed' ? collabAgentFailure(item) : undefined,
+    });
+    return true;
+  }
+  if (item.type === 'collabToolCall') {
+    emit('tool-use-end', {
+      toolUseId: item.id,
+      toolName: 'Agent',
+      toolInput: legacyCollabToolInput(item),
+      toolResult: legacyCollabToolResult(item),
+      status: item.status,
+      error: item.status === 'failed' ? 'Collab agent tool call failed' : undefined,
+    });
+    return true;
+  }
+  if (item.type !== 'subAgentActivity') return false;
+  const toolInput = subAgentActivityInput(item);
+  emit('tool-use-end', {
+    toolUseId: item.id,
+    toolName: 'Agent',
+    toolInput,
+    toolResult: {
+      activity_kind: item.kind,
+      agent_thread_id: item.agentThreadId,
+      agent_path: item.agentPath,
+    },
+    status: 'completed',
+  });
+  return true;
+}
+
+export function collabAgentToolInput(item: AnyRecord): Record<string, unknown> {
   const prompt = nullableString(item.prompt);
   const input: Record<string, unknown> = {
-    ...(stringField(item.tool) ? { collab_tool: stringField(item.tool) } : {}),
+    ...(stringField(item.tool) ? { collab_tool: normalizeCollabToolName(item.tool) } : {}),
+    ...(stringField(item.senderThreadId) ? { sender_thread_id: item.senderThreadId } : {}),
+    ...(Array.isArray(item.receiverThreadIds)
+      ? { receiver_thread_ids: stringArray(item.receiverThreadIds) }
+      : {}),
+    ...(prompt ? { prompt } : {}),
+    ...(stringField(item.model) ? { model: item.model } : {}),
+    ...(stringField(item.reasoningEffort)
+      ? { reasoning_effort: item.reasoningEffort }
+      : {}),
+  };
+  return input;
+}
+
+export function collabAgentToolResult(item: AnyRecord): unknown {
+  const result: Record<string, unknown> = {};
+  if (Array.isArray(item.receiverThreadIds)) {
+    result.receiver_thread_ids = stringArray(item.receiverThreadIds);
+  }
+  const states = asRecord(item.agentsStates);
+  if (states) result.agents_states = states;
+  return Object.keys(result).length > 0 ? result : '';
+}
+
+function legacyCollabToolInput(item: AnyRecord): Record<string, unknown> {
+  const prompt = nullableString(item.prompt);
+  return {
+    ...(stringField(item.tool) ? { collab_tool: normalizeCollabToolName(item.tool) } : {}),
     ...(stringField(item.senderThreadId) ? { sender_thread_id: item.senderThreadId } : {}),
     ...(stringField(item.receiverThreadId) ? { receiver_thread_id: item.receiverThreadId } : {}),
     ...(stringField(item.newThreadId) ? { new_thread_id: item.newThreadId } : {}),
     ...(prompt ? { prompt } : {}),
   };
-  return input;
 }
 
-export function collabToolResult(item: AnyRecord): unknown {
+function legacyCollabToolResult(item: AnyRecord): unknown {
   const result: Record<string, unknown> = {};
   if (stringField(item.receiverThreadId)) result.receiver_thread_id = item.receiverThreadId;
   if (stringField(item.newThreadId)) result.new_thread_id = item.newThreadId;
@@ -40,15 +137,15 @@ export function collabToolResult(item: AnyRecord): unknown {
 }
 
 /**
- * Codex v2 normalized collabToolCall items omit call arguments such as wait timeout_ms. The raw
- * response stream has
- * every function call. Keep the complete local tool input and output, matching Claude tool-event
- * visibility. This intentionally includes encrypted-looking message strings: they are still the
- * only representation Codex exposed to the local client and remain useful for transcript parity.
+ * Codex v2 normalized collaboration items omit call arguments such as wait_agent.timeout_ms. The
+ * raw response stream has every function call. Keep the complete local tool input and output,
+ * matching Claude tool-event visibility. This intentionally includes encrypted-looking message
+ * strings: they are still the only representation Codex exposed to the local client and remain
+ * useful for transcript parity.
  */
 export function translateRawCollabResponseItem(
   params: unknown,
-  emit: RawCollabEmit,
+  emit: CollabEmit,
   pendingCalls?: Map<string, Record<string, unknown>>,
 ): void {
   const item = asRecord(asRecord(params)?.item);
@@ -94,13 +191,62 @@ export function translateRawCollabResponseItem(
 }
 
 function rawCollabToolInput(toolName: string, rawArguments: unknown): Record<string, unknown> {
+  const collabTool = normalizeCollabToolName(toolName);
   const parsed = parseJsonValue(rawArguments);
   const args = asRecord(parsed);
-  if (args) return { ...args, collab_tool: toolName };
+  if (args) return { ...args, collab_tool: collabTool };
   return {
-    collab_tool: toolName,
+    collab_tool: collabTool,
     ...(rawArguments === undefined ? {} : { arguments: parsed }),
   };
+}
+
+function subAgentActivityInput(item: AnyRecord): Record<string, unknown> {
+  const kind = stringField(item.kind);
+  const threadId = stringField(item.agentThreadId);
+  const agentPath = stringField(item.agentPath);
+  return {
+    ...(agentPath ? { target: agentPath } : {}),
+    ...(threadId ? { receiver_thread_ids: [threadId], agent_thread_id: threadId } : {}),
+    ...(agentPath ? { agent_path: agentPath } : {}),
+    ...(kind ? { activity_kind: kind, description: subAgentActivityDescription(kind) } : {}),
+  };
+}
+
+function subAgentActivityDescription(kind: string): string {
+  if (kind === 'started') return '子代理已启动';
+  if (kind === 'interacted') return '已向子代理发送消息';
+  if (kind === 'interrupted') return '子代理已中断';
+  return `子代理活动：${kind}`;
+}
+
+function collabAgentFailure(item: AnyRecord): string {
+  const states = asRecord(item.agentsStates);
+  if (states) {
+    for (const value of Object.values(states)) {
+      const message = stringField(asRecord(value)?.message);
+      if (message) return message;
+    }
+  }
+  return 'Collab agent tool call failed';
+}
+
+function normalizeCollabToolName(value: unknown): string {
+  const name = stringField(value);
+  switch (name) {
+    case 'spawnAgent':
+      return 'spawn_agent';
+    case 'sendInput':
+      return 'send_input';
+    case 'resumeAgent':
+      return 'resume_agent';
+    case 'closeAgent':
+      return 'close_agent';
+    case 'wait':
+      return 'wait_agent';
+    default:
+      return name;
+  }
 }
 
 function parseJsonValue(value: unknown): unknown {
@@ -152,6 +298,10 @@ function nullableString(value: unknown): string | null {
 
 function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function stringArray(value: unknown[]): string[] {
+  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function asRecord(value: unknown): AnyRecord | null {

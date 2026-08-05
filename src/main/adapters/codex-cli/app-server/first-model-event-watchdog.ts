@@ -37,8 +37,13 @@ const TRUSTED_CONTINUATION_ITEM_TYPES = new Set([
   'commandExecution',
   'mcpToolCall',
   'dynamicToolCall',
+  'collabAgentToolCall',
   'collabToolCall',
+  'subAgentActivity',
   'webSearch',
+  'sleep',
+  'imageView',
+  'imageGeneration',
   'fileChange',
 ]);
 
