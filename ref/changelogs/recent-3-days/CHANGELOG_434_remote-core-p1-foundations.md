@@ -3,7 +3,7 @@ changelog_id: 433
 changed_at: 2026-08-04
 ---
 
-# CHANGELOG_433_remote-core-p1-foundations: Establish remote Core P1 foundations
+# CHANGELOG_434_remote-core-p1-foundations: Establish remote Core P1 foundations
 
 ## Summary
 
