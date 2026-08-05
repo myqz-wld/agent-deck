@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DaemonHost } from './host';
 import { resolveDaemonInstancePaths } from './instance-paths';
 import { SqliteAbiPreflightError } from './sqlite-preflight';
+import type { DaemonCredentialLifecyclePort } from './credential-lifecycle';
 import type { DaemonCoreRuntime, DaemonListener } from './types';
 
 class HostTestDuplex extends Duplex {
@@ -108,6 +109,13 @@ function runtime(): DaemonCoreRuntime {
   };
 }
 
+function credentialLifecycle(): DaemonCredentialLifecyclePort {
+  return {
+    isActive: () => true,
+    subscribeRevocations: () => ({ close: () => undefined }),
+  };
+}
+
 describe('daemon host lifecycle', () => {
   it('fails before Core startup when Node-native SQLite preflight fails', async () => {
     const start = vi.fn(async () => undefined);
@@ -117,6 +125,7 @@ describe('daemon host lifecycle', () => {
       paths,
       appVersion: 'test',
       runtime: core,
+      credentialLifecycle: credentialLifecycle(),
       listener: null,
       sqlitePreflight: () => {
         throw new SqliteAbiPreflightError('native_load_failed', 'ABI mismatch');
@@ -130,18 +139,29 @@ describe('daemon host lifecycle', () => {
   });
 
   it('stops an already-started Core if listener startup fails', async () => {
-    const start = vi.fn(async () => undefined);
-    const stop = vi.fn(async () => undefined);
+    const order: string[] = [];
+    const start = vi.fn(async () => { order.push('runtime-start'); });
+    const stop = vi.fn(async () => { order.push('runtime-stop'); });
+    const closeRevocations = vi.fn(() => { order.push('credential-unsubscribe'); });
+    const credentials: DaemonCredentialLifecyclePort = {
+      isActive: () => true,
+      subscribeRevocations: () => {
+        order.push('credential-subscribe');
+        return { close: closeRevocations };
+      },
+    };
     const listener: DaemonListener = {
       start: async () => {
+        order.push('listener-start');
         throw new Error('listen failed');
       },
-      stop: vi.fn(async () => undefined),
+      stop: vi.fn(async () => { order.push('listener-stop'); }),
     };
     const host = new DaemonHost({
       paths,
       appVersion: 'test',
       runtime: { ...runtime(), start, stop },
+      credentialLifecycle: credentials,
       listener,
       defaultAccessContextFactory: (hello) => ({
         kind: 'authenticated-client',
@@ -160,6 +180,15 @@ describe('daemon host lifecycle', () => {
     expect(start).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith('daemon-start-failed');
     expect(listener.stop).toHaveBeenCalledOnce();
+    expect(closeRevocations).toHaveBeenCalledOnce();
+    expect(order).toEqual([
+      'runtime-start',
+      'credential-subscribe',
+      'listener-start',
+      'credential-unsubscribe',
+      'listener-stop',
+      'runtime-stop',
+    ]);
     expect(host.state).toBe('stopped');
   });
 
@@ -177,6 +206,7 @@ describe('daemon host lifecycle', () => {
       paths,
       appVersion: 'test',
       runtime: { ...runtime(), stop },
+      credentialLifecycle: credentialLifecycle(),
       listener,
       defaultAccessContextFactory: access,
       sqlitePreflight: () => undefined,
@@ -222,6 +252,7 @@ describe('daemon host lifecycle', () => {
       paths,
       appVersion: 'test',
       runtime: core,
+      credentialLifecycle: credentialLifecycle(),
       listener: null,
       sqlitePreflight: () => undefined,
     });
@@ -289,6 +320,7 @@ describe('daemon host lifecycle', () => {
       paths,
       appVersion: 'test',
       runtime: core,
+      credentialLifecycle: credentialLifecycle(),
       listener,
       defaultAccessContextFactory: access,
       sqlitePreflight: () => undefined,
@@ -301,6 +333,7 @@ describe('daemon host lifecycle', () => {
       'rollback-subscription-close',
       'rollback-runtime-stop',
     ]);
+    expect(host.connectionCount).toBe(0);
   });
 
   it('reports connection cleanup failure only after still stopping Core', async () => {
@@ -319,6 +352,7 @@ describe('daemon host lifecycle', () => {
       paths,
       appVersion: 'test',
       runtime: core,
+      credentialLifecycle: credentialLifecycle(),
       listener: null,
       sqlitePreflight: () => undefined,
     });

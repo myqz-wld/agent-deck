@@ -23,11 +23,7 @@ import {
   type WorkerAttachmentStatus,
 } from './attachment-types';
 import type { LocalWorkerSshConfig } from './config';
-import {
-  LocalWorkerFrameBridge,
-  type CoreFrameChannelFactory,
-} from './frame-bridge';
-
+import { LocalWorkerFrameBridge, type CoreFrameChannelFactory } from './frame-bridge';
 export * from './attachment-types';
 
 function errorValue(error: unknown, fallback: string): Error {
@@ -204,6 +200,11 @@ export class WorkerAttachmentController {
         (frame) => this.sendBridgeFrame(session, epoch, frame),
         bridgeLimits,
       );
+      await this.onGeneration?.(session.attached.generation);
+      if (!this.desired || epoch !== this.epoch) {
+        await this.cleanupSession(session);
+        return;
+      }
       this.session = session;
       this.bridge = bridge;
       this.nextHeartbeatSequence = 0;
@@ -232,8 +233,6 @@ export class WorkerAttachmentController {
         },
         true,
       );
-      if (this.session !== session || !this.desired || epoch !== this.epoch) return;
-      this.onGeneration?.(session.attached.generation);
       if (this.session !== session || !this.desired || epoch !== this.epoch) return;
       this.scheduleHeartbeat(session, epoch);
     } catch (error) {
@@ -349,6 +348,8 @@ export class WorkerAttachmentController {
           payload: emptyRoutePayload(),
           creditBytes: null,
           resetCode: null,
+          accessCredentialId: null,
+          accessSurface: null,
         });
         this.nextHeartbeatSequence += 1;
         this.scheduleHeartbeat(session, epoch);

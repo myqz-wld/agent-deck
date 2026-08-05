@@ -108,6 +108,8 @@ function heartbeat(generation: number, sequence: number): RelayRouteFrame {
     payload: emptyRoutePayload(),
     creditBytes: null,
     resetCode: null,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 
@@ -154,7 +156,7 @@ describe('background local Worker attachment state machine', () => {
         backoffInitialMs: 5,
         backoffMaximumMs: 20,
         backoffJitterRatio: 0,
-        onGeneration: (generation) => generations.push(generation),
+        onGeneration: (generation) => { generations.push(generation); },
       },
     );
 
@@ -185,6 +187,30 @@ describe('background local Worker attachment state machine', () => {
       expect.objectContaining({ state: 'online', generation: 1, attempt: 0 }),
     );
     expect(generations).toEqual([1, 1]);
+    await controller.stop();
+  });
+
+  it('persists the negotiated generation before exposing route handlers or online state', async () => {
+    const connector = new FakeConnector();
+    const session = new FakeSession(attached(1));
+    connector.outcomes.push(session);
+    let release!: () => void;
+    const persisted = new Promise<void>((resolve) => { release = resolve; });
+    const controller = new WorkerAttachmentController(
+      SSH_CONFIG,
+      connector,
+      { open: () => ({ write: () => true, closeInput: vi.fn(), reset: vi.fn() }) },
+      { onGeneration: () => persisted },
+    );
+
+    const starting = controller.start();
+    await vi.waitFor(() => expect(connector.requests).toHaveLength(1));
+    expect(session.handlers).toBeNull();
+    expect(controller.status().state).toBe('connecting');
+    release();
+    await starting;
+    expect(session.handlers).not.toBeNull();
+    expect(controller.status().state).toBe('online');
     await controller.stop();
   });
 
@@ -274,6 +300,8 @@ describe('background local Worker attachment state machine', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
+      accessCredentialId: 'client-credential-a',
+      accessSurface: 'desktop-full',
     };
     session.setHandlersError = new Error('handler setup failed');
     const reset = vi.fn();

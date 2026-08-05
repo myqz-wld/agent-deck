@@ -24,6 +24,7 @@ export interface WorkerEnrollmentRequest {
 const HOST_TOKEN = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\]|[0-9A-Fa-f:]+)$/;
 const USER_TOKEN = /^[A-Za-z_][A-Za-z0-9._-]{0,63}$/;
 const IDENTIFIER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,254}$/;
+const INSTANCE_ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function assertToken(value: string, field: string): void {
   if (
@@ -58,7 +59,7 @@ export function assertLocalWorkerSshConfig(config: LocalWorkerSshConfig): void {
   assertToken(config.sshBinary, 'sshBinary');
   assertPattern(config.host, 'host', HOST_TOKEN);
   assertPattern(config.user, 'user', USER_TOKEN);
-  assertPattern(config.instanceId, 'instanceId', IDENTIFIER_TOKEN);
+  assertPattern(config.instanceId, 'instanceId', INSTANCE_ID);
   assertPattern(config.workerId, 'workerId', IDENTIFIER_TOKEN);
   assertPattern(config.credentialId, 'credentialId', IDENTIFIER_TOKEN);
   if (!Number.isSafeInteger(config.port) || config.port < 1 || config.port > 65_535) {
@@ -161,12 +162,17 @@ export function buildLocalWorkerSshArgv(config: LocalWorkerSshConfig): string[] 
     'attach',
     '--instance',
     config.instanceId,
+    '--credential',
+    config.credentialId,
+    '--worker',
+    config.workerId,
   ];
 }
 
 /** Private key bytes/path stay local; the Relay enrollment boundary accepts public material only. */
 export function createWorkerEnrollmentRequest(input: WorkerEnrollmentRequest): WorkerEnrollmentRequest {
-  for (const field of ['instanceId', 'workerId', 'credentialId'] as const) {
+  assertPattern(input.instanceId, 'instanceId', INSTANCE_ID);
+  for (const field of ['workerId', 'credentialId'] as const) {
     assertPattern(input[field], field, IDENTIFIER_TOKEN);
   }
   assertToken(input.fingerprint, 'fingerprint');

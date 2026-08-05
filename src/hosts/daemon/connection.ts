@@ -15,7 +15,6 @@ import {
   negotiateProtocolVersion,
   ProtocolCompatibilityError,
   type HostProtocolMessage,
-  type ProtocolErrorMessage,
   type ProtocolMessage,
 } from '@protocol/index';
 
@@ -24,6 +23,11 @@ import {
   normalizeDaemonAccessContext,
 } from './connection-handshake';
 import { normalizeDaemonConnectionLimits } from './connection-limits';
+import { daemonEventMessage, daemonRequestErrorMessage } from './connection-messages';
+import type {
+  DaemonProtocolConnectionOptions,
+  DaemonProtocolConnectionState,
+} from './connection-options';
 import { BoundedFrameWriter } from './frame-writer';
 import { assertDaemonMessageIdentifiers } from './request-identifiers';
 import { DaemonRequestScheduler } from './request-scheduler';
@@ -35,35 +39,7 @@ import {
   type DaemonEventSubscription,
 } from './types';
 
-export interface DaemonProtocolConnectionOptions {
-  readonly instanceId: string;
-  readonly appVersion: string;
-  readonly authoritativeCoreId: string;
-  readonly runtime: DaemonCoreRuntime;
-  readonly admission: DaemonConnectionAdmission;
-  readonly limits?: Partial<DaemonConnectionLimits>;
-  readonly now?: () => number;
-  readonly onClose?: (connection: DaemonProtocolConnection) => void;
-}
-
-export type DaemonProtocolConnectionState = 'open' | 'terminal-flushing' | 'closing' | 'closed';
-
-function requestErrorMessage(
-  requestId: string,
-  error: DaemonRequestError,
-): ProtocolErrorMessage {
-  return {
-    type: 'error',
-    requestId,
-    error: {
-      code: error.code,
-      message: error.message,
-      retryable: error.retryable,
-      currentRevision: error.currentRevision,
-      details: error.details,
-    },
-  };
-}
+export type { DaemonProtocolConnectionOptions, DaemonProtocolConnectionState } from './connection-options';
 
 export class DaemonProtocolConnection {
   private readonly stream: Duplex;
@@ -236,6 +212,9 @@ export class DaemonProtocolConnection {
       if (!Number.isSafeInteger(eventRevision) || eventRevision < 0) {
         throw new Error('Core returned an invalid current revision');
       }
+      await this.options.assertCredentialActive(access);
+      if (this.stateValue !== 'open') return;
+      this.options.onAuthenticated(this, access);
       const hostHello = createDaemonHostHello({
         protocolVersion,
         appVersion: this.options.appVersion,
@@ -275,9 +254,11 @@ export class DaemonProtocolConnection {
       callbacks: {
         onResult: (requestId, result, revision) =>
           this.send({ type: 'result', requestId, result, revision }),
-        onError: (requestId, error) => this.sendError(requestId, error),
+        onError: (requestId, error) => this.handleRequestError(requestId, error),
         onOverflow: () => this.close('request-queue-overflow'),
       },
+      assertCredentialActive: (signal) =>
+        this.options.assertCredentialActive(access, signal),
     });
   }
 
@@ -310,6 +291,8 @@ export class DaemonProtocolConnection {
     this.subscriptionController = controller;
     this.lastEventRevision = afterRevision;
     try {
+      await this.options.assertCredentialActive(access, controller.signal);
+      if (this.stateValue !== 'open' || controller.signal.aborted) return;
       this.subscription = await this.options.runtime.subscribe({
         access,
         afterRevision,
@@ -339,7 +322,7 @@ export class DaemonProtocolConnection {
       }
       if (this.stateValue !== 'open') return;
       const normalized = this.normalizeError(error);
-      if (normalized) this.sendError(requestId, normalized);
+      if (normalized) this.handleRequestError(requestId, normalized);
       else this.close('subscription-host-failed');
     }
   }
@@ -350,23 +333,17 @@ export class DaemonProtocolConnection {
     ? Value
     : never): void {
     if (this.stateValue !== 'open') return;
-    if (
-      event.instanceId !== this.options.instanceId ||
-      !Number.isSafeInteger(event.revision) ||
-      event.revision <= this.lastEventRevision
-    ) {
-      this.close('invalid-core-event');
-      return;
-    }
-    const message = { type: 'event' as const, ...event };
     try {
-      assertProtocolMessageEnvelope(message);
+      const message = daemonEventMessage(
+        event,
+        this.options.instanceId,
+        this.lastEventRevision,
+      );
+      this.lastEventRevision = event.revision;
+      this.send(message, true);
     } catch {
       this.close('invalid-core-event');
-      return;
     }
-    this.lastEventRevision = event.revision;
-    this.send(message, true);
   }
 
   private normalizeError(error: unknown): DaemonRequestError | null {
@@ -390,7 +367,15 @@ export class DaemonProtocolConnection {
   }
 
   private sendError(requestId: string, error: DaemonRequestError): void {
-    this.send(requestErrorMessage(requestId, error));
+    this.send(daemonRequestErrorMessage(requestId, error));
+  }
+
+  private handleRequestError(requestId: string, error: DaemonRequestError): void {
+    if (this.stateValue !== 'open') return;
+    this.sendError(requestId, error);
+    if (error.code === AgentDeckClientErrorCode.Revoked) {
+      this.scheduleCloseAfterFlush('credential-revoked');
+    }
   }
 
   private send(message: HostProtocolMessage, event = false): void {
@@ -483,6 +468,18 @@ export class DaemonProtocolConnection {
 
   close(reason = 'host-closed'): void {
     void this.finalizeClose(reason);
+  }
+
+  revokeCredential(): void {
+    if (this.stateValue !== 'open') return;
+    this.sendError(
+      'credential-revoked',
+      new DaemonRequestError(
+        AgentDeckClientErrorCode.Revoked,
+        'Access credential is revoked or unavailable',
+      ),
+    );
+    this.scheduleCloseAfterFlush('credential-revoked');
   }
 
   async shutdown(reason = 'host-closed'): Promise<void> {

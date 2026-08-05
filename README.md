@@ -49,6 +49,7 @@ Use these commands for day-to-day development and validation:
 | `pnpm typecheck` | Run architecture and TypeScript checks |
 | `pnpm test` | Run the test suite |
 | `pnpm build` | Build the application |
+| `pnpm verify:linux-headless` | Build and statically verify the isolated Linux headless roles |
 | `pnpm dist:mac`, `pnpm dist:win`, or `pnpm dist:linux` | Build an installer on the matching host OS |
 
 Installer builds contain platform-specific agent runtimes, so cross-platform packaging is not supported.
@@ -67,26 +68,72 @@ boundaries:
 - `src/clients/` contains transport clients; SSH is owned by the Electron host process, not the
   renderer.
 - `src/gateways/im/` contains the transport-neutral Feishu session-console gateway, including
-  owner-equivalent enrollment, bounded notification delivery, approval cards, and replay fencing.
+  owner-equivalent enrollment, bounded notification delivery, approval cards, and replay fencing;
+  `src/gateways/feishu/` supplies the official SDK long-connection and metadata-only persistence
+  adapters.
 - `src/hosts/` contains the Electron, daemon, restricted SSH bridge, Relay, local Worker, and
-  appliance host boundaries. Its host-only instance manager plans and executes exact per-instance
-  Full/Relay lifecycle operations without exposing them to Core sessions or remote clients.
+  appliance host boundaries. The Electron main process owns remote SSH profiles and children; the
+  host-only instance manager plans and executes exact per-instance Full/Relay lifecycle operations
+  without exposing them to Core sessions or remote clients.
 - `deploy/linux/full/` and `deploy/linux/relay/` contain fail-closed Quadlet/preflight foundations
   for the full Server Core and relay-only appliances; `deploy/linux/manager/` adds static policy
-  checks for their host lifecycle manager.
+  checks for their host lifecycle manager, and `deploy/linux/feishu/` contains the separate
+  long-connection gateway service contract.
 
 The current preload surface remains available while it is migrated in vertical slices. Its complete
 invoke-channel ownership is recorded in `src/contracts/current-api-classification.ts`, so new local
 IPC methods cannot acquire remote or Feishu semantics implicitly.
 
-The remote-host directories are an implementation foundation, not a supported deployment claim
-yet. Protocol 2.0 adds bounded `session.console.*` and `project.*` methods: Feishu can paginate,
-select, create, and inspect runtime state without receiving a workspace path, and the older
-cwd-bearing desktop methods are outside the Feishu allowlist. The Gateway, Core dispatcher, and
-Linux instance manager still use injected ports and deterministic tests; production Core runtime,
-Feishu SDK/storage, host composition, native Linux packaging, real Ubuntu/EL9 isolation evidence,
-end-to-end SSH provisioning, and renderer migration remain gated work. The existing standalone
-desktop remains the supported runtime during this staged migration.
+Protocol 2.0 adds bounded `session.console.*` and `project.*` methods: Feishu can paginate, select,
+create, and inspect runtime state without receiving a workspace path, and the older cwd-bearing
+desktop methods are outside the Feishu allowlist. The P3 milestone adds the Electron-owned remote
+profile/source adapter, restricted SSH clients and bridges, official Feishu SDK adapters, isolated
+headless role bundles, and fail-closed Linux service/package fixtures. These artifacts are still a staged
+implementation rather than a supported remote release: the concrete Electron-free Core/provider
+runtime module, target-Node native dependencies, and real Ubuntu/EL9 isolation and end-to-end
+evidence remain required. The existing standalone desktop remains the supported runtime meanwhile.
+
+## Client sources and server deployment topologies
+
+The desktop has two selectable data sources and keeps the same project, session, history, pending,
+and runtime pages when switching between them:
+
+| Client source | Meaning |
+| --- | --- |
+| Local | The existing Standalone composition owns data and computation on this machine. No server participates. |
+| Remote | A persisted remote profile supplies the same supported page data through restricted SSH. Switching away does not disconnect the remote transport or stop its Core, Worker, or sessions. |
+
+A Remote profile targets one of two server deployment topologies. These are endpoint properties,
+not additional client pages. SSH and Feishu are access transports rather than runtime modes:
+
+| Server topology | Data and computation owner | Client effect |
+| --- | --- | --- |
+| Server Core | The isolated Linux appliance | One or more desktop clients render server-owned state over restricted SSH; Feishu operates the same authoritative sessions through its long connection. Closing a client does not stop the daemon or sessions. |
+| Relay | The always-on local Worker | Desktop and Feishu clients still connect through the server, but repositories, providers, session data, and Browser work remain local. The server forwards opaque bounded frames and metadata only; an offline Worker returns `worker_offline` and never falls back to server compute or queues business work. |
+
+The selected source mode and last Remote profile persist independently. Renderer caches,
+subscriptions, navigation, and writes are scoped by source/profile/Core generation so a late Local
+or Remote response cannot cross the switch boundary. Capabilities unavailable on a remote endpoint
+are shown as disabled, hidden, or read-only rather than falling through to Local operations.
+
+SSH uses pinned host keys, dedicated public-key credentials, forced commands, and no shell, PTY,
+agent forwarding, or tunnel surface. Feishu enrollment is bound to exact app, tenant, open-id,
+instance, and credential identities. Approval cards default to a 30-minute presentation lifetime;
+`0` is the explicit indefinite setting, while Core remains authoritative for whether a request is
+still pending.
+
+Initial capacity estimates are operational starting points rather than guarantees:
+
+| Deployment | Small/test starting point | Recommended ordinary use | Storage |
+| --- | --- | --- | --- |
+| Server Core | 2 vCPU, 8 GB RAM | 4 vCPU, 16 GB RAM for roughly 2–3 active sessions and Browser use | About 100 GB SSD for ordinary repositories, builds, caches, state, and backups |
+| Build-heavy Server Core | Workload-specific | 8 vCPU, 32 GB RAM or more | Commonly 200 GB SSD or more |
+| Relay | 1 vCPU, 1 GB RAM | 1–2 vCPU, 2 GB RAM for more clients and Feishu delivery | 10–20 GB; no repository, provider, Browser-profile, or business-session storage |
+
+The Linux role definitions and their explicit evidence limits are documented in
+[`deploy/linux/full/README.snippet.md`](deploy/linux/full/README.snippet.md),
+[`deploy/linux/relay/README.snippet.md`](deploy/linux/relay/README.snippet.md), and
+[`deploy/linux/feishu/README.md`](deploy/linux/feishu/README.md).
 
 ## Documentation
 

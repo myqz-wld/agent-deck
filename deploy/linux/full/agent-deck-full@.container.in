@@ -12,6 +12,9 @@ Image=@@IMAGE_DIGEST@@
 Pull=never
 ContainerName=agent-deck-full-%i
 HostName=agent-deck-%i
+Label=io.agent-deck.instance=%i
+Label=io.agent-deck.topology=full
+Label=io.agent-deck.managed-by=agent-deck-instance-manager
 UserNS=keep-id
 ReadOnly=true
 ReadOnlyTmpfs=false
@@ -28,7 +31,7 @@ Environment=AGENT_DECK_INSTANCE_ID=%i
 Environment=XDG_STATE_HOME=/var/lib/agent-deck/state
 Environment=XDG_CONFIG_HOME=/var/lib/agent-deck/config
 Environment=XDG_RUNTIME_DIR=/run
-Exec=/opt/agent-deck/bin/agent-deckd --instance %i
+Exec=/opt/agent-deck/bin/agent-deckd serve --instance %i --config /var/lib/agent-deck/config/agent-deck/instances/%i/config.json --socket /run/agent-deck/%i/agent-deckd.sock
 Memory=@@MEMORY_LIMIT@@
 PidsLimit=@@PIDS_LIMIT@@
 PodmanArgs=--cpus=@@CPU_LIMIT@@ --storage-opt=size=@@ROOTFS_SIZE@@

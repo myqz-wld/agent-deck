@@ -1,6 +1,6 @@
 import { assertFeishuMethod, feishuClientId, type FeishuClientPool } from './client-pool';
 import { FeishuCallbackAttempt } from './callback-attempt';
-import { coreRevision, validatePendingRequests } from './core-output';
+import { validatePendingListResult } from './core-output';
 import type { FeishuDeliveryService } from './delivery';
 import { FeishuGatewayError } from './errors';
 import {
@@ -29,9 +29,17 @@ export interface NotificationDeliveryOptions {
   clock: FeishuGatewayClock;
   callbackWindowMs: number;
   pendingPresentationLifetimeMs: number;
+  epoch: number;
   withinWindow<T>(callback: FeishuCallbackAttempt, work: () => Promise<T>): Promise<T>;
   beforeDeliver(credential: EnrolledFeishuCredential, chatId: string): Promise<void>;
   transportSafety: 'safe' | 'unknown';
+  transportIdempotencyWindowMs: number | null;
+  onTerminalExhausted(
+    credential: EnrolledFeishuCredential,
+    chatId: string,
+    eventId: string,
+    event: NotificationEvent,
+  ): void;
 }
 
 function advanceCursor(
@@ -56,6 +64,21 @@ function relevant(event: NotificationEvent): boolean {
   );
 }
 
+function consumeTerminalExhausted(
+  options: NotificationDeliveryOptions,
+  credential: EnrolledFeishuCredential,
+  chatId: string,
+  eventId: string,
+  event: NotificationEvent,
+): void {
+  try {
+    options.onTerminalExhausted(credential, chatId, eventId, event);
+  } catch {
+    // Observability must never poison the durable cursor or the next notification revision.
+  }
+  advanceCursor(options, credential, chatId, event.revision);
+}
+
 export async function deliverCoreNotification(
   options: NotificationDeliveryOptions,
   credential: EnrolledFeishuCredential,
@@ -76,6 +99,14 @@ export async function deliverCoreNotification(
     credential.credentialId,
     chatId,
   );
+  const context = options.store.getContext(
+    credential.instanceId,
+    credential.credentialId,
+    chatId,
+  );
+  if (!context) {
+    throw new FeishuGatewayError('invalid_configuration', 'Notification chat context is missing');
+  }
   if (cursor && event.revision <= cursor.revision) return;
   if (!relevant(event)) return advanceCursor(options, credential, chatId, event.revision);
 
@@ -137,13 +168,10 @@ export async function deliverCoreNotification(
         true,
       );
     }
-    throw new FeishuGatewayError(
-      'reconciliation_required',
-      'Ambiguous notification delivery requires operator reconciliation',
-    );
+    return consumeTerminalExhausted(options, credential, chatId, eventId, event);
   }
   if (claim.state === 'exhausted') {
-    throw new FeishuGatewayError('delivery_exhausted', 'Notification retry budget is exhausted');
+    return consumeTerminalExhausted(options, credential, chatId, eventId, event);
   }
 
   const callback = new FeishuCallbackAttempt(
@@ -153,33 +181,31 @@ export async function deliverCoreNotification(
   );
   try {
     await options.withinWindow(callback, async () => {
-      const connected = await options.pool.get(credential, chatId);
+      const connected = await options.pool.getForGeneration(credential, chatId, options.epoch);
       const cards = [] as NonNullable<SessionConsoleView['cards']>[number][];
       for (const subscription of subscriptions) {
         assertFeishuMethod(connected.hello, 'pending.list');
-        const result = await connected.client.request(
+        const raw = await connected.client.request(
           'pending.list',
           { sessionId: subscription.sessionId },
           { deadlineMs: callback.remainingMs() },
         );
-        const requests = validatePendingRequests(
-          result.requests,
-          subscription.sessionId,
-          options.limits,
-        );
+        const result = validatePendingListResult(raw, subscription.sessionId, options.limits);
         cards.push(
           ...(renderPending(
-            requests.filter((item) => item.status === 'pending'),
+            result.requests.filter((item) => item.status === 'pending'),
             {
               credential,
               chatId,
+              chatType: context.chatType,
               sessionId: subscription.sessionId,
               nonce: options.nonce,
               pendingPresentationLifetimeMs: options.pendingPresentationLifetimeMs,
               maxOutputBytes: options.limits.maxOutputBytes,
               maxPendingCards: options.limits.maxPendingCards,
+              now: () => options.clock.now(),
             },
-            coreRevision(result.revision),
+            result.revision,
           ).cards ?? []),
         );
       }
@@ -213,6 +239,7 @@ export async function deliverCoreNotification(
           callback,
           () => options.clock.now(),
           options.transportSafety,
+          options.transportIdempotencyWindowMs,
           () => options.beforeDeliver(credential, chatId),
         ),
       );

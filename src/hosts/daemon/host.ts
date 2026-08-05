@@ -1,6 +1,11 @@
 import type { Duplex } from 'node:stream';
 
 import { DaemonProtocolConnection } from './connection';
+import {
+  DaemonCredentialRegistry,
+  type DaemonClientAccessSurface,
+  type DaemonCredentialLifecyclePort,
+} from './credential-lifecycle';
 import type { DaemonInstancePaths } from './instance-paths';
 import { preflightNodeNativeSqlite } from './sqlite-preflight';
 import type {
@@ -18,11 +23,13 @@ export interface DaemonHostOptions {
   readonly paths: DaemonInstancePaths;
   readonly appVersion: string;
   readonly runtime: DaemonCoreRuntime;
+  readonly credentialLifecycle: DaemonCredentialLifecyclePort;
   readonly authoritativeCoreId?: string;
   readonly listener?: DaemonListener | null;
   readonly defaultAccessContextFactory?: DaemonAccessContextFactory;
   readonly connectionLimits?: Partial<DaemonConnectionLimits>;
   readonly sqlitePreflight?: () => unknown | Promise<unknown>;
+  readonly credentialCheckTimeoutMs?: number;
   readonly now?: () => number;
 }
 
@@ -32,11 +39,21 @@ export interface DaemonHostOptions {
  */
 export class DaemonHost {
   private readonly listener: DaemonListener | null;
+  private readonly authoritativeCoreId: string;
+  private readonly credentials: DaemonCredentialRegistry;
   private readonly connections = new Set<DaemonProtocolConnection>();
   private stateValue: DaemonHostState = 'idle';
   private listenerFailureValue: Error | null = null;
 
   constructor(private readonly options: DaemonHostOptions) {
+    this.authoritativeCoreId =
+      options.authoritativeCoreId ?? `server-core:${options.paths.instanceId}`;
+    this.credentials = new DaemonCredentialRegistry({
+      instanceId: options.paths.instanceId,
+      processId: this.authoritativeCoreId,
+      lifecycle: options.credentialLifecycle,
+      checkTimeoutMs: options.credentialCheckTimeoutMs ?? 2_000,
+    });
     this.listener =
       options.listener === undefined
         ? new UnixSocketDaemonListener(options.paths.socketPath, options.paths.runtimeDirectory)
@@ -67,10 +84,13 @@ export class DaemonHost {
     this.stateValue = 'starting';
     this.listenerFailureValue = null;
     let runtimeStarted = false;
+    let credentialsStarted = false;
     try {
       await (this.options.sqlitePreflight ?? preflightNodeNativeSqlite)();
       await this.options.runtime.start();
       runtimeStarted = true;
+      await this.credentials.start();
+      credentialsStarted = true;
       await this.listener?.start(
         (stream) => this.acceptDefaultStream(stream),
         (error) => {
@@ -80,6 +100,13 @@ export class DaemonHost {
       this.stateValue = 'running';
     } catch (error) {
       this.stateValue = 'stopped';
+      if (credentialsStarted) {
+        try {
+          await this.credentials.stop();
+        } catch {
+          // Preserve the startup/preflight failure as the primary error.
+        }
+      }
       await this.shutdownConnections('daemon-start-failed');
       try {
         await this.listener?.stop();
@@ -109,16 +136,34 @@ export class DaemonHost {
     const connection = new DaemonProtocolConnection({
       instanceId: this.options.paths.instanceId,
       appVersion: this.options.appVersion,
-      authoritativeCoreId:
-        this.options.authoritativeCoreId ?? `server-core:${this.options.paths.instanceId}`,
+      authoritativeCoreId: this.authoritativeCoreId,
       runtime: this.options.runtime,
       admission,
       limits: this.options.connectionLimits,
       now: this.options.now,
-      onClose: (closed) => this.connections.delete(closed),
+      assertCredentialActive: (access, signal) => this.credentials.assertActive(
+        access.accessCredentialId,
+        access.surface,
+        signal,
+      ),
+      onAuthenticated: (authenticated, access) => {
+        this.credentials.register(authenticated, access);
+      },
+      onClose: (closed) => {
+        this.credentials.unregister(closed);
+        this.connections.delete(closed);
+      },
     });
     this.connections.add(connection);
     return connection;
+  }
+
+  async assertCredentialActive(
+    accessCredentialId: string,
+    accessSurface: DaemonClientAccessSurface,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.credentials.assertActive(accessCredentialId, accessSurface, signal);
   }
 
   async stop(reason = 'daemon-stopped'): Promise<void> {
@@ -131,6 +176,11 @@ export class DaemonHost {
     }
     this.stateValue = 'stopping';
     const failures: unknown[] = [];
+    try {
+      await this.credentials.stop();
+    } catch (error) {
+      failures.push(error);
+    }
     failures.push(...(await this.shutdownConnections(reason)));
     try {
       await this.listener?.stop();

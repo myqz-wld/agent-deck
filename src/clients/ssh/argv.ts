@@ -38,6 +38,13 @@ export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void 
     throw new SshTransportError('invalid_profile', 'SSH profiles require a remote topology');
   }
   if (
+    profile.accessSurface !== undefined &&
+    profile.accessSurface !== 'desktop-full' &&
+    profile.accessSurface !== 'feishu-session-console'
+  ) {
+    throw new SshTransportError('invalid_profile', 'profile.accessSurface is invalid');
+  }
+  if (
     !isBoundedSingleLine(profile.hostname, SSH_TEXT_LIMITS.hostname) ||
     !SAFE_REMOTE_COMPONENT.test(profile.hostname) ||
     profile.hostname.startsWith('-')
@@ -79,6 +86,13 @@ export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void 
     requireText(
       profile.expectedInstanceId,
       'profile.expectedInstanceId',
+      SSH_TEXT_LIMITS.instanceId,
+    );
+  }
+  if (profile.expectedAccessCredentialId !== undefined) {
+    requireText(
+      profile.expectedAccessCredentialId,
+      'profile.expectedAccessCredentialId',
       SSH_TEXT_LIMITS.instanceId,
     );
   }

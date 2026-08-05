@@ -1,0 +1,42 @@
+[Unit]
+Description=Agent Deck Feishu outbound long-connection adapter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent-deck-feishu
+Group=agent-deck-feishu
+UMask=0077
+ExecStartPre=/opt/agent-deck/libexec/agent-deck-feishu-preflight /etc/agent-deck-feishu/config.json /etc/agent-deck-feishu/core-ssh.json
+ExecStartPre=/opt/agent-deck/bin/agent-deck-feishu check-abi
+ExecStartPre=/opt/agent-deck/bin/agent-deck-feishu check-config --config /etc/agent-deck-feishu/config.json --core-ssh-config /etc/agent-deck-feishu/core-ssh.json
+ExecStart=/opt/agent-deck/bin/agent-deck-feishu serve --config /etc/agent-deck-feishu/config.json --core-ssh-config /etc/agent-deck-feishu/core-ssh.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=150
+TimeoutStopSec=60
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/agent-deck-feishu /opt/agent-deck
+ReadWritePaths=/var/lib/agent-deck-feishu
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

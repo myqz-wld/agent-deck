@@ -227,9 +227,11 @@ describe('authoritative pending actions', () => {
     const reply = transport.messages.at(-1);
     expect(reply?.cards).toHaveLength(1);
     expect(JSON.stringify(reply)).not.toContain('secret-value');
-    expect((reply?.cards[0].display.details as Record<string, unknown>).apiKey).toBe(
-      '[REDACTED]',
-    );
+    expect(reply?.cards[0].display).toMatchObject({
+      requestKind: 'permission',
+      details: { tool: 'Bash', command: 'pnpm test' },
+    });
+    expect(reply?.cards[0].display).not.toHaveProperty('details.apiKey');
 
     const action = actionFrom(reply!);
     await gateway.handle(actionEvent('approve-live', action));

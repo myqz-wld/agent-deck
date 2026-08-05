@@ -64,11 +64,15 @@ function credential(value: unknown): EnrolledFeishuCredential {
 }
 
 function context(value: unknown): FeishuChatContext {
-  exact(value, ['activeSessionId', 'chatId', 'credentialId', 'instanceId', 'openId', 'updatedAt']);
+  exact(value, [
+    'activeSessionId', 'chatId', 'chatType', 'credentialId', 'instanceId', 'openId', 'updatedAt',
+  ]);
   if (value.activeSessionId !== null) token(value.activeSessionId);
+  if (!['group', 'p2p'].includes(String(value.chatType))) fail();
   return {
     instanceId: token(value.instanceId), credentialId: token(value.credentialId),
     chatId: token(value.chatId), openId: token(value.openId),
+    chatType: value.chatType as FeishuChatContext['chatType'],
     activeSessionId: value.activeSessionId as string | null, updatedAt: integer(value.updatedAt),
   };
 }
@@ -94,7 +98,7 @@ function cursor(value: unknown): FeishuCursorRecord {
 function delivery(value: unknown): FeishuDeliveryRecord {
   exact(value, [
     'attemptDeadlineAt', 'attempts', 'chatId', 'credentialId', 'eventId', 'instanceId',
-    'phase', 'status', 'transportSafety', 'updatedAt',
+    'phase', 'status', 'transportIdempotencyExpiresAt', 'transportSafety', 'updatedAt',
   ]);
   if (
     !DELIVERY_STATUSES.has(String(value.status)) ||
@@ -107,9 +111,15 @@ function delivery(value: unknown): FeishuDeliveryRecord {
     status: value.status as FeishuDeliveryRecord['status'], attempts: integer(value.attempts, true),
     phase: value.phase as FeishuDeliveryRecord['phase'],
     transportSafety: value.transportSafety as FeishuDeliveryRecord['transportSafety'],
+    transportIdempotencyExpiresAt: value.transportIdempotencyExpiresAt === null
+      ? null
+      : integer(value.transportIdempotencyExpiresAt, true),
     attemptDeadlineAt: integer(value.attemptDeadlineAt), updatedAt: integer(value.updatedAt),
   };
   if ((valid.phase === 'transport-invoked') !== (valid.transportSafety !== null)) fail();
+  if (
+    (valid.transportSafety === 'safe') !== (valid.transportIdempotencyExpiresAt !== null)
+  ) fail();
   if (
     valid.status === 'reconciling' &&
     (valid.phase !== 'transport-invoked' || valid.transportSafety !== 'unknown')
@@ -231,7 +241,11 @@ export class ValidatedFeishuGatewayStore implements FeishuGatewayStore {
   }
 
   claimDelivery(
-    value: Omit<FeishuDeliveryRecord, 'attemptDeadlineAt' | 'attempts' | 'phase' | 'status' | 'transportSafety'>,
+    value: Omit<
+      FeishuDeliveryRecord,
+      'attemptDeadlineAt' | 'attempts' | 'phase' | 'status' |
+      'transportIdempotencyExpiresAt' | 'transportSafety'
+    >,
     maximumEventAttempts: number,
     attemptLifetimeMs?: number,
   ): DeliveryClaim {
@@ -258,8 +272,17 @@ export class ValidatedFeishuGatewayStore implements FeishuGatewayStore {
   markDeliveryPreTransport(instanceId: string, eventId: string, attempt: number, at: number) {
     return boolean(this.raw.markDeliveryPreTransport(instanceId, eventId, attempt, at));
   }
-  markDeliveryTransportInvoked(instanceId: string, eventId: string, attempt: number, safety: 'safe' | 'unknown', at: number) {
-    return boolean(this.raw.markDeliveryTransportInvoked(instanceId, eventId, attempt, safety, at));
+  markDeliveryTransportInvoked(
+    instanceId: string,
+    eventId: string,
+    attempt: number,
+    safety: 'safe' | 'unknown',
+    expiresAt: number | null,
+    at: number,
+  ) {
+    return boolean(this.raw.markDeliveryTransportInvoked(
+      instanceId, eventId, attempt, safety, expiresAt, at,
+    ));
   }
   markDeliveryNotAccepted(instanceId: string, eventId: string, attempt: number, at: number) {
     return boolean(this.raw.markDeliveryNotAccepted(instanceId, eventId, attempt, at));
@@ -292,5 +315,10 @@ export class ValidatedFeishuGatewayStore implements FeishuGatewayStore {
     const valid = cursor(value);
     if (valid.instanceId !== this.binding.instanceId) fail();
     this.raw.putCursor(valid);
+  }
+  pruneDeliveries(terminalBefore: number): number {
+    integer(terminalBefore);
+    const removed = this.raw.pruneDeliveries(terminalBefore);
+    return integer(removed);
   }
 }

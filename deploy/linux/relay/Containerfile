@@ -5,9 +5,12 @@ LABEL org.opencontainers.image.title="Agent Deck Relay" \
       io.agent-deck.topology="relay-only" \
       io.agent-deck.accepts-business-persistence="false"
 
-WORKDIR /opt/agent-deck-relay
-COPY --chown=10001:10001 build/relay/ ./
+WORKDIR /opt/agent-deck
+COPY build/linux-headless/relay/ /opt/agent-deck/linux-headless/relay/
+COPY resources/bin/agent-deck-relay /opt/agent-deck/bin/agent-deck-relay
+RUN chmod 0755 /opt/agent-deck/bin/agent-deck-relay \
+    && chmod -R go-w /opt/agent-deck
 
 USER 10001:10001
-ENTRYPOINT ["node", "/opt/agent-deck-relay/index.js"]
-CMD ["serve", "--config", "/etc/agent-deck-relay/config.json", "--state", "/var/lib/agent-deck-relay"]
+HEALTHCHECK NONE
+ENTRYPOINT ["/opt/agent-deck/bin/agent-deck-relay"]

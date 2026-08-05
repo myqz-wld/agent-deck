@@ -155,6 +155,31 @@ export const IpcInvoke = {
   PreloadFatalError: 'preload:fatal-error',
 } as const;
 
+/** Typed desktop-host surface; it is not part of the legacy IPC migration inventory. */
+export const RemoteHostIpcInvoke = {
+  Snapshot: 'remote-host:snapshot',
+  ProfileAdd: 'remote-host:profile-add',
+  ProfileUpdate: 'remote-host:profile-update',
+  ProfileRemove: 'remote-host:profile-remove',
+  ProfileSelect: 'remote-host:profile-select',
+  SourceModeSet: 'remote-host:source-mode-set',
+  Connect: 'remote-host:connect',
+  Disconnect: 'remote-host:disconnect',
+  ChooseCredential: 'remote-host:choose-credential',
+  SessionsList: 'remote-host:sessions-list',
+  SessionGet: 'remote-host:session-get',
+  ProjectsList: 'remote-host:projects-list',
+  SessionCreate: 'remote-host:session-create',
+  HistoryList: 'remote-host:history-list',
+  SessionSend: 'remote-host:session-send',
+  SessionInterrupt: 'remote-host:session-interrupt',
+  SessionSteer: 'remote-host:session-steer',
+  PendingList: 'remote-host:pending-list',
+  PendingRespond: 'remote-host:pending-respond',
+  RuntimeGet: 'remote-host:runtime-get',
+  RuntimeUpdate: 'remote-host:runtime-update',
+} as const;
+
 export const IpcEvent = {
   AgentEvent: 'event:agent',
   SessionUpserted: 'event:session-upserted',
@@ -176,6 +201,8 @@ export const IpcEvent = {
   TokenRateTick: 'event:token-rate-tick',
   /** Reports caller archive failures from archive and hand-off operations. */
   CallerArchiveFailed: 'event:caller-archive-failed',
+  /** Redacted invalidation signal; renderer refreshes typed business snapshots via invoke. */
+  RemoteHostChanged: 'event:remote-host-changed',
 
   // Agent Deck universal team backend events.
   /** team 增删改 / member 改：聚合数组 payload，16ms debounce + per-team 累加。 */

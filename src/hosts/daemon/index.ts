@@ -1,6 +1,7 @@
 export * from './connection';
 export * from './connection-handshake';
 export * from './connection-limits';
+export * from './credential-lifecycle';
 export * from './host';
 export * from './instance-paths';
 export * from './request-identifiers';

@@ -6,6 +6,7 @@ import { deriveTeamRole } from '@renderer/lib/derive-team-role';
 import { computeChildrenByOwner, isPureSpawnChain } from './session-list-tree';
 import { SessionCard } from './SessionCard';
 import { useSessionGitBranches } from '@renderer/hooks/use-session-git-branches';
+import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 
 /**
  * 会话树先按 spawn link 收编，再用 universal team backend 为未收编协作者寻找同团队的首个
@@ -68,7 +69,11 @@ function renderTreeGroup(
   return roots.flatMap((root) => renderNode(root, 0, false));
 }
 
-export function SessionList(): JSX.Element {
+export function SessionList({ remoteSource }: { remoteSource?: RemoteSessionSourceView }): JSX.Element {
+  return remoteSource ? <RemoteSessionList source={remoteSource} /> : <LocalSessionList />;
+}
+
+function LocalSessionList(): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
   const selected = useSessionStore((s) => s.selectedSessionId);
   const select = useSessionStore((s) => s.selectSession);
@@ -127,6 +132,68 @@ export function SessionList(): JSX.Element {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX.Element {
+  if (!source.usable) {
+    const title = source.state?.status === 'connecting' || source.state?.status === 'reconnecting'
+      ? '正在建立受限 SSH 连接…'
+      : '远程数据源尚未连接';
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
+        <div className="text-[12px]">{title}</div>
+        <div className="text-[10px]">在数据源设置中连接 Server Core 或 Relay；切换数据源不会停止远程 Core 或 session。</div>
+      </div>
+    );
+  }
+  if (source.loading && source.sessions.length === 0) {
+    return <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载远程会话…</div>;
+  }
+  if (source.sessions.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
+        <div className="text-[12px]">还没有远程会话</div>
+        <div className="text-[10px]">点击右上角的 +，从远程 Core 提供的项目中创建 session。</div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
+        {source.profile?.label} · {source.profile?.topology === 'relay' ? 'Relay' : 'Server Core'} · {source.sessionTotal === null ? `已载入 ${source.sessions.length}` : `${source.sessions.length}/${source.sessionTotal}`}
+      </div>
+      {source.sessions.map((session) => (
+        <button
+          key={`${source.identity}:${session.id}`}
+          type="button"
+          onClick={() => source.selectSession(session.id)}
+          className={`rounded-lg border px-3 py-2 text-left transition ${source.selectedSessionId === session.id ? 'border-white/30 bg-white/10' : 'border-deck-border bg-white/[0.02] hover:bg-white/[0.06]'}`}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${session.status === 'active' ? 'bg-status-working' : 'bg-deck-muted/50'}`} />
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{session.title ?? '未命名 session'}</span>
+            <span className="rounded bg-blue-500/15 px-1 py-0.5 text-[8px] uppercase text-blue-200">Remote</span>
+            <span className="text-[9px] text-deck-muted">{session.adapterId}</span>
+          </div>
+          <div className="mt-1 flex justify-between gap-2 text-[10px] text-deck-muted/70">
+            <span>{session.status}</span>
+            <span>{new Date(session.updatedAt).toLocaleString('zh-CN', { hour12: false })}</span>
+          </div>
+        </button>
+      ))}
+      {source.hasMoreSessions && (
+        <button
+          type="button"
+          disabled={source.busy}
+          onClick={() => void source.loadMoreSessions()}
+          className="rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
+        >
+          加载更多远程会话
+        </button>
+      )}
+      {source.error && <div role="alert" className="rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200">{source.error}</div>}
     </div>
   );
 }

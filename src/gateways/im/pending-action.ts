@@ -1,6 +1,6 @@
 import { assertFeishuMethod } from './client-pool';
 import type { FeishuCallbackAttempt } from './callback-attempt';
-import { coreRevision, validatePendingRequests } from './core-output';
+import { validatePendingListResult, validatePendingRespondResult } from './core-output';
 import { FeishuGatewayError } from './errors';
 import { pendingContentDigest } from './pending-binding';
 import { validatePendingActionSemantics } from './pending-semantics';
@@ -34,6 +34,7 @@ export async function executePendingCardAction(
     instanceId: action.instanceId,
     credentialId: action.credentialId,
     chatId: action.chatId,
+    chatType: action.chatType,
     sessionId: action.sessionId,
     requestId: action.requestId,
     revision: action.revision,
@@ -49,9 +50,9 @@ export async function executePendingCardAction(
     { sessionId: action.sessionId },
     { deadlineMs: callback.remainingMs() },
   );
-  const revision = coreRevision(current.revision);
-  const requests = validatePendingRequests(current.requests, action.sessionId, limits);
-  const pending = requests.find((request) => request.id === action.requestId);
+  const currentResult = validatePendingListResult(current, action.sessionId, limits);
+  const revision = currentResult.revision;
+  const pending = currentResult.requests.find((request) => request.id === action.requestId);
   if (!pending || pending.status !== 'pending') {
     throw new FeishuGatewayError(
       'already_decided',
@@ -62,7 +63,7 @@ export async function executePendingCardAction(
   }
   if (
     action.revision !== revision ||
-    pendingContentDigest(pending, revision) !== action.contentDigest
+    pendingContentDigest(pending, revision, action.chatType) !== action.contentDigest
   ) {
     throw new FeishuGatewayError(
       'pending_context_changed',
@@ -72,7 +73,7 @@ export async function executePendingCardAction(
   validatePendingActionSemantics(pending, action.action, action.value);
   assertFeishuMethod(connected.hello, 'pending.respond');
   await beforeMutation();
-  const result = await connected.client.request(
+  const raw = await connected.client.request(
     'pending.respond',
     {
       sessionId: action.sessionId,
@@ -86,12 +87,10 @@ export async function executePendingCardAction(
       deadlineMs: callback.remainingMs(),
     },
   );
-  if (!['cancelled', 'denied', 'expired', 'resolved', 'stale'].includes(result.status)) {
-    throw new FeishuGatewayError('invalid_core_response', 'Pending response status is malformed');
-  }
+  const result = validatePendingRespondResult(raw, limits);
   return {
     text: `请求已更新为 ${result.status}`,
-    revision: coreRevision(result.revision),
+    revision: result.revision,
     cards: [],
   };
 }

@@ -49,6 +49,15 @@ export function assertRelayMetadataRelations<K extends RelayMetadataTable>(
   if (table === 'routes') {
     const route = row as RelayMetadataRows['routes'];
     requireCredential(route.accessCredentialId, route.instanceId, ['ssh-client', 'feishu'], lookup);
+    const accessCredential = lookup('credentials', route.accessCredentialId) as
+      | CredentialMetadata
+      | null;
+    const expectedKind = route.accessSurface === 'desktop-full' ? 'ssh-client' : 'feishu';
+    if (accessCredential?.kind !== expectedKind) {
+      throw new RelayMetadataError(
+        `Credential surface does not match route: ${route.routeId}`,
+      );
+    }
     const registration = lookup('workerRegistrations', route.instanceId) as
       | RelayMetadataRows['workerRegistrations']
       | null;

@@ -154,6 +154,24 @@ export class FeishuClientPool {
     }
   }
 
+  getForGeneration(
+    credential: EnrolledFeishuCredential,
+    chatId: string,
+    epoch: number,
+  ): Promise<ConnectedFeishuClient> {
+    const entry = this.entries.get(this.key(credential, chatId));
+    if (
+      !entry || entry.epoch !== epoch || entry.terminal || entry.retirement || !this.isCurrent(entry)
+    ) {
+      throw new FeishuGatewayError(
+        'gateway_closed',
+        'Notification client generation is retired',
+        true,
+      );
+    }
+    return entry.connection;
+  }
+
   private async connect(entry: PoolEntry): Promise<ConnectedFeishuClient> {
     const { credential, chatId } = entry;
     const clientId = feishuClientId(credential, chatId);
@@ -193,6 +211,9 @@ export class FeishuClientPool {
           revision: helloRevision,
           updatedAt: this.now(),
         });
+        await client.close();
+        this.assertCurrent(entry);
+        return this.connect(entry);
       }
       this.assertCurrent(entry);
       if (!this.prepareStream(credential, chatId, entry.epoch)) {

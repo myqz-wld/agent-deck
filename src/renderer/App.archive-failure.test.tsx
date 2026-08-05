@@ -88,6 +88,14 @@ beforeEach(() => {
         mocks.archiveListener = listener;
         return off;
       }),
+      getRemoteHostSnapshot: vi.fn(async () => ({
+        revision: 1,
+        sourceMode: 'local',
+        selectedRemoteProfileId: null,
+        profiles: [],
+        states: [],
+      })),
+      onRemoteHostChanged: vi.fn(() => off),
       archiveSession: mocks.archiveSession,
     } as unknown as Window['api'],
   });

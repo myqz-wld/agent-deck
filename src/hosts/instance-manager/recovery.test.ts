@@ -5,11 +5,25 @@ import { loadInstance } from './instance-reader';
 import { newJournal, writeJournal } from './journal';
 import { generationPaths, resolveInstancePaths } from './paths';
 import { decodeRecord, sha256 } from './serialization';
-import { createHarness, DIGEST_A, DIGEST_B, seedEvidence } from './test-fixtures';
+import {
+  createHarness,
+  DIGEST_A,
+  DIGEST_B,
+  FULL_RESOURCES,
+  seedEvidence,
+} from './test-fixtures';
 import type { InstanceRecord } from './types';
 import { stageVersion } from './version-artifacts';
 
 const relayRequest = { topology: 'relay' as const, instanceId: 'tenant-a', version: 'v1', image: DIGEST_A, runtimeConfig: {} };
+const fullRequest = {
+  topology: 'full' as const,
+  instanceId: 'tenant-a',
+  version: 'v1',
+  image: DIGEST_A,
+  runtimeConfig: { revision: 1 },
+  fullResources: FULL_RESOURCES,
+};
 
 function createTargetRecord(paths: ReturnType<typeof resolveInstancePaths>, unitSha256: string, configSha256: string): InstanceRecord {
   const generation = generationPaths(paths, 'v1');
@@ -123,6 +137,34 @@ describe('durable operation recovery', () => {
     expect(harness.fileSystem.exists(paths.journalPath)).toBe(true);
     harness.systemd.statusFragmentOverride = null;
     await expect(harness.manager.create(relayRequest)).rejects.toMatchObject({ code: 'already_exists' });
+    expect(harness.fileSystem.exists(paths.journalPath)).toBe(false);
+  });
+
+  it('preserves a Full create journal until the consumed state-volume config matches', async () => {
+    const harness = createHarness();
+    await harness.manager.create(fullRequest);
+    const paths = resolveInstancePaths(harness.options.roots, 'full', 'tenant-a');
+    const record = decodeRecord(await harness.fileSystem.readFile(paths.recordPath, 128_000));
+    const current = record.versions[0];
+    const dataPath = harness.podman.volumeDataPaths.get('agent-deck-tenant-a-state');
+    if (!dataPath) throw new Error('missing Full state volume data path');
+    const mirrorPath = `${dataPath}/config/agent-deck/instances/tenant-a/config.json`;
+    const expectedConfig = harness.fileSystem.readText(current.configBackupPath);
+    await writeJournal(harness.options, paths, newJournal({
+      operationId: 'crash-full-record', operation: 'create', topology: 'full', instanceId: 'tenant-a',
+      expectedGeneration: 0, expectedVersion: null, phase: 'record_committed',
+      target: { version: current.version, image: current.image, unitSha256: current.unitSha256, configSha256: current.configSha256, record },
+      previousRecord: null, createdPaths: [], createdVolumes: [], removal: null,
+    }), null);
+    harness.fileSystem.mutateFile(mirrorPath, '{"revision":"tampered"}\n');
+    await expect(harness.manager.create(fullRequest)).rejects.toMatchObject({
+      code: 'tampered',
+    });
+    expect(harness.fileSystem.exists(paths.journalPath)).toBe(true);
+    harness.fileSystem.mutateFile(mirrorPath, expectedConfig);
+    await expect(harness.manager.create(fullRequest)).rejects.toMatchObject({
+      code: 'already_exists',
+    });
     expect(harness.fileSystem.exists(paths.journalPath)).toBe(false);
   });
 

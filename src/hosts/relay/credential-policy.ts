@@ -9,6 +9,7 @@ interface ActiveWorkerStatus {
 interface ClientCredentialRegistration {
   clientId: string;
   credentialId: string;
+  surface: 'desktop-full' | 'feishu-session-console';
 }
 
 export class RelayCredentialPolicy {
@@ -39,6 +40,16 @@ export class RelayCredentialPolicy {
     return this.active(credentialId, ['ssh-client', 'feishu']);
   }
 
+  activeClientSurface(
+    credentialId: string,
+    surface: 'desktop-full' | 'feishu-session-console',
+  ): boolean {
+    return this.active(
+      credentialId,
+      [surface === 'desktop-full' ? 'ssh-client' : 'feishu'],
+    );
+  }
+
   targetsWorker(
     status: ActiveWorkerStatus,
     connectionId: string | null,
@@ -55,7 +66,9 @@ export class RelayCredentialPolicy {
     disconnect: (clientId: string) => void,
   ): void {
     for (const client of clients) {
-      if (!this.activeClient(client.credentialId)) disconnect(client.clientId);
+      if (!this.activeClientSurface(client.credentialId, client.surface)) {
+        disconnect(client.clientId);
+      }
     }
   }
 

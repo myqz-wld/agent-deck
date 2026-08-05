@@ -9,6 +9,14 @@ import type {
   NotificationEvent,
 } from './types';
 
+export function transportIdempotencyWindow(transport: FeishuTransportPort): number | null {
+  const value = transport.deliveryIdempotencyWindowMs;
+  return transport.deliverySemantics === 'event-id-idempotent' &&
+    Number.isSafeInteger(value) && (value as number) > 0
+    ? value as number
+    : null;
+}
+
 export class FeishuDeliveryService {
   constructor(
     private readonly transport: FeishuTransportPort,
@@ -22,7 +30,7 @@ export class FeishuDeliveryService {
     hooks: {
       beforeDeliver(): Promise<void>;
       beforeTransport(): Promise<void>;
-      onDefinitelyNotAccepted(): Promise<void>;
+      onDefinitelyNotAccepted(): Promise<boolean>;
     },
   ): Promise<void> {
     const bounded = boundFeishuOutboundMessage(message, this.maximumBytes);
@@ -39,12 +47,11 @@ export class FeishuDeliveryService {
         return;
       } catch (error) {
         if (error instanceof FeishuTransportNotAcceptedError) {
-          await hooks.onDefinitelyNotAccepted();
-          callback.markDefinitelyNotAccepted();
+          if (await hooks.onDefinitelyNotAccepted()) callback.markDefinitelyNotAccepted();
         }
         callback.remainingMs();
         const safeToRetry =
-          this.transport.deliverySemantics === 'event-id-idempotent' ||
+          transportIdempotencyWindow(this.transport) !== null ||
           error instanceof FeishuTransportNotAcceptedError;
         if (!safeToRetry) {
           callback.markAmbiguousTransportOutcome();
@@ -77,7 +84,7 @@ export class FeishuNotificationLane {
   constructor(
     private readonly chatId: string,
     private readonly maximumQueued: number,
-    private readonly consume: (event: NotificationEvent) => Promise<void>,
+    private readonly consume: (epoch: number, event: NotificationEvent) => Promise<void>,
     private readonly observer: FeishuGatewayObserver | undefined,
     private readonly onStreamFailure: (epoch: number) => void,
   ) {}
@@ -126,11 +133,13 @@ export class FeishuNotificationLane {
         const item = this.queued.shift() as { epoch: number; event: NotificationEvent };
         if (this.state !== 'open' || item.epoch !== this.epoch) break;
         try {
-          await this.consume(item.event);
-        } catch {
+          await this.consume(item.epoch, item.event);
+        } catch (error) {
           this.fence(item.epoch);
           this.notifyError();
-          this.onStreamFailure(item.epoch);
+          if (!(error instanceof FeishuGatewayError && error.code === 'event_in_progress')) {
+            this.onStreamFailure(item.epoch);
+          }
           break;
         }
       }

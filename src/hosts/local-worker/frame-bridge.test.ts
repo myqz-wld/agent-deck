@@ -32,6 +32,8 @@ function inbound(
     payload: options.payload ?? emptyRoutePayload(),
     creditBytes: options.creditBytes ?? null,
     resetCode: options.resetCode ?? null,
+    accessCredentialId: kind === 'open' ? 'client-credential-a' : null,
+    accessSurface: kind === 'open' ? 'desktop-full' : null,
   };
 }
 
@@ -39,6 +41,7 @@ describe('local Worker generic Core frame bridge', () => {
   it('bridges opaque Core frames and returns byte credit after consumption', () => {
     const emitted: RelayRouteFrame[] = [];
     const writes: Uint8Array[] = [];
+    const accesses: unknown[] = [];
     const output: { current: CoreFrameOutput | null } = { current: null };
     const channel: CoreFrameChannel = {
       write(payload) {
@@ -53,8 +56,9 @@ describe('local Worker generic Core frame bridge', () => {
       'instance-a',
       3,
       {
-        open(_streamId, nextOutput) {
+        open(_streamId, nextOutput, access) {
           output.current = nextOutput;
+          accesses.push(access);
           return channel;
         },
       },
@@ -68,6 +72,10 @@ describe('local Worker generic Core frame bridge', () => {
     expect(writes.map((payload) => new TextDecoder().decode(payload))).toEqual([
       'ordinary-core-frame',
     ]);
+    expect(accesses).toEqual([{
+      accessCredentialId: 'client-credential-a',
+      surface: 'desktop-full',
+    }]);
     expect(emitted).toEqual([
       expect.objectContaining({ kind: 'data', sequence: 0 }),
       expect.objectContaining({

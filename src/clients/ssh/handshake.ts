@@ -48,16 +48,24 @@ export function validateSshHostHello(
   );
   assertBoundedSingleLine(hello.access.clientId, 'hello.access.clientId', SSH_TEXT_LIMITS.clientId);
   if (hello.topology !== profile.topology) throw new Error('Host topology mismatch');
+  const expectedSurface = profile.accessSurface ?? 'desktop-full';
+  const expectedTransport = expectedSurface === 'desktop-full' ? 'ssh' : 'feishu';
   if (
     hello.access.kind !== 'authenticated-client' ||
-    hello.access.transport !== 'ssh' ||
-    hello.access.surface !== 'desktop-full' ||
+    hello.access.transport !== expectedTransport ||
+    hello.access.surface !== expectedSurface ||
     hello.access.clientId !== client.clientId
   ) {
-    throw new Error('Host did not bind the requested SSH desktop identity');
+    throw new Error('Host did not bind the requested SSH client identity');
   }
   if (profile.expectedInstanceId && hello.instanceId !== profile.expectedInstanceId) {
     throw new Error(`Expected instance ${profile.expectedInstanceId}`);
+  }
+  if (
+    profile.expectedAccessCredentialId &&
+    hello.access.accessCredentialId !== profile.expectedAccessCredentialId
+  ) {
+    throw new Error('Host access credential does not match the pinned SSH identity');
   }
   if (hello.eventRevision < eventCursor) {
     throw new SshTransportError('replay_gap', 'Host event revision is behind the client cursor');

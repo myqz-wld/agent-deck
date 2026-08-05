@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "instanceId": "instance-a",
+  "appVersion": "0.1.0",
+  "runtimeModule": "/opt/agent-deck/runtime/local-worker-runtime.mjs",
+  "runtimeOptions": {},
+  "generationFile": "/var/lib/agent-deck/worker/instance-a/generation.json",
+  "ssh": {
+    "sshBinary": "/usr/bin/ssh",
+    "host": "relay.example.com",
+    "port": 22,
+    "user": "agent_deck",
+    "identityFile": "/etc/agent-deck-worker/instance-a/id_ed25519",
+    "knownHostsFile": "/etc/agent-deck-worker/instance-a/known_hosts",
+    "instanceId": "instance-a",
+    "workerId": "worker-a",
+    "credentialId": "worker-credential-a",
+    "connectTimeoutSeconds": 15
+  }
+}

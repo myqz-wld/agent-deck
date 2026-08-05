@@ -2,7 +2,7 @@ import { classifyFeishuOperation, parseFeishuCommand } from './commands';
 import { FeishuClientPool } from './client-pool';
 import { FeishuCallbackAttempt } from './callback-attempt';
 import { FeishuCommandExecutor } from './command-executor';
-import { FeishuDeliveryService } from './delivery';
+import { FeishuDeliveryService, transportIdempotencyWindow } from './delivery';
 import { deliveryLedgerHooks, finishDeliveryOrFence, markPreTransport } from './delivery-ledger';
 import {
   classifyGatewayError,
@@ -15,7 +15,6 @@ import { truncateUtf8 } from './redaction';
 import type {
   ConnectedFeishuClient,
   EnrolledFeishuCredential,
-  FeishuAuditRecord,
   FeishuCallbackResult,
   FeishuGatewayClock,
   FeishuGatewayLimits,
@@ -28,7 +27,11 @@ import type {
   NotificationEvent,
   SessionConsoleView,
 } from './types';
-import { DEFAULT_FEISHU_CALLBACK_WINDOW_MS, DEFAULT_PENDING_PRESENTATION_LIFETIME_MS } from './types';
+import {
+  DEFAULT_FEISHU_CALLBACK_WINDOW_MS,
+  DEFAULT_PENDING_PRESENTATION_LIFETIME_MS,
+  MAX_FEISHU_CALLBACK_WINDOW_MS,
+} from './types';
 import { isActiveCredentialForEvent, parseFeishuInboundEvent } from './validation';
 import {
   assertStoreBoundToGateway,
@@ -39,6 +42,7 @@ import {
 import { FeishuGatewayLifecycle } from './gateway-lifecycle';
 import { ValidatedFeishuGatewayStore } from './validated-store';
 import { FeishuNotificationLanes } from './notification-lanes';
+import { FeishuGatewayObservability } from './gateway-observability';
 import {
   DEFAULT_GATEWAY_CLOCK,
   requireSafeDuration,
@@ -58,13 +62,15 @@ export class FeishuSessionConsoleGateway {
   private readonly lanes: FeishuNotificationLanes;
   private readonly binding: FeishuGatewayBinding;
   private readonly store: FeishuGatewayStore;
+  private readonly observability: FeishuGatewayObservability;
+  private readonly transportWindow: number | null;
   private closePromise: Promise<void> | null = null;
 
   constructor(private readonly options: FeishuGatewayOptions) {
     this.callbackWindowMs = requireSafeDuration(
       options.callbackWindowMs ?? DEFAULT_FEISHU_CALLBACK_WINDOW_MS,
       'callbackWindowMs',
-      3_000,
+      MAX_FEISHU_CALLBACK_WINDOW_MS,
     );
     if (this.callbackWindowMs === 0) {
       throw new FeishuGatewayError('invalid_configuration', 'callbackWindowMs must be positive');
@@ -75,6 +81,12 @@ export class FeishuSessionConsoleGateway {
     );
     this.limits = resolveGatewayLimits(options.limits);
     this.clock = options.clock ?? DEFAULT_GATEWAY_CLOCK;
+    this.observability = new FeishuGatewayObservability(
+      options.audit,
+      options.observer,
+      () => this.clock.now(),
+    );
+    this.transportWindow = transportIdempotencyWindow(options.transport);
     this.delivery = new FeishuDeliveryService(
       options.transport,
       this.limits.maxTransportAttemptsPerCallback,
@@ -88,11 +100,12 @@ export class FeishuSessionConsoleGateway {
       this.limits.maxNotificationLanes,
       this.limits.maxQueuedNotificationsPerChat,
       () => this.lifecycle.isOpen(),
-      (credential, chatId, event) => this.deliverNotification(credential, chatId, event),
+      (credential, chatId, epoch, event) =>
+        this.deliverNotification(credential, chatId, epoch, event),
       this.options.observer,
       (credential, chatId, epoch) => {
         void this.pool.retireGeneration(credential, chatId, epoch).catch(() => {
-          this.observeError('lifecycle_failed', 'notification-resync-retire', true);
+          this.observability.error('lifecycle_failed', 'notification-resync-retire', true);
         });
       },
     );
@@ -106,7 +119,7 @@ export class FeishuSessionConsoleGateway {
       (credential, chatId, epoch) => this.lanes.activate(credential, chatId, epoch),
       (credential, chatId, epoch) => this.lanes.start(credential, chatId, epoch),
       (credential, chatId, epoch, event) => this.lanes.push(credential, chatId, epoch, event),
-      (code, operation) => this.observeError(code, operation, true),
+      (code, operation) => this.observability.error(code, operation, true),
       (credential, chatId, epoch) => this.lanes.retire(credential, chatId, epoch),
     );
     this.commandExecutor = new FeishuCommandExecutor({
@@ -125,6 +138,7 @@ export class FeishuSessionConsoleGateway {
 
   private async startOpen(): Promise<void> {
     assertStoreBoundToGateway(this.store, this.binding);
+    this.store.pruneDeliveries(Math.max(0, this.clock.now() - this.limits.deliveryRetentionMs));
     const contexts = this.store.listContexts();
     const chatCount = new Set(
       contexts.map((context) => `${context.credentialId}\u001f${context.chatId}`),
@@ -158,7 +172,7 @@ export class FeishuSessionConsoleGateway {
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map((result) => result.reason);
     if (failures.length > 0) {
-      this.observeError('lifecycle_failed', 'start', true);
+      this.observability.error('lifecycle_failed', 'start', true);
       throw new FeishuGatewayLifecycleError(failures, 'start');
     }
   }
@@ -195,7 +209,7 @@ export class FeishuSessionConsoleGateway {
       !credentialMatchesBinding(credential, this.binding) ||
       !isActiveCredentialForEvent(credential, event)
     ) {
-      this.audit({
+      this.observability.audit({
         at: this.clock.now(),
         eventId: event.eventId,
         instanceId: credential?.instanceId ?? null,
@@ -247,7 +261,9 @@ export class FeishuSessionConsoleGateway {
     }
     if (claim.state === 'exhausted') return this.ack(false, 'delivery_exhausted');
     this.store.getCursor(credential.instanceId, credential.credentialId, event.chatId);
-    const context = this.ensureContext(credential, event.chatId, event.openId, now);
+    const context = this.ensureContext(
+      credential, event.chatId, event.chatType, event.openId, now,
+    );
 
     const callback = new FeishuCallbackAttempt(
       claim.record.attempts,
@@ -286,7 +302,8 @@ export class FeishuSessionConsoleGateway {
             event.eventId,
             callback,
             () => this.clock.now(),
-            this.transportSafety(),
+            this.transportWindow === null ? 'unknown' : 'safe',
+            this.transportWindow,
             () => this.assertActiveCredential(credential, event.chatId),
           ),
         );
@@ -300,13 +317,13 @@ export class FeishuSessionConsoleGateway {
         event.eventId,
         callback,
         classified.retryable
-          ? callback.hasAmbiguousTransportOutcome() && this.transportSafety() === 'unknown'
+          ? callback.hasAmbiguousTransportOutcome() && this.transportWindow === null
             ? 'reconciling'
             : 'failed'
           : 'sent',
         this.clock.now(),
       );
-      this.auditResult(
+      this.observability.result(
         event,
         credential,
         operation,
@@ -315,7 +332,7 @@ export class FeishuSessionConsoleGateway {
         classified.currentRevision ?? null,
       );
       if (classified.retryable) {
-        this.observeError(classified.code, operation, true);
+        this.observability.error(classified.code, operation, true);
         throw new FeishuGatewayError(
           classified.code,
           classified.message,
@@ -333,13 +350,16 @@ export class FeishuSessionConsoleGateway {
       'sent',
       this.clock.now(),
     );
-    this.auditResult(event, credential, operation, 'accepted', 'accepted', view.revision);
+    this.observability.result(
+      event, credential, operation, 'accepted', 'accepted', view.revision,
+    );
     return this.ack(false, 'accepted');
   }
 
   private ensureContext(
     credential: EnrolledFeishuCredential,
     chatId: string,
+    chatType: 'group' | 'p2p',
     openId: string,
     updatedAt: number,
   ) {
@@ -351,11 +371,19 @@ export class FeishuSessionConsoleGateway {
     if (existing && existing.openId !== openId) {
       throw new FeishuGatewayError('access_denied', 'Chat is bound to another stable open-id');
     }
-    if (existing) return existing;
+    if (existing) {
+      if (existing.chatType !== chatType) {
+        const updated = { ...existing, chatType, updatedAt };
+        this.store.putContext(updated);
+        return updated;
+      }
+      return existing;
+    }
     const created = {
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId,
+      chatType,
       openId,
       activeSessionId: null,
       updatedAt,
@@ -385,6 +413,7 @@ export class FeishuSessionConsoleGateway {
   private async deliverNotification(
     credential: EnrolledFeishuCredential,
     chatId: string,
+    epoch: number,
     event: NotificationEvent,
   ): Promise<void> {
     return deliverCoreNotification(
@@ -397,10 +426,14 @@ export class FeishuSessionConsoleGateway {
         clock: this.clock,
         callbackWindowMs: this.callbackWindowMs,
         pendingPresentationLifetimeMs: this.pendingPresentationLifetimeMs,
+        epoch,
         withinWindow: (callback, work) => this.withPlatformWindow(callback, work),
         beforeDeliver: (currentCredential, currentChatId) =>
           this.assertActiveCredential(currentCredential, currentChatId),
-        transportSafety: this.transportSafety(),
+        transportSafety: this.transportWindow === null ? 'unknown' : 'safe',
+        transportIdempotencyWindowMs: this.transportWindow,
+        onTerminalExhausted: (current, currentChatId, eventId, currentEvent) =>
+          this.observability.notificationExhausted(current, currentChatId, eventId, currentEvent),
       },
       credential,
       chatId,
@@ -430,15 +463,9 @@ export class FeishuSessionConsoleGateway {
     }
     const retirement = this.pool.retire(credential, chatId);
     void retirement.catch(() => {
-      this.observeError('lifecycle_failed', 'credential-revocation-retire', true);
+      this.observability.error('lifecycle_failed', 'credential-revocation-retire', true);
     });
     throw new FeishuGatewayError('revoked', 'Feishu credential is no longer active');
-  }
-
-  private transportSafety(): 'safe' | 'unknown' {
-    return this.options.transport.deliverySemantics === 'event-id-idempotent'
-      ? 'safe'
-      : 'unknown';
   }
 
   private outbound(
@@ -466,30 +493,4 @@ export class FeishuSessionConsoleGateway {
     };
   }
 
-  private auditResult(
-    event: FeishuInboundEvent,
-    credential: EnrolledFeishuCredential,
-    operation: string,
-    outcome: FeishuAuditRecord['outcome'],
-    code: string,
-    revision: number | null,
-  ): void {
-    this.audit({ at: this.clock.now(), eventId: event.eventId, instanceId: credential.instanceId, credentialId: credential.credentialId, chatId: event.chatId, operation, outcome, code, revision });
-  }
-
-  private audit(record: FeishuAuditRecord): void {
-    try {
-      this.options.audit?.record(record);
-    } catch {
-      this.observeError('audit_exception', 'audit', false);
-    }
-  }
-
-  private observeError(code: string, operation: string, retryable: boolean): void {
-    try {
-      this.options.observer?.onError({ code, operation, retryable });
-    } catch {
-      // Observer failures never affect provider execution or another chat.
-    }
-  }
 }

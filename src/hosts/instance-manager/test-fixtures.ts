@@ -74,9 +74,22 @@ export class FakeCommands implements CommandPort {
 export class FakePodman implements PodmanPort {
   readonly images = new Set<string>();
   readonly volumes = new Map<string, PodmanVolumeInspection>();
+  readonly volumeDataPaths = new Map<string, string>();
   readonly containers = new Map<string, PodmanContainerInspection>();
   nextVolume = 1;
   unhealthyImages = new Set<string>();
+  readonly containerInspectionSequences = new Map<
+    string,
+    (PodmanContainerInspection | null)[]
+  >();
+  resolveVolumeDataPathCalls = 0;
+  afterResolveVolumeDataPath: ((
+    volume: PodmanVolumeInspection,
+    path: string,
+    call: number,
+  ) => void) | null = null;
+
+  constructor(private readonly fileSystem?: FakeFileSystem) {}
 
   async inspectImage(reference: string): Promise<PodmanImageInspection | null> {
     if (!this.images.has(reference)) return null;
@@ -94,15 +107,42 @@ export class FakePodman implements PodmanPort {
     if (this.volumes.has(name)) throw new Error('volume exists');
     const volume = { name, identity: `volume-${this.nextVolume++}`, labels: { ...labels } };
     this.volumes.set(name, volume);
+    const dataPath = `/srv/rootless-volumes/${name}/_data`;
+    this.volumeDataPaths.set(name, dataPath);
+    this.fileSystem?.seedDirectoryChain(dataPath, 0o700, 1001);
     return volume;
+  }
+
+  async resolveVolumeDataPathExact(volume: PodmanVolumeInspection): Promise<string> {
+    if (this.volumes.get(volume.name)?.identity !== volume.identity) {
+      throw new Error('volume identity');
+    }
+    const path = this.volumeDataPaths.get(volume.name);
+    if (!path) throw new Error('volume data path');
+    this.resolveVolumeDataPathCalls += 1;
+    this.afterResolveVolumeDataPath?.(
+      volume,
+      path,
+      this.resolveVolumeDataPathCalls,
+    );
+    return path;
   }
 
   async removeVolumeExact(volume: PodmanVolumeInspection): Promise<void> {
     if (this.volumes.get(volume.name)?.identity !== volume.identity) throw new Error('volume identity');
     this.volumes.delete(volume.name);
+    const dataPath = this.volumeDataPaths.get(volume.name);
+    this.volumeDataPaths.delete(volume.name);
+    if (dataPath && this.fileSystem?.exists(dataPath)) {
+      await this.fileSystem.removeTreeExact(
+        await this.fileSystem.captureTreeExact(dataPath, 10_000),
+      );
+    }
   }
 
   async inspectContainer(name: string): Promise<PodmanContainerInspection | null> {
+    const sequence = this.containerInspectionSequences.get(name);
+    if (sequence?.length) return sequence.shift() ?? null;
     return this.containers.get(name) ?? null;
   }
 }
@@ -250,6 +290,7 @@ export function createHarness(): {
   readonly systemd: FakeSystemd;
   readonly leases: FakeHostLeases;
   readonly setNow: (value: number) => void;
+  readonly healthSleeps: number[];
 } {
   let now = 10_000;
   const fileSystem = new FakeFileSystem(() => now);
@@ -284,12 +325,13 @@ export function createHarness(): {
   fileSystem.seedFile(roots.relayTemplatePath, RELAY_TEMPLATE, { mode: 0o444, uid: 0 });
   fileSystem.seedFile(roots.relayPreflightPath, '#!/bin/sh\n', { mode: 0o555, uid: 0 });
   const commands = new FakeCommands(fileSystem);
-  const podman = new FakePodman();
+  const podman = new FakePodman(fileSystem);
   podman.images.add(DIGEST_A);
   podman.images.add(DIGEST_B);
   const systemd = new FakeSystemd(fileSystem, roots.unitRoot, podman);
   let nextId = 1;
   const leases = new FakeHostLeases();
+  const healthSleeps: number[] = [];
   const options: InstanceManagerOptions = {
     roots,
     ports: {
@@ -297,7 +339,13 @@ export function createHarness(): {
       commands,
       podman,
       systemd,
-      clock: { nowMs: () => now },
+      clock: {
+        nowMs: () => now,
+        sleep: async (ms: number) => {
+          healthSleeps.push(ms);
+          now += ms;
+        },
+      },
       ids: { nextId: () => `operation-${nextId++}` },
       leases,
     },
@@ -321,6 +369,7 @@ export function createHarness(): {
     podman,
     systemd,
     leases,
+    healthSleeps,
     setNow: (value) => {
       now = value;
     },

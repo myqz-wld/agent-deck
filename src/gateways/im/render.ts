@@ -1,5 +1,4 @@
 import type {
-  JsonObject,
   PendingRequestDto,
   ProjectReferenceDto,
   SessionHistoryEntryDto,
@@ -23,6 +22,8 @@ export interface RenderContext {
   sessionId: string;
   nonce: PendingActionNoncePort;
   pendingPresentationLifetimeMs: number;
+  chatType: 'group' | 'p2p';
+  now(): number;
   maxOutputBytes: number;
   maxPendingCards: number;
 }
@@ -57,7 +58,8 @@ function pendingCard(
     sessionId,
     requestId,
     revision,
-    contentDigest: pendingContentDigest(request, revision),
+    chatType: context.chatType,
+    contentDigest: pendingContentDigest(request, revision, context.chatType),
   };
   const actions = request.kind === 'permission'
     ? (['approve', 'deny'] as const)
@@ -71,7 +73,7 @@ function pendingCard(
     reject: '拒绝',
     submit: '提交',
   } as const;
-  const buttons = request.status === 'pending'
+  const buttons = request.status === 'pending' && context.chatType === 'p2p'
     ? actions.map((action) => ({
         label: labels[action],
         action: {
@@ -92,9 +94,10 @@ function pendingCard(
     sessionId,
     state: request.status,
     createdAt: request.createdAt,
+    presentedAt: context.now(),
     expiresAt: request.expiresAt,
     presentationLifetimeMs: context.pendingPresentationLifetimeMs,
-    display: pendingSecurityDisplay(request),
+    display: pendingSecurityDisplay(request, context.chatType),
     buttons,
   };
 }
@@ -143,7 +146,14 @@ export function renderHistory(
   nextCursor: string | null,
   maximumBytes: number,
   revision: number,
+  chatType: 'group' | 'p2p' = 'p2p',
 ): SessionConsoleView {
+  if (chatType === 'group') {
+    return {
+      text: '群聊中已隐藏 history 内容。请使用完整客户端查看。',
+      revision,
+    };
+  }
   const lines = entries.map(
     (entry) => `${entry.sequence} ${entry.role}: ${boundedJsonText(entry.content, 1_024)}`,
   );
@@ -168,7 +178,10 @@ export function renderPending(
       pendingCount === 0 ? '当前没有仍在 pending 的请求。' : `当前有 ${pendingCount} 个 pending 请求。`,
       context.maxOutputBytes,
     ),
-    pending: bounded.map((request) => ({ ...request, display: redactJson(request.display) as JsonObject })),
+    pending: bounded.map((request) => ({
+      ...request,
+      display: pendingSecurityDisplay(request, context.chatType),
+    })),
     cards,
     revision,
   };
@@ -177,7 +190,14 @@ export function renderPending(
 export function renderRuntime(
   controls: SessionRuntimeControlsDto,
   maximumBytes: number,
+  chatType: 'group' | 'p2p' = 'p2p',
 ): SessionConsoleView {
+  if (chatType === 'group') {
+    return {
+      text: '群聊中已隐藏 runtime 值。请使用完整客户端查看。',
+      revision: controls.revision,
+    };
+  }
   return {
     text: truncateUtf8(
       `${controls.adapterId} runtime controls (revision ${controls.revision})\n${boundedJsonText(controls.values, maximumBytes)}`,

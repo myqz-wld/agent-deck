@@ -30,23 +30,36 @@ export function deliveryLedgerHooks(
   callback: FeishuCallbackAttempt,
   now: () => number,
   transportSafety: 'safe' | 'unknown',
+  transportIdempotencyWindowMs: number | null,
   beforeDeliver: () => Promise<void>,
 ) {
+  let transportInFlight = false;
+  let priorAmbiguity = false;
   return {
     beforeDeliver,
     beforeTransport: async () => {
+      if (transportInFlight) priorAmbiguity = true;
+      const invokedAt = now();
+      const expiresAt = transportSafety === 'safe' && transportIdempotencyWindowMs !== null
+        ? Math.min(Number.MAX_SAFE_INTEGER, invokedAt + transportIdempotencyWindowMs)
+        : null;
       if (!store.markDeliveryTransportInvoked(
         instanceId,
         eventId,
         callback.attempt,
         transportSafety,
-        now(),
+        expiresAt,
+        invokedAt,
       )) lost(callback);
+      transportInFlight = true;
     },
     onDefinitelyNotAccepted: async () => {
+      transportInFlight = false;
+      if (priorAmbiguity) return false;
       if (!store.markDeliveryNotAccepted(instanceId, eventId, callback.attempt, now())) {
         lost(callback);
       }
+      return true;
     },
   };
 }

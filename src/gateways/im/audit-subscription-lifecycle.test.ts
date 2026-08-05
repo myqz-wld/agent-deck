@@ -133,7 +133,7 @@ describe('subscription and lifecycle failure surfaces', () => {
         retryable: true,
       });
     }
-    expect(created).toHaveLength(2);
+    expect(created).toHaveLength(3);
     expect(created.every((client) => client.closed)).toBe(true);
     expect(created.every((client) => client.calls.length === 0)).toBe(true);
   });

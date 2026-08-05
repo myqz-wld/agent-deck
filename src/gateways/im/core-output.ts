@@ -32,6 +32,21 @@ function jsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function exactObject(
+  value: unknown,
+  fields: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  if (!jsonObject(value)) fail(label);
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  if (
+    actual.length !== expected.length ||
+    actual.some((field, index) => field !== expected[index])
+  ) fail(label);
+  return value;
+}
+
 export function coreIdentifier(value: unknown, field: string, maximumBytes = 256): string {
   if (
     typeof value !== 'string' ||
@@ -122,8 +137,11 @@ export function validateHistoryEntries(
 ): SessionHistoryEntryDto[] {
   assertBoundedCoreValue(value, limits, 'history entries', limits.maxHistoryEntries);
   return (value as SessionHistoryEntryDto[]).map((item) => {
-    const entry = item as SessionHistoryEntryDto;
-    if (!entry || typeof entry !== 'object') fail('history entry');
+    const entry = exactObject(
+      item,
+      ['content', 'createdAt', 'id', 'role', 'sequence', 'sessionId'],
+      'history entry',
+    ) as unknown as SessionHistoryEntryDto;
     if (!['assistant', 'system', 'user'].includes(entry.role)) fail('history.role');
     const validatedSessionId = coreIdentifier(entry.sessionId, 'history.sessionId');
     if (validatedSessionId !== sessionId) fail('history.sessionId');
@@ -145,8 +163,11 @@ export function validatePendingRequests(
 ): PendingRequestDto[] {
   assertBoundedCoreValue(value, limits, 'pending requests', limits.maxPendingResults);
   return (value as PendingRequestDto[]).map((item) => {
-    const request = item as PendingRequestDto;
-    if (!request || typeof request !== 'object') fail('pending request');
+    const request = exactObject(
+      item,
+      ['createdAt', 'display', 'expiresAt', 'id', 'kind', 'sessionId', 'status'],
+      'pending request',
+    ) as unknown as PendingRequestDto;
     const validatedSessionId = coreIdentifier(request.sessionId, 'pending.sessionId');
     if (validatedSessionId !== sessionId) fail('pending.sessionId');
     if (!PENDING_KINDS.has(request.kind)) fail('pending.kind');
@@ -186,16 +207,100 @@ export function validatePendingRequests(
 }
 
 export function validateRuntimeControls(
-  value: SessionRuntimeControlsDto,
+  value: unknown,
   limits: FeishuGatewayLimits,
 ): SessionRuntimeControlsDto {
   assertBoundedCoreValue(value, limits, 'runtime controls');
-  if (!value || typeof value !== 'object' || !jsonObject(value.values)) {
+  const record = exactObject(value, ['adapterId', 'revision', 'values'], 'runtime controls');
+  if (!jsonObject(record.values)) {
     fail('runtime controls');
   }
   return {
-    adapterId: coreIdentifier(value.adapterId, 'runtime.adapterId', 128),
-    values: value.values as JsonObject,
-    revision: coreRevision(value.revision, 'runtime.revision'),
+    adapterId: coreIdentifier(record.adapterId, 'runtime.adapterId', 128),
+    values: record.values as JsonObject,
+    revision: coreRevision(record.revision, 'runtime.revision'),
   };
+}
+
+export function validateHistoryResult(
+  value: unknown,
+  sessionId: string,
+  limits: FeishuGatewayLimits,
+) {
+  return contractResult(value, limits, 'history result', () => {
+    const result = exactObject(value, ['entries', 'nextCursor', 'revision'], 'history result');
+    return {
+      entries: validateHistoryEntries(result.entries, sessionId, limits),
+      nextCursor: result.nextCursor === null
+        ? null
+        : coreIdentifier(result.nextCursor, 'history.nextCursor', 512),
+      revision: coreRevision(result.revision),
+    };
+  });
+}
+
+export function validatePendingListResult(
+  value: unknown,
+  sessionId: string,
+  limits: FeishuGatewayLimits,
+) {
+  return contractResult(value, limits, 'pending list result', () => {
+    const result = exactObject(value, ['requests', 'revision'], 'pending list result');
+    return {
+      requests: validatePendingRequests(result.requests, sessionId, limits),
+      revision: coreRevision(result.revision),
+    };
+  });
+}
+
+export function validateSendResult(value: unknown, limits: FeishuGatewayLimits) {
+  return contractResult(value, limits, 'session send result', () => {
+    const result = exactObject(value, ['messageId', 'revision', 'sequence'], 'session send result');
+    return {
+      messageId: coreIdentifier(result.messageId, 'session.send.messageId'),
+      sequence: coreRevision(result.sequence, 'session.send.sequence'),
+      revision: coreRevision(result.revision),
+    };
+  });
+}
+
+export function validateRuntimeUpdateResult(value: unknown, limits: FeishuGatewayLimits) {
+  return contractResult(value, limits, 'runtime update result', () => {
+    const result = exactObject(
+      value,
+      ['controls', 'effect', 'replacementSessionId'],
+      'runtime update result',
+    );
+    if (!['handoff-required', 'hot-applied', 'restart-required'].includes(String(result.effect))) {
+      fail('runtime effect');
+    }
+    return {
+      controls: validateRuntimeControls(result.controls, limits),
+      effect: result.effect as 'handoff-required' | 'hot-applied' | 'restart-required',
+      replacementSessionId: result.replacementSessionId === null
+        ? null
+        : coreIdentifier(result.replacementSessionId, 'runtime.replacementSessionId'),
+    };
+  });
+}
+
+export function validateSubscriptionResult(value: unknown, limits: FeishuGatewayLimits) {
+  return contractResult(value, limits, 'subscription result', () => {
+    const result = exactObject(value, ['revision', 'subscribed'], 'subscription result');
+    if (typeof result.subscribed !== 'boolean') fail('subscription result');
+    return { subscribed: result.subscribed, revision: coreRevision(result.revision) };
+  });
+}
+
+export function validatePendingRespondResult(value: unknown, limits: FeishuGatewayLimits) {
+  return contractResult(value, limits, 'pending response result', () => {
+    const result = exactObject(value, ['revision', 'status'], 'pending response result');
+    if (!['cancelled', 'denied', 'expired', 'resolved', 'stale'].includes(String(result.status))) {
+      fail('pending response status');
+    }
+    return {
+      status: result.status as Exclude<PendingRequestDto['status'], 'pending'>,
+      revision: coreRevision(result.revision),
+    };
+  });
 }

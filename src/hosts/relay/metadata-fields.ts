@@ -1,5 +1,6 @@
 const FORBIDDEN_TEXT = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const STABLE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
+const LINUX_INSTANCE_ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 export class RelayMetadataError extends Error {
   constructor(message: string) {
@@ -42,6 +43,17 @@ export function stableTokenField(
   const value = stringField(row, field, maximumBytes);
   if (!STABLE_TOKEN.test(value)) {
     throw new RelayMetadataError(`${field} must use stable token syntax`);
+  }
+  return value;
+}
+
+export function linuxInstanceIdField(
+  row: Record<string, unknown>,
+  field: string,
+): string {
+  const value = stringField(row, field, 63);
+  if (!LINUX_INSTANCE_ID.test(value)) {
+    throw new RelayMetadataError(`${field} must be a lowercase Linux instance label`);
   }
   return value;
 }

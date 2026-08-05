@@ -37,6 +37,8 @@ function frame(
     payload: kind === 'data' ? new Uint8Array([7]) : emptyRoutePayload(),
     creditBytes: null,
     resetCode: null,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 
@@ -167,6 +169,56 @@ describe('Relay live credential enforcement', () => {
     ]);
     expect(router.takeClientDisconnects()).toEqual([
       { clientId: 'client-a', reason: 'resync_required' },
+    ]);
+  });
+
+  it('binds a Feishu credential to the Feishu surface on the Worker open frame', () => {
+    const { metadata, router } = onlineFixture();
+    metadata.put('credentials', credential('feishu-credential-a', 'feishu'));
+    expect(() =>
+      router.registerClient(
+        'wrong-surface',
+        'feishu-credential-a',
+        'desktop-full',
+      ),
+    ).toThrowError(expect.objectContaining<Partial<RelayRouterError>>({
+      code: 'credential_invalid',
+    }));
+
+    router.registerClient(
+      'feishu-client-a',
+      'feishu-credential-a',
+      'feishu-session-console',
+    );
+    expect(router.routeFromClient(
+      'feishu-client-a',
+      frame('client-to-worker', 'feishu-route', 0, 'open'),
+    )).toEqual({ accepted: true, error: null });
+    expect(router.drainWorker()?.frames).toEqual([
+      expect.objectContaining({
+        kind: 'open',
+        accessCredentialId: 'feishu-credential-a',
+        accessSurface: 'feishu-session-console',
+      }),
+    ]);
+  });
+
+  it('revalidates the credential kind against the registered surface on every route', () => {
+    const { metadata, router } = onlineFixture();
+    metadata.put('credentials', credential('feishu-credential-a', 'feishu'));
+    router.registerClient(
+      'feishu-client-a',
+      'feishu-credential-a',
+      'feishu-session-console',
+    );
+    metadata.put('credentials', credential('feishu-credential-a', 'ssh-client'));
+
+    expect(router.routeFromClient(
+      'feishu-client-a',
+      frame('client-to-worker', 'surface-changed', 0, 'open'),
+    )).toEqual({ accepted: false, error: 'resync_required' });
+    expect(router.takeClientDisconnects()).toEqual([
+      { clientId: 'feishu-client-a', reason: 'resync_required' },
     ]);
   });
 });

@@ -1,0 +1,101 @@
+import { validateSshHostProfile, type SshHostProfile } from '@clients/ssh';
+import {
+  assertExactKeys,
+  requireAbsolutePath,
+  requireLinuxInstanceId,
+  requireObject,
+  requirePositiveInteger,
+  requireStableToken,
+} from '@hosts/linux-runtime/validation';
+
+export interface FeishuSshCredentialConfig {
+  readonly credentialId: string;
+  readonly identityFile: string;
+}
+
+export interface FeishuCoreSshConfig {
+  readonly schemaVersion: 1;
+  readonly topology: 'relay' | 'server-core';
+  readonly instanceId: string;
+  readonly appVersion: string;
+  readonly hostname: string;
+  readonly port: number;
+  readonly username: string;
+  readonly knownHostsFile: string;
+  readonly hostKeyAlias: string | null;
+  readonly credentials: readonly FeishuSshCredentialConfig[];
+}
+
+function credential(value: unknown): FeishuSshCredentialConfig {
+  const object = requireObject(value, 'core SSH credential');
+  assertExactKeys(object, ['credentialId', 'identityFile'], 'core SSH credential');
+  return Object.freeze({
+    credentialId: requireStableToken(object.credentialId, 'credentialId'),
+    identityFile: requireAbsolutePath(object.identityFile, 'identityFile'),
+  });
+}
+
+function validateProfile(config: FeishuCoreSshConfig, identityFile: string): void {
+  const profile: SshHostProfile = {
+    id: 'feishu-config-check',
+    label: 'Feishu Core',
+    topology: config.topology,
+    hostname: config.hostname,
+    port: config.port,
+    username: config.username,
+    identityFile,
+    knownHostsFile: config.knownHostsFile,
+    accessSurface: 'feishu-session-console',
+    expectedInstanceId: config.instanceId,
+    ...(config.hostKeyAlias === null ? {} : { hostKeyAlias: config.hostKeyAlias }),
+    sshBinary: '/usr/bin/ssh',
+  };
+  validateSshHostProfile(profile);
+}
+
+export function parseFeishuCoreSshConfig(value: unknown): FeishuCoreSshConfig {
+  const object = requireObject(value, 'Feishu Core SSH config');
+  assertExactKeys(object, [
+    'appVersion',
+    'credentials',
+    'hostKeyAlias',
+    'hostname',
+    'instanceId',
+    'knownHostsFile',
+    'port',
+    'schemaVersion',
+    'topology',
+    'username',
+  ], 'Feishu Core SSH config');
+  if (object.schemaVersion !== 1) throw new Error('Feishu Core SSH schemaVersion must be 1');
+  if (object.topology !== 'server-core' && object.topology !== 'relay') {
+    throw new Error('Feishu Core SSH topology is invalid');
+  }
+  if (!Array.isArray(object.credentials) || object.credentials.length > 1_000) {
+    throw new Error('Feishu Core SSH credentials are invalid');
+  }
+  const credentials = Object.freeze(object.credentials.map(credential));
+  if (
+    new Set(credentials.map((entry) => entry.credentialId)).size !== credentials.length ||
+    new Set(credentials.map((entry) => entry.identityFile)).size !== credentials.length
+  ) {
+    throw new Error('Feishu Core SSH credentials contain duplicates');
+  }
+  const hostKeyAlias = object.hostKeyAlias === null
+    ? null
+    : requireStableToken(object.hostKeyAlias, 'hostKeyAlias');
+  const config: FeishuCoreSshConfig = Object.freeze({
+    schemaVersion: 1,
+    topology: object.topology,
+    instanceId: requireLinuxInstanceId(object.instanceId),
+    appVersion: requireStableToken(object.appVersion, 'appVersion'),
+    hostname: requireStableToken(object.hostname, 'hostname'),
+    port: requirePositiveInteger(object.port, 'port', 65_535),
+    username: requireStableToken(object.username, 'username'),
+    knownHostsFile: requireAbsolutePath(object.knownHostsFile, 'knownHostsFile'),
+    hostKeyAlias,
+    credentials,
+  });
+  for (const entry of credentials) validateProfile(config, entry.identityFile);
+  return config;
+}

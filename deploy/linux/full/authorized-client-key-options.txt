@@ -1,0 +1,2 @@
+restrict,command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface desktop-full",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty ssh-ed25519 REPLACE_WITH_DESKTOP_PUBLIC_KEY agent-deck-server-core-desktop
+restrict,command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface feishu-session-console",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty ssh-ed25519 REPLACE_WITH_FEISHU_PUBLIC_KEY agent-deck-server-core-feishu

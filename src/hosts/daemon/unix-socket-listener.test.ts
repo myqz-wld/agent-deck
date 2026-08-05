@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import type { Server, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,7 +14,7 @@ import {
 const temporaryDirectories: string[] = [];
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'agent-deck-daemon-test-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'agent-deck-daemon-test-')));
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -268,6 +268,23 @@ describe('private Unix socket listener', () => {
     const runtimeDirectory = join(root, 'runtime-link');
     await mkdir(realDirectory);
     await symlink(realDirectory, runtimeDirectory);
+    const listener = new UnixSocketDaemonListener(
+      join(runtimeDirectory, 'agent-deckd.sock'),
+      runtimeDirectory,
+    );
+
+    await expect(listener.start(() => undefined)).rejects.toMatchObject({
+      code: 'runtime_directory_unsafe',
+    });
+  });
+
+  it('rejects intermediate symlink indirection in a runtime directory', async () => {
+    const root = await temporaryDirectory();
+    const realParent = join(root, 'real-parent');
+    const linkedParent = join(root, 'linked-parent');
+    await mkdir(realParent);
+    await symlink(realParent, linkedParent);
+    const runtimeDirectory = join(linkedParent, 'instance-a');
     const listener = new UnixSocketDaemonListener(
       join(runtimeDirectory, 'agent-deckd.sock'),
       runtimeDirectory,
