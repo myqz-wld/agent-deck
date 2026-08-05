@@ -1,11 +1,9 @@
 const ROUTE_PREFIX_BYTES = 4;
 const ROUTE_METADATA_LENGTH_BYTES = 4;
 const ROUTE_VERSION = 1;
-
 export const RELAY_CONTROL_STREAM_ID = '$lease';
 export const DEFAULT_MAX_ROUTE_FRAME_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_MAX_ROUTE_CREDIT_BYTES = 4 * 1024 * 1024;
-
 export type RelayDirection = 'client-to-worker' | 'worker-to-client';
 export type RelayFrameKind = 'open' | 'data' | 'close' | 'reset' | 'credit' | 'heartbeat';
 export type RelayResetCode =
@@ -18,6 +16,7 @@ export type RelayResetCode =
   | 'worker_disconnected'
   | 'worker_fenced'
   | 'worker_offline';
+export type RelayClientSurface = 'desktop-full' | 'feishu-session-console';
 
 export interface RelayRouteFrame {
   instanceId: string;
@@ -29,6 +28,8 @@ export interface RelayRouteFrame {
   payload: Uint8Array;
   creditBytes: number | null;
   resetCode: RelayResetCode | null;
+  accessCredentialId: string | null;
+  accessSurface: RelayClientSurface | null;
 }
 
 export interface RelayRouteFrameLimits {
@@ -43,10 +44,7 @@ export type RelayRouteFrameErrorCode =
   | 'frame_unknown_kind';
 
 export class RelayRouteFrameError extends Error {
-  constructor(
-    readonly code: RelayRouteFrameErrorCode,
-    message: string,
-  ) {
+  constructor(readonly code: RelayRouteFrameErrorCode, message: string) {
     super(message);
     this.name = 'RelayRouteFrameError';
   }
@@ -62,27 +60,15 @@ interface RouteMetadata {
   kind: RelayFrameKind;
   creditBytes: number | null;
   resetCode: RelayResetCode | null;
+  accessCredentialId: string | null;
+  accessSurface: RelayClientSurface | null;
 }
 
 const DIRECTIONS = new Set<RelayDirection>(['client-to-worker', 'worker-to-client']);
-const KINDS = new Set<RelayFrameKind>([
-  'open',
-  'data',
-  'close',
-  'reset',
-  'credit',
-  'heartbeat',
-]);
+const KINDS = new Set<RelayFrameKind>(['open', 'data', 'close', 'reset', 'credit', 'heartbeat']);
 const RESET_CODES = new Set<RelayResetCode>([
-  'backpressure',
-  'cancelled',
-  'generation_mismatch',
-  'heartbeat_timeout',
-  'protocol_error',
-  'resync_required',
-  'worker_disconnected',
-  'worker_fenced',
-  'worker_offline',
+  'backpressure', 'cancelled', 'generation_mismatch', 'heartbeat_timeout', 'protocol_error',
+  'resync_required', 'worker_disconnected', 'worker_fenced', 'worker_offline',
 ]);
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._:@/$-]+$/;
 const METADATA_KEYS = new Set([
@@ -95,6 +81,8 @@ const METADATA_KEYS = new Set([
   'kind',
   'creditBytes',
   'resetCode',
+  'accessCredentialId',
+  'accessSurface',
 ]);
 
 function requirePositiveLimit(value: number, field: string): number {
@@ -160,6 +148,22 @@ function assertMetadata(value: unknown): asserts value is RouteMetadata {
   if (value.resetCode !== null && !RESET_CODES.has(value.resetCode as RelayResetCode)) {
     throw new RelayRouteFrameError('frame_invalid', 'resetCode is invalid');
   }
+  if (value.accessCredentialId !== null) {
+    assertIdentifier(value.accessCredentialId, 'accessCredentialId');
+  }
+  if (
+    value.accessSurface !== null &&
+    value.accessSurface !== 'desktop-full' &&
+    value.accessSurface !== 'feishu-session-console'
+  ) {
+    throw new RelayRouteFrameError('frame_invalid', 'accessSurface is invalid');
+  }
+  if ((value.accessCredentialId === null) !== (value.accessSurface === null)) {
+    throw new RelayRouteFrameError(
+      'frame_invalid',
+      'accessCredentialId and accessSurface must be present together',
+    );
+  }
 }
 
 export function assertRelayRouteFrame(
@@ -184,6 +188,8 @@ export function assertRelayRouteFrame(
     kind: frame.kind,
     creditBytes: frame.creditBytes,
     resetCode: frame.resetCode,
+    accessCredentialId: frame.accessCredentialId,
+    accessSurface: frame.accessSurface,
   };
   assertMetadata(metadata);
   if (!(frame.payload instanceof Uint8Array)) {
@@ -215,6 +221,12 @@ export function assertRelayRouteFrame(
     );
   }
 
+  if (frame.kind !== 'open' && (frame.accessCredentialId !== null || frame.accessSurface !== null)) {
+    throw new RelayRouteFrameError(
+      'frame_invalid',
+      'Only an open frame may carry an authenticated client context',
+    );
+  }
   if (frame.kind === 'data') {
     if (frame.payload.byteLength === 0 || frame.creditBytes !== null || frame.resetCode !== null) {
       throw new RelayRouteFrameError(
@@ -258,6 +270,8 @@ function metadataFor(frame: RelayRouteFrame): RouteMetadata {
     kind: frame.kind,
     creditBytes: frame.creditBytes,
     resetCode: frame.resetCode,
+    accessCredentialId: frame.accessCredentialId,
+    accessSurface: frame.accessSurface,
   };
 }
 
@@ -276,7 +290,8 @@ export function encodeRelayRouteFrame(
     'maxFrameBytes',
   );
   const metadataBytes = new TextEncoder().encode(JSON.stringify(metadataFor(frame)));
-  const bodyBytes = ROUTE_METADATA_LENGTH_BYTES + metadataBytes.byteLength + frame.payload.byteLength;
+  const bodyBytes =
+    ROUTE_METADATA_LENGTH_BYTES + metadataBytes.byteLength + frame.payload.byteLength;
   if (bodyBytes > maxFrameBytes) {
     throw new RelayRouteFrameError(
       'frame_oversized',
@@ -338,6 +353,8 @@ function decodeBody(body: Uint8Array, limits: RelayRouteFrameLimits): RelayRoute
     payload: body.slice(ROUTE_METADATA_LENGTH_BYTES + metadataBytes),
     creditBytes: metadata.creditBytes,
     resetCode: metadata.resetCode,
+    accessCredentialId: metadata.accessCredentialId,
+    accessSurface: metadata.accessSurface,
   };
   assertRelayRouteFrame(frame, limits);
   return frame;

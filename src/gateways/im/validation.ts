@@ -13,6 +13,7 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const BASE_FIELDS = [
   'appId',
   'chatId',
+  'chatType',
   'displayName',
   'eventId',
   'kind',
@@ -83,6 +84,9 @@ function validateBase(object: Record<string, unknown>): void {
   stableToken(object.tenantKey, 'tenantKey');
   stableToken(object.openId, 'openId');
   stableToken(object.chatId, 'chatId');
+  if (!['group', 'p2p'].includes(String(object.chatType))) {
+    throw new FeishuGatewayError('invalid_event', 'chatType is unsupported');
+  }
   stableToken(object.eventId, 'eventId');
   if (!Number.isSafeInteger(object.occurredAt) || (object.occurredAt as number) < 0) {
     throw new FeishuGatewayError('invalid_event', 'occurredAt must be a non-negative integer');
@@ -102,6 +106,7 @@ function validateAction(value: unknown): FeishuPendingAction {
     [
       'action',
       'chatId',
+      'chatType',
       'credentialId',
       'instanceId',
       'name',
@@ -115,6 +120,7 @@ function validateAction(value: unknown): FeishuPendingAction {
     [
       'action',
       'chatId',
+      'chatType',
       'credentialId',
       'instanceId',
       'name',
@@ -133,6 +139,9 @@ function validateAction(value: unknown): FeishuPendingAction {
   if (!['accept', 'approve', 'deny', 'reject', 'submit'].includes(action)) {
     throw new FeishuGatewayError('unknown_command', `Unknown pending action: ${action}`);
   }
+  if (!['group', 'p2p'].includes(String(value.chatType))) {
+    throw new FeishuGatewayError('invalid_event', 'action.chatType is unsupported');
+  }
   if (value.value !== undefined && !isJsonValue(value.value)) {
     throw new FeishuGatewayError('invalid_event', 'action.value must be JSON-safe');
   }
@@ -145,6 +154,7 @@ function validateAction(value: unknown): FeishuPendingAction {
     instanceId: stableToken(value.instanceId, 'action.instanceId'),
     credentialId: stableToken(value.credentialId, 'action.credentialId'),
     chatId: stableToken(value.chatId, 'action.chatId'),
+    chatType: value.chatType as FeishuPendingAction['chatType'],
     sessionId: stableToken(value.sessionId, 'action.sessionId'),
     requestId: stableToken(value.requestId, 'action.requestId'),
     revision: value.revision as number,
@@ -173,7 +183,11 @@ export function parseFeishuInboundEvent(value: unknown, maximumBytes = 32_768): 
   if (value.kind === 'card-action') {
     exactFields(value, [...BASE_FIELDS, 'action'], [...BASE_FIELDS.filter((f) => f !== 'displayName'), 'action'], 'event');
     validateBase(value);
-    return { ...(value as unknown as FeishuCardActionEvent), action: validateAction(value.action) };
+    const action = validateAction(value.action);
+    if (action.chatType !== value.chatType) {
+      throw new FeishuGatewayError('invalid_event', 'Card chat type does not match its action');
+    }
+    return { ...(value as unknown as FeishuCardActionEvent), action };
   }
   throw new FeishuGatewayError('unknown_command', 'Unknown Feishu event kind');
 }

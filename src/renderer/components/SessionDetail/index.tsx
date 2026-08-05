@@ -12,7 +12,7 @@ import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
 import { SessionMetadataChips } from '../SessionMetadataChips';
 import { SessionPinButton } from '../SessionPinButton';
-import { ArrowLeftIcon, CloseIcon } from '../icons';
+import { CloseIcon } from '../icons';
 import {
   useSessionStore,
 } from '@renderer/stores/session-store';
@@ -27,18 +27,36 @@ import { useFileChanges } from './use-file-changes';
 import { useFileChangeSelection } from './use-file-change-selection';
 import { useFileChangePayload } from './use-file-change-payload';
 import { useSessionGitBranch } from '@renderer/hooks/use-session-git-branches';
+import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { RemoteSessionDetail } from './RemoteSessionDetail';
+import {
+  SessionDetailShell,
+  type SessionDetailTabId,
+  type SessionDetailTabModel,
+} from './SessionDetailShell';
 
-type Tab = 'activity' | 'tasks' | 'diff' | 'summary' | 'messages' | 'permissions';
 type DiffMode = 'single' | 'final';
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
 
-interface Props {
+interface LocalProps {
   session: SessionRecord;
   onClose: () => void;
 }
 
-export function SessionDetail({ session, onClose }: Props): JSX.Element {
-  const [tab, setTab] = useState<Tab>('activity');
+interface RemoteProps {
+  remoteSource: RemoteSessionSourceView;
+  onClose: () => void;
+}
+
+export function SessionDetail(props: LocalProps | RemoteProps): JSX.Element {
+  if ('remoteSource' in props) {
+    return <RemoteSessionDetail source={props.remoteSource} onClose={props.onClose} />;
+  }
+  return <LocalSessionDetail {...props} />;
+}
+
+function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
+  const [tab, setTab] = useState<SessionDetailTabId>('activity');
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
@@ -218,156 +236,82 @@ export function SessionDetail({ session, onClose }: Props): JSX.Element {
     selection.selectFile(group.filePath, group.items[group.items.length - 1].id);
     setFinalDiff(null);
   };
-
-  return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-3 py-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <SourceBadge isSdk={isSdk} />
-            <div className="truncate text-[12px] font-medium">{session.title}</div>
-          </div>
-          <div className="truncate text-[10px] text-deck-muted">{session.cwd}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            <SessionMetadataChips session={session} branch={gitBranch} compact />
-            <SessionContextUsageChip session={session} />
-          </div>
-        </div>
-        <div className="ml-2 flex shrink-0 items-center gap-1">
-          {canPin && <SessionPinButton key={session.id} session={session} />}
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
-            title="返回列表"
-            aria-label="返回列表"
-          >
-            <ArrowLeftIcon className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </header>
-
-      {cancelToasts.length > 0 && (
-        <div className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-3 py-1.5">
-          <div className="flex flex-col gap-1">
-            {cancelToasts.map((t) => (
-              <div
-                key={t.id}
-                className="flex items-center gap-1.5 text-[10px] text-deck-muted"
-              >
-                <span>⚪</span>
-                <span className="flex-1">{t.text}</span>
-                <button
-                  type="button"
-                  onClick={() => dismissToast(t.id)}
-                  className="text-deck-muted/60 hover:text-deck-text"
-                  aria-label="关闭"
-                >
-                  <CloseIcon className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <nav className="flex shrink-0 gap-1 border-b border-deck-border/60 px-2 py-1">
-        {(['activity', 'tasks', 'diff', 'summary', 'messages', 'permissions'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`rounded px-2 py-1 text-[11px] ${
-              tab === t ? 'bg-white/10 text-deck-text' : 'text-deck-muted hover:bg-white/5'
-            }`}
-          >
-            {t === 'activity'
-              ? '活动'
-              : t === 'tasks'
-                ? '任务'
-                : t === 'diff'
-                  ? '改动'
-                  : t === 'summary'
-                    ? '总结'
-                    : t === 'messages'
-                      ? '跨会话'
-                      : '权限'}
-          </button>
-        ))}
-      </nav>
-
-      <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-deck px-3 py-2">
-        {tab === 'activity' && (
-          <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />
-        )}
-        {tab === 'tasks' && <TasksPanel sessionId={session.id} />}
-        {tab === 'summary' && <SummaryView sessionId={session.id} />}
-        {tab === 'messages' && <MessagesPanel sessionId={session.id} />}
-        {tab === 'permissions' && (
-          <PermissionsView
-            cwd={session.cwd}
-            sessionId={session.id}
-            agentId={session.agentId}
-            sessionMode={session.sessionMode}
-          />
-        )}
-        {tab === 'diff' && (
-          <DiffTab
-            sessionId={session.id}
-            changes={changes}
-            diffError={fileChanges.error}
-            hasMore={fileChanges.hasMore}
-            loadedCount={fileChanges.loadedCount}
-            loadingMore={fileChanges.loadingMore}
-            lastLoadSummary={fileChanges.lastLoadSummary}
-            hasNewerChanges={selection.hasNewerChanges}
-            payloadLoading={selectedFileChange.payloadLoading}
-            payloadError={selectedFileChange.payloadError}
-            fileGroups={fileGroups}
-            selectedFilePath={selectedFilePath}
-            selectedGroup={selectedGroup}
-            selectedChangeId={selectedChangeId}
-            diffMode={diffMode}
-            finalDiffLoading={finalDiffLoading}
-            finalDiff={finalDiff}
-            diffPayload={diffPayload}
-            finalDiffPayload={finalDiffPayload}
-            onSelectFile={selectFileGroup}
-            onSelectChange={(id) => {
-              selection.selectChange(id);
-              setDiffMode('single');
-            }}
-            onDiffModeChange={setDiffMode}
-            onLoadMore={() => void fileChanges.loadMore()}
-            onFollowLatest={() => {
-              selection.followLatest();
-              setDiffMode('single');
-              setFinalDiff(null);
-            }}
-            onRetry={() => void fileChanges.retry()}
-          />
-        )}
-      </div>
-
-      {/* SDK 会话提供输入与接力操作；CLI 会话只显示提示。 */}
-      {isSdk ? (
-        <ComposerSdk
-          session={session}
-          onHandOff={() => setHandOffOpen(true)}
-          turnBusy={turnBusy}
-          canSteerTurn={canSteerTurn}
-          canSteerTurnAttachments={canSteerTurnAttachments}
+  const tabs: readonly SessionDetailTabModel[] = [
+    { id: 'activity', label: '活动', content: <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} /> },
+    { id: 'tasks', label: '任务', content: <TasksPanel sessionId={session.id} /> },
+    {
+      id: 'diff',
+      label: '改动',
+      content: (
+        <DiffTab
+          sessionId={session.id}
+          changes={changes}
+          diffError={fileChanges.error}
+          hasMore={fileChanges.hasMore}
+          loadedCount={fileChanges.loadedCount}
+          loadingMore={fileChanges.loadingMore}
+          lastLoadSummary={fileChanges.lastLoadSummary}
+          hasNewerChanges={selection.hasNewerChanges}
+          payloadLoading={selectedFileChange.payloadLoading}
+          payloadError={selectedFileChange.payloadError}
+          fileGroups={fileGroups}
+          selectedFilePath={selectedFilePath}
+          selectedGroup={selectedGroup}
+          selectedChangeId={selectedChangeId}
+          diffMode={diffMode}
+          finalDiffLoading={finalDiffLoading}
+          finalDiff={finalDiff}
+          diffPayload={diffPayload}
+          finalDiffPayload={finalDiffPayload}
+          onSelectFile={selectFileGroup}
+          onSelectChange={(id) => { selection.selectChange(id); setDiffMode('single'); }}
+          onDiffModeChange={setDiffMode}
+          onLoadMore={() => void fileChanges.loadMore()}
+          onFollowLatest={() => { selection.followLatest(); setDiffMode('single'); setFinalDiff(null); }}
+          onRetry={() => void fileChanges.retry()}
         />
-      ) : (
-        <CliFooter agentId={session.agentId} />
-      )}
-
-      {/* 接力成功后主进程负责切换会话，这里只管理预览框。 */}
-      <HandOffPreviewDialog
-        open={handOffOpen}
-        session={session}
-        onClose={() => setHandOffOpen(false)}
-      />
-    </div>
+      ),
+    },
+    { id: 'summary', label: '总结', content: <SummaryView sessionId={session.id} /> },
+    { id: 'messages', label: '跨会话', content: <MessagesPanel sessionId={session.id} /> },
+    { id: 'pending', label: '待处理', content: null, unavailableReason: '本地待处理请求统一显示在顶部“待处理”页面。' },
+    { id: 'runtime', label: '运行时', content: null, unavailableReason: '本地运行时配置继续由现有会话控制面管理。' },
+    {
+      id: 'permissions',
+      label: '权限',
+      content: <PermissionsView cwd={session.cwd} sessionId={session.id} agentId={session.agentId} sessionMode={session.sessionMode} />,
+    },
+  ];
+  const notice = cancelToasts.length > 0
+    ? (
+        <div className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-3 py-1.5">
+          {cancelToasts.map((toast) => (
+            <div key={toast.id} className="flex items-center gap-1.5 text-[10px] text-deck-muted">
+              <span>⚪</span><span className="flex-1">{toast.text}</span>
+              <button type="button" onClick={() => dismissToast(toast.id)} className="text-deck-muted/60 hover:text-deck-text" aria-label="关闭">
+                <CloseIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )
+    : undefined;
+  return (
+    <SessionDetailShell
+      title={session.title}
+      sourceBadge={<SourceBadge isSdk={isSdk} />}
+      subtitle={session.cwd}
+      metadata={<><SessionMetadataChips session={session} branch={gitBranch} compact /><SessionContextUsageChip session={session} /></>}
+      headerActions={canPin ? <SessionPinButton key={session.id} session={session} /> : undefined}
+      notice={notice}
+      tabs={tabs}
+      activeTab={tab}
+      onTabChange={setTab}
+      composer={isSdk
+        ? <ComposerSdk session={session} onHandOff={() => setHandOffOpen(true)} turnBusy={turnBusy} canSteerTurn={canSteerTurn} canSteerTurnAttachments={canSteerTurnAttachments} />
+        : <CliFooter agentId={session.agentId} />}
+      overlay={<HandOffPreviewDialog open={handOffOpen} session={session} onClose={() => setHandOffOpen(false)} />}
+      onClose={onClose}
+    />
   );
 }

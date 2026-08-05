@@ -8,8 +8,12 @@ The unit deliberately has no `PublishPort`, `AddDevice`, host/root/home bind, or
 socket. Its image is read-only; mutable state, workspaces, the private daemon socket, Browser data,
 and secrets use separate instance-namespaced volumes. The state/workspace/browser volumes require
 a host-tested quota backend before the `volume-quota.verified` gate may be created. The socket is
-private at `/run/agent-deck/<instanceId>/agent-deckd.sock`; SSH and gateway bridge processes must reach it through
-an explicitly provisioned narrow path rather than a public control listener.
+private at `/run/agent-deck/<instanceId>/agent-deckd.sock` inside the socket named volume. The
+host SSH forced command never treats that as a host pathname. It verifies rootless Podman, the
+exact running `agent-deck-full-<instanceId>` container id and its instance/topology/manager labels,
+then runs argv-only `podman exec -i <container-id> /opt/agent-deck/bin/agent-deckd
+bridge-internal ...`; only stdin/stdout cross this boundary. There is no public control listener,
+engine-socket mount, or broad host bind.
 
 Important network boundary: an ordinary rootless Podman bridge is namespace isolation, not proof
 of destination-based egress enforcement. `@@VERIFIED_EGRESS_NETWORK@@` must name a deployment-owned
@@ -17,10 +21,32 @@ network/gateway that has been tested to allow public DNS and HTTP(S) while denyi
 host loopback, RFC1918/LAN ranges, IPv6 local/private ranges, and cloud metadata endpoints. Until
 that exists, do not create `egress-policy.verified`; the unit then fails closed at `ExecStartPre`.
 
+The image must install root-owned, non-symlink
+`/opt/agent-deck/linux-headless/server-core/index.mjs`, `/opt/agent-deck/bin/agent-deckd`, and
+`/usr/bin/node`. The rootless host service account has the fixed home `/var/lib/agent-deck` and
+must install root-owned `/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs` plus
+`/opt/agent-deck/bin/agent-deck-full-bridge`; the host bridge uses `/usr/bin/node` and
+`/usr/bin/podman` only. The package mapping is locked by
+`deploy/linux/manager/linux-headless.package.json`.
+The host-only instance manager owns the exact mode-0600 instance config consumed at
+`/var/lib/agent-deck/config/agent-deck/instances/<instanceId>/config.json` inside the instance state
+volume. Create, upgrade, rollback, start, and crash recovery re-resolve the exact rootless Podman
+state-volume identity and data path, atomically install the canonical config, and verify its SHA-256
+against the generation record before starting the container. Provisioning must not seed a separate
+copy or add a host/home bind; the existing instance-namespaced named volume remains the only runtime
+mount. The config binds its instance id and private socket path; it names a separately packaged,
+trusted Node runtime module that owns Core, repositories, providers, SQLite, Browser, and execution.
+`authorized-client-key-options.txt` is the narrow host bridge provisioning fixture. Replace every
+identity/key placeholder, choose the exact `desktop-full` or `feishu-session-console` line for that
+credential, keep the forced command exact, and run sshd under the same rootless
+service account that owns the Full Quadlet. The requested SSH command must be exactly
+`agent-deck-bridge`; no host socket pathname is used.
+
 Static checks:
 
 ```bash
 bash -n deploy/linux/full/preflight.sh
+bash deploy/linux/full/static-check.sh
 bash deploy/linux/full/preflight.sh --template \
   deploy/linux/full/agent-deck-full@.container.in
 ```
@@ -38,3 +64,7 @@ The host check verifies Linux, rootless Podman, cgroup v2, subordinate UID/GID r
 unit constraints, and the two explicit gates. It does not claim Ubuntu/EL9, SELinux/AppArmor,
 nested provider sandbox, egress, quota, health, upgrade, backup, or rollback acceptance merely from
 macOS/static execution. Those remain real-host gates.
+
+The packaged image should also be checked with `agent-deckd check-abi`; that command loads the
+Node-native `better-sqlite3` binding and opens only an in-memory probe, failing before production
+state is touched when the Node ABI is wrong.

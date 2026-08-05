@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => {
     mode: 'resolve' | 'reject' | 'drain-timeout' | 'pending';
     resolve: (() => void) | null;
   } = { mode: 'resolve', resolve: null };
+  const remoteHostState: {
+    mode: 'resolve' | 'reject' | 'pending';
+    resolve: (() => void) | null;
+  } = { mode: 'resolve', resolve: null };
   const checkpointStop = vi.fn(() => {
     calls.push('checkpoint.stop.begin');
     return new Promise<void>((resolve) => {
@@ -52,6 +56,22 @@ const mocks = vi.hoisted(() => {
       durableDelivering: 0,
     });
   });
+  const remoteHostStop = vi.fn(() => {
+    calls.push('remote.stop.begin');
+    if (remoteHostState.mode === 'reject') {
+      return Promise.reject(new Error('remote transport retirement failed'));
+    }
+    if (remoteHostState.mode === 'pending') {
+      return new Promise<void>((resolve) => {
+        remoteHostState.resolve = () => {
+          calls.push('remote.stop.end');
+          resolve();
+        };
+      });
+    }
+    calls.push('remote.stop.end');
+    return Promise.resolve();
+  });
   return {
     calls,
     handlers,
@@ -59,6 +79,8 @@ const mocks = vi.hoisted(() => {
     checkpointStop,
     watcherState,
     watcherStop,
+    remoteHostState,
+    remoteHostStop,
   };
 });
 
@@ -98,6 +120,9 @@ vi.mock('../../teams/universal-message-watcher', () => ({
 vi.mock('../../browser-use/engine/registry', () => ({
   getBrowserEngine: vi.fn(() => ({ disposeAll: vi.fn(async () => undefined) })),
 }));
+vi.mock('../../remote-host', () => ({
+  shutdownRemoteHostServiceIfCreated: mocks.remoteHostStop,
+}));
 vi.mock('../../cli', () => ({ handleCliArgv: vi.fn() }));
 vi.mock('../../ipc/session-hand-off', () => ({
   cleanupSessionHandOffPreparations: vi.fn(() => mocks.calls.push('handoff-spool.cleanup')),
@@ -133,6 +158,8 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.checkpointState.resolve = null;
     mocks.watcherState.mode = 'resolve';
     mocks.watcherState.resolve = null;
+    mocks.remoteHostState.mode = 'resolve';
+    mocks.remoteHostState.resolve = null;
     resetAppShutdownForTests();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code) => {
@@ -166,6 +193,8 @@ describe('checkpoint refresh shutdown entry', () => {
     expect(mocks.calls).toEqual([
       'watcher.stop.begin',
       'checkpoint.stop.begin',
+      'remote.stop.begin',
+      'remote.stop.end',
       'checkpoint.stop.end',
       'handoff-spool.cleanup',
       'adapters.shutdown',
@@ -232,6 +261,68 @@ describe('checkpoint refresh shutdown entry', () => {
     expect(mocks.calls.indexOf('adapters.shutdown')).toBeLessThan(
       mocks.calls.indexOf('db.close'),
     );
+  });
+
+  it('awaits remote SSH retirement before adapter shutdown and closeDb', async () => {
+    mocks.remoteHostState.mode = 'pending';
+    mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+    mocks.checkpointState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mocks.remoteHostStop).toHaveBeenCalledOnce();
+    expect(mocks.calls).not.toContain('adapters.shutdown');
+    expect(closeDb).not.toHaveBeenCalled();
+
+    mocks.remoteHostState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mocks.calls.indexOf('remote.stop.end')).toBeLessThan(
+      mocks.calls.indexOf('adapters.shutdown'),
+    );
+    expect(mocks.calls.indexOf('adapters.shutdown')).toBeLessThan(
+      mocks.calls.indexOf('db.close'),
+    );
+  });
+
+  it('prevents reentrant quit events while sharing one cleanup operation', async () => {
+    mocks.remoteHostState.mode = 'pending';
+    const firstEvent = { preventDefault: vi.fn() };
+    const secondEvent = { preventDefault: vi.fn() };
+    const handler = mocks.handlers.get('before-quit');
+
+    handler?.(firstEvent);
+    handler?.(secondEvent);
+    mocks.checkpointState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(firstEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(secondEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(mocks.remoteHostStop).toHaveBeenCalledOnce();
+    expect(closeDb).not.toHaveBeenCalled();
+    expect(app.exit).not.toHaveBeenCalled();
+
+    mocks.remoteHostState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mocks.remoteHostStop).toHaveBeenCalledOnce();
+    expect(closeDb).toHaveBeenCalledOnce();
+    expect(app.exit).toHaveBeenCalledOnce();
+  });
+
+  it('treats remote SSH retirement failure as degraded and still closes SQLite', async () => {
+    mocks.remoteHostState.mode = 'reject';
+    mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+    mocks.checkpointState.resolve?.();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushMicrotasks();
+
+    expect(mocks.remoteHostStop).toHaveBeenCalledOnce();
+    expect(closeDb).toHaveBeenCalledOnce();
+    expect(app.exit).toHaveBeenCalledWith(0);
   });
 
   it.each(['reject', 'drain-timeout'] as const)(

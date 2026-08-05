@@ -81,7 +81,7 @@ export interface WorkerAttachmentOptions {
   random?: () => number;
   bridgeLimits?: LocalWorkerFrameBridgeLimits;
   onStatus?: (status: WorkerAttachmentStatus) => void;
-  onGeneration?: (generation: number) => void;
+  onGeneration?: (generation: number) => void | Promise<void>;
 }
 
 export type { CoreFrameChannelFactory };

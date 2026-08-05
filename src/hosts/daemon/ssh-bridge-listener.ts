@@ -147,7 +147,7 @@ export class DaemonSshBridgeListener {
     try {
       this.options.host.accept({
         stream,
-        label: `ssh:${admission.credentialId}`,
+        label: `${admission.surface}:${admission.credentialId}`,
         createAccessContext: (hello) => this.createAccess(admission, hello),
       });
       if (decoded.remainder.byteLength > 0) {
@@ -169,15 +169,16 @@ export class DaemonSshBridgeListener {
         'SSH access credential is not active',
       );
     }
-    return {
+    const common = {
       kind: 'authenticated-client' as const,
       topology: 'server-core' as const,
       instanceId: this.options.instanceId,
       clientId: hello.clientId,
-      transport: 'ssh' as const,
       accessCredentialId: admission.credentialId,
       authority: 'owner-equivalent' as const,
-      surface: 'desktop-full' as const,
     };
+    return admission.surface === 'desktop-full'
+      ? { ...common, transport: 'ssh' as const, surface: 'desktop-full' as const }
+      : { ...common, transport: 'feishu' as const, surface: 'feishu-session-console' as const };
   }
 }

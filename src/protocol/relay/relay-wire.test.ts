@@ -26,6 +26,8 @@ function dataFrame(streamId: string, sequence: number, text: string): RelayRoute
     payload: new TextEncoder().encode(text),
     creditBytes: null,
     resetCode: null,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 
@@ -63,6 +65,26 @@ describe('Relay route framing', () => {
         streamId: '$lease',
       }),
     ).toThrowError('Only heartbeat may use the lease control stream');
+  });
+
+  it('round-trips authenticated context only on an open frame', () => {
+    const open: RelayRouteFrame = {
+      ...dataFrame('feishu-open', 0, ''),
+      kind: 'open',
+      payload: emptyRoutePayload(),
+      accessCredentialId: 'feishu-credential-a',
+      accessSurface: 'feishu-session-console',
+    };
+    expect(decodeRelayRouteFrame(encodeRelayRouteFrame(open))).toEqual(open);
+    expect(() => encodeRelayRouteFrame({
+      ...dataFrame('feishu-data', 1, 'body'),
+      accessCredentialId: 'feishu-credential-a',
+      accessSurface: 'feishu-session-console',
+    })).toThrow('Only an open frame');
+    expect(() => encodeRelayRouteFrame({
+      ...open,
+      accessSurface: null,
+    })).toThrow('must be present together');
   });
 
   it('enforces exact negotiated body bytes for in-memory and direct decode boundaries', () => {
@@ -272,6 +294,8 @@ describe('Worker attachment wire', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: 'worker_fenced',
+      accessCredentialId: null,
+      accessSurface: null,
     });
     expect(new RelayRouteFrameDecoder().push(encoded)[0]).toEqual(
       expect.objectContaining({ kind: 'reset', resetCode: 'worker_fenced' }),

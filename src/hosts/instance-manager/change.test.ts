@@ -23,6 +23,14 @@ async function runningFull() {
   return harness;
 }
 
+function mirroredConfig(harness: Awaited<ReturnType<typeof runningFull>>): string {
+  const root = harness.podman.volumeDataPaths.get('agent-deck-tenant-a-state');
+  if (!root) throw new Error('missing Full state volume path');
+  return harness.fileSystem.readText(
+    `${root}/config/agent-deck/instances/tenant-a/config.json`,
+  );
+}
+
 describe('LinuxInstanceManager upgrade and rollback', () => {
   it('health-gates upgrade and retains both recoverable generations', async () => {
     const harness = await runningFull();
@@ -51,6 +59,7 @@ describe('LinuxInstanceManager upgrade and rollback', () => {
     });
 
     expect(upgraded).toMatchObject({ generation: 2, currentVersion: 'v2', image: DIGEST_B });
+    expect(mirroredConfig(harness)).toBe('{\n  "revision": 2\n}\n');
     expect(
       harness.fileSystem.readText('/srv/quadlet/agent-deck-full@tenant-a.container'),
     ).toContain(`Image=${DIGEST_B}`);
@@ -75,6 +84,7 @@ describe('LinuxInstanceManager upgrade and rollback', () => {
       expectedVersion: 'v2',
     });
     expect(rolledBack).toMatchObject({ generation: 3, currentVersion: 'v1', image: DIGEST_A });
+    expect(mirroredConfig(harness)).toBe('{\n  "revision": 1\n}\n');
     expect(
       harness.fileSystem.readText('/srv/quadlet/agent-deck-full@tenant-a.container'),
     ).toContain(`Image=${DIGEST_A}`);
@@ -146,6 +156,7 @@ describe('LinuxInstanceManager upgrade and rollback', () => {
     expect(
       await harness.manager.status({ topology: 'full', instanceId: 'tenant-a' }),
     ).toMatchObject({ generation: 1, currentVersion: 'v1', image: DIGEST_A });
+    expect(mirroredConfig(harness)).toBe('{\n  "revision": 1\n}\n');
     expect(harness.fileSystem.exists('/srv/manager-backups/full/tenant-a/v1')).toBe(true);
     expect(harness.fileSystem.exists('/srv/manager-backups/full/tenant-a/v2')).toBe(false);
   });
@@ -173,6 +184,7 @@ describe('LinuxInstanceManager upgrade and rollback', () => {
     expect(
       await harness.manager.status({ topology: 'full', instanceId: 'tenant-a' }),
     ).toMatchObject({ generation: 1, currentVersion: 'v1', image: DIGEST_A });
+    expect(mirroredConfig(harness)).toBe('{\n  "revision": 1\n}\n');
   });
 
   it('fails safely if the previous version cannot be restarted during recovery', async () => {

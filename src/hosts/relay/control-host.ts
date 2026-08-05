@@ -159,12 +159,16 @@ export class RelayControlHost {
     }
     try {
       if (admission.role === 'client') {
-        if (credential.kind !== 'ssh-client') throw new Error('Credential is not an SSH client');
+        const expectedKind = admission.surface === 'desktop-full' ? 'ssh-client' : 'feishu';
+        if (credential.kind !== expectedKind) {
+          throw new Error('Credential does not match its provisioned client surface');
+        }
         const clientId = `relay-client-${connectionId}`;
         const peer = new RelaySocketClientPeer({
           clientId,
           streamId: `relay-stream-${connectionId}`,
           credentialId: admission.credentialId,
+          surface: admission.surface,
           stream,
           router: this.options.router,
           onRouterChanged: () => this.routerChanged(),

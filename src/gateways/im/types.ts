@@ -16,6 +16,8 @@ import type {
 
 export const DEFAULT_FEISHU_CALLBACK_WINDOW_MS = 2_800;
 export const DEFAULT_PENDING_PRESENTATION_LIFETIME_MS = 30 * 60 * 1_000;
+export const MAX_FEISHU_CALLBACK_WINDOW_MS = 2_800;
+export const FEISHU_PROVIDER_UUID_DEDUP_WINDOW_MS = 60 * 60 * 1_000;
 
 export interface FeishuStableSubject {
   appId: string;
@@ -35,6 +37,7 @@ interface FeishuInboundBase extends FeishuStableSubject {
   schemaVersion: 1;
   eventId: string;
   chatId: string;
+  chatType: 'group' | 'p2p';
   occurredAt: number;
   displayName?: string;
 }
@@ -49,6 +52,7 @@ export interface FeishuPendingAction {
   instanceId: string;
   credentialId: string;
   chatId: string;
+  chatType: 'group' | 'p2p';
   sessionId: string;
   requestId: string;
   revision: number;
@@ -69,6 +73,7 @@ export interface FeishuChatContext {
   instanceId: string;
   credentialId: string;
   chatId: string;
+  chatType: 'group' | 'p2p';
   openId: string;
   activeSessionId: string | null;
   updatedAt: number;
@@ -92,6 +97,7 @@ export interface FeishuDeliveryRecord {
   attempts: number;
   phase: 'core' | 'pre-transport' | 'transport-invoked';
   transportSafety: 'safe' | 'unknown' | null;
+  transportIdempotencyExpiresAt: number | null;
   attemptDeadlineAt: number;
   updatedAt: number;
 }
@@ -131,7 +137,8 @@ export interface FeishuGatewayStore {
   claimDelivery(
     record: Omit<
       FeishuDeliveryRecord,
-      'attemptDeadlineAt' | 'attempts' | 'phase' | 'status' | 'transportSafety'
+      'attemptDeadlineAt' | 'attempts' | 'phase' | 'status' | 'transportIdempotencyExpiresAt' |
+      'transportSafety'
     >,
     maximumEventAttempts: number,
     attemptLifetimeMs?: number,
@@ -147,6 +154,7 @@ export interface FeishuGatewayStore {
     eventId: string,
     expectedAttempt: number,
     safety: 'safe' | 'unknown',
+    idempotencyExpiresAt: number | null,
     updatedAt: number,
   ): boolean;
   /**
@@ -175,6 +183,8 @@ export interface FeishuGatewayStore {
   ): boolean;
   getCursor(instanceId: string, credentialId: string, chatId: string): FeishuCursorRecord | null;
   putCursor(cursor: FeishuCursorRecord): void;
+  /** Deletes only old terminal delivery metadata; pending/reconciling evidence is retained. */
+  pruneDeliveries(terminalBefore: number): number;
 }
 
 export interface FeishuClientFactoryInput {
@@ -199,6 +209,7 @@ export interface FeishuPendingCard {
   sessionId: string;
   state: PendingRequestDto['status'];
   createdAt: number;
+  presentedAt: number;
   expiresAt: number | null;
   presentationLifetimeMs: number;
   display: JsonObject;
@@ -227,6 +238,8 @@ export interface FeishuTransportPort {
   ): Promise<void>;
   /** Allows retry after invocation only when the adapter/provider deduplicates eventId. */
   deliverySemantics?: 'event-id-idempotent' | 'unknown';
+  /** Provider-guaranteed event-id deduplication horizon; absent means no safe post-crash resend. */
+  deliveryIdempotencyWindowMs?: number;
 }
 
 /** A transport may throw this only when no provider send was accepted or could still be accepted. */
@@ -249,6 +262,7 @@ export interface PendingActionNonceBinding {
   instanceId: string;
   credentialId: string;
   chatId: string;
+  chatType: 'group' | 'p2p';
   sessionId: string;
   requestId: string;
   revision: number;
@@ -280,7 +294,11 @@ export interface FeishuAuditPort {
 
 export interface FeishuGatewayObserver {
   onError(entry: { code: string; operation: string; retryable: boolean }): void;
-  onDeliveryDropped(entry: { chatId: string; revision: number; reason: 'queue-full' }): void;
+  onDeliveryDropped(entry: {
+    chatId: string;
+    revision: number;
+    reason: 'delivery-exhausted' | 'queue-full';
+  }): void;
 }
 
 export interface FeishuGatewayClock {
@@ -307,6 +325,7 @@ export interface FeishuGatewayLimits {
   maxSubscriptionsPerChat: number;
   maxNotificationCoreRequests: number;
   deliveryAttemptLifetimeMs: number;
+  deliveryRetentionMs: number;
   maxActiveCredentials: number;
   maxPersistedContexts: number;
   maxConcurrentChatClients: number;

@@ -2,6 +2,13 @@ import { createHash } from 'node:crypto';
 import type { JsonObject, JsonValue, PendingRequestDto } from '@contracts/index';
 import { redactJson, truncateUtf8 } from './redaction';
 
+const SAFE_DISPLAY_FIELDS: Readonly<Record<PendingRequestDto['kind'], readonly string[]>> = {
+  'ask-user-question': ['prompt', 'summary'],
+  'diff-review': ['description', 'summary', 'title'],
+  'exit-plan': ['description', 'summary', 'title'],
+  permission: ['command', 'description', 'reason', 'summary', 'tool'],
+};
+
 function sortedJson(value: JsonValue): JsonValue {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(sortedJson);
@@ -10,30 +17,56 @@ function sortedJson(value: JsonValue): JsonValue {
   return output;
 }
 
-export function pendingSecurityDisplay(request: PendingRequestDto): JsonObject {
-  const redacted = redactJson(request.display) as JsonObject;
-  const encoded = JSON.stringify(redacted);
-  const details = new TextEncoder().encode(encoded).byteLength <= 4_096
-    ? redacted
-    : { summary: truncateUtf8(encoded, 4_096) };
-  return {
+function safeDetails(request: PendingRequestDto): JsonObject {
+  const details: JsonObject = {};
+  for (const field of SAFE_DISPLAY_FIELDS[request.kind]) {
+    const value = request.display[field];
+    if (typeof value === 'string') {
+      details[field] = truncateUtf8(redactJson(value) as string, 1_024);
+    } else if (typeof value === 'boolean' || typeof value === 'number') {
+      details[field] = value;
+    }
+  }
+  return details;
+}
+
+export function pendingSecurityDisplay(
+  request: PendingRequestDto,
+  chatType: 'group' | 'p2p',
+): JsonObject {
+  if (chatType === 'group') {
+    return {
+      requestKind: request.kind,
+      notice: '群聊中已隐藏敏感的 pending 详情。请使用完整客户端查看。',
+    };
+  }
+  const projected: JsonObject = {
     requestKind: request.kind,
     sessionId: request.sessionId,
     requestId: request.id,
-    details,
   };
+  const details = safeDetails(request);
+  if (Object.keys(details).length > 0) projected.details = details;
+  const questionIds = request.display.questionIds;
+  if (
+    request.kind === 'ask-user-question' &&
+    Array.isArray(questionIds) &&
+    questionIds.every((value) => typeof value === 'string')
+  ) projected.questionIds = questionIds as string[];
+  return projected;
 }
 
 export function pendingContentDigest(
   request: PendingRequestDto,
   revision: number,
+  chatType: 'group' | 'p2p',
 ): string {
   const content = sortedJson({
     revision,
     kind: request.kind,
     sessionId: request.sessionId,
     requestId: request.id,
-    display: pendingSecurityDisplay(request),
+    display: pendingSecurityDisplay(request, chatType),
   });
   return createHash('sha256').update(JSON.stringify(content), 'utf8').digest('base64url');
 }

@@ -367,6 +367,8 @@ export class RelayClientFrameBridge {
       payload: emptyRoutePayload(),
       creditBytes,
       resetCode,
+      accessCredentialId: null,
+      accessSurface: null,
     };
   }
 

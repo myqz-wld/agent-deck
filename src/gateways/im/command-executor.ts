@@ -1,12 +1,13 @@
 import { FEISHU_HELP_TEXT, type FeishuCommand } from './commands';
 import { assertFeishuMethod } from './client-pool';
 import {
-  coreIdentifier,
-  coreRevision,
+  validateHistoryResult,
+  validatePendingListResult,
+  validateRuntimeUpdateResult,
+  validateSendResult,
+  validateSubscriptionResult,
   validateProjectListResult,
   validateProjectResolveResult,
-  validateHistoryEntries,
-  validatePendingRequests,
   validateRuntimeControls,
   validateSessionConsoleCreateResult,
   validateSessionConsoleGetResult,
@@ -69,6 +70,12 @@ export class FeishuCommandExecutor {
     };
     if (command.kind === 'help') return { text: FEISHU_HELP_TEXT, revision: null };
     if (command.kind === 'sessions') {
+      if (event.chatType === 'group') {
+        return {
+          text: '群聊中已隐藏 session 列表。请使用完整客户端查看。',
+          revision: null,
+        };
+      }
       assertFeishuMethod(connected.hello, 'session.console.list');
       const raw = await client.request(
         'session.console.list',
@@ -92,6 +99,12 @@ export class FeishuCommandExecutor {
       );
     }
     if (command.kind === 'projects') {
+      if (event.chatType === 'group') {
+        return {
+          text: '群聊中已隐藏 project 列表。请使用完整客户端查看。',
+          revision: null,
+        };
+      }
       assertFeishuMethod(connected.hello, 'project.list');
       const raw = await client.request(
         'project.list',
@@ -133,16 +146,13 @@ export class FeishuCommandExecutor {
         { sessionId: command.sessionId },
         { deadlineMs: remaining() },
       );
-      const requests = validatePendingRequests(
-        pending.requests,
-        command.sessionId,
-        this.options.limits,
+      const pendingResult = validatePendingListResult(
+        pending, command.sessionId, this.options.limits,
       );
-      const pendingRevision = coreRevision(pending.revision);
       const view = renderPending(
-        requests.filter((item) => item.status === 'pending'),
-        this.renderContext(credential, event.chatId, command.sessionId),
-        pendingRevision,
+        pendingResult.requests.filter((item) => item.status === 'pending'),
+        this.renderContext(credential, event.chatId, event.chatType, command.sessionId),
+        pendingResult.revision,
       );
       this.options.store.putContext({
         ...context,
@@ -194,8 +204,14 @@ export class FeishuCommandExecutor {
 
     const sessionId = selectedSession(context);
     if (command.kind === 'history') {
+      if (event.chatType === 'group') {
+        return {
+          text: '群聊中已隐藏 history 内容。请使用完整客户端查看。',
+          revision: null,
+        };
+      }
       assertFeishuMethod(connected.hello, 'session.history');
-      const result = await client.request(
+      const raw = await client.request(
         'session.history',
         {
           sessionId,
@@ -204,46 +220,50 @@ export class FeishuCommandExecutor {
         },
         { deadlineMs: remaining() },
       );
-      const entries = validateHistoryEntries(result.entries, sessionId, this.options.limits);
-      const nextCursor = result.nextCursor === null
-        ? null
-        : coreIdentifier(result.nextCursor, 'history.nextCursor', 512);
+      const result = validateHistoryResult(raw, sessionId, this.options.limits);
       return renderHistory(
-        entries.slice(0, this.options.limits.maxHistoryEntries),
-        nextCursor,
+        result.entries.slice(0, this.options.limits.maxHistoryEntries),
+        result.nextCursor,
         this.options.limits.maxOutputBytes,
-        coreRevision(result.revision),
+        result.revision,
+        event.chatType,
       );
     }
     if (command.kind === 'send') {
       assertFeishuMethod(connected.hello, 'session.send');
       await this.options.beforeMutation(credential, event.chatId);
-      const result = await client.request(
+      const raw = await client.request(
         'session.send',
         { sessionId, text: command.text },
         { ...mutation, deadlineMs: remaining() },
       );
-      coreIdentifier(result.messageId, 'session.send.messageId');
+      const result = validateSendResult(raw, this.options.limits);
       return {
-        text: `消息已由 Core 接受（sequence ${coreRevision(result.sequence, 'session.send.sequence')}）`,
-        revision: coreRevision(result.revision),
+        text: `消息已由 Core 接受（sequence ${result.sequence}）`,
+        revision: result.revision,
       };
     }
     if (command.kind === 'pending') {
       assertFeishuMethod(connected.hello, 'pending.list');
-      const result = await client.request(
+      const raw = await client.request(
         'pending.list',
         { sessionId },
         { deadlineMs: remaining() },
       );
-      const requests = validatePendingRequests(result.requests, sessionId, this.options.limits);
+      const result = validatePendingListResult(raw, sessionId, this.options.limits);
       return renderPending(
-        requests.filter((item) => item.status === 'pending'),
-        this.renderContext(credential, event.chatId, sessionId),
-        coreRevision(result.revision),
+        result.requests.filter((item) => item.status === 'pending'),
+        this.renderContext(credential, event.chatId, event.chatType, sessionId),
+        result.revision,
       );
     }
     if (command.kind === 'runtime-get') {
+      if (event.chatType === 'group') {
+        return {
+          text: '群聊中已隐藏 runtime 值。请使用完整客户端查看。',
+          revision: null,
+        };
+      }
       assertFeishuMethod(connected.hello, 'session.runtime.get');
       const result = await client.request(
         'session.runtime.get',
@@ -253,6 +273,7 @@ export class FeishuCommandExecutor {
       return renderRuntime(
         validateRuntimeControls(result, this.options.limits),
         this.options.limits.maxOutputBytes,
+        event.chatType,
       );
     }
     if (command.kind === 'runtime-update') {
@@ -272,7 +293,7 @@ export class FeishuCommandExecutor {
       assertAdapterOwnedRuntimePatch(validatedSession.adapterId, command.patch);
       assertFeishuMethod(connected.hello, 'session.runtime.update');
       await this.options.beforeMutation(credential, event.chatId);
-      const result = await client.request(
+      const raw = await client.request(
         'session.runtime.update',
         { sessionId, patch: command.patch },
         {
@@ -281,21 +302,16 @@ export class FeishuCommandExecutor {
           deadlineMs: remaining(),
         },
       );
-      const controls = validateRuntimeControls(result.controls, this.options.limits);
+      const result = validateRuntimeUpdateResult(raw, this.options.limits);
+      const controls = result.controls;
       if (controls.adapterId !== validatedSession.adapterId) {
         throw new FeishuGatewayError(
           'invalid_core_response',
           'Runtime response adapter does not match the selected session',
         );
       }
-      if (!['handoff-required', 'hot-applied', 'restart-required'].includes(result.effect)) {
-        throw new FeishuGatewayError('invalid_core_response', 'Runtime effect is malformed');
-      }
-      const replacementSessionId = result.replacementSessionId === null
-        ? null
-        : coreIdentifier(result.replacementSessionId, 'runtime.replacementSessionId');
-      const replacement = replacementSessionId
-        ? `；replacement session ${replacementSessionId}`
+      const replacement = result.replacementSessionId
+        ? `；replacement session ${result.replacementSessionId}`
         : '';
       return {
         text: `Runtime controls 已接受：${result.effect}${replacement}`,
@@ -332,15 +348,13 @@ export class FeishuCommandExecutor {
       }
       assertFeishuMethod(connected.hello, 'subscription.set');
       await this.options.beforeMutation(credential, event.chatId);
-      const result = await client.request(
+      const raw = await client.request(
         'subscription.set',
         { sessionId, subscribed: command.subscribed },
         { ...mutation, deadlineMs: remaining() },
       );
-      if (typeof result.subscribed !== 'boolean') {
-        throw new FeishuGatewayError('invalid_core_response', 'Subscription result is malformed');
-      }
-      const revision = coreRevision(result.revision);
+      const result = validateSubscriptionResult(raw, this.options.limits);
+      const revision = result.revision;
       this.options.store.putSubscription({
         instanceId: credential.instanceId,
         credentialId: credential.credentialId,
@@ -381,16 +395,19 @@ export class FeishuCommandExecutor {
   private renderContext(
     credential: EnrolledFeishuCredential,
     chatId: string,
+    chatType: 'group' | 'p2p',
     sessionId: string,
   ): RenderContext {
     return {
       credential,
       chatId,
+      chatType,
       sessionId,
       nonce: this.options.nonce,
       pendingPresentationLifetimeMs: this.options.pendingPresentationLifetimeMs,
       maxOutputBytes: this.options.limits.maxOutputBytes,
       maxPendingCards: this.options.limits.maxPendingCards,
+      now: this.options.now,
     };
   }
 }

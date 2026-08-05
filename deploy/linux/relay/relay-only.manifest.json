@@ -1,9 +1,14 @@
 {
   "schemaVersion": 1,
   "topology": "relay",
+  "headlessArtifact": "build/linux-headless/relay",
+  "entrypoint": ["/opt/agent-deck/bin/agent-deck-relay"],
   "quadletTemplate": "agent-deck-relay@.container",
   "instanceSpecifier": "%i",
-  "instanceTokenPattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+  "instanceTokenPattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+  "nodeExecutable": "/usr/bin/node",
+  "bundle": "/opt/agent-deck/linux-headless/relay/index.mjs",
+  "hostForcedCommand": "/opt/agent-deck/bin/agent-deck-relay",
   "runtimeUserTemplate": "%U:%G",
   "userNamespace": "keep-id",
   "hostOwnershipModel": "rootless service-account uid/gid is preserved inside the container",
@@ -15,6 +20,21 @@
     "pids": 256,
     "memory": "512M",
     "cpus": 1
+  },
+  "healthContract": {
+    "command": [
+      "/opt/agent-deck/bin/agent-deck-relay",
+      "health",
+      "--socket",
+      "/run/agent-deck-relay/%i/control.sock"
+    ],
+    "intervalSeconds": 10,
+    "timeoutSeconds": 3,
+    "retries": 3,
+    "startPeriodSeconds": 30,
+    "onFailure": "kill",
+    "systemdNotify": "healthy",
+    "inheritedImageHealthDisabled": true
   },
   "egressAcceptanceGate": {
     "requiredForProductionStart": true,

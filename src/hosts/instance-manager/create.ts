@@ -22,6 +22,7 @@ import {
   InstanceManagerError,
 } from './validation';
 import { prepareVersionArtifacts, stageVersion } from './version-artifacts';
+import { installFullRuntimeConfig } from './full-runtime-config';
 
 function volumeLabels(instanceId: string, purpose: string): Readonly<Record<string, string>> {
   return {
@@ -258,8 +259,19 @@ export async function createInstance(
       context.ports.ids.nextId(),
     );
     createdPaths.push({ path: paths.configFile, identity: configIdentity, kind: 'file' });
-    journal = await advanceJournal(context, paths, journal, { phase: 'config_installed', createdPaths: [...createdPaths] });
     requireOwnedFile(configIdentity, context.serviceUid, 0o600, 'installed runtime config');
+    if (request.topology === 'full') {
+      await installFullRuntimeConfig(
+        context,
+        request.instanceId,
+        staged.configBytes,
+        null,
+      );
+    }
+    journal = await advanceJournal(context, paths, journal, {
+      phase: 'config_installed',
+      createdPaths: [...createdPaths],
+    });
     journal = await advanceJournal(context, paths, journal, { phase: 'unit_installing' });
     const unitIdentity = await atomicWrite(
       context.ports.fileSystem,

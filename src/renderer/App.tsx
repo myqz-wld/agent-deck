@@ -1,15 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { FloatingFrame } from './components/FloatingFrame';
-import { SessionList } from './components/SessionList';
-import { SessionDetail } from './components/SessionDetail';
-import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { AssetsLibraryDialog } from './components/AssetsLibraryDialog';
-import { PendingTab } from './components/PendingTab';
-import { TeamHub } from './components/TeamHub';
-import { IssuesPanel } from './components/IssuesPanel';
-import { DataPanel } from './components/DataPanel';
 import { AppHeader, type AppView } from './components/AppHeader';
 import { useSessionStore } from './stores/session-store';
 import { useEventBridge } from './hooks/use-event-bridge';
@@ -21,11 +14,15 @@ import { loadStableSnapshot } from './lib/load-stable-snapshot';
 import { MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH } from '@shared/types';
 import type { AppSettings, CallerArchiveFailedEvent, SessionRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
-
+import { AppArchiveFailureBanner } from './AppArchiveFailureBanner';
+import { AppWorkspace } from './AppWorkspace';
+import { useRemoteHostSnapshot } from './remote-host/use-remote-host-snapshot';
+import { useRemoteSessionSource } from './remote-host/use-remote-session-source';
+import { clearDetailForSourceView } from './remote-host/source-navigation';
+import { RemoteHostManagerDialog } from './components/RemoteHost/RemoteHostManagerDialog';
+import { RemoteSessionCreateDialog } from './components/RemoteHost/RemoteSessionCreateDialog';
 registerBuiltinDiffRenderers();
-
 const logger = log.scope('renderer-app');
-
 function boundedArchiveReason(reason: string): string {
   if (reason.length <= MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH) return reason;
   return `${reason.slice(0, MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH - 1)}…`;
@@ -33,26 +30,28 @@ function boundedArchiveReason(reason: string): string {
 
 export function App(): JSX.Element {
   useEventBridge();
-  // 常驻订阅 issue-changed（不放 IssuesPanel 组件内，否则切走 tab unmount 即漏事件 →
-  // 切回问题页状态不刷新）。详 use-issues-bridge.ts 头注。
   useIssuesBridge();
   useStartupDataPreload();
+  const remoteHosts = useRemoteHostSnapshot();
+  const remoteSource = useRemoteSessionSource(remoteHosts);
+  const remoteMode = remoteHosts.snapshot?.sourceMode === 'remote';
+  const setRemoteSourceMode = remoteHosts.setSourceMode;
   const sessions = useSessionStore((s) => s.sessions);
   const selectedId = useSessionStore((s) => s.selectedSessionId);
   const select = useSessionStore((s) => s.selectSession);
   const setPendingAll = useSessionStore((s) => s.setPendingRequestsAll);
 
   const [view, setView] = useState<AppView>('live');
+  useEffect(() => {
+    if (remoteMode && (view === 'teams' || view === 'issues' || view === 'data')) {
+      setView('live');
+    }
+  }, [remoteMode, view]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  /** Header 资产库按钮控制（CHANGELOG_57 C5）。SettingsDialog 内的「在资产库中查看」按钮
-   *  也走这条 state——点击时 SettingsDialog 自关 + AssetsLibrary 自开（CHANGELOG_58 起两个
-   *  section 文案统一为「在资产库中查看 ↗」）。 */
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [remoteProfilesOpen, setRemoteProfilesOpen] = useState(false);
   const [pinned, setPinned] = useState(true);
-  // Phase 5 Step 5.6（plan mcp-bug-and-feature-batch-20260513）：从 transparentWhenPinned
-  // 重命名 + 解耦 alwaysOnTop。透明视觉独立于 pin —— 不再 (pinned && transparentWhenPinned)
-  // 共同决定 frosted-frame 透明态，而是 windowTransparent 单字段决定。
   const [windowTransparent, setWindowTransparent] = useState(true);
   const [compact, setCompact] = useState(false);
   const [historySession, setHistorySession] = useState<SessionRecord | null>(null);
@@ -181,6 +180,9 @@ export function App(): JSX.Element {
     let focusRequestSeq = 0;
     const focusSession = (sid: string): void => {
       if (cancelled) return;
+      void setRemoteSourceMode('local').catch((err: unknown) => {
+        logger.warn('[app] switching to Local for a local focus request failed', err);
+      });
       setView('live');
       select(sid);
     };
@@ -207,7 +209,7 @@ export function App(): JSX.Element {
       cancelled = true;
       off();
     };
-  }, [select]);
+  }, [select, setRemoteSourceMode]);
 
   useEffect(() => {
     if (view !== 'history') {
@@ -242,8 +244,6 @@ export function App(): JSX.Element {
     });
     return off;
   }, [select]);
-
-  // R3.E7：删 onTeamPermissionResolved 监听（老 inbox 协议下线）
 
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
@@ -297,7 +297,7 @@ export function App(): JSX.Element {
         : null
       : (selectedFromMap ?? stickySelected);
 
-  const stats = useMemo(() => {
+  const localStats = useMemo(() => {
     // 与 SessionList 的 grouped 共用同一份过滤口径（archivedAt === null && lifecycle ∈ {active, dormant}），
     // 否则当前运行时归档 / lifecycle 转 closed 的会话会留在 store Map 里被多算，
     // 与下方实时列表「活跃 + 休眠」之和对不上。详见 session-selectors.ts。
@@ -318,7 +318,7 @@ export function App(): JSX.Element {
   const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
   const pendingDiffsMap = useSessionStore((s) => s.pendingDiffReviewsBySession);
-  const pending = useMemo(
+  const localPending = useMemo(
     () =>
       sumPendingBuckets(
         selectPendingBuckets(
@@ -331,13 +331,24 @@ export function App(): JSX.Element {
       ),
     [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap, pendingDiffsMap],
   );
+  const stats = remoteMode
+    ? {
+        total: remoteSource.sessionTotal,
+        waiting: [...remoteSource.pendingBySession.values()].filter((row) => row.requests.length > 0).length,
+        working: remoteSource.sessions.filter((session) => session.status === 'active').length,
+      }
+    : localStats;
+  const pending = remoteMode
+    ? [...remoteSource.pendingBySession.values()].reduce((sum, row) => sum + row.requests.length, 0)
+    : localPending;
 
   const jumpToPending = (): void => {
     if (pending === 0) return;
     setView('pending');
     // 清掉当前 selected：detailSession 在 view!=='history' 时优先级高于 view 分支渲染
     // （main 区域 detailSession ? <SessionDetail/> : ...），不清就被 SessionDetail 盖住看不到 PendingTab
-    select(null);
+    clearDetailForSourceView(remoteMode, 'pending', () => select(null),
+      () => remoteSource.selectSession(null));
   };
 
   const onHistorySelect = async (id: string): Promise<void> => {
@@ -381,13 +392,27 @@ export function App(): JSX.Element {
           pending={pending}
           pinned={pinned}
           compact={compact}
+          sourceMode={remoteHosts.snapshot?.sourceMode ?? 'local'}
+          selectedRemoteProfileId={remoteHosts.snapshot?.selectedRemoteProfileId ?? null}
+          remoteProfiles={remoteHosts.snapshot?.profiles ?? []}
           onViewChange={(nextView) => {
             setView(nextView);
-            if (nextView === 'pending' || nextView === 'teams' || nextView === 'issues' || nextView === 'data') {
-              // Detail rendering has priority over these panels, so clear the selected session first.
-              select(null);
+            clearDetailForSourceView(remoteMode, nextView, () => select(null),
+              () => remoteSource.selectSession(null));
+          }}
+          onSourceChange={(value) => {
+            if (value === 'local') {
+              void remoteHosts.setSourceMode('local').catch((err: unknown) => logger.warn('[app] source switch failed', err));
+              return;
+            }
+            const profileId = value.startsWith('remote:') ? value.slice('remote:'.length) : '';
+            if (profileId) {
+              void remoteHosts.selectProfile(profileId)
+                .then(() => remoteHosts.setSourceMode('remote'))
+                .catch((err: unknown) => logger.warn('[app] source switch failed', err));
             }
           }}
+          onOpenRemoteProfiles={() => setRemoteProfilesOpen(true)}
           onOpenPending={jumpToPending}
           onNewSession={() => setNewSessionOpen(true)}
           onTogglePin={() => void togglePin()}
@@ -397,71 +422,33 @@ export function App(): JSX.Element {
         />
 
         {archiveFailure && (
-          <div role="alert" className="mx-3 mt-2 flex items-start gap-2 rounded border border-red-500/50 bg-red-500/10 p-2 text-[11px] text-red-100">
-            <div className="min-w-0 flex-1">
-              <div className="font-semibold">原会话归档失败</div>
-              <div className="break-all text-red-100/90">{archiveFailure.reason}</div>
-              {archiveRetryError && <div className="mt-1 break-all">重试归档失败：{archiveRetryError}</div>}
-            </div>
-            {archiveFailure.reasonKind !== 'row-missing' && (
-              <button type="button" disabled={archiveRetrying} onClick={() => void retryCallerArchive()} className="shrink-0 rounded bg-red-400 px-2 py-1 font-semibold text-black disabled:opacity-50">
-                {archiveRetrying ? '重试中…' : '重试归档'}
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label="关闭归档失败提示"
-              onClick={() => {
-                archiveFailureGeneration.current += 1;
-                setArchiveFailure(null);
-                setArchiveRetryError(null);
-              }}
-              className="shrink-0 rounded px-1 text-red-100/80 hover:bg-white/10"
-            >
-              ×
-            </button>
-          </div>
+          <AppArchiveFailureBanner
+            failure={archiveFailure}
+            retryError={archiveRetryError}
+            retrying={archiveRetrying}
+            onRetry={() => void retryCallerArchive()}
+            onDismiss={() => {
+              archiveFailureGeneration.current += 1;
+              setArchiveFailure(null);
+              setArchiveRetryError(null);
+            }}
+          />
         )}
 
         <main className="flex-1 overflow-hidden">
-          {detailSession ? (
-            <SessionDetail
-              session={detailSession}
-              onClose={() => {
-                if (view === 'history') setHistorySession(null);
-                else select(null);
-              }}
-            />
-          ) : view === 'live' ? (
-            <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2">
-              <SessionList />
-            </div>
-          ) : view === 'pending' ? (
-            <PendingTab
-              onOpenSession={(sid) => {
-                setView('live');
-                select(sid);
-              }}
-            />
-          ) : view === 'teams' ? (
-            <TeamHub
-              onOpenSession={(sid) => {
-                setView('live');
-                select(sid);
-              }}
-            />
-          ) : view === 'issues' ? (
-            <IssuesPanel
-              onOpenSession={(sid) => {
-                setView('live');
-                select(sid);
-              }}
-            />
-          ) : view === 'data' ? (
-            <DataPanel />
-          ) : (
-            <HistoryPanel onSelect={(id) => void onHistorySelect(id)} />
-          )}
+          <AppWorkspace
+            view={view}
+            remoteMode={remoteMode}
+            localDetail={detailSession}
+            remoteSource={remoteSource}
+            onLocalClose={() => {
+              if (view === 'history') setHistorySession(null);
+              else select(null);
+            }}
+            onLocalHistorySelect={(id) => void onHistorySelect(id)}
+            onOpenLocalSession={select}
+            onViewChange={setView}
+          />
         </main>
       </div>
       <SettingsDialog
@@ -484,12 +471,22 @@ export function App(): JSX.Element {
         }}
       />
       <NewSessionDialog
-        open={newSessionOpen}
+        open={newSessionOpen && !remoteMode}
         onClose={() => setNewSessionOpen(false)}
         onCreated={(id) => {
           setView('live');
           select(id);
         }}
+      />
+      <RemoteSessionCreateDialog
+        open={newSessionOpen && remoteMode}
+        source={remoteSource}
+        onClose={() => setNewSessionOpen(false)}
+      />
+      <RemoteHostManagerDialog
+        open={remoteProfilesOpen}
+        hosts={remoteHosts}
+        onClose={() => setRemoteProfilesOpen(false)}
       />
       <AssetsLibraryDialog
         open={assetsLibraryOpen}

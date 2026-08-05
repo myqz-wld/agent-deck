@@ -151,7 +151,8 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
   claimDelivery(
     input: Omit<
       FeishuDeliveryRecord,
-      'attemptDeadlineAt' | 'attempts' | 'phase' | 'status' | 'transportSafety'
+      'attemptDeadlineAt' | 'attempts' | 'phase' | 'status' |
+      'transportIdempotencyExpiresAt' | 'transportSafety'
     >,
     maximumEventAttempts: number,
     attemptLifetimeMs = 30_000,
@@ -171,7 +172,10 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       if (existing.status === 'pending' && input.updatedAt < existing.attemptDeadlineAt) {
         return { state: 'in-progress', record: { ...existing } };
       }
-      if (existing.status === 'pending' && existing.phase === 'transport-invoked') {
+      if (
+        ['failed', 'pending'].includes(existing.status) &&
+        existing.phase === 'transport-invoked'
+      ) {
         if (existing.transportSafety !== 'safe') {
           const reconciling = {
             ...existing,
@@ -180,6 +184,18 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
           };
           this.deliveries.set(key, reconciling);
           return { state: 'reconciliation-required', record: { ...reconciling } };
+        }
+        if (
+          existing.transportIdempotencyExpiresAt === null ||
+          input.updatedAt >= existing.transportIdempotencyExpiresAt
+        ) {
+          const exhausted = {
+            ...existing,
+            status: 'exhausted' as const,
+            updatedAt: input.updatedAt,
+          };
+          this.deliveries.set(key, exhausted);
+          return { state: 'exhausted', record: { ...exhausted } };
         }
       }
       if (existing.status === 'reconciling') {
@@ -208,6 +224,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
         attempts: existing.attempts + 1,
         phase: 'core' as const,
         transportSafety: null,
+        transportIdempotencyExpiresAt: null,
         attemptDeadlineAt: safeDeadline(input.updatedAt, attemptLifetimeMs),
         updatedAt: input.updatedAt,
       };
@@ -220,6 +237,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       attempts: 1,
       phase: 'core',
       transportSafety: null,
+      transportIdempotencyExpiresAt: null,
       attemptDeadlineAt: safeDeadline(input.updatedAt, attemptLifetimeMs),
     };
     this.deliveries.set(key, created);
@@ -239,6 +257,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       ['core'],
       'pre-transport',
       null,
+      null,
       updatedAt,
     );
   }
@@ -248,8 +267,25 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     eventId: string,
     expectedAttempt: number,
     safety: 'safe' | 'unknown',
+    idempotencyExpiresAt: number | null,
     updatedAt: number,
   ): boolean {
+    if (
+      (safety === 'safe' &&
+        (!Number.isSafeInteger(idempotencyExpiresAt) ||
+          (idempotencyExpiresAt as number) <= updatedAt)) ||
+      (safety === 'unknown' && idempotencyExpiresAt !== null)
+    ) return false;
+    const existing = this.deliveries.get(deliveryKey(instanceId, eventId));
+    const retainedExpiry =
+      safety === 'safe' &&
+      existing?.status === 'pending' &&
+      existing.attempts === expectedAttempt &&
+      existing.phase === 'transport-invoked' &&
+      existing.transportSafety === 'safe' &&
+      existing.transportIdempotencyExpiresAt !== null
+        ? Math.min(existing.transportIdempotencyExpiresAt, idempotencyExpiresAt as number)
+        : idempotencyExpiresAt;
     return this.updatePendingPhase(
       instanceId,
       eventId,
@@ -257,6 +293,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       safety === 'safe' ? ['pre-transport', 'transport-invoked'] : ['pre-transport'],
       'transport-invoked',
       safety,
+      retainedExpiry,
       updatedAt,
     );
   }
@@ -282,6 +319,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       status: existing.status === 'pending' ? 'pending' : 'failed',
       phase: 'pre-transport',
       transportSafety: null,
+      transportIdempotencyExpiresAt: null,
       updatedAt,
     });
     return true;
@@ -294,6 +332,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     allowed: readonly FeishuDeliveryRecord['phase'][],
     phase: FeishuDeliveryRecord['phase'],
     transportSafety: FeishuDeliveryRecord['transportSafety'],
+    transportIdempotencyExpiresAt: number | null,
     updatedAt: number,
   ): boolean {
     const key = deliveryKey(instanceId, eventId);
@@ -306,7 +345,13 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     ) {
       return false;
     }
-    this.deliveries.set(key, { ...existing, phase, transportSafety, updatedAt });
+    this.deliveries.set(key, {
+      ...existing,
+      phase,
+      transportSafety,
+      transportIdempotencyExpiresAt,
+      updatedAt,
+    });
     return true;
   }
 
@@ -369,10 +414,27 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     this.cursors.set(key, { ...cursor });
   }
 
+  pruneDeliveries(terminalBefore: number): number {
+    if (!Number.isSafeInteger(terminalBefore) || terminalBefore < 0) {
+      throw new FeishuGatewayError('invalid_configuration', 'Delivery retention cutoff is invalid');
+    }
+    let removed = 0;
+    for (const [key, value] of this.deliveries) {
+      if (
+        ['deduplicated', 'exhausted', 'failed', 'sent'].includes(value.status) &&
+        value.updatedAt < terminalBefore
+      ) {
+        this.deliveries.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   /** Useful for restart tests. The snapshot contains metadata only by construction. */
   exportMetadataSnapshot(): string {
     return JSON.stringify({
-      version: 1,
+      version: 2,
       credentials: [...this.credentials.values()],
       contexts: [...this.contexts.values()],
       subscriptions: [...this.subscriptions.values()],

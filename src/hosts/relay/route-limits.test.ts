@@ -20,6 +20,8 @@ function frame(kind: 'open' | 'data', sequence: number, payload = emptyRoutePayl
     payload,
     creditBytes: null,
     resetCode: null,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 

@@ -32,15 +32,20 @@ class FakeListener implements DaemonListener {
   }
 }
 
-function coalescedClientBytes(credentialId = 'ssh-credential-a'): Uint8Array {
+function coalescedClientBytes(
+  credentialId = 'ssh-credential-a',
+  surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+  clientId = 'desktop-bridge',
+): Uint8Array {
   const admission = encodeBridgeAdmission({
     version: 1,
     topology: 'server-core',
     role: 'client',
     instanceId: 'tenant-a',
     credentialId,
+    surface,
   });
-  const clientHello = encodeJsonFrame(hello('desktop-bridge'));
+  const clientHello = encodeJsonFrame(hello(clientId));
   return Buffer.concat([Buffer.from(admission), Buffer.from(clientHello)]);
 }
 
@@ -107,10 +112,50 @@ describe('daemon SSH forced-command admission', () => {
         role: 'client',
         instanceId: 'tenant-b',
         credentialId: 'ssh-credential-b',
+        surface: 'desktop-full',
       }),
     );
     await waitFor(() => mismatch.destroyed, 'mismatched admission close');
     expect(execute).not.toHaveBeenCalled();
+    await bridge.stop();
+    await host.stop();
+  });
+
+  it('creates an exact Feishu access context from the trusted admission header', async () => {
+    const authorize = vi.fn(() => true);
+    const host = createHost(createRuntime());
+    const listener = new FakeListener();
+    const bridge = new DaemonSshBridgeListener({
+      instanceId: 'tenant-a',
+      host,
+      listener,
+      authorize,
+    });
+    await host.start();
+    await bridge.start();
+    const stream = new TestDuplex();
+    listener.connect(stream);
+    stream.feedBytes(coalescedClientBytes(
+      'feishu-credential-a',
+      'feishu-session-console',
+      'feishu-client-a',
+    ));
+
+    await waitFor(() => Boolean(findMessage(stream, 'hello-result')), 'Feishu bridge hello');
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+      credentialId: 'feishu-credential-a',
+      surface: 'feishu-session-console',
+    }));
+    expect(findMessage(stream, 'hello-result')).toMatchObject({
+      hello: {
+        access: {
+          clientId: 'feishu-client-a',
+          accessCredentialId: 'feishu-credential-a',
+          transport: 'feishu',
+          surface: 'feishu-session-console',
+        },
+      },
+    });
     await bridge.stop();
     await host.stop();
   });

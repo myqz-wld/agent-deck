@@ -112,12 +112,17 @@ export interface PodmanPort {
     labels: Readonly<Record<string, string>>,
     timeoutMs: number,
   ): Promise<PodmanVolumeInspection>;
+  resolveVolumeDataPathExact(
+    volume: PodmanVolumeInspection,
+    timeoutMs: number,
+  ): Promise<string>;
   removeVolumeExact(volume: PodmanVolumeInspection, timeoutMs: number): Promise<void>;
   inspectContainer(name: string, timeoutMs: number): Promise<PodmanContainerInspection | null>;
 }
 
 export interface ClockPort {
   nowMs(): number;
+  sleep(ms: number): Promise<void>;
 }
 
 export interface IdPort {

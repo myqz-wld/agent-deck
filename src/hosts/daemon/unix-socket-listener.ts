@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
+import { chmod, lstat, mkdir, realpath, unlink } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { dirname, normalize } from 'node:path';
 
@@ -42,6 +42,7 @@ export interface UnixSocketListenerDependencies {
     path: string,
     options: { recursive: true; mode: number },
   ) => Promise<unknown>;
+  readonly realpath?: (path: string) => Promise<string>;
   readonly unlink: (path: string) => Promise<void>;
   readonly createConnection: (path: string) => Socket;
   readonly createServer: (listener: (socket: Socket) => void) => Server;
@@ -52,6 +53,7 @@ const DEFAULT_DEPENDENCIES: UnixSocketListenerDependencies = {
   chmod,
   lstat,
   mkdir,
+  realpath,
   unlink,
   createConnection,
   createServer,
@@ -98,7 +100,8 @@ async function preparePrivateRuntimeDirectory(
   if (
     !before.isDirectory() ||
     before.isSymbolicLink() ||
-    (uid !== null && before.uid !== uid)
+    (uid !== null && before.uid !== uid) ||
+    (dependencies.realpath && (await dependencies.realpath(runtimeDirectory)) !== runtimeDirectory)
   ) {
     throw new DaemonSocketError(
       'runtime_directory_unsafe',
@@ -112,7 +115,8 @@ async function preparePrivateRuntimeDirectory(
     before.ino !== after.ino ||
     !after.isDirectory() ||
     after.isSymbolicLink() ||
-    (after.mode & 0o777) !== 0o700
+    (after.mode & 0o777) !== 0o700 ||
+    (dependencies.realpath && (await dependencies.realpath(runtimeDirectory)) !== runtimeDirectory)
   ) {
     throw new DaemonSocketError(
       'runtime_directory_unsafe',

@@ -46,6 +46,7 @@ export interface DaemonRequestSchedulerOptions {
   readonly supportedMethods: ReadonlySet<CoreMethod>;
   readonly limits: DaemonConnectionLimits;
   readonly callbacks: DaemonRequestSchedulerCallbacks;
+  readonly assertCredentialActive: (signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
 }
 
@@ -264,6 +265,8 @@ export class DaemonRequestScheduler {
     controller: AbortController,
   ): Promise<void> {
     try {
+      await this.options.assertCredentialActive(controller.signal);
+      if (controller.signal.aborted) return;
       const result = await this.options.runtime.execute({
         access: this.options.access,
         requestId: message.requestId,

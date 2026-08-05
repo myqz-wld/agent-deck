@@ -16,6 +16,7 @@
  * - logs.ts              Logs* (Settings LogsSection 后端 — Plan runtime-logging §D9 §Step 3.2.5)
  * - issues.ts            Issues* (plan issue-tracker-mcp-20260529 §Step 3.5)
  * - provider-usage.ts    ProviderUsageSnapshot (数据 tab 订阅窗口用量)
+ * - remote-host.ts       本地主进程持有的远程主机配置、SSH 生命周期和 session console facade
  */
 import { registerWindowAppIpc } from './window-app';
 import { registerSessionsIpc } from './sessions';
@@ -31,6 +32,7 @@ import { registerIssuesIpc } from './issues';
 import { registerTokenUsageIpc } from './token-usage';
 import { registerProviderUsageIpc } from './provider-usage';
 import { registerPlanReviewIpc } from './plan-review';
+import { registerRemoteHostIpc } from './remote-host';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -47,4 +49,5 @@ export function bootstrapIpc(): void {
   registerIssuesIpc();
   registerTokenUsageIpc();
   registerProviderUsageIpc();
+  registerRemoteHostIpc();
 }

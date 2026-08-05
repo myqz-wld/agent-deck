@@ -16,6 +16,8 @@ function dataFrame(): RelayRouteFrame {
     payload: new Uint8Array([1, 2, 3]),
     creditBytes: null,
     resetCode: null,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 

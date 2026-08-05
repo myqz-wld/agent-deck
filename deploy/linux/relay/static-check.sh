@@ -17,6 +17,11 @@ node -e '
   if (!Array.isArray(manifest.publishedPorts) || manifest.publishedPorts.length !== 0) process.exit(1);
   if (manifest.quadletTemplate !== "agent-deck-relay@.container") process.exit(1);
   if (manifest.instanceSpecifier !== "%i" || manifest.engineSocketMounted !== false) process.exit(1);
+  if (JSON.stringify(manifest.entrypoint) !== JSON.stringify(["/opt/agent-deck/bin/agent-deck-relay"])) process.exit(1);
+  if (manifest.instanceTokenPattern !== "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$") process.exit(1);
+  if (manifest.nodeExecutable !== "/usr/bin/node") process.exit(1);
+  if (manifest.bundle !== "/opt/agent-deck/linux-headless/relay/index.mjs") process.exit(1);
+  if (manifest.hostForcedCommand !== "/opt/agent-deck/bin/agent-deck-relay") process.exit(1);
   if (manifest.runtimeUserTemplate !== "%U:%G" || manifest.userNamespace !== "keep-id") process.exit(1);
   if (manifest.resourceLimits.pids !== 256 || manifest.resourceLimits.memory !== "512M") process.exit(1);
   const gate = manifest.egressAcceptanceGate;
@@ -37,6 +42,10 @@ node -e '
   if (evidence.pathTemplate !== "/etc/agent-deck-relay/evidence/%i") process.exit(1);
   if (evidence.owner !== "root" || evidence.relayServiceWritable !== false) process.exit(1);
   if (manifest.configAcceptanceGate.containerReadOnly !== true) process.exit(1);
+  const health = manifest.healthContract;
+  if (JSON.stringify(health.command) !== JSON.stringify(["/opt/agent-deck/bin/agent-deck-relay", "health", "--socket", "/run/agent-deck-relay/%i/control.sock"])) process.exit(1);
+  if (health.intervalSeconds !== 10 || health.timeoutSeconds !== 3 || health.retries !== 3 || health.startPeriodSeconds !== 30) process.exit(1);
+  if (health.onFailure !== "kill" || health.systemdNotify !== "healthy" || health.inheritedImageHealthDisabled !== true) process.exit(1);
   if (!manifest.excludedComponents.includes("server compute fallback")) process.exit(1);
 ' "$relay_dir/relay-only.manifest.json"
 
@@ -71,6 +80,9 @@ for replacement in \
   'ReadOnly=true|ReadOnly=false' \
   'User=%U:%G|User=0:0' \
   'UserNS=keep-id|UserNS=host' \
+  'HealthCmd=["CMD","/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]|HealthCmd=["CMD","/bin/true"]' \
+  'HealthOnFailure=kill|HealthOnFailure=none' \
+  'Notify=healthy|Notify=true' \
   'Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z|Volume=/:/var/lib/agent-deck-relay/%i:Z' \
   'PodmanArgs=--pids-limit=256 --memory=512m --cpus=1.0|PodmanArgs=--privileged'; do
   fixture_number=$((fixture_number + 1))
@@ -93,12 +105,62 @@ if ! grep -Eq '^restrict,command="[^"]+",no-agent-forwarding,no-port-forwarding,
   echo "relay static check: Worker public key must force attach and disable SSH expansion" >&2
   exit 1
 fi
+grep -Fq 'command="/opt/agent-deck/bin/agent-deck-relay attach --instance INSTANCE_ID --credential CREDENTIAL_ID --socket /run/user/RUNTIME_UID/agent-deck-relay/INSTANCE_ID/control.sock --worker WORKER_ID"' \
+  "$relay_dir/authorized-key-options.txt" || {
+  echo "relay static check: Worker forced command must bind instance, credential, and Worker" >&2
+  exit 1
+}
+for surface in desktop-full feishu-session-console; do
+  if ! grep -Eq "^restrict,command=\"/opt/agent-deck/bin/agent-deck-relay bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface $surface --socket /run/user/RUNTIME_UID/agent-deck-relay/INSTANCE_ID/control.sock\",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty ssh-" \
+    "$relay_dir/authorized-client-key-options.txt"; then
+    echo "relay static check: client key must bind instance, credential, and $surface" >&2
+    exit 1
+  fi
+done
+node - "$relay_dir" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const relayDir = process.argv[2];
+const source = fs.readFileSync(path.resolve(relayDir, '../../../src/hosts/relay/entrypoint-command.ts'), 'utf8');
+function schema(name) {
+  const match = new RegExp(`${name}: Object\\.freeze\\(\\[([\\s\\S]*?)\\]\\)`).exec(source);
+  if (!match) throw new Error(`missing ${name} production schema`);
+  return [...match[1].matchAll(/'(--[^']+)'/g)].map((entry) => entry[1]);
+}
+const expected = {
+  attach: ['--instance', '--credential', '--socket', '--worker'],
+  bridge: ['--instance', '--credential', '--surface', '--socket'],
+};
+for (const [name, flags] of Object.entries(expected)) {
+  if (JSON.stringify(schema(name)) !== JSON.stringify(flags)) {
+    throw new Error(`${name} production schema drifted from packaged forced commands`);
+  }
+}
+NODE
+if grep -Fq 'environment=' "$relay_dir/authorized-key-options.txt" \
+  "$relay_dir/authorized-client-key-options.txt"; then
+  echo "relay static check: authorized keys must not add inherited environment options" >&2
+  exit 1
+fi
 
 if grep -Eqi '(@openai/codex|claude-agent-sdk|xai-official|chrom(e|ium)|better-sqlite3|git[[:space:]]+workspace)' \
   "$relay_dir/Containerfile" "$relay_dir/agent-deck-relay@.container"; then
   echo "relay static check: forbidden full-Core build content found" >&2
   exit 1
 fi
+
+grep -Fqx 'COPY build/linux-headless/relay/ /opt/agent-deck/linux-headless/relay/' "$relay_dir/Containerfile" || {
+  echo "relay static check: image must copy only the isolated Relay headless artifact" >&2
+  exit 1
+}
+grep -Fqx 'ENTRYPOINT ["/opt/agent-deck/bin/agent-deck-relay"]' "$relay_dir/Containerfile" || {
+  echo "relay static check: image must invoke the Node-only Relay entrypoint" >&2
+  exit 1
+}
+grep -Fqx 'HEALTHCHECK NONE' "$relay_dir/Containerfile" || {
+  echo "relay static check: image must clear an inherited base-image health command" >&2
+  exit 1
+}
 
 if grep -Eqi '(PublishPort|ExposeHostPort|podman\.sock|docker\.sock|containerd\.sock)' \
   "$relay_dir/agent-deck-relay@.container"; then

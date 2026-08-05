@@ -2,6 +2,7 @@ import {
   enumField,
   integerField,
   isRecord,
+  linuxInstanceIdField,
   nullableStableTokenField,
   nullableStringField,
   RelayMetadataError,
@@ -54,6 +55,7 @@ export const RELAY_METADATA_ALLOWED_FIELDS = {
     'instanceId',
     'routeId',
     'accessCredentialId',
+    'accessSurface',
     'workerId',
     'generation',
     'status',
@@ -166,6 +168,7 @@ export interface RouteMetadata {
   instanceId: string;
   routeId: string;
   accessCredentialId: string;
+  accessSurface: 'desktop-full' | 'feishu-session-console';
   workerId: string;
   generation: number;
   status: 'open' | 'closed' | 'fenced';
@@ -251,7 +254,7 @@ function assertKeys(table: RelayMetadataTable, row: Record<string, unknown>): vo
 function common(table: RelayMetadataTable, row: Record<string, unknown>): void {
   assertKeys(table, row);
   stableTokenField(row, 'id');
-  stableTokenField(row, 'instanceId');
+  linuxInstanceIdField(row, 'instanceId');
 }
 
 const OPENSSH_PUBLIC_KEY = /^(?:ssh-(?:ed25519|rsa)|ecdsa-sha2-nistp(?:256|384|521)|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/]+={0,3}(?: [^\s].*)?$/;
@@ -315,6 +318,7 @@ function validateRow(table: RelayMetadataTable, value: unknown): RelayMetadataRo
         throw new RelayMetadataError('routes.id must equal routeId');
       }
       stableTokenField(value, 'accessCredentialId');
+      enumField(value, 'accessSurface', ['desktop-full', 'feishu-session-console']);
       stableTokenField(value, 'workerId');
       integerField(value, 'generation', 1);
       enumField(value, 'status', ['open', 'closed', 'fenced']);
@@ -391,6 +395,14 @@ function emptyTables(): MetadataArrays {
 
 export class RelayMetadataStore {
   private readonly tables = emptyTables();
+  private mutationObserver: (() => void) | null = null;
+
+  setMutationObserver(observer: (() => void) | null): void {
+    if (observer !== null && this.mutationObserver !== null) {
+      throw new RelayMetadataError('Relay metadata mutation observer is already installed');
+    }
+    this.mutationObserver = observer;
+  }
 
   put<K extends RelayMetadataTable>(table: K, value: unknown): RelayMetadataRows[K] {
     const row = validateRow(table, value) as RelayMetadataRows[K];
@@ -404,6 +416,7 @@ export class RelayMetadataStore {
     const copy = { ...row };
     if (index === -1) rows.push(copy);
     else rows[index] = copy;
+    this.mutationObserver?.();
     return { ...copy };
   }
 

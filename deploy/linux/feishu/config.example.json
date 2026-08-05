@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "topology": "relay",
+  "instanceId": "replace-with-authoritative-instance-id",
+  "appId": "cli_0000000000000000",
+  "tenantKey": "replace-with-tenant-key",
+  "stateDirectory": "/var/lib/agent-deck-feishu",
+  "appSecretFile": "/etc/agent-deck-feishu/app-secret",
+  "actionSecretFile": "/etc/agent-deck-feishu/action-secret",
+  "credentials": [
+    {
+      "openId": "ou_replace_with_stable_open_id",
+      "credentialId": "replace-with-core-credential-id",
+      "status": "active"
+    }
+  ],
+  "callbackWindowMs": 2800,
+  "pendingPresentationLifetimeMs": 1800000,
+  "startupTimeoutMs": 15000,
+  "reconnectTimeoutMs": 120000,
+  "shutdownTimeoutMs": 10000,
+  "handshakeTimeoutMs": 10000,
+  "pingTimeoutSeconds": 45
+}

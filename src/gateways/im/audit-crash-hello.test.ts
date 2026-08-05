@@ -52,6 +52,7 @@ describe('crash-recoverable delivery phases', () => {
       deliveryInput.eventId,
       first.record.attempts,
       'unknown',
+      null,
       2,
     )).toBe(true);
     const reconcile = unknown.claimDelivery({ ...deliveryInput, updatedAt: 10 }, 3, 10);
@@ -78,6 +79,7 @@ describe('crash-recoverable delivery phases', () => {
         deliveryInput.eventId,
         1,
         safety === 'safe' ? 'safe' : 'unknown',
+        safety === 'safe' ? 3_602 : null,
         2,
       );
       if (safety === 'not-accepted') {

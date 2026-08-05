@@ -4,6 +4,8 @@ import { evidencePaths, revalidateEvidence, validateStartEvidence } from './evid
 import { loadInstance, revalidateLoadedArtifacts, type LoadedInstance } from './instance-reader';
 import { runStartPreflight } from './preflight';
 import { validateImageAvailable } from './create';
+import { waitForHealthyContainer } from './container-health';
+import { verifyFullRuntimeConfig } from './full-runtime-config';
 import type { InstanceSelector, InstanceStatus, InstanceSummary, SystemdUnitStatus } from './types';
 import { fail, InstanceManagerError } from './validation';
 
@@ -81,6 +83,13 @@ export async function startInstance(
     maxArtifactBytes: context.limits.maxArtifactBytes,
     serviceUid: context.serviceUid,
   });
+  if (loaded.record.topology === 'full') {
+    await verifyFullRuntimeConfig(
+      context,
+      loaded.record.instanceId,
+      loaded.current.configSha256,
+    );
+  }
   await validateImageAvailable(context, loaded.current.image);
   const evidenceSnapshots = await validateStartEvidence({
     topology: loaded.record.topology,
@@ -105,6 +114,13 @@ export async function startInstance(
   await context.ports.systemd.daemonReload(context.limits.lifecycleTimeoutMs);
   await revalidateEvidence(context.ports.fileSystem, evidenceSnapshots, context.ports.clock, context.limits.maxEvidenceAgeMs);
   await revalidateLoadedArtifacts({ loaded, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
+  if (loaded.record.topology === 'full') {
+    await verifyFullRuntimeConfig(
+      context,
+      loaded.record.instanceId,
+      loaded.current.configSha256,
+    );
+  }
   let attemptedStart = false;
   try {
     attemptedStart = true;
@@ -112,10 +128,10 @@ export async function startInstance(
       loaded.paths.unitName,
       context.limits.lifecycleTimeoutMs,
     );
-    const container = await context.ports.podman.inspectContainer(loaded.paths.containerName, context.limits.healthTimeoutMs);
-    if (!container || container.name !== loaded.paths.containerName || container.image !== loaded.current.image || !container.running || container.health !== 'healthy') {
-      fail('health_failed', 'exact instance container did not become healthy');
-    }
+    await waitForHealthyContainer(context, {
+      name: loaded.paths.containerName,
+      image: loaded.current.image,
+    });
     const systemd = await statusLoaded(context, loaded);
     if (systemd.activeState !== 'active') fail('health_failed', 'exact systemd user unit is not active after start');
     return { ...summary(loaded), systemd };

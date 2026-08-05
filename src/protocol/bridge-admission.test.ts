@@ -13,6 +13,7 @@ const CLIENT: BridgeAdmission = {
   role: 'client',
   instanceId: 'tenant-a',
   credentialId: 'ssh-credential-a',
+  surface: 'desktop-full',
 };
 
 describe('private bridge admission framing', () => {
@@ -33,16 +34,24 @@ describe('private bridge admission framing', () => {
 
   it('validates exact topology/role fields and rejects unknown data', () => {
     expect(() =>
-      encodeBridgeAdmission({ ...CLIENT, extra: true } as BridgeAdmission),
+      encodeBridgeAdmission({ ...CLIENT, extra: true } as unknown as BridgeAdmission),
     ).toThrow('Unknown admission field');
     expect(() =>
-      encodeBridgeAdmission({ ...CLIENT, role: 'worker' } as BridgeAdmission),
+      encodeBridgeAdmission({
+        version: 1,
+        topology: 'relay',
+        role: 'worker',
+        instanceId: CLIENT.instanceId,
+        credentialId: CLIENT.credentialId,
+      } as unknown as BridgeAdmission),
     ).toThrow('Missing admission field: workerId');
     expect(() =>
       encodeBridgeAdmission({
-        ...CLIENT,
+        version: 1,
         topology: 'server-core',
         role: 'worker',
+        instanceId: CLIENT.instanceId,
+        credentialId: CLIENT.credentialId,
         workerId: 'worker-a',
       } as unknown as BridgeAdmission),
     ).toThrow('Worker admission requires Relay');

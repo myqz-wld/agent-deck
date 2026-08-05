@@ -18,6 +18,7 @@ export interface RelaySocketClientPeerOptions {
   readonly clientId: string;
   readonly streamId: string;
   readonly credentialId: string;
+  readonly surface: 'desktop-full' | 'feishu-session-console';
   readonly stream: Duplex;
   readonly router: RelayStreamRouter;
   readonly onRouterChanged: () => void;
@@ -67,7 +68,11 @@ export class RelaySocketClientPeer {
     stream.once('end', this.onEnd);
     stream.once('error', this.onTerminal);
     stream.once('close', this.onTerminal);
-    this.options.router.registerClient(this.options.clientId, this.options.credentialId);
+    this.options.router.registerClient(
+      this.options.clientId,
+      this.options.credentialId,
+      this.options.surface,
+    );
     try {
       this.handle = this.bridge.open(this.options.streamId, {
         data: (payload) => {

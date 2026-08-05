@@ -16,6 +16,7 @@ export class FeishuNotificationLanes {
     private readonly consume: (
       credential: EnrolledFeishuCredential,
       chatId: string,
+      epoch: number,
       event: NotificationEvent,
     ) => Promise<void>,
     private readonly observer: FeishuGatewayObserver | undefined,
@@ -39,7 +40,7 @@ export class FeishuNotificationLanes {
       lane = new FeishuNotificationLane(
         chatId,
         this.maximumQueued,
-        (event) => this.consume(credential, chatId, event),
+        (epoch, event) => this.consume(credential, chatId, epoch, event),
         this.observer,
         (failedEpoch) => this.onFailure(credential, chatId, failedEpoch),
       );

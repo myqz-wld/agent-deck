@@ -275,6 +275,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
 
 export class FakeTransport implements FeishuTransportPort {
   readonly deliverySemantics = 'event-id-idempotent' as const;
+  readonly deliveryIdempotencyWindowMs = 60 * 60 * 1_000;
   readonly messages: FeishuOutboundMessage[] = [];
   readonly attempts: FeishuDeliveryAttemptContext[] = [];
   failures = 0;
@@ -308,9 +309,23 @@ function hash(value: string): string {
   return (result >>> 0).toString(36);
 }
 
+function nonceValue(binding: Parameters<PendingActionNoncePort['issue']>[0]): string {
+  return JSON.stringify([
+    binding.instanceId,
+    binding.credentialId,
+    binding.chatId,
+    binding.chatType,
+    binding.sessionId,
+    binding.requestId,
+    binding.revision,
+    binding.contentDigest,
+    binding.action,
+  ]);
+}
+
 export const testNonce: PendingActionNoncePort = {
-  issue: (binding) => `nonce-${hash(JSON.stringify(binding))}`,
-  verify: (binding, nonce) => nonce === `nonce-${hash(JSON.stringify(binding))}`,
+  issue: (binding) => `nonce-${hash(nonceValue(binding))}`,
+  verify: (binding, nonce) => nonce === `nonce-${hash(nonceValue(binding))}`,
 };
 
 export function session(
@@ -383,6 +398,7 @@ export function messageEvent(
     tenantKey: credential.tenantKey,
     openId: credential.openId,
     chatId: 'chat-1',
+    chatType: 'p2p',
     occurredAt: 1,
     text,
     ...overrides,
@@ -402,6 +418,7 @@ export function actionEvent(
     tenantKey: credential.tenantKey,
     openId: credential.openId,
     chatId: action.chatId,
+    chatType: action.chatType,
     occurredAt: 2,
     action,
     ...overrides,

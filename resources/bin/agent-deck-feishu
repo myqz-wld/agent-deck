@@ -1,0 +1,34 @@
+#!/bin/bash -p
+set -euo pipefail
+unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV \
+  LD_LIBRARY_PATH LD_PRELOAD NODE_OPTIONS
+PATH=/usr/bin:/bin
+export PATH
+
+fail() {
+  echo '飞书运行时未正确安装。' >&2
+  exit 70
+}
+
+verify_root_owned() {
+  local path=$1 kind=$2 mode owner
+  [[ ! -L "$path" ]] || fail
+  [[ "$kind" == directory && -d "$path" || "$kind" == file && -f "$path" ]] || fail
+  [[ "$(/usr/bin/readlink -f -- "$path")" == "$path" ]] || fail
+  owner="$(/usr/bin/stat -Lc '%u' -- "$path")"
+  mode="$(/usr/bin/stat -Lc '%a' -- "$path")"
+  [[ "$owner" == 0 ]] || fail
+  (( (8#$mode & 8#022) == 0 )) || fail
+}
+
+for directory in /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless /opt/agent-deck/linux-headless/feishu; do
+  verify_root_owned "$directory" directory
+done
+verify_root_owned /opt/agent-deck/bin/agent-deck-feishu file
+verify_root_owned /usr/bin/node file
+verify_root_owned /usr/bin/ssh file
+verify_root_owned /opt/agent-deck/linux-headless/feishu/index.mjs file
+
+exec /usr/bin/env -i \
+  HOME=/var/lib/agent-deck-feishu PATH=/usr/bin:/bin LANG=C LC_ALL=C NODE_ENV=production \
+  /usr/bin/node /opt/agent-deck/linux-headless/feishu/index.mjs "$@"

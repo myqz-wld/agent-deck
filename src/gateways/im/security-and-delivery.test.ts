@@ -35,6 +35,7 @@ describe('strict Feishu schemas and deterministic grammar', () => {
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'chat-1',
+      chatType: 'p2p' as const,
       sessionId: 'session-1',
       requestId: 'pending-1',
       action: 'approve' as const,
@@ -50,6 +51,7 @@ describe('strict Feishu schemas and deterministic grammar', () => {
         tenantKey: credential.tenantKey,
         openId: credential.openId,
         chatId: 'chat-1',
+        chatType: 'p2p',
         occurredAt: 1,
         action: {
           name: 'pending.respond',

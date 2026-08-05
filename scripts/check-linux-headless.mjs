@@ -1,0 +1,332 @@
+#!/usr/bin/env node
+
+import { execFileSync } from 'node:child_process';
+import { createConnection, createServer } from 'node:net';
+import { PassThrough, Readable } from 'node:stream';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { dirname, extname, relative, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { builtinModules } from 'node:module';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const outputRoot = resolve(repoRoot, 'build/linux-headless');
+const sourceRoots = [
+  'src/composition',
+  'src/clients/ssh',
+  'src/gateways/im',
+  'src/gateways/feishu',
+  'src/hosts/daemon',
+  'src/hosts/server-core',
+  'src/hosts/local-worker',
+  'src/hosts/relay',
+  'src/hosts/instance-manager',
+  'src/hosts/linux-runtime',
+  'src/hosts/feishu',
+];
+
+function fail(message) {
+  process.stderr.write(`Linux 无界面检查失败：${message}\n`);
+  process.exit(1);
+}
+
+function filesUnder(root) {
+  if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(root, entry.name);
+    return entry.isDirectory() ? filesUnder(path) : [path];
+  });
+}
+
+function run(executable, args) {
+  execFileSync(executable, args, {
+    cwd: repoRoot,
+    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function relayFixtureCommands() {
+  const relayRoot = resolve(repoRoot, 'deploy/linux/relay');
+  const sources = [
+    readFileSync(resolve(relayRoot, 'authorized-key-options.txt'), 'utf8'),
+    readFileSync(resolve(relayRoot, 'authorized-client-key-options.txt'), 'utf8'),
+  ];
+  const commands = sources.flatMap((source) => [...source.matchAll(/command="([^"]+)"/g)])
+    .map((match) => match[1]
+      .replaceAll('INSTANCE_ID', 'instance-a')
+      .replaceAll('CREDENTIAL_ID', 'credential-a')
+      .replaceAll('WORKER_ID', 'worker-a')
+      .replaceAll('RUNTIME_UID', '1001'));
+  if (commands.length !== 3) fail('Relay authorized-key fixtures are incomplete');
+  return commands;
+}
+
+async function verifyRelayBundleForcedCommands() {
+  const root = realpathSync(mkdtempSync(resolve(realpathSync(tmpdir()), 'agent-deck-relay-wire-')));
+  const socketPath = resolve(root, 'control.sock');
+  const admissions = [];
+  const server = createServer((socket) => {
+    let buffered = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      buffered = Buffer.concat([buffered, chunk]);
+      if (buffered.byteLength < 4) return;
+      const declared = buffered.readUInt32BE(0);
+      if (declared <= 0 || declared > 8 * 1024 || buffered.byteLength < declared + 4) return;
+      admissions.push(JSON.parse(buffered.subarray(4, declared + 4).toString('utf8')));
+      socket.end();
+    });
+  });
+  try {
+    await new Promise((resolveListen, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolveListen);
+    });
+    const relay = await import(pathToFileURL(resolve(outputRoot, 'relay/index.mjs')).href);
+    if (await relay.runRelayEntrypoint(['health', '--socket', socketPath]) !== 0) {
+      fail('Relay bundle health command rejected its private control socket');
+    }
+    for (const [index, command] of relayFixtureCommands().entries()) {
+      const [, ...argv] = command.split(' ');
+      const originalCommand = index === 0
+        ? 'agent-deck-relay attach --instance instance-a --credential credential-a --worker worker-a'
+        : 'agent-deck-bridge';
+      const accepted = await relay.runRelayForcedCommand(argv, {
+        serviceUid: 1001,
+        originalCommand,
+        input: Readable.from([]),
+        output: new PassThrough(),
+        connect: (declaredPath) => new Promise((resolveSocket, reject) => {
+          if (declaredPath !== '/run/user/1001/agent-deck-relay/instance-a/control.sock') {
+            reject(new Error('Relay binding produced an unexpected control socket'));
+            return;
+          }
+          const socket = createConnection(socketPath);
+          socket.once('connect', () => resolveSocket(socket));
+          socket.once('error', reject);
+        }),
+      });
+      if (accepted !== true) fail('Relay bundle rejected a packaged forced command');
+    }
+    if (JSON.stringify(admissions) !== JSON.stringify([
+      { version: 1, topology: 'relay', role: 'worker', instanceId: 'instance-a', credentialId: 'credential-a', workerId: 'worker-a' },
+      { version: 1, topology: 'relay', role: 'client', instanceId: 'instance-a', credentialId: 'credential-a', surface: 'desktop-full' },
+      { version: 1, topology: 'relay', role: 'client', instanceId: 'instance-a', credentialId: 'credential-a', surface: 'feishu-session-console' },
+    ])) fail('Relay bundle admission handshake drifted from the packaged key fixtures');
+  } finally {
+    await new Promise((resolveClose) => server.close(() => resolveClose()));
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+for (const root of sourceRoots) {
+  for (const file of filesUnder(resolve(repoRoot, root))) {
+    if (!['.ts', '.tsx'].includes(extname(file))) continue;
+    const lines = readFileSync(file, 'utf8').split('\n').length - 1;
+    if (lines >= 500) fail(`${relative(repoRoot, file)} has ${lines} lines`);
+    if (!file.endsWith('.test.ts') && /(?:from|import\()\s*['"]electron(?:['"/])/.test(readFileSync(file, 'utf8'))) {
+      fail(`${relative(repoRoot, file)} imports Electron`);
+    }
+  }
+}
+
+const packageFixture = JSON.parse(readFileSync(
+  resolve(repoRoot, 'deploy/linux/manager/linux-headless.package.json'),
+  'utf8',
+));
+const builtManifest = JSON.parse(readFileSync(resolve(outputRoot, 'manifest.json'), 'utf8'));
+if (JSON.stringify(packageFixture.entries) !== JSON.stringify(builtManifest.entries)) {
+  fail('built entries differ from the package fixture');
+}
+if (
+  packageFixture.instanceManagerKind !== 'host-only-library' ||
+  packageFixture.hostRequirements?.platform !== 'linux' ||
+  packageFixture.hostRequirements?.procSelfFd !== true ||
+  packageFixture.hostRequirements?.podman !== 'rootless' ||
+  packageFixture.hostRequirements?.nodeExecutable !== '/usr/bin/node' ||
+  packageFixture.hostRequirements?.podmanExecutable !== '/usr/bin/podman' ||
+  packageFixture.hostRequirements?.wrapperShell !== '/bin/bash' ||
+  packageFixture.hostRequirements?.emptyEnvironmentExecutable !== '/usr/bin/env' ||
+  packageFixture.hostRequirements?.serviceAccountHome !== '/var/lib/agent-deck' ||
+  packageFixture.hostRequirements?.fullStateConfigProvisioning !==
+    '/var/lib/agent-deck/config/agent-deck/instances/<instanceId>/config.json' ||
+  packageFixture.hostRequirements?.fullStateConfigOwner !== 'instance-manager' ||
+  packageFixture.hostRequirements?.fullStateConfigTransport !==
+    'exact-rootless-volume-data-path' ||
+  packageFixture.hostRequirements?.fullStateConfigDigestBound !== true
+) fail('instance-manager host-only requirements are incomplete');
+const install = packageFixture.installMapping;
+if (
+  install?.serverCoreBundle !== '/opt/agent-deck/linux-headless/server-core/index.mjs' ||
+  install?.serverCoreContainerCommand !== '/opt/agent-deck/bin/agent-deckd' ||
+  install?.serverCoreHostBridgeBundle !==
+    '/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs' ||
+  install?.serverCoreHostForcedCommand !== '/opt/agent-deck/bin/agent-deck-full-bridge' ||
+  install?.relayCommand !== '/opt/agent-deck/bin/agent-deck-relay' ||
+  install?.localWorkerCommand !== '/opt/agent-deck/bin/agent-deck-worker' ||
+  install?.feishuBundle !== '/opt/agent-deck/linux-headless/feishu/index.mjs' ||
+  install?.feishuCommand !== '/opt/agent-deck/bin/agent-deck-feishu' ||
+  install?.feishuPreflight !== '/opt/agent-deck/libexec/agent-deck-feishu-preflight' ||
+  install?.ownership !== 'root:root' || install?.wrapperMode !== '0755' ||
+  install?.bundleMode !== '0644' || install?.symlinksAllowed !== false
+) fail('canonical Linux install mapping is incomplete');
+const sshdPolicy = packageFixture.forcedCommandSshdPolicy;
+if (
+  sshdPolicy?.permitUserEnvironment !== false ||
+  sshdPolicy?.authorizedKeyEnvironmentOptionAllowed !== false ||
+  JSON.stringify(sshdPolicy?.forbiddenAcceptedEnvironment) !== JSON.stringify([
+    'AGENT_DECK_HEADLESS_ROOT', 'AGENT_DECK_NODE', 'BASH_ENV', 'ENV',
+    'LD_LIBRARY_PATH', 'LD_PRELOAD', 'NODE_OPTIONS', 'PATH',
+  ])
+) fail('forced-command sshd environment policy is incomplete');
+if (builtManifest.nativeExternals?.join(',') !== 'better-sqlite3') {
+  fail('better-sqlite3 must remain an explicit Node-native external');
+}
+
+for (const entry of Object.values(builtManifest.entries)) {
+  if (!statSync(resolve(outputRoot, entry), { throwIfNoEntry: false })?.isFile()) {
+    fail(`missing built entry ${entry}`);
+  }
+}
+const relayFiles = filesUnder(resolve(outputRoot, 'relay'));
+const relayBundle = relayFiles.map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const forbidden of [
+  'better-sqlite3',
+  'createServerCoreController',
+  'SessionConsoleDaemonRuntime',
+  '@openai/codex',
+  '@anthropic-ai/claude-agent-sdk',
+  '@xai-official/grok',
+]) {
+  if (relayBundle.includes(forbidden)) fail(`Relay artifact contains ${forbidden}`);
+}
+if (/(?:from|import\()\s*['"]electron(?:['"/])/.test(relayBundle)) {
+  fail('Relay artifact imports Electron');
+}
+for (const role of ['server-core', 'local-worker']) {
+  const bundle = filesUnder(resolve(outputRoot, role))
+    .map((file) => readFileSync(file, 'utf8')).join('\n');
+  if (!bundle.includes('check-abi') || !bundle.includes('better-sqlite3')) {
+    fail(`${role} artifact lost its Node-native SQLite ABI preflight`);
+  }
+  if (role === 'server-core' && bundle.includes('/usr/bin/podman')) {
+    fail('Server Core container artifact contains the host Podman bridge');
+  }
+}
+const feishuBundle = filesUnder(resolve(outputRoot, 'feishu'))
+  .map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const required of [
+  'WSClient',
+  'feishu-session-console',
+  'check-abi',
+  'better-sqlite3',
+]) {
+  if (!feishuBundle.includes(required)) fail(`Feishu artifact lost ${required}`);
+}
+for (const forbidden of [
+  'createServerCoreController',
+  'createLocalWorkerController',
+  '/usr/bin/podman',
+]) {
+  if (feishuBundle.includes(forbidden)) fail(`Feishu artifact contains ${forbidden}`);
+}
+if (/(?:from|import\()\s*['"]electron(?:['"/])/.test(feishuBundle)) {
+  fail('Feishu artifact imports Electron');
+}
+const allowedFeishuExternals = new Set([
+  'better-sqlite3',
+  ...builtinModules,
+  ...builtinModules.map((module) => `node:${module}`),
+]);
+for (const match of feishuBundle.matchAll(/^import .* from "([^"]+)";/gm)) {
+  if (!allowedFeishuExternals.has(match[1])) {
+    fail(`Feishu artifact has an unpackaged external import: ${match[1]}`);
+  }
+}
+const fullHostBridge = readFileSync(
+  resolve(outputRoot, 'server-core-host-bridge/index.mjs'),
+  'utf8',
+);
+for (const required of ['/usr/bin/podman', 'bridge-internal', 'io.agent-deck.instance']) {
+  if (!fullHostBridge.includes(required)) fail(`Full host bridge lost ${required}`);
+}
+for (const forbidden of ['better-sqlite3', 'createServerCoreController', 'SessionConsoleDaemonRuntime']) {
+  if (fullHostBridge.includes(forbidden)) fail(`Full host bridge contains ${forbidden}`);
+}
+
+const checks = [
+  ['server-core', 'deploy/linux/full/server-core.config.example.json'],
+  ['relay', 'deploy/linux/relay/relay.config.example.json'],
+  ['local-worker', 'deploy/linux/relay/local-worker.config.example.json'],
+];
+for (const [role, fixture] of checks) {
+  run(process.execPath, [
+    resolve(outputRoot, role, 'index.mjs'),
+    'check-config',
+    '--config',
+    resolve(repoRoot, fixture),
+  ]);
+}
+await verifyRelayBundleForcedCommands();
+const feishuCheckRoot = realpathSync(mkdtempSync(
+  resolve(realpathSync(tmpdir()), 'agent-deck-feishu-check-'),
+));
+try {
+  const gatewayConfig = resolve(feishuCheckRoot, 'gateway.json');
+  const coreConfig = resolve(feishuCheckRoot, 'core-ssh.json');
+  copyFileSync(resolve(repoRoot, 'deploy/linux/feishu/config.example.json'), gatewayConfig);
+  copyFileSync(resolve(repoRoot, 'deploy/linux/feishu/core-ssh.example.json'), coreConfig);
+  chmodSync(gatewayConfig, 0o600);
+  chmodSync(coreConfig, 0o600);
+  run(process.execPath, [
+    resolve(outputRoot, 'feishu/index.mjs'),
+    'check-config',
+    '--config', gatewayConfig,
+    '--core-ssh-config', coreConfig,
+  ]);
+} finally {
+  rmSync(feishuCheckRoot, { recursive: true, force: true });
+}
+await import(pathToFileURL(resolve(outputRoot, 'instance-manager/index.mjs')).href);
+
+for (const wrapper of [
+  'agent-deckd',
+  'agent-deck-full-bridge',
+  'agent-deck-relay',
+  'agent-deck-worker',
+  'agent-deck-feishu',
+]) {
+  const path = resolve(repoRoot, 'resources/bin', wrapper);
+  run('/bin/bash', ['-n', path]);
+  const source = readFileSync(path, 'utf8');
+  if (
+    !source.startsWith('#!/bin/bash -p\n') ||
+    !source.includes('unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV') ||
+    !source.includes('exec /usr/bin/env -i') ||
+    !source.includes('/usr/bin/node /opt/agent-deck/linux-headless/') ||
+    /\$\{?AGENT_DECK_(?:HEADLESS_ROOT|NODE)|command -v/.test(source)
+  ) fail(`${wrapper} does not use the canonical production runtime fence`);
+}
+const fullClientKey = readFileSync(
+  resolve(repoRoot, 'deploy/linux/full/authorized-client-key-options.txt'),
+  'utf8',
+);
+if (!fullClientKey.includes(
+  'command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface desktop-full"',
+)) fail('Server Core host bridge forced-command binding fixture is incomplete');
+if (!fullClientKey.includes(
+  'command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface feishu-session-console"',
+)) fail('Server Core Feishu forced-command binding fixture is incomplete');
+if (fullClientKey.includes('/run/agent-deck/')) {
+  fail('Server Core forced command must not assume the named-volume socket is a host path');
+}
+process.stdout.write('Linux 无界面静态与打包检查已通过。\n');

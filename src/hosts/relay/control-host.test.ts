@@ -24,13 +24,14 @@ function router(): RelayStreamRouter {
   for (const [credentialId, kind] of [
     ['worker-credential', 'relay-worker'],
     ['client-credential', 'ssh-client'],
+    ['feishu-credential', 'feishu'],
   ] as const) {
     metadata.put('credentials', {
       id: credentialId,
       instanceId: 'instance-a',
       credentialId,
       kind,
-      publicKey: 'ssh-ed25519 AAAATEST',
+      publicKey: kind === 'feishu' ? null : 'ssh-ed25519 AAAATEST',
       fingerprint: `SHA256:${credentialId}`,
       status: 'active',
       createdAt: 1,
@@ -51,13 +52,17 @@ function workerAdmission(): Uint8Array {
   });
 }
 
-function clientAdmission(): Uint8Array {
+function clientAdmission(
+  credentialId = 'client-credential',
+  surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+): Uint8Array {
   return encodeBridgeAdmission({
     version: 1,
     topology: 'relay',
     role: 'client',
     instanceId: 'instance-a',
-    credentialId: 'client-credential',
+    credentialId,
+    surface,
   });
 }
 
@@ -102,6 +107,10 @@ describe('private Relay control host', () => {
     const data = routes.find((message) => message.type === 'route' && message.frame.kind === 'data');
     expect(data).toMatchObject({ type: 'route', frame: { payload: requestBytes } });
     if (!open || open.type !== 'route') throw new Error('missing open route');
+    expect(open.frame).toMatchObject({
+      accessCredentialId: 'client-credential',
+      accessSurface: 'desktop-full',
+    });
 
     const response: RelayRouteFrame = {
       instanceId: 'instance-a',
@@ -113,6 +122,8 @@ describe('private Relay control host', () => {
       payload: Buffer.from('opaque-core-response'),
       creditBytes: null,
       resetCode: null,
+      accessCredentialId: null,
+      accessSurface: null,
     };
     worker.feedBytes(encodeWorkerWireMessage({ type: 'route', frame: response }));
     await waitFor(() => client.writes.length > 0, 'opaque response');
@@ -129,6 +140,17 @@ describe('private Relay control host', () => {
     host.accept(client);
     client.feedBytes(clientAdmission());
     await waitFor(() => client.destroyed, 'offline client close');
+    expect(host.clientCount).toBe(0);
+    host.stop();
+  });
+
+  it('rejects a credential whose provisioned kind does not match the admission surface', async () => {
+    const host = new RelayControlHost({ router: router() });
+    host.start();
+    const client = new TestDuplex(1024 * 1024);
+    host.accept(client);
+    client.feedBytes(clientAdmission('feishu-credential', 'desktop-full'));
+    await waitFor(() => client.destroyed, 'surface mismatch close');
     expect(host.clientCount).toBe(0);
     host.stop();
   });

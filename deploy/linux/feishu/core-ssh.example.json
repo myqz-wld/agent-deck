@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "topology": "relay",
+  "instanceId": "replace-with-authoritative-instance-id",
+  "appVersion": "0.1.0",
+  "hostname": "relay.example.invalid",
+  "port": 22,
+  "username": "agentdeck",
+  "knownHostsFile": "/etc/agent-deck-feishu/core-known-hosts",
+  "hostKeyAlias": "agent-deck-relay",
+  "credentials": [
+    {
+      "credentialId": "replace-with-core-credential-id",
+      "identityFile": "/etc/agent-deck-feishu/core-credential.key"
+    }
+  ]
+}

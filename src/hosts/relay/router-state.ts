@@ -12,6 +12,7 @@ import { RelayRouterError, type RelayRouterLimits } from './router-types';
 export interface RelayClientState {
   clientId: string;
   credentialId: string;
+  surface: 'desktop-full' | 'feishu-session-console';
   queue: {
     clear(): void;
     dropStream(streamId: string): void;
@@ -75,6 +76,8 @@ export function createRelayResetFrame(
     payload: emptyRoutePayload(),
     creditBytes: null,
     resetCode: code,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 
@@ -84,6 +87,7 @@ export function recordOpenRelayRoute(
     instanceId: string;
     streamId: string;
     accessCredentialId: string;
+    accessSurface: 'desktop-full' | 'feishu-session-console';
     workerId: string;
     generation: number;
     updatedAt: number;
@@ -94,6 +98,7 @@ export function recordOpenRelayRoute(
     instanceId: input.instanceId,
     routeId: input.streamId,
     accessCredentialId: input.accessCredentialId,
+    accessSurface: input.accessSurface,
     workerId: input.workerId,
     generation: input.generation,
     status: 'open',

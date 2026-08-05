@@ -9,16 +9,22 @@ import {
   PushpinIcon,
   SettingsIcon,
 } from './icons';
+import type { RemoteHostProfileDto, RemoteHostSourceMode } from '@shared/remote-host';
 
 export type AppView = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
 
 interface AppHeaderProps {
   view: AppView;
-  stats: { total: number; waiting: number; working: number };
+  stats: { total: number | null; waiting: number; working: number };
   pending: number;
   pinned: boolean;
   compact: boolean;
+  sourceMode: RemoteHostSourceMode;
+  selectedRemoteProfileId: string | null;
+  remoteProfiles: readonly RemoteHostProfileDto[];
   onViewChange: (view: AppView) => void;
+  onSourceChange: (value: string) => void;
+  onOpenRemoteProfiles: () => void;
   onOpenPending: () => void;
   onNewSession: () => void;
   onTogglePin: () => void;
@@ -33,7 +39,12 @@ export function AppHeader({
   pending,
   pinned,
   compact,
+  sourceMode,
+  selectedRemoteProfileId,
+  remoteProfiles,
   onViewChange,
+  onSourceChange,
+  onOpenRemoteProfiles,
   onOpenPending,
   onNewSession,
   onTogglePin,
@@ -46,7 +57,7 @@ export function AppHeader({
       <div className="min-w-0 shrink truncate">
         <span className="text-[11px] font-medium tracking-wide">Agent Deck</span>
         <span className="ml-1.5 text-[10px] text-deck-muted/70">
-          {stats.total} 会话
+          {stats.total === null ? '会话总数未提供' : `${stats.total} 会话`}
           {stats.waiting > 0 && (
             <span className="ml-1.5 text-status-waiting">· {stats.waiting} 等待</span>
           )}
@@ -68,6 +79,19 @@ export function AppHeader({
       </div>
       <HeaderTokenRates />
       <div className="flex shrink-0 items-center gap-0.5 no-drag">
+        <select
+          aria-label="数据源"
+          title="切换 Local / Remote 数据源"
+          value={sourceMode === 'remote' && selectedRemoteProfileId ? `remote:${selectedRemoteProfileId}` : 'local'}
+          onChange={(event) => onSourceChange(event.target.value)}
+          className="max-w-28 rounded border border-white/10 bg-black/20 px-1 py-0.5 text-[9px] text-deck-text"
+        >
+          <option value="local">Local · 本机</option>
+          {remoteProfiles.filter((profile) => profile.topology !== 'standalone').map((profile) => (
+            <option key={profile.id} value={`remote:${profile.id}`}>Remote · {profile.label}</option>
+          ))}
+        </select>
+        <button type="button" onClick={onOpenRemoteProfiles} title="远程数据源设置" className="rounded px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/8 hover:text-deck-text">源</button>
         <HeaderIconButton title="新建会话" onClick={onNewSession}>
           <PlusIcon className="h-3.5 w-3.5" />
         </HeaderIconButton>
@@ -80,10 +104,10 @@ export function AppHeader({
         >
           待处理
         </TabButton>
-        <TabButton active={view === 'history'} onClick={() => onViewChange('history')}>历史</TabButton>
-        <TabButton active={view === 'teams'} onClick={() => onViewChange('teams')}>团队</TabButton>
-        <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>
-        <TabButton active={view === 'data'} onClick={() => onViewChange('data')}>数据</TabButton>
+        <TabButton active={view === 'history'} onClick={() => onViewChange('history')}>{sourceMode === 'remote' ? '会话摘要' : '历史'}</TabButton>
+        {sourceMode === 'local' && <TabButton active={view === 'teams'} onClick={() => onViewChange('teams')}>团队</TabButton>}
+        {sourceMode === 'local' && <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>}
+        {sourceMode === 'local' && <TabButton active={view === 'data'} onClick={() => onViewChange('data')}>数据</TabButton>}
         <Divider />
         <HeaderIconButton
           title={pinned ? '取消置顶' : '置顶'}

@@ -45,10 +45,15 @@ if ! awk '
       return key == "Image" || key == "ContainerName" || key == "Exec" ||
         key == "Network" || key == "NoNewPrivileges" || key == "ReadOnly" ||
         key == "DropCapability" || key == "User" || key == "UserNS" ||
-        key == "Volume" || key == "Tmpfs" || key == "PodmanArgs"
+        key == "Volume" || key == "Tmpfs" || key == "PodmanArgs" ||
+        key == "HealthCmd" || key == "HealthInterval" ||
+        key == "HealthTimeout" || key == "HealthRetries" ||
+        key == "HealthStartPeriod" || key == "HealthOnFailure" ||
+        key == "Notify"
     if (section == "Service")
       return key == "Restart" || key == "RestartSec" || key == "TimeoutStopSec" ||
-        key == "MemoryMax" || key == "CPUQuota" || key == "TasksMax" ||
+        key == "TimeoutStartSec" || key == "MemoryMax" ||
+        key == "CPUQuota" || key == "TasksMax" ||
         key == "LimitNOFILE"
     if (section == "Install") return key == "WantedBy"
     return 0
@@ -107,8 +112,16 @@ required_lines=(
   'Volume=%t/agent-deck-relay/%i:/run/agent-deck-relay/%i:Z'
   'Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=32m'
   'PodmanArgs=--pids-limit=256 --memory=512m --cpus=1.0'
+  'HealthCmd=["CMD","/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]'
+  'HealthInterval=10s'
+  'HealthTimeout=3s'
+  'HealthRetries=3'
+  'HealthStartPeriod=30s'
+  'HealthOnFailure=kill'
+  'Notify=healthy'
   'Restart=on-failure'
   'RestartSec=5s'
+  'TimeoutStartSec=120s'
   'TimeoutStopSec=30s'
   'MemoryMax=512M'
   'CPUQuota=100%'
@@ -144,8 +157,8 @@ if ((static_only == 1)); then
   exit 0
 fi
 
-if [[ ! "$instance_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
-  echo "relay preflight: --instance must be an unambiguous instance token" >&2
+if [[ ! "$instance_id" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+  echo "relay preflight: --instance must be a 1-63 byte lowercase Linux label" >&2
   exit 69
 fi
 runtime_uid="$(id -u)"

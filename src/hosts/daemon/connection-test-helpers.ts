@@ -14,6 +14,7 @@ import {
 
 import { DaemonHost } from './host';
 import { resolveDaemonInstancePaths } from './instance-paths';
+import type { DaemonCredentialLifecyclePort } from './credential-lifecycle';
 import type { DaemonCoreRuntime } from './types';
 
 export class TestDuplex extends Duplex {
@@ -120,10 +121,18 @@ export function createRuntime(
   };
 }
 
+export function activeCredentialLifecycle(): DaemonCredentialLifecyclePort {
+  return {
+    isActive: () => true,
+    subscribeRevocations: () => ({ close: () => undefined }),
+  };
+}
+
 export function createHost(
   runtime: DaemonCoreRuntime,
   limits = {},
   now?: () => number,
+  credentialLifecycle = activeCredentialLifecycle(),
 ): DaemonHost {
   return new DaemonHost({
     paths: resolveDaemonInstancePaths('tenant-a', {
@@ -132,6 +141,7 @@ export function createHost(
     }),
     appVersion: '0.1.0-test',
     runtime,
+    credentialLifecycle,
     listener: null,
     connectionLimits: limits,
     sqlitePreflight: () => ({ runtimeAbi: 'test' }),

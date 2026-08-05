@@ -46,6 +46,8 @@ function frame(
     payload: options.payload ?? emptyRoutePayload(),
     creditBytes: null,
     resetCode: options.resetCode ?? null,
+    accessCredentialId: null,
+    accessSurface: null,
   };
 }
 

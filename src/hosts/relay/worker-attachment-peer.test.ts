@@ -125,6 +125,8 @@ describe('restricted Worker attachment peer', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
+      accessCredentialId: null,
+      accessSurface: null,
     };
     router.routeFromClient('client-a', open);
     router.routeFromClient('client-a', {
@@ -137,8 +139,13 @@ describe('restricted Worker attachment peer', () => {
     expect(oldPeer.drain()).toEqual([]);
     const delivered = newPeer.drain();
     const decoder = new WorkerWireDecoder();
+    const authorizedOpen = {
+      ...open,
+      accessCredentialId: 'client-credential-a',
+      accessSurface: 'desktop-full' as const,
+    };
     expect(delivered.flatMap((chunk) => decoder.push(chunk))).toEqual([
-      { type: 'route', frame: open },
+      { type: 'route', frame: authorizedOpen },
       { type: 'route', frame: { ...open, sequence: 1, kind: 'data', payload: new Uint8Array([1]) } },
     ]);
   });
@@ -157,9 +164,18 @@ describe('restricted Worker attachment peer', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
+      accessCredentialId: null,
+      accessSurface: null,
     };
     router.routeFromClient('client-a', open);
-    const wireBytes = workerWireMessageBytes({ type: 'route', frame: open });
+    const wireBytes = workerWireMessageBytes({
+      type: 'route',
+      frame: {
+        ...open,
+        accessCredentialId: 'client-credential-a',
+        accessSurface: 'desktop-full',
+      },
+    });
     expect(peer.drain(wireBytes - 1)).toEqual([]);
     expect(peer.drain(wireBytes)).toHaveLength(1);
   });

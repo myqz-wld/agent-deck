@@ -11,6 +11,8 @@ import { canonicalJson, decodeRecord, encodeRecord, sha256 } from './serializati
 import type { ExactTreeSnapshot, InstanceSelector, PodmanVolumeInspection } from './types';
 import { atomicWrite } from './artifacts';
 import { fail, InstanceManagerError, isInside, requireOwnedFile, sameFileSnapshot, sameIdentity } from './validation';
+import { waitForHealthyContainer } from './container-health';
+import { verifyFullRuntimeConfig } from './full-runtime-config';
 
 function validateCreatedPaths(paths: ReturnType<typeof resolveInstancePaths>, entries: StoredJournal['journal']['createdPaths']): void {
   const roots = [paths.configDirectory, paths.runtimeDirectory, paths.metadataDirectory, paths.backupDirectory, ...(paths.stateDirectory ? [paths.stateDirectory] : [])];
@@ -55,6 +57,13 @@ async function recoverCreate(context: InstanceManagerContext, stored: StoredJour
     if (!target.record) fail('recovery_required', 'create record exists before its journal target was finalized');
     const loaded = await loadInstance({ selector: stored.journal, roots: context.roots, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
     if (canonicalJson(loaded.record) !== canonicalJson(target.record)) fail('recovery_required', 'created record differs from its durable journal');
+    if (loaded.record.topology === 'full') {
+      await verifyFullRuntimeConfig(
+        context,
+        loaded.record.instanceId,
+        loaded.current.configSha256,
+      );
+    }
     try {
       await context.ports.systemd.daemonReload(context.limits.lifecycleTimeoutMs);
       const status = await context.ports.systemd.statusUserUnit(paths.unitName, context.limits.lifecycleTimeoutMs);
@@ -89,6 +98,13 @@ async function recoverCommittedChange(context: InstanceManagerContext, stored: S
   try {
     const loaded = await loadInstance({ selector: stored.journal, roots: context.roots, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
     if (canonicalJson(loaded.record) !== canonicalJson(targetRecord)) return false;
+    if (loaded.record.topology === 'full') {
+      await verifyFullRuntimeConfig(
+        context,
+        loaded.record.instanceId,
+        loaded.current.configSha256,
+      );
+    }
     await clearJournal(context, paths, stored);
     return true;
   } catch { return false; }
@@ -109,13 +125,27 @@ async function recoverHealthyChange(context: InstanceManagerContext, stored: Sto
   const unit = await exactFileDigest(context, paths.unitPath, target.unitSha256, 0o444);
   const config = await exactFileDigest(context, paths.configFile, target.configSha256, 0o600);
   if (!unit || !config) fail('recovery_required', 'cutover target artifacts are not both installed');
+  if (paths.topology === 'full') {
+    await verifyFullRuntimeConfig(
+      context,
+      paths.instanceId,
+      target.configSha256,
+    );
+  }
   const record = await requireCanonicalFile(context.ports.fileSystem, paths.recordPath, context.limits.maxArtifactBytes, 'recovery record');
   requireOwnedFile(record.identity, context.serviceUid, 0o600, 'recovery record');
   if (canonicalJson(decodeRecord(record.bytes)) !== canonicalJson(previous)) return false;
   const status = await context.ports.systemd.statusUserUnit(paths.unitName, context.limits.lifecycleTimeoutMs);
-  const container = await context.ports.podman.inspectContainer(paths.containerName, context.limits.healthTimeoutMs);
   try { assertExactLoadedUnitStatus(paths, status); } catch { return false; }
-  if (status.activeState !== 'active' || !container || container.name !== paths.containerName || container.image !== target.image || !container.running || container.health !== 'healthy') return false;
+  if (status.activeState !== 'active') return false;
+  try {
+    await waitForHealthyContainer(context, {
+      name: paths.containerName,
+      image: target.image,
+    });
+  } catch {
+    return false;
+  }
   const committed = await atomicWrite(context.ports.fileSystem, paths.recordPath, encodeRecord(target.record), 0o600, record.identity, context.ports.ids.nextId());
   requireOwnedFile(committed, context.serviceUid, 0o600, 'recovered record');
   const refreshed = await readJournal(context, paths);
@@ -130,6 +160,13 @@ async function recoverChange(context: InstanceManagerContext, stored: StoredJour
   if (stored.journal.phase === 'prepared' && stored.journal.previousRecord) {
     validateCreatedPaths(paths, stored.journal.createdPaths);
     const loaded = await loadInstance({ selector: stored.journal, roots: context.roots, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
+    if (loaded.record.topology === 'full') {
+      await verifyFullRuntimeConfig(
+        context,
+        loaded.record.instanceId,
+        loaded.current.configSha256,
+      );
+    }
     if (canonicalJson(loaded.record) === canonicalJson(stored.journal.previousRecord)) {
       await cleanupCreatedPaths(context.ports.fileSystem, stored.journal.createdPaths);
       await clearJournal(context, paths, stored);

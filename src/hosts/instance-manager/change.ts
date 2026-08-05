@@ -25,6 +25,12 @@ import {
 } from './validation';
 import { prepareVersionArtifacts, readVersionArtifacts, stageVersion, type StagedVersion } from './version-artifacts';
 import { validateImageAvailable } from './create';
+import { waitForHealthyContainer } from './container-health';
+import {
+  installFullRuntimeConfig,
+  restoreFullRuntimeConfig,
+  verifyFullRuntimeConfig,
+} from './full-runtime-config';
 
 class UnrecoveredCutoverError extends InstanceManagerError {
   constructor(primary: unknown, cleanup: unknown) {
@@ -40,19 +46,10 @@ async function requireHealthy(
   loaded: LoadedInstance,
   version: ManagedVersion,
 ): Promise<void> {
-  const container = await context.ports.podman.inspectContainer(
-    loaded.paths.containerName,
-    context.limits.healthTimeoutMs,
-  );
-  if (
-    !container ||
-    container.name !== loaded.paths.containerName ||
-    container.image !== version.image ||
-    !container.running ||
-    container.health !== 'healthy'
-  ) {
-    fail('health_failed', 'cutover container did not become healthy with the expected image');
-  }
+  await waitForHealthyContainer(context, {
+    name: loaded.paths.containerName,
+    image: version.image,
+  });
   const unit = await context.ports.systemd.statusUserUnit(
     loaded.paths.unitName,
     context.limits.lifecycleTimeoutMs,
@@ -96,6 +93,7 @@ async function recoverPrevious(
   loaded: LoadedInstance,
   oldUnitBytes: Uint8Array,
   oldConfigBytes: Uint8Array,
+  attemptedConfigSha256: string,
   installedUnitIdentity: Awaited<ReturnType<typeof atomicWrite>> | null,
   installedConfigIdentity: Awaited<ReturnType<typeof atomicWrite>> | null,
 ): Promise<void> {
@@ -125,6 +123,15 @@ async function recoverPrevious(
     );
     requireOwnedFile(restoredConfig, context.serviceUid, 0o600, 'restored runtime config');
   }
+  if (loaded.record.topology === 'full') {
+    await restoreFullRuntimeConfig(
+      context,
+      loaded.record.instanceId,
+      oldConfigBytes,
+      loaded.current.configSha256,
+      attemptedConfigSha256,
+    );
+  }
   await context.ports.systemd.daemonReload(context.limits.lifecycleTimeoutMs);
   const evidenceSnapshots = await validateStartEvidence({
     topology: loaded.record.topology, paths: loaded.paths, generation: loaded.record.generation,
@@ -140,6 +147,13 @@ async function recoverPrevious(
   });
   await revalidateEvidence(context.ports.fileSystem, evidenceSnapshots, context.ports.clock, context.limits.maxEvidenceAgeMs);
   await revalidateLoadedArtifacts({ loaded, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
+  if (loaded.record.topology === 'full') {
+    await verifyFullRuntimeConfig(
+      context,
+      loaded.record.instanceId,
+      loaded.current.configSha256,
+    );
+  }
   await context.ports.systemd.startUserUnit(
     loaded.paths.unitName,
     context.limits.lifecycleTimeoutMs,
@@ -201,6 +215,14 @@ async function cutover(
       0o600,
       'cutover runtime config',
     );
+    if (loaded.record.topology === 'full') {
+      await installFullRuntimeConfig(
+        context,
+        loaded.record.instanceId,
+        targetArtifacts.configBytes,
+        loaded.current.configSha256,
+      );
+    }
     journal.stored = await advanceJournal(context, loaded.paths, journal.stored, { phase: 'config_installed' });
     journal.stored = await advanceJournal(context, loaded.paths, journal.stored, { phase: 'unit_installing' });
     installedUnitIdentity = await atomicWrite(
@@ -216,6 +238,13 @@ async function cutover(
     await context.ports.systemd.daemonReload(context.limits.lifecycleTimeoutMs);
     await revalidateEvidence(context.ports.fileSystem, evidenceSnapshots, context.ports.clock, context.limits.maxEvidenceAgeMs);
     await revalidateLoadedArtifacts({ loaded, version: target, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
+    if (loaded.record.topology === 'full') {
+      await verifyFullRuntimeConfig(
+        context,
+        loaded.record.instanceId,
+        target.configSha256,
+      );
+    }
     journal.stored = await advanceJournal(context, loaded.paths, journal.stored, { phase: 'starting' });
     await context.ports.systemd.startUserUnit(
       loaded.paths.unitName,
@@ -260,6 +289,7 @@ async function cutover(
           loaded,
           oldArtifacts.unitBytes,
           oldArtifacts.configBytes,
+          target.configSha256,
           installedUnitIdentity,
           installedConfigIdentity,
         );
@@ -289,6 +319,13 @@ export async function upgradeInstance(
     maxArtifactBytes: context.limits.maxArtifactBytes,
     serviceUid: context.serviceUid,
   });
+  if (loaded.record.topology === 'full') {
+    await verifyFullRuntimeConfig(
+      context,
+      loaded.record.instanceId,
+      loaded.current.configSha256,
+    );
+  }
   assertVersionFence(loaded, request.expectedGeneration, request.expectedVersion);
   if (loaded.record.versions.some((version) => version.version === request.nextVersion)) {
     fail('conflict', 'nextVersion is already present in the recoverable version set');
@@ -355,6 +392,13 @@ export async function rollbackInstance(
     maxArtifactBytes: context.limits.maxArtifactBytes,
     serviceUid: context.serviceUid,
   });
+  if (loaded.record.topology === 'full') {
+    await verifyFullRuntimeConfig(
+      context,
+      loaded.record.instanceId,
+      loaded.current.configSha256,
+    );
+  }
   assertVersionFence(loaded, request.expectedGeneration, request.expectedVersion);
   if (!loaded.record.previousVersion) fail('conflict', 'instance has no recoverable previous version');
   const target = loaded.record.versions.find(

@@ -14,6 +14,8 @@ import { StatusBadge } from './StatusBadge';
 import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from './pending-rows';
 import { CheckIcon, ChevronRightIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIcon } from './icons';
 import log from '@renderer/utils/logger';
+import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { RemotePendingRequests } from './pending-rows/RemotePendingRequests';
 
 /**
  * Central pending surface. It reuses the same request rows as the activity
@@ -23,9 +25,16 @@ const logger = log.scope('renderer-pending-tab');
 
 interface Props {
   onOpenSession: (sid: string) => void;
+  remoteSource?: RemoteSessionSourceView;
 }
 
-export function PendingTab({ onOpenSession }: Props): JSX.Element {
+export function PendingTab({ onOpenSession, remoteSource }: Props): JSX.Element {
+  return remoteSource
+    ? <RemotePendingTab source={remoteSource} onOpenSession={onOpenSession} />
+    : <LocalPendingTab onOpenSession={onOpenSession} />;
+}
+
+function LocalPendingTab({ onOpenSession }: Pick<Props, 'onOpenSession'>): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
   const pendingPerms = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
@@ -65,6 +74,51 @@ export function PendingTab({ onOpenSession }: Props): JSX.Element {
             resolveExitPlan={resolveExitPlan}
             resolveDiffReview={resolveDiffReview}
           />
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function RemotePendingTab({
+  source,
+  onOpenSession,
+}: {
+  source: RemoteSessionSourceView;
+  onOpenSession: (sid: string) => void;
+}): JSX.Element {
+  const buckets = source.sessions.flatMap((session) => {
+    const pending = source.pendingBySession.get(session.id);
+    return pending && pending.requests.length > 0 ? [{ session, pending }] : [];
+  });
+  if (!source.capabilities.has('pending.read')) {
+    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">此远程 Core 未提供待处理读取能力。</div>;
+  }
+  if (buckets.length === 0) {
+    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">没有待处理事项</div>;
+  }
+  return (
+    <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2">
+      <ol className="flex flex-col gap-3">
+        {buckets.map(({ session, pending }) => (
+          <li key={`${source.identity}:${session.id}`} className="rounded-md border border-deck-border bg-white/[0.02]">
+            <button
+              type="button"
+              onClick={() => onOpenSession(session.id)}
+              className="flex w-full items-center justify-between border-b border-deck-border/50 px-3 py-2 text-left hover:bg-white/[0.04]"
+            >
+              <span className="truncate text-[12px] font-medium">{session.title ?? '未命名 session'}</span>
+              <span className="rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting">{pending.requests.length}</span>
+            </button>
+            <div className="p-2">
+              <RemotePendingRequests
+                pending={pending}
+                sourceIdentity={source.identity}
+                busy={source.busy}
+                onRespond={source.respondPending}
+              />
+            </div>
+          </li>
         ))}
       </ol>
     </div>

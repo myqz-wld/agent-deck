@@ -167,6 +167,7 @@ describe('pinned instance/topology and Relay cwd-free projection', () => {
       instanceId: relayCredential.instanceId,
       credentialId: relayCredential.credentialId,
       chatId: 'chat-1',
+      chatType: 'p2p',
       openId: relayCredential.openId,
       activeSessionId: 'session-1',
       updatedAt: 1,

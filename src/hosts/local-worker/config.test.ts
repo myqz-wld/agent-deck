@@ -64,6 +64,15 @@ describe('local Worker outbound SSH boundary', () => {
     expect(argv).toEqual(
       expect.arrayContaining(['agent-deck-relay', 'attach', '--instance', 'instance-a']),
     );
+    expect(argv.slice(-7)).toEqual([
+      'attach',
+      '--instance',
+      CONFIG.instanceId,
+      '--credential',
+      CONFIG.credentialId,
+      '--worker',
+      CONFIG.workerId,
+    ]);
   });
 
   it('provisions only public key material across the Relay boundary', () => {
@@ -127,4 +136,11 @@ describe('local Worker outbound SSH boundary', () => {
   ] as const)('rejects ambiguous %s token %s', (field, value) => {
     expect(() => buildLocalWorkerSshArgv({ ...CONFIG, [field]: value })).toThrow(field);
   });
+
+  it.each(['Instance-a', '实例-a', 'a'.repeat(64), '-instance', 'instance-'])(
+    'rejects non-exact Linux instance %s before forming SSH argv',
+    (instanceId) => {
+      expect(() => buildLocalWorkerSshArgv({ ...CONFIG, instanceId })).toThrow('instanceId');
+    },
+  );
 });
