@@ -10,10 +10,14 @@ import {
   isIncompleteCodexFileChangeStatus,
 } from '@shared/codex-file-change';
 import {
-  collabToolInput,
-  collabToolResult,
+  translateNormalizedCollabItemCompleted,
+  translateNormalizedCollabItemStarted,
   translateRawCollabResponseItem,
 } from './translate-collab';
+import {
+  translateCodexDisplayItemCompleted,
+  translateCodexDisplayItemStarted,
+} from './translate-display-items';
 import log from '@main/utils/logger';
 import { translateCodexTokenUsage } from './token-usage-translate';
 import {
@@ -171,6 +175,8 @@ function translateErrorNotification(params: unknown, emit: EmitFn): void {
 }
 
 function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
+  if (translateNormalizedCollabItemStarted(item, emit)) return;
+  if (translateCodexDisplayItemStarted(item, emit)) return;
   const type = item.type;
   if (type === 'contextCompaction') {
     emit('context-compaction-start', { text: '🧭 正在压缩上下文' });
@@ -191,12 +197,6 @@ function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
     emit('tool-use-start', {
       toolName: tool.toolName,
       toolInput: tool.toolInput,
-      toolUseId: item.id,
-    });
-  } else if (type === 'collabToolCall') {
-    emit('tool-use-start', {
-      toolName: 'Agent',
-      toolInput: collabToolInput(item),
       toolUseId: item.id,
     });
   }
@@ -222,6 +222,8 @@ function translateItemCompleted(
   emit: EmitFn,
   state?: CodexAppServerTranslateState,
 ): void {
+  if (translateNormalizedCollabItemCompleted(item, emit)) return;
+  if (translateCodexDisplayItemCompleted(item, emit)) return;
   switch (item.type) {
     case 'agentMessage': {
       emitAssistantMessageIfPresent(item, emit);
@@ -249,6 +251,7 @@ function translateItemCompleted(
         ...(typeof item.command === 'string' ? { toolInput: { command: item.command } } : {}),
         toolResult: item.aggregatedOutput ?? '',
         exitCode: item.exitCode ?? null,
+        durationMs: item.durationMs ?? null,
         status: item.status,
       });
       return;
@@ -287,8 +290,9 @@ function translateItemCompleted(
       emit('tool-use-end', {
         toolUseId: item.id,
         toolName: `mcp__${String(item.server)}__${String(item.tool)}`,
-        toolResult: result?.content,
+        toolResult: result ?? null,
         error: typeof error?.message === 'string' ? error.message : undefined,
+        durationMs: item.durationMs ?? null,
         status: item.status,
       });
       return;
@@ -300,23 +304,9 @@ function translateItemCompleted(
         toolUseId: item.id,
         toolName: tool.toolName,
         toolResult: item.contentItems,
+        durationMs: item.durationMs ?? null,
         status: item.status,
         error: item.success === false ? 'Dynamic tool call failed' : undefined,
-      });
-      return;
-    }
-
-    case 'webSearch': {
-      emit('tool-use-start', {
-        toolName: 'WebSearch',
-        toolInput: { query: item.query },
-        toolUseId: item.id,
-      });
-      emit('tool-use-end', {
-        toolUseId: item.id,
-        toolName: 'WebSearch',
-        toolResult: { query: item.query, action: item.action ?? null },
-        status: 'completed',
       });
       return;
     }
@@ -349,20 +339,6 @@ function translateItemCompleted(
       return;
     }
 
-    case 'collabToolCall': {
-      emit('tool-use-end', {
-        toolUseId: item.id,
-        toolName: 'Agent',
-        toolInput: collabToolInput(item),
-        toolResult: collabToolResult(item),
-        status: item.status,
-        error: item.status === 'failed' ? 'Collab agent tool call failed' : undefined,
-      });
-      return;
-    }
-
-    case 'imageView':
-    case 'imageGeneration':
     case 'userMessage':
       return;
 
