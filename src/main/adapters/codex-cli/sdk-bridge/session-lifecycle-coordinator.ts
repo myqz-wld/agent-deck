@@ -1,6 +1,5 @@
 import type { ForkSessionSource } from '../../types/fork-session';
 import type { CodexAppServerClient } from '../app-server/client';
-import log from '@main/utils/logger';
 import type { InternalSession } from './types';
 import {
   armCodexSessionRetirement,
@@ -8,8 +7,6 @@ import {
   finalizeCodexSessionRetirementForRollback,
   type CodexSessionRetirementContext,
 } from './session-retirement';
-
-const logger = log.scope('codex-bridge');
 
 export class CodexSessionLifecycleCoordinator {
   constructor(
@@ -37,7 +34,7 @@ export class CodexSessionLifecycleCoordinator {
   retireAfterCurrentTurn(sessionId: string): void {
     const internal = this.sessions.get(sessionId);
     if (!internal) return;
-    armCodexSessionRetirement(internal);
+    armCodexSessionRetirement(internal, this.retirementContext.runtimeHost);
     if (!internal.currentTurn && !internal.turnLoopRunning) this.finalizeOrdinary(internal);
   }
 
@@ -45,13 +42,16 @@ export class CodexSessionLifecycleCoordinator {
     const internal = this.findSession(sessionId);
     if (!internal) return;
     internal.intentionallyClosed = true;
-    armCodexSessionRetirement(internal, true);
+    armCodexSessionRetirement(internal, this.retirementContext.runtimeHost, true);
     this.cancelPermission(internal);
     if (internal.currentTurn) {
       try {
         internal.currentTurn.abort();
       } catch (error) {
-        logger.warn(`[codex-bridge] abort during close failed: ${sessionId}`, error);
+        this.retirementContext.runtimeHost.logger('codex-bridge').warn(
+          `[codex-bridge] abort during close failed: ${sessionId}`,
+          error,
+        );
       }
       internal.currentTurn = null;
       internal.currentTurnId = null;
@@ -65,13 +65,16 @@ export class CodexSessionLifecycleCoordinator {
       throw new Error(`Codex rollback close cannot prove a live target runtime for ${sessionId}`);
     }
     internal.intentionallyClosed = true;
-    armCodexSessionRetirement(internal, true);
+    armCodexSessionRetirement(internal, this.retirementContext.runtimeHost, true);
     this.cancelPermission(internal);
     if (internal.currentTurn) {
       try {
         internal.currentTurn.abort();
       } catch (error) {
-        logger.warn(`[codex-bridge] strict abort during close failed: ${sessionId}`, error);
+        this.retirementContext.runtimeHost.logger('codex-bridge').warn(
+          `[codex-bridge] strict abort during close failed: ${sessionId}`,
+          error,
+        );
       }
     }
     finalizeCodexSessionRetirementForRollback(this.retirementContext, internal);

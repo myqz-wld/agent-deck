@@ -15,11 +15,12 @@ import {
 } from 'node:fs';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { builtinModules } from 'node:module';
+import { builtinModules, createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = resolve(repoRoot, 'build/linux-headless');
+const requireFromHere = createRequire(import.meta.url);
 const sourceRoots = [
   'src/composition',
   'src/clients/ssh',
@@ -53,6 +54,45 @@ function run(executable, args) {
     env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+function verifyServerCoreRuntimeBundleLoads() {
+  const root = realpathSync(mkdtempSync(
+    resolve(realpathSync(tmpdir()), 'agent-deck-server-core-runtime-check-'),
+  ));
+  try {
+    const runtimeUrl = pathToFileURL(
+      resolve(outputRoot, 'server-core-runtime/index.mjs'),
+    ).href;
+    const source = `
+      const runtimeModule = await import(${JSON.stringify(runtimeUrl)});
+      if (typeof runtimeModule.createServerCoreRuntime !== 'function') process.exit(2);
+      const root = ${JSON.stringify(root)};
+      const paths = {
+        instanceId: 'instance-a',
+        stateDirectory: root + '/state',
+        configurationDirectory: root + '/config',
+        logDirectory: root + '/state/logs',
+        runtimeDirectory: root + '/run',
+        socketPath: root + '/run/agent-deckd.sock',
+      };
+      const bootstrap = runtimeModule.createServerCoreRuntime({
+        instanceId: 'instance-a',
+        appVersion: '1.0.0',
+        paths,
+        runtimeOptions: { providerSettings: {}, projects: [] },
+      });
+      if (!bootstrap.processId || !bootstrap.runtime ||
+          !bootstrap.sessionConsoleAuthority || !bootstrap.credentialLifecycle) process.exit(3);
+    `;
+    execFileSync(requireFromHere('electron'), ['--input-type=module', '--eval', source], {
+      cwd: repoRoot,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', LANG: 'C', LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function relayFixtureCommands() {
@@ -167,6 +207,8 @@ if (
 const install = packageFixture.installMapping;
 if (
   install?.serverCoreBundle !== '/opt/agent-deck/linux-headless/server-core/index.mjs' ||
+  install?.serverCoreRuntimeBundle !==
+    '/opt/agent-deck/linux-headless/server-core-runtime/index.mjs' ||
   install?.serverCoreContainerCommand !== '/opt/agent-deck/bin/agent-deckd' ||
   install?.serverCoreHostBridgeBundle !==
     '/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs' ||
@@ -176,6 +218,9 @@ if (
   install?.feishuBundle !== '/opt/agent-deck/linux-headless/feishu/index.mjs' ||
   install?.feishuCommand !== '/opt/agent-deck/bin/agent-deck-feishu' ||
   install?.feishuPreflight !== '/opt/agent-deck/libexec/agent-deck-feishu-preflight' ||
+  install?.claudeExecutable !== '/opt/agent-deck/providers/claude/claude' ||
+  install?.codexExecutable !== '/opt/agent-deck/providers/codex/codex' ||
+  install?.grokExecutable !== '/opt/agent-deck/providers/grok/grok' ||
   install?.ownership !== 'root:root' || install?.wrapperMode !== '0755' ||
   install?.bundleMode !== '0644' || install?.symlinksAllowed !== false
 ) fail('canonical Linux install mapping is incomplete');
@@ -222,6 +267,43 @@ for (const role of ['server-core', 'local-worker']) {
     fail('Server Core container artifact contains the host Podman bridge');
   }
 }
+const serverCoreRuntimeBundle = filesUnder(resolve(outputRoot, 'server-core-runtime'))
+  .map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const required of [
+  'createServerCoreRuntime',
+  '/run/secrets/agent-deck/credentials.json',
+  '/opt/agent-deck/providers/claude/claude',
+  '/opt/agent-deck/providers/codex/codex',
+  '/opt/agent-deck/providers/grok/grok',
+  'better-sqlite3',
+]) {
+  if (!serverCoreRuntimeBundle.includes(required)) {
+    fail(`Server Core runtime artifact lost ${required}`);
+  }
+}
+for (const forbidden of [
+  '/usr/bin/podman',
+  'createDesktopAdapterRegistry',
+  'RelayControlHost',
+]) {
+  if (serverCoreRuntimeBundle.includes(forbidden)) {
+    fail(`Server Core runtime artifact contains ${forbidden}`);
+  }
+}
+if (/(?:from|import\()\s*['"]electron(?:['"/])/.test(serverCoreRuntimeBundle)) {
+  fail('Server Core runtime artifact imports Electron');
+}
+const allowedRuntimeExternals = new Set([
+  'better-sqlite3',
+  ...builtinModules,
+  ...builtinModules.map((module) => `node:${module}`),
+]);
+for (const match of serverCoreRuntimeBundle.matchAll(/^import .* from "([^"]+)";/gm)) {
+  if (!allowedRuntimeExternals.has(match[1])) {
+    fail(`Server Core runtime has an unpackaged external import: ${match[1]}`);
+  }
+}
+verifyServerCoreRuntimeBundleLoads();
 const feishuBundle = filesUnder(resolve(outputRoot, 'feishu'))
   .map((file) => readFileSync(file, 'utf8')).join('\n');
 for (const required of [
@@ -276,6 +358,18 @@ for (const [role, fixture] of checks) {
     resolve(repoRoot, fixture),
   ]);
 }
+const credentialFixture = JSON.parse(readFileSync(
+  resolve(repoRoot, 'deploy/linux/full/server-core.credentials.example.json'),
+  'utf8',
+));
+if (
+  credentialFixture.schemaVersion !== 1 ||
+  credentialFixture.instanceId !== 'instance-a' ||
+  JSON.stringify(credentialFixture.credentials) !== JSON.stringify([
+    { credentialId: 'desktop-credential-a', surface: 'desktop-full', status: 'active' },
+    { credentialId: 'feishu-credential-a', surface: 'feishu-session-console', status: 'active' },
+  ])
+) fail('Server Core credential fixture drifted from the live lifecycle contract');
 await verifyRelayBundleForcedCommands();
 const feishuCheckRoot = realpathSync(mkdtempSync(
   resolve(realpathSync(tmpdir()), 'agent-deck-feishu-check-'),
@@ -315,6 +409,20 @@ for (const wrapper of [
     !source.includes('/usr/bin/node /opt/agent-deck/linux-headless/') ||
     /\$\{?AGENT_DECK_(?:HEADLESS_ROOT|NODE)|command -v/.test(source)
   ) fail(`${wrapper} does not use the canonical production runtime fence`);
+}
+const serverCoreWrapper = readFileSync(
+  resolve(repoRoot, 'resources/bin/agent-deckd'),
+  'utf8',
+);
+for (const required of [
+  '/opt/agent-deck/linux-headless/server-core-runtime/index.mjs',
+  '/opt/agent-deck/providers/claude/claude',
+  '/opt/agent-deck/providers/codex/codex',
+  '/opt/agent-deck/providers/grok/grok',
+]) {
+  if (!serverCoreWrapper.includes(required)) {
+    fail(`Server Core wrapper does not fence ${required}`);
+  }
 }
 const fullClientKey = readFileSync(
   resolve(repoRoot, 'deploy/linux/full/authorized-client-key-options.txt'),

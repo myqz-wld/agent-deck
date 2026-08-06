@@ -278,12 +278,23 @@ describe('CodexHookInstaller', () => {
     writeFileSync(hooksPath, original, 'utf8');
 
     const { CodexHookInstaller } = await import('../hook-installer');
-    const installer = new CodexHookInstaller(47_821, TOKEN, relayRoot);
+    const observer = {
+      statusReadFailed: vi.fn(() => {
+        throw new Error('observer failure');
+      }),
+    };
+    const installer = new CodexHookInstaller(
+      47_821,
+      TOKEN,
+      relayRoot,
+      observer,
+    );
 
     expect(installer.status({ scope: 'user' })).toMatchObject({
       installed: false,
       installedHooks: [],
     });
+    expect(observer.statusReadFailed).toHaveBeenCalledOnce();
     expect(() => installer.install({ scope: 'user' })).toThrow(
       /must contain a hooks array|must be an array/,
     );

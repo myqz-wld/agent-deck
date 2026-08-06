@@ -28,17 +28,14 @@
  *
  * **测试 seam**:deps 全部注入,test 可 mock threadLoop.runTurnLoop + emit + 4 资源 Map 验 cleanup 调用
  */
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
-import { sessionManager } from '@main/session/manager';
 import type { AgentEvent } from '@shared/types';
 import type { CodexAppServerClient } from '../app-server/client';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { ThreadLoop } from './thread-loop';
 import type { InternalSession } from './types';
-import log from '@main/utils/logger';
 import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 
-const logger = log.scope('codex-resume-await');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface AwaitResumedThreadStartDeps {
   threadLoop: ThreadLoop;
@@ -48,6 +45,7 @@ export interface AwaitResumedThreadStartDeps {
   codexBySession: Map<string, CodexAppServerClient>;
   /** outer createSession 注入的 SdkBridgeOptions.emit (event-bus 派发) */
   emit: (event: AgentEvent) => void;
+  runtimeHost: CodexBridgeRuntimeHost;
 }
 
 export interface AwaitResumedThreadStartArgs {
@@ -84,9 +82,9 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
       }
       deps.sessions.delete(applicationSid);
       try {
-        sessionManager.releaseSdkClaim(applicationSid);
+        deps.runtimeHost.sessions.releaseSdkClaim(applicationSid);
       } catch (cleanupErr) {
-        logger.warn(
+        deps.runtimeHost.logger('codex-resume-await').warn(
           '[codex-bridge] SDK claim release failed during resume cleanup',
           safeErrorSummary(cleanupErr),
         );
@@ -96,7 +94,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
       try {
         client?.dispose();
       } catch (cleanupErr) {
-        logger.warn(
+        deps.runtimeHost.logger('codex-resume-await').warn(
           '[codex-bridge] client retirement failed during resume cleanup',
           safeDiagnostic({
             event: 'codex_resume_cleanup',
@@ -108,9 +106,9 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
         );
       }
       try {
-        mcpSessionTokenMap.release(applicationSid);
+        deps.runtimeHost.tokens.release(applicationSid);
       } catch (cleanupErr) {
-        logger.warn(
+        deps.runtimeHost.logger('codex-resume-await').warn(
           '[codex-bridge] MCP token release failed during resume cleanup',
           safeDiagnostic({
             event: 'codex_resume_cleanup',
@@ -137,7 +135,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
           source: 'sdk',
         });
       } catch (emitError) {
-        logger.warn(
+        deps.runtimeHost.logger('codex-resume-await').warn(
           '[codex-bridge] failed to emit resume failure terminal',
           safeErrorSummary(emitError),
         );
@@ -145,7 +143,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
       reject(new Error(message));
     };
     const fallback = setTimeout(() => {
-      logger.warn(
+      deps.runtimeHost.logger('codex-resume-await').warn(
         '[codex-bridge] resume readiness timed out; retiring blocked runtime',
         safeDiagnostic({
           event: 'codex_resume_readiness',
@@ -170,7 +168,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
           source: 'sdk',
         });
       } catch (emitError) {
-        logger.warn(
+        deps.runtimeHost.logger('codex-resume-await').warn(
           '[codex-bridge] failed to emit resume timeout detail',
           safeErrorSummary(emitError),
         );

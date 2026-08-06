@@ -1,4 +1,9 @@
-export const REDACTED_VALUE = '[REDACTED]';
+import {
+  REDACTED_VALUE,
+  safeDiagnosticString as safeString,
+} from '@core/safe-diagnostic-text';
+
+export { REDACTED_VALUE, safeDisplayText } from '@core/safe-diagnostic-text';
 
 type SafeDiagnosticValue =
   | null
@@ -61,56 +66,6 @@ function isExternalContentKey(key: string): boolean {
   return /(?:prompt|input|payload|rawresult|rawresponse|rawoutput|providertext)$/.test(
     normalized,
   );
-}
-
-function truncate(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, maxLength)}…[truncated:${value.length - maxLength}]`;
-}
-
-function redactInlineSecrets(value: string): string {
-  let redacted = value;
-  redacted = redacted.replace(
-    /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi,
-    `$1 ${REDACTED_VALUE}`,
-  );
-  redacted = redacted.replace(
-    /\b(auth|authentication|authorization|proxy-authorization|credential|cookie|set-cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|passwd|secret|client[_-]?secret)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi,
-    (_match, key: string, separator: string) => `${key}${separator}${REDACTED_VALUE}`,
-  );
-  redacted = redacted.replace(
-    /\b(?:sk|rk|pk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/gi,
-    REDACTED_VALUE,
-  );
-  return redacted;
-}
-
-function redactLocalPaths(value: string): string {
-  return value
-    .replace(
-      /(?:file:\/\/)?\/(?:Users|home)\/[^/\s"'`),;\]}]+(?:\/[^\s"'`),;\]}]*)?/g,
-      '<home-path>',
-    )
-    .replace(
-      /[A-Za-z]:\\Users\\[^\\\s"'`),;\]}]+(?:\\[^\s"'`),;\]}]*)?/g,
-      '<home-path>',
-    )
-    .replace(
-      /(?:file:\/\/)?\/(?:private\/tmp|tmp|var\/tmp|private\/var\/folders|var\/folders)(?:\/[^\s"'`),;\]}]*)?/g,
-      '<temp-path>',
-    )
-    .replace(
-      /(?:file:\/\/)?\/(?:workspace|workspaces|repo|Volumes)(?:\/[^\s"'`),;\]}]*)?/g,
-      '<local-path>',
-    )
-    .replace(
-      /[A-Za-z]:\\(?!Users\\)[^\\\s"'`),;\]}]+(?:\\[^\s"'`),;\]}]*)?/g,
-      '<local-path>',
-    );
-}
-
-function safeString(value: string, maxLength: number): string {
-  return truncate(redactLocalPaths(redactInlineSecrets(value)), maxLength);
 }
 
 function valueType(value: unknown): string {
@@ -296,10 +251,6 @@ export function toSafeErrorDetails(value: unknown): SafeErrorDetails {
     name: 'Error',
     message: `Non-Error rejection (${valueType(value)})`,
   };
-}
-
-export function safeDisplayText(value: string): string {
-  return safeString(value, 3_072);
 }
 
 export function safeErrorSummary(value: unknown): Record<string, SafeDiagnosticValue> {

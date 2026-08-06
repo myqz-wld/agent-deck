@@ -19,16 +19,9 @@ import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provid
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
 import { finalizeGrokAcpResponse, responseFromGrokLiveOutcome } from './turn-response';
 import type {
-  GrokEnqueueOptions,
-  GrokInterjectRequest,
-  GrokTurnQueueOptions,
-  PreparedGrokMessage,
+  GrokEnqueueOptions, GrokInterjectRequest, GrokTurnQueueOptions, PreparedGrokMessage,
 } from './turn-queue-types';
-import {
-  beginGrokTurn,
-  clearGrokTurnLiveRate,
-  flushGrokTextUpdates,
-} from './translate';
+import { beginGrokTurn, clearGrokTurnLiveRate, flushGrokTextUpdates } from './translate';
 import {
   isCancelled,
   isInterjectionUnsupported,
@@ -48,9 +41,14 @@ export class GrokTurnQueue {
   private readonly providerCompletionRecovery: GrokProviderCompletionRecovery;
 
   constructor(private readonly options: GrokTurnQueueOptions) {
+    const diagnostics = options.runtimeHost?.diagnostics;
     this.firstModelEventWatchdog =
-      new GrokFirstModelEventWatchdog(options.firstModelEventTimeoutMs);
+      new GrokFirstModelEventWatchdog(
+        options.firstModelEventTimeoutMs,
+        diagnostics,
+      );
     this.providerCompletionRecovery = new GrokProviderCompletionRecovery({
+      diagnostics,
       pollMs: options.providerCompletionPollMs,
       root: options.providerHistoryRoot,
     });

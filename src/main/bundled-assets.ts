@@ -32,17 +32,23 @@
  * 0 production caller，违反 user CLAUDE.md §提示词资产维护 约束 2「不写预测未来用例代码」）。
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { app } from 'electron';
 import type { AssetMeta, BundledAssetsSnapshot } from '@shared/types';
-import { ASSET_NAME_REGEX } from '@shared/types';
-import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { getClaudeAgentDeckPluginSourcePath } from './adapters/claude-code/sdk-injection';
 import { getCodexAgentDeckPluginPath } from './adapters/codex-cli/codex-config-paths';
 import { getGrokPluginRoot } from './adapters/grok-build/resources';
-import { parseFrontmatter } from './utils/frontmatter';
 import { substituteResourcesPlaceholder } from './utils/resources-placeholder';
 import log from '@main/utils/logger';
+import {
+  buildAgentMeta,
+  buildSkillMeta,
+  readBundledAssetContent,
+  resolveBundledAssetPath,
+  scanBundledAssets,
+  type BundledAdapter,
+  type BundledAssetScanWarning,
+  type BundledAssetStoreFilesystem,
+} from './bundled-asset-store';
 import {
   getBundledAgentRuntimeOverride,
 } from './bundled-agent-runtime-overrides';
@@ -50,7 +56,15 @@ import {
 const logger = log.scope('main-bundled-assets');
 
 /** plan §P3 Step 3.3：bundled 资产 adapter narrowing key。user 资产此字段为 null。 */
-export type BundledAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
+export type { BundledAdapter } from './bundled-asset-store';
+export { isSafeName } from './bundled-asset-store';
+
+const bundledAssetFilesystem: BundledAssetStoreFilesystem = {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+};
 
 let cached: BundledAssetsSnapshot | null = null;
 
@@ -69,21 +83,11 @@ let cached: BundledAssetsSnapshot | null = null;
  */
 export function loadBundledAssets(): BundledAssetsSnapshot {
   if (cached && app.isPackaged) return cached;
-  const claudeRoot = getClaudeAgentDeckPluginSourcePath();
-  const codexRoot = getCodexAgentDeckPluginPath();
-  const grokRoot = getGrokPluginRoot();
-  const snapshot: BundledAssetsSnapshot = {
-    agents: [
-      ...scanAgents(claudeRoot, 'claude-code'),
-      ...scanAgents(codexRoot, 'codex-cli'),
-      ...scanAgents(grokRoot, 'grok-build'),
-    ].sort(compareAdapterThenName),
-    skills: [
-      ...scanSkills(claudeRoot, 'claude-code'),
-      ...scanSkills(codexRoot, 'codex-cli'),
-      ...scanSkills(grokRoot, 'grok-build'),
-    ].sort(compareAdapterThenName),
-  };
+  const snapshot = scanBundledAssets([
+    { root: getClaudeAgentDeckPluginSourcePath(), adapter: 'claude-code' },
+    { root: getCodexAgentDeckPluginPath(), adapter: 'codex-cli' },
+    { root: getGrokPluginRoot(), adapter: 'grok-build' },
+  ], bundledAssetFilesystem, warnOnScanFailure);
   if (app.isPackaged) cached = snapshot;
   return snapshot;
 }
@@ -113,14 +117,16 @@ export function getBundledAssetContent(
   name: string,
   adapter: BundledAdapter,
 ): { ok: true; content: string } | { ok: false; reason: string } {
-  const path = getBundledAssetPath(kind, name, adapter);
-  if (!path) return { ok: false, reason: `not found: ${adapter}/${kind}/${name}` };
-  try {
-    const raw = readFileSync(path, 'utf8');
-    return { ok: true, content: substituteResourcesPlaceholder(raw) };
-  } catch (err) {
-    return { ok: false, reason: (err as Error).message };
-  }
+  const result = readBundledAssetContent(
+    getBundledRoot(adapter),
+    kind,
+    name,
+    adapter,
+    bundledAssetFilesystem,
+  );
+  return result.ok
+    ? { ok: true, content: substituteResourcesPlaceholder(result.content) }
+    : result;
 }
 
 /**
@@ -133,117 +139,28 @@ export function getBundledAssetPath(
   name: string,
   adapter: BundledAdapter,
 ): string | null {
-  if (!isSafeName(name)) return null;
-  const root =
-    adapter === 'claude-code'
-      ? getClaudeAgentDeckPluginSourcePath()
-      : adapter === 'codex-cli'
-        ? getCodexAgentDeckPluginPath()
-        : getGrokPluginRoot();
-  const path = kind === 'agent' ? getBundledAgentPath(root, name, adapter) : join(root, 'skills', name, 'SKILL.md');
-  return existsSync(path) ? path : null;
-}
-
-function scanAgents(root: string, adapter: BundledAdapter): AssetMeta[] {
-  const dir = join(root, 'agents');
-  if (!existsSync(dir)) return [];
-  const out: AssetMeta[] = [];
-  for (const file of readdirSync(dir)) {
-    const absPath = join(dir, file);
-    try {
-      if (adapter === 'codex-cli' && file.endsWith('.toml')) {
-        const parsed = parseCodexAgentToml(readFileSync(absPath, 'utf8'));
-        const name = file.slice(0, -5);
-        if (parsed.name !== name) {
-          throw new Error(
-            `bundled Codex Agent name must match filename: ${parsed.name ?? '<missing>'} != ${name}`,
-          );
-        }
-        if (!isSafeName(name)) continue;
-        out.push(buildAgentMeta(name, absPath, {
-          description: parsed.description ?? '',
-          model: parsed.model ?? '',
-          model_provider:
-            typeof parsed.config.model_provider === 'string'
-              ? parsed.config.model_provider
-              : '',
-          model_reasoning_effort: parsed.modelReasoningEffort ?? '',
-        }, 'bundled', adapter));
-        continue;
-      }
-      if (!file.endsWith('.md')) continue;
-      const name = file.slice(0, -3);
-      if (!isSafeName(name)) continue;
-      const fm = parseFrontmatter(readFileSync(absPath, 'utf8'));
-      out.push(buildAgentMeta(name, absPath, fm, 'bundled', adapter));
-    } catch (err) {
-      logger.warn(`[bundled-assets] skip agent ${adapter}/${file}:`, (err as Error).message);
-    }
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function getBundledAgentPath(root: string, name: string, adapter: BundledAdapter): string {
-  const dir = join(root, 'agents');
-  if (adapter === 'codex-cli') {
-    return join(dir, `${name}.toml`);
-  }
-  return join(dir, `${name}.md`);
-}
-
-function scanSkills(root: string, adapter: BundledAdapter): AssetMeta[] {
-  const dir = join(root, 'skills');
-  if (!existsSync(dir)) return [];
-  const out: AssetMeta[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (!isSafeName(entry)) continue;
-    const skillDir = join(dir, entry);
-    if (!safeIsDir(skillDir)) continue;
-    const skillFile = join(skillDir, 'SKILL.md');
-    if (!existsSync(skillFile)) continue;
-    try {
-      const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'));
-      out.push(buildSkillMeta(entry, skillFile, fm, 'bundled', adapter));
-    } catch (err) {
-      logger.warn(`[bundled-assets] skip skill ${adapter}/${entry}:`, (err as Error).message);
-    }
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/**
- * Builds adapter-qualified metadata for Claude, Codex, and Grok assets. Bundled names include the
- * adapter to avoid cross-root collisions; user asset names remain local to their adapter view.
- */
-function buildAgentMeta(
-  name: string,
-  absPath: string,
-  fm: Record<string, string>,
-  source: 'bundled' | 'user',
-  adapter: BundledAdapter,
-): AssetMeta {
-  const description = fm.description ?? '';
-  return {
-    kind: 'agent',
-    source,
-    adapter,
+  return resolveBundledAssetPath(
+    getBundledRoot(adapter),
+    kind,
     name,
-    qualifiedName: source === 'bundled' ? `agent-deck:${adapter}:${name}` : name,
-    description,
-    tools: fm.tools,
-    model: fm.model,
-    thinking:
-      adapter === 'codex-cli'
-        ? fm.model_reasoning_effort || undefined
-        : fm.effort || undefined,
-    provider:
-      adapter === 'claude-code'
-        ? fm.gateway || undefined
-        : adapter === 'codex-cli'
-          ? fm.model_provider || undefined
-          : undefined,
-    absPath,
-  };
+    adapter,
+    bundledAssetFilesystem,
+  );
+}
+
+function getBundledRoot(adapter: BundledAdapter): string {
+  return adapter === 'claude-code'
+    ? getClaudeAgentDeckPluginSourcePath()
+    : adapter === 'codex-cli'
+      ? getCodexAgentDeckPluginPath()
+      : getGrokPluginRoot();
+}
+
+function warnOnScanFailure(warning: BundledAssetScanWarning): void {
+  logger.warn(
+    `[bundled-assets] skip ${warning.kind} ${warning.adapter}/${warning.entry}:`,
+    warning.reason,
+  );
 }
 
 function applyBundledAgentRuntimeOverride(asset: AssetMeta): AssetMeta {
@@ -262,57 +179,5 @@ function applyBundledAgentRuntimeOverride(asset: AssetMeta): AssetMeta {
   };
 }
 
-function buildSkillMeta(
-  name: string,
-  absPath: string,
-  fm: Record<string, string>,
-  source: 'bundled' | 'user',
-  adapter: BundledAdapter,
-): AssetMeta {
-  const description = fm.description ?? '';
-  return {
-    kind: 'skill',
-    source,
-    adapter,
-    name,
-    qualifiedName: source === 'bundled' ? `agent-deck:${adapter}:${name}` : name,
-    description,
-    absPath,
-  };
-}
-
 /** 共享给 user-assets.ts：避免重复造轮子（agent/skill meta 拼装规则一致）。 */
 export const __metaBuilders = { buildAgentMeta, buildSkillMeta };
-
-/** Stable adapter grouping (Claude, Codex, Grok), then name. */
-function compareAdapterThenName(a: AssetMeta, b: AssetMeta): number {
-  const adapterRank = (x: BundledAdapter): number =>
-    x === 'claude-code' ? 0 : x === 'codex-cli' ? 1 : 2;
-  const ra = adapterRank(a.adapter);
-  const rb = adapterRank(b.adapter);
-  if (ra !== rb) return ra - rb;
-  return a.name.localeCompare(b.name);
-}
-
-/**
- * 校验 asset name 安全：
- * - slug 见 `ASSET_NAME_REGEX`（首字符 a-z/0-9，后续 a-z/0-9/-）
- * - 长度 1-64
- * - 不含 `..` / 路径分隔符 / 隐藏前缀（regex 自带兜底）
- *
- * 跨进程共享单点真值：bundled runtime IPC 与 bundled asset 扫描都使用
- * `ASSET_NAME_REGEX`，避免原生用户资产的更宽命名规则进入 packaged root。
- */
-export function isSafeName(name: string): boolean {
-  if (typeof name !== 'string') return false;
-  if (name.length === 0 || name.length > 64) return false;
-  return ASSET_NAME_REGEX.test(name);
-}
-
-function safeIsDir(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}

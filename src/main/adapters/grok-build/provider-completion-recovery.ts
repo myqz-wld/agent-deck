@@ -2,7 +2,6 @@ import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import log from '@main/utils/logger';
 import type { AgentEvent } from '@shared/types';
 
 import {
@@ -24,8 +23,12 @@ import {
   flushGrokTextUpdates,
   translateGrokTurnUsage,
 } from './translate';
+import {
+  NOOP_GROK_BRIDGE_DIAGNOSTICS,
+  type GrokBridgeDiagnosticLogger,
+  type GrokBridgeDiagnostics,
+} from './bridge-diagnostics-core';
 
-const logger = log.scope('grok-provider-completion');
 const HISTORY_TAIL_BYTES = 128 * 1024;
 const HISTORY_COMPLETED_TURN_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_GROK_PROVIDER_COMPLETION_POLL_MS = 1_500;
@@ -43,6 +46,7 @@ export type GrokProviderCompletionOutcome<T> =
   | { kind: 'native-history'; turn: RecoveredGrokTurn };
 
 export interface GrokProviderCompletionRecoveryOptions {
+  diagnostics?: GrokBridgeDiagnostics;
   root?: string;
   pollMs?: number;
   readCompletedTurn?: typeof readCompletedGrokNativeTurn;
@@ -127,11 +131,14 @@ export class GrokProviderCompletionRecovery {
   private readonly pollMs: number;
   private readonly root: string;
   private readonly readCompletedTurn: typeof readCompletedGrokNativeTurn;
+  private readonly logger: GrokBridgeDiagnosticLogger;
 
   constructor(options: GrokProviderCompletionRecoveryOptions = {}) {
     this.pollMs = options.pollMs ?? DEFAULT_GROK_PROVIDER_COMPLETION_POLL_MS;
     this.root = options.root ?? join(homedir(), '.grok', 'sessions');
     this.readCompletedTurn = options.readCompletedTurn ?? readCompletedGrokNativeTurn;
+    this.logger = (options.diagnostics ?? NOOP_GROK_BRIDGE_DIAGNOSTICS)
+      .scope('grok-provider-completion');
   }
 
   async run<T>(
@@ -160,7 +167,7 @@ export class GrokProviderCompletionRecovery {
           });
           if (!this.isActive(runtime, active)) return;
           if (turn) {
-            logger.warn('[grok-provider-completion] recovered completed native turn', {
+            this.logger.warn('[grok-provider-completion] recovered completed native turn', {
               event: 'grok_provider_completion_recovery',
               sessionId: runtime.applicationSessionId,
               nativeSessionId,
@@ -173,7 +180,7 @@ export class GrokProviderCompletionRecovery {
         } catch (error) {
           if (!active.readErrorLogged) {
             active.readErrorLogged = true;
-            logger.warn('[grok-provider-completion] native history read failed', {
+            this.logger.warn('[grok-provider-completion] native history read failed', {
               event: 'grok_provider_completion_read_failed',
               sessionId: runtime.applicationSessionId,
               nativeSessionId,

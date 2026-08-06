@@ -3,7 +3,7 @@ import type {
   CapturedRecoveryContinuation,
   PreparedRecoveryContinuation,
   RecoveryRuntimeOverrides,
-} from '@main/session/continuation-context/recovery';
+} from '@main/session/continuation-context/recovery-types';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type {
   JsonlExistsThunk,
@@ -12,6 +12,7 @@ import type {
 } from './recoverer/_deps';
 import type { SdkSessionHandle } from './types';
 import type { PermissionMode } from '@main/adapters/types';
+import type { ClaudeRestartSessionHost } from './restart-session-host-core';
 
 export interface RestartCreateOpts {
   cwd: string;
@@ -62,6 +63,7 @@ export interface RestartCtx {
    * recoverAndSend / restartWithX 排队执行。
    */
   recovering: Map<string, Promise<unknown>>;
+  sessionHost: ClaudeRestartSessionHost;
   emit: (event: AgentEvent) => void;
   /** thunk 反调 facade.closeSession，避免直接持有 facade ref */
   closeSession: (

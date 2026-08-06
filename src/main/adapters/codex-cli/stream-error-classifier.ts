@@ -1,7 +1,3 @@
-import log from '@main/utils/logger';
-
-const logger = log.scope('codex-stream-error-classifier');
-
 const TRANSIENT_STREAM_ERROR_PHRASES = [
   'Reconnecting...',
   'stream disconnected before completion',
@@ -34,14 +30,19 @@ const FATAL_STREAM_ERROR_PHRASES = [
 const STREAM_ERROR_FATAL_RE =
   /(max\s+retr|exceeded\s+retr|exhaust|gave\s+up|maximum\s+retr)/i;
 
-export function classifyStreamErrorEvent(message: string): 'transient' | 'fatal' {
+export function classifyStreamErrorEvent(
+  message: string,
+  observeHeuristicTransient?: (message: string) => void,
+): 'transient' | 'fatal' {
   if (FATAL_STREAM_ERROR_PHRASES.some((p) => message.includes(p))) return 'fatal';
   if (STREAM_ERROR_FATAL_RE.test(message)) return 'fatal';
   if (TRANSIENT_STREAM_ERROR_PHRASES.some((p) => message.includes(p))) return 'transient';
   if (STREAM_ERROR_HEURISTIC_RE.test(message)) {
-    logger.warn(
-      `[codex-cli/stream-error-classifier] heuristic-only transient match (consider adding to white-list): ${message}`,
-    );
+    try {
+      observeHeuristicTransient?.(message);
+    } catch {
+      // Diagnostics cannot alter the authoritative retry classification.
+    }
     return 'transient';
   }
   return 'fatal';

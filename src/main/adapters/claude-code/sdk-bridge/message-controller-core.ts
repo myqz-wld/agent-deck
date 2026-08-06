@@ -1,0 +1,197 @@
+import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import {
+  validateMessageLengthOrThrow,
+  validateSendMessageOrThrow,
+  validateSessionAcceptsMessageOrThrow,
+} from './send-validation';
+import type {
+  InternalSession,
+  PendingUserMessage,
+  SdkBridgeOptions,
+} from './types';
+import type { AgentEnqueueOptions } from '@main/adapters/types';
+import {
+  type AdapterRecoveryDeliveryOptions,
+  enqueuePayloadFingerprint,
+  isAcceptedEnqueueRetry,
+  rememberAcceptedEnqueue,
+} from '@main/adapters/enqueue-idempotency';
+
+export interface ClaudeMessageControllerContext {
+  sessions: ReadonlyMap<string, InternalSession>;
+  emit: SdkBridgeOptions['emit'];
+  recoverAndSend: (
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AdapterRecoveryDeliveryOptions,
+  ) => Promise<unknown>;
+  makeUserMessage: (
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ) => PendingUserMessage;
+}
+
+export interface ClaudeMessageInput {
+  sessionId: string;
+  text: string;
+  attachments?: UploadedAttachmentRef[];
+  allowQueueOverflow?: boolean;
+  enqueueOptions?: AgentEnqueueOptions;
+}
+
+export interface ClaudeMessageControllerHost {
+  guardSourceIngress(input: {
+    sourceSessionId: string;
+    agentId: 'claude-code';
+    text: string;
+    attachments?: UploadedAttachmentRef[];
+    emit: (event: AgentEvent) => void;
+    replay: (sourceSessionId: string) => Promise<void>;
+    bypassWorktreeTransition?: boolean;
+  }): boolean;
+  acceptedEnqueueEventFailed(idempotencyKey: string, error: unknown): void;
+  now(): number;
+}
+
+async function enqueuePersistedMessage(
+  ctx: ClaudeMessageControllerContext,
+  sessionId: string,
+  text: string,
+  attachments?: UploadedAttachmentRef[],
+): Promise<void> {
+  const session = ctx.sessions.get(sessionId);
+  if (!session) {
+    await ctx.recoverAndSend(sessionId, text, attachments, {
+      userEventAlreadyPersisted: true,
+      sendAfterRecovery: (recoveredSessionId) =>
+        enqueuePersistedMessage(ctx, recoveredSessionId, text, attachments),
+    });
+    return;
+  }
+  validateSessionAcceptsMessageOrThrow(session, sessionId);
+  session.pendingUserMessages.push(ctx.makeUserMessage(sessionId, text, attachments));
+  session.notify?.();
+}
+
+/** Queue ordinary Claude input, or divert it into an active handoff with rollback replay. */
+export async function sendClaudeMessageCore(
+  ctx: ClaudeMessageControllerContext,
+  input: ClaudeMessageInput,
+  host: ClaudeMessageControllerHost,
+): Promise<void> {
+  validateMessageLengthOrThrow(input.text);
+  if (
+    host.guardSourceIngress({
+      sourceSessionId: input.sessionId,
+      agentId: 'claude-code',
+      text: input.text,
+      attachments: input.attachments,
+      emit: ctx.emit,
+      replay: (sourceSessionId) =>
+        enqueuePersistedMessage(
+          ctx,
+          sourceSessionId,
+          input.text,
+          input.attachments,
+        ),
+      bypassWorktreeTransition:
+        input.enqueueOptions?.bypassWorktreeTransitionGuard === true,
+    })
+  ) {
+    return;
+  }
+
+  const session = ctx.sessions.get(input.sessionId);
+  if (!session) {
+    await ctx.recoverAndSend(
+      input.sessionId,
+      input.text,
+      input.attachments,
+      input.enqueueOptions
+        ? {
+            initialEnqueueOptions: input.enqueueOptions,
+            sendAfterRecovery: (recoveredSessionId) => sendClaudeMessageCore(ctx, {
+              ...input,
+              sessionId: recoveredSessionId,
+            }, host),
+          }
+        : undefined,
+    );
+    return;
+  }
+  validateSendMessageOrThrow(
+    session,
+    input.sessionId,
+    input.text,
+    ctx.emit,
+    input.allowQueueOverflow,
+  );
+  const idempotencyKey = input.enqueueOptions?.idempotencyKey;
+  const fingerprint = idempotencyKey
+    ? enqueuePayloadFingerprint(input.text, input.attachments)
+    : null;
+  if (idempotencyKey && fingerprint) {
+    const accepted = (session.acceptedEnqueueFingerprints ??= new Map());
+    if (isAcceptedEnqueueRetry(accepted, idempotencyKey, fingerprint)) {
+      session.notify?.();
+      return;
+    }
+  }
+  const pending = ctx.makeUserMessage(input.sessionId, input.text, input.attachments);
+  const shouldEmitUserEvent =
+    input.enqueueOptions?.userEventAlreadyPersisted !== true;
+  if (
+    shouldEmitUserEvent &&
+    input.enqueueOptions?.deferUserEventUntilTurnStart
+  ) {
+    pending.deferredUserEvent = {
+      text: input.text,
+      ...(input.attachments?.length
+        ? { attachments: input.attachments.map((attachment) => ({ ...attachment })) }
+        : {}),
+      ...(input.enqueueOptions.turnCorrelationId
+        ? { turnCorrelationId: input.enqueueOptions.turnCorrelationId }
+        : {}),
+    };
+  }
+  session.pendingUserMessages.push(pending);
+  if (idempotencyKey && fingerprint) {
+    rememberAcceptedEnqueue(
+      session.acceptedEnqueueFingerprints!,
+      idempotencyKey,
+      fingerprint,
+    );
+  }
+  session.notify?.();
+  try {
+    if (
+      shouldEmitUserEvent &&
+      !input.enqueueOptions?.deferUserEventUntilTurnStart
+    ) ctx.emit({
+      sessionId: input.sessionId,
+      agentId: 'claude-code',
+      kind: 'message',
+      payload: {
+        text: input.text,
+        role: 'user',
+        ...(input.enqueueOptions?.turnCorrelationId
+          ? { turnCorrelationId: input.enqueueOptions.turnCorrelationId }
+          : {}),
+        ...(input.attachments && input.attachments.length > 0
+          ? { attachments: input.attachments }
+          : {}),
+      },
+      ts: host.now(),
+      source: 'sdk',
+    });
+  } catch (error) {
+    if (!idempotencyKey) throw error;
+    try {
+      host.acceptedEnqueueEventFailed(idempotencyKey, error);
+    } catch {
+      // Observation cannot revoke an already accepted idempotent enqueue.
+    }
+  }
+}

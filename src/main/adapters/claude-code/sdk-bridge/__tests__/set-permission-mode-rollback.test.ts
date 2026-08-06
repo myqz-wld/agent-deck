@@ -20,8 +20,24 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeSdkBridge } from '../index';
+import { desktopClaudeSessionDefaultsHost } from '../session-defaults-host';
+import { desktopClaudeRestartSessionHost } from '../restart-session-host';
+import { desktopClaudeRecoveryFreshnessHost } from '../recovery-freshness-host';
+import { desktopSessionModelControllerHost } from '@main/adapters/session-model-controller-host';
+import { desktopClaudeJsonlDiscoveryHost } from '../recoverer/jsonl-discovery-host';
+import { createDesktopClaudeUsageSnapshotHost } from '../../usage-snapshot-host';
+import { desktopClaudePermissionResponderHost } from '../permission-responder-host';
+import { desktopClaudeCwdTransitionHost } from '../cwd-transition-controller-host';
+import { desktopClaudeMessageControllerHost } from '../message-controller-host';
+import { createDesktopClaudeSessionLifecycleHost } from '../session-lifecycle-host';
+import { desktopClaudePendingOutgoingHost } from '../pending-outgoing-host';
+import { createDesktopClaudeStreamProcessorHost } from '../stream-processor-host';
+import { createDesktopClaudeSessionFinalizeHost } from '../session-finalize-host';
+import { desktopClaudeCanUseToolHost } from '../can-use-tool-host';
+import { desktopClaudeCreateSessionSdkQueryHost } from '../create-session/create-session-sdk-query-host';
 import { makeInternalSession, type InternalSession } from '../types';
 import { sessionRepo } from '@main/store/session-repo';
+import { sessionManager } from '@main/session/manager';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@shared/types';
@@ -74,6 +90,22 @@ function setupBridgeWithSession(opts: {
   mockQuery: MockSdkQuery;
 } {
   const bridge = new ClaudeSdkBridge({
+    createSessionHost: desktopClaudeSessionDefaultsHost,
+    jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost,
+    recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost,
+    restartSessionHost: desktopClaudeRestartSessionHost,
+    sessionModelHost: desktopSessionModelControllerHost,
+    usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager),
+    permissionResponderHost: desktopClaudePermissionResponderHost,
+    cwdTransitionHost: desktopClaudeCwdTransitionHost,
+    messageControllerHost: desktopClaudeMessageControllerHost,
+    sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager),
+    pendingOutgoingHost: desktopClaudePendingOutgoingHost,
+    streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager),
+    sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager),
+    canUseToolHost: desktopClaudeCanUseToolHost,
+    createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost,
+    sessionManager,
     emit: (e) => emits.push(e),
   });
   const internal = makeInternalSession({
@@ -167,7 +199,7 @@ describe('Phase 3 Step 3.1 — setPermissionMode SDK throw 回滚 in-memory cach
   });
 
   it('session 不在 sessions Map 但 DB record 存在 → no-op 成功，等待下次恢复应用 DB mode', async () => {
-    const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
+    const bridge = new ClaudeSdkBridge({ createSessionHost: desktopClaudeSessionDefaultsHost, jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost, recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost, restartSessionHost: desktopClaudeRestartSessionHost, sessionModelHost: desktopSessionModelControllerHost, usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager), permissionResponderHost: desktopClaudePermissionResponderHost, cwdTransitionHost: desktopClaudeCwdTransitionHost, messageControllerHost: desktopClaudeMessageControllerHost, sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager), pendingOutgoingHost: desktopClaudePendingOutgoingHost, streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager), sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager), canUseToolHost: desktopClaudeCanUseToolHost, createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost, sessionManager, emit: (e) => emits.push(e) });
     vi.mocked(sessionRepo.get).mockReturnValue({
       id: 'dormant-sid',
       agentId: 'claude-code',
@@ -187,7 +219,7 @@ describe('Phase 3 Step 3.1 — setPermissionMode SDK throw 回滚 in-memory cach
   });
 
   it('session 不在 sessions Map 且 DB record 不存在 → throw "session ... not found"', async () => {
-    const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
+    const bridge = new ClaudeSdkBridge({ createSessionHost: desktopClaudeSessionDefaultsHost, jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost, recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost, restartSessionHost: desktopClaudeRestartSessionHost, sessionModelHost: desktopSessionModelControllerHost, usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager), permissionResponderHost: desktopClaudePermissionResponderHost, cwdTransitionHost: desktopClaudeCwdTransitionHost, messageControllerHost: desktopClaudeMessageControllerHost, sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager), pendingOutgoingHost: desktopClaudePendingOutgoingHost, streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager), sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager), canUseToolHost: desktopClaudeCanUseToolHost, createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost, sessionManager, emit: (e) => emits.push(e) });
     await expect(bridge.setPermissionMode('ghost-sid', 'plan')).rejects.toThrow(
       /session ghost-sid not found/,
     );

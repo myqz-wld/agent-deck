@@ -68,7 +68,7 @@ describe('StreamProcessor deferred handoff retirement', () => {
     const processor = new StreamProcessor({
       sessions: new Map([['source-sid', internal]]),
       emit,
-    });
+    }, sessionManager);
 
     expect(emit).not.toHaveBeenCalled();
     const result = await processor.createUserMessageStream(internal, 'source-sid')[
@@ -110,7 +110,7 @@ describe('StreamProcessor deferred handoff retirement', () => {
     const processor = new StreamProcessor({
       sessions: new Map([['source-sid', internal]]),
       emit,
-    });
+    }, sessionManager);
     const stream = processor.createUserMessageStream(internal, 'source-sid')[
       Symbol.asyncIterator
     ]();
@@ -153,7 +153,7 @@ describe('StreamProcessor deferred handoff retirement', () => {
     const processor = new StreamProcessor({
       sessions: new Map([['source-sid', internal]]),
       emit,
-    });
+    }, sessionManager);
     const stream = processor.createUserMessageStream(internal, 'source-sid')[
       Symbol.asyncIterator
     ]();
@@ -193,7 +193,7 @@ describe('StreamProcessor deferred handoff retirement', () => {
       pendingMessage('turn two', secondMaterialized),
     );
     const sessions = new Map([['source-sid', internal]]);
-    const processor = new StreamProcessor({ sessions, emit: () => undefined });
+    const processor = new StreamProcessor({ sessions, emit: () => undefined }, sessionManager);
     const stream = processor.createUserMessageStream(internal, 'source-sid')[
       Symbol.asyncIterator
     ]();
@@ -236,7 +236,7 @@ describe('StreamProcessor deferred handoff retirement', () => {
       applicationSid: 'source-sid',
     });
     const sessions = new Map([['source-sid', internal]]);
-    const processor = new StreamProcessor({ sessions, emit: () => undefined });
+    const processor = new StreamProcessor({ sessions, emit: () => undefined }, sessionManager);
     const stream = processor.createUserMessageStream(internal, 'source-sid')[
       Symbol.asyncIterator
     ]();
@@ -294,7 +294,7 @@ describe('StreamProcessor deferred handoff retirement', () => {
           boundaryReached: internal.retireBoundaryReached,
         });
       },
-    });
+    }, sessionManager);
 
     const inputStream = processor.createUserMessageStream(internal, 'source-sid')[
       Symbol.asyncIterator

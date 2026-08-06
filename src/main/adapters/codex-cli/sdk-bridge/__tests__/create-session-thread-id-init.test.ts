@@ -23,6 +23,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 const appServerClientMock = vi.hoisted(() => {
   const state = {
@@ -253,6 +254,8 @@ afterEach(() => {
 
 function makeBridge(): CodexSdkBridge {
   return new CodexSdkBridge({
+    recoveryContinuationHost: {} as never,
+    runtimeHost: codexBridgeTestRuntimeHost,
     emit: (e) => {
       emits.push(e);
     },

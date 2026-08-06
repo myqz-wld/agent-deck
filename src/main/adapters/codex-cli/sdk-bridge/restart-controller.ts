@@ -5,14 +5,10 @@
  * value and patches live thread options for the next turn without aborting current work.
  */
 import type { AgentEvent, CodexApprovalPolicy } from '@shared/types';
-import { sessionRepo } from '@main/store/session-repo';
-import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
-import log from '@main/utils/logger';
 import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 import { mergeCodexWritableRoots } from './thread-options-builder';
-
-const logger = log.scope('codex-restart');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-access';
 
@@ -23,6 +19,7 @@ export interface RestartCtx {
    */
   recovering: Map<string, Promise<unknown>>;
   emit: (event: AgentEvent) => void;
+  runtimeHost: CodexBridgeRuntimeHost;
   /**
    * Patches an in-memory Codex app-server thread when one is live. Returns false for dormant
    * sessions; those pick up the persisted value on their next recovery/createSession path.
@@ -65,16 +62,15 @@ export class RestartController {
       inflight = this.ctx.recovering.get(sessionId);
     }
 
-    const rec = sessionRepo.get(sessionId);
+    const rec = this.ctx.runtimeHost.records.get(sessionId);
     if (!rec) throw new Error(`session ${sessionId} not found in repo`);
     const oldSandbox: CodexSandboxMode | null = rec.codexSandbox ?? null;
 
     const p = (async (): Promise<void> => {
       let liveApplyAttempted = false;
       try {
-        sessionRepo.setCodexSandbox(sessionId, sandbox);
-        const updatedRec = sessionRepo.get(sessionId);
-        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+        this.ctx.runtimeHost.records.setCodexSandbox(sessionId, sandbox);
+        this.ctx.runtimeHost.records.publishUpdated(sessionId);
 
         liveApplyAttempted = true;
         const liveApplied = this.ctx.applyLiveSandbox(sessionId, sandbox, {
@@ -85,7 +81,7 @@ export class RestartController {
           ),
         });
         if (!liveApplied) {
-          logger.info(
+          this.ctx.runtimeHost.logger('codex-restart').info(
             `[codex-bridge] persisted sandbox ${sandbox} for dormant session ${sessionId}; ` +
               'next recovery/createSession will apply it',
           );
@@ -96,12 +92,11 @@ export class RestartController {
           ? 'failed'
           : 'unchanged';
         try {
-          sessionRepo.setCodexSandbox(sessionId, oldSandbox);
+          this.ctx.runtimeHost.records.setCodexSandbox(sessionId, oldSandbox);
           dbRollback = 'restored';
-          const rolled = sessionRepo.get(sessionId);
-          if (rolled) eventBus.emit('session-upserted', rolled);
+          this.ctx.runtimeHost.records.publishUpdated(sessionId);
         } catch (rollbackErr) {
-          logger.warn(
+          this.ctx.runtimeHost.logger('codex-restart').warn(
             '[codex-bridge] sandbox DB rollback failed; original error is preserved',
             rollbackFailureDiagnostic('sandbox', 'database', sessionId, rollbackErr),
           );
@@ -117,7 +112,7 @@ export class RestartController {
             });
             liveRollback = 'restored';
           } catch (liveRollbackErr) {
-            logger.warn(
+            this.ctx.runtimeHost.logger('codex-restart').warn(
               '[codex-bridge] live sandbox rollback failed',
               rollbackFailureDiagnostic('sandbox', 'live', sessionId, liveRollbackErr),
             );
@@ -128,7 +123,14 @@ export class RestartController {
         const rollbackComplete =
           dbRollback === 'restored' &&
           (liveRollback === 'restored' || liveRollback === 'unchanged');
-        logRollbackOutcome('sandbox', sessionId, dbRollback, liveRollback, rollbackComplete);
+        logRollbackOutcome(
+          this.ctx.runtimeHost,
+          'sandbox',
+          sessionId,
+          dbRollback,
+          liveRollback,
+          rollbackComplete,
+        );
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,
@@ -176,7 +178,7 @@ export class RestartController {
       inflight = this.ctx.recovering.get(sessionId);
     }
 
-    const rec = sessionRepo.get(sessionId);
+    const rec = this.ctx.runtimeHost.records.get(sessionId);
     if (!rec) throw new Error(`session ${sessionId} not found in repo`);
     const oldPolicy: CodexApprovalPolicy | null =
       rec.codexApprovalPolicy ?? null;
@@ -184,14 +186,13 @@ export class RestartController {
     const operation = (async (): Promise<void> => {
       let liveApplyAttempted = false;
       try {
-        sessionRepo.setCodexApprovalPolicy(sessionId, policy);
-        const updatedRec = sessionRepo.get(sessionId);
-        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+        this.ctx.runtimeHost.records.setCodexApprovalPolicy(sessionId, policy);
+        this.ctx.runtimeHost.records.publishUpdated(sessionId);
 
         liveApplyAttempted = true;
         const liveApplied = this.ctx.applyLiveApprovalPolicy(sessionId, policy);
         if (!liveApplied) {
-          logger.info(
+          this.ctx.runtimeHost.logger('codex-restart').info(
             `[codex-bridge] persisted approval policy ${policy} for dormant session ` +
               `${sessionId}; next recovery/createSession will apply it`,
           );
@@ -202,12 +203,11 @@ export class RestartController {
           ? 'failed'
           : 'unchanged';
         try {
-          sessionRepo.setCodexApprovalPolicy(sessionId, oldPolicy);
+          this.ctx.runtimeHost.records.setCodexApprovalPolicy(sessionId, oldPolicy);
           dbRollback = 'restored';
-          const rolled = sessionRepo.get(sessionId);
-          if (rolled) eventBus.emit('session-upserted', rolled);
+          this.ctx.runtimeHost.records.publishUpdated(sessionId);
         } catch (rollbackError) {
-          logger.warn(
+          this.ctx.runtimeHost.logger('codex-restart').warn(
             '[codex-bridge] approval-policy DB rollback failed; original error is preserved',
             rollbackFailureDiagnostic('approval_policy', 'database', sessionId, rollbackError),
           );
@@ -217,7 +217,7 @@ export class RestartController {
             this.ctx.applyLiveApprovalPolicy(sessionId, oldPolicy);
             liveRollback = 'restored';
           } catch (liveRollbackError) {
-            logger.warn(
+            this.ctx.runtimeHost.logger('codex-restart').warn(
               '[codex-bridge] live approval-policy rollback failed',
               rollbackFailureDiagnostic('approval_policy', 'live', sessionId, liveRollbackError),
             );
@@ -226,7 +226,14 @@ export class RestartController {
         const rollbackComplete =
           dbRollback === 'restored' &&
           (liveRollback === 'restored' || liveRollback === 'unchanged');
-        logRollbackOutcome('approval_policy', sessionId, dbRollback, liveRollback, rollbackComplete);
+        logRollbackOutcome(
+          this.ctx.runtimeHost,
+          'approval_policy',
+          sessionId,
+          dbRollback,
+          liveRollback,
+          rollbackComplete,
+        );
         this.ctx.emit({
           sessionId,
           agentId: AGENT_ID,
@@ -260,13 +267,16 @@ export class RestartController {
 type RollbackProjectionOutcome = 'restored' | 'unchanged' | 'failed' | 'unknown';
 
 function logRollbackOutcome(
+  runtimeHost: CodexBridgeRuntimeHost,
   control: 'sandbox' | 'approval_policy',
   sessionId: string,
   database: RollbackProjectionOutcome,
   live: RollbackProjectionOutcome,
   complete: boolean,
 ): void {
-  logger.warn('[codex-bridge] runtime-control rollback outcome', safeDiagnostic({
+  runtimeHost.logger('codex-restart').warn(
+    '[codex-bridge] runtime-control rollback outcome',
+    safeDiagnostic({
     event: 'codex_runtime_control_rollback',
     phase: 'rollback',
     control,
@@ -274,7 +284,8 @@ function logRollbackOutcome(
     database,
     live,
     outcome: complete ? 'restored' : 'state_unknown',
-  }));
+    }),
+  );
 }
 
 function rollbackFailureDiagnostic(

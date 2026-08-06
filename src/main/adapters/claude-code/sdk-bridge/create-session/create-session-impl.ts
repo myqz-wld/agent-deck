@@ -22,18 +22,18 @@
  * createSessionImpl）。
  */
 import { randomUUID } from 'node:crypto';
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
-import { makeCanUseTool } from '../can-use-tool';
+import { makeCanUseToolCore } from '../can-use-tool-core';
 import { makeInternalSession, type InternalSession } from '../types';
-import { resolveClaudeSandboxMode } from '../sandbox-resolve';
-import { resolveClaudeModel } from '../model-resolve';
-import { finalizeSessionStart } from '../session-finalize';
+import {
+  resolveClaudeEffortCore,
+  resolveClaudeModelCore,
+  resolveClaudeSandboxModeCore,
+} from '../session-defaults-core';
+import { finalizeClaudeSessionStartCore } from '../session-finalize-core';
 import { runCreateSessionSdkQuery } from './create-session-sdk-query';
-import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
-import { safeDisplayText } from '@main/utils/safe-diagnostic';
+import { safeDisplayText } from '@core/safe-diagnostic-text';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -60,7 +60,7 @@ function emitVisibleCreateFailure(
   err: unknown,
 ): void {
   const sessionId = internal.applicationSid;
-  const record = sessionRepo.get(sessionId);
+  const record = deps.createSessionHost.readPersistedSession(sessionId);
   if (!record || record.lifecycle === 'closed') return;
 
   if (!internal.suppressStartupFailureMessage) {
@@ -113,7 +113,9 @@ export async function createSessionImpl(
       'Trusted continuation turns cannot be combined with native Claude resume',
     );
   }
-  const persistedProfile = opts.resume ? sessionRepo.get(opts.resume) : null;
+  const persistedProfile = opts.resume
+    ? deps.createSessionHost.readPersistedSession(opts.resume)
+    : null;
   opts = {
     ...opts,
     prompt: initialTurn.providerPrompt,
@@ -151,7 +153,7 @@ export async function createSessionImpl(
   // runCreateSessionSdkQuery 子模块 catch 同款幂等清理(子模块 throw 路径会被本 catch 再跑一遍,
   // 全部 no-op-safe:releasePending 内部 identity check / releaseSdkClaim Set.delete / Map.delete /
   // sessionRepo.delete(tempKey) DELETE 命中 0 行均无害)。
-  const releasePending = sessionManager.expectSdkSession(opts.cwd);
+  const releasePending = deps.sessionManager.expectSdkSession(opts.cwd);
   let internalForCleanup: InternalSession | null = null;
 
   try {
@@ -165,7 +167,7 @@ export async function createSessionImpl(
     // 第一道防线 `sdkOwned.has(event.sessionId)` 直接 skip。配合下方 fallback 用
     // opts.resume 作 sessionId 不再造 tempKey 占位行，根治两条 active record。
     if (opts.resume) {
-      sessionManager.claimAsSdk(opts.resume);
+      deps.sessionManager.claimAsSdk(opts.resume);
     }
     // CHANGELOG_85 Step 3.2：InternalSession 字段初值集中到 types.ts:makeInternalSession factory
     // （permissionMode 与 query options 同源 `opts.permissionMode ?? 'default'`，详
@@ -214,7 +216,7 @@ export async function createSessionImpl(
     // class state 通过 deps 注入（internal / sessionId getter / emit / 超时阈值 / responder ref）。
     // 护栏（READ_ONLY 白名单 / SandboxNetworkAccess auto-deny / approve+plan deny+message
     // / approve-bypass deny+interrupt / 超时 timer + abort listener）全部完整保留在 module。
-    const canUseTool = makeCanUseTool({
+    const canUseTool = makeCanUseToolCore({
       internal,
       // **plan reverse-rename-sid-stability-20260520 §A.4-pre S4b R4 HIGH-H 修订**:
       // canUseTool getSessionId 返 internal.applicationSid (替代 internal.realSessionId ?? tempKey) —
@@ -229,18 +231,15 @@ export async function createSessionImpl(
       emit: deps.emit,
       getPermissionTimeoutMs: deps.getPermissionTimeoutMs,
       responder: deps.responder,
-    });
+    }, deps.canUseToolHost);
 
     // CHANGELOG_85 Step 3.2：sandbox mode fallback 链抽到 sandbox-resolve.ts。
     // 提到 try 块外，让 emit session-start 之后的 setClaudeCodeSandbox 持久化用同一变量。
-    const claudeSandboxMode = resolveClaudeSandboxMode(opts);
+    const claudeSandboxMode = resolveClaudeSandboxModeCore(opts, deps.createSessionHost);
     // plan model-wiring-and-handoff-20260514 Step 2.2：model fallback 链抽到 model-resolve.ts。
     // 提到 try 块外让 finalizeSessionStart 持久化用同一变量（与 sandbox 同模式）。
-    const claudeModel = resolveClaudeModel(opts);
-    const persistedThinking = opts.resume ? sessionRepo.get(opts.resume)?.thinking : null;
-    const claudeCodeEffortLevel =
-      opts.claudeCodeEffortLevel ??
-      (isClaudeThinkingLevel(persistedThinking) ? persistedThinking : undefined);
+    const claudeModel = resolveClaudeModelCore(opts, deps.createSessionHost);
+    const claudeCodeEffortLevel = resolveClaudeEffortCore(opts, deps.createSessionHost);
     const effectiveOpts =
       claudeCodeEffortLevel === opts.claudeCodeEffortLevel
         ? opts
@@ -259,8 +258,8 @@ export async function createSessionImpl(
     };
     if (ctx.initialSessionEmitted) {
       deps.sessions.set(internal.applicationSid, internal);
-      sessionManager.claimAsSdk(internal.applicationSid);
-      finalizeSessionStart({
+      deps.sessionManager.claimAsSdk(internal.applicationSid);
+      finalizeClaudeSessionStartCore({
         applicationSid: internal.applicationSid,
         cwd: opts.cwd,
         prompt: initialTurn.persistedUserText,
@@ -276,7 +275,7 @@ export async function createSessionImpl(
         continuationMetadata: initialTurn.metadata,
         initialSessionRegistration: opts.initialSessionRegistration,
         emit: deps.emit,
-      });
+      }, deps.sessionFinalizeHost);
 
       const startInBackground = async (): Promise<void> => {
         try {
@@ -285,7 +284,7 @@ export async function createSessionImpl(
           if (internal.expectedClose || deps.sessions.get(internal.applicationSid) !== internal) {
             return;
           }
-          finalizeSessionStart({
+          finalizeClaudeSessionStartCore({
             applicationSid: internal.applicationSid,
             cliSessionId: realId,
             cwd: opts.cwd,
@@ -304,7 +303,7 @@ export async function createSessionImpl(
             skipSessionStartEmit: true,
             skipFirstUserEmit: true,
             emit: deps.emit,
-          });
+          }, deps.sessionFinalizeHost);
         } catch (err) {
           emitVisibleCreateFailure(deps, internal, err);
         }
@@ -355,7 +354,7 @@ export async function createSessionImpl(
     // 跳过 finalize 不影响 — helper 复 emit user message 时若需要 handOff 由 helper 自带(本 plan 修
     // 法仅覆盖 spawn 主路径,jsonl-missing fallback 路径不在范围)。
     if (opts.resumeMode !== 'fresh-cli-reuse-app') {
-      finalizeSessionStart({
+      finalizeClaudeSessionStartCore({
         applicationSid: internal.applicationSid,
         cliSessionId: realId,
         cwd: opts.cwd,
@@ -375,7 +374,7 @@ export async function createSessionImpl(
         // 显式传 true,finalize 跳过重复 emit(详 createSession opts.skipFirstUserEmit jsdoc)。
         skipFirstUserEmit: opts.skipFirstUserEmit,
         emit: deps.emit,
-      });
+      }, deps.sessionFinalizeHost);
     }
 
     // **plan reverse-rename-sid-stability-20260520 §A.4-pre S5 R3 HIGH-F jsdoc 等价性注明**:
@@ -397,12 +396,12 @@ export async function createSessionImpl(
     // applicationSid/opts.resume**(防误删 resume 合法历史,与 sdk-query catch 同款安全边界:
     // spawn 路径孤儿 row id===tempKey;resume 路径 opts.resume 是预先存在合法 row 不能删)。
     releasePending();
-    if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
+    if (opts.resume) deps.sessionManager.releaseSdkClaim(opts.resume);
     if (internalForCleanup && deps.sessions.get(tempKey) === internalForCleanup) {
       deps.sessions.delete(tempKey);
     }
     try {
-      sessionRepo.delete(tempKey);
+      deps.createSessionHost.deleteTransientSession(tempKey);
     } catch {
       // 孤儿 row 清理 best-effort,失败不掩盖原 err
     }

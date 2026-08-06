@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
 import { CLAUDE_HOOK_EVENTS, HookInstaller } from '../hook-installer';
 import { buildHookRoutes } from '../hook-routes';
 
@@ -16,7 +17,10 @@ const TOKEN = 'e'.repeat(64);
 
 describe('Claude Code hook install/route contract', () => {
   it('keeps every active installed event routable', () => {
-    const urls = buildHookRoutes(vi.fn()).map((route) => route.url);
+    const urls = buildHookRoutes(
+      vi.fn(),
+      new HookRouteDiagnostics(),
+    ).map((route) => route.url);
     expect(urls).toEqual(
       CLAUDE_HOOK_EVENTS.map((event) => `/hook/${event.toLowerCase()}`),
     );

@@ -48,7 +48,7 @@ import { encodeClaudeProjectDir } from '@main/platform';
 import type {
   CapturedRecoveryContinuation,
   PreparedRecoveryContinuation,
-} from '@main/session/continuation-context/recovery';
+} from '@main/session/continuation-context/recovery-types';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { AGENT_ID } from './constants';
 import type {
@@ -65,20 +65,20 @@ import {
   buildRestartJsonlMissingInstructionOnlyText,
 } from './recoverer-messages';
 import type { SdkSessionHandle } from './types';
-import log from '@main/utils/logger';
-
-const logger = log.scope('claude-jsonl-fallback');
 
 const HEAL_JSONL_MTIME_SKEW_MS = 2_000;
 
+function warnWithoutThrow(ctx: JsonlFallbackCtx, message: string, error?: unknown): void {
+  try { ctx.warn(message, error); } catch { /* Diagnostics cannot alter fallback authority. */ }
+}
 function latestConversationMessageTs(
   opts: { sessionId: string; emitContext: 'recover' | 'restart' },
-  readLatestTs: LatestConversationMessageTsThunk,
+  ctx: JsonlFallbackCtx,
 ): number | null {
   try {
-    return readLatestTs(opts.sessionId);
+    return ctx.latestConversationMessageTsThunk(opts.sessionId);
   } catch (err) {
-    logger.warn(
+    warnWithoutThrow(ctx,
       `[jsonl-fallback] 最近对话消息时间读取失败: emitContext=${opts.emitContext} ` +
         `sessionId=${opts.sessionId}; 继续使用 lastEventAt freshness`,
       err,
@@ -144,6 +144,7 @@ export interface JsonlFallbackCtx {
   }) => Promise<PreparedRecoveryContinuation>;
   emit: (event: AgentEvent) => void;
   latestConversationMessageTsThunk: LatestConversationMessageTsThunk;
+  warn(message: string, error?: unknown): void;
 }
 
 /**
@@ -319,7 +320,7 @@ export async function maybeJsonlFallback(
       const freshnessCutoff = opts.minHealJsonlMtimeMs - HEAL_JSONL_MTIME_SKEW_MS;
       const restartMessageTs =
         appSidJsonlMtimeMs != null && opts.emitContext === 'restart'
-          ? latestConversationMessageTs(opts, ctx.latestConversationMessageTsThunk)
+          ? latestConversationMessageTs(opts, ctx)
           : null;
       const restartMessageFreshnessCutoff =
         restartMessageTs == null ? null : restartMessageTs - HEAL_JSONL_MTIME_SKEW_MS;
@@ -331,7 +332,7 @@ export async function maybeJsonlFallback(
         appSidJsonlMtimeMs == null ||
         (appSidJsonlMtimeMs < freshnessCutoff && !freshEnoughForRestartMessages);
       if (appSidJsonlIsStale) {
-        logger.warn(
+        warnWithoutThrow(ctx,
           `[jsonl-fallback] 幻影 fork 自愈跳过: emitContext=${opts.emitContext} ` +
             `cliSessionId=${opts.cliSessionId} 无 jsonl,applicationSid=${opts.sessionId} jsonl 在盘 ` +
             `但 mtime=${appSidJsonlMtimeMs ?? 'null'} 早于 freshnessCutoff=${freshnessCutoff} ` +
@@ -344,7 +345,7 @@ export async function maybeJsonlFallback(
       } else {
         healedCliSessionId = opts.sessionId;
         jsonlMissing = false;
-        logger.warn(
+        warnWithoutThrow(ctx,
           `[jsonl-fallback] 幻影 fork 自愈: emitContext=${opts.emitContext} ` +
             `cliSessionId=${opts.cliSessionId} 无 jsonl,但 applicationSid=${opts.sessionId} jsonl 在盘 → ` +
             `mtime=${appSidJsonlMtimeMs} freshnessCutoff=${freshnessCutoff}; ` +
@@ -376,7 +377,7 @@ export async function maybeJsonlFallback(
   } catch {
     // encodeClaudeProjectDir 抛错（非法 cwd）→ 保留占位串，不阻断 fallback
   }
-  logger.warn(
+  warnWithoutThrow(ctx,
     `[jsonl-fallback] precheck MISS → fresh-cli fallback: emitContext=${opts.emitContext} ` +
       `cwdFellBack=${opts.cwdFellBack ?? false} sessionId=${opts.sessionId} ` +
       `cliSessionId=${opts.cliSessionId ?? 'null'} lookupId=${lookupId} cwd=${opts.cwd} jsonlPath=${jsonlPath}`,
@@ -407,7 +408,7 @@ export async function maybeJsonlFallback(
   // 重读到 createSession 之间同步无 await，JS 单线程下 close 插不进来（无二次 TOCTOU）。
   // restart 路径不传 isCancelledFn（undefined）→ 不 gate（restart 本就先 close 再 cold restart）。
   if (opts.isCancelledFn?.()) {
-    logger.warn(
+    warnWithoutThrow(ctx,
       `[sdk-bridge] recover fallback aborted: session ${opts.sessionId} closed during summary await (user close)`,
     );
     return { finalSessionId: opts.sessionId, fellBack: false, aborted: true };

@@ -86,12 +86,27 @@ vi.mock('../../hook-server/server', () => ({
 }));
 vi.mock('../../hook-server/route-registry', () => ({ RouteRegistry: class {} }));
 vi.mock('../../store/db', () => ({
+  AGENT_DECK_DATABASE_FILENAME: 'agent-deck.db',
   initDb: mocks.initDb,
   closeDb: vi.fn(),
   isDbClosed: vi.fn(() => false),
 }));
 vi.mock('../../store/settings-store', () => ({
   settingsStore: { getAll: mocks.getAll },
+}));
+vi.mock('../../adapters/provider-runtime-host', () => ({
+  desktopProviderRuntimeCompositionHost: {
+    adapters: [],
+    registry: {
+      register: vi.fn(),
+      initAll: mocks.adapterInit,
+      get: vi.fn(() => null),
+    },
+    installSessionClose: vi.fn(),
+    installSessionRename: vi.fn(),
+    renameLiveSession: vi.fn(),
+    reportAdapterInitFailure: vi.fn(),
+  },
 }));
 vi.mock('../../adapters/registry', () => ({
   adapterRegistry: {
@@ -100,8 +115,6 @@ vi.mock('../../adapters/registry', () => ({
     get: vi.fn(() => null),
   },
 }));
-vi.mock('../../adapters/claude-code', () => ({ claudeCodeAdapter: {} }));
-vi.mock('../../adapters/codex-cli', () => ({ codexCliAdapter: {} }));
 vi.mock('../../adapters/claude-code/settings-env', () => ({ applyClaudeSettingsEnv: vi.fn() }));
 vi.mock('../../session/manager', () => ({
   sessionManager: { ingest: vi.fn() },
@@ -136,7 +149,10 @@ vi.mock('../../store/token-usage-lifecycle-scheduler', () => ({
   TokenUsageLifecycleScheduler: mocks.makeScheduler('tokenScheduler'),
 }));
 vi.mock('../../store/storage-maintenance', () => ({
-  StorageMaintenanceScheduler: mocks.makeScheduler('storageScheduler'),
+  createDesktopStorageMaintenanceScheduler: vi.fn(() => {
+    const Scheduler = mocks.makeScheduler('storageScheduler');
+    return new Scheduler();
+  }),
 }));
 vi.mock('../../session/summarizer', () => ({
   summarizer: { start: vi.fn(() => mocks.calls.push('summarizer.start')) },
@@ -186,6 +202,13 @@ describe('checkpoint refresh bootstrap entry', () => {
     const result = await initInfra(state);
 
     expect(result).toBe(mocks.settings);
+    expect(mocks.initDb).toHaveBeenCalledWith({
+      databasePath: '/tmp/agent-deck-test-user-data/agent-deck.db',
+      diagnostics: expect.objectContaining({
+        info: expect.any(Function),
+        warn: expect.any(Function),
+      }),
+    });
     expect(mocks.calls.indexOf('db.init')).toBeGreaterThanOrEqual(0);
     expect(mocks.calls.indexOf('settings.getAll')).toBeGreaterThan(
       mocks.calls.indexOf('db.init'),

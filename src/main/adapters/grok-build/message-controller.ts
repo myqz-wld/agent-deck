@@ -1,9 +1,12 @@
 import type { AgentEnqueueOptions } from '@main/adapters/types';
-import { guardHandOffSourceIngress } from '@main/session/hand-off/ingress-guard';
-import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import type { AgentEvent, UploadedAttachmentRef } from '@shared/types';
+import type { GrokBridgeRuntimeHost } from './bridge-runtime-core';
 
 interface GrokMessageControllerContext {
+  runtimeHost: Pick<
+    GrokBridgeRuntimeHost,
+    'guardHandOffSourceIngress' | 'hasPendingWorktreeTransition'
+  >;
   emit: (event: AgentEvent) => void;
   dispatch: (
     sessionId: string,
@@ -31,7 +34,7 @@ export class GrokMessageController {
       text,
       attachments,
       options,
-      worktreeToolInvocationRegistry.hasPendingTransition(sessionId),
+      this.context.runtimeHost.hasPendingWorktreeTransition(sessionId),
     );
   }
 
@@ -47,7 +50,7 @@ export class GrokMessageController {
 
   async steerTurn(sessionId: string, text: string): Promise<void> {
     if (this.guard(sessionId, text, undefined, undefined)) return;
-    if (worktreeToolInvocationRegistry.hasPendingTransition(sessionId)) {
+    if (this.context.runtimeHost.hasPendingWorktreeTransition(sessionId)) {
       await this.context.dispatch(sessionId, text, undefined, undefined, true);
       return;
     }
@@ -60,9 +63,8 @@ export class GrokMessageController {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): boolean {
-    return guardHandOffSourceIngress({
+    return this.context.runtimeHost.guardHandOffSourceIngress({
       sourceSessionId: sessionId,
-      agentId: 'grok-build',
       text,
       attachments,
       emit: this.context.emit,

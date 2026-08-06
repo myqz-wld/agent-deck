@@ -30,15 +30,21 @@ import { join } from 'node:path';
 
 import { HookServer } from '../hook-server/server';
 import { RouteRegistry } from '../hook-server/route-registry';
-import { initDb, closeDb, isDbClosed } from '../store/db';
+import {
+  AGENT_DECK_DATABASE_FILENAME,
+  initDb,
+  closeDb,
+  isDbClosed,
+} from '../store/db';
 import { repairLegacyTokenUsage } from '../store/token-usage-legacy-repair';
 import { settingsStore } from '../store/settings-store';
-import { adapterRegistry } from '../adapters/registry';
-import { claudeCodeAdapter } from '../adapters/claude-code';
+import { installDesktopEventRepositoryDiagnostics } from '../store/event-repo-diagnostics-host';
+import { installDesktopSessionRepositoryDiagnostics } from '../store/session-repo/diagnostics-host';
 import { applyClaudeSettingsEnv } from '../adapters/claude-code/settings-env';
-import { codexCliAdapter } from '../adapters/codex-cli';
-import { grokBuildAdapter } from '../adapters/grok-build';
-import { sessionManager, setSessionCloseFn, setSessionRenameHookFn } from '../session/manager';
+import { initializeProviderRuntimeCore } from '../adapters/provider-runtime-core';
+import { createProviderAdapterContext } from '../adapters/provider-adapter-context-core';
+import { desktopProviderRuntimeCompositionHost } from '../adapters/provider-runtime-host';
+import { sessionManager } from '../session/manager';
 import { LifecycleScheduler, setLifecycleScheduler } from '../session/lifecycle-scheduler';
 import { TeamLifecycleScheduler } from '../teams/team-lifecycle-scheduler';
 import {
@@ -50,7 +56,7 @@ import {
   setMessageLifecycleScheduler,
 } from '../store/message-lifecycle-scheduler';
 import { TokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
-import { StorageMaintenanceScheduler } from '../store/storage-maintenance';
+import { createDesktopStorageMaintenanceScheduler } from '../store/storage-maintenance';
 import { summarizer } from '../session/summarizer';
 import { startContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
 import { routeEventToNotification } from '../notify/event-router';
@@ -83,6 +89,7 @@ import { emitProcessStartupRecord } from '@main/utils/process-startup';
 import { readSchemaUserVersion } from '@main/utils/run-context';
 
 const logger = log.scope('bootstrap-infra');
+const databaseLogger = log.scope('store-db');
 
 /**
  * bootstrap god-function Phase 0-8.6 infrastructure init 段。
@@ -119,7 +126,12 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   }
 
   // 1. 数据库
-  const database = initDb();
+  installDesktopEventRepositoryDiagnostics();
+  installDesktopSessionRepositoryDiagnostics();
+  const database = initDb({
+    databasePath: join(app.getPath('userData'), AGENT_DECK_DATABASE_FILENAME),
+    diagnostics: databaseLogger,
+  });
   try {
     const repaired = repairLegacyTokenUsage(database);
     if (repaired.claudeCumulativeRows > 0 || repaired.codexContextOnlyRows > 0) {
@@ -161,13 +173,9 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   );
   state.routeRegistry = new RouteRegistry(state.hookServer);
 
-  // 4. 注册 adapter
-  adapterRegistry.register(claudeCodeAdapter);
-  adapterRegistry.register(codexCliAdapter);
-  adapterRegistry.register(grokBuildAdapter);
-
-  // 5. 把 adapter 发出的 AgentEvent 接入 SessionManager
-  const adapterInitResults = await adapterRegistry.initAll({
+  // 4-5. Provider registration, partial-init diagnostics, and session lifecycle hooks share one
+  // host-neutral composition. This Electron bootstrap supplies only its concrete event/path ports.
+  await initializeProviderRuntimeCore(desktopProviderRuntimeCompositionHost, createProviderAdapterContext({
     hookServer: state.hookServer,
     routeRegistry: state.routeRegistry,
     emit: (event: AgentEvent) => {
@@ -188,45 +196,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
       userHome: homedir(),
       userClaudeSettings: join(homedir(), '.claude', 'settings.json'),
     },
-  });
-  // REVIEW_105 MED-2 (deep-review Batch 7 双方共识): initAll 保留「单 adapter 失败不连坐」
-  // resilience 续跑, 但调用方必须消费 per-adapter result 明确 surface 失败 —— 否则半死 adapter
-  // 留在 registry, get() 仍返回它, 直到用户 spawn 才在 createSession 抛 cryptic "adapter not
-  // initialized", 启动期零可观测。失败项升级为带 actionable hint 的 error 日志(该 adapter 的
-  // session 将无法创建)。不 throw / 不连坐: 另一 adapter 仍可用是 by-design(双 adapter 桌面应用)。
-  const failedAdapters = adapterInitResults.filter((r) => !r.ok);
-  for (const f of failedAdapters) {
-    logger.error(
-      `[adapter] ${f.id} init FAILED — 该 adapter 的会话将无法创建(spawn / resume 时 createSession 会抛 "adapter not initialized")。其他 adapter 不受影响仍可用。`,
-      f.err,
-    );
-  }
-
-  // 5.1 注入「会话删除时关 SDK 侧 live query」hook
-  setSessionCloseFn(async (agentId, sessionId) => {
-    const adapter = adapterRegistry.get(agentId);
-    if (!adapter?.closeSession) return;
-    await adapter.closeSession(sessionId);
-  });
-
-  // 5.1.1 plan codex-handoff-team-alignment-20260518 P2 Step 2.8 / 不变量 7:注入 rename hook
-  // 让 sessionManager.renameSdkSession 函数体内统一调到 codex bridge.renameCodexInstance,
-  // 同步 rename codexBySession Map key(token map / sessions Map / sdkOwned 三处 key 已经
-  // 在 renameSdkSession 内同步迁移,本 hook 补 codex bridge per-session 实例 Map 第四处)。
-  // claude bridge 不需要 hook(in-process MCP transport closure override,不消费 token map),
-  // 命中 agentId === 'claude-code' 时 noop 退出。
-  setSessionRenameHookFn((agentId, fromId, toId) => {
-    if (agentId !== 'codex-cli') return;
-    const adapter = adapterRegistry.get(agentId);
-    // adapter.bridge 不在 AdapterCapabilities 标准接口上,需类型探测。codex adapter 暴露
-    // codexCliBridge 实例(详 src/main/adapters/codex-cli/index.ts setup),里面有 renameCodexInstance
-    // public method(plan P2 Step 2.5)。
-    const bridge = (adapter as { bridge?: { renameCodexInstance?: (a: string, b: string) => void } })
-      ?.bridge;
-    if (!bridge?.renameCodexInstance) return;
-    bridge.renameCodexInstance(fromId, toId);
-  });
-
+  }));
   // 5.2 Reconcile persisted cwd transitions after adapters exist but before MCP routes or
   // ordinary user ingress can accept work. Any failure retains its lease fail-closed.
   const worktreeRecovery = await reconcileWorktreeTransitionsAtStartup();
@@ -350,7 +320,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // v041 only creates empty targets and durable cursors. A persistent SQLite worker takes over live
   // PASSIVE checkpoints after its ready handshake, then starts adaptive backfill after a 15s grace.
   // Codec work, maintenance writes, and their commit/checkpoint tails never execute on Electron main.
-  state.storageMaintenanceScheduler = new StorageMaintenanceScheduler();
+  state.storageMaintenanceScheduler = createDesktopStorageMaintenanceScheduler();
   state.storageMaintenanceScheduler.start();
   summarizer.start();
   startContinuationCheckpointRefreshService(settings);

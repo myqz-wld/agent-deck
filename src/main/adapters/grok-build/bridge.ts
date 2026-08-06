@@ -7,9 +7,7 @@ import type {
   PendingAgentMessage,
   QueuedAgentMessage,
 } from '@main/adapters/types';
-import { sessionManager } from '@main/session/manager';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
-import { sessionRepo } from '@main/store/session-repo';
 import type {
   AdapterSessionMode,
   AgentEvent,
@@ -21,22 +19,16 @@ import type {
 import { GrokPermissionController } from './permission-controller';
 import { errorText } from './protocol-utils';
 import {
-  createGrokRuntime,
-  persistGrokModelOptions,
-  persistGrokRuntimeMetadata,
-  persistGrokSessionMode,
-  recoverGrokRuntime,
+  createGrokRuntime, persistGrokModelOptions, persistGrokRuntimeMetadata,
+  persistGrokSessionMode, recoverGrokRuntime,
 } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
-import type { GrokSessionSetupOptions } from './session-setup';
 import { GrokTurnQueue } from './turn-queue';
 import { requireNativeSession } from './turn-queue-helpers';
 import type { GrokEnqueueOptions } from './turn-queue-types';
 import { recycleGrokTransport } from './transport-recovery';
 import {
-  startGrokRuntime,
-  startGrokRuntimeInBackground,
-  type GrokRuntimeStartContext,
+  startGrokRuntime, startGrokRuntimeInBackground, type GrokRuntimeStartContext,
 } from './runtime-start';
 import { readGrokUsageSnapshotInBackground } from './usage-snapshot';
 import { probeGrokImageCapability } from './capability-probe';
@@ -48,15 +40,10 @@ import { GrokCwdTransitionController } from './cwd-transition-controller';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 import { observeGrokTrustedContinuationFinished } from './trusted-continuation-observer';
 import { cleanupFailedGrokStartupRegistration } from './startup-registration-cleanup';
-
+import type { GrokBuildBridgeOptions } from './bridge-options';
+import { resolveGrokInitialTurn } from './initial-turn';
 const AGENT_ID = 'grok-build';
-export interface GrokBuildBridgeOptions extends GrokSessionSetupOptions {
-  emit: (event: AgentEvent) => void;
-  onNegotiatedImageCapability?: (supported: boolean) => void;
-  permissionTimeoutMs: number;
-  binaryPath?: string | null;
-}
-
+export type { GrokBuildBridgeOptions } from './bridge-options';
 export class GrokBuildBridge {
   private readonly runtimes = new Map<string, GrokRuntime>();
   private readonly permissionController: GrokPermissionController;
@@ -67,7 +54,6 @@ export class GrokBuildBridge {
   private readonly runtimeMutationController: GrokRuntimeMutationController;
   private readonly cwdTransitionController: GrokCwdTransitionController;
   private binaryPath: string | null;
-
   constructor(private readonly options: GrokBuildBridgeOptions) {
     this.binaryPath = options.binaryPath ?? null;
     this.permissionController = new GrokPermissionController(
@@ -75,14 +61,17 @@ export class GrokBuildBridge {
       (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
     );
     this.turnQueue = new GrokTurnQueue({
+      runtimeHost: options.runtimeHost,
       emit: options.emit,
       emitEvent: (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
       emitError: (sessionId, text, failureReason) => this.emitError(sessionId, text, failureReason),
       closeSession: (sessionId) => this.closeSession(sessionId),
       recycleRuntime: (runtime) => recycleGrokTransport(runtime, {
+        diagnostics: options.runtimeHost.diagnostics,
         isCurrent: (candidate) => this.isCurrentRuntime(candidate),
         start: (candidate) => this.startRuntime(candidate),
-        persist: persistGrokRuntimeMetadata,
+        persist: (candidate) =>
+          persistGrokRuntimeMetadata(candidate, options.runtimeHost),
         dispose: (candidate) => this.disposeRuntime(candidate),
         emitErrorMessage: (sessionId, text) =>
           this.emit(sessionId, 'message', {
@@ -96,8 +85,10 @@ export class GrokBuildBridge {
       this.runtimes,
       this.permissionController,
       (runtime) => this.turnQueue.cancelSubmittingInterjection(runtime),
+      options.sessionManager,
     );
     this.messageController = new GrokMessageController({
+      runtimeHost: options.runtimeHost,
       emit: options.emit,
       dispatch: (sessionId, text, attachments, enqueueOptions, forceQueue) =>
         this.enqueueOrRecover(
@@ -115,7 +106,7 @@ export class GrokBuildBridge {
     this.runtimeMutationController = new GrokRuntimeMutationController({
       getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
       getPersistedOptions: (sessionId) => {
-        const record = sessionRepo.get(sessionId);
+        const record = options.runtimeHost.records.get(sessionId);
         if (!record || record.agentId !== AGENT_ID) return null;
         return {
           model: record.model ?? null,
@@ -123,9 +114,15 @@ export class GrokBuildBridge {
           sessionMode: record.sessionMode ?? null,
         };
       },
-      persistModelOptions: persistGrokModelOptions,
+      persistModelOptions: (sessionId, model, thinking) =>
+        persistGrokModelOptions(
+          sessionId,
+          model,
+          thinking,
+          options.runtimeHost,
+        ),
       persistSessionMode: (sessionId, mode) =>
-        persistGrokSessionMode(sessionId, mode),
+        persistGrokSessionMode(sessionId, mode, options.runtimeHost),
       dispose: (runtime) => this.disposeRuntime(runtime),
     });
     this.sandboxRestartController = new GrokSandboxRestartController({
@@ -133,7 +130,8 @@ export class GrokBuildBridge {
       start: (runtime) => this.startRuntime(runtime),
       drain: (runtime) => this.turnQueue.drain(runtime),
       dispose: (runtime) => this.disposeRuntime(runtime),
-      persist: persistGrokRuntimeMetadata,
+      persist: (runtime) =>
+        persistGrokRuntimeMetadata(runtime, options.runtimeHost),
     });
     this.cwdTransitionController = new GrokCwdTransitionController({
       getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
@@ -148,17 +146,14 @@ export class GrokBuildBridge {
   setBinaryPath(path: string | null): void {
     this.binaryPath = path;
   }
-
   setPermissionTimeoutMs(ms: number): void {
     this.permissionController.setTimeoutMs(ms);
   }
-
   getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
     return readGrokUsageSnapshotInBackground({
       binaryPath: this.binaryPath,
     });
   }
-
   async probeCapabilities(cwd: string): Promise<boolean> {
     return probeGrokImageCapability(
       cwd,
@@ -170,7 +165,6 @@ export class GrokBuildBridge {
   async createSession(opts: GrokCreateOpts): Promise<string> {
     return this.createSessionInternal(opts);
   }
-
   async createTrustedContinuationSession(
     opts: GrokCreateOpts,
     turn: TrustedContinuationInitialTurn,
@@ -184,7 +178,9 @@ export class GrokBuildBridge {
     trustedTurn?: TrustedContinuationInitialTurn,
     acceptance?: TrustedContinuationAcceptanceController,
   ): Promise<string> {
-    const existing = opts.resume ? sessionRepo.get(opts.resume) : null;
+    const existing = opts.resume
+      ? this.options.runtimeHost.records.get(opts.resume)
+      : null;
     if (
       opts.resume &&
       (!existing || existing.agentId !== AGENT_ID || !existing.cliSessionId)
@@ -209,14 +205,19 @@ export class GrokBuildBridge {
         : {}),
     });
     opts.initialSessionRegistration?.onRegistered(applicationSessionId);
-    sessionManager.claimAsSdk(applicationSessionId);
+    this.options.sessionManager.claimAsSdk(applicationSessionId);
 
-    const runtime = createGrokRuntime(applicationSessionId, opts, existing);
+    const runtime = createGrokRuntime(
+      applicationSessionId,
+      opts,
+      existing,
+      this.options.runtimeHost.liveRate,
+    );
     runtime.trustedContinuationAcceptance = acceptance;
     this.runtimes.set(applicationSessionId, runtime);
 
     try {
-      persistGrokRuntimeMetadata(runtime);
+      persistGrokRuntimeMetadata(runtime, this.options.runtimeHost);
       const waitForRuntime = existing !== null || opts.awaitCanonicalId === true;
       if (!waitForRuntime) {
         this.enqueueInitialTurn(runtime, opts, trustedTurn);
@@ -229,7 +230,7 @@ export class GrokBuildBridge {
       if (!(await this.startRuntime(runtime))) {
         throw new Error(`Grok session ${applicationSessionId} closed before startup completed.`);
       }
-      persistGrokRuntimeMetadata(runtime);
+      persistGrokRuntimeMetadata(runtime, this.options.runtimeHost);
       this.enqueueInitialTurn(runtime, opts, trustedTurn);
       return applicationSessionId;
     } catch (error) {
@@ -237,7 +238,13 @@ export class GrokBuildBridge {
         this.emitError(applicationSessionId, `Grok session startup failed: ${errorText(error)}`);
       }
       await this.disposeRuntime(runtime);
-      if (existing === null) await cleanupFailedGrokStartupRegistration(applicationSessionId);
+      if (existing === null) {
+        await cleanupFailedGrokStartupRegistration(
+          this.options.sessionManager,
+          this.options.reportStartupCleanupFailure,
+          applicationSessionId,
+        );
+      }
       throw error;
     }
   }
@@ -379,19 +386,22 @@ export class GrokBuildBridge {
   ): Promise<void> {
     let runtime = this.runtimes.get(sessionId);
     if (!runtime) {
-      const record = sessionRepo.get(sessionId);
+      const record = this.options.runtimeHost.records.get(sessionId);
       if (!record || record.agentId !== AGENT_ID || !record.cliSessionId) {
         throw new Error(`Grok session ${sessionId} is not available for recovery.`);
       }
-      const recovered = recoverGrokRuntime(record);
+      const recovered = recoverGrokRuntime(
+        record,
+        this.options.runtimeHost.liveRate,
+      );
       runtime = recovered;
       this.runtimes.set(sessionId, recovered);
-      sessionManager.claimAsSdk(sessionId);
+      this.options.sessionManager.claimAsSdk(sessionId);
       try {
         if (!(await this.startRuntime(recovered))) {
           throw new Error(`Grok session ${sessionId} closed before recovery completed.`);
         }
-        persistGrokRuntimeMetadata(recovered);
+        persistGrokRuntimeMetadata(recovered, this.options.runtimeHost);
       } catch (error) {
         await this.disposeRuntime(recovered);
         throw error;
@@ -418,33 +428,23 @@ export class GrokBuildBridge {
     opts: GrokCreateOpts,
     trustedTurn?: TrustedContinuationInitialTurn,
   ): void {
-    if (!trustedTurn && opts.prompt === undefined && !opts.attachments?.length) return;
-    this.enqueue(
-      runtime,
-      trustedTurn?.persistedUserText ?? opts.prompt ?? '',
-      opts.attachments,
-      {
-        handOff: opts.handOff,
-        ...(trustedTurn
-          ? {
-              providerText: trustedTurn.providerPrompt,
-              continuation: trustedTurn.metadata,
-            }
-          : {}),
-      },
-    );
+    const input = resolveGrokInitialTurn(opts, trustedTurn);
+    if (input) this.enqueue(runtime, input.text, input.attachments, input.options);
   }
 
   private async startRuntimeInBackground(runtime: GrokRuntime): Promise<void> {
     await startGrokRuntimeInBackground(
       runtime,
       this.runtimeStartContext(),
-      persistGrokRuntimeMetadata,
+      (candidate) =>
+        persistGrokRuntimeMetadata(candidate, this.options.runtimeHost),
     );
   }
 
   private runtimeStartContext(): GrokRuntimeStartContext {
     return {
+      sessionManager: this.options.sessionManager,
+      runtimeHost: this.options.runtimeHost,
       binaryPath: this.binaryPath,
       runtimes: this.runtimes,
       sessionSetup: this.options,
@@ -496,5 +496,4 @@ export class GrokBuildBridge {
     }
     return runtime;
   }
-
 }

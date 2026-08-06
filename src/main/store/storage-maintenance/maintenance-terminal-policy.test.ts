@@ -12,8 +12,6 @@ import type {
   StorageMaintenanceWorkerMessage,
 } from './maintenance-worker-contract';
 
-vi.mock('./maintenance-worker?nodeWorker', () => ({ default: vi.fn() }));
-
 class FakeDatabase {
   readonly name = '/tmp/agent-deck-maintenance-terminal-policy.test.db';
   readonly pragmaCalls: string[] = [];

@@ -3,10 +3,8 @@ import { performance } from 'node:perf_hooks';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { getDb } from './db';
 import { safeStringifyPayload } from './payload-truncate';
-import { agentDeckTeamRepo } from './agent-deck-team-repo';
-import log from '@main/utils/logger';
+import { reportEventRepositoryWarning } from './event-repo-diagnostics-core';
 
-const logger = log.scope('event-repo');
 const SLOW_EVENT_WRITE_MS = 250;
 
 interface Row {
@@ -19,6 +17,7 @@ interface Row {
 }
 
 interface PayloadParseContext {
+  readonly [key: string]: unknown;
   operation: string;
   eventId?: number;
   sessionId?: string;
@@ -39,7 +38,7 @@ function rowToEvent(r: Row): (AgentEvent & { id: number }) | null {
   try {
     payload = JSON.parse(r.payload_json) as unknown;
   } catch (err) {
-    logger.warn('[event-repo] payload JSON parse failed; row skipped', {
+    reportEventRepositoryWarning('[event-repo] payload JSON parse failed; row skipped', {
       operation: 'row-to-event',
       eventId: r.id,
       sessionId: r.session_id,
@@ -86,7 +85,7 @@ function parsePayloadJson(json: string, ctx: PayloadParseContext): unknown {
   try {
     return JSON.parse(json) as unknown;
   } catch (err) {
-    logger.warn('[event-repo] payload JSON parse failed', ctx, err);
+    reportEventRepositoryWarning('[event-repo] payload JSON parse failed', ctx, err);
     return null;
   }
 }
@@ -177,7 +176,7 @@ export const eventRepo = {
     } finally {
       const durationMs = performance.now() - startedAt;
       if (durationMs >= SLOW_EVENT_WRITE_MS) {
-        logger.warn('[performance] slow event persistence', {
+        reportEventRepositoryWarning('[performance] slow event persistence', {
           durationMs: Math.round(durationMs),
           operation,
           kind: event.kind,
@@ -251,20 +250,17 @@ export const eventRepo = {
    * leftAt 非空（已退出）的成员不算在内（与 ActiveMembers 语义一致）。
    */
   findTeamEvents(teamId: string, limit = 100): (AgentEvent & { id: number })[] {
-    const members = agentDeckTeamRepo.listActiveMembers(teamId);
-    if (members.length === 0) return [];
-    const sessionIds = members.map((m) => m.sessionId);
-    const placeholders = sessionIds.map(() => '?').join(',');
     // 跨多 session IN 查询，同毫秒 ts 跨 session 碰撞概率更高（多个 teammate 并发 emit），
     // 缺 tie-breaker → TeamDetail 事件流刷新跳序。加 `id DESC`（与 listForSession F3 同款，
     // REVIEW_91 双 reviewer 独立共识）。
     const rows = getDb()
       .prepare(
-        `SELECT * FROM events
-         WHERE session_id IN (${placeholders})
-         ORDER BY ts DESC, id DESC LIMIT ?`,
+        `SELECT e.* FROM events e
+         JOIN agent_deck_team_members m ON m.session_id = e.session_id
+         WHERE m.team_id = ? AND m.left_at IS NULL
+         ORDER BY e.ts DESC, e.id DESC LIMIT ?`,
       )
-      .all(...sessionIds, limit) as Row[];
+      .all(teamId, limit) as Row[];
     return rowsToEvents(rows);
   },
 
@@ -319,7 +315,7 @@ export const eventRepo = {
       const text = typeof p.text === 'string' ? p.text : '';
       return text ? { text, ts: row.ts } : null;
     } catch (err) {
-      logger.warn('[event-repo] payload JSON parse failed', {
+      reportEventRepositoryWarning('[event-repo] payload JSON parse failed', {
         operation: 'find-latest-assistant-message',
         eventId: row.id,
         sessionId,
@@ -361,7 +357,7 @@ export const eventRepo = {
         ? { text: payload.text, ts: row.ts }
         : null;
     } catch (err) {
-      logger.warn('[event-repo] payload JSON parse failed', {
+      reportEventRepositoryWarning('[event-repo] payload JSON parse failed', {
         operation: 'find-latest-assistant-message-after-revision',
         eventId: row.id,
         sessionId,
@@ -401,7 +397,7 @@ export const eventRepo = {
         ? { text: payload.text, ts: row.ts }
         : null;
     } catch (err) {
-      logger.warn('[event-repo] payload JSON parse failed', {
+      reportEventRepositoryWarning('[event-repo] payload JSON parse failed', {
         operation: 'find-latest-assistant-message-at-or-before-revision',
         eventId: row.id,
         sessionId,

@@ -14,7 +14,7 @@
     "dist:win": "node scripts/verify-bundled-grok.mjs --target-platform win32 && electron-vite build && node scripts/write-build-info.mjs && electron-builder --win",
     "dist:linux": "node scripts/verify-bundled-grok.mjs --target-platform linux && electron-vite build && node scripts/write-build-info.mjs && electron-builder --linux",
     "icon:gen": "node scripts/gen-icon-ico.mjs",
-    "check:architecture": "node scripts/check-architecture-boundaries.mjs",
+    "check:architecture": "node scripts/check-architecture-boundaries.mjs && node scripts/check-core-node-boundaries.mjs",
     "build:linux-headless": "node scripts/build-linux-headless.mjs",
     "check:linux-headless": "node scripts/check-linux-headless.mjs",
     "verify:linux-headless": "pnpm build:linux-headless && pnpm check:linux-headless",

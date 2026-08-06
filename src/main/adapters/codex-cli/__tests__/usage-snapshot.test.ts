@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodexSdkBridge } from '../sdk-bridge';
+import { codexBridgeTestRuntimeHost } from '../sdk-bridge/__tests__/runtime-host-fixture';
 import { ensureCodexClient } from '../sdk-bridge/client-registry';
 import type { CodexAppServerOptions } from '../app-server/protocol';
 import {
@@ -72,7 +73,11 @@ vi.mock('../usage-snapshot', () => ({
 }));
 
 function makeBridge(): CodexSdkBridge {
-  return new CodexSdkBridge({ emit: vi.fn() });
+  return new CodexSdkBridge({
+    recoveryContinuationHost: {} as never,
+    runtimeHost: codexBridgeTestRuntimeHost,
+    emit: vi.fn(),
+  });
 }
 
 function setCodexClients(bridge: CodexSdkBridge, clients: unknown[]): void {

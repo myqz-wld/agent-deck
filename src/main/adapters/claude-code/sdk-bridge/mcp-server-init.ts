@@ -8,13 +8,11 @@
  *   维度，需用 applicationSid 才命中 team_member 行）
  */
 
-import { settingsStore } from '@main/store/settings-store';
 import { getAgentDeckMcpServerForSession } from '@main/agent-deck-mcp/server';
 import type { InternalSession } from './types';
 import type { SessionAdapterId } from '@shared/types';
-import log from '@main/utils/logger';
-
-const logger = log.scope('claude-mcp-init');
+import { buildMcpServersWithHost } from './mcp-server-core';
+import { desktopClaudeMcpServerHost } from './mcp-server-host';
 
 type McpServerConfig = Awaited<ReturnType<typeof getAgentDeckMcpServerForSession>>;
 
@@ -40,13 +38,9 @@ export async function buildMcpServersForSession(
 ): Promise<{
   agentDeckMcpServer: McpServerConfig | null;
 }> {
-  const enableAgentDeckMcp = settingsStore.get('enableAgentDeckMcp') === true;
-  const agentDeckMcpServer = enableAgentDeckMcp
-    ? await getAgentDeckMcpServerForSession(() => internal.applicationSid, adapterId)
-    : null;
-  if (agentDeckMcpServer) {
-    logger.info('[agent-deck-mcp] in-process MCP attached for session (19 core tools + browser tools when the adapter profile enables them)');
-  }
-
-  return { agentDeckMcpServer };
+  return buildMcpServersWithHost(
+    desktopClaudeMcpServerHost,
+    internal,
+    adapterId,
+  );
 }

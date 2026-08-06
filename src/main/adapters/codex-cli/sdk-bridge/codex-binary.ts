@@ -13,8 +13,8 @@
  * （一个普通文件）当目录访问 → ENOTDIR。
  *
  * 修复策略：app.isPackaged 时，主进程自己按 `app.asar.unpacked` 拼真实路径，传给 SDK 的
- * `codexPathOverride` 短路 SDK 自己的 resolve。dev 模式 `process.resourcesPath` 指向 Electron
- * 自身 Resources（无对应 unpacked 结构），返回 null 让 SDK 走默认 resolve（dev 没 asar 没问题）。
+ * `codexPathOverride` 短路 SDK 自己的 resolve。dev host 不使用 packaged resources 的
+ * unpacked 结构，返回 null 让 SDK 走默认 resolve（dev 没 asar 没问题）。
  *
  * Current Codex packages store the binary at `vendor/<triple>/bin/<binName>` and helpers at
  * `vendor/<triple>/codex-path/`.
@@ -31,7 +31,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { delimiter, dirname, join } from 'node:path';
-import { app } from 'electron';
+import { getApplicationHostPaths } from '@main/runtime-host/application-paths';
 import type { BundledBinarySpec } from './types';
 
 const requireFromHere = createRequire(__filename);
@@ -63,11 +63,12 @@ const PLATFORM_BINARY_MAP: Record<string, BundledBinarySpec | undefined> = {
 
 /** packaged app 内 `<vendor>/<triple>` 目录绝对路径；dev / 不支持平台 → null。 */
 function bundledVendorTripleDir(): string | null {
-  if (!app.isPackaged) return null;
+  const hostPaths = getApplicationHostPaths();
+  if (!hostPaths.isPackaged) return null;
   const spec = currentPlatformSpec();
   if (!spec) return null;
   return join(
-    process.resourcesPath,
+    hostPaths.resourcesPath,
     'app.asar.unpacked',
     'node_modules',
     '@openai',

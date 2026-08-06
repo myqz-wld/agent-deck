@@ -16,6 +16,21 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeSdkBridge } from '../index';
+import { desktopClaudeSessionDefaultsHost } from '../session-defaults-host';
+import { desktopClaudeRestartSessionHost } from '../restart-session-host';
+import { desktopClaudeRecoveryFreshnessHost } from '../recovery-freshness-host';
+import { desktopSessionModelControllerHost } from '@main/adapters/session-model-controller-host';
+import { desktopClaudeJsonlDiscoveryHost } from '../recoverer/jsonl-discovery-host';
+import { createDesktopClaudeUsageSnapshotHost } from '../../usage-snapshot-host';
+import { desktopClaudePermissionResponderHost } from '../permission-responder-host';
+import { desktopClaudeCwdTransitionHost } from '../cwd-transition-controller-host';
+import { desktopClaudeMessageControllerHost } from '../message-controller-host';
+import { createDesktopClaudeSessionLifecycleHost } from '../session-lifecycle-host';
+import { desktopClaudePendingOutgoingHost } from '../pending-outgoing-host';
+import { createDesktopClaudeStreamProcessorHost } from '../stream-processor-host';
+import { createDesktopClaudeSessionFinalizeHost } from '../session-finalize-host';
+import { desktopClaudeCanUseToolHost } from '../can-use-tool-host';
+import { desktopClaudeCreateSessionSdkQueryHost } from '../create-session/create-session-sdk-query-host';
 import { makeInternalSession, type InternalSession } from '../types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@shared/types';
@@ -91,7 +106,7 @@ function setupBridgeWithSession(opts: {
   internal: InternalSession;
   queryCalls: string[];
 } {
-  const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
+  const bridge = new ClaudeSdkBridge({ createSessionHost: desktopClaudeSessionDefaultsHost, jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost, recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost, restartSessionHost: desktopClaudeRestartSessionHost, sessionModelHost: desktopSessionModelControllerHost, usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager), permissionResponderHost: desktopClaudePermissionResponderHost, cwdTransitionHost: desktopClaudeCwdTransitionHost, messageControllerHost: desktopClaudeMessageControllerHost, sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager), pendingOutgoingHost: desktopClaudePendingOutgoingHost, streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager), sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager), canUseToolHost: desktopClaudeCanUseToolHost, createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost, sessionManager, emit: (e) => emits.push(e) });
   const internal = makeInternalSession({
     cwd: '/tmp/test',
     permissionMode: opts.initialMode,
@@ -219,7 +234,7 @@ describe('REVIEW_78 MED-2 — cancelPendingAndEmit best-effort resolve 三类 pe
     });
 
     const emitted: AgentEvent[] = [];
-    cancelPendingAndEmit(internal, 'sess-c4', (e) => emitted.push(e));
+    cancelPendingAndEmit(internal, 'sess-c4', (e) => emitted.push(e), sessionManager);
 
     // 修法核心：三类 resolver 都被调（修前只 emit cancelled + clear Map，不 resolve）
     expect(permResolver).toHaveBeenCalledWith({
@@ -259,7 +274,7 @@ describe('REVIEW_78 MED-2 — cancelPendingAndEmit best-effort resolve 三类 pe
       timer: null,
     });
 
-    cancelPendingAndEmit(internal, 'sess-c4', () => undefined);
+    cancelPendingAndEmit(internal, 'sess-c4', () => undefined, sessionManager);
     // cancelPendingAndEmit 调一次 resolver
     expect(settleCount).toBe(1);
     expect(settled).toEqual({ behavior: 'deny', message: 'session ended', interrupt: true });
@@ -287,7 +302,7 @@ describe('restart close cleanup — optional recentlyDeleted blacklist', () => {
       sessionId: 'sess-restart',
       emit: () => undefined,
       markRecentlyDeleted: false,
-    });
+    }, sessionManager);
 
     expect(sessions.has('sess-restart')).toBe(false);
     expect(sessionManager.releaseSdkClaim).toHaveBeenCalledWith('sess-restart');
@@ -301,7 +316,7 @@ describe('restart close drain — closeSession waits for old SDK stream finally'
     internal: InternalSession;
     interruptSpy: ReturnType<typeof vi.fn>;
   } {
-    const bridge = new ClaudeSdkBridge({ emit: (e) => emits.push(e) });
+    const bridge = new ClaudeSdkBridge({ createSessionHost: desktopClaudeSessionDefaultsHost, jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost, recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost, restartSessionHost: desktopClaudeRestartSessionHost, sessionModelHost: desktopSessionModelControllerHost, usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager), permissionResponderHost: desktopClaudePermissionResponderHost, cwdTransitionHost: desktopClaudeCwdTransitionHost, messageControllerHost: desktopClaudeMessageControllerHost, sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager), pendingOutgoingHost: desktopClaudePendingOutgoingHost, streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager), sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager), canUseToolHost: desktopClaudeCanUseToolHost, createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost, sessionManager, emit: (e) => emits.push(e) });
     const internal = makeInternalSession({
       cwd: '/tmp/test',
       permissionMode: 'default',

@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   access,
@@ -12,6 +11,10 @@ import { constants, readFileSync, type Stats } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { brotliDecompressSync } from 'node:zlib';
+import {
+  getApplicationHostPaths,
+  type ApplicationHostPaths,
+} from '@main/runtime-host/application-paths';
 
 type GrokPlatformSpec = {
   packageName: string;
@@ -65,11 +68,21 @@ function resolveGrokVersion(): string {
   }
 }
 
-function cacheRoot(): string {
-  const override = process.env.AGENT_DECK_GROK_CACHE_DIR?.trim();
+export function resolveGrokBinaryCacheRoot(
+  paths: Pick<ApplicationHostPaths, 'userDataPath'>,
+  configuredOverride: string | undefined,
+): string {
+  const override = configuredOverride?.trim();
   return override
     ? resolve(override)
-    : join(app.getPath('userData'), 'grok-binary-cache');
+    : join(paths.userDataPath, 'grok-binary-cache');
+}
+
+function cacheRoot(): string {
+  return resolveGrokBinaryCacheRoot(
+    getApplicationHostPaths(),
+    process.env.AGENT_DECK_GROK_CACHE_DIR,
+  );
 }
 
 function currentUid(): number | null {

@@ -9,6 +9,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = resolve(repoRoot, 'build/linux-headless');
 const roles = Object.freeze({
   'server-core': 'src/hosts/server-core/entrypoint.ts',
+  'server-core-runtime': 'src/hosts/server-core/runtime-entrypoint.ts',
   'server-core-host-bridge': 'src/hosts/server-core/host-bridge-entrypoint.ts',
   relay: 'src/hosts/relay/entrypoint.ts',
   'local-worker': 'src/hosts/local-worker/entrypoint.ts',
@@ -31,7 +32,7 @@ for (const [role, source] of Object.entries(roles)) {
     configFile: false,
     logLevel: 'warn',
     resolve: { alias: aliases },
-    ssr: role === 'feishu'
+    ssr: role === 'feishu' || role === 'server-core-runtime'
       ? { external: ['better-sqlite3'], noExternal: true }
       : { external: ['better-sqlite3'] },
     build: {
@@ -48,9 +49,11 @@ for (const [role, source] of Object.entries(roles)) {
           format: 'es',
           entryFileNames: 'index.mjs',
           inlineDynamicImports: true,
-          banner: role === 'feishu'
-            ? "const __dirname = decodeURIComponent(new URL('.', import.meta.url).pathname);"
-            : undefined,
+          banner: role === 'server-core-runtime'
+            ? "const __filename = decodeURIComponent(new URL(import.meta.url).pathname); const __dirname = decodeURIComponent(new URL('.', import.meta.url).pathname);"
+            : role === 'feishu'
+              ? "const __dirname = decodeURIComponent(new URL('.', import.meta.url).pathname);"
+              : undefined,
         },
       },
     },

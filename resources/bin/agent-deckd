@@ -21,12 +21,30 @@ verify_root_owned() {
   (( (8#$mode & 8#022) == 0 )) || fail
 }
 
-for directory in /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless /opt/agent-deck/linux-headless/server-core; do
+for directory in \
+  /opt \
+  /opt/agent-deck \
+  /opt/agent-deck/bin \
+  /opt/agent-deck/linux-headless \
+  /opt/agent-deck/linux-headless/server-core \
+  /opt/agent-deck/linux-headless/server-core-runtime \
+  /opt/agent-deck/providers \
+  /opt/agent-deck/providers/claude \
+  /opt/agent-deck/providers/codex \
+  /opt/agent-deck/providers/grok; do
   verify_root_owned "$directory" directory
 done
 verify_root_owned /opt/agent-deck/bin/agent-deckd file
 verify_root_owned /usr/bin/node file
 verify_root_owned /opt/agent-deck/linux-headless/server-core/index.mjs file
+verify_root_owned /opt/agent-deck/linux-headless/server-core-runtime/index.mjs file
+for provider in \
+  /opt/agent-deck/providers/claude/claude \
+  /opt/agent-deck/providers/codex/codex \
+  /opt/agent-deck/providers/grok/grok; do
+  verify_root_owned "$provider" file
+  [[ -x "$provider" ]] || fail
+done
 
 exec /usr/bin/env -i \
   HOME=/var/lib/agent-deck PATH=/usr/bin:/bin LANG=C LC_ALL=C \

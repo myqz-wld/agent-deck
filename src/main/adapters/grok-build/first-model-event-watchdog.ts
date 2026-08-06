@@ -1,9 +1,10 @@
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
-import log from '@main/utils/logger';
 
 import type { GrokRuntime } from './runtime-types';
-
-const logger = log.scope('grok-turn-watchdog');
+import {
+  NOOP_GROK_BRIDGE_DIAGNOSTICS,
+  type GrokBridgeDiagnostics,
+} from './bridge-diagnostics-core';
 
 export const DEFAULT_GROK_FIRST_MODEL_EVENT_TIMEOUT_MS = 90_000;
 
@@ -28,6 +29,7 @@ export class GrokFirstModelEventWatchdog {
 
   constructor(
     private readonly timeoutMs = DEFAULT_GROK_FIRST_MODEL_EVENT_TIMEOUT_MS,
+    private readonly diagnostics: GrokBridgeDiagnostics = NOOP_GROK_BRIDGE_DIAGNOSTICS,
   ) {}
 
   async run<T>(runtime: GrokRuntime, request: () => Promise<T>): Promise<T> {
@@ -41,7 +43,8 @@ export class GrokFirstModelEventWatchdog {
       const current = this.active.get(runtime);
       if (!current || current.timer !== timer) return;
       this.active.delete(runtime);
-      logger.warn('[grok-turn-watchdog] first model event timeout', {
+      this.diagnostics.scope('grok-turn-watchdog').warn(
+        '[grok-turn-watchdog] first model event timeout', {
         event: 'grok_turn_watchdog',
         phase: 'timeout',
         sessionId: runtime.applicationSessionId,
@@ -49,12 +52,13 @@ export class GrokFirstModelEventWatchdog {
         elapsedMs: Math.max(0, Date.now() - current.startedAt),
         timeoutMs: this.timeoutMs,
         processPid: runtime.process?.child?.pid ?? null,
-      });
+        },
+      );
       rejectTimeout(new GrokFirstModelEventTimeoutError(this.timeoutMs));
     }, this.timeoutMs);
     timer.unref?.();
     this.active.set(runtime, { startedAt, timer });
-    logger.debug('[grok-turn-watchdog] armed', {
+    this.diagnostics.scope('grok-turn-watchdog').debug('[grok-turn-watchdog] armed', {
       event: 'grok_turn_watchdog',
       phase: 'armed',
       sessionId: runtime.applicationSessionId,
@@ -81,14 +85,16 @@ export class GrokFirstModelEventWatchdog {
       acceptance.acceptModelActivity();
     }
     this.clear(runtime);
-    logger.debug('[grok-turn-watchdog] first model event received', {
+    this.diagnostics.scope('grok-turn-watchdog').debug(
+      '[grok-turn-watchdog] first model event received', {
       event: 'grok_turn_watchdog',
       phase: 'first_model_event',
       sessionId: runtime.applicationSessionId,
       nativeSessionId: runtime.nativeSessionId,
       elapsedMs: Math.max(0, Date.now() - current.startedAt),
       updateType: update.sessionUpdate,
-    });
+      },
+    );
   }
 
   clear(runtime: GrokRuntime): void {

@@ -208,8 +208,10 @@ describe('B18 permission viewers', () => {
     expect(document.body.textContent).not.toContain(backendMarker);
 
     fireEvent.click(open);
-    await waitFor(() => expect(openPermissionFile).toHaveBeenCalledTimes(2));
-    expect(screen.getByText('无法打开设置文件，请稍后重试。')).toBeTruthy();
+    await waitFor(() => {
+      expect(openPermissionFile).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('无法打开设置文件，请稍后重试。')).toBeTruthy();
+    });
     expect(document.body.textContent).not.toContain(thrownMarker);
 
     expect(loggerSpies.error).toHaveBeenCalledTimes(2);
@@ -295,8 +297,10 @@ describe('B18 permission viewers', () => {
     expect(document.body.textContent).not.toContain(backendMarker);
 
     fireEvent.click(open);
-    await waitFor(() => expect(openCodexPermissionFile).toHaveBeenCalledTimes(2));
-    expect(screen.getByText('无法打开设置文件，请稍后重试。')).toBeTruthy();
+    await waitFor(() => {
+      expect(openCodexPermissionFile).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('无法打开设置文件，请稍后重试。')).toBeTruthy();
+    });
     expect(document.body.textContent).not.toContain(thrownMarker);
 
     expect(loggerSpies.error).toHaveBeenCalledTimes(2);

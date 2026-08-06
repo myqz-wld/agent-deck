@@ -4,20 +4,9 @@
  * live session bridge 需要 per-session MCP token/config，仍由 sdk-bridge 自己持 per-session
  * client；本 pool 不挂 MCP，仅复用同一个 app-server stdio 进程给 oneshot thread 工厂使用。
  */
-import { CodexAppServerClient } from '@main/adapters/codex-cli/app-server/client';
-import { settingsStore } from '@main/store/settings-store';
-
-let cachedCodex: CodexAppServerClient | null = null;
-let cachedPath: string | null = null;
-
-function snapshotProcessEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined) out[k] = v;
-  }
-  out.AGENT_DECK_ORIGIN = 'sdk';
-  return out;
-}
+import type { CodexAppServerClient } from '@main/adapters/codex-cli/app-server/client';
+import { createCodexInstancePool } from './instance-pool-core';
+import { desktopCodexInstancePoolHost } from './instance-pool-host';
 
 /**
  * 拿（或懒创建）oneshot caller 共享的 codex app-server client。当前 codex 二进制路径取自
@@ -31,20 +20,10 @@ function snapshotProcessEnv(): Record<string, string> {
  * 不接受 mcp_servers config 注入 — live session bridge 需要 mcp 注入因此自带
  * `private codex` cache（详 `sdk-bridge/index.ts:131-141`），不走本 pool。
  */
+const instancePool = createCodexInstancePool(desktopCodexInstancePoolHost);
+
 export async function getCodexInstance(): Promise<CodexAppServerClient> {
-  const path = settingsStore.get('codexCliPath');
-  const overridePath = (path && path.trim()) || null;
-  if (cachedPath !== overridePath) {
-    disposeCachedCodexInstances();
-    cachedPath = overridePath;
-  }
-  if (cachedCodex) return cachedCodex;
-  cachedCodex = new CodexAppServerClient({
-    codexPathOverride: overridePath,
-    config: null,
-    env: snapshotProcessEnv(),
-  });
-  return cachedCodex;
+  return instancePool.get();
 }
 
 /**
@@ -55,11 +34,5 @@ export async function getCodexInstance(): Promise<CodexAppServerClient> {
  * → 在跑的 oneshot summary / hand-off 不会复用旧实例」更直观。
  */
 export function invalidateCodexInstance(): void {
-  disposeCachedCodexInstances();
-  cachedPath = null;
-}
-
-function disposeCachedCodexInstances(): void {
-  cachedCodex?.dispose();
-  cachedCodex = null;
+  instancePool.invalidate();
 }

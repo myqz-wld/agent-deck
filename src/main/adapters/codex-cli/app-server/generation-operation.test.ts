@@ -12,6 +12,7 @@ import {
   CodexGenerationController,
   type CodexGenerationLifecycleHost,
 } from './generation-operation';
+import { codexGenerationDiagnostics } from './generation-diagnostics';
 import type { CodexAppServerNotification } from './protocol';
 
 afterEach(() => {
@@ -117,6 +118,21 @@ describe('CodexGenerationController', () => {
       expect.anything(),
     );
   });
+
+  it('contains diagnostic failures without changing a successful operation', async () => {
+    const harness = createHarness(async () => ({}), null, {
+      ...codexGenerationDiagnostics,
+      threadBoundaryReady: () => {
+        throw new Error('diagnostic failure');
+      },
+    });
+
+    await expect(harness.controller.run(
+      'thread/start readiness',
+      undefined,
+      (operation) => operation.request('thread/start', {}),
+    )).resolves.toEqual({});
+  });
 });
 
 function createHarness(
@@ -126,6 +142,7 @@ function createHarness(
     signal?: AbortSignal,
   ) => Promise<unknown>,
   initialChild: ChildProcessWithoutNullStreams | null = null,
+  diagnostics = codexGenerationDiagnostics,
 ) {
   let child = initialChild;
   const notifications: CodexAppServerNotification[] = [];
@@ -149,7 +166,7 @@ function createHarness(
     rejectPending,
     dispatchNotification: (notification) => notifications.push(notification),
   };
-  controller = new CodexGenerationController(host);
+  controller = new CodexGenerationController(host, diagnostics);
   return {
     controller,
     notifications,

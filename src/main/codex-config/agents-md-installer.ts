@@ -23,31 +23,48 @@
  * - 跨进程通知 codex 在跑会话重新加载约定（app-server thread options 已在 start/resume 时锁定，
  *   下次新建会话生效，与 sdk-injection.ts 同模式）
  */
-import { app } from 'electron';
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 import log from '@main/utils/logger';
+import { getApplicationResourcesRoot } from '@main/runtime-host/application-resources';
+import { getApplicationHostPaths } from '@main/runtime-host/application-paths';
+import {
+  createCodexAgentsMdStore,
+  type CodexAgentsMdStore,
+} from './agents-md-store';
 
 const logger = log.scope('codex-agents-md');
 
 const USER_AGENTS_MD_FILENAME = 'agent-deck-codex-agents.md';
+let cachedStore:
+  | {
+      builtinPath: string;
+      userPath: string;
+      store: CodexAgentsMdStore;
+    }
+  | undefined;
 
-/** 用户副本 codex AGENTS.md 内容的绝对路径（与 settings.json 同 userData 目录）。 */
-function getUserCodexAgentsMdPath(): string {
-  return join(app.getPath('userData'), USER_AGENTS_MD_FILENAME);
-}
-
-/**
- * 内置 codex AGENTS.md 内容的绝对路径（plan §D5 fallback 策略 P3 Step 3.6 修法 — 切到
- * codex 视角独立维护的 codex-config/CODEX_AGENTS.md，不再共享 claude-config/CLAUDE.md）。
- */
-function getBuiltinAgentsMdContentPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'codex-config', 'CODEX_AGENTS.md');
+function getStore(): CodexAgentsMdStore {
+  const builtinPath = join(
+    getApplicationResourcesRoot(),
+    'codex-config',
+    'CODEX_AGENTS.md',
+  );
+  const userPath = join(
+    getApplicationHostPaths().userDataPath,
+    USER_AGENTS_MD_FILENAME,
+  );
+  if (cachedStore?.builtinPath === builtinPath && cachedStore.userPath === userPath) {
+    return cachedStore.store;
   }
-  return join(app.getAppPath(), 'resources', 'codex-config', 'CODEX_AGENTS.md');
+  const store = createCodexAgentsMdStore({
+    builtinPath,
+    userPath,
+    diagnostics: { warn: (message, error) => logger.warn(message, error) },
+  });
+  cachedStore = { builtinPath, userPath, store };
+  return store;
 }
 
 /**
@@ -57,39 +74,8 @@ function getBuiltinAgentsMdContentPath(): string {
  * 内存缓存：与 sdk-injection.ts 各自维护一份缓存（两条注入通路独立 invalidate）。
  * 改 CODEX_AGENTS.md 编辑器保存后调 invalidateCodexAgentsMdContent() 让下次会话注入读最新。
  */
-let cachedContent: string | null = null;
-
 export function invalidateCodexAgentsMdContent(): void {
-  cachedContent = null;
-}
-
-function readContentRaw(): string {
-  const userPath = getUserCodexAgentsMdPath();
-  if (existsSync(userPath)) {
-    try {
-      return readFileSync(userPath, 'utf8');
-    } catch (err) {
-      logger.warn('[codex-agents-md] 读用户副本失败，回落内置:', err);
-    }
-  }
-  try {
-    return readFileSync(getBuiltinAgentsMdContentPath(), 'utf8');
-  } catch (err) {
-    // plan §D5 fallback 策略: codex-config/CODEX_AGENTS.md 不存在即 throw,禁 silent
-    // fallback 到 claude-config/CLAUDE.md(避免 typecheck/build 过但运行时 codex AGENTS.md
-    // 注入静默退化到 claude 视角内容,让用户视角直到跑 codex 才发现错)。
-    // 调用方 try/catch 兜底转 error log(不阻断启动,但 prominent log 让
-    // dev / prod 用户立即看到错)。
-    throw new Error(
-      `codex-config/CODEX_AGENTS.md missing or unreadable, build/dev config error: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
-
-function getContent(): string {
-  if (cachedContent !== null) return cachedContent;
-  cachedContent = readContentRaw();
-  return cachedContent;
+  cachedStore?.store.invalidate();
 }
 
 /**
@@ -101,7 +87,7 @@ export function getAgentDeckCodexDeveloperInstructions(): string | undefined {
   if (!settingsStore.get('injectAgentDeckCodexAgentsMd')) return undefined;
   let content: string;
   try {
-    content = getContent();
+    content = getStore().getContent();
   } catch (err) {
     logger.warn('[codex-agents-md] failed to build Codex developerInstructions:', err);
     return undefined;
@@ -119,25 +105,12 @@ export function getAgentDeckCodexDeveloperInstructions(): string | undefined {
  * codex 副本在 `<userData>/agent-deck-codex-agents.md`,两份独立文件互不影响。
  */
 export function getActiveCodexAgentsMd(): { content: string; isCustom: boolean } {
-  const userPath = getUserCodexAgentsMdPath();
-  if (existsSync(userPath)) {
-    try {
-      return { content: readFileSync(userPath, 'utf8'), isCustom: true };
-    } catch (err) {
-      logger.warn('[codex-agents-md] 读取用户副本失败,回落内置:', err);
-    }
-  }
-  return { content: getBuiltinCodexAgentsMd(), isCustom: false };
+  return getStore().getActive();
 }
 
 /** 永远读内置 codex-config/CODEX_AGENTS.md,给「恢复默认」按钮用。读不到返回空串 + warn。 */
 export function getBuiltinCodexAgentsMd(): string {
-  try {
-    return readFileSync(getBuiltinAgentsMdContentPath(), 'utf8');
-  } catch (err) {
-    logger.warn('[codex-agents-md] 读取内置 CODEX_AGENTS.md 失败:', err);
-    return '';
-  }
+  return getStore().getBuiltin();
 }
 
 /**
@@ -148,25 +121,11 @@ export function getBuiltinCodexAgentsMd(): string {
  * 原子写: write tmp + rename(对偶 sdk-injection saveUserAgentDeckClaudeMd / hook-installer.writeSettings)。
  */
 export function saveUserCodexAgentsMd(content: string): { content: string; isCustom: true } {
-  const path = getUserCodexAgentsMdPath();
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmp, content, 'utf8');
-  renameSync(tmp, path);
-  invalidateCodexAgentsMdContent();
-  return { content: readFileSync(path, 'utf8'), isCustom: true };
+  const saved = getStore().saveUser(content);
+  return { content: saved.content, isCustom: true };
 }
 
 /** 删除用户副本(如果存在) + invalidate cache,让下次新建会话回到内置内容。 */
 export function resetUserCodexAgentsMd(): void {
-  const path = getUserCodexAgentsMdPath();
-  if (existsSync(path)) {
-    try {
-      unlinkSync(path);
-    } catch (err) {
-      logger.warn('[codex-agents-md] 删除用户副本失败:', err);
-      throw err;
-    }
-  }
-  invalidateCodexAgentsMdContent();
+  getStore().resetUser();
 }

@@ -19,13 +19,11 @@
  * handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 9 步 — codex 3 处 emit:
  * thread-loop fallback / success / 本 resume,详 plan §不变量 5)。
  */
-import { sessionManager } from '@main/session/manager';
 import type { UploadedAttachmentRef } from '@shared/types';
 import { AGENT_ID } from '../constants';
 import { persistSessionFields } from '../session-finalize';
 import { awaitResumedThreadStart } from '../resume-path-await';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
-import log from '@main/utils/logger';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -33,8 +31,6 @@ import type {
   PreparedContext,
 } from './_deps';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
-
-const logger = log.scope('codex-create-session-resume');
 
 export async function runCreateSessionResumePath(
   opts: CreateSessionOpts,
@@ -77,9 +73,9 @@ export async function runCreateSessionResumePath(
       const oldId = internal.threadId;
       internal.threadId = readyId;
       try {
-        sessionManager.updateCliSessionId(internal.applicationSid, readyId);
+        deps.runtimeHost.sessions.updateCliSessionId(internal.applicationSid, readyId);
       } catch (renameErr) {
-        logger.error(
+        deps.runtimeHost.logger('codex-create-session-resume').error(
           `[codex-create-session-resume] resumeOnly updateCliSessionId failed ` +
             `app=${internal.applicationSid}, old=${oldId}, new=${readyId}`,
           renameErr,
@@ -89,7 +85,7 @@ export async function runCreateSessionResumePath(
   }
   // resume 路径：thread_id 已知，直接登记
   deps.sessions.set(resumeId, internal);
-  sessionManager.claimAsSdk(resumeId);
+  deps.runtimeHost.sessions.claimAsSdk(resumeId);
   deps.emit({
     sessionId: resumeId,
     agentId: AGENT_ID,
@@ -104,6 +100,7 @@ export async function runCreateSessionResumePath(
   // R37 P2-E Step 3.4b：setSandbox + setModel 收口到 persistSessionFields helper。
   // extraAllowWrite 与 codexSandbox 同样持久化，并已在 thread options 中映射为 writableRoots。
   persistSessionFields({
+    runtimeHost: deps.runtimeHost,
     sessionId: resumeId,
     sandboxMode,
     approvalPolicy: opts.approvalPolicy,
@@ -175,6 +172,7 @@ export async function runCreateSessionResumePath(
       sessions: deps.sessions,
       codexBySession: deps.codexBySession,
       emit: deps.emit,
+      runtimeHost: deps.runtimeHost,
     },
   });
   // **REVIEW_56 R2 MED-2 修法 (reviewer-codex)**: facade resume 路径必须返

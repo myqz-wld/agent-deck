@@ -5,6 +5,7 @@ full_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$full_dir/../../.." && pwd)"
 template="$full_dir/agent-deck-full@.container.in"
 key_fixture="$full_dir/authorized-client-key-options.txt"
+credential_fixture="$full_dir/server-core.credentials.example.json"
 
 fail() {
   echo "Full static check: $*" >&2
@@ -49,6 +50,25 @@ for wrapper in agent-deckd agent-deck-full-bridge; do
   if grep -Eq '\$\{?AGENT_DECK_(HEADLESS_ROOT|NODE)|command -v' "$source"; then
     fail "$wrapper accepts a production runtime override"
   fi
+done
+
+grep -Fq '"runtimeModule": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs"' \
+  "$full_dir/server-core.config.example.json" ||
+  fail 'Server Core config does not bind the packaged concrete runtime'
+for required in \
+  '"surface": "desktop-full"' \
+  '"surface": "feishu-session-console"' \
+  '"status": "active"'; do
+  grep -Fq "$required" "$credential_fixture" ||
+    fail "credential fixture lost $required"
+done
+for required in \
+  '/opt/agent-deck/linux-headless/server-core-runtime/index.mjs' \
+  '/opt/agent-deck/providers/claude/claude' \
+  '/opt/agent-deck/providers/codex/codex' \
+  '/opt/agent-deck/providers/grok/grok'; do
+  grep -Fq "$required" "$repo_root/resources/bin/agent-deckd" ||
+    fail "Server Core wrapper does not verify $required"
 done
 
 echo 'Full static check: passed'

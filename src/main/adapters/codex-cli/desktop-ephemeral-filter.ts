@@ -1,15 +1,16 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import type {
+  CodexHookFilterPort,
+  CodexHookIdentity,
+} from './hook-route-ports';
+
+export type { CodexHookIdentity } from './hook-route-ports';
 
 const execFileAsync = promisify(execFile);
 const PID_CACHE_MS = 5 * 60 * 1000;
 const SESSION_CACHE_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 512;
-
-export interface CodexHookIdentity {
-  session_id: string;
-  transcript_path?: string | null;
-}
 
 export interface ProcessSnapshot {
   pid: number;
@@ -32,13 +33,7 @@ interface FilterOptions {
   now?: () => number;
 }
 
-export interface CodexDesktopEphemeralFilterLike {
-  shouldIgnore(
-    body: CodexHookIdentity,
-    hookOrigin: HookOrigin,
-    externalProcessPid: number | null,
-  ): Promise<boolean>;
-}
+export interface CodexDesktopEphemeralFilterLike extends CodexHookFilterPort {}
 
 /**
  * Filters hidden Desktop-hosted ephemeral generations while preserving terminal Codex runs.

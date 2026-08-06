@@ -1,0 +1,114 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
+
+function harness(overrides: Partial<{
+  repositoryStart: () => Promise<void>;
+  repositoryStop: (reason: string) => Promise<void>;
+  metadataStart: () => void;
+  metadataClose: () => void;
+  initializeProviders: () => Promise<void>;
+  retireProviders: () => Promise<void>;
+  shutdownProviders: () => Promise<void>;
+}> = {}) {
+  const trace: string[] = [];
+  const repositoryStart = vi.fn(overrides.repositoryStart ?? (async () => {
+    trace.push('repository-start');
+  }));
+  const repositoryStop = vi.fn(overrides.repositoryStop ?? (async (reason: string) => {
+    trace.push(`repository-stop:${reason}`);
+  }));
+  const metadataStart = vi.fn(overrides.metadataStart ?? (() => {
+    trace.push('metadata-start');
+  }));
+  const metadataClose = vi.fn(overrides.metadataClose ?? (() => {
+    trace.push('metadata-close');
+  }));
+  const initializeProviders = vi.fn(overrides.initializeProviders ?? (async () => {
+    trace.push('provider-start');
+  }));
+  const retireProviders = vi.fn(overrides.retireProviders ?? (async () => {
+    trace.push('provider-retire');
+  }));
+  const shutdownProviders = vi.fn(overrides.shutdownProviders ?? (async () => {
+    trace.push('provider-shutdown');
+  }));
+  const diagnostics = { info: vi.fn(), warn: vi.fn() };
+  const lifecycle = new ServerCoreProviderRuntimeLifecycle({
+    repository: { start: repositoryStart, stop: repositoryStop },
+    metadata: { start: metadataStart, close: metadataClose },
+    initializeProviders,
+    retireProviders,
+    shutdownProviders,
+    diagnostics,
+  });
+  return {
+    diagnostics,
+    initializeProviders,
+    lifecycle,
+    metadataClose,
+    repositoryStop,
+    shutdownProviders,
+    trace,
+  };
+}
+
+describe('ServerCoreProviderRuntimeLifecycle', () => {
+  it('starts and stops exactly once in ownership order', async () => {
+    const state = harness();
+    const firstStart = state.lifecycle.start();
+    expect(state.lifecycle.start()).toBe(firstStart);
+    await firstStart;
+    const firstStop = state.lifecycle.stop('shutdown');
+    expect(state.lifecycle.stop('again')).toBe(firstStop);
+    await firstStop;
+
+    expect(state.trace).toEqual([
+      'repository-start',
+      'metadata-start',
+      'provider-start',
+      'provider-retire',
+      'provider-shutdown',
+      'metadata-close',
+      'repository-stop:shutdown',
+    ]);
+  });
+
+  it('rolls back every acquired owner while preserving the startup error', async () => {
+    const authoritative = new Error('authoritative-startup');
+    const state = harness({
+      initializeProviders: async () => { throw authoritative; },
+      shutdownProviders: async () => { throw new Error('secondary-shutdown'); },
+    });
+
+    await expect(state.lifecycle.start()).rejects.toBe(authoritative);
+    expect(state.shutdownProviders).toHaveBeenCalledOnce();
+    expect(state.metadataClose).toHaveBeenCalledOnce();
+    expect(state.repositoryStop).toHaveBeenCalledWith('startup-failed');
+    expect(state.diagnostics.warn).toHaveBeenCalledWith(
+      'provider startup rollback was incomplete',
+    );
+    await expect(state.lifecycle.stop('after-failure')).resolves.toBeUndefined();
+  });
+
+  it('attempts every cleanup and aggregates terminal failures', async () => {
+    const state = harness({
+      retireProviders: async () => { throw new Error('retire'); },
+      shutdownProviders: async () => { throw new Error('shutdown'); },
+      metadataClose: () => { throw new Error('metadata'); },
+      repositoryStop: async () => { throw new Error('repository'); },
+    });
+    await state.lifecycle.start();
+    await expect(state.lifecycle.stop('shutdown')).rejects.toMatchObject({
+      message: 'Server Core provider cleanup failed',
+      errors: expect.arrayContaining([
+        expect.objectContaining({ message: 'retire' }),
+        expect.objectContaining({ message: 'shutdown' }),
+        expect.objectContaining({ message: 'metadata' }),
+        expect.objectContaining({ message: 'repository' }),
+      ]),
+    });
+    expect(state.metadataClose).toHaveBeenCalledOnce();
+    expect(state.repositoryStop).toHaveBeenCalledOnce();
+  });
+});

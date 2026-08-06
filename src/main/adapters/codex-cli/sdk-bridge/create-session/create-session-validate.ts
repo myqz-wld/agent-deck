@@ -19,19 +19,22 @@
  * 真正 caller sid。
  */
 import { randomUUID } from 'node:crypto';
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { MAX_MESSAGE_LENGTH } from '../constants';
 import type { CreateSessionOpts, ValidateResult } from './_deps';
 import { isTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
 
-export function validateCreateSessionOpts(opts: CreateSessionOpts): ValidateResult {
+export function validateCreateSessionOpts(
+  opts: CreateSessionOpts,
+  runtimeHost: CodexBridgeRuntimeHost,
+): ValidateResult {
   if (opts.resumeOnly && !opts.resume) {
     throw new Error('resumeOnly 仅允许用于已有 Codex thread 的 resume 路径');
   }
 
   if (opts.resumeOnly) {
     const initialSid = opts.resume!;
-    const sessionToken = mcpSessionTokenMap.allocate(initialSid);
+    const sessionToken = runtimeHost.tokens.allocate(initialSid);
     return { initialSid, sessionToken };
   }
 
@@ -59,7 +62,7 @@ export function validateCreateSessionOpts(opts: CreateSessionOpts): ValidateResu
   //   threadLoop.startNewThreadAndAwaitId 拿到 realId 后通过 sessionManager.renameSdkSession
   //   函数体(Step 2.8)统一 rename codexBySession Map + token map(不变量 7)
   const initialSid = opts.resume ?? randomUUID();
-  const sessionToken = mcpSessionTokenMap.allocate(initialSid);
+  const sessionToken = runtimeHost.tokens.allocate(initialSid);
 
   return { initialSid, sessionToken };
 }

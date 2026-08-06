@@ -8,9 +8,7 @@ import type {
   CheckpointBackgroundWorkerCommand,
   CheckpointBackgroundWorkerMessage,
 } from '../checkpoint-background-worker-contract';
-import type { BackgroundMaterializedMetadata } from '../checkpoint-background-materializer';
-
-vi.mock('../checkpoint-background-worker?nodeWorker', () => ({ default: vi.fn() }));
+import type { BackgroundMaterializedMetadata } from '../checkpoint-background-worker-contract';
 
 class FakeWorker extends EventEmitter implements CheckpointBackgroundWorkerLike {
   readonly commands: CheckpointBackgroundWorkerCommand[] = [];
@@ -52,6 +50,14 @@ function open(worker: FakeWorker, signal?: AbortSignal) {
 }
 
 describe('background checkpoint worker client', () => {
+  it('fails closed when no worker host is configured', async () => {
+    await expect(openCheckpointBackgroundSource({
+      dbPath: '/tmp/agent-deck-background.test.db',
+      sessionId: 'source',
+      deadlineAt: Date.now() + 60_000,
+    })).rejects.toThrow('Checkpoint background worker host is not configured');
+  });
+
   it('exchanges only bounded chunk DTOs and closes by awaiting termination', async () => {
     const worker = new FakeWorker();
     const opening = open(worker);

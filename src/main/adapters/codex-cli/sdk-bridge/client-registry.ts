@@ -4,13 +4,6 @@
  * The bridge keeps the map itself as a stable test/integration seam; this module owns the
  * environment/config construction and the path-change, quota-read, and rename operations.
  */
-import { settingsStore } from '@main/store/settings-store';
-import {
-  AGENT_DECK_MCP_TOKEN_ENV,
-  buildAgentDeckMcpConfigForCodex,
-  mergeCodexConfig,
-} from '@main/codex-config/agent-deck-mcp-injector';
-import { getCodexSkillExtraRootsForSession } from '@main/codex-config/skills-installer';
 import { invalidateCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
 import type { ProviderUsageSnapshot } from '@shared/types';
 import {
@@ -24,23 +17,15 @@ import {
   isExpectedCodexUsageUnavailable,
   readCodexUsageSnapshotInBackground,
 } from '../usage-snapshot';
-import { CodexAppServerClient } from '../app-server/client';
-import type { CodexBridgeOptions, InternalSession } from './types';
+import type { CodexAppServerClient } from '../app-server/client';
+import type { InternalSession } from './types';
+import {
+  ensureCodexClientWithHost,
+  type EnsureCodexClientOptions,
+} from './client-construction';
+import { desktopCodexClientConstructionHost } from './client-construction-host';
 
-function snapshotProcessEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) out[key] = value;
-  }
-  return out;
-}
-
-export interface EnsureCodexClientOptions {
-  clients: Map<string, CodexAppServerClient>;
-  sessionId: string;
-  sessionToken: string;
-  hookServer: CodexBridgeOptions['hookServer'];
-}
+export type { EnsureCodexClientOptions } from './client-construction';
 
 /** Return the session client, constructing it with a frozen per-session environment on a miss. */
 export function ensureCodexClient({
@@ -49,30 +34,10 @@ export function ensureCodexClient({
   sessionToken,
   hookServer,
 }: EnsureCodexClientOptions): CodexAppServerClient {
-  const cached = clients.get(sessionId);
-  if (cached) return cached;
-
-  const codexCliPath = settingsStore.get('codexCliPath');
-  const userCodexPath = codexCliPath && codexCliPath.trim();
-  const settings = settingsStore.getAll();
-  const agentDeckMcpConfig = buildAgentDeckMcpConfigForCodex(settings, hookServer ?? null);
-  const codexConfig = mergeCodexConfig(null, agentDeckMcpConfig);
-
-  // Supplying env replaces SDK inheritance, so preserve the process snapshot before adding the
-  // per-session MCP identity.
-  const envOverride = snapshotProcessEnv();
-  envOverride[AGENT_DECK_MCP_TOKEN_ENV] = sessionToken;
-  envOverride.AGENT_DECK_ORIGIN = 'sdk';
-
-  const client = new CodexAppServerClient({
-    codexPathOverride: userCodexPath || null,
-    config: codexConfig,
-    env: envOverride,
-    skillExtraRoots: getCodexSkillExtraRootsForSession(),
-    nodeReplBrowserBootstrap: true,
-  });
-  clients.set(sessionId, client);
-  return client;
+  return ensureCodexClientWithHost(
+    { clients, sessionId, sessionToken, hookServer },
+    desktopCodexClientConstructionHost,
+  );
 }
 
 /** Dispose only idle clients when the configured CLI path changes. */

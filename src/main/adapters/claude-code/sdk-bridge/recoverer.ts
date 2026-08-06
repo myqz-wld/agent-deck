@@ -40,6 +40,7 @@ import type {
   JsonlMtimeMsThunk,
   LatestConversationMessageTsThunk,
   PrepareRecoveryContinuationThunk,
+  RecoveryWarningThunk,
   RecovererCtx,
   SendMessageThunk,
 } from './recoverer/_deps';
@@ -69,6 +70,7 @@ export class SessionRecoverer {
      */
     private readonly cwdExistsThunk: CwdExistsThunk,
     private readonly latestConversationMessageTsThunk: LatestConversationMessageTsThunk,
+    private readonly warn: RecoveryWarningThunk,
     private readonly captureRecoveryContinuation: CaptureRecoveryContinuationThunk,
     private readonly prepareRecoveryContinuation: PrepareRecoveryContinuationThunk,
     private readonly cleanupRecoveryContinuation: CleanupRecoveryContinuationThunk,
@@ -92,6 +94,7 @@ export class SessionRecoverer {
       jsonlMtimeMsThunk: this.jsonlMtimeMsThunk,
       cwdExistsThunk: this.cwdExistsThunk,
       latestConversationMessageTsThunk: this.latestConversationMessageTsThunk,
+      warn: this.warn,
       captureRecoveryContinuation: this.captureRecoveryContinuation,
       prepareRecoveryContinuation: this.prepareRecoveryContinuation,
       cleanupRecoveryContinuation: this.cleanupRecoveryContinuation,

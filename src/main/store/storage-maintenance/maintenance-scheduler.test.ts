@@ -14,8 +14,6 @@ import type {
   StorageMaintenanceWorkerMessage,
 } from './maintenance-worker-contract';
 
-vi.mock('./maintenance-worker?nodeWorker', () => ({ default: vi.fn() }));
-
 const CHECKPOINT: StorageMaintenanceCheckpointResult = {
   busy: 0,
   log: 12,
@@ -138,6 +136,17 @@ describe('StorageMaintenanceScheduler main controller protocol', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('fails closed and remains restartable when no host is configured', () => {
+    const scheduler = new StorageMaintenanceScheduler();
+
+    expect(() => scheduler.start()).toThrow(
+      'Storage maintenance scheduler host is not configured',
+    );
+    expect(() => scheduler.start()).toThrow(
+      'Storage maintenance scheduler host is not configured',
+    );
   });
 
   it('leases main WAL checkpoints only after ready and restores them after graceful close', async () => {

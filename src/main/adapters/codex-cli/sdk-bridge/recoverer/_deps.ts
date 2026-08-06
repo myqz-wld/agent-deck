@@ -32,9 +32,10 @@ import type {
   CapturedRecoveryContinuation,
   PreparedRecoveryContinuation,
   RecoveryRuntimeOverrides,
-} from '@main/session/continuation-context/recovery';
+} from '@main/session/continuation-context/recovery-types';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { AgentEnqueueOptions } from '@main/adapters/types';
+import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
 
 /** 5s dedup 窗口防同 sessionId 短时间内多次 recover 重 emit「⚠ Codex 通道已断开」噪声。 */
 export const PLACEHOLDER_DEDUP_MS = 5_000;
@@ -46,6 +47,7 @@ export interface RecovererCtx {
    */
   readonly recovering: Map<string, Promise<unknown>>;
   readonly emit: CodexBridgeOptions['emit'];
+  readonly runtimeHost: CodexBridgeRuntimeHost;
 }
 
 export type CreateSessionThunk = (opts: {

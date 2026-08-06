@@ -1,133 +1,14 @@
-import type { AgentEvent } from '@shared/types';
-import type { SessionModelOptions } from './session-model-options';
-import { sessionRepo } from '@main/store/session-repo';
-import { eventBus } from '@main/event-bus';
-import log from '@main/utils/logger';
+/** Stable desktop facade for provider-neutral model-option persistence and rollback. */
+import {
+  SessionModelControllerCore,
+  type SessionModelControllerContext,
+} from './session-model-controller-core';
+import { desktopSessionModelControllerHost } from './session-model-controller-host';
 
-const logger = log.scope('session-model-controller');
+export type { SessionModelControllerContext } from './session-model-controller-core';
 
-export interface SessionModelControllerContext {
-  /** Shared with recovery/restart paths so a dormant wake-up cannot race a model change. */
-  operations: Map<string, Promise<unknown>>;
-  agentId: string;
-  emit: (event: AgentEvent) => void;
-  /** Validate the requested selection before any persisted or live state is changed. */
-  validate?: (
-    sessionId: string,
-    options: SessionModelOptions,
-    previous: SessionModelOptions,
-  ) => Promise<void> | void;
-  /** Returns false when no provider query/thread is currently in memory. */
-  applyLive: (
-    sessionId: string,
-    options: SessionModelOptions,
-    previous: SessionModelOptions,
-  ) => Promise<boolean> | boolean;
-}
-
-/**
- * Provider-neutral persistence / rollback boundary for next-turn model changes.
- *
- * The source session remains usable on every failure: DB values are restored and, when a live
- * provider update partially succeeded, the old live selection is applied best-effort as well.
- */
-export class SessionModelController {
-  constructor(private readonly ctx: SessionModelControllerContext) {}
-
-  async setOptions(sessionId: string, options: SessionModelOptions): Promise<void> {
-    let inflight = this.ctx.operations.get(sessionId);
-    while (inflight) {
-      try {
-        await inflight;
-      } catch {
-        // A newer user selection may proceed after a failed recovery/switch.
-      }
-      inflight = this.ctx.operations.get(sessionId);
-    }
-
-    const record = sessionRepo.get(sessionId);
-    if (!record) throw new Error(`session ${sessionId} not found`);
-    const previous: SessionModelOptions = {
-      provider: record.runtimeProvider ?? null,
-      model: record.model ?? null,
-      thinking: record.thinking ?? null,
-    };
-    if (
-      options.provider !== previous.provider &&
-      (record.activity === 'working' || record.activity === 'waiting')
-    ) {
-      throw new Error('provider cannot be changed while the session is working or waiting');
-    }
-
-    const operation = (async () => {
-      let persistenceAttempted = false;
-      let liveAttempted = false;
-      try {
-        await this.ctx.validate?.(sessionId, options, previous);
-        persistenceAttempted = true;
-        sessionRepo.setRuntimeProvider(sessionId, options.provider);
-        sessionRepo.setModel(sessionId, options.model);
-        sessionRepo.setThinking(sessionId, options.thinking);
-        const updated = sessionRepo.get(sessionId);
-        if (updated) eventBus.emit('session-upserted', updated);
-
-        liveAttempted = true;
-        const liveApplied = await this.ctx.applyLive(sessionId, options, previous);
-        if (!liveApplied) {
-          logger.info(
-            `[${this.ctx.agentId}] persisted model options for dormant session ${sessionId}; ` +
-              'the next recovery will apply them',
-          );
-        }
-      } catch (error) {
-        if (persistenceAttempted) {
-          try {
-            sessionRepo.setRuntimeProvider(sessionId, previous.provider);
-            sessionRepo.setModel(sessionId, previous.model);
-            sessionRepo.setThinking(sessionId, previous.thinking);
-            const reverted = sessionRepo.get(sessionId);
-            if (reverted) eventBus.emit('session-upserted', reverted);
-          } catch (rollbackError) {
-            logger.warn(
-              `[${this.ctx.agentId}] DB model-option rollback failed for ${sessionId}:`,
-              rollbackError,
-            );
-          }
-        }
-        if (liveAttempted) {
-          try {
-            await this.ctx.applyLive(sessionId, previous, options);
-          } catch (rollbackError) {
-            logger.warn(
-              `[${this.ctx.agentId}] live model-option rollback failed for ${sessionId}:`,
-              rollbackError,
-            );
-          }
-        }
-        this.ctx.emit({
-          sessionId,
-          agentId: this.ctx.agentId,
-          kind: 'message',
-          payload: {
-            text:
-              `⚠ 切换 provider、模型或思考程度失败：${error instanceof Error ? error.message : String(error)}。` +
-              (persistenceAttempted ? '已恢复原设置。' : '原设置未变。'),
-            error: true,
-          },
-          ts: Date.now(),
-          source: 'sdk',
-        });
-        throw error;
-      }
-    })();
-
-    this.ctx.operations.set(sessionId, operation);
-    try {
-      await operation;
-    } finally {
-      if (this.ctx.operations.get(sessionId) === operation) {
-        this.ctx.operations.delete(sessionId);
-      }
-    }
+export class SessionModelController extends SessionModelControllerCore {
+  constructor(ctx: SessionModelControllerContext) {
+    super(ctx, desktopSessionModelControllerHost);
   }
 }

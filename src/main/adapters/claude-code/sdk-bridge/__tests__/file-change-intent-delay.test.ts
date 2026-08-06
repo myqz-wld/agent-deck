@@ -20,6 +20,7 @@ import {
 import { makeInternalSession } from '../types';
 import { StreamProcessor } from '../stream-processor';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
+import { sessionManager } from '@main/session/manager';
 import type { AgentEvent } from '@shared/types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -158,7 +159,7 @@ describe('Phase 1.5 (M6) — consume finally clear pendingFileChangeIntents 防 
     const processor = new StreamProcessor({
       sessions: new Map([['temp-key', internal]]),
       emit: (e) => emitted.push(e),
-    });
+    }, sessionManager);
 
     // 推 first id frame 让 consume 走 first-id 路径
     mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'real-sid' });
@@ -229,7 +230,7 @@ describe('Phase 1.5 (M6) — consume finally clear pendingFileChangeIntents 防 
     const processor = new StreamProcessor({
       sessions: new Map([['temp-key', internal]]),
       emit: (e) => emitted.push(e),
-    });
+    }, sessionManager);
 
     mockQuery.pushFrame({ type: 'system', subtype: 'init', session_id: 'real-sid-mixed' });
     const consumePromise = processor.consume(internal, 'temp-key', () => undefined);

@@ -1,11 +1,8 @@
-import createCheckpointBackgroundWorker from './checkpoint-background-worker?nodeWorker';
 import {
   BACKGROUND_MATERIALIZE_MAX_ROWS,
   BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES,
   BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES,
   type BackgroundMaterializedMetadata,
-} from './checkpoint-background-materializer';
-import {
   CHECKPOINT_BACKGROUND_WORKER_KIND,
   type CheckpointBackgroundChunkPayload,
   type CheckpointBackgroundReadyPayload,
@@ -55,6 +52,10 @@ function abortError(): Error {
   const error = new Error('Background checkpoint worker aborted');
   error.name = 'AbortError';
   return error;
+}
+
+function missingWorkerHost(): never {
+  throw new Error('Checkpoint background worker host is not configured');
 }
 
 function parseBoundedJson<T>(json: string, maxWireBytes: number, label: string): T {
@@ -218,15 +219,7 @@ export function openCheckpointBackgroundSource(
     maxRows: input.maxRows ?? BACKGROUND_MATERIALIZE_MAX_ROWS,
     maxWireBytes,
   };
-  const createWorker = input.createWorker ?? ((workerData) => {
-    if (typeof createCheckpointBackgroundWorker !== 'function') {
-      throw new Error('Bundled background checkpoint worker is unavailable');
-    }
-    return createCheckpointBackgroundWorker({
-      name: 'agent-deck-checkpoint-background',
-      workerData,
-    });
-  });
+  const createWorker = input.createWorker ?? missingWorkerHost;
 
   return new Promise((resolve, reject) => {
     let worker!: CheckpointBackgroundWorkerLike;

@@ -220,8 +220,15 @@ describe('GrokHookInstaller', () => {
     writeFileSync(path, '{not-json', 'utf8');
 
     const { GrokHookInstaller } = await import('../hook-installer');
-    const installer = new GrokHookInstaller(47_821, TOKEN, relayRoot);
+    const parseFailure = vi.fn((_error: unknown) => {
+      throw new Error('diagnostic sink unavailable');
+    });
+    const installer = new GrokHookInstaller(47_821, TOKEN, relayRoot, {
+      statusReadFailed: parseFailure,
+    });
     expect(installer.status({ scope: 'user' }).installed).toBe(false);
+    expect(parseFailure).toHaveBeenCalledOnce();
+    expect(parseFailure.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     expect(() => installer.install({ scope: 'user' })).toThrow(/parse failed/);
     expect(readFileSync(path, 'utf8')).toBe('{not-json');
   });

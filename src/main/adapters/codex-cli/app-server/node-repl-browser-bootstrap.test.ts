@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CodexAppServerClient } from './client';
+import { desktopCodexClientHost } from './client-diagnostics';
 
 interface ProxyChild extends EventEmitter {
   kill: (signal?: NodeJS.Signals | number) => boolean;
@@ -460,7 +461,7 @@ describe('node_repl Browser process bootstrap', () => {
       env: {},
       config: null,
       nodeReplBrowserBootstrap: true,
-    });
+    }, desktopCodexClientHost);
 
     await client.startThread({
       workingDirectory: '/repo',

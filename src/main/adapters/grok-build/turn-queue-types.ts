@@ -5,6 +5,7 @@ import type { AgentEvent, HandOffMetadata } from '@shared/types';
 
 import type { GrokPendingMessage, GrokRuntime } from './runtime-types';
 import type { GrokTurnFailureReason } from './native-error';
+import type { GrokBridgeRuntimeHost } from './bridge-runtime-core';
 
 export interface PreparedGrokMessage {
   message: GrokPendingMessage;
@@ -27,6 +28,7 @@ export type GrokEnqueueOptions = AgentEnqueueOptions & {
 };
 
 export interface GrokTurnQueueOptions {
+  runtimeHost?: GrokBridgeRuntimeHost;
   emit: (event: AgentEvent) => void;
   emitEvent: (sessionId: string, kind: AgentEvent['kind'], payload: unknown) => void;
   emitError: (

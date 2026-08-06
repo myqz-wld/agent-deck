@@ -53,7 +53,7 @@ describe('claude finalizeSessionStart', () => {
       claudePluginDir: '/plugins/reviewer-claude',
       claudeCodeEffortLevel: 'xhigh',
       emit,
-    });
+    }, sessionManager);
 
     expect(sessionManager.updateCliSessionId).toHaveBeenCalledWith('sid-app', 'sid-cli');
     expect(sessionRepo.setClaudeCodeSandbox).toHaveBeenCalledWith(
@@ -98,7 +98,7 @@ describe('claude finalizeSessionStart', () => {
       },
       claudeSandboxMode: 'off',
       emit,
-    });
+    }, sessionManager);
     const message = emit.mock.calls.map(([event]) => event).find((event) => event.kind === 'message');
     expect(message.payload).toMatchObject({
       text: 'Only this next-step instruction is visible.',
@@ -134,7 +134,7 @@ describe('claude finalizeSessionStart', () => {
         onRegistered,
       },
       emit,
-    });
+    }, sessionManager);
 
     expect(onRegistered).toHaveBeenCalledWith('child');
   });

@@ -1,174 +1,34 @@
-import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ProviderUsageSnapshot } from '@shared/types';
-import { loadSdk } from './sdk-loader';
-import { getSdkRuntimeOptions } from './sdk-runtime';
-import { resolveClaudeBinary } from './resolve-claude-binary';
-import {
-  buildClaudeUsageSnapshot,
-  errorUsageSnapshot,
-} from '../provider-usage';
-import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
-import { sessionManager } from '@main/session/manager';
-import { getProviderUsageProbeCwd } from '@main/paths';
 import type { InternalSession } from './sdk-bridge/types';
+import {
+  readClaudeBridgeUsageSnapshotCore,
+  readClaudeUsageSnapshotInBackgroundCore,
+  type ClaudeUsageProbeDeps,
+} from './usage-snapshot-core';
+import { createDesktopClaudeUsageSnapshotHost } from './usage-snapshot-host';
+import type { ClaudeSessionManagerPort } from './session-manager-core';
 
-const BACKGROUND_USAGE_TIMEOUT_MS = 15_000;
-const HOOK_CLAIM_HOLD_MS = 60_000;
+export type { ClaudeUsageProbeDeps } from './usage-snapshot-core';
 
-export interface ClaudeUsageProbeDeps {
-  loadSdkFn?: typeof loadSdk;
-  getRuntimeOptionsFn?: typeof getSdkRuntimeOptions;
-  resolveClaudeBinaryFn?: typeof resolveClaudeBinary;
-  getProbeCwdFn?: typeof getProviderUsageProbeCwd;
-  expectSdkSessionFn?: (cwd: string, ttlMs?: number) => () => void;
-  cwd?: string;
-  timeoutMs?: number;
-  hookClaimHoldMs?: number;
-}
-
-export async function readClaudeBridgeUsageSnapshot(
+export function readClaudeBridgeUsageSnapshot(
   sessions: ReadonlyMap<string, InternalSession>,
-  readBackground: () => Promise<ProviderUsageSnapshot> =
-    readClaudeUsageSnapshotInBackground,
+  sessionManager: Pick<ClaudeSessionManagerPort, 'expectSdkSession'>,
+  readBackground: () => Promise<ProviderUsageSnapshot> = () =>
+    readClaudeUsageSnapshotInBackground(sessionManager),
 ): Promise<ProviderUsageSnapshot> {
-  const session = [...sessions.values()]
-    .reverse()
-    .find(
-      (candidate) =>
-        !candidate.expectedClose &&
-        typeof candidate.query?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET ===
-          'function',
-    );
-  if (!session) return readBackground();
-  try {
-    const usage =
-      await session.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET();
-    return buildClaudeUsageSnapshot(usage);
-  } catch (error) {
-    return errorUsageSnapshot('claude-code', error);
-  }
+  return readClaudeBridgeUsageSnapshotCore(
+    sessions,
+    createDesktopClaudeUsageSnapshotHost(sessionManager),
+    readBackground,
+  );
 }
 
-/**
- * Read Claude plan usage without creating an Agent Deck session.
- *
- * This starts a streaming-input SDK Query whose input stream yields no user
- * messages. The probe waits for initialization, calls the `/usage` control
- * request, then closes. It must not be wired through createSession(), because
- * createSession requires a non-empty prompt and starts a real user turn.
- */
-export async function readClaudeUsageSnapshotInBackground(
+export function readClaudeUsageSnapshotInBackground(
+  sessionManager: Pick<ClaudeSessionManagerPort, 'expectSdkSession'>,
   deps: ClaudeUsageProbeDeps = {},
 ): Promise<ProviderUsageSnapshot> {
-  const loadSdkFn = deps.loadSdkFn ?? loadSdk;
-  const getRuntimeOptionsFn = deps.getRuntimeOptionsFn ?? getSdkRuntimeOptions;
-  const resolveClaudeBinaryFn = deps.resolveClaudeBinaryFn ?? resolveClaudeBinary;
-  const getProbeCwdFn = deps.getProbeCwdFn ?? getProviderUsageProbeCwd;
-  const expectSdkSessionFn =
-    deps.expectSdkSessionFn ??
-    ((cwd: string, ttlMs?: number) => sessionManager.expectSdkSession(cwd, ttlMs));
-  const controller = new AbortController();
-  const probeCwd = deps.cwd ?? getProbeCwdFn();
-  const releasePendingHookClaim = expectSdkSessionFn(probeCwd, deps.hookClaimHoldMs ?? HOOK_CLAIM_HOLD_MS);
-  let q: Query | null = null;
-  let drain: Promise<void> | null = null;
-
-  try {
-    const sdk = await loadSdkFn();
-    const runtime = getRuntimeOptionsFn();
-    const claudeBinary = resolveClaudeBinaryFn();
-    q = sdk.query({
-      prompt: idleInput(controller.signal),
-      options: {
-        cwd: probeCwd,
-        permissionMode: 'plan',
-        settingSources: [],
-        abortController: controller,
-        executable: runtime.executable,
-        env: {
-          ...runtime.env,
-          AGENT_DECK_ORIGIN: 'sdk',
-        },
-        ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
-      },
-    });
-
-    drain = drainQuery(q, () => {
-      controller.abort();
-      q?.close();
-    });
-    void drain.catch(() => undefined);
-    const interactionFailure = drain.then<never>(
-      () => new Promise<never>(() => undefined),
-      (err) => Promise.reject(err),
-    );
-
-    const usage = await raceWithTimeout({
-      work: Promise.race([
-        q
-          .initializationResult()
-          .then(() => q!.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()),
-        interactionFailure,
-      ]),
-      timeoutMs: deps.timeoutMs ?? BACKGROUND_USAGE_TIMEOUT_MS,
-      errorMessage: '__claude_usage_timeout__',
-      onTimeout: () => {
-        controller.abort();
-        q?.close();
-      },
-    });
-    return buildClaudeUsageSnapshot(usage);
-  } catch (err) {
-    return errorUsageSnapshot('claude-code', err);
-  } finally {
-    controller.abort();
-    q?.close();
-    holdHookClaimThenRelease(releasePendingHookClaim, deps.hookClaimHoldMs ?? HOOK_CLAIM_HOLD_MS);
-    // The close() call should make the async iterator settle. Do not await here:
-    // a stuck SDK subprocess must not block the provider usage IPC response.
-    void drain;
-  }
-}
-
-function holdHookClaimThenRelease(release: () => void, ms: number): void {
-  const timer = setTimeout(release, Math.max(0, ms));
-  timer.unref?.();
-}
-
-function idleInput(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
-  return {
-    async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage, void, unknown> {
-      if (signal.aborted) return;
-      await new Promise<void>((resolve) => {
-        signal.addEventListener('abort', () => resolve(), { once: true });
-      });
-    },
-  };
-}
-
-async function drainQuery(
-  q: AsyncIterable<unknown>,
-  abort: () => void,
-): Promise<void> {
-  for await (const msg of q) {
-    if (isInteractiveControlRequest(msg)) {
-      abort();
-      throw new Error('Claude usage probe requires interactive authentication');
-    }
-  }
-}
-
-function isInteractiveControlRequest(msg: unknown): boolean {
-  if (!msg || typeof msg !== 'object') return false;
-  const obj = msg as { type?: unknown; request?: { subtype?: unknown } };
-  if (obj.type !== 'control_request') return false;
-  const subtype = obj.request?.subtype;
-  return (
-    subtype === 'request_user_dialog' ||
-    subtype === 'claude_authenticate' ||
-    subtype === 'claude_oauth_callback' ||
-    subtype === 'claude_oauth_wait_for_completion' ||
-    subtype === 'oauth_token_refresh' ||
-    subtype === 'host_auth_token_refresh'
+  return readClaudeUsageSnapshotInBackgroundCore(
+    createDesktopClaudeUsageSnapshotHost(sessionManager),
+    deps,
   );
 }

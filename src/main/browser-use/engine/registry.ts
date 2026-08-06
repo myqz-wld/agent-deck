@@ -8,15 +8,10 @@
  * Caps are enforced here because both fronts share one Electron process.
  */
 
-import { createHash } from 'node:crypto';
-
 import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
 
 import { EngineTab, buildTabWindowOptions } from './tab';
 import {
-  BrowserTabLimitError,
-  DEFAULT_MAX_TABS_PER_OWNER,
-  DEFAULT_MAX_TOTAL_TABS,
   DEFAULT_WINDOW_TITLE,
   INITIAL_URL,
   type BrowserEngineOptions,
@@ -24,23 +19,23 @@ import {
   type CreateTabOptions,
   type TabInfo,
 } from './types';
+import {
+  BrowserOwnershipRegistryCore,
+  ownerPartition,
+  type BrowserOwnerLeaseCore,
+} from './registry-core';
+import { BrowserTabCollectionCore } from './tab-collection-core';
 
-export function ownerCacheKey(owner: BrowserOwnerKey): string {
-  return `${owner.kind}:${owner.id}`;
-}
+export {
+  ownerCacheKey,
+  ownerPartition,
+} from './registry-core';
 
-export function ownerPartition(owner: BrowserOwnerKey): string {
-  const digest = createHash('sha256').update(ownerCacheKey(owner)).digest('hex').slice(0, 20);
-  return `agent-deck-browser-${digest}`;
-}
+export type BrowserOwnerLease = BrowserOwnerLeaseCore<BrowserOwnerHandle>;
 
 export class BrowserOwnerHandle {
   readonly partition: string;
-  private readonly tabs = new Map<number, EngineTab>();
-  private readonly tabClosedListeners = new Set<(tabId: number) => void>();
-  private nextTabId = 1;
-  private activeTabId: number | null = null;
-  private disposed = false;
+  private readonly tabs = new BrowserTabCollectionCore<EngineTab>();
 
   constructor(
     readonly key: BrowserOwnerKey,
@@ -50,28 +45,25 @@ export class BrowserOwnerHandle {
   }
 
   get isDisposed(): boolean {
-    return this.disposed;
+    return this.tabs.isDisposed;
   }
 
   async openTab(options: CreateTabOptions = {}): Promise<EngineTab> {
-    if (this.disposed) throw new Error('This browser session is closed.');
-    this.prune();
+    this.tabs.assertOpen();
+    this.tabs.listTabs();
     this.engine.assertCapacity(this);
 
-    const tabId = this.nextTabId++;
+    const tabId = this.tabs.allocateTabId();
     const window = this.engine.createWindow(
       buildTabWindowOptions(this.partition, this.engine.windowTitle),
     );
     const tab = new EngineTab({
       id: tabId,
       window,
-      onActivated: (id) => {
-        if (this.tabs.has(id)) this.activeTabId = id;
-      },
-      onClosed: (id) => this.forgetTab(id),
+      onActivated: (id) => this.tabs.markActive(id),
+      onClosed: (id) => this.tabs.forget(id),
     });
-    this.tabs.set(tabId, tab);
-    this.activeTabId = tabId;
+    this.tabs.register(tab);
 
     await tab.loadUrl(INITIAL_URL);
     if (options.show ?? this.engine.showWindows) tab.show();
@@ -85,112 +77,53 @@ export class BrowserOwnerHandle {
   }
 
   listTabs(): EngineTab[] {
-    this.prune();
-    return [...this.tabs.values()];
+    return this.tabs.listTabs();
   }
 
   listTabInfos(): TabInfo[] {
-    const tabs = this.listTabs();
-    if (this.activeTabId == null || !this.tabs.has(this.activeTabId)) {
-      this.activeTabId = tabs[0]?.id ?? null;
-    }
-    return tabs.map((tab) => tab.info(tab.id === this.activeTabId));
+    return this.tabs.listTabInfos();
   }
 
   getTab(tabId: number): EngineTab | null {
-    this.prune();
-    return this.tabs.get(tabId) ?? null;
+    return this.tabs.getTab(tabId);
   }
 
   requireTab(tabId: number): EngineTab {
-    const tab = this.getTab(tabId);
-    if (tab == null) throw new Error(`Unknown tab: ${tabId}`);
-    return tab;
+    return this.tabs.requireTab(tabId);
   }
 
   activeTab(): EngineTab | null {
-    this.prune();
-    if (this.activeTabId == null) return null;
-    return this.tabs.get(this.activeTabId) ?? null;
+    return this.tabs.activeTab();
   }
 
   isActive(tabId: number): boolean {
-    return this.activeTabId === tabId;
+    return this.tabs.isActive(tabId);
   }
 
   markActive(tabId: number): void {
-    if (this.tabs.has(tabId)) this.activeTabId = tabId;
+    this.tabs.markActive(tabId);
   }
 
   tabCount(): number {
-    this.prune();
-    return this.tabs.size;
+    return this.tabs.tabCount();
   }
 
   closeTab(tabId: number): void {
-    this.getTab(tabId)?.close();
+    this.tabs.closeTab(tabId);
   }
 
   /** Observe EngineTab removal without retaining its BrowserWindow or webContents. */
   onTabClosed(listener: (tabId: number) => void): () => void {
-    if (this.disposed) return () => {};
-    this.tabClosedListeners.add(listener);
-    return () => {
-      this.tabClosedListeners.delete(listener);
-    };
+    return this.tabs.onTabClosed(listener);
   }
 
   /** Close every tab except the given ids. Used by the Codex `finalizeTabs` request. */
   keepOnly(tabIds: readonly number[]): void {
-    const keep = new Set(tabIds);
-    for (const tab of this.listTabs()) {
-      if (!keep.has(tab.id)) tab.close();
-    }
+    this.tabs.keepOnly(tabIds);
   }
 
   async dispose(): Promise<void> {
-    if (this.disposed) return;
-    this.disposed = true;
-    const tabs = [...this.tabs.values()];
-    for (const tab of tabs) {
-      tab.destroy();
-      // A destroyed test double or already-closed native window may not emit `closed` again.
-      this.forgetTab(tab.id);
-    }
-    this.activeTabId = null;
-    this.tabClosedListeners.clear();
-  }
-
-  private prune(): void {
-    for (const [tabId, tab] of this.tabs) {
-      if (tab.isDestroyed()) this.forgetTab(tabId);
-    }
-  }
-
-  private forgetTab(tabId: number): void {
-    if (!this.tabs.delete(tabId)) return;
-    if (this.activeTabId === tabId) this.activeTabId = null;
-    for (const listener of [...this.tabClosedListeners]) listener(tabId);
-  }
-}
-
-interface BrowserOwnerRecord {
-  readonly handle: BrowserOwnerHandle;
-  leases: number;
-}
-
-export class BrowserOwnerLease {
-  private released = false;
-
-  constructor(
-    readonly handle: BrowserOwnerHandle,
-    private readonly releaseRecord: () => Promise<void>,
-  ) {}
-
-  async release(): Promise<void> {
-    if (this.released) return;
-    this.released = true;
-    await this.releaseRecord();
+    this.tabs.dispose();
   }
 }
 
@@ -198,90 +131,48 @@ export class BrowserEngine {
   readonly showWindows: boolean;
   readonly windowTitle: string;
   readonly createWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
-  private readonly owners = new Map<string, BrowserOwnerRecord>();
-  private readonly maxTabsPerOwner: number;
-  private readonly maxTotalTabs: number;
+  private readonly ownership: BrowserOwnershipRegistryCore<BrowserOwnerHandle>;
 
   constructor(options: BrowserEngineOptions = {}) {
     this.createWindow = options.createWindow ?? ((windowOptions) => new BrowserWindow(windowOptions));
     this.showWindows = options.showWindows ?? false;
     this.windowTitle = options.windowTitle ?? DEFAULT_WINDOW_TITLE;
-    this.maxTabsPerOwner = options.maxTabsPerOwner ?? DEFAULT_MAX_TABS_PER_OWNER;
-    this.maxTotalTabs = options.maxTotalTabs ?? DEFAULT_MAX_TOTAL_TABS;
+    this.ownership = new BrowserOwnershipRegistryCore({
+      createHandle: (owner) => new BrowserOwnerHandle(owner, this),
+      maxTabsPerOwner: options.maxTabsPerOwner,
+      maxTotalTabs: options.maxTotalTabs,
+    });
   }
 
   acquire(owner: BrowserOwnerKey): BrowserOwnerHandle {
-    return this.ensureOwner(owner).handle;
+    return this.ownership.acquire(owner);
   }
 
-  acquireLease(owner: BrowserOwnerKey & { kind: 'codex-pipe' }): BrowserOwnerLease {
-    const cacheKey = ownerCacheKey(owner);
-    const record = this.ensureOwner(owner);
-    record.leases += 1;
-    return new BrowserOwnerLease(
-      record.handle,
-      () => this.releaseLease(cacheKey, record),
-    );
+  acquireLease(
+    owner: BrowserOwnerKey & { kind: 'codex-pipe' },
+  ): BrowserOwnerLeaseCore<BrowserOwnerHandle> {
+    return this.ownership.acquireLease(owner);
   }
 
   peek(owner: BrowserOwnerKey): BrowserOwnerHandle | null {
-    const record = this.owners.get(ownerCacheKey(owner));
-    return record == null || record.handle.isDisposed ? null : record.handle;
+    return this.ownership.peek(owner);
   }
 
   async disposeOwner(owner: BrowserOwnerKey): Promise<void> {
-    const cacheKey = ownerCacheKey(owner);
-    const record = this.owners.get(cacheKey);
-    this.owners.delete(cacheKey);
-    await record?.handle.dispose();
+    await this.ownership.disposeOwner(owner);
   }
 
   async disposeAll(): Promise<void> {
-    const records = [...this.owners.values()];
-    this.owners.clear();
-    await Promise.all(records.map((record) => record.handle.dispose()));
+    await this.ownership.disposeAll();
   }
 
   totalTabs(): number {
-    let total = 0;
-    for (const record of this.owners.values()) total += record.handle.tabCount();
-    return total;
+    return this.ownership.totalTabs();
   }
 
   /** Throws `BrowserTabLimitError` when opening one more tab would break a cap. */
   assertCapacity(handle: BrowserOwnerHandle): void {
-    if (handle.tabCount() >= this.maxTabsPerOwner) {
-      throw new BrowserTabLimitError(
-        `This session already has ${this.maxTabsPerOwner} browser tabs. Close one before opening another.`,
-      );
-    }
-    if (this.totalTabs() >= this.maxTotalTabs) {
-      throw new BrowserTabLimitError(
-        `Agent Deck reached its global limit of ${this.maxTotalTabs} browser tabs. Close tabs in other sessions first.`,
-      );
-    }
-  }
-
-  private ensureOwner(owner: BrowserOwnerKey): BrowserOwnerRecord {
-    const cacheKey = ownerCacheKey(owner);
-    const existing = this.owners.get(cacheKey);
-    if (existing != null && !existing.handle.isDisposed) return existing;
-    const record = {
-      handle: new BrowserOwnerHandle(owner, this),
-      leases: 0,
-    };
-    this.owners.set(cacheKey, record);
-    return record;
-  }
-
-  private async releaseLease(
-    cacheKey: string,
-    record: BrowserOwnerRecord,
-  ): Promise<void> {
-    record.leases = Math.max(0, record.leases - 1);
-    if (record.leases !== 0 || this.owners.get(cacheKey) !== record) return;
-    this.owners.delete(cacheKey);
-    await record.handle.dispose();
+    this.ownership.assertCapacity(handle);
   }
 }
 

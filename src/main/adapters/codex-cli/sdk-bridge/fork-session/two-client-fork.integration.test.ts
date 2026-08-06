@@ -7,6 +7,7 @@ import type { CreateSessionOpts } from '../create-session/_deps';
 import type { ThreadLoop } from '../thread-loop';
 import { createCodexForkedSession } from './create-forked-session';
 import type { CodexForkTargetRuntime } from './target-runtime';
+import { codexBridgeTestRuntimeHost } from '../__tests__/runtime-host-fixture';
 
 describe('Codex native fork two-client integration', () => {
   it('reads a source paused in tool use without deadlock and forks only on the target client', async () => {
@@ -29,6 +30,7 @@ describe('Codex native fork two-client integration', () => {
       {
         sessions,
         codexBySession: clients,
+        runtimeHost: codexBridgeTestRuntimeHost,
         threadLoop: { runTurnLoop: vi.fn() } as unknown as ThreadLoop,
         emit: (event: AgentEvent) => {
           if (event.kind === 'session-start') rows.add(event.sessionId);

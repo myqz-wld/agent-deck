@@ -19,11 +19,9 @@ import type {
   SessionRecord,
   SessionSource,
 } from '@shared/types';
-import log from '@main/utils/logger';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 import { createContextRuntimeIdentity } from '@main/session/context-window/identity';
-
-const logger = log.scope('session-repo');
+import { reportSessionRepositoryWarning } from './diagnostics-core';
 
 // ────────────────────────────────────────────────────────────────────────────
 // SQLite row shape + record 转换
@@ -159,7 +157,7 @@ export function parseSessionContextUsageJson(
       runtimeIdentity: parseStoredContextRuntimeIdentity(parsed.runtimeIdentity),
     };
   } catch (error) {
-    logger.warn('[session-repo] context usage JSON parse failed', {
+    reportSessionRepositoryWarning('[session-repo] context usage JSON parse failed', {
       sessionId,
       rawLength: raw.length,
       reason: error instanceof Error ? error.message : String(error),
@@ -219,7 +217,7 @@ function normalizeStoredGrokSandbox(
   try {
     return normalizeGrokSandboxProfile(raw);
   } catch (error) {
-    logger.warn('[session-repo] invalid Grok sandbox profile ignored', {
+    reportSessionRepositoryWarning('[session-repo] invalid Grok sandbox profile ignored', {
       sessionId,
       rawLength: raw.length,
       reason: error instanceof Error ? error.message : String(error),
@@ -255,7 +253,7 @@ function parseGrokUsageWatermarkJson(
       ? watermark
       : null;
   } catch (err) {
-    logger.warn('[session-repo] Grok usage watermark JSON parse failed', {
+    reportSessionRepositoryWarning('[session-repo] Grok usage watermark JSON parse failed', {
       sessionId,
       rawLength: raw.length,
     }, err);
@@ -289,7 +287,7 @@ export function parseStringArrayJson(
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    logger.warn('[session-repo] string[] JSON parse failed', {
+    reportSessionRepositoryWarning('[session-repo] string[] JSON parse failed', {
       sessionId: ctx.sessionId,
       field: ctx.field,
       rawLength: raw.length,
@@ -297,7 +295,7 @@ export function parseStringArrayJson(
     return null;
   }
   if (!Array.isArray(parsed)) {
-    logger.warn('[session-repo] string[] JSON is not an array', {
+    reportSessionRepositoryWarning('[session-repo] string[] JSON is not an array', {
       sessionId: ctx.sessionId,
       field: ctx.field,
       rawType: typeof parsed,
@@ -306,7 +304,7 @@ export function parseStringArrayJson(
   }
   const filtered = parsed.filter((x): x is string => typeof x === 'string' && x.length > 0);
   if (filtered.length !== parsed.length) {
-    logger.warn('[session-repo] string[] JSON dropped invalid entries', {
+    reportSessionRepositoryWarning('[session-repo] string[] JSON dropped invalid entries', {
       sessionId: ctx.sessionId,
       field: ctx.field,
       total: parsed.length,

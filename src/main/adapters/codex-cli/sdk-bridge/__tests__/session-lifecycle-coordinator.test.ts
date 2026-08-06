@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexAppServerClient } from '../../app-server/client';
 import type { InternalSession } from '../types';
 import { CodexSessionLifecycleCoordinator } from '../session-lifecycle-coordinator';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 function internal(): InternalSession {
   return {
@@ -41,7 +42,13 @@ function harness(dispose: () => void = () => undefined) {
     sessions,
     clients,
     cancelPermission,
-    { sessions, clients, releaseClaim, releaseToken },
+    {
+      sessions,
+      clients,
+      releaseClaim,
+      releaseToken,
+      runtimeHost: codexBridgeTestRuntimeHost,
+    },
   );
   return {
     session,

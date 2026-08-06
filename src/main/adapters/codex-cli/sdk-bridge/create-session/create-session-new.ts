@@ -18,11 +18,8 @@
  * fallback / success / resume,本子段不直接 emit user message)。
  */
 import { persistSessionFields } from '../session-finalize';
-import { readTopLevelModelFromCodexConfig } from '@main/codex-config/toml-writer';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
-import { sessionManager } from '@main/session/manager';
 import { AGENT_ID } from '../constants';
-import log from '@main/utils/logger';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -31,8 +28,6 @@ import type {
   ValidateResult,
 } from './_deps';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
-
-const logger = log.scope('codex-create-session-new');
 
 export async function runCreateSessionNewPath(
   opts: CreateSessionOpts,
@@ -52,7 +47,7 @@ export async function runCreateSessionNewPath(
   // 统一 rename codexBySession Map + token map（不变量 7）。
   const tempKey = validate.initialSid;
   deps.sessions.set(tempKey, internal);
-  sessionManager.claimAsSdk(tempKey);
+  deps.runtimeHost.sessions.claimAsSdk(tempKey);
   deps.emit({
     sessionId: tempKey,
     agentId: AGENT_ID,
@@ -109,8 +104,9 @@ export async function runCreateSessionNewPath(
   // effective = opts.model > config.toml 顶层 model > 'codex-default' 占位。**仅新建路径**做此
   // resolve（resume 路径保留 sessions.model 原值，不在此覆盖）。
   const effectiveModel =
-    opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET;
+    opts.model ?? deps.runtimeHost.configuration.readConfiguredModel() ?? CODEX_DEFAULT_BUCKET;
   persistSessionFields({
+    runtimeHost: deps.runtimeHost,
     sessionId: internal.applicationSid,
     sandboxMode,
     approvalPolicy: opts.approvalPolicy,
@@ -140,7 +136,10 @@ export async function runCreateSessionNewPath(
     ).catch((err: unknown) => {
       // startNewThreadAndAwaitId 正常把 early error / timeout 都转为会话内 error event；这里仅兜底
       // 防未来回归让 fire-and-forget promise 变成 unhandled rejection。
-      logger.warn(`[codex-bridge] background startNewThreadAndAwaitId(${tempKey}) failed`, err);
+      deps.runtimeHost.logger('codex-create-session-new').warn(
+        `[codex-bridge] background startNewThreadAndAwaitId(${tempKey}) failed`,
+        err,
+      );
     });
   };
   if (opts.awaitCanonicalId === true) {
