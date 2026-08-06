@@ -15,15 +15,14 @@ afterEach(cleanup);
 const REMOTE_PROFILE: RemoteHostProfileDto = {
   id: 'remote-a',
   label: 'Production Core',
-  topology: 'server-core',
+  scope: 'remote',
   endpoint: {
     hostname: 'core.example.test',
     port: 22,
     username: 'agentdeck',
-    expectedInstanceId: 'core-a',
-    hostKeyAlias: null,
+    hostKeyFingerprint: 'SHA256:test',
   },
-  credentials: { identityFileConfigured: true, knownHostsFileConfigured: true },
+  credentials: { connectionCredentialConfigured: true },
 };
 
 function source(projects: RemoteSessionSourceView['projects']): RemoteSessionSourceView {
@@ -77,15 +76,14 @@ function hosts(
       profiles: [{
         id: 'local',
         label: 'Standalone',
-        topology: 'standalone',
+        scope: 'local',
         endpoint: null,
-        credentials: { identityFileConfigured: false, knownHostsFileConfigured: false },
+        credentials: { connectionCredentialConfigured: false },
       }, REMOTE_PROFILE],
       states: [{
         profileId: REMOTE_PROFILE.id,
-        topology: 'server-core',
         status: 'offline',
-        instanceId: null,
+        recovery: null,
         authoritativeCoreId: null,
         workerGeneration: null,
         capabilities: [],
@@ -109,6 +107,30 @@ function hosts(
 }
 
 describe('remote source surfaces', () => {
+  it('imports one server-issued credential without topology or key-file controls', async () => {
+    const chooseRemoteHostConnection = vi.fn(async () => ({
+      selectionId: 'connection-a',
+      label: 'Issued production',
+      endpoint: {
+        hostname: 'issued.example.test',
+        port: 22,
+        username: 'agentdeck',
+        hostKeyFingerprint: 'SHA256:issued',
+      },
+    }));
+    window.api = { chooseRemoteHostConnection } as unknown as typeof window.api;
+    render(<RemoteHostManagerDialog open hosts={hosts(vi.fn())} onClose={vi.fn()} />);
+
+    expect(screen.getByText('管理连接；当前数据源仍由顶部菜单选择。')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '添加' }));
+    fireEvent.click(screen.getByRole('button', { name: /连接凭证/ }));
+    await waitFor(() => expect(chooseRemoteHostConnection).toHaveBeenCalledOnce());
+    expect(screen.getByDisplayValue('Issued production')).toBeTruthy();
+    expect(screen.getByText('agentdeck@issued.example.test:22')).toBeTruthy();
+    expect(screen.getByText('SHA256:issued')).toBeTruthy();
+    expect(screen.queryByText(/拓扑|instanceId|known_hosts|SSH 私钥/u)).toBeNull();
+  });
+
   it('preserves an explicit project selection across project refreshes', () => {
     const initial = source([
       { projectId: 'a', projectRef: 'ref-a', alias: 'a', title: 'Project A' },

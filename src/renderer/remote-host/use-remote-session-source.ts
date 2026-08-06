@@ -47,7 +47,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     : 0;
   const usable = Boolean(
     activeProfileId &&
-    profile?.topology !== 'standalone' &&
+    profile?.scope === 'remote' &&
     (state?.status === 'connected' || state?.status === 'reconnecting' || recoveringWorker),
   );
   const capabilityKey = (state?.capabilities ?? []).join('\u0000');

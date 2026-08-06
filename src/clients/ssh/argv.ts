@@ -93,7 +93,7 @@ export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void 
     requireText(
       profile.expectedAccessCredentialId,
       'profile.expectedAccessCredentialId',
-      SSH_TEXT_LIMITS.instanceId,
+      SSH_TEXT_LIMITS.accessCredentialId,
     );
   }
   if (profile.hostKeyAlias !== undefined) {
@@ -104,6 +104,9 @@ export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void 
     ) {
       throw new SshTransportError('invalid_profile', 'profile.hostKeyAlias is not safe');
     }
+  }
+  if (profile.hostKeyFingerprint !== undefined) {
+    requireText(profile.hostKeyFingerprint, 'profile.hostKeyFingerprint', 128);
   }
   if (profile.sshBinary !== undefined) {
     requireText(profile.sshBinary, 'profile.sshBinary', SSH_TEXT_LIMITS.path);

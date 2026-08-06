@@ -95,12 +95,11 @@ export function RemoteSessionDetail({
     return <RemoteDetailLoading source={source} onClose={onClose} />;
   }
 
-  const topology = source.profile?.topology === 'relay' ? 'Relay' : 'Server Core';
   const banner = source.state?.status === 'reconnecting' || source.recoveringWorker
     ? (
         <div role="status" className="border-b border-amber-400/15 bg-amber-500/10 px-3 py-1.5 text-[10px] text-amber-100">
           {source.recoveringWorker
-            ? 'Relay 后的本机 Worker 当前离线；保留 SSH 通道用于恢复探测。'
+            ? '远程执行节点当前离线；连接保留用于恢复探测。'
             : 'SSH 正在重连；当前操作仍受主进程 deadline 和数据源 epoch 保护。'}
         </div>
       )
@@ -112,7 +111,7 @@ export function RemoteSessionDetail({
     <SessionDetailShell
       title={session.title ?? '未命名 session'}
       sourceBadge={<span className="rounded bg-blue-500/15 px-1 py-0.5 text-[9px] text-blue-200">Remote</span>}
-      subtitle={`${source.profile?.label ?? '远程主机'} · ${topology}`}
+      subtitle={source.profile?.label ?? '远程主机'}
       metadata={<span className="text-[9px] text-deck-muted">{session.adapterId} · {session.status}</span>}
       banner={banner}
       tabs={tabs}

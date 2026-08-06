@@ -143,6 +143,22 @@ if grep -Fq 'environment=' "$relay_dir/authorized-key-options.txt" \
   exit 1
 fi
 
+for required in \
+  'agent-deck-relay issue-connection' \
+  '--runtime-uid 1001' \
+  '--host-key /etc/ssh/ssh_host_ed25519_key.pub' \
+  '.agentdeck-connection'; do
+  grep -Fq -- "$required" "$relay_dir/README.snippet.md" || {
+    echo "relay static check: connection credential issuance documentation lost $required" >&2
+    exit 1
+  }
+done
+grep -Fq "if (command === 'issue-connection')" \
+  "$relay_dir/../../../src/hosts/relay/entrypoint.ts" || {
+  echo 'relay static check: Relay entrypoint lost one-shot connection issuance' >&2
+  exit 1
+}
+
 if grep -Eqi '(@openai/codex|claude-agent-sdk|xai-official|chrom(e|ium)|better-sqlite3|git[[:space:]]+workspace)' \
   "$relay_dir/Containerfile" "$relay_dir/agent-deck-relay@.container"; then
   echo "relay static check: forbidden full-Core build content found" >&2

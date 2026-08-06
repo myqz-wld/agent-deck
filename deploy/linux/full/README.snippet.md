@@ -53,6 +53,31 @@ credential, keep the forced command exact, and run sshd under the same rootless
 service account that owns the Full Quadlet. The requested SSH command must be exactly
 `agent-deck-bridge`; no host socket pathname is used.
 
+Issue each desktop a separate one-file connection credential on the SSH host. This command creates
+an Ed25519 client identity, atomically enrolls its public key in both the live credential authority
+and `authorized_keys`, pins the SSH host public key, and writes the only private export as a new
+mode-0600 file. It never prints the private key. Use canonical paths owned by the trusted operator;
+the output must not already exist:
+
+```bash
+umask 077
+/opt/agent-deck/bin/agent-deckd issue-connection \
+  --instance instance-a \
+  --credential desktop-macbook-a \
+  --label 'Production' \
+  --hostname core.example.com \
+  --port 22 \
+  --username agentdeck \
+  --host-key /etc/ssh/ssh_host_ed25519_key.pub \
+  --credential-file /path/to/instance/secrets/credentials.json \
+  --authorized-keys /var/lib/agent-deck/.ssh/authorized_keys \
+  --output /secure-transfer/production.agentdeck-connection
+```
+
+Transfer that single `.agentdeck-connection` file to the desktop over an authenticated private
+channel, import it in Agent Deck, then delete the transfer copy. Do not reuse one credential across
+devices; revocation remains exact per credential id and desktop surface.
+
 Static checks:
 
 ```bash

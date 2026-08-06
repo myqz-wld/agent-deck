@@ -12,6 +12,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -168,6 +169,67 @@ async function verifyRelayBundleForcedCommands() {
   }
 }
 
+function verifyIssuedConnectionBundles() {
+  const root = realpathSync(mkdtempSync(
+    resolve(realpathSync(tmpdir()), 'agent-deck-connection-issue-'),
+  ));
+  const hostKey = resolve(root, 'ssh_host_ed25519_key.pub');
+  const authorizedKeys = resolve(root, 'authorized_keys');
+  try {
+    writeFileSync(hostKey, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH host\n', { mode: 0o644 });
+    writeFileSync(authorizedKeys, '', { mode: 0o600 });
+    const fullAuthority = resolve(root, 'full-credentials.json');
+    const fullOutput = resolve(root, 'full.agentdeck-connection');
+    writeFileSync(fullAuthority, `${JSON.stringify({
+      schemaVersion: 1, instanceId: 'instance-a', credentials: [],
+    })}\n`, { mode: 0o600 });
+    run(process.execPath, [
+      resolve(outputRoot, 'server-core/index.mjs'), 'issue-connection',
+      '--instance', 'instance-a', '--credential', 'desktop-full-a',
+      '--label', 'Full production', '--hostname', 'full.example.test',
+      '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
+      '--credential-file', fullAuthority, '--authorized-keys', authorizedKeys,
+      '--output', fullOutput,
+    ]);
+    const full = JSON.parse(readFileSync(fullOutput, 'utf8'));
+    if (full.kind !== 'agent-deck-remote-connection-credential' ||
+        full.topology !== 'server-core' || full.instanceId !== 'instance-a' ||
+        !String(full.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
+        (statSync(fullOutput).mode & 0o777) !== 0o600) {
+      fail('Server Core bundle did not issue one exact private connection credential');
+    }
+    if (!readFileSync(fullAuthority, 'utf8').includes('desktop-full-a') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop-full')) {
+      fail('Server Core issuance did not enroll the matching credential and forced key');
+    }
+
+    writeFileSync(authorizedKeys, '', { mode: 0o600 });
+    const relayConfig = resolve(root, 'relay-config.json');
+    const relayOutput = resolve(root, 'relay.agentdeck-connection');
+    writeFileSync(relayConfig, `${JSON.stringify({
+      schemaVersion: 1, instanceId: 'instance-a', tickIntervalMs: 1000,
+      plumbingModule: null, credentials: [],
+    })}\n`, { mode: 0o600 });
+    run(process.execPath, [
+      resolve(outputRoot, 'relay/index.mjs'), 'issue-connection',
+      '--instance', 'instance-a', '--credential', 'desktop-relay-a',
+      '--label', 'Relay production', '--hostname', 'relay.example.test',
+      '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
+      '--config', relayConfig, '--authorized-keys', authorizedKeys,
+      '--runtime-uid', '1001', '--output', relayOutput,
+    ]);
+    const relay = JSON.parse(readFileSync(relayOutput, 'utf8'));
+    if (relay.topology !== 'relay' || relay.credentialId !== 'desktop-relay-a' ||
+        (statSync(relayOutput).mode & 0o777) !== 0o600 ||
+        !readFileSync(relayConfig, 'utf8').includes('"kind": "ssh-client"') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('/run/user/1001/')) {
+      fail('Relay bundle did not issue and enroll its exact desktop credential');
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 for (const root of sourceRoots) {
   for (const file of filesUnder(resolve(repoRoot, root))) {
     if (!['.ts', '.tsx'].includes(extname(file))) continue;
@@ -304,6 +366,7 @@ for (const match of serverCoreRuntimeBundle.matchAll(/^import .* from "([^"]+)";
   }
 }
 verifyServerCoreRuntimeBundleLoads();
+verifyIssuedConnectionBundles();
 const feishuBundle = filesUnder(resolve(outputRoot, 'feishu'))
   .map((file) => readFileSync(file, 'utf8')).join('\n');
 for (const required of [

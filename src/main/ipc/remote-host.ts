@@ -20,30 +20,24 @@ import {
   publicRemoteHostError,
 } from '@main/remote-host';
 import { IpcEvent, RemoteHostIpcInvoke } from '@shared/ipc-channels';
-import type { RemoteHostCredentialKind } from '@shared/remote-host';
-
 import { on } from './_helpers';
 
-const credentialDialogs = new Map<RemoteHostCredentialKind, Promise<string | null>>();
+let connectionDialog: Promise<string | null> | null = null;
 
-function credentialKind(value: unknown): RemoteHostCredentialKind {
-  if (value === 'identity-file' || value === 'known-hosts-file') return value;
-  throw publicRemoteHostError({ code: 'invalid_request' });
+async function chooseConnectionFile(): Promise<string | null> {
+  if (connectionDialog) return connectionDialog;
+  connectionDialog = showConnectionDialog().finally(() => { connectionDialog = null; });
+  return connectionDialog;
 }
 
-async function chooseCredentialFile(kind: RemoteHostCredentialKind): Promise<string | null> {
-  const existing = credentialDialogs.get(kind);
-  if (existing) return existing;
-  const pending = showCredentialDialog(kind).finally(() => credentialDialogs.delete(kind));
-  credentialDialogs.set(kind, pending);
-  return pending;
-}
-
-async function showCredentialDialog(kind: RemoteHostCredentialKind): Promise<string | null> {
+async function showConnectionDialog(): Promise<string | null> {
   const options: OpenDialogOptions = {
-    title: kind === 'identity-file' ? '选择 SSH 私钥' : '选择固定的 known_hosts 文件',
+    title: '导入 Agent Deck 连接凭证',
     properties: ['openFile'],
-    filters: [{ name: '所有文件', extensions: ['*'] }],
+    filters: [
+      { name: 'Agent Deck 连接凭证', extensions: ['agentdeck-connection', 'json'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
   };
   const window = getFloatingWindow().window;
   const result = await (window
@@ -83,10 +77,9 @@ export function registerRemoteHostIpc(): void {
   on(RemoteHostIpcInvoke.Disconnect, (_event, profileId) => safely(() =>
     getRemoteHostService().disconnect(parseRemoteHostProfileId(profileId))));
 
-  on(RemoteHostIpcInvoke.ChooseCredential, (_event, rawKind) => safely(async () => {
-    const kind = credentialKind(rawKind);
-    const path = await chooseCredentialFile(kind);
-    return path ? getRemoteHostService().captureCredential(kind, path) : null;
+  on(RemoteHostIpcInvoke.ChooseConnection, () => safely(async () => {
+    const path = await chooseConnectionFile();
+    return path ? getRemoteHostService().captureConnection(path) : null;
   }));
 
   on(RemoteHostIpcInvoke.SessionsList, (_event, request) => safely(() =>

@@ -6,8 +6,10 @@ import {
   createElectronHostClientFactory,
   ElectronHostRegistry,
 } from '@hosts/electron';
+import { join } from 'node:path';
 
-import { RemoteHostCredentialSelections } from './credential-selections';
+import { RemoteHostConnectionSelections } from './connection-selections';
+import { FileRemoteHostCredentialMaterialStore } from './credential-material-store';
 import { createElectronRemoteHostProfileBackend } from './electron-profile-backend';
 import { RemoteHostPublicError } from './errors';
 import { RemoteHostProfileStore } from './profile-store';
@@ -34,7 +36,11 @@ export function createProductionRemoteHostService(): RemoteHostService {
   return new RemoteHostService({
     registry,
     store,
-    selections: new RemoteHostCredentialSelections({ createId }),
+    connections: new RemoteHostConnectionSelections({ createId }),
+    materials: new FileRemoteHostCredentialMaterialStore({
+      root: join(app.getPath('userData'), 'remote-host-credentials'),
+      createId,
+    }),
     createId,
   });
 }

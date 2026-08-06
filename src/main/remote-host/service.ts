@@ -10,8 +10,7 @@ import type { ElectronHostRegistry } from '@hosts/electron';
 import type {
   RemoteHostAcceptedResultDto,
   RemoteHostCreateSessionDto,
-  RemoteHostCredentialKind,
-  RemoteHostCredentialSelectionDto,
+  RemoteHostConnectionSelectionDto,
   RemoteHostHistoryPageDto,
   RemoteHostHistoryRequestDto,
   RemoteHostMutationTargetDto,
@@ -44,7 +43,8 @@ import {
   parseRemoteHostRuntimeUpdateResult,
   parseRemoteHostSendResult,
 } from './business-validation';
-import type { RemoteHostCredentialSelections } from './credential-selections';
+import type { RemoteHostConnectionSelections } from './connection-selections';
+import type { RemoteHostCredentialMaterialStore } from './credential-material-store';
 import { RemoteHostPublicError } from './errors';
 import { publishRemoteHostChanged } from './event-bridge';
 import { authorizeRemoteHostPendingResponse } from './pending-response-policy';
@@ -61,7 +61,8 @@ import {
 export interface RemoteHostServiceOptions {
   registry: ElectronHostRegistry;
   store: RemoteHostProfileStore;
-  selections: RemoteHostCredentialSelections;
+  connections: RemoteHostConnectionSelections;
+  materials: RemoteHostCredentialMaterialStore;
   createId: () => string;
 }
 
@@ -79,7 +80,8 @@ export class RemoteHostService {
     this.profiles = new RemoteHostProfileController(document, {
       registry: options.registry,
       store: options.store,
-      selections: options.selections,
+      connections: options.connections,
+      materials: options.materials,
       createId: options.createId,
       onProfileRescope: (profileId) => this.scopes.bumpProfile(profileId),
       onSourceRescope: () => this.scopes.bumpSource(),
@@ -195,12 +197,9 @@ export class RemoteHostService {
     return this.shutdownPromise;
   }
 
-  captureCredential(
-    kind: RemoteHostCredentialKind,
-    path: string,
-  ): RemoteHostCredentialSelectionDto {
+  captureConnection(path: string): RemoteHostConnectionSelectionDto {
     this.assertActive();
-    return this.options.selections.capture(kind, path);
+    return this.options.connections.capture(path);
   }
 
   async listSessions(request: RemoteHostSessionPageRequestDto): Promise<RemoteHostSessionPageDto> {

@@ -144,7 +144,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
         <div className="text-[12px]">{title}</div>
-        <div className="text-[10px]">在数据源设置中连接 Server Core 或 Relay；切换数据源不会停止远程 Core 或 session。</div>
+        <div className="text-[10px]">请在数据源设置中连接远程服务；切换数据源不会停止远程 session。</div>
       </div>
     );
   }
@@ -162,7 +162,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
   return (
     <div className="flex flex-col gap-1.5">
       <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-        {source.profile?.label} · {source.profile?.topology === 'relay' ? 'Relay' : 'Server Core'} · {source.sessionTotal === null ? `已载入 ${source.sessions.length}` : `${source.sessions.length}/${source.sessionTotal}`}
+        {source.profile?.label} · {source.sessionTotal === null ? `已载入 ${source.sessions.length}` : `${source.sessions.length}/${source.sessionTotal}`}
       </div>
       {source.sessions.map((session) => (
         <button

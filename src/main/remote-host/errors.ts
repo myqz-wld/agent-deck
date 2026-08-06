@@ -9,7 +9,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   connection_failed: '无法建立 SSH 连接，请检查地址和凭据。',
   deadline_exceeded: '远程操作超时。',
   handshake_timeout: 'SSH 协议握手超时。',
-  host_key_verification_failed: '主机密钥校验失败，请核对固定的 known_hosts 文件。',
+  host_key_verification_failed: '服务器身份校验失败，请重新获取或核对连接凭证。',
   incompatible_handshake: '远程 Agent Deck 与当前桌面版本不兼容。',
   incompatible_protocol: '远程 Agent Deck 协议版本不兼容。',
   in_flight_limit: '远程请求过多，请稍后重试。',
@@ -24,7 +24,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   service_stopped: '远程主机服务已停止。',
   stale_scope: '当前主机或会话已切换，请重试。',
   'transport-close-failed': '本机 SSH 退出状态不确定；为避免启动第二个传输，只能重启 Agent Deck 后恢复。',
-  worker_offline: 'Relay 后的本机 Worker 当前离线。',
+  worker_offline: '远程执行节点当前离线。',
   write_queue_limit: 'SSH 写入队列已满，请稍后重试。',
 };
 

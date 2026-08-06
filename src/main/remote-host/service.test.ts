@@ -5,10 +5,14 @@ import { ElectronHostRegistry, type ElectronHostClientBinding } from '@hosts/ele
 import { ControlledClient, deferred, remoteHello, remoteProfile, standaloneProfile } from '@hosts/electron/__tests__/registry-fixture';
 import type { SshConnectionState } from '@clients/ssh';
 
-import { RemoteHostCredentialSelections } from './credential-selections';
 import type { RemoteHostProfileDocument } from './profile-document';
 import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
 import { RemoteHostService } from './service';
+import {
+  MemoryCredentialMaterialStore,
+  testConnectionCredential,
+  testConnectionSelections,
+} from './test-connection-fixture';
 
 class MemoryBackend implements RemoteHostProfileBackend {
   constructor(public value: RemoteHostProfileDocument) {}
@@ -42,17 +46,24 @@ function harness(bindings?: ElectronHostClientBinding[]) {
   });
   let generated = 0;
   const createId = () => `generated-${++generated}`;
-  const selections = new RemoteHostCredentialSelections({
-    createId,
-    validateFile: () => undefined,
-  });
+  const connections = testConnectionSelections(createId, (path) => path.includes('relay')
+    ? testConnectionCredential({
+        label: 'Relay', topology: 'relay', instanceId: 'relay-instance',
+        endpoint: { hostname: 'relay.example.test', port: 22, username: 'agentdeck' },
+      })
+    : testConnectionCredential({
+        label: 'Updated Core', instanceId: 'server-a',
+        endpoint: { hostname: 'new-core.example.test', port: 2222, username: 'agentdeck' },
+      }));
+  const materials = new MemoryCredentialMaterialStore();
   const service = new RemoteHostService({
     registry,
     store: new RemoteHostProfileStore(backend, { create: createId }),
-    selections,
+    connections,
+    materials,
     createId,
   });
-  return { backend, first, local, registry, remote, selections, service };
+  return { backend, connections, first, local, materials, registry, remote, service };
 }
 
 function observedHarness(topology: 'relay' | 'server-core') {
@@ -81,10 +92,8 @@ function observedHarness(topology: 'relay' | 'server-core') {
   const service = new RemoteHostService({
     registry,
     store: new RemoteHostProfileStore(backend, { create: createId }),
-    selections: new RemoteHostCredentialSelections({
-      createId,
-      validateFile: () => undefined,
-    }),
+    connections: testConnectionSelections(createId),
+    materials: new MemoryCredentialMaterialStore(),
     createId,
   });
   return {
@@ -108,7 +117,7 @@ describe('RemoteHostService', () => {
 
     expect(snapshot.profiles[1]).toMatchObject({
       endpoint: { hostname: 'server-a.example.test' },
-      credentials: { identityFileConfigured: true, knownHostsFileConfigured: true },
+      credentials: { connectionCredentialConfigured: true },
     });
     expect(serialized).not.toContain('/private/');
     expect(serialized).not.toContain('client-server-a');
@@ -124,25 +133,24 @@ describe('RemoteHostService', () => {
     expect(context.first.request).not.toHaveBeenCalled();
 
     await context.service.setSourceMode('local');
-    const identity = context.service.captureCredential('identity-file', '/private/new-key');
-    const knownHosts = context.service.captureCredential('known-hosts-file', '/private/new-known-hosts');
+    const connection = context.service.captureConnection('/private/new-relay.agentdeck-connection');
     const addedSnapshot = await context.service.addProfile({
       label: 'Relay',
-      topology: 'relay',
-      hostname: 'relay.example.test',
-      port: 22,
-      username: 'agentdeck',
-      expectedInstanceId: 'relay-instance',
-      hostKeyAlias: null,
-      identitySelectionId: identity.selectionId,
-      knownHostsSelectionId: knownHosts.selectionId,
+      connectionSelectionId: connection.selectionId,
     });
     const added = addedSnapshot.profiles.find((profile) => profile.label === 'Relay');
     expect(added).toMatchObject({
-      topology: 'relay',
-      credentials: { identityFileConfigured: true, knownHostsFileConfigured: true },
+      scope: 'remote',
+      credentials: { connectionCredentialConfigured: true },
     });
     expect(JSON.stringify(added)).not.toContain('/private/');
+    expect(context.backend.value.profiles.find((profile) => profile.id === added!.id)).toMatchObject({
+      topology: 'relay',
+      ssh: {
+        expectedInstanceId: 'relay-instance',
+        expectedAccessCredentialId: 'desktop-a',
+      },
+    });
 
     await context.service.selectProfile(added!.id);
     const removedSnapshot = await context.service.removeProfile(added!.id);
@@ -352,19 +360,11 @@ describe('RemoteHostService', () => {
     vi.mocked(first.request).mockReturnValueOnce(response.promise as never);
     await service.connect(remote.id);
     const history = service.listHistory({ profileId: remote.id, sessionId: 's1', limit: 20 });
-    const identity = service.captureCredential('identity-file', '/private/unrelated-key');
-    const knownHosts = service.captureCredential('known-hosts-file', '/private/unrelated-known-hosts');
+    const connection = service.captureConnection('/private/unrelated-relay.agentdeck-connection');
 
     await service.addProfile({
       label: 'Unrelated Relay',
-      topology: 'relay',
-      hostname: 'relay-b.example.test',
-      port: 22,
-      username: 'agentdeck',
-      expectedInstanceId: 'relay-b',
-      hostKeyAlias: null,
-      identitySelectionId: identity.selectionId,
-      knownHostsSelectionId: knownHosts.selectionId,
+      connectionSelectionId: connection.selectionId,
     });
     response.resolve({ entries: [], nextCursor: null, revision: 3 });
 
@@ -384,19 +384,11 @@ describe('RemoteHostService', () => {
       sessionId: 'old-session',
       limit: 20,
     });
-    const identity = context.service.captureCredential('identity-file', '/new/private-key');
-    const knownHosts = context.service.captureCredential('known-hosts-file', '/new/known-hosts');
+    const connection = context.service.captureConnection('/new/core.agentdeck-connection');
 
     await context.service.updateProfile(context.remote.id, {
       label: '更新后的 Core',
-      topology: 'server-core',
-      hostname: 'new-core.example.test',
-      port: 2222,
-      username: 'agentdeck',
-      expectedInstanceId: context.remote.ssh.expectedInstanceId ?? null,
-      hostKeyAlias: null,
-      identitySelectionId: identity.selectionId,
-      knownHostsSelectionId: knownHosts.selectionId,
+      connectionSelectionId: connection.selectionId,
     });
 
     expect(first.closeSpy).toHaveBeenCalledOnce();
@@ -434,7 +426,7 @@ describe('RemoteHostService', () => {
 
     expect(error).toEqual({
       code: 'host_key_verification_failed',
-      message: '主机密钥校验失败，请核对固定的 known_hosts 文件。',
+      message: '服务器身份校验失败，请重新获取或核对连接凭证。',
     });
     expect(JSON.stringify(snapshot)).not.toContain('/private/trust');
     await expect(context.service.listProjects({
@@ -477,7 +469,7 @@ describe('RemoteHostService', () => {
     await expect(service.listProjects({ profileId: remote.id, limit: 20 })).rejects.toMatchObject({
       code: 'service_stopped',
     });
-    expect(() => service.captureCredential('identity-file', '/new/key')).toThrowError(
+    expect(() => service.captureConnection('/new/key')).toThrowError(
       expect.objectContaining({ code: 'service_stopped' }),
     );
     await expect(service.getSnapshot()).resolves.toMatchObject({

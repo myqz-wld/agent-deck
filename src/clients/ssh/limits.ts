@@ -4,6 +4,7 @@ export const SSH_TEXT_LIMITS = Object.freeze({
   profileId: 128,
   profileLabel: 256,
   clientId: 128,
+  accessCredentialId: 160,
   instanceId: 128,
   coreId: 128,
   requestId: 256,

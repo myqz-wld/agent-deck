@@ -100,6 +100,7 @@ describe('RemoteHostProfileStore', () => {
           username: 'agentdeck',
           identityFile: '/private/key',
           knownHostsFile: '/private/known_hosts',
+          expectedAccessCredentialId: 'desktop-a',
         },
       },
     ];
@@ -123,6 +124,10 @@ describe('RemoteHostProfileStore', () => {
       schemaVersion: 3,
       sourceMode: 'remote',
       selectedRemoteProfileId: 'server-a',
+      profiles: [
+        expect.anything(),
+        { ssh: { expectedAccessCredentialId: 'desktop-a' } },
+      ],
     });
   });
 

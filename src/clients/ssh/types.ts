@@ -17,6 +17,7 @@ export interface SshHostProfile {
   expectedInstanceId?: string;
   expectedAccessCredentialId?: string;
   hostKeyAlias?: string;
+  hostKeyFingerprint?: string;
   sshBinary?: string;
   connectTimeoutSeconds?: number;
   serverAliveIntervalSeconds?: number;

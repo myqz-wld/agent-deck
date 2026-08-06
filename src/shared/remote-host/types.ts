@@ -20,26 +20,23 @@ export interface RemoteHostEndpointDto {
   hostname: string;
   port: number;
   username: string;
-  expectedInstanceId: string | null;
-  hostKeyAlias: string | null;
+  hostKeyFingerprint: string | null;
 }
 
 export interface RemoteHostProfileDto {
   id: string;
   label: string;
-  topology: RemoteHostTopology;
+  scope: 'local' | 'remote';
   endpoint: RemoteHostEndpointDto | null;
   credentials: {
-    identityFileConfigured: boolean;
-    knownHostsFileConfigured: boolean;
+    connectionCredentialConfigured: boolean;
   };
 }
 
 export interface RemoteHostStateDto {
   profileId: string;
-  topology: RemoteHostTopology;
   status: RemoteHostConnectionStatus;
-  instanceId: string | null;
+  recovery: 'worker-offline' | null;
   authoritativeCoreId: string | null;
   workerGeneration: number | null;
   capabilities: string[];
@@ -57,21 +54,13 @@ export interface RemoteHostSnapshotDto {
 
 export interface RemoteHostProfileDraftDto {
   label: string;
-  topology: RemoteHostRemoteTopology;
-  hostname: string;
-  port: number;
-  username: string;
-  expectedInstanceId: string | null;
-  hostKeyAlias: string | null;
-  identitySelectionId: string | null;
-  knownHostsSelectionId: string | null;
+  connectionSelectionId: string | null;
 }
 
-export type RemoteHostCredentialKind = 'identity-file' | 'known-hosts-file';
-
-export interface RemoteHostCredentialSelectionDto {
+export interface RemoteHostConnectionSelectionDto {
   selectionId: string;
-  kind: RemoteHostCredentialKind;
+  label: string;
+  endpoint: RemoteHostEndpointDto;
 }
 
 export interface RemoteHostPageRequestDto {
