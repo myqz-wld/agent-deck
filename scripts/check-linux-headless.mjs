@@ -65,9 +65,14 @@ function verifyServerCoreRuntimeBundleLoads() {
     const runtimeUrl = pathToFileURL(
       resolve(outputRoot, 'server-core-runtime/index.mjs'),
     ).href;
+    const workerRuntimeUrl = pathToFileURL(
+      resolve(outputRoot, 'local-worker-runtime/index.mjs'),
+    ).href;
     const source = `
       const runtimeModule = await import(${JSON.stringify(runtimeUrl)});
       if (typeof runtimeModule.createServerCoreRuntime !== 'function') process.exit(2);
+      const workerRuntimeModule = await import(${JSON.stringify(workerRuntimeUrl)});
+      if (typeof workerRuntimeModule.createLocalWorkerRuntime !== 'function') process.exit(4);
       const root = ${JSON.stringify(root)};
       const paths = {
         instanceId: 'instance-a',
@@ -277,6 +282,8 @@ if (
   install?.serverCoreHostForcedCommand !== '/opt/agent-deck/bin/agent-deck-full-bridge' ||
   install?.relayCommand !== '/opt/agent-deck/bin/agent-deck-relay' ||
   install?.localWorkerCommand !== '/opt/agent-deck/bin/agent-deck-worker' ||
+  install?.localWorkerRuntimeBundle !==
+    '/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs' ||
   install?.feishuBundle !== '/opt/agent-deck/linux-headless/feishu/index.mjs' ||
   install?.feishuCommand !== '/opt/agent-deck/bin/agent-deck-feishu' ||
   install?.feishuPreflight !== '/opt/agent-deck/libexec/agent-deck-feishu-preflight' ||
@@ -354,6 +361,26 @@ for (const forbidden of [
 }
 if (/(?:from|import\()\s*['"]electron(?:['"/])/.test(serverCoreRuntimeBundle)) {
   fail('Server Core runtime artifact imports Electron');
+}
+const localWorkerRuntimeBundle = filesUnder(resolve(outputRoot, 'local-worker-runtime'))
+  .map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const required of [
+  'createLocalWorkerRuntime',
+  'local-worker',
+  'better-sqlite3',
+  '/opt/agent-deck/providers/claude/claude',
+]) {
+  if (!localWorkerRuntimeBundle.includes(required)) {
+    fail(`Local Worker runtime artifact lost ${required}`);
+  }
+}
+for (const forbidden of ['/usr/bin/podman', 'RelayControlHost']) {
+  if (localWorkerRuntimeBundle.includes(forbidden)) {
+    fail(`Local Worker runtime artifact contains ${forbidden}`);
+  }
+}
+if (/(?:from|import\()\s*['"]electron(?:['"/])/.test(localWorkerRuntimeBundle)) {
+  fail('Local Worker runtime artifact imports Electron');
 }
 const allowedRuntimeExternals = new Set([
   'better-sqlite3',

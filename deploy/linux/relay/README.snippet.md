@@ -5,6 +5,11 @@ bundle `/opt/agent-deck/linux-headless/relay/index.mjs`, and
 `/opt/agent-deck/bin/agent-deck-relay`. The wrapper starts Node with a fixed minimal environment;
 SSH cannot select a different Node, bundle root, loader option, or `PATH`.
 
+Each Local Worker installs `/opt/agent-deck/bin/agent-deck-worker`,
+`/opt/agent-deck/linux-headless/local-worker/index.mjs`, and the packaged concrete runtime
+`/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs`. The Worker owns Core, SQLite,
+repositories, and provider processes; Relay never imports that runtime or executes business work.
+
 Replace `INSTANCE_ID`, `CREDENTIAL_ID`, `WORKER_ID`, `RUNTIME_UID`, and the public key in the
 authorized-key fixtures. Use the exact `desktop-full` line for an Electron SSH credential and the
 exact `feishu-session-console` line for a Feishu service credential. `RUNTIME_UID` is the uid of the

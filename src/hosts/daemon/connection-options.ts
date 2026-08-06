@@ -1,4 +1,7 @@
-import type { AuthenticatedClientAccessContext } from '@contracts/index';
+import type {
+  AuthenticatedClientAccessContext,
+  DeploymentTopology,
+} from '@contracts/index';
 
 import type { DaemonProtocolConnection } from './connection';
 import type {
@@ -11,6 +14,8 @@ export interface DaemonProtocolConnectionOptions {
   readonly instanceId: string;
   readonly appVersion: string;
   readonly authoritativeCoreId: string;
+  readonly topology?: Exclude<DeploymentTopology, 'standalone'>;
+  readonly authoritativeCoreGeneration?: number | null;
   readonly runtime: DaemonCoreRuntime;
   readonly admission: DaemonConnectionAdmission;
   readonly limits?: Partial<DaemonConnectionLimits>;

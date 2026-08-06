@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "instanceId": "instance-a",
   "appVersion": "0.1.0",
-  "runtimeModule": "/opt/agent-deck/runtime/local-worker-runtime.mjs",
+  "runtimeModule": "/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs",
   "runtimeOptions": {},
   "generationFile": "/var/lib/agent-deck/worker/instance-a/generation.json",
   "ssh": {

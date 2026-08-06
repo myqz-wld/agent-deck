@@ -3,6 +3,7 @@ import {
   AgentDeckClientErrorCode,
   CORE_METHOD_METADATA,
   DeploymentTopology,
+  getTopologyDescriptor,
   isCoreMethodAllowed,
   type AgentDeckCapability as Capability,
   type AuthenticatedClientAccessContext,
@@ -16,10 +17,11 @@ export function normalizeDaemonAccessContext(
   created: AuthenticatedClientAccessContext,
   clientId: string,
   instanceId: string,
+  topology: Exclude<DeploymentTopology, 'standalone'> = DeploymentTopology.ServerCore,
 ): AuthenticatedClientAccessContext {
   if (
     created.kind !== 'authenticated-client' ||
-    created.topology !== DeploymentTopology.ServerCore ||
+    created.topology !== topology ||
     created.instanceId !== instanceId ||
     created.clientId !== clientId ||
     created.authority !== 'owner-equivalent' ||
@@ -33,7 +35,7 @@ export function normalizeDaemonAccessContext(
   if (created.transport === 'ssh' && created.surface === 'desktop-full') {
     return Object.freeze({
       kind: 'authenticated-client',
-      topology: DeploymentTopology.ServerCore,
+      topology,
       instanceId,
       clientId,
       transport: 'ssh',
@@ -45,7 +47,7 @@ export function normalizeDaemonAccessContext(
   if (created.transport === 'feishu' && created.surface === 'feishu-session-console') {
     return Object.freeze({
       kind: 'authenticated-client',
-      topology: DeploymentTopology.ServerCore,
+      topology,
       instanceId,
       clientId,
       transport: 'feishu',
@@ -80,6 +82,8 @@ export interface CreateDaemonHostHelloInput {
   readonly appVersion: string;
   readonly instanceId: string;
   readonly authoritativeCoreId: string;
+  readonly topology?: Exclude<DeploymentTopology, 'standalone'>;
+  readonly authoritativeCoreGeneration?: number | null;
   readonly access: AuthenticatedClientAccessContext;
   readonly supportedMethods: ReadonlySet<CoreMethod>;
   readonly replayAvailable: boolean;
@@ -88,15 +92,16 @@ export interface CreateDaemonHostHelloInput {
 }
 
 export function createDaemonHostHello(input: CreateDaemonHostHelloInput): HostHello {
+  const topology = input.topology ?? DeploymentTopology.ServerCore;
   return {
     protocolVersion: input.protocolVersion,
     appVersion: input.appVersion,
-    topology: DeploymentTopology.ServerCore,
+    topology,
     instanceId: input.instanceId,
     authoritativeCore: {
       id: input.authoritativeCoreId,
-      location: 'server-appliance',
-      generation: null,
+      location: getTopologyDescriptor(topology).authoritativeCoreLocation,
+      generation: input.authoritativeCoreGeneration ?? null,
     },
     access: input.access,
     capabilities: capabilities(

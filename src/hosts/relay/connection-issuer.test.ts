@@ -24,7 +24,11 @@ describe('issueRelayConnection', () => {
     const output = join(root, 'relay.agentdeck-connection');
     writeFileSync(config, `${JSON.stringify({
       schemaVersion: 1, instanceId: 'instance-a', tickIntervalMs: 1000,
-      plumbingModule: null, credentials: [],
+      plumbingModule: null, credentials: [{
+        credentialId: 'worker-a', instanceId: 'instance-a', kind: 'relay-worker',
+        publicKey: null, fingerprint: 'SHA256:worker-a', status: 'active',
+        createdAt: 1, revokedAt: null,
+      }],
     })}\n`, { mode: 0o600 });
     writeFileSync(authorizedKeys, '', { mode: 0o600 });
     writeFileSync(hostKey, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH host\n', { mode: 0o644 });
@@ -42,7 +46,17 @@ describe('issueRelayConnection', () => {
     const bundle = parseRemoteConnectionCredential(JSON.parse(readFileSync(output, 'utf8')));
     expect(bundle).toMatchObject({ topology: 'relay', credentialId: 'desktop-a' });
     expect(statSync(output).mode & 0o777).toBe(0o600);
-    expect(readFileSync(config, 'utf8')).toContain('"kind": "ssh-client"');
+    const updated = JSON.parse(readFileSync(config, 'utf8')) as {
+      credentials: Array<Record<string, unknown>>;
+    };
+    expect(updated.credentials).toHaveLength(2);
+    expect(updated.credentials[0]).toMatchObject({
+      credentialId: 'worker-a', kind: 'relay-worker', status: 'active',
+    });
+    expect(updated.credentials[0]).not.toHaveProperty('id');
+    expect(updated.credentials[1]).toMatchObject({
+      credentialId: 'desktop-a', kind: 'ssh-client', status: 'active',
+    });
     const authorized = readFileSync(authorizedKeys, 'utf8');
     expect(authorized).toContain('/run/user/1001/agent-deck-relay/instance-a/control.sock');
     expect(authorized).not.toContain('OPENSSH PRIVATE KEY');

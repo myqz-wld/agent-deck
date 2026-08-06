@@ -149,7 +149,7 @@ export function buildOpenSshArgv(profile: Readonly<SshHostProfile>): readonly st
     '-o',
     'IdentitiesOnly=yes',
     '-o',
-    `IdentityFile=${nullConfigFile}`,
+    'IdentityFile=none',
     '-i',
     profile.identityFile,
     '-o',

@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-05 | `CHANGELOG_564_relay-worker-live-ssh-path.md` | Close the live Relay Worker SSH path |
 | 2026-08-05 | `CHANGELOG_563_concrete-headless-server-core-runtime.md` | Package the concrete headless Server Core |
 | 2026-08-05 | `CHANGELOG_562_codex-aggregate-host-core.md` | Compose the headless Codex host |
 | 2026-08-05 | `CHANGELOG_561_claude-aggregate-host-core.md` | Compose the headless Claude host |
