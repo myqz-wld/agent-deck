@@ -1,7 +1,11 @@
 import { isAbsolute, normalize, relative, resolve, sep } from 'node:path';
 import { lstatSync, realpathSync } from 'node:fs';
 
-import { isJsonObject, type JsonObject } from '@contracts/index';
+import {
+  isJsonObject,
+  parseWorkspaceDirectoryRef,
+  type JsonObject,
+} from '@contracts/index';
 import type { ProjectReferenceDto } from '@contracts/session-console';
 
 const MAX_PROJECTS = 256;
@@ -48,7 +52,7 @@ function workspacePath(value: unknown, field: string, workspaceRoot: string): st
     fail(field);
   }
   const relation = relative(workspaceRoot, value);
-  if (!relation || relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+  if (relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
     fail(field);
   }
   return value;
@@ -62,7 +66,7 @@ function exactProject(value: JsonObject, index: number, workspaceRoot: string): 
   }
   return Object.freeze({
     projectId: token(value.projectId, `${index}.projectId`),
-    projectRef: token(value.projectRef, `${index}.projectRef`),
+    projectRef: parseWorkspaceDirectoryRef(value.projectRef, `${index}.projectRef`),
     alias: token(value.alias, `${index}.alias`),
     title: title(value.title, `${index}.title`),
     workspacePath: workspacePath(value.workspacePath, `${index}.workspacePath`, workspaceRoot),
@@ -94,6 +98,25 @@ export function resolveServerCoreProjectCatalog(
   return Object.freeze(projects);
 }
 
+/** Adds the authorized root as a user-selectable default without constraining nested directories. */
+export function withServerCoreWorkspaceRootProject(
+  projects: readonly ServerCoreProject[],
+  workspaceRoot: string,
+): readonly ServerCoreProject[] {
+  if (projects.some((project) => project.workspacePath === workspaceRoot)) return projects;
+  if (projects.some((project) =>
+    project.projectId === 'agent-deck-workspace-root' || project.alias === 'workspace')) {
+    throw new Error('runtimeOptions.projects conflicts with the reserved workspace root');
+  }
+  return Object.freeze([Object.freeze({
+    projectId: 'agent-deck-workspace-root',
+    projectRef: '.',
+    alias: 'workspace',
+    title: null,
+    workspacePath: workspaceRoot,
+  }), ...projects]);
+}
+
 /** Re-resolves the configured directory at use time and rejects symlink/path replacement. */
 export function resolveServerCoreProjectWorkspace(
   project: ServerCoreProject,
@@ -107,8 +130,28 @@ export function resolveServerCoreProjectWorkspace(
   const canonicalRoot = realpathSync(workspaceRoot);
   const canonical = realpathSync(expected);
   const relation = relative(canonicalRoot, canonical);
-  if (!relation || relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+  if (relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
     throw new Error('Server Core project workspace escaped its root');
+  }
+  return canonical;
+}
+
+/** Resolves one client-selected relative directory under the authoritative Workspace root. */
+export function resolveServerCoreWorkspaceDirectory(
+  directoryRef: string,
+  workspaceRoot = '/workspaces',
+): string {
+  const reference = parseWorkspaceDirectoryRef(directoryRef);
+  const expected = reference === '.' ? workspaceRoot : resolve(workspaceRoot, reference);
+  const entry = lstatSync(expected);
+  if (!entry.isDirectory() || entry.isSymbolicLink()) {
+    throw new Error('Server Core working directory is unavailable');
+  }
+  const canonicalRoot = realpathSync(workspaceRoot);
+  const canonical = realpathSync(expected);
+  const relation = relative(canonicalRoot, canonical);
+  if (relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+    throw new Error('Server Core working directory escaped its Workspace');
   }
   return canonical;
 }

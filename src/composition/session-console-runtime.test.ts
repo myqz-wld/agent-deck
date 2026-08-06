@@ -33,7 +33,7 @@ function authority(): AuthoritativeSessionConsolePort {
       project: { projectId: 'project-a', projectRef: 'opaque-a', alias: 'a', title: 'A' },
       revision: 4,
     }),
-    createSessionByProject: () => ({ sessionId: 'session-a', revision: 5 }),
+    createSession: () => ({ sessionId: 'session-a', revision: 5 }),
   };
 }
 

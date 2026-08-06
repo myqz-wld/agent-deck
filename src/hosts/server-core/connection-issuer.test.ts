@@ -53,8 +53,10 @@ describe('issueServerCoreConnection', () => {
 
     const bundle = parseRemoteConnectionCredential(JSON.parse(readFileSync(flags['--output'], 'utf8')));
     expect(bundle).toMatchObject({
-      topology: 'server-core', instanceId: 'instance-a', credentialId: 'desktop-a',
+      schemaVersion: 2, purpose: 'client', topology: 'server-core',
+      instanceId: 'instance-a', credentialId: 'desktop-a',
     });
+    expect(bundle).not.toHaveProperty('workerId');
     expect(statSync(flags['--output']).mode & 0o777).toBe(0o600);
     const authority = readFileSync(flags['--credential-file'], 'utf8');
     const authorized = readFileSync(flags['--authorized-keys'], 'utf8');

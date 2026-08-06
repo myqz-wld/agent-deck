@@ -41,6 +41,7 @@ export function issueServerCoreConnection(
     throw new Error('authorized_keys already contains this credentialId');
   }
   const issue = prepareRemoteConnectionIssue({
+    purpose: 'client',
     topology: 'server-core',
     instanceId,
     credentialId,
@@ -65,7 +66,7 @@ export function issueServerCoreConnection(
     `--instance ${instanceId}`,
     `--credential ${credentialId}`,
     '--surface desktop-full",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty',
-    issue.clientPublicKey,
+    issue.publicKey,
   ].join(' ');
   commitRemoteConnectionIssue({
     outputFile: flags['--output'],
@@ -76,4 +77,3 @@ export function issueServerCoreConnection(
     ],
   });
 }
-

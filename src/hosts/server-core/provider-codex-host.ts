@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
 
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { createCodexCliAdapterHost } from '@main/adapters/codex-cli/aggregate-host-core';
@@ -7,7 +9,13 @@ import { NOOP_CODEX_CLIENT_DIAGNOSTICS } from '@main/adapters/codex-cli/app-serv
 import { NOOP_CODEX_GENERATION_DIAGNOSTICS } from '@main/adapters/codex-cli/app-server/generation-operation';
 import type { CodexAppServerOptions } from '@main/adapters/codex-cli/app-server/protocol';
 import { CodexAppServerThread } from '@main/adapters/codex-cli/app-server/thread';
+import type { CodexThreadMode } from '@main/adapters/codex-cli/app-server/thread-mode';
+import { buildCodexWorkspaceAppServerArguments } from '@main/adapters/codex-cli/app-server/workspace-permissions';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
+import type {
+  CodexThreadOptions,
+  CodexWorkspacePermissionBoundary,
+} from '@main/adapters/codex-cli/sdk-bridge/thread-options-builder';
 import {
   ensureCodexClientWithHost,
   type CodexClientConstructionHost,
@@ -20,7 +28,7 @@ import {
 } from '@shared/types';
 import { unavailableUsageSnapshot } from '@main/adapters/provider-usage';
 import {
-  processEnvironment,
+  providerProcessEnvironment,
   providerLogger,
   publishProviderSession,
   unsupportedRecoveryHost,
@@ -29,15 +37,49 @@ import {
 
 export const HEADLESS_CODEX_EXECUTABLE = '/opt/agent-deck/providers/codex/codex';
 
+function frozenWorkspacePermissionBoundary(
+  input: ServerCoreProviderHostInput,
+): CodexWorkspacePermissionBoundary {
+  return Object.freeze({
+    workspaceRoot: input.workspaceBoundary.workspaceRoot,
+    readOnlyRoots: Object.freeze([...input.workspaceBoundary.runtimeReadRoots]),
+    // Provider state remains outside the model-facing filesystem. Commands can use workspace-local
+    // scratch space; they must never receive a path into Worker/Core private state.
+    readWriteRoots: Object.freeze([]),
+  });
+}
+
+export function withServerCoreCodexWorkspaceBoundary(
+  mode: CodexThreadMode,
+  input: ServerCoreProviderHostInput,
+): CodexThreadMode {
+  const options: CodexThreadOptions = Object.freeze({
+    ...mode.options,
+    runtimeWorkspaceRoots: Object.freeze([input.workspaceBoundary.workspaceRoot]),
+    workspacePermissionBoundary: frozenWorkspacePermissionBoundary(input),
+  });
+  return mode.mode === 'resume'
+    ? Object.freeze({ mode: 'resume', threadId: mode.threadId, options })
+    : Object.freeze({ mode: 'start', options });
+}
+
+export function codexProcessEnvironment(
+  executable: string,
+  environment: Readonly<Record<string, string>>,
+  pathExists: (path: string) => boolean = existsSync,
+): Record<string, string> {
+  const result = { ...environment };
+  const tools = join(dirname(dirname(executable)), 'codex-path');
+  if (pathExists(join(tools, 'rg'))) {
+    result.PATH = [tools, result.PATH].filter(Boolean).join(delimiter);
+  }
+  return result;
+}
+
 function settings(input: ServerCoreProviderHostInput): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
     ...input.settings,
-    enableAgentDeckMcp: false,
-    injectAgentDeckCodexAgents: false,
-    injectAgentDeckCodexAgentsMd: false,
-    injectAgentDeckCodexSkills: false,
-    mcpHttpEnabled: false,
   };
 }
 
@@ -54,17 +96,25 @@ function createClient(
       reset: () => undefined,
     }),
     createThread: (client, mode, generation, runtime) =>
-      new CodexAppServerThread(client, mode, generation, runtime),
+      new CodexAppServerThread(
+        client,
+        withServerCoreCodexWorkspaceBoundary(mode, input),
+        generation,
+        runtime,
+      ),
     prepareThreadOptions: (_client, options) => Promise.resolve(options),
-    startProcess: ({ codexPathOverride, cwd, env }) => spawn(
-      codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE,
-      ['app-server', '--stdio'],
-      {
-        ...(cwd ? { cwd } : {}),
-        env,
-        stdio: 'pipe',
-      },
-    ),
+    startProcess: ({ codexPathOverride, cwd, env }) => {
+      const executable = codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE;
+      return spawn(
+        executable,
+        buildCodexWorkspaceAppServerArguments(frozenWorkspacePermissionBoundary(input)),
+        {
+          ...(cwd ? { cwd } : {}),
+          env: codexProcessEnvironment(executable, env),
+          stdio: 'pipe',
+        },
+      );
+    },
     stderrActivity: (details) => logger.debug('stderr activity', details),
     stdoutParseFailed: (details) => logger.warn('stdout parse failed', details),
     notificationListenerFailed: (error) => logger.warn('listener failed', error),
@@ -80,7 +130,7 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
     readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
     readSettings: () => appSettings,
     readSkillExtraRoots: () => [],
-    snapshotProcessEnv: processEnvironment,
+    snapshotProcessEnv: () => providerProcessEnvironment(input),
   };
 
   return createCodexCliAdapterHost({

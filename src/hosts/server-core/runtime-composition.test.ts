@@ -10,7 +10,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AuthenticatedClientAccessContext } from '@contracts/index';
+import {
+  parseProjectListResult,
+  type AuthenticatedClientAccessContext,
+} from '@contracts/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
 import type { ServerCoreRuntimeFactoryInput } from './root';
 import { createServerCoreRuntimeWithOverrides } from './runtime-composition';
@@ -131,5 +134,49 @@ describe('concrete Server Core runtime composition', () => {
       credentialFilePath: join(base, 'credentials.json'),
       diagnostics: { info: vi.fn(), warn: vi.fn() },
     })).toThrow('runtimeOptions.typoCredentialFile is unsupported');
+  });
+
+  it('binds a Local Worker project catalog to its explicit workspace root', async () => {
+    const base = root();
+    const workspace = join(base, 'workspace');
+    mkdirSync(workspace, { mode: 0o700 });
+    const bootstrap = createServerCoreRuntimeWithOverrides(input(base, {
+      providerSettings: {
+        claudeCliPath: '/usr/bin/true',
+        codexCliPath: '/usr/bin/true',
+        grokCliPath: '/usr/bin/true',
+      },
+      projects: [{
+        alias: 'workspace',
+        projectId: 'worker-workspace',
+        projectRef: 'workspace',
+        title: null,
+        workspacePath: workspace,
+      }],
+    }), {
+      workspaceRoot: workspace,
+    });
+
+    await bootstrap.runtime.start();
+    try {
+      const projects = parseProjectListResult(bootstrap.sessionConsoleAuthority.listProjects(
+        { limit: 20 },
+        {
+          access,
+          idempotencyKey: null,
+          expectedRevision: null,
+          deadlineAt: null,
+          signal: new AbortController().signal,
+        },
+      ), 20);
+      expect(projects.projects).toEqual([{
+        alias: 'workspace',
+        projectId: 'worker-workspace',
+        projectRef: 'workspace',
+        title: null,
+      }]);
+    } finally {
+      await bootstrap.runtime.stop('test');
+    }
   });
 });

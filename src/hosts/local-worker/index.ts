@@ -4,5 +4,8 @@ export * from './frame-bridge';
 export * from './generation-store';
 export * from './headless-config';
 export * from './headless-root';
+export * from './terminal-configuration';
+export * from './terminal-service';
 export * from './openssh-connector';
+export * from './provider-home-projection';
 export * from './runtime-composition';

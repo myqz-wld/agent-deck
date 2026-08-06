@@ -3,15 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   REMOTE_HOST_PAGE_LIMIT,
   remoteHistoryRequest,
-  remotePageRequest,
   remoteSessionPageRequest,
 } from '@shared/remote-host';
 import type {
   RemoteHostHistoryPageDto,
   RemoteHostJsonObject,
   RemoteHostPendingListDto,
-  RemoteHostProjectDto,
-  RemoteHostProjectPageDto,
   RemoteHostRuntimeControlsDto,
   RemoteHostSessionPageDto,
   RemoteHostSessionSummaryDto,
@@ -59,11 +56,9 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   );
   const [sessions, setSessions] = useState<RemoteHostSessionSummaryDto[]>([]);
   const [historySessions, setHistorySessions] = useState<RemoteHostSessionSummaryDto[]>([]);
-  const [projects, setProjects] = useState<RemoteHostProjectDto[]>([]);
   const [sessionTotal, setSessionTotal] = useState<number | null>(null);
   const [sessionNextCursor, setSessionNextCursor] = useState<string | null>(null);
   const [historySessionNextCursor, setHistorySessionNextCursor] = useState<string | null>(null);
-  const [projectNextCursor, setProjectNextCursor] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ identity: string; sessionId: string | null }>({
     identity,
     sessionId: null,
@@ -125,11 +120,9 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     setSelection({ identity, sessionId: navigation.current.get(identity) ?? null });
     setSessions([]);
     setHistorySessions([]);
-    setProjects([]);
     setSessionTotal(null);
     setSessionNextCursor(null);
     setHistorySessionNextCursor(null);
-    setProjectNextCursor(null);
     setSelectedSession(null);
     setHistory(null);
     setPendingBySession(EMPTY_PENDING);
@@ -153,23 +146,18 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     listLoads.current.add(identity);
     setLoading(true);
     const load = async (): Promise<void> => {
-      const [livePage, archivedPage, projectPage] = await Promise.all([
+      const [livePage, archivedPage] = await Promise.all([
         window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
           REMOTE_HOST_PAGE_LIMIT, { includeArchived: false })),
         window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
           REMOTE_HOST_PAGE_LIMIT, { includeArchived: true })),
-        capabilities.has('projects.read')
-          ? window.api.listRemoteHostProjects(remotePageRequest(activeProfileId, REMOTE_HOST_PAGE_LIMIT))
-          : Promise.resolve({ projects: [], nextCursor: null, total: 0, revision: 0 }),
       ]);
       if (sequence !== listSequence.current || identityRef.current !== identity) return;
       setSessions(livePage.sessions);
       setHistorySessions(archivedPage.sessions);
-      setProjects(projectPage.projects);
       setSessionTotal(livePage.total);
       setSessionNextCursor(livePage.nextCursor);
       setHistorySessionNextCursor(archivedPage.nextCursor);
-      setProjectNextCursor(projectPage.nextCursor);
       setPendingBySession((current) => {
         const activeIds = new Set(livePage.sessions.map((session) => session.id));
         return new Map([...current].filter(([sessionId]) => activeIds.has(sessionId)));
@@ -365,13 +353,11 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     history,
     historySessions,
     hasMoreHistorySessions: historySessionNextCursor !== null,
-    hasMoreProjects: projectNextCursor !== null,
     hasMoreSessions: sessionNextCursor !== null,
     identity,
     loading,
     pendingBySession,
     profile,
-    projects,
     recoveringWorker,
     runtime,
     selectedPending: selectedSession?.id === selectedSessionId && selectedSessionId
@@ -383,18 +369,24 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     state,
     usable,
     clearError: () => { setError(null); hosts.clearError(); },
-    createSession: async (adapterId, projectRef) => {
+    createSession: async (adapterId, workingDirectory, initialMessage) => {
       const created = await runBusiness(async () => {
         requireCapability('session-console.create');
         if (!activeProfileId) throw new Error('请选择远程配置。');
-        return intents.current.run(identityRef.current, 'create', { adapterId, projectRef, options: {} }, (intentId) =>
+        return intents.current.run(
+          identityRef.current,
+          'create',
+          { adapterId, initialMessage, workingDirectory, options: {} },
+          (intentId) =>
           window.api.createRemoteHostSession({
             profileId: activeProfileId,
             adapterId,
-            projectRef,
+            initialMessage,
+            workingDirectory,
             options: {},
             intentId,
-          }));
+          }),
+        );
       });
       selectSession(created.sessionId);
     },
@@ -412,21 +404,6 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         (page) => {
           setHistorySessions((current) => appendUnique(current, page.sessions, (item) => item.id));
           setHistorySessionNextCursor(page.nextCursor);
-        },
-      );
-    },
-    loadMoreProjects: async () => {
-      if (!activeProfileId || !projectNextCursor) return;
-      await runPagination<RemoteHostProjectPageDto>(
-        () => window.api.listRemoteHostProjects(remotePageRequest(activeProfileId,
-          REMOTE_HOST_PAGE_LIMIT, projectNextCursor)),
-        (page) => {
-          setProjects((current) => appendUnique(
-            current,
-            page.projects,
-            (item) => item.projectId,
-          ));
-          setProjectNextCursor(page.nextCursor);
         },
       );
     },

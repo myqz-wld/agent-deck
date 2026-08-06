@@ -11,7 +11,7 @@ describe('RemoteUserIntentLedger', () => {
       return intentId;
     });
     const payload = operation === 'create'
-      ? { adapterId: 'codex-cli', projectRef: 'opaque-project' }
+      ? { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir' }
       : { sessionId: 'session-a', text: 'hello' };
 
     await expect(ledger.run('remote-a:core-a:1', operation, payload, request))

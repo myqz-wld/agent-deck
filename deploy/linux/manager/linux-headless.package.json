@@ -30,6 +30,7 @@
     "serviceAccountHome": "/var/lib/agent-deck",
     "nodeExecutable": "/usr/bin/node",
     "podmanExecutable": "/usr/bin/podman",
+    "workspaceSandboxExecutable": "/usr/bin/bwrap",
     "wrapperShell": "/bin/bash",
     "emptyEnvironmentExecutable": "/usr/bin/env",
     "artifactInspectionExecutables": ["/usr/bin/readlink", "/usr/bin/stat"]

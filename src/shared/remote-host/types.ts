@@ -110,7 +110,8 @@ export interface RemoteHostMutationIntentDto {
 export interface RemoteHostCreateSessionDto extends RemoteHostMutationIntentDto {
   profileId: string;
   adapterId: string;
-  projectRef: string;
+  initialMessage: string;
+  workingDirectory: string;
   options: RemoteHostJsonObject;
 }
 

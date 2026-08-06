@@ -169,10 +169,6 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
           revision: this.revision,
         };
       case 'session.console.create': {
-        const project = [...this.projects.values()].find(
-          (candidate) => candidate.projectRef === params.projectRef,
-        );
-        if (!project) return { sessionId: 'missing-project', revision: this.revision };
         const id = `session-${this.sessions.size + 1}`;
         this.sessions.set(id, session(id, params.adapterId as string));
         return { sessionId: id, revision: ++this.revision };
@@ -358,7 +354,7 @@ export function sessionSummary(value: SessionListItemDto): SessionConsoleSummary
 export function project(
   alias = 'project',
   projectId = 'project-1',
-  projectRef = 'opaque-project-1',
+  projectRef = '.',
 ): ProjectReferenceDto {
   return { projectId, projectRef, alias, title: `Project ${alias}` };
 }

@@ -7,6 +7,7 @@ import {
   publishProviderSession,
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
+import { SERVER_CORE_GROK_SANDBOX } from './provider-grok-sandbox';
 
 export const HEADLESS_GROK_EXECUTABLE = '/opt/agent-deck/providers/grok/grok';
 
@@ -42,7 +43,7 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
     sessionManager: input.repositories.sessionManager,
     settings: {
       readBinaryPath: () => input.settings.grokCliPath ?? HEADLESS_GROK_EXECUTABLE,
-      readDefaultSandbox: () => input.settings.grokSandbox,
+      readDefaultSandbox: () => SERVER_CORE_GROK_SANDBOX,
       readInjectAgents: () => false,
       readInjectAgentPrompt: () => false,
       readInjectSkills: () => false,

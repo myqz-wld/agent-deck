@@ -74,6 +74,24 @@ describe('strict Feishu schemas and deterministic grammar', () => {
     expect(() => parseFeishuCommand('/send hello\u0000world')).toThrowError(/control/);
   });
 
+  it('accepts only Workspace-relative create directories and an explicit first message', () => {
+    expect(parseFeishuCommand(
+      '/create codex-cli repo/my app -- Inspect this directory',
+    )).toEqual({
+      kind: 'create',
+      adapterId: 'codex-cli',
+      initialMessage: 'Inspect this directory',
+      workingDirectory: 'repo/my app',
+    });
+    for (const directory of ['/etc', '../outside', 'repo/../outside', 'repo\\child']) {
+      expect(() => parseFeishuCommand(
+        `/create codex-cli ${directory} -- Inspect`,
+      )).toThrowError(/Workspace/);
+    }
+    expect(() => parseFeishuCommand('/create codex-cli .')).toThrowError(/first-message/);
+    expect(() => parseFeishuCommand('/projects')).toThrowError(/未知命令/);
+  });
+
   it('bounds ingress, history/cards/output and deterministically redacts secrets', async () => {
     const { gateway, clients, transport } = setup({
       limits: {

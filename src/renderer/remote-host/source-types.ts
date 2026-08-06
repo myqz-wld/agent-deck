@@ -6,7 +6,6 @@ import type {
   RemoteHostPendingListDto,
   RemoteHostPendingRequestDto,
   RemoteHostProfileDto,
-  RemoteHostProjectDto,
   RemoteHostRuntimeControlsDto,
   RemoteHostSessionSummaryDto,
   RemoteHostStateDto,
@@ -26,13 +25,11 @@ export interface RemoteSessionSourceView {
   history: RemoteHostHistoryPageDto | null;
   historySessions: readonly RemoteHostSessionSummaryDto[];
   hasMoreHistorySessions: boolean;
-  hasMoreProjects: boolean;
   hasMoreSessions: boolean;
   identity: string;
   loading: boolean;
   pendingBySession: ReadonlyMap<string, RemoteHostPendingListDto>;
   profile: RemoteHostProfileDto | null;
-  projects: readonly RemoteHostProjectDto[];
   recoveringWorker: boolean;
   runtime: RemoteHostRuntimeControlsDto | null;
   sessionTotal: number | null;
@@ -43,10 +40,13 @@ export interface RemoteSessionSourceView {
   state: RemoteHostStateDto | null;
   usable: boolean;
   clearError(): void;
-  createSession(adapterId: string, projectRef: string): Promise<void>;
+  createSession(
+    adapterId: string,
+    workingDirectory: string,
+    initialMessage: string,
+  ): Promise<void>;
   interrupt(): Promise<void>;
   loadMoreHistorySessions(): Promise<void>;
-  loadMoreProjects(): Promise<void>;
   loadMoreSessions(): Promise<void>;
   refresh(): void;
   respondPending(

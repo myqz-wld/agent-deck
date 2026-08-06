@@ -30,7 +30,7 @@ describe('group-chat Core egress policy', () => {
     transport.messages.length = 0;
 
     await gateway.handle(messageEvent('group-sessions', '/sessions', { chatType: 'group' }));
-    await gateway.handle(messageEvent('group-projects', '/projects', { chatType: 'group' }));
+    await gateway.handle(messageEvent('group-directories', '/directories', { chatType: 'group' }));
 
     expect(client.calls.filter((call) => call.method === 'session.console.list'))
       .toHaveLength(sessionCalls);
@@ -38,7 +38,7 @@ describe('group-chat Core egress policy', () => {
       .toHaveLength(projectCalls);
     expect(transport.messages.map((message) => message.text)).toEqual([
       '群聊中已隐藏 session 列表。请使用完整客户端查看。',
-      '群聊中已隐藏 project 列表。请使用完整客户端查看。',
+      '群聊中已隐藏工作目录建议。请使用完整客户端查看。',
     ]);
     expect(JSON.stringify(transport.messages)).not.toMatch(
       /postgres|secret|AKIAIOSFODNN7EXAMPLE|sensitive-alias|opaque-sensitive-ref/,

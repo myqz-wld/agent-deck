@@ -23,7 +23,7 @@ describe('trusted runtime module loader', () => {
     const open = vi.fn();
     const importModule = vi.fn();
     const loader = createTrustedRuntimeModuleLoader({
-      platform: 'darwin',
+      platform: 'win32',
       currentUid: () => 1001,
       realpath: vi.fn(async (path: string) => path),
       lstat: vi.fn(),
@@ -32,7 +32,7 @@ describe('trusted runtime module loader', () => {
     } as unknown as TrustedRuntimeModulePorts);
 
     await expect(loader('/opt/agent-deck/runtime.mjs')).rejects.toThrow(
-      'require Linux descriptor imports',
+      'require Linux or macOS descriptor imports',
     );
     expect(open).not.toHaveBeenCalled();
     expect(importModule).not.toHaveBeenCalled();
@@ -61,6 +61,42 @@ describe('trusted runtime module loader', () => {
     expect(importModule).not.toHaveBeenCalledWith('file:///opt/agent-deck/runtime.mjs');
     expect(realpath).toHaveBeenCalledTimes(2);
     expect(handle.stat).toHaveBeenCalledTimes(2);
+    expect(handle.close).toHaveBeenCalledOnce();
+  });
+
+  it('uses the verified macOS descriptor without a pathname fallback', async () => {
+    const stat = trustedStat();
+    const handle = {
+      fd: 19,
+      stat: vi.fn(async () => ({ ...stat })),
+      close: vi.fn(async () => undefined),
+    } as unknown as FileHandle;
+    const importModule = vi.fn(async () => ({ createRuntime: () => undefined }));
+    const loader = createTrustedRuntimeModuleLoader({
+      platform: 'darwin',
+      currentUid: () => 1001,
+      realpath: vi.fn(async (path: string) => path),
+      lstat: vi.fn(async () => ({ ...stat })),
+      darwinDependencyUrl: () =>
+        'file:///Applications/Agent%20Deck.app/Contents/Resources/app.asar/node_modules/' +
+        'better-sqlite3/lib/index.js',
+      open: vi.fn(async () => handle),
+      importModule,
+    } as unknown as TrustedRuntimeModulePorts);
+
+    const runtime =
+      '/Applications/Agent Deck.app/Contents/Resources/linux-headless/local-worker-runtime/index.mjs';
+    await expect(loader(runtime))
+      .resolves.toHaveProperty('createRuntime');
+    expect(importModule).toHaveBeenCalledWith(
+      'file:///dev/fd/19',
+      'file:///Applications/Agent%20Deck.app/Contents/Resources/app.asar/node_modules/' +
+        'better-sqlite3/lib/index.js',
+    );
+    expect(importModule).not.toHaveBeenCalledWith(
+      'file:///Applications/Agent%20Deck.app/Contents/Resources/linux-headless/' +
+        'local-worker-runtime/index.mjs',
+    );
     expect(handle.close).toHaveBeenCalledOnce();
   });
 });

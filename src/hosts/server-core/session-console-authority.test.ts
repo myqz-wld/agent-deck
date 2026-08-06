@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -41,7 +41,10 @@ function workspace(): { root: string; path: string } {
   return { root: realpathSync(root), path: realpathSync(path) };
 }
 
-function context(access?: AccessContext): SessionConsoleExecutionContext {
+function context(
+  access?: AccessContext,
+  idempotencyKey = 'create-a',
+): SessionConsoleExecutionContext {
   return {
     access: access ?? {
       kind: 'authenticated-client',
@@ -53,7 +56,7 @@ function context(access?: AccessContext): SessionConsoleExecutionContext {
       authority: 'owner-equivalent',
       surface: 'desktop-full',
     },
-    idempotencyKey: 'create-a',
+    idempotencyKey,
     expectedRevision: null,
     deadlineAt: null,
     signal: new AbortController().signal,
@@ -94,7 +97,7 @@ function harness() {
   } as unknown as AgentAdapter;
   const project: ServerCoreProject = {
     projectId: 'project-alpha',
-    projectRef: 'opaque-alpha',
+    projectRef: 'alpha',
     alias: 'alpha',
     title: 'Project Alpha',
     workspacePath: paths.path,
@@ -112,6 +115,7 @@ function harness() {
     createSession,
     metadata,
     setClaim: (value: typeof claim) => { claim = value; },
+    workspaceRoot: paths.root,
   };
 }
 
@@ -146,7 +150,7 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     const listed = authority.listProjects({ limit: 10 }, context());
     expect(listed).toEqual({
       projects: [{
-        projectId: 'project-alpha', projectRef: 'opaque-alpha',
+        projectId: 'project-alpha', projectRef: 'alpha',
         alias: 'alpha', title: 'Project Alpha',
       }],
       nextCursor: null,
@@ -160,14 +164,16 @@ describe('ServerCoreSessionConsoleAuthority', () => {
 
   it('creates through the exact adapter and completes durable idempotency', async () => {
     const { authority, completeMutation, createSession } = harness();
-    await expect(authority.createSessionByProject({
+    await expect(authority.createSession({
       adapterId: 'claude-code',
-      projectRef: 'opaque-alpha',
+      initialMessage: 'Inspect the repository',
+      workingDirectory: 'alpha',
       options: {},
     }, context())).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
     expect(createSession).toHaveBeenCalledWith({
       agentId: 'claude-code',
       cwd: expect.stringContaining('/workspaces/alpha'),
+      prompt: 'Inspect the repository',
       awaitCanonicalId: true,
     });
     expect(completeMutation).toHaveBeenCalledWith(
@@ -181,6 +187,66 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     );
   });
 
+  it('creates in an existing nested directory without a preconfigured project', async () => {
+    const { authority, createSession, workspaceRoot } = harness();
+    const nested = join(workspaceRoot, 'nested', 'child');
+    mkdirSync(nested, { recursive: true });
+
+    await expect(authority.createSession({
+      adapterId: 'claude-code',
+      initialMessage: 'Inspect the nested directory',
+      workingDirectory: 'nested/child',
+      options: {},
+    }, context())).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: realpathSync(nested),
+    }));
+  });
+
+  it('applies one authoritative Workspace ceiling to desktop and Feishu clients', async () => {
+    const { authority, createSession, workspaceRoot } = harness();
+    const nested = join(workspaceRoot, 'shared', 'project');
+    const outside = join(workspaceRoot, '..', 'worker-private');
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(outside);
+    symlinkSync(outside, join(workspaceRoot, 'private-link'));
+    const desktop = context(undefined, 'desktop-create');
+    const feishu = context({
+      kind: 'authenticated-client',
+      topology: 'server-core',
+      instanceId: 'instance-a',
+      clientId: 'feishu-client',
+      transport: 'feishu',
+      accessCredentialId: 'feishu-credential',
+      authority: 'owner-equivalent',
+      surface: 'feishu-session-console',
+    }, 'feishu-create');
+
+    for (const client of [desktop, feishu]) {
+      expect(authority.listProjects({ limit: 10 }, client).projects[0])
+        .not.toHaveProperty('workspacePath');
+      await expect(authority.createSession({
+        adapterId: 'claude-code',
+        initialMessage: 'Inspect the shared Workspace directory',
+        workingDirectory: 'shared/project',
+        options: {},
+      }, client)).resolves.toMatchObject({ sessionId: 'created-session' });
+    }
+    expect(createSession).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      cwd: realpathSync(nested),
+    }));
+    expect(createSession).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      cwd: realpathSync(nested),
+    }));
+    await expect(authority.createSession({
+      adapterId: 'claude-code',
+      initialMessage: 'Inspect private state',
+      workingDirectory: 'private-link',
+      options: {},
+    }, context(feishu.access, 'feishu-escape'))).rejects.toThrow(/unavailable|Workspace/);
+    expect(createSession).toHaveBeenCalledTimes(2);
+  });
+
   it('returns completed mutations without invoking a provider twice', async () => {
     const { authority, createSession, setClaim } = harness();
     setClaim({
@@ -188,8 +254,8 @@ describe('ServerCoreSessionConsoleAuthority', () => {
       result: { sessionId: 'prior-session', revision: 9 },
       revision: 9,
     });
-    await expect(authority.createSessionByProject({
-      adapterId: 'claude-code', projectRef: 'opaque-alpha', options: {},
+    await expect(authority.createSession({
+      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
     }, context())).resolves.toEqual({ sessionId: 'prior-session', revision: 9 });
     expect(createSession).not.toHaveBeenCalled();
   });
@@ -197,22 +263,22 @@ describe('ServerCoreSessionConsoleAuthority', () => {
   it('fails closed for ambiguous, conflicting, or widened creates', async () => {
     const { authority, setClaim } = harness();
     setClaim({ state: 'uncertain' });
-    await expect(authority.createSessionByProject({
-      adapterId: 'claude-code', projectRef: 'opaque-alpha', options: {},
+    await expect(authority.createSession({
+      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
     }, context())).rejects.toMatchObject({ code: 'provider_lost' });
     setClaim({ state: 'conflict' });
-    await expect(authority.createSessionByProject({
-      adapterId: 'claude-code', projectRef: 'opaque-alpha', options: {},
+    await expect(authority.createSession({
+      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
     }, context())).rejects.toMatchObject({ code: 'conflict' });
-    await expect(authority.createSessionByProject({
-      adapterId: 'claude-code', projectRef: 'opaque-alpha', options: { cwd: '/escape' },
+    await expect(authority.createSession({
+      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: { cwd: '/escape' },
     }, context())).rejects.toMatchObject({ code: 'invalid_request' });
   });
 
   it('rejects a non-owner context before claiming mutation authority', async () => {
     const { authority, metadata } = harness();
-    await expect(authority.createSessionByProject({
-      adapterId: 'claude-code', projectRef: 'opaque-alpha', options: {},
+    await expect(authority.createSession({
+      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
     }, context({
       kind: 'standalone', topology: 'standalone', instanceId: 'local',
       clientId: 'local', transport: 'local-ipc', accessCredentialId: null,

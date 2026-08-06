@@ -16,7 +16,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path';
 
 import {
   renderRemoteConnectionKnownHosts,
-  type RemoteConnectionCredential,
+  type RemoteConnectionClientCredential,
 } from '@shared/remote-host';
 
 export interface InstalledRemoteHostCredential {
@@ -25,7 +25,7 @@ export interface InstalledRemoteHostCredential {
 }
 
 export interface RemoteHostCredentialMaterialStore {
-  install(credential: RemoteConnectionCredential): InstalledRemoteHostCredential;
+  install(credential: RemoteConnectionClientCredential): InstalledRemoteHostCredential;
   dispose(material: InstalledRemoteHostCredential): void;
 }
 
@@ -66,7 +66,7 @@ export class FileRemoteHostCredentialMaterialStore implements RemoteHostCredenti
     this.root = options.root;
   }
 
-  install(credential: RemoteConnectionCredential): InstalledRemoteHostCredential {
+  install(credential: RemoteConnectionClientCredential): InstalledRemoteHostCredential {
     this.ensureRoot();
     const id = this.options.createId();
     if (!/^[A-Za-z0-9-]{1,128}$/.test(id)) throw new Error('credential material id is invalid');
@@ -110,7 +110,8 @@ export class FileRemoteHostCredentialMaterialStore implements RemoteHostCredenti
   }
 
   private removeOwned(path: string): void {
-    if (dirname(path) !== this.root || !/^(?:identity|known-hosts)-[A-Za-z0-9-]{1,128}\.(?:key|txt)$/.test(basename(path))) {
+    if (dirname(path) !== this.root ||
+        !/^(?:identity|known-hosts)-[A-Za-z0-9-]{1,128}\.(?:key|txt)$/.test(basename(path))) {
       return;
     }
     let stat;

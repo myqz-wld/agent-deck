@@ -25,7 +25,7 @@ const REMOTE_PROFILE: RemoteHostProfileDto = {
   credentials: { connectionCredentialConfigured: true },
 };
 
-function source(projects: RemoteSessionSourceView['projects']): RemoteSessionSourceView {
+function source(): RemoteSessionSourceView {
   return {
     busy: false,
     capabilities: new Set(['session-console.create']),
@@ -33,13 +33,11 @@ function source(projects: RemoteSessionSourceView['projects']): RemoteSessionSou
     history: null,
     historySessions: [],
     hasMoreHistorySessions: false,
-    hasMoreProjects: false,
     hasMoreSessions: false,
     identity: 'remote-a:core-a:1',
     loading: false,
     pendingBySession: new Map(),
     profile: REMOTE_PROFILE,
-    projects,
     recoveringWorker: false,
     runtime: null,
     sessionTotal: null,
@@ -53,7 +51,6 @@ function source(projects: RemoteSessionSourceView['projects']): RemoteSessionSou
     createSession: vi.fn(),
     interrupt: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
-    loadMoreProjects: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),
     respondPending: vi.fn(),
@@ -131,25 +128,21 @@ describe('remote source surfaces', () => {
     expect(screen.queryByText(/拓扑|instanceId|known_hosts|SSH 私钥/u)).toBeNull();
   });
 
-  it('preserves an explicit project selection across project refreshes', () => {
-    const initial = source([
-      { projectId: 'a', projectRef: 'ref-a', alias: 'a', title: 'Project A' },
-      { projectId: 'b', projectRef: 'ref-b', alias: 'b', title: 'Project B' },
-    ]);
-    const view = render(<RemoteSessionCreateDialog open source={initial} onClose={vi.fn()} />);
-    const select = screen.getByRole('combobox', { name: '项目' }) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'ref-b' } });
+  it('creates from an explicit Workspace-relative working directory', async () => {
+    const current = source();
+    render(<RemoteSessionCreateDialog open source={current} onClose={vi.fn()} />);
+    const directory = screen.getByRole('textbox', { name: '工作目录' }) as HTMLInputElement;
+    expect(directory.value).toBe('.');
+    fireEvent.change(directory, { target: { value: 'repo/subdir' } });
+    fireEvent.change(screen.getByRole('textbox', { name: '第一条消息' }), {
+      target: { value: 'Inspect the repository' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
-    view.rerender(<RemoteSessionCreateDialog
-      open
-      source={source([
-        { projectId: 'a', projectRef: 'ref-a', alias: 'a', title: 'Project A updated' },
-        { projectId: 'b', projectRef: 'ref-b', alias: 'b', title: 'Project B' },
-        { projectId: 'c', projectRef: 'ref-c', alias: 'c', title: 'Project C' },
-      ])}
-      onClose={vi.fn()}
-    />);
-    expect(select.value).toBe('ref-b');
+    await waitFor(() => expect(current.createSession)
+      .toHaveBeenCalledWith('claude-code', 'repo/subdir', 'Inspect the repository'));
+    expect(screen.getByText(/客户端不会看到宿主机绝对路径/)).toBeTruthy();
+    expect(screen.getByText(/绝对路径、`\.\.` 和越界软链接都会被拒绝/)).toBeTruthy();
   });
 
   it('consumes rejected profile-focus promises instead of creating an unhandled rejection', async () => {
@@ -180,7 +173,7 @@ describe('remote source surfaces', () => {
       createdAt: 1, updatedAt: 2,
     };
     render(<HistoryPanel
-      remoteSource={{ ...source([]), historySessions: [row] }}
+      remoteSource={{ ...source(), historySessions: [row] }}
       onSelect={vi.fn()}
     />);
     expect(screen.getByText('远程会话摘要')).toBeTruthy();
@@ -194,12 +187,12 @@ describe('remote source surfaces', () => {
       createdAt: 1, updatedAt: 2,
     };
     const view = render(<SessionList
-      remoteSource={{ ...source([]), error: '远程 session 不存在或已删除。', sessions: [row], sessionTotal: null }}
+      remoteSource={{ ...source(), error: '远程 session 不存在或已删除。', sessions: [row], sessionTotal: null }}
     />);
     expect(screen.getByText(/已载入 1/)).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain('不存在或已删除');
     view.rerender(<SessionList
-      remoteSource={{ ...source([]), sessions: [row], sessionTotal: 9 }}
+      remoteSource={{ ...source(), sessions: [row], sessionTotal: 9 }}
     />);
     expect(screen.getByText(/1\/9/)).toBeTruthy();
   });

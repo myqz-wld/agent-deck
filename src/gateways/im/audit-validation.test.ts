@@ -186,12 +186,19 @@ describe('authoritative project-reference isolation', () => {
       transport,
       nonce: testNonce,
     });
-    const result = await gateway.handle(messageEvent('relay-create', '/create codex-cli project'));
+    const result = await gateway.handle(
+      messageEvent('relay-create', '/create codex-cli . -- Inspect the repository'),
+    );
     expect(result.code).toBe('accepted');
     expect(clients.flatMap((client) => client.calls)).toContainEqual(
       expect.objectContaining({
         method: 'session.console.create',
-        params: { adapterId: 'codex-cli', projectRef: 'opaque-project-1', options: {} },
+        params: {
+          adapterId: 'codex-cli',
+          initialMessage: 'Inspect the repository',
+          workingDirectory: '.',
+          options: {},
+        },
       }),
     );
     expect(JSON.stringify(clients.flatMap((client) => client.calls))).not.toMatch(/cwd|workspace/);
@@ -199,22 +206,22 @@ describe('authoritative project-reference isolation', () => {
     expect(transport.messages).toHaveLength(1);
   });
 
-  it('rejects path-shaped or cwd-bearing project responses before creation', async () => {
+  it('rejects absolute or cwd-bearing directory suggestions before rendering', async () => {
     const malformedProjects = [
       { ...project(), projectRef: '/worker/workspace' },
       { ...project(), cwd: '/server/workspace' },
     ];
     for (const [index, malformed] of malformedProjects.entries()) {
       const invalid = setup();
-      await invalid.gateway.handle(messageEvent(`project-prime-${index}`, '/projects'));
+      await invalid.gateway.handle(messageEvent(`directory-prime-${index}`, '/directories'));
       const client = onlyClient(invalid.clients);
-      client.requestHook = (call) => call.method === 'project.resolve'
-        ? { project: malformed, revision: 10 }
+      client.requestHook = (call) => call.method === 'project.list'
+        ? { projects: [malformed], nextCursor: null, total: 1, revision: 10 }
         : undefined;
       invalid.transport.messages.length = 0;
       expect(
         (await invalid.gateway.handle(
-          messageEvent(`invalid-project-ref-${index}`, '/create codex-cli project'),
+          messageEvent(`invalid-directory-ref-${index}`, '/directories'),
         )).code,
       ).toBe('invalid_core_response');
       expect(client.calls.some((call) => call.method === 'session.console.create')).toBe(false);

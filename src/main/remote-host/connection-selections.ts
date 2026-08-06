@@ -3,8 +3,9 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 
 import {
+  isRemoteConnectionClientCredential,
   parseRemoteConnectionCredential,
-  type RemoteConnectionCredential,
+  type RemoteConnectionClientCredential,
   type RemoteHostConnectionSelectionDto,
 } from '@shared/remote-host';
 
@@ -13,7 +14,7 @@ const DEFAULT_MAX_SELECTIONS = 16;
 const MAX_CREDENTIAL_BYTES = 128 * 1024;
 
 interface ConnectionSelection {
-  credential: RemoteConnectionCredential;
+  credential: RemoteConnectionClientCredential;
   expiresAt: number;
 }
 
@@ -83,6 +84,9 @@ export class RemoteHostConnectionSelections {
 
   capture(path: string): RemoteHostConnectionSelectionDto {
     const credential = parseRemoteConnectionCredential(this.readFile(path));
+    if (!isRemoteConnectionClientCredential(credential)) {
+      throw new Error('该文件是 Worker 凭证，请在 Worker 机器的终端中配置');
+    }
     this.prune();
     while (this.entries.size >= this.maxSelections) {
       const oldest = this.entries.keys().next().value as string | undefined;
@@ -107,7 +111,7 @@ export class RemoteHostConnectionSelections {
     };
   }
 
-  resolve(selectionId: string): RemoteConnectionCredential {
+  resolve(selectionId: string): RemoteConnectionClientCredential {
     this.prune();
     const selection = this.entries.get(selectionId);
     if (!selection) throw new Error('连接凭证选择已失效，请重新导入');
@@ -130,7 +134,7 @@ export class RemoteHostConnectionSelections {
   }
 }
 
-export function connectionHostKeyFingerprint(credential: RemoteConnectionCredential): string {
+export function connectionHostKeyFingerprint(credential: RemoteConnectionClientCredential): string {
   const first = credential.hostKeys[0]!;
   return `SHA256:${createHash('sha256')
     .update(Buffer.from(first.publicKey, 'base64'))

@@ -7,7 +7,6 @@ import {
   validateSendResult,
   validateSubscriptionResult,
   validateProjectListResult,
-  validateProjectResolveResult,
   validateRuntimeControls,
   validateSessionConsoleCreateResult,
   validateSessionConsoleGetResult,
@@ -17,7 +16,7 @@ import { FeishuGatewayError } from './errors';
 import {
   renderHistory,
   renderPending,
-  renderProjectList,
+  renderDirectoryList,
   renderRuntime,
   renderSessionList,
   type RenderContext,
@@ -98,10 +97,10 @@ export class FeishuCommandExecutor {
         result.revision,
       );
     }
-    if (command.kind === 'projects') {
+    if (command.kind === 'directories') {
       if (event.chatType === 'group') {
         return {
-          text: '群聊中已隐藏 project 列表。请使用完整客户端查看。',
+          text: '群聊中已隐藏工作目录建议。请使用完整客户端查看。',
           revision: null,
         };
       }
@@ -119,7 +118,7 @@ export class FeishuCommandExecutor {
         this.options.limits.maxProjects,
         this.options.limits,
       );
-      return renderProjectList(
+      return renderDirectoryList(
         result.projects,
         result.nextCursor,
         result.total,
@@ -168,25 +167,14 @@ export class FeishuCommandExecutor {
       };
     }
     if (command.kind === 'create') {
-      assertFeishuMethod(connected.hello, 'project.resolve');
-      const rawProject = await client.request(
-        'project.resolve',
-        { alias: command.projectAlias },
-        { deadlineMs: remaining() },
-      );
-      const resolved = validateProjectResolveResult(
-        rawProject,
-        command.projectAlias,
-        this.options.limits,
-      );
-      if (!resolved.project) throw new FeishuGatewayError('not_found', '未知 project alias');
       assertFeishuMethod(connected.hello, 'session.console.create');
       await this.options.beforeMutation(credential, event.chatId);
       const raw = await client.request(
         'session.console.create',
         {
           adapterId: command.adapterId,
-          projectRef: resolved.project.projectRef,
+          initialMessage: command.initialMessage,
+          workingDirectory: command.workingDirectory,
           options: {},
         },
         { ...mutation, deadlineMs: remaining() },

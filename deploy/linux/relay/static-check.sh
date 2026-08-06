@@ -144,12 +144,40 @@ if grep -Fq 'environment=' "$relay_dir/authorized-key-options.txt" \
 fi
 
 for required in \
-  'agent-deck-relay issue-connection' \
+  'agent-deck-relay issue-worker-connection' \
+  'agent-deck-relay issue-client-connection' \
+  'agent-deck-worker configure' \
+  'agent-deck-worker status' \
+  'agent-deck-worker stop' \
+  'agent-deck-worker start' \
+  'agent-deck-worker remove' \
   '--runtime-uid 1001' \
+  '--worker worker-macbook-a' \
   '--host-key /etc/ssh/ssh_host_ed25519_key.pub' \
   '.agentdeck-connection'; do
   grep -Fq -- "$required" "$relay_dir/README.snippet.md" || {
     echo "relay static check: connection credential issuance documentation lost $required" >&2
+    exit 1
+  }
+done
+for required in \
+  '/usr/bin/bwrap' \
+  'com.agentdeck.worker-sandbox' \
+  'agent-deck-worker-bookmark' \
+  'Agent Deck Worker Node' \
+  'prepare_sandboxed_node_environment'; do
+  grep -Fq -- "$required" "$relay_dir/../../../resources/bin/agent-deck-worker" || {
+    echo "relay static check: Worker outer sandbox wrapper lost $required" >&2
+    exit 1
+  }
+done
+for required in \
+  'buildDarwinWorkspaceSandboxLaunch' \
+  'buildLinuxWorkspaceSandboxLaunch' \
+  "'--unshare-all'" \
+  "'--clearenv'"; do
+  grep -Fq -- "$required" "$relay_dir/../../../src/hosts/workspace-sandbox/launch-policy.ts" || {
+    echo "relay static check: Worker launch policy lost $required" >&2
     exit 1
   }
 done
@@ -158,9 +186,26 @@ grep -Fq '/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs' \
   echo 'relay static check: Local Worker concrete runtime packaging is incomplete' >&2
   exit 1
 }
-grep -Fq "if (command === 'issue-connection')" \
+for required in \
+  '"schemaVersion": 2' \
+  '"workspaceSandbox"' \
+  '"execution": "relay-worker"' \
+  '"workspaceRoot": "/srv/workspaces/production"' \
+  '"privateRoot": "/var/lib/agent-deck/workers/worker-config-a"' \
+  '"networkBoundary": "provider-controlled"'; do
+  grep -Fq -- "$required" "$relay_dir/local-worker.config.example.json" || {
+    echo "relay static check: Local Worker v2 Workspace example lost $required" >&2
+    exit 1
+  }
+done
+grep -Fq "if (command === 'issue-client-connection')" \
   "$relay_dir/../../../src/hosts/relay/entrypoint.ts" || {
-  echo 'relay static check: Relay entrypoint lost one-shot connection issuance' >&2
+  echo 'relay static check: Relay entrypoint lost one-shot Client issuance' >&2
+  exit 1
+}
+grep -Fq "if (command === 'issue-worker-connection')" \
+  "$relay_dir/../../../src/hosts/relay/entrypoint.ts" || {
+  echo 'relay static check: Relay entrypoint lost one-shot Worker issuance' >&2
   exit 1
 }
 

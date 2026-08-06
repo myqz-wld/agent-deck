@@ -1,4 +1,8 @@
-import { isJsonObject } from '@contracts/index';
+import {
+  isJsonObject,
+  parseSessionConsoleInitialMessage,
+  parseWorkspaceDirectoryRef,
+} from '@contracts/index';
 import {
   REMOTE_HOST_MAX_HISTORY_LIMIT,
   REMOTE_HOST_MAX_JSON_BYTES,
@@ -295,11 +299,31 @@ export function parseRemoteHostJsonObject(value: unknown, field: string): Remote
 
 export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSessionDto {
   const raw = object(value, 'create');
-  exactKeys(raw, ['adapterId', 'intentId', 'options', 'profileId', 'projectRef'], 'create');
+  exactKeys(
+    raw,
+    ['adapterId', 'initialMessage', 'intentId', 'options', 'profileId', 'workingDirectory'],
+    'create',
+  );
+  let workingDirectory: string;
+  try {
+    workingDirectory = parseWorkspaceDirectoryRef(raw.workingDirectory, 'workingDirectory');
+  } catch {
+    throw new RemoteHostInputError(
+      'workingDirectory',
+      'must be a relative directory inside Workspace',
+    );
+  }
   return {
     profileId: parseRemoteHostProfileId(raw.profileId),
     adapterId: token(raw.adapterId, 'adapterId', 128),
-    projectRef: token(raw.projectRef, 'projectRef', 256),
+    initialMessage: (() => {
+      try {
+        return parseSessionConsoleInitialMessage(raw.initialMessage, 'initialMessage');
+      } catch {
+        throw new RemoteHostInputError('initialMessage', 'invalid or too long');
+      }
+    })(),
+    workingDirectory,
     options: parseRemoteHostJsonObject(raw.options, 'options'),
     intentId: intentId(raw.intentId),
   };

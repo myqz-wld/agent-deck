@@ -26,6 +26,7 @@ import type { SessionRecord } from '@shared/types';
 import {
   publicServerCoreProject,
   resolveServerCoreProjectWorkspace,
+  resolveServerCoreWorkspaceDirectory,
   type ServerCoreProject,
 } from './project-catalog';
 import type {
@@ -125,8 +126,9 @@ function mutationIdentity(
   }
   const fingerprint = createHash('sha256').update(canonical({
     adapterId: params.adapterId,
+    initialMessage: params.initialMessage,
     options: params.options,
-    projectRef: params.projectRef,
+    workingDirectory: params.workingDirectory,
   })).digest('hex');
   return {
     accessCredentialId: context.access.accessCredentialId,
@@ -225,7 +227,7 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
     };
   }
 
-  async createSessionByProject(
+  async createSession(
     params: SessionConsoleCreateParams,
     context: SessionConsoleExecutionContext,
   ): Promise<SessionConsoleCreateResult> {
@@ -239,11 +241,8 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
       throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
     }
     const project = this.options.projects.find(
-      (candidate) => candidate.projectRef === params.projectRef,
+      (candidate) => candidate.projectRef === params.workingDirectory,
     );
-    if (!project) {
-      throw new DaemonRequestError(AgentDeckClientErrorCode.NotFound, 'Project was not found');
-    }
     const adapter = this.options.registry.get(params.adapterId);
     if (!adapter?.createSession) {
       throw new DaemonRequestError(
@@ -254,17 +253,31 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
     const identity = mutationIdentity(params, context);
     const replay = claimResult(this.options.metadata.claimMutation(identity));
     if (replay) return replay;
-    const cwd = resolveServerCoreProjectWorkspace(
-      project,
-      this.options.workspaceRoot ?? '/workspaces',
-    );
+    let cwd: string;
+    try {
+      cwd = project
+        ? resolveServerCoreProjectWorkspace(
+            project,
+            this.options.workspaceRoot ?? '/workspaces',
+          )
+        : resolveServerCoreWorkspaceDirectory(
+            params.workingDirectory,
+            this.options.workspaceRoot ?? '/workspaces',
+          );
+    } catch {
+      throw new DaemonRequestError(
+        AgentDeckClientErrorCode.InvalidRequest,
+        'Working directory is outside the authorized Workspace or unavailable',
+      );
+    }
     const sessionId = await adapter.createSession(buildCreateSessionOptions(params.adapterId, {
       cwd,
+      prompt: params.initialMessage,
       awaitCanonicalId: true,
     }));
     const revision = this.options.metadata.appendChange('session.created', sessionId, {
       adapterId: params.adapterId,
-      projectRef: params.projectRef,
+      workingDirectory: params.workingDirectory,
       sessionId,
     });
     const result = { sessionId, revision };

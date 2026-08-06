@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseProjectListResult,
   parseProjectReference,
+  parseSessionConsoleCreateParams,
   parseSessionConsoleListParams,
   parseSessionConsoleListResult,
   parseSessionConsoleSummary,
@@ -31,12 +32,26 @@ describe('cwd-free session-console contracts', () => {
       .toThrow('Invalid session-console contract field');
   });
 
-  it('requires opaque non-path project references', () => {
+  it('accepts only normalized workspace-relative project references', () => {
     expect(parseProjectReference(project)).toEqual(project);
+    expect(parseProjectReference({ ...project, projectRef: '.' }).projectRef).toBe('.');
+    expect(parseProjectReference({ ...project, projectRef: 'repo/subdir' }).projectRef)
+      .toBe('repo/subdir');
     expect(() => parseProjectReference({ ...project, projectRef: '/private/workspace' }))
+      .toThrow('Invalid session-console contract field');
+    expect(() => parseProjectReference({ ...project, projectRef: '../outside' }))
+      .toThrow('Invalid session-console contract field');
+    expect(() => parseProjectReference({ ...project, projectRef: 'repo/../outside' }))
       .toThrow('Invalid session-console contract field');
     expect(() => parseProjectReference({ ...project, cwd: '/private/workspace' }))
       .toThrow('Invalid session-console contract field');
+    expect(parseSessionConsoleCreateParams({
+      adapterId: 'codex-cli', initialMessage: 'Inspect the repository',
+      workingDirectory: 'repo/subdir', options: {},
+    }).workingDirectory).toBe('repo/subdir');
+    expect(() => parseSessionConsoleCreateParams({
+      adapterId: 'codex-cli', initialMessage: '   ', workingDirectory: '.', options: {},
+    })).toThrow('Invalid session-console contract field');
   });
 
   it('enforces exact bounded request and response pages', () => {

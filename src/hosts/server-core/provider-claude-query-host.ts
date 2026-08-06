@@ -6,11 +6,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
-import { buildSandboxOptionsCore } from '@main/adapters/claude-code/sandbox-config-core';
+import type { SandboxMode } from '@main/adapters/claude-code/sandbox-config-core';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
   cleanupGatewaySandboxSettingsCore,
@@ -25,11 +24,12 @@ import {
 } from '@main/adapters/claude-code/sdk-bridge/runtime-metadata-core';
 import type { InternalSession } from '@main/adapters/claude-code/sdk-bridge/types';
 import {
-  processEnvironment,
+  providerProcessEnvironment,
   providerLogger,
   publishProviderSession,
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
+import { serverCoreClaudeWorkspacePolicy } from './provider-claude-sandbox';
 
 export const HEADLESS_CLAUDE_EXECUTABLE = '/opt/agent-deck/providers/claude/claude';
 
@@ -97,6 +97,7 @@ export function createServerCoreClaudeQueryHost(
 ): ClaudeCreateSessionSdkQueryHost {
   const logger = providerLogger(input.diagnostics, 'claude-sdk-query');
   const metadata = claudeRuntimeMetadataHost(input);
+  const sandboxModes = new WeakMap<object, SandboxMode>();
   return {
     loadSdk: async () => {
       const sdk = await loadSdk();
@@ -104,22 +105,42 @@ export function createServerCoreClaudeQueryHost(
     },
     runtimeOptions: () => ({
       executable: process.execPath as 'node',
-      env: processEnvironment(),
+      env: providerProcessEnvironment(input),
     }),
     resolveBinary: () => input.settings.claudeCliPath ?? HEADLESS_CLAUDE_EXECUTABLE,
-    buildSandboxOptions: (mode, cwd, extraAllowWrite) => buildSandboxOptionsCore(
-      mode,
-      cwd,
-      { homeDir: () => process.env.HOME || homedir(), observeState: () => undefined },
-      extraAllowWrite,
-    ),
-    prepareGatewaySandboxSettings: (candidate) =>
-      prepareGatewaySandboxSettingsCore(candidate, derivedSettingsHost(input)),
+    buildSandboxOptions: (mode) => {
+      const effectiveMode: SandboxMode = mode ?? 'workspace-write';
+      const result = serverCoreClaudeWorkspacePolicy(
+        input.workspaceBoundary,
+        effectiveMode,
+      ).sandboxOptions;
+      sandboxModes.set(result, effectiveMode);
+      return result;
+    },
+    prepareGatewaySandboxSettings: (candidate) => {
+      const result = prepareGatewaySandboxSettingsCore(candidate, derivedSettingsHost(input));
+      sandboxModes.set(
+        result.sandboxOpts,
+        sandboxModes.get(candidate.sandboxOpts) ?? 'workspace-write',
+      );
+      return result;
+    },
     buildMcpServers: async () => ({ agentDeckMcpServer: null }),
-    buildQueryOptions: (args) => buildClaudeQueryOptionsCore({
-      ...args,
-      agentDeckMcpToolPattern: 'mcp__agent-deck__*',
-    }),
+    buildQueryOptions: (args) => {
+      const policy = serverCoreClaudeWorkspacePolicy(
+        input.workspaceBoundary,
+        sandboxModes.get(args.sandboxOpts) ?? 'workspace-write',
+      );
+      const options = buildClaudeQueryOptionsCore({
+        ...args,
+        agentDeckMcpToolPattern: 'mcp__agent-deck__*',
+      });
+      return {
+        ...options,
+        managedSettings: policy.managedSettings,
+        settingSources: policy.settingSources,
+      };
+    },
     systemPromptAppend: () => '',
     plugins: () => [],
     runtimeMetadataHooks: (internal) => runtimeHooks(internal, metadata),

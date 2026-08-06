@@ -185,7 +185,7 @@ describe('RemoteHostService', () => {
     vi.mocked(first.request).mockImplementation((async (method: keyof CoreMethodMap) => {
       switch (method) {
         case 'project.list':
-          return { projects: [{ projectId: 'p1', projectRef: 'opaque-ref', alias: 'demo', title: 'Demo' }], nextCursor: null, total: 1, revision: 3 };
+          return { projects: [{ projectId: 'p1', projectRef: '.', alias: 'workspace', title: null }], nextCursor: null, total: 1, revision: 3 };
         case 'session.console.list':
           return { sessions: [{ id: 's1', adapterId: 'codex-cli', title: 'Remote', status: 'active', createdAt: 1, updatedAt: 2 }], nextCursor: null, total: 1, revision: 4 };
         case 'session.console.create':
@@ -201,7 +201,8 @@ describe('RemoteHostService', () => {
     const created = await service.createSession({
       profileId: remote.id,
       adapterId: 'codex-cli',
-      projectRef: projects.projects[0]!.projectRef,
+      initialMessage: 'Inspect the repository',
+      workingDirectory: projects.projects[0]!.projectRef,
       options: {},
       intentId: 'intent-create-1',
     });
@@ -215,7 +216,10 @@ describe('RemoteHostService', () => {
       'session.console.create',
     ]);
     expect(JSON.stringify(calls)).not.toContain('cwd');
-    expect(calls[2]?.[1]).toMatchObject({ projectRef: 'opaque-ref' });
+    expect(calls[2]?.[1]).toMatchObject({
+      initialMessage: 'Inspect the repository',
+      workingDirectory: '.',
+    });
     expect(calls.every((call) => call[2]?.deadlineMs === 45_000)).toBe(true);
     expect(calls[2]?.[2]).toMatchObject({ idempotencyKey: expect.stringMatching(/^electron-create-/) });
   });

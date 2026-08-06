@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
 import { open, lstat, realpath, type FileHandle } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { requireAbsolutePath } from './validation';
@@ -11,9 +12,15 @@ export interface TrustedRuntimeModulePorts {
   readonly currentUid: () => number | null;
   readonly realpath: (path: string) => Promise<string>;
   readonly lstat: (path: string) => Promise<RuntimeStat>;
+  readonly archiveRealpath?: (path: string) => Promise<string>;
+  readonly archiveLstat?: (path: string) => Promise<RuntimeStat>;
+  readonly darwinDependencyUrl?: (applicationArchivePath: string) => string;
   readonly open: (path: string, flags: number) => Promise<FileHandle>;
-  readonly importModule: (url: string) => Promise<unknown>;
+  readonly importModule: (url: string, darwinBetterSqliteUrl?: string) => Promise<unknown>;
 }
+
+const DARWIN_RUNTIME_SUFFIX =
+  '/Contents/Resources/linux-headless/local-worker-runtime/index.mjs';
 
 const PRODUCTION_PORTS: TrustedRuntimeModulePorts = Object.freeze({
   platform: process.platform,
@@ -35,10 +42,12 @@ export function createTrustedRuntimeModuleLoader(
 ): (path: string) => Promise<Record<string, unknown>> {
   return async (path: string): Promise<Record<string, unknown>> => {
     requireAbsolutePath(path, 'runtimeModule');
-    if (ports.platform !== 'linux') {
-      throw new Error('trusted runtime modules require Linux descriptor imports');
+    if (ports.platform !== 'linux' && ports.platform !== 'darwin') {
+      throw new Error('trusted runtime modules require Linux or macOS descriptor imports');
     }
     let handle: FileHandle | undefined;
+    let darwinAsarPath: string | undefined;
+    let darwinAsarBefore: RuntimeStat | undefined;
     try {
       if ((await ports.realpath(path)) !== path) {
         throw new Error('runtime module path is not canonical');
@@ -56,7 +65,36 @@ export function createTrustedRuntimeModuleLoader(
       ) {
         throw new Error('runtime module trust check failed');
       }
-      const loaded = await ports.importModule(pathToFileURL(`/proc/self/fd/${handle.fd}`).href);
+      const descriptorRoot = ports.platform === 'linux' ? '/proc/self/fd' : '/dev/fd';
+      const descriptorUrl = pathToFileURL(`${descriptorRoot}/${handle.fd}`).href;
+      let darwinBetterSqliteUrl: string | undefined;
+      if (ports.platform === 'darwin') {
+        if (!ports.darwinDependencyUrl) {
+          throw new Error('macOS runtime dependency resolver is unavailable');
+        }
+        if (!path.endsWith(DARWIN_RUNTIME_SUFFIX)) {
+          throw new Error('macOS runtime module is outside the packaged Worker layout');
+        }
+        darwinAsarPath = resolve(dirname(path), '../../app.asar');
+        const archiveRealpath = ports.archiveRealpath ?? ports.realpath;
+        const archiveLstat = ports.archiveLstat ?? ports.lstat;
+        if ((await archiveRealpath(darwinAsarPath)) !== darwinAsarPath) {
+          throw new Error('macOS application archive path is not canonical');
+        }
+        darwinAsarBefore = await archiveLstat(darwinAsarPath);
+        const archiveMode = Number(darwinAsarBefore.mode);
+        if (
+          !darwinAsarBefore.isFile() || (archiveMode & 0o022) !== 0 ||
+          (currentUid !== null && darwinAsarBefore.uid !== 0 &&
+            darwinAsarBefore.uid !== currentUid)
+        ) {
+          throw new Error('macOS application archive trust check failed');
+        }
+        darwinBetterSqliteUrl = ports.darwinDependencyUrl(darwinAsarPath);
+      }
+      const loaded = darwinBetterSqliteUrl
+        ? await ports.importModule(descriptorUrl, darwinBetterSqliteUrl)
+        : await ports.importModule(descriptorUrl);
       const after = await handle.stat();
       const named = await ports.lstat(path);
       if (
@@ -65,6 +103,17 @@ export function createTrustedRuntimeModuleLoader(
         (await ports.realpath(path)) !== path
       ) {
         throw new Error('runtime module changed while it was loaded');
+      }
+      if (darwinAsarPath && darwinAsarBefore) {
+        const archiveRealpath = ports.archiveRealpath ?? ports.realpath;
+        const archiveLstat = ports.archiveLstat ?? ports.lstat;
+        const darwinAsarAfter = await archiveLstat(darwinAsarPath);
+        if (
+          !sameIdentity(darwinAsarBefore, darwinAsarAfter) ||
+          (await archiveRealpath(darwinAsarPath)) !== darwinAsarPath
+        ) {
+          throw new Error('macOS application archive changed while runtime loaded');
+        }
       }
       if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
         throw new Error('runtime module has an invalid namespace');

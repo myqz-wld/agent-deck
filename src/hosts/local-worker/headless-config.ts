@@ -1,4 +1,9 @@
-import { isJsonObject, type JsonObject } from '@contracts/index';
+import {
+  isJsonObject,
+  parseWorkspaceSandboxSpec,
+  type JsonObject,
+  type WorkspaceSandboxSpec,
+} from '@contracts/index';
 import {
   assertExactKeys,
   requireAbsolutePath,
@@ -14,13 +19,18 @@ import {
 } from './config';
 
 export interface LocalWorkerHeadlessConfig {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly instanceId: string;
   readonly appVersion: string;
   readonly runtimeModule: string;
   readonly runtimeOptions: JsonObject;
   readonly generationFile: string;
   readonly ssh: LocalWorkerSshConfig;
+  readonly workspaceSandbox: WorkspaceSandboxSpec;
+}
+
+function within(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(`${parent}/`);
 }
 
 function boundedText(value: unknown, field: string): string {
@@ -76,21 +86,44 @@ export function parseLocalWorkerHeadlessConfig(value: unknown): LocalWorkerHeadl
     'runtimeOptions',
     'schemaVersion',
     'ssh',
+    'workspaceSandbox',
   ], 'local-worker config');
-  if (object.schemaVersion !== 1) throw new Error('local-worker schemaVersion must be 1');
+  if (object.schemaVersion !== 2) {
+    throw new Error('local-worker schemaVersion must be 2');
+  }
   if (!isJsonObject(object.runtimeOptions)) throw new Error('runtimeOptions must be JSON');
   const instanceId = requireLinuxInstanceId(object.instanceId);
   const ssh = parseSsh(object.ssh);
   if (ssh.instanceId !== instanceId) {
     throw new Error('local-worker and SSH instance ids must match');
   }
+  const generationFile = requireAbsolutePath(object.generationFile, 'generationFile');
+  const runtimeModule = requireAbsolutePath(object.runtimeModule, 'runtimeModule');
+  const workspaceSandbox = parseWorkspaceSandboxSpec(object.workspaceSandbox);
+  if (workspaceSandbox.execution !== 'relay-worker' ||
+      workspaceSandbox.workerId !== ssh.workerId) {
+    throw new Error('local-worker and workspace sandbox identities must match');
+  }
+  for (const [field, path] of [
+    ['generationFile', generationFile],
+    ['ssh.identityFile', ssh.identityFile],
+    ['ssh.knownHostsFile', ssh.knownHostsFile],
+  ] as const) {
+    if (!within(workspaceSandbox.privateRoot, path)) {
+      throw new Error(`${field} must stay inside the Worker private root`);
+    }
+  }
+  if (!workspaceSandbox.runtimeReadRoots.some((root) => within(root, runtimeModule))) {
+    throw new Error('runtimeModule must stay inside an authorized runtime root');
+  }
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     instanceId,
     appVersion: boundedText(object.appVersion, 'appVersion'),
-    runtimeModule: requireAbsolutePath(object.runtimeModule, 'runtimeModule'),
+    runtimeModule,
     runtimeOptions: object.runtimeOptions,
-    generationFile: requireAbsolutePath(object.generationFile, 'generationFile'),
+    generationFile,
     ssh,
+    workspaceSandbox,
   });
 }

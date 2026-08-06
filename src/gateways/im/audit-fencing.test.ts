@@ -19,7 +19,6 @@ import {
   flush,
   messageEvent,
   onlyClient,
-  project,
   select,
   setup,
 } from './__tests__/fixture';
@@ -127,18 +126,17 @@ describe('callback deadline and delivery generation fencing', () => {
     expect(transport.messages).toHaveLength(0);
   });
 
-  it('does not start create after a late project resolution exhausts the callback window', async () => {
-    let resolveProject!: (value: unknown) => void;
+  it('does not deliver a create response that settles after the callback window', async () => {
+    let resolveCreate!: (value: unknown) => void;
     let created!: FakeCoreClient;
     const clock = new ManualClock();
     const transport = new FakeTransport();
     const { gateway } = setup({
       clientFactory: (input) => {
         created = new FakeCoreClient(input);
-        created.projects.set('project-1', project());
-        created.requestHook = (call) => call.method === 'project.resolve'
+        created.requestHook = (call) => call.method === 'session.console.create'
           ? new Promise((resolve) => {
-              resolveProject = resolve;
+              resolveCreate = resolve;
             })
           : undefined;
         return created;
@@ -147,14 +145,16 @@ describe('callback deadline and delivery generation fencing', () => {
       callbackWindowMs: 10,
       clock,
     });
-    const handling = gateway.handle(messageEvent('late-project', '/create codex-cli project'));
+    const handling = gateway.handle(
+      messageEvent('late-create', '/create codex-cli . -- Inspect the repository'),
+    );
     await flush();
     clock.advance(10);
     await expect(handling).rejects.toMatchObject({ code: 'platform_window_exceeded' });
-    resolveProject({ project: project(), revision: 10 });
+    resolveCreate({ sessionId: 'session-late', revision: 10 });
     await flush();
     await flush();
-    expect(created.calls.some((call) => call.method === 'session.console.create')).toBe(false);
+    expect(created.calls.filter((call) => call.method === 'session.console.create')).toHaveLength(1);
     expect(transport.attempts).toHaveLength(0);
   });
 

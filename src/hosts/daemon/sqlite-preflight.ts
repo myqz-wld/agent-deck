@@ -15,6 +15,7 @@ export interface NodeRuntimeVersions {
 }
 
 export interface SqliteAbiPreflightOptions {
+  readonly allowElectronAsNode?: boolean;
   readonly loadModule?: () => unknown;
   readonly runtimeVersions?: NodeRuntimeVersions;
 }
@@ -72,7 +73,7 @@ export function preflightNodeNativeSqlite(
   options: SqliteAbiPreflightOptions = {},
 ): SqliteAbiPreflightResult {
   const runtimeVersions = options.runtimeVersions ?? process.versions;
-  if (runtimeVersions.electron) {
+  if (runtimeVersions.electron && !options.allowElectronAsNode) {
     throw new SqliteAbiPreflightError(
       'electron_runtime',
       'agent-deckd SQLite preflight must run in Node, not an Electron runtime',

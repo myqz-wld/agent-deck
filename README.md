@@ -85,8 +85,9 @@ invoke-channel ownership is recorded in `src/contracts/current-api-classificatio
 IPC methods cannot acquire remote or Feishu semantics implicitly.
 
 Protocol 2.0 adds bounded `session.console.*` and `project.*` methods: Feishu can paginate, select,
-create, and inspect runtime state without receiving a workspace path, and the older cwd-bearing
-desktop methods are outside the Feishu allowlist. The P3 milestone adds the Electron-owned remote
+create, and inspect runtime state using only normalized Workspace-relative directory references,
+without receiving a host path. The older cwd-bearing desktop methods are outside the Feishu
+allowlist. The P3 milestone adds the Electron-owned remote
 profile/source adapter, restricted SSH clients and bridges, official Feishu SDK adapters, isolated
 headless role bundles, and fail-closed Linux service/package fixtures. These artifacts are still a staged
 implementation rather than a supported remote release: the concrete Electron-free Core/provider
@@ -110,6 +111,12 @@ not additional client pages. SSH and Feishu are access transports rather than ru
 | --- | --- | --- |
 | Server Core | The isolated Linux appliance | One or more desktop clients render server-owned state over restricted SSH; Feishu operates the same authoritative sessions through its long connection. Closing a client does not stop the daemon or sessions. |
 | Relay | The always-on local Worker | Desktop and Feishu clients still connect through the server, but repositories, providers, session data, and Browser work remain local. The server forwards opaque bounded frames and metadata only; an offline Worker returns `worker_offline` and never falls back to server compute or queues business work. |
+
+Each Relay Worker owns exactly one operator-selected Workspace. Desktop and owner p2p Feishu flows
+may choose the root (`.`) or an existing nested directory, but they receive only relative directory
+references. Absolute host paths, Worker-private state, provider credentials, topology, and instance
+identity remain host-owned; the Core re-resolves every chosen directory under the Workspace before
+creating a session. Provider-native sandboxes may narrow this boundary but cannot widen it.
 
 The selected source mode and last Remote profile persist independently. Renderer caches,
 subscriptions, navigation, and writes are scoped by source/profile/Core generation so a late Local
