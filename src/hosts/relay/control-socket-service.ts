@@ -55,16 +55,15 @@ export class RelayControlSocketService {
     }
     this.started = false;
     const failures: unknown[] = [];
-    try {
-      await this.listener.stop();
-    } catch (error) {
+    const listenerStop = this.listener.stop().catch((error) => {
       failures.push(error);
-    }
+    });
     try {
       this.host.stop();
     } catch (error) {
       failures.push(error);
     }
+    await listenerStop;
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Relay control socket shutdown failed');
     }

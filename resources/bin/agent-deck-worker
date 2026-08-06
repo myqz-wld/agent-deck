@@ -21,12 +21,13 @@ verify_root_owned() {
   (( (8#$mode & 8#022) == 0 )) || fail
 }
 
-for directory in /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless /opt/agent-deck/linux-headless/local-worker; do
+for directory in /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless /opt/agent-deck/linux-headless/local-worker /opt/agent-deck/linux-headless/local-worker-runtime; do
   verify_root_owned "$directory" directory
 done
 verify_root_owned /opt/agent-deck/bin/agent-deck-worker file
 verify_root_owned /usr/bin/node file
 verify_root_owned /opt/agent-deck/linux-headless/local-worker/index.mjs file
+verify_root_owned /opt/agent-deck/linux-headless/local-worker-runtime/index.mjs file
 
 exec /usr/bin/env -i \
   HOME=/var/lib/agent-deck PATH=/usr/bin:/bin LANG=C LC_ALL=C \

@@ -50,7 +50,16 @@ export function issueRelayConnection(flags: Readonly<Record<string, string>>): v
     tickIntervalMs: config.tickIntervalMs,
     plumbingModule: config.plumbingModule,
     credentials: [
-      ...config.credentials,
+      ...config.credentials.map((entry) => ({
+        credentialId: entry.credentialId,
+        instanceId: entry.instanceId,
+        kind: entry.kind,
+        publicKey: entry.publicKey,
+        fingerprint: entry.fingerprint,
+        status: entry.status,
+        createdAt: entry.createdAt,
+        revokedAt: entry.revokedAt,
+      })),
       {
         credentialId,
         instanceId,
@@ -81,4 +90,3 @@ export function issueRelayConnection(flags: Readonly<Record<string, string>>): v
     ],
   });
 }
-

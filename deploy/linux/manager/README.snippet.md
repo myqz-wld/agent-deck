@@ -11,8 +11,9 @@ single-file bundle as `root:root`, without group/world write permission or symli
   `/usr/bin/podman` and the service-account home is `/var/lib/agent-deck`.
 - Relay image and host forced commands: `/opt/agent-deck/bin/agent-deck-relay` and
   `/opt/agent-deck/linux-headless/relay/index.mjs`.
-- Local Worker: `/opt/agent-deck/bin/agent-deck-worker` and
-  `/opt/agent-deck/linux-headless/local-worker/index.mjs`.
+- Local Worker: `/opt/agent-deck/bin/agent-deck-worker`,
+  `/opt/agent-deck/linux-headless/local-worker/index.mjs`, and the concrete Core runtime at
+  `/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs`.
 - Feishu outbound adapter: `/opt/agent-deck/bin/agent-deck-feishu`,
   `/opt/agent-deck/linux-headless/feishu/index.mjs`, and the installed preflight at
   `/opt/agent-deck/libexec/agent-deck-feishu-preflight`.

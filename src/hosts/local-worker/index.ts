@@ -5,3 +5,4 @@ export * from './generation-store';
 export * from './headless-config';
 export * from './headless-root';
 export * from './openssh-connector';
+export * from './runtime-composition';

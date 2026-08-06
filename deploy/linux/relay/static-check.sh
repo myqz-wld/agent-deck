@@ -153,6 +153,11 @@ for required in \
     exit 1
   }
 done
+grep -Fq '/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs' \
+  "$relay_dir/local-worker.config.example.json" "$relay_dir/README.snippet.md" || {
+  echo 'relay static check: Local Worker concrete runtime packaging is incomplete' >&2
+  exit 1
+}
 grep -Fq "if (command === 'issue-connection')" \
   "$relay_dir/../../../src/hosts/relay/entrypoint.ts" || {
   echo 'relay static check: Relay entrypoint lost one-shot connection issuance' >&2

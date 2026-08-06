@@ -11,9 +11,13 @@ import {
 describe('Relay private control socket lifecycle', () => {
   it('starts the router host before ingress and stops ingress before the host', async () => {
     const calls: string[] = [];
+    let hostStopped = false;
     const host = {
       start: vi.fn(() => calls.push('host:start')),
-      stop: vi.fn(() => calls.push('host:stop')),
+      stop: vi.fn(() => {
+        calls.push('host:stop');
+        hostStopped = true;
+      }),
       accept: vi.fn(),
     } as unknown as RelayControlHost;
     const listener: RelayControlListener = {
@@ -22,6 +26,7 @@ describe('Relay private control socket lifecycle', () => {
       },
       async stop() {
         calls.push('listener:stop');
+        await vi.waitFor(() => expect(hostStopped).toBe(true), { timeout: 100 });
       },
     };
     const service = new RelayControlSocketService(host, listener);

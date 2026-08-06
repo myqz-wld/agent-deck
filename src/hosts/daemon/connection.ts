@@ -194,9 +194,10 @@ export class DaemonProtocolConnection {
       return;
     }
     try {
-      if (hello.requestedTopology !== DeploymentTopology.ServerCore) {
+      const topology = this.options.topology ?? DeploymentTopology.ServerCore;
+      if (hello.requestedTopology !== topology) {
         throw new ProtocolCompatibilityError(
-          `agent-deckd serves server-core, not ${hello.requestedTopology}`,
+          `agent-deckd serves ${topology}, not ${hello.requestedTopology}`,
         );
       }
       const protocolVersion = negotiateProtocolVersion(hello.protocolVersion);
@@ -206,6 +207,7 @@ export class DaemonProtocolConnection {
         created,
         hello.clientId,
         this.options.instanceId,
+        topology,
       );
       const eventRevision = await this.options.runtime.currentRevision(access);
       if (this.stateValue !== 'open') return;
@@ -220,6 +222,8 @@ export class DaemonProtocolConnection {
         appVersion: this.options.appVersion,
         instanceId: this.options.instanceId,
         authoritativeCoreId: this.options.authoritativeCoreId,
+        topology,
+        authoritativeCoreGeneration: this.options.authoritativeCoreGeneration,
         access,
         supportedMethods: this.supportedMethods,
         replayAvailable: Boolean(this.options.runtime.subscribe),

@@ -13,6 +13,7 @@ const roles = Object.freeze({
   'server-core-host-bridge': 'src/hosts/server-core/host-bridge-entrypoint.ts',
   relay: 'src/hosts/relay/entrypoint.ts',
   'local-worker': 'src/hosts/local-worker/entrypoint.ts',
+  'local-worker-runtime': 'src/hosts/local-worker/runtime-entrypoint.ts',
   feishu: 'src/hosts/feishu/entrypoint.ts',
   'instance-manager': 'src/hosts/instance-manager/adapters/production.ts',
 });
@@ -32,7 +33,7 @@ for (const [role, source] of Object.entries(roles)) {
     configFile: false,
     logLevel: 'warn',
     resolve: { alias: aliases },
-    ssr: role === 'feishu' || role === 'server-core-runtime'
+    ssr: role === 'feishu' || role === 'server-core-runtime' || role === 'local-worker-runtime'
       ? { external: ['better-sqlite3'], noExternal: true }
       : { external: ['better-sqlite3'] },
     build: {
@@ -49,7 +50,7 @@ for (const [role, source] of Object.entries(roles)) {
           format: 'es',
           entryFileNames: 'index.mjs',
           inlineDynamicImports: true,
-          banner: role === 'server-core-runtime'
+          banner: role === 'server-core-runtime' || role === 'local-worker-runtime'
             ? "const __filename = decodeURIComponent(new URL(import.meta.url).pathname); const __dirname = decodeURIComponent(new URL('.', import.meta.url).pathname);"
             : role === 'feishu'
               ? "const __dirname = decodeURIComponent(new URL('.', import.meta.url).pathname);"

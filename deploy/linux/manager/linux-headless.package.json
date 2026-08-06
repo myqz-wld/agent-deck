@@ -9,6 +9,7 @@
     "server-core-host-bridge": "server-core-host-bridge/index.mjs",
     "relay": "relay/index.mjs",
     "local-worker": "local-worker/index.mjs",
+    "local-worker-runtime": "local-worker-runtime/index.mjs",
     "feishu": "feishu/index.mjs",
     "instance-manager": "instance-manager/index.mjs"
   },
@@ -43,6 +44,7 @@
     "relayBundle": "/opt/agent-deck/linux-headless/relay/index.mjs",
     "relayCommand": "/opt/agent-deck/bin/agent-deck-relay",
     "localWorkerBundle": "/opt/agent-deck/linux-headless/local-worker/index.mjs",
+    "localWorkerRuntimeBundle": "/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs",
     "localWorkerCommand": "/opt/agent-deck/bin/agent-deck-worker",
     "feishuBundle": "/opt/agent-deck/linux-headless/feishu/index.mjs",
     "feishuCommand": "/opt/agent-deck/bin/agent-deck-feishu",
