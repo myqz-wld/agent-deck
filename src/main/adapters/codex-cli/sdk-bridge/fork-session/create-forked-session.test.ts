@@ -13,6 +13,7 @@ import {
   type CodexForkFaultPhase,
 } from './create-forked-session';
 import type { CodexForkTargetRuntime } from './target-runtime';
+import { codexBridgeTestRuntimeHost } from '../__tests__/runtime-host-fixture';
 
 const SOURCE_APP_ID = 'source-app';
 const SOURCE_NATIVE_ID = 'source-native';
@@ -346,6 +347,7 @@ function makeHarness(options: HarnessOptions = {}) {
   const deps = {
     sessions,
     codexBySession: clients,
+    runtimeHost: codexBridgeTestRuntimeHost,
     threadLoop,
     emit: (event: AgentEvent) => {
       events.push(event);

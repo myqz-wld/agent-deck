@@ -9,9 +9,12 @@ import {
 import log from '@main/utils/logger';
 import { getProcessRunId } from '@main/utils/run-context';
 import { safeDiagnostic } from '@main/utils/safe-diagnostic';
+import {
+  resolveClaudeBinaryFromConfig,
+  type ClaudeBinaryState,
+} from './binary-resolution';
 
 const SUMMARY_INTERVAL_MS = 300_000;
-type BinaryState = 'healthy' | 'override-missing';
 
 function createLogger(): ReturnType<typeof log.scope> | null {
   try {
@@ -21,9 +24,12 @@ function createLogger(): ReturnType<typeof log.scope> | null {
   }
 }
 
-function createTracker(): BoundedLogStateTracker<'binary', BinaryState> | null {
+function createTracker(): BoundedLogStateTracker<
+  'binary',
+  ClaudeBinaryState
+> | null {
   try {
-    return new BoundedLogStateTracker<'binary', BinaryState>({
+    return new BoundedLogStateTracker<'binary', ClaudeBinaryState>({
       capacity: 1,
       summaryIntervalMs: SUMMARY_INTERVAL_MS,
     });
@@ -35,7 +41,7 @@ function createTracker(): BoundedLogStateTracker<'binary', BinaryState> | null {
 const logger = createLogger();
 const tracker = createTracker();
 
-function observeBinaryState(state: BinaryState): void {
+function observeBinaryState(state: ClaudeBinaryState): void {
   if (!tracker) return;
   try {
     emitBinaryDecision(
@@ -49,11 +55,11 @@ function observeBinaryState(state: BinaryState): void {
   }
 }
 
-function emitBinaryDecision(decision: LogStateDecision<BinaryState>): void {
+function emitBinaryDecision(decision: LogStateDecision<ClaudeBinaryState>): void {
   if (decision.kind === 'repeat') return;
   if (decision.kind === 'initial' && !decision.current.abnormal) return;
 
-  const priorAbnormal: LogStateSnapshot<BinaryState> | null =
+  const priorAbnormal: LogStateSnapshot<ClaudeBinaryState> | null =
     decision.flushed?.abnormal ? decision.flushed : null;
   const aggregate = priorAbnormal ?? decision.current;
   try {
@@ -89,14 +95,9 @@ function emitBinaryDecision(decision: LogStateDecision<BinaryState>): void {
  * a configured path that does not exist uses the same fallback without exposing that path.
  */
 export function resolveClaudeBinary(): string | undefined {
-  const claudeCliPath = settingsStore.get('claudeCliPath');
-  const userOverride = claudeCliPath && claudeCliPath.trim();
-  if (userOverride && existsSync(userOverride)) {
-    observeBinaryState('healthy');
-    return userOverride;
-  }
-
-  const fallback = getPathToClaudeCodeExecutable();
-  observeBinaryState(userOverride ? 'override-missing' : 'healthy');
-  return fallback;
+  return resolveClaudeBinaryFromConfig(settingsStore.get('claudeCliPath'), {
+    pathExists: existsSync,
+    bundledBinary: getPathToClaudeCodeExecutable,
+    observeState: observeBinaryState,
+  });
 }

@@ -7,43 +7,27 @@ import type {
   PermissionResponse,
   UploadedAttachmentRef,
   ProviderUsageSnapshot,
+  SessionRecord,
 } from '@shared/types';
-import { eventRepo } from '@main/store/event-repo';
-import {
-  captureRecoveryContinuation as captureRecoveryContinuationShared,
-  cleanupRecoveryContinuation as cleanupRecoveryContinuationShared,
-  prepareRecoveryContinuation as prepareRecoveryContinuationShared,
-  type CapturedRecoveryContinuation,
-  type PreparedRecoveryContinuation,
-  type RecoveryRuntimeOverrides,
-} from '@main/session/continuation-context/recovery';
-import type { SessionRecord } from '@shared/types';
-// CHANGELOG_52 Step 3a-3g + CHANGELOG_85 Step 3.2 + Step 4.4：拆 class 完成。本目录（sdk-bridge/）
-// 含 14 个 sub-module + 2 子目录（create-session/ + recoverer/） + index.ts (facade)。
-//
-// **TS module resolution 假设**（F5 finding）：moduleResolution: node 模式下
-// `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
-// Step 3g 删了原 `sdk-bridge.ts` 文件，import 自动切到本 index.ts；外部 import 站点
-// （如 `@main/adapters/claude-code/sdk-bridge`）零变更继续工作。
-//
-// **如果未来切到 node16/bundler module resolution** 此优先级会变（强 ESM 要 explicit
-// `/index` 后缀），届时所有 import 站点要加 `/index`。当前 tsconfig.node.json 用 node。
 import type {
-  InternalSession,
-  SdkBridgeOptions,
-  SdkSessionHandle,
-} from './types';
-import { PermissionResponder } from './permission-responder';
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery-types';
+// Thin facade extracted from the original bridge; current node module resolution intentionally
+// resolves `@main/adapters/claude-code/sdk-bridge` to this directory index.
+import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from './types';
+import { PermissionResponderCore } from './permission-responder-core';
 import { SessionRecoverer } from './recoverer';
 import {
-  defaultResumeJsonlExists,
-  defaultResumeJsonlMtimeMs,
-  defaultCwdExists,
-} from './recoverer/jsonl-discovery';
-import { StreamProcessor } from './stream-processor';
-import { ClaudeCwdTransitionController } from './cwd-transition-controller';
+  defaultResumeJsonlExistsCore,
+  defaultResumeJsonlMtimeMsCore,
+  defaultCwdExistsCore,
+} from './recoverer/jsonl-discovery-core';
+import { ClaudeStreamProcessorCore } from './stream-processor-core';
+import { ClaudeCwdTransitionControllerCore } from './cwd-transition-controller-core';
 import { RestartController } from './restart-controller';
-import { SessionModelController } from '@main/adapters/session-model-controller';
+import { SessionModelControllerCore } from '@main/adapters/session-model-controller-core';
 import type {
   AgentCwdTransition,
   AgentCwdTransitionSwitchResult,
@@ -55,19 +39,17 @@ import type {
 import { isClaudeThinkingLevel } from '@shared/session-metadata';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
-import { readClaudeBridgeUsageSnapshot, readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
+import { readClaudeBridgeUsageSnapshotCore, readClaudeUsageSnapshotInBackgroundCore } from '../usage-snapshot-core';
 import {
-  closeClaudeSession,
-  closeClaudeSessionForRollback,
-  interruptClaudeSession,
-  retireClaudeSessionAfterCurrentTurn,
-  setClaudePermissionMode,
-} from './session-lifecycle';
-import { sendClaudeMessage } from './message-controller';
-import * as pendingOutgoing from './pending-outgoing';
-import { resolveClaudeGatewayProfile } from '../gateway-profiles';
-import { withResolvedClaudeGateway } from './create-session/gateway-options';
-
+  closeClaudeSessionCore,
+  closeClaudeSessionForRollbackCore,
+  interruptClaudeSessionCore,
+  retireClaudeSessionAfterCurrentTurnCore,
+  setClaudePermissionModeCore,
+} from './session-lifecycle-core';
+import { sendClaudeMessageCore } from './message-controller-core';
+import { listClaudePendingOutgoingMessagesCore, removeClaudePendingOutgoingMessageCore, snapshotClaudeQueuedMessagesForHandOffCore } from './pending-outgoing-core';
+import { withResolvedClaudeGatewayCore } from './session-defaults-core';
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
 /**
@@ -116,18 +98,17 @@ export class ClaudeSdkBridge {
   private permissionTimeoutMs: number;
 
   /** 详 permission-responder.ts —— 6 respond/list + 3 timeout 方法 sub-class。 */
-  private responder: PermissionResponder;
+  private responder: PermissionResponderCore;
 
   /** 详 recoverer.ts —— recoverAndSend 主体 + placeholderEmittedAt 独占 Map。 */
   private recoverer: SessionRecoverer;
-
   /** 详 stream-processor.ts —— makeUserMessage / createUserMessageStream / waitForRealSessionId / consume。 */
-  private streamProcessor: StreamProcessor;
+  private streamProcessor: ClaudeStreamProcessorCore;
 
   /** 详 restart-controller.ts —— restartWithPermissionMode + restartWithClaudeCodeSandbox 冷切。 */
   private restartController: RestartController;
-  private sessionModelController: SessionModelController;
-  private cwdTransitionController: ClaudeCwdTransitionController;
+  private sessionModelController: SessionModelControllerCore;
+  private cwdTransitionController: ClaudeCwdTransitionControllerCore;
 
   constructor(private opts: SdkBridgeOptions) {
     this.permissionTimeoutMs = Math.max(0, opts.permissionTimeoutMs ?? 0);
@@ -136,7 +117,7 @@ export class ClaudeSdkBridge {
     // Restart and disconnect recovery share the same provider-history probes and continuation
     // preparation seams.
     this.restartController = new RestartController({
-      recovering: this.recovering,
+      recovering: this.recovering, sessionHost: opts.restartSessionHost,
       emit: opts.emit,
       closeSession: (sid, closeOpts) => this.closeSession(sid, closeOpts),
       createSession: (createOpts) => this.createSession(createOpts).then((h) => h),
@@ -149,7 +130,7 @@ export class ClaudeSdkBridge {
       cleanupRecoveryContinuation: (capture) => this.cleanupRecoveryContinuation(capture),
     });
 
-    this.sessionModelController = new SessionModelController({
+    this.sessionModelController = new SessionModelControllerCore({
       operations: this.recovering,
       agentId: 'claude-code',
       emit: opts.emit,
@@ -160,7 +141,7 @@ export class ClaudeSdkBridge {
           if (internal.userTurnInFlight) {
             throw new Error('Claude Gateway cannot change during an active turn');
           }
-          resolveClaudeGatewayProfile(options.provider);
+          opts.createSessionHost.resolveGatewayProfile(options.provider);
           await this.closeSession(sessionId);
           return true;
         }
@@ -175,35 +156,37 @@ export class ClaudeSdkBridge {
           : undefined;
         return true;
       },
-    });
+    }, opts.sessionModelHost);
 
-    this.responder = new PermissionResponder(
+    this.responder = new PermissionResponderCore(
       {
         sessions: this.sessions,
         emit: opts.emit,
         getPermissionTimeoutMs: () => this.permissionTimeoutMs,
       },
       (sid, mode, prompt) => this.restartController.restartWithPermissionMode(sid, mode, prompt),
+      opts.permissionResponderHost,
     );
 
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（HIGH-1：避免 inflight 第二条等待者丢图）。
     // CHANGELOG_99：cwdExists thunk 也走 facade extend override 模式(同 resumeJsonlExists)
     this.recoverer = new SessionRecoverer(
-      { recovering: this.recovering, emit: opts.emit },
+      { recovering: this.recovering, emit: opts.emit, sessionReader: opts.createSessionHost, sessionManager: opts.sessionManager },
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (cwd, sid) => this.resumeJsonlExists(cwd, sid),
       (cwd, sid) => this.resumeJsonlMtimeMs(cwd, sid),
       (cwd) => this.cwdExists(cwd),
       (sid) => this.latestConversationMessageTsForSession(sid),
+      (message, error) => opts.recoveryFreshnessHost.warn(message, error),
       (input) => this.captureRecoveryContinuation(input),
       (input) => this.prepareRecoveryContinuation(input),
       (capture) => this.cleanupRecoveryContinuation(capture),
     );
 
-    this.streamProcessor = new StreamProcessor({ sessions: this.sessions, emit: opts.emit });
-    this.cwdTransitionController = new ClaudeCwdTransitionController({
+    this.streamProcessor = new ClaudeStreamProcessorCore({ sessions: this.sessions, emit: opts.emit }, opts.streamProcessorHost);
+    this.cwdTransitionController = new ClaudeCwdTransitionControllerCore({
       sessions: this.sessions,
       closeSession: (sessionId, options) =>
         this.closeSession(sessionId, options),
@@ -211,7 +194,7 @@ export class ClaudeSdkBridge {
       capture: (input) => this.captureRecoveryContinuation(input),
       prepare: (input) => this.prepareRecoveryContinuation(input),
       cleanup: (capture) => this.cleanupRecoveryContinuation(capture),
-    });
+    }, opts.cwdTransitionHost);
   }
 
   /** 调整超时阈值。0 = 关闭。只影响新建的 pending；老的保持原 timer。 */
@@ -220,7 +203,10 @@ export class ClaudeSdkBridge {
   }
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
-    return readClaudeBridgeUsageSnapshot(this.sessions, readClaudeUsageSnapshotInBackground);
+    return readClaudeBridgeUsageSnapshotCore(
+      this.sessions, this.opts.usageSnapshotHost,
+      () => readClaudeUsageSnapshotInBackgroundCore(this.opts.usageSnapshotHost),
+    );
   }
 
   /**
@@ -233,10 +219,14 @@ export class ClaudeSdkBridge {
    * ctx object 闭包污染（详 class 头部 jsdoc decision 矛盾解决记录）。
   */
   async createSession(opts: CreateSessionOpts): Promise<SdkSessionHandle> {
-    return createSessionImpl(withResolvedClaudeGateway(opts), {
+    return createSessionImpl(withResolvedClaudeGatewayCore(opts, this.opts.createSessionHost), {
+      createSessionHost: this.opts.createSessionHost,
+      sessionManager: this.opts.sessionManager,
       sessions: this.sessions,
       emit: this.opts.emit,
       streamProcessor: this.streamProcessor,
+      sessionFinalizeHost: this.opts.sessionFinalizeHost, canUseToolHost: this.opts.canUseToolHost,
+      createSessionSdkQueryHost: this.opts.createSessionSdkQueryHost,
       responder: this.responder,
       getPermissionTimeoutMs: () => this.permissionTimeoutMs,
       interrupt: (sid) => this.interrupt(sid),
@@ -250,7 +240,7 @@ export class ClaudeSdkBridge {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): Promise<void> {
-    await sendClaudeMessage({
+    await sendClaudeMessageCore({
       sessions: this.sessions,
       emit: this.opts.emit,
       recoverAndSend: (sid, body, refs, options) =>
@@ -262,7 +252,7 @@ export class ClaudeSdkBridge {
       text,
       attachments,
       enqueueOptions: options,
-    });
+    }, this.opts.messageControllerHost);
   }
 
   async enqueueMessage(
@@ -271,7 +261,7 @@ export class ClaudeSdkBridge {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): Promise<void> {
-    await sendClaudeMessage({
+    await sendClaudeMessageCore({
       sessions: this.sessions,
       emit: this.opts.emit,
       recoverAndSend: (sid, body, refs, options) =>
@@ -284,7 +274,7 @@ export class ClaudeSdkBridge {
       attachments,
       allowQueueOverflow: options?.bypassQueueLimit === true,
       enqueueOptions: options,
-    });
+    }, this.opts.messageControllerHost);
   }
 
   /** Test seam around the synchronous provider-neutral recovery snapshot coordinator. */
@@ -292,7 +282,7 @@ export class ClaudeSdkBridge {
     session: SessionRecord;
     overrides?: RecoveryRuntimeOverrides;
   }): CapturedRecoveryContinuation {
-    return captureRecoveryContinuationShared(input);
+    return this.opts.recoveryFreshnessHost.captureContinuation(input);
   }
 
   /** Test seam around bounded checkpoint/raw-tail preparation from an immutable spool. */
@@ -301,12 +291,12 @@ export class ClaudeSdkBridge {
     continuationInstruction: string;
     signal?: AbortSignal;
   }): Promise<PreparedRecoveryContinuation> {
-    return prepareRecoveryContinuationShared(input);
+    return this.opts.recoveryFreshnessHost.prepareContinuation(input);
   }
 
   /** Test seam that keeps TEMP-spool ownership with the recovery lifecycle caller. */
   protected cleanupRecoveryContinuation(capture: CapturedRecoveryContinuation): void {
-    cleanupRecoveryContinuationShared(capture);
+    this.opts.recoveryFreshnessHost.cleanupContinuation(capture);
   }
 
   /**
@@ -321,7 +311,7 @@ export class ClaudeSdkBridge {
    * Windows 未验证），如果 CLI 内部规则未来改了，预检会假阴性 → 退化到原 try-and-fail 行为。
    */
   protected resumeJsonlExists(cwd: string, sessionId: string): boolean {
-    return defaultResumeJsonlExists(cwd, sessionId);
+    return defaultResumeJsonlExistsCore(cwd, sessionId, this.opts.jsonlDiscoveryHost);
   }
 
   /**
@@ -331,7 +321,7 @@ export class ClaudeSdkBridge {
    * 失败返回 null，helper 会退回 fresh fallback。
    */
   protected resumeJsonlMtimeMs(cwd: string, sessionId: string): number | null {
-    return defaultResumeJsonlMtimeMs(cwd, sessionId);
+    return defaultResumeJsonlMtimeMsCore(cwd, sessionId, this.opts.jsonlDiscoveryHost);
   }
 
   /**
@@ -345,12 +335,12 @@ export class ClaudeSdkBridge {
    * 用户手动 git worktree remove / 跨设备同步丢目录)。
    */
   protected cwdExists(cwd: string): boolean {
-    return defaultCwdExists(cwd);
+    return defaultCwdExistsCore(cwd, this.opts.jsonlDiscoveryHost);
   }
 
   /** Test seam for phantom-resume freshness without loading bounded message batches. */
   protected latestConversationMessageTsForSession(sessionId: string): number | null {
-    return eventRepo.latestConversationMessageTs(sessionId);
+    return this.opts.recoveryFreshnessHost.latestConversationMessageTs(sessionId);
   }
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。
@@ -397,7 +387,7 @@ export class ClaudeSdkBridge {
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    await interruptClaudeSession(this.sessions, sessionId);
+    await interruptClaudeSessionCore(this.sessions, sessionId, this.opts.sessionLifecycleHost);
   }
 
   armCwdTransition(transition: AgentCwdTransition): void { this.cwdTransitionController.arm(transition); }
@@ -414,35 +404,35 @@ export class ClaudeSdkBridge {
 
   /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */
   async closeSession(sessionId: string, opts: { markRecentlyDeleted?: boolean } = {}): Promise<void> {
-    await closeClaudeSession({
+    await closeClaudeSessionCore({
       sessions: this.sessions,
       emit: this.opts.emit,
       sessionId,
       options: opts,
-    });
+    }, this.opts.sessionLifecycleHost);
   }
 
   async closeSessionForRollback(sessionId: string): Promise<void> {
-    return closeClaudeSessionForRollback({
+    return closeClaudeSessionForRollbackCore({
       sessions: this.sessions,
       emit: this.opts.emit,
       sessionId,
-    });
+    }, this.opts.sessionLifecycleHost);
   }
   retireSessionAfterCurrentTurn(sessionId: string): void {
-    retireClaudeSessionAfterCurrentTurn(this.sessions, sessionId);
+    retireClaudeSessionAfterCurrentTurnCore(this.sessions, sessionId);
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
-    return pendingOutgoing.snapshotClaudeQueuedMessagesForHandOff(this.sessions, sessionId);
+    return snapshotClaudeQueuedMessagesForHandOffCore(this.sessions, sessionId);
   }
 
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
-    return pendingOutgoing.listClaudePendingOutgoingMessages(this.sessions, sessionId);
+    return listClaudePendingOutgoingMessagesCore(this.sessions, sessionId);
   }
 
   removePendingOutgoingMessage(sessionId: string, messageId: string): Promise<PendingAgentMessage | null> {
-    return pendingOutgoing.removeClaudePendingOutgoingMessage(this.sessions, sessionId, messageId);
+    return removeClaudePendingOutgoingMessageCore(this.sessions, sessionId, messageId, this.opts.pendingOutgoingHost);
   }
 
   /** 运行时切换权限模式。SDK 会从下一次工具调用起按新模式判断。 */
@@ -450,7 +440,7 @@ export class ClaudeSdkBridge {
     sessionId: string,
     mode: PermissionMode,
   ): Promise<void> {
-    return setClaudePermissionMode({ sessions: this.sessions, sessionId, mode });
+    return setClaudePermissionModeCore({ sessions: this.sessions, sessionId, mode }, this.opts.sessionLifecycleHost);
   }
 
   async setSessionModelOptions(

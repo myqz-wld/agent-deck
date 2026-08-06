@@ -5,6 +5,7 @@
   "instanceManagerKind": "host-only-library",
   "entries": {
     "server-core": "server-core/index.mjs",
+    "server-core-runtime": "server-core-runtime/index.mjs",
     "server-core-host-bridge": "server-core-host-bridge/index.mjs",
     "relay": "relay/index.mjs",
     "local-worker": "local-worker/index.mjs",
@@ -35,6 +36,7 @@
   "installMapping": {
     "bundleRoot": "/opt/agent-deck/linux-headless",
     "serverCoreBundle": "/opt/agent-deck/linux-headless/server-core/index.mjs",
+    "serverCoreRuntimeBundle": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs",
     "serverCoreContainerCommand": "/opt/agent-deck/bin/agent-deckd",
     "serverCoreHostBridgeBundle": "/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs",
     "serverCoreHostForcedCommand": "/opt/agent-deck/bin/agent-deck-full-bridge",
@@ -45,6 +47,9 @@
     "feishuBundle": "/opt/agent-deck/linux-headless/feishu/index.mjs",
     "feishuCommand": "/opt/agent-deck/bin/agent-deck-feishu",
     "feishuPreflight": "/opt/agent-deck/libexec/agent-deck-feishu-preflight",
+    "claudeExecutable": "/opt/agent-deck/providers/claude/claude",
+    "codexExecutable": "/opt/agent-deck/providers/codex/codex",
+    "grokExecutable": "/opt/agent-deck/providers/grok/grok",
     "ownership": "root:root",
     "wrapperMode": "0755",
     "bundleMode": "0644",

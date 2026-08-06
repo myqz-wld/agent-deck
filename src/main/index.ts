@@ -1,8 +1,10 @@
 // The main entry owns single-instance gating and bootstrap orchestration. Infrastructure runs
 // before wiring, while lifecycle hooks share the same state and bootstrap completion promise.
 
-// Keep the logger as the first import so fatal handlers, app naming, transports, and console
-// interception initialize before business-module side effects.
+// Install Electron-owned application paths before business modules evaluate. Keep the logger next
+// so fatal handlers, transports, and console interception still initialize before business side
+// effects.
+import './index/electron-application-paths';
 import log from './utils/logger';
 
 import { app, dialog } from 'electron';

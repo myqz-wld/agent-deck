@@ -19,7 +19,7 @@ import type { AgentEvent } from '@shared/types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import { makeCanUseTool, type MakeCanUseToolDeps } from '../can-use-tool';
 import { makeInternalSession, type InternalSession } from '../types';
-import type { PermissionResponder } from '../permission-responder';
+import type { PermissionResponderCore } from '../permission-responder-core';
 import type { PermissionMode } from '@main/adapters/types';
 
 function makeInternal(permissionMode: PermissionMode): InternalSession {
@@ -49,7 +49,7 @@ function makeDeps(internal: InternalSession): {
     getPermissionTimeoutMs: () => 0,
     // PermissionResponder stub：本测不会触发任何 timeout 分支（getPermissionTimeoutMs=0 短路）
     // 但 abort listener 可能引用 responder，故给个空对象兜底
-    responder: {} as unknown as PermissionResponder,
+    responder: {} as unknown as PermissionResponderCore,
   };
   return { deps, emitted };
 }

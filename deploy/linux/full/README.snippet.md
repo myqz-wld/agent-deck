@@ -22,8 +22,11 @@ host loopback, RFC1918/LAN ranges, IPv6 local/private ranges, and cloud metadata
 that exists, do not create `egress-policy.verified`; the unit then fails closed at `ExecStartPre`.
 
 The image must install root-owned, non-symlink
-`/opt/agent-deck/linux-headless/server-core/index.mjs`, `/opt/agent-deck/bin/agent-deckd`, and
-`/usr/bin/node`. The rootless host service account has the fixed home `/var/lib/agent-deck` and
+`/opt/agent-deck/linux-headless/server-core/index.mjs`,
+`/opt/agent-deck/linux-headless/server-core-runtime/index.mjs`,
+`/opt/agent-deck/bin/agent-deckd`, `/usr/bin/node`, and the executable provider payloads at
+`/opt/agent-deck/providers/{claude/claude,codex/codex,grok/grok}`. The rootless host service
+account has the fixed home `/var/lib/agent-deck` and
 must install root-owned `/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs` plus
 `/opt/agent-deck/bin/agent-deck-full-bridge`; the host bridge uses `/usr/bin/node` and
 `/usr/bin/podman` only. The package mapping is locked by
@@ -35,7 +38,15 @@ state-volume identity and data path, atomically install the canonical config, an
 against the generation record before starting the container. Provisioning must not seed a separate
 copy or add a host/home bind; the existing instance-namespaced named volume remains the only runtime
 mount. The config binds its instance id and private socket path; it names a separately packaged,
-trusted Node runtime module that owns Core, repositories, providers, SQLite, Browser, and execution.
+trusted Node runtime module that owns Core, repositories, providers, SQLite, and provider execution.
+The packaged runtime reads its live credential authority only from the canonical, mode-0600
+`/run/secrets/agent-deck/credentials.json` file in the read-only secrets volume. Seed it from
+`server-core.credentials.example.json` with the exact instance id, credential id, surface, and
+status used by each forced key. Removing an active record, changing it to `revoked`, or making the
+authority unreadable closes only the matching live connections; an invalid authority fails closed.
+Updates must be atomically published into the instance-namespaced secrets volume by the trusted
+operator. They are not accepted from SSH input, provider payloads, environment variables, or the
+renderer.
 `authorized-client-key-options.txt` is the narrow host bridge provisioning fixture. Replace every
 identity/key placeholder, choose the exact `desktop-full` or `feishu-session-console` line for that
 credential, keep the forced command exact, and run sshd under the same rootless

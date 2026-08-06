@@ -25,6 +25,7 @@
  * 不需要 fake timers，stream 同步终止快路径。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeBareSdkLoaderMock } from '@main/__tests__/_shared/mocks/sdk-loader';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
@@ -89,6 +90,24 @@ vi.mock('@main/agent-deck-mcp/server', () => ({
 import { sessionManager } from '@main/session/manager';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
+import { desktopClaudeSessionDefaultsHost } from '@main/adapters/claude-code/sdk-bridge/session-defaults-host';
+import { desktopClaudeRestartSessionHost } from '@main/adapters/claude-code/sdk-bridge/restart-session-host';
+import { desktopClaudeRecoveryFreshnessHost } from '@main/adapters/claude-code/sdk-bridge/recovery-freshness-host';
+import { desktopSessionModelControllerHost } from '@main/adapters/session-model-controller-host';
+import { desktopClaudeJsonlDiscoveryHost } from '@main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery-host';
+import { createDesktopClaudeUsageSnapshotHost } from '@main/adapters/claude-code/usage-snapshot-host';
+import { desktopClaudePermissionResponderHost } from '@main/adapters/claude-code/sdk-bridge/permission-responder-host';
+import { desktopClaudeCwdTransitionHost } from '@main/adapters/claude-code/sdk-bridge/cwd-transition-controller-host';
+import { desktopClaudeMessageControllerHost } from '@main/adapters/claude-code/sdk-bridge/message-controller-host';
+import { createDesktopClaudeSessionLifecycleHost } from '@main/adapters/claude-code/sdk-bridge/session-lifecycle-host';
+import { desktopClaudePendingOutgoingHost } from '@main/adapters/claude-code/sdk-bridge/pending-outgoing-host';
+import { createDesktopClaudeStreamProcessorHost } from '@main/adapters/claude-code/sdk-bridge/stream-processor-host';
+import { createDesktopClaudeSessionFinalizeHost } from '@main/adapters/claude-code/sdk-bridge/session-finalize-host';
+import type { ClaudeSessionFinalizeHost } from '@main/adapters/claude-code/sdk-bridge/session-finalize-core';
+import { desktopClaudeCanUseToolHost } from '@main/adapters/claude-code/sdk-bridge/can-use-tool-host';
+import type { ClaudeCanUseToolHost } from '@main/adapters/claude-code/sdk-bridge/can-use-tool-core';
+import { desktopClaudeCreateSessionSdkQueryHost } from '@main/adapters/claude-code/sdk-bridge/create-session/create-session-sdk-query-host';
+import type { ClaudeCreateSessionSdkQueryHost } from '@main/adapters/claude-code/sdk-bridge/create-session/create-session-sdk-query-core';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import { sessionRepo } from '@main/store/session-repo';
 import type { AgentEvent } from '@shared/types';
@@ -97,8 +116,30 @@ import type { PreparedContinuationContext } from '@main/session/continuation-con
 
 const emits: AgentEvent[] = [];
 
-function makeBridge(): ClaudeSdkBridge {
+function makeBridge(overrides: {
+  sessionFinalizeHost?: ClaudeSessionFinalizeHost;
+  canUseToolHost?: ClaudeCanUseToolHost;
+  createSessionSdkQueryHost?: ClaudeCreateSessionSdkQueryHost;
+} = {}): ClaudeSdkBridge {
   return new ClaudeSdkBridge({
+    createSessionHost: desktopClaudeSessionDefaultsHost,
+    jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost,
+    recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost,
+    restartSessionHost: desktopClaudeRestartSessionHost,
+    sessionModelHost: desktopSessionModelControllerHost,
+    usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager),
+    permissionResponderHost: desktopClaudePermissionResponderHost,
+    cwdTransitionHost: desktopClaudeCwdTransitionHost,
+    messageControllerHost: desktopClaudeMessageControllerHost,
+    sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager),
+    pendingOutgoingHost: desktopClaudePendingOutgoingHost,
+    streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager),
+    sessionFinalizeHost:
+      overrides.sessionFinalizeHost ?? createDesktopClaudeSessionFinalizeHost(sessionManager),
+    canUseToolHost: overrides.canUseToolHost ?? desktopClaudeCanUseToolHost,
+    createSessionSdkQueryHost:
+      overrides.createSessionSdkQueryHost ?? desktopClaudeCreateSessionSdkQueryHost,
+    sessionManager,
     emit: (e) => {
       emits.push(e);
     },
@@ -276,6 +317,22 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     let firstUserMessage: Promise<unknown> | undefined;
     let throwSessionStart = true;
     const bridge = new ClaudeSdkBridge({
+      createSessionHost: desktopClaudeSessionDefaultsHost,
+      jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost,
+      recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost,
+      restartSessionHost: desktopClaudeRestartSessionHost,
+      sessionModelHost: desktopSessionModelControllerHost,
+      usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager),
+      permissionResponderHost: desktopClaudePermissionResponderHost,
+      cwdTransitionHost: desktopClaudeCwdTransitionHost,
+      messageControllerHost: desktopClaudeMessageControllerHost,
+      sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager),
+      pendingOutgoingHost: desktopClaudePendingOutgoingHost,
+      streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager),
+      sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager),
+      canUseToolHost: desktopClaudeCanUseToolHost,
+      createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost,
+      sessionManager,
       emit: (event) => {
         if (throwSessionStart && event.kind === 'session-start') {
           throwSessionStart = false;
@@ -492,6 +549,173 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     const handle = await createPromise;
     expect(handle.sessionId).toBe('real-sid-123');
     expect(sessionRepo.setModel).toHaveBeenCalledWith('real-sid-123', 'claude-opus-4-8');
+  });
+
+  it('finalizes canonical creation through the injected session host', async () => {
+    const sessionFinalizeHost: ClaudeSessionFinalizeHost = {
+      now: vi.fn(() => 7_000),
+      updateCliSessionId: vi.fn(),
+      setSandbox: vi.fn(),
+      setRuntimeProvider: vi.fn(),
+      setAgentRuntimeProfile: vi.fn(),
+      setModel: vi.fn(),
+      setThinking: vi.fn(),
+      setExtraAllowWrite: vi.fn(),
+      publishPersistedSession: vi.fn(),
+      warn: vi.fn(),
+    };
+    const bridge = makeBridge({ sessionFinalizeHost });
+    const mockQuery = new MockSdkQuery();
+    installMockQuery(mockQuery);
+    mockQuery.pushFrame({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'finalize-host-sid',
+    });
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'host-owned finalize',
+      awaitCanonicalId: true,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    mockQuery.endStream();
+
+    await expect(createPromise).resolves.toMatchObject({ sessionId: 'finalize-host-sid' });
+    expect(sessionFinalizeHost.updateCliSessionId).toHaveBeenCalledWith(
+      'finalize-host-sid',
+      'finalize-host-sid',
+    );
+    expect(sessionFinalizeHost.setSandbox).toHaveBeenCalledWith('finalize-host-sid', 'off');
+    expect(sessionFinalizeHost.publishPersistedSession).toHaveBeenCalledWith('finalize-host-sid');
+    expect(emits).toContainEqual(expect.objectContaining({
+      sessionId: 'finalize-host-sid',
+      kind: 'session-start',
+      ts: 7_000,
+    }));
+  });
+
+  it('builds the SDK canUseTool callback with the injected host', async () => {
+    const canUseToolHost: ClaudeCanUseToolHost = {
+      createRequestId: vi.fn(() => 'injected-request-id'),
+      now: vi.fn(() => 8_000),
+      observeSandboxIntercept: vi.fn(),
+    };
+    const bridge = makeBridge({ canUseToolHost });
+    const mockQuery = new MockSdkQuery();
+    let capturedCanUseTool: CanUseTool | undefined;
+    vi.mocked(loadSdk).mockResolvedValue({
+      query: vi.fn((args: { options: { canUseTool?: CanUseTool } }) => {
+        capturedCanUseTool = args.options.canUseTool;
+        return mockQuery;
+      }),
+      tool: vi.fn((name, description, inputSchema, handler) => ({
+        name,
+        description,
+        inputSchema,
+        handler,
+      })),
+    } as never);
+    mockQuery.pushFrame({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'can-use-tool-host-sid',
+    });
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'host-owned permission callback',
+      awaitCanonicalId: true,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    mockQuery.endStream();
+    await createPromise;
+
+    const callbackContext = {} as Parameters<CanUseTool>[2];
+    await expect(capturedCanUseTool?.(
+      'SandboxNetworkAccess',
+      { host: 'blocked.example' },
+      callbackContext,
+    )).resolves.toMatchObject({ behavior: 'deny', interrupt: false });
+    expect(canUseToolHost.createRequestId).toHaveBeenCalledOnce();
+    expect(canUseToolHost.observeSandboxIntercept).toHaveBeenCalledWith('blocked.example');
+
+    const abortController = new AbortController();
+    abortController.abort();
+    await expect(capturedCanUseTool?.(
+      'AskUserQuestion',
+      { questions: [] },
+      { toolUseID: 'tool-use-1', signal: abortController.signal } as Parameters<CanUseTool>[2],
+    )).resolves.toMatchObject({ behavior: 'deny', interrupt: true });
+    expect(canUseToolHost.now).toHaveBeenCalledWith();
+    expect(emits).toContainEqual(expect.objectContaining({
+      sessionId: 'can-use-tool-host-sid',
+      kind: 'waiting-for-user',
+      ts: 8_000,
+      payload: expect.objectContaining({ requestId: 'injected-request-id' }),
+    }));
+  });
+
+  it('constructs the provider query through the injected aggregate host', async () => {
+    const mockQuery = new MockSdkQuery();
+    const buildQueryOptions = vi.fn(
+      desktopClaudeCreateSessionSdkQueryHost.buildQueryOptions,
+    );
+    const createSessionSdkQueryHost: ClaudeCreateSessionSdkQueryHost = {
+      ...desktopClaudeCreateSessionSdkQueryHost,
+      loadSdk: vi.fn(async () => ({
+        query: vi.fn(() => mockQuery) as never,
+      })),
+      runtimeOptions: vi.fn(() => ({
+        executable: 'node' as const,
+        env: { INJECTED_QUERY_HOST: '1' },
+      })),
+      resolveBinary: vi.fn(() => '/injected/claude'),
+      buildSandboxOptions: vi.fn(() => ({})),
+      prepareGatewaySandboxSettings: vi.fn(({ settingsPath, sandboxOpts }) => ({
+        settingsPath,
+        sandboxOpts,
+        childEnv: {},
+        settingsBackedSandbox: false,
+        cleanup: undefined,
+      })),
+      buildMcpServers: vi.fn(async () => ({ agentDeckMcpServer: null })),
+      buildQueryOptions,
+      systemPromptAppend: vi.fn(() => 'INJECTED SYSTEM PROMPT'),
+      plugins: vi.fn(() => []),
+      runtimeMetadataHooks: vi.fn(() => ({})),
+      cleanupGatewaySandboxSettings: vi.fn(),
+      observeSandboxConfiguration: vi.fn(),
+      warn: vi.fn(),
+    };
+    const bridge = makeBridge({ createSessionSdkQueryHost });
+    mockQuery.pushFrame({
+      type: 'system',
+      subtype: 'init',
+      session_id: 'sdk-query-host-sid',
+    });
+
+    const createPromise = bridge.createSession({
+      cwd: '/tmp/test',
+      prompt: 'host-owned query',
+      awaitCanonicalId: true,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    mockQuery.endStream();
+
+    await expect(createPromise).resolves.toMatchObject({ sessionId: 'sdk-query-host-sid' });
+    expect(createSessionSdkQueryHost.loadSdk).toHaveBeenCalledOnce();
+    expect(createSessionSdkQueryHost.runtimeOptions).toHaveBeenCalledOnce();
+    expect(createSessionSdkQueryHost.resolveBinary).toHaveBeenCalledOnce();
+    expect(createSessionSdkQueryHost.observeSandboxConfiguration).toHaveBeenCalledOnce();
+    expect(buildQueryOptions).toHaveBeenCalledWith(expect.objectContaining({
+      claudeBinary: '/injected/claude',
+      systemPromptAppend: 'INJECTED SYSTEM PROMPT',
+      runtime: {
+        executable: 'node',
+        env: { INJECTED_QUERY_HOST: '1' },
+      },
+    }));
   });
 
   it('default new session fast-return：先返回 temp id，后台 first-id 后 rename 且不重复首条事件', async () => {

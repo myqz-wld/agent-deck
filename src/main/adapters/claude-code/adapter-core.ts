@@ -1,0 +1,408 @@
+import type {
+  AgentAdapter,
+  AgentCwdTransition,
+  AgentCwdTransitionSwitchResult,
+  AgentEnqueueOptions,
+  AdapterContext,
+  ClaudeCreateOpts,
+  CreateSessionOptions,
+  ForkedSessionHandle,
+  ForkSessionSource,
+  PermissionMode,
+} from '../types';
+import type {
+  StoredAgentEvent,
+  AskUserQuestionAnswer,
+  AskUserQuestionRequest,
+  ExitPlanModeRequest,
+  ExitPlanModeResponse,
+  PermissionRequest,
+  PermissionResponse,
+  ProviderUsageSnapshot,
+  RuntimeSelection,
+  UploadedAttachmentRef,
+} from '@shared/types';
+import type { ClaudeSdkBridge } from './sdk-bridge';
+import {
+  createClaudeFamilyForkedSessionCore,
+  type ClaudeFamilyForkHost,
+} from './fork-session-core';
+import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { getAdapterRuntimeProfile } from '../runtime-profiles';
+import {
+  TrustedContinuationAcceptanceController,
+  trustedContinuationCandidate,
+  type TrustedContinuationSessionCandidate,
+} from '../trusted-continuation';
+import {
+  createClaudeAdapterBridgeWithHost,
+  type ClaudeAdapterInitHost,
+} from './adapter-init-core';
+
+const ADAPTER_ID = 'claude-code';
+
+export interface ClaudeHookIntegration {
+  install(options: { scope: 'user' | 'project'; cwd?: string }): unknown;
+  uninstall(options: { scope: 'user' | 'project'; cwd?: string }): unknown;
+  status(options: { scope: 'user' | 'project'; cwd?: string }): unknown;
+}
+
+export interface ClaudeCodeAdapterHost {
+  readonly bridge: ClaudeAdapterInitHost<ClaudeSdkBridge>;
+  readonly fork: ClaudeFamilyForkHost;
+  createHookIntegration(context: AdapterContext): ClaudeHookIntegration;
+  registerHookRoutes(context: AdapterContext, adapterId: string): void;
+  validateForkTarget(gateway: string | null | undefined): void;
+  summariseEvents(
+    cwd: string,
+    events: StoredAgentEvent[],
+    evidenceContext?: string,
+    runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
+  ): Promise<string | null>;
+}
+
+export class ClaudeCodeAdapter implements AgentAdapter {
+  id = ADAPTER_ID;
+  displayName = getAdapterRuntimeProfile(ADAPTER_ID).displayName;
+  capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };
+
+  private installer: ClaudeHookIntegration | null = null;
+  private bridge: ClaudeSdkBridge | null = null;
+
+  constructor(private readonly host: ClaudeCodeAdapterHost) {}
+
+  async init(ctx: AdapterContext): Promise<void> {
+    this.installer = this.host.createHookIntegration(ctx);
+    this.host.registerHookRoutes(ctx, this.id);
+
+    this.bridge = createClaudeAdapterBridgeWithHost(
+      this.host.bridge,
+      ctx.emit,
+    );
+  }
+
+  async shutdown(): Promise<void> {
+    // fastify 路由关闭由 HookServer.stop() 统一处理
+  }
+
+  async createSession(opts: ClaudeCreateOpts & { agentId: 'claude-code' }): Promise<string> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    // p4-d2-impl R1 reviewer-claude MED follow-up:显式 spread 各字段(与其他 adapter 风格一致),
+    // 不整 opts(含 D2 discriminator agentId 字段)塞 bridge — bridge.createSession opts inline
+    // type 不接 agentId 字段,TS structural typing 当前接受但 future bridge 加 strict check 会破。
+    const handle = await this.bridge.createSession({
+      cwd: opts.cwd,
+      prompt: opts.prompt,
+      gateway: opts.gateway,
+      permissionMode: opts.permissionMode,
+      resume: opts.resume,
+      teamName: opts.teamName,
+      attachments: opts.attachments,
+      claudeCodeSandbox: opts.claudeCodeSandbox,
+      extraAllowWrite: opts.extraAllowWrite,
+      model: opts.model,
+      claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
+      claudeAgentName: opts.claudeAgentName,
+      claudeAgents: opts.claudeAgents,
+      claudePluginDir: opts.claudePluginDir,
+      // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 7 步(facade wrapper):
+      // 显式 spread handOff,否则 facade 白名单 spread 会丢字段 → bridge 拿不到 metadata。
+      handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
+      initialSessionRegistration: opts.initialSessionRegistration,
+    });
+    return handle.sessionId;
+  }
+
+  async createTrustedContinuationSession(
+    opts: CreateSessionOptions,
+    turn: TrustedContinuationInitialTurn,
+  ): Promise<TrustedContinuationSessionCandidate> {
+    if (opts.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error('Claude trusted continuation requires an initialized Claude adapter');
+    }
+    const acceptance = new TrustedContinuationAcceptanceController();
+    const handle = await this.bridge.createSession({
+      cwd: opts.cwd,
+      trustedContinuation: turn,
+      trustedContinuationAcceptance: acceptance,
+      gateway: opts.gateway,
+      permissionMode: opts.permissionMode,
+      teamName: opts.teamName,
+      attachments: opts.attachments,
+      claudeCodeSandbox: opts.claudeCodeSandbox,
+      extraAllowWrite: opts.extraAllowWrite,
+      model: opts.model,
+      claudeCodeEffortLevel: opts.claudeCodeEffortLevel,
+      claudeAgentName: opts.claudeAgentName,
+      claudeAgents: opts.claudeAgents,
+      claudePluginDir: opts.claudePluginDir,
+      handOff: opts.handOff,
+      awaitCanonicalId: opts.awaitCanonicalId,
+      initialSessionRegistration: opts.initialSessionRegistration,
+    });
+    return trustedContinuationCandidate(handle.sessionId, acceptance);
+  }
+
+  async validateForkSession(
+    _source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<void> {
+    if (target.agentId !== ADAPTER_ID) {
+      throw new Error(`Claude native fork requires target adapter "${ADAPTER_ID}".`);
+    }
+    if (!this.bridge) throw new Error('adapter not initialized');
+    this.host.validateForkTarget(target.gateway);
+  }
+
+  async createForkedSession(
+    source: ForkSessionSource,
+    target: CreateSessionOptions,
+  ): Promise<ForkedSessionHandle> {
+    if (target.agentId !== ADAPTER_ID || !this.bridge) {
+      throw new Error(`Claude native fork requires initialized target adapter "${ADAPTER_ID}".`);
+    }
+    const bridge = this.bridge;
+    return createClaudeFamilyForkedSessionCore({
+      source,
+      providerName: 'Claude',
+      createChild: (forkedNativeSessionId) =>
+        this.createSession({ ...target, resume: forkedNativeSessionId }),
+      closeChild: (sessionId) => bridge.closeSessionForRollback(sessionId),
+      deleteChild: (sessionId) => this.host.bridge.sessionManager.delete(sessionId),
+    }, this.host.fork);
+  }
+
+  async interruptSession(sessionId: string): Promise<void> {
+    if (!this.bridge) return;
+    await this.bridge.interrupt(sessionId);
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    if (!this.bridge) return;
+    await this.bridge.closeSession(sessionId);
+  }
+
+  async closeSessionForRollback(sessionId: string): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.closeSessionForRollback(sessionId);
+  }
+
+  retireSessionAfterCurrentTurn(sessionId: string): void {
+    this.bridge?.retireSessionAfterCurrentTurn(sessionId);
+  }
+
+  armCwdTransition(transition: AgentCwdTransition): void {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    this.bridge.armCwdTransition(transition);
+  }
+
+  async switchCwdForTransition(
+    transition: AgentCwdTransition,
+  ): Promise<AgentCwdTransitionSwitchResult> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.switchCwdForTransition(transition);
+  }
+
+  async enqueueCwdTransitionContinuation(
+    transition: AgentCwdTransition,
+    text: string,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.enqueueCwdTransitionContinuation(transition, text);
+  }
+
+  releaseCwdTransition(sessionId: string, generation: number): void {
+    this.bridge?.releaseCwdTransition(sessionId, generation);
+  }
+
+  getRuntimeCwd(sessionId: string): string | null {
+    return this.bridge?.getRuntimeCwd(sessionId) ?? null;
+  }
+
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.sendMessage(sessionId, text, attachments, options);
+  }
+
+  async enqueueMessage(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+    options?: AgentEnqueueOptions,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.enqueueMessage(sessionId, text, attachments, options);
+  }
+
+  snapshotQueuedMessagesForHandOff(sessionId: string) {
+    return this.bridge?.snapshotQueuedMessagesForHandOff(sessionId) ?? [];
+  }
+
+  listPendingOutgoingMessages(sessionId: string) {
+    return this.bridge?.listPendingOutgoingMessages(sessionId) ?? [];
+  }
+
+  removePendingOutgoingMessage(sessionId: string, messageId: string) {
+    return this.bridge?.removePendingOutgoingMessage(sessionId, messageId) ?? null;
+  }
+
+  /**
+   * R3.E4：receiveTeammateMessage = 调本 adapter 的 sendMessage（与 IPC 路径同款）。
+   * watcher 已在 body 里拼好 `[from <displayName> @ <adapterId>]` 前缀，直接透传。
+   * fromMemberId 仅用于 logging（未来 emit 时贴标签）。
+   */
+  async receiveTeammateMessage(
+    sessionId: string,
+    _fromMemberId: string,
+    body: string,
+    messageId: string,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.sendMessage(
+      sessionId,
+      body,
+      undefined,
+      { idempotencyKey: messageId },
+    );
+  }
+
+  async respondPermission(
+    sessionId: string,
+    requestId: string,
+    response: PermissionResponse,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    this.bridge.respondPermission(sessionId, requestId, response);
+  }
+
+  async respondAskUserQuestion(
+    sessionId: string,
+    requestId: string,
+    answer: AskUserQuestionAnswer,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    this.bridge.respondAskUserQuestion(sessionId, requestId, answer);
+  }
+
+  async respondExitPlanMode(
+    sessionId: string,
+    requestId: string,
+    response: ExitPlanModeResponse,
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.respondExitPlanMode(sessionId, requestId, response);
+  }
+
+  async setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.setPermissionMode(sessionId, mode);
+  }
+
+  async setSessionModelOptions(
+    sessionId: string,
+    options: { provider: string | null; model: string | null; thinking: string | null },
+  ): Promise<void> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    await this.bridge.setSessionModelOptions(sessionId, {
+      gateway: options.provider,
+      model: options.model,
+      thinking: options.thinking,
+    });
+  }
+
+  async restartWithPermissionMode(
+    sessionId: string,
+    mode: PermissionMode,
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.restartWithPermissionMode(sessionId, mode, handoffPrompt);
+  }
+
+  /**
+   * CHANGELOG_74：Claude OS 沙盒冷切。
+   * 销毁旧 SDK 子进程 + 用新档位 createSession resume 重建。
+   * 失败 bridge 内已 emit error message + 回滚 sessionRepo.claudeCodeSandbox。
+   */
+  async restartWithClaudeCodeSandbox(
+    sessionId: string,
+    sandbox: 'off' | 'workspace-write' | 'strict',
+    handoffPrompt: string,
+  ): Promise<string> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.restartWithClaudeCodeSandbox(sessionId, sandbox, handoffPrompt);
+  }
+
+  listPending(sessionId: string): {
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
+  } {
+    if (!this.bridge) return { permissions: [], askQuestions: [], exitPlanModes: [] };
+    return this.bridge.listPending(sessionId);
+  }
+
+  listAllPending(): Record<string, {
+    permissions: PermissionRequest[];
+    askQuestions: AskUserQuestionRequest[];
+    exitPlanModes: ExitPlanModeRequest[];
+  }> {
+    if (!this.bridge) return {};
+    return this.bridge.listAllPending();
+  }
+
+  setPermissionTimeoutMs(ms: number): void {
+    this.bridge?.setPermissionTimeoutMs(ms);
+  }
+
+  async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
+    if (!this.bridge) {
+      return {
+        provider: 'claude-code',
+        label: 'Claude',
+        status: 'unavailable',
+        windows: [],
+        updatedAt: Date.now(),
+        message: 'Claude 暂时无法读取额度信息',
+      };
+    }
+    return this.bridge.getUsageSnapshot();
+  }
+
+  async installIntegration(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
+    if (!this.installer) throw new Error('adapter not initialized');
+    return this.installer.install(opts);
+  }
+
+  async uninstallIntegration(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
+    if (!this.installer) throw new Error('adapter not initialized');
+    return this.installer.uninstall(opts);
+  }
+
+  async integrationStatus(opts: { scope: 'user' | 'project'; cwd?: string }): Promise<unknown> {
+    if (!this.installer) throw new Error('adapter not initialized');
+    return this.installer.status(opts);
+  }
+
+  /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
+  async summariseEvents(
+    cwd: string,
+    events: StoredAgentEvent[],
+    evidenceContext?: string,
+    runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
+  ): Promise<string | null> {
+    return this.host.summariseEvents(cwd, events, evidenceContext, runtime);
+  }
+}
+
+/**
+ * Typed export（D2）：caller `adapterRegistry.get('claude-code')` 拿到本 class 实例后,
+ * 自动暴露 claude 专属方法（respondPermission / restartWithClaudeCodeSandbox 等）TS visible。
+ * AgentAdapter union 兜底兼容仍可（ClaudeCodeAdapter implements AgentAdapter）。
+ */

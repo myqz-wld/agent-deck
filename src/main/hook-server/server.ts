@@ -7,9 +7,9 @@ import {
   HOOK_PROCESSING_FAILED_RESPONSE,
   INVALID_HOOK_BODY_RESPONSE,
   hookOriginFromHeaders,
-  hookRouteDiagnostics,
   type HookAdapterId,
 } from './route-diagnostics';
+import { hookRouteDiagnostics } from './route-diagnostics-host';
 
 /**
  * 共享内嵌 HTTP server。Adapter 在初始化时通过 RouteRegistry.registerRoute()

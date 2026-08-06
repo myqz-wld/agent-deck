@@ -8,9 +8,7 @@ import type {
   CheckpointBacklogWorkerCommand,
   CheckpointBacklogWorkerMessage,
 } from '../checkpoint-backlog-worker-contract';
-import type { CheckpointBacklogEstimate } from '../checkpoint-backlog-estimator';
-
-vi.mock('../checkpoint-backlog-worker?nodeWorker', () => ({ default: vi.fn() }));
+import type { CheckpointBacklogEstimate } from '../checkpoint-backlog-worker-contract';
 
 class FakeWorker extends EventEmitter implements CheckpointBacklogWorkerLike {
   readonly commands: CheckpointBacklogWorkerCommand[] = [];
@@ -61,6 +59,15 @@ function harness(options: {
 }
 
 describe('checkpoint backlog worker client protocol', () => {
+  it('fails closed when no worker host is configured', async () => {
+    const client = new CheckpointBacklogWorkerClient('/tmp/agent-deck-backlog.test.db');
+
+    await expect(client.estimate('missing-host', new AbortController().signal)).rejects.toThrow(
+      'Checkpoint backlog worker host is not configured',
+    );
+    await client.stop();
+  });
+
   it('crosses an asynchronous worker boundary and keeps only one estimate in flight', async () => {
     const { client, worker } = harness();
     const first = client.estimate('first', new AbortController().signal);

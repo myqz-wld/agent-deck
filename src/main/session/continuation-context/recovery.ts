@@ -1,13 +1,6 @@
 import { getDb } from '@main/store/db';
-import type {
-  AdapterSessionMode,
-  PermissionMode,
-  SessionRecord,
-} from '@shared/types';
-import {
-  createTrustedContinuationInitialTurn,
-  type TrustedContinuationInitialTurn,
-} from './initial-turn';
+import type { SessionRecord } from '@shared/types';
+import { createTrustedContinuationInitialTurn } from './initial-turn';
 import { prepareContinuationCandidates } from './service';
 import { acquireContinuationCheckpointForegroundLease } from './checkpoint-refresh-service';
 import {
@@ -17,47 +10,22 @@ import {
   resolveContinuationTargetSnapshot,
 } from './resolver';
 import { ContinuationSourceSpoolStore } from './source-spool';
+import type { ResolvedSuccessorSpec } from './types';
 import type {
-  PreparedContinuationContext,
-  ResolvedContinuationGenerator,
-  ResolvedSuccessorSpec,
-} from './types';
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from './recovery-types';
+
+export type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from './recovery-types';
 
 export const RECOVERY_CONTINUATION_DEADLINE_MS = 30_000;
 export const RECOVERY_CONTINUATION_MAX_FOLD_CALLS = 1;
 export const RECOVERY_CONTINUATION_MAX_REPAIR_CALLS = 1;
-
-export interface RecoveryRuntimeOverrides {
-  cwd?: string;
-  provider?: string | null;
-  permissionMode?: PermissionMode | null;
-  sessionMode?: AdapterSessionMode | null;
-  claudeCodeSandbox?: 'off' | 'workspace-write' | 'strict' | null;
-  codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
-  grokSandbox?: string | null;
-  model?: string | null;
-  thinking?: string | null;
-  extraAllowWrite?: readonly string[] | null;
-  networkAccessEnabled?: boolean | null;
-  additionalDirectories?: readonly string[] | null;
-}
-
-export interface CapturedRecoveryContinuation {
-  sourceSessionId: string;
-  spoolId: string;
-  generator: ResolvedContinuationGenerator;
-  target: ResolvedSuccessorSpec;
-  rawRetentionCeilingTokens: number;
-}
-
-export interface PreparedRecoveryContinuation {
-  prepared: PreparedContinuationContext;
-  turn: TrustedContinuationInitialTurn;
-  lowerBudgetRetry: {
-    prepared: PreparedContinuationContext;
-    turn: TrustedContinuationInitialTurn;
-  } | null;
-}
 
 function resolveTarget(
   session: SessionRecord,

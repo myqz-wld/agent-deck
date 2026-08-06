@@ -1,7 +1,7 @@
 /**
- * SessionManager facade. Lifecycle and rename details live in sibling modules while this class
- * retains SDK ownership because the runtime-private `#sdkOwned` set cannot cross module boundaries.
- * Public exports remain centralized here.
+ * Desktop SessionManager host. Lifecycle and rename details live in sibling modules while this
+ * class retains SDK ownership because the runtime-private `#sdkOwned` set cannot cross module
+ * boundaries. The exported facade delegates through the host-neutral contract.
  */
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import { eventBus } from '@main/event-bus';
@@ -65,12 +65,18 @@ import {
 } from './manager/sdk-pending-claim';
 import { handOffCutoverCoordinator } from './hand-off/cutover-coordinator';
 import { reactivateHandOffSource } from './hand-off/source-reactivation';
+import {
+  SessionManagerFacade,
+  type SessionManagerHost,
+} from './manager/facade-core';
+
+export type { SessionManagerHost } from './manager/facade-core';
 
 /**
  * Central AgentEvent ingress: persist, advance state, and notify the renderer. SDK ownership wins
  * over duplicate hook observation; time-based lifecycle advancement belongs to LifecycleScheduler.
  */
-class SessionManagerClass {
+class DesktopSessionManagerHost implements SessionManagerHost {
   /** SDK-owned ids suppress duplicate hook events. Mutations use the public claim/release/rename APIs. */
   #sdkOwned = new Set<string>();
 
@@ -348,4 +354,4 @@ class SessionManagerClass {
   }
 }
 
-export const sessionManager = new SessionManagerClass();
+export const sessionManager = new SessionManagerFacade(new DesktopSessionManagerHost());

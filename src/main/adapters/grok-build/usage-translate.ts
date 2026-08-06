@@ -9,10 +9,10 @@ import {
   type GrokTurnUsage,
 } from './extension';
 import {
-  beginGrokLiveTokenRate,
-  clearGrokLiveTokenRate,
-  completeGrokLiveTokenRate,
-} from './live-token-rate';
+  beginGrokLiveTokenRateCore,
+  clearGrokLiveTokenRateCore,
+  completeGrokLiveTokenRateCore,
+} from './live-token-rate-core';
 import {
   grokFrontierCoveredMetricScope,
   grokUsageEvent as usageEvent,
@@ -70,7 +70,7 @@ export function beginGrokTurn(
   state.standardUsageObservedForCurrentTurn = false;
   state.extensionUsageForCurrentTurn = false;
   state.usageSource = 'none';
-  beginGrokLiveTokenRate(state, sessionId, model);
+  beginGrokLiveTokenRateCore(state, sessionId, model, Date.now());
 }
 
 export function translateGrokUsage(
@@ -420,7 +420,13 @@ export function completeGrokTurnLiveRate(
   outputTokens: number,
   durationMs?: number,
 ): void {
-  completeGrokLiveTokenRate(state, outputTokens, Date.now(), durationMs);
+  completeGrokLiveTokenRateCore(
+    state,
+    outputTokens,
+    Date.now(),
+    durationMs,
+    state.liveRateObserver,
+  );
 }
 
 export function clearGrokTurnLiveRate(state: GrokTranslationState): void {
@@ -434,7 +440,7 @@ export function clearGrokTurnLiveRate(state: GrokTranslationState): void {
   state.currentStandardUsageEvent = null;
   state.currentStandardUsageSnapshot = null;
   state.assistantObservedForCurrentTurn = false;
-  clearGrokLiveTokenRate(state);
+  clearGrokLiveTokenRateCore(state, Date.now(), state.liveRateObserver);
 }
 
 function isGrokTurnUsage(value: unknown): value is GrokTurnUsage {

@@ -1,9 +1,3 @@
-import { settingsStore } from '@main/store/settings-store';
-import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
-import {
-  readTopLevelModelFromCodexConfig,
-  readTopLevelModelReasoningEffortFromCodexConfig,
-} from '@main/codex-config/toml-writer';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { MAX_MESSAGE_LENGTH } from '../constants';
@@ -26,8 +20,17 @@ export interface CodexForkTargetRuntime {
   persistedReasoningEffort?: CreateSessionOpts['modelReasoningEffort'];
 }
 
+export interface CodexForkTargetRuntimeHost {
+  defaultSandboxMode: CodexForkTargetRuntime['sandboxMode'];
+  developerInstructions?: string;
+  readConfiguredModel: () => string | null;
+  readConfiguredReasoningEffort: () =>
+    NonNullable<CreateSessionOpts['modelReasoningEffort']> | null;
+}
+
 export function resolveCodexForkTargetRuntime(
   opts: CreateSessionOpts,
+  host: CodexForkTargetRuntimeHost,
 ): CodexForkTargetRuntime {
   if (!opts.prompt || !opts.prompt.trim()) {
     throw new Error('Codex native fork requires a non-empty delegated prompt.');
@@ -39,24 +42,27 @@ export function resolveCodexForkTargetRuntime(
   }
 
   const cwd = resolveSpawnCwd(opts);
-  const sandboxMode = opts.codexSandbox ?? settingsStore.get('codexSandbox');
+  const sandboxMode = opts.codexSandbox ?? host.defaultSandboxMode;
   const hasReasoningConfigLayer = hasCodexReasoningConfigLayer(opts.codexConfigOverrides);
   const reasoning = resolveCodexReasoningEffort({
     explicit: opts.modelReasoningEffort,
     isResume: false,
     persisted: null,
     hasLayerOverride: hasReasoningConfigLayer,
-    readConfigured: readTopLevelModelReasoningEffortFromCodexConfig,
+    readConfigured: host.readConfiguredReasoningEffort,
   });
   const effectiveDeveloperInstructions = combineCodexDeveloperInstructions(
-    getAgentDeckCodexDeveloperInstructions(),
+    host.developerInstructions,
     opts.developerInstructions,
   );
   return {
     cwd,
     sandboxMode,
     effectiveDeveloperInstructions,
-    persistedModel: opts.model ?? readTopLevelModelFromCodexConfig() ?? CODEX_DEFAULT_BUCKET,
+    persistedModel:
+      opts.model ??
+      host.readConfiguredModel() ??
+      CODEX_DEFAULT_BUCKET,
     persistedReasoningEffort: reasoning.sessionValue,
     threadOptions: buildCodexThreadOptions({
       workingDirectory: cwd,

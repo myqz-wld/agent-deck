@@ -4,8 +4,6 @@ import {
   type LogStateDecision,
   type LogStateSnapshot,
 } from '@main/utils/log-state-tracker';
-import { getProcessRunId } from '@main/utils/run-context';
-import { safeDiagnostic } from '@main/utils/safe-diagnostic';
 import type { CodexAppServerNotification } from './protocol';
 
 type McpStartupState = 'starting' | 'ready' | 'failed' | 'cancelled';
@@ -22,23 +20,32 @@ export interface McpStartupLogEvent {
   message: string;
 }
 
+export interface CodexMcpStartupObserver {
+  observe(notification: CodexAppServerNotification): McpStartupLogEvent | null;
+  reset(): void;
+}
+
 const MAX_THREAD_ENTRIES = 128;
 const SLOW_STARTUP_THRESHOLD_MS = 10_000;
 const ABNORMAL_SUMMARY_INTERVAL_MS = 5 * 60_000;
 const MAX_MESSAGE_LENGTH = 512;
 const MAX_NUMERIC_VALUE = Number.MAX_SAFE_INTEGER;
 const UNSCOPED_THREAD = Symbol('unscoped-agent-deck-mcp-startup');
+const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 
 /**
  * Observes only Agent Deck MCP startup notifications. Raw thread IDs are bounded internal
  * correlation keys and never enter returned diagnostics.
  */
-export class AgentDeckMcpStartupObserver {
+export class AgentDeckMcpStartupObserver implements CodexMcpStartupObserver {
   private readonly entries = new Map<ThreadCorrelationKey, ThreadStartupEntry>();
+  private readonly runId: string;
   private lastClockMs: number | null = null;
   private clockMs = 0;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(runId: string, private readonly now: () => number = Date.now) {
+    this.runId = RUN_ID_PATTERN.test(runId) ? runId : 'unknown';
+  }
 
   observe(notification: CodexAppServerNotification): McpStartupLogEvent | null {
     try {
@@ -73,7 +80,7 @@ export class AgentDeckMcpStartupObserver {
         this.entries.delete(threadKey);
         return null;
       }
-      return encodeDecision(decision, durationMs);
+      return encodeDecision(decision, durationMs, this.runId);
     } catch {
       return null;
     }
@@ -149,6 +156,7 @@ function measuredDuration(startedAtMs: number | null, current: number): number |
 function encodeDecision(
   decision: LogStateDecision<McpStartupDiagnosticState>,
   durationMs: number | null,
+  runId: string,
 ): McpStartupLogEvent | null {
   if (decision.kind === 'repeat') return null;
   if (decision.kind === 'initial' && !decision.current.abnormal) return null;
@@ -171,9 +179,9 @@ function encodeDecision(
   if (!level) return null;
 
   try {
-    const message = JSON.stringify(safeDiagnostic({
+    const message = JSON.stringify({
       event: 'agent-deck-mcp-startup-state',
-      runId: getProcessRunId(),
+      runId,
       state: decision.current.signature,
       previousState: decision.flushed?.signature ?? null,
       transition: decision.kind,
@@ -184,7 +192,7 @@ function encodeDecision(
       maxDurationMs: aggregate.maxMetric,
       slowThresholdMs: SLOW_STARTUP_THRESHOLD_MS,
       summaryIntervalMs: ABNORMAL_SUMMARY_INTERVAL_MS,
-    }));
+    });
     if (!message || message.length > MAX_MESSAGE_LENGTH) return null;
     return { level, message };
   } catch {

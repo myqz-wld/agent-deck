@@ -1,19 +1,22 @@
 import type { GrokCreateOpts } from '@main/adapters/types';
-import { eventBus } from '@main/event-bus';
-import { getDb } from '@main/store/db';
-import { sessionRepo } from '@main/store/session-repo';
-import log from '@main/utils/logger';
 import type { SessionRecord } from '@shared/types';
 
+import {
+  NOOP_GROK_BRIDGE_RUNTIME_HOST,
+  type GrokBridgeRuntimeHost,
+} from './bridge-runtime-core';
+import {
+  NOOP_GROK_LIVE_RATE_OBSERVER,
+  type GrokLiveRateObserver,
+} from './live-token-rate-core';
 import type { GrokRuntime } from './runtime-types';
 import { createGrokTranslationState } from './translate';
-
-const logger = log.scope('grok-runtime');
 
 export function createGrokRuntime(
   applicationSessionId: string,
   opts: GrokCreateOpts,
   existing: SessionRecord | null,
+  liveRateObserver: GrokLiveRateObserver = NOOP_GROK_LIVE_RATE_OBSERVER,
 ): GrokRuntime {
   return {
     applicationSessionId,
@@ -52,11 +55,15 @@ export function createGrokRuntime(
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState({
       lastUsage: existing?.grokUsageWatermark ?? null,
+      liveRateObserver,
     }),
   };
 }
 
-export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
+export function recoverGrokRuntime(
+  record: SessionRecord,
+  liveRateObserver: GrokLiveRateObserver = NOOP_GROK_LIVE_RATE_OBSERVER,
+): GrokRuntime {
   return {
     applicationSessionId: record.id,
     nativeSessionId: record.cliSessionId ?? null,
@@ -91,37 +98,40 @@ export function recoverGrokRuntime(record: SessionRecord): GrokRuntime {
     acceptedEnqueueFingerprints: new Map(),
     translation: createGrokTranslationState({
       lastUsage: record.grokUsageWatermark ?? null,
+      liveRateObserver,
     }),
   };
 }
 
-export function persistGrokRuntimeMetadata(runtime: GrokRuntime): void {
+export function persistGrokRuntimeMetadata(
+  runtime: GrokRuntime,
+  host: GrokBridgeRuntimeHost = NOOP_GROK_BRIDGE_RUNTIME_HOST,
+): void {
   const model =
     runtime.modelOverride === undefined ? runtime.model : runtime.modelOverride;
   const thinking =
     runtime.thinkingOverride === undefined
       ? runtime.thinking
       : runtime.thinkingOverride;
-  const persist = getDb().transaction(() => {
-    sessionRepo.setAgentRuntimeProfile(runtime.applicationSessionId, {
+  host.transaction(() => {
+    host.records.setAgentRuntimeProfile(runtime.applicationSessionId, {
       agentProfileName: runtime.agentProfileName,
       agentProfileSource: runtime.agentProfileSource,
       agentPluginDir: runtime.agentPluginDir,
     });
-    sessionRepo.setRuntimeProvider(runtime.applicationSessionId, null);
-    sessionRepo.setModel(runtime.applicationSessionId, model);
-    sessionRepo.setThinking(runtime.applicationSessionId, thinking);
-    sessionRepo.setSessionMode(
+    host.records.setRuntimeProvider(runtime.applicationSessionId, null);
+    host.records.setModel(runtime.applicationSessionId, model);
+    host.records.setThinking(runtime.applicationSessionId, thinking);
+    host.records.setSessionMode(
       runtime.applicationSessionId,
       runtime.sessionMode,
     );
-    sessionRepo.setGrokSandbox(
+    host.records.setGrokSandbox(
       runtime.applicationSessionId,
       runtime.grokSandbox,
     );
   });
-  persist();
-  emitRuntimeUpsert(runtime.applicationSessionId);
+  host.publishSessionUpdated(runtime.applicationSessionId);
 }
 
 /** Commit the three persisted Grok model-selection columns as one SQLite transaction. */
@@ -129,38 +139,37 @@ export function persistGrokModelOptions(
   sessionId: string,
   model: string | null,
   thinking: string | null,
+  host: GrokBridgeRuntimeHost = NOOP_GROK_BRIDGE_RUNTIME_HOST,
 ): void {
-  const persist = getDb().transaction(() => {
-    sessionRepo.setModel(sessionId, model);
-    sessionRepo.setThinking(sessionId, thinking);
-    sessionRepo.setRuntimeProvider(sessionId, null);
+  host.transaction(() => {
+    host.records.setModel(sessionId, model);
+    host.records.setThinking(sessionId, thinking);
+    host.records.setRuntimeProvider(sessionId, null);
   });
-  persist();
-  emitRuntimeUpsert(sessionId);
+  host.publishSessionUpdated(sessionId);
 }
 
 export function persistGrokSessionMode(
   sessionId: string,
   mode: GrokRuntime['sessionMode'],
+  host: GrokBridgeRuntimeHost = NOOP_GROK_BRIDGE_RUNTIME_HOST,
 ): void {
-  sessionRepo.setSessionMode(sessionId, mode);
-  emitRuntimeUpsert(sessionId);
-}
-
-function emitRuntimeUpsert(sessionId: string): void {
-  const updated = sessionRepo.get(sessionId);
-  if (updated) eventBus.emit('session-upserted', updated);
+  host.records.setSessionMode(sessionId, mode);
+  host.publishSessionUpdated(sessionId);
 }
 
 /** Best-effort durability for cumulative ACP usage; accounting must not break the turn. */
-export function persistGrokUsageWatermark(runtime: GrokRuntime): void {
+export function persistGrokUsageWatermark(
+  runtime: GrokRuntime,
+  host: GrokBridgeRuntimeHost = NOOP_GROK_BRIDGE_RUNTIME_HOST,
+): void {
   try {
-    sessionRepo.setGrokUsageWatermark(
+    host.records.setGrokUsageWatermark(
       runtime.applicationSessionId,
       runtime.translation.lastUsage,
     );
   } catch (err) {
-    logger.warn(
+    host.diagnostics.scope('grok-runtime').warn(
       `[grok-runtime] failed to persist usage watermark for ${runtime.applicationSessionId}`,
       err,
     );

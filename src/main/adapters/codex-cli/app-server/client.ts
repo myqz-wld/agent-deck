@@ -1,13 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
-import {
-  prependResolvedCodexPathDirs,
-  resolveCodexBinary,
-} from '../sdk-bridge/codex-binary';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import { formatRpcError } from './notification-helpers';
-import { AgentDeckMcpStartupObserver } from './mcp-startup-observer';
+import type { CodexMcpStartupObserver } from './mcp-startup-observer';
 import { DEFAULT_FIRST_MODEL_EVENT_TIMEOUT_MS } from './first-model-event-watchdog';
 import {
   sanitizeCodexStderrTail,
@@ -15,11 +11,12 @@ import {
 } from './turn-watchdog-diagnostics';
 import { terminateRetiredCodexChild } from './process-recycle';
 import {
-  logCodexRecycleCompleted,
-  logCodexRecycleDetachFailure,
-  logCodexRecycleSkipped,
-  logCodexTerminationFailure,
-} from './recycle-logging';
+  invokeCodexClientDiagnostic,
+} from './client-diagnostics-port';
+import {
+  UNCONFIGURED_CODEX_CLIENT_HOST,
+  type CodexAppServerClientHost,
+} from './client-host-port';
 import type {
   CodexAppServerNotification,
   CodexAppServerOptions,
@@ -36,15 +33,10 @@ import {
   buildThreadStartParams,
   buildTurnStartParams,
 } from './thread-params';
-import { CodexAppServerThread } from './thread';
-import { prepareNodeReplBrowserBootstrap } from './node-repl-browser-bootstrap';
+import type { CodexAppServerThread } from './thread';
 import { requestCodexRaw, type CodexPendingRequest } from './request-raw';
 import { CodexServerRequestHost } from './server-request-host';
-import log from '@main/utils/logger';
-import { safeErrorSummary } from '@main/utils/safe-diagnostic';
 import { CodexGenerationController, type CodexGenerationOperation } from './generation-operation';
-
-const logger = log.scope('codex-app-server');
 
 export type {
   CodexAppServerNotification,
@@ -55,7 +47,6 @@ export type {
 } from './protocol';
 export { CodexAppServerThread } from './thread';
 export type { CodexGenerationOperation } from './generation-operation';
-
 type Unsubscribe = () => void;
 
 export class CodexAppServerClient {
@@ -66,10 +57,14 @@ export class CodexAppServerClient {
   private readonly serverRequestHost = new CodexServerRequestHost(() => this.child);
   private closed = false;
   private currentStderrTail = '';
-  private readonly mcpStartupObserver = new AgentDeckMcpStartupObserver();
+  private readonly mcpStartupObserver: CodexMcpStartupObserver;
   private readonly generationController: CodexGenerationController;
 
-  constructor(private readonly opts: CodexAppServerOptions) {
+  constructor(
+    private readonly opts: CodexAppServerOptions,
+    private readonly host: CodexAppServerClientHost = UNCONFIGURED_CODEX_CLIENT_HOST,
+  ) {
+    this.mcpStartupObserver = this.host.createMcpStartupObserver();
     this.generationController = new CodexGenerationController({
       isClosed: () => this.closed,
       getChild: () => this.child,
@@ -87,13 +82,11 @@ export class CodexAppServerClient {
       abortServerRequests: () => this.serverRequestHost.abortAll(),
       rejectPending: (error) => this.rejectAll(error),
       dispatchNotification: (notification) => this.dispatchNotification(notification),
-    });
+    }, this.host.generationDiagnostics);
   }
 
   get baseConfig(): CodexConfigObject | null { return this.opts.config ?? null; }
-
   get generation(): number { return this.generationController.generation; }
-
   /** True only for the live generation or its synchronous synthetic retirement terminal. */
   acceptsNotificationForGeneration(generation: number): boolean {
     return this.generationController.acceptsNotificationForGeneration(generation);
@@ -135,24 +128,22 @@ export class CodexAppServerClient {
     return new CodexAppServerClient({
       ...this.opts,
       env: { ...this.opts.env },
-      ...(this.opts.skillExtraRoots
-        ? { skillExtraRoots: [...this.opts.skillExtraRoots] }
-        : {}),
-    });
+      ...(this.opts.skillExtraRoots ? { skillExtraRoots: [...this.opts.skillExtraRoots] } : {}),
+    }, this.host);
   }
 
   startThread(options: CodexThreadOptions): CodexAppServerThread {
-    return new CodexAppServerThread(this, { mode: 'start', options });
+    return this.host.createThread(this, { mode: 'start', options });
   }
   resumeThread(threadId: string, options: CodexThreadOptions): CodexAppServerThread {
-    return new CodexAppServerThread(this, { mode: 'resume', threadId, options });
+    return this.host.createThread(this, { mode: 'resume', threadId, options });
   }
   adoptThread(
     threadId: string,
     options: CodexThreadOptions,
     initialRuntime?: Pick<CodexAppServerThreadCreateResult, 'model' | 'modelProvider'>,
   ): CodexAppServerThread {
-    return new CodexAppServerThread(this, { mode: 'resume', threadId, options },
+    return this.host.createThread(this, { mode: 'resume', threadId, options },
       this.isProcessAlive ? this.generation : undefined, initialRuntime);
   }
   prepareThreadOptions(
@@ -160,7 +151,7 @@ export class CodexAppServerClient {
     operation?: CodexGenerationOperation,
   ): Promise<CodexThreadOptions> {
     return this.opts.nodeReplBrowserBootstrap
-      ? prepareNodeReplBrowserBootstrap(this, options, this.baseConfig, operation)
+      ? this.host.prepareThreadOptions(this, options, this.baseConfig, operation)
       : Promise.resolve(options);
   }
   readThread(threadId: string): Promise<CodexAppServerThreadReadResult> {
@@ -272,12 +263,15 @@ export class CodexAppServerClient {
     const before = this.getProcessDiagnosticSnapshot();
     const recycleContext = { threadId, turnId, expectedGeneration, before };
     if (this.closed || this.generation !== expectedGeneration) {
-      logCodexRecycleSkipped(logger, recycleContext, 'generation_mismatch');
+      this.diagnose(() => this.host.recycleSkipped(
+        recycleContext,
+        'generation_mismatch',
+      ));
       return false;
     }
     const child = this.child;
     if (!child) {
-      logCodexRecycleSkipped(logger, recycleContext, 'process_missing');
+      this.diagnose(() => this.host.recycleSkipped(recycleContext, 'process_missing'));
       return false;
     }
 
@@ -286,19 +280,23 @@ export class CodexAppServerClient {
     // Recycling is process-wide. Emit a process-level terminal (no turn/thread filter) so any
     // other accepted turns sharing this generation also close instead of waiting on dead queues.
     if (!this.generationController.retireCurrentProcess(child, err)) {
-      logCodexRecycleDetachFailure(
-        logger,
+      this.diagnose(() => this.host.recycleDetachFailed(
         recycleContext,
         this.getProcessDiagnosticSnapshot(),
         interruptWrite,
-      );
+      ));
       return false;
     }
     const termination = terminateRetiredCodexChild(child, (signal) => {
-      logCodexTerminationFailure(logger, recycleContext, signal);
+      this.diagnose(() => this.host.recycleTerminationFailed(recycleContext, signal));
     });
     const after = this.getProcessDiagnosticSnapshot();
-    logCodexRecycleCompleted(logger, recycleContext, after, interruptWrite, termination);
+    this.diagnose(() => this.host.recycleCompleted(
+      recycleContext,
+      after,
+      interruptWrite,
+      termination,
+    ));
     return true;
   }
 
@@ -323,11 +321,10 @@ export class CodexAppServerClient {
       })}\n`);
       return 'sent';
     } catch (interruptError) {
-      logger.debug('[codex-app-server] turn interrupt write failed', {
-        event: 'codex_turn_interrupt_write_failed',
+      this.diagnose(() => this.host.interruptWriteFailed({
         errorName: interruptError instanceof Error ? interruptError.name : 'unknown',
         errorCode: readErrorCode(interruptError),
-      });
+      }));
       return 'failed';
     }
   }
@@ -336,16 +333,10 @@ export class CodexAppServerClient {
     if (this.child) return this.child;
     if (this.closed) throw new Error('Codex app-server client is closed');
 
-    const command = this.opts.codexPathOverride?.trim() || resolveCodexBinary() || 'codex';
-    const env = { ...this.opts.env };
-    if (!this.opts.codexPathOverride?.trim()) {
-      prependResolvedCodexPathDirs(env);
-    }
-
-    const child = spawn(command, ['app-server', '--stdio'], {
+    const child = this.host.startProcess({
+      codexPathOverride: this.opts.codexPathOverride,
       ...(this.opts.cwd ? { cwd: this.opts.cwd } : {}),
-      env,
-      stdio: 'pipe',
+      env: this.opts.env,
     });
     this.child = child;
     this.currentStderrTail = '';
@@ -357,14 +348,13 @@ export class CodexAppServerClient {
       lastStderr = `${lastStderr}${chunk}`.slice(-8000);
       this.currentStderrTail = lastStderr;
       const safeTail = sanitizeCodexStderrTail(chunk);
-      logger.debug('[codex-app-server] stderr activity', {
-        event: 'codex_app_server_stderr',
+      this.diagnose(() => this.host.stderrActivity({
         processGeneration: this.generation,
         processPid: child.pid ?? null,
         bytes: Buffer.byteLength(chunk, 'utf8'),
         sanitizedTail: safeTail,
         contentOmitted: safeTail === null,
-      });
+      }));
     });
 
     const rl = createInterface({ input: child.stdout });
@@ -398,13 +388,12 @@ export class CodexAppServerClient {
     try {
       msg = JSON.parse(line);
     } catch (err) {
-      logger.warn('[codex-app-server] failed to parse stdout line', {
-        event: 'codex_app_server_stdout_parse_failed',
+      this.diagnose(() => this.host.stdoutParseFailed({
         processGeneration: this.generation,
         processPid: sourceChild.pid ?? null,
         bytes: Buffer.byteLength(line, 'utf8'),
         errorName: err instanceof Error ? err.name : 'unknown',
-      });
+      }));
       return;
     }
     if (!msg || typeof msg !== 'object') return;
@@ -446,16 +435,12 @@ export class CodexAppServerClient {
   private dispatchNotification(notification: CodexAppServerNotification): void {
     this.serverRequestHost.observe(notification);
     const mcpStartup = this.mcpStartupObserver.observe(notification);
-    if (mcpStartup?.level === 'warn') logger.warn(mcpStartup.message);
-    else if (mcpStartup) logger.info(mcpStartup.message);
+    if (mcpStartup) this.diagnose(() => this.host.mcpStartupObserved(mcpStartup));
     for (const listener of [...this.notificationListeners]) {
       try {
         listener(notification);
       } catch (err) {
-        logger.warn(
-          '[codex-app-server] notification listener failed',
-          safeErrorSummary(err),
-        );
+        this.diagnose(() => this.host.notificationListenerFailed(err));
       }
     }
   }
@@ -483,6 +468,9 @@ export class CodexAppServerClient {
     this.pending.clear();
   }
 
+  private diagnose(observe: () => void): void {
+    invokeCodexClientDiagnostic(observe);
+  }
 }
 
 function readErrorCode(error: unknown): string | null {

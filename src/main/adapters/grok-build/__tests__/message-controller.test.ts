@@ -1,17 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
-
-const guard = vi.hoisted(() => vi.fn());
-
-vi.mock('@main/session/hand-off/ingress-guard', () => ({
-  guardHandOffSourceIngress: guard,
-}));
 
 import { GrokMessageController } from '../message-controller';
+import { createTestGrokBridgeRuntimeHost } from './bridge-runtime-fixture';
+
+const guard = vi.fn();
+const pending = vi.fn();
+
+function runtimeHost() {
+  return createTestGrokBridgeRuntimeHost({
+    guardHandOffSourceIngress: guard,
+    hasPendingWorktreeTransition: pending,
+  });
+}
 
 describe('GrokMessageController handoff ingress', () => {
   beforeEach(() => {
     guard.mockReset();
+    pending.mockReset();
+    pending.mockReturnValue(false);
   });
 
   it.each(['send', 'enqueue', 'steer'] as const)(
@@ -21,6 +27,7 @@ describe('GrokMessageController handoff ingress', () => {
       const steer = vi.fn(async () => undefined);
       guard.mockReturnValue(true);
       const controller = new GrokMessageController({
+        runtimeHost: runtimeHost(),
         emit: vi.fn(),
         dispatch,
         steer,
@@ -44,6 +51,7 @@ describe('GrokMessageController handoff ingress', () => {
       return true;
     });
     const controller = new GrokMessageController({
+      runtimeHost: runtimeHost(),
       emit: vi.fn(),
       dispatch,
       steer: vi.fn(async () => undefined),
@@ -66,43 +74,26 @@ describe('GrokMessageController handoff ingress', () => {
     async (kind) => {
       const dispatch = vi.fn(async () => undefined);
       const steer = vi.fn(async () => undefined);
+      pending.mockImplementation((sessionId) => sessionId === 'session-preflight');
       const controller = new GrokMessageController({
+        runtimeHost: runtimeHost(),
         emit: vi.fn(),
         dispatch,
         steer,
       });
-      worktreeToolInvocationRegistry.observe({
-        sessionId: 'session-preflight',
-        agentId: 'grok-build',
-        kind: 'tool-use-start',
-        payload: {
-          toolUseId: 'enter-tool',
-          toolName: 'mcp__agent-deck__enter_worktree',
-        },
-        ts: Date.now(),
-        source: 'sdk',
-      });
-
-      try {
-        if (kind === 'send') {
-          await controller.sendMessage('session-preflight', 'hello');
-        } else {
-          await controller.steerTurn('session-preflight', 'hello');
-        }
-        expect(dispatch).toHaveBeenCalledWith(
-          'session-preflight',
-          'hello',
-          undefined,
-          undefined,
-          true,
-        );
-        expect(steer).not.toHaveBeenCalled();
-      } finally {
-        worktreeToolInvocationRegistry.release(
-          'session-preflight',
-          'enter-tool',
-        );
+      if (kind === 'send') {
+        await controller.sendMessage('session-preflight', 'hello');
+      } else {
+        await controller.steerTurn('session-preflight', 'hello');
       }
+      expect(dispatch).toHaveBeenCalledWith(
+        'session-preflight',
+        'hello',
+        undefined,
+        undefined,
+        true,
+      );
+      expect(steer).not.toHaveBeenCalled();
     },
   );
 });

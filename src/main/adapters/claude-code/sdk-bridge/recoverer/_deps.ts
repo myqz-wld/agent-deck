@@ -20,9 +20,10 @@ import type {
   CapturedRecoveryContinuation,
   PreparedRecoveryContinuation,
   RecoveryRuntimeOverrides,
-} from '@main/session/continuation-context/recovery';
+} from '@main/session/continuation-context/recovery-types';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { AgentEnqueueOptions, PermissionMode } from '@main/adapters/types';
+import type { ClaudeSessionManagerPort } from '../../session-manager-core';
 
 /**
  * facade `recoverer.ts` SessionRecoverer ctor 注入的 ctx ref bundle。
@@ -40,6 +41,14 @@ export interface RecovererCtx {
    */
   readonly recovering: Map<string, Promise<unknown>>;
   readonly emit: SdkBridgeOptions['emit'];
+  readonly sessionReader: Pick<
+    SdkBridgeOptions['createSessionHost'],
+    'readPersistedSession'
+  >;
+  readonly sessionManager: Pick<
+    ClaudeSessionManagerPort,
+    'getCloseEpoch' | 'markClosed' | 'unarchive'
+  >;
 }
 
 /**
@@ -193,6 +202,9 @@ export type CwdExistsThunk = (cwd: string) => boolean;
 /** Latest valid dialog time used to validate phantom-resume jsonl freshness. */
 export type LatestConversationMessageTsThunk = (sessionId: string) => number | null;
 
+/** Recovery diagnostics are observational and never authoritative for control flow. */
+export type RecoveryWarningThunk = (message: string, error?: unknown) => void;
+
 /**
  * `findFallbackCwd` thunk — facade extend override 注入点。
  *
@@ -231,6 +243,7 @@ export interface RecoverAndSendDeps {
   readonly jsonlMtimeMsThunk: JsonlMtimeMsThunk;
   readonly cwdExistsThunk: CwdExistsThunk;
   readonly latestConversationMessageTsThunk: LatestConversationMessageTsThunk;
+  readonly warn: RecoveryWarningThunk;
   readonly captureRecoveryContinuation: CaptureRecoveryContinuationThunk;
   readonly prepareRecoveryContinuation: PrepareRecoveryContinuationThunk;
   readonly cleanupRecoveryContinuation: CleanupRecoveryContinuationThunk;

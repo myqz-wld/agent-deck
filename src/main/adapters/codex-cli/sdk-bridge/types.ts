@@ -10,12 +10,17 @@ import type {
   PermissionResponse,
   UploadedAttachmentRef,
 } from '@shared/types';
-import type { HookServer } from '@main/hook-server/server';
+import type { AdapterHookServerPort } from '@main/adapters/types/adapter-context';
 import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexTokenUsageSnapshot } from '../app-server/token-usage-observation';
 import type { CodexInput } from './input-pack';
 import type { QueuedAgentMessage } from '@main/adapters/types';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
+import type { CodexLiveTokenEstimateState } from './live-token-rate-core';
+import type { RecoveryContinuationHost } from '@main/session/continuation-context/recovery-types';
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
+
+export type { CodexLiveTokenEstimateState } from './live-token-rate-core';
 
 export interface CodexDeferredUserEvent {
   text: string;
@@ -42,6 +47,8 @@ export interface CodexSessionHandle {
 
 export interface CodexBridgeOptions {
   emit: (e: AgentEvent) => void;
+  recoveryContinuationHost: RecoveryContinuationHost;
+  runtimeHost: CodexBridgeRuntimeHost;
   /** Native app-server approval request timeout. 0 keeps requests pending indefinitely. */
   permissionTimeoutMs?: number;
   /**
@@ -52,7 +59,7 @@ export interface CodexBridgeOptions {
    * Optional：null/undefined 时 codex 不挂 agent-deck MCP server（与 enableAgentDeckMcp
    * OFF 同语义）。便于单测注入 mock 或不挂场景。
    */
-  hookServer?: HookServer;
+  hookServer?: AdapterHookServerPort;
 }
 
 export interface InternalSession {
@@ -133,12 +140,6 @@ export interface InternalSession {
   codexTokenUsageWatermark?: CodexTokenUsageSnapshot;
   /** app-server initiated native approval requests awaiting a response in Agent Deck. */
   pendingPermissions: Map<string, CodexPendingPermission>;
-}
-
-/** Codex 侧生成中 tok/s usage 状态（仅展示，不落库）。 */
-export interface CodexLiveTokenEstimateState {
-  bucketKey: string;
-  lastUsageTickTs: number;
 }
 
 /**

@@ -1,18 +1,27 @@
 /**
  * userData 子路径集中点。
  *
- * 现状只有少数模块直接调 `app.getPath('userData')`（db.ts:12 / sdk-injection.ts:86）。
- * 新加的 image-uploads 目录从一开始就走集中点，避免散落字符串拼接。
- *
- * 不主动迁移现有调用方（性价比低、有测试覆盖的别动）。
+ * Electron and headless hosts install one exact process path identity. Consumers derive only their
+ * owned child paths and never consult Electron or launch cwd.
  */
-import { app } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  getApplicationHostPaths,
+  type ApplicationHostPaths,
+} from '@main/runtime-host/application-paths';
+
+export function resolveImageUploadsDir(paths: ApplicationHostPaths): string {
+  return join(paths.userDataPath, 'image-uploads');
+}
 
 /** 用户上传图片的扁平根目录：<userData>/image-uploads/<uuid>.<ext> */
 export function getImageUploadsDir(): string {
-  return join(app.getPath('userData'), 'image-uploads');
+  return resolveImageUploadsDir(getApplicationHostPaths());
+}
+
+export function resolveProviderUsageProbeCwd(paths: ApplicationHostPaths): string {
+  return join(paths.userDataPath, 'provider-usage-probe-cwd');
 }
 
 /**
@@ -21,7 +30,7 @@ export function getImageUploadsDir(): string {
  * which may trigger TCC prompts or create confusing Claude hook sessions.
  */
 export function getProviderUsageProbeCwd(): string {
-  const dir = join(app.getPath('userData'), 'provider-usage-probe-cwd');
+  const dir = resolveProviderUsageProbeCwd(getApplicationHostPaths());
   mkdirSync(dir, { recursive: true });
   return dir;
 }

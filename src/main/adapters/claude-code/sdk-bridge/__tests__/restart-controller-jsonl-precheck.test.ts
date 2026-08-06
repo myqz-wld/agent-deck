@@ -17,6 +17,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RestartController, type RestartCtx, type RestartCreateOpts } from '../restart-controller';
+import { desktopClaudeRestartSessionHost } from '../restart-session-host';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import type { SdkSessionHandle } from '../types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
@@ -167,6 +168,7 @@ function makeCtx(opts: MakeCtxOpts = {}): {
   );
   const ctx: RestartCtx = {
     recovering,
+    sessionHost: desktopClaudeRestartSessionHost,
     emit: (e) => emits.push(e),
     closeSession: async (sid, closeOpts) => {
       closeCalls.push({ sid, opts: closeOpts });

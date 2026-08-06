@@ -28,8 +28,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-07-30 | `CHANGELOG_417_session-list-runtime-metadata.md` | Show branch and context occupancy on live session cards |
 | 2026-07-30 | `CHANGELOG_416_handoff-context-usage.md` | Fix hand-off fields and show live context occupancy |
 | 2026-07-30 | `CHANGELOG_415_hook-event-lifecycle-completeness.md` | Capture lifecycle hooks and close incomplete Codex tool activity |
-| 2026-07-29 | `CHANGELOG_414_post-acceptance-delivery-durability.md` | Prevent uncertain message redelivery after adapter acceptance |
-| 2026-07-29 | `CHANGELOG_413_session-ui-scope-alignment.md` | Restore scoped expand controls and align session runtime labels |
-| 2026-07-29 | `CHANGELOG_412_maintenance-timeout-terminal-policy.md` | Disable storage maintenance until restart after a worker timeout |
-| 2026-07-29 | `CHANGELOG_411_whole-project-quality-refresh.md` | Harden runtime, storage, UI, logging, dependencies, and packaging |
-| 2026-07-28 | `CHANGELOG_410_codex-live-approval-review-runtime.md` | Expose live Codex approvals and make review runtime prompt-owned |

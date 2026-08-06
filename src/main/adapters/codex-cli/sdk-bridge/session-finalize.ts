@@ -25,15 +25,12 @@
  *
  * 行为零变化：抽出前后字面 try/catch + console.warn 一致。
  */
-import { sessionRepo } from '@main/store/session-repo';
-import { eventBus } from '@main/event-bus';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { CodexApprovalPolicy } from '@shared/types';
-import log from '@main/utils/logger';
-
-const logger = log.scope('codex-finalize');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface PersistSessionFieldsArgs {
+  runtimeHost: CodexBridgeRuntimeHost;
   /** thread sessionId（resume 路径 = opts.resume；新建路径先写 tempKey，后台 rename 到 realId） */
   sessionId: string;
   /** 解析后的 sandboxMode（已通过 opts.codexSandbox > sessionRepo > settingsStore 三级 fallback） */
@@ -103,20 +100,24 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     extraAllowWrite,
     networkAccessEnabled,
     additionalDirectories,
+    runtimeHost,
   } = args;
 
   // 1. 持久化 sandbox 档位（CHANGELOG_<X> A2a）
   try {
-    sessionRepo.setCodexSandbox(sessionId, sandboxMode);
+    runtimeHost.records.setCodexSandbox(sessionId, sandboxMode);
   } catch (err) {
-    logger.warn(`[codex-bridge] setCodexSandbox(${sessionId}, ${sandboxMode}) 失败`, err);
+    runtimeHost.logger('codex-finalize').warn(
+      `[codex-bridge] setCodexSandbox(${sessionId}, ${sandboxMode}) 失败`,
+      err,
+    );
   }
 
   if (approvalPolicy !== undefined) {
     try {
-      sessionRepo.setCodexApprovalPolicy(sessionId, approvalPolicy);
+      runtimeHost.records.setCodexApprovalPolicy(sessionId, approvalPolicy);
     } catch (err) {
-      logger.warn(
+      runtimeHost.logger('codex-finalize').warn(
         `[codex-bridge] setCodexApprovalPolicy(${sessionId}, ${approvalPolicy}) 失败`,
         err,
       );
@@ -125,9 +126,9 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
 
   if (provider !== undefined) {
     try {
-      sessionRepo.setRuntimeProvider(sessionId, provider);
+      runtimeHost.records.setRuntimeProvider(sessionId, provider);
     } catch (err) {
-      logger.warn(
+      runtimeHost.logger('codex-finalize').warn(
         `[codex-bridge] setRuntimeProvider(${sessionId}, ${provider}) 失败`,
         err,
       );
@@ -140,17 +141,20 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   // startThread/resumeThread 透传字段真生效(不再需要原 D5 warn,frontmatter model 不再是 dead config)。
   if (model) {
     try {
-      sessionRepo.setModel(sessionId, model);
+      runtimeHost.records.setModel(sessionId, model);
     } catch (err) {
-      logger.warn(`[codex-bridge] setModel(${sessionId}, ${model}) 失败`, err);
+      runtimeHost.logger('codex-finalize').warn(
+        `[codex-bridge] setModel(${sessionId}, ${model}) 失败`,
+        err,
+      );
     }
   }
 
   if (modelReasoningEffort !== undefined) {
     try {
-      sessionRepo.setThinking(sessionId, modelReasoningEffort);
+      runtimeHost.records.setThinking(sessionId, modelReasoningEffort);
     } catch (err) {
-      logger.warn(
+      runtimeHost.logger('codex-finalize').warn(
         `[codex-bridge] setThinking(${sessionId}, ${modelReasoningEffort}) 失败`,
         err,
       );
@@ -162,9 +166,9 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   if (extraAllowWrite !== undefined && extraAllowWrite.length > 0) {
     try {
       // setExtraAllowWrite 接 string[] | null,readonly string[] 转 mutable copy
-      sessionRepo.setExtraAllowWrite(sessionId, [...extraAllowWrite]);
+      runtimeHost.records.setExtraAllowWrite(sessionId, [...extraAllowWrite]);
     } catch (err) {
-      logger.warn(
+      runtimeHost.logger('codex-finalize').warn(
         `[codex-bridge] setExtraAllowWrite(${sessionId}, [${extraAllowWrite.join(', ')}]) 失败`,
         err,
       );
@@ -177,9 +181,9 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   // false 是合法值（非 reviewer caller 显式关网络），truthy guard 会漏掉显式 false。
   if (networkAccessEnabled !== undefined) {
     try {
-      sessionRepo.setNetworkAccessEnabled(sessionId, networkAccessEnabled);
+      runtimeHost.records.setNetworkAccessEnabled(sessionId, networkAccessEnabled);
     } catch (err) {
-      logger.warn(
+      runtimeHost.logger('codex-finalize').warn(
         `[codex-bridge] setNetworkAccessEnabled(${sessionId}, ${networkAccessEnabled}) 失败`,
         err,
       );
@@ -190,24 +194,26 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   // **codex SDK runtime 真消费**（同上），不打 warn。空数组跳过（同 extraAllowWrite guard）。
   if (additionalDirectories !== undefined && additionalDirectories.length > 0) {
     try {
-      sessionRepo.setAdditionalDirectories(sessionId, [...additionalDirectories]);
+      runtimeHost.records.setAdditionalDirectories(sessionId, [...additionalDirectories]);
     } catch (err) {
-      logger.warn(
+      runtimeHost.logger('codex-finalize').warn(
         `[codex-bridge] setAdditionalDirectories(${sessionId}, [${additionalDirectories.join(', ')}]) 失败`,
         err,
       );
     }
   }
 
-  emitPersistedSessionFields(sessionId);
+  emitPersistedSessionFields(sessionId, runtimeHost);
 }
 
-function emitPersistedSessionFields(sessionId: string): void {
+function emitPersistedSessionFields(
+  sessionId: string,
+  runtimeHost: CodexBridgeRuntimeHost,
+): void {
   try {
-    const updated = sessionRepo.get(sessionId);
-    if (updated) eventBus.emit('session-upserted', updated);
+    runtimeHost.records.publishUpdated(sessionId);
   } catch (err) {
-    logger.warn(
+    runtimeHost.logger('codex-finalize').warn(
       `[codex-bridge] emit session-upserted after persistSessionFields(${sessionId}) 失败`,
       err,
     );

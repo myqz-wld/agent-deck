@@ -1,15 +1,16 @@
 import { methods } from '@agentclientprotocol/sdk';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
-import { sessionManager } from '@main/session/manager';
 import type { GrokPermissionController } from './permission-controller';
 import type { GrokRuntime } from './runtime-types';
 import { clearGrokTurnLiveRate } from './translate';
+import type { GrokSessionManagerPort } from './bridge-options';
 
 export class GrokRuntimeLifecycleCoordinator {
   constructor(
     private readonly runtimes: Map<string, GrokRuntime>,
     private readonly permissionController: GrokPermissionController,
     private readonly cancelSubmittingInterjection: (runtime: GrokRuntime) => void,
+    private readonly sessionManager: Pick<GrokSessionManagerPort, 'releaseSdkClaim'>,
   ) {}
 
   isCurrent(runtime: GrokRuntime): boolean {
@@ -42,7 +43,7 @@ export class GrokRuntimeLifecycleCoordinator {
     const runtime = this.runtimes.get(sessionId);
     if (!runtime) {
       mcpSessionTokenMap.release(sessionId);
-      sessionManager.releaseSdkClaim(sessionId);
+      this.sessionManager.releaseSdkClaim(sessionId);
       return;
     }
     this.seal(runtime);
@@ -116,6 +117,6 @@ export class GrokRuntimeLifecycleCoordinator {
     if (!this.isCurrent(runtime)) return;
     this.runtimes.delete(runtime.applicationSessionId);
     mcpSessionTokenMap.release(runtime.applicationSessionId);
-    sessionManager.releaseSdkClaim(runtime.applicationSessionId);
+    this.sessionManager.releaseSdkClaim(runtime.applicationSessionId);
   }
 }

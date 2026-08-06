@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@main/utils/run-context', () => ({
-  getProcessRunId: () => 'mcp-startup-test-run',
-}));
-
 import {
   AgentDeckMcpStartupObserver,
   type McpStartupLogEvent,
@@ -37,7 +33,7 @@ function details(event: McpStartupLogEvent | null): Record<string, unknown> {
 describe('AgentDeckMcpStartupObserver', () => {
   it('filters non-Agent-Deck and malformed notifications before reading the clock', () => {
     const now = vi.fn(() => 1_000);
-    const observer = new AgentDeckMcpStartupObserver(now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', now);
 
     expect(observer.observe({ method: 'thread/started', params: {} })).toBeNull();
     expect(observer.observe({
@@ -53,7 +49,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('keeps starting and ready below the slow threshold silent', () => {
     let now = 1_000;
-    const observer = new AgentDeckMcpStartupObserver(() => now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => now);
 
     expect(observer.observe(startup('starting'))).toBeNull();
     now += SLOW_THRESHOLD_MS - 1;
@@ -63,7 +59,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('warns at the exact slow threshold with a bounded fixed-field message', () => {
     let now = 1_000;
-    const observer = new AgentDeckMcpStartupObserver(() => now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => now);
     observer.observe(startup('starting'));
 
     now += SLOW_THRESHOLD_MS;
@@ -88,7 +84,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('distinguishes failures, cancellation, repeats, summary, and recovery', () => {
     let now = 0;
-    const observer = new AgentDeckMcpStartupObserver(() => now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => now);
     observer.observe(startup('starting'));
 
     now = 100;
@@ -152,7 +148,7 @@ describe('AgentDeckMcpStartupObserver', () => {
   it('drops raw thread and provider failure content instead of sanitizing it', () => {
     const secret =
       'Bearer private-token /Users/private/repo https://example.test/?token=private';
-    const observer = new AgentDeckMcpStartupObserver(() => 1_000);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => 1_000);
     const event = observer.observe(startup(
       'failed',
       `thread-${secret}`,
@@ -179,7 +175,7 @@ describe('AgentDeckMcpStartupObserver', () => {
   });
 
   it('bounds thread state to 128 deterministic LRU entries', () => {
-    const observer = new AgentDeckMcpStartupObserver(() => 1_000);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => 1_000);
     for (let index = 0; index < 128; index += 1) {
       expect(observer.observe(startup('failed', `thread-${index}`))?.level).toBe('warn');
     }
@@ -198,7 +194,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('preserves buffered zero-duration uncertainty on recovery', () => {
     let now = 5_000;
-    const observer = new AgentDeckMcpStartupObserver(() => now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => now);
     expect(observer.observe(startup('failed'))?.level).toBe('warn');
 
     expect(observer.observe(startup('starting'))).toBeNull();
@@ -214,7 +210,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('fails closed on thrown, nonfinite, and rolled-back clocks', () => {
     let clock: number | 'throw' = 100;
-    const observer = new AgentDeckMcpStartupObserver(() => {
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => {
       if (clock === 'throw') throw new Error('clock failed');
       return clock;
     });
@@ -247,7 +243,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('fails closed on tracker errors and starts fresh on the next event', () => {
     let now = 100;
-    const observer = new AgentDeckMcpStartupObserver(() => now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => now);
     observer.observe(startup('starting'));
     const entries = (observer as unknown as {
       entries: Map<string, { tracker: { observe: () => unknown } }>;
@@ -275,7 +271,7 @@ describe('AgentDeckMcpStartupObserver', () => {
 
   it('reset clears bounded state, timing, and dedupe', () => {
     let now = 100;
-    const observer = new AgentDeckMcpStartupObserver(() => now);
+    const observer = new AgentDeckMcpStartupObserver('mcp-startup-test-run', () => now);
     expect(observer.observe(startup('failed'))?.level).toBe('warn');
     expect(observer.observe(startup('failed'))).toBeNull();
 
@@ -288,5 +284,18 @@ describe('AgentDeckMcpStartupObserver', () => {
       transition: 'initial',
       durationMs: null,
     });
+  });
+
+  it('replaces an untrusted host run id with a fixed fallback', () => {
+    const observer = new AgentDeckMcpStartupObserver(
+      'Bearer private-token\n/Users/private/repo',
+      () => 1_000,
+    );
+
+    const event = observer.observe(startup('failed'));
+
+    expect(details(event).runId).toBe('unknown');
+    expect(event?.message).not.toContain('private-token');
+    expect(event?.message).not.toContain('/Users/private/repo');
   });
 });

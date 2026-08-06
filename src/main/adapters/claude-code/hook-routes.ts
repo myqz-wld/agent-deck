@@ -20,7 +20,6 @@ import {
 import type { AgentEvent } from '@shared/types';
 import {
   createHookRoute,
-  hookRouteDiagnostics,
   type HookOrigin,
   type HookRouteDiagnostics,
 } from '@main/hook-server/route-diagnostics';
@@ -60,7 +59,7 @@ function makeRoute(
  */
 export function buildHookRoutes(
   emit: (e: AgentEvent) => void,
-  diagnostics: HookRouteDiagnostics = hookRouteDiagnostics,
+  diagnostics: HookRouteDiagnostics,
 ): RouteOptions[] {
   const taggedEmit = (ev: AgentEvent, hookOrigin: HookOrigin): void => {
     emit({ ...ev, source: 'hook', hookOrigin });

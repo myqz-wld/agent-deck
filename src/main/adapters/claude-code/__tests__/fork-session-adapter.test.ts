@@ -1,18 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ForkedSessionHandle } from '../../types';
 
-const createForkMock = vi.hoisted(() => vi.fn());
-
-vi.mock('../fork-session', () => ({
-  createClaudeFamilyForkedSession: createForkMock,
+const mocks = vi.hoisted(() => ({
+  createFork: vi.fn(),
+  deleteSession: vi.fn(async () => undefined),
 }));
 
-import { claudeCodeAdapter } from '../index';
+vi.mock('../fork-session-core', () => ({
+  createClaudeFamilyForkedSessionCore: mocks.createFork,
+}));
+
+import {
+  ClaudeCodeAdapter,
+  type ClaudeCodeAdapterHost,
+} from '../adapter-core';
 
 describe('Claude adapter native fork wiring', () => {
   afterEach(() => {
-    createForkMock.mockReset();
-    (claudeCodeAdapter as unknown as { bridge: unknown }).bridge = null;
+    mocks.createFork.mockReset();
+    mocks.deleteSession.mockClear();
   });
 
   it('resumes the distinct fork with every resolved target option', async () => {
@@ -21,12 +27,24 @@ describe('Claude adapter native fork wiring', () => {
       closeSession: vi.fn(async () => undefined),
       closeSessionForRollback: vi.fn(async () => undefined),
     };
-    (claudeCodeAdapter as unknown as { bridge: typeof bridge }).bridge = bridge;
+    const host = {
+      bridge: {
+        sessionManager: { delete: mocks.deleteSession },
+      },
+      fork: { name: 'fork-host' },
+      createHookIntegration: vi.fn(),
+      registerHookRoutes: vi.fn(),
+      validateForkTarget: vi.fn(),
+      summariseEvents: vi.fn(),
+    } as unknown as ClaudeCodeAdapterHost;
+    const adapter = new ClaudeCodeAdapter(host);
+    (adapter as unknown as { bridge: typeof bridge }).bridge = bridge;
     const discard = vi.fn(async () => undefined);
-    createForkMock.mockImplementationOnce(async (args) => {
+    mocks.createFork.mockImplementationOnce(async (args) => {
       expect(args.deleteChild).toEqual(expect.any(Function));
       const childId = await args.createChild('fork-native-id');
       await args.closeChild(childId);
+      await args.deleteChild(childId);
       expect(childId).toBe('child-app-id');
       return { sessionId: childId, discard } satisfies ForkedSessionHandle;
     });
@@ -52,12 +70,14 @@ describe('Claude adapter native fork wiring', () => {
       awaitCanonicalId: true,
     };
 
-    const result = await claudeCodeAdapter.createForkedSession(source, target);
+    const result = await adapter.createForkedSession(source, target);
 
     expect(result).toEqual({ sessionId: 'child-app-id', discard });
-    expect(createForkMock).toHaveBeenCalledWith(
+    expect(mocks.createFork).toHaveBeenCalledWith(
       expect.objectContaining({ source, providerName: 'Claude' }),
+      host.fork,
     );
+    expect(mocks.deleteSession).toHaveBeenCalledWith('child-app-id');
     expect(bridge.createSession).toHaveBeenCalledWith({
       cwd: target.cwd,
       prompt: target.prompt,

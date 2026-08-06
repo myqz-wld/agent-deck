@@ -15,6 +15,11 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-29 | `CHANGELOG_414_post-acceptance-delivery-durability.md` | Prevent uncertain message redelivery after adapter acceptance |
+| 2026-07-29 | `CHANGELOG_413_session-ui-scope-alignment.md` | Restore scoped expand controls and align session runtime labels |
+| 2026-07-29 | `CHANGELOG_412_maintenance-timeout-terminal-policy.md` | Disable storage maintenance until restart after a worker timeout |
+| 2026-07-29 | `CHANGELOG_411_whole-project-quality-refresh.md` | Harden runtime, storage, UI, logging, dependencies, and packaging |
+| 2026-07-28 | `CHANGELOG_410_codex-live-approval-review-runtime.md` | Expose live Codex approvals and make review runtime prompt-owned |
 | 2026-07-27 | `CHANGELOG_409_session-runtime-defaults-ui.md` | Default Codex approvals and align session runtime inheritance |
 | 2026-07-27 | `CHANGELOG_408_concrete-session-creation-defaults.md` | Resolve and show concrete defaults in compact new-session controls |
 | 2026-07-27 | `CHANGELOG_407_codex-session-approval-policy.md` | Choose Codex approval policy when creating human sessions |

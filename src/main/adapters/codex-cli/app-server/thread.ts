@@ -26,7 +26,6 @@ import {
 import { buildCodexTurnWatchdogDiagnostic } from './turn-watchdog-diagnostics';
 import { AcceptedTurnCancellation, AcceptedTurnCancellationOwner } from './accepted-turn-cancellation';
 import { collectCodexTurnOutput } from './turn-output';
-import log from '@main/utils/logger';
 import type { ContextRuntimeIdentityEvidence } from '@shared/types';
 import { CodexRuntimeIdentityTracker } from './runtime-identity';
 import {
@@ -36,15 +35,17 @@ import {
   withSandboxMode,
   withWorkingDirectory,
 } from './thread-mode';
-
-const logger = log.scope('codex-app-server');
+import {
+  invokeCodexThreadDiagnostic,
+  NOOP_CODEX_THREAD_DIAGNOSTICS,
+  type CodexThreadDiagnostics,
+} from './thread-diagnostics-port';
 const MAX_PRE_ACCEPTANCE_TURNS = 8;
 type Unsubscribe = () => void;
 type QueuedNotification = Extract<
   CodexAppServerStreamEvent,
   { type: 'server.notification' }
 >;
-
 export interface CodexAppServerRunOptions {
   signal?: AbortSignal;
   outputSchema?: JsonObject;
@@ -52,7 +53,6 @@ export interface CodexAppServerRunOptions {
   runtimeWorkspaceRoots?: readonly string[];
   maxOutputBytes?: number;
 }
-
 export class CodexAppServerThread {
   private threadId: string | null;
   private started = false;
@@ -61,12 +61,12 @@ export class CodexAppServerThread {
   private activeTurnId: string | null = null;
   private activeTurnCancellation: AcceptedTurnCancellation | null = null;
   private readonly runtimeIdentity: CodexRuntimeIdentityTracker;
-
   constructor(
     private readonly client: CodexAppServerClient,
     private mode: CodexThreadMode,
     attachedGeneration?: number,
     initialRuntime?: unknown,
+    private readonly diagnostics: CodexThreadDiagnostics = NOOP_CODEX_THREAD_DIAGNOSTICS,
   ) {
     this.threadId = mode.mode === 'resume' ? mode.threadId : null;
     this.runtimeIdentity = new CodexRuntimeIdentityTracker(
@@ -79,11 +79,9 @@ export class CodexAppServerThread {
       this.readyPromise = Promise.resolve(this.threadId);
     }
   }
-
   getRuntimeIdentity(): ContextRuntimeIdentityEvidence | null {
     return this.runtimeIdentity.snapshot();
   }
-
   updateSandboxMode(
     sandboxMode: CodexThreadOptions['sandboxMode'],
     opts: {
@@ -93,7 +91,6 @@ export class CodexAppServerThread {
   ): void {
     this.mode = withSandboxMode(this.mode, sandboxMode, opts);
   }
-
   /** Apply cwd only to subsequent turn/start requests; the active turn keeps its original cwd. */
   updateWorkingDirectory(workingDirectory: string): void {
     this.mode = withWorkingDirectory(this.mode, workingDirectory);
@@ -231,21 +228,22 @@ export class CodexAppServerThread {
         modelActivitySeen = true;
         clearFirstModelEventTimer();
         if (!acceptanceSource || acceptedAtMs === null || deadlineAtMs === null) return;
-        logger.debug('[codex-app-server] first model event received',
+        invokeCodexThreadDiagnostic(() => this.diagnostics.firstModelEventReceived(
           buildCodexTurnWatchdogDiagnostic({
             phase: 'first_model_event',
             threadId,
             turnId,
-            acceptanceSource,
-            acceptedAtMs,
-            deadlineAtMs,
+            acceptanceSource: acceptanceSource!,
+            acceptedAtMs: acceptedAtMs!,
+            deadlineAtMs: deadlineAtMs!,
             nowMs: Date.now(),
             responsePending: !turnAccepted,
             notificationCount,
             lastScopedNotificationMethod,
             lastScopedNotificationAtMs,
             process: this.client.getProcessDiagnosticSnapshot(),
-          }));
+          }),
+        ));
       };
       const armFirstModelEventWatchdog = (
         turnId: string,
@@ -273,13 +271,13 @@ export class CodexAppServerThread {
             lastScopedNotificationAtMs,
             process: this.client.getProcessDiagnosticSnapshot(),
           });
-        logger.debug('[codex-app-server] turn accepted; first-model watchdog armed',
-          diagnostic('armed', nowMs));
+        invokeCodexThreadDiagnostic(() =>
+          this.diagnostics.watchdogArmed(diagnostic('armed', nowMs)));
         firstModelEventTimer = setTimeout(() => {
           firstModelEventTimer = null;
           const error = new Error(firstModelEventTimeoutMessage(timeoutMs));
-          logger.warn('[codex-app-server] first model event timeout; recycle initiated',
-            diagnostic('timeout', Date.now()));
+          invokeCodexThreadDiagnostic(() =>
+            this.diagnostics.watchdogTimedOut(diagnostic('timeout', Date.now())));
           const recycled = cancellationOwner?.isCancelling(turnId)
             ? this.client.recycleGeneration(turnGeneration, error, 'watchdog after cancellation')
             : this.client.abortTurnAndRecycleGeneration(turnGeneration, threadId, turnId, error);

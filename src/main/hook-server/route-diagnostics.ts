@@ -1,8 +1,6 @@
 import type { RouteOptions } from 'fastify';
 import { createHash } from 'node:crypto';
 
-import log from '@main/utils/logger';
-import { getProcessRunId } from '@main/utils/run-context';
 import type { AgentEvent } from '@shared/types';
 
 export type HookAdapterId =
@@ -36,11 +34,17 @@ const DEFAULT_MAX_ACTIVE_ROUTES = 256;
 const DEFAULT_MAX_SUPPRESSED_COUNT = 9_999;
 const MAX_RECOVERY_DURATION_MS = 7 * 24 * 60 * 60 * 1_000;
 
-interface DiagnosticLogger {
+export interface DiagnosticLogger {
   error: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
 }
+
+const NOOP_DIAGNOSTIC_LOGGER: DiagnosticLogger = {
+  error: () => undefined,
+  warn: () => undefined,
+  info: () => undefined,
+};
 
 export interface HookDiagnosticContext {
   adapter: HookAdapterId;
@@ -151,9 +155,9 @@ export class HookRouteDiagnostics {
   private readonly active = new Map<string, RouteState>();
 
   constructor(options: HookRouteDiagnosticsOptions = {}) {
-    this.logger = options.logger ?? log.scope('hook-routes');
+    this.logger = options.logger ?? NOOP_DIAGNOSTIC_LOGGER;
     this.now = options.now ?? Date.now;
-    this.runId = options.runId ?? getProcessRunId;
+    this.runId = options.runId ?? (() => undefined);
     this.suppressionWindowMs = Math.max(
       0,
       options.suppressionWindowMs ?? DEFAULT_SUPPRESSION_WINDOW_MS,
@@ -281,8 +285,6 @@ export class HookRouteDiagnostics {
   }
 }
 
-export const hookRouteDiagnostics = new HookRouteDiagnostics();
-
 function firstHeaderValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
@@ -326,13 +328,13 @@ export interface CreateHookRouteOptions<Body> {
     context: HookRoutePreprocessContext<Body>,
   ) => boolean | Promise<boolean>;
   preprocessFailureMode?: 'reject' | 'continue';
-  diagnostics?: HookRouteDiagnostics;
+  diagnostics: HookRouteDiagnostics;
 }
 
 export function createHookRoute<Body>(
   options: CreateHookRouteOptions<Body>,
 ): RouteOptions {
-  const diagnostics = options.diagnostics ?? hookRouteDiagnostics;
+  const diagnostics = options.diagnostics;
   return {
     method: 'POST',
     url: options.url,

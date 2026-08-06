@@ -37,7 +37,7 @@
  */
 
 import type { AppSettings } from '@shared/types';
-import type { HookServer } from '@main/hook-server/server';
+import type { AdapterHookServerPort } from '@main/adapters/types/adapter-context';
 
 /**
  * Codex app-server 接受任意 toml-friendly config object。
@@ -64,7 +64,10 @@ export function permissionTimeoutMsToCodexToolTimeoutSec(permissionTimeoutMs: nu
  */
 export function buildAgentDeckMcpConfigForCodex(
   settings: Pick<AppSettings, 'enableAgentDeckMcp' | 'mcpHttpEnabled' | 'permissionTimeoutMs'>,
-  hookServer: Pick<HookServer, 'isRunning' | 'listeningPort' | 'mcpBearerToken'> | null,
+  hookServer: Pick<
+    AdapterHookServerPort,
+    'isRunning' | 'listeningPort' | 'mcpBearerToken'
+  > | null,
 ): CodexConfigObject | null {
   if (!settings.enableAgentDeckMcp) return null;
   if (!settings.mcpHttpEnabled) return null;

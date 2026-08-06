@@ -1,11 +1,12 @@
-import log from '@main/utils/logger';
-
 import { errorText } from './protocol-utils';
 import type { GrokRuntime } from './runtime-types';
-
-const logger = log.scope('grok-transport-recovery');
+import {
+  NOOP_GROK_BRIDGE_DIAGNOSTICS,
+  type GrokBridgeDiagnostics,
+} from './bridge-diagnostics-core';
 
 export interface GrokTransportRecoveryContext {
+  diagnostics?: GrokBridgeDiagnostics;
   isCurrent: (runtime: GrokRuntime) => boolean;
   start: (runtime: GrokRuntime) => Promise<boolean>;
   persist: (runtime: GrokRuntime) => void;
@@ -21,6 +22,8 @@ export async function recycleGrokTransport(
   runtime: GrokRuntime,
   context: GrokTransportRecoveryContext,
 ): Promise<void> {
+  const logger = (context.diagnostics ?? NOOP_GROK_BRIDGE_DIAGNOSTICS)
+    .scope('grok-transport-recovery');
   if (!context.isCurrent(runtime) || runtime.closed) return;
   runtime.ready = false;
   runtime.suppressUpdates = true;

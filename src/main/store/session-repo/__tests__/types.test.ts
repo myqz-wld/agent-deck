@@ -1,18 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import log from 'electron-log/main';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setSessionRepositoryDiagnostics } from '../diagnostics-core';
 import { parseStringArrayJson } from '../types';
 
-const logger = log.scope('session-repo');
+const warn = vi.fn();
 
 describe('session-repo/types parseStringArrayJson logging', () => {
   beforeEach(() => {
-    (logger.warn as ReturnType<typeof vi.fn>).mockClear();
+    warn.mockClear();
+    setSessionRepositoryDiagnostics({ warn });
   });
+  afterEach(() => setSessionRepositoryDiagnostics(null));
 
   it('NULL / empty string stay silent because they mean unset', () => {
     expect(parseStringArrayJson(null, { sessionId: 's1', field: 'additional_directories' })).toBeNull();
     expect(parseStringArrayJson('', { sessionId: 's1', field: 'additional_directories' })).toBeNull();
-    expect(logger.warn).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('malformed JSON falls back to null and logs session + field context', () => {
@@ -20,7 +22,7 @@ describe('session-repo/types parseStringArrayJson logging', () => {
       sessionId: 's-bad',
       field: 'additional_directories',
     })).toBeNull();
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[session-repo] string[] JSON parse failed'),
       expect.objectContaining({
         sessionId: 's-bad',
@@ -36,7 +38,7 @@ describe('session-repo/types parseStringArrayJson logging', () => {
       sessionId: 's-shape',
       field: 'extra_allow_write',
     })).toBeNull();
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[session-repo] string[] JSON is not an array'),
       expect.objectContaining({
         sessionId: 's-shape',
@@ -51,7 +53,7 @@ describe('session-repo/types parseStringArrayJson logging', () => {
       sessionId: 's-mixed',
       field: 'additional_directories',
     })).toEqual(['/ok', '/also-ok']);
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[session-repo] string[] JSON dropped invalid entries'),
       expect.objectContaining({
         sessionId: 's-mixed',

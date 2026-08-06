@@ -33,27 +33,17 @@
  * 全量加入硬化（防止 builder 未来识别启发式变化）。
  */
 
-import { createRequire } from 'node:module';
-
-const requireFromHere = createRequire(__filename);
+import {
+  getPathToClaudeCodeExecutableCore,
+  getSdkRuntimeOptionsCore,
+} from './sdk-runtime-core';
+import { desktopClaudeSdkRuntimeHost } from './sdk-runtime-host';
 
 export function getSdkRuntimeOptions(): {
   executable: 'node';
   env: Record<string, string>;
 } {
-  const baseEnv: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string') baseEnv[k] = v;
-  }
-  return {
-    // SDK .d.ts 把 executable 限制为 'bun' | 'deno' | 'node' 联合，但运行时
-    // sdk.mjs 直接 spawn(executable, args) —— 任意路径 string 都行，type 只是约束。
-    executable: process.execPath as unknown as 'node',
-    env: {
-      ...baseEnv,
-      ELECTRON_RUN_AS_NODE: '1',
-    },
-  };
+  return getSdkRuntimeOptionsCore(desktopClaudeSdkRuntimeHost);
 }
 
 /**
@@ -69,25 +59,5 @@ export function getSdkRuntimeOptions(): {
  * 直接命中真实 node_modules 路径，replace 是 no-op，工作正常。
  */
 export function getPathToClaudeCodeExecutable(): string | undefined {
-  const { platform, arch } = process;
-  const ext = platform === 'win32' ? '.exe' : '';
-  const candidates =
-    platform === 'linux'
-      ? [
-          `@anthropic-ai/claude-agent-sdk-linux-${arch}-musl`,
-          `@anthropic-ai/claude-agent-sdk-linux-${arch}`,
-        ]
-      : [`@anthropic-ai/claude-agent-sdk-${platform}-${arch}`];
-  for (const pkg of candidates) {
-    try {
-      const raw = requireFromHere.resolve(`${pkg}/claude${ext}`);
-      // 路径段级 replace：必须前后都是 `/` 或 `\` 才算匹配 `app.asar` 段，
-      // 这样既不会误吃祖先目录里恰好含 "app.asar" 子串的路径，
-      // 也不会把已经是 `app.asar.unpacked/...` 的路径再变成 `app.asar.unpacked.unpacked/`。
-      return raw.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2');
-    } catch {
-      // 这个 platform 包没装（dev 全装；打包后只装当前平台），试下一个候选
-    }
-  }
-  return undefined;
+  return getPathToClaudeCodeExecutableCore(desktopClaudeSdkRuntimeHost);
 }

@@ -89,8 +89,8 @@ function makeStubAdapter(id: string, behavior: StubBehavior = {}): AgentAdapter 
 }
 async function makeRegistry() {
   vi.resetModules();
-  const { AdapterRegistryClass } = await import('../registry');
-  return new AdapterRegistryClass();
+  const { createDesktopAdapterRegistry } = await import('../registry');
+  return createDesktopAdapterRegistry();
 }
 function diagnostic(
   level: 'info' | 'warn',

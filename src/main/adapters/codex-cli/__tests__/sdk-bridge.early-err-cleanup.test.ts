@@ -30,6 +30,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { codexBridgeTestRuntimeHost } from '../sdk-bridge/__tests__/runtime-host-fixture';
 
 const appServerClientMock = vi.hoisted(() => {
   const state = {
@@ -169,6 +170,8 @@ afterEach(() => {
 
 function makeBridge(): CodexSdkBridge {
   return new CodexSdkBridge({
+    recoveryContinuationHost: {} as never,
+    runtimeHost: codexBridgeTestRuntimeHost,
     emit: (e) => {
       emits.push(e);
     },
@@ -270,6 +273,7 @@ describe('codex sdk-bridge createSession resume earlyErrCb cleanup', () => {
           AGENT_DECK_ORIGIN: 'sdk',
         }),
       }),
+      expect.objectContaining({ stderrActivity: expect.any(Function) }),
     );
     // sessions Map 已 set(resume 主路径登记)
     expect(getSessionsMap(bridge).has('sess-r1')).toBe(true);

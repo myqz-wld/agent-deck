@@ -2,7 +2,6 @@ import type { RouteOptions } from 'fastify';
 import type { AgentEvent } from '@shared/types';
 import {
   createHookRoute,
-  hookRouteDiagnostics,
   type HookOrigin,
   type HookRouteDiagnostics,
 } from '@main/hook-server/route-diagnostics';
@@ -54,7 +53,7 @@ function makeRoute(
 
 export function buildGrokHookRoutes(
   emit: (event: AgentEvent) => void,
-  diagnostics: HookRouteDiagnostics = hookRouteDiagnostics,
+  diagnostics: HookRouteDiagnostics,
 ): RouteOptions[] {
   const taggedEmit = (event: AgentEvent, origin: HookOrigin): void => {
     emit({ ...event, source: 'hook', hookOrigin: origin });

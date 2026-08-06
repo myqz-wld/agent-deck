@@ -12,7 +12,11 @@ import type {
   ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
 
-import { handleGrokTextForLiveRate } from './live-token-rate';
+import {
+  handleGrokTextForLiveRateCore,
+  NOOP_GROK_LIVE_RATE_OBSERVER,
+  type GrokLiveRateObserver,
+} from './live-token-rate-core';
 import type { GrokTranslationState } from './translation-types';
 
 const AGENT_ID = 'grok-build';
@@ -29,6 +33,7 @@ export {
 
 export function createGrokTranslationState(options: {
   lastUsage?: GrokUsageWatermark | null;
+  liveRateObserver?: GrokLiveRateObserver;
 } = {}): GrokTranslationState {
   return {
     toolNames: new Map(),
@@ -58,6 +63,8 @@ export function createGrokTranslationState(options: {
     frontierCoveredMetricScopeByPromptId: new Map(),
     completedProviderPromptIds: new Set(),
     liveRate: null,
+    liveRateObserver:
+      options.liveRateObserver ?? NOOP_GROK_LIVE_RATE_OBSERVER,
   };
 }
 
@@ -340,7 +347,12 @@ function contentEvents(
         : [];
     if (!state.pendingText) state.pendingText = { kind, messageId, chunks: [] };
     state.pendingText.chunks.push(content.text);
-    handleGrokTextForLiveRate(state, content.text);
+    handleGrokTextForLiveRateCore(
+      state,
+      content.text,
+      Date.now(),
+      state.liveRateObserver,
+    );
     return flushed;
   }
   if (content.type === 'image') {

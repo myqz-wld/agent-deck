@@ -9,18 +9,21 @@
  *
  * 不持有 sessions Map：close + createSession 已隐含管理，restart 路径无需直接 mutate。
  */
-import { sessionRepo } from '@main/store/session-repo';
-import { eventBus } from '@main/event-bus';
 import { AGENT_ID } from './constants';
 import { maybeJsonlFallback } from './jsonl-fallback';
-import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
+import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery-types';
 import type { RestartCtx } from './restart-controller-types';
-import log from '@main/utils/logger';
 import type { PermissionMode } from '@main/adapters/types';
 
 export type { RestartCreateOpts, RestartCtx } from './restart-controller-types';
 
-const logger = log.scope('claude-restart-controller');
+function warnWithoutThrow(ctx: RestartCtx, message: string, error: unknown): void {
+  try {
+    ctx.sessionHost.warn(message, error);
+  } catch {
+    // Desktop diagnostics cannot alter restart, rollback, or continuation cleanup authority.
+  }
+}
 
 export class RestartController {
   constructor(private ctx: RestartCtx) {}
@@ -95,7 +98,7 @@ export class RestartController {
         currentSid = payload.to;
       }
     };
-    eventBus.on('session-renamed', renameListener);
+    const unsubscribeRename = this.ctx.sessionHost.subscribeRenames(renameListener);
     try {
       let inflight = this.ctx.recovering.get(currentSid);
       while (inflight) {
@@ -109,7 +112,7 @@ export class RestartController {
         inflight = this.ctx.recovering.get(currentSid);
       }
 
-      const rec = sessionRepo.get(currentSid);
+      const rec = this.ctx.sessionHost.readSession(currentSid);
       if (!rec) throw new Error(`session ${currentSid} not found in repo`);
       const oldMode: PermissionMode = rec.permissionMode ?? 'default';
 
@@ -122,7 +125,11 @@ export class RestartController {
         });
       } catch (error) {
         recoveryCaptureError = error;
-        logger.warn(`[claude-restart] continuation capture failed for ${currentSid}`, error);
+        warnWithoutThrow(
+          this.ctx,
+          `[claude-restart] continuation capture failed for ${currentSid}`,
+          error,
+        );
       }
 
       // 占位 message：分方向文案，让用户在 5-10s busy 期间看到状态
@@ -152,9 +159,7 @@ export class RestartController {
 
         // 写 DB：必须先于 createSession（cold path 翻序；hot path 不动保持 ipc.ts:451-462 原样）。
         // 同步 emit upsert 让 SessionDetail 下拉值立即跟到新 mode（5-10s busy 期间用户已经看到「切完了」）。
-        sessionRepo.setPermissionMode(currentSid, mode);
-        const updatedRec = sessionRepo.get(currentSid);
-        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+        this.ctx.sessionHost.setPermissionModeAndPublish(currentSid, mode);
 
         try {
           // **plan restart-controller-jsonl-precheck-20260521 §Step 3d 修法**:
@@ -171,6 +176,7 @@ export class RestartController {
               prepareRecoveryContinuation: this.ctx.prepareRecoveryContinuation,
               emit: this.ctx.emit,
               latestConversationMessageTsThunk: this.ctx.latestConversationMessageTsThunk,
+              warn: (message, error) => warnWithoutThrow(this.ctx, message, error),
             },
             {
               sessionId: currentSid,
@@ -226,9 +232,7 @@ export class RestartController {
           return currentSid; // application sid 稳定 (与 §不变量 1 对齐)
         } catch (err) {
           // 回滚：DB 改回 oldMode + emit upsert 让下拉回弹
-          sessionRepo.setPermissionMode(currentSid, oldMode);
-          const rolled = sessionRepo.get(currentSid);
-          if (rolled) eventBus.emit('session-upserted', rolled);
+          this.ctx.sessionHost.setPermissionModeAndPublish(currentSid, oldMode);
           // 占位 message 已 emit 过，再 emit 一条 error 让用户知道失败 + 已回退
           this.ctx.emit({
             sessionId: currentSid,
@@ -257,14 +261,15 @@ export class RestartController {
         try {
           this.ctx.cleanupRecoveryContinuation(recoveryCapture);
         } catch (cleanupError) {
-          logger.warn(
+          warnWithoutThrow(
+            this.ctx,
             `[claude-restart] continuation cleanup failed for ${currentSid}`,
             cleanupError,
           );
         }
       }
       // Phase 2.9: 注销 rename listener 防 leak (event-bus 长生命周期，listener 不清会持续监听)
-      eventBus.off('session-renamed', renameListener);
+      unsubscribeRename();
     }
   }
 
@@ -319,7 +324,7 @@ export class RestartController {
         currentSid = payload.to;
       }
     };
-    eventBus.on('session-renamed', renameListener);
+    const unsubscribeRename = this.ctx.sessionHost.subscribeRenames(renameListener);
     try {
       let inflight = this.ctx.recovering.get(currentSid);
       while (inflight) {
@@ -331,7 +336,7 @@ export class RestartController {
         inflight = this.ctx.recovering.get(currentSid);
       }
 
-      const rec = sessionRepo.get(currentSid);
+      const rec = this.ctx.sessionHost.readSession(currentSid);
       if (!rec) throw new Error(`session ${currentSid} not found in repo`);
       const oldSandbox: 'off' | 'workspace-write' | 'strict' | null =
         rec.claudeCodeSandbox ?? null;
@@ -343,7 +348,11 @@ export class RestartController {
         });
       } catch (error) {
         recoveryCaptureError = error;
-        logger.warn(`[claude-restart] continuation capture failed for ${currentSid}`, error);
+        warnWithoutThrow(
+          this.ctx,
+          `[claude-restart] continuation capture failed for ${currentSid}`,
+          error,
+        );
       }
 
       // 占位 message：让用户在重启期间看到状态
@@ -366,9 +375,7 @@ export class RestartController {
         await this.ctx.closeSession(currentSid, { markRecentlyDeleted: false });
 
         // 先写 DB：让 createSession resume 路径能从 sessionRepo 读到新 sandbox
-        sessionRepo.setClaudeCodeSandbox(currentSid, sandbox);
-        const updatedRec = sessionRepo.get(currentSid);
-        if (updatedRec) eventBus.emit('session-upserted', updatedRec);
+        this.ctx.sessionHost.setSandboxAndPublish(currentSid, sandbox);
 
         try {
           // **plan restart-controller-jsonl-precheck-20260521 §Step 3e 修法** (与 Step 3d 同款):
@@ -384,6 +391,7 @@ export class RestartController {
               prepareRecoveryContinuation: this.ctx.prepareRecoveryContinuation,
               emit: this.ctx.emit,
               latestConversationMessageTsThunk: this.ctx.latestConversationMessageTsThunk,
+              warn: (message, error) => warnWithoutThrow(this.ctx, message, error),
             },
             {
               sessionId: currentSid,
@@ -435,9 +443,7 @@ export class RestartController {
           return currentSid;
         } catch (err) {
           // 回滚：DB 改回 oldSandbox + emit upsert + emit error message
-          sessionRepo.setClaudeCodeSandbox(currentSid, oldSandbox);
-          const rolled = sessionRepo.get(currentSid);
-          if (rolled) eventBus.emit('session-upserted', rolled);
+          this.ctx.sessionHost.setSandboxAndPublish(currentSid, oldSandbox);
           this.ctx.emit({
             sessionId: currentSid,
             agentId: AGENT_ID,
@@ -465,14 +471,15 @@ export class RestartController {
         try {
           this.ctx.cleanupRecoveryContinuation(recoveryCapture);
         } catch (cleanupError) {
-          logger.warn(
+          warnWithoutThrow(
+            this.ctx,
             `[claude-restart] continuation cleanup failed for ${currentSid}`,
             cleanupError,
           );
         }
       }
       // Phase R3 fix-1: 注销 rename listener 防 leak (与 restartWithPermissionMode 同款)
-      eventBus.off('session-renamed', renameListener);
+      unsubscribeRename();
     }
   }
 }

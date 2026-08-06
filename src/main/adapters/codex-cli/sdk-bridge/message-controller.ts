@@ -3,9 +3,6 @@ import type { UploadedAttachmentRef } from '@shared/types';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants';
 import { packCodexInput, toCodexAppServerInput } from './input-pack';
 import type { CodexBridgeOptions, InternalSession } from './types';
-import log from '@main/utils/logger';
-import { guardHandOffSourceIngress } from '@main/session/hand-off/ingress-guard';
-import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
 import type {
   AgentEnqueueOptions,
@@ -22,12 +19,12 @@ import {
   acceptCodexSubmittingUserMessage,
   pendingCodexUserMessage,
 } from './deferred-user-submission';
-
-const logger = log.scope('codex-bridge');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface MessageControllerContext {
   sessions: ReadonlyMap<string, InternalSession>;
   emit: CodexBridgeOptions['emit'];
+  runtimeHost: CodexBridgeRuntimeHost;
   recoverAndSend: (
     sessionId: string,
     text: string,
@@ -48,7 +45,7 @@ export class MessageController {
   ): Promise<void> {
     this.validateMessageLength(text);
     if (
-      guardHandOffSourceIngress({
+      this.ctx.runtimeHost.guardHandOffSourceIngress({
         sourceSessionId: sessionId,
         agentId: AGENT_ID,
         text,
@@ -66,7 +63,7 @@ export class MessageController {
       sessionId,
       text,
       attachments,
-      worktreeToolInvocationRegistry.hasPendingTransition(sessionId),
+      this.ctx.runtimeHost.hasPendingWorktreeTransition(sessionId),
       true,
       false,
       options,
@@ -82,7 +79,7 @@ export class MessageController {
   ): Promise<void> {
     this.validateMessageLength(text);
     if (
-      guardHandOffSourceIngress({
+      this.ctx.runtimeHost.guardHandOffSourceIngress({
         sourceSessionId: sessionId,
         agentId: AGENT_ID,
         text,
@@ -270,7 +267,10 @@ export class MessageController {
       if (!idempotencyKey) throw error;
       // Queue acceptance is the commit point. A failed activity-stream projection must not make
       // the caller retry a provider turn that is already owned by this queue.
-      logger.warn(`[codex-bridge] accepted enqueue event failed key=${idempotencyKey}`, error);
+      this.ctx.runtimeHost.logger('codex-bridge').warn(
+        `[codex-bridge] accepted enqueue event failed key=${idempotencyKey}`,
+        error,
+      );
     } finally {
       if (!session.turnLoopRunning) void this.ctx.runTurnLoop(session, sessionId);
     }
@@ -284,7 +284,7 @@ export class MessageController {
       );
     }
     if (
-      guardHandOffSourceIngress({
+      this.ctx.runtimeHost.guardHandOffSourceIngress({
         sourceSessionId: sessionId,
         agentId: AGENT_ID,
         text,
@@ -295,7 +295,7 @@ export class MessageController {
     ) {
       return;
     }
-    if (worktreeToolInvocationRegistry.hasPendingTransition(sessionId)) {
+    if (this.ctx.runtimeHost.hasPendingWorktreeTransition(sessionId)) {
       await this.dispatchMessage(sessionId, text, undefined, true, true);
       return;
     }
@@ -399,7 +399,10 @@ export class MessageController {
     try {
       await session.thread.interrupt(currentTurnId);
     } catch (error) {
-      logger.warn('[codex-bridge] provider interrupt failed', error);
+      this.ctx.runtimeHost.logger('codex-bridge').warn(
+        '[codex-bridge] provider interrupt failed',
+        error,
+      );
       throw error;
     }
   }

@@ -1,5 +1,3 @@
-import { sessionManager } from '@main/session/manager';
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 // CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
 //
 // **TS module resolution 假设**（与 claude sdk-bridge 同款）：moduleResolution: node
@@ -15,7 +13,7 @@ import type { CodexBridgeOptions, CodexSessionHandle, InternalSession } from './
 import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { RestartController, type RestartCtx } from './restart-controller';
-import { SessionModelController } from '@main/adapters/session-model-controller';
+import { SessionModelControllerCore } from '@main/adapters/session-model-controller-core';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type {
   AgentCwdTransition,
@@ -43,32 +41,19 @@ import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
 import { createCodexForkedSession } from './fork-session/create-forked-session';
 import type { CodexAppServerClient } from '../app-server/client';
-import {
-  ensureCodexClient,
-  getCodexUsageSnapshot,
-  invalidateCodexClientsForPathChange,
-  renameCodexClient,
-} from './client-registry';
 import { MessageController } from './message-controller';
-import log from '@main/utils/logger';
-import {
-  captureRecoveryContinuation,
-  cleanupRecoveryContinuation,
-  prepareRecoveryContinuation,
-  type CapturedRecoveryContinuation,
-  type PreparedRecoveryContinuation,
-  type RecoveryRuntimeOverrides,
-} from '@main/session/continuation-context/recovery';
+import type {
+  CapturedRecoveryContinuation,
+  PreparedRecoveryContinuation,
+  RecoveryRuntimeOverrides,
+} from '@main/session/continuation-context/recovery-types';
 import type { SessionRecord } from '@shared/types';
 import { CodexPermissionHost } from './permission-host';
 import { CodexSessionLifecycleCoordinator } from './session-lifecycle-coordinator';
 import { CodexCwdTransitionController } from './cwd-transition-controller';
-import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
-
-const logger = log.scope('codex-bridge');
+import { resolveCodexForkTargetRuntime } from './fork-session/target-runtime';
 
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
-
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
  *
@@ -117,7 +102,7 @@ export class CodexSdkBridge {
   private threadLoop: ThreadLoop;
   /** Applies next-turn Codex sandbox changes without replacing the app-server thread. */
   private restartController: RestartController;
-  private sessionModelController: SessionModelController;
+  private sessionModelController: SessionModelControllerCore;
   private messageController: MessageController;
   private permissionHost: CodexPermissionHost;
   private sessionLifecycle: CodexSessionLifecycleCoordinator;
@@ -146,13 +131,15 @@ export class CodexSdkBridge {
       {
         sessions: this.sessions,
         clients: this.codexBySession,
-        releaseClaim: (sid) => sessionManager.releaseSdkClaim(sid),
-        releaseToken: (sid) => mcpSessionTokenMap.release(sid),
+        releaseClaim: (sid) => opts.runtimeHost.sessions.releaseSdkClaim(sid),
+        releaseToken: (sid) => opts.runtimeHost.tokens.release(sid),
+        runtimeHost: opts.runtimeHost,
       },
     );
     const ctx: ThreadLoopCtx = {
       sessions: this.sessions,
       emit: opts.emit,
+      runtimeHost: opts.runtimeHost,
       // P5 Round 1 reviewer-claude MED-1 修法 (resolveWithFallback 漏清 codexBySession + token map):
       // facade 注入 thunk 让 thread-loop 不直接 import codexBySession / mcp-session-token-map 模块。
       // 失败 swallow — fallback 路径已经在错误状态下,cleanup 失败不应再 throw 阻塞 emit 序列(thread-loop
@@ -162,15 +149,15 @@ export class CodexSdkBridge {
           this.codexBySession.get(tempKey)?.dispose();
           this.codexBySession.delete(tempKey);
         } catch (cleanupErr) {
-          logger.warn(
+          opts.runtimeHost.logger('codex-bridge').warn(
             `[codex-bridge] codexBySession.delete failed in cleanupTempKey for ${tempKey}:`,
             cleanupErr,
           );
         }
         try {
-          mcpSessionTokenMap.release(tempKey);
+          opts.runtimeHost.tokens.release(tempKey);
         } catch (cleanupErr) {
-          logger.warn(
+          opts.runtimeHost.logger('codex-bridge').warn(
             `[codex-bridge] mcpSessionTokenMap.release failed in cleanupTempKey for ${tempKey}:`,
             cleanupErr,
           );
@@ -187,6 +174,7 @@ export class CodexSdkBridge {
     const restartCtx: RestartCtx = {
       recovering: this.recovering,
       emit: opts.emit,
+      runtimeHost: opts.runtimeHost,
       applyLiveSandbox: (sessionId, sandbox, sandboxOpts) => {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
@@ -201,13 +189,13 @@ export class CodexSdkBridge {
       },
     };
     this.restartController = new RestartController(restartCtx);
-    this.sessionModelController = new SessionModelController({
+    this.sessionModelController = new SessionModelControllerCore({
       operations: this.recovering,
       agentId: AGENT_ID,
       emit: opts.emit,
       validate: (sessionId, options, previous) => {
         if (options.provider !== previous.provider) {
-          resolveCodexModelProvider(options.provider);
+          opts.runtimeHost.configuration.validateModelProvider(options.provider);
           if (this.sessions.has(sessionId)) {
             throw new Error(
               '当前 Codex 版本不支持为已加载的会话切换 model_provider；请新建会话，或在会话进入休眠后再切换。',
@@ -228,13 +216,13 @@ export class CodexSdkBridge {
         internal.runtimeIdentity = internal.thread.getRuntimeIdentity();
         return true;
       },
-    });
+    }, opts.runtimeHost.sessionModel);
 
     // symmetry-plan P2 HIGH-B：SessionRecoverer 装配（与 claude facade 同款 thunk 注入模式）。
     // arrow 闭包 this，运行时晚解析 → this.createSession 一定已绑定。
     // attachments 透传 sendMessage 第三参（与 claude HIGH-1 同款 — 避免 inflight 第二条等待者丢图）。
     this.recoverer = new SessionRecoverer(
-      { recovering: this.recovering, emit: opts.emit },
+      { recovering: this.recovering, emit: opts.emit, runtimeHost: opts.runtimeHost },
       (createOpts) => this.createSession(createOpts),
       (sid, text, attachments) => this.sendMessage(sid, text, attachments),
       (threadId, startedAt) => this.codexResumeJsonlExists(threadId, startedAt),
@@ -246,6 +234,7 @@ export class CodexSdkBridge {
     this.messageController = new MessageController({
       sessions: this.sessions,
       emit: opts.emit,
+      runtimeHost: opts.runtimeHost,
       recoverAndSend: (sessionId, text, attachments, options) =>
         this.recoverer.recoverAndSend(sessionId, text, attachments, options),
       runTurnLoop: (session, sessionId) => this.threadLoop.runTurnLoop(session, sessionId),
@@ -253,18 +242,21 @@ export class CodexSdkBridge {
   }
 
   setCodexCliPath(_path: string | null): void {
-    invalidateCodexClientsForPathChange(this.codexBySession, this.sessions);
+    this.opts.runtimeHost.clientRegistry.invalidateForPathChange(
+      this.codexBySession,
+      this.sessions,
+    );
   }
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
-    return getCodexUsageSnapshot(this.codexBySession);
+    return this.opts.runtimeHost.clientRegistry.getUsageSnapshot(this.codexBySession);
   }
 
   private async ensureCodex(
     sessionId: string,
     sessionToken: string,
   ): Promise<CodexAppServerClient> {
-    const client = ensureCodexClient({
+    const client = this.opts.runtimeHost.clientRegistry.ensureClient({
       clients: this.codexBySession,
       sessionId,
       sessionToken,
@@ -275,7 +267,7 @@ export class CodexSdkBridge {
   }
 
   renameCodexInstance(oldId: string, newId: string): void {
-    renameCodexClient(this.codexBySession, oldId, newId);
+    this.opts.runtimeHost.clientRegistry.renameClient(this.codexBySession, oldId, newId);
   }
 
   async createSession(opts: CreateSessionOpts): Promise<CodexSessionHandle> {
@@ -287,6 +279,7 @@ export class CodexSdkBridge {
       codexBySession: this.codexBySession,
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
+      runtimeHost: this.opts.runtimeHost,
       // arrow 闭包 facade `this`,运行时晚解析 → this.ensureCodex 一定已绑定
       ensureCodex: (sid, token) => this.ensureCodex(sid, token),
     });
@@ -305,16 +298,25 @@ export class CodexSdkBridge {
       codexBySession: this.codexBySession,
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
+      runtimeHost: this.opts.runtimeHost,
       ensureCodex: (sid, token) => this.ensureCodex(sid, token),
+      resolveTargetRuntime: (opts) => resolveCodexForkTargetRuntime(opts, {
+        defaultSandboxMode: this.opts.runtimeHost.configuration.readDefaultSandbox(),
+        developerInstructions:
+          this.opts.runtimeHost.configuration.readApplicationInstructions(),
+        readConfiguredModel: this.opts.runtimeHost.configuration.readConfiguredModel,
+        readConfiguredReasoningEffort:
+          this.opts.runtimeHost.configuration.readConfiguredReasoningEffort,
+      }),
       lifecycle: {
-        allocateToken: (sid) => mcpSessionTokenMap.allocate(sid),
-        resolveToken: (token) => mcpSessionTokenMap.get(token),
-        releaseToken: (sid) => mcpSessionTokenMap.release(sid),
-        claimSession: (sid) => sessionManager.claimAsSdk(sid),
-        releaseClaim: (sid) => sessionManager.releaseSdkClaim(sid),
-        hasClaim: (sid) => sessionManager.hasSdkClaim(sid),
-        renameSession: (from, to) => sessionManager.renameSdkSession(from, to),
-        deleteSession: (sid) => sessionManager.delete(sid),
+        allocateToken: (sid) => this.opts.runtimeHost.tokens.allocate(sid),
+        resolveToken: (token) => this.opts.runtimeHost.tokens.get(token),
+        releaseToken: (sid) => this.opts.runtimeHost.tokens.release(sid),
+        claimSession: (sid) => this.opts.runtimeHost.sessions.claimAsSdk(sid),
+        releaseClaim: (sid) => this.opts.runtimeHost.sessions.releaseSdkClaim(sid),
+        hasClaim: (sid) => this.opts.runtimeHost.sessions.hasSdkClaim(sid),
+        renameSession: (from, to) => this.opts.runtimeHost.sessions.renameSdkSession(from, to),
+        deleteSession: (sid) => this.opts.runtimeHost.sessions.delete(sid),
       },
     });
   }
@@ -476,7 +478,7 @@ export class CodexSdkBridge {
     session: SessionRecord,
     overrides?: RecoveryRuntimeOverrides,
   ): CapturedRecoveryContinuation {
-    return captureRecoveryContinuation({ session, overrides });
+    return this.opts.recoveryContinuationHost.captureContinuation({ session, overrides });
   }
 
   /** Test seam around the shared provider-neutral recovery preparation. */
@@ -484,11 +486,14 @@ export class CodexSdkBridge {
     capture: CapturedRecoveryContinuation,
     continuationInstruction: string,
   ): Promise<PreparedRecoveryContinuation> {
-    return prepareRecoveryContinuation({ capture, continuationInstruction });
+    return this.opts.recoveryContinuationHost.prepareContinuation({
+      capture,
+      continuationInstruction,
+    });
   }
 
   /** Test seam around idempotent TEMP-spool cleanup. */
   protected cleanupRecoveryContext(capture: CapturedRecoveryContinuation): void {
-    cleanupRecoveryContinuation(capture);
+    this.opts.recoveryContinuationHost.cleanupContinuation(capture);
   }
 }

@@ -10,6 +10,7 @@ import type { GrokRuntime } from '../runtime-types';
 
 const acpStartMock = vi.hoisted(() => vi.fn());
 const resolveGrokBinaryMock = vi.hoisted(() => vi.fn(async () => '/fake/grok'));
+const updateCliSessionIdMock = vi.hoisted(() => vi.fn());
 const sessionRepoMock = vi.hoisted(() => ({
   setAgentRuntimeProfile: vi.fn(),
   setRuntimeProvider: vi.fn(),
@@ -20,9 +21,8 @@ const sessionRepoMock = vi.hoisted(() => ({
   setGrokUsageWatermark: vi.fn(),
   get: vi.fn(),
 }));
-const transactionMock = vi.hoisted(() =>
-  vi.fn((work: () => void) => work),
-);
+const transactionMock = vi.hoisted(() => vi.fn());
+const publishSessionUpdatedMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../acp-process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../acp-process')>();
@@ -34,17 +34,8 @@ vi.mock('../acp-process', async (importOriginal) => {
 vi.mock('../resolve-grok-binary', () => ({
   resolveGrokBinary: resolveGrokBinaryMock,
 }));
-vi.mock('@main/store/session-repo', () => ({
-  sessionRepo: sessionRepoMock,
-}));
-vi.mock('@main/event-bus', () => ({
-  eventBus: { emit: vi.fn() },
-}));
 vi.mock('@main/session/manager', () => ({
-  sessionManager: { updateCliSessionId: vi.fn() },
-}));
-vi.mock('@main/store/db', () => ({
-  getDb: () => ({ transaction: transactionMock }),
+  sessionManager: { updateCliSessionId: updateCliSessionIdMock },
 }));
 
 import {
@@ -57,6 +48,16 @@ import {
   startGrokRuntime,
   startGrokRuntimeInBackground,
 } from '../runtime-start';
+import { createTestGrokBridgeRuntimeHost } from './bridge-runtime-fixture';
+
+const runtimeHost = createTestGrokBridgeRuntimeHost({
+  records: sessionRepoMock,
+  transaction: (operation) => {
+    transactionMock(operation);
+    return operation();
+  },
+  publishSessionUpdated: publishSessionUpdatedMock,
+});
 
 function makeRecord(): SessionRecord {
   return {
@@ -106,6 +107,8 @@ describe('Grok runtime recovery profile', () => {
     const observePromptComplete = vi.fn();
     const runtimes = new Map([[runtime.applicationSessionId, runtime]]);
     const context = {
+      sessionManager: { updateCliSessionId: updateCliSessionIdMock },
+      runtimeHost,
       binaryPath: null,
       runtimes,
       sessionSetup: {
@@ -199,7 +202,7 @@ describe('Grok runtime recovery profile', () => {
     );
     sessionRepoMock.get.mockReturnValue(record);
 
-    persistGrokRuntimeMetadata(runtime);
+    persistGrokRuntimeMetadata(runtime, runtimeHost);
 
     expect(runtime).toMatchObject({
       agentProfileName: 'reviewer-grok',
@@ -222,7 +225,7 @@ describe('Grok runtime recovery profile', () => {
     runtime.thinkingOverride = null;
     sessionRepoMock.get.mockReturnValue(makeRecord());
 
-    persistGrokRuntimeMetadata(runtime);
+    persistGrokRuntimeMetadata(runtime, runtimeHost);
 
     expect(sessionRepoMock.setRuntimeProvider).toHaveBeenCalledWith(
       runtime.applicationSessionId,
@@ -255,7 +258,7 @@ describe('Grok runtime recovery profile', () => {
       lastUsage: watermark,
     });
 
-    persistGrokUsageWatermark(runtime);
+    persistGrokUsageWatermark(runtime, runtimeHost);
     expect(sessionRepoMock.setGrokUsageWatermark).toHaveBeenCalledWith(
       record.id,
       watermark,
@@ -307,6 +310,8 @@ describe('Grok runtime recovery profile', () => {
     });
     const persist = vi.fn();
     const context = {
+      sessionManager: { updateCliSessionId: updateCliSessionIdMock },
+      runtimeHost,
       binaryPath: null,
       runtimes,
       sessionSetup: {
@@ -406,6 +411,8 @@ describe('Grok runtime recovery profile', () => {
       candidate.process = null;
     });
     const context = {
+      sessionManager: { updateCliSessionId: updateCliSessionIdMock },
+      runtimeHost,
       binaryPath: null,
       runtimes,
       sessionSetup: {

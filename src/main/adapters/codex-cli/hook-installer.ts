@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
-import log from '@main/utils/logger';
 import { buildHookCurlCommand } from '@main/hook-server/curl-command';
 import {
   changedHookEvent,
@@ -21,9 +20,15 @@ import {
   prepareHookRelayConfig,
 } from '@main/hook-server/hook-relay-config';
 
-const logger = log.scope('codex-hook-installer');
-
 const CURRENT_HOOK_TAG_PREFIX = 'agent-deck-hook-v2-codex-cli';
+
+export interface CodexHookInstallerObserver {
+  statusReadFailed(error: unknown): void;
+}
+
+const NOOP_OBSERVER: CodexHookInstallerObserver = {
+  statusReadFailed: () => undefined,
+};
 
 export const CODEX_HOOK_EVENTS = [
   'SessionStart',
@@ -77,6 +82,7 @@ export class CodexHookInstaller {
     private port: number,
     private token: string,
     private relayRoot: string,
+    private observer: CodexHookInstallerObserver = NOOP_OBSERVER,
   ) {}
 
   private currentCommand(event: CodexHookEvent, prepare: boolean): string {
@@ -208,7 +214,11 @@ export class CodexHookInstaller {
         installedHooks: installed,
       };
     } catch (err) {
-      logger.warn('[codex-hook-installer] status readHookConfig failed:', err);
+      try {
+        this.observer.statusReadFailed(err);
+      } catch {
+        // Observation cannot change the repairable "not installed" result.
+      }
       return {
         installed: false,
         scope: opts.scope,

@@ -6,6 +6,10 @@ import type {
 import { describe, expect, it, vi } from 'vitest';
 import { readClaudeUsageSnapshotInBackground } from '../usage-snapshot';
 
+const sessionManager = {
+  expectSdkSession: vi.fn(() => vi.fn()),
+};
+
 class FakeClaudeUsageQuery implements AsyncIterable<unknown> {
   private frames: unknown[] = [];
   private waiter: ((value: IteratorResult<unknown>) => void) | null = null;
@@ -84,7 +88,7 @@ describe('readClaudeUsageSnapshotInBackground', () => {
       },
     );
 
-    const snapshot = await readClaudeUsageSnapshotInBackground({
+    const snapshot = await readClaudeUsageSnapshotInBackground(sessionManager, {
       loadSdkFn: async () => ({ query: queryFn }) as never,
       getRuntimeOptionsFn: () => ({ executable: 'node', env: { AGENT_DECK_TEST: '1' } }),
       resolveClaudeBinaryFn: () => '/opt/claude',
@@ -133,7 +137,7 @@ describe('readClaudeUsageSnapshotInBackground', () => {
     );
     const queryFn = vi.fn(() => query as unknown as Query);
 
-    const snapshotPromise = readClaudeUsageSnapshotInBackground({
+    const snapshotPromise = readClaudeUsageSnapshotInBackground(sessionManager, {
       loadSdkFn: async () => ({ query: queryFn }) as never,
       getRuntimeOptionsFn: () => ({ executable: 'node', env: {} }),
       resolveClaudeBinaryFn: () => undefined,

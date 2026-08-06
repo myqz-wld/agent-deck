@@ -1,6 +1,4 @@
 import { methods } from '@agentclientprotocol/sdk';
-import { sessionManager } from '@main/session/manager';
-import log from '@main/utils/logger';
 import type {
   AdapterSessionMode,
   AgentEvent,
@@ -28,11 +26,16 @@ import {
   translateGrokTurnUsage,
   translateGrokUpdate,
 } from './translate';
+import type { GrokSessionManagerPort } from './bridge-options';
+import {
+  NOOP_GROK_BRIDGE_RUNTIME_HOST,
+  type GrokBridgeRuntimeHost,
+} from './bridge-runtime-core';
 
 const REQUEST_TIMEOUT_MS = 15_000;
-const logger = log.scope('grok-runtime');
-
 export interface GrokRuntimeStartContext {
+  sessionManager: Pick<GrokSessionManagerPort, 'updateCliSessionId'>;
+  runtimeHost?: GrokBridgeRuntimeHost;
   binaryPath: string | null;
   runtimes: ReadonlyMap<string, GrokRuntime>;
   sessionSetup: GrokSessionSetupOptions;
@@ -61,6 +64,8 @@ export async function startGrokRuntime(
   runtime: GrokRuntime,
   context: GrokRuntimeStartContext,
 ): Promise<boolean> {
+  const runtimeHost = context.runtimeHost ?? NOOP_GROK_BRIDGE_RUNTIME_HOST;
+  const logger = runtimeHost.diagnostics.scope('grok-runtime');
   if (!context.isCurrentRuntime(runtime) || runtime.closed) return false;
   runtime.ready = false;
   runtime.runtimeIdentity = null;
@@ -123,7 +128,7 @@ export async function startGrokRuntime(
           runtime.translation,
         );
         if (!usageEvent && runtime.translation.lastUsage !== previousWatermark) {
-          persistGrokUsageWatermark(runtime);
+          persistGrokUsageWatermark(runtime, runtimeHost);
         }
         if (!usageEvent) return;
         // Current-turn events carry their matching cumulative watermark so session manager commits
@@ -243,7 +248,7 @@ export async function startGrokRuntime(
     applyGrokNegotiatedModel(runtime, currentModelId(response));
     reportedMode = currentSessionMode(response) ?? 'default';
     runtime.sessionMode ??= reportedMode;
-    sessionManager.updateCliSessionId(
+    context.sessionManager.updateCliSessionId(
       runtime.applicationSessionId,
       response.sessionId,
     );
@@ -296,6 +301,7 @@ export async function startGrokRuntime(
   runtime.suppressUpdates = false;
   runtime.ready = true;
   scheduleGrokContextUsageRefresh(runtime, {
+    diagnostics: runtimeHost.diagnostics,
     emit: context.emit,
     isCurrentRuntime: context.isCurrentRuntime,
     requestTimeoutMs: context.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
