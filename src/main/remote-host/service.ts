@@ -243,7 +243,12 @@ export class RemoteHostService {
     return this.requestScoped(request.profileId, 'session.console.create', async (scope) => {
       const value = await scope.client.request(
         'session.console.create',
-        { adapterId: request.adapterId, projectRef: request.projectRef, options: request.options },
+        {
+          adapterId: request.adapterId,
+          initialMessage: request.initialMessage,
+          workingDirectory: request.workingDirectory,
+          options: request.options,
+        },
         {
           deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
           idempotencyKey: this.mutationId('create', request.profileId, request.intentId),
@@ -452,14 +457,8 @@ export class RemoteHostService {
   }
 
   private mutationId(scope: string, profileId: string, intentId: string): string {
-    const state = this.options.registry.state(profileId);
-    return remoteHostMutationId(
-      scope,
-      profileId,
-      state.authoritativeCoreId,
-      state.workerGeneration,
-      intentId,
-    );
+    const { authoritativeCoreId, workerGeneration } = this.options.registry.state(profileId);
+    return remoteHostMutationId(scope, profileId, authoritativeCoreId, workerGeneration, intentId);
   }
 
   private assertActive(): void {

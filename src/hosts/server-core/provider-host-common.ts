@@ -22,6 +22,18 @@ export interface ServerCoreProviderHostInput {
   readonly metadata: ServerCoreRuntimeMetadataStore;
   readonly diagnostics: ServerCoreRuntimeDiagnostics;
   readonly renames: ServerCoreProviderRenameBus;
+  readonly workspaceBoundary: ServerCoreProviderWorkspaceBoundary;
+}
+
+export interface ServerCoreProviderWorkspaceBoundary {
+  readonly workspaceRoot: string;
+  /** Trusted Core/Worker state. Model-facing tools must never receive access to this root. */
+  readonly privateRoot: string;
+  /** Provider credentials/configuration. The provider process owns it; model tools do not. */
+  readonly providerHomeRoot: string;
+  readonly runtimeReadRoots: readonly string[];
+  readonly providerCacheRoot: string;
+  readonly providerTempRoot: string;
 }
 
 export interface ServerCoreProviderRenameBus {
@@ -127,6 +139,17 @@ export function processEnvironment(): Record<string, string> {
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value === 'string') result[key] = value;
   }
+  return result;
+}
+
+export function providerProcessEnvironment(
+  input: Pick<ServerCoreProviderHostInput, 'workspaceBoundary'>,
+): Record<string, string> {
+  const result = processEnvironment();
+  result.XDG_CACHE_HOME = input.workspaceBoundary.providerCacheRoot;
+  result.TMPDIR = input.workspaceBoundary.providerTempRoot;
+  result.TMP = input.workspaceBoundary.providerTempRoot;
+  result.TEMP = input.workspaceBoundary.providerTempRoot;
   return result;
 }
 

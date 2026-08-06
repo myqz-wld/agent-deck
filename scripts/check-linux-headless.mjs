@@ -34,6 +34,7 @@ const sourceRoots = [
   'src/hosts/instance-manager',
   'src/hosts/linux-runtime',
   'src/hosts/feishu',
+  'src/hosts/workspace-sandbox',
 ];
 
 function fail(message) {
@@ -210,25 +211,47 @@ function verifyIssuedConnectionBundles() {
 
     writeFileSync(authorizedKeys, '', { mode: 0o600 });
     const relayConfig = resolve(root, 'relay-config.json');
-    const relayOutput = resolve(root, 'relay.agentdeck-connection');
+    const relayClientOutput = resolve(root, 'relay-client.agentdeck-connection');
+    const relayWorkerOutput = resolve(root, 'relay-worker.agentdeck-connection');
     writeFileSync(relayConfig, `${JSON.stringify({
       schemaVersion: 1, instanceId: 'instance-a', tickIntervalMs: 1000,
       plumbingModule: null, credentials: [],
     })}\n`, { mode: 0o600 });
     run(process.execPath, [
-      resolve(outputRoot, 'relay/index.mjs'), 'issue-connection',
+      resolve(outputRoot, 'relay/index.mjs'), 'issue-worker-connection',
+      '--instance', 'instance-a', '--credential', 'worker-credential-a',
+      '--worker', 'worker-a',
+      '--label', 'Relay production', '--hostname', 'relay.example.test',
+      '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
+      '--config', relayConfig, '--authorized-keys', authorizedKeys,
+      '--runtime-uid', '1001', '--output', relayWorkerOutput,
+    ]);
+    run(process.execPath, [
+      resolve(outputRoot, 'relay/index.mjs'), 'issue-client-connection',
       '--instance', 'instance-a', '--credential', 'desktop-relay-a',
       '--label', 'Relay production', '--hostname', 'relay.example.test',
       '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
       '--config', relayConfig, '--authorized-keys', authorizedKeys,
-      '--runtime-uid', '1001', '--output', relayOutput,
+      '--runtime-uid', '1001', '--output', relayClientOutput,
     ]);
-    const relay = JSON.parse(readFileSync(relayOutput, 'utf8'));
-    if (relay.topology !== 'relay' || relay.credentialId !== 'desktop-relay-a' ||
-        (statSync(relayOutput).mode & 0o777) !== 0o600 ||
+    const relayWorker = JSON.parse(readFileSync(relayWorkerOutput, 'utf8'));
+    const relayClient = JSON.parse(readFileSync(relayClientOutput, 'utf8'));
+    if (relayWorker.schemaVersion !== 2 || relayWorker.purpose !== 'worker' ||
+        relayWorker.topology !== 'relay' || relayWorker.workerId !== 'worker-a' ||
+        relayWorker.credentialId !== 'worker-credential-a' ||
+        !String(relayWorker.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
+        relayClient.schemaVersion !== 2 || relayClient.purpose !== 'client' ||
+        relayClient.topology !== 'relay' || relayClient.credentialId !== 'desktop-relay-a' ||
+        relayClient.workerId !== undefined ||
+        !String(relayClient.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
+        (statSync(relayWorkerOutput).mode & 0o777) !== 0o600 ||
+        (statSync(relayClientOutput).mode & 0o777) !== 0o600 ||
         !readFileSync(relayConfig, 'utf8').includes('"kind": "ssh-client"') ||
-        !readFileSync(authorizedKeys, 'utf8').includes('/run/user/1001/')) {
-      fail('Relay bundle did not issue and enroll its exact desktop credential');
+        !readFileSync(relayConfig, 'utf8').includes('"kind": "relay-worker"') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('/run/user/1001/') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop-full') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('--worker worker-a')) {
+      fail('Relay bundle did not separately issue exact Client and Worker credentials');
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -261,6 +284,7 @@ if (
   packageFixture.hostRequirements?.podman !== 'rootless' ||
   packageFixture.hostRequirements?.nodeExecutable !== '/usr/bin/node' ||
   packageFixture.hostRequirements?.podmanExecutable !== '/usr/bin/podman' ||
+  packageFixture.hostRequirements?.workspaceSandboxExecutable !== '/usr/bin/bwrap' ||
   packageFixture.hostRequirements?.wrapperShell !== '/bin/bash' ||
   packageFixture.hostRequirements?.emptyEnvironmentExecutable !== '/usr/bin/env' ||
   packageFixture.hostRequirements?.serviceAccountHome !== '/var/lib/agent-deck' ||
@@ -334,6 +358,21 @@ for (const role of ['server-core', 'local-worker']) {
   }
   if (role === 'server-core' && bundle.includes('/usr/bin/podman')) {
     fail('Server Core container artifact contains the host Podman bridge');
+  }
+}
+const localWorkerBundle = filesUnder(resolve(outputRoot, 'local-worker'))
+  .map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const required of [
+  'LocalWorkerTerminalServiceManager',
+  'Worker 已配置并启动',
+  '/bin/launchctl',
+  '/usr/bin/systemctl',
+  '/usr/bin/bwrap',
+  'workspace.bookmark',
+  '--bookmark',
+]) {
+  if (!localWorkerBundle.includes(required)) {
+    fail(`Local Worker artifact lost terminal lifecycle ${required}`);
   }
 }
 const serverCoreRuntimeBundle = filesUnder(resolve(outputRoot, 'server-core-runtime'))
@@ -492,11 +531,20 @@ for (const wrapper of [
   const path = resolve(repoRoot, 'resources/bin', wrapper);
   run('/bin/bash', ['-n', path]);
   const source = readFileSync(path, 'utf8');
+  const executionFence = wrapper === 'agent-deck-worker'
+    ? source.includes('node=/usr/bin/node') &&
+      source.includes('entrypoint=/opt/agent-deck/linux-headless/local-worker/index.mjs') &&
+      source.includes('runtime_module=/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs') &&
+      source.includes('verify_root_owned_linux /usr/bin/bwrap file') &&
+      source.includes('com.agentdeck.worker-sandbox') &&
+      source.includes('agent-deck-worker-bookmark') &&
+      source.includes('Agent Deck Worker Node')
+    : source.includes('/usr/bin/node /opt/agent-deck/linux-headless/');
   if (
     !source.startsWith('#!/bin/bash -p\n') ||
     !source.includes('unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV') ||
     !source.includes('exec /usr/bin/env -i') ||
-    !source.includes('/usr/bin/node /opt/agent-deck/linux-headless/') ||
+    !executionFence ||
     /\$\{?AGENT_DECK_(?:HEADLESS_ROOT|NODE)|command -v/.test(source)
   ) fail(`${wrapper} does not use the canonical production runtime fence`);
 }

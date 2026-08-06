@@ -34,7 +34,7 @@ function authority(): AuthoritativeSessionConsolePort {
     getSession: () => ({ session: null, revision: 1 }),
     listProjects: () => ({ projects: [], nextCursor: null, total: 0, revision: 1 }),
     resolveProject: () => ({ project: null, revision: 1 }),
-    createSessionByProject: () => ({ sessionId: 'session-a', revision: 2 }),
+    createSession: () => ({ sessionId: 'session-a', revision: 2 }),
   };
 }
 

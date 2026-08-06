@@ -1,21 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRemoteConnectionCredential, renderRemoteConnectionKnownHosts } from './connection-credential';
+import {
+  isRemoteConnectionClientCredential,
+  isRemoteConnectionWorkerCredential,
+  parseRemoteConnectionCredential,
+  renderRemoteConnectionKnownHosts,
+} from './connection-credential';
 
 const PRIVATE_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\nQUFBQQ==\n-----END OPENSSH PRIVATE KEY-----\n';
 const HOST_KEY = 'AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH';
 
 function credential() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-deck-remote-connection-credential',
     label: 'Production',
+    purpose: 'client',
     topology: 'server-core',
     instanceId: 'instance-a',
     credentialId: 'desktop-a',
     endpoint: { hostname: 'core.example.test', port: 22, username: 'agentdeck' },
     hostKeys: [{ algorithm: 'ssh-ed25519', publicKey: HOST_KEY }],
     identity: { algorithm: 'ssh-ed25519', privateKey: PRIVATE_KEY },
+  };
+}
+
+function currentCredential(
+  purpose: 'client' | 'worker',
+  topology: 'relay' | 'server-core' = 'relay',
+) {
+  return {
+    ...credential(),
+    topology,
+    purpose,
+    ...(purpose === 'worker' ? { workerId: 'worker-a' } : {}),
   };
 }
 
@@ -26,6 +44,30 @@ describe('remote connection credential', () => {
     expect(renderRemoteConnectionKnownHosts(parsed)).toBe(
       `core.example.test ssh-ed25519 ${HOST_KEY}\n`,
     );
+  });
+
+  it('rejects the pre-release v1 credential shape', () => {
+    const { purpose: _purpose, ...legacy } = credential();
+    expect(() => parseRemoteConnectionCredential({ ...legacy, schemaVersion: 1 }))
+      .toThrow('schemaVersion is unsupported');
+  });
+
+  it('accepts a purpose-locked Client credential for Full or Relay', () => {
+    const full = parseRemoteConnectionCredential(currentCredential('client', 'server-core'));
+    const relay = parseRemoteConnectionCredential(currentCredential('client'));
+
+    expect(full).toMatchObject({ schemaVersion: 2, purpose: 'client', topology: 'server-core' });
+    expect(relay).toMatchObject({ schemaVersion: 2, purpose: 'client', topology: 'relay' });
+    expect(isRemoteConnectionClientCredential(full)).toBe(true);
+    expect(isRemoteConnectionWorkerCredential(full)).toBe(false);
+  });
+
+  it('binds one Worker credential to Relay and a stable Worker id', () => {
+    const parsed = parseRemoteConnectionCredential(currentCredential('worker'));
+
+    expect(isRemoteConnectionWorkerCredential(parsed)).toBe(true);
+    expect(isRemoteConnectionClientCredential(parsed)).toBe(false);
+    expect(parsed).toMatchObject({ purpose: 'worker', topology: 'relay', workerId: 'worker-a' });
   });
 
   it('uses the OpenSSH bracket form for non-default ports and IPv6', () => {
@@ -45,5 +87,16 @@ describe('remote connection credential', () => {
     expect(() => parseRemoteConnectionCredential({
       ...credential(), identity: { algorithm: 'ssh-ed25519', privateKey: 'secret' },
     })).toThrow('identity');
+    expect(() => parseRemoteConnectionCredential({
+      ...currentCredential('client', 'server-core'),
+      workerId: 'worker-a',
+    })).toThrow('unexpected');
+    expect(() => parseRemoteConnectionCredential({
+      ...currentCredential('worker', 'server-core'),
+    })).toThrow('Relay topology');
+    expect(() => parseRemoteConnectionCredential({
+      ...currentCredential('worker'),
+      workerId: undefined,
+    })).toThrow('invalid');
   });
 });

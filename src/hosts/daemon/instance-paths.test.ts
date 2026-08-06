@@ -90,4 +90,18 @@ describe('daemon instance paths', () => {
       }),
     ).toThrow(/Unix socket path exceeds/);
   });
+
+  it('allows a long runtime namespace only when daemon ingress is explicitly unused', () => {
+    const longEnvironment = {
+      ...environment,
+      XDG_RUNTIME_DIR: `/private/${'worker-private-root-'.repeat(8)}`,
+    };
+    const paths = resolveDaemonInstancePaths(
+      'tenant',
+      longEnvironment,
+      { controlSocket: 'unused' },
+    );
+    expect(paths.runtimeDirectory).toBe(`${longEnvironment.XDG_RUNTIME_DIR}/agent-deck/tenant`);
+    expect(Buffer.byteLength(paths.socketPath)).toBeGreaterThan(103);
+  });
 });

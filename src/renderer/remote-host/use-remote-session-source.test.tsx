@@ -379,27 +379,15 @@ describe('useRemoteSessionSource source fencing', () => {
     expect(window.api.respondRemoteHostPending).toHaveBeenCalledTimes(1);
   });
 
-  it('publishes session and project rows before bounded pending hydration finishes', async () => {
+  it('publishes session rows before bounded pending hydration finishes', async () => {
     const pending = deferred<{
       requests: [];
       revision: number;
     }>();
     vi.mocked(window.api.listRemoteHostPending).mockImplementation(() => pending.promise);
-    vi.mocked(window.api.listRemoteHostProjects).mockResolvedValue({
-      projects: [{
-        projectId: 'project-a',
-        projectRef: 'opaque-project-a',
-        alias: 'demo',
-        title: 'Demo project',
-      }],
-      nextCursor: null,
-      total: 1,
-      revision: 1,
-    });
     const hook = renderHook(() => useRemoteSessionSource(hosts('remote-a', 1)));
 
     await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('remote-a list'));
-    expect(hook.result.current.projects[0]?.title).toBe('Demo project');
     expect(hook.result.current.pendingBySession.has('same-session')).toBe(false);
 
     pending.resolve({ requests: [], revision: 9 });

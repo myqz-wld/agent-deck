@@ -11,6 +11,7 @@ import {
   isSelectablePermissionMode,
   type SessionRecord,
 } from '@shared/types';
+import { serverCoreGrokSandbox } from './provider-grok-sandbox';
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const MODEL_FIELDS = new Set(['model', 'provider', 'thinking']);
@@ -147,7 +148,7 @@ export async function applyServerCoreRuntimePatch(
   if (keys[0] === 'grokSandbox') {
     const value = oneField(patch, 'grokSandbox');
     if (record.agentId !== 'grok-build') invalid();
-    const sandbox = optionalText(value);
+    const sandbox = serverCoreGrokSandbox(optionalText(value));
     if (!adapter.restartWithGrokSandbox) unavailable();
     const replacementSessionId = await adapter.restartWithGrokSandbox(record.id, sandbox);
     return { effect: 'restart-required', replacementSessionId };

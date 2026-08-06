@@ -7,3 +7,4 @@ export * from './method-surface';
 export * from './methods';
 export * from './session-console';
 export * from './topology';
+export * from './workspace-sandbox';

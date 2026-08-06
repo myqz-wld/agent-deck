@@ -9,11 +9,15 @@ import type { DaemonCoreRuntime } from '@hosts/daemon';
 import { preflightNodeNativeSqlite } from '@hosts/daemon';
 import { AtomicPrivateStateFile } from '@hosts/linux-runtime/atomic-state-file';
 import {
-  loadTrustedRuntimeModule,
   requireModuleFactory,
 } from '@hosts/linux-runtime/runtime-module';
+import {
+  assertWorkspaceSandboxIdentity,
+  captureWorkspaceSandboxIdentity,
+} from '@hosts/workspace-sandbox';
 
 import { WorkerAttachmentController } from './attachment';
+import { loadTrustedLocalWorkerRuntimeModule } from './darwin-runtime-module';
 import type { CoreFrameChannelFactory } from './attachment-types';
 import type { LocalWorkerHeadlessConfig } from './headless-config';
 import { LocalWorkerGenerationStore } from './generation-store';
@@ -31,6 +35,7 @@ export interface LocalWorkerRuntimeFactoryInput {
   readonly instanceId: string;
   readonly appVersion: string;
   readonly runtimeOptions: LocalWorkerHeadlessConfig['runtimeOptions'];
+  readonly workspaceSandbox: LocalWorkerHeadlessConfig['workspaceSandbox'];
 }
 
 export interface LocalWorkerRuntimeBootstrap {
@@ -43,7 +48,7 @@ export interface LocalWorkerRuntimeBootstrap {
 }
 
 export interface LocalWorkerRootOptions {
-  readonly loadModule?: typeof loadTrustedRuntimeModule;
+  readonly loadModule?: typeof loadTrustedLocalWorkerRuntimeModule;
   readonly connector?: OpenSshWorkerConnector;
   readonly sqlitePreflight?: () => unknown | Promise<unknown>;
 }
@@ -73,13 +78,19 @@ export async function createLocalWorkerController(
   config: LocalWorkerHeadlessConfig,
   options: LocalWorkerRootOptions = {},
 ): Promise<AgentDeckCompositionController> {
+  const sandboxIdentity = config.workspaceSandbox
+    ? captureWorkspaceSandboxIdentity(config.workspaceSandbox)
+    : null;
   const generationStore = new LocalWorkerGenerationStore(
     new AtomicPrivateStateFile(config.generationFile, 4_096),
     config.instanceId,
     config.ssh.workerId,
   );
   const initialGeneration = await generationStore.load();
-  const module = await (options.loadModule ?? loadTrustedRuntimeModule)(config.runtimeModule);
+  const module = await (options.loadModule ?? loadTrustedLocalWorkerRuntimeModule)(
+    config.runtimeModule,
+  );
+  if (sandboxIdentity) assertWorkspaceSandboxIdentity(sandboxIdentity);
   const factory = requireModuleFactory<LocalWorkerRuntimeFactoryInput>(
     module,
     'createLocalWorkerRuntime',
@@ -88,6 +99,7 @@ export async function createLocalWorkerController(
     instanceId: config.instanceId,
     appVersion: config.appVersion,
     runtimeOptions: config.runtimeOptions,
+    workspaceSandbox: config.workspaceSandbox,
   }));
   const runtime = new SessionConsoleDaemonRuntime(
     created.runtime,
@@ -107,6 +119,7 @@ export async function createLocalWorkerController(
   const core: LifecycleComponent = {
     name: 'local-worker-core',
     start: async () => {
+      if (sandboxIdentity) assertWorkspaceSandboxIdentity(sandboxIdentity);
       await (options.sqlitePreflight ?? preflightNodeNativeSqlite)();
       await runtime.start();
     },

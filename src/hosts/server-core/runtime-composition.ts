@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { createProviderAdapterSet } from '@main/adapters/provider-adapter-set-core';
@@ -9,6 +12,7 @@ import {
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
 import type { AgentAdapter } from '@main/adapters/types';
 import type { JsonObject, JsonValue } from '@contracts/index';
+import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
 import type { ServerCoreRuntimeBootstrap, ServerCoreRuntimeFactoryInput } from './root';
 import { ServerCoreCredentialFile } from './credential-file';
 import { createServerCoreClaudeHost } from './provider-claude-host';
@@ -19,10 +23,14 @@ import {
   createServerCoreProviderRenameBus,
   sessionChange,
   type ServerCoreProviderHostInput,
+  type ServerCoreProviderWorkspaceBoundary,
 } from './provider-host-common';
 import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
 import { resolveServerCoreProviderSettings } from './provider-settings';
-import { resolveServerCoreProjectCatalog } from './project-catalog';
+import {
+  resolveServerCoreProjectCatalog,
+  withServerCoreWorkspaceRootProject,
+} from './project-catalog';
 import {
   ServerCoreRepositoryHost,
   type ServerCoreRuntimeDiagnostics,
@@ -40,6 +48,45 @@ export interface ServerCoreRuntimeCompositionOverrides {
   readonly processId?: string;
   readonly credentialFilePath?: string;
   readonly diagnostics?: ServerCoreRuntimeDiagnostics;
+  readonly workspaceRoot?: string;
+  readonly workspaceSandbox?: WorkspaceSandboxSpec;
+}
+
+function ensureProviderPrivateDirectory(path: string): string {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  return path;
+}
+
+function providerWorkspaceBoundary(
+  input: ServerCoreRuntimeFactoryInput,
+  workspaceRoot: string,
+  sandbox: WorkspaceSandboxSpec | undefined,
+): ServerCoreProviderWorkspaceBoundary {
+  if (sandbox) {
+    if (sandbox.workspaceRoot !== workspaceRoot) {
+      throw new Error('provider workspace root does not match the Worker sandbox');
+    }
+    return Object.freeze({
+      workspaceRoot,
+      privateRoot: sandbox.privateRoot,
+      providerHomeRoot: sandbox.environment.providerHomeRoot,
+      runtimeReadRoots: Object.freeze([...sandbox.runtimeReadRoots]),
+      providerCacheRoot: sandbox.environment.providerCacheRoot,
+      providerTempRoot: sandbox.environment.providerTempRoot,
+    });
+  }
+  return Object.freeze({
+    workspaceRoot,
+    privateRoot: input.paths.stateDirectory,
+    providerHomeRoot: process.env.HOME || homedir(),
+    runtimeReadRoots: Object.freeze(['/opt/agent-deck']),
+    providerCacheRoot: ensureProviderPrivateDirectory(
+      join(input.paths.stateDirectory, 'provider-cache'),
+    ),
+    providerTempRoot: ensureProviderPrivateDirectory(
+      join(input.paths.stateDirectory, 'provider-tmp'),
+    ),
+  });
 }
 
 function validateRuntimeOptions(runtimeOptions: JsonObject): void {
@@ -114,6 +161,12 @@ export function createServerCoreRuntimeWithOverrides(
   overrides: ServerCoreRuntimeCompositionOverrides = {},
 ): ServerCoreRuntimeBootstrap {
   validateRuntimeOptions(input.runtimeOptions);
+  const workspaceRoot = overrides.workspaceRoot ?? '/workspaces';
+  const workspaceBoundary = providerWorkspaceBoundary(
+    input,
+    workspaceRoot,
+    overrides.workspaceSandbox,
+  );
   const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
   const processId = overrides.processId ??
     `${input.instanceId}:${process.pid}:${randomUUID()}`;
@@ -164,6 +217,7 @@ export function createServerCoreRuntimeWithOverrides(
     metadata,
     diagnostics: runtimeDiagnostics,
     renames,
+    workspaceBoundary,
   });
   const adapterSet = createProviderAdapterSet({
     claude: createServerCoreClaudeHost(providerInput),
@@ -243,7 +297,11 @@ export function createServerCoreRuntimeWithOverrides(
     lifecycle,
   });
   const sessionConsoleAuthority = new ServerCoreSessionConsoleAuthority({
-    projects: resolveServerCoreProjectCatalog(input.runtimeOptions),
+    projects: withServerCoreWorkspaceRootProject(
+      resolveServerCoreProjectCatalog(input.runtimeOptions, workspaceRoot),
+      workspaceRoot,
+    ),
+    workspaceRoot,
     repository: repositories.sessionConsoleRepository,
     registry,
     metadata,

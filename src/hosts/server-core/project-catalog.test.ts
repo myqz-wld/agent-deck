@@ -6,6 +6,8 @@ import {
   publicServerCoreProject,
   resolveServerCoreProjectCatalog,
   resolveServerCoreProjectWorkspace,
+  resolveServerCoreWorkspaceDirectory,
+  withServerCoreWorkspaceRootProject,
 } from './project-catalog';
 
 const roots: string[] = [];
@@ -28,7 +30,7 @@ describe('Server Core project catalog', () => {
     const paths = workspace();
     const catalog = resolveServerCoreProjectCatalog({ projects: [{
       projectId: 'project-alpha',
-      projectRef: 'opaque-alpha',
+      projectRef: 'alpha',
       alias: 'alpha',
       title: 'Project Alpha',
       workspacePath: paths.project,
@@ -39,11 +41,57 @@ describe('Server Core project catalog', () => {
     );
     expect(publicServerCoreProject(catalog[0]!)).toEqual({
       projectId: 'project-alpha',
-      projectRef: 'opaque-alpha',
+      projectRef: 'alpha',
       alias: 'alpha',
       title: 'Project Alpha',
     });
     expect(publicServerCoreProject(catalog[0]!)).not.toHaveProperty('workspacePath');
+  });
+
+  it('allows a single-project Worker to use the authorized workspace root itself', () => {
+    const paths = workspace();
+    const catalog = resolveServerCoreProjectCatalog({ projects: [{
+      projectId: 'worker-workspace',
+      projectRef: '.',
+      alias: 'workspace',
+      title: null,
+      workspacePath: paths.root,
+    }] }, paths.root);
+
+    expect(resolveServerCoreProjectWorkspace(catalog[0]!, paths.root)).toBe(
+      realpathSync(paths.root),
+    );
+  });
+
+  it('publishes only a relative root suggestion and permits nested directory selection', () => {
+    const paths = workspace();
+    const nested = join(paths.project, 'nested');
+    mkdirSync(nested);
+    const catalog = withServerCoreWorkspaceRootProject([], paths.root);
+
+    expect(catalog).toMatchObject([{
+      projectId: 'agent-deck-workspace-root',
+      projectRef: '.',
+      alias: 'workspace',
+      title: null,
+    }]);
+    expect(publicServerCoreProject(catalog[0]!)).not.toHaveProperty('workspacePath');
+    expect(resolveServerCoreWorkspaceDirectory('alpha/nested', paths.root))
+      .toBe(realpathSync(nested));
+  });
+
+  it('rejects absolute, parent, missing, and symlink working directories', () => {
+    const paths = workspace();
+    const outside = join(paths.root, '..', 'outside');
+    mkdirSync(outside);
+    const link = join(paths.root, 'escape-link');
+    symlinkSync(outside, link);
+
+    for (const reference of ['/etc', '../outside', 'alpha/../outside', 'missing']) {
+      expect(() => resolveServerCoreWorkspaceDirectory(reference, paths.root)).toThrow();
+    }
+    expect(() => resolveServerCoreWorkspaceDirectory('escape-link', paths.root))
+      .toThrow('unavailable');
   });
 
   it('rejects duplicate public identities and paths outside the workspace volume', () => {

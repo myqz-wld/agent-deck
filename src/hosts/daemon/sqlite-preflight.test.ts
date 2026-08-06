@@ -63,4 +63,26 @@ describe('Node-native SQLite ABI preflight', () => {
     );
     expect(loadModule).not.toHaveBeenCalled();
   });
+
+  it('admits an explicitly isolated Electron-as-Node Worker runtime', () => {
+    const close = vi.fn();
+    class Database {
+      constructor(_filename: string) {}
+
+      close(): void {
+        close();
+      }
+    }
+    expect(preflightNodeNativeSqlite({
+      allowElectronAsNode: true,
+      loadModule: () => Database,
+      runtimeVersions: { node: '20.18.3', modules: '130', electron: '33.4.11' },
+    })).toEqual({
+      moduleName: 'better-sqlite3',
+      runtimeNodeVersion: '20.18.3',
+      runtimeAbi: '130',
+      probeDatabase: ':memory:',
+    });
+    expect(close).toHaveBeenCalledOnce();
+  });
 });

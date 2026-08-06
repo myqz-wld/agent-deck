@@ -1,6 +1,14 @@
+import { isAbsolute, relative, resolve } from 'node:path';
+
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import type { CodexAppServerUserInput, JsonObject, JsonValue } from './protocol';
+import {
+  WORKSPACE_READ_ONLY_NETWORK_PROFILE,
+  WORKSPACE_READ_ONLY_PROFILE,
+  WORKSPACE_WRITE_NETWORK_PROFILE,
+  WORKSPACE_WRITE_PROFILE,
+} from './workspace-permissions';
 
 export function buildThreadStartParams(
   options: CodexThreadOptions,
@@ -13,9 +21,6 @@ export function buildThreadStartParams(
       : {}),
     ...(options.dynamicTools !== undefined ? { dynamicTools: [] } : {}),
     ...(options.environments !== undefined ? { environments: [] } : {}),
-    ...(options.runtimeWorkspaceRoots !== undefined
-      ? { runtimeWorkspaceRoots: [...options.runtimeWorkspaceRoots] }
-      : {}),
     ...(options.selectedCapabilityRoots !== undefined
       ? { selectedCapabilityRoots: [] }
       : {}),
@@ -62,9 +67,19 @@ function buildThreadCommonParams(
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
+  assertWorkspaceWorkingDirectory(options);
+  const config = buildThreadConfig(options, baseConfig);
+  const permissionProfile = resolvePermissionProfile(options, config);
   return {
     cwd: options.workingDirectory,
-    sandbox: options.sandboxMode,
+    ...(permissionProfile === null
+      ? { sandbox: options.sandboxMode }
+      : { permissions: permissionProfile }),
+    ...(options.workspacePermissionBoundary
+      ? { runtimeWorkspaceRoots: [options.workspacePermissionBoundary.workspaceRoot] }
+      : options.runtimeWorkspaceRoots !== undefined
+        ? { runtimeWorkspaceRoots: [...options.runtimeWorkspaceRoots] }
+        : {}),
     ...(options.approvalPolicy !== undefined
       ? { approvalPolicy: options.approvalPolicy }
       : {}),
@@ -75,7 +90,7 @@ function buildThreadCommonParams(
     ...(options.developerInstructions !== undefined
       ? { developerInstructions: options.developerInstructions }
       : {}),
-    config: buildThreadConfig(options, baseConfig),
+    config,
   };
 }
 
@@ -112,6 +127,19 @@ export function buildThreadConfig(
     }
     config.sandbox_workspace_write = workspace;
   }
+  if (options.workspacePermissionBoundary) {
+    // Permission profiles and legacy sandbox settings do not compose. The fixed profiles live in
+    // the trusted headless app-server process configuration because Codex does not retain a
+    // thread/start-only profile table for later turn/start requests. Delete every lower/user
+    // definition here so a custom agent cannot shadow those process-owned names.
+    delete config.sandbox_mode;
+    delete config.sandbox_workspace_write;
+    delete config.default_permissions;
+    delete config.permissions;
+    // Workspace-owned plugins, hooks, and MCP configuration remain provider-native behavior. Any
+    // subprocess they launch inherits the independently enforced outer Worker sandbox, while the
+    // process-owned permission profiles below remain impossible for thread config to shadow.
+  }
   return config;
 }
 
@@ -126,7 +154,9 @@ export function buildTurnStartParams(
     runtimeWorkspaceRoots?: readonly string[];
   } = {},
 ): JsonObject {
+  assertWorkspaceWorkingDirectory(options);
   const effectiveConfig = buildThreadConfig(options, baseConfig);
+  const permissionProfile = resolvePermissionProfile(options, effectiveConfig);
   return {
     threadId,
     input,
@@ -134,7 +164,9 @@ export function buildTurnStartParams(
     ...(options.approvalPolicy !== undefined
       ? { approvalPolicy: options.approvalPolicy }
       : {}),
-    sandboxPolicy: buildSandboxPolicy(options, effectiveConfig),
+    ...(permissionProfile === null
+      ? { sandboxPolicy: buildSandboxPolicy(options, effectiveConfig) }
+      : { permissions: permissionProfile }),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.modelReasoningEffort !== undefined
       ? { effort: options.modelReasoningEffort }
@@ -143,10 +175,44 @@ export function buildTurnStartParams(
       ? { outputSchema: turnOptions.outputSchema }
       : {}),
     ...(turnOptions.environments !== undefined ? { environments: [] } : {}),
-    ...(turnOptions.runtimeWorkspaceRoots !== undefined
-      ? { runtimeWorkspaceRoots: [...turnOptions.runtimeWorkspaceRoots] }
-      : {}),
+    ...(options.workspacePermissionBoundary
+      ? { runtimeWorkspaceRoots: [options.workspacePermissionBoundary.workspaceRoot] }
+      : turnOptions.runtimeWorkspaceRoots !== undefined
+        ? { runtimeWorkspaceRoots: [...turnOptions.runtimeWorkspaceRoots] }
+        : {}),
   };
+}
+
+function assertWorkspaceWorkingDirectory(options: CodexThreadOptions): void {
+  const root = options.workspacePermissionBoundary?.workspaceRoot;
+  if (!root) return;
+  const cwd = options.workingDirectory;
+  const child = relative(root, cwd);
+  if (
+    !isAbsolute(root) || resolve(root) !== root ||
+    !isAbsolute(cwd) || resolve(cwd) !== cwd ||
+    child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) ||
+    isAbsolute(child)
+  ) {
+    throw new Error('Codex working directory escapes the Server Core workspace');
+  }
+}
+
+function workspaceNetworkEnabled(options: CodexThreadOptions, config: JsonObject): boolean {
+  if (options.sandboxMode === 'danger-full-access') return true;
+  return resolveNetworkAccess(options, config);
+}
+
+function resolvePermissionProfile(
+  options: CodexThreadOptions,
+  config: JsonObject,
+): string | null {
+  if (!options.workspacePermissionBoundary) return null;
+  const network = workspaceNetworkEnabled(options, config);
+  if (options.sandboxMode === 'read-only') {
+    return network ? WORKSPACE_READ_ONLY_NETWORK_PROFILE : WORKSPACE_READ_ONLY_PROFILE;
+  }
+  return network ? WORKSPACE_WRITE_NETWORK_PROFILE : WORKSPACE_WRITE_PROFILE;
 }
 
 function buildSandboxPolicy(

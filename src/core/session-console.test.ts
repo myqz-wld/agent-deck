@@ -47,7 +47,7 @@ function authority(
       },
       revision: 1,
     }),
-    createSessionByProject: () => ({ sessionId: 'session-1', revision: 2 }),
+    createSession: () => ({ sessionId: 'session-1', revision: 2 }),
     ...overrides,
   };
 }
@@ -71,9 +71,9 @@ describe('SessionConsoleCoreDispatcher', () => {
     ).rejects.toThrow('Invalid session-console contract field');
   });
 
-  it('resolves and creates by opaque project reference in either authoritative topology', async () => {
-    const createSessionByProject = vi.fn(() => ({ sessionId: 'session-2', revision: 3 }));
-    const dispatcher = new SessionConsoleCoreDispatcher(authority({ createSessionByProject }));
+  it('resolves suggestions and creates by Workspace-relative directory in either topology', async () => {
+    const createSession = vi.fn(() => ({ sessionId: 'session-2', revision: 3 }));
+    const dispatcher = new SessionConsoleCoreDispatcher(authority({ createSession }));
     const relayAccess: AccessContext = {
       ...serverAccess,
       topology: 'relay',
@@ -88,22 +88,27 @@ describe('SessionConsoleCoreDispatcher', () => {
 
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', projectRef: 'opaque-project-1', options: {} },
+      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir', options: {} },
       context(relayAccess, 'event-1'),
     )).resolves.toEqual({ sessionId: 'session-2', revision: 3 });
-    expect(createSessionByProject).toHaveBeenCalledWith(
-      { adapterId: 'codex-cli', projectRef: 'opaque-project-1', options: {} },
+    expect(createSession).toHaveBeenCalledWith(
+      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir', options: {} },
       expect.objectContaining({ access: expect.objectContaining({ topology: 'relay' }) }),
     );
-    expect(JSON.stringify(createSessionByProject.mock.calls)).not.toContain('cwd');
+    expect(JSON.stringify(createSession.mock.calls)).not.toContain('cwd');
   });
 
-  it('rejects path-shaped project references and unknown request fields', async () => {
+  it('rejects absolute or escaping working directories and unknown request fields', async () => {
     const dispatcher = new SessionConsoleCoreDispatcher(authority());
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', projectRef: '/private/project', options: {} },
+      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: '/private/project', options: {} },
       context(serverAccess, 'event-1'),
+    )).rejects.toThrow('Invalid session-console contract field');
+    await expect(dispatcher.execute(
+      'session.console.create',
+      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: '../outside', options: {} },
+      context(serverAccess, 'event-2'),
     )).rejects.toThrow('Invalid session-console contract field');
     await expect(dispatcher.execute(
       'session.console.list',
@@ -114,21 +119,21 @@ describe('SessionConsoleCoreDispatcher', () => {
 
   it('enforces page limits and mutation idempotency before authority calls', async () => {
     const listSessions = vi.fn();
-    const createSessionByProject = vi.fn();
+    const createSession = vi.fn();
     const dispatcher = new SessionConsoleCoreDispatcher(authority({
       listSessions,
-      createSessionByProject,
+      createSession,
     }));
     await expect(
       dispatcher.execute('session.console.list', { limit: 101 }, context()),
     ).rejects.toThrow('Invalid session-console contract field');
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', projectRef: 'opaque-project-1', options: {} },
+      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: '.', options: {} },
       context(),
     )).rejects.toThrow('requires a stable idempotency key');
     expect(listSessions).not.toHaveBeenCalled();
-    expect(createSessionByProject).not.toHaveBeenCalled();
+    expect(createSession).not.toHaveBeenCalled();
   });
 
   it('rejects the Relay Worker attachment surface before authority dispatch', async () => {

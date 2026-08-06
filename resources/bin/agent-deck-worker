@@ -10,7 +10,7 @@ fail() {
   exit 70
 }
 
-verify_root_owned() {
+verify_root_owned_linux() {
   local path=$1 kind=$2 mode owner
   [[ ! -L "$path" ]] || fail
   [[ "$kind" == directory && -d "$path" || "$kind" == file && -f "$path" ]] || fail
@@ -21,14 +21,251 @@ verify_root_owned() {
   (( (8#$mode & 8#022) == 0 )) || fail
 }
 
-for directory in /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless /opt/agent-deck/linux-headless/local-worker /opt/agent-deck/linux-headless/local-worker-runtime; do
-  verify_root_owned "$directory" directory
-done
-verify_root_owned /opt/agent-deck/bin/agent-deck-worker file
-verify_root_owned /usr/bin/node file
-verify_root_owned /opt/agent-deck/linux-headless/local-worker/index.mjs file
-verify_root_owned /opt/agent-deck/linux-headless/local-worker-runtime/index.mjs file
+canonical_directory() {
+  [[ -d "$1" && ! -L "$1" ]] || fail
+  (cd -- "$1" && pwd -P)
+}
+
+canonical_file() {
+  local parent name
+  [[ -f "$1" && ! -L "$1" ]] || fail
+  parent="$(canonical_directory "$(dirname -- "$1")")"
+  name="$(basename -- "$1")"
+  printf '%s/%s\n' "$parent" "$name"
+}
+
+verify_trusted_darwin_executable() {
+  local path=$1 mode owner current_uid
+  path="$(canonical_file "$path")"
+  [[ -x "$path" ]] || fail
+  mode="$(/usr/bin/stat -f '%Lp' -- "$path")"
+  owner="$(/usr/bin/stat -f '%u' -- "$path")"
+  current_uid="$(/usr/bin/id -u)"
+  (( (8#$mode & 8#022) == 0 )) || fail
+  [[ "$owner" == 0 || "$owner" == "$current_uid" ]] || fail
+  /usr/bin/codesign --verify --strict -- "$path" >/dev/null 2>&1 || fail
+}
+
+prepare_sandboxed_node_environment() {
+  local name value runtime_home
+  [[ -n "${HOME:-}" ]] || fail
+  runtime_home="$(canonical_directory "$HOME")"
+  node_environment=(HOME="$runtime_home")
+  for name in XDG_CACHE_HOME XDG_CONFIG_HOME XDG_RUNTIME_DIR XDG_STATE_HOME TMPDIR TMP TEMP; do
+    value="${!name:-}"
+    [[ -z "$value" ]] || node_environment+=("$name=$(canonical_directory "$value")")
+  done
+}
+
+prepare_configure_args() {
+  local credential='' workspace=''
+  shift
+  while (( $# > 0 )); do
+    case "$1" in
+      --credential)
+        (( $# >= 2 )) || fail
+        credential=$2
+        shift 2
+        ;;
+      --workspace)
+        (( $# >= 2 )) || fail
+        workspace=$2
+        shift 2
+        ;;
+      *)
+        echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
+        exit 2
+        ;;
+    esac
+  done
+  [[ -n "$credential" && -n "$workspace" ]] || {
+    echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
+    exit 2
+  }
+  CONFIGURE_CREDENTIAL="$(canonical_file "$credential")"
+  CONFIGURE_WORKSPACE="$(canonical_directory "$workspace")"
+}
+
+prepare_lifecycle_args() {
+  local worker=''
+  shift
+  while (( $# > 0 )); do
+    case "$1" in
+      --worker)
+        (( $# >= 2 )) || fail
+        worker=$2
+        shift 2
+        ;;
+      *)
+        echo '用法: agent-deck-worker {start|status|stop|remove} [--worker <配置标识>]' >&2
+        exit 2
+        ;;
+    esac
+  done
+  LIFECYCLE_WORKER="$worker"
+}
+
+requested_command="${1:-}"
+case "$requested_command" in
+  configure|start|status|stop|remove)
+    needs_service_roots=1
+    ;;
+  serve|check-config|check-abi)
+    needs_service_roots=0
+    ;;
+  *)
+    needs_service_roots=0
+    ;;
+esac
+
+platform="$(uname -s)"
+DARWIN_CONFIGURE_ARGS=()
+DARWIN_SERVICE_ARGS=()
+case "$platform" in
+  Linux)
+    for directory in \
+      /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless \
+      /opt/agent-deck/linux-headless/local-worker \
+      /opt/agent-deck/linux-headless/local-worker-runtime; do
+      verify_root_owned_linux "$directory" directory
+    done
+    verify_root_owned_linux /opt/agent-deck/bin/agent-deck-worker file
+    verify_root_owned_linux /usr/bin/node file
+    verify_root_owned_linux /usr/bin/bwrap file
+    verify_root_owned_linux /opt/agent-deck/linux-headless/local-worker/index.mjs file
+    verify_root_owned_linux /opt/agent-deck/linux-headless/local-worker-runtime/index.mjs file
+    worker_home=/var/lib/agent-deck
+    node=/usr/bin/node
+    wrapper=/opt/agent-deck/bin/agent-deck-worker
+    entrypoint=/opt/agent-deck/linux-headless/local-worker/index.mjs
+    runtime_module=/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs
+    runtime_roots='["/opt/agent-deck","/usr/bin","/usr/lib"]'
+    app_version=0.1.0
+    worker_uid="$(/usr/bin/id -u)"
+    runtime_dir="/run/user/$worker_uid"
+    if (( needs_service_roots )); then
+      state_root=$worker_home/workers
+      service_root=$worker_home/.config/systemd/user
+      /bin/mkdir -p -m 700 -- "$state_root" "$service_root"
+      [[ ! -L "$state_root" && "$(/usr/bin/readlink -f -- "$state_root")" == "$state_root" ]] || fail
+      [[ ! -L "$service_root" && "$(/usr/bin/readlink -f -- "$service_root")" == "$service_root" ]] || fail
+      [[ -d "$runtime_dir" && ! -L "$runtime_dir" ]] || fail
+      node_environment=(
+        HOME="$worker_home"
+        XDG_RUNTIME_DIR="$runtime_dir"
+        DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus"
+      )
+    else
+      prepare_sandboxed_node_environment
+    fi
+    ;;
+  Darwin)
+    script_dir="$(canonical_directory "$(dirname -- "$0")")"
+    resources_dir="$(canonical_directory "$script_dir/..")"
+    contents_dir="$(canonical_directory "$resources_dir/..")"
+    app_dir="$(canonical_directory "$contents_dir/..")"
+    [[ "$app_dir" == *.app && "$contents_dir" != *['"\\'$'\n\r']* ]] || fail
+    native_dir="$contents_dir/MacOS"
+    bookmark_broker="$native_dir/agent-deck-worker-bookmark"
+    sandbox_launcher="$native_dir/agent-deck-worker-sandbox"
+    cli_node="$contents_dir/MacOS/Agent Deck Worker CLI"
+    worker_node="$native_dir/Agent Deck Worker Node"
+    provider_dir="$contents_dir/MacOS/Agent Deck Worker Providers"
+    claude_executable="$provider_dir/claude/claude"
+    codex_executable="$provider_dir/codex/bin/codex"
+    codex_code_mode_host="$provider_dir/codex/bin/codex-code-mode-host"
+    codex_rg="$provider_dir/codex/codex-path/rg"
+    codex_zsh="$provider_dir/codex/codex-resources/zsh/bin/zsh"
+    grok_executable="$provider_dir/grok/grok"
+    if [[ "$requested_command" == serve || "$requested_command" == check-runtime ]]; then
+      node="$worker_node"
+    else
+      node="$cli_node"
+    fi
+    entrypoint="$resources_dir/linux-headless/local-worker/index.mjs"
+    runtime_module="$resources_dir/linux-headless/local-worker-runtime/index.mjs"
+    node_modules="$resources_dir/app.asar/node_modules"
+    [[ -f "$entrypoint" && -f "$runtime_module" && -f "$resources_dir/app.asar" ]] || fail
+    verify_trusted_darwin_executable "$bookmark_broker"
+    verify_trusted_darwin_executable "$sandbox_launcher"
+    verify_trusted_darwin_executable "$cli_node"
+    verify_trusted_darwin_executable "$worker_node"
+    for provider_executable in \
+      "$claude_executable" "$codex_executable" "$codex_code_mode_host" \
+      "$codex_rg" "$codex_zsh" "$grok_executable"; do
+      verify_trusted_darwin_executable "$provider_executable"
+    done
+    wrapper="$(canonical_file "$0")"
+    runtime_roots="[\"$contents_dir\",\"/bin\",\"/usr/bin\",\"/usr/lib\",\"/System/Library\"]"
+    app_version="$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' \
+      "$resources_dir/build-info.json" | head -1)"
+    [[ -n "$app_version" ]] || fail
+    if (( needs_service_roots )); then
+      [[ -n "${HOME:-}" ]] || fail
+      user_home="$(canonical_directory "$HOME")"
+      container_data="$user_home/Library/Containers/com.agentdeck.worker-sandbox/Data"
+      worker_home="$container_data/Library/Application Support/Agent Deck"
+      state_root="$worker_home/workers"
+      service_root="$user_home/Library/LaunchAgents"
+      /bin/mkdir -p -m 700 -- "$state_root" "$service_root"
+      state_root="$(canonical_directory "$state_root")"
+      service_root="$(canonical_directory "$service_root")"
+      node_environment=(HOME="$user_home" ELECTRON_RUN_AS_NODE=1 NODE_PATH="$node_modules")
+      DARWIN_CONFIGURE_ARGS=(
+        --bookmark-broker "$bookmark_broker"
+        --claude-executable "$claude_executable"
+        --codex-executable "$codex_executable"
+        --grok-executable "$grok_executable"
+        --sandbox-launcher "$sandbox_launcher"
+      )
+      DARWIN_SERVICE_ARGS=(--sandbox-launcher "$sandbox_launcher")
+    else
+      prepare_sandboxed_node_environment
+      node_environment+=(ELECTRON_RUN_AS_NODE=1 NODE_PATH="$node_modules")
+    fi
+    ;;
+  *)
+    echo 'Local Worker 当前仅支持 macOS 和 Linux。' >&2
+    exit 69
+    ;;
+esac
+
+case "${1:-}" in
+  configure)
+    prepare_configure_args "$@"
+    set -- configure \
+      --app-version "$app_version" \
+      --credential "$CONFIGURE_CREDENTIAL" \
+      --runtime-module "$runtime_module" \
+      --runtime-read-roots "$runtime_roots" \
+      --service-root "$service_root" \
+      --ssh-binary /usr/bin/ssh \
+      --state-root "$state_root" \
+      --workspace "$CONFIGURE_WORKSPACE" \
+      --wrapper "$wrapper" \
+      "${DARWIN_CONFIGURE_ARGS[@]}"
+    ;;
+  start|status|stop|remove)
+    lifecycle_command=$1
+    prepare_lifecycle_args "$@"
+    set -- "$lifecycle_command" \
+      --service-root "$service_root" \
+      --state-root "$state_root" \
+      --wrapper "$wrapper" \
+      "${DARWIN_SERVICE_ARGS[@]}"
+    if [[ -n "$LIFECYCLE_WORKER" ]]; then
+      set -- "$@" --worker "$LIFECYCLE_WORKER"
+    fi
+    ;;
+  serve|check-config|check-runtime|check-abi)
+    ;;
+  *)
+    echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
+    echo '      agent-deck-worker {start|status|stop|remove} [--worker <配置标识>]' >&2
+    exit 2
+    ;;
+esac
 
 exec /usr/bin/env -i \
-  HOME=/var/lib/agent-deck PATH=/usr/bin:/bin LANG=C LC_ALL=C \
-  /usr/bin/node /opt/agent-deck/linux-headless/local-worker/index.mjs "$@"
+  "${node_environment[@]}" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
+  "$node" "$entrypoint" "$@"

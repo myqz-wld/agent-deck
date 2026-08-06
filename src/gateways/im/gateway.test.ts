@@ -144,19 +144,20 @@ describe('FeishuSessionConsoleGateway identity and chat state', () => {
 });
 
 describe('Feishu session-console methods', () => {
-  it('supports bounded session listing, project-alias creation, history and runtime controls', async () => {
+  it('supports bounded listing, Workspace-directory creation, history and runtime controls', async () => {
     const { gateway, clients, transport } = setup({
       limits: { maxSessions: 1, maxHistoryEntries: 1 },
     });
     await gateway.handle(messageEvent('sessions', '/sessions'));
     expect(transport.messages.at(-1)?.text).toContain('/sessions session-page-1');
 
-    await gateway.handle(messageEvent('create', '/create codex-cli project'));
+    await gateway.handle(messageEvent('create', '/create codex-cli . -- Inspect the repository'));
     const client = onlyClient(clients);
     const create = client.calls.find((call) => call.method === 'session.console.create');
     expect(create?.params).toEqual({
       adapterId: 'codex-cli',
-      projectRef: 'opaque-project-1',
+      initialMessage: 'Inspect the repository',
+      workingDirectory: '.',
       options: {},
     });
     expect(create?.options?.idempotencyKey).toBe('feishu:create');
@@ -182,8 +183,8 @@ describe('Feishu session-console methods', () => {
   it('rejects arbitrary paths and fields outside the selected adapter ownership', async () => {
     const { gateway, clients } = setup();
     expect(
-      (await gateway.handle(messageEvent('bad-alias', '/create codex-cli /etc'))).code,
-    ).toBe('invalid_event');
+      (await gateway.handle(messageEvent('bad-directory', '/create codex-cli /etc -- Inspect'))).code,
+    ).toBe('invalid_command');
     await select(gateway);
     const client = onlyClient(clients);
     client.sessions.set('session-1', session('session-1', 'codex-cli'));

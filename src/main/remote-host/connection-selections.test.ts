@@ -4,9 +4,10 @@ import { RemoteHostConnectionSelections } from './connection-selections';
 
 const PRIVATE_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\nQUFBQQ==\n-----END OPENSSH PRIVATE KEY-----\n';
 const CREDENTIAL = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: 'agent-deck-remote-connection-credential',
   label: 'Production',
+  purpose: 'client',
   topology: 'relay',
   instanceId: 'instance-a',
   credentialId: 'desktop-a',
@@ -35,6 +36,23 @@ describe('RemoteHostConnectionSelections', () => {
     expect(JSON.stringify(preview)).not.toContain('desktop-a');
     expect(JSON.stringify(preview)).not.toContain('PRIVATE KEY');
     expect(selections.resolve(preview.selectionId)).toMatchObject({ topology: 'relay' });
+  });
+
+  it('rejects Worker credentials at the Electron Client import boundary', () => {
+    const selections = new RemoteHostConnectionSelections({
+      createId: () => 'opaque-selection',
+      readFile: () => ({
+        ...CREDENTIAL,
+        schemaVersion: 2,
+        purpose: 'worker',
+        credentialId: 'worker-credential-a',
+        workerId: 'worker-a',
+      }),
+    });
+
+    expect(() => selections.capture('/private/worker.agentdeck-connection'))
+      .toThrow('Worker 机器的终端');
+    expect(() => selections.resolve('opaque-selection')).toThrow('重新导入');
   });
 
   it('expires and consumes selections', () => {

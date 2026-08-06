@@ -16,7 +16,10 @@ import { parseRelayForcedCommand } from './entrypoint-command';
 import { resolveRelayForcedCommandBinding } from './forced-command-binding';
 import { parseRelayHeadlessConfig } from './headless-config';
 import { createRelayController } from './headless-root';
-import { issueRelayConnection } from './connection-issuer';
+import {
+  issueRelayClientConnection,
+  issueRelayWorkerConnection,
+} from './connection-issuer';
 
 export interface RelayForcedCommandRuntime {
   readonly serviceUid: number;
@@ -75,12 +78,21 @@ export async function runRelayEntrypoint(argv: readonly string[]): Promise<numbe
     parseRelayHeadlessConfig(await readPrivateJsonFile(flags['--config']));
     return 0;
   }
-  if (command === 'issue-connection') {
+  if (command === 'issue-client-connection') {
     const flags = parseExactFlags(argv.slice(1), [
       '--instance', '--credential', '--label', '--hostname', '--port', '--username',
       '--host-key', '--config', '--authorized-keys', '--runtime-uid', '--output',
     ]);
-    issueRelayConnection(flags);
+    issueRelayClientConnection(flags);
+    return 0;
+  }
+  if (command === 'issue-worker-connection') {
+    const flags = parseExactFlags(argv.slice(1), [
+      '--instance', '--credential', '--worker', '--label', '--hostname', '--port',
+      '--username', '--host-key', '--config', '--authorized-keys', '--runtime-uid',
+      '--output',
+    ]);
+    issueRelayWorkerConnection(flags);
     return 0;
   }
   if (command !== 'serve') throw new Error('unknown Relay command');

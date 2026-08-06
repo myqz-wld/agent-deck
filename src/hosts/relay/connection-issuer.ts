@@ -16,9 +16,15 @@ function appendLine(current: string, line: string): string {
   return `${current}${current.length > 0 && !current.endsWith('\n') ? '\n' : ''}${line}\n`;
 }
 
-export function issueRelayConnection(flags: Readonly<Record<string, string>>): void {
+function issueRelayConnection(
+  flags: Readonly<Record<string, string>>,
+  purpose: 'client' | 'worker',
+): void {
   const instanceId = requireLinuxInstanceId(flags['--instance'], 'instance');
   const credentialId = requireStableToken(flags['--credential'], 'credential');
+  const workerId = purpose === 'worker'
+    ? requireStableToken(flags['--worker'], 'worker')
+    : undefined;
   const runtimeUid = requirePositiveInteger(Number(flags['--runtime-uid']), 'runtime-uid');
   const configFile = readTrustedTextFile(requireAbsolutePath(flags['--config'], 'config'));
   const authorizedKeys = readTrustedTextFile(
@@ -30,10 +36,16 @@ export function issueRelayConnection(flags: Readonly<Record<string, string>>): v
   if (config.credentials.some((entry) => entry.credentialId === credentialId)) {
     throw new Error('credentialId is already registered');
   }
+  if (purpose === 'worker' && config.credentials.some(
+    (entry) => entry.kind === 'relay-worker' && entry.status === 'active',
+  )) {
+    throw new Error('Relay already has its one active Worker identity');
+  }
   if (authorizedKeys.text.includes(`--credential ${credentialId} `)) {
     throw new Error('authorized_keys already contains this credentialId');
   }
   const issue = prepareRemoteConnectionIssue({
+    purpose,
     topology: 'relay',
     instanceId,
     credentialId,
@@ -43,7 +55,9 @@ export function issueRelayConnection(flags: Readonly<Record<string, string>>): v
     username: flags['--username'],
     hostKeyFile: flags['--host-key'],
     outputFile: flags['--output'],
+    ...(purpose === 'worker' ? { workerId } : {}),
   });
+  const createdAt = Date.now();
   const configNext = `${JSON.stringify({
     schemaVersion: 1,
     instanceId,
@@ -63,30 +77,50 @@ export function issueRelayConnection(flags: Readonly<Record<string, string>>): v
       {
         credentialId,
         instanceId,
-        kind: 'ssh-client',
-        publicKey: issue.clientPublicKey,
-        fingerprint: issue.clientFingerprint,
+        kind: purpose === 'worker' ? 'relay-worker' : 'ssh-client',
+        publicKey: issue.publicKey,
+        fingerprint: issue.fingerprint,
         status: 'active',
-        createdAt: Date.now(),
+        createdAt,
         revokedAt: null,
       },
     ],
   }, null, 2)}\n`;
   parseRelayHeadlessConfig(JSON.parse(configNext));
-  const forcedKey = [
-    'restrict,command="/opt/agent-deck/bin/agent-deck-relay bridge',
-    `--instance ${instanceId}`,
-    `--credential ${credentialId}`,
-    '--surface desktop-full',
-    `--socket /run/user/${runtimeUid}/agent-deck-relay/${instanceId}/control.sock",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty`,
-    issue.clientPublicKey,
-  ].join(' ');
+  const forcedKey = purpose === 'worker'
+    ? [
+        'restrict,command="/opt/agent-deck/bin/agent-deck-relay attach',
+        `--instance ${instanceId}`,
+        `--credential ${credentialId}`,
+        `--socket /run/user/${runtimeUid}/agent-deck-relay/${instanceId}/control.sock`,
+        `--worker ${workerId}",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty`,
+        issue.publicKey,
+      ].join(' ')
+    : [
+        'restrict,command="/opt/agent-deck/bin/agent-deck-relay bridge',
+        `--instance ${instanceId}`,
+        `--credential ${credentialId}`,
+        '--surface desktop-full',
+        `--socket /run/user/${runtimeUid}/agent-deck-relay/${instanceId}/control.sock",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty`,
+        issue.publicKey,
+      ].join(' ');
   commitRemoteConnectionIssue({
     outputFile: flags['--output'],
     encodedCredential: issue.encodedCredential,
     mutations: [
       { current: configFile, next: configNext },
-      { current: authorizedKeys, next: appendLine(authorizedKeys.text, forcedKey) },
+      {
+        current: authorizedKeys,
+        next: appendLine(authorizedKeys.text, forcedKey),
+      },
     ],
   });
+}
+
+export function issueRelayClientConnection(flags: Readonly<Record<string, string>>): void {
+  issueRelayConnection(flags, 'client');
+}
+
+export function issueRelayWorkerConnection(flags: Readonly<Record<string, string>>): void {
+  issueRelayConnection(flags, 'worker');
 }

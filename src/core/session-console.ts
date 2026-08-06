@@ -61,7 +61,7 @@ export interface AuthoritativeSessionConsolePort {
     params: { alias: string },
     context: SessionConsoleExecutionContext,
   ): Promise<unknown> | unknown;
-  createSessionByProject(
+  createSession(
     params: SessionConsoleCreateParams,
     context: SessionConsoleExecutionContext,
   ): Promise<unknown> | unknown;
@@ -141,7 +141,7 @@ export class SessionConsoleCoreDispatcher {
         assertMutationContext(context);
         const parsed = parseSessionConsoleCreateParams(params);
         return parseSessionConsoleCreateResult(
-          await this.authority.createSessionByProject(parsed, context),
+          await this.authority.createSession(parsed, context),
         );
       }
     }

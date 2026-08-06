@@ -18,8 +18,32 @@ describe('production Linux wrappers', () => {
     );
     expect(source).toContain('LD_LIBRARY_PATH LD_PRELOAD NODE_OPTIONS');
     expect(source).toContain('exec /usr/bin/env -i');
-    expect(source).toContain('/usr/bin/node /opt/agent-deck/linux-headless/');
-    expect(source).toContain('verify_root_owned /usr/bin/node file');
+    if (name === 'agent-deck-worker') {
+      expect(source).toContain('verify_root_owned_linux /usr/bin/node file');
+      expect(source).toContain('verify_root_owned_linux /usr/bin/bwrap file');
+      expect(source).toContain('node=/usr/bin/node');
+      expect(source).toContain('entrypoint=/opt/agent-deck/linux-headless/local-worker/index.mjs');
+      expect(source).toContain('Darwin)');
+      expect(source).toContain('configure --credential <Worker凭证> --workspace <目录>');
+      expect(source).toContain('{start|status|stop|remove} [--worker <配置标识>]');
+      expect(source).toContain('XDG_RUNTIME_DIR=');
+      expect(source).toContain('Library/LaunchAgents');
+      expect(source).toContain('com.agentdeck.worker-sandbox');
+      expect(source).toContain('agent-deck-worker-bookmark');
+      expect(source).toContain('Agent Deck Worker CLI');
+      expect(source).toContain('Agent Deck Worker Node');
+      expect(source).toContain('serve || "$requested_command" == check-runtime');
+      expect(source).toContain('--codex-executable "$codex_executable"');
+      expect(source).toContain('NODE_PATH="$node_modules"');
+      expect(source).toContain('/usr/bin/codesign --verify --strict');
+      expect(source).toContain('prepare_sandboxed_node_environment');
+      expect(source).toContain('LIFECYCLE_WORKER="$worker"');
+      expect(source).toContain('if [[ -n "$LIFECYCLE_WORKER" ]]');
+      expect(source).not.toContain('LIFECYCLE_WORKER_ARGS=()');
+    } else {
+      expect(source).toContain('/usr/bin/node /opt/agent-deck/linux-headless/');
+      expect(source).toContain('verify_root_owned /usr/bin/node file');
+    }
     expect(source).not.toMatch(/\$\{?AGENT_DECK_(?:HEADLESS_ROOT|NODE)/);
     expect(source).not.toContain('command -v');
     if (name === 'agent-deckd') {

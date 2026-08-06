@@ -69,6 +69,16 @@ return fixed prompts without calling the corresponding sensitive Core read. `/pe
 an owned request-kind projection with no action buttons or arbitrary Core display fields. Use a full
 authenticated client or an owner p2p chat for those details and actions.
 
+## Workspace visibility
+
+Feishu and desktop clients share the same authoritative Workspace ceiling. In an owner p2p chat,
+`/directories [cursor]` lists only normalized Workspace-relative directory references and
+`/create <adapter-id> <relative-directory> -- <first-message>` creates a session only after Core
+re-resolves that existing directory beneath the configured Workspace. `.` selects the Workspace
+root. Absolute paths, parent traversal, backslash forms, symlink escapes, Worker-private paths, and
+Core-owned `cwd` values are rejected and are never rendered or persisted by the gateway. Group
+chats hide directory suggestions entirely.
+
 The repository checks are deterministic and static. Production acceptance still requires real
 Ubuntu 24.04/EL9, systemd, target-ABI SQLite, sshd forced commands, pinned host-key failure,
 credentialed Feishu readiness/reconnect/send/action flows, revocation, multi-chat load, and the

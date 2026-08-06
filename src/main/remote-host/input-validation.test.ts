@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  parseRemoteHostCreateSession,
   parseRemoteHostHistoryRequest,
   parseRemoteHostPendingResponse,
   parseRemoteHostProfileDraft,
@@ -44,6 +45,30 @@ describe('remote-host IPC input validation', () => {
       cursor: 'line\nbreak',
       limit: 20,
     })).toThrow('invalid');
+  });
+
+  it('accepts only Workspace-relative working directories for session creation', () => {
+    const valid = {
+      profileId: 'remote-a',
+      adapterId: 'codex-cli',
+      initialMessage: 'Inspect the repository',
+      workingDirectory: 'repo/subdir',
+      options: {},
+      intentId: 'intent-create-a',
+    };
+    expect(parseRemoteHostCreateSession(valid).workingDirectory).toBe('repo/subdir');
+    expect(parseRemoteHostCreateSession({ ...valid, workingDirectory: '.' }).workingDirectory)
+      .toBe('.');
+    for (const workingDirectory of ['/etc', '../outside', 'repo/../outside', 'repo\\child']) {
+      expect(() => parseRemoteHostCreateSession({ ...valid, workingDirectory }))
+        .toThrow('relative directory inside Workspace');
+    }
+    expect(() => parseRemoteHostCreateSession({
+      ...valid,
+      projectRef: 'legacy-project',
+    })).toThrow('unexpected fields');
+    expect(() => parseRemoteHostCreateSession({ ...valid, initialMessage: '   ' }))
+      .toThrow('initialMessage');
   });
 
   it('bounds JSON runtime and pending values and rejects prototype-bearing keys', () => {

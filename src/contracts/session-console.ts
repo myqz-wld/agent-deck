@@ -5,6 +5,8 @@ export const SESSION_CONSOLE_MAX_CURSOR_BYTES = 512;
 export const SESSION_CONSOLE_MAX_IDENTIFIER_BYTES = 256;
 export const SESSION_CONSOLE_MAX_ALIAS_BYTES = 128;
 export const SESSION_CONSOLE_MAX_TITLE_BYTES = 512;
+export const SESSION_CONSOLE_MAX_WORKING_DIRECTORY_BYTES = 1_024;
+export const SESSION_CONSOLE_MAX_INITIAL_MESSAGE_BYTES = 65_536;
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
@@ -62,7 +64,8 @@ export interface ProjectResolveResult {
 
 export interface SessionConsoleCreateParams {
   adapterId: string;
-  projectRef: string;
+  initialMessage: string;
+  workingDirectory: string;
   options: JsonObject;
 }
 
@@ -121,6 +124,38 @@ function text(value: unknown, field: string, maximumBytes: number): string {
   return value;
 }
 
+/** A host-private workspace reference: `.` or one normalized relative POSIX directory. */
+export function parseWorkspaceDirectoryRef(
+  value: unknown,
+  field = 'workspaceDirectory',
+): string {
+  if (
+    typeof value !== 'string' || value.length === 0 || value.trim() !== value ||
+    utf8Bytes(value) > SESSION_CONSOLE_MAX_WORKING_DIRECTORY_BYTES ||
+    CONTROL.test(value) || value.includes('\\') || value.startsWith('/') ||
+    (value !== '.' && value.split('/').some((segment) =>
+      segment.length === 0 || segment === '.' || segment === '..'))
+  ) {
+    fail(field);
+  }
+  return value;
+}
+
+/** A bounded first user message. New provider sessions cannot exist without an initial turn. */
+export function parseSessionConsoleInitialMessage(
+  value: unknown,
+  field = 'initialMessage',
+): string {
+  if (
+    typeof value !== 'string' || value.trim().length === 0 ||
+    utf8Bytes(value) > SESSION_CONSOLE_MAX_INITIAL_MESSAGE_BYTES ||
+    /[\u0000\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)
+  ) {
+    fail(field);
+  }
+  return value;
+}
+
 function revision(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) fail(field);
   return value as number;
@@ -173,7 +208,7 @@ export function parseProjectReference(value: unknown): ProjectReferenceDto {
   exactKeys(value, ['alias', 'projectId', 'projectRef', 'title'], 'project');
   return {
     projectId: token(value.projectId, 'project.projectId', SESSION_CONSOLE_MAX_IDENTIFIER_BYTES),
-    projectRef: token(value.projectRef, 'project.projectRef', SESSION_CONSOLE_MAX_IDENTIFIER_BYTES),
+    projectRef: parseWorkspaceDirectoryRef(value.projectRef, 'project.projectRef'),
     alias: token(value.alias, 'project.alias', SESSION_CONSOLE_MAX_ALIAS_BYTES),
     title: value.title === null
       ? null
@@ -275,14 +310,21 @@ export function parseProjectResolveResult(value: unknown): ProjectResolveResult 
 
 export function parseSessionConsoleCreateParams(value: unknown): SessionConsoleCreateParams {
   if (!isJsonObject(value)) fail('session.console.create.params');
-  exactKeys(value, ['adapterId', 'options', 'projectRef'], 'session.console.create.params');
+  exactKeys(
+    value,
+    ['adapterId', 'initialMessage', 'options', 'workingDirectory'],
+    'session.console.create.params',
+  );
   if (!isJsonObject(value.options)) fail('session.console.create.options');
   return {
     adapterId: token(value.adapterId, 'session.console.create.adapterId', SESSION_CONSOLE_MAX_ALIAS_BYTES),
-    projectRef: token(
-      value.projectRef,
-      'session.console.create.projectRef',
-      SESSION_CONSOLE_MAX_IDENTIFIER_BYTES,
+    initialMessage: parseSessionConsoleInitialMessage(
+      value.initialMessage,
+      'session.console.create.initialMessage',
+    ),
+    workingDirectory: parseWorkspaceDirectoryRef(
+      value.workingDirectory,
+      'session.console.create.workingDirectory',
     ),
     options: value.options,
   };

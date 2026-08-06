@@ -20,17 +20,21 @@ function runtimeDirectory(): string {
 export function createLocalWorkerRuntime(
   input: LocalWorkerRuntimeFactoryInput,
 ): LocalWorkerRuntimeBootstrap {
+  const sandbox = input.workspaceSandbox;
   const paths = resolveDaemonInstancePaths(input.instanceId, {
-    HOME: process.env.HOME,
-    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-    XDG_RUNTIME_DIR: runtimeDirectory(),
-    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
-  });
+    HOME: sandbox?.environment.coreStateRoot ?? process.env.HOME,
+    XDG_CONFIG_HOME: sandbox?.environment.coreConfigRoot ?? process.env.XDG_CONFIG_HOME,
+    XDG_RUNTIME_DIR: sandbox?.environment.coreRuntimeRoot ?? runtimeDirectory(),
+    XDG_STATE_HOME: sandbox?.environment.coreStateRoot ?? process.env.XDG_STATE_HOME,
+  }, { controlSocket: 'unused' });
   const bootstrap = createServerCoreRuntimeWithOverrides({
     instanceId: input.instanceId,
     appVersion: input.appVersion,
     paths,
     runtimeOptions: input.runtimeOptions,
+  }, {
+    ...(sandbox ? { workspaceRoot: sandbox.workspaceRoot } : {}),
+    ...(sandbox ? { workspaceSandbox: sandbox } : {}),
   });
   return Object.freeze({
     runtime: bootstrap.runtime,

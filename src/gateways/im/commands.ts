@@ -1,14 +1,18 @@
-import { isJsonObject, type JsonObject } from '@contracts/index';
+import {
+  isJsonObject,
+  parseWorkspaceDirectoryRef,
+  type JsonObject,
+} from '@contracts/index';
 import { FeishuGatewayError } from './errors';
 import type { FeishuInboundEvent } from './types';
 import { requireBoundedText, stableToken } from './validation';
 
 export type FeishuCommand =
-  | { kind: 'create'; adapterId: string; projectAlias: string }
+  | { kind: 'create'; adapterId: string; initialMessage: string; workingDirectory: string }
+  | { kind: 'directories'; cursor?: string }
   | { kind: 'help' }
   | { kind: 'history'; cursor?: string }
   | { kind: 'pending' }
-  | { kind: 'projects'; cursor?: string }
   | { kind: 'runtime-get' }
   | { kind: 'runtime-update'; expectedRevision: number; patch: JsonObject }
   | { kind: 'select'; sessionId: string }
@@ -47,25 +51,42 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
     const [, cursor] = exactArgument(input, /^\/sessions ([^\s]+)$/, '/sessions [cursor]');
     return { kind: 'sessions', cursor: stableToken(cursor, 'cursor', 512) };
   }
-  if (input === '/projects') return { kind: 'projects' };
-  if (input.startsWith('/projects ')) {
-    const [, cursor] = exactArgument(input, /^\/projects ([^\s]+)$/, '/projects [cursor]');
-    return { kind: 'projects', cursor: stableToken(cursor, 'cursor', 512) };
+  if (input === '/directories') return { kind: 'directories' };
+  if (input.startsWith('/directories ')) {
+    const [, cursor] = exactArgument(
+      input,
+      /^\/directories ([^\s]+)$/,
+      '/directories [cursor]',
+    );
+    return { kind: 'directories', cursor: stableToken(cursor, 'cursor', 512) };
   }
   if (input.startsWith('/select')) {
     const [, sessionId] = exactArgument(input, /^\/select ([^\s]+)$/, '/select <session-id>');
     return { kind: 'select', sessionId: stableToken(sessionId, 'sessionId') };
   }
   if (input.startsWith('/create')) {
-    const [, adapterId, projectAlias] = exactArgument(
+    const [, adapterId, rawWorkingDirectory, rawInitialMessage] = exactArgument(
       input,
-      /^\/create ([^\s]+) ([^\s]+)$/,
-      '/create <adapter-id> <project-alias>',
+      /^\/create ([^\s]+) ([\s\S]+?) -- ([\s\S]+)$/,
+      '/create <adapter-id> <workspace-relative-directory> -- <first-message>',
     );
+    let workingDirectory: string;
+    try {
+      workingDirectory = parseWorkspaceDirectoryRef(
+        rawWorkingDirectory,
+        'workingDirectory',
+      );
+    } catch {
+      throw new FeishuGatewayError(
+        'invalid_command',
+        '工作目录必须位于 Workspace 内，并使用相对路径',
+      );
+    }
     return {
       kind: 'create',
       adapterId: stableToken(adapterId, 'adapterId'),
-      projectAlias: stableToken(projectAlias, 'projectAlias'),
+      initialMessage: requireBoundedText(rawInitialMessage, maximumTextBytes),
+      workingDirectory,
     };
   }
   if (input === '/history') return { kind: 'history' };
@@ -103,9 +124,9 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
 
 export const FEISHU_HELP_TEXT = [
   '/sessions [cursor] — 分页列出 session',
-  '/projects [cursor] — 分页列出可创建 session 的 project',
+  '/directories [cursor] — 查看 Workspace 内的工作目录建议',
   '/select <session-id> — 选择 session',
-  '/create <adapter-id> <project-alias> — 创建 session',
+  '/create <adapter-id> <workspace-relative-directory> -- <first-message> — 在 Workspace 内创建 session',
   '/history [cursor] — 查看历史',
   '/send <text> — 发送消息（普通文本也会发送）',
   '/runtime — 查看 adapter runtime controls',

@@ -1,4 +1,6 @@
-import type { RemoteConnectionCredential } from '@shared/remote-host';
+import type {
+  RemoteConnectionClientCredential,
+} from '@shared/remote-host';
 
 import { RemoteHostConnectionSelections } from './connection-selections';
 import type {
@@ -9,12 +11,13 @@ import type {
 const PRIVATE_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\nQUFBQQ==\n-----END OPENSSH PRIVATE KEY-----\n';
 
 export function testConnectionCredential(
-  overrides: Partial<RemoteConnectionCredential> = {},
-): RemoteConnectionCredential {
+  overrides: Partial<RemoteConnectionClientCredential> = {},
+): RemoteConnectionClientCredential {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-deck-remote-connection-credential',
     label: 'Test remote',
+    purpose: 'client',
     topology: 'server-core',
     instanceId: 'instance-a',
     credentialId: 'desktop-a',
@@ -27,7 +30,7 @@ export function testConnectionCredential(
 
 export function testConnectionSelections(
   createId: () => string,
-  resolveCredential: (path: string) => RemoteConnectionCredential = () => testConnectionCredential(),
+  resolveCredential: (path: string) => RemoteConnectionClientCredential = () => testConnectionCredential(),
 ): RemoteHostConnectionSelections {
   return new RemoteHostConnectionSelections({ createId, readFile: resolveCredential });
 }

@@ -9,15 +9,19 @@
     "build": "electron-vite build && node scripts/write-build-info.mjs",
     "preview": "electron-vite preview",
     "build-info": "node scripts/write-build-info.mjs",
-    "dist": "pnpm verify:bundled-runtimes && electron-vite build && node scripts/write-build-info.mjs && electron-builder",
-    "dist:mac": "node scripts/verify-bundled-grok.mjs --target-platform darwin && electron-vite build && node scripts/write-build-info.mjs && electron-builder --mac",
-    "dist:win": "node scripts/verify-bundled-grok.mjs --target-platform win32 && electron-vite build && node scripts/write-build-info.mjs && electron-builder --win",
-    "dist:linux": "node scripts/verify-bundled-grok.mjs --target-platform linux && electron-vite build && node scripts/write-build-info.mjs && electron-builder --linux",
+    "dist": "pnpm verify:bundled-runtimes && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder",
+    "dist:mac": "node scripts/verify-bundled-grok.mjs --target-platform darwin && pnpm verify:macos-worker-sandbox && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder --mac && pnpm check:packaged-macos-worker-sandbox",
+    "dist:win": "node scripts/verify-bundled-grok.mjs --target-platform win32 && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder --win",
+    "dist:linux": "node scripts/verify-bundled-grok.mjs --target-platform linux && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder --linux",
     "icon:gen": "node scripts/gen-icon-ico.mjs",
     "check:architecture": "node scripts/check-architecture-boundaries.mjs && node scripts/check-core-node-boundaries.mjs",
     "build:linux-headless": "node scripts/build-linux-headless.mjs",
+    "build:macos-worker-sandbox": "node scripts/build-macos-worker-sandbox.mjs",
     "check:linux-headless": "node scripts/check-linux-headless.mjs",
+    "check:macos-worker-sandbox": "node scripts/check-macos-worker-sandbox.mjs",
+    "check:packaged-macos-worker-sandbox": "node scripts/check-packaged-macos-worker-sandbox.mjs",
     "verify:linux-headless": "pnpm build:linux-headless && pnpm check:linux-headless",
+    "verify:macos-worker-sandbox": "pnpm build:macos-worker-sandbox && pnpm check:macos-worker-sandbox",
     "typecheck": "pnpm check:architecture && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node scripts/test-electron.mjs",
     "test:browser-electron": "node scripts/verify-browser-engine-electron.mjs",
@@ -113,6 +117,14 @@
         ]
       },
       {
+        "from": "build/linux-headless/local-worker",
+        "to": "linux-headless/local-worker"
+      },
+      {
+        "from": "build/linux-headless/local-worker-runtime",
+        "to": "linux-headless/local-worker-runtime"
+      },
+      {
         "from": "resources/claude-config",
         "to": "claude-config",
         "filter": [
@@ -154,7 +166,32 @@
     "mac": {
       "target": "dmg",
       "icon": "resources/icon.png",
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "extraFiles": [
+        {
+          "from": "build/macos-worker-sandbox/${arch}/Agent Deck Worker CLI",
+          "to": "MacOS/Agent Deck Worker CLI"
+        },
+        {
+          "from": "build/macos-worker-sandbox/${arch}/agent-deck-worker-bookmark",
+          "to": "MacOS/agent-deck-worker-bookmark"
+        },
+        {
+          "from": "build/macos-worker-sandbox/${arch}/agent-deck-worker-sandbox",
+          "to": "MacOS/agent-deck-worker-sandbox"
+        },
+        {
+          "from": "build/macos-worker-sandbox/${arch}/Agent Deck Worker Node",
+          "to": "MacOS/Agent Deck Worker Node"
+        },
+        {
+          "from": "build/macos-worker-sandbox/${arch}/providers",
+          "to": "MacOS/Agent Deck Worker Providers",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
     },
     "win": {
       "target": [

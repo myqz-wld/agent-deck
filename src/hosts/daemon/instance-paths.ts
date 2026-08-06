@@ -11,6 +11,11 @@ export interface DaemonPathEnvironment {
   readonly XDG_STATE_HOME?: string;
 }
 
+export interface DaemonInstancePathOptions {
+  /** Local Workers use the Core storage namespace directly and never open daemon ingress. */
+  readonly controlSocket: 'required' | 'unused';
+}
+
 export interface DaemonInstancePaths {
   readonly instanceId: string;
   readonly stateDirectory: string;
@@ -69,6 +74,7 @@ export function resolveDaemonInstancePaths(
     XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
     XDG_STATE_HOME: process.env.XDG_STATE_HOME,
   },
+  options: DaemonInstancePathOptions = { controlSocket: 'required' },
 ): DaemonInstancePaths {
   assertInstanceId(instanceId);
   const stateHome = resolveXdgDirectory(environment, 'XDG_STATE_HOME', ['.local', 'state']);
@@ -80,7 +86,10 @@ export function resolveDaemonInstancePaths(
   const runtimeDirectory = join(runtimeHome, 'agent-deck', instanceId);
   const socketPath = join(runtimeDirectory, 'agent-deckd.sock');
 
-  if (Buffer.byteLength(socketPath) > MAX_UNIX_SOCKET_PATH_BYTES) {
+  if (
+    options.controlSocket === 'required' &&
+    Buffer.byteLength(socketPath) > MAX_UNIX_SOCKET_PATH_BYTES
+  ) {
     throw new DaemonPathError(
       `Unix socket path exceeds ${MAX_UNIX_SOCKET_PATH_BYTES} bytes: ${socketPath}`,
     );

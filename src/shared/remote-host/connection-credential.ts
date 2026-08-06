@@ -1,7 +1,7 @@
 import type { RemoteHostRemoteTopology } from './types';
 
 export const REMOTE_CONNECTION_CREDENTIAL_KIND = 'agent-deck-remote-connection-credential';
-export const REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION = 1;
+export const REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION = 2;
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const SAFE_HOST = /^[A-Za-z0-9._:-]+$/;
@@ -25,11 +25,9 @@ export interface RemoteConnectionHostKey {
   publicKey: string;
 }
 
-export interface RemoteConnectionCredential {
-  schemaVersion: typeof REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION;
+interface RemoteConnectionCredentialBase {
   kind: typeof REMOTE_CONNECTION_CREDENTIAL_KIND;
   label: string;
-  topology: RemoteHostRemoteTopology;
   instanceId: string;
   credentialId: string;
   endpoint: {
@@ -43,6 +41,27 @@ export interface RemoteConnectionCredential {
     privateKey: string;
   };
 }
+
+export interface RemoteConnectionClientCredentialV2 extends RemoteConnectionCredentialBase {
+  schemaVersion: typeof REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION;
+  purpose: 'client';
+  topology: RemoteHostRemoteTopology;
+}
+
+export interface RemoteConnectionWorkerCredentialV2 extends RemoteConnectionCredentialBase {
+  schemaVersion: typeof REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION;
+  purpose: 'worker';
+  topology: 'relay';
+  workerId: string;
+}
+
+export type RemoteConnectionCredentialV2 =
+  | RemoteConnectionClientCredentialV2
+  | RemoteConnectionWorkerCredentialV2;
+
+export type RemoteConnectionCredential = RemoteConnectionCredentialV2;
+
+export type RemoteConnectionClientCredential = RemoteConnectionClientCredentialV2;
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -93,20 +112,23 @@ function publicKeyMatchesAlgorithm(publicKey: string, algorithm: string): boolea
   return bytes.subarray(4, 4 + length).toString('ascii') === algorithm;
 }
 
-export function parseRemoteConnectionCredential(value: unknown): RemoteConnectionCredential {
-  const raw = record(value, 'connection credential');
-  exactKeys(raw, [
-    'credentialId', 'endpoint', 'hostKeys', 'identity', 'instanceId', 'kind',
-    'label', 'schemaVersion', 'topology',
-  ], 'connection credential');
-  if (raw.schemaVersion !== REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION) {
-    throw new Error('connection credential schemaVersion is unsupported');
+function parseIdentity(
+  value: unknown,
+  field: string,
+): RemoteConnectionCredentialBase['identity'] {
+  const identity = record(value, field);
+  exactKeys(identity, ['algorithm', 'privateKey'], field);
+  if (identity.algorithm !== 'ssh-ed25519' || typeof identity.privateKey !== 'string' ||
+      new TextEncoder().encode(identity.privateKey).byteLength > 32 * 1024 ||
+      !PRIVATE_KEY.test(identity.privateKey)) {
+    throw new Error(`${field} is invalid`);
   }
+  return { algorithm: 'ssh-ed25519', privateKey: identity.privateKey };
+}
+
+function parseBase(raw: Record<string, unknown>): RemoteConnectionCredentialBase {
   if (raw.kind !== REMOTE_CONNECTION_CREDENTIAL_KIND) {
     throw new Error('connection credential kind is invalid');
-  }
-  if (raw.topology !== 'server-core' && raw.topology !== 'relay') {
-    throw new Error('connection credential topology is invalid');
   }
   const label = boundedText(raw.label, 'connection credential label', 256);
   const instanceId = boundedText(raw.instanceId, 'connection credential instanceId', 63);
@@ -135,24 +157,73 @@ export function parseRemoteConnectionCredential(value: unknown): RemoteConnectio
   if (new Set(identities).size !== identities.length) {
     throw new Error('connection credential hostKeys contain duplicates');
   }
-  const identity = record(raw.identity, 'connection credential identity');
-  exactKeys(identity, ['algorithm', 'privateKey'], 'connection credential identity');
-  if (identity.algorithm !== 'ssh-ed25519' || typeof identity.privateKey !== 'string' ||
-      new TextEncoder().encode(identity.privateKey).byteLength > 32 * 1024 ||
-      !PRIVATE_KEY.test(identity.privateKey)) {
-    throw new Error('connection credential identity is invalid');
-  }
   return {
-    schemaVersion: REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION,
     kind: REMOTE_CONNECTION_CREDENTIAL_KIND,
     label,
-    topology: raw.topology,
     instanceId,
     credentialId,
     endpoint: { hostname, port: endpoint.port as number, username },
     hostKeys,
-    identity: { algorithm: 'ssh-ed25519', privateKey: identity.privateKey },
+    identity: parseIdentity(raw.identity, 'connection credential identity'),
   };
+}
+
+function parseCurrentCredential(
+  raw: Record<string, unknown>,
+): RemoteConnectionCredentialV2 {
+  if (raw.topology !== 'server-core' && raw.topology !== 'relay') {
+    throw new Error('connection credential topology is invalid');
+  }
+  if (raw.purpose !== 'client' && raw.purpose !== 'worker') {
+    throw new Error('connection credential purpose is invalid');
+  }
+  if (raw.purpose === 'worker' && raw.topology !== 'relay') {
+    throw new Error('Worker connection credentials require Relay topology');
+  }
+  const expected = [
+    'credentialId', 'endpoint', 'hostKeys', 'identity', 'instanceId', 'kind',
+    'label', 'purpose', 'schemaVersion', 'topology',
+    ...(raw.purpose === 'worker' ? ['workerId'] : []),
+  ];
+  exactKeys(raw, expected, 'connection credential');
+  const base = parseBase(raw);
+  if (raw.purpose === 'client') {
+    return {
+      ...base,
+      schemaVersion: REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION,
+      purpose: 'client',
+      topology: raw.topology,
+    };
+  }
+  const workerId = boundedText(raw.workerId, 'connection credential workerId', 160);
+  if (!STABLE_TOKEN.test(workerId)) throw new Error('connection credential workerId is invalid');
+  return {
+    ...base,
+    schemaVersion: REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION,
+    purpose: 'worker',
+    topology: 'relay',
+    workerId,
+  };
+}
+
+export function parseRemoteConnectionCredential(value: unknown): RemoteConnectionCredential {
+  const raw = record(value, 'connection credential');
+  if (raw.schemaVersion !== REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION) {
+    throw new Error('connection credential schemaVersion is unsupported');
+  }
+  return parseCurrentCredential(raw);
+}
+
+export function isRemoteConnectionWorkerCredential(
+  credential: RemoteConnectionCredential,
+): credential is RemoteConnectionWorkerCredentialV2 {
+  return credential.purpose === 'worker';
+}
+
+export function isRemoteConnectionClientCredential(
+  credential: RemoteConnectionCredential,
+): credential is RemoteConnectionClientCredential {
+  return credential.purpose === 'client';
 }
 
 function knownHostsHost(hostname: string, port: number): string {

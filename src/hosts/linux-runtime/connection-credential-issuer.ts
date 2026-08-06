@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 
 import {
   parseRemoteConnectionCredential,
+  REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION,
   type RemoteConnectionCredential,
   type RemoteHostRemoteTopology,
 } from '@shared/remote-host';
@@ -31,6 +32,7 @@ const MAX_MANAGED_FILE_BYTES = 1024 * 1024;
 const SSH_KEYGEN = '/usr/bin/ssh-keygen';
 
 export interface RemoteConnectionIssueInput {
+  readonly purpose: 'client' | 'worker';
   readonly topology: RemoteHostRemoteTopology;
   readonly instanceId: string;
   readonly credentialId: string;
@@ -40,12 +42,13 @@ export interface RemoteConnectionIssueInput {
   readonly username: string;
   readonly hostKeyFile: string;
   readonly outputFile: string;
+  readonly workerId?: string;
 }
 
 export interface PreparedRemoteConnectionIssue {
   readonly credential: RemoteConnectionCredential;
-  readonly clientPublicKey: string;
-  readonly clientFingerprint: string;
+  readonly publicKey: string;
+  readonly fingerprint: string;
   readonly encodedCredential: string;
 }
 
@@ -84,6 +87,34 @@ function fingerprint(publicKey: string): string {
     .replace(/=+$/u, '')}`;
 }
 
+function generateIdentity(
+  identityPath: string,
+  comment: string,
+): {
+  readonly identity: { readonly algorithm: 'ssh-ed25519'; readonly privateKey: string };
+  readonly publicKey: string;
+  readonly fingerprint: string;
+} {
+  execFileSync(SSH_KEYGEN, [
+    '-q', '-t', 'ed25519', '-N', '', '-C', comment, '-f', identityPath,
+  ], {
+    env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  const identityStat = lstatSync(identityPath);
+  if (!identityStat.isFile() || identityStat.isSymbolicLink() ||
+      (identityStat.mode & 0o777) !== 0o600) {
+    throw new Error('generated SSH identity failed its trust check');
+  }
+  const generated = keyParts(readFileSync(`${identityPath}.pub`, 'utf8'), 'generated key');
+  if (generated.algorithm !== 'ssh-ed25519') throw new Error('generated key is not Ed25519');
+  return {
+    identity: { algorithm: 'ssh-ed25519', privateKey: readSecretText(identityPath) },
+    publicKey: `ssh-ed25519 ${generated.publicKey} ${comment}`,
+    fingerprint: fingerprint(generated.publicKey),
+  };
+}
+
 export function prepareRemoteConnectionIssue(
   input: RemoteConnectionIssueInput,
 ): PreparedRemoteConnectionIssue {
@@ -95,40 +126,39 @@ export function prepareRemoteConnectionIssue(
       statSync(input.outputFile, { throwIfNoEntry: false }) !== undefined) {
     throw new Error('connection credential output path is not a new canonical file');
   }
+  if (
+    (input.purpose === 'worker' && (input.topology !== 'relay' || !input.workerId)) ||
+    (input.purpose === 'client' && input.workerId !== undefined)
+  ) {
+    throw new Error('connection issuance purpose and Worker identity are inconsistent');
+  }
   const tempRoot = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'agent-deck-issue-')));
   const identityPath = join(tempRoot, 'identity');
   try {
-    execFileSync(SSH_KEYGEN, [
-      '-q', '-t', 'ed25519', '-N', '', '-C', `agent-deck:${input.credentialId}`,
-      '-f', identityPath,
-    ], {
-      env: { LANG: 'C', LC_ALL: 'C', PATH: '/usr/bin:/bin' },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    const identityStat = lstatSync(identityPath);
-    if (!identityStat.isFile() || identityStat.isSymbolicLink() ||
-        (identityStat.mode & 0o777) !== 0o600) {
-      throw new Error('generated SSH identity failed its trust check');
-    }
-    const privateKey = readSecretText(identityPath);
-    const generated = keyParts(readFileSync(`${identityPath}.pub`, 'utf8'), 'generated key');
-    if (generated.algorithm !== 'ssh-ed25519') throw new Error('generated key is not Ed25519');
+    const identity = generateIdentity(
+      identityPath,
+      input.purpose === 'worker'
+        ? `agent-deck-worker:${input.credentialId}`
+        : `agent-deck:${input.credentialId}`,
+    );
     const host = keyParts(readTrustedTextFile(input.hostKeyFile).text, 'host key');
     const credential = parseRemoteConnectionCredential({
-      schemaVersion: 1,
+      schemaVersion: REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION,
       kind: 'agent-deck-remote-connection-credential',
       label: input.label,
+      purpose: input.purpose,
       topology: input.topology,
       instanceId: input.instanceId,
       credentialId: input.credentialId,
       endpoint: { hostname: input.hostname, port: input.port, username: input.username },
       hostKeys: [host],
-      identity: { algorithm: 'ssh-ed25519', privateKey },
+      identity: identity.identity,
+      ...(input.purpose === 'worker' ? { workerId: input.workerId } : {}),
     });
     return Object.freeze({
       credential,
-      clientPublicKey: `ssh-ed25519 ${generated.publicKey} agent-deck:${input.credentialId}`,
-      clientFingerprint: fingerprint(generated.publicKey),
+      publicKey: identity.publicKey,
+      fingerprint: identity.fingerprint,
       encodedCredential: `${JSON.stringify(credential, null, 2)}\n`,
     });
   } finally {

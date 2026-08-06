@@ -122,7 +122,7 @@ export function renderSessionList(
   };
 }
 
-export function renderProjectList(
+export function renderDirectoryList(
   projects: readonly ProjectReferenceDto[],
   nextCursor: string | null,
   total: number | null,
@@ -130,12 +130,17 @@ export function renderProjectList(
   revision: number,
 ): SessionConsoleView {
   const lines = projects.map(
-    (project) => `${project.alias} · ${project.title ?? '未命名'}`,
+    (project) => project.projectRef === '.'
+      ? '. · Workspace 根目录'
+      : `${project.projectRef}${project.title ? ` · ${project.title}` : ''}`,
   );
   const count = total === null ? `${projects.length}` : `${projects.length}/${total}`;
-  const next = nextCursor ? `\n下一页：/projects ${nextCursor}` : '';
+  const next = nextCursor ? `\n下一页：/directories ${nextCursor}` : '';
   return {
-    text: truncateUtf8(`Projects（本页 ${count}）\n${lines.join('\n')}${next}`, maximumBytes),
+    text: truncateUtf8(
+      `Workspace 工作目录建议（本页 ${count}）\n${lines.join('\n')}${next}`,
+      maximumBytes,
+    ),
     projects,
     revision,
   };
