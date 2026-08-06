@@ -1,5 +1,6 @@
 export * from './business-validation';
-export * from './credential-selections';
+export * from './connection-selections';
+export * from './credential-material-store';
 export * from './errors';
 export * from './input-validation';
 export * from './pending-response-policy';

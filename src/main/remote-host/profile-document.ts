@@ -65,8 +65,20 @@ function parseSshProfile(
     ...(optionalText(ssh.expectedInstanceId, 'profile.ssh.expectedInstanceId')
       ? { expectedInstanceId: optionalText(ssh.expectedInstanceId, 'profile.ssh.expectedInstanceId') }
       : {}),
+    ...(optionalText(ssh.expectedAccessCredentialId, 'profile.ssh.expectedAccessCredentialId')
+      ? { expectedAccessCredentialId: optionalText(
+          ssh.expectedAccessCredentialId,
+          'profile.ssh.expectedAccessCredentialId',
+        ) }
+      : {}),
     ...(optionalText(ssh.hostKeyAlias, 'profile.ssh.hostKeyAlias')
       ? { hostKeyAlias: optionalText(ssh.hostKeyAlias, 'profile.ssh.hostKeyAlias') }
+      : {}),
+    ...(optionalText(ssh.hostKeyFingerprint, 'profile.ssh.hostKeyFingerprint')
+      ? { hostKeyFingerprint: optionalText(
+          ssh.hostKeyFingerprint,
+          'profile.ssh.hostKeyFingerprint',
+        ) }
       : {}),
   };
   return profile;
@@ -111,7 +123,9 @@ function migrateV1Profile(value: unknown): ElectronHostProfile {
       identityFile: raw.identityFile,
       knownHostsFile: raw.knownHostsFile,
       expectedInstanceId: endpoint.expectedInstanceId,
+      expectedAccessCredentialId: endpoint.expectedAccessCredentialId,
       hostKeyAlias: endpoint.hostKeyAlias,
+      hostKeyFingerprint: endpoint.hostKeyFingerprint,
     },
   });
 }

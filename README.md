@@ -117,7 +117,11 @@ or Remote response cannot cross the switch boundary. Capabilities unavailable on
 are shown as disabled, hidden, or read-only rather than falling through to Local operations.
 
 SSH uses pinned host keys, dedicated public-key credentials, forced commands, and no shell, PTY,
-agent forwarding, or tunnel surface. Feishu enrollment is bound to exact app, tenant, open-id,
+agent forwarding, or tunnel surface. The server issues and enrolls each desktop credential in one
+operation, producing one private transfer file for the desktop to import. The renderer never asks
+for the deployment topology, instance id, SSH private-key path, or `known_hosts` path; those remain
+inside the server-issued credential and Electron main process. Feishu enrollment is bound to exact
+app, tenant, open-id,
 instance, and credential identities. Approval cards default to a 30-minute presentation lifetime;
 `0` is the explicit indefinite setting, while Core remains authoritative for whether a request is
 still pending.

@@ -1,4 +1,5 @@
 import type { JSX, ReactNode } from 'react';
+import { DeckSelect } from './DeckSelect';
 import { HeaderTokenRates } from './HeaderTokenRates';
 import {
   AlertTriangleIcon,
@@ -52,6 +53,29 @@ export function AppHeader({
   onOpenLibrary,
   onOpenSettings,
 }: AppHeaderProps): JSX.Element {
+  const sourceValue = sourceMode === 'remote' && selectedRemoteProfileId
+    ? `remote:${selectedRemoteProfileId}`
+    : 'local';
+  const sourceOptions = [
+    { value: 'local', label: 'Local · 本机' },
+    ...remoteProfiles
+      .filter((profile) => profile.scope === 'remote')
+      .map((profile) => ({
+        value: `remote:${profile.id}`,
+        label: `Remote · ${profile.label}`,
+      })),
+  ];
+  const viewOptions = [
+    { value: 'live' as const, label: '实时' },
+    { value: 'pending' as const, label: pending > 0 ? `待处理 · ${pending}` : '待处理' },
+    { value: 'history' as const, label: sourceMode === 'remote' ? '会话摘要' : '历史' },
+    ...(sourceMode === 'local' ? [
+      { value: 'teams' as const, label: '团队' },
+      { value: 'issues' as const, label: '问题' },
+      { value: 'data' as const, label: '数据' },
+    ] : []),
+  ];
+
   return (
     <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
       <div className="min-w-0 shrink truncate">
@@ -79,35 +103,53 @@ export function AppHeader({
       </div>
       <HeaderTokenRates />
       <div className="flex shrink-0 items-center gap-0.5 no-drag">
-        <select
-          aria-label="数据源"
-          title="切换 Local / Remote 数据源"
-          value={sourceMode === 'remote' && selectedRemoteProfileId ? `remote:${selectedRemoteProfileId}` : 'local'}
-          onChange={(event) => onSourceChange(event.target.value)}
-          className="max-w-28 rounded border border-white/10 bg-black/20 px-1 py-0.5 text-[9px] text-deck-text"
-        >
-          <option value="local">Local · 本机</option>
-          {remoteProfiles.filter((profile) => profile.topology !== 'standalone').map((profile) => (
-            <option key={profile.id} value={`remote:${profile.id}`}>Remote · {profile.label}</option>
-          ))}
-        </select>
-        <button type="button" onClick={onOpenRemoteProfiles} title="远程数据源设置" className="rounded px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/8 hover:text-deck-text">源</button>
         <HeaderIconButton title="新建会话" onClick={onNewSession}>
           <PlusIcon className="h-3.5 w-3.5" />
         </HeaderIconButton>
         <Divider />
-        <TabButton active={view === 'live'} onClick={() => onViewChange('live')}>实时</TabButton>
-        <TabButton
-          active={view === 'pending'}
-          onClick={() => onViewChange('pending')}
-          badge={pending > 0 ? pending : undefined}
+        <div className="hidden items-center gap-0.5 min-[900px]:flex">
+          <TabButton active={view === 'live'} onClick={() => onViewChange('live')}>实时</TabButton>
+          <TabButton
+            active={view === 'pending'}
+            onClick={() => onViewChange('pending')}
+            badge={pending > 0 ? pending : undefined}
+          >
+            待处理
+          </TabButton>
+          <TabButton active={view === 'history'} onClick={() => onViewChange('history')}>{sourceMode === 'remote' ? '会话摘要' : '历史'}</TabButton>
+          {sourceMode === 'local' && <TabButton active={view === 'teams'} onClick={() => onViewChange('teams')}>团队</TabButton>}
+          {sourceMode === 'local' && <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>}
+          {sourceMode === 'local' && <TabButton active={view === 'data'} onClick={() => onViewChange('data')}>数据</TabButton>}
+        </div>
+        <DeckSelect
+          value={view}
+          options={viewOptions}
+          onChange={onViewChange}
+          title="切换页面"
+          ariaLabel="页面"
+          className="w-20 min-[900px]:hidden"
+          buttonClassName="flex h-5 w-full items-center rounded px-2 text-left text-[10px] text-deck-muted outline-none transition hover:bg-white/8 hover:text-deck-text focus:bg-white/10 focus:text-deck-text"
+          menuMinWidth={120}
+        />
+        <Divider />
+        <DeckSelect
+          value={sourceValue}
+          options={sourceOptions}
+          onChange={onSourceChange}
+          title="切换 Local / Remote 数据源"
+          ariaLabel="数据源"
+          className="w-28"
+          buttonClassName="flex h-5 w-full items-center rounded px-2 text-left text-[10px] text-deck-muted outline-none transition hover:bg-white/8 hover:text-deck-text focus:bg-white/10 focus:text-deck-text"
+          menuMinWidth={180}
+        />
+        <button
+          type="button"
+          onClick={onOpenRemoteProfiles}
+          title="远程数据源设置"
+          className="inline-flex h-5 items-center rounded px-1.5 text-[10px] text-deck-muted transition hover:bg-white/8 hover:text-deck-text"
         >
-          待处理
-        </TabButton>
-        <TabButton active={view === 'history'} onClick={() => onViewChange('history')}>{sourceMode === 'remote' ? '会话摘要' : '历史'}</TabButton>
-        {sourceMode === 'local' && <TabButton active={view === 'teams'} onClick={() => onViewChange('teams')}>团队</TabButton>}
-        {sourceMode === 'local' && <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>}
-        {sourceMode === 'local' && <TabButton active={view === 'data'} onClick={() => onViewChange('data')}>数据</TabButton>}
+          源
+        </button>
         <Divider />
         <HeaderIconButton
           title={pinned ? '取消置顶' : '置顶'}
@@ -148,7 +190,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded px-2 py-0.5 text-[10px] transition ${
+      className={`inline-flex h-5 items-center rounded px-2 text-[10px] transition ${
         active ? 'bg-white/15 text-deck-text' : 'text-deck-muted hover:bg-white/8'
       }`}
     >

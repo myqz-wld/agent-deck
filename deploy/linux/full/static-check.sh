@@ -71,4 +71,16 @@ for required in \
     fail "Server Core wrapper does not verify $required"
 done
 
+for required in \
+  'agent-deckd issue-connection' \
+  '--credential-file /path/to/instance/secrets/credentials.json' \
+  '--host-key /etc/ssh/ssh_host_ed25519_key.pub' \
+  '.agentdeck-connection'; do
+  grep -Fq -- "$required" "$full_dir/README.snippet.md" ||
+    fail "connection credential issuance documentation lost $required"
+done
+grep -Fq "if (command === 'issue-connection')" \
+  "$repo_root/src/hosts/server-core/entrypoint.ts" ||
+  fail 'Server Core entrypoint lost one-shot connection issuance'
+
 echo 'Full static check: passed'

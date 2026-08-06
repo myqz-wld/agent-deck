@@ -25,22 +25,21 @@ function renderHeader(sourceMode: 'local' | 'remote', total: number | null = 1) 
         {
           id: 'local-a',
           label: '本机',
-          topology: 'standalone',
+          scope: 'local',
           endpoint: null,
-          credentials: { identityFileConfigured: false, knownHostsFileConfigured: false },
+          credentials: { connectionCredentialConfigured: false },
         },
         {
           id: 'remote-a',
           label: '生产 Core',
-          topology: 'server-core',
+          scope: 'remote',
           endpoint: {
             hostname: 'core.example.test',
             port: 22,
             username: 'agentdeck',
-            expectedInstanceId: null,
-            hostKeyAlias: null,
+            hostKeyFingerprint: 'SHA256:test',
           },
-          credentials: { identityFileConfigured: true, knownHostsFileConfigured: true },
+          credentials: { connectionCredentialConfigured: true },
         },
       ]}
       onViewChange={vi.fn()}
@@ -62,10 +61,18 @@ describe('AppHeader source selection', () => {
     const onSourceChange = renderHeader('local');
     expect(screen.queryByRole('button', { name: '远程' })).toBeNull();
     expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
-    fireEvent.change(screen.getByRole('combobox', { name: '数据源' }), {
-      target: { value: 'remote:remote-a' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: '数据源' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Remote · 生产 Core' }));
     expect(onSourceChange).toHaveBeenCalledWith('remote:remote-a');
+  });
+
+  it('places the source selector after Data and before the header icon controls', () => {
+    renderHeader('local');
+    const data = screen.getByRole('button', { name: '数据' });
+    const source = screen.getByRole('button', { name: '数据源' });
+    const pin = screen.getByRole('button', { name: '置顶' });
+    expect(data.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(source.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('hides unsupported local-only pages in Remote mode', () => {

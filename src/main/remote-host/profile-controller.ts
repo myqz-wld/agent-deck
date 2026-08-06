@@ -7,14 +7,22 @@ import {
 } from '@hosts/electron';
 import type { RemoteHostProfileDraftDto, RemoteHostSourceMode } from '@shared/remote-host';
 
-import type { RemoteHostCredentialSelections } from './credential-selections';
+import {
+  connectionHostKeyFingerprint,
+  type RemoteHostConnectionSelections,
+} from './connection-selections';
+import type {
+  InstalledRemoteHostCredential,
+  RemoteHostCredentialMaterialStore,
+} from './credential-material-store';
 import type { RemoteHostProfileDocument } from './profile-document';
 import type { RemoteHostProfileStore } from './profile-store';
 
 export interface RemoteHostProfileControllerOptions {
   registry: ElectronHostRegistry;
   store: RemoteHostProfileStore;
-  selections: RemoteHostCredentialSelections;
+  connections: RemoteHostConnectionSelections;
+  materials: RemoteHostCredentialMaterialStore;
   createId: () => string;
   onProfileRescope: (profileId: string) => void;
   onSourceRescope: () => void;
@@ -55,24 +63,31 @@ export class RemoteHostProfileController {
   }
 
   async add(draft: RemoteHostProfileDraftDto): Promise<string> {
-    if (!draft.identitySelectionId || !draft.knownHostsSelectionId) {
-      throw new Error('New remote profiles require both credential files');
-    }
-    const identityFile = this.options.selections.resolve('identity-file', draft.identitySelectionId);
-    const knownHostsFile = this.options.selections.resolve('known-hosts-file', draft.knownHostsSelectionId);
+    if (!draft.connectionSelectionId) throw new Error('请先导入连接凭证');
+    const credential = this.options.connections.resolve(draft.connectionSelectionId);
     const suffix = this.options.createId();
     const id = `remote-${suffix}`;
-    const profile = this.buildProfile(id, `electron-${suffix}`, draft, identityFile, knownHostsFile);
-    this.options.registry.register(profile);
+    const material = this.options.materials.install(credential);
+    const profile = this.buildCredentialProfile(
+      id,
+      `electron-${suffix}`,
+      draft.label,
+      credential,
+      material,
+    );
+    let registered = false;
     try {
+      this.options.registry.register(profile);
+      registered = true;
       if (this.selectedRemoteProfileIdValue === null) this.selectedRemoteProfileIdValue = id;
       this.persist();
     } catch (error) {
       if (this.selectedRemoteProfileIdValue === id) this.selectedRemoteProfileIdValue = null;
-      await this.options.registry.remove(id);
+      if (registered) await this.options.registry.remove(id).catch(() => undefined);
+      this.options.materials.dispose(material);
       throw error;
     }
-    this.options.selections.consume([draft.identitySelectionId, draft.knownHostsSelectionId]);
+    this.options.connections.consume(draft.connectionSelectionId);
     this.options.onProfileRescope(id);
     return id;
   }
@@ -81,24 +96,25 @@ export class RemoteHostProfileController {
     const current = this.requireRemote(profileId);
     const previousState = this.options.registry.state(profileId);
     const reconnect = shouldReconnect(previousState);
-    const identityFile = draft.identitySelectionId
-      ? this.options.selections.resolve('identity-file', draft.identitySelectionId)
-      : current.ssh.identityFile;
-    const knownHostsFile = draft.knownHostsSelectionId
-      ? this.options.selections.resolve('known-hosts-file', draft.knownHostsSelectionId)
-      : current.ssh.knownHostsFile;
-    const replacement = this.buildProfile(
-      current.id,
-      current.clientId,
-      draft,
-      identityFile,
-      knownHostsFile,
-    );
+    const credential = draft.connectionSelectionId
+      ? this.options.connections.resolve(draft.connectionSelectionId)
+      : null;
     const wasSelected = this.options.registry.selectedProfileId === profileId;
     this.options.onProfileRescope(profileId);
     await this.options.registry.remove(profileId);
+    let installed: InstalledRemoteHostCredential | null = null;
     let replacementRegistered = false;
     try {
+      installed = credential ? this.options.materials.install(credential) : null;
+      const replacement = credential
+        ? this.buildCredentialProfile(
+            current.id,
+            current.clientId,
+            draft.label,
+            credential,
+            installed!,
+          )
+        : this.relabelProfile(current, draft.label);
       this.options.registry.register(replacement);
       replacementRegistered = true;
       if (wasSelected) this.options.registry.select(profileId);
@@ -108,12 +124,11 @@ export class RemoteHostProfileController {
       this.options.registry.register(current);
       if (wasSelected) this.options.registry.select(profileId);
       this.persist();
+      if (installed) this.options.materials.dispose(installed);
       throw error;
     }
-    this.options.selections.consume([
-      ...(draft.identitySelectionId ? [draft.identitySelectionId] : []),
-      ...(draft.knownHostsSelectionId ? [draft.knownHostsSelectionId] : []),
-    ]);
+    if (installed) this.options.materials.dispose(this.material(current));
+    if (draft.connectionSelectionId) this.options.connections.consume(draft.connectionSelectionId);
     if (reconnect) await this.options.registry.connect(profileId).catch(() => undefined);
   }
 
@@ -149,6 +164,7 @@ export class RemoteHostProfileController {
       this.persist();
       throw error;
     }
+    this.options.materials.dispose(this.material(current));
   }
 
   select(profileId: string): void {
@@ -203,7 +219,7 @@ export class RemoteHostProfileController {
   }
 
   stopAll(): Promise<void> {
-    this.options.selections.clear();
+    this.options.connections.clear();
     this.options.onSourceRescope();
     return this.options.registry.stopAll();
   }
@@ -236,32 +252,44 @@ export class RemoteHostProfileController {
     return profile;
   }
 
-  private buildProfile(
+  private buildCredentialProfile(
     id: string,
     clientId: string,
-    draft: RemoteHostProfileDraftDto,
-    identityFile: string,
-    knownHostsFile: string,
+    label: string,
+    credential: ReturnType<RemoteHostConnectionSelections['resolve']>,
+    material: InstalledRemoteHostCredential,
   ): RemoteElectronHostProfile {
     const profile: RemoteElectronHostProfile = {
       id,
-      label: draft.label,
+      label,
       clientId,
-      topology: draft.topology,
+      topology: credential.topology,
       ssh: {
         id,
-        label: draft.label,
-        topology: draft.topology,
-        hostname: draft.hostname,
-        port: draft.port,
-        username: draft.username,
-        identityFile,
-        knownHostsFile,
-        ...(draft.expectedInstanceId ? { expectedInstanceId: draft.expectedInstanceId } : {}),
-        ...(draft.hostKeyAlias ? { hostKeyAlias: draft.hostKeyAlias } : {}),
+        label,
+        topology: credential.topology,
+        ...credential.endpoint,
+        identityFile: material.identityFile,
+        knownHostsFile: material.knownHostsFile,
+        expectedInstanceId: credential.instanceId,
+        expectedAccessCredentialId: credential.credentialId,
+        hostKeyFingerprint: connectionHostKeyFingerprint(credential),
       },
     };
     validateElectronHostProfile(profile);
     return profile;
+  }
+
+  private relabelProfile(current: RemoteElectronHostProfile, label: string): RemoteElectronHostProfile {
+    const profile = { ...current, label, ssh: { ...current.ssh, label } };
+    validateElectronHostProfile(profile);
+    return profile;
+  }
+
+  private material(profile: RemoteElectronHostProfile): InstalledRemoteHostCredential {
+    return {
+      identityFile: profile.ssh.identityFile,
+      knownHostsFile: profile.ssh.knownHostsFile,
+    };
   }
 }

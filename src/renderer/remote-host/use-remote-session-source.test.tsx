@@ -44,24 +44,22 @@ function profile(id: string): RemoteHostProfileDto {
   return {
     id,
     label: id,
-    topology: 'server-core',
+    scope: 'remote',
     endpoint: {
       hostname: `${id}.example.test`,
       port: 22,
       username: 'agentdeck',
-      expectedInstanceId: id,
-      hostKeyAlias: null,
+      hostKeyFingerprint: 'SHA256:test',
     },
-    credentials: { identityFileConfigured: true, knownHostsFileConfigured: true },
+    credentials: { connectionCredentialConfigured: true },
   };
 }
 
 function state(id: string): RemoteHostStateDto {
   return {
     profileId: id,
-    topology: 'server-core',
     status: 'connected',
-    instanceId: id,
+    recovery: null,
     authoritativeCoreId: `core-${id}`,
     workerGeneration: null,
     capabilities: CAPABILITIES,

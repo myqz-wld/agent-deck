@@ -165,7 +165,7 @@ export const RemoteHostIpcInvoke = {
   SourceModeSet: 'remote-host:source-mode-set',
   Connect: 'remote-host:connect',
   Disconnect: 'remote-host:disconnect',
-  ChooseCredential: 'remote-host:choose-credential',
+  ChooseConnection: 'remote-host:choose-connection',
   SessionsList: 'remote-host:sessions-list',
   SessionGet: 'remote-host:session-get',
   ProjectsList: 'remote-host:projects-list',

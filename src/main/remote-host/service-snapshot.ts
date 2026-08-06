@@ -12,17 +12,15 @@ function publicProfile(profile: ElectronHostProfile): RemoteHostProfileDto {
   return {
     id: profile.id,
     label: profile.label,
-    topology: profile.topology,
+    scope: profile.topology === 'standalone' ? 'local' : 'remote',
     endpoint: profile.topology === 'standalone' ? null : {
       hostname: profile.ssh.hostname,
       port: profile.ssh.port,
       username: profile.ssh.username,
-      expectedInstanceId: profile.ssh.expectedInstanceId ?? null,
-      hostKeyAlias: profile.ssh.hostKeyAlias ?? null,
+      hostKeyFingerprint: profile.ssh.hostKeyFingerprint ?? null,
     },
     credentials: {
-      identityFileConfigured: profile.topology !== 'standalone',
-      knownHostsFileConfigured: profile.topology !== 'standalone',
+      connectionCredentialConfigured: profile.topology !== 'standalone',
     },
   };
 }
@@ -40,9 +38,11 @@ export function remoteHostSnapshot(input: {
     profiles: input.registry.listProfiles().map(publicProfile),
     states: input.registry.listStates().map((state) => ({
       profileId: state.profileId,
-      topology: state.topology,
       status: state.status,
-      instanceId: state.instanceId,
+      recovery: (
+        state.topology === 'relay' && state.status === 'offline' &&
+        state.error?.code === 'worker_offline'
+      ) ? 'worker-offline' : null,
       authoritativeCoreId: state.authoritativeCoreId,
       workerGeneration: state.workerGeneration,
       capabilities: [...state.capabilities],

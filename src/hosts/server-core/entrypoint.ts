@@ -1,4 +1,6 @@
 import { createConnection } from 'node:net';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { preflightNodeNativeSqlite } from '@hosts/daemon/sqlite-preflight';
 import { readPrivateJsonFile } from '@hosts/linux-runtime/config-file';
@@ -13,6 +15,7 @@ import {
 
 import { parseServerCoreConfig } from './config';
 import { createServerCoreController } from './root';
+import { issueServerCoreConnection } from './connection-issuer';
 
 async function probeSocket(socketPath: string): Promise<void> {
   requireAbsolutePath(socketPath, 'socket');
@@ -65,7 +68,7 @@ async function bridge(
   });
 }
 
-async function run(argv: readonly string[]): Promise<number> {
+export async function runServerCoreEntrypoint(argv: readonly string[]): Promise<number> {
   const command = argv[0] ?? 'serve';
   if (command === 'check-abi') {
     if (argv.length !== 1) throw new Error('check-abi does not accept arguments');
@@ -98,6 +101,14 @@ async function run(argv: readonly string[]): Promise<number> {
     parseServerCoreConfig(await readPrivateJsonFile(flags['--config']));
     return 0;
   }
+  if (command === 'issue-connection') {
+    const flags = parseExactFlags(argv.slice(1), [
+      '--instance', '--credential', '--label', '--hostname', '--port', '--username',
+      '--host-key', '--credential-file', '--authorized-keys', '--output',
+    ]);
+    issueServerCoreConnection(flags);
+    return 0;
+  }
   if (command !== 'serve') throw new Error('unknown server-core command');
   const flags = parseExactFlags(argv.slice(1), ['--instance', '--config', '--socket']);
   const config = parseServerCoreConfig(await readPrivateJsonFile(flags['--config']));
@@ -120,15 +131,20 @@ function requireClientSurface(value: string): 'desktop-full' | 'feishu-session-c
   return value;
 }
 
-const entrypointArgv = process.argv.slice(2);
-void run(entrypointArgv).then(
-  (code) => {
-    process.exitCode = code;
-  },
-  () => {
-    process.stderr.write(entrypointArgv[0] === 'check-abi'
-      ? 'Server Core 的 Node SQLite ABI 预检失败。\n'
-      : 'Server Core 启动失败；详细输入已隐藏。\n');
-    process.exitCode = 1;
-  },
-);
+const invokedAsEntrypoint = process.argv[1]
+  ? import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+  : false;
+if (invokedAsEntrypoint) {
+  const entrypointArgv = process.argv.slice(2);
+  void runServerCoreEntrypoint(entrypointArgv).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    () => {
+      process.stderr.write(entrypointArgv[0] === 'check-abi'
+        ? 'Server Core 的 Node SQLite ABI 预检失败。\n'
+        : 'Server Core 启动失败；详细输入已隐藏。\n');
+      process.exitCode = 1;
+    },
+  );
+}

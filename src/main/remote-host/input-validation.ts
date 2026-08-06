@@ -136,10 +136,6 @@ function pendingValue(
   return parsed;
 }
 
-function nullableText(value: unknown, field: string, maxBytes: number): string | null {
-  return value === null ? null : text(value, field, maxBytes);
-}
-
 function nullableToken(value: unknown, field: string, maxBytes: number): string | null {
   return value === null ? null : token(value, field, maxBytes);
 }
@@ -171,30 +167,14 @@ export function parseRemoteHostSourceMode(value: unknown): RemoteHostSourceMode 
 
 export function parseRemoteHostProfileDraft(value: unknown): RemoteHostProfileDraftDto {
   const raw = object(value, 'profile');
-  exactKeys(raw, [
-    'expectedInstanceId',
-    'hostKeyAlias',
-    'hostname',
-    'identitySelectionId',
-    'knownHostsSelectionId',
-    'label',
-    'port',
-    'topology',
-    'username',
-  ], 'profile');
-  if (raw.topology !== 'server-core' && raw.topology !== 'relay') {
-    throw new RemoteHostInputError('profile.topology', 'must be server-core or relay');
-  }
+  exactKeys(raw, ['connectionSelectionId', 'label'], 'profile');
   return {
     label: text(raw.label, 'profile.label', 256),
-    topology: raw.topology,
-    hostname: text(raw.hostname, 'profile.hostname', 253),
-    port: positiveInteger(raw.port, 'profile.port', 65_535),
-    username: text(raw.username, 'profile.username', 128),
-    expectedInstanceId: nullableText(raw.expectedInstanceId, 'profile.expectedInstanceId', 128),
-    hostKeyAlias: nullableText(raw.hostKeyAlias, 'profile.hostKeyAlias', 128),
-    identitySelectionId: nullableToken(raw.identitySelectionId, 'profile.identitySelectionId', 256),
-    knownHostsSelectionId: nullableToken(raw.knownHostsSelectionId, 'profile.knownHostsSelectionId', 256),
+    connectionSelectionId: nullableToken(
+      raw.connectionSelectionId,
+      'profile.connectionSelectionId',
+      256,
+    ),
   };
 }
 

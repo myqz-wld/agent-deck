@@ -10,7 +10,7 @@ import {
   standaloneProfile,
 } from '@hosts/electron/__tests__/registry-fixture';
 
-import { RemoteHostCredentialSelections } from './credential-selections';
+import { MemoryCredentialMaterialStore, testConnectionSelections } from './test-connection-fixture';
 import type { RemoteHostProfileDocument } from './profile-document';
 import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
 import { RemoteHostService } from './service';
@@ -51,7 +51,8 @@ function harness(options: { local?: boolean; twoRemotes?: boolean } = {}) {
   const service = new RemoteHostService({
     registry,
     store: new RemoteHostProfileStore(backend, { create: createId }),
-    selections: new RemoteHostCredentialSelections({ createId, validateFile: () => undefined }),
+    connections: testConnectionSelections(createId),
+    materials: new MemoryCredentialMaterialStore(),
     createId,
   });
   return { backend, clients, firstProfile, local, registry, secondProfile, service };

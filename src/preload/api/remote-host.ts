@@ -4,8 +4,7 @@ import { IpcEvent, RemoteHostIpcInvoke } from '@shared/ipc-channels';
 import type {
   RemoteHostAcceptedResultDto,
   RemoteHostCreateSessionDto,
-  RemoteHostCredentialKind,
-  RemoteHostCredentialSelectionDto,
+  RemoteHostConnectionSelectionDto,
   RemoteHostDataChangedDto,
   RemoteHostHistoryPageDto,
   RemoteHostHistoryRequestDto,
@@ -51,10 +50,8 @@ export const remoteHostApi = {
     ipcRenderer.invoke(RemoteHostIpcInvoke.Connect, profileId),
   disconnectRemoteHost: (profileId: string): Promise<RemoteHostSnapshotDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.Disconnect, profileId),
-  chooseRemoteHostCredential: (
-    kind: RemoteHostCredentialKind,
-  ): Promise<RemoteHostCredentialSelectionDto | null> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.ChooseCredential, kind),
+  chooseRemoteHostConnection: (): Promise<RemoteHostConnectionSelectionDto | null> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.ChooseConnection),
 
   listRemoteHostSessions: (
     request: RemoteHostSessionPageRequestDto,

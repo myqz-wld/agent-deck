@@ -20,7 +20,7 @@ import type {
   RemoteHostPendingRequestDto,
 } from '@shared/remote-host';
 
-import { RemoteHostCredentialSelections } from './credential-selections';
+import { MemoryCredentialMaterialStore, testConnectionSelections } from './test-connection-fixture';
 import type { RemoteHostProfileDocument } from './profile-document';
 import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
 import { RemoteHostService } from './service';
@@ -82,10 +82,8 @@ function harness(capabilities = Object.values(AgentDeckCapability) as Capability
       selectedRemoteProfileId: remote.id,
       profiles: [local, remote],
     }), { create: createId }),
-    selections: new RemoteHostCredentialSelections({
-      createId,
-      validateFile: () => undefined,
-    }),
+    connections: testConnectionSelections(createId),
+    materials: new MemoryCredentialMaterialStore(),
     createId,
   });
   return {

@@ -11,19 +11,12 @@ import {
 function draft() {
   return {
     label: '生产 Core',
-    topology: 'server-core',
-    hostname: 'core.example.test',
-    port: 22,
-    username: 'agentdeck',
-    expectedInstanceId: null,
-    hostKeyAlias: null,
-    identitySelectionId: 'identity-token',
-    knownHostsSelectionId: 'known-hosts-token',
+    connectionSelectionId: 'connection-token',
   };
 }
 
 describe('remote-host IPC input validation', () => {
-  it('accepts only opaque credential selections and rejects renderer paths or argv', () => {
+  it('accepts only an opaque connection selection and rejects renderer paths or argv', () => {
     expect(parseRemoteHostProfileDraft(draft())).toEqual(draft());
     expect(() => parseRemoteHostProfileDraft({
       ...draft(),
