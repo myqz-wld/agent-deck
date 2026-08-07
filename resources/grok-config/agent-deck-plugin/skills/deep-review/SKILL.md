@@ -51,6 +51,8 @@ Severity controls depth:
 - For MEDIUM, the lead judges materiality from impact and likelihood in a supported normal scenario. Continue only when more evidence or remediation could materially change correctness, user outcome, a core invariant, an architecture decision, or the final gate. Otherwise record `fix opportunistically`, `accept risk`, or `follow-up` and stop deepening it.
 - LOW/INFO may be fixed opportunistically when obvious, localized, authorized, and followed by focused lead-side validation. They never trigger rebuttal, adjacent investigation, a new pass, or keep a batch open. If an eligible pass already exists, the incidental edit may be included without extending that pass.
 
+For every MEDIUM, LOW, or INFO finding reported by only one worker and not evaluated in rebuttal by the paired worker, the lead must run a bounded verification before final classification or action. If the check does not verify it, classify it as `UNVERIFIED` and do not fix it or let it affect the final gate; the paired worker's silence or absence is not corroboration.
+
 The lead validates contract compliance and materiality; it does not invent findings to fill reviewer coverage gaps.
 
 ## Lifecycle

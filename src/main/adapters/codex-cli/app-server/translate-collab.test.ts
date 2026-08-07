@@ -15,17 +15,20 @@ function collect() {
 }
 
 describe('Codex app-server collaboration translation', () => {
-  it('preserves the current app-server collab tool item shape', () => {
+  it('preserves the current app-server collab-agent item shape', () => {
     const { emit, events } = collect();
     const item = {
       id: 'agent-2',
-      type: 'collabToolCall',
-      tool: 'spawn_agent',
+      type: 'collabAgentToolCall',
+      tool: 'spawnAgent',
       senderThreadId: 'lead-thread',
-      receiverThreadId: null,
-      newThreadId: 'child-thread',
+      receiverThreadIds: ['child-thread'],
       prompt: 'inspect the adapter',
-      agentStatus: 'running',
+      model: 'gpt-5.6-codex',
+      reasoningEffort: 'xhigh',
+      agentsStates: {
+        'child-thread': { status: 'running', message: null },
+      },
       status: 'completed',
     };
 
@@ -41,8 +44,10 @@ describe('Codex app-server collaboration translation', () => {
     const toolInput = {
       collab_tool: 'spawn_agent',
       sender_thread_id: 'lead-thread',
-      new_thread_id: 'child-thread',
+      receiver_thread_ids: ['child-thread'],
       prompt: 'inspect the adapter',
+      model: 'gpt-5.6-codex',
+      reasoning_effort: 'xhigh',
     };
     expect(events).toEqual([
       {
@@ -60,8 +65,112 @@ describe('Codex app-server collaboration translation', () => {
           toolName: 'Agent',
           toolInput,
           toolResult: {
+            receiver_thread_ids: ['child-thread'],
+            agents_states: {
+              'child-thread': { status: 'running', message: null },
+            },
+          },
+          status: 'completed',
+          error: undefined,
+        },
+      },
+    ]);
+  });
+
+  it('renders current MultiAgentV2 sub-agent activity without raw events', () => {
+    const { emit, events } = collect();
+    const item = {
+      id: 'call-followup-1',
+      type: 'subAgentActivity',
+      kind: 'interacted',
+      agentThreadId: 'child-thread',
+      agentPath: '/root/audit_adapter',
+    };
+
+    translateCodexAppServerNotification(
+      { method: 'item/completed', params: { item } } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'call-followup-1',
+          toolName: 'Agent',
+          toolInput: {
+            target: '/root/audit_adapter',
+            receiver_thread_ids: ['child-thread'],
+            agent_thread_id: 'child-thread',
+            agent_path: '/root/audit_adapter',
+            activity_kind: 'interacted',
+            description: '已向子代理发送消息',
+          },
+          toolResult: {
+            activity_kind: 'interacted',
+            agent_thread_id: 'child-thread',
+            agent_path: '/root/audit_adapter',
+          },
+          status: 'completed',
+        },
+      },
+    ]);
+  });
+
+  it('keeps the legacy normalized collaboration item visible for custom older binaries', () => {
+    const { emit, events } = collect();
+    const item = {
+      id: 'legacy-agent-1',
+      type: 'collabToolCall',
+      tool: 'spawn_agent',
+      senderThreadId: 'lead-thread',
+      receiverThreadId: 'child-thread',
+      newThreadId: 'child-thread',
+      prompt: 'inspect the adapter',
+      agentStatus: { status: 'running' },
+      status: 'completed',
+    };
+
+    translateCodexAppServerNotification(
+      { method: 'item/started', params: { item } } as CodexAppServerNotification,
+      emit,
+    );
+    translateCodexAppServerNotification(
+      { method: 'item/completed', params: { item } } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'tool-use-start',
+        payload: {
+          toolName: 'Agent',
+          toolInput: {
+            collab_tool: 'spawn_agent',
+            sender_thread_id: 'lead-thread',
+            receiver_thread_id: 'child-thread',
             new_thread_id: 'child-thread',
-            agent_status: 'running',
+            prompt: 'inspect the adapter',
+          },
+          toolUseId: 'legacy-agent-1',
+        },
+      },
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'legacy-agent-1',
+          toolName: 'Agent',
+          toolInput: {
+            collab_tool: 'spawn_agent',
+            sender_thread_id: 'lead-thread',
+            receiver_thread_id: 'child-thread',
+            new_thread_id: 'child-thread',
+            prompt: 'inspect the adapter',
+          },
+          toolResult: {
+            receiver_thread_id: 'child-thread',
+            new_thread_id: 'child-thread',
+            agent_status: { status: 'running' },
           },
           status: 'completed',
           error: undefined,
@@ -422,7 +531,7 @@ describe('Codex app-server collaboration translation', () => {
       {
         toolName: 'Agent',
         toolInput: {
-          collab_tool: 'wait',
+          collab_tool: 'wait_agent',
           ids: ['agent-7'],
           timeout_ms: 15000,
         },
@@ -464,13 +573,14 @@ describe('Codex app-server collaboration translation', () => {
         params: {
           item: {
             id: 'call-wait-1',
-            type: 'collabToolCall',
+            type: 'collabAgentToolCall',
             tool: 'wait',
             senderThreadId: 'lead-thread',
-            receiverThreadId: null,
-            newThreadId: null,
+            receiverThreadIds: [],
             prompt: null,
-            agentStatus: null,
+            model: null,
+            reasoningEffort: null,
+            agentsStates: {},
             status: 'inProgress',
           },
         },
@@ -484,19 +594,19 @@ describe('Codex app-server collaboration translation', () => {
       kind: 'tool-use-start',
       payload: {
         toolUseId: 'call-wait-1',
-        toolInput: { collab_tool: 'wait', timeout_ms: 30000 },
+        toolInput: { collab_tool: 'wait_agent', timeout_ms: 30000 },
       },
     });
     expect(events[1]).toMatchObject({
       kind: 'tool-use-start',
       payload: {
         toolUseId: 'call-wait-1',
-        toolInput: { collab_tool: 'wait' },
+        toolInput: { collab_tool: 'wait_agent' },
       },
     });
     expect(mergeToolUsePayload(events[0].payload, events[1].payload)).toMatchObject({
       toolInput: {
-        collab_tool: 'wait',
+        collab_tool: 'wait_agent',
         timeout_ms: 30000,
         sender_thread_id: 'lead-thread',
       },

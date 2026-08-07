@@ -51,6 +51,8 @@ Severity controls depth:
 - MEDIUM receives rebuttal or escalation only when impact and normal-scenario likelihood make further evidence or remediation capable of changing the recommendation.
 - LOW/INFO may be fixed opportunistically only when existing write authority already covers an obvious localized change. Validate that fix locally, but never send LOW/INFO to rebuttal, investigate adjacent hypotheticals, start or extend a reviewer round, or escalate because of it. The review itself grants no write authority.
 
+For every MEDIUM, LOW, or INFO finding reported by only one worker and not evaluated in rebuttal by the paired worker, the lead must run a bounded verification before final classification or action. If the check does not verify it, classify it as `UNVERIFIED` and do not fix it or let it affect the recommendation; the paired worker's silence or absence is not corroboration.
+
 The lead validates contract compliance and materiality; it does not invent findings to fill reviewer coverage gaps.
 
 ## Lifecycle

@@ -462,6 +462,7 @@ describe('translateCodexAppServerNotification', () => {
       tool: 'invoke',
       arguments: { skill: 'prompt-asset-improver', args: 'audit durable prompts' },
       contentItems: [{ type: 'text', text: 'done' }],
+      durationMs: 320,
       status: 'completed',
       success: true,
     };
@@ -490,6 +491,7 @@ describe('translateCodexAppServerNotification', () => {
           toolUseId: 'dyn-1',
           toolName: 'Skill',
           toolResult: [{ type: 'text', text: 'done' }],
+          durationMs: 320,
           status: 'completed',
           error: undefined,
         },
@@ -525,6 +527,176 @@ describe('translateCodexAppServerNotification', () => {
         },
       },
     ]);
+  });
+
+  it('keeps structured MCP results and provider duration metadata', () => {
+    const { emit, events } = collect();
+    const item = {
+      id: 'mcp-1',
+      type: 'mcpToolCall',
+      server: 'agent-deck',
+      tool: 'spawn_session',
+      arguments: { prompt: 'review' },
+      result: {
+        content: [],
+        structuredContent: { sessionId: 'child-1', spawnPromptMessageId: 'msg-1' },
+        _meta: { trace: 'safe' },
+      },
+      error: null,
+      durationMs: 240,
+      status: 'completed',
+    };
+
+    translateCodexAppServerNotification(
+      { method: 'item/started', params: { item } } as CodexAppServerNotification,
+      emit,
+    );
+    translateCodexAppServerNotification(
+      { method: 'item/completed', params: { item } } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'tool-use-start',
+        payload: {
+          toolName: 'mcp__agent-deck__spawn_session',
+          toolInput: { prompt: 'review' },
+          toolUseId: 'mcp-1',
+        },
+      },
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'mcp-1',
+          toolName: 'mcp__agent-deck__spawn_session',
+          toolResult: item.result,
+          error: undefined,
+          durationMs: 240,
+          status: 'completed',
+        },
+      },
+    ]);
+  });
+
+  it('renders standalone web-search results and clock sleep items', () => {
+    const { emit, events } = collect();
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: {
+          item: {
+            id: 'search-1',
+            type: 'webSearch',
+            query: 'Agent Deck',
+            action: { type: 'search', queries: ['Agent Deck'] },
+            results: [{ title: 'Agent Deck', url: 'https://example.test' }],
+          },
+        },
+      } as CodexAppServerNotification,
+      emit,
+    );
+    translateCodexAppServerNotification(
+      {
+        method: 'item/started',
+        params: { item: { id: 'sleep-1', type: 'sleep', durationMs: 1250 } },
+      } as CodexAppServerNotification,
+      emit,
+    );
+    translateCodexAppServerNotification(
+      {
+        method: 'item/completed',
+        params: { item: { id: 'sleep-1', type: 'sleep', durationMs: 1250 } },
+      } as CodexAppServerNotification,
+      emit,
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'tool-use-start',
+        payload: {
+          toolName: 'WebSearch',
+          toolInput: { query: 'Agent Deck' },
+          toolUseId: 'search-1',
+        },
+      },
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'search-1',
+          toolName: 'WebSearch',
+          toolResult: {
+            query: 'Agent Deck',
+            action: { type: 'search', queries: ['Agent Deck'] },
+            results: [{ title: 'Agent Deck', url: 'https://example.test' }],
+          },
+          status: 'completed',
+        },
+      },
+      {
+        kind: 'tool-use-start',
+        payload: {
+          toolUseId: 'sleep-1',
+          toolName: 'clock.sleep',
+          toolInput: { durationMs: 1250 },
+        },
+      },
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'sleep-1',
+          toolName: 'clock.sleep',
+          toolInput: { durationMs: 1250 },
+          durationMs: 1250,
+          status: 'completed',
+        },
+      },
+    ]);
+  });
+
+  it('renders image display items without persisting inline image bytes', () => {
+    const { emit, events } = collect();
+    for (const item of [
+      { id: 'view-1', type: 'imageView', path: '/repo/reference.png' },
+      {
+        id: 'generate-1',
+        type: 'imageGeneration',
+        status: 'completed',
+        revisedPrompt: 'compact dashboard',
+        result: 'large-base64-payload',
+        savedPath: '/repo/generated.png',
+      },
+    ]) {
+      translateCodexAppServerNotification(
+        { method: 'item/completed', params: { item } } as CodexAppServerNotification,
+        emit,
+      );
+    }
+
+    expect(events).toEqual([
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'view-1',
+          toolName: 'ImageView',
+          toolInput: { path: '/repo/reference.png' },
+          toolResult: { path: '/repo/reference.png' },
+          status: 'completed',
+        },
+      },
+      {
+        kind: 'tool-use-end',
+        payload: {
+          toolUseId: 'generate-1',
+          toolName: 'ImageGeneration',
+          toolInput: { prompt: 'compact dashboard' },
+          toolResult: { savedPath: '/repo/generated.png', hasInlineResult: true },
+          status: 'completed',
+          error: undefined,
+        },
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain('large-base64-payload');
   });
 
   it('emits only app-server reasoning summaries as thinking blocks', () => {
@@ -673,13 +845,16 @@ describe('translateCodexAppServerNotification', () => {
     const { emit, events } = collect();
     const item = {
       id: 'agent-1',
-      type: 'collabToolCall',
-      tool: 'spawn_agent',
+      type: 'collabAgentToolCall',
+      tool: 'spawnAgent',
       senderThreadId: 'lead-thread',
-      receiverThreadId: null,
-      newThreadId: 'review-thread',
+      receiverThreadIds: ['review-thread'],
       prompt: 'review this patch',
-      agentStatus: 'completed',
+      model: 'gpt-5.6-codex',
+      reasoningEffort: 'high',
+      agentsStates: {
+        'review-thread': { status: 'completed', message: null },
+      },
       status: 'completed',
     };
 
@@ -700,8 +875,10 @@ describe('translateCodexAppServerNotification', () => {
           toolInput: {
             collab_tool: 'spawn_agent',
             sender_thread_id: 'lead-thread',
-            new_thread_id: 'review-thread',
+            receiver_thread_ids: ['review-thread'],
             prompt: 'review this patch',
+            model: 'gpt-5.6-codex',
+            reasoning_effort: 'high',
           },
           toolUseId: 'agent-1',
         },
@@ -714,12 +891,16 @@ describe('translateCodexAppServerNotification', () => {
           toolInput: {
             collab_tool: 'spawn_agent',
             sender_thread_id: 'lead-thread',
-            new_thread_id: 'review-thread',
+            receiver_thread_ids: ['review-thread'],
             prompt: 'review this patch',
+            model: 'gpt-5.6-codex',
+            reasoning_effort: 'high',
           },
           toolResult: {
-            new_thread_id: 'review-thread',
-            agent_status: 'completed',
+            receiver_thread_ids: ['review-thread'],
+            agents_states: {
+              'review-thread': { status: 'completed', message: null },
+            },
           },
           status: 'completed',
           error: undefined,
@@ -781,6 +962,7 @@ describe('translateCodexAppServerNotification', () => {
           toolInput: { command: 'rg foo src' },
           toolResult: 'src/a.ts\n',
           exitCode: 0,
+          durationMs: null,
           status: 'completed',
         },
       },
