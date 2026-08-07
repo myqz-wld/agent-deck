@@ -24,7 +24,7 @@ describe('Claude SDK init runtime model', () => {
     vi.mocked(sessionRepo.get).mockReturnValue(null);
   });
 
-  it('uses only system/init.model and ignores assistant/status model fields', () => {
+  it('uses authoritative init/session-fallback reports and ignores local or incidental models', () => {
     const internal = makeInternalSession({ cwd: '/repo', applicationSid: 'sid-model' });
     const emit = vi.fn();
 
@@ -32,6 +32,19 @@ describe('Claude SDK init runtime model', () => {
       emit,
       'sid-model',
       { type: 'system', subtype: 'init', model: 'claude-opus-4-8' },
+      internal,
+    );
+    expect(internal.runtimeModel).toBe('claude-opus-4-8');
+
+    translateSdkMessage(
+      emit,
+      'sid-model',
+      {
+        type: 'system',
+        subtype: 'model_refusal_fallback',
+        scope: 'local',
+        fallback_model: 'local-subagent-fallback',
+      },
       internal,
     );
     expect(internal.runtimeModel).toBe('claude-opus-4-8');
@@ -53,6 +66,19 @@ describe('Claude SDK init runtime model', () => {
     );
 
     expect(internal.runtimeModel).toBe('claude-opus-4-8');
+
+    translateSdkMessage(
+      emit,
+      'sid-model',
+      {
+        type: 'system',
+        subtype: 'model_refusal_fallback',
+        scope: 'session',
+        fallback_model: 'claude-sonnet-5',
+      },
+      internal,
+    );
+    expect(internal.runtimeModel).toBe('claude-sonnet-5');
   });
 
   it('ignores blank init model reports', () => {

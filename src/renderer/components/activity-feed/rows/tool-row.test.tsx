@@ -186,6 +186,31 @@ describe('ToolEndRow tool output disclosure', () => {
     expect(container.textContent).toContain('1 个目标');
   });
 
+  it('renders a normalized Codex sub-agent activity even without a raw start event', () => {
+    const { container } = render(
+      <ToolEndRow
+        event={ev('tool-use-end', {
+          toolName: 'Agent',
+          toolUseId: 'call-followup-1',
+          toolInput: {
+            target: '/root/audit_adapter',
+            receiver_thread_ids: ['child-thread'],
+            activity_kind: 'interacted',
+            description: '已向子代理发送消息',
+          },
+          toolResult: { activity_kind: 'interacted' },
+          status: 'completed',
+        })}
+        sessionId="s"
+      />,
+    );
+
+    expect(container.textContent).toContain('Agent 完成');
+    expect(container.textContent).toContain('→ /root/audit_adapter');
+    expect(container.textContent).toContain('1 个目标');
+    expect(container.textContent).toContain('已向子代理发送消息');
+  });
+
   it('expands Codex collaboration raw output inline', () => {
     const { container } = render(
       <ToolEndRow

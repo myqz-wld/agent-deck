@@ -16,6 +16,8 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
 | 2026-08-06 | `CHANGELOG_565_workspace-bounded-relay-worker.md` | Bound Relay Worker clients to one Workspace |
+| 2026-08-05 | `CHANGELOG_567_single-reviewer-finding-verification.md` | Verify un-rebutted single-worker findings before use |
+| 2026-08-05 | `CHANGELOG_566_adapter-runtime-event-fidelity.md` | Refresh runtimes and restore native-agent/tool visibility |
 | 2026-08-05 | `CHANGELOG_564_relay-worker-live-ssh-path.md` | Close the live Relay Worker SSH path |
 | 2026-08-05 | `CHANGELOG_563_concrete-headless-server-core-runtime.md` | Package the concrete headless Server Core |
 | 2026-08-05 | `CHANGELOG_562_codex-aggregate-host-core.md` | Compose the headless Codex host |

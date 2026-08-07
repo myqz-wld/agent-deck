@@ -90,6 +90,13 @@ export function translateSdkMessageCore(
   if (msg.type === 'system' && msg.subtype === 'init') {
     syncClaudeRuntimeModelCore(internal, msg.model, host.runtimeMetadata);
   }
+  if (
+    msg.type === 'system' &&
+    msg.subtype === 'model_refusal_fallback' &&
+    msg.scope !== 'local'
+  ) {
+    syncClaudeRuntimeModelCore(internal, msg.fallback_model, host.runtimeMetadata);
+  }
 
   if (msg.type === 'assistant') {
     // m = msg.message = BetaMessage（id / model / usage / content 都在这层，不在 msg 顶层）。
@@ -126,7 +133,7 @@ export function translateSdkMessageCore(
         claudeContextUsagePayload(internal, { usedTokens: contextTokens }),
       );
     }
-    const blocks = m?.content ?? [];
+    const blocks = Array.isArray(m?.content) ? m.content : [];
     for (let i = 0; i < blocks.length; i++) {
       const block = blocks[i];
       if (block.type === 'thinking' || block.type === 'redacted_thinking') {
@@ -186,7 +193,10 @@ export function translateSdkMessageCore(
     const m = msg.message as {
       content?: { type: string; tool_use_id?: string; content?: unknown; is_error?: boolean }[];
     };
-    const blocks = m?.content ?? [];
+    const blocks = Array.isArray(m?.content) ? m.content : [];
+    const useStructuredToolResult =
+      blocks.filter((block) => block.type === 'tool_result').length === 1 &&
+      Object.prototype.hasOwnProperty.call(msg, 'tool_use_result');
     for (const block of blocks) {
       if (block.type === 'tool_result') {
         // 反查 assistant tool_use 时记下的 name；renderer ToolEndRow 必须靠这个才能显示
@@ -203,7 +213,7 @@ export function translateSdkMessageCore(
         e('tool-use-end', {
           toolUseId: block.tool_use_id,
           toolName,
-          toolResult: block.content,
+          toolResult: useStructuredToolResult ? msg.tool_use_result : block.content,
           status,
         });
         // plan §Phase 3 Step 3.5 修法 (A1-MED-1 codex): pendingFileChangeIntents 消费时序。
