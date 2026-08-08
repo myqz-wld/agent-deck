@@ -113,8 +113,15 @@ function errorMessage(error: unknown): string {
 
 function requireOpenSource(source: SessionRecord | null, sourceSessionId: string): SessionRecord {
   if (!source) throw new Error(`源会话不存在：${sourceSessionId}`);
-  if (source.lifecycle === 'closed' || source.archivedAt !== null) {
-    throw new Error('源会话已关闭或归档，请重新打开后再生成会话续接上下文。');
+  if (source.archivedAt !== null) {
+    throw new Error(
+      source.lifecycle === 'closed'
+        ? '源会话已关闭并归档，请先取消归档，再重新激活后生成会话续接上下文。'
+        : '源会话已归档，请先取消归档后再生成会话续接上下文。',
+    );
+  }
+  if (source.lifecycle === 'closed') {
+    throw new Error('源会话已关闭，请重新激活后再生成会话续接上下文。');
   }
   return source;
 }
@@ -149,10 +156,24 @@ export class UiHandOffCoordinator {
     continuationInstruction: string;
     target: SessionHandOffTarget;
   }): Promise<SessionHandOffPreparation> {
-    const cutoverLease = this.cutoverCoordinator.tryAcquire(input.sourceSessionId);
-    if (!cutoverLease) {
-      throw new Error('该源会话正在创建续接会话，请等待当前操作完成。');
+    const acquisition = this.cutoverCoordinator.acquire(input.sourceSessionId);
+    if (!acquisition.ok) {
+      if (acquisition.reason === 'active') {
+        throw new Error('该源会话的上一项交接操作仍在处理中，请等待其完成。');
+      }
+      if (acquisition.reason === 'sealed') {
+        requireOpenSource(this.deps.getSession(input.sourceSessionId), input.sourceSessionId);
+        throw new Error('源会话已完成交接或正在关闭，请先重新激活源会话再开始新的交接。');
+      }
+      if (acquisition.reason === 'committed') {
+        throw new Error(
+          `源会话已完成交接至 ${acquisition.successorSessionId}，请在续接会话中继续，` +
+          '或先重新激活源会话再开始新的交接。',
+        );
+      }
+      throw new Error('无法确认源会话是否已完成交接，请检查会话存储后重试。');
     }
+    const cutoverLease = acquisition.lease;
     let handOff: PreparedHandOffContinuation | null = null;
     let cachedPreparationId: string | null = null;
     try {
@@ -308,6 +329,9 @@ export class UiHandOffCoordinator {
             leaseState.ingressCommitted = true;
           },
         });
+        if (!result.sourceFinalization.ok) {
+          this.cutoverCoordinator.revokeSource(entry.sourceSessionId);
+        }
         this.deps.cache.delete(entry.preparationId);
         return {
           successorSessionId: result.successorSessionId,

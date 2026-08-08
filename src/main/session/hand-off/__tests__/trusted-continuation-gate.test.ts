@@ -56,17 +56,67 @@ afterEach(() => {
 });
 
 describe('trusted continuation readiness gate', () => {
-  it('observed target keeps the current no-wait fast path', async () => {
-    const pending = pendingCandidate('fast');
+  it('waits for observed-target native acceptance before committing ownership', async () => {
+    const pending = pendingCandidate('observed');
     const input = baseInput();
     input.createCandidate.mockResolvedValue(pending.candidate);
+
+    const selection = selectTrustedContinuationCandidate({
+      ...input,
+      capacityStatus: 'observed',
+    });
+    await Promise.resolve();
+    let settled = false;
+    void selection.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    pending.settle({ status: 'accepted', boundary: 'model-activity' });
+    await expect(selection).resolves.toEqual({
+      candidate: pending.candidate,
+      usedLowerBudgetRetry: false,
+    });
+    expect(input.rollbackRejectedCandidate).not.toHaveBeenCalled();
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an observed-target provider rejection before ownership transfer', async () => {
+    const input = baseInput();
+    input.createCandidate.mockResolvedValue(candidate('observed-rejected', {
+      status: 'rejected', reason: 'provider-error',
+    }));
 
     await expect(selectTrustedContinuationCandidate({
       ...input,
       capacityStatus: 'observed',
-    })).resolves.toEqual({ candidate: pending.candidate, usedLowerBudgetRetry: false });
-    expect(input.rollbackRejectedCandidate).not.toHaveBeenCalled();
+    })).rejects.toMatchObject({
+      successorSessionId: 'observed-rejected',
+      successorCleanup: 'ok',
+      reason: 'target-provider-rejected',
+      usedLowerBudgetRetry: false,
+    });
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('observed-rejected');
     expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+    expect(input.createCandidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a prepared lower candidate when an observed target rejects the primary context', async () => {
+    const input = baseInput();
+    input.createCandidate
+      .mockResolvedValueOnce(candidate('observed-primary', {
+        status: 'rejected', reason: 'context-window-exceeded',
+      }))
+      .mockResolvedValueOnce(accepted('observed-retry'));
+
+    await expect(selectTrustedContinuationCandidate({
+      ...input,
+      capacityStatus: 'observed',
+    })).resolves.toEqual({
+      candidate: expect.objectContaining({ sessionId: 'observed-retry' }),
+      usedLowerBudgetRetry: true,
+    });
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('observed-primary');
+    expect(input.createCandidate).toHaveBeenNthCalledWith(2, retryTurn);
   });
 
   it.each(['stale', 'unknown'] as const)(
@@ -138,11 +188,27 @@ describe('trusted continuation readiness gate', () => {
       reason: 'target-provider-rejected',
       successorCleanup: 'ok',
     });
-    expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('primary');
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
     expect(input.createCandidate).toHaveBeenCalledTimes(1);
   });
 
-  it('closes a rejected lower candidate and never creates a third candidate', async () => {
+  it('falls back to closing a terminally rejected candidate when strict removal fails', async () => {
+    const input = baseInput();
+    input.createCandidate.mockResolvedValue(candidate('retained-rejected', {
+      status: 'rejected', reason: 'provider-error',
+    }));
+    input.rollbackRejectedCandidate.mockRejectedValue(new Error('delete failed'));
+
+    await expect(selectTrustedContinuationCandidate(input)).rejects.toMatchObject({
+      reason: 'target-provider-rejected',
+      successorSessionId: 'retained-rejected',
+      successorCleanup: 'failed',
+    });
+    expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('retained-rejected');
+  });
+
+  it('strictly removes a rejected lower candidate and never creates a third candidate', async () => {
     const input = baseInput();
     input.createCandidate
       .mockResolvedValueOnce(candidate('primary', {
@@ -157,7 +223,9 @@ describe('trusted continuation readiness gate', () => {
       successorSessionId: 'retry',
       usedLowerBudgetRetry: true,
     });
-    expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('retry');
+    expect(input.rollbackRejectedCandidate).toHaveBeenNthCalledWith(1, 'primary');
+    expect(input.rollbackRejectedCandidate).toHaveBeenNthCalledWith(2, 'retry');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
     expect(input.createCandidate).toHaveBeenCalledTimes(2);
   });
 
@@ -217,7 +285,8 @@ describe('trusted continuation readiness gate', () => {
 
     await vi.advanceTimersByTimeAsync(50);
     await assertion;
-    expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('timed-out');
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('timed-out');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
     expect(input.createCandidate).toHaveBeenCalledTimes(1);
   });
 
@@ -242,11 +311,11 @@ describe('trusted continuation readiness gate', () => {
 
     await vi.advanceTimersByTimeAsync(50);
     await assertion;
-    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+    expect(input.rollbackRejectedCandidate).not.toHaveBeenCalled();
 
     resolveCreation(accepted('late-primary'));
     await vi.waitFor(() => {
-      expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-primary');
+      expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('late-primary');
     });
   });
 
@@ -308,7 +377,8 @@ describe('trusted continuation readiness gate', () => {
         usedLowerBudgetRetry: true,
       });
       expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('clock-primary');
-      expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('clock-retry');
+      expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('clock-retry');
+      expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
     } finally {
       if (outcome && !settled) {
         monotonicMs = 500;
@@ -341,7 +411,8 @@ describe('trusted continuation readiness gate', () => {
     pending.settle({ status: 'accepted', boundary: 'model-activity' });
 
     await assertion;
-    expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-work-winner');
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('late-work-winner');
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -422,7 +493,7 @@ describe('trusted continuation readiness gate', () => {
 
     resolveRetry(accepted('late-retry'));
     await vi.waitFor(() => {
-      expect(input.closeCandidateBestEffort).toHaveBeenCalledWith('late-retry');
+      expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('late-retry');
     });
   });
 

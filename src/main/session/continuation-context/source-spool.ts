@@ -13,11 +13,13 @@ import type { RawContinuationUserInput } from './types';
 import { utf8ByteLength } from './token-estimator';
 import { continuationSessionRuntimeFingerprint } from './runtime-fingerprint';
 import { captureSpoolRawTail } from './source-spool-raw-tail';
+import { CONTINUATION_EXCLUDED_EVENT_KINDS } from './event-normalizer';
 
 export { continuationSessionRuntimeFingerprint } from './runtime-fingerprint';
 
 export const DEFAULT_CONTINUATION_SPOOL_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_CONTINUATION_SPOOL_MAX_BYTES = 32 * 1024 * 1024;
+const EXCLUDED_EVENT_KINDS = new Set<string>(CONTINUATION_EXCLUDED_EVENT_KINDS);
 
 export interface CaptureContinuationSourceInput {
   sessionId: string;
@@ -83,7 +85,12 @@ function ensurePositiveSafeInteger(value: number, field: string): number {
 }
 
 function sourceRowBytes(row: RawEventRevisionRow): number {
-  return utf8ByteLength(row.payloadJson) + utf8ByteLength(row.kind) + (row.toolUseId?.length ?? 0) + 64;
+  return (
+    utf8ByteLength(row.payloadJson) +
+    utf8ByteLength(row.kind) +
+    utf8ByteLength(row.toolUseId ?? '') +
+    64
+  );
 }
 
 export class ContinuationSourceSpoolStore {
@@ -221,6 +228,7 @@ export class ContinuationSourceSpoolStore {
           break;
         }
         for (const row of page) {
+          if (EXCLUDED_EVENT_KINDS.has(row.kind)) continue;
           if (
             pendingGroup.length > 0 &&
             pendingGroup[0].effectiveRevision !== row.effectiveRevision
@@ -295,13 +303,13 @@ export class ContinuationSourceSpoolStore {
     return this.metadata(spoolId, now);
   }
 
-  metadata(spoolId: string, now?: number): ContinuationSpoolMetadata {
-    const accessedAt = now ?? Date.now();
+  metadata(spoolId: string, now = Date.now()): ContinuationSpoolMetadata {
+    const accessedAt = now;
     const row = this.db
       .prepare(`SELECT * FROM continuation_spool_meta WHERE preparation_id = ?`)
       .get(spoolId) as MetaRow | undefined;
     if (!row) throw new Error(`Continuation source spool not found: ${spoolId}`);
-    if (now !== undefined && row.expires_at <= accessedAt) {
+    if (row.expires_at <= accessedAt) {
       this.cleanup(spoolId);
       throw new Error(`Continuation source spool expired: ${spoolId}`);
     }

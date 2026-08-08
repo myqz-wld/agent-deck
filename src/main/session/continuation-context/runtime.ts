@@ -227,6 +227,7 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
   constructor(private readonly generator: ResolvedContinuationGenerator) {}
 
   async generate(request: CheckpointGeneratorRequest): Promise<CheckpointGeneratorResult> {
+    const deadlineAt = request.timeoutMs > 0 ? performance.now() + request.timeoutMs : null;
     const profile = resolveClaudeGatewayProfile(this.generator.provider);
     const usesGateway = profile !== null;
     const fingerprint = this.generator.configFingerprint;
@@ -256,14 +257,36 @@ class ClaudeFamilyCheckpointGenerator implements ContinuationCheckpointGenerator
         1,
       );
     }
-    const fallback = await runClaudeFamilyCheckpoint({
-      generator: this.generator,
-      request: { ...request, remainingCalls: request.remainingCalls - 1 },
-      structured: false,
-      settingsPath: profile?.settingsPath,
-      runtimeProvider: profile?.id ?? 'native',
-      gatewayModelAliases: profile?.modelAliases,
-    });
+    const remainingMs = deadlineAt === null
+      ? request.timeoutMs
+      : Math.max(0, deadlineAt - performance.now());
+    if (deadlineAt !== null && remainingMs === 0) {
+      throw new CheckpointGeneratorError(
+        'Checkpoint generation timed out before the JSON-only fallback',
+        'timeout',
+        1,
+      );
+    }
+    let fallback: ClaudeRuntimeResult;
+    try {
+      fallback = await runClaudeFamilyCheckpoint({
+        generator: this.generator,
+        request: {
+          ...request,
+          timeoutMs: remainingMs,
+          remainingCalls: request.remainingCalls - 1,
+        },
+        structured: false,
+        settingsPath: profile?.settingsPath,
+        runtimeProvider: profile?.id ?? 'native',
+        gatewayModelAliases: profile?.modelAliases,
+      });
+    } catch (error) {
+      if (error instanceof CheckpointGeneratorError) {
+        throw new CheckpointGeneratorError(error.message, error.code, error.providerCalls + 1);
+      }
+      throw error;
+    }
     const { schemaUnsupported: _ignored, ...result } = fallback;
     return { ...result, providerCalls: 2 };
   }

@@ -46,6 +46,54 @@ describe.skipIf(!bindingAvailable)('background checkpoint materializer', () => {
     expect(source.groups.map((group) => group.revision)).toEqual([1, 2, 3]);
   });
 
+  it('does not let excluded telemetry consume the materialization guard', () => {
+    insert('thinking', { text: 'x'.repeat(10_000) });
+    const messageId = insert('message', { role: 'user', text: 'meaningful' });
+
+    const source = materializeBackgroundCheckpointSource(db, {
+      sessionId: 'source',
+      maxSourceBytes: 512,
+    });
+
+    expect(source.metadata).toMatchObject({
+      captureRevision: 2,
+      materializedThroughRevision: 2,
+      sourceRows: 1,
+      groupCount: 1,
+      truncatedBy: 'none',
+    });
+    expect(source.groups[0].rows.map((row) => row.id)).toEqual([messageId]);
+  });
+
+  it('streams an oversized first revision into a bounded coverage marker', async () => {
+    const eventId = insert('message', { role: 'user', text: 'x'.repeat(10_000) });
+    const materialized = materializeBackgroundCheckpointSource(db, {
+      sessionId: 'source',
+      maxSourceBytes: 512,
+    });
+
+    expect(materialized.metadata).toMatchObject({
+      captureRevision: 1,
+      materializedThroughRevision: 1,
+      sourceRows: 1,
+      groupCount: 1,
+      truncatedBy: 'source-bytes',
+    });
+    expect(materialized.groups).toEqual([]);
+    const chunk = await createWorkerOwnedBackgroundFoldSource(materialized).buildNextChunk({
+      cursor: 0,
+      coveredThroughRevision: 0,
+      previous: null,
+      budget: 8_000,
+    });
+    expect(chunk).toMatchObject({
+      nextCursor: 1,
+      throughRevision: 1,
+      requiresCoverageMarker: true,
+      currentEvidence: [{ eventId, revision: 1 }],
+    });
+  });
+
   it('re-normalizes a selected prefix without a later tool end deduplicating its start', async () => {
     insert('tool-use-start', { phase: 'started', toolInput: { command: 'pwd' } }, 'tool-1');
     for (let index = 0; index < 60; index += 1) {

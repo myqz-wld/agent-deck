@@ -1,9 +1,9 @@
 import type { RawContinuationUserInput } from './types';
 import type { ClassifiedContinuationMessage } from './message-classifier';
 import {
-  estimateContinuationJsonTokens,
   truncateContinuationTextMiddle,
 } from './token-estimator';
+import { estimateProviderRawInputTokens } from './provider-payload';
 
 export interface RawUserTailSelection {
   messages: RawContinuationUserInput[];
@@ -31,7 +31,7 @@ function toRawInput(
 }
 
 function messageTokens(message: RawContinuationUserInput): number {
-  return estimateContinuationJsonTokens(message, { structuralOverhead: 4 });
+  return estimateProviderRawInputTokens(message);
 }
 
 function truncateStoredInputToBudget(

@@ -171,3 +171,16 @@ export function deleteSessionHandOffAliasWithDb(
     .prepare(`DELETE FROM session_handoff_aliases WHERE source_session_id = ?`)
     .run(sourceSessionId).changes > 0;
 }
+
+/** Remove every ownership edge touching a session before its id can be reused. */
+export function deleteSessionHandOffAliasesForSessionWithDb(
+  db: Database,
+  sessionId: string,
+): number {
+  return db
+    .prepare(
+      `DELETE FROM session_handoff_aliases
+        WHERE source_session_id = ? OR successor_session_id = ?`,
+    )
+    .run(sessionId, sessionId).changes;
+}

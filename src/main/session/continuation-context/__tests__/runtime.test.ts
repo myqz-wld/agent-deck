@@ -51,6 +51,19 @@ function iterable(messages: unknown[]): AsyncIterable<unknown> & { interrupt: ()
   };
 }
 
+function delayedIterable(
+  delayMs: number,
+  messages: unknown[],
+): AsyncIterable<unknown> & { interrupt: () => Promise<void> } {
+  return {
+    async *[Symbol.asyncIterator]() {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      for (const message of messages) yield message;
+    },
+    interrupt: vi.fn(async () => undefined),
+  };
+}
+
 const request = { prompt: 'fold', timeoutMs: 10_000, maxOutputBytes: 10_000, remainingCalls: 4 };
 
 describe('isolated Claude-family checkpoint runtime', () => {
@@ -216,6 +229,36 @@ describe('isolated Claude-family checkpoint runtime', () => {
     );
     expect(query.mock.calls[1][0].options.outputFormat).toBeUndefined();
     expect(query.mock.calls[2][0].options.outputFormat).toBeUndefined();
+  });
+
+  it('shares one absolute timeout across the structured probe and JSON-only fallback', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const performanceNow = vi.spyOn(performance, 'now').mockImplementation(Date.now);
+    try {
+      query
+        .mockReturnValueOnce(delayedIterable(90, [{
+          type: 'result', subtype: 'error_max_structured_output_retries', modelUsage: {},
+        }]))
+        .mockReturnValueOnce(delayedIterable(50, [{
+          type: 'result', subtype: 'success',
+          result: JSON.stringify({ formatVersion: 1, additions: [], updates: [] }),
+          usage: {}, modelUsage: {},
+        }]));
+      const runtime = createCheckpointGeneratorRuntime({
+        adapter: 'claude-code', provider: 'deepseek', model: 'deepseek-test', thinking: 'max',
+        contextCapacity: unknownContextCapacity(), configFingerprint: 'deepseek-deadline-runtime',
+      });
+
+      const pending = runtime.generate({ ...request, timeoutMs: 100 });
+      const rejected = expect(pending).rejects.toMatchObject({ code: 'timeout', providerCalls: 2 });
+      await vi.advanceTimersByTimeAsync(90);
+      await vi.advanceTimersByTimeAsync(11);
+      await rejected;
+    } finally {
+      performanceNow.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('runs Grok with the checkpoint schema and hardened-unattested isolation', async () => {

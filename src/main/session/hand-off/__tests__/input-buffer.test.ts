@@ -86,4 +86,32 @@ describe('handoff input rollback activity', () => {
     expect(replay).toHaveBeenCalledOnce();
     expect(emit).toHaveBeenCalledOnce();
   });
+
+  it('warns that a timed-out replay may still settle before suggesting a resend', async () => {
+    vi.useFakeTimers();
+    try {
+      const emit = vi.fn<(event: AgentEvent) => void>();
+      const lease = handOffCutoverCoordinator.tryAcquire('source-timeout-copy')!;
+      bufferHandOffSourceInput({
+        sourceSessionId: 'source-timeout-copy',
+        agentId: 'claude-code',
+        text: 'slow replay',
+        emit,
+        replay: () => new Promise<void>(() => undefined),
+      });
+
+      lease.release();
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(emit).toHaveBeenCalledTimes(2);
+      expect(emit.mock.calls[1][0]).toEqual(expect.objectContaining({
+        payload: expect.objectContaining({
+          text: expect.stringContaining('可能仍在恢复'),
+          error: true,
+        }),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

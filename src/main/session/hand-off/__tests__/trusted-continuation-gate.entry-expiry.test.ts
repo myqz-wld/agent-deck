@@ -79,12 +79,78 @@ describe('trusted continuation entry-expiry cleanup', () => {
     expect(input.createCandidate).toHaveBeenCalledTimes(retry ? 2 : 1);
     if (retry) expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith('primary');
     if (state === 'unresolved') {
-      expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+      expect(input.rollbackRejectedCandidate).not.toHaveBeenCalledWith(lateSessionId);
       resolveCreation(accepted(lateSessionId));
     }
     await vi.waitFor(() => {
-      expect(input.closeCandidateBestEffort).toHaveBeenCalledTimes(1);
-      expect(input.closeCandidateBestEffort).toHaveBeenCalledWith(lateSessionId);
+      expect(input.rollbackRejectedCandidate).toHaveBeenCalledWith(lateSessionId);
     });
+  });
+
+  it('retries a late candidate cleanup after a transient rollback failure', async () => {
+    vi.useFakeTimers();
+    let monotonicMs = 0;
+    let resolveCreation!: (candidate: TrustedContinuationSessionCandidate) => void;
+    const creation = new Promise<TrustedContinuationSessionCandidate>((resolve) => {
+      resolveCreation = resolve;
+    });
+    const input = baseInput();
+    input.createCandidate.mockImplementationOnce(() => creation);
+    input.rollbackRejectedCandidate
+      .mockRejectedValueOnce(new Error('transient rollback failure'))
+      .mockResolvedValueOnce(undefined);
+
+    const selection = selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 50,
+      now: () => monotonicMs,
+    });
+    const assertion = expect(selection).rejects.toMatchObject({
+      reason: 'target-startup-timeout',
+      successorCleanup: 'pending',
+    });
+    monotonicMs = 50;
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+
+    resolveCreation(accepted('late-retry-close'));
+    await vi.waitFor(() => {
+      expect(input.rollbackRejectedCandidate).toHaveBeenCalledTimes(2);
+    });
+    expect(input.closeCandidateBestEffort).not.toHaveBeenCalled();
+  });
+
+  it('bounds every late rollback attempt and the close fallback', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20_000);
+    let resolveCreation!: (candidate: TrustedContinuationSessionCandidate) => void;
+    const creation = new Promise<TrustedContinuationSessionCandidate>((resolve) => {
+      resolveCreation = resolve;
+    });
+    const input = baseInput();
+    input.createCandidate.mockImplementationOnce(() => creation);
+    input.rollbackRejectedCandidate.mockImplementation(
+      () => new Promise<undefined>(() => undefined),
+    );
+    input.closeCandidateBestEffort.mockImplementation(
+      () => new Promise<undefined>(() => undefined),
+    );
+    const selection = selectTrustedContinuationCandidate({
+      ...input,
+      deadlineMs: 50,
+      now: Date.now,
+    });
+    const assertion = expect(selection).rejects.toMatchObject({
+      reason: 'target-startup-timeout',
+      successorCleanup: 'pending',
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+
+    resolveCreation(accepted('late-hung-cleanup'));
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(input.rollbackRejectedCandidate).toHaveBeenCalledTimes(3);
+    expect(input.closeCandidateBestEffort).toHaveBeenCalledOnce();
   });
 });

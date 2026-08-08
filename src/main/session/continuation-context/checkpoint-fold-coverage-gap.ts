@@ -13,19 +13,30 @@ function evidenceKey(evidence: { eventId: number; revision: number }): string {
   return `${evidence.eventId}:${evidence.revision}`;
 }
 
+export interface CoverageGapSourceSummary {
+  revision: number;
+  eventCount: number;
+  firstEventId: number;
+  lastEventId: number;
+  sourceSha256: string;
+  evidence: Array<{ eventId: number; revision: number }>;
+}
+
+export function coverageGapDigestFrame(row: RawEventRevisionRow): string {
+  const framed = JSON.stringify([
+    row.id,
+    row.effectiveRevision,
+    row.kind,
+    row.payloadJson,
+    row.ts,
+    row.toolUseId,
+  ]);
+  return `${Buffer.byteLength(framed, 'utf8')}:${framed}`;
+}
+
 function sourceDigest(rows: RawEventRevisionRow[]): string {
   const digest = createHash('sha256');
-  for (const row of rows) {
-    const framed = JSON.stringify([
-      row.id,
-      row.effectiveRevision,
-      row.kind,
-      row.payloadJson,
-      row.ts,
-      row.toolUseId,
-    ]);
-    digest.update(String(Buffer.byteLength(framed, 'utf8'))).update(':').update(framed);
-  }
+  for (const row of rows) digest.update(coverageGapDigestFrame(row));
   return digest.digest('hex');
 }
 
@@ -69,23 +80,47 @@ export function buildCoverageGapFact(input: {
     orderedEvidence.length === 1
       ? orderedEvidence
       : [orderedEvidence[0], orderedEvidence.at(-1)!];
-  const firstEventId = Math.min(...input.rows.map((row) => row.id));
-  const lastEventId = Math.max(...input.rows.map((row) => row.id));
+  return buildCoverageGapFactFromSummary({
+    coveredThroughRevision: input.coveredThroughRevision,
+    summary: {
+      revision: input.revision,
+      eventCount: input.rows.length,
+      firstEventId: Math.min(...input.rows.map((row) => row.id)),
+      lastEventId: Math.max(...input.rows.map((row) => row.id)),
+      sourceSha256: digest,
+      evidence,
+    },
+  });
+}
+
+export function buildCoverageGapFactFromSummary(input: {
+  coveredThroughRevision: number;
+  summary: CoverageGapSourceSummary;
+}): ContinuationFact | null {
+  const { summary } = input;
+  if (
+    summary.eventCount < 1 ||
+    summary.evidence.length < 1 ||
+    input.coveredThroughRevision >= summary.revision
+  ) {
+    return null;
+  }
   return {
     id:
       `${COVERAGE_GAP_FACT_ID_PREFIX}after${input.coveredThroughRevision}.` +
-      `r${input.revision}.${digest.slice(0, 16)}`,
+      `r${summary.revision}.${summary.sourceSha256.slice(0, 16)}`,
     status: 'blocked',
     text:
       `Full semantic coverage stops after revision ${input.coveredThroughRevision}; ` +
-      `revision ${input.revision} is represented only by bounded digest sha256:${digest}; ` +
-      `${input.rows.length} source event(s), event IDs ${firstEventId}-${lastEventId}.`,
+      `revision ${summary.revision} is represented only by bounded digest ` +
+      `sha256:${summary.sourceSha256}; ${summary.eventCount} source event(s), ` +
+      `event IDs ${summary.firstEventId}-${summary.lastEventId}.`,
     rationale:
       'The complete revision group could not share the generator fold budget with all required active checkpoint facts.',
     validation:
-      `Continuation coverage remains incomplete from revision ${input.revision}; consult the persisted source events before relying on omitted assistant or tool state.`,
+      `Continuation coverage remains incomplete from revision ${summary.revision}; consult the persisted source events before relying on omitted assistant or tool state.`,
     priority: 100,
-    evidence,
+    evidence: summary.evidence,
   };
 }
 
@@ -125,18 +160,36 @@ export function assertCoverageGapFactsImmutable(input: {
 /** A persisted marker keeps the preparation degraded even after its revision cursor advances. */
 export function coverageGapRangeFromCheckpoint(
   checkpoint: ContinuationCheckpoint | null,
-  captureRevision: number,
 ): { from: number; to: number } | null {
   if (!checkpoint) return null;
   let earliestBoundary: number | null = null;
+  let latestDigestRevision: number | null = null;
   for (const fact of checkpoint.unresolvedErrors) {
     if (!isCoverageGapFact(fact) || fact.status !== 'blocked') continue;
     const parsed = COVERAGE_GAP_FACT_ID.exec(fact.id);
     const boundary = parsed
       ? Number(parsed[1])
       : Math.max(0, Math.min(...fact.evidence.map((evidence) => evidence.revision)) - 1);
+    const digestRevision = parsed
+      ? Number(parsed[2])
+      : Math.max(...fact.evidence.map((evidence) => evidence.revision));
     earliestBoundary =
       earliestBoundary === null ? boundary : Math.min(earliestBoundary, boundary);
+    latestDigestRevision =
+      latestDigestRevision === null
+        ? digestRevision
+        : Math.max(latestDigestRevision, digestRevision);
   }
-  return earliestBoundary === null ? null : { from: earliestBoundary, to: captureRevision };
+  return earliestBoundary === null || latestDigestRevision === null
+    ? null
+    : { from: earliestBoundary, to: latestDigestRevision };
+}
+
+export function unionUncoveredRevisionRanges(
+  left: { from: number; to: number } | null,
+  right: { from: number; to: number } | null,
+): { from: number; to: number } | null {
+  if (!left) return right;
+  if (!right) return left;
+  return { from: Math.min(left.from, right.from), to: Math.max(left.to, right.to) };
 }

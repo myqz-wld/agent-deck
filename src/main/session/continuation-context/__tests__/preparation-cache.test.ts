@@ -118,7 +118,7 @@ describe('continuation preparation cache and singleflight', () => {
     expect(cache.size).toBe(0);
   });
 
-  it('accounts immutable spool bytes and keeps peek non-touching for LRU', () => {
+  it('accounts resident and spool bytes separately and keeps peek non-touching for LRU', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const evicted = vi.fn();
@@ -128,8 +128,9 @@ describe('continuation preparation cache and singleflight', () => {
       spoolBytes: 4_096, now: 1,
     });
     expect(first.spoolBytes).toBe(4_096);
-    expect(first.bytes).toBeGreaterThan(4_096);
+    expect(first.bytes).toBeLessThan(4_096);
     expect(cache.totalBytes).toBe(first.bytes);
+    expect(cache.totalSpoolBytes).toBe(4_096);
     expect(cache.peek(first.preparationId, 'owner', 50).lastAccessedAt).toBe(1);
 
     const second = cache.put({
@@ -140,6 +141,72 @@ describe('continuation preparation cache and singleflight', () => {
     expect(cache.peek(second.preparationId, 'owner', 101).sourceSessionId).toBe('source-2');
     expect(evicted).toHaveBeenCalledWith(expect.objectContaining({ preparationId: first.preparationId }));
     cache.clear();
+  });
+
+  it('admits a legal large spool without charging it to the resident payload budget', () => {
+    const cache = new ContinuationPreparationCache();
+    const entry = cache.put({
+      ownerSessionId: 'owner',
+      sourceSessionId: 'source',
+      prepared,
+      generator,
+      target,
+      spoolBytes: 9 * 1024 * 1024,
+    });
+
+    expect(cache.peek(entry.preparationId, 'owner')).toBe(entry);
+    expect(cache.totalBytes).toBeLessThan(8 * 1024 * 1024);
+    expect(cache.totalSpoolBytes).toBe(9 * 1024 * 1024);
+    cache.clear();
+  });
+
+  it('still rejects an oversized resident payload independently of spool ownership', () => {
+    const cache = new ContinuationPreparationCache({ maxBytes: 100 });
+
+    expect(() => cache.put({
+      ownerSessionId: 'owner',
+      sourceSessionId: 'source',
+      prepared: { ...prepared, providerPrompt: 'x'.repeat(200) },
+      generator,
+      target,
+      spoolBytes: 1,
+    })).toThrow('Prepared continuation context exceeds cache byte limit');
+  });
+
+  it('evicts by aggregate spool bytes and rejects when the spool pool is pinned', () => {
+    const evicted = vi.fn();
+    const cache = new ContinuationPreparationCache({
+      maxSpoolBytes: 10_000,
+      onEvict: evicted,
+    });
+    const first = cache.put({
+      ownerSessionId: 'owner', sourceSessionId: 'source-1', prepared, generator, target,
+      spoolBytes: 6_000, now: 1,
+    });
+    const second = cache.put({
+      ownerSessionId: 'owner', sourceSessionId: 'source-2',
+      prepared: { ...prepared, spoolId: 'spool-2' }, generator, target,
+      spoolBytes: 6_000, now: 2,
+    });
+    expect(cache.size).toBe(1);
+    expect(cache.totalSpoolBytes).toBe(6_000);
+    expect(evicted).toHaveBeenCalledWith(expect.objectContaining({
+      preparationId: first.preparationId,
+    }));
+
+    cache.consume(second.preparationId, 'owner', 3);
+    expect(() => cache.put({
+      ownerSessionId: 'owner', sourceSessionId: 'source-3',
+      prepared: { ...prepared, spoolId: 'spool-3' }, generator, target,
+      spoolBytes: 6_000, now: 4,
+    })).toThrow(/in-flight handoffs/);
+    cache.delete(second.preparationId);
+
+    expect(() => cache.put({
+      ownerSessionId: 'owner', sourceSessionId: 'source-4',
+      prepared: { ...prepared, spoolId: 'spool-4' }, generator, target,
+      spoolBytes: 10_001, now: 5,
+    })).toThrow('Prepared continuation spool exceeds cache byte limit');
   });
 
   it('retains and accounts the lower-budget rendering without duplicating spool ownership', () => {
