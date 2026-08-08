@@ -143,7 +143,10 @@ interface MutableHarnessState {
   queuedMessages: QueuedAgentMessage[];
 }
 
-function createHarness(options: { cacheTtlMs?: number } = {}) {
+function createHarness(options: {
+  cacheTtlMs?: number;
+  durableSuccessor?: string | null;
+} = {}) {
   const state: MutableHarnessState = {
     source: makeSource(),
     eventState: {
@@ -163,7 +166,9 @@ function createHarness(options: { cacheTtlMs?: number } = {}) {
     queuedMessages: [],
   };
   const cleanupSpool = vi.fn<(spoolId: string) => void>();
-  const cutoverCoordinator = new HandOffCutoverCoordinator();
+  const cutoverCoordinator = new HandOffCutoverCoordinator((sourceSessionId) =>
+    sourceSessionId === SOURCE_ID ? options.durableSuccessor ?? null : null,
+  );
   const cache = new ContinuationPreparationCache({
     ...(options.cacheTtlMs ? { ttlMs: options.cacheTtlMs } : {}),
     onEvict: (entry) => cleanupSpool(entry.prepared.spoolId),
@@ -373,7 +378,7 @@ describe('UiHandOffCoordinator', () => {
     expect(record).toHaveBeenCalledOnce();
     expect(harness.coordinator.cancel(OWNER, preparation.preparationId)).toBe(true);
     await vi.waitFor(() => expect(replay).toHaveBeenCalledOnce());
-    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+    await vi.waitFor(() => expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false));
   });
 
   it.each(['working', 'waiting'] as const)(
@@ -413,7 +418,8 @@ describe('UiHandOffCoordinator', () => {
     expect(harness.coordinator.renameSource(SOURCE_ID, 'renamed-source')).toBe(1);
     expect(harness.cache.size).toBe(0);
     await vi.waitFor(() => expect(replay).toHaveBeenCalledWith('renamed-source'));
-    expect(harness.cutoverCoordinator.isActive('renamed-source')).toBe(false);
+    await vi.waitFor(() =>
+      expect(harness.cutoverCoordinator.isActive('renamed-source')).toBe(false));
   });
 
   it('replays accepted input when a reversible archive aborts the preview', async () => {
@@ -427,7 +433,7 @@ describe('UiHandOffCoordinator', () => {
 
     expect(harness.coordinator.abortSource(SOURCE_ID)).toBe(1);
     await vi.waitFor(() => expect(replay).toHaveBeenCalledWith(SOURCE_ID));
-    expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false);
+    await vi.waitFor(() => expect(harness.cutoverCoordinator.isActive(SOURCE_ID)).toBe(false));
   });
 
   it('drops terminally removed input without retaining a permanent source-id seal', async () => {
@@ -844,7 +850,7 @@ describe('UiHandOffCoordinator', () => {
   it('owns source ingress from preparation through commit and releases it afterward', async () => {
     const harness = createHarness();
     const first = await harness.prepareOne();
-    await expect(harness.prepareOne()).rejects.toThrow(/正在创建续接会话/);
+    await expect(harness.prepareOne()).rejects.toThrow(/上一项交接操作仍在处理中/);
     let finishFirst!: (result: UiHandOffExecutionResult) => void;
     harness.execute.mockImplementationOnce(
       (input) => {
@@ -878,6 +884,33 @@ describe('UiHandOffCoordinator', () => {
     const next = await harness.prepareOne();
     expect(harness.coordinator.cancel(OWNER, next.preparationId)).toBe(true);
     expect(harness.cleanupSpool).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a completed sealed predecessor as closed instead of an in-progress handoff', async () => {
+    const harness = createHarness();
+    harness.state.source = makeSource({ lifecycle: 'closed', endedAt: 100 });
+    harness.cutoverCoordinator.revokeSource(SOURCE_ID);
+
+    const message = await harness.prepareOne().then(
+      () => 'unexpected success',
+      (error: unknown) => error instanceof Error ? error.message : String(error),
+    );
+    expect(message).toMatch(/已关闭.*重新激活/);
+    expect(message).not.toMatch(/上一项交接操作仍在处理中/);
+
+    harness.state.source = makeSource();
+    harness.cutoverCoordinator.reactivateSource(SOURCE_ID);
+    const preparation = await harness.prepareOne();
+    expect(harness.coordinator.cancel(OWNER, preparation.preparationId)).toBe(true);
+  });
+
+  it('blocks a second owner after restart when the durable handoff alias already exists', async () => {
+    const harness = createHarness({ durableSuccessor: 'durable-successor' });
+
+    await expect(harness.prepareOne()).rejects.toThrow(
+      /已完成交接至 durable-successor/,
+    );
+    expect(harness.prepare).not.toHaveBeenCalled();
   });
 
   it('pins an in-flight commit across TTL expiry and settings cleanup', async () => {

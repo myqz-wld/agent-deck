@@ -6,6 +6,7 @@ import { utf8ByteLength } from './token-estimator';
 export const DEFAULT_PREPARATION_CACHE_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_PREPARATION_CACHE_MAX_ENTRIES = 8;
 export const DEFAULT_PREPARATION_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+export const DEFAULT_PREPARATION_CACHE_MAX_SPOOL_BYTES = 32 * 1024 * 1024;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface CachedContinuationPreparation {
@@ -40,6 +41,7 @@ export interface PreparationCacheOptions {
   ttlMs?: number;
   maxEntries?: number;
   maxBytes?: number;
+  maxSpoolBytes?: number;
   onEvict?: (entry: CachedContinuationPreparation) => void;
 }
 
@@ -53,6 +55,7 @@ export class ContinuationPreparationCache {
   private readonly ttlMs: number;
   private readonly maxEntries: number;
   private readonly maxBytes: number;
+  private readonly maxSpoolBytes: number;
   private expiryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly options: PreparationCacheOptions = {}) {
@@ -62,6 +65,10 @@ export class ContinuationPreparationCache {
       'maxEntries',
     );
     this.maxBytes = positiveInteger(options.maxBytes ?? DEFAULT_PREPARATION_CACHE_MAX_BYTES, 'maxBytes');
+    this.maxSpoolBytes = positiveInteger(
+      options.maxSpoolBytes ?? DEFAULT_PREPARATION_CACHE_MAX_SPOOL_BYTES,
+      'maxSpoolBytes',
+    );
   }
 
   put(input: {
@@ -82,7 +89,6 @@ export class ContinuationPreparationCache {
       throw new Error('spoolBytes must be a non-negative safe integer');
     }
     const bytes =
-      spoolBytes +
       utf8ByteLength(input.prepared.providerPrompt) +
       utf8ByteLength(input.prepared.persistedUserText) +
       (input.lowerBudgetRetry
@@ -99,6 +105,9 @@ export class ContinuationPreparationCache {
         }),
       );
     if (bytes > this.maxBytes) throw new Error('Prepared continuation context exceeds cache byte limit');
+    if (spoolBytes > this.maxSpoolBytes) {
+      throw new Error('Prepared continuation spool exceeds cache byte limit');
+    }
     const entry: CachedContinuationPreparation = {
       preparationId: randomUUID(),
       ownerSessionId: input.ownerSessionId,
@@ -117,7 +126,7 @@ export class ContinuationPreparationCache {
       bytes,
       ...(input.onDiscard ? { onDiscard: input.onDiscard } : {}),
     };
-    this.makeRoomFor(entry.bytes, now);
+    this.makeRoomFor(entry.bytes, entry.spoolBytes, now);
     this.entries.set(entry.preparationId, entry);
     this.scheduleExpiry();
     return entry;
@@ -201,11 +210,20 @@ export class ContinuationPreparationCache {
     return [...this.entries.values()].reduce((total, entry) => total + entry.bytes, 0);
   }
 
-  private makeRoomFor(incomingBytes: number, now: number): void {
+  get totalSpoolBytes(): number {
+    return [...this.entries.values()].reduce((total, entry) => total + entry.spoolBytes, 0);
+  }
+
+  private makeRoomFor(incomingBytes: number, incomingSpoolBytes: number, now: number): void {
     this.purgeExpiredEntries(now);
     const pinned = [...this.entries.values()].filter((entry) => entry.consumed);
     const pinnedBytes = pinned.reduce((total, entry) => total + entry.bytes, 0);
-    if (pinned.length + 1 > this.maxEntries || pinnedBytes + incomingBytes > this.maxBytes) {
+    const pinnedSpoolBytes = pinned.reduce((total, entry) => total + entry.spoolBytes, 0);
+    if (
+      pinned.length + 1 > this.maxEntries ||
+      pinnedBytes + incomingBytes > this.maxBytes ||
+      pinnedSpoolBytes + incomingSpoolBytes > this.maxSpoolBytes
+    ) {
       throw new Error('Preparation cache capacity is occupied by in-flight handoffs');
     }
     const oldestFirst = [...this.entries.values()]
@@ -215,11 +233,20 @@ export class ContinuationPreparationCache {
           left.lastAccessedAt - right.lastAccessedAt || left.createdAt - right.createdAt,
       );
     let bytes = [...this.entries.values()].reduce((total, entry) => total + entry.bytes, 0);
+    let spoolBytes = [...this.entries.values()].reduce(
+      (total, entry) => total + entry.spoolBytes,
+      0,
+    );
     let entries = this.entries.size;
-    while (entries + 1 > this.maxEntries || bytes + incomingBytes > this.maxBytes) {
+    while (
+      entries + 1 > this.maxEntries ||
+      bytes + incomingBytes > this.maxBytes ||
+      spoolBytes + incomingSpoolBytes > this.maxSpoolBytes
+    ) {
       const oldest = oldestFirst.shift();
       if (!oldest) break;
       bytes -= oldest.bytes;
+      spoolBytes -= oldest.spoolBytes;
       entries -= 1;
       this.remove(oldest.preparationId);
     }

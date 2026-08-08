@@ -174,7 +174,7 @@ export class GrokTurnQueue {
     const submitting = runtime.submittingMessage;
     if (!submitting || submitting.kind !== 'prompt' || submitting.status === 'cancelled') return;
     runtime.submittingMessage = null;
-    this.emitUserMessage(runtime, submitting.message);
+    if (!submitting.message.suppressUserEvent) this.emitUserMessage(runtime, submitting.message);
   }
 
   cancelSubmittingInterjection(runtime: GrokRuntime): void {

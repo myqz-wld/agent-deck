@@ -58,10 +58,10 @@ export class StreamProcessor {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    handOffText = text,
   ): PendingUserMessage {
-    return makeClaudeUserMessage(sessionId, text, attachments);
+    return makeClaudeUserMessage(sessionId, text, attachments, handOffText);
   }
-
   createUserMessageStream(
     internal: InternalSession,
     _tempKey: string,

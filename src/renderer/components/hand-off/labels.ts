@@ -2,6 +2,11 @@ import type {
   SessionHandOffExecutionFailure,
   SessionHandOffPreparation,
 } from '@shared/types';
+import { handOffSuccessorMayHavePartiallyExecuted } from '@shared/session-hand-off-execution';
+
+const DUPLICATE_EFFECT_WARNING =
+  '续接会话在关闭前可能已经执行了部分工具、命令、文件或外部操作；' +
+  '重新生成并重试可能造成重复执行。请先检查实际结果，再决定是否重试。';
 
 export function qualityLabel(
   quality: SessionHandOffPreparation['quality'],
@@ -46,6 +51,7 @@ export function executionFailureLabel(
     : failure.stage === 'cutover'
       ? '源会话切换未完成'
       : '必要内容未能转移';
+  const mayHavePartiallyExecuted = handOffSuccessorMayHavePartiallyExecuted(failure);
   if (failure.cutoverReason === 'target-retry-startup-failed') {
     return (
       '较小范围的续接会话未能启动，也没有生成需要清理的新会话。源会话仍可继续使用；' +
@@ -77,8 +83,15 @@ export function executionFailureLabel(
   if (deliveryFailed) {
     return (
       '续接会话已创建，但新增消息未能转交。该会话已自动关闭，源会话仍可继续使用；' +
-      '请重新生成续接上下文后再试。'
+      (mayHavePartiallyExecuted
+        ? DUPLICATE_EFFECT_WARNING
+        : '请重新生成续接上下文后再试。')
     );
   }
-  return `续接会话已创建，但${failureOutcome}。该会话已自动关闭；请重新生成续接上下文后再试。`;
+  return (
+    `续接会话已创建，但${failureOutcome}。该会话已自动关闭；` +
+    (mayHavePartiallyExecuted
+      ? DUPLICATE_EFFECT_WARNING
+      : '请重新生成续接上下文后再试。')
+  );
 }

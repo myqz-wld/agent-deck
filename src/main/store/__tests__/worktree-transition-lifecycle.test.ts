@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type BetterSqlite3 from 'better-sqlite3';
 import { CURRENT_SCHEMA_SQL } from '../schema';
 import {
+  findSessionHandOffSuccessorWithDb,
+  recordSessionHandOffAliasWithDb,
+} from '../session-handoff-alias-repo';
+import {
   beginExitPreflightWithDb,
   compareAndSetPhaseWithDb,
   createEnterWithDb,
@@ -143,6 +147,30 @@ describe.skipIf(!bindingAvailable)('structured worktree lifecycle retention', ()
         `SELECT COUNT(*) FROM worktree_cwd_transition_inputs WHERE session_id = ?`,
       ).pluck().get('session-a'),
     ).toBe(0);
+  });
+
+  it('removes durable handoff aliases when deleted session ids can be reused', () => {
+    insertClosedSession('direct-source');
+    insertClosedSession('direct-successor');
+    insertClosedSession('direct-predecessor');
+    recordSessionHandOffAliasWithDb(currentDb!, 'direct-source', 'direct-successor', 10);
+    recordSessionHandOffAliasWithDb(currentDb!, 'direct-predecessor', 'direct-source', 11);
+
+    deleteSession('direct-source');
+
+    expect(findSessionHandOffSuccessorWithDb(currentDb!, 'direct-source')).toBeNull();
+    expect(findSessionHandOffSuccessorWithDb(currentDb!, 'direct-predecessor')).toBeNull();
+
+    insertClosedSession('history-source');
+    insertClosedSession('history-successor');
+    recordSessionHandOffAliasWithDb(currentDb!, 'history-source', 'history-successor', 12);
+    expect(
+      batchDeleteHistory(
+        [{ id: 'history-source', cliSessionId: null, lastEventAt: 1 }],
+        100,
+      ).map((row) => row.id),
+    ).toEqual(['history-source']);
+    expect(findSessionHandOffSuccessorWithDb(currentDb!, 'history-source')).toBeNull();
   });
 
   it('atomically drains late inputs before sealing an acknowledged enter', () => {

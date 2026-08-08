@@ -191,7 +191,12 @@ export async function createSessionImpl(
 
     if (opts.prompt) {
       // 用 tempKey 占位 session_id，实际 SDK 会忽略这个字段（用自己的）
-      const pending = deps.streamProcessor.makeUserMessage(tempKey, opts.prompt, opts.attachments);
+      const pending = deps.streamProcessor.makeUserMessage(
+        tempKey,
+        opts.prompt,
+        opts.attachments,
+        initialTurn.persistedUserText,
+      );
       const initialEnqueue = buildInitialEnqueueState(
         initialTurn.persistedUserText,
         opts.attachments,

@@ -3,22 +3,19 @@ import type {
   TrustedContinuationSessionCandidate,
 } from '@main/adapters/trusted-continuation';
 import log from '@main/utils/logger';
+import type { SessionHandOffTrustedContinuationFailureReason } from '@shared/session-hand-off-execution';
 import type { TrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
 
 /** Platform-monotonic runtime budget; wall-clock changes do not affect it. */
 export const HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS = 90_000;
+const LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS = 3;
+const REJECTED_CANDIDATE_CLEANUP_DEADLINE_MS = 5_000;
 const logger = log.scope('handoff-readiness');
 
 export type HandOffSuccessorCleanup = 'ok' | 'failed' | 'pending';
 
 export type HandOffTrustedContinuationFailureReason =
-  | 'target-startup-timeout'
-  | 'target-retry-startup-failed'
-  | 'target-acceptance-timeout'
-  | 'target-context-rejected'
-  | 'target-provider-rejected'
-  | 'target-rollback-failed'
-  | 'target-retry-rejected';
+  SessionHandOffTrustedContinuationFailureReason;
 
 export class TrustedContinuationGateFailure extends Error {
   constructor(
@@ -77,21 +74,15 @@ class PostDeadlineWorkRejectionError extends ReadinessDeadlineError {
 export async function selectTrustedContinuationCandidate(
   input: SelectTrustedContinuationCandidateInput,
 ): Promise<SelectedTrustedContinuationCandidate> {
-  if (input.capacityStatus === 'observed') {
-    return {
-      candidate: await createPrimaryCandidate(input, input.primaryTurn),
-      usedLowerBudgetRetry: false,
-    };
-  }
-
   const now = input.now ?? (() => Math.floor(performance.now()));
   const deadlineAt = now() + (input.deadlineMs ?? HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS);
+  const lowerBudgetRetryTurn = input.lowerBudgetRetryTurn;
   const primary = await createBeforeDeadline(
     input, input.primaryTurn, deadlineAt, now, false,
   );
   const primaryAcceptance = await acceptanceBeforeDeadline(
+    input,
     primary,
-    input.closeCandidateBestEffort,
     deadlineAt,
     now,
     false,
@@ -101,7 +92,7 @@ export async function selectTrustedContinuationCandidate(
   }
   if (primaryAcceptance.reason !== 'context-window-exceeded') {
     return failRejectedCandidate(
-      input, primary, 'target-provider-rejected', false, deadlineAt, now,
+      input, primary, 'target-provider-rejected', false, now,
     );
   }
   try {
@@ -119,7 +110,7 @@ export async function selectTrustedContinuationCandidate(
       false,
     );
   }
-  if (!input.lowerBudgetRetryTurn) {
+  if (!lowerBudgetRetryTurn) {
     throw new TrustedContinuationGateFailure(
       'The primary trusted continuation exceeded the target context window and no lower candidate was prepared',
       primary.sessionId,
@@ -140,14 +131,14 @@ export async function selectTrustedContinuationCandidate(
 
   const retry = await createBeforeDeadline(
     input,
-    input.lowerBudgetRetryTurn,
+    lowerBudgetRetryTurn,
     deadlineAt,
     now,
     true,
   );
   const retryAcceptance = await acceptanceBeforeDeadline(
+    input,
     retry,
-    input.closeCandidateBestEffort,
     deadlineAt,
     now,
     true,
@@ -156,7 +147,7 @@ export async function selectTrustedContinuationCandidate(
     return { candidate: retry, usedLowerBudgetRetry: true };
   }
   return failRejectedCandidate(
-    input, retry, 'target-retry-rejected', true, deadlineAt, now,
+    input, retry, 'target-retry-rejected', true, now,
   );
 }
 
@@ -183,21 +174,15 @@ async function createBeforeDeadline(
       throw startupRejectedAfterDeadlineFailure(error.rejection);
     }
     if (error instanceof ReadinessDeadlineError) {
-      scheduleLateCandidateCleanup(creation, input.closeCandidateBestEffort);
+      scheduleLateCandidateCleanup(
+        creation,
+        input.rollbackRejectedCandidate,
+        input.closeCandidateBestEffort,
+        now,
+      );
       throw startupTimeoutFailure(usedLowerBudgetRetry);
     }
     if (usedLowerBudgetRetry) throw retryStartupFailure(error);
-    throw primaryStartupFailure(error);
-  }
-}
-
-async function createPrimaryCandidate(
-  input: SelectTrustedContinuationCandidateInput,
-  turn: TrustedContinuationInitialTurn,
-): Promise<TrustedContinuationSessionCandidate> {
-  try {
-    return await input.createCandidate(turn);
-  } catch (error) {
     throw primaryStartupFailure(error);
   }
 }
@@ -262,31 +247,65 @@ function retryStartupFailure(error: unknown): TrustedContinuationGateFailure {
 
 function scheduleLateCandidateCleanup(
   creation: Promise<TrustedContinuationSessionCandidate>,
+  rollback: (sessionId: string) => Promise<void>,
   close: (sessionId: string) => Promise<void>,
+  now: () => number,
 ): void {
   void creation.then(
-    async (late) => {
-      try {
-        await close(late.sessionId);
-        logger.warn(
-          `[handoff readiness] late startup candidate cleanup session=${late.sessionId} cleanup=ok`,
-        );
-      } catch (error) {
-        logger.warn(
-          `[handoff readiness] late startup candidate cleanup session=${late.sessionId} cleanup=failed`,
-          error,
-        );
-      }
-    },
+    (late) => cleanupLateCandidateWithRetry(late.sessionId, rollback, close, now),
     (error) => {
       logger.warn('[handoff readiness] candidate creation rejected after startup deadline', error);
     },
   );
 }
 
-async function acceptanceBeforeDeadline(
-  candidate: TrustedContinuationSessionCandidate,
+async function cleanupLateCandidateWithRetry(
+  sessionId: string,
+  rollback: (sessionId: string) => Promise<void>,
   close: (sessionId: string) => Promise<void>,
+  now: () => number,
+): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await beforeDeadline(
+        rollback(sessionId),
+        now() + REJECTED_CANDIDATE_CLEANUP_DEADLINE_MS,
+        now,
+      );
+      logger.warn(
+        `[handoff readiness] late startup candidate cleanup session=${sessionId} ` +
+        `cleanup=removed attempt=${attempt}`,
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const closeResult = await closeBestEffort(
+    close,
+    sessionId,
+    now() + REJECTED_CANDIDATE_CLEANUP_DEADLINE_MS,
+    now,
+  );
+  if (closeResult === 'ok') {
+    logger.warn(
+      `[handoff readiness] late startup candidate cleanup session=${sessionId} ` +
+      `cleanup=closed-row-retained rollbackAttempts=${LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS}`,
+      lastError,
+    );
+    return;
+  }
+  logger.warn(
+    `[handoff readiness] late startup candidate cleanup session=${sessionId} cleanup=failed ` +
+    `rollbackAttempts=${LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS}`,
+    lastError,
+  );
+}
+
+async function acceptanceBeforeDeadline(
+  input: SelectTrustedContinuationCandidateInput,
+  candidate: TrustedContinuationSessionCandidate,
   deadlineAt: number,
   now: () => number,
   usedLowerBudgetRetry: boolean,
@@ -295,7 +314,7 @@ async function acceptanceBeforeDeadline(
     return await beforeDeadline(candidate.acceptance, deadlineAt, now);
   } catch (error) {
     if (!(error instanceof ReadinessDeadlineError)) throw error;
-    const cleanup = await closeBestEffort(close, candidate.sessionId, deadlineAt, now);
+    const cleanup = await cleanupRejectedCandidate(input, candidate.sessionId, now);
     throw new TrustedContinuationGateFailure(
       'The trusted continuation produced no native model activity before the readiness deadline',
       candidate.sessionId,
@@ -311,15 +330,9 @@ async function failRejectedCandidate(
   candidate: TrustedContinuationSessionCandidate,
   reason: HandOffTrustedContinuationFailureReason,
   usedLowerBudgetRetry: boolean,
-  deadlineAt: number,
   now: () => number,
 ): Promise<never> {
-  const cleanup = await closeBestEffort(
-    input.closeCandidateBestEffort,
-    candidate.sessionId,
-    deadlineAt,
-    now,
-  );
+  const cleanup = await cleanupRejectedCandidate(input, candidate.sessionId, now);
   throw new TrustedContinuationGateFailure(
     'The trusted continuation was rejected before native model activity',
     candidate.sessionId,
@@ -327,6 +340,30 @@ async function failRejectedCandidate(
     reason,
     usedLowerBudgetRetry,
   );
+}
+
+async function cleanupRejectedCandidate(
+  input: SelectTrustedContinuationCandidateInput,
+  sessionId: string,
+  now: () => number,
+): Promise<'ok' | 'failed'> {
+  const cleanupDeadlineAt = now() + REJECTED_CANDIDATE_CLEANUP_DEADLINE_MS;
+  try {
+    await beforeDeadline(
+      input.rollbackRejectedCandidate(sessionId),
+      cleanupDeadlineAt,
+      now,
+    );
+    return 'ok';
+  } catch {
+    await closeBestEffort(
+      input.closeCandidateBestEffort,
+      sessionId,
+      cleanupDeadlineAt,
+      now,
+    );
+    return 'failed';
+  }
 }
 
 async function closeBestEffort(

@@ -82,6 +82,37 @@ function makeQueue(firstModelEventTimeoutMs?: number) {
 }
 
 describe('GrokTurnQueue active-turn delivery', () => {
+  it('sends providerText privately while persisting the public handoff text', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === methods.agent.session.prompt) {
+        return { stopReason: 'end_turn' as const, usage: undefined };
+      }
+      return { status: 'queued' };
+    });
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'persisted continuation instruction', undefined, {
+      providerText: 'private continuation capsule',
+    });
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith(
+      methods.agent.session.prompt,
+      expect.objectContaining({
+        prompt: [{ type: 'text', text: 'private continuation capsule' }],
+      }),
+      expect.objectContaining({ cancellationSignal: expect.any(AbortSignal) }),
+    ));
+    expect(events).toContainEqual({
+      kind: 'message',
+      payload: {
+        text: 'persisted continuation instruction',
+        role: 'user',
+      },
+    });
+    expect(JSON.stringify(events)).not.toContain('private continuation capsule');
+  });
+
   it('uses x.ai/interject for ordinary input while a prompt is running', async () => {
     const prompt = deferred<{ stopReason: 'end_turn'; usage: undefined }>();
     const request = vi.fn((method: string) => {
@@ -298,6 +329,31 @@ describe('GrokTurnQueue active-turn delivery', () => {
       payload: expect.objectContaining({ text: 'cancel before echo' }),
     }));
     secondPrompt.resolve({ stopReason: 'end_turn', usage: undefined });
+    await vi.waitFor(() => expect(runtime.running).toBe(false));
+  });
+
+  it('does not re-persist an already recorded deferred prompt on acceptance', async () => {
+    const prompt = deferred<{ stopReason: 'end_turn'; usage: undefined }>();
+    const request = vi.fn((method: string) => {
+      if (method === methods.agent.session.prompt) return prompt.promise;
+      return Promise.resolve({ status: 'cancelled' });
+    });
+    const runtime = makeRuntime(request);
+    const { queue, events } = makeQueue();
+
+    queue.enqueue(runtime, 'persisted before replay', undefined, {
+      deferUserEventUntilTurnStart: true,
+      userEventAlreadyPersisted: true,
+      turnCorrelationId: 'grok-persisted-replay',
+    });
+    await vi.waitFor(() => expect(runtime.submittingMessage).not.toBeNull());
+    queue.confirmPromptAccepted(runtime);
+
+    expect(events).not.toContainEqual(expect.objectContaining({
+      kind: 'message',
+      payload: expect.objectContaining({ text: 'persisted before replay', role: 'user' }),
+    }));
+    prompt.resolve({ stopReason: 'end_turn', usage: undefined });
     await vi.waitFor(() => expect(runtime.running).toBe(false));
   });
 

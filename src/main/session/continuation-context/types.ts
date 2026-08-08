@@ -92,7 +92,8 @@ export interface CheckpointProjection {
 }
 
 export interface PreparedContinuationContext {
-  version: 1;
+  /** v1 remains readable in recovery/test fixtures; newly prepared contexts use v2. */
+  version: 1 | 2;
   providerPrompt: string;
   persistedUserText: string;
   source: ContinuationSourceBoundary;

@@ -37,7 +37,7 @@ export function continuationPreparationSettingsFingerprint(input: {
   rawRetentionCeilingTokens: number;
 }): string {
   return continuationFingerprint({
-    version: 1,
+    version: 2,
     generator: input.generator.configFingerprint,
     rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
   });
@@ -45,7 +45,7 @@ export function continuationPreparationSettingsFingerprint(input: {
 
 export function resolveContinuationPreparationSettingsFingerprint(): string {
   return continuationFingerprint({
-    version: 1,
+    version: 2,
     generator: resolveContinuationGeneratorConfigFingerprint(),
     rawRetentionCeilingTokens: resolveContinuationRawRetentionCeiling(),
   });

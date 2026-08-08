@@ -37,6 +37,7 @@ import {
 } from './checkpoint-projection';
 import {
   coverageGapRangeFromCheckpoint,
+  unionUncoveredRevisionRanges,
 } from './checkpoint-fold-coverage-gap';
 import {
   assertCheckpointFoldSource,
@@ -50,6 +51,7 @@ import {
 import { estimateContinuationJsonTokens, estimateContinuationTokens, truncateContinuationTextMiddle } from './token-estimator';
 import type { ContinuationWarning, ResolvedContinuationGenerator } from './types';
 import {
+  classifyCheckpointFailureReason,
   recordCheckpointFoldFailure,
   type CheckpointFoldFailureDiagnostic,
 } from './checkpoint-fold-failure';
@@ -85,11 +87,14 @@ function deadlineRemaining(input: FoldContinuationCheckpointInput, now: () => nu
   return Math.max(0, input.deadlineAt - now());
 }
 
-function diagnosticDeadlineRemaining(
-  input: FoldContinuationCheckpointInput,
-  now: () => number,
-): number {
+function diagnosticDeadlineRemaining(input: FoldContinuationCheckpointInput, now: () => number): number {
   return Math.max(0, input.deadlineAt - now());
+}
+
+function providerCallTimeoutMs(input: FoldContinuationCheckpointInput, now: () => number): number {
+  const remaining = deadlineRemaining(input, now);
+  if (remaining <= 0) throw new CheckpointGeneratorError('Checkpoint generation deadline elapsed', 'timeout');
+  return remaining;
 }
 
 function checkpointRepairFactIndex(
@@ -135,13 +140,16 @@ export async function foldContinuationCheckpoint(
     input.metadata.materializedThroughRevision > (current?.sourceEventRevision ?? 0);
 
   const persistentCoverageGap = () =>
-    coverageGapRangeFromCheckpoint(current?.checkpoint ?? null, input.metadata.captureRevision);
+    coverageGapRangeFromCheckpoint(current?.checkpoint ?? null);
   const addPersistentCoverageWarning = () => {
     const range = persistentCoverageGap();
     if (range && !warnings.some((warning) => warning.code === 'coverage-gap')) {
       warnings.push({
         code: 'coverage-gap',
-        message: `Full semantic checkpoint coverage stops after revision ${range.from}; durable bounded digest markers persist through revision ${range.to}.`,
+        message:
+          `Full semantic checkpoint coverage stops after revision ${range.from}; ` +
+          `bounded digest markers cover omitted source through revision ${range.to}. ` +
+          'Later folded revisions do not close this gap.',
       });
     }
     return range;
@@ -192,8 +200,24 @@ export async function foldContinuationCheckpoint(
   if (normalizedSourceIsEmpty) {
     if (input.metadata.materializedThroughRevision > (current?.sourceEventRevision ?? 0)) {
       try {
-        commit(current?.checkpoint ?? emptyContinuationCheckpoint(), input.metadata.materializedThroughRevision, 'continuation-deterministic-fold');
-      } catch {
+        commit(
+          current?.checkpoint ?? emptyContinuationCheckpoint(),
+          input.metadata.materializedThroughRevision,
+          'continuation-deterministic-fold',
+        );
+      } catch (error) {
+        if (classifyCheckpointFailureReason(error) !== 'checkpoint-cas-conflict') {
+          failure = recordCheckpointFoldFailure({
+            warnings,
+            code: 'checkpoint-generation-failed',
+            stage: 'fold-commit',
+            error,
+            providerCalls: foldCalls + repairCalls,
+            checkpointRevision: current?.sourceEventRevision ?? 0,
+            captureRevision: input.metadata.captureRevision,
+            deadlineRemainingMs: diagnosticDeadlineRemaining(input, now),
+          });
+        }
         current = repo.latestAtOrBefore(input.metadata.sessionId, input.metadata.captureRevision);
       }
     }
@@ -207,9 +231,13 @@ export async function foldContinuationCheckpoint(
       observedContextWindowEvidence,
       warnings,
       failure,
-      uncoveredRevisionRange:
-        persistentCoverageGap() ??
-        calculateUncoveredRevisionRange(current?.sourceEventRevision ?? 0, input.metadata.captureRevision),
+      uncoveredRevisionRange: unionUncoveredRevisionRanges(
+        persistentCoverageGap(),
+        calculateUncoveredRevisionRange(
+          current?.sourceEventRevision ?? 0,
+          input.metadata.captureRevision,
+        ),
+      ),
     };
   }
 
@@ -305,7 +333,7 @@ export async function foldContinuationCheckpoint(
     try {
       generated = await input.generator.generate({
         prompt: chunk.prompt,
-        timeoutMs: deadlineRemaining(input, now),
+        timeoutMs: providerCallTimeoutMs(input, now),
         maxOutputBytes: 256 * 1024,
         remainingCalls: input.maxFoldCalls - foldCalls,
         ...(input.signal ? { signal: input.signal } : {}),
@@ -376,7 +404,7 @@ export async function foldContinuationCheckpoint(
         assertContinuationPromptByteLimit(CONTINUATION_CHECKPOINT_SYSTEM_PROMPT + repairPrompt);
         const repaired = await input.generator.generate({
           prompt: repairPrompt,
-          timeoutMs: deadlineRemaining(input, now),
+          timeoutMs: providerCallTimeoutMs(input, now),
           maxOutputBytes: 256 * 1024,
           remainingCalls: input.maxRepairCalls - repairCalls,
           ...(input.signal ? { signal: input.signal } : {}),
@@ -444,9 +472,13 @@ export async function foldContinuationCheckpoint(
     }
   }
 
-  const uncoveredRevisionRange =
-    persistentCoverageGap() ??
-    calculateUncoveredRevisionRange(current?.sourceEventRevision ?? 0, input.metadata.captureRevision);
+  const uncoveredRevisionRange = unionUncoveredRevisionRanges(
+    persistentCoverageGap(),
+    calculateUncoveredRevisionRange(
+      current?.sourceEventRevision ?? 0,
+      input.metadata.captureRevision,
+    ),
+  );
   if (uncoveredRevisionRange && !warnings.some((warning) => warning.code === 'coverage-gap')) {
     warnings.push({
       code: 'coverage-gap',

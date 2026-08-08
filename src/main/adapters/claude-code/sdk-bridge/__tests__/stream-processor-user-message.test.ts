@@ -24,6 +24,22 @@ describe('StreamProcessor.makeUserMessage', () => {
     });
   });
 
+  it('keeps provider input private from the queued handoff snapshot', async () => {
+    const pending = makeProcessor().makeUserMessage(
+      'sess-1',
+      'PRIVATE PROVIDER CONTINUATION CAPSULE',
+      undefined,
+      'authoritative persisted instruction',
+    );
+
+    expect(pending.handOffMessage).toEqual({
+      text: 'authoritative persisted instruction',
+    });
+    await expect(pending()).resolves.toMatchObject({
+      message: { content: 'PRIVATE PROVIDER CONTINUATION CAPSULE' },
+    });
+  });
+
   it('marks attachment user messages as priority now', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'agent-deck-claude-msg-'));
     const imagePath = join(dir, 'img.png');

@@ -199,7 +199,10 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(first.checkpoint).toMatchObject({ throughRevision: 2, refreshed: true });
     expect(first.quality).toBe('coverage-gap');
     expect(first.metrics.uncoveredRevisionRange).toEqual({ from: 1, to: 2 });
-    expect(first.providerPrompt).toContain('continuation.coverage-gap.after1.r2.');
+    expect(first.providerPrompt).toContain('bounded integrity marker');
+    expect(first.providerPrompt).not.toContain('sha256:');
+    expect(first.providerPrompt).not.toContain('event IDs');
+    expect(first.providerPrompt).not.toContain('continuation.coverage-gap.after1.r2.');
     expect(first.warnings).toContainEqual(
       expect.objectContaining({
         code: 'coverage-gap',
@@ -216,7 +219,10 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     expect(second.checkpoint).toMatchObject({ throughRevision: 2, refreshed: false });
     expect(second.quality).toBe('coverage-gap');
     expect(second.metrics.uncoveredRevisionRange).toEqual({ from: 1, to: 2 });
-    expect(second.providerPrompt).toContain('continuation.coverage-gap.after1.r2.');
+    expect(second.providerPrompt).toContain('bounded integrity marker');
+    expect(second.providerPrompt).not.toContain('sha256:');
+    expect(second.providerPrompt).not.toContain('event IDs');
+    expect(second.providerPrompt).not.toContain('continuation.coverage-gap.after1.r2.');
     expect(second.warnings).toContainEqual(expect.objectContaining({ code: 'coverage-gap' }));
   });
 
@@ -412,7 +418,8 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
   it('honestly stops at the deadline without invoking a provider', async () => {
     insertMessage(db, 'user', 'deadline evidence');
     const generator = new FakeGenerator();
-    const now = vi.fn().mockReturnValueOnce(1_000).mockReturnValue(1_002);
+    const startedAt = Date.now();
+    const now = vi.fn().mockReturnValueOnce(startedAt).mockReturnValue(startedAt + 2);
     const input = request();
     input.limits.deadlineMs = 1;
     const prepared = await prepareContinuationContextWithDependencies(input, {
@@ -446,7 +453,7 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     });
     expect(result.providerPrompt).toContain('Continue from the trusted checkpoint.');
     expect(result.providerPrompt).not.toContain('older provider capsule');
-    expect(result.providerPrompt.match(/Agent Deck Continuation Context v1/g)).toHaveLength(1);
+    expect(result.providerPrompt.match(/Agent Deck Continuation Context v2/g)).toHaveLength(1);
   });
 
   it.each([
@@ -517,6 +524,30 @@ describe.skipIf(!bindingAvailable)('prepareContinuationContext', () => {
     }));
     expect(result.primary.warnings.map((warning) => warning.message).join('\n'))
       .not.toContain('32k retry');
+  });
+
+  it('keeps a viable handoff primary when the instruction cannot fit the optional retry', async () => {
+    const input = request();
+    input.target.contextCapacity = unknownContextCapacity();
+    input.continuationInstruction = 'x'.repeat(36_000);
+
+    const result = await prepareContinuationCandidatesWithDependencies(input, {
+      db,
+      spool,
+      generatorFactory: () => new FakeGenerator(),
+    });
+
+    expect(result.primary.metrics.targetPromptCapacityTokens).toBe(40_000);
+    expect(result.lowerBudgetRetry).toBeNull();
+    expect(result.primary.warnings).toContainEqual(expect.objectContaining({
+      code: 'target-capacity-fallback',
+      message: expect.stringContaining('continue without a lower-budget retry'),
+    }));
+    expect(result.primary.warnings.filter(
+      (warning) => warning.code === 'target-capacity-fallback',
+    )).toHaveLength(1);
+    expect(result.primary.warnings.map((warning) => warning.message).join('\n'))
+      .not.toContain('64k primary and 32k retry policies');
   });
 
   it('persists exact generator evidence for future snapshots without resizing the current fold', async () => {

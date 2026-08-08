@@ -352,7 +352,8 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     const warning = await screen.findByRole('alert');
     expect(warning.textContent).toContain('新增消息未能转交');
     expect(warning.textContent).toContain('已尝试使用较小范围的续接上下文');
-    expect(warning.textContent).toContain('请重新生成续接上下文后再试');
+    expect(warning.textContent).toContain('可能已经执行');
+    expect(warning.textContent).toContain('重试可能造成重复执行');
     expect(warning.textContent).not.toContain('消息队列');
   });
 

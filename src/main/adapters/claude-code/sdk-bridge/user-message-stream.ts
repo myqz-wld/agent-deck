@@ -14,9 +14,10 @@ export function makeClaudeUserMessage(
   sessionId: string,
   text: string,
   attachments?: UploadedAttachmentRef[],
+  handOffText = text,
 ): PendingUserMessage {
   const handOffMessage = {
-    text,
+    text: handOffText,
     ...(attachments && attachments.length > 0
       ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
       : {}),
