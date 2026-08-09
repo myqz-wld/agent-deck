@@ -32,8 +32,8 @@ export const SERVER_CORE_SPAWN_SESSION_SCHEMA = {
   prompt: z.string().min(1).max(SESSION_CONSOLE_MAX_INITIAL_MESSAGE_BYTES).describe(
     'Self-contained first user message for the spawned session.',
   ),
-  contextMode: z.literal('fresh').optional().describe(
-    'Remote Core currently accepts only a fresh provider session; omission means fresh.',
+  contextMode: z.enum(['fresh', 'fork']).optional().describe(
+    'Omission means fresh. Fork natively inherits only the authenticated active caller history and requires the exact adapter, adapter-native runtime selector, and realpath cwd; it never falls back silently.',
   ),
   teamName: text(128).optional().describe(
     'Optional active Agent Deck team. The authenticated caller becomes or remains its lead.',

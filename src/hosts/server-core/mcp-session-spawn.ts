@@ -8,10 +8,20 @@ import {
   type SessionConsoleCreateOptions,
 } from '@contracts/index';
 import { buildLeadContextBlock } from '@main/agent-deck-mcp/tools/handlers/lead-context-block';
-import type { AgentAdapter } from '@main/adapters/types';
+import type {
+  AgentAdapter,
+  CreateSessionOptions,
+  ForkedSessionHandle,
+  ForkSessionSource,
+} from '@main/adapters/types';
 import type { SessionAdapterId, SessionRecord } from '@shared/types';
 
 import { ServerCoreSpawnCollaboration } from './mcp-spawn-collaboration';
+import {
+  assertServerCoreSpawnForkSourceUnchanged,
+  revalidateServerCoreSpawnFork,
+  validateServerCoreSpawnFork,
+} from './mcp-spawn-fork';
 import { ServerCoreSpawnGuard } from './mcp-spawn-guard';
 import type {
   ServerCoreMcpSpawnPort,
@@ -21,6 +31,8 @@ import type {
 import type { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import type { ServerCoreSessionConsoleAuthority } from './session-console-authority';
 import type { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { buildRemoteCreateOptions } from './session-create-options';
+import { serverCoreWorktreeReferenceFence } from './worktree-reference-fence';
 
 interface SpawnSessionRepository {
   get(sessionId: string): SessionRecord | null;
@@ -110,6 +122,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
     args: ServerCoreSpawnSessionArgs,
   ): Promise<ServerCoreSpawnSessionResult> {
     requireCaller(this.options.sessions, callerSessionId);
+    const contextMode = args.contextMode ?? 'fresh';
     const cwd = parseWorkspaceDirectoryRef(args.cwd, 'spawn_session.cwd');
     const originalPrompt = parseSessionConsoleInitialMessage(args.prompt, 'spawn_session.prompt');
     const selector = args.adapter === 'claude-code'
@@ -127,7 +140,40 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       cwd,
       options,
     );
-    const liveCaller = requireCaller(this.options.sessions, callerSessionId);
+    let liveCaller = requireCaller(this.options.sessions, callerSessionId);
+    let forkAdapter: AgentAdapter | null = null;
+    let forkSource: ForkSessionSource | null = null;
+    let forkTarget: CreateSessionOptions | null = null;
+    if (contextMode === 'fork') {
+      forkAdapter = this.options.registry.get(args.adapter) ?? null;
+      if (!forkAdapter) throw new Error(`adapter "${args.adapter}" is unavailable`);
+      const absoluteCwd = this.options.capabilities.resolveWorkingDirectory(cwd);
+      forkTarget = buildRemoteCreateOptions({
+        adapterId: args.adapter,
+        attachments: [],
+        capabilityRevision: descriptor.capabilityRevision,
+        initialMessage: originalPrompt,
+        options,
+        workingDirectory: cwd,
+      }, absoluteCwd, [], args.teamName ? { teamName: args.teamName } : {});
+      forkSource = await validateServerCoreSpawnFork({
+        adapter: forkAdapter,
+        caller: liveCaller,
+        target: forkTarget,
+      });
+      liveCaller = requireCaller(this.options.sessions, callerSessionId);
+      await revalidateServerCoreSpawnFork({
+        caller: liveCaller,
+        source: forkSource,
+        target: forkTarget,
+      });
+      liveCaller = requireCaller(this.options.sessions, callerSessionId);
+      assertServerCoreSpawnForkSourceUnchanged({
+        caller: liveCaller,
+        source: forkSource,
+        target: forkTarget,
+      });
+    }
     const team = this.options.collaboration.preflight(callerSessionId, args.teamName);
     const anchorId = randomUUID();
     const leadContext = buildLeadContextBlock({
@@ -152,30 +198,63 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
     const depth = lease.parentDepth + 1;
     let registeredSessionId: string | null = null;
     let createdSessionId: string | null = null;
+    let forkHandle: ForkedSessionHandle | null = null;
     try {
-      const result = await this.options.authority.createSpawnSession({
-        params: {
-          adapterId: args.adapter,
-          attachments: [],
-          capabilityRevision: descriptor.capabilityRevision,
-          initialMessage: prompt,
-          workingDirectory: cwd,
-          options,
+      const initialSessionRegistration = {
+        spawnLink: { parentSessionId: callerSessionId, depth },
+        onRegistered: (sessionId: string) => {
+          if (registeredSessionId !== null && registeredSessionId !== sessionId) {
+            throw new Error('Provider registered more than one spawn target');
+          }
+          registeredSessionId = sessionId;
+          lease.release();
         },
-        initialSessionRegistration: {
-          spawnLink: { parentSessionId: callerSessionId, depth },
-          onRegistered: (sessionId) => {
-            if (registeredSessionId !== null && registeredSessionId !== sessionId) {
-              throw new Error('Provider registered more than one spawn target');
-            }
-            registeredSessionId = sessionId;
-            lease.release();
+      };
+      if (contextMode === 'fork') {
+        if (!forkAdapter?.createForkedSession || !forkSource || !forkTarget) {
+          throw new Error('Native fork preflight was not retained');
+        }
+        const currentCwd = this.options.capabilities.resolveWorkingDirectory(cwd);
+        if (currentCwd !== forkTarget.cwd) throw new Error('Fork cwd identity changed');
+        forkTarget.prompt = prompt;
+        forkTarget.initialSessionRegistration = initialSessionRegistration;
+        const cwdLease = serverCoreWorktreeReferenceFence.acquireReference(currentCwd);
+        try {
+          forkHandle = await forkAdapter.createForkedSession(forkSource, forkTarget);
+          createdSessionId = forkHandle.sessionId;
+        } finally {
+          cwdLease.release();
+        }
+      } else {
+        const result = await this.options.authority.createSpawnSession({
+          params: {
+            adapterId: args.adapter,
+            attachments: [],
+            capabilityRevision: descriptor.capabilityRevision,
+            initialMessage: prompt,
+            workingDirectory: cwd,
+            options,
           },
-        },
-        ...(team.teamName === null ? {} : { teamName: team.teamName }),
-      });
-      createdSessionId = result.sessionId;
-      this.assertSpawnLink(callerSessionId, createdSessionId, registeredSessionId, depth);
+          initialSessionRegistration,
+          ...(team.teamName === null ? {} : { teamName: team.teamName }),
+        });
+        createdSessionId = result.sessionId;
+      }
+      if (contextMode === 'fork') {
+        liveCaller = requireCaller(this.options.sessions, callerSessionId);
+        assertServerCoreSpawnForkSourceUnchanged({
+          caller: liveCaller,
+          source: forkSource!,
+          target: forkTarget!,
+        });
+      }
+      this.assertSpawnLink(
+        callerSessionId,
+        createdSessionId,
+        registeredSessionId,
+        depth,
+        contextMode,
+      );
       this.options.collaboration.complete({
         preflight: team,
         callerSessionId,
@@ -188,7 +267,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       const target = createdSessionId ?? registeredSessionId;
       let outcome = error;
       try {
-        if (target !== null) await this.rollback(args.adapter, target, error);
+        if (target !== null) await this.rollback(args.adapter, target, error, forkHandle);
       } catch (rollbackError) {
         outcome = rollbackError;
       } finally {
@@ -213,6 +292,8 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
         spawnDepth: depth,
         teamId: team.teamId,
         workingDirectory: cwd,
+        contextMode,
+        ...(contextMode === 'fork' ? { forkedFromSessionId: callerSessionId } : {}),
       });
     } catch {
       // Presentation metadata cannot make a committed provider/team spawn ambiguous to its caller.
@@ -231,7 +312,9 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       spawnLimits: lease.snapshot(),
       sentAt: this.now(),
       spawnPromptMessageId: anchorId,
-      contextMode: 'fresh',
+      ...(contextMode === 'fork'
+        ? { contextMode: 'fork', forkedFromSessionId: callerSessionId }
+        : { contextMode: 'fresh' }),
     };
   }
 
@@ -240,13 +323,24 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
     sessionId: string,
     registeredSessionId: string | null,
     depth: number,
+    contextMode: 'fresh' | 'fork',
   ): void {
+    if (contextMode === 'fork' && registeredSessionId === null) {
+      throw new Error('Fork target was not durably registered');
+    }
     if (registeredSessionId !== null && registeredSessionId !== sessionId) {
-      throw new Error('Provider returned a different canonical spawn target');
+      const consumedByCanonicalRename = contextMode === 'fork' &&
+        this.options.sessions.get(registeredSessionId) === null;
+      if (!consumedByCanonicalRename) {
+        throw new Error('Provider returned a different canonical spawn target');
+      }
     }
     let record = this.options.sessions.get(sessionId);
     if (!record) throw new Error('Spawn target was not durably registered');
-    if (record.spawnedBy === null || record.spawnedBy === undefined) {
+    if (
+      contextMode === 'fresh' &&
+      (record.spawnedBy === null || record.spawnedBy === undefined)
+    ) {
       this.options.sessions.setSpawnLink(sessionId, callerSessionId, depth);
       record = this.options.sessions.get(sessionId);
     }
@@ -259,25 +353,60 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
     adapterId: SessionAdapterId,
     sessionId: string,
     cause: unknown,
+    forkHandle: ForkedSessionHandle | null,
   ): Promise<void> {
     const adapter = this.options.registry.get(adapterId);
+    let closeError: unknown = null;
+    let closeProven = false;
     if (!adapter?.closeSessionForRollback) {
-      throw new AggregateError(
-        [cause],
-        'Spawn failed after provider registration and strict rollback is unavailable; do not retry',
-      );
-    }
-    try {
-      await adapter.closeSessionForRollback(sessionId);
-      this.options.sessionManager.discardAfterProviderRollback(sessionId);
-      if (this.options.sessions.get(sessionId)) {
-        throw new Error('Spawn target remained after strict rollback');
+      closeError = new Error('Strict provider rollback is unavailable');
+    } else {
+      try {
+        await adapter.closeSessionForRollback(sessionId);
+        closeProven = true;
+      } catch (error) {
+        closeError = error;
       }
-    } catch (rollbackError) {
-      throw new AggregateError(
-        [cause, rollbackError],
-        'Spawn rollback could not prove cleanup; do not retry this request',
-      );
     }
+
+    let forkError: unknown = null;
+    let forkProven = forkHandle === null;
+    if (forkHandle) {
+      try {
+        await forkHandle.discard();
+        forkProven = true;
+      } catch (error) {
+        forkError = error;
+      }
+    }
+
+    const providerCleanupProven = closeProven || (forkHandle !== null && forkProven);
+    let recordError: unknown = null;
+    if (providerCleanupProven) {
+      try {
+        this.options.sessionManager.discardAfterProviderRollback(sessionId);
+        if (this.options.sessions.get(sessionId)) {
+          throw new Error('Spawn target remained after strict rollback');
+        }
+      } catch (error) {
+        recordError = error;
+      }
+    } else {
+      recordError = new Error('Provider cleanup remained unproved');
+    }
+
+    const residualErrors: unknown[] = [];
+    if (!providerCleanupProven) {
+      if (closeError !== null) residualErrors.push(closeError);
+      if (forkError !== null) residualErrors.push(forkError);
+    } else if (forkHandle !== null && !forkProven && forkError !== null) {
+      residualErrors.push(forkError);
+    }
+    if (recordError !== null) residualErrors.push(recordError);
+    if (residualErrors.length === 0) return;
+    throw new AggregateError(
+      [cause, ...new Set(residualErrors)],
+      'Spawn rollback could not prove cleanup; do not retry this request',
+    );
   }
 }

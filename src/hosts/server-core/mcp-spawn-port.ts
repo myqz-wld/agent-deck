@@ -4,7 +4,7 @@ export interface ServerCoreSpawnSessionArgs {
   readonly adapter: SessionAdapterId;
   readonly cwd: string;
   readonly prompt: string;
-  readonly contextMode?: 'fresh';
+  readonly contextMode?: 'fresh' | 'fork';
   readonly teamName?: string;
   readonly displayName?: string;
   readonly gateway?: string;
@@ -35,7 +35,7 @@ export interface ServerCoreSpawnLimits {
   };
 }
 
-export interface ServerCoreSpawnSessionResult {
+interface ServerCoreSpawnSessionResultBase {
   readonly sessionId: string;
   readonly adapter: SessionAdapterId;
   readonly gateway: string | null;
@@ -48,8 +48,12 @@ export interface ServerCoreSpawnSessionResult {
   readonly spawnLimits: ServerCoreSpawnLimits;
   readonly sentAt: number;
   readonly spawnPromptMessageId: string;
-  readonly contextMode: 'fresh';
 }
+
+export type ServerCoreSpawnSessionResult = ServerCoreSpawnSessionResultBase & (
+  | { readonly contextMode: 'fresh'; readonly forkedFromSessionId?: never }
+  | { readonly contextMode: 'fork'; readonly forkedFromSessionId: string }
+);
 
 export interface ServerCoreMcpSpawnPort {
   spawn(

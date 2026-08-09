@@ -67,6 +67,51 @@ describe('RemoteUserIntentLedger', () => {
       .toBe('intent-65');
   });
 
+  it('retires definitive Core rejections so one addressable source cannot saturate', async () => {
+    let sequence = 0;
+    const ledger = new RemoteUserIntentLedger(() => `intent-${++sequence}`);
+    for (let index = 0; index < 64; index += 1) {
+      await expect(ledger.run('remote-a:core-a:1', 'send', { text: `${index}` }, async () => {
+        throw Object.assign(new Error('远程数据已变化，请刷新后重试。'), {
+          code: 'conflict',
+        });
+      })).rejects.toThrow('远程数据已变化');
+    }
+    expect(ledger.acquire('remote-a:core-a:1', 'send', { text: 'still available' }).id)
+      .toBe('intent-65');
+  });
+
+  it('recognizes the public message after Electron wraps a definitive rejection', async () => {
+    let sequence = 0;
+    const ledger = new RemoteUserIntentLedger(() => `intent-${++sequence}`);
+    const payload = { sessionId: 'session-a' };
+    await expect(ledger.run('remote-a:core-a:1', 'interrupt', payload, async () => {
+      throw new Error(
+        'Error invoking remote method: RemoteHostPublicError: 远程对象不存在或已删除。',
+      );
+    })).rejects.toThrow('远程对象不存在');
+    expect(ledger.acquire('remote-a:core-a:1', 'interrupt', payload).id).toBe('intent-2');
+  });
+
+  it.each([
+    ['service_stopped', '远程主机服务已停止。'],
+    ['stale_scope', '当前主机或会话已切换，请重试。'],
+  ])('retains an intent for post-dispatch-capable %s errors', async (code, message) => {
+    let sequence = 0;
+    const ledger = new RemoteUserIntentLedger(() => `intent-${++sequence}`);
+    const payload = { sessionId: 'session-a', text: 'same mutation' };
+
+    await expect(ledger.run('remote-a:core-a:1', 'send', payload, async () => {
+      throw Object.assign(new Error(message), { code });
+    })).rejects.toThrow(message);
+    expect(ledger.acquire('remote-a:core-a:1', 'send', payload).id).toBe('intent-1');
+
+    await expect(ledger.run('remote-a:core-a:1', 'send', payload, async () => {
+      throw new Error(`Error invoking remote method: RemoteHostPublicError: ${message}`);
+    })).rejects.toThrow(message);
+    expect(ledger.acquire('remote-a:core-a:1', 'send', payload).id).toBe('intent-1');
+  });
+
   it('content-binds large attachments without placing base64 bodies in the intent key', async () => {
     const create = (base64: string) => ({
       adapterId: 'codex-cli',
