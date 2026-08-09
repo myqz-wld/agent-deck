@@ -12,9 +12,9 @@ import {
   type CheckpointBacklogEstimate,
 } from './checkpoint-backlog-estimator';
 import {
-  CheckpointBacklogWorkerClient,
   type CheckpointBacklogEstimator,
 } from './checkpoint-backlog-worker-client';
+import { createDesktopCheckpointBacklogEstimator } from './checkpoint-backlog-worker-host';
 import {
   BackgroundCheckpointRefreshIncompleteError,
   refreshContinuationCheckpoint,
@@ -322,7 +322,7 @@ export class ContinuationCheckpointRefreshService {
   }
 
   private getBacklogEstimator(): CheckpointBacklogEstimator {
-    this.backlogEstimator ??= new CheckpointBacklogWorkerClient(getDb().name);
+    this.backlogEstimator ??= createDesktopCheckpointBacklogEstimator(getDb().name);
     return this.backlogEstimator;
   }
 

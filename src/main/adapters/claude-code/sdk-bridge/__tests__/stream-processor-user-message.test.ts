@@ -4,11 +4,17 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { StreamProcessor } from '../stream-processor';
 
+const streamSessionManager = {
+  releaseSdkClaim: () => undefined,
+  renameSdkSession: () => undefined,
+  updateCliSessionId: () => undefined,
+};
+
 function makeProcessor(): StreamProcessor {
   return new StreamProcessor({
     sessions: new Map(),
     emit: () => undefined,
-  });
+  }, streamSessionManager);
 }
 
 describe('StreamProcessor.makeUserMessage', () => {

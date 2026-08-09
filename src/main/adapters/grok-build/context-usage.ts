@@ -1,13 +1,15 @@
-import log from '@main/utils/logger';
 import type { AgentEvent } from '@shared/types';
 
-import { withTimeout, type GrokAcpProcess } from './acp-process';
+import { withTimeout, type GrokAcpSession } from './acp-process';
 import { asRecord, errorText } from './protocol-utils';
 import type { GrokRuntime } from './runtime-types';
 import { createGrokContextUsageEvent } from './translate';
+import {
+  NOOP_GROK_BRIDGE_DIAGNOSTICS,
+  type GrokBridgeDiagnostics,
+} from './bridge-diagnostics-core';
 
 const REQUEST_TIMEOUT_MS = 15_000;
-const logger = log.scope('grok-runtime');
 
 export const GROK_SESSION_INFO_METHOD = '_x.ai/session/info';
 
@@ -28,6 +30,7 @@ export interface GrokContextUsage {
 }
 
 export interface GrokContextUsageRefreshOptions {
+  diagnostics?: GrokBridgeDiagnostics;
   emit: (event: AgentEvent) => void;
   isCurrentRuntime?: (runtime: GrokRuntime) => boolean;
   requestTimeoutMs?: number;
@@ -36,12 +39,12 @@ export interface GrokContextUsageRefreshOptions {
 interface RefreshState {
   queued: boolean;
   options: GrokContextUsageRefreshOptions;
-  process: GrokAcpProcess | null;
+  process: GrokAcpSession | null;
   nativeSessionId: string | null;
 }
 
 const refreshStates = new WeakMap<GrokRuntime, RefreshState>();
-const warnedProcesses = new WeakSet<GrokAcpProcess>();
+const warnedProcesses = new WeakSet<GrokAcpSession>();
 
 export function parseGrokSessionInfoContext(
   response: unknown,
@@ -123,7 +126,12 @@ export async function refreshGrokContextUsage(
     const usage = parseGrokSessionInfoContext(response);
     if (!isEligible(runtime, process, nativeSessionId, options)) return false;
     if (!usage) {
-      warnOnce(process, runtime, 'Grok ACP session/info 未返回有效的 context.used/total');
+      warnOnce(
+        process,
+        runtime,
+        options,
+        'Grok ACP session/info 未返回有效的 context.used/total',
+      );
       return false;
     }
     options.emit(createGrokContextUsageEvent(
@@ -137,6 +145,7 @@ export async function refreshGrokContextUsage(
       warnOnce(
         process,
         runtime,
+        options,
         `Grok ACP session/info 刷新失败：${errorText(error)}`,
       );
     }
@@ -163,7 +172,7 @@ async function runRefreshLoop(
 
 function isEligible(
   runtime: GrokRuntime,
-  process: GrokAcpProcess,
+  process: GrokAcpSession,
   nativeSessionId: string,
   options: GrokContextUsageRefreshOptions,
 ): boolean {
@@ -174,16 +183,19 @@ function isEligible(
 }
 
 function warnOnce(
-  process: GrokAcpProcess,
+  process: GrokAcpSession,
   runtime: GrokRuntime,
+  options: GrokContextUsageRefreshOptions,
   message: string,
 ): void {
   if (warnedProcesses.has(process)) return;
   warnedProcesses.add(process);
-  logger.warn('[grok-runtime] context usage refresh unavailable; session preserved', {
+  (options.diagnostics ?? NOOP_GROK_BRIDGE_DIAGNOSTICS)
+    .scope('grok-runtime')
+    .warn('[grok-runtime] context usage refresh unavailable; session preserved', {
     event: 'grok_context_usage_refresh_failed',
     sessionId: runtime.applicationSessionId,
     nativeSessionId: runtime.nativeSessionId,
     message,
-  });
+    });
 }

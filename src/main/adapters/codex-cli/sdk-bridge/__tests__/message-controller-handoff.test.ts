@@ -2,9 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
-import { MessageController } from '../message-controller';
+import { MessageController, type MessageControllerContext } from '../message-controller';
 import { MAX_PENDING_MESSAGES } from '../constants';
 import type { InternalSession } from '../types';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
+
+function createController(
+  context: Omit<MessageControllerContext, 'runtimeHost'>,
+): MessageController {
+  return new MessageController({ ...context, runtimeHost: codexBridgeTestRuntimeHost });
+}
 
 function internal(sessionId: string): InternalSession {
   return {
@@ -35,7 +42,7 @@ describe('MessageController handoff rollback recovery', () => {
     session.currentTurn = { abort } as unknown as AbortController;
     session.currentTurnId = 'turn-active';
     session.thread = { interrupt } as unknown as InternalSession['thread'];
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit: vi.fn(),
       recoverAndSend: vi.fn(async () => undefined),
@@ -55,7 +62,7 @@ describe('MessageController handoff rollback recovery', () => {
     const interrupt = vi.fn(async () => undefined);
     session.currentTurn = { abort } as unknown as AbortController;
     session.thread = { interrupt } as unknown as InternalSession['thread'];
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit: vi.fn(),
       recoverAndSend: vi.fn(async () => undefined),
@@ -72,7 +79,7 @@ describe('MessageController handoff rollback recovery', () => {
     const sessionId = 'codex-visible-pending';
     const session = internal(sessionId);
     const emit = vi.fn<(event: AgentEvent) => void>();
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit,
       recoverAndSend: vi.fn(async () => undefined),
@@ -107,7 +114,7 @@ describe('MessageController handoff rollback recovery', () => {
     const sessionId = 'codex-correlated-turn';
     const session = internal(sessionId);
     const emit = vi.fn<(event: AgentEvent) => void>();
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit,
       recoverAndSend: vi.fn(async () => undefined),
@@ -135,7 +142,7 @@ describe('MessageController handoff rollback recovery', () => {
       event: { text: 'cancel before acceptance', turnCorrelationId: 'submitting-1' },
       cancelled: false,
     };
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit: vi.fn(),
       recoverAndSend: vi.fn(async () => undefined),
@@ -162,7 +169,7 @@ describe('MessageController handoff rollback recovery', () => {
     session.currentTurnId = 'turn-1';
     session.thread = { steer: steerCall } as unknown as InternalSession['thread'];
     const emit = vi.fn<(event: AgentEvent) => void>();
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit,
       recoverAndSend: vi.fn(async () => undefined),
@@ -198,7 +205,7 @@ describe('MessageController handoff rollback recovery', () => {
       session.currentTurn = new AbortController();
       session.currentTurnId = 'turn-1';
       session.thread = { steer } as unknown as InternalSession['thread'];
-      const controller = new MessageController({
+      const controller = createController({
         sessions: new Map([[sessionId, session]]),
         emit: vi.fn(),
         recoverAndSend: vi.fn(async () => undefined),
@@ -242,7 +249,7 @@ describe('MessageController handoff rollback recovery', () => {
     session.currentTurnId = 'turn-1';
     session.thread = { steer: steerCall } as unknown as InternalSession['thread'];
     const emit = vi.fn<(event: AgentEvent) => void>();
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit,
       recoverAndSend: vi.fn(async () => undefined),
@@ -284,7 +291,7 @@ describe('MessageController handoff rollback recovery', () => {
       sessions.set(recovered.applicationSid, recovered);
       await options?.sendAfterRecovery?.(recovered.applicationSid);
     });
-    const controller = new MessageController({
+    const controller = createController({
       sessions,
       emit: vi.fn(),
       recoverAndSend,
@@ -321,7 +328,7 @@ describe('MessageController handoff rollback recovery', () => {
       .mockImplementationOnce(() => {
         throw new Error('event sink unavailable');
       });
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit,
       recoverAndSend: vi.fn(async () => undefined),
@@ -347,7 +354,7 @@ describe('MessageController handoff rollback recovery', () => {
       { length: MAX_PENDING_MESSAGES },
       (_, index) => `existing-${index}`,
     );
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit: vi.fn(),
       recoverAndSend: vi.fn(async () => undefined),
@@ -371,7 +378,7 @@ describe('MessageController handoff rollback recovery', () => {
     const sessionId = 'codex-chained-handoff-source';
     const session = internal(sessionId);
     const emit = vi.fn<(event: AgentEvent) => void>();
-    const controller = new MessageController({
+    const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit,
       recoverAndSend: vi.fn(async () => undefined),
@@ -404,7 +411,7 @@ describe('MessageController handoff rollback recovery', () => {
       sessions.set(recovered.applicationSid, recovered);
       await options?.sendAfterRecovery?.(recovered.applicationSid);
     });
-    const controller = new MessageController({
+    const controller = createController({
       sessions,
       emit,
       recoverAndSend,

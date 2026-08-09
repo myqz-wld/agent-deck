@@ -8,11 +8,13 @@ vi.mock('../session-finalize', () => ({
 }));
 vi.mock('@main/codex-config/toml-writer', () => ({
   readTopLevelModelFromCodexConfig: vi.fn(() => null),
+  readTopLevelModelReasoningEffortFromCodexConfig: vi.fn(() => null),
 }));
 
 import { runCreateSessionNewPath } from '../create-session/create-session-new';
 import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 const prepared: PreparedContinuationContext = {
   version: 1,
@@ -65,6 +67,7 @@ describe('Codex trusted continuation new-session split', () => {
         codexBySession: new Map(),
         threadLoop: { startNewThreadAndAwaitId } as never,
         emit,
+        runtimeHost: codexBridgeTestRuntimeHost,
         ensureCodex: vi.fn() as never,
       },
     );

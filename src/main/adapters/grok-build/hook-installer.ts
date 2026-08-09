@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
-import log from '@main/utils/logger';
 import { buildHookCurlCommand } from '@main/hook-server/curl-command';
 import {
   changedHookEvent,
@@ -21,8 +20,15 @@ import {
   prepareHookRelayConfig,
 } from '@main/hook-server/hook-relay-config';
 
-const logger = log.scope('grok-hook-installer');
 const CURRENT_HOOK_TAG_PREFIX = 'agent-deck-hook-v2-grok-build';
+
+export interface GrokHookInstallerObserver {
+  statusReadFailed(error: unknown): void;
+}
+
+const NOOP_OBSERVER: GrokHookInstallerObserver = {
+  statusReadFailed: () => undefined,
+};
 
 export const GROK_HOOK_EVENTS = [
   'SessionStart',
@@ -71,7 +77,14 @@ export class GrokHookInstaller {
     private port: number,
     private token: string,
     private relayRoot: string,
+    private observer: GrokHookInstallerObserver = NOOP_OBSERVER,
+    private homeDirectory: string = homedir(),
   ) {}
+
+  private hooksPath(scope: 'user' | 'project', cwd?: string): string {
+    if (scope === 'user') return join(this.homeDirectory, '.grok', 'hooks', 'agent-deck.json');
+    return hooksPath(scope, cwd);
+  }
 
   private currentCommand(event: GrokHookEvent, prepare: boolean): string {
     const relayConfigPath = prepare
@@ -91,7 +104,7 @@ export class GrokHookInstaller {
   }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     updateHookConfig(
       path,
       (document) => {
@@ -130,7 +143,7 @@ export class GrokHookInstaller {
   }
 
   uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) return this.emptyStatus(opts.scope, path);
 
     updateHookConfig(
@@ -162,7 +175,7 @@ export class GrokHookInstaller {
   }
 
   status(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) return this.emptyStatus(opts.scope, path);
 
     try {
@@ -184,7 +197,11 @@ export class GrokHookInstaller {
         installedHooks: installed,
       };
     } catch (error) {
-      logger.warn('[grok-hook-installer] status readHookConfig failed:', error);
+      try {
+        this.observer.statusReadFailed(error);
+      } catch {
+        // Diagnostics cannot change the repairable not-installed result.
+      }
       return this.emptyStatus(opts.scope, path);
     }
   }

@@ -2,7 +2,6 @@ import type { RouteOptions } from 'fastify';
 import type { AgentEvent } from '@shared/types';
 import {
   createHookRoute,
-  hookRouteDiagnostics,
   type HookOrigin,
   type HookRouteDiagnostics,
 } from '@main/hook-server/route-diagnostics';
@@ -20,26 +19,15 @@ import {
   translateCodexUnclosedToolUses,
   translateCodexUserPrompt,
 } from './hook-translate';
-import {
-  codexDesktopEphemeralFilter,
-  type CodexDesktopEphemeralFilterLike,
-  type CodexHookIdentity,
-} from './desktop-ephemeral-filter';
-import {
-  openToolUseRepo,
-  type OpenToolUseRecord,
-} from '@main/store/open-tool-use-repo';
-import log from '@main/utils/logger';
-
-const logger = log.scope('codex-hook-routes');
+import type {
+  CodexHookFilterPort,
+  CodexHookIdentity,
+  CodexHookRoutePorts,
+} from './hook-route-ports';
 
 interface BaseBody extends CodexHookIdentity {
   cwd?: string;
   hook_event_name?: string;
-}
-
-export interface OpenToolUseReader {
-  listForSession(sessionId: string): OpenToolUseRecord[];
 }
 
 function makeRoute(
@@ -47,7 +35,7 @@ function makeRoute(
   url: string,
   handler: (body: BaseBody) => AgentEvent | AgentEvent[],
   emit: (e: AgentEvent, hookOrigin: HookOrigin) => void,
-  desktopEphemeralFilter: CodexDesktopEphemeralFilterLike,
+  desktopEphemeralFilter: CodexHookFilterPort,
   diagnostics: HookRouteDiagnostics,
 ): RouteOptions {
   return createHookRoute({
@@ -82,9 +70,7 @@ function makeRoute(
 
 export function buildCodexHookRoutes(
   emit: (e: AgentEvent) => void,
-  desktopEphemeralFilter: CodexDesktopEphemeralFilterLike = codexDesktopEphemeralFilter,
-  diagnostics: HookRouteDiagnostics = hookRouteDiagnostics,
-  openToolUseReader: OpenToolUseReader = openToolUseRepo,
+  ports: CodexHookRoutePorts,
 ): RouteOptions[] {
   const taggedEmit = (ev: AgentEvent, hookOrigin: HookOrigin): void => {
     emit({ ...ev, source: 'hook', hookOrigin });
@@ -99,8 +85,8 @@ export function buildCodexHookRoutes(
       url,
       handler,
       taggedEmit,
-      desktopEphemeralFilter,
-      diagnostics,
+      ports.filter,
+      ports.diagnostics,
     );
   const terminalEvents = (
     body: BaseBody,
@@ -111,7 +97,7 @@ export function buildCodexHookRoutes(
       return [
         ...translateCodexUnclosedToolUses(
           body as never,
-          openToolUseReader.listForSession(body.session_id),
+          ports.openToolUseReader.listForSession(body.session_id),
           terminalHook,
         ),
         ...translated,
@@ -119,10 +105,15 @@ export function buildCodexHookRoutes(
     } catch (error) {
       // Reconciliation is best-effort. Never lose the authoritative terminal event
       // because the historical lookup is temporarily unavailable.
-      logger.warn('[codex-hook-routes] open tool reconciliation failed', {
-        sessionId: body.session_id,
-        terminalHook,
-      }, error);
+      try {
+        ports.observer.reconciliationFailed({
+          sessionId: body.session_id,
+          terminalHook,
+          error,
+        });
+      } catch {
+        // Observation cannot replace the authoritative terminal event.
+      }
       return translated;
     }
   };

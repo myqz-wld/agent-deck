@@ -22,6 +22,22 @@ import type { CodexThinkingLevel } from '@shared/session-metadata';
 export type CodexReasoningEffort = CodexThinkingLevel;
 export type CodexReasoningSummary = 'none' | 'auto';
 
+/**
+ * Trusted headless boundary applied after user/session options are resolved.
+ *
+ * This is intentionally not part of BuildCodexThreadOptionsArgs: desktop sessions keep using
+ * Codex's normal sandbox controls, while Server Core injects this ceiling at its provider-host
+ * boundary. `providerHomeRoot` is deliberately absent so model-facing commands cannot read
+ * provider credentials or configuration.
+ */
+export interface CodexWorkspacePermissionBoundary {
+  readonly workspaceRoot: string;
+  /** Exact canonical session directory; omitted only while building process-level profiles. */
+  readonly selectedDirectory?: string;
+  readonly readOnlyRoots: readonly string[];
+  readonly readWriteRoots: readonly string[];
+}
+
 export interface BuildCodexThreadOptionsArgs {
   /** Codex 子进程 chdir 目标 (resume 路径:effectiveCwd / spawn 路径:cwd) */
   workingDirectory: string;
@@ -78,11 +94,15 @@ export interface CodexThreadOptions {
   useBaseConfig?: boolean;
   dynamicTools?: [];
   environments?: [];
-  runtimeWorkspaceRoots?: string[];
+  runtimeWorkspaceRoots?: readonly string[];
   selectedCapabilityRoots?: [];
   ephemeral?: boolean;
   networkAccessEnabled?: boolean;
   additionalDirectories?: string[];
+  /** Headless-only hard ceiling; sandbox updates may narrow but never remove or widen it. */
+  workspacePermissionBoundary?: CodexWorkspacePermissionBoundary;
+  /** Headless-only TOCTOU fence run immediately before every thread/turn request is built. */
+  assertWorkspacePermissionBoundary?: () => void;
 }
 
 export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): CodexThreadOptions {

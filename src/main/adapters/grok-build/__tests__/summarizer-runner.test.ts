@@ -23,8 +23,8 @@ vi.mock('@main/store/settings-store', () => ({
     get: vi.fn((key: string) => state.settings[key]),
   },
 }));
-vi.mock('@main/session/oneshot-llm', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@main/session/oneshot-llm')>()),
+vi.mock('@main/session/oneshot-llm/grok-runner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@main/session/oneshot-llm/grok-runner')>()),
   runGrokOneshot,
 }));
 

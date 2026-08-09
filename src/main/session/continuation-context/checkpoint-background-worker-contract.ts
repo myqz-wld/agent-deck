@@ -1,8 +1,27 @@
-import type { BackgroundMaterializedMetadata } from './checkpoint-background-materializer';
+import type { ContinuationCheckpointRecord } from '@main/store/continuation-checkpoint-read';
 import type { FoldChunkView } from './checkpoint-fold-chunk';
 import type { ContinuationCheckpoint } from './checkpoint-schema';
 
 export const CHECKPOINT_BACKGROUND_WORKER_KIND = 'agent-deck-checkpoint-background-v1';
+export const BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES = 32 * 1024 * 1024;
+export const BACKGROUND_MATERIALIZE_MAX_ROWS = 10_000;
+export const BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES = 1024 * 1024;
+
+export interface BackgroundMaterializedMetadata {
+  sessionId: string;
+  captureRevision: number;
+  rebuildAfterRevision: number;
+  maxEventId: number | null;
+  runtimeFingerprint: string;
+  checkpoint: ContinuationCheckpointRecord | null;
+  checkpointThroughRevision: number;
+  materializedThroughRevision: number;
+  sourceRows: number;
+  sourceBytes: number;
+  groupCount: number;
+  normalizedEventCount: number;
+  truncatedBy: 'none' | 'rows' | 'source-bytes';
+}
 
 export interface CheckpointBackgroundWorkerData {
   kind: typeof CHECKPOINT_BACKGROUND_WORKER_KIND;

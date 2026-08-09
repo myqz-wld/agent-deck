@@ -1,6 +1,9 @@
 import type { AgentEvent, AgentToolKind, GrokUsageWatermark } from '@shared/types';
 
-import type { GrokLiveRateState } from './live-token-rate';
+import type {
+  GrokLiveRateObserver,
+  GrokLiveRateState,
+} from './live-token-rate-core';
 
 export type GrokUsageSource = 'none' | 'standard' | 'extension';
 
@@ -54,4 +57,5 @@ export interface GrokTranslationState {
   /** Bounded prompt ids belonging to turns that are no longer current. */
   completedProviderPromptIds: Set<string>;
   liveRate: GrokLiveRateState | null;
+  liveRateObserver: GrokLiveRateObserver;
 }

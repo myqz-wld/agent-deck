@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
+import type {
+  RemoteSessionCreateInput,
+  RemoteSessionSourceView,
+} from '@renderer/remote-host/source-types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { useIssuesStore } from '../stores/issues-store';
-import { ResolveInNewSessionDialog } from './ResolveInNewSessionDialog';
-import { CloseIcon, HandOffIcon, RefreshIcon, SaveIcon, TrashIcon } from './icons';
+import { CloseIcon, RefreshIcon, SaveIcon, TrashIcon } from './icons';
 import {
   Field,
   SessionLink,
@@ -20,18 +23,35 @@ import {
 } from './issue-detail-editing';
 import { ExpandableIssueTextField } from './issue-detail/ExpandableIssueTextField';
 import { IssueAppendices, IssueLogsReference } from './issue-detail/IssueEvidence';
+import { IssueResolutionControls } from './issues/IssueResolutionControls';
 
 interface Props {
   issueId: string;
   onClose: () => void;
   /** Opens the related live session when that session still exists. */
   onOpenSession?: (sid: string) => void;
+  source?: IssueDetailDataSource;
 }
 
-export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Element {
+export interface IssueDetailDataSource {
+  identity: string;
+  observedIssue: IssueRecord | null;
+  load(issueId: string): Promise<IssueRecord | null>;
+  update(issueId: string, patch: ReturnType<typeof buildUpdatePatch>): Promise<IssueRecord>;
+  softDelete(issueId: string): Promise<IssueRecord>;
+  undelete(issueId: string): Promise<IssueRecord>;
+  onUpdated(issue: IssueRecord): void;
+  resolution?: {
+    source: RemoteSessionSourceView;
+    create(issue: IssueRecord, input: RemoteSessionCreateInput): Promise<IssueRecord>;
+  };
+}
+
+export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props): JSX.Element {
   // The store remains authoritative while this component keeps a per-issue edit buffer.
-  const issueFromStore = useIssuesStore((s) => s.issues.get(issueId));
+  const localIssueFromStore = useIssuesStore((s) => s.issues.get(issueId));
   const upsertIssue = useIssuesStore((s) => s.upsertIssue);
+  const issueFromStore = source ? source.observedIssue ?? undefined : localIssueFromStore;
   const [issue, setIssue] = useState<IssueRecord | null>(issueFromStore ?? null);
   const [editing, setEditing] = useState<EditingState | null>(
     issueFromStore ? toEditing(issueFromStore) : null,
@@ -45,7 +65,6 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   const [loadError, setLoadError] = useState<string | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
   const [fetchNonce, setFetchNonce] = useState(0);
-  const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
 
   // Async fetches and store effects must rebase against values current at completion time.
   const issueRef = useRef(issue);
@@ -58,6 +77,13 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     baselineRef.current = baseline;
     savingRef.current = saving;
   });
+
+  const loadIssue = (): Promise<IssueRecord | null> =>
+    source ? source.load(issueId) : window.api.issuesGet(issueId);
+  const applyIssue = (next: IssueRecord): void => {
+    if (source) source.onUpdated(next);
+    else upsertIssue(next);
+  };
 
   const updateField = <K extends FieldKey>(key: K, value: EditingState[K]): void => {
     setEditing((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -74,8 +100,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
-    void window.api
-      .issuesGet(issueId)
+    void loadIssue()
       .then((fetched) => {
         if (cancelled) return;
         if (!fetched) {
@@ -105,7 +130,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issueId, fetchNonce]);
+  }, [issueId, fetchNonce, source?.identity]);
 
   // Store updates advance untouched fields while preserving local drafts and hydrated appendices.
   useEffect(() => {
@@ -155,9 +180,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         setSaving(false);
         return;
       }
-      const updated = await window.api.issuesUpdate(issueId, patch);
+      const updated = source
+        ? await source.update(issueId, patch)
+        : await window.api.issuesUpdate(issueId, patch);
       setIssue(updated);
-      upsertIssue(updated);
+      applyIssue(updated);
       setEditing(toEditing(updated));
       setBaseline(toEditing(updated));
     } catch (e) {
@@ -171,9 +198,10 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     setSaving(true);
     setOpError(null);
     try {
-      await window.api.issuesSoftDelete(issueId);
-      const fresh = await window.api.issuesGet(issueId);
-      if (fresh) setIssue(fresh);
+      const fresh = source
+        ? await source.softDelete(issueId)
+        : await window.api.issuesSoftDelete(issueId).then(() => window.api.issuesGet(issueId));
+      if (fresh) { setIssue(fresh); applyIssue(fresh); }
     } catch (e) {
       setOpError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -185,9 +213,10 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
     setSaving(true);
     setOpError(null);
     try {
-      await window.api.issuesUndelete(issueId);
-      const fresh = await window.api.issuesGet(issueId);
-      if (fresh) setIssue(fresh);
+      const fresh = source
+        ? await source.undelete(issueId)
+        : await window.api.issuesUndelete(issueId).then(() => window.api.issuesGet(issueId));
+      if (fresh) { setIssue(fresh); applyIssue(fresh); }
     } catch (e) {
       setOpError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -264,30 +293,50 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
           </Field>
         </div>
         <Field label="Issue 描述">
-          <ExpandableIssueTextField
-            issueId={issue.id}
-            sessionId={expansionSessionId}
-            field="description"
-            label="Issue 描述"
-            value={editing.description}
-            onChange={(value) => updateField('description', value)}
-            disabled={isDeleted || saving}
-            maxLength={2000}
-            rows={4}
-          />
+          {source ? (
+            <IssueTextArea
+              value={editing.description}
+              onChange={(value) => updateField('description', value)}
+              disabled={isDeleted || saving}
+              maxLength={2000}
+              rows={4}
+            />
+          ) : (
+            <ExpandableIssueTextField
+              issueId={issue.id}
+              sessionId={expansionSessionId}
+              field="description"
+              label="Issue 描述"
+              value={editing.description}
+              onChange={(value) => updateField('description', value)}
+              disabled={isDeleted || saving}
+              maxLength={2000}
+              rows={4}
+            />
+          )}
         </Field>
         <Field label="重现步骤（可选）">
-          <ExpandableIssueTextField
-            issueId={issue.id}
-            sessionId={expansionSessionId}
-            field="repro"
-            label="重现步骤"
-            value={editing.repro}
-            onChange={(value) => updateField('repro', value)}
-            disabled={isDeleted || saving}
-            maxLength={2000}
-            rows={3}
-          />
+          {source ? (
+            <IssueTextArea
+              value={editing.repro}
+              onChange={(value) => updateField('repro', value)}
+              disabled={isDeleted || saving}
+              maxLength={2000}
+              rows={3}
+            />
+          ) : (
+            <ExpandableIssueTextField
+              issueId={issue.id}
+              sessionId={expansionSessionId}
+              field="repro"
+              label="重现步骤"
+              value={editing.repro}
+              onChange={(value) => updateField('repro', value)}
+              disabled={isDeleted || saving}
+              maxLength={2000}
+              rows={3}
+            />
+          )}
         </Field>
         <Field label="标签（逗号分隔）">
           <input
@@ -357,22 +406,16 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
             <SaveIcon className="mr-1 inline h-3 w-3" />保存
           </button>
         )}
-        {!isDeleted && !isResolved && (
-          <button
-            type="button"
-            onClick={() => setResolveDialogOpen(true)}
-            disabled={saving}
-            title={
-              issue.resolutionSessionId
-                ? '已有处理会话；新会话将接替后续处理操作'
-                : undefined
-            }
-            className="rounded bg-status-working/25 px-2 py-1 text-xs text-status-working hover:bg-status-working/40 disabled:opacity-50"
-          >
-            <HandOffIcon className="mr-1 inline h-3 w-3" />
-            {issue.resolutionSessionId ? '更换处理会话' : '新建处理会话'}
-          </button>
-        )}
+        <IssueResolutionControls
+          issue={issue}
+          saving={saving}
+          source={source}
+          onResolved={(updated) => {
+            setIssue(updated);
+            applyIssue(updated);
+            rebaseEditing(updated);
+          }}
+        />
         <div className="flex-1" />
         {!isDeleted ? (
           <button
@@ -395,18 +438,31 @@ export function IssueDetail({ issueId, onClose, onOpenSession }: Props): JSX.Ele
         )}
       </div>
 
-      {resolveDialogOpen && (
-        <ResolveInNewSessionDialog
-          issue={issue}
-          onClose={() => setResolveDialogOpen(false)}
-          onResolved={(updated) => {
-            setIssue(updated);
-            upsertIssue(updated);
-            rebaseEditing(updated);
-            setResolveDialogOpen(false);
-          }}
-        />
-      )}
     </div>
+  );
+}
+
+function IssueTextArea({
+  value,
+  onChange,
+  disabled,
+  maxLength,
+  rows,
+}: {
+  value: string;
+  onChange(value: string): void;
+  disabled: boolean;
+  maxLength: number;
+  rows: number;
+}): JSX.Element {
+  return (
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      disabled={disabled}
+      maxLength={maxLength}
+      rows={rows}
+      className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs leading-relaxed text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+    />
   );
 }

@@ -16,6 +16,10 @@ import {
   renameWorktreeTransitionInputsWithDb,
 } from './worktree-transition-input-repo';
 import {
+  clearCleanupUnprovedLastErrorWithDb,
+  setLastErrorWithDb,
+} from './worktree-transition-error-repo';
+import {
   getWorktreeTransitionWithDb as getWithDb,
   requireWorktreeTransitionGeneration as requireGeneration,
   rowToWorktreeTransition as rowToRecord,
@@ -314,23 +318,6 @@ export function renameLeaseWithDb(
   })();
 }
 
-export function setLastErrorWithDb(
-  db: Database.Database,
-  sessionId: string,
-  generation: number,
-  error: string,
-  updatedAt: number,
-): WorktreeTransitionRecord {
-  const result = db
-    .prepare(
-      `UPDATE worktree_cwd_transitions SET last_error = ?, updated_at = ?
-       WHERE session_id = ? AND generation = ?`,
-    )
-    .run(error, updatedAt, sessionId, generation);
-  if (result.changes !== 1) requireGeneration(db, sessionId, generation);
-  return getWithDb(db, sessionId)!;
-}
-
 export function getWorktreeTransition(
   sessionId: string,
 ): WorktreeTransitionRecord | null {
@@ -434,6 +421,20 @@ export const worktreeTransitionRepo = {
     updatedAt: number,
   ) {
     return setLastErrorWithDb(
+      getDb(),
+      sessionId,
+      generation,
+      error,
+      updatedAt,
+    );
+  },
+  clearCleanupUnprovedLastError(
+    sessionId: string,
+    generation: number,
+    error: string,
+    updatedAt: number,
+  ) {
+    return clearCleanupUnprovedLastErrorWithDb(
       getDb(),
       sessionId,
       generation,

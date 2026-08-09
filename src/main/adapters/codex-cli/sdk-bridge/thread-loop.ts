@@ -9,35 +9,31 @@
  * - earlyErrCb 路径与 closeSession / fallback 路径互斥，不出双 finished
  */
 import type { AgentEventKind, HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
 import {
   createCodexAppServerTranslateState,
   translateCodexAppServerNotification,
 } from '@main/adapters/codex-cli/app-server/translate';
 import {
-  handleCodexAppServerNotificationForLiveRate,
-  clearCodexLiveTokenEstimate,
-  observeCodexNotificationUsage,
-} from './live-token-rate';
+  clearCodexLiveTokenEstimateCore,
+  handleCodexNotificationForLiveRateCore,
+  observeCodexNotificationUsageCore,
+} from './live-token-rate-core';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
 import type { CodexAppServerNotification } from '../app-server/client';
 import { getNotificationTurnId } from '../app-server/notification-helpers';
 import { toCodexAppServerInput } from './input-pack';
 import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
-import log from '@main/utils/logger';
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 import {
   observeCodexTrustedContinuationNotification,
   rejectUnsettledCodexTrustedContinuation,
 } from './trusted-continuation-observer';
-
-const logger = log.scope('codex-thread-loop');
-
 export interface ThreadLoopCtx {
   /** 共享 sessions Map ref（facade 持有） */
   readonly sessions: Map<string, InternalSession>;
   readonly emit: CodexBridgeOptions['emit'];
+  readonly runtimeHost: CodexBridgeRuntimeHost;
   /**
    * P5 Round 1 reviewer-claude MED-1 修法 (resolveWithFallback 漏清):
    * resolveWithFallback (30s timeout / earlyErr) 走兜底路径时必须清 codexBySession + token map
@@ -50,10 +46,8 @@ export interface ThreadLoopCtx {
   /** Dispose a handoff source only after its current event iterable has fully drained. */
   readonly finalizeRetirement: (internal: InternalSession) => void;
 }
-
 export class ThreadLoop {
   constructor(private readonly ctx: ThreadLoopCtx) {}
-
   /**
    * 新建 thread + 等首条 thread.started 事件 + 30s fallback。
    *
@@ -85,7 +79,6 @@ export class ThreadLoop {
       let resolved = false;
       const initialSessionEmitted = options?.initialSessionEmitted === true;
       const rejectOnFallback = options?.rejectOnFallback === true;
-
       const settleInterrupted = (): void => {
         const error = new Error(
           'Codex session creation was interrupted before thread.started was received.',
@@ -93,7 +86,6 @@ export class ThreadLoop {
         if (rejectOnFallback) reject(error);
         else resolve(tempKey);
       };
-
       /**
        * 用 tempKey 顶上 realId 的兜底路径。errorText 是要显示给用户的错误消息：
        * - 30s 超时 → 固定文案（提示查鉴权 / 二进制路径）
@@ -116,13 +108,13 @@ export class ThreadLoop {
         try {
           this.ctx.cleanupTempKey(tempKey);
         } catch (cleanupErr) {
-          logger.warn(
+          this.ctx.runtimeHost.logger('codex-thread-loop').warn(
             `[codex-thread-loop] cleanupTempKey(${tempKey}) failed during resolveWithFallback:`,
             cleanupErr,
           );
         }
         internal.threadId = tempKey;
-        sessionManager.claimAsSdk(tempKey);
+        this.ctx.runtimeHost.sessions.claimAsSdk(tempKey);
         if (!initialSessionEmitted) {
           this.ctx.emit({
             sessionId: tempKey,
@@ -171,7 +163,6 @@ export class ThreadLoop {
         if (rejectOnFallback) reject(new Error(errorText));
         else resolve(tempKey);
       };
-
       const fallback = setTimeout(() => {
         if (internal.intentionallyClosed) {
           if (resolved) return;
@@ -195,7 +186,6 @@ export class ThreadLoop {
           { abortInitiatedByFallback: true },
         );
       }, THREAD_STARTED_FALLBACK_MS);
-
       void this.runTurnLoop(
         internal,
         tempKey,
@@ -211,11 +201,11 @@ export class ThreadLoop {
             // 先完成 durable rename + sdk claim/token/client hook，再切 bridge sessions Map。
             // 若 durable rename 抛错，tempKey 仍完整可由 fallback/rollback 清理，不会留下 realId
             // 半迁移条目或让 strict canonical Promise 永久悬挂。
-            sessionManager.renameSdkSession(tempKey, realId);
+            this.ctx.runtimeHost.sessions.renameSdkSession(tempKey, realId);
             this.ctx.sessions.delete(tempKey);
             this.ctx.sessions.set(realId, internal);
           } else {
-            sessionManager.claimAsSdk(realId);
+            this.ctx.runtimeHost.sessions.claimAsSdk(realId);
           }
           if (!initialSessionEmitted) {
             this.ctx.emit({
@@ -255,7 +245,6 @@ export class ThreadLoop {
       );
     });
   }
-
   /**
    * 串行消费 pendingMessages 的 turn loop。同时刻只跑一个 turn（codex thread 限制）。
    *
@@ -370,7 +359,7 @@ export class ThreadLoop {
                 // 只 update internal.threadId 为新 SDK 返回的 thread_id (cli sid 维度)。
                 const oldId = internal.threadId;
                 const newId = ev.thread_id;
-                logger.warn(
+                this.ctx.runtimeHost.logger('codex-thread-loop').warn(
                   `[codex-bridge] SDK returned thread_id ${newId} != tracked ${oldId} ` +
                     `(resumeThread-fork or fresh-cli-reuse-app startThread); ` +
                     `updating cli_session_id column on application sid ${internal.applicationSid} (走 manager 黑名单链)`,
@@ -381,9 +370,9 @@ export class ThreadLoop {
                 // (app sid 维度,不变量 1) 而非 oldId (cli sid 维度);走 manager 黑名单链确保
                 // OLD_CLI_ID 进 recentlyDeleted 60s 防迟到 hook event 复活幽灵 record (不变量 5)。
                 try {
-                  sessionManager.updateCliSessionId(internal.applicationSid, newId);
+                  this.ctx.runtimeHost.sessions.updateCliSessionId(internal.applicationSid, newId);
                 } catch (renameErr) {
-                  logger.error(
+                  this.ctx.runtimeHost.logger('codex-thread-loop').error(
                     `[codex-bridge] post-resume updateCliSessionId failed app=${internal.applicationSid} → ${newId}, ` +
                       `NEW thread runs but cli_session_id 列未更新 + OLD_CLI_ID 未入黑名单.`,
                     renameErr,
@@ -405,23 +394,29 @@ export class ThreadLoop {
               observeCodexTrustedContinuationNotification(internal, ev.notification);
               internal.runtimeIdentity = ev.runtimeIdentity;
               this.trackCurrentTurnId(internal, ev.notification);
-              const usageObservation = observeCodexNotificationUsage(ev.notification, internal);
-              handleCodexAppServerNotificationForLiveRate(
+              const usageObservation = observeCodexNotificationUsageCore(
+                ev.notification,
+                internal,
+              );
+              handleCodexNotificationForLiveRateCore(
                 ev.notification,
                 internal,
                 internal.applicationSid,
                 Date.now(),
+                this.ctx.runtimeHost.liveRate,
                 usageObservation,
               );
               translateCodexAppServerNotification(ev.notification, emit, {
                 model:
                   ev.runtimeIdentity?.model ??
-                  sessionRepo.get(internal.applicationSid)?.model ??
+                  this.ctx.runtimeHost.records.get(internal.applicationSid)?.model ??
                   null,
                 runtimeIdentity: ev.runtimeIdentity,
                 state: translateState,
                 tokenUsageObservation: usageObservation,
                 usageMessageNamespace: internal.threadId ?? internal.applicationSid,
+                observeIgnoredItemType: this.ctx.runtimeHost.observeIgnoredAppServerItemType,
+                observeHeuristicStreamError: this.ctx.runtimeHost.observeHeuristicStreamError,
               });
             }
           }
@@ -441,7 +436,12 @@ export class ThreadLoop {
           );
           const msg = err instanceof Error ? err.message : String(err);
           if (aborted) {
-            clearCodexLiveTokenEstimate(internal, internal.applicationSid);
+            clearCodexLiveTokenEstimateCore(
+              internal,
+              internal.applicationSid,
+              Date.now(),
+              this.ctx.runtimeHost.liveRate,
+            );
             if (!cancelledBeforeAcceptance) {
               emit('finished', { ok: false, subtype: 'interrupted' });
             }
@@ -471,7 +471,6 @@ export class ThreadLoop {
       if (internal.retireAfterCurrentTurn) this.ctx.finalizeRetirement(internal);
     }
   }
-
   private trackCurrentTurnId(
     internal: InternalSession,
     notification: CodexAppServerNotification,

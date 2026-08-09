@@ -8,6 +8,7 @@ import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { validateCreateSessionOpts } from '../create-session/create-session-validate';
 import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 function prepared(prompt: string): PreparedContinuationContext {
   return {
@@ -29,12 +30,15 @@ function prepared(prompt: string): PreparedContinuationContext {
 describe('Codex initial prompt split validation', () => {
   it('keeps the ordinary cap but accepts the branded token-valid continuation prompt', () => {
     const longPrompt = 'x'.repeat(MAX_USER_MESSAGE_LENGTH + 20_000);
-    expect(() => validateCreateSessionOpts({ cwd: '/repo', prompt: longPrompt })).toThrow(/超出/);
+    expect(() => validateCreateSessionOpts(
+      { cwd: '/repo', prompt: longPrompt },
+      codexBridgeTestRuntimeHost,
+    )).toThrow(/超出/);
     const trusted = createTrustedContinuationInitialTurn(prepared(longPrompt), 'source');
     expect(() =>
       validateCreateSessionOpts({
         cwd: '/repo', prompt: trusted.providerPrompt, trustedContinuation: trusted,
-      }),
+      }, codexBridgeTestRuntimeHost),
     ).not.toThrow();
   });
 });

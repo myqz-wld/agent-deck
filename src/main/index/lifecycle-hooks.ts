@@ -14,6 +14,7 @@ import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { handleCliArgv } from '../cli';
 import { cleanupSessionHandOffPreparations } from '../ipc/session-hand-off';
 import { getBrowserEngine } from '../browser-use/engine/registry';
+import { shutdownRemoteHostServiceIfCreated } from '../remote-host';
 
 import type { BootstrapState } from './_deps';
 import log from '@main/utils/logger';
@@ -152,6 +153,19 @@ export function registerLifecycleHooks(
             );
             return false;
           });
+        // Remote profiles own local SSH children even when the remote Core or Relay Worker is
+        // offline. Fence new IPC immediately and begin retiring those children inside the same
+        // application-wide shutdown bound. Keeping this in the central owner prevents app.exit()
+        // from racing a separate before-quit hook.
+        const remoteHostStop = shutdownRemoteHostServiceIfCreated()
+          .then(() => true)
+          .catch((err) => {
+            logger.warn(
+              'remote host transport shutdown failed during cleanup',
+              lifecycleDiagnostic('remote-host-stop', 'failed', err),
+            );
+            return false;
+          });
         summarizer.stop();
         stopAllSounds();
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底,防 adapter
@@ -161,6 +175,7 @@ export function registerLifecycleHooks(
           let allIngressStopped = true;
           if (!await checkpointRefreshStop) allIngressStopped = false;
           if (!await messageWatcherStop) allIngressStopped = false;
+          if (!await remoteHostStop) allIngressStopped = false;
           // Background checkpoint folds and foreground hand-off preparations share the
           // connection-local continuation spool. Do not clear it until the refresh queue has
           // fully drained; otherwise shutdown can delete a frozen source underneath a running

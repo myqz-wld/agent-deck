@@ -20,8 +20,6 @@
  * - `placeholderEmittedAt` Map: **recoverer 独占** (5s dedup,REVIEW_17 R3 同款)
  */
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from '../constants';
 import {
   buildCodexCwdMissingErrorText,
@@ -33,12 +31,9 @@ import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters
 import type { RecoverAndSendDeps } from './_deps';
 import { PLACEHOLDER_DEDUP_MS } from './_deps';
 import { isRetryingUniversalDelivery } from './universal-delivery';
-import log from '@main/utils/logger';
 import { isCodexThinkingLevel } from '@shared/session-metadata';
-import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
+import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery-types';
 import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
-
-const logger = log.scope('codex-recoverer');
 
 /**
  * **plan cross-adapter-parity-20260515 Phase B Step B.2 — 返回 Promise<string>**:
@@ -94,13 +89,11 @@ export async function recoverAndSendImpl(
     }
     return finalId;
   }
-
-  const rec: SessionRecord | null = sessionRepo.get(sessionId);
+  const rec: SessionRecord | null = deps.ctx.runtimeHost.records.get(sessionId);
   if (!rec) {
     // 没有历史 record：彻底无法恢复，保留原 throw 信号兼容上层处理
     throw new Error(`session ${sessionId} not found`);
   }
-
   // **REVIEW_81 MED 修法（reviewer-claude + reviewer-codex 双方独立共识 + lead 全链 trace；
   // C2 claude MED-1 / REVIEW_76 的 codex 对称缺口，codex 侧此前未跟修）**:
   // 入口先捕获 wasClosed（在下方 line ~134 emit user message 复活之前读）。
@@ -115,8 +108,11 @@ export async function recoverAndSendImpl(
   const wasClosed = rec.lifecycle === 'closed';
   const sdkModel = toCodexModelOverride(rec.model);
   const sdkThinking = isCodexThinkingLevel(rec.thinking) ? rec.thinking : undefined;
-  const retryingUniversalDelivery = isRetryingUniversalDelivery(sessionId, text);
-
+  const retryingUniversalDelivery = isRetryingUniversalDelivery(
+    sessionId,
+    text,
+    deps.ctx.runtimeHost,
+  );
   // MAX_MESSAGE_LENGTH 字符长度上限（与 messageRepo cap 全局对齐）。
   // 恢复路径不能绕过此防线（防超长 prompt 当作恢复路径首条消息送进 createSession）。
   //
@@ -160,7 +156,10 @@ export async function recoverAndSendImpl(
     });
   } catch (error) {
     recoveryCaptureError = error;
-    logger.warn(`[codex-bridge] immutable recovery capture failed for ${sessionId}:`, error);
+    deps.ctx.runtimeHost.logger('codex-recoverer').warn(
+      `[codex-bridge] immutable recovery capture failed for ${sessionId}:`,
+      error,
+    );
   }
 
   const cleanupCapture = (): void => {
@@ -168,7 +167,10 @@ export async function recoverAndSendImpl(
     try {
       deps.cleanupRecovery(recoveryCapture);
     } catch (error) {
-      logger.warn(`[codex-bridge] recovery spool cleanup failed for ${sessionId}:`, error);
+      deps.ctx.runtimeHost.logger('codex-recoverer').warn(
+        `[codex-bridge] recovery spool cleanup failed for ${sessionId}:`,
+        error,
+      );
     }
   };
 
@@ -217,14 +219,14 @@ export async function recoverAndSendImpl(
   // close」+ 撞集成测试 mock 不 revive gap)。详 manager/_deps.ts closeEpoch jsdoc + claude 对称实现。
   let closeEpochBaseline: number;
   try {
-    closeEpochBaseline = sessionManager.getCloseEpoch(sessionId);
+    closeEpochBaseline = deps.ctx.runtimeHost.sessions.getCloseEpoch(sessionId);
   } catch (error) {
     cleanupCapture();
     throw error;
   }
   const cancelGuard = (): boolean => {
-    if (!sessionRepo.get(sessionId)) return true; // record await 期间被删 → abort
-    return sessionManager.getCloseEpoch(sessionId) !== closeEpochBaseline;
+    if (!deps.ctx.runtimeHost.records.get(sessionId)) return true; // record await 期间被删 → abort
+    return deps.ctx.runtimeHost.sessions.getCloseEpoch(sessionId) !== closeEpochBaseline;
   };
 
   // CHANGELOG_99 cwd 失效根治（与 claude 同款 R1 fix MED-2 顺序：cwd 校验 → unarchive,
@@ -234,7 +236,7 @@ export async function recoverAndSendImpl(
   // (codex jsonl 独立于 cwd,详 recoverer.ts L38-40 节注释),不再像 claude 那样强制 fresh thread。
   if (cwdResolutionError !== undefined) {
     cleanupCapture();
-    if (wasClosed) sessionManager.markClosed(sessionId);
+    if (wasClosed) deps.ctx.runtimeHost.sessions.markClosed(sessionId);
     throw cwdResolutionError;
   }
   if (cwdUnavailable) {
@@ -255,7 +257,7 @@ export async function recoverAndSendImpl(
       });
     } catch (error) {
       cleanupCapture();
-      if (wasClosed) sessionManager.markClosed(sessionId);
+      if (wasClosed) deps.ctx.runtimeHost.sessions.markClosed(sessionId);
       throw error;
     }
     // **REVIEW_81 MED 修法**: closed 会话被入口 emit user message 复活成 active，cwd 全 miss
@@ -264,7 +266,7 @@ export async function recoverAndSendImpl(
     // error message emit 之后：error emit（source:'sdk'）过 ingest 时 record 已 active →
     // ensure 走 manager.ts:261 `return existing` 不再复活 → 顺序安全（与 claude C2 同款结论）。
     cleanupCapture();
-    if (wasClosed) sessionManager.markClosed(sessionId);
+    if (wasClosed) deps.ctx.runtimeHost.sessions.markClosed(sessionId);
     throw new Error(
       `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
     );
@@ -291,10 +293,10 @@ export async function recoverAndSendImpl(
       });
     } catch (error) {
       cleanupCapture();
-      if (wasClosed) sessionManager.markClosed(sessionId);
+      if (wasClosed) deps.ctx.runtimeHost.sessions.markClosed(sessionId);
       throw error;
     }
-    logger.warn(
+    deps.ctx.runtimeHost.logger('codex-recoverer').warn(
       `[codex-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}`,
     );
   }
@@ -314,10 +316,10 @@ export async function recoverAndSendImpl(
       // 避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
       // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
       if (rec.archivedAt !== null) {
-        logger.warn(
+        deps.ctx.runtimeHost.logger('codex-recoverer').warn(
           `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
         );
-        await sessionManager.unarchive(sessionId);
+        await deps.ctx.runtimeHost.sessions.unarchive(sessionId);
       }
 
       // 占位 message：起 codex 子进程期间用户至少看到「在恢复」而不是哑巴 busy（与 claude 同款）。
@@ -352,6 +354,7 @@ export async function recoverAndSendImpl(
           createSession: deps.createThunk,
           emit: deps.ctx.emit,
           prepareRecovery: deps.prepareRecovery,
+          runtimeHost: deps.ctx.runtimeHost,
         },
         {
           sessionId,
@@ -466,7 +469,7 @@ export async function recoverAndSendImpl(
     // markClosed 回滚。p 本身 reject(让 waiter special-case 跳过 retry,codex 第 4 点),但本 first-caller
     // outer catch **静默 return sessionId**(不向 renderer 抛错 — 用户主动 close 不该看到红字)。
     if (isRecoveryCancelledError(err)) {
-      logger.warn(
+      deps.ctx.runtimeHost.logger('codex-recoverer').warn(
         `[codex-bridge] recover aborted (session closed during recovery): ${sessionId}`,
       );
       return sessionId; // 静默结束(lifecycle 已是用户想要的 closed,无需回滚 / 不抛错给 renderer)
@@ -490,7 +493,7 @@ export async function recoverAndSendImpl(
     // 顺序：上面 error message emit（source:'sdk'）过 ingest 时 record 已 active → ensure 走
     // manager.ts:261 return existing **不再复活**（仅 closed 才复活）→ 回滚放 error emit 之后安全
     // （markClosed active→closed 一次到位，与 claude C2 反驳轮关键确证同款顺序坑结论）。
-    if (wasClosed) sessionManager.markClosed(sessionId);
+    if (wasClosed) deps.ctx.runtimeHost.sessions.markClosed(sessionId);
     throw err;
   }
 }

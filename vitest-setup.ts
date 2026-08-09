@@ -23,6 +23,16 @@
 import { vi } from 'vitest';
 import path from 'node:path';
 import os from 'node:os';
+import { realpathSync } from 'node:fs';
+import { installApplicationHostPaths } from './src/main/runtime-host/application-paths';
+
+const applicationTestRoot = path.join(realpathSync(os.tmpdir()), 'agent-deck-test');
+installApplicationHostPaths({
+  isPackaged: false,
+  appPath: path.join(applicationTestRoot, 'app'),
+  resourcesPath: path.join(applicationTestRoot, 'resources'),
+  userDataPath: path.join(applicationTestRoot, 'userData'),
+});
 
 // ─── electron mock ───────────────────────────────────────────────────────
 // 业务模块 grep 出来的 app.* 调用清单 (Step 3.0.2.5 prep):

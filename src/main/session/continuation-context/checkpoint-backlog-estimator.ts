@@ -10,22 +10,17 @@ import {
   parseContinuationCheckpointJson,
 } from './checkpoint-schema';
 import { estimateContinuationJsonTokens, utf8ByteLength } from './token-estimator';
+import {
+  DEFAULT_CHECKPOINT_BACKLOG_MAX_ROWS,
+  DEFAULT_CHECKPOINT_BACKLOG_MAX_SOURCE_BYTES,
+  type CheckpointBacklogEstimate,
+} from './checkpoint-backlog-worker-contract';
 
-export const DEFAULT_CHECKPOINT_BACKLOG_MAX_SOURCE_BYTES = 32 * 1024 * 1024;
-export const DEFAULT_CHECKPOINT_BACKLOG_MAX_ROWS = 10_000;
-
-export interface CheckpointBacklogEstimate {
-  sessionId: string;
-  /** Eligibility observation only; background capture may advance beyond this revision. */
-  captureRevision: number;
-  rebuildAfterRevision: number;
-  checkpointThroughRevision: number;
-  checkpointCreatedAt: number | null;
-  estimatedTokens: number;
-  sourceRows: number;
-  /** True means a resource guard proved the safety threshold should fire, not an exact estimate. */
-  saturated: boolean;
-}
+export {
+  DEFAULT_CHECKPOINT_BACKLOG_MAX_ROWS,
+  DEFAULT_CHECKPOINT_BACKLOG_MAX_SOURCE_BYTES,
+};
+export type { CheckpointBacklogEstimate };
 
 export interface EstimateCheckpointBacklogInput {
   db: Database;

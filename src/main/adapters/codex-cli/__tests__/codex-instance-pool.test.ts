@@ -47,6 +47,7 @@ describe('codex oneshot instance pool', () => {
           AGENT_DECK_ORIGIN: 'sdk',
         }),
       }),
+      expect.objectContaining({ stderrActivity: expect.any(Function) }),
     );
   });
 
@@ -58,6 +59,7 @@ describe('codex oneshot instance pool', () => {
     expect(mocks.CodexAppServerClient).toHaveBeenCalledTimes(1);
     expect(mocks.CodexAppServerClient).toHaveBeenCalledWith(
       expect.not.objectContaining({ profile: expect.anything() }),
+      expect.objectContaining({ stderrActivity: expect.any(Function) }),
     );
   });
 });

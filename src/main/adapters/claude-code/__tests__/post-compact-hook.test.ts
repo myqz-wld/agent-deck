@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
 import { buildHookRoutes } from '../hook-routes';
 import { HookInstaller } from '../hook-installer';
 import { translatePostCompact } from '../translate';
@@ -28,7 +29,7 @@ describe('Claude PostCompact hook support', () => {
   });
 
   it('registers a /hook/postcompact route', () => {
-    const routes = buildHookRoutes(vi.fn());
+    const routes = buildHookRoutes(vi.fn(), new HookRouteDiagnostics());
     expect(routes.map((route) => route.url)).toContain('/hook/postcompact');
   });
 

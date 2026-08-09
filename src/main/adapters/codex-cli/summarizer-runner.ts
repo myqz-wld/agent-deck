@@ -25,27 +25,13 @@
  * ~44 MB RSS。与 claude SDK 同档资源消耗，summarizer 全局 maxConcurrent 不需分桶。
  */
 import type { RuntimeSelection, StoredAgentEvent } from '@shared/types';
-import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
-import { isCodexThinkingLevel, type CodexThinkingLevel } from '@shared/session-metadata';
-import { settingsStore } from '@main/store/settings-store';
-import {
-  buildSummarizePrompt,
-  buildSummarizeSystemPrompt,
-  cleanCompactResult,
-  runCodexOneshot,
-} from '@main/session/oneshot-llm';
+import { summariseCodexSessionWithHost } from './summarizer-runner-core';
+import { desktopCodexSummaryRunnerHost } from './summarizer-runner-host';
 
-export function resolveCodexSummaryModel(configured: unknown): string | undefined {
-  if (typeof configured !== 'string') return undefined;
-  const trimmed = configured.trim();
-  return trimmed || undefined;
-}
-
-export function resolveCodexSummaryReasoning(configured: unknown): CodexThinkingLevel {
-  return isCodexThinkingLevel(configured)
-    ? configured
-    : DEFAULT_SUMMARY_REASONING;
-}
+export {
+  resolveCodexSummaryModel,
+  resolveCodexSummaryReasoning,
+} from './summarizer-runner-core';
 
 /**
  * 跑一次 codex oneshot 总结。`formatEvents` 由 caller 注入（避免本 runner 重复维护
@@ -62,45 +48,14 @@ export async function summariseCodexSessionViaOneshot(
   evidenceContext?: string,
   runtime?: Pick<RuntimeSelection, 'provider' | 'model' | 'thinking'>,
 ): Promise<string | null> {
-  const activity = formatEvents(events);
-  if (!activity && !evidenceContext) return null;
-
-  // Codex 0.144.1 still cannot attest its final built-in tool registry. Periodic summaries use the
-  // explicitly accepted relaxed boundary implemented by runCodexOneshot: empty temporary cwd,
-  // read-only sandbox, no network/base config/MCP/dynamic tools/extra roots, and executable feature
-  // flags disabled. Continuation Context uses the same outer boundary plus its own structured
-  // schema, evidence, carry-forward, revision, and CAS persistence validation.
-  const result = await runCodexOneshot({
+  // The desktop host owns the hardened process runner and settings. Core keeps prompt, precedence,
+  // and result semantics without constructing or discovering the app-server instance.
+  return summariseCodexSessionWithHost(
+    desktopCodexSummaryRunnerHost,
     cwd,
-    // prompt 与 claude summariseViaLlm 相同结构：提供冻结证据并生成紧凑多行总结。
-    // agentName='Agent'：codex 不是 Claude，build-prompt.ts 把主体 `Claude` 改 `Agent`，但
-    // 保留 [Claude 说] marker 不变（marker 是 formatEventsForPrompt 固定 label，不本地化）。
-    prompt: buildSummarizePrompt({
-      cwd,
-      activity,
-      agentName: 'Agent',
-      evidenceContext,
-    }),
-    systemPrompt: buildSummarizeSystemPrompt('Agent'),
-    // plan prancy-forging-penguin:reasoning 改读 settings.summaryThinking(原 hardcoded 'low'
-    // 已下线)。默认值现为 'low'，用户也可选完整 Codex effort 档位。
-    modelReasoningEffort: resolveCodexSummaryReasoning(
-      runtime?.thinking ?? settingsStore.get('summaryThinking'),
-    ),
-    // plan prancy-forging-penguin:codex summary model 改读统一字段 settings.summaryModel
-    // 空值保持 undefined，让 Codex 直接使用 config.toml 当前模型。
-    // user 责任:provider=codex 时 settings.summaryModel 填的 model id 必须 codex SDK 可用。
-    // 填其他 provider 的 alias 会撞 codex SDK 不识别报错并走 caller fallback。
-    model: resolveCodexSummaryModel(
-      runtime?.model ?? settingsStore.get('summaryModel'),
-    ),
-    provider: runtime?.provider?.trim() || undefined,
-    // R37 P2-H：runner 自己内置 timeout（同 claude path 走 settings.summaryTimeoutMs；
-    // 原 caller summarizer/index.ts 起 Promise.race 已删除）。timer 先赢 → 抛
-    // `__codex_summarizer_timeout__` 让 caller catch 走 fallback 路径。
-    timeoutMs: settingsStore.get('summaryTimeoutMs'),
-    timeoutErrorMessage: '__codex_summarizer_timeout__',
-  });
-
-  return cleanCompactResult(result, 800);
+    events,
+    formatEvents,
+    evidenceContext,
+    runtime,
+  );
 }

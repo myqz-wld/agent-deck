@@ -1,0 +1,16 @@
+ARG RELAY_RUNTIME_IMAGE
+FROM ${RELAY_RUNTIME_IMAGE}
+
+LABEL org.opencontainers.image.title="Agent Deck Relay" \
+      io.agent-deck.topology="relay-only" \
+      io.agent-deck.accepts-business-persistence="false"
+
+WORKDIR /opt/agent-deck
+COPY build/linux-headless/relay/ /opt/agent-deck/linux-headless/relay/
+COPY resources/bin/agent-deck-relay /opt/agent-deck/bin/agent-deck-relay
+RUN chmod 0755 /opt/agent-deck/bin/agent-deck-relay \
+    && chmod -R go-w /opt/agent-deck
+
+USER 10001:10001
+HEALTHCHECK NONE
+ENTRYPOINT ["/opt/agent-deck/bin/agent-deck-relay"]

@@ -15,7 +15,6 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
   const local = useSessionStore((s) => s.summariesBySession.get(sessionId) ?? EMPTY_SUMMARIES);
   const setLocal = useSessionStore((s) => s.setSummaries);
   const [loaded, setLoaded] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,13 +43,26 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
     };
   }, [sessionId, setLocal]);
 
-  if (!loaded && local.length === 0) {
-    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
-  }
-  if (loadError && local.length === 0) {
+  return <SummaryRecordsView summaries={local} loaded={loaded} loadError={loadError} />;
+}
+
+export function SummaryRecordsView({
+  summaries,
+  loaded,
+  loadError,
+}: {
+  summaries: readonly SummaryRecord[];
+  loaded: boolean;
+  loadError: string | null;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  if (loadError && summaries.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-status-waiting/90">{loadError}</div>;
   }
-  if (local.length === 0) {
+  if (!loaded && summaries.length === 0) {
+    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
+  }
+  if (summaries.length === 0) {
     return (
       <div className="px-2 py-3 text-[11px] text-deck-muted">
         {/* 术语约定（CHANGELOG_57 B4，与设置面板对齐）：用「间歇总结」而非「Summarizer」。 */}
@@ -59,8 +71,8 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
     );
   }
 
-  const latest = local[0];
-  const rest = local.slice(1);
+  const latest = summaries[0]!;
+  const rest = summaries.slice(1);
 
   return (
     <div className="flex flex-col gap-2">

@@ -1,11 +1,8 @@
-import createCheckpointBacklogWorker from './checkpoint-backlog-worker?nodeWorker';
 import {
+  CHECKPOINT_BACKLOG_WORKER_KIND,
   DEFAULT_CHECKPOINT_BACKLOG_MAX_ROWS,
   DEFAULT_CHECKPOINT_BACKLOG_MAX_SOURCE_BYTES,
   type CheckpointBacklogEstimate,
-} from './checkpoint-backlog-estimator';
-import {
-  CHECKPOINT_BACKLOG_WORKER_KIND,
   type CheckpointBacklogWorkerCommand,
   type CheckpointBacklogWorkerData,
   type CheckpointBacklogWorkerMessage,
@@ -77,6 +74,10 @@ function abortError(): Error {
   return error;
 }
 
+function missingWorkerHost(): never {
+  throw new Error('Checkpoint backlog worker host is not configured');
+}
+
 /** Main-thread RPC controller. All SQLite and normalization work remains inside one worker. */
 export class CheckpointBacklogWorkerClient implements CheckpointBacklogEstimator {
   private readonly saturationTokens: number;
@@ -126,10 +127,7 @@ export class CheckpointBacklogWorkerClient implements CheckpointBacklogEstimator
     );
     this.setTimer = options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer));
-    this.createWorker = options.createWorker ?? ((data) => createCheckpointBacklogWorker({
-      name: 'agent-deck-checkpoint-backlog',
-      workerData: data,
-    }));
+    this.createWorker = options.createWorker ?? missingWorkerHost;
   }
 
   estimate(

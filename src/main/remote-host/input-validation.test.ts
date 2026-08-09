@@ -1,0 +1,230 @@
+import { describe, expect, it } from 'vitest';
+import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
+
+import {
+  parseRemoteHostCreateSession,
+  parseRemoteHostHistoryRequest,
+  parseRemoteHostPendingResponse,
+  parseRemoteHostProfileDraft,
+  parseRemoteHostRuntimeUpdate,
+  parseRemoteHostSessionCapabilitiesRequest,
+  parseRemoteHostSessionPageRequest,
+  parseRemoteHostWorkspaceDirectoryRequest,
+} from './input-validation';
+import {
+  parseRemoteHostFileChangeGetRequest,
+  parseRemoteHostFileChangePageRequest,
+  parseRemoteHostFileFinalDiffRequest,
+  parseRemoteHostEventListRequest,
+  parseRemoteHostSummaryRequest,
+  parseRemoteHostTaskListRequest,
+} from './input-validation-session-detail';
+
+function draft() {
+  return {
+    label: '生产 Core',
+    connectionSelectionId: 'connection-token',
+  };
+}
+
+describe('remote-host IPC input validation', () => {
+  it('accepts only an opaque connection selection and rejects renderer paths or argv', () => {
+    expect(parseRemoteHostProfileDraft(draft())).toEqual(draft());
+    expect(() => parseRemoteHostProfileDraft({
+      ...draft(),
+      identityFile: '/tmp/id_ed25519',
+    })).toThrow('unexpected fields');
+    expect(() => parseRemoteHostProfileDraft({
+      ...draft(),
+      argv: ['ssh', '-o', 'StrictHostKeyChecking=no'],
+    })).toThrow('unexpected fields');
+  });
+
+  it('enforces bounded pagination and safe cursors at the IPC boundary', () => {
+    expect(parseRemoteHostSessionPageRequest({
+      profileId: 'remote-a',
+      limit: 100,
+      includeArchived: false,
+    })).toMatchObject({ profileId: 'remote-a', limit: 100 });
+    expect(() => parseRemoteHostSessionPageRequest({
+      profileId: 'remote-a',
+      limit: 101,
+    })).toThrow('range');
+    expect(() => parseRemoteHostHistoryRequest({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      cursor: 'line\nbreak',
+      limit: 20,
+    })).toThrow('invalid');
+  });
+
+  it('accepts only bounded session-detail requests and Workspace-relative diff paths', () => {
+    expect(parseRemoteHostSummaryRequest({
+      profileId: 'remote-a', sessionId: 'session-a', limit: 50,
+    })).toEqual({ profileId: 'remote-a', sessionId: 'session-a', limit: 50 });
+    expect(parseRemoteHostEventListRequest({
+      profileId: 'remote-a', sessionId: 'session-a', limit: 100,
+    })).toEqual({ profileId: 'remote-a', sessionId: 'session-a', limit: 100 });
+    expect(() => parseRemoteHostEventListRequest({
+      profileId: 'remote-a', sessionId: 'session-a', limit: 101,
+    })).toThrow('invalid event request');
+    expect(parseRemoteHostTaskListRequest({
+      profileId: 'remote-a', sessionId: 'session-a', limit: 50,
+    })).toEqual({ profileId: 'remote-a', sessionId: 'session-a', limit: 50 });
+    expect(parseRemoteHostFileChangePageRequest({
+      profileId: 'remote-a', sessionId: 'session-a', cursor: 'page_1', limit: 100,
+    })).toMatchObject({ cursor: 'page_1', limit: 100 });
+    expect(parseRemoteHostFileChangeGetRequest({
+      profileId: 'remote-a', sessionId: 'session-a', changeId: 3,
+    })).toMatchObject({ changeId: 3 });
+    expect(parseRemoteHostFileFinalDiffRequest({
+      profileId: 'remote-a', sessionId: 'session-a', filePath: 'repo/src/index.ts',
+    })).toMatchObject({ filePath: 'repo/src/index.ts' });
+    expect(() => parseRemoteHostFileFinalDiffRequest({
+      profileId: 'remote-a', sessionId: 'session-a', filePath: '/workspaces/repo/index.ts',
+    })).toThrow('invalid final-diff request');
+    expect(() => parseRemoteHostFileChangePageRequest({
+      profileId: 'remote-a', sessionId: 'session-a', cursor: undefined, limit: 20,
+    })).toThrow('invalid remote host input');
+  });
+
+  it('accepts only Workspace-relative working directories for session creation', () => {
+    const valid = {
+      profileId: 'remote-a',
+      adapterId: 'codex-cli',
+      attachments: [],
+      capabilityRevision: `sha256:${'a'.repeat(64)}`,
+      initialMessage: 'Inspect the repository',
+      workingDirectory: 'repo/subdir',
+      options: sessionConsoleCreateOptionsFixture(),
+      intentId: 'intent-create-a',
+    };
+    expect(parseRemoteHostCreateSession(valid).workingDirectory).toBe('repo/subdir');
+    expect(parseRemoteHostCreateSession({ ...valid, workingDirectory: '.' }).workingDirectory)
+      .toBe('.');
+    for (const workingDirectory of ['/etc', '../outside', 'repo/../outside', 'repo\\child']) {
+      expect(() => parseRemoteHostCreateSession({ ...valid, workingDirectory }))
+        .toThrow('relative directory inside Workspace');
+    }
+    expect(() => parseRemoteHostCreateSession({
+      ...valid,
+      projectRef: 'legacy-project',
+    })).toThrow('unexpected fields');
+    expect(() => parseRemoteHostCreateSession({ ...valid, initialMessage: '   ' }))
+      .toThrow('initialMessage');
+    expect(parseRemoteHostSessionCapabilitiesRequest({
+      profileId: 'remote-a',
+      adapterId: null,
+      provider: '',
+      workingDirectory: '.',
+    })).toMatchObject({ adapterId: null, workingDirectory: '.' });
+    expect(parseRemoteHostWorkspaceDirectoryRequest({
+      profileId: 'remote-a',
+      directory: 'repo/subdir',
+    })).toEqual({ profileId: 'remote-a', directory: 'repo/subdir' });
+    expect(() => parseRemoteHostWorkspaceDirectoryRequest({
+      profileId: 'remote-a',
+      directory: '../outside',
+    })).toThrow('relative directory inside Workspace');
+    expect(() => parseRemoteHostCreateSession({
+      ...valid,
+      options: { ...valid.options, cwd: '/escape' },
+    })).toThrow('invalid create options');
+  });
+
+  it('bounds JSON runtime and pending values and rejects prototype-bearing keys', () => {
+    expect(parseRemoteHostRuntimeUpdate({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      intentId: 'intent-runtime-a',
+      patch: { model: 'gpt-5', nested: { enabled: true } },
+      expectedRevision: 4,
+    })).toMatchObject({ expectedRevision: 4 });
+    const polluted = JSON.parse('{"__proto__":{"admin":true}}') as unknown;
+    expect(() => parseRemoteHostRuntimeUpdate({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      intentId: 'intent-runtime-a',
+      patch: polluted,
+      expectedRevision: 4,
+    })).toThrow('invalid key');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'allow; rm -rf /',
+      expectedRevision: 3,
+    })).toThrow('invalid token');
+    expect(parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'submit',
+      value: { first: 'yes', second: ['one', 'two'] },
+      expectedRevision: 3,
+    })).toMatchObject({
+      action: 'submit',
+      value: { first: 'yes', second: ['one', 'two'] },
+    });
+    expect(parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'reject',
+      value: { feedback: '  revise this  ' },
+      expectedRevision: 3,
+    })).toMatchObject({ action: 'reject', value: { feedback: 'revise this' } });
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'allow',
+      expectedRevision: 3,
+    })).toThrow('unsupported pending action');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'submit',
+      value: 'bare answer',
+      expectedRevision: 3,
+    })).toThrow('must be a JSON object');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'submit',
+      value: {},
+      expectedRevision: 3,
+    })).toThrow('invalid pending answer object');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'submit',
+      expectedRevision: 3,
+    })).toThrow('requires an answer object');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'approve',
+      value: { answer: 'unexpected' },
+      expectedRevision: 3,
+    })).toThrow('not allowed');
+    expect(() => parseRemoteHostRuntimeUpdate({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      patch: {},
+      expectedRevision: 4,
+    })).toThrow('unexpected fields');
+  });
+});

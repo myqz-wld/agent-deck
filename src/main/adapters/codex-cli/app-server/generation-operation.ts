@@ -1,12 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import log from '@main/utils/logger';
-import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 import { terminateRetiredCodexChild } from './process-recycle';
 import type { CodexAppServerNotification } from './protocol';
-import { logCodexThreadBoundaryReady } from './thread-boundary-logging';
 
-const logger = log.scope('codex-app-server');
 const DEFAULT_CONTROL_PLANE_DEADLINE_MS = 30_000;
 
 export interface CodexGenerationOperation {
@@ -36,6 +32,46 @@ export interface CodexGenerationLifecycleHost {
   dispatchNotification(notification: CodexAppServerNotification): void;
 }
 
+export interface CodexGenerationDiagnostics {
+  threadBoundaryReady(input: {
+    method: string;
+    thread: string;
+    durationMs: number;
+  }): void;
+  threadBoundaryFailed(input: {
+    method: string;
+    thread: string;
+    durationMs: number;
+    error: unknown;
+  }): void;
+  initializeFailed(input: { processGeneration: number; error: unknown }): void;
+  terminationFailed(input: {
+    operation: 'control-plane-recycle' | 'dispose';
+    phase?: string;
+    expectedGeneration?: number;
+    actualGeneration: number;
+    signal: 'SIGTERM' | 'SIGKILL';
+  }): void;
+  extraRootsFailed(error: unknown): void;
+  controlPlaneRecycled(input: {
+    phase: string;
+    outcome: 'retired_expected' | 'retired';
+    expectedGeneration: number;
+    actualGeneration: number;
+    sigtermSent: boolean;
+    sigkillScheduled: boolean;
+  }): void;
+}
+
+export const NOOP_CODEX_GENERATION_DIAGNOSTICS: CodexGenerationDiagnostics = Object.freeze({
+  threadBoundaryReady: () => undefined,
+  threadBoundaryFailed: () => undefined,
+  initializeFailed: () => undefined,
+  terminationFailed: () => undefined,
+  extraRootsFailed: () => undefined,
+  controlPlaneRecycled: () => undefined,
+});
+
 /**
  * Owns the bounded control-plane contract for one lazily-created app-server generation.
  *
@@ -47,7 +83,10 @@ export class CodexGenerationController {
   private terminalDispatchGeneration: number | null = null;
   private initializePromise: Promise<void> | null = null;
 
-  constructor(private readonly host: CodexGenerationLifecycleHost) {}
+  constructor(
+    private readonly host: CodexGenerationLifecycleHost,
+    private readonly diagnostics: CodexGenerationDiagnostics = NOOP_CODEX_GENERATION_DIAGNOSTICS,
+  ) {}
 
   get generation(): number {
     return this.processGeneration;
@@ -129,24 +168,19 @@ export class CodexGenerationController {
     const thread = readRequestThreadId(params);
     try {
       const response = await this.host.requestRaw<T>(method, params, operation.signal);
-      logCodexThreadBoundaryReady({
+      this.diagnose(() => this.diagnostics.threadBoundaryReady({
         method,
         thread,
         durationMs: Math.round(performance.now() - started),
-      });
+      }));
       return response;
     } catch (error) {
-      logger.warn(
-        '[codex-app-server] thread boundary failed before readiness',
-        safeDiagnostic({
-          event: 'codex_app_server_thread_boundary',
-          phase: method,
-          outcome: 'failed',
-          threadShort: thread.slice(0, 12),
-          durationMs: Math.round(performance.now() - started),
-          error: safeErrorSummary(error),
-        }),
-      );
+      this.diagnose(() => this.diagnostics.threadBoundaryFailed({
+        method,
+        thread,
+        durationMs: Math.round(performance.now() - started),
+        error,
+      }));
       throw error;
     }
   }
@@ -159,16 +193,10 @@ export class CodexGenerationController {
       await attempt;
     } catch (error) {
       if (this.initializePromise === attempt) this.initializePromise = null;
-      logger.warn(
-        '[codex-app-server] initialize failed; next request will retry',
-        safeDiagnostic({
-          event: 'codex_app_server_initialize',
-          phase: 'initialize',
-          outcome: 'failed_retryable',
-          processGeneration: this.processGeneration,
-          error: safeErrorSummary(error),
-        }),
-      );
+      this.diagnose(() => this.diagnostics.initializeFailed({
+        processGeneration: this.processGeneration,
+        error,
+      }));
       throw error;
     }
   }
@@ -199,16 +227,13 @@ export class CodexGenerationController {
     }
     if (!this.retireCurrentProcess(child, error)) return false;
     const termination = terminateRetiredCodexChild(child, (signal) => {
-      logger.warn(
-        '[codex-app-server] control-plane recycle termination failed',
-        safeDiagnostic({
-          event: 'codex_app_server_control_plane_recycle_termination_failed',
-          phase: boundedPhase(phase),
-          expectedGeneration,
-          actualGeneration: this.processGeneration,
-          signal,
-        }),
-      );
+      this.diagnose(() => this.diagnostics.terminationFailed({
+        operation: 'control-plane-recycle',
+        phase: boundedPhase(phase),
+        expectedGeneration,
+        actualGeneration: this.processGeneration,
+        signal,
+      }));
     });
     this.logControlPlaneRecycle(phase, expectedGeneration, termination);
     return true;
@@ -225,14 +250,11 @@ export class CodexGenerationController {
       return;
     }
     terminateRetiredCodexChild(child, (signal) => {
-      logger.warn(
-        '[codex-app-server] disposed child termination failed',
-        safeDiagnostic({
-          event: 'codex_app_server_dispose_termination_failed',
-          processGeneration: this.processGeneration,
-          signal,
-        }),
-      );
+      this.diagnose(() => this.diagnostics.terminationFailed({
+        operation: 'dispose',
+        actualGeneration: this.processGeneration,
+        signal,
+      }));
     });
   }
 
@@ -256,10 +278,7 @@ export class CodexGenerationController {
       }, operation.signal);
     } catch (error) {
       if (!operation.isCurrent()) throw error;
-      logger.warn(
-        '[codex-app-server] skills/extraRoots/set failed',
-        safeErrorSummary(error),
-      );
+      this.diagnose(() => this.diagnostics.extraRootsFailed(error));
     }
   }
 
@@ -311,17 +330,21 @@ export class CodexGenerationController {
   ): void {
     const normalizedPhase = boundedPhase(phase);
     const expectedCancellation = normalizedPhase === 'accepted_turn_cancellation';
-    logger[expectedCancellation ? 'info' : 'warn'](
-      '[codex-app-server] control-plane generation recycled',
-      safeDiagnostic({
-        event: 'codex_app_server_control_plane_recycle',
-        phase: normalizedPhase,
-        outcome: expectedCancellation ? 'retired_expected' : 'retired',
-        expectedGeneration,
-        actualGeneration: this.processGeneration,
-        ...termination,
-      }),
-    );
+    this.diagnose(() => this.diagnostics.controlPlaneRecycled({
+      phase: normalizedPhase,
+      outcome: expectedCancellation ? 'retired_expected' : 'retired',
+      expectedGeneration,
+      actualGeneration: this.processGeneration,
+      ...termination,
+    }));
+  }
+
+  private diagnose(operation: () => void): void {
+    try {
+      operation();
+    } catch {
+      // Diagnostics cannot alter control-plane lifecycle or provider results.
+    }
   }
 }
 

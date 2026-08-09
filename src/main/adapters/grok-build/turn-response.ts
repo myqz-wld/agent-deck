@@ -69,7 +69,7 @@ export async function finalizeGrokAcpResponse(
     _meta?: Record<string, unknown> | null;
     contextWindowRejectionCode?: GrokContextWindowRejectionCode;
   },
-  options: Pick<GrokTurnQueueOptions, 'emit' | 'emitEvent'>,
+  options: Pick<GrokTurnQueueOptions, 'runtimeHost' | 'emit' | 'emitEvent'>,
 ): Promise<void> {
   for (const event of flushGrokTextUpdates(
     runtime.applicationSessionId,
@@ -108,7 +108,7 @@ export async function finalizeGrokAcpResponse(
       );
     }
   } else if (runtime.translation.lastUsage !== previousWatermark) {
-    persistGrokUsageWatermark(runtime);
+    persistGrokUsageWatermark(runtime, options.runtimeHost);
   }
   if (!runtime.closed) {
     const rejectionCode =
@@ -122,7 +122,10 @@ export async function finalizeGrokAcpResponse(
       ...(failureReason ? { failureReason } : {}),
     });
     if (runtime.ready) {
-      scheduleGrokContextUsageRefresh(runtime, { emit: options.emit });
+      scheduleGrokContextUsageRefresh(runtime, {
+        diagnostics: options.runtimeHost?.diagnostics,
+        emit: options.emit,
+      });
     }
   }
 }

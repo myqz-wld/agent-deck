@@ -1,4 +1,5 @@
 import type { CodexTerminationSignals } from './process-recycle';
+import type { CodexClientRecycleContext } from './client-diagnostics-port';
 import {
   buildCodexRecycleDiagnostic,
   type CodexProcessDiagnosticSnapshot,
@@ -11,16 +12,9 @@ interface RecycleLogger {
   error: (...args: unknown[]) => void;
 }
 
-interface RecycleContext {
-  threadId: string;
-  turnId: string;
-  expectedGeneration: number;
-  before: CodexProcessDiagnosticSnapshot;
-}
-
 export function logCodexRecycleSkipped(
   logger: RecycleLogger,
-  context: RecycleContext,
+  context: CodexClientRecycleContext,
   outcome: 'generation_mismatch' | 'process_missing',
 ): void {
   logger.debug('[codex-app-server] watchdog recycle fenced', build(context, {
@@ -33,7 +27,7 @@ export function logCodexRecycleSkipped(
 
 export function logCodexRecycleDetachFailure(
   logger: RecycleLogger,
-  context: RecycleContext,
+  context: CodexClientRecycleContext,
   after: CodexProcessDiagnosticSnapshot,
   interruptWrite: 'sent' | 'failed',
 ): void {
@@ -48,7 +42,7 @@ export function logCodexRecycleDetachFailure(
 
 export function logCodexRecycleCompleted(
   logger: RecycleLogger,
-  context: RecycleContext,
+  context: CodexClientRecycleContext,
   after: CodexProcessDiagnosticSnapshot,
   interruptWrite: 'sent' | 'failed',
   termination: CodexTerminationSignals,
@@ -65,7 +59,7 @@ export function logCodexRecycleCompleted(
 
 export function logCodexTerminationFailure(
   logger: RecycleLogger,
-  context: RecycleContext,
+  context: CodexClientRecycleContext,
   signal: 'SIGTERM' | 'SIGKILL',
 ): void {
   logger.error('[codex-app-server] retired child termination failed', build(context, {
@@ -78,7 +72,7 @@ export function logCodexTerminationFailure(
 }
 
 function build(
-  context: RecycleContext,
+  context: CodexClientRecycleContext,
   overrides: Partial<CodexRecycleDiagnosticInput> & Pick<CodexRecycleDiagnosticInput, 'outcome'>,
 ): Record<string, string | number | boolean | null> {
   return buildCodexRecycleDiagnostic({

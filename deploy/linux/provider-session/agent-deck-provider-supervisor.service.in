@@ -1,0 +1,21 @@
+[Unit]
+Description=Agent Deck Provider supervisor (@@INSTANCE_ID@@)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+UMask=0077
+ExecStartPre=/opt/agent-deck/bin/agent-deck-provider-supervisor prepare-runtime --config @@CONFIG_PATH@@
+ExecStartPre=/opt/agent-deck/bin/agent-deck-provider-supervisor check-config --config @@CONFIG_PATH@@
+ExecStart=/opt/agent-deck/bin/agent-deck-provider-supervisor serve --instance @@INSTANCE_ID@@ --config @@CONFIG_PATH@@ --socket @@SOCKET_PATH@@
+ExecStartPost=/opt/agent-deck/bin/agent-deck-provider-supervisor wait-ready --config @@CONFIG_PATH@@ --deadline-ms 120000
+Restart=always
+RestartSec=2s
+TimeoutStartSec=120s
+TimeoutStopSec=120s
+KillMode=mixed
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

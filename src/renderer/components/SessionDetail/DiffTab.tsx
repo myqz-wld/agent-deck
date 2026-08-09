@@ -2,6 +2,7 @@ import { useMemo, useState, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { DiffPayload, FileChangeSummary, FileFinalDiffResult } from '@shared/types';
 import { DiffViewer } from '../diff/DiffViewer';
+import type { DiffImageBlobLoader } from '../diff/SessionContext';
 import { ChangeTimeline } from './ChangeTimeline';
 import type { FileChangeGroup } from './helpers';
 import type { FileChangeLoadSummary } from './use-file-changes';
@@ -30,6 +31,8 @@ interface Props {
   finalDiff: FileFinalDiffResult | null;
   diffPayload: DiffPayload | null;
   finalDiffPayload: DiffPayload | null;
+  imageBlobLoader?: DiffImageBlobLoader;
+  imageCacheScope?: string;
   onSelectFile: (group: FileGroup) => void;
   onSelectChange: (id: number) => void;
   onDiffModeChange: (mode: DiffMode) => void;
@@ -58,6 +61,8 @@ export function DiffTab({
   finalDiff,
   diffPayload,
   finalDiffPayload,
+  imageBlobLoader,
+  imageCacheScope,
   onSelectFile,
   onSelectChange,
   onDiffModeChange,
@@ -243,6 +248,8 @@ export function DiffTab({
               finalDiffPayload,
               payloadLoading,
               payloadError,
+              imageBlobLoader,
+              imageCacheScope,
             })}
           </div>
         </>
@@ -264,6 +271,8 @@ export function DiffTab({
               finalDiffPayload,
               payloadLoading,
               payloadError,
+              imageBlobLoader,
+              imageCacheScope,
               hideHeader: true,
             })}
           </ExpandedDiffOverlay>,
@@ -282,6 +291,8 @@ function renderDiffBody(args: {
   finalDiffPayload: DiffPayload | null;
   payloadLoading: boolean;
   payloadError: string | null;
+  imageBlobLoader?: DiffImageBlobLoader;
+  imageCacheScope?: string;
   hideHeader?: boolean;
 }): JSX.Element | null {
   if (args.diffMode === 'final') {
@@ -293,6 +304,8 @@ function renderDiffBody(args: {
         <DiffViewer
           payload={args.finalDiffPayload}
           sessionId={args.sessionId}
+          imageBlobLoader={args.imageBlobLoader}
+          imageCacheScope={args.imageCacheScope}
           expanded={args.hideHeader}
         />
       );
@@ -314,7 +327,13 @@ function renderDiffBody(args: {
     );
   }
   return args.diffPayload ? (
-    <DiffViewer payload={args.diffPayload} sessionId={args.sessionId} expanded={args.hideHeader} />
+    <DiffViewer
+      payload={args.diffPayload}
+      sessionId={args.sessionId}
+      imageBlobLoader={args.imageBlobLoader}
+      imageCacheScope={args.imageCacheScope}
+      expanded={args.hideHeader}
+    />
   ) : null;
 }
 

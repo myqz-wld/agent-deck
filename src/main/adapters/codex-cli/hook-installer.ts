@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { HookInstallStatus } from '@shared/types';
-import log from '@main/utils/logger';
 import { buildHookCurlCommand } from '@main/hook-server/curl-command';
 import {
   changedHookEvent,
@@ -21,9 +20,15 @@ import {
   prepareHookRelayConfig,
 } from '@main/hook-server/hook-relay-config';
 
-const logger = log.scope('codex-hook-installer');
-
 const CURRENT_HOOK_TAG_PREFIX = 'agent-deck-hook-v2-codex-cli';
+
+export interface CodexHookInstallerObserver {
+  statusReadFailed(error: unknown): void;
+}
+
+const NOOP_OBSERVER: CodexHookInstallerObserver = {
+  statusReadFailed: () => undefined,
+};
 
 export const CODEX_HOOK_EVENTS = [
   'SessionStart',
@@ -77,7 +82,14 @@ export class CodexHookInstaller {
     private port: number,
     private token: string,
     private relayRoot: string,
+    private observer: CodexHookInstallerObserver = NOOP_OBSERVER,
+    private homeDirectory: string = homedir(),
   ) {}
+
+  private hooksPath(scope: 'user' | 'project', cwd?: string): string {
+    if (scope === 'user') return join(this.homeDirectory, '.codex', 'hooks.json');
+    return hooksPath(scope, cwd);
+  }
 
   private currentCommand(event: CodexHookEvent, prepare: boolean): string {
     const relayConfigPath = prepare
@@ -97,7 +109,7 @@ export class CodexHookInstaller {
   }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     updateHookConfig(
       path,
       (document) => {
@@ -139,7 +151,7 @@ export class CodexHookInstaller {
   }
 
   uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) {
       return {
         installed: false,
@@ -180,7 +192,7 @@ export class CodexHookInstaller {
   }
 
   status(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) {
       return {
         installed: false,
@@ -208,7 +220,11 @@ export class CodexHookInstaller {
         installedHooks: installed,
       };
     } catch (err) {
-      logger.warn('[codex-hook-installer] status readHookConfig failed:', err);
+      try {
+        this.observer.statusReadFailed(err);
+      } catch {
+        // Observation cannot change the repairable "not installed" result.
+      }
       return {
         installed: false,
         scope: opts.scope,

@@ -12,8 +12,22 @@ import { join } from 'node:path';
 import { app } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const applicationPaths = vi.hoisted(() => ({
+  isPackaged: false,
+  appPath: '',
+  resourcesPath: '',
+  userDataPath: '',
+}));
+
+vi.mock('@main/runtime-host/application-paths', () => ({
+  getApplicationHostPaths: () => applicationPaths,
+}));
+
 const appPath = app.getAppPath();
 const userDataPath = app.getPath('userData');
+applicationPaths.appPath = appPath;
+applicationPaths.resourcesPath = process.resourcesPath;
+applicationPaths.userDataPath = userDataPath;
 const sourceRoot = join(appPath, 'resources', 'claude-config', 'agent-deck-plugin');
 const mirrorRoot = join(userDataPath, 'agent-deck-plugin');
 

@@ -16,24 +16,20 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const paths = vi.hoisted(() => ({ userData: '' }));
-vi.mock('electron', () => ({
-  app: {
-    getPath: (name: string) => {
-      if (name === 'logs') return '/tmp';
-      if (name === 'userData') return paths.userData;
-      throw new Error(`Unexpected Electron path: ${name}`);
-    },
-    setName: vi.fn(),
-    isPackaged: false,
-    exit: vi.fn(),
-  },
-}));
+const paths = { userData: '' };
+const diagnostics = { info: () => undefined, warn: () => undefined };
 
 import { getDb, initDb, closeDb, isDbClosed } from '../db';
 import { bindingAvailable } from './_binding-probe';
+
+function initTestDb() {
+  return initDb({
+    databasePath: join(paths.userData, 'agent-deck.db'),
+    diagnostics,
+  });
+}
 
 describe('db.ts shutdown guard / isDbClosed 区分 init-never vs closed', () => {
   beforeAll(() => {
@@ -59,11 +55,19 @@ describe('db.ts shutdown guard / isDbClosed 区分 init-never vs closed', () => 
     expect(() => getDb()).toThrow('Database not initialized');
   });
 
+  it('rejects a relative host path before opening or changing shutdown state', () => {
+    expect(() =>
+      initDb({ databasePath: 'relative/agent-deck.db', diagnostics }),
+    ).toThrow('bounded absolute host path');
+    expect(isDbClosed()).toBe(true);
+    expect(() => getDb()).toThrow('Database not initialized');
+  });
+
   it.skipIf(!bindingAvailable)(
     'initDb 复位 isDbClosed()=false → getDb 命中 → closeDb 再置 true（完整生命周期）',
     () => {
       // 上一个 it 已把 dbClosed 置 true;initDb 应复位回 false（区分「关闭后重开」语义）。
-      const db = initDb();
+      const db = initTestDb();
       expect(isDbClosed()).toBe(false);
       expect(getDb()).toBe(db);
 

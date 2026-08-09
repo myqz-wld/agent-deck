@@ -3,13 +3,25 @@
 // 收纳:AdapterContext + PermissionMode。
 // ────────────────────────────────────────────────────────────────────────────
 
+import type { RouteOptions } from 'fastify';
 import type { AgentEvent, PermissionMode as SharedPermissionMode } from '@shared/types';
-import type { HookServer } from '@main/hook-server/server';
-import type { RouteRegistry } from '@main/hook-server/route-registry';
+
+/** Provider-facing view of the shared hook/MCP listener. */
+export interface AdapterHookServerPort {
+  readonly isRunning: boolean;
+  readonly listeningPort: number;
+  readonly bearerToken: string;
+  readonly mcpBearerToken: string;
+}
+
+/** Provider-facing route registration boundary. */
+export interface AdapterRouteRegistryPort {
+  registerForAdapter(adapterId: string, route: RouteOptions): void;
+}
 
 export interface AdapterContext {
-  hookServer: HookServer;
-  routeRegistry: RouteRegistry;
+  hookServer: AdapterHookServerPort;
+  routeRegistry: AdapterRouteRegistryPort;
   emit: (event: AgentEvent) => void;
   paths: {
     appUserData: string;

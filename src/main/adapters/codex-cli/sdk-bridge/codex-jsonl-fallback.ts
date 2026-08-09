@@ -46,17 +46,16 @@ import type {
   JsonlExistsThunk,
   PrepareRecoveryContinuationThunk,
 } from './recoverer/_deps';
-import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
+import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery-types';
 import type { AgentEnqueueOptions } from '@main/adapters/types';
-import log from '@main/utils/logger';
-
-const logger = log.scope('codex-jsonl-fallback');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface CodexJsonlFallbackCtx {
   jsonlExistsThunk: JsonlExistsThunk;
   createSession: CreateSessionThunk;
   emit: (event: AgentEvent) => void;
   prepareRecovery: PrepareRecoveryContinuationThunk;
+  runtimeHost: CodexBridgeRuntimeHost;
 }
 
 export interface CodexJsonlFallbackOpts {
@@ -151,7 +150,7 @@ export async function maybeCodexJsonlFallback(
     return { fellBack: false, finalSessionId: opts.sessionId };
   }
 
-  logger.warn(
+  ctx.runtimeHost.logger('codex-jsonl-fallback').warn(
     `[codex-bridge] resume jsonl missing for ${opts.sessionId} (startedAt ${new Date(opts.startedAt).toISOString()}), ` +
       `falling back to new thread (CLI history lost but app DB events/file_changes preserved)`,
   );
@@ -171,7 +170,7 @@ export async function maybeCodexJsonlFallback(
   // createSession SDK 事件过 ensure closed→active 复活，静默反转用户显式 close）。lifecycle 已是
   // 用户想要的 closed，abort 时不 createSession / 不 emit / 直接返 aborted:true。单线程无二次 TOCTOU。
   if (opts.isCancelledFn?.()) {
-    logger.warn(
+    ctx.runtimeHost.logger('codex-jsonl-fallback').warn(
       `[codex-bridge] recover fallback aborted: session ${opts.sessionId} closed during continuation preparation (user close)`,
     );
     return { fellBack: false, finalSessionId: opts.sessionId, aborted: true };

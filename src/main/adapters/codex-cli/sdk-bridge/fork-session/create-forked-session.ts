@@ -18,7 +18,6 @@ import {
   buildForkInstructionReset,
 } from './instruction-reset';
 import {
-  resolveCodexForkTargetRuntime,
   type CodexForkTargetRuntime,
 } from './target-runtime';
 import {
@@ -26,9 +25,7 @@ import {
   type CodexForkCleanupState,
   type CodexForkLifecycleOps,
 } from './rollback';
-import log from '@main/utils/logger';
-
-const logger = log.scope('codex-fork');
+import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
 
 export type CodexForkFaultPhase =
   | 'before-native-creation'
@@ -41,12 +38,13 @@ export interface CreateCodexForkDeps {
   codexBySession: Map<string, CodexAppServerClient>;
   threadLoop: ThreadLoop;
   emit: CodexBridgeOptions['emit'];
+  runtimeHost: CodexBridgeRuntimeHost;
   ensureCodex(
     sessionId: string,
     sessionToken: string,
   ): Promise<CodexAppServerClient>;
   lifecycle: CodexForkLifecycleOps;
-  resolveTargetRuntime?: (opts: CreateSessionOpts) => CodexForkTargetRuntime;
+  resolveTargetRuntime: (opts: CreateSessionOpts) => CodexForkTargetRuntime;
   persistTargetFields?: typeof persistSessionFields;
   scheduleTurn?: (start: () => void) => void;
   faultInjector?: (phase: CodexForkFaultPhase) => void;
@@ -71,7 +69,7 @@ export async function createCodexForkedSession(
     );
   }
   const boundary = selectCodexForkBoundary(sourceRead);
-  const runtime = (deps.resolveTargetRuntime ?? resolveCodexForkTargetRuntime)(target);
+  const runtime = deps.resolveTargetRuntime(target);
   const tempId = randomUUID();
   const sessionToken = deps.lifecycle.allocateToken(tempId);
   const cleanupState: CodexForkCleanupState = {
@@ -123,7 +121,7 @@ export async function createCodexForkedSession(
     if (!boundary.lastTerminalTurnId && nativeResult.thread.forkedFromId != null) {
       throw new Error('Codex zero-prefix child unexpectedly reported native fork provenance.');
     }
-    logger.info(
+    deps.runtimeHost.logger('codex-fork').info(
       boundary.lastTerminalTurnId
         ? `[codex-fork] terminal-prefix child=${canonicalId} source=${source.nativeSessionId} lastTurn=${boundary.lastTerminalTurnId}`
         : `[codex-fork] zero-prefix child=${canonicalId} source=${source.nativeSessionId}`,
@@ -193,6 +191,7 @@ export async function createCodexForkedSession(
     });
     target.initialSessionRegistration?.onRegistered(tempId);
     (deps.persistTargetFields ?? persistSessionFields)({
+      runtimeHost: deps.runtimeHost,
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,
       approvalPolicy: target.approvalPolicy,
@@ -231,7 +230,10 @@ export async function createCodexForkedSession(
       if (discardPromise || internal.intentionallyClosed) return;
       if (deps.sessions.get(canonicalId) !== internal) return;
       void deps.threadLoop.runTurnLoop(internal, canonicalId).catch((err: unknown) => {
-        logger.warn(`[codex-fork] child turn loop failed for ${canonicalId}`, err);
+        deps.runtimeHost.logger('codex-fork').warn(
+          `[codex-fork] child turn loop failed for ${canonicalId}`,
+          err,
+        );
       });
     };
     (deps.scheduleTurn ?? ((start) => setTimeout(start, 0)))(startTurn);

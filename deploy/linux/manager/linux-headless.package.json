@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "runtime": "node",
+  "target": "node22",
+  "instanceManagerKind": "host-only-library",
+  "entries": {
+    "server-core": "server-core/index.mjs",
+    "server-core-runtime": "server-core-runtime/index.mjs",
+    "server-core-host-bridge": "server-core-host-bridge/index.mjs",
+    "relay": "relay/index.mjs",
+    "local-worker": "local-worker/index.mjs",
+    "local-worker-runtime": "local-worker-runtime/index.mjs",
+    "provider-session-supervisor": "provider-session-supervisor/index.mjs",
+    "provider-session": "provider-session/index.mjs",
+    "feishu": "feishu/index.mjs",
+    "instance-manager": "instance-manager/index.mjs"
+  },
+  "nativeExternals": [
+    "better-sqlite3"
+  ],
+  "hostRequirements": {
+    "platform": "linux",
+    "procSelfFd": true,
+    "lockRoot": "precreated service-owned mode-0700 directory",
+    "flock": "util-linux",
+    "systemd": "user manager",
+    "podman": "rootless",
+    "fullStateConfigProvisioning": "/var/lib/agent-deck/config/agent-deck/instances/<instanceId>/config.json",
+    "fullStateConfigOwner": "instance-manager",
+    "fullStateConfigTransport": "exact-rootless-volume-data-path",
+    "fullStateConfigDigestBound": true,
+    "serviceAccountHome": "/var/lib/agent-deck",
+    "nodeExecutable": "/usr/bin/node",
+    "podmanExecutable": "/usr/bin/podman",
+    "workspaceSandboxExecutable": "/usr/bin/bwrap",
+    "providerSupervisorLifecycle": "systemd-user-or-launchd",
+    "providerSupervisorConfigMode": "0600",
+    "providerSupervisorRuntimeMode": "0700",
+    "wrapperShell": "/bin/bash",
+    "emptyEnvironmentExecutable": "/usr/bin/env",
+    "artifactInspectionExecutables": ["/usr/bin/readlink", "/usr/bin/stat"]
+  },
+  "installMapping": {
+    "bundleRoot": "/opt/agent-deck/linux-headless",
+    "serverCoreBundle": "/opt/agent-deck/linux-headless/server-core/index.mjs",
+    "serverCoreRuntimeBundle": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs",
+    "serverCoreContainerCommand": "/opt/agent-deck/bin/agent-deckd",
+    "serverCoreHostBridgeBundle": "/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs",
+    "serverCoreHostForcedCommand": "/opt/agent-deck/bin/agent-deck-full-bridge",
+    "relayBundle": "/opt/agent-deck/linux-headless/relay/index.mjs",
+    "relayCommand": "/opt/agent-deck/bin/agent-deck-relay",
+    "localWorkerBundle": "/opt/agent-deck/linux-headless/local-worker/index.mjs",
+    "localWorkerRuntimeBundle": "/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs",
+    "localWorkerCommand": "/opt/agent-deck/bin/agent-deck-worker",
+    "providerSessionBundle": "/opt/agent-deck/linux-headless/provider-session/index.mjs",
+    "providerSessionCommand": "/opt/agent-deck/bin/provider-session",
+    "providerSessionSupervisorBundle": "/opt/agent-deck/linux-headless/provider-session-supervisor/index.mjs",
+    "providerSessionSupervisorCommand": "/opt/agent-deck/bin/agent-deck-provider-supervisor",
+    "providerSessionSupervisorServiceTemplate": "/opt/agent-deck/share/provider-session/agent-deck-provider-supervisor.service.in",
+    "providerSessionSupervisorDarwinTemplate": "Agent Deck.app/Contents/Resources/provider-session/com.agentdeck.provider-supervisor.plist.in",
+    "feishuBundle": "/opt/agent-deck/linux-headless/feishu/index.mjs",
+    "feishuCommand": "/opt/agent-deck/bin/agent-deck-feishu",
+    "feishuPreflight": "/opt/agent-deck/libexec/agent-deck-feishu-preflight",
+    "claudeExecutable": "/opt/agent-deck/providers/claude/claude",
+    "codexExecutable": "/opt/agent-deck/providers/codex/codex",
+    "grokExecutable": "/opt/agent-deck/providers/grok/grok",
+    "ownership": "root:root",
+    "wrapperMode": "0755",
+    "bundleMode": "0644",
+    "symlinksAllowed": false
+  },
+  "forcedCommandSshdPolicy": {
+    "permitUserEnvironment": false,
+    "authorizedKeyEnvironmentOptionAllowed": false,
+    "forbiddenAcceptedEnvironment": [
+      "AGENT_DECK_HEADLESS_ROOT",
+      "AGENT_DECK_NODE",
+      "BASH_ENV",
+      "ENV",
+      "LD_LIBRARY_PATH",
+      "LD_PRELOAD",
+      "NODE_OPTIONS",
+      "PATH"
+    ]
+  },
+  "relayArtifactMustExclude": [
+    "Core runtime",
+    "provider binaries",
+    "Browser engine",
+    "better-sqlite3",
+    "server compute fallback"
+  ]
+}

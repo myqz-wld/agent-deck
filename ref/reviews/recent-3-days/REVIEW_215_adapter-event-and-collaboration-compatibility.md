@@ -104,4 +104,4 @@ and the Grok path remains aligned without speculative changes.
 
 ## Related records
 
-- `CHANGELOG_434_adapter-runtime-event-fidelity.md`
+- `CHANGELOG_566_adapter-runtime-event-fidelity.md`

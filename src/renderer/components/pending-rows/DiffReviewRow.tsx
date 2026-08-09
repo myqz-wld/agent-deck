@@ -23,6 +23,8 @@ export function DiffReviewRow({
   stillPending,
   wasCancelled,
   onResolved,
+  respondOverride,
+  responseDisabled = false,
 }: {
   event: AgentEvent;
   payload: DiffReviewRequest;
@@ -32,8 +34,11 @@ export function DiffReviewRow({
   stillPending: boolean;
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
+  respondOverride?: (response: DiffReviewResponse) => Promise<void>;
+  responseDisabled?: boolean;
 }): JSX.Element {
-  const { busy, error, run } = useRowResponseState(payload.requestId);
+  const { busy: rowBusy, error, run } = useRowResponseState(payload.requestId);
+  const busy = rowBusy || responseDisabled;
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
@@ -42,12 +47,15 @@ export function DiffReviewRow({
   const respond = async (response: DiffReviewResponse): Promise<void> => {
     if (!isSdk || !stillPending || busy) return;
     const result = await run(
-      () => window.api.respondDiffReview(
-        agentId,
-        sessionId,
-        payload.requestId,
-        response,
-      ),
+      async () => {
+        if (respondOverride) return respondOverride(response);
+        return window.api.respondDiffReview(
+          agentId,
+          sessionId,
+          payload.requestId,
+          response,
+        );
+      },
       '差异响应失败，请确认内容仍在等待后重试。',
     );
     if (result.ok) {

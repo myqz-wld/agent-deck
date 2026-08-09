@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 const runtime = vi.hoisted(() => ({ claims: new Set<string>() }));
 
@@ -107,7 +108,11 @@ describe('Codex handoff source runtime retirement', () => {
       turnCorrelationId: 'turn-1',
     }];
     const emit = vi.fn();
-    const bridge = new CodexSdkBridge({ emit });
+    const bridge = new CodexSdkBridge({
+      recoveryContinuationHost: {} as never,
+      runtimeHost: codexBridgeTestRuntimeHost,
+      emit,
+    });
 
     await bridgeInternals(bridge).threadLoop.runTurnLoop(internal, sessionId);
 
@@ -156,7 +161,11 @@ describe('Codex handoff source runtime retirement', () => {
         }],
       },
     ];
-    const bridge = new CodexSdkBridge({ emit: vi.fn() });
+    const bridge = new CodexSdkBridge({
+      recoveryContinuationHost: {} as never,
+      runtimeHost: codexBridgeTestRuntimeHost,
+      emit: vi.fn(),
+    });
     const state = bridgeInternals(bridge);
     state.sessions.set(sessionId, internal);
     const disposalState: Array<{ iterableEnded: boolean; turn: AbortController | null; id: string | null }> = [];
@@ -242,7 +251,11 @@ describe('Codex handoff source runtime retirement', () => {
         bytes: 4,
       }],
     }];
-    const bridge = new CodexSdkBridge({ emit: vi.fn() });
+    const bridge = new CodexSdkBridge({
+      recoveryContinuationHost: {} as never,
+      runtimeHost: codexBridgeTestRuntimeHost,
+      emit: vi.fn(),
+    });
     const state = bridgeInternals(bridge);
     state.sessions.set(sessionId, internal);
     state.sessions.set(aliasId, internal);
@@ -283,7 +296,11 @@ describe('Codex handoff source runtime retirement', () => {
       [],
     );
     internal.threadId = nativeId;
-    const bridge = new CodexSdkBridge({ emit: vi.fn() });
+    const bridge = new CodexSdkBridge({
+      recoveryContinuationHost: {} as never,
+      runtimeHost: codexBridgeTestRuntimeHost,
+      emit: vi.fn(),
+    });
     const state = bridgeInternals(bridge);
     state.sessions.set(sessionId, internal);
     state.sessions.set(nativeId, internal);
@@ -319,7 +336,11 @@ describe('Codex handoff source runtime retirement', () => {
       { steer: vi.fn() } as unknown as InternalSession['thread'],
       [[{ type: 'local_image', path: attachmentPath }]],
     );
-    const bridge = new CodexSdkBridge({ emit: vi.fn() });
+    const bridge = new CodexSdkBridge({
+      recoveryContinuationHost: {} as never,
+      runtimeHost: codexBridgeTestRuntimeHost,
+      emit: vi.fn(),
+    });
     bridgeInternals(bridge).sessions.set(sessionId, internal);
 
     await bridge.closeSession(sessionId);

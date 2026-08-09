@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "brokerRoot": "/run/user/1001/adp-e5390e564047df54/broker",
+  "desktopSocketPath": null,
+  "desktopVm": null,
+  "engine": "rootless-podman",
+  "executable": "/usr/bin/podman",
+  "images": {
+    "claude-code-v1": null,
+    "codex-cli-v1": null,
+    "grok-build-v1": "registry.example.invalid/agent-deck/grok@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "instanceId": "instance-a",
+  "maxActive": 8,
+  "privateRoot": "/run/user/1001/adp-e5390e564047df54",
+  "rootlessHome": "/var/lib/agent-deck",
+  "rootlessRuntimeDirectory": "/run/user/1001",
+  "stateRoot": "/run/user/1001/adp-e5390e564047df54/state",
+  "transportRuntimeDirectory": "/run/user/1001/adp-e5390e564047df54/supervisor",
+  "transportSocketPath": "/run/user/1001/adp-e5390e564047df54/supervisor/s.sock",
+  "workspaceRoot": "/srv/workspaces/production"
+}

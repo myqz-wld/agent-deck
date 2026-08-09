@@ -16,7 +16,7 @@
  * REVIEW_36 HIGH-B / cross-adapter-parity Phase A Step A.5 / handoff-render-and-image-batch
  * Phase 2 Step 2.2 / REVIEW_58 HIGH 等 jsdoc 不删不改）。
  */
-import type { AgentDefinition, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition, CanUseTool, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { HandOffMetadata, PermissionMode, UploadedAttachmentRef } from '@shared/types';
 import type {
   AgentEnqueueOptions,
@@ -25,8 +25,8 @@ import type {
 } from '@main/adapters/types';
 import type { InternalSession, SdkBridgeOptions, SdkSessionHandle } from '../types';
 import type { ClaudeGatewayModelAliases } from '../types';
-import type { PermissionResponder } from '../permission-responder';
-import type { StreamProcessor } from '../stream-processor';
+import type { PermissionResponderCore } from '../permission-responder-core';
+import type { ClaudeStreamProcessorCore } from '../stream-processor-core';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
@@ -197,10 +197,15 @@ export interface CreateSessionOpts {
  * - `interrupt` — facade.interrupt thunk（return handle.abort delegate）
  */
 export interface CreateSessionDeps {
+  readonly createSessionHost: SdkBridgeOptions['createSessionHost'];
+  readonly sessionManager: SdkBridgeOptions['sessionManager'];
   readonly sessions: Map<string, InternalSession>;
   readonly emit: SdkBridgeOptions['emit'];
-  readonly streamProcessor: StreamProcessor;
-  readonly responder: PermissionResponder;
+  readonly streamProcessor: ClaudeStreamProcessorCore;
+  readonly sessionFinalizeHost: SdkBridgeOptions['sessionFinalizeHost'];
+  readonly canUseToolHost: SdkBridgeOptions['canUseToolHost'];
+  readonly createSessionSdkQueryHost: SdkBridgeOptions['createSessionSdkQueryHost'];
+  readonly responder: PermissionResponderCore;
   readonly getPermissionTimeoutMs: () => number;
   readonly interrupt: (sessionId: string) => Promise<void>;
   readonly adapterId: NonNullable<SdkBridgeOptions['adapterId']>;
@@ -219,7 +224,7 @@ export interface PreparedSessionContext {
   readonly releasePending: () => void;
   readonly internal: InternalSession;
   readonly userMessageIterable: AsyncIterable<SDKUserMessage>;
-  readonly canUseTool: ReturnType<typeof import('../can-use-tool').makeCanUseTool>;
+  readonly canUseTool: CanUseTool;
   readonly claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
   readonly claudeModel: string | undefined;
   readonly initialSessionEmitted?: boolean;

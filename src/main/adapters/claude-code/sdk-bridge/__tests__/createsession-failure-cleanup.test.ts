@@ -104,6 +104,21 @@ import { sessionManager } from '@main/session/manager';
 import { sessionRepo } from '@main/store/session-repo';
 import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
+import { desktopClaudeSessionDefaultsHost } from '@main/adapters/claude-code/sdk-bridge/session-defaults-host';
+import { desktopClaudeRestartSessionHost } from '@main/adapters/claude-code/sdk-bridge/restart-session-host';
+import { desktopClaudeRecoveryFreshnessHost } from '@main/adapters/claude-code/sdk-bridge/recovery-freshness-host';
+import { desktopSessionModelControllerHost } from '@main/adapters/session-model-controller-host';
+import { desktopClaudeJsonlDiscoveryHost } from '@main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery-host';
+import { createDesktopClaudeUsageSnapshotHost } from '@main/adapters/claude-code/usage-snapshot-host';
+import { desktopClaudePermissionResponderHost } from '@main/adapters/claude-code/sdk-bridge/permission-responder-host';
+import { desktopClaudeCwdTransitionHost } from '@main/adapters/claude-code/sdk-bridge/cwd-transition-controller-host';
+import { desktopClaudeMessageControllerHost } from '@main/adapters/claude-code/sdk-bridge/message-controller-host';
+import { createDesktopClaudeSessionLifecycleHost } from '@main/adapters/claude-code/sdk-bridge/session-lifecycle-host';
+import { desktopClaudePendingOutgoingHost } from '@main/adapters/claude-code/sdk-bridge/pending-outgoing-host';
+import { createDesktopClaudeStreamProcessorHost } from '@main/adapters/claude-code/sdk-bridge/stream-processor-host';
+import { createDesktopClaudeSessionFinalizeHost } from '@main/adapters/claude-code/sdk-bridge/session-finalize-host';
+import { desktopClaudeCanUseToolHost } from '@main/adapters/claude-code/sdk-bridge/can-use-tool-host';
+import { desktopClaudeCreateSessionSdkQueryHost } from '@main/adapters/claude-code/sdk-bridge/create-session/create-session-sdk-query-host';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import type { AgentEvent } from '@shared/types';
 
@@ -111,6 +126,22 @@ const emits: AgentEvent[] = [];
 
 function makeBridge(): ClaudeSdkBridge {
   return new ClaudeSdkBridge({
+    createSessionHost: desktopClaudeSessionDefaultsHost,
+    jsonlDiscoveryHost: desktopClaudeJsonlDiscoveryHost,
+    recoveryFreshnessHost: desktopClaudeRecoveryFreshnessHost,
+    restartSessionHost: desktopClaudeRestartSessionHost,
+    sessionModelHost: desktopSessionModelControllerHost,
+    usageSnapshotHost: createDesktopClaudeUsageSnapshotHost(sessionManager),
+    permissionResponderHost: desktopClaudePermissionResponderHost,
+    cwdTransitionHost: desktopClaudeCwdTransitionHost,
+    messageControllerHost: desktopClaudeMessageControllerHost,
+    sessionLifecycleHost: createDesktopClaudeSessionLifecycleHost(sessionManager),
+    pendingOutgoingHost: desktopClaudePendingOutgoingHost,
+    streamProcessorHost: createDesktopClaudeStreamProcessorHost(sessionManager),
+    sessionFinalizeHost: createDesktopClaudeSessionFinalizeHost(sessionManager),
+    canUseToolHost: desktopClaudeCanUseToolHost,
+    createSessionSdkQueryHost: desktopClaudeCreateSessionSdkQueryHost,
+    sessionManager,
     emit: (e) => {
       emits.push(e);
     },

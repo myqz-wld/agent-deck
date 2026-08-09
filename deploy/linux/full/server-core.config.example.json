@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "instanceId": "instance-a",
+  "appVersion": "0.1.0",
+  "runtimeModule": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs",
+  "runtimeOptions": {
+    "providerContainer": {
+      "schemaVersion": 1
+    },
+    "providerSettings": {},
+    "projects": []
+  },
+  "socketPath": "/run/agent-deck/instance-a/agent-deckd.sock"
+}

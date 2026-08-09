@@ -72,11 +72,13 @@ describe('Grok login-shell launch', () => {
         AGENT_DECK_ORIGIN: 'cli',
         GROK_CLAUDE_HOOKS_ENABLED: '1',
         GROK_CURSOR_HOOKS_ENABLED: '1',
+        HOME: '/private/provider-home',
       }),
     ).toMatchObject({
       AGENT_DECK_ORIGIN: 'sdk',
       GROK_CLAUDE_HOOKS_ENABLED: '0',
       GROK_CURSOR_HOOKS_ENABLED: '0',
+      HOME: '/private/provider-home',
     });
   });
 });

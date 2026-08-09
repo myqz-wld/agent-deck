@@ -1,0 +1,1 @@
+restrict,command="/opt/agent-deck/bin/agent-deck-relay attach --instance INSTANCE_ID --credential CREDENTIAL_ID --socket /run/user/RUNTIME_UID/agent-deck-relay/INSTANCE_ID/control.sock --worker WORKER_ID",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty ssh-ed25519 REPLACE_WITH_WORKER_PUBLIC_KEY agent-deck-relay-worker

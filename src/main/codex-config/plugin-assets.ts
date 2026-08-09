@@ -15,6 +15,9 @@ import {
 } from '@shared/codex-agent-toml';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import type { AssetMeta, UserAssetsSnapshot } from '@shared/types';
+import { getCodexHome } from './codex-home';
+
+export { getCodexHome } from './codex-home';
 
 const logger = log.scope('codex-plugin-assets');
 const CODEX_ASSET_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -96,11 +99,6 @@ export function getCodexPluginAssetPath(
     (!normalizedHint || normalizeExistingPath(asset.path) === normalizedHint)
   );
   return match?.path ?? null;
-}
-
-export function getCodexHome(): string {
-  const configured = process.env.CODEX_HOME?.trim();
-  return configured ? resolve(configured) : join(homedir(), '.codex');
 }
 
 function getCodexUserPluginRoots(): PluginRoot[] {

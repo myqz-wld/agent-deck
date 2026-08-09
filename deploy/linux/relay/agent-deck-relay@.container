@@ -1,0 +1,40 @@
+[Unit]
+Description=Agent Deck relay-only instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/agent-deck-relay@sha256:__REPLACE_WITH_PINNED_DIGEST__
+ContainerName=agent-deck-relay-%i
+Exec=serve --instance %i --config /etc/agent-deck-relay/%i/config.json --state /var/lib/agent-deck-relay/%i --control-socket /run/agent-deck-relay/%i/control.sock
+Network=slirp4netns:allow_host_loopback=false
+NoNewPrivileges=true
+ReadOnly=true
+DropCapability=all
+User=%U:%G
+UserNS=keep-id
+Volume=%h/.config/agent-deck-relay/%i/config.json:/etc/agent-deck-relay/%i/config.json:ro,Z
+Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z
+Volume=%t/agent-deck-relay/%i:/run/agent-deck-relay/%i:Z
+Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=32m
+PodmanArgs=--pids-limit=256 --memory=512m --cpus=1.0
+HealthCmd=["CMD","/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]
+HealthInterval=10s
+HealthTimeout=3s
+HealthRetries=3
+HealthStartPeriod=30s
+HealthOnFailure=kill
+Notify=healthy
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=120s
+TimeoutStopSec=30s
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=256
+LimitNOFILE=4096
+
+[Install]
+WantedBy=default.target

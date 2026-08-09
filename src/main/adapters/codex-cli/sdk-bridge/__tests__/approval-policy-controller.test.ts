@@ -26,6 +26,7 @@ import {
   RestartController,
   type RestartCtx,
 } from '../restart-controller';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 function record(
   overrides: Partial<SessionRecord> = {},
@@ -55,6 +56,7 @@ function controller(
     controller: new RestartController({
       recovering: new Map(),
       emit,
+      runtimeHost: codexBridgeTestRuntimeHost,
       applyLiveApprovalPolicy,
       applyLiveSandbox: vi.fn(() => false),
     }),

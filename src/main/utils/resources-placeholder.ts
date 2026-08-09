@@ -55,8 +55,8 @@
  * shared via this module; let each caller's caching layer stay bespoke.
  *
  * **Resolved values**:
- * - dev (`!app.isPackaged`):  `<app.getAppPath()>/resources`
- * - prod (`app.isPackaged`):  `process.resourcesPath` (= `Contents/Resources/`)
+ * - dev: `<appPath>/resources`
+ * - prod: the host-provided packaged resources root
  *
  * The placeholder resolves to the packaged resources root so bundled config and plugin assets
  * can refer to sibling runtime assets the same way in dev and prod.
@@ -73,13 +73,17 @@
  * silently ENOENT at runtime. Currently 0 hits in checked-in assets; warning is dev-time
  * defensive only and never throws.
  */
-import { app } from 'electron';
-import { join } from 'node:path';
 import log from '@main/utils/logger';
+import { getApplicationResourcesRoot } from '@main/runtime-host/application-resources';
+import {
+  RESOURCES_PLACEHOLDER,
+  findUnknownResourcesPlaceholders,
+  substituteResourcesPlaceholderWithRoot,
+} from './resources-placeholder-transformer';
 
 const logger = log.scope('utils-resources-placeholder');
 
-export const RESOURCES_PLACEHOLDER = '{{AGENT_DECK_RESOURCES}}';
+export { RESOURCES_PLACEHOLDER } from './resources-placeholder-transformer';
 
 /**
  * Matches any `{{AGENT_DECK_<UPPERCASE_UNDERSCORES>}}` literal — used to detect typos like
@@ -91,15 +95,9 @@ export const RESOURCES_PLACEHOLDER = '{{AGENT_DECK_RESOURCES}}';
  * the eventual ENOENT, but the warning won't fire. We keep the regex strict to avoid false
  * positives on unrelated `{{ ... }}` Mustache-like syntax authors might add elsewhere.
  */
-const TYPO_DETECTOR = /\{\{AGENT_DECK_[A-Z_]*\}\}/g;
-const KNOWN_PLACEHOLDERS: ReadonlySet<string> = new Set([RESOURCES_PLACEHOLDER]);
-
 /** Returns absolute path to bundled resources root. dev/prod auto-dispatch. */
 export function resolveAgentDeckResourcesRoot(): string {
-  if (app.isPackaged) {
-    return process.resourcesPath;
-  }
-  return join(app.getAppPath(), 'resources');
+  return getApplicationResourcesRoot();
 }
 
 /**
@@ -114,13 +112,11 @@ export function resolveAgentDeckResourcesRoot(): string {
 export function substituteResourcesPlaceholder(text: string): string {
   warnOnUnknownPlaceholders(text);
   if (!text.includes(RESOURCES_PLACEHOLDER)) return text;
-  return text.split(RESOURCES_PLACEHOLDER).join(resolveAgentDeckResourcesRoot());
+  return substituteResourcesPlaceholderWithRoot(text, resolveAgentDeckResourcesRoot());
 }
 
 function warnOnUnknownPlaceholders(text: string): void {
-  const matches = text.match(TYPO_DETECTOR);
-  if (!matches) return;
-  const unknown = [...new Set(matches)].filter((m) => !KNOWN_PLACEHOLDERS.has(m));
+  const unknown = findUnknownResourcesPlaceholders(text);
   if (unknown.length === 0) return;
   logger.warn(
     `[resources-placeholder] unknown placeholder(s) detected (won't be substituted, likely typo): ${unknown.join(', ')}. ` +

@@ -21,6 +21,27 @@ import type {
 } from '@shared/types';
 import type { SessionAdapterId } from '@shared/types';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
+import type { ClaudeLiveTokenEstimateState } from './live-token-rate-core';
+import type { ClaudeGatewayModelAliases } from './runtime-metadata-core';
+import type { ClaudeCreateSessionHost } from './session-defaults-core';
+import type { ClaudeRestartSessionHost } from './restart-session-host-core';
+import type { ClaudeRecoveryFreshnessHost } from './recovery-freshness-host-core';
+import type { ClaudeSessionManagerPort } from '../session-manager-core';
+import type { SessionModelControllerHost } from '../../session-model-controller-core';
+import type { ClaudeJsonlDiscoveryHost } from './recoverer/jsonl-discovery-core';
+import type { ClaudeUsageSnapshotHost } from '../usage-snapshot-core';
+import type { ClaudePermissionResponderHost } from './permission-responder-core';
+import type { ClaudeCwdTransitionHost } from './cwd-transition-controller-core';
+import type { ClaudeMessageControllerHost } from './message-controller-core';
+import type { ClaudeSessionLifecycleHost } from './session-lifecycle-core';
+import type { ClaudePendingOutgoingHost } from './pending-outgoing-core';
+import type { ClaudeStreamProcessorHost } from './stream-processor-core';
+import type { ClaudeSessionFinalizeHost } from './session-finalize-core';
+import type { ClaudeCanUseToolHost } from './can-use-tool-core';
+import type { ClaudeCreateSessionSdkQueryHost } from './create-session/create-session-sdk-query-core';
+
+export type { ClaudeLiveTokenEstimateState } from './live-token-rate-core';
+export type { ClaudeGatewayModelAliases } from './runtime-metadata-core';
 
 export interface SdkSessionHandle {
   sessionId: string;
@@ -29,6 +50,22 @@ export interface SdkSessionHandle {
 
 export interface SdkBridgeOptions {
   emit: (e: AgentEvent) => void;
+  createSessionHost: ClaudeCreateSessionHost;
+  recoveryFreshnessHost: ClaudeRecoveryFreshnessHost;
+  restartSessionHost: ClaudeRestartSessionHost;
+  jsonlDiscoveryHost: ClaudeJsonlDiscoveryHost;
+  sessionModelHost: SessionModelControllerHost;
+  usageSnapshotHost: ClaudeUsageSnapshotHost;
+  permissionResponderHost: ClaudePermissionResponderHost;
+  cwdTransitionHost: ClaudeCwdTransitionHost;
+  messageControllerHost: ClaudeMessageControllerHost;
+  sessionLifecycleHost: ClaudeSessionLifecycleHost<InternalSession, (event: AgentEvent) => void>;
+  pendingOutgoingHost: ClaudePendingOutgoingHost;
+  streamProcessorHost: ClaudeStreamProcessorHost;
+  sessionFinalizeHost: ClaudeSessionFinalizeHost;
+  canUseToolHost: ClaudeCanUseToolHost;
+  createSessionSdkQueryHost: ClaudeCreateSessionSdkQueryHost;
+  sessionManager: ClaudeSessionManagerPort;
   adapterId?: Extract<SessionAdapterId, 'claude-code'>;
   /** 权限请求未响应自动 abort 的阈值（毫秒）。0 = 不超时。运行时可通过 setPermissionTimeoutMs 改。 */
   permissionTimeoutMs?: number;
@@ -84,24 +121,6 @@ export interface ClaudeSubmittingUserMessage {
   pending: PendingUserMessage;
   providerMessageId: string;
   status: 'submitting' | 'cancelling';
-}
-
-export interface LiveTokenEstimateState {
-  bucketKey: string;
-  estTokensSinceFlush: number;
-  lastFlushTs: number;
-  hasFlushAnchor: boolean;
-  emaTps?: number;
-  decodeElapsedMs: number;
-  currentDecodeFirstDeltaTs?: number;
-  currentDecodeLastDeltaTs?: number;
-}
-
-export interface ClaudeGatewayModelAliases {
-  fable?: string;
-  opus?: string;
-  sonnet?: string;
-  haiku?: string;
 }
 
 export interface ClaudeUsageTotals {
@@ -275,7 +294,7 @@ export interface InternalSession {
    */
   claudeResultBaselinePending?: boolean;
   /** 生成中 tok/s 估算展示态。display-only；turn result / session 结束时清理。 */
-  liveTokenEstimate?: LiveTokenEstimateState;
+  liveTokenEstimate?: ClaudeLiveTokenEstimateState;
   /**
    * 应用层主动关闭/重启该 session 的标记。置位时 query loop catch 块抛的 SDK 错误
    * （典型：approve-bypass deny+interrupt:true 触发 SDK 内部 [ede_diagnostic] 状态机

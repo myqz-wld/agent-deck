@@ -1,0 +1,2 @@
+d /var/lib/agent-deck-feishu 0700 agent-deck-feishu agent-deck-feishu -
+d /etc/agent-deck-feishu 0750 root agent-deck-feishu -
