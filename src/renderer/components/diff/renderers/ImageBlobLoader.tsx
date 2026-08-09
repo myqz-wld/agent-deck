@@ -5,6 +5,7 @@ import {
   useImageBlob,
   type BlobLoaderState,
 } from '@renderer/hooks/useImageBlob';
+import { useDiffImageBlobLoader } from '../SessionContext';
 
 /**
  * 模块级 LRU 缓存（独立 namespace，与 UploadedImageThumb 不共享）。
@@ -27,9 +28,12 @@ interface Props {
  * UploadedImageThumb 共用底层但各持独立 cache）。
  */
 export function ImageBlobLoader({ sessionId, source, children }: Props): ReactNode {
-  const sourceKey = source ? `${sessionId}|${JSON.stringify(source)}` : null;
+  const loader = useDiffImageBlobLoader();
+  const sourceKey = source
+    ? `${loader.cacheScope}|${sessionId}|${JSON.stringify(source)}`
+    : null;
   const state = useImageBlob(
-    () => window.api.loadImageBlob(sessionId, source!),
+    () => loader.load(sessionId, source!),
     sourceKey,
     cache,
   );

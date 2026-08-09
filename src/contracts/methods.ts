@@ -1,6 +1,40 @@
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from './capabilities';
 import type { JsonObject, JsonValue } from './json';
 import type {
+  SessionConsoleCapabilitiesParams,
+  SessionConsoleCapabilitiesResult,
+} from './session-console-capabilities';
+import type {
+  SessionFileChangeGetParams,
+  SessionFileChangeGetResult,
+  SessionFileChangeListParams,
+  SessionFileChangeListResult,
+  SessionFileFinalDiffParams,
+  SessionFileFinalDiffResult,
+  SessionSummaryListParams,
+  SessionSummaryListResult,
+} from './session-detail';
+import type { SessionTaskListParams, SessionTaskListResult } from './session-tasks';
+import type {
+  SessionImageAssetReadParams,
+  SessionImageAssetReadResult,
+} from './session-image-assets';
+import type { SessionEventListParams, SessionEventListResult } from './session-events';
+import type {
+  IssueGetParams,
+  IssueGetResult,
+  IssueListParams,
+  IssueListResult,
+  IssueMutationResult,
+  IssueResolveInNewSessionParams,
+  IssueResolveInNewSessionResult,
+  IssueUpdateParams,
+} from './issues';
+import type {
+  WorkspaceDirectoryListParams,
+  WorkspaceDirectoryListResult,
+} from './session-console-directories';
+import type {
   ProjectListParams,
   ProjectListResult,
   ProjectResolveResult,
@@ -10,6 +44,12 @@ import type {
   SessionConsoleListParams,
   SessionConsoleListResult,
 } from './session-console';
+import type {
+  DesktopBrokerNextParams,
+  DesktopBrokerNextResult,
+  DesktopBrokerRespondParams,
+  DesktopBrokerRespondResult,
+} from './desktop-broker';
 
 export interface SessionListItemDto {
   id: string;
@@ -47,6 +87,14 @@ export interface SessionRuntimeControlsDto {
 }
 
 export type CoreMethodMap = {
+  'desktop.broker.next': {
+    params: DesktopBrokerNextParams;
+    result: DesktopBrokerNextResult;
+  };
+  'desktop.broker.respond': {
+    params: DesktopBrokerRespondParams;
+    result: DesktopBrokerRespondResult;
+  };
   'system.health': {
     params: Record<string, never>;
     result: { ok: true; revision: number };
@@ -83,9 +131,69 @@ export type CoreMethodMap = {
     params: SessionConsoleCreateParams;
     result: SessionConsoleCreateResult;
   };
+  'session.console.capabilities': {
+    params: SessionConsoleCapabilitiesParams;
+    result: SessionConsoleCapabilitiesResult;
+  };
+  'workspace.directory.list': {
+    params: WorkspaceDirectoryListParams;
+    result: WorkspaceDirectoryListResult;
+  };
   'session.history': {
     params: { sessionId: string; cursor?: string; limit?: number };
     result: { entries: SessionHistoryEntryDto[]; nextCursor: string | null; revision: number };
+  };
+  'session.events.list': {
+    params: SessionEventListParams;
+    result: SessionEventListResult;
+  };
+  'session.summaries.list': {
+    params: SessionSummaryListParams;
+    result: SessionSummaryListResult;
+  };
+  'session.file-changes.list': {
+    params: SessionFileChangeListParams;
+    result: SessionFileChangeListResult;
+  };
+  'session.file-changes.get': {
+    params: SessionFileChangeGetParams;
+    result: SessionFileChangeGetResult;
+  };
+  'session.file-changes.final-diff': {
+    params: SessionFileFinalDiffParams;
+    result: SessionFileFinalDiffResult;
+  };
+  'session.assets.image-chunk.read': {
+    params: SessionImageAssetReadParams;
+    result: SessionImageAssetReadResult;
+  };
+  'session.tasks.list': {
+    params: SessionTaskListParams;
+    result: SessionTaskListResult;
+  };
+  'issues.list': {
+    params: IssueListParams;
+    result: IssueListResult;
+  };
+  'issues.get': {
+    params: IssueGetParams;
+    result: IssueGetResult;
+  };
+  'issues.update': {
+    params: IssueUpdateParams;
+    result: IssueMutationResult;
+  };
+  'issues.soft-delete': {
+    params: IssueGetParams;
+    result: IssueMutationResult;
+  };
+  'issues.undelete': {
+    params: IssueGetParams;
+    result: IssueMutationResult;
+  };
+  'issues.resolve-in-new-session': {
+    params: IssueResolveInNewSessionParams;
+    result: IssueResolveInNewSessionResult;
   };
   'session.send': {
     params: { sessionId: string; text: string; attachments?: JsonObject[] };
@@ -106,6 +214,18 @@ export type CoreMethodMap = {
   'pending.respond': {
     params: { sessionId: string; requestId: string; action: string; value?: JsonValue };
     result: { status: Exclude<PendingRequestDto['status'], 'pending'>; revision: number };
+  };
+  'plan.review.start': {
+    params: { sessionId: string; requestId: string };
+    result: { sessionId: string; agentId: string; revision: number };
+  };
+  'plan.review.ask': {
+    params: { sessionId: string; requestId: string; question: string };
+    result: { accepted: true; revision: number };
+  };
+  'plan.review.feedback': {
+    params: { sessionId: string; requestId: string };
+    result: { feedback: string; revision: number };
   };
   'session.runtime.get': {
     params: { sessionId: string };
@@ -157,21 +277,54 @@ const mutationMethod = (
 });
 
 export const CORE_METHOD_METADATA = {
+  'desktop.broker.next': readMethod(AgentDeckCapability.Browser, 'none'),
+  'desktop.broker.respond': {
+    capability: AgentDeckCapability.Browser,
+    mutation: true,
+    idempotency: 'forbidden',
+    expectedRevision: 'none',
+    feishu: 'none',
+  },
   'system.health': readMethod(AgentDeckCapability.SessionsRead, 'none'),
   'session.list': readMethod(AgentDeckCapability.SessionsRead, 'none'),
   'session.get': readMethod(AgentDeckCapability.SessionsRead, 'none'),
   'session.create': mutationMethod(AgentDeckCapability.SessionsWrite, 'optional', 'none'),
   'session.console.list': readMethod(AgentDeckCapability.SessionConsoleRead),
   'session.console.get': readMethod(AgentDeckCapability.SessionConsoleRead),
+  'session.console.capabilities': readMethod(AgentDeckCapability.SessionConsoleRead),
+  'workspace.directory.list': readMethod(AgentDeckCapability.SessionConsoleRead, 'none'),
   'project.list': readMethod(AgentDeckCapability.ProjectsRead),
   'project.resolve': readMethod(AgentDeckCapability.ProjectsRead),
   'session.console.create': mutationMethod(AgentDeckCapability.SessionConsoleCreate),
   'session.history': readMethod(AgentDeckCapability.SessionHistory),
+  'session.events.list': readMethod(AgentDeckCapability.Replay, 'none'),
+  'session.summaries.list': readMethod(AgentDeckCapability.SessionSummariesRead, 'none'),
+  'session.file-changes.list': readMethod(AgentDeckCapability.SessionFileChangesRead, 'none'),
+  'session.file-changes.get': readMethod(AgentDeckCapability.SessionFileChangesRead, 'none'),
+  'session.file-changes.final-diff': readMethod(
+    AgentDeckCapability.SessionFileChangesRead,
+    'none',
+  ),
+  'session.assets.image-chunk.read': readMethod(AgentDeckCapability.Assets, 'none'),
+  'session.tasks.list': readMethod(AgentDeckCapability.Tasks, 'none'),
+  'issues.list': readMethod(AgentDeckCapability.Issues, 'none'),
+  'issues.get': readMethod(AgentDeckCapability.Issues, 'none'),
+  'issues.update': mutationMethod(AgentDeckCapability.Issues, 'required', 'none'),
+  'issues.soft-delete': mutationMethod(AgentDeckCapability.Issues, 'required', 'none'),
+  'issues.undelete': mutationMethod(AgentDeckCapability.Issues, 'required', 'none'),
+  'issues.resolve-in-new-session': mutationMethod(
+    AgentDeckCapability.Issues,
+    'required',
+    'none',
+  ),
   'session.send': mutationMethod(AgentDeckCapability.SessionsWrite),
   'session.interrupt': mutationMethod(AgentDeckCapability.SessionsWrite),
   'session.steer': mutationMethod(AgentDeckCapability.SessionsWrite),
   'pending.list': readMethod(AgentDeckCapability.PendingRead),
   'pending.respond': mutationMethod(AgentDeckCapability.PendingRespond, 'required'),
+  'plan.review.start': mutationMethod(AgentDeckCapability.PlanReview, 'required', 'none'),
+  'plan.review.ask': mutationMethod(AgentDeckCapability.PlanReview, 'required', 'none'),
+  'plan.review.feedback': mutationMethod(AgentDeckCapability.PlanReview, 'required', 'none'),
   'session.runtime.get': readMethod(AgentDeckCapability.SessionRuntimeRead),
   'session.runtime.update': mutationMethod(
     AgentDeckCapability.SessionRuntimeWrite,

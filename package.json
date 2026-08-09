@@ -20,6 +20,8 @@
     "check:linux-headless": "node scripts/check-linux-headless.mjs",
     "check:macos-worker-sandbox": "node scripts/check-macos-worker-sandbox.mjs",
     "check:packaged-macos-worker-sandbox": "node scripts/check-packaged-macos-worker-sandbox.mjs",
+    "check:grok-remote-sandbox": "node scripts/check-grok-remote-sandbox.mjs",
+    "check:provider-session-live": "AGENT_DECK_PROVIDER_LIVE_ACCEPTANCE=1 vitest run src/hosts/provider-session/live-colima-acceptance.test.ts --reporter=verbose",
     "verify:linux-headless": "pnpm build:linux-headless && pnpm check:linux-headless",
     "verify:macos-worker-sandbox": "pnpm build:macos-worker-sandbox && pnpm check:macos-worker-sandbox",
     "typecheck": "pnpm check:architecture && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
@@ -28,7 +30,7 @@
     "test:node": "vitest run",
     "test:watch": "vitest",
     "test:fts5": "node scripts/test-electron.mjs src/main/store/__tests__/db-schema.test.ts src/main/store/search-predicate.test.ts",
-    "verify:bundled-runtimes": "node scripts/verify-bundled-grok.mjs",
+    "verify:bundled-runtimes": "node scripts/verify-bundled-grok.mjs && pnpm check:grok-remote-sandbox",
     "logger:check": "bash scripts/logger-check.sh",
     "postinstall": "electron-builder install-app-deps"
   },
@@ -123,6 +125,17 @@
       {
         "from": "build/linux-headless/local-worker-runtime",
         "to": "linux-headless/local-worker-runtime"
+      },
+      {
+        "from": "build/linux-headless/provider-session-supervisor",
+        "to": "linux-headless/provider-session-supervisor"
+      },
+      {
+        "from": "deploy/linux/provider-session",
+        "to": "provider-session",
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/claude-config",

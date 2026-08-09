@@ -78,7 +78,13 @@ export class GrokHookInstaller {
     private token: string,
     private relayRoot: string,
     private observer: GrokHookInstallerObserver = NOOP_OBSERVER,
+    private homeDirectory: string = homedir(),
   ) {}
+
+  private hooksPath(scope: 'user' | 'project', cwd?: string): string {
+    if (scope === 'user') return join(this.homeDirectory, '.grok', 'hooks', 'agent-deck.json');
+    return hooksPath(scope, cwd);
+  }
 
   private currentCommand(event: GrokHookEvent, prepare: boolean): string {
     const relayConfigPath = prepare
@@ -98,7 +104,7 @@ export class GrokHookInstaller {
   }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     updateHookConfig(
       path,
       (document) => {
@@ -137,7 +143,7 @@ export class GrokHookInstaller {
   }
 
   uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) return this.emptyStatus(opts.scope, path);
 
     updateHookConfig(
@@ -169,7 +175,7 @@ export class GrokHookInstaller {
   }
 
   status(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) return this.emptyStatus(opts.scope, path);
 
     try {

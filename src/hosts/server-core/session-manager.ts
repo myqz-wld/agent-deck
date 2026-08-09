@@ -62,6 +62,13 @@ export interface ServerCoreSessionManagerOptions {
   readonly events: ServerCoreEventRepositoryPort;
   readonly observer: ServerCoreSessionManagerObserver;
   readonly now?: () => number;
+  readonly handOffLifecycle?: {
+    revokeSource(sessionId: string): unknown;
+    restoreSource(sessionId: string): unknown;
+    abortSource(sessionId: string): unknown;
+    reactivateSource(sessionId: string): unknown;
+    renameSource(fromSessionId: string, toSessionId: string): unknown;
+  };
 }
 
 type SessionClose = (agentId: string, sessionId: string) => Promise<void>;
@@ -295,13 +302,16 @@ export class ServerCoreSessionManager implements SessionManagerHost {
 
   bumpCloseEpoch(sessionId: string): void {
     this.closeEpoch.set(sessionId, this.getCloseEpoch(sessionId) + 1);
+    this.options.handOffLifecycle?.revokeSource(sessionId);
   }
 
   forgetCloseEpoch(sessionId: string): void {
     this.closeEpoch.delete(sessionId);
+    this.options.handOffLifecycle?.restoreSource(sessionId);
   }
 
   async archive(sessionId: string): Promise<void> {
+    this.options.handOffLifecycle?.abortSource(sessionId);
     this.options.sessions.setArchived(sessionId, this.now());
     this.publishFresh(sessionId);
   }
@@ -318,6 +328,7 @@ export class ServerCoreSessionManager implements SessionManagerHost {
 
   reactivate(sessionId: string): void {
     if (!this.options.sessions.get(sessionId)) return;
+    this.options.handOffLifecycle?.reactivateSource(sessionId);
     this.options.sessions.setLifecycle(sessionId, 'active', this.now());
     this.publishFresh(sessionId);
   }
@@ -353,6 +364,20 @@ export class ServerCoreSessionManager implements SessionManagerHost {
     this.sdkOwned.delete(sessionId);
     this.markRecentlyDeleted(sessionId, session.cliSessionId);
     this.closeEpoch.delete(sessionId);
+    this.options.handOffLifecycle?.restoreSource(sessionId);
+    this.options.observer.sessionRemoved(sessionId);
+  }
+
+  /** Removes durable state only after a provider-specific strict rollback already succeeded. */
+  discardAfterProviderRollback(sessionId: string): void {
+    const session = this.options.sessions.get(sessionId);
+    if (!session) return;
+    this.bumpCloseEpoch(sessionId);
+    this.options.sessions.delete(sessionId);
+    this.sdkOwned.delete(sessionId);
+    this.markRecentlyDeleted(sessionId, session.cliSessionId);
+    this.closeEpoch.delete(sessionId);
+    this.options.handOffLifecycle?.restoreSource(sessionId);
     this.options.observer.sessionRemoved(sessionId);
   }
 
@@ -360,6 +385,7 @@ export class ServerCoreSessionManager implements SessionManagerHost {
     if (fromId === toId) return;
     this.options.sessions.rename(fromId, toId);
     if (this.sdkOwned.delete(fromId)) this.sdkOwned.add(toId);
+    this.options.handOffLifecycle?.renameSource(fromId, toId);
     this.recentlyDeleted.set(fromId, this.now());
     const updated = this.options.sessions.get(toId);
     if (updated?.agentId && this.sessionRename) {

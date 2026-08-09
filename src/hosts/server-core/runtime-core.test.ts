@@ -130,6 +130,11 @@ function harness(options: {
   adapter?: Partial<AgentAdapter>;
   session?: SessionRecord;
   events?: StoredAgentEvent[];
+  presentations?: {
+    list(sessionId: string): import('@contracts/index').PendingRequestDto[];
+    respond(sessionId: string, requestId: string, action: string, value?: JsonValue):
+      'denied' | 'resolved' | null;
+  };
 } = {}) {
   const sessions = new Map<string, SessionRecord>();
   const session = options.session ?? record();
@@ -158,6 +163,7 @@ function harness(options: {
     registry: { get: (id) => id === adapter.id ? adapter : undefined },
     metadata,
     lifecycle: { start, stop },
+    presentations: options.presentations ?? { list: () => [], respond: () => null },
   });
   return { adapter, metadata, runtime, sendMessage, sessions, start, stop };
 }
@@ -302,6 +308,46 @@ describe('ServerCoreDaemonRuntime', () => {
     expect(respondAskUserQuestion).toHaveBeenCalledWith('session-a', 'ask-a', {
       answers: [{ question: 'Environment?', selected: [], other: 'production' }],
     });
+  });
+
+  it('merges and resolves Core MCP presentations before provider pending', async () => {
+    const respond = vi.fn(() => 'denied' as const);
+    const { runtime } = harness({
+      presentations: {
+        list: () => [{
+          id: 'mcp-plan-a',
+          sessionId: 'session-a',
+          kind: 'exit-plan',
+          status: 'pending',
+          createdAt: 1,
+          expiresAt: null,
+          display: {
+            schema: 'agent-deck.mcp-plan.v1',
+            plan: '# Plan',
+          },
+        }],
+        respond,
+      },
+    });
+    await runtime.start();
+    await expect(runtime.execute(input('pending.list', { sessionId: 'session-a' })))
+      .resolves.toMatchObject({
+        result: { requests: [{ id: 'mcp-plan-a', kind: 'exit-plan' }] },
+      });
+    await expect(runtime.execute(input('pending.respond', {
+      sessionId: 'session-a',
+      requestId: 'mcp-plan-a',
+      action: 'reject',
+      value: { feedback: 'Revise it' },
+    }, { idempotencyKey: 'plan-intent', expectedRevision: 0 }))).resolves.toMatchObject({
+      result: { status: 'denied', revision: 1 },
+    });
+    expect(respond).toHaveBeenCalledWith(
+      'session-a',
+      'mcp-plan-a',
+      'reject',
+      { feedback: 'Revise it' },
+    );
   });
 
   it('reads and hot-applies exact provider runtime controls', async () => {

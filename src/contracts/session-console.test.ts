@@ -4,10 +4,12 @@ import {
   parseProjectListResult,
   parseProjectReference,
   parseSessionConsoleCreateParams,
+  parseSessionConsoleGetResult,
   parseSessionConsoleListParams,
   parseSessionConsoleListResult,
   parseSessionConsoleSummary,
 } from './session-console';
+import { sessionConsoleCreateOptionsFixture } from './session-console-capabilities.fixture';
 
 const session = {
   id: 'session-1',
@@ -32,6 +34,13 @@ describe('cwd-free session-console contracts', () => {
       .toThrow('Invalid session-console contract field');
   });
 
+  it('binds a targeted session result to the requested identity', () => {
+    expect(parseSessionConsoleGetResult({ session, revision: 2 }, 'session-1').session)
+      .toEqual(session);
+    expect(() => parseSessionConsoleGetResult({ session, revision: 2 }, 'session-2'))
+      .toThrow('Invalid session-console contract field');
+  });
+
   it('accepts only normalized workspace-relative project references', () => {
     expect(parseProjectReference(project)).toEqual(project);
     expect(parseProjectReference({ ...project, projectRef: '.' }).projectRef).toBe('.');
@@ -46,11 +55,16 @@ describe('cwd-free session-console contracts', () => {
     expect(() => parseProjectReference({ ...project, cwd: '/private/workspace' }))
       .toThrow('Invalid session-console contract field');
     expect(parseSessionConsoleCreateParams({
-      adapterId: 'codex-cli', initialMessage: 'Inspect the repository',
-      workingDirectory: 'repo/subdir', options: {},
+      adapterId: 'codex-cli', capabilityRevision: `sha256:${'a'.repeat(64)}`,
+      attachments: [],
+      initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir',
+      options: sessionConsoleCreateOptionsFixture(),
     }).workingDirectory).toBe('repo/subdir');
     expect(() => parseSessionConsoleCreateParams({
-      adapterId: 'codex-cli', initialMessage: '   ', workingDirectory: '.', options: {},
+      adapterId: 'codex-cli', capabilityRevision: `sha256:${'a'.repeat(64)}`,
+      attachments: [],
+      initialMessage: '   ', workingDirectory: '.',
+      options: sessionConsoleCreateOptionsFixture(),
     })).toThrow('Invalid session-console contract field');
   });
 

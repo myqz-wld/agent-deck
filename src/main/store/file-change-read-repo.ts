@@ -7,11 +7,10 @@ import {
   isEffectiveCodexFileChange,
   isIncompleteCodexFileChangeStatus,
 } from '@shared/codex-file-change';
-import log from '@main/utils/logger';
 import { getDb } from './db';
 import { FileSnapshotReader } from './file-snapshot-reader';
+import { reportFileChangeReadWarning } from './file-change-read-diagnostics-core';
 
-const logger = log.scope('store-file-change-read-repo');
 const MIN_RAW_PAGE_SCAN = 40;
 const MAX_RAW_PAGE_SCAN = 400;
 const PATH_SCAN_BATCH = 100;
@@ -60,7 +59,7 @@ export interface FileChangePatchPage {
 }
 
 function reportInvalidStoredValue(category: 'metadata' | 'snapshot'): void {
-  logger.warn({
+  reportFileChangeReadWarning('file-change stored value is invalid', {
     action: 'decode',
     category,
     source: 'file-change-storage',

@@ -28,6 +28,7 @@ export interface AgentDeckRequestOptions {
   idempotencyKey?: string;
   expectedRevision?: number;
   deadlineMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface AgentDeckEventEnvelope {

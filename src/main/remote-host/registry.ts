@@ -14,6 +14,7 @@ import { createElectronRemoteHostProfileBackend } from './electron-profile-backe
 import { RemoteHostPublicError } from './errors';
 import { RemoteHostProfileStore } from './profile-store';
 import { RemoteHostService } from './service';
+import { RemoteHostDesktopBrowserBroker } from './desktop-browser-broker';
 
 let service: RemoteHostService | null = null;
 let acceptingRequests = true;
@@ -33,6 +34,7 @@ export function createProductionRemoteHostService(): RemoteHostService {
       },
     }),
   });
+  const desktopBroker = new RemoteHostDesktopBrowserBroker({ registry });
   return new RemoteHostService({
     registry,
     store,
@@ -42,6 +44,7 @@ export function createProductionRemoteHostService(): RemoteHostService {
       createId,
     }),
     createId,
+    desktopBroker,
   });
 }
 

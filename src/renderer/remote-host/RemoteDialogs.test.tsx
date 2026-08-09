@@ -2,15 +2,21 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
+import { NewSessionDialog } from '@renderer/components/NewSessionDialog';
 import { RemoteHostManagerDialog } from '@renderer/components/RemoteHost/RemoteHostManagerDialog';
-import { RemoteSessionCreateDialog } from '@renderer/components/RemoteHost/RemoteSessionCreateDialog';
 import { HistoryPanel } from '@renderer/components/HistoryPanel';
 import { SessionList } from '@renderer/components/SessionList';
 import type { RemoteHostProfileDto } from '@shared/remote-host';
 import type { RemoteSessionSourceView } from './source-types';
 import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, 'api');
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 const REMOTE_PROFILE: RemoteHostProfileDto = {
   id: 'remote-a',
@@ -28,9 +34,11 @@ const REMOTE_PROFILE: RemoteHostProfileDto = {
 function source(): RemoteSessionSourceView {
   return {
     busy: false,
-    capabilities: new Set(['session-console.create']),
+    capabilities: new Set(['session-console.create', 'session-console.read']),
+    dataRevision: 0,
     error: null,
-    history: null,
+    eventLoadError: null,
+    events: null,
     historySessions: [],
     hasMoreHistorySessions: false,
     hasMoreSessions: false,
@@ -40,6 +48,9 @@ function source(): RemoteSessionSourceView {
     profile: REMOTE_PROFILE,
     recoveringWorker: false,
     runtime: null,
+    summaries: null,
+    taskLoadError: null,
+    tasks: null,
     sessionTotal: null,
     selectedPending: null,
     selectedSession: null,
@@ -49,6 +60,20 @@ function source(): RemoteSessionSourceView {
     usable: true,
     clearError: vi.fn(),
     createSession: vi.fn(),
+    getSessionCapabilities: vi.fn(async (request) =>
+      sessionConsoleCapabilitiesFixture('codex-cli', request.workingDirectory)),
+    listWorkspaceDirectories: vi.fn(async (directory) => ({
+      directory,
+      directories: directory === '.'
+        ? [{ directory: 'repo', name: 'repo' }]
+        : [],
+      truncated: false,
+      revision: 1,
+    })),
+    listFileChanges: vi.fn(),
+    getFileChange: vi.fn(),
+    getFileFinalDiff: vi.fn(),
+    loadImageBlob: vi.fn(async () => ({ ok: false as const, reason: 'unsupported_source' as const })),
     interrupt: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
     loadMoreSessions: vi.fn(),
@@ -130,19 +155,67 @@ describe('remote source surfaces', () => {
 
   it('creates from an explicit Workspace-relative working directory', async () => {
     const current = source();
-    render(<RemoteSessionCreateDialog open source={current} onClose={vi.fn()} />);
-    const directory = screen.getByRole('textbox', { name: '工作目录' }) as HTMLInputElement;
+    const localListAdapters = vi.fn();
+    window.api = { listAdapters: localListAdapters } as unknown as typeof window.api;
+    render(<NewSessionDialog
+      open
+      remoteSource={current}
+      onClose={vi.fn()}
+      onCreated={vi.fn()}
+    />);
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
+    const directory = screen.getByPlaceholderText('. 或 repo/subdir') as HTMLInputElement;
     expect(directory.value).toBe('.');
     fireEvent.change(directory, { target: { value: 'repo/subdir' } });
     fireEvent.change(screen.getByRole('textbox', { name: '第一条消息' }), {
       target: { value: 'Inspect the repository' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ workingDirectory: 'repo/subdir' }),
+    ));
+    const create = screen.getByRole('button', { name: '创建' }) as HTMLButtonElement;
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
 
-    await waitFor(() => expect(current.createSession)
-      .toHaveBeenCalledWith('claude-code', 'repo/subdir', 'Inspect the repository'));
-    expect(screen.getByText(/客户端不会看到宿主机绝对路径/)).toBeTruthy();
-    expect(screen.getByText(/绝对路径、`\.\.` 和越界软链接都会被拒绝/)).toBeTruthy();
+    await waitFor(() => expect(current.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      adapterId: 'codex-cli',
+      capabilityRevision: `sha256:${'a'.repeat(64)}`,
+      initialMessage: 'Inspect the repository',
+      workingDirectory: 'repo/subdir',
+    })));
+    expect(screen.getByText(/目录始终相对于 Remote Workspace/)).toBeTruthy();
+    expect(screen.queryByText(/新建远程/u)).toBeNull();
+    expect(localListAdapters).not.toHaveBeenCalled();
+  });
+
+  it('browses Workspace subdirectories without invoking the Local native picker', async () => {
+    const current = source();
+    const chooseDirectory = vi.fn();
+    window.api = { chooseDirectory } as unknown as typeof window.api;
+    render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
+
+    const choose = screen.getByText('选择…') as HTMLButtonElement;
+    await waitFor(() => expect(choose.disabled).toBe(false));
+    fireEvent.click(choose);
+    await waitFor(
+      () => expect(current.listWorkspaceDirectories).toHaveBeenCalledWith('.'),
+      { timeout: 3_000 },
+    );
+    expect(current.getSessionCapabilities).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Workspace')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'repo' }));
+    await waitFor(
+      () => expect(current.listWorkspaceDirectories).toHaveBeenCalledWith('repo'),
+      { timeout: 3_000 },
+    );
+    expect(screen.getByText('Workspace / repo')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '选择此目录' }));
+
+    expect((screen.getByPlaceholderText('. 或 repo/subdir') as HTMLInputElement).value)
+      .toBe('repo');
+    expect(screen.queryByText(/\/workspaces|\/Users|\/home/u)).toBeNull();
+    expect(chooseDirectory).not.toHaveBeenCalled();
   });
 
   it('consumes rejected profile-focus promises instead of creating an unhandled rejection', async () => {
@@ -195,5 +268,11 @@ describe('remote source surfaces', () => {
       remoteSource={{ ...source(), sessions: [row], sessionTotal: 9 }}
     />);
     expect(screen.getByText(/1\/9/)).toBeTruthy();
+  });
+
+  it('shows an initial Live read failure instead of an authoritative empty state', () => {
+    render(<SessionList remoteSource={{ ...source(), error: '远程 Live 列表读取失败。' }} />);
+    expect(screen.getByRole('alert').textContent).toContain('Live 列表读取失败');
+    expect(screen.queryByText('还没有远程会话')).toBeNull();
   });
 });

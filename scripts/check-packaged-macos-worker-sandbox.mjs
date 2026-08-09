@@ -31,6 +31,12 @@ const launcher = resolve(native, 'agent-deck-worker-sandbox');
 const workerCli = resolve(contents, 'MacOS/Agent Deck Worker CLI');
 const workerNode = resolve(native, 'Agent Deck Worker Node');
 const wrapper = resolve(resources, 'bin/agent-deck-worker');
+const providerSupervisorWrapper = resolve(resources, 'bin/agent-deck-provider-supervisor');
+const providerSupervisorBundle = resolve(
+  resources,
+  'linux-headless/provider-session-supervisor/index.mjs',
+);
+const providerProvisioningRoot = resolve(resources, 'provider-session');
 const providers = resolve(contents, 'MacOS/Agent Deck Worker Providers');
 const claudeExecutable = resolve(providers, 'claude/claude');
 const codexExecutable = resolve(providers, 'codex/bin/codex');
@@ -220,6 +226,39 @@ try {
   run(wrapper, ['check-abi'], {
     env: wrapperEnvironment,
   });
+  for (const path of [
+    providerSupervisorWrapper,
+    providerSupervisorBundle,
+    resolve(providerProvisioningRoot, 'com.agentdeck.provider-supervisor.plist.in'),
+    resolve(providerProvisioningRoot, 'colima.config.example.json'),
+  ]) {
+    if (!existsSync(path)) throw new Error(`packaged Provider supervisor asset is missing: ${path}`);
+  }
+  const colimaExample = JSON.parse(readFileSync(
+    resolve(providerProvisioningRoot, 'colima.config.example.json'),
+    'utf8',
+  ));
+  if (colimaExample.executable === '/opt/homebrew/bin/docker') {
+    throw new Error('packaged Colima example retained the rejected Homebrew symlink');
+  }
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 501;
+  const providerPaths = JSON.parse(run(providerSupervisorWrapper, [
+    'runtime-paths',
+    '--instance', 'relay-smoke',
+    '--runtime-parent', '/private/tmp',
+    '--uid', String(uid),
+    '--worker-config', 'worker-packaged-check',
+  ], { env: wrapperEnvironment }));
+  if (
+    !new RegExp(`^/private/tmp/adp-${uid}-[a-f0-9]{16}$`).test(providerPaths.privateRoot) ||
+    Buffer.byteLength(providerPaths.supervisorSocketPath) > 103
+  ) {
+    throw new Error('packaged Provider supervisor derived an invalid macOS socket namespace');
+  }
+  run(providerSupervisorWrapper, [
+    'check-config',
+    '--config', resolve(providerProvisioningRoot, 'colima.config.example.json'),
+  ], { env: wrapperEnvironment });
   process.stdout.write('[macos-worker-sandbox] packaged Worker runtime passed\n');
 } finally {
   rmSync(privateRoot, { recursive: true, force: true });

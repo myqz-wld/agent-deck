@@ -23,6 +23,7 @@ import {
   type ClaudeRuntimeMetadataHost,
 } from '@main/adapters/claude-code/sdk-bridge/runtime-metadata-core';
 import type { InternalSession } from '@main/adapters/claude-code/sdk-bridge/types';
+import { buildMcpServersWithHost } from '@main/adapters/claude-code/sdk-bridge/mcp-server-core';
 import {
   providerProcessEnvironment,
   providerLogger,
@@ -30,6 +31,10 @@ import {
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
 import { serverCoreClaudeWorkspacePolicy } from './provider-claude-sandbox';
+import {
+  assertServerCoreAdditionalWriteRoots,
+  assertServerCoreProviderSandboxScope,
+} from './provider-sandbox-policy';
 
 export const HEADLESS_CLAUDE_EXECUTABLE = '/opt/agent-deck/providers/claude/claude';
 
@@ -91,13 +96,13 @@ function derivedSettingsHost(input: ServerCoreProviderHostInput) {
   };
 }
 
-/** Provider query boundary with no Browser, in-process MCP, or Electron path ownership. */
+/** Provider query boundary with a Core-owned in-process MCP server and no Electron ownership. */
 export function createServerCoreClaudeQueryHost(
   input: ServerCoreProviderHostInput,
 ): ClaudeCreateSessionSdkQueryHost {
   const logger = providerLogger(input.diagnostics, 'claude-sdk-query');
   const metadata = claudeRuntimeMetadataHost(input);
-  const sandboxModes = new WeakMap<object, SandboxMode>();
+  const sandboxContexts = new WeakMap<object, { cwd: string; mode: SandboxMode }>();
   return {
     loadSdk: async () => {
       const sdk = await loadSdk();
@@ -108,29 +113,44 @@ export function createServerCoreClaudeQueryHost(
       env: providerProcessEnvironment(input),
     }),
     resolveBinary: () => input.settings.claudeCliPath ?? HEADLESS_CLAUDE_EXECUTABLE,
-    buildSandboxOptions: (mode) => {
+    buildSandboxOptions: (mode, cwd, extraAllowWrite) => {
       const effectiveMode: SandboxMode = mode ?? 'workspace-write';
-      const result = serverCoreClaudeWorkspacePolicy(
+      const policy = serverCoreClaudeWorkspacePolicy(
         input.workspaceBoundary,
         effectiveMode,
-      ).sandboxOptions;
-      sandboxModes.set(result, effectiveMode);
-      return result;
+        cwd,
+      );
+      assertServerCoreAdditionalWriteRoots(policy.effectivePolicy, extraAllowWrite);
+      sandboxContexts.set(policy.sandboxOptions, {
+        cwd: policy.effectivePolicy.scope.selectedDirectory,
+        mode: effectiveMode,
+      });
+      return policy.sandboxOptions;
     },
     prepareGatewaySandboxSettings: (candidate) => {
       const result = prepareGatewaySandboxSettingsCore(candidate, derivedSettingsHost(input));
-      sandboxModes.set(
-        result.sandboxOpts,
-        sandboxModes.get(candidate.sandboxOpts) ?? 'workspace-write',
-      );
+      const context = sandboxContexts.get(candidate.sandboxOpts);
+      if (!context) throw new Error('Claude sandbox context is unavailable');
+      sandboxContexts.set(result.sandboxOpts, context);
       return result;
     },
-    buildMcpServers: async () => ({ agentDeckMcpServer: null }),
+    buildMcpServers: (internal, adapterId) => buildMcpServersWithHost({
+      createServer: (callerSessionId, authenticatedAdapterId) =>
+        input.mcpBroker.createInProcessServer(callerSessionId, authenticatedAdapterId),
+      onServerAttached: () => undefined,
+      readEnabled: () => input.mcpBroker.isRunning,
+    }, internal, adapterId),
     buildQueryOptions: (args) => {
+      const context = sandboxContexts.get(args.sandboxOpts);
+      if (!context || args.cwd !== context.cwd) {
+        throw new Error('Claude query directory does not match its sandbox context');
+      }
       const policy = serverCoreClaudeWorkspacePolicy(
         input.workspaceBoundary,
-        sandboxModes.get(args.sandboxOpts) ?? 'workspace-write',
+        context.mode,
+        context.cwd,
       );
+      assertServerCoreProviderSandboxScope(policy.effectivePolicy.scope);
       const options = buildClaudeQueryOptionsCore({
         ...args,
         agentDeckMcpToolPattern: 'mcp__agent-deck__*',

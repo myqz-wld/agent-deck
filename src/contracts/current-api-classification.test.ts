@@ -21,9 +21,16 @@ describe('current API migration classification', () => {
     }
   });
 
-  it('requires idempotency for every initial Core mutation', () => {
-    for (const metadata of Object.values(CORE_METHOD_METADATA)) {
-      expect(metadata.idempotency).toBe(metadata.mutation ? 'required' : 'forbidden');
+  it('requires idempotency for durable Core mutations only', () => {
+    expect(CORE_METHOD_METADATA['desktop.broker.respond']).toMatchObject({
+      mutation: true,
+      idempotency: 'forbidden',
+    });
+    for (const [method, metadata] of Object.entries(CORE_METHOD_METADATA)) {
+      const ephemeralMutation = method === 'desktop.broker.respond';
+      expect(metadata.idempotency).toBe(
+        metadata.mutation && !ephemeralMutation ? 'required' : 'forbidden',
+      );
     }
   });
 });

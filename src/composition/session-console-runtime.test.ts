@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthenticatedClientAccessContext } from '@contracts/index';
+import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import type { AuthoritativeSessionConsolePort } from '@core/session-console';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 
@@ -32,6 +33,10 @@ function authority(): AuthoritativeSessionConsolePort {
     resolveProject: () => ({
       project: { projectId: 'project-a', projectRef: 'opaque-a', alias: 'a', title: 'A' },
       revision: 4,
+    }),
+    getCapabilities: () => sessionConsoleCapabilitiesFixture(),
+    listWorkspaceDirectories: ({ directory }) => ({
+      directory, directories: [], truncated: false, revision: 4,
     }),
     createSession: () => ({ sessionId: 'session-a', revision: 5 }),
   };
@@ -96,6 +101,8 @@ describe('SessionConsoleDaemonRuntime', () => {
     await expect(runtime.execute(request('system.health', {}, 'server-core')))
       .resolves.toEqual({ result: { ok: true }, revision: 2 });
     expect(runtime.supportedMethods).toContain('session.console.create');
+    expect(runtime.supportedMethods).toContain('session.console.capabilities');
+    expect(runtime.supportedMethods).toContain('workspace.directory.list');
   });
 
   it('rejects cwd-shaped request fields before reaching authority', async () => {

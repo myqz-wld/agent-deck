@@ -5,7 +5,6 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -35,7 +34,7 @@ import {
   createServerCoreClaudeStreamHost,
 } from './provider-claude-stream-host';
 import {
-  processEnvironment,
+  providerProcessEnvironment,
   providerLogger,
   publishProviderSession,
   unsupportedRecoveryHost,
@@ -56,10 +55,10 @@ function gatewayHost(): ClaudeGatewayProfileHost {
   };
 }
 
-function gatewayProfile(gateway?: string | null) {
+function gatewayProfile(gatewaysDir: string, gateway?: string | null) {
   return resolveClaudeGatewayProfileCore(
     gateway,
-    { gatewaysDir: join(process.env.HOME || homedir(), '.claude', 'gateways') },
+    { gatewaysDir },
     gatewayHost(),
   );
 }
@@ -78,18 +77,21 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
   const sessionManager = createClaudeSessionManagerPort(input.repositories.sessionManager);
   const queryHost = createServerCoreClaudeQueryHost(input);
   const recovery = unsupportedRecoveryHost();
+  const providerEnvironment = providerProcessEnvironment(input);
+  const configRoot = getClaudeConfigRoot(providerEnvironment);
+  const gatewaysDir = join(configRoot, 'gateways');
 
   return createClaudeCodeAdapterHost({
     bridge: {
       createSessionHost: {
         readPersistedSession: (sessionId) => input.repositories.sessions.get(sessionId),
         readSandboxDefault: () => input.settings.claudeCodeSandbox,
-        resolveGatewayProfile: (gateway) => gatewayProfile(gateway),
+        resolveGatewayProfile: (gateway) => gatewayProfile(gatewaysDir, gateway),
         deleteTransientSession: (sessionId) => input.repositories.sessions.delete(sessionId),
       },
       jsonlDiscoveryHost: {
         transcriptPath: (cwd, sessionId) => join(
-          getClaudeConfigRoot(),
+          configRoot,
           'projects',
           encodeClaudeSdkProjectKey(cwd),
           `${sessionId}.jsonl`,
@@ -135,11 +137,11 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
         },
         getRuntimeOptions: () => ({
           executable: process.execPath as 'node',
-          env: processEnvironment(),
+          env: { ...providerEnvironment },
         }),
         resolveClaudeBinary: () =>
           input.settings.claudeCliPath ?? HEADLESS_CLAUDE_EXECUTABLE,
-        getProbeCwd: () => input.paths.stateDirectory,
+        getProbeCwd: () => input.workspaceBoundary.providerTempRoot,
         expectSdkSession: (cwd, ttlMs) => sessionManager.expectSdkSession(cwd, ttlMs),
         now: Date.now,
       },
@@ -158,7 +160,14 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
         getSession: (sessionId) => input.repositories.sessions.get(sessionId),
       },
       messageControllerHost: {
-        guardSourceIngress: () => false,
+        guardSourceIngress: (args) => input.worktrees.guardIngress({
+          sourceSessionId: args.sourceSessionId,
+          agentId: 'claude-code',
+          text: args.text,
+          attachments: args.attachments,
+          emit: args.emit,
+          bypassWorktreeTransition: args.bypassWorktreeTransition,
+        }),
         acceptedEnqueueEventFailed: (_key, error) =>
           logger.warn('accepted enqueue event failed', error),
         now: Date.now,
@@ -198,7 +207,7 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
     },
     fork: {
       loadSdk: async () => loadSdk(),
-      readConfigRoot: () => getClaudeConfigRoot(),
+      readConfigRoot: () => configRoot,
       childSessionStore: {
         get: (sessionId) => input.repositories.sessions.get(sessionId),
         delete: (sessionId) => input.repositories.sessions.delete(sessionId),
@@ -212,11 +221,11 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
     forkSafety: {
       validateForkTarget: (gateway) => assertClaudeGatewayForkTranscriptRootCompatibleCore(
         gateway,
-        { gatewaysDir: join(process.env.HOME || homedir(), '.claude', 'gateways') },
-        process.env,
+        { gatewaysDir },
+        providerEnvironment,
         {
-          getMainConfigRoot: getClaudeConfigRoot,
-          resolveGatewayProfile: (candidate) => gatewayProfile(candidate),
+          getMainConfigRoot: () => configRoot,
+          resolveGatewayProfile: (candidate) => gatewayProfile(gatewaysDir, candidate),
           canonicalizeConfigRoot: canonical,
         },
       ),

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "brokerRoot": "/private/tmp/adp-501-e5390e564047df54/broker",
+  "desktopSocketPath": "/Users/agent/.colima/default/docker.sock",
+  "desktopVm": "colima",
+  "engine": "docker-desktop",
+  "executable": "/opt/homebrew/Cellar/docker/REPLACE_WITH_VERSION/bin/docker",
+  "images": {
+    "claude-code-v1": null,
+    "codex-cli-v1": null,
+    "grok-build-v1": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "instanceId": "instance-a",
+  "maxActive": 8,
+  "privateRoot": "/private/tmp/adp-501-e5390e564047df54",
+  "rootlessHome": null,
+  "rootlessRuntimeDirectory": null,
+  "stateRoot": "/private/tmp/adp-501-e5390e564047df54/state",
+  "transportRuntimeDirectory": "/private/tmp/adp-501-e5390e564047df54/supervisor",
+  "transportSocketPath": "/private/tmp/adp-501-e5390e564047df54/supervisor/s.sock",
+  "workspaceRoot": "/Users/agent/Workspaces/production"
+}

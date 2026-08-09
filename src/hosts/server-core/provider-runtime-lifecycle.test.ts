@@ -7,6 +7,16 @@ function harness(overrides: Partial<{
   repositoryStop: (reason: string) => Promise<void>;
   metadataStart: () => void;
   metadataClose: () => void;
+  brokerStart: () => Promise<void>;
+  brokerStop: () => Promise<void>;
+  desktopBrokerStart: () => Promise<void>;
+  desktopBrokerStop: () => Promise<void>;
+  presentationsStart: () => Promise<void>;
+  presentationsStop: () => Promise<void>;
+  collaborationStart: () => Promise<void>;
+  collaborationStop: () => Promise<void>;
+  worktreeStart: () => Promise<void>;
+  worktreeStop: () => Promise<void>;
   initializeProviders: () => Promise<void>;
   retireProviders: () => Promise<void>;
   shutdownProviders: () => Promise<void>;
@@ -24,6 +34,36 @@ function harness(overrides: Partial<{
   const metadataClose = vi.fn(overrides.metadataClose ?? (() => {
     trace.push('metadata-close');
   }));
+  const brokerStart = vi.fn(overrides.brokerStart ?? (async () => {
+    trace.push('broker-start');
+  }));
+  const brokerStop = vi.fn(overrides.brokerStop ?? (async () => {
+    trace.push('broker-stop');
+  }));
+  const desktopBrokerStart = vi.fn(overrides.desktopBrokerStart ?? (async () => {
+    trace.push('desktop-broker-start');
+  }));
+  const desktopBrokerStop = vi.fn(overrides.desktopBrokerStop ?? (async () => {
+    trace.push('desktop-broker-stop');
+  }));
+  const presentationsStart = vi.fn(overrides.presentationsStart ?? (async () => {
+    trace.push('presentations-start');
+  }));
+  const presentationsStop = vi.fn(overrides.presentationsStop ?? (async () => {
+    trace.push('presentations-stop');
+  }));
+  const collaborationStart = vi.fn(overrides.collaborationStart ?? (async () => {
+    trace.push('collaboration-start');
+  }));
+  const collaborationStop = vi.fn(overrides.collaborationStop ?? (async () => {
+    trace.push('collaboration-stop');
+  }));
+  const worktreeStart = vi.fn(overrides.worktreeStart ?? (async () => {
+    trace.push('worktree-start');
+  }));
+  const worktreeStop = vi.fn(overrides.worktreeStop ?? (async () => {
+    trace.push('worktree-stop');
+  }));
   const initializeProviders = vi.fn(overrides.initializeProviders ?? (async () => {
     trace.push('provider-start');
   }));
@@ -37,6 +77,11 @@ function harness(overrides: Partial<{
   const lifecycle = new ServerCoreProviderRuntimeLifecycle({
     repository: { start: repositoryStart, stop: repositoryStop },
     metadata: { start: metadataStart, close: metadataClose },
+    mcpBroker: { start: brokerStart, stop: brokerStop },
+    desktopBroker: { start: desktopBrokerStart, stop: desktopBrokerStop },
+    presentations: { start: presentationsStart, stop: presentationsStop },
+    collaboration: { start: collaborationStart, stop: collaborationStop },
+    worktrees: { start: worktreeStart, stop: worktreeStop },
     initializeProviders,
     retireProviders,
     shutdownProviders,
@@ -66,7 +111,17 @@ describe('ServerCoreProviderRuntimeLifecycle', () => {
     expect(state.trace).toEqual([
       'repository-start',
       'metadata-start',
+      'broker-start',
+      'desktop-broker-start',
+      'presentations-start',
       'provider-start',
+      'worktree-start',
+      'collaboration-start',
+      'broker-stop',
+      'desktop-broker-stop',
+      'presentations-stop',
+      'collaboration-stop',
+      'worktree-stop',
       'provider-retire',
       'provider-shutdown',
       'metadata-close',
@@ -95,6 +150,7 @@ describe('ServerCoreProviderRuntimeLifecycle', () => {
     const state = harness({
       retireProviders: async () => { throw new Error('retire'); },
       shutdownProviders: async () => { throw new Error('shutdown'); },
+      brokerStop: async () => { throw new Error('broker'); },
       metadataClose: () => { throw new Error('metadata'); },
       repositoryStop: async () => { throw new Error('repository'); },
     });
@@ -104,6 +160,7 @@ describe('ServerCoreProviderRuntimeLifecycle', () => {
       errors: expect.arrayContaining([
         expect.objectContaining({ message: 'retire' }),
         expect.objectContaining({ message: 'shutdown' }),
+        expect.objectContaining({ message: 'broker' }),
         expect.objectContaining({ message: 'metadata' }),
         expect.objectContaining({ message: 'repository' }),
       ]),

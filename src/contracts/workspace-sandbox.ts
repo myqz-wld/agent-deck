@@ -31,6 +31,7 @@ export interface WorkspaceSandboxSpec {
 
 export interface ProviderChildSandboxPolicy {
   adapterId: 'claude-code' | 'codex-cli' | 'grok-build';
+  selectedDirectory: string;
   workspaceAccess: ProviderWorkspaceAccess;
   networkBoundary: 'provider-controlled';
 }
@@ -170,22 +171,26 @@ export function intersectProviderSandboxPolicy(
   if (!['outer-full', 'read-only', 'workspace-write'].includes(requested.workspaceAccess)) {
     throw new Error('provider child workspace access is invalid');
   }
-  const providerRoots = [
-    spec.environment.providerCacheRoot,
-    spec.environment.providerHomeRoot,
-    spec.environment.providerTempRoot,
-  ];
+  const selectedDirectory = absolutePosixPath(
+    requested.selectedDirectory,
+    'provider child selectedDirectory',
+  );
+  if (!within(spec.workspaceRoot, selectedDirectory)) {
+    throw new Error('provider child selectedDirectory escapes the Workspace');
+  }
   const readOnlyWorkspace = requested.workspaceAccess === 'read-only';
+  const selectedWrite = requested.workspaceAccess === 'workspace-write';
+  const fullWrite = requested.workspaceAccess === 'outer-full';
   return Object.freeze({
     adapterId: requested.adapterId,
     workspaceAccess: readOnlyWorkspace ? 'read-only' : 'read-write',
     readOnlyRoots: Object.freeze([
       ...spec.runtimeReadRoots,
-      ...(readOnlyWorkspace ? [spec.workspaceRoot] : []),
+      ...(!fullWrite ? [spec.workspaceRoot] : []),
     ]),
     readWriteRoots: Object.freeze([
-      ...(!readOnlyWorkspace ? [spec.workspaceRoot] : []),
-      ...providerRoots,
+      ...(fullWrite ? [spec.workspaceRoot] : []),
+      ...(selectedWrite ? [selectedDirectory] : []),
     ]),
     networkBoundary: 'provider-controlled',
   });

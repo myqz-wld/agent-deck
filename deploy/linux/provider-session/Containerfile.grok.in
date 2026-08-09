@@ -1,0 +1,46 @@
+# Render @@NODE_IMAGE_DIGEST@@ to one reviewed sha256 digest before building. The resulting image is
+# admitted only by its own digest in the host-private Provider image catalog.
+FROM node:22.22.3-bookworm-slim@sha256:@@NODE_IMAGE_DIGEST@@
+
+ARG TARGETARCH
+
+LABEL io.agent-deck.managed-by="agent-deck-provider-supervisor" \
+      io.agent-deck.provider-runtime="grok-build-v1"
+
+RUN mkdir -p -m 0755 \
+      /opt/agent-deck/bin \
+      /opt/agent-deck/linux-headless/provider-session \
+      /opt/agent-deck/providers/grok \
+      /run/agent-deck \
+      /workspace \
+  && mkdir -p -m 0700 /state \
+  && chown 65532:65532 /state /workspace
+
+COPY --chown=0:0 --chmod=0644 \
+  build/provider-session/debian/${TARGETARCH}/bubblewrap.deb \
+  /tmp/bubblewrap.deb
+RUN case "${TARGETARCH}" in \
+      amd64) expected='3cc9134a3286ad01a323dcd924ba123eb634cefaeec82d774257e06308aeaadb' ;; \
+      arm64) expected='d044ba1d7961d835669035fcd1e11121f1dc960a1a2e1c6489a93ea44e083557' ;; \
+      *) exit 1 ;; \
+    esac \
+  && echo "${expected}  /tmp/bubblewrap.deb" | sha256sum --check --strict \
+  && dpkg --install /tmp/bubblewrap.deb \
+  && test "$(/usr/bin/bwrap --version)" = 'bubblewrap 0.8.0' \
+  && test "$(stat -Lc '%a:%u:%g' /usr/bin/bwrap)" = '755:0:0' \
+  && rm /tmp/bubblewrap.deb
+
+COPY --chown=0:0 --chmod=0644 \
+  build/linux-headless/provider-session/index.mjs \
+  /opt/agent-deck/linux-headless/provider-session/index.mjs
+COPY --chown=0:0 --chmod=0755 \
+  resources/bin/provider-session \
+  /opt/agent-deck/bin/provider-session
+COPY --chown=0:0 --chmod=0755 \
+  build/provider-session/grok/${TARGETARCH}/grok \
+  /opt/agent-deck/providers/grok/grok
+
+USER 65532:65532
+WORKDIR /workspace
+ENTRYPOINT []
+CMD []

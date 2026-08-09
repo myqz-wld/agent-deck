@@ -3,7 +3,11 @@
   "instanceId": "instance-a",
   "appVersion": "0.1.0",
   "runtimeModule": "/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs",
-  "runtimeOptions": {},
+  "runtimeOptions": {
+    "providerContainer": {
+      "schemaVersion": 1
+    }
+  },
   "generationFile": "/var/lib/agent-deck/workers/worker-config-a/generation.json",
   "ssh": {
     "sshBinary": "/usr/bin/ssh",

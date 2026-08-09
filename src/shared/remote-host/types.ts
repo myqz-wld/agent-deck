@@ -1,3 +1,24 @@
+import type {
+  IssueDto,
+  IssueGetResult,
+  IssueListResult,
+  IssueMutationResult,
+  IssueResolveInNewSessionResult,
+  IssueStatusDto,
+  IssueUpdatePatchDto,
+  SessionFileChangeGetResult,
+  SessionFileChangeListResult,
+  SessionFileFinalDiffResult,
+  SessionEventListResult,
+  SessionConsoleAttachmentInput,
+  SessionConsoleCapabilitiesResult,
+  SessionConsoleCreateOptions,
+  SessionSummaryListResult,
+  SessionTaskListResult,
+  WorkspaceDirectoryListResult,
+} from '@contracts/index';
+import type { LoadImageBlobResult } from '@shared/types';
+
 export type RemoteHostTopology = 'standalone' | 'server-core' | 'relay';
 export type RemoteHostRemoteTopology = Exclude<RemoteHostTopology, 'standalone'>;
 export type RemoteHostSourceMode = 'local' | 'remote';
@@ -107,12 +128,30 @@ export interface RemoteHostMutationIntentDto {
   intentId: string;
 }
 
+export interface RemoteHostSessionCapabilitiesRequestDto {
+  profileId: string;
+  adapterId: string | null;
+  provider: string;
+  workingDirectory: string;
+}
+
+export type RemoteHostSessionCapabilitiesDto = SessionConsoleCapabilitiesResult;
+
+export interface RemoteHostWorkspaceDirectoryRequestDto {
+  profileId: string;
+  directory: string;
+}
+
+export type RemoteHostWorkspaceDirectoryListDto = WorkspaceDirectoryListResult;
+
 export interface RemoteHostCreateSessionDto extends RemoteHostMutationIntentDto {
   profileId: string;
   adapterId: string;
+  attachments: SessionConsoleAttachmentInput[];
+  capabilityRevision: string;
   initialMessage: string;
   workingDirectory: string;
-  options: RemoteHostJsonObject;
+  options: SessionConsoleCreateOptions;
 }
 
 export interface RemoteHostSessionTargetDto {
@@ -155,6 +194,91 @@ export interface RemoteHostHistoryPageDto {
   nextCursor: string | null;
   revision: number;
 }
+
+export interface RemoteHostSummaryRequestDto extends RemoteHostSessionTargetDto {
+  limit: number;
+}
+
+export type RemoteHostSummaryListDto = SessionSummaryListResult;
+
+export interface RemoteHostEventListRequestDto extends RemoteHostSessionTargetDto {
+  limit: number;
+}
+
+export type RemoteHostEventListDto = SessionEventListResult;
+
+export interface RemoteHostTaskListRequestDto extends RemoteHostSessionTargetDto {
+  limit: number;
+}
+
+export type RemoteHostTaskListDto = SessionTaskListResult;
+
+export interface RemoteHostIssueListRequestDto {
+  profileId: string;
+  statuses: IssueStatusDto[];
+  kinds: string[];
+  titleKeyword: string | null;
+  includeDeleted: boolean;
+  limit: number;
+  offset: number;
+}
+
+export type RemoteHostIssueDto = IssueDto;
+export type RemoteHostIssueListDto = IssueListResult;
+export type RemoteHostIssueGetDto = IssueGetResult;
+
+export interface RemoteHostIssueTargetDto {
+  profileId: string;
+  issueId: string;
+}
+
+export interface RemoteHostIssueMutationTargetDto
+  extends RemoteHostIssueTargetDto, RemoteHostMutationIntentDto {
+  expectedRevision: number;
+}
+
+export interface RemoteHostIssueUpdateDto extends RemoteHostIssueMutationTargetDto {
+  patch: IssueUpdatePatchDto;
+}
+
+export type RemoteHostIssueMutationResultDto = IssueMutationResult;
+
+export interface RemoteHostIssueResolveSessionDto extends RemoteHostCreateSessionDto {
+  issueId: string;
+  issueUpdatedAt: number;
+  expectedRevision: number;
+}
+
+export type RemoteHostIssueResolveSessionResultDto = IssueResolveInNewSessionResult;
+
+export interface RemoteHostFileChangePageRequestDto extends RemoteHostSessionTargetDto {
+  cursor?: string;
+  limit: number;
+}
+
+export type RemoteHostFileChangePageDto = SessionFileChangeListResult;
+
+export interface RemoteHostFileChangeGetRequestDto extends RemoteHostSessionTargetDto {
+  changeId: number;
+}
+
+export type RemoteHostFileChangeGetDto = SessionFileChangeGetResult;
+
+export interface RemoteHostFileFinalDiffRequestDto extends RemoteHostSessionTargetDto {
+  filePath: string;
+}
+
+export type RemoteHostFileFinalDiffDto = SessionFileFinalDiffResult;
+
+export interface RemoteHostImageAssetRequestDto extends RemoteHostSessionTargetDto {
+  source: {
+    kind: 'remote-file-change';
+    changeId: number;
+    side: 'before' | 'after';
+  };
+}
+
+export type RemoteHostImageAssetResultDto = LoadImageBlobResult;
 
 export interface RemoteHostPendingRequestDto {
   id: string;

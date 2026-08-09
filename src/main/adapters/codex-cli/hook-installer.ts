@@ -83,7 +83,13 @@ export class CodexHookInstaller {
     private token: string,
     private relayRoot: string,
     private observer: CodexHookInstallerObserver = NOOP_OBSERVER,
+    private homeDirectory: string = homedir(),
   ) {}
+
+  private hooksPath(scope: 'user' | 'project', cwd?: string): string {
+    if (scope === 'user') return join(this.homeDirectory, '.codex', 'hooks.json');
+    return hooksPath(scope, cwd);
+  }
 
   private currentCommand(event: CodexHookEvent, prepare: boolean): string {
     const relayConfigPath = prepare
@@ -103,7 +109,7 @@ export class CodexHookInstaller {
   }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     updateHookConfig(
       path,
       (document) => {
@@ -145,7 +151,7 @@ export class CodexHookInstaller {
   }
 
   uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) {
       return {
         installed: false,
@@ -186,7 +192,7 @@ export class CodexHookInstaller {
   }
 
   status(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = hooksPath(opts.scope, opts.cwd);
+    const path = this.hooksPath(opts.scope, opts.cwd);
     if (!existsSync(path)) {
       return {
         installed: false,

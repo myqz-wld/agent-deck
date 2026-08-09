@@ -84,6 +84,7 @@ export function spawnGrokChild(options: {
   binary: string;
   args?: string[];
   cwd: string;
+  environment?: Readonly<Record<string, string>>;
   sandboxProfile?: string | null;
 }): {
   child: ChildProcessWithoutNullStreams;
@@ -100,7 +101,7 @@ export function spawnGrokChild(options: {
   if (!spec.useLoginShell) {
     const child = spawn(spec.command, spec.args, {
       cwd: options.cwd,
-      env: buildGrokChildEnv(),
+      env: buildGrokChildEnv(options.environment),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return {
@@ -113,7 +114,7 @@ export function spawnGrokChild(options: {
 
   const child = spawn(spec.command, spec.args, {
     cwd: options.cwd,
-    env: buildGrokChildEnv(),
+    env: buildGrokChildEnv(options.environment),
     stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
   }) as ChildProcessWithoutNullStreams;
   const protocolOutput = child.stdio[3] as Readable | null;

@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { AccessContext } from '@contracts/index';
 import {
+  sessionConsoleCapabilitiesFixture,
+  sessionConsoleCreateOptionsFixture,
+} from '@contracts/session-console-capabilities.fixture';
+import {
   SessionConsoleCoreDispatcher,
   type AuthoritativeSessionConsolePort,
   type SessionConsoleExecutionContext,
@@ -16,6 +20,12 @@ const serverAccess: AccessContext = {
   accessCredentialId: 'credential-1',
   authority: 'owner-equivalent',
   surface: 'feishu-session-console',
+};
+
+const desktopAccess: AccessContext = {
+  ...serverAccess,
+  transport: 'ssh',
+  surface: 'desktop-full',
 };
 
 function context(
@@ -48,7 +58,11 @@ function authority(
       revision: 1,
     }),
     createSession: () => ({ sessionId: 'session-1', revision: 2 }),
+    listWorkspaceDirectories: ({ directory }) => ({
+      directory, directories: [], truncated: false, revision: 1,
+    }),
     ...overrides,
+    getCapabilities: overrides.getCapabilities ?? (() => sessionConsoleCapabilitiesFixture()),
   };
 }
 
@@ -88,26 +102,66 @@ describe('SessionConsoleCoreDispatcher', () => {
 
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir', options: {} },
+      {
+        adapterId: 'codex-cli',
+        attachments: [],
+        capabilityRevision: `sha256:${'a'.repeat(64)}`,
+        initialMessage: 'Inspect the repository',
+        workingDirectory: 'repo/subdir',
+        options: sessionConsoleCreateOptionsFixture(),
+      },
       context(relayAccess, 'event-1'),
     )).resolves.toEqual({ sessionId: 'session-2', revision: 3 });
     expect(createSession).toHaveBeenCalledWith(
-      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir', options: {} },
+      {
+        adapterId: 'codex-cli',
+        attachments: [],
+        capabilityRevision: `sha256:${'a'.repeat(64)}`,
+        initialMessage: 'Inspect the repository',
+        workingDirectory: 'repo/subdir',
+        options: sessionConsoleCreateOptionsFixture(),
+      },
       expect.objectContaining({ access: expect.objectContaining({ topology: 'relay' }) }),
     );
     expect(JSON.stringify(createSession.mock.calls)).not.toContain('cwd');
+  });
+
+  it('lists relative Workspace directories only for the desktop surface', async () => {
+    const listWorkspaceDirectories = vi.fn(({ directory }) => ({
+      directory,
+      directories: [{ directory: 'repo', name: 'repo' }],
+      truncated: false,
+      revision: 2,
+    }));
+    const dispatcher = new SessionConsoleCoreDispatcher(authority({ listWorkspaceDirectories }));
+    await expect(dispatcher.execute(
+      'workspace.directory.list',
+      { directory: '.' },
+      context(desktopAccess),
+    )).resolves.toEqual({
+      directory: '.',
+      directories: [{ directory: 'repo', name: 'repo' }],
+      truncated: false,
+      revision: 2,
+    });
+    await expect(dispatcher.execute(
+      'workspace.directory.list',
+      { directory: '.' },
+      context(serverAccess),
+    )).rejects.toThrow('Access surface cannot invoke');
+    expect(listWorkspaceDirectories).toHaveBeenCalledOnce();
   });
 
   it('rejects absolute or escaping working directories and unknown request fields', async () => {
     const dispatcher = new SessionConsoleCoreDispatcher(authority());
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: '/private/project', options: {} },
+      { adapterId: 'codex-cli', attachments: [], capabilityRevision: 'revision-a', initialMessage: 'Inspect the repository', workingDirectory: '/private/project', options: sessionConsoleCreateOptionsFixture() },
       context(serverAccess, 'event-1'),
     )).rejects.toThrow('Invalid session-console contract field');
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: '../outside', options: {} },
+      { adapterId: 'codex-cli', attachments: [], capabilityRevision: 'revision-a', initialMessage: 'Inspect the repository', workingDirectory: '../outside', options: sessionConsoleCreateOptionsFixture() },
       context(serverAccess, 'event-2'),
     )).rejects.toThrow('Invalid session-console contract field');
     await expect(dispatcher.execute(
@@ -129,7 +183,7 @@ describe('SessionConsoleCoreDispatcher', () => {
     ).rejects.toThrow('Invalid session-console contract field');
     await expect(dispatcher.execute(
       'session.console.create',
-      { adapterId: 'codex-cli', initialMessage: 'Inspect the repository', workingDirectory: '.', options: {} },
+      { adapterId: 'codex-cli', attachments: [], capabilityRevision: 'revision-a', initialMessage: 'Inspect the repository', workingDirectory: '.', options: sessionConsoleCreateOptionsFixture() },
       context(),
     )).rejects.toThrow('requires a stable idempotency key');
     expect(listSessions).not.toHaveBeenCalled();

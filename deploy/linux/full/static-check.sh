@@ -16,6 +16,7 @@ bash -n "$full_dir/preflight.sh"
 bash -n "$full_dir/static-check.sh"
 bash -n "$repo_root/resources/bin/agent-deckd"
 bash -n "$repo_root/resources/bin/agent-deck-full-bridge"
+bash -n "$repo_root/resources/bin/agent-deck-provider-supervisor"
 bash "$full_dir/preflight.sh" --template "$template"
 
 for surface in desktop-full feishu-session-console; do
@@ -62,6 +63,38 @@ for required in \
   grep -Fq "$required" "$credential_fixture" ||
     fail "credential fixture lost $required"
 done
+
+for required in \
+  '/run/secrets/agent-deck/provider-home' \
+  '/run/secrets/agent-deck/provider-inference' \
+  '.claude/.credentials.json' \
+  '.codex/auth.json' \
+  'Remote Grok is published as available only' \
+  'Settings, hooks, MCP definitions'; do
+  grep -Fq -- "$required" "$full_dir/README.snippet.md" ||
+    fail "provider auth projection documentation lost: $required"
+done
+grep -Fq 'never projected' "$full_dir/README.snippet.md" ||
+  fail 'provider auth projection documentation lost the retired Grok credential fence'
+for required in \
+  'agent-deck-provider-supervisor.service.in' \
+  'rootless-podman-full.config.example.json' \
+  'wait-ready --config' \
+  'health-config --config'; do
+  grep -Fq -- "$required" "$full_dir/README.snippet.md" ||
+    fail "Provider supervisor provisioning documentation lost $required"
+done
+supervisor_unit="$repo_root/deploy/linux/provider-session/agent-deck-provider-supervisor.service.in"
+for required in \
+  'prepare-runtime --config @@CONFIG_PATH@@' \
+  'Restart=always' \
+  'wait-ready --config @@CONFIG_PATH@@'; do
+  grep -Fq -- "$required" "$supervisor_unit" ||
+    fail "Provider supervisor unit lost $required"
+done
+if grep -Eqi '(podman\.sock|docker\.sock|containerd\.sock)' "$supervisor_unit"; then
+  fail 'Provider supervisor unit must not project an engine socket into Core'
+fi
 for required in \
   '/opt/agent-deck/linux-headless/server-core-runtime/index.mjs' \
   '/opt/agent-deck/providers/claude/claude' \

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import { AgentDeckClientErrorCode } from '@contracts/index';
 import {
   DEFAULT_PENDING_PRESENTATION_LIFETIME_MS,
@@ -156,9 +157,11 @@ describe('Feishu session-console methods', () => {
     const create = client.calls.find((call) => call.method === 'session.console.create');
     expect(create?.params).toEqual({
       adapterId: 'codex-cli',
+      attachments: [],
+      capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: 'Inspect the repository',
       workingDirectory: '.',
-      options: {},
+      options: sessionConsoleCreateOptionsFixture(),
     });
     expect(create?.options?.idempotencyKey).toBe('feishu:create');
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthoritativeSessionConsolePort } from '@core/session-console';
+import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import type {
   DaemonCoreRuntime,
   DaemonCredentialLifecyclePort,
@@ -34,6 +35,10 @@ function authority(): AuthoritativeSessionConsolePort {
     getSession: () => ({ session: null, revision: 1 }),
     listProjects: () => ({ projects: [], nextCursor: null, total: 0, revision: 1 }),
     resolveProject: () => ({ project: null, revision: 1 }),
+    getCapabilities: () => sessionConsoleCapabilitiesFixture(),
+    listWorkspaceDirectories: ({ directory }) => ({
+      directory, directories: [], truncated: false, revision: 1,
+    }),
     createSession: () => ({ sessionId: 'session-a', revision: 2 }),
   };
 }

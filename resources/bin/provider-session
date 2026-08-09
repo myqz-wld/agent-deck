@@ -1,0 +1,69 @@
+#!/bin/bash -p
+set -euo pipefail
+unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV \
+  LD_LIBRARY_PATH LD_PRELOAD NODE_OPTIONS
+PATH=/usr/bin:/bin
+export PATH
+
+fail() {
+  echo 'Provider session runtime is unavailable.' >&2
+  exit 70
+}
+
+verify_root_file() {
+  local path=$1 mode owner
+  [[ -f "$path" && ! -L "$path" && -x "$path" ]] || fail
+  [[ "$(/usr/bin/readlink -f -- "$path")" == "$path" ]] || fail
+  owner="$(/usr/bin/stat -Lc '%u' -- "$path")"
+  mode="$(/usr/bin/stat -Lc '%a' -- "$path")"
+  [[ "$owner" == 0 ]] || fail
+  (( (8#$mode & 8#022) == 0 )) || fail
+}
+
+verify_root_data_file() {
+  local path=$1 mode owner
+  [[ -f "$path" && ! -L "$path" ]] || fail
+  [[ "$(/usr/bin/readlink -f -- "$path")" == "$path" ]] || fail
+  owner="$(/usr/bin/stat -Lc '%u' -- "$path")"
+  mode="$(/usr/bin/stat -Lc '%a' -- "$path")"
+  [[ "$owner" == 0 ]] || fail
+  (( (8#$mode & 8#022) == 0 )) || fail
+}
+
+for directory in \
+  /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless \
+  /opt/agent-deck/linux-headless/provider-session /opt/agent-deck/providers \
+  /opt/agent-deck/providers/grok; do
+  [[ -d "$directory" && ! -L "$directory" ]] || fail
+  [[ "$(/usr/bin/readlink -f -- "$directory")" == "$directory" ]] || fail
+done
+
+verify_root_file /usr/local/bin/node
+verify_root_file /opt/agent-deck/bin/provider-session
+verify_root_file /opt/agent-deck/providers/grok/grok
+verify_root_data_file /opt/agent-deck/linux-headless/provider-session/index.mjs
+[[ -d /state && ! -L /state && -d /workspace && ! -L /workspace ]] || fail
+
+transport="${AGENT_DECK_INFERENCE_TRANSPORT:-}"
+case "$transport" in
+  unix-http-v1)
+    [[ "${AGENT_DECK_INFERENCE_SOCKET:-}" == /run/agent-deck/inference.sock ]] || fail
+    [[ -S /run/agent-deck/inference.sock && ! -L /run/agent-deck/inference.sock ]] || fail
+    transport_environment=(
+      AGENT_DECK_INFERENCE_TRANSPORT=unix-http-v1
+      AGENT_DECK_INFERENCE_SOCKET=/run/agent-deck/inference.sock
+    )
+    ;;
+  stdio-multiplex-v1)
+    [[ -z "${AGENT_DECK_INFERENCE_SOCKET:-}" ]] || fail
+    transport_environment=(AGENT_DECK_INFERENCE_TRANSPORT=stdio-multiplex-v1)
+    ;;
+  *) fail ;;
+esac
+
+exec /usr/bin/env -i \
+  "${transport_environment[@]}" \
+  HOME=/state/home LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/usr/bin:/bin \
+  XDG_CACHE_HOME=/state/cache XDG_CONFIG_HOME=/state/config \
+  XDG_STATE_HOME=/state/state TMPDIR=/tmp \
+  /usr/local/bin/node /opt/agent-deck/linux-headless/provider-session/index.mjs "$@"

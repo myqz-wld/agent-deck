@@ -4,11 +4,13 @@ import {
   type PendingRequestDto,
   parseProjectListResult,
   parseProjectResolveResult,
+  parseSessionConsoleCapabilitiesResult,
   parseSessionConsoleCreateResult,
   parseSessionConsoleGetResult,
   parseSessionConsoleListResult,
   type ProjectListResult,
   type ProjectResolveResult,
+  type SessionConsoleCapabilitiesResult,
   type SessionHistoryEntryDto,
   type SessionConsoleCreateResult,
   type SessionConsoleGetResult,
@@ -97,8 +99,7 @@ export function validateSessionConsoleGetResult(
   limits: FeishuGatewayLimits,
 ): SessionConsoleGetResult {
   const result = contractResult(value, limits, 'session-console get', () =>
-    parseSessionConsoleGetResult(value));
-  if (result.session && result.session.id !== expectedId) fail('session-console get session.id');
+    parseSessionConsoleGetResult(value, expectedId));
   return result;
 }
 
@@ -128,6 +129,15 @@ export function validateSessionConsoleCreateResult(
 ): SessionConsoleCreateResult {
   return contractResult(value, limits, 'session-console create', () =>
     parseSessionConsoleCreateResult(value));
+}
+
+export function validateSessionConsoleCapabilitiesResult(
+  value: unknown,
+  limits: FeishuGatewayLimits,
+  expected?: import('@contracts/index').SessionConsoleCapabilitiesParams,
+): SessionConsoleCapabilitiesResult {
+  return contractResult(value, limits, 'session-console capabilities', () =>
+    parseSessionConsoleCapabilitiesResult(value, expected));
 }
 
 export function validateHistoryEntries(

@@ -30,6 +30,7 @@ const sourceRoots = [
   'src/hosts/daemon',
   'src/hosts/server-core',
   'src/hosts/local-worker',
+  'src/hosts/provider-session',
   'src/hosts/relay',
   'src/hosts/instance-manager',
   'src/hosts/linux-runtime',
@@ -53,6 +54,15 @@ function filesUnder(root) {
 function run(executable, args) {
   execFileSync(executable, args, {
     cwd: repoRoot,
+    env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function runOutput(executable, args) {
+  return execFileSync(executable, args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -285,6 +295,9 @@ if (
   packageFixture.hostRequirements?.nodeExecutable !== '/usr/bin/node' ||
   packageFixture.hostRequirements?.podmanExecutable !== '/usr/bin/podman' ||
   packageFixture.hostRequirements?.workspaceSandboxExecutable !== '/usr/bin/bwrap' ||
+  packageFixture.hostRequirements?.providerSupervisorLifecycle !== 'systemd-user-or-launchd' ||
+  packageFixture.hostRequirements?.providerSupervisorConfigMode !== '0600' ||
+  packageFixture.hostRequirements?.providerSupervisorRuntimeMode !== '0700' ||
   packageFixture.hostRequirements?.wrapperShell !== '/bin/bash' ||
   packageFixture.hostRequirements?.emptyEnvironmentExecutable !== '/usr/bin/env' ||
   packageFixture.hostRequirements?.serviceAccountHome !== '/var/lib/agent-deck' ||
@@ -308,6 +321,17 @@ if (
   install?.localWorkerCommand !== '/opt/agent-deck/bin/agent-deck-worker' ||
   install?.localWorkerRuntimeBundle !==
     '/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs' ||
+  install?.providerSessionBundle !==
+    '/opt/agent-deck/linux-headless/provider-session/index.mjs' ||
+  install?.providerSessionCommand !== '/opt/agent-deck/bin/provider-session' ||
+  install?.providerSessionSupervisorBundle !==
+    '/opt/agent-deck/linux-headless/provider-session-supervisor/index.mjs' ||
+  install?.providerSessionSupervisorCommand !==
+    '/opt/agent-deck/bin/agent-deck-provider-supervisor' ||
+  install?.providerSessionSupervisorServiceTemplate !==
+    '/opt/agent-deck/share/provider-session/agent-deck-provider-supervisor.service.in' ||
+  install?.providerSessionSupervisorDarwinTemplate !==
+    'Agent Deck.app/Contents/Resources/provider-session/com.agentdeck.provider-supervisor.plist.in' ||
   install?.feishuBundle !== '/opt/agent-deck/linux-headless/feishu/index.mjs' ||
   install?.feishuCommand !== '/opt/agent-deck/bin/agent-deck-feishu' ||
   install?.feishuPreflight !== '/opt/agent-deck/libexec/agent-deck-feishu-preflight' ||
@@ -421,6 +445,55 @@ for (const forbidden of ['/usr/bin/podman', 'RelayControlHost']) {
 if (/(?:from|import\()\s*['"]electron(?:['"/])/.test(localWorkerRuntimeBundle)) {
   fail('Local Worker runtime artifact imports Electron');
 }
+const providerSessionBundle = filesUnder(resolve(outputRoot, 'provider-session'))
+  .map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const required of [
+  'runProviderSessionShim',
+  '/run/agent-deck/inference.sock',
+  'GROK_CLI_CHAT_PROXY_BASE_URL',
+  'GROK_XAI_API_BASE_URL',
+  'stdio-multiplex-v1',
+  'unix-http-v1',
+  'agent-deck-session-broker',
+]) {
+  if (!providerSessionBundle.includes(required)) {
+    fail(`Provider session artifact lost ${required}`);
+  }
+}
+const providerSessionSupervisorBundle = filesUnder(
+  resolve(outputRoot, 'provider-session-supervisor'),
+).map((file) => readFileSync(file, 'utf8')).join('\n');
+for (const required of [
+  'runProviderSessionSupervisorEntrypoint',
+  'rootless-podman',
+  'docker-desktop',
+  'runtime-paths',
+  'wait-ready',
+  '/proc/self/fd',
+  'provider runtime image must be pinned by SHA-256 digest',
+]) {
+  if (!providerSessionSupervisorBundle.includes(required)) {
+    fail(`Provider supervisor artifact lost ${required}`);
+  }
+}
+for (const forbidden of [
+  'SERVER_CORE_PROVIDER_AUTH_SOURCE',
+  'GROK_CLI_CHAT_PROXY_BASE_URL',
+  'ServerCoreProviderInferenceBroker',
+]) {
+  if (providerSessionSupervisorBundle.includes(forbidden)) {
+    fail(`Provider supervisor artifact contains Core-only authority ${forbidden}`);
+  }
+}
+for (const forbidden of [
+  '/usr/bin/podman',
+  '/var/run/docker.sock',
+  'SERVER_CORE_PROVIDER_AUTH_SOURCE',
+]) {
+  if (providerSessionBundle.includes(forbidden)) {
+    fail(`Provider session artifact contains ${forbidden}`);
+  }
+}
 const allowedRuntimeExternals = new Set([
   'better-sqlite3',
   ...builtinModules,
@@ -487,6 +560,31 @@ for (const [role, fixture] of checks) {
     resolve(repoRoot, fixture),
   ]);
 }
+for (const fixture of [
+  'rootless-podman.config.example.json',
+  'rootless-podman-full.config.example.json',
+  'colima.config.example.json',
+]) {
+  run(process.execPath, [
+    resolve(outputRoot, 'provider-session-supervisor/index.mjs'),
+    'check-config',
+    '--config',
+    resolve(repoRoot, 'deploy/linux/provider-session', fixture),
+  ]);
+}
+const fullProviderPaths = JSON.parse(runOutput(process.execPath, [
+  resolve(outputRoot, 'provider-session-supervisor/index.mjs'),
+  'runtime-paths',
+  '--instance', 'instance-a',
+  '--runtime-parent',
+  '/var/lib/agent-deck/.local/share/containers/storage/volumes/' +
+    'agent-deck-instance-a-socket/_data',
+  '--uid', '1001',
+]));
+if (!fullProviderPaths.privateRoot.endsWith('/.provider-69856ec0faae6daf') ||
+    Buffer.byteLength(fullProviderPaths.supervisorSocketPath) <= 103) {
+  fail('Full Provider runtime-path derivation lost descriptor-bound long-path support');
+}
 const credentialFixture = JSON.parse(readFileSync(
   resolve(repoRoot, 'deploy/linux/full/server-core.credentials.example.json'),
   'utf8',
@@ -526,6 +624,8 @@ for (const wrapper of [
   'agent-deck-full-bridge',
   'agent-deck-relay',
   'agent-deck-worker',
+  'agent-deck-provider-supervisor',
+  'provider-session',
   'agent-deck-feishu',
 ]) {
   const path = resolve(repoRoot, 'resources/bin', wrapper);
@@ -539,7 +639,13 @@ for (const wrapper of [
       source.includes('com.agentdeck.worker-sandbox') &&
       source.includes('agent-deck-worker-bookmark') &&
       source.includes('Agent Deck Worker Node')
-    : source.includes('/usr/bin/node /opt/agent-deck/linux-headless/');
+    : wrapper === 'provider-session'
+      ? source.includes('/usr/local/bin/node /opt/agent-deck/linux-headless/provider-session/')
+      : wrapper === 'agent-deck-provider-supervisor'
+        ? source.includes('/usr/bin/node /opt/agent-deck/linux-headless/provider-session-supervisor/') &&
+          source.includes('Agent Deck Worker Node') &&
+          source.includes('linux-headless/provider-session-supervisor/index.mjs')
+      : source.includes('/usr/bin/node /opt/agent-deck/linux-headless/');
   if (
     !source.startsWith('#!/bin/bash -p\n') ||
     !source.includes('unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV') ||

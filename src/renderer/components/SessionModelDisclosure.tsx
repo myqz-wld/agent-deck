@@ -3,6 +3,7 @@ import {
   SessionModelFields,
   type SessionThinkingChoice,
 } from './SessionModelFields';
+import type { DeckSelectOption } from './DeckSelect';
 
 interface Props {
   adapterId: string;
@@ -10,6 +11,9 @@ interface Props {
   model: string;
   thinking: SessionThinkingChoice;
   disabled?: boolean;
+  providerOptions?: readonly { id: string; name?: string }[];
+  providerClosed?: boolean;
+  thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
   onThinkingChange: (thinking: SessionThinkingChoice) => void;
@@ -22,6 +26,9 @@ export function SessionModelDisclosure({
   model,
   thinking,
   disabled = false,
+  providerOptions,
+  providerClosed,
+  thinkingOptions,
   onProviderChange,
   onModelChange,
   onThinkingChange,
@@ -50,6 +57,9 @@ export function SessionModelDisclosure({
           thinking={thinking}
           disabled={disabled}
           allowUnsetThinking={false}
+          providerOptions={providerOptions}
+          providerClosed={providerClosed}
+          thinkingOptions={thinkingOptions}
           onProviderChange={onProviderChange}
           onModelChange={onModelChange}
           onThinkingChange={onThinkingChange}

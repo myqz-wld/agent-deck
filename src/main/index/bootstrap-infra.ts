@@ -39,7 +39,11 @@ import {
 import { repairLegacyTokenUsage } from '../store/token-usage-legacy-repair';
 import { settingsStore } from '../store/settings-store';
 import { installDesktopEventRepositoryDiagnostics } from '../store/event-repo-diagnostics-host';
+import { installDesktopAgentDeckTeamRepositoryDiagnostics } from '../store/agent-deck-team-repo/diagnostics-host';
+import { installDesktopFileChangeReadDiagnostics } from '../store/file-change-read-diagnostics-host';
+import { installDesktopMessageDeliveryStateDiagnostics } from '../store/message-delivery-state-diagnostics-host';
 import { installDesktopSessionRepositoryDiagnostics } from '../store/session-repo/diagnostics-host';
+import { installDesktopHandOffDiagnostics } from '../session/hand-off/diagnostics-host';
 import { applyClaudeSettingsEnv } from '../adapters/claude-code/settings-env';
 import { initializeProviderRuntimeCore } from '../adapters/provider-runtime-core';
 import { createProviderAdapterContext } from '../adapters/provider-adapter-context-core';
@@ -127,7 +131,11 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
 
   // 1. 数据库
   installDesktopEventRepositoryDiagnostics();
+  installDesktopAgentDeckTeamRepositoryDiagnostics();
+  installDesktopFileChangeReadDiagnostics();
+  installDesktopMessageDeliveryStateDiagnostics();
   installDesktopSessionRepositoryDiagnostics();
+  installDesktopHandOffDiagnostics();
   const database = initDb({
     databasePath: join(app.getPath('userData'), AGENT_DECK_DATABASE_FILENAME),
     diagnostics: databaseLogger,

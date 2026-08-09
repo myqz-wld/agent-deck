@@ -23,6 +23,17 @@ describe('fixed Core transport surfaces', () => {
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.get')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.create')).toBe(false);
+    expect(isCoreMethodAllowed(
+      AccessSurface.FeishuSessionConsole,
+      'session.file-changes.list',
+    )).toBe(false);
+    expect(isCoreMethodAllowed(
+      AccessSurface.FeishuSessionConsole,
+      'session.assets.image-chunk.read',
+    )).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.tasks.list')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.events.list')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'issues.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.list')).toBe(true);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.get')).toBe(true);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'project.resolve')).toBe(true);

@@ -7,7 +7,6 @@ import {
   publishProviderSession,
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
-import { SERVER_CORE_GROK_SANDBOX } from './provider-grok-sandbox';
 
 export const HEADLESS_GROK_EXECUTABLE = '/opt/agent-deck/providers/grok/grok';
 
@@ -15,6 +14,7 @@ export const HEADLESS_GROK_EXECUTABLE = '/opt/agent-deck/providers/grok/grok';
 export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
   const logger = providerLogger(input.diagnostics, 'grok-build');
   return createGrokBuildAdapterHost({
+    processFactory: input.grokProcessFactory,
     runtimeHost: {
       diagnostics: NOOP_GROK_BRIDGE_DIAGNOSTICS,
       liveRate: NOOP_GROK_LIVE_RATE_OBSERVER,
@@ -37,18 +37,26 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
       },
       transaction: (operation) => input.repositories.transaction(operation),
       publishSessionUpdated: (sessionId) => publishProviderSession(input, sessionId),
-      guardHandOffSourceIngress: () => false,
-      hasPendingWorktreeTransition: () => false,
+      guardHandOffSourceIngress: (args) => input.worktrees.guardIngress({
+        sourceSessionId: args.sourceSessionId,
+        agentId: 'grok-build',
+        text: args.text,
+        attachments: args.attachments,
+        emit: args.emit,
+        bypassWorktreeTransition: args.bypassWorktreeTransition,
+      }),
+      hasPendingWorktreeTransition: (sessionId) =>
+        input.worktrees.hasPendingTransition(sessionId),
     },
     sessionManager: input.repositories.sessionManager,
     settings: {
       readBinaryPath: () => input.settings.grokCliPath ?? HEADLESS_GROK_EXECUTABLE,
-      readDefaultSandbox: () => SERVER_CORE_GROK_SANDBOX,
+      readDefaultSandbox: () => input.grokProcessFactory ? 'workspace' : 'strict',
       readInjectAgents: () => false,
       readInjectAgentPrompt: () => false,
       readInjectSkills: () => false,
-      readMcpEnabled: () => false,
-      readMcpHttpEnabled: () => false,
+      readMcpEnabled: () => input.mcpBroker.isRunning,
+      readMcpHttpEnabled: () => input.mcpBroker.isRunning,
       readPermissionTimeoutMs: () => input.settings.permissionTimeoutMs,
       readSummaryModel: () => input.settings.summaryModel,
       readSummaryReasoning: () => input.settings.summaryThinking,

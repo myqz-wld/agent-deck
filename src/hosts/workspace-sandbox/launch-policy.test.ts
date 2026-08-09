@@ -85,12 +85,22 @@ describe('workspace sandbox launch policy', () => {
       '--', paths.wrapperPath, 'serve', '--config', paths.configFile,
     ]);
     expect(launch.environment.HOME).toBe(paths.environment.providerHomeRoot);
+    expect(launch.environment).toMatchObject({
+      CLAUDE_CONFIG_DIR: join(paths.environment.providerHomeRoot, '.claude'),
+      CODEX_HOME: join(paths.environment.providerHomeRoot, '.codex'),
+      GROK_HOME: join(paths.environment.providerHomeRoot, '.grok'),
+      XDG_CACHE_HOME: paths.environment.providerCacheRoot,
+      TMPDIR: paths.environment.providerTempRoot,
+    });
   });
 
   it('builds one Linux bwrap namespace with exact writable roots', () => {
     const paths = fixture();
+    const providerRuntimeRoot = join(paths.root, 'provider-runtime');
+    mkdirSync(providerRuntimeRoot, { mode: 0o700 });
     const launch = buildLinuxWorkspaceSandboxLaunch(paths.spec, {
       configFile: paths.configFile,
+      providerRuntimeRoot,
       wrapperPath: paths.wrapperPath,
     });
 
@@ -101,11 +111,13 @@ describe('workspace sandbox launch policy', () => {
     expect(launch.args).toContain(paths.runtimeRoot);
     expect(launch.args).toContain(paths.workspaceRoot);
     expect(launch.args).toContain(paths.privateRoot);
+    expect(launch.args).toContain(providerRuntimeRoot);
     expect(launch.args.slice(-7)).toEqual([
       '--chdir', paths.workspaceRoot, '--',
       paths.wrapperPath, 'serve', '--config', paths.configFile,
     ]);
     expect(launch.args).not.toContain(paths.root);
+    expect(launch.args).toContain(join(paths.environment.providerHomeRoot, '.codex'));
   });
 
 });

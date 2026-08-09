@@ -25,9 +25,11 @@ const COLLAPSE_THRESHOLD_CHARS = 800;
 export function MessageBubble({
   event,
   agentId,
+  showAttachments = true,
 }: {
   event: AgentEvent;
   agentId: string;
+  showAttachments?: boolean;
 }): JSX.Element {
   const message = normalizeAgentMessage(event);
   const {
@@ -60,7 +62,7 @@ export function MessageBubble({
   const renderAsMarkdown =
     !isSystem && mode === 'markdown' && !isError && text.length > 0;
   // 「空消息」判定：纯文本时空; 但带附图就不算空
-  const hasContent = text.length > 0 || (attachments && attachments.length > 0);
+  const hasContent = text.length > 0 || (showAttachments && attachments.length > 0);
 
   return (
     <li className={`flex ${
@@ -151,7 +153,7 @@ export function MessageBubble({
           ) : !hasContent ? (
             <span className="text-deck-muted">（空消息）</span>
           ) : null}
-          {attachments && attachments.length > 0 && (
+          {showAttachments && attachments.length > 0 && (
             <div className={`flex flex-wrap gap-1.5 ${text.length > 0 ? 'mt-1.5' : ''}`}>
               {attachments.map((a, i) => (
                 <UploadedImageThumb

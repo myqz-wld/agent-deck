@@ -1,3 +1,4 @@
+import { SESSION_CONSOLE_CREATE_OPTION_KEYS, type SessionConsoleCreateOptions } from '@contracts/index';
 import { FEISHU_HELP_TEXT, type FeishuCommand } from './commands';
 import { assertFeishuMethod } from './client-pool';
 import {
@@ -9,6 +10,7 @@ import {
   validateProjectListResult,
   validateRuntimeControls,
   validateSessionConsoleCreateResult,
+  validateSessionConsoleCapabilitiesResult,
   validateSessionConsoleGetResult,
   validateSessionConsoleListResult,
 } from './core-output';
@@ -167,15 +169,48 @@ export class FeishuCommandExecutor {
       };
     }
     if (command.kind === 'create') {
+      assertFeishuMethod(connected.hello, 'session.console.capabilities');
       assertFeishuMethod(connected.hello, 'session.console.create');
       await this.options.beforeMutation(credential, event.chatId);
+      const capabilityRaw = await client.request(
+        'session.console.capabilities',
+        {
+          adapterId: command.adapterId,
+          provider: '',
+          workingDirectory: command.workingDirectory,
+        },
+        { deadlineMs: remaining() },
+      );
+      const capabilities = validateSessionConsoleCapabilitiesResult(
+        capabilityRaw,
+        this.options.limits,
+        {
+          adapterId: command.adapterId,
+          provider: '',
+          workingDirectory: command.workingDirectory,
+        },
+      );
+      if (!capabilities.create.enabled) {
+        throw new FeishuGatewayError(
+          'capability_unavailable',
+          capabilities.create.disabledReason ?? 'Remote adapter 当前不可用',
+        );
+      }
+      const createOptions = Object.fromEntries(
+        SESSION_CONSOLE_CREATE_OPTION_KEYS.map((key) => [
+          key,
+          capabilities.create.options[key].defaultValue,
+        ]),
+      ) as unknown as SessionConsoleCreateOptions;
       const raw = await client.request(
         'session.console.create',
         {
           adapterId: command.adapterId,
+          attachments: [],
+          capabilityRevision: capabilities.capabilityRevision,
           initialMessage: command.initialMessage,
           workingDirectory: command.workingDirectory,
-          options: {},
+          options: createOptions,
         },
         { ...mutation, deadlineMs: remaining() },
       );

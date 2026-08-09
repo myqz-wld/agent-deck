@@ -2,6 +2,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -67,8 +68,35 @@ afterEach(() => {
 });
 
 describe('concrete Server Core runtime composition', () => {
+  it('owns an injected Provider Grok container runtime through provider shutdown', async () => {
+    const base = root();
+    const workspace = join(base, 'workspace');
+    mkdirSync(workspace, { mode: 0o700 });
+    const close = vi.fn(async () => undefined);
+    const bootstrap = createServerCoreRuntimeWithOverrides(input(base), {
+      workspaceRoot: workspace,
+      grokContainer: {
+        close,
+        processFactory: vi.fn(async () => {
+          throw new Error('unused process factory');
+        }),
+        readiness: vi.fn(async () => ({
+          available: false,
+          disabledReason: 'provider-session-supervisor-unavailable' as const,
+          supervisorGeneration: 0,
+        })),
+      },
+    });
+
+    await bootstrap.runtime.start();
+    await bootstrap.runtime.stop('test');
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('starts real repositories and the isolated provider set without a desktop singleton', async () => {
     const base = root();
+    const workspace = join(base, 'workspace');
+    mkdirSync(workspace, { mode: 0o700 });
     const secretDirectory = join(base, 'secrets');
     const credentialFile = join(secretDirectory, 'credentials.json');
     mkdirSync(secretDirectory, { recursive: true, mode: 0o700 });
@@ -94,6 +122,7 @@ describe('concrete Server Core runtime composition', () => {
       processId: PROCESS_ID,
       credentialFilePath: credentialFile,
       diagnostics,
+      workspaceRoot: workspace,
     });
 
     expect(bootstrap.processId).toBe(PROCESS_ID);
@@ -134,6 +163,46 @@ describe('concrete Server Core runtime composition', () => {
       credentialFilePath: join(base, 'credentials.json'),
       diagnostics: { info: vi.fn(), warn: vi.fn() },
     })).toThrow('runtimeOptions.typoCredentialFile is unsupported');
+  });
+
+  it('projects only fixed provider auth files from the Full secrets volume seam', async () => {
+    const base = root();
+    const workspace = join(base, 'workspace');
+    mkdirSync(workspace, { mode: 0o700 });
+    const providerAuthSource = join(base, 'provider-auth');
+    mkdirSync(join(providerAuthSource, '.codex'), { recursive: true, mode: 0o700 });
+    mkdirSync(join(providerAuthSource, '.grok'), { recursive: true, mode: 0o700 });
+    mkdirSync(join(providerAuthSource, '.ssh'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(providerAuthSource, '.codex', 'auth.json'), '{"token":"test"}\n', {
+      mode: 0o600,
+    });
+    writeFileSync(join(providerAuthSource, '.codex', 'config.toml'), 'model="unsafe"\n', {
+      mode: 0o600,
+    });
+    writeFileSync(join(providerAuthSource, '.grok', 'auth.json'),
+      '{"scope":{"key":"private"}}\n', { mode: 0o600 });
+    writeFileSync(join(providerAuthSource, '.grok', 'config.toml'), 'api_key="unsafe"\n', {
+      mode: 0o600,
+    });
+    writeFileSync(join(providerAuthSource, '.ssh', 'id_ed25519'), 'never\n', { mode: 0o600 });
+    const bootstrap = createServerCoreRuntimeWithOverrides(input(base), {
+      providerAuthSource,
+      workspaceRoot: workspace,
+    });
+
+    await bootstrap.runtime.start();
+    try {
+      const providerHome = join(base, 'state', 'provider-home');
+      expect(readFileSync(join(providerHome, '.codex', 'auth.json'), 'utf8'))
+        .toBe('{"token":"test"}\n');
+      expect(() => readFileSync(join(providerHome, '.grok', 'auth.json'))).toThrow();
+      expect(() => readFileSync(join(providerHome, '.grok', 'sandbox.toml'))).toThrow();
+      expect(() => readFileSync(join(providerHome, '.codex', 'config.toml'))).toThrow();
+      expect(() => readFileSync(join(providerHome, '.grok', 'config.toml'))).toThrow();
+      expect(() => readFileSync(join(providerHome, '.ssh', 'id_ed25519'))).toThrow();
+    } finally {
+      await bootstrap.runtime.stop('test');
+    }
   });
 
   it('binds a Local Worker project catalog to its explicit workspace root', async () => {

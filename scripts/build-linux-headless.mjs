@@ -14,6 +14,8 @@ const roles = Object.freeze({
   relay: 'src/hosts/relay/entrypoint.ts',
   'local-worker': 'src/hosts/local-worker/entrypoint.ts',
   'local-worker-runtime': 'src/hosts/local-worker/runtime-entrypoint.ts',
+  'provider-session-supervisor': 'src/hosts/provider-session/host-entrypoint.ts',
+  'provider-session': 'src/hosts/provider-session/shim-entrypoint.ts',
   feishu: 'src/hosts/feishu/entrypoint.ts',
   'instance-manager': 'src/hosts/instance-manager/adapters/production.ts',
 });

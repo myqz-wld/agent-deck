@@ -3,26 +3,9 @@
  * 仅依赖标准库 / TS 自带能力，不引入 Electron / Node 特有 API。
  */
 
-export type AgentEventKind =
-  | 'session-start'
-  | 'message'
-  | 'message-display'
-  | 'thinking'
-  | 'tool-use-start'
-  | 'tool-use-end'
-  | 'file-changed'
-  | 'context-compaction-start'
-  | 'context-compaction-end'
-  | 'subagent-start'
-  | 'subagent-end'
-  | 'waiting-for-user'
-  | 'finished'
-  | 'session-end'
-  | 'team-task-created'
-  | 'team-task-completed'
-  | 'team-teammate-idle'
-  | 'context-usage'
-  | 'token-usage';
+import type { SessionEventKind } from '@contracts/index';
+
+export type AgentEventKind = SessionEventKind;
 
 export type AgentToolKind =
   | 'read'

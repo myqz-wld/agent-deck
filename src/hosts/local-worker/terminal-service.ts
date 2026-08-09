@@ -21,6 +21,8 @@ import {
 
 import { parseLocalWorkerHeadlessConfig, type LocalWorkerHeadlessConfig } from './headless-config';
 import { DARWIN_WORKSPACE_BOOKMARK_FILE } from './terminal-configuration';
+import { prepareProviderSessionRuntimeDirectories } from '@hosts/provider-session/runtime-directories';
+import { providerSessionWorkerRuntimeRoot } from '@hosts/provider-session/runtime-paths';
 
 const WORKER_CONFIG_ID = /^worker-[a-f0-9]{24}$/;
 const COMMAND_TIMEOUT_MS = 20_000;
@@ -56,6 +58,11 @@ export interface LocalWorkerServiceManagerOptions {
   readonly darwinSandboxLauncherPath?: string;
   readonly uid?: number;
   readonly commands?: LocalWorkerServiceCommandPort;
+  readonly providerRuntimeRoot?: (
+    workerConfigId: string,
+    platform: 'darwin' | 'linux',
+    uid: number,
+  ) => string;
 }
 
 interface InstalledWorker {
@@ -188,9 +195,15 @@ ${darwinEnvironment(launch)}
 `;
 }
 
-function linuxDefinition(worker: InstalledWorker, launch: WorkspaceSandboxLaunchCommand): string {
+function linuxDefinition(
+  worker: InstalledWorker,
+  launch: WorkspaceSandboxLaunchCommand,
+  providerRuntimeRoot: string,
+  wrapperPath: string,
+): string {
   const sandbox = worker.config.workspaceSandbox!;
   const command = [launch.executable, ...launch.args].map(systemd).join(' ');
+  const providerRuntimeParent = dirname(providerRuntimeRoot);
   return `[Unit]
 Description=Agent Deck Local Worker (${worker.workerConfigId})
 After=network-online.target
@@ -198,6 +211,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStartPre=${systemd(wrapperPath)} prepare-provider-runtime --root ${systemd(providerRuntimeRoot)}
 ExecStart=${command}
 WorkingDirectory=${systemd(sandbox.workspaceRoot)}
 Restart=on-failure
@@ -208,7 +222,7 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=${systemd(sandbox.workspaceRoot)} ${systemd(sandbox.privateRoot)}
+ReadWritePaths=${systemd(sandbox.workspaceRoot)} ${systemd(sandbox.privateRoot)} ${systemd(providerRuntimeParent)} ${systemd(`-${providerRuntimeRoot}`)}
 
 [Install]
 WantedBy=default.target
@@ -314,6 +328,16 @@ export class LocalWorkerTerminalServiceManager {
   async start(workerConfigId?: string): Promise<LocalWorkerServiceStatus> {
     const worker = await this.required(workerConfigId);
     const sandbox = worker.config.workspaceSandbox!;
+    const providerRuntimeRoot = this.options.providerRuntimeRoot?.(
+      worker.workerConfigId,
+      this.options.platform,
+      this.uid,
+    ) ?? providerSessionWorkerRuntimeRoot({
+      platform: this.options.platform,
+      uid: this.uid,
+      workerConfigId: worker.workerConfigId,
+    });
+    prepareProviderSessionRuntimeDirectories([providerRuntimeRoot], this.uid);
     const sandboxIdentity = captureWorkspaceSandboxIdentity(sandbox, this.uid);
     const definitionPath = this.definitionPath(worker);
     const launch = this.options.platform === 'darwin'
@@ -325,13 +349,15 @@ export class LocalWorkerTerminalServiceManager {
       })
       : buildLinuxWorkspaceSandboxLaunch(sandbox, {
         configFile: worker.configFile,
+        providerRuntimeRoot,
         wrapperPath: this.options.wrapperPath,
       });
     const definition = this.options.platform === 'darwin'
       ? darwinDefinition(worker, launch)
-      : linuxDefinition(worker, launch);
+      : linuxDefinition(worker, launch, providerRuntimeRoot, this.options.wrapperPath);
     await writeDefinition(definitionPath, definition);
     assertWorkspaceSandboxIdentity(sandboxIdentity);
+    assertOwnedDirectory(providerRuntimeRoot, 'Provider runtime root', 0o700);
     if (this.options.platform === 'darwin') {
       const target = `gui/${this.uid}/${serviceLabel(worker.workerConfigId)}`;
       const current = await this.run('/bin/launchctl', ['print', target]);

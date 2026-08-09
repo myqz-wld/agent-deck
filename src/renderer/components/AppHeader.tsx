@@ -23,6 +23,7 @@ interface AppHeaderProps {
   sourceMode: RemoteHostSourceMode;
   selectedRemoteProfileId: string | null;
   remoteProfiles: readonly RemoteHostProfileDto[];
+  remoteIssuesAvailable: boolean;
   onViewChange: (view: AppView) => void;
   onSourceChange: (value: string) => void;
   onOpenRemoteProfiles: () => void;
@@ -43,6 +44,7 @@ export function AppHeader({
   sourceMode,
   selectedRemoteProfileId,
   remoteProfiles,
+  remoteIssuesAvailable,
   onViewChange,
   onSourceChange,
   onOpenRemoteProfiles,
@@ -73,6 +75,8 @@ export function AppHeader({
       { value: 'teams' as const, label: '团队' },
       { value: 'issues' as const, label: '问题' },
       { value: 'data' as const, label: '数据' },
+    ] : remoteIssuesAvailable ? [
+      { value: 'issues' as const, label: '问题' },
     ] : []),
   ];
 
@@ -118,7 +122,7 @@ export function AppHeader({
           </TabButton>
           <TabButton active={view === 'history'} onClick={() => onViewChange('history')}>{sourceMode === 'remote' ? '会话摘要' : '历史'}</TabButton>
           {sourceMode === 'local' && <TabButton active={view === 'teams'} onClick={() => onViewChange('teams')}>团队</TabButton>}
-          {sourceMode === 'local' && <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>}
+          {(sourceMode === 'local' || remoteIssuesAvailable) && <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>}
           {sourceMode === 'local' && <TabButton active={view === 'data'} onClick={() => onViewChange('data')}>数据</TabButton>}
         </div>
         <DeckSelect

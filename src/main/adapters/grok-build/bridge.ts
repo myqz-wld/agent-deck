@@ -142,7 +142,6 @@ export class GrokBuildBridge {
       turnQueue: this.turnQueue,
     });
   }
-
   setBinaryPath(path: string | null): void {
     this.binaryPath = path;
   }
@@ -161,7 +160,6 @@ export class GrokBuildBridge {
       this.options.onNegotiatedImageCapability,
     );
   }
-
   async createSession(opts: GrokCreateOpts): Promise<string> {
     return this.createSessionInternal(opts);
   }
@@ -461,6 +459,7 @@ export class GrokBuildBridge {
         this.turnQueue.observePromptComplete(runtime, notification),
       drain: (runtime) => this.turnQueue.drain(runtime),
       dispose: (runtime) => this.disposeRuntime(runtime),
+      processFactory: this.options.processFactory,
     };
   }
 

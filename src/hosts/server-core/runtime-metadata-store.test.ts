@@ -112,6 +112,29 @@ describe('ServerCoreRuntimeMetadataStore', () => {
     });
   });
 
+  it('atomically commits a session change with its replay result', () => {
+    const metadata = store();
+    const input = identity({ method: 'session.console.create' });
+    expect(metadata.claimMutation(input, 10)).toEqual({ state: 'claimed' });
+    expect(metadata.commitSessionCreate(input, 'session-a', {
+      adapterId: 'grok-build', sessionId: 'session-a', workingDirectory: 'repo',
+    }, 11)).toEqual({ sessionId: 'session-a', revision: 1 });
+    expect(metadata.replay(0)).toEqual([expect.objectContaining({
+      kind: 'session.created', entityId: 'session-a', revision: 1,
+    })]);
+    expect(metadata.claimMutation(input, 12)).toEqual({
+      state: 'completed', result: { sessionId: 'session-a', revision: 1 }, revision: 1,
+    });
+  });
+
+  it('releases only the exact invoking mutation claim', () => {
+    const metadata = store();
+    const input = identity();
+    expect(metadata.claimMutation(input, 10)).toEqual({ state: 'claimed' });
+    metadata.releaseMutationClaim(input);
+    expect(metadata.claimMutation(input, 11)).toEqual({ state: 'claimed' });
+  });
+
   it('fails closed for conflicting and crash-ambiguous mutation retries', () => {
     const metadata = store();
     const input = identity();

@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import type {
@@ -13,6 +11,9 @@ import type { ServerCoreProviderSettings } from './provider-settings';
 import type { ServerCoreRepositoryHost } from './repository-host';
 import type { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import type { ServerCoreRuntimeDiagnostics } from './repository-host';
+import type { ServerCoreMcpBrokerPort } from './mcp-broker-port';
+import type { ServerCoreWorktreeRuntimePort } from './mcp-worktree-port';
+import type { GrokAcpSessionFactory } from '@main/adapters/grok-build/acp-process';
 
 export interface ServerCoreProviderHostInput {
   readonly instanceId: string;
@@ -23,6 +24,10 @@ export interface ServerCoreProviderHostInput {
   readonly diagnostics: ServerCoreRuntimeDiagnostics;
   readonly renames: ServerCoreProviderRenameBus;
   readonly workspaceBoundary: ServerCoreProviderWorkspaceBoundary;
+  readonly mcpBroker: ServerCoreMcpBrokerPort;
+  readonly worktrees: ServerCoreWorktreeRuntimePort;
+  /** Present only after the Provider supervisor and broker production composition is verified. */
+  readonly grokProcessFactory?: GrokAcpSessionFactory;
 }
 
 export interface ServerCoreProviderWorkspaceBoundary {
@@ -106,22 +111,16 @@ export function sessionChange(record: SessionRecord) {
 }
 
 export function emitProviderEvent(input: ServerCoreProviderHostInput, event: AgentEvent): void {
+  if (!input.worktrees.observe(event)) return;
   input.repositories.sessionManager.ingest(event);
 }
 
 export function createHeadlessAdapterContext(
   input: ServerCoreProviderHostInput,
 ): AdapterContext {
-  const hookServer: AdapterHookServerPort = Object.freeze({
-    isRunning: false,
-    listeningPort: 0,
-    bearerToken: randomBytes(32).toString('hex'),
-    mcpBearerToken: randomBytes(32).toString('hex'),
-  });
-  const routeRegistry: AdapterRouteRegistryPort = Object.freeze({
-    registerForAdapter: () => undefined,
-  });
-  const userHome = process.env.HOME || homedir();
+  const hookServer: AdapterHookServerPort = input.mcpBroker;
+  const routeRegistry: AdapterRouteRegistryPort = input.mcpBroker;
+  const userHome = input.workspaceBoundary.providerHomeRoot;
   return Object.freeze({
     hookServer,
     routeRegistry,
@@ -144,9 +143,20 @@ export function processEnvironment(): Record<string, string> {
 
 export function providerProcessEnvironment(
   input: Pick<ServerCoreProviderHostInput, 'workspaceBoundary'>,
+  source: Readonly<Record<string, string>> = processEnvironment(),
 ): Record<string, string> {
-  const result = processEnvironment();
+  const result: Record<string, string> = {};
+  for (const key of ['LANG', 'LC_ALL', 'LC_CTYPE', 'PATH', 'TERM', 'TZ']) {
+    const value = source[key];
+    if (typeof value === 'string') result[key] = value;
+  }
+  result.HOME = input.workspaceBoundary.providerHomeRoot;
+  result.CLAUDE_CONFIG_DIR = join(input.workspaceBoundary.providerHomeRoot, '.claude');
+  result.CODEX_HOME = join(input.workspaceBoundary.providerHomeRoot, '.codex');
+  result.GROK_HOME = join(input.workspaceBoundary.providerHomeRoot, '.grok');
   result.XDG_CACHE_HOME = input.workspaceBoundary.providerCacheRoot;
+  result.XDG_CONFIG_HOME = input.workspaceBoundary.providerHomeRoot;
+  result.XDG_STATE_HOME = input.workspaceBoundary.providerHomeRoot;
   result.TMPDIR = input.workspaceBoundary.providerTempRoot;
   result.TMP = input.workspaceBoundary.providerTempRoot;
   result.TEMP = input.workspaceBoundary.providerTempRoot;

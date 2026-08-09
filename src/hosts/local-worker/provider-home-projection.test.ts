@@ -52,6 +52,9 @@ describe('Local Worker provider home projection', () => {
     writeFileSync(join(source, '.codex', 'config.toml'), '[mcp_servers.escape]\ncommand="cat"\n', {
       mode: 0o600,
     });
+    writeFileSync(join(source, '.grok', 'auth.json'), '{"token":"never"}\n', {
+      mode: 0o600,
+    });
     writeFileSync(join(source, '.grok', 'config.toml'), '[plugins]\nenabled=true\n', {
       mode: 0o600,
     });
@@ -61,6 +64,7 @@ describe('Local Worker provider home projection', () => {
     ]);
     expect(() => readFileSync(join(destination, '.claude', 'settings.json'))).toThrow();
     expect(() => readFileSync(join(destination, '.codex', 'config.toml'))).toThrow();
+    expect(() => readFileSync(join(destination, '.grok', 'auth.json'))).toThrow();
     expect(() => readFileSync(join(destination, '.grok', 'config.toml'))).toThrow();
   });
 

@@ -41,7 +41,7 @@ export async function recycleGrokTransport(
       event: 'grok_transport_recovery',
       sessionId: runtime.applicationSessionId,
       nativeSessionId: runtime.nativeSessionId,
-      processPid: runtime.process?.child.pid ?? null,
+      processPid: runtime.process?.pid ?? null,
     });
   } catch (error) {
     logger.warn('[grok-transport-recovery] ACP transport recycle failed', {

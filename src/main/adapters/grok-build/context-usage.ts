@@ -1,6 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 
-import { withTimeout, type GrokAcpProcess } from './acp-process';
+import { withTimeout, type GrokAcpSession } from './acp-process';
 import { asRecord, errorText } from './protocol-utils';
 import type { GrokRuntime } from './runtime-types';
 import { createGrokContextUsageEvent } from './translate';
@@ -39,12 +39,12 @@ export interface GrokContextUsageRefreshOptions {
 interface RefreshState {
   queued: boolean;
   options: GrokContextUsageRefreshOptions;
-  process: GrokAcpProcess | null;
+  process: GrokAcpSession | null;
   nativeSessionId: string | null;
 }
 
 const refreshStates = new WeakMap<GrokRuntime, RefreshState>();
-const warnedProcesses = new WeakSet<GrokAcpProcess>();
+const warnedProcesses = new WeakSet<GrokAcpSession>();
 
 export function parseGrokSessionInfoContext(
   response: unknown,
@@ -172,7 +172,7 @@ async function runRefreshLoop(
 
 function isEligible(
   runtime: GrokRuntime,
-  process: GrokAcpProcess,
+  process: GrokAcpSession,
   nativeSessionId: string,
   options: GrokContextUsageRefreshOptions,
 ): boolean {
@@ -183,7 +183,7 @@ function isEligible(
 }
 
 function warnOnce(
-  process: GrokAcpProcess,
+  process: GrokAcpSession,
   runtime: GrokRuntime,
   options: GrokContextUsageRefreshOptions,
   message: string,

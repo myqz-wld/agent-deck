@@ -11,6 +11,7 @@ import {
 } from '@hosts/electron/__tests__/registry-fixture';
 
 import { MemoryCredentialMaterialStore, testConnectionSelections } from './test-connection-fixture';
+import type { RemoteHostDesktopBrokerPort } from './desktop-browser-broker';
 import type { RemoteHostProfileDocument } from './profile-document';
 import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
 import { RemoteHostService } from './service';
@@ -21,7 +22,11 @@ class MemoryBackend implements RemoteHostProfileBackend {
   write(value: RemoteHostProfileDocument): void { this.value = structuredClone(value); }
 }
 
-function harness(options: { local?: boolean; twoRemotes?: boolean } = {}) {
+function harness(options: {
+  desktopBroker?: RemoteHostDesktopBrokerPort;
+  local?: boolean;
+  twoRemotes?: boolean;
+} = {}) {
   const local = standaloneProfile('local');
   const firstProfile = remoteProfile('remote-a', 'server-core');
   const secondProfile = remoteProfile('remote-b', 'server-core');
@@ -54,6 +59,7 @@ function harness(options: { local?: boolean; twoRemotes?: boolean } = {}) {
     connections: testConnectionSelections(createId),
     materials: new MemoryCredentialMaterialStore(),
     createId,
+    desktopBroker: options.desktopBroker,
   });
   return { backend, clients, firstProfile, local, registry, secondProfile, service };
 }
@@ -84,7 +90,14 @@ describe('RemoteHostService lifecycle admission', () => {
   });
 
   it('starts local SSH retirement during shutdown without waiting for a pending connect', async () => {
-    const context = harness();
+    const brokerGate = deferred<void>();
+    const context = harness({
+      desktopBroker: {
+        handleState: () => undefined,
+        handleEvent: () => undefined,
+        stop: () => brokerGate.promise,
+      },
+    });
     const gate = deferred<ReturnType<typeof remoteHello>>();
     const client = context.clients.get(context.firstProfile.id)!;
     vi.spyOn(client, 'connect').mockImplementation(() => gate.promise);
@@ -92,11 +105,10 @@ describe('RemoteHostService lifecycle admission', () => {
     await Promise.resolve();
 
     const shutdown = context.service.shutdown();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(client.closeSpy).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(client.closeSpy).toHaveBeenCalledOnce());
 
     gate.resolve(remoteHello(context.firstProfile));
+    brokerGate.resolve(undefined);
     await expect(connecting).rejects.toBeTruthy();
     await expect(shutdown).resolves.toBeUndefined();
     await expect(context.service.connect(context.firstProfile.id)).rejects.toMatchObject({

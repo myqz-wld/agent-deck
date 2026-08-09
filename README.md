@@ -89,10 +89,11 @@ create, and inspect runtime state using only normalized Workspace-relative direc
 without receiving a host path. The older cwd-bearing desktop methods are outside the Feishu
 allowlist. The P3 milestone adds the Electron-owned remote
 profile/source adapter, restricted SSH clients and bridges, official Feishu SDK adapters, isolated
-headless role bundles, and fail-closed Linux service/package fixtures. These artifacts are still a staged
-implementation rather than a supported remote release: the concrete Electron-free Core/provider
-runtime module, target-Node native dependencies, and real Ubuntu/EL9 isolation and end-to-end
-evidence remain required. The existing standalone desktop remains the supported runtime meanwhile.
+headless role bundles, and fail-closed Linux service/package fixtures. The concrete Electron-free
+Core/provider runtime and target-Node bundle are packaged and statically checked, but these artifacts
+remain a staged implementation rather than a supported remote release: real Ubuntu/EL9 isolation,
+signed-package, Relay, Full, Feishu, and end-to-end acceptance evidence is still required. The
+existing standalone desktop remains the supported runtime meanwhile.
 
 ## Client sources and server deployment topologies
 
@@ -117,6 +118,21 @@ may choose the root (`.`) or an existing nested directory, but they receive only
 references. Absolute host paths, Worker-private state, provider credentials, topology, and instance
 identity remain host-owned; the Core re-resolves every chosen directory under the Workspace before
 creating a session. Provider-native sandboxes may narrow this boundary but cannot widen it.
+
+Local and Remote open the same New Session form. Remote obtains the adapter, provider, model,
+thinking, permission/session mode, approval, sandbox, and attachment choices from a revisioned Core
+descriptor; unavailable choices carry the Core-owned reason instead of falling back to Local.
+Remote directory browsing projects canonical Workspace-relative subdirectories only, and initial
+images are transferred through the bounded create contract into private Core-owned storage.
+
+Remote Claude and Codex sandbox choices are compiled under the immutable Workspace ceiling: a
+broader provider choice can widen access only up to that Workspace, while selected-directory and
+read-only choices narrow it further. Provider credentials and mutable state remain in a separate
+private projection. Remote Grok uses a Core-owned inference broker and a host-owned Provider-session
+container; it is published only when the exact opt-in, independently managed supervisor, pinned OCI
+image/runtime, and Core-only credential are all ready. Missing provisioning disables only Grok with
+a Core-owned reason. The shipped Full/Relay templates provide that lifecycle, while real rootless-
+Podman and signed-package acceptance remain release gates.
 
 The selected source mode and last Remote profile persist independently. Renderer caches,
 subscriptions, navigation, and writes are scoped by source/profile/Core generation so a late Local

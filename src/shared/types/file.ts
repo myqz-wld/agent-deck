@@ -77,7 +77,9 @@ export interface DiffPayload<T = unknown> {
  */
 export type ImageSource =
   | { kind: 'path'; path: string }
-  | { kind: 'snapshot'; snapshotId: string };
+  | { kind: 'snapshot'; snapshotId: string }
+  /** Opaque Remote handle. It never contains a Worker path or asset credential. */
+  | { kind: 'remote-file-change'; changeId: number; side: 'before' | 'after' };
 
 /**
  * 本地 MCP server 暴露的图片工具的 tool_result 形态约定。
@@ -152,6 +154,6 @@ export type LoadImageBlobResult =
   | { ok: true; dataUrl: string; mime: string; bytes: number }
   | {
       ok: false;
-      reason: 'enoent' | 'too_big' | 'denied' | 'invalid_ext' | 'io_error' | 'unsupported_source';
+      reason: 'changed' | 'enoent' | 'too_big' | 'denied' | 'invalid_ext' | 'io_error' | 'unsupported_source';
       detail?: string;
     };

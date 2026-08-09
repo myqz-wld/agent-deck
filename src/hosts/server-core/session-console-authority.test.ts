@@ -2,11 +2,19 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AccessContext } from '@contracts/index';
+import {
+  SESSION_CONSOLE_CREATE_OPTION_KEYS,
+  type AccessContext,
+  type SessionConsoleCreateOptions,
+  type SessionConsoleCreateParams,
+} from '@contracts/index';
 import type { SessionConsoleExecutionContext } from '@core/session-console';
 import type { AgentAdapter } from '@main/adapters/types';
+import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import type { SessionRecord } from '@shared/types';
 import type { ServerCoreProject } from './project-catalog';
+import { resolveServerCoreProviderSettings } from './provider-settings';
+import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
 import {
   ServerCoreSessionConsoleAuthority,
   type ServerCoreSessionConsoleMetadataPort,
@@ -79,18 +87,24 @@ function harness() {
   let claim: ReturnType<ServerCoreSessionConsoleMetadataPort['claimMutation']> = {
     state: 'claimed',
   };
-  const completeMutation = vi.fn();
+  const commitSessionCreate = vi.fn((_identity, sessionId: string) => ({
+    sessionId,
+    revision: ++revision,
+  }));
+  const releaseMutationClaim = vi.fn();
   const metadata: ServerCoreSessionConsoleMetadataPort = {
     currentRevision: () => revision,
     appendChange: vi.fn(() => ++revision),
     claimMutation: vi.fn(() => claim),
-    completeMutation,
+    completeMutation: vi.fn(),
+    commitSessionCreate,
+    releaseMutationClaim,
   };
-  const createSession = vi.fn(() => Promise.resolve('created-session'));
+  const createSession = vi.fn((_options?: unknown) => Promise.resolve('created-session'));
   const adapter = {
     id: 'claude-code',
     displayName: 'Claude',
-    capabilities: {},
+    capabilities: getAdapterRuntimeProfile('claude-code').capabilities,
     init: vi.fn(() => Promise.resolve()),
     shutdown: vi.fn(() => Promise.resolve()),
     createSession,
@@ -102,20 +116,74 @@ function harness() {
     title: 'Project Alpha',
     workspacePath: paths.path,
   };
+  const registry = { get: (id: string) => id === 'claude-code' ? adapter : undefined };
+  const createCapabilities = new ServerCoreSessionCreateCapabilities({
+    metadata,
+    projects: [project],
+    providerHomeRoot: join(paths.root, '..', 'provider-home'),
+    registry,
+    settings: resolveServerCoreProviderSettings({}),
+    workspaceRoot: paths.root,
+  });
+  const attachmentRef = {
+    kind: 'uploaded' as const,
+    path: join(paths.root, '..', 'private-attachments', 'image.png'),
+    mime: 'image/png',
+    bytes: 3,
+  };
+  const persistAttachments = vi.fn((inputs: readonly unknown[]) =>
+    Promise.resolve(inputs.length > 0 ? [attachmentRef] : []));
+  const removeAttachments = vi.fn(() => Promise.resolve());
+  const rollbackCreatedSession = vi.fn(() => Promise.resolve());
   const authority = new ServerCoreSessionConsoleAuthority({
     projects: [project],
     workspaceRoot: paths.root,
     repository,
-    registry: { get: (id) => id === 'claude-code' ? adapter : undefined },
+    registry,
     metadata,
+    createCapabilities,
+    attachmentStore: {
+      persist: persistAttachments,
+      remove: removeAttachments,
+    },
+    rollbackCreatedSession,
   });
   return {
     authority,
-    completeMutation,
+    commitSessionCreate,
     createSession,
+    attachmentRef,
+    persistAttachments,
+    removeAttachments,
+    releaseMutationClaim,
+    rollbackCreatedSession,
     metadata,
     setClaim: (value: typeof claim) => { claim = value; },
     workspaceRoot: paths.root,
+  };
+}
+
+async function createParams(
+  authority: ServerCoreSessionConsoleAuthority,
+  workingDirectory = 'alpha',
+  initialMessage = 'Inspect the repository',
+): Promise<SessionConsoleCreateParams> {
+  const capabilities = await authority.getCapabilities({
+    adapterId: 'claude-code',
+    provider: '',
+    workingDirectory,
+  }, context());
+  const options = Object.fromEntries(SESSION_CONSOLE_CREATE_OPTION_KEYS.map((key) => [
+    key,
+    capabilities.create.options[key].defaultValue,
+  ])) as unknown as SessionConsoleCreateOptions;
+  return {
+    adapterId: 'claude-code',
+    attachments: [],
+    capabilityRevision: capabilities.capabilityRevision,
+    initialMessage,
+    options,
+    workingDirectory,
   };
 }
 
@@ -162,29 +230,122 @@ describe('ServerCoreSessionConsoleAuthority', () => {
       .toEqual(listed.projects[0]);
   });
 
+  it('classifies unavailable Workspace directory pages as invalid requests', () => {
+    const { authority } = harness();
+    expect(() => authority.listWorkspaceDirectories({ directory: 'missing' }, context()))
+      .toThrow(expect.objectContaining({ code: 'invalid_request' }));
+  });
+
   it('creates through the exact adapter and completes durable idempotency', async () => {
-    const { authority, completeMutation, createSession } = harness();
-    await expect(authority.createSession({
-      adapterId: 'claude-code',
-      initialMessage: 'Inspect the repository',
-      workingDirectory: 'alpha',
-      options: {},
-    }, context())).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
-    expect(createSession).toHaveBeenCalledWith({
+    const { authority, commitSessionCreate, createSession } = harness();
+    await expect(authority.createSession(
+      await createParams(authority),
+      context(),
+    )).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'claude-code',
       cwd: expect.stringContaining('/workspaces/alpha'),
       prompt: 'Inspect the repository',
+      permissionMode: 'bypassPermissions',
+      claudeCodeSandbox: 'workspace-write',
       awaitCanonicalId: true,
-    });
-    expect(completeMutation).toHaveBeenCalledWith(
+    }));
+    expect(commitSessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         accessCredentialId: 'credential-a',
         method: 'session.console.create',
         requestFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
       }),
-      { sessionId: 'created-session', revision: 4 },
-      4,
+      'created-session',
+      expect.objectContaining({ sessionId: 'created-session' }),
     );
+  });
+
+  it('passes trusted spawn registration without claiming an SSH mutation identity', async () => {
+    const { authority, commitSessionCreate, createSession, metadata } = harness();
+    const onRegistered = vi.fn();
+    createSession.mockImplementationOnce(async (options?: unknown) => {
+      const registration = (options as {
+        initialSessionRegistration?: { onRegistered(sessionId: string): void };
+      }).initialSessionRegistration;
+      registration?.onRegistered('created-session');
+      return 'created-session';
+    });
+    await expect(authority.createSpawnSession({
+      params: await createParams(authority),
+      initialSessionRegistration: {
+        spawnLink: { parentSessionId: 'lead-session', depth: 2 },
+        onRegistered,
+      },
+      teamName: 'review-team',
+    })).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
+    expect(onRegistered).toHaveBeenCalledWith('created-session');
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
+      teamName: 'review-team',
+      initialSessionRegistration: expect.objectContaining({
+        spawnLink: { parentSessionId: 'lead-session', depth: 2 },
+      }),
+    }));
+    expect(metadata.claimMutation).not.toHaveBeenCalled();
+    expect(commitSessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('passes private attachment references and rolls them back on provider failure', async () => {
+    const current = harness();
+    const input = {
+      kind: 'image' as const,
+      base64: Buffer.from('png').toString('base64'),
+      mime: 'image/png' as const,
+      bytes: 3,
+    };
+    const params = { ...await createParams(current.authority), attachments: [input] };
+    await current.authority.createSession(params, context());
+    expect(current.persistAttachments).toHaveBeenCalledWith([input]);
+    expect(current.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [current.attachmentRef],
+    }));
+    expect(current.removeAttachments).not.toHaveBeenCalled();
+
+    const failed = harness();
+    failed.createSession.mockRejectedValueOnce(new Error('provider failed'));
+    await expect(failed.authority.createSession(
+      { ...await createParams(failed.authority), attachments: [input] },
+      context(),
+    )).rejects.toThrow('provider failed');
+    expect(failed.removeAttachments).toHaveBeenCalledWith([failed.attachmentRef]);
+    expect(failed.releaseMutationClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back a provider session when atomic metadata commit fails', async () => {
+    const current = harness();
+    current.commitSessionCreate.mockImplementationOnce(() => {
+      throw new Error('metadata commit failed');
+    });
+    await expect(current.authority.createSession(
+      await createParams(current.authority),
+      context(),
+    )).rejects.toThrow('metadata commit failed');
+    expect(current.rollbackCreatedSession).toHaveBeenCalledWith(
+      'claude-code', 'created-session',
+    );
+    expect(current.releaseMutationClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains an uncertain claim when strict provider rollback cannot be proven', async () => {
+    const current = harness();
+    current.commitSessionCreate.mockImplementationOnce(() => {
+      throw new Error('metadata commit failed');
+    });
+    current.rollbackCreatedSession.mockRejectedValueOnce(new Error('rollback failed'));
+    await expect(current.authority.createSession(
+      await createParams(current.authority),
+      context(),
+    )).rejects.toMatchObject({
+      code: 'provider_lost',
+      retryable: true,
+      message: 'Created provider session could not be rolled back',
+    });
+    expect(current.releaseMutationClaim).not.toHaveBeenCalled();
   });
 
   it('creates in an existing nested directory without a preconfigured project', async () => {
@@ -192,12 +353,10 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     const nested = join(workspaceRoot, 'nested', 'child');
     mkdirSync(nested, { recursive: true });
 
-    await expect(authority.createSession({
-      adapterId: 'claude-code',
-      initialMessage: 'Inspect the nested directory',
-      workingDirectory: 'nested/child',
-      options: {},
-    }, context())).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
+    await expect(authority.createSession(
+      await createParams(authority, 'nested/child', 'Inspect the nested directory'),
+      context(),
+    )).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
     expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
       cwd: realpathSync(nested),
     }));
@@ -225,12 +384,10 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     for (const client of [desktop, feishu]) {
       expect(authority.listProjects({ limit: 10 }, client).projects[0])
         .not.toHaveProperty('workspacePath');
-      await expect(authority.createSession({
-        adapterId: 'claude-code',
-        initialMessage: 'Inspect the shared Workspace directory',
-        workingDirectory: 'shared/project',
-        options: {},
-      }, client)).resolves.toMatchObject({ sessionId: 'created-session' });
+      await expect(authority.createSession(
+        await createParams(authority, 'shared/project', 'Inspect the shared Workspace directory'),
+        client,
+      )).resolves.toMatchObject({ sessionId: 'created-session' });
     }
     expect(createSession).toHaveBeenNthCalledWith(1, expect.objectContaining({
       cwd: realpathSync(nested),
@@ -238,48 +395,53 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     expect(createSession).toHaveBeenNthCalledWith(2, expect.objectContaining({
       cwd: realpathSync(nested),
     }));
-    await expect(authority.createSession({
+    await expect(authority.getCapabilities({
       adapterId: 'claude-code',
-      initialMessage: 'Inspect private state',
+      provider: '',
       workingDirectory: 'private-link',
-      options: {},
     }, context(feishu.access, 'feishu-escape'))).rejects.toThrow(/unavailable|Workspace/);
     expect(createSession).toHaveBeenCalledTimes(2);
   });
 
   it('returns completed mutations without invoking a provider twice', async () => {
     const { authority, createSession, setClaim } = harness();
+    const params = await createParams(authority);
     setClaim({
       state: 'completed',
       result: { sessionId: 'prior-session', revision: 9 },
       revision: 9,
     });
-    await expect(authority.createSession({
-      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
-    }, context())).resolves.toEqual({ sessionId: 'prior-session', revision: 9 });
+    await expect(authority.createSession(
+      { ...params, capabilityRevision: `sha256:${'f'.repeat(64)}` },
+      context(),
+    )).resolves.toEqual({ sessionId: 'prior-session', revision: 9 });
     expect(createSession).not.toHaveBeenCalled();
   });
 
   it('fails closed for ambiguous, conflicting, or widened creates', async () => {
-    const { authority, setClaim } = harness();
+    const { authority, releaseMutationClaim, setClaim } = harness();
     setClaim({ state: 'uncertain' });
-    await expect(authority.createSession({
-      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
-    }, context())).rejects.toMatchObject({ code: 'provider_lost' });
+    await expect(authority.createSession(
+      await createParams(authority),
+      context(),
+    )).rejects.toMatchObject({ code: 'provider_lost' });
     setClaim({ state: 'conflict' });
+    await expect(authority.createSession(
+      await createParams(authority),
+      context(),
+    )).rejects.toMatchObject({ code: 'conflict' });
+    setClaim({ state: 'claimed' });
+    const stale = await createParams(authority);
     await expect(authority.createSession({
-      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
+      ...stale,
+      capabilityRevision: `sha256:${'f'.repeat(64)}`,
     }, context())).rejects.toMatchObject({ code: 'conflict' });
-    await expect(authority.createSession({
-      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: { cwd: '/escape' },
-    }, context())).rejects.toMatchObject({ code: 'invalid_request' });
+    expect(releaseMutationClaim).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a non-owner context before claiming mutation authority', async () => {
     const { authority, metadata } = harness();
-    await expect(authority.createSession({
-      adapterId: 'claude-code', initialMessage: 'Inspect the repository', workingDirectory: 'alpha', options: {},
-    }, context({
+    await expect(authority.createSession(await createParams(authority), context({
       kind: 'standalone', topology: 'standalone', instanceId: 'local',
       clientId: 'local', transport: 'local-ipc', accessCredentialId: null,
       authority: 'local-owner', surface: 'desktop-full',

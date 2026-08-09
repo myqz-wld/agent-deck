@@ -51,7 +51,7 @@ export class GrokFirstModelEventWatchdog {
         nativeSessionId: runtime.nativeSessionId,
         elapsedMs: Math.max(0, Date.now() - current.startedAt),
         timeoutMs: this.timeoutMs,
-        processPid: runtime.process?.child?.pid ?? null,
+        processPid: runtime.process?.pid ?? null,
         },
       );
       rejectTimeout(new GrokFirstModelEventTimeoutError(this.timeoutMs));
@@ -64,7 +64,7 @@ export class GrokFirstModelEventWatchdog {
       sessionId: runtime.applicationSessionId,
       nativeSessionId: runtime.nativeSessionId,
       timeoutMs: this.timeoutMs,
-      processPid: runtime.process?.child?.pid ?? null,
+      processPid: runtime.process?.pid ?? null,
     });
 
     try {

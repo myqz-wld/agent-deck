@@ -1,4 +1,8 @@
-import { isJsonObject } from '@contracts/index';
+import {
+  isJsonObject,
+  parseMcpPresentationDisplay,
+  parseMcpPresentationFeedback,
+} from '@contracts/index';
 import {
   remoteHostQuestionIds,
   type RemoteHostPendingListDto,
@@ -50,8 +54,8 @@ export function authorizeRemoteHostPendingResponse(
     return pending.revision;
   }
 
-  if (response.value !== undefined) invalidPendingAction();
   if (request.kind === 'permission') {
+    if (response.value !== undefined) invalidPendingAction();
     if (response.action !== 'approve' && response.action !== 'deny') {
       invalidPendingAction();
     }
@@ -59,6 +63,17 @@ export function authorizeRemoteHostPendingResponse(
   }
   if (response.action !== 'accept' && response.action !== 'reject') {
     invalidPendingAction();
+  }
+  let presentation: ReturnType<typeof parseMcpPresentationDisplay>;
+  try { presentation = parseMcpPresentationDisplay(request.display); }
+  catch { return invalidPendingAction(); }
+  if (!presentation) {
+    if (response.value !== undefined) invalidPendingAction();
+    return pending.revision;
+  }
+  if (response.action === 'accept' && response.value !== undefined) invalidPendingAction();
+  if (response.action === 'reject') {
+    try { parseMcpPresentationFeedback(response.value); } catch { invalidPendingAction(); }
   }
   return pending.revision;
 }

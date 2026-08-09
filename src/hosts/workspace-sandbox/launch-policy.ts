@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 import type { WorkspaceSandboxSpec } from '@contracts/index';
 
@@ -13,6 +13,7 @@ export interface WorkspaceSandboxLaunchCommand {
 
 interface WorkspaceSandboxLaunchInput {
   readonly configFile: string;
+  readonly providerRuntimeRoot?: string;
   readonly wrapperPath: string;
 }
 
@@ -62,6 +63,9 @@ export function workspaceSandboxEnvironment(
 ): Readonly<Record<string, string>> {
   return Object.freeze({
     HOME: spec.environment.providerHomeRoot,
+    CLAUDE_CONFIG_DIR: join(spec.environment.providerHomeRoot, '.claude'),
+    CODEX_HOME: join(spec.environment.providerHomeRoot, '.codex'),
+    GROK_HOME: join(spec.environment.providerHomeRoot, '.grok'),
     XDG_CACHE_HOME: spec.environment.providerCacheRoot,
     XDG_CONFIG_HOME: spec.environment.providerHomeRoot,
     XDG_RUNTIME_DIR: spec.environment.coreRuntimeRoot,
@@ -104,6 +108,10 @@ export function buildLinuxWorkspaceSandboxLaunch(
 ): WorkspaceSandboxLaunchCommand {
   const wrapperPath = launchPath(input.wrapperPath, 'Worker wrapper');
   const configFile = launchPath(input.configFile, 'Worker config');
+  const providerRuntimeRoot = launchPath(
+    input.providerRuntimeRoot ?? '',
+    'Provider runtime root',
+  );
   const env = workspaceSandboxEnvironment(spec);
   const args: string[] = [
     '--die-with-parent',
@@ -120,6 +128,7 @@ export function buildLinuxWorkspaceSandboxLaunch(
   args.push(
     ...pair('--bind', spec.workspaceRoot),
     ...pair('--bind', spec.privateRoot),
+    ...pair('--bind', providerRuntimeRoot),
     ...pair('--bind', spec.environment.providerTempRoot, '/tmp'),
   );
   for (const [key, value] of Object.entries(env)) args.push('--setenv', key, value);
