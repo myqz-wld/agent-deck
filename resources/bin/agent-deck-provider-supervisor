@@ -1,0 +1,72 @@
+#!/bin/bash -p
+set -euo pipefail
+unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV \
+  LD_LIBRARY_PATH LD_PRELOAD NODE_OPTIONS
+PATH=/usr/bin:/bin
+export PATH
+
+fail() {
+  echo 'Provider supervisor 运行时未正确安装。' >&2
+  exit 70
+}
+
+verify_root_owned() {
+  local path=$1 kind=$2 mode owner
+  [[ ! -L "$path" ]] || fail
+  [[ "$kind" == directory && -d "$path" || "$kind" == file && -f "$path" ]] || fail
+  [[ "$(/usr/bin/readlink -f -- "$path")" == "$path" ]] || fail
+  owner="$(/usr/bin/stat -Lc '%u' -- "$path")"
+  mode="$(/usr/bin/stat -Lc '%a' -- "$path")"
+  [[ "$owner" == 0 ]] || fail
+  (( (8#$mode & 8#022) == 0 )) || fail
+}
+
+canonical_directory() {
+  [[ -d "$1" && ! -L "$1" ]] || fail
+  (cd -- "$1" && pwd -P)
+}
+
+canonical_file() {
+  local parent name
+  [[ -f "$1" && ! -L "$1" ]] || fail
+  parent="$(canonical_directory "$(dirname -- "$1")")"
+  name="$(basename -- "$1")"
+  printf '%s/%s\n' "$parent" "$name"
+}
+
+case "$(uname -s)" in
+  Linux)
+    for directory in \
+      /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless \
+      /opt/agent-deck/linux-headless/provider-session-supervisor; do
+      verify_root_owned "$directory" directory
+    done
+    verify_root_owned /opt/agent-deck/bin/agent-deck-provider-supervisor file
+    verify_root_owned /usr/bin/node file
+    verify_root_owned /opt/agent-deck/linux-headless/provider-session-supervisor/index.mjs file
+    exec /usr/bin/env -i \
+      HOME=/var/lib/agent-deck PATH=/usr/bin:/bin LANG=C LC_ALL=C NODE_ENV=production \
+      /usr/bin/node /opt/agent-deck/linux-headless/provider-session-supervisor/index.mjs "$@"
+    ;;
+  Darwin)
+    script_dir="$(canonical_directory "$(dirname -- "$0")")"
+    resources_dir="$(canonical_directory "$script_dir/..")"
+    contents_dir="$(canonical_directory "$resources_dir/..")"
+    app_dir="$(canonical_directory "$contents_dir/..")"
+    [[ "$app_dir" == *.app ]] || fail
+    node="$(canonical_file "$contents_dir/MacOS/Agent Deck Worker Node")"
+    entrypoint="$(canonical_file "$resources_dir/linux-headless/provider-session-supervisor/index.mjs")"
+    app_asar="$(canonical_file "$resources_dir/app.asar")"
+    node_modules="$app_asar/node_modules"
+    user_home="$(canonical_directory "${HOME:-}")"
+    /usr/bin/codesign --verify --strict -- "$node" >/dev/null 2>&1 || fail
+    exec /usr/bin/env -i \
+      HOME="$user_home" PATH=/usr/bin:/bin LANG=C LC_ALL=C NODE_ENV=production \
+      ELECTRON_RUN_AS_NODE=1 NODE_PATH="$node_modules" \
+      "$node" "$entrypoint" "$@"
+    ;;
+  *)
+    echo 'Provider supervisor 当前仅支持 macOS 和 Linux。' >&2
+    exit 69
+    ;;
+esac

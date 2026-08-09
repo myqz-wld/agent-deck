@@ -8,12 +8,17 @@
  * `skills/extraRoots/set` 指向 app-owned substituted mirror；CODEX_AGENTS.md 通过
  * per-session `developerInstructions` 注入。
  */
-import { app } from 'electron';
 import { join } from 'node:path';
+import { resolveApplicationResourcesRoot } from '@main/runtime-host/application-resources';
+import {
+  getApplicationHostPaths,
+  type ApplicationHostPaths,
+} from '@main/runtime-host/application-paths';
+
+export function resolveCodexAgentDeckPluginPath(paths: ApplicationHostPaths): string {
+  return join(resolveApplicationResourcesRoot(paths), 'codex-config', 'agent-deck-plugin');
+}
 
 export function getCodexAgentDeckPluginPath(): string {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'codex-config', 'agent-deck-plugin');
-  }
-  return join(app.getAppPath(), 'resources', 'codex-config', 'agent-deck-plugin');
+  return resolveCodexAgentDeckPluginPath(getApplicationHostPaths());
 }

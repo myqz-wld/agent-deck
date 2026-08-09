@@ -14,7 +14,7 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 
-import type { GrokAcpProcess } from './acp-process';
+import type { GrokAcpSession } from './acp-process';
 import type { GrokTranslationState } from './translate';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 
@@ -47,7 +47,7 @@ export interface GrokRuntime {
   applicationSessionId: string;
   nativeSessionId: string | null;
   cwd: string;
-  process: GrokAcpProcess | null;
+  process: GrokAcpSession | null;
   ready: boolean;
   queue: GrokPendingMessage[];
   /** Prompt removed from FIFO but not yet acknowledged by a provider session update. */

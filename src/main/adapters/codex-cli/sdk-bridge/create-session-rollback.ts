@@ -29,20 +29,16 @@
  *
  * **测试 seam**: deps 字段 inject mock,跟踪每个 cleanup call site 是否被调 + idempotent 行为
  */
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
-import { disposeSessionBrowser } from '@main/browser-use/session-browser';
-import { sessionManager } from '@main/session/manager';
 import type { CodexAppServerClient } from '../app-server/client';
 import type { InternalSession } from './types';
-import log from '@main/utils/logger';
-
-const logger = log.scope('codex-rollback');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface CreateSessionRollbackDeps {
   /** codex 实例 Map (createSession 内 ensureCodex set 进 Map → 失败时 delete 释放 SDK 子进程引用) */
   codexBySession: Map<string, CodexAppServerClient>;
   /** sessions Map (createSession 主路径在 thread.started 后 set,早期 throw 时可能未 set 或半 set) */
   sessions: Map<string, InternalSession>;
+  runtimeHost: CodexBridgeRuntimeHost;
 }
 
 export interface RunCreateSessionRollbackArgs {
@@ -71,9 +67,9 @@ export async function runCreateSessionRollback(args: RunCreateSessionRollbackArg
   // a resume target: it is pre-existing user history rather than a failed provisional session.
   if (resumeSessionId === undefined) {
     try {
-      await sessionManager.delete(sessionId);
+      await deps.runtimeHost.sessions.delete(sessionId);
     } catch (cleanupErr) {
-      logger.warn(
+      deps.runtimeHost.logger('codex-rollback').warn(
         `[codex-bridge] sessionManager.delete failed during createSession rollback for ${sessionId}:`,
         cleanupErr,
       );
@@ -84,34 +80,34 @@ export async function runCreateSessionRollback(args: RunCreateSessionRollbackArg
     deps.codexBySession.get(sessionId)?.dispose();
     deps.codexBySession.delete(sessionId);
   } catch (cleanupErr) {
-    logger.warn(
+    deps.runtimeHost.logger('codex-rollback').warn(
       `[codex-bridge] codexBySession.delete failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );
   }
   try {
-    mcpSessionTokenMap.release(sessionId);
+    deps.runtimeHost.tokens.release(sessionId);
   } catch (cleanupErr) {
-    logger.warn(
+    deps.runtimeHost.logger('codex-rollback').warn(
       `[codex-bridge] mcpSessionTokenMap.release failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );
   }
   // Symmetric with the token release above: a rolled-back session must not keep browser windows.
   // Normally a no-op because a failed create never reached a tool call.
-  void disposeSessionBrowser(sessionId);
+  void deps.runtimeHost.disposeSessionBrowser(sessionId);
   try {
     deps.sessions.delete(sessionId);
   } catch (cleanupErr) {
-    logger.warn(
+    deps.runtimeHost.logger('codex-rollback').warn(
       `[codex-bridge] sessions.delete failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );
   }
   try {
-    sessionManager.releaseSdkClaim(sessionId);
+    deps.runtimeHost.sessions.releaseSdkClaim(sessionId);
   } catch (cleanupErr) {
-    logger.warn(
+    deps.runtimeHost.logger('codex-rollback').warn(
       `[codex-bridge] releaseSdkClaim failed during createSession early-err cleanup for ${sessionId}:`,
       cleanupErr,
     );

@@ -189,40 +189,6 @@ describe('Codex app-server thread params', () => {
     });
   });
 
-  it('uses merged configOverrides when building turn/start sandboxPolicy', () => {
-    const params = __testables.buildTurnStartParams(
-      'thread-1',
-      [{ type: 'text', text: 'hi', text_elements: [] }],
-      {
-        workingDirectory: '/repo',
-        sandboxMode: 'workspace-write',
-        approvalPolicy: 'never',
-        skipGitRepoCheck: true,
-        configOverrides: {
-          sandbox_workspace_write: {
-            network_access: true,
-            writable_roots: ['/agent'],
-            exclude_tmpdir_env_var: true,
-          },
-        },
-      },
-      {
-        sandbox_workspace_write: {
-          network_access: false,
-          writable_roots: ['/base'],
-        },
-      },
-    );
-
-    expect(params.sandboxPolicy).toEqual({
-      type: 'workspaceWrite',
-      writableRoots: ['/agent'],
-      networkAccess: true,
-      excludeTmpdirEnvVar: true,
-      excludeSlashTmp: false,
-    });
-  });
-
   it('passes the selected effort to every turn/start request', () => {
     const params = __testables.buildTurnStartParams(
       'thread-1',

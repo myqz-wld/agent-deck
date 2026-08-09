@@ -20,10 +20,10 @@ import { resolveContinuationGeneratorSnapshot } from './resolver';
 import { createCheckpointGeneratorRuntime } from './runtime';
 import { observeCheckpointGeneratorCapacity } from './generator-capacity-observation';
 import {
-  openCheckpointBackgroundSource,
   type CheckpointBackgroundChunkSource,
   type OpenCheckpointBackgroundSourceInput,
 } from './checkpoint-background-worker-client';
+import { openDesktopCheckpointBackgroundSource } from './checkpoint-background-worker-host';
 import type { ResolvedContinuationGenerator } from './types';
 
 export const BACKGROUND_CHECKPOINT_DEADLINE_MS = 300_000;
@@ -93,7 +93,7 @@ export async function refreshContinuationCheckpointWithDependencies(
   const deadlineAt = startedAt + BACKGROUND_CHECKPOINT_DEADLINE_MS;
   const generatorSpec = (dependencies.resolveGenerator ?? resolveContinuationGeneratorSnapshot)();
   const backgroundSource = await (
-    dependencies.openBackgroundSource ?? openCheckpointBackgroundSource
+    dependencies.openBackgroundSource ?? openDesktopCheckpointBackgroundSource
   )({
     dbPath: db.name,
     sessionId: input.sessionId,

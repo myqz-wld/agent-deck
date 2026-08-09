@@ -48,9 +48,6 @@
  *    通过 ev.thread_id !== internal.threadId 触发 fork-detect → updateCliSessionId 把
  *    cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
  */
-import { sessionRepo } from '@main/store/session-repo';
-import { settingsStore } from '@main/store/settings-store';
-import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { packCodexInput } from '../input-pack';
 import { buildCodexThreadOptions } from '../thread-options-builder';
@@ -60,12 +57,7 @@ import type { CodexAppServerThread } from '../../app-server/client';
 import { validateCreateSessionOpts } from './create-session-validate';
 import { runCreateSessionResumePath } from './create-session-resume';
 import { runCreateSessionNewPath } from './create-session-new';
-import { readTopLevelModelReasoningEffortFromCodexConfig } from '@main/codex-config/toml-writer';
-import {
-  hasCodexReasoningConfigLayer,
-  resolveCodexReasoningEffort,
-} from './reasoning-effort-resolve';
-import { combineCodexDeveloperInstructions } from '../fork-session/target-runtime';
+import { resolveCodexCreateRuntime } from './runtime-selection';
 import type {
   CreateSessionDeps,
   CreateSessionOpts,
@@ -109,7 +101,7 @@ export async function createSessionImpl(
   opts = opts.resumeOnly ? opts : { ...opts, prompt: initialTurn.providerPrompt };
   // validate phase: prompt empty / cap check + sid 分配 + token allocate (同步执行,throw 跳出
   // 不进 try block — token 未 allocate 无需 rollback)
-  const validate = validateCreateSessionOpts(opts);
+  const validate = validateCreateSessionOpts(opts, deps.runtimeHost);
   const { initialSid, sessionToken } = validate;
 
   try {
@@ -117,9 +109,7 @@ export async function createSessionImpl(
     // 不抽子段(user mini-spike confirm 3 子段 validate/resume/new 不含 prepare),inline 在
     // orchestrator try 头紧贴 dispatch 之前 — 让 prepare 失败走 catch 触发 rollback。
     //
-    const resumeRec = opts.resume ? sessionRepo.get(opts.resume) : null;
-    const sessionProvider =
-      opts.provider ?? resumeRec?.runtimeProvider ?? undefined;
+    const resumeRecord = opts.resume ? deps.runtimeHost.records.get(opts.resume) : null;
     const codex = await deps.ensureCodex(initialSid, sessionToken);
     const cwd = resolveSpawnCwd(opts);
     // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
@@ -135,47 +125,25 @@ export async function createSessionImpl(
     // REVIEW_79 INFO (reviewer-claude) 修法:同一 row 单读复用。修前 persistedSandbox(取
     // .codexSandbox) 与 effectiveResumeThreadId(取 .cliSessionId) 各调一次 sessionRepo.get(opts.resume)
     // 同步读同一行(两读间无 await,better-sqlite3 同步单线程值一致无 race,纯冗余)。
-    const sessionApprovalPolicy =
-      opts.approvalPolicy ?? resumeRec?.codexApprovalPolicy ?? undefined;
-    const persistedSandbox = resumeRec?.codexSandbox ?? null;
-    const sandboxMode =
-      opts.codexSandbox ?? persistedSandbox ?? settingsStore.get('codexSandbox');
-    const hasReasoningConfigLayer = hasCodexReasoningConfigLayer(opts.codexConfigOverrides);
-    const {
-      sessionValue: sessionModelReasoningEffort,
-      threadValue: threadModelReasoningEffort,
-    } = resolveCodexReasoningEffort({
-      explicit: opts.modelReasoningEffort,
-      isResume: opts.resume !== undefined,
-      persisted: resumeRec?.thinking,
-      hasLayerOverride: hasReasoningConfigLayer,
-      readConfigured: readTopLevelModelReasoningEffortFromCodexConfig,
+    const runtime = resolveCodexCreateRuntime(opts, {
+      resumeRecord,
+      readApplicationInstructions:
+        deps.runtimeHost.configuration.readApplicationInstructions,
+      readConfiguredReasoningEffort:
+        deps.runtimeHost.configuration.readConfiguredReasoningEffort,
+      readDefaultSandbox: deps.runtimeHost.configuration.readDefaultSandbox,
     });
-    const effectiveOpts =
-      sessionModelReasoningEffort === opts.modelReasoningEffort &&
-      sessionProvider === opts.provider &&
-      sessionApprovalPolicy === opts.approvalPolicy
-        ? opts
-        : {
-            ...opts,
-            provider: sessionProvider,
-            approvalPolicy: sessionApprovalPolicy,
-            modelReasoningEffort: sessionModelReasoningEffort,
-          };
-    const developerInstructions = combineCodexDeveloperInstructions(
-      getAgentDeckCodexDeveloperInstructions(),
-      opts.developerInstructions,
-    );
+    const {
+      approvalPolicy: sessionApprovalPolicy,
+      developerInstructions,
+      effectiveOpts,
+      effectiveResumeThreadId,
+      provider: sessionProvider,
+      sandboxMode,
+      threadModelReasoningEffort,
+    } = runtime;
 
     let thread: CodexAppServerThread;
-    // effectiveResumeThreadId 3 层兜底:caller 显式 > sessionRepo cliSessionId 中间层 >
-    // applicationSid 末层。REVIEW_56 R2 reviewer-claude MED-Cross-Adapter-Parity 修法,
-    // 保 cross-adapter 设计对称 + 防 future caller 漏传 silently fall back 到 applicationSid
-    // 在反向 rename 后 != cliSessionId 时撞错 thread。详 orchestrator jsdoc 顶部 REVIEW_56 HIGH-1。
-    const effectiveResumeThreadId =
-      opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
-        ? (opts.resumeCliSid ?? resumeRec?.cliSessionId ?? opts.resume)
-        : null;
     if (effectiveResumeThreadId) {
       // CHANGELOG_<X> A2a：resume 路径必须透传 sandboxMode / workingDirectory / approvalPolicy，
       // 否则 codex SDK 默认行为 = 不传 --sandbox flag，让 codex CLI 用 $CODEX_HOME/config.toml 全局
@@ -300,6 +268,7 @@ export async function createSessionImpl(
       deps: {
         codexBySession: deps.codexBySession,
         sessions: deps.sessions,
+        runtimeHost: deps.runtimeHost,
       },
     });
     throw err;

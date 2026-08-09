@@ -37,7 +37,7 @@ describe('Claude strict rollback close', () => {
       sessions,
       emit: vi.fn(),
       sessionId: 'child',
-    });
+    }, sessionManager);
     await Promise.resolve();
 
     expect(sessions.get('child')).toBe(internal);
@@ -58,7 +58,7 @@ describe('Claude strict rollback close', () => {
       sessions,
       emit: vi.fn(),
       sessionId: 'child',
-    });
+    }, sessionManager);
     const rejection = expect(closing).rejects.toThrow(/could not prove provider stream termination/);
 
     await vi.advanceTimersByTimeAsync(1_000);
@@ -77,7 +77,7 @@ describe('Claude strict rollback close', () => {
       sessions,
       emit: vi.fn(),
       sessionId: 'child',
-    });
+    }, sessionManager);
     internal.resolveStreamDrained();
 
     await expect(closing).resolves.toBeUndefined();
@@ -89,6 +89,6 @@ describe('Claude strict rollback close', () => {
       sessions: new Map(),
       emit: vi.fn(),
       sessionId: 'child',
-    })).rejects.toThrow(/cannot prove a live target runtime/);
+    }, sessionManager)).rejects.toThrow(/cannot prove a live target runtime/);
   });
 });

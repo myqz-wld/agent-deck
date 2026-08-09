@@ -21,6 +21,7 @@
  */
 
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
+import { codexBridgeTestRuntimeHost } from '@main/adapters/codex-cli/sdk-bridge/__tests__/runtime-host-fixture';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { AgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import type { CodexApprovalPolicy } from '@shared/types';
@@ -274,6 +275,8 @@ export const emits: AgentEvent[] = [];
 
 export function makeBridge(): TestCodexBridge {
   return new TestCodexBridge({
+    recoveryContinuationHost: {} as never,
+    runtimeHost: codexBridgeTestRuntimeHost,
     emit: (e) => {
       emits.push(e);
     },

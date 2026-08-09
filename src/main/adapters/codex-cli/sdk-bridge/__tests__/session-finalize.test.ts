@@ -3,6 +3,7 @@ import type { SessionRecord } from '@shared/types';
 import { persistSessionFields } from '@main/adapters/codex-cli/sdk-bridge/session-finalize';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
+import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {
@@ -58,6 +59,7 @@ describe('codex persistSessionFields', () => {
     vi.mocked(sessionRepo.get).mockReturnValue(updated);
 
     persistSessionFields({
+      runtimeHost: codexBridgeTestRuntimeHost,
       sessionId: 'sid',
       sandboxMode: 'danger-full-access',
       modelReasoningEffort: 'max',
@@ -72,6 +74,7 @@ describe('codex persistSessionFields', () => {
     vi.mocked(sessionRepo.get).mockReturnValue(null);
 
     persistSessionFields({
+      runtimeHost: codexBridgeTestRuntimeHost,
       sessionId: 'sid',
       sandboxMode: 'read-only',
     });
@@ -86,6 +89,7 @@ describe('codex persistSessionFields', () => {
     );
 
     persistSessionFields({
+      runtimeHost: codexBridgeTestRuntimeHost,
       sessionId: 'sid',
       sandboxMode: 'workspace-write',
       approvalPolicy: 'never',

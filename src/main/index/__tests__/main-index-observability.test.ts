@@ -48,6 +48,8 @@ vi.mock('@main/utils/logger', () => ({
   },
 }));
 
+vi.mock('@main/index/electron-application-paths', () => ({}));
+
 vi.mock('@main/utils/safe-diagnostic', () => ({
   safeDiagnostic: mocks.safeDiagnostic,
 }));

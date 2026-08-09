@@ -91,6 +91,7 @@ interface MakeCtxOptions {
   quality?: ContinuationQuality;
   createSession?: (opts: unknown) => Promise<SdkSessionHandle>;
   prepare?: JsonlFallbackCtx['prepareRecoveryContinuation'];
+  warn?: JsonlFallbackCtx['warn'];
 }
 
 function makeCtx(options: MakeCtxOptions = {}) {
@@ -116,6 +117,7 @@ function makeCtx(options: MakeCtxOptions = {}) {
           inputCapture.sourceSessionId,
         )),
   );
+  const warn = vi.fn(options.warn ?? (() => undefined));
   const ctx: JsonlFallbackCtx = {
     jsonlExistsThunk,
     jsonlMtimeMsThunk,
@@ -123,6 +125,7 @@ function makeCtx(options: MakeCtxOptions = {}) {
     createSession: createSession as unknown as JsonlFallbackCtx['createSession'],
     prepareRecoveryContinuation,
     emit: (event) => emits.push(event),
+    warn,
   };
   return {
     ctx,
@@ -131,6 +134,7 @@ function makeCtx(options: MakeCtxOptions = {}) {
     latestConversationMessageTsThunk,
     createSession,
     prepareRecoveryContinuation,
+    warn,
   };
 }
 
@@ -170,6 +174,19 @@ beforeEach(() => {
 });
 
 describe('maybeJsonlFallback unified continuation recovery', () => {
+  it('keeps injected diagnostics secondary to a successful fallback', async () => {
+    const { ctx, warn } = makeCtx({
+      jsonlExists: false,
+      warn: () => { throw new Error('observer failed'); },
+    });
+
+    await expect(maybeJsonlFallback(ctx, recoverOpts())).resolves.toMatchObject({
+      finalSessionId: 'app-sid-A',
+      fellBack: true,
+    });
+    expect(warn).toHaveBeenCalled();
+  });
+
   it('native jsonl resume bypasses continuation preparation and session creation', async () => {
     const { ctx, prepareRecoveryContinuation, createSession } = makeCtx({ jsonlExists: true });
     const result = await maybeJsonlFallback(ctx, recoverOpts());

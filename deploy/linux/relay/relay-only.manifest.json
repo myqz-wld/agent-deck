@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "topology": "relay",
+  "headlessArtifact": "build/linux-headless/relay",
+  "entrypoint": ["/opt/agent-deck/bin/agent-deck-relay"],
+  "quadletTemplate": "agent-deck-relay@.container",
+  "instanceSpecifier": "%i",
+  "instanceTokenPattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+  "nodeExecutable": "/usr/bin/node",
+  "bundle": "/opt/agent-deck/linux-headless/relay/index.mjs",
+  "hostForcedCommand": "/opt/agent-deck/bin/agent-deck-relay",
+  "runtimeUserTemplate": "%U:%G",
+  "userNamespace": "keep-id",
+  "hostOwnershipModel": "rootless service-account uid/gid is preserved inside the container",
+  "rootless": true,
+  "readOnlyRootFilesystem": true,
+  "publishedPorts": [],
+  "engineSocketMounted": false,
+  "resourceLimits": {
+    "pids": 256,
+    "memory": "512M",
+    "cpus": 1
+  },
+  "healthContract": {
+    "command": [
+      "/opt/agent-deck/bin/agent-deck-relay",
+      "health",
+      "--socket",
+      "/run/agent-deck-relay/%i/control.sock"
+    ],
+    "intervalSeconds": 10,
+    "timeoutSeconds": 3,
+    "retries": 3,
+    "startPeriodSeconds": 30,
+    "onFailure": "kill",
+    "systemdNotify": "healthy",
+    "inheritedImageHealthDisabled": true
+  },
+  "egressAcceptanceGate": {
+    "requiredForProductionStart": true,
+    "defaultStatus": "unverified",
+    "slirp4netnsIsEnforcementProof": false,
+    "requiredEvidence": [
+      "public-only destinations are reachable",
+      "private and link-local ranges are denied",
+      "cloud metadata endpoints are denied",
+      "evidence is bound to the exact instance id"
+    ]
+  },
+  "stateVolumeQuotaAcceptanceGate": {
+    "requiredForProductionStart": true,
+    "defaultStatus": "unverified",
+    "quadletTemplateIsEnforcementProof": false,
+    "maximumBytes": 1073741824,
+    "requiredEvidence": [
+      "quota is enforced by the instance state volume or filesystem",
+      "quota evidence is bound to the exact normalized state path",
+      "quota evidence is bound to the exact instance id"
+    ]
+  },
+  "configAcceptanceGate": {
+    "hostPathTemplate": "%h/.config/agent-deck-relay/%i/config.json",
+    "regularNonSymlink": true,
+    "owner": "rootless service account",
+    "mode": "0600",
+    "containerReadOnly": true
+  },
+  "controlSocket": {
+    "hostDirectoryTemplate": "%t/agent-deck-relay/%i",
+    "hostSocketTemplate": "%t/agent-deck-relay/%i/control.sock",
+    "containerSocketTemplate": "/run/agent-deck-relay/%i/control.sock",
+    "directoryOwner": "rootless service account",
+    "directoryMode": "0700",
+    "socketOwner": "rootless service account",
+    "socketMode": "0600",
+    "publicPortFallback": false
+  },
+  "runtimeIdentityAcceptanceGate": {
+    "requiredForProductionStart": true,
+    "defaultStatus": "unverified",
+    "quadletTemplateIsEnforcementProof": false,
+    "probe": "pinned relay image must read config read-only and create uid-owned mode-0600 files in state and control volumes under keep-id"
+  },
+  "evidenceStorage": {
+    "pathTemplate": "/etc/agent-deck-relay/evidence/%i",
+    "owner": "root",
+    "directoryMode": "0555",
+    "fileMode": "0444",
+    "relayServiceWritable": false
+  },
+  "mutableVolumes": [
+    {
+      "hostPathTemplate": "%h/.local/share/agent-deck-relay/%i",
+      "containerPathTemplate": "/var/lib/agent-deck-relay/%i",
+      "purpose": "allowlisted access, route, worker lease, Feishu ids/status/cursor, and health metadata"
+    },
+    {
+      "hostPathTemplate": "%t/agent-deck-relay/%i",
+      "containerPathTemplate": "/run/agent-deck-relay/%i",
+      "purpose": "private per-instance Unix control socket only"
+    }
+  ],
+  "readOnlyVolumes": [
+    {
+      "hostPathTemplate": "%h/.config/agent-deck-relay/%i/config.json",
+      "containerPathTemplate": "/etc/agent-deck-relay/%i/config.json",
+      "purpose": "instance and public credential configuration"
+    }
+  ],
+  "includedComponents": [
+    "relay stream router",
+    "worker lease registry",
+    "restricted SSH bridge",
+    "Feishu delivery metadata adapter"
+  ],
+  "excludedComponents": [
+    "Core",
+    "provider binaries",
+    "Browser engine",
+    "Git workspace",
+    "repository services",
+    "worktree services",
+    "native business SQLite",
+    "session store",
+    "summarizer",
+    "server compute fallback"
+  ],
+  "forbiddenPersistedData": [
+    "message or card body",
+    "approval input",
+    "history",
+    "diff",
+    "blob",
+    "repository or provider state",
+    "session database"
+  ]
+}

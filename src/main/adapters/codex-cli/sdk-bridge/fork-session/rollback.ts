@@ -1,9 +1,7 @@
 import type { CodexAppServerClient } from '../../app-server/client';
 import type { InternalSession } from '../types';
-import log from '@main/utils/logger';
 import { safeDiagnostic } from '@main/utils/safe-diagnostic';
-
-const logger = log.scope('codex-fork-rollback');
+import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
 
 export interface CodexForkLifecycleOps {
   allocateToken(sessionId: string): string;
@@ -31,6 +29,7 @@ export interface CodexForkCleanupDeps {
   sessions: Map<string, InternalSession>;
   codexBySession: Map<string, CodexAppServerClient>;
   lifecycle: CodexForkLifecycleOps;
+  runtimeHost: CodexBridgeRuntimeHost;
 }
 
 export interface CodexForkCleanupIssue {
@@ -70,12 +69,15 @@ export async function cleanupCodexFork(
     error: unknown,
   ): void => {
     issues.push({ phase, targetId });
-    logger.warn('[codex-fork] cleanup step failed', safeDiagnostic({
+    deps.runtimeHost.logger('codex-fork-rollback').warn(
+      '[codex-fork] cleanup step failed',
+      safeDiagnostic({
       phase,
       outcome: 'failed',
       targetId,
       error,
-    }));
+      }),
+    );
   };
   const canonicalId = state.nativeChildId;
   if (state.internal) {

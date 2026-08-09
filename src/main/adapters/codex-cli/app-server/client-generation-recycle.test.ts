@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodexAppServerClient } from './client';
+import { createDesktopCodexAppServerClient } from './client-diagnostics';
 import type { CodexAppServerNotification } from './protocol';
 import log from '@main/utils/logger';
 
@@ -201,7 +202,7 @@ describe('Codex app-server generation recycle', () => {
 
   it('rejects pending RPCs, interrupts and reaps the child, and fences late stdout', async () => {
     vi.useFakeTimers();
-    const client = new CodexAppServerClient({ env: {}, config: null });
+    const client = createDesktopCodexAppServerClient({ env: {}, config: null });
     const writes: string[] = [];
     const kill = vi.fn(() => true);
     const child = {
@@ -290,7 +291,7 @@ describe('Codex app-server generation recycle', () => {
   });
 
   it('logs malformed stdout metadata without the raw provider line', () => {
-    const client = new CodexAppServerClient({ env: {}, config: null });
+    const client = createDesktopCodexAppServerClient({ env: {}, config: null });
     const child = { pid: 777 };
     const internal = client as unknown as {
       child: unknown;

@@ -1,16 +1,30 @@
-import { join } from 'node:path';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
-import log from '@main/utils/logger';
-import { resolveAgentDeckResourcesRoot } from '@main/utils/resources-placeholder';
-import { safeErrorSummary } from '@main/utils/safe-diagnostic';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
-import type { CodexAppServerClient, CodexGenerationOperation } from './client';
 import type { JsonObject, JsonValue } from './protocol';
 import { buildThreadConfig } from './thread-params';
 
-const logger = log.scope('codex-node-repl-browser');
 const NODE_REPL_SERVER_NAME = 'node_repl';
-const PROXY_FILENAME = 'node-repl-browser-bootstrap.cjs';
+export const NODE_REPL_BROWSER_PROXY_FILENAME = 'node-repl-browser-bootstrap.cjs';
+
+export interface NodeReplBrowserBootstrapClient {
+  readonly generation: number;
+  request<T = unknown>(method: string, params: unknown): Promise<T>;
+}
+
+export interface NodeReplBrowserBootstrapOperation {
+  isCurrent(): boolean;
+  request<T = unknown>(method: string, params: unknown): Promise<T>;
+}
+
+export type NodeReplBrowserBootstrapDiagnostic =
+  | { type: 'config-read-failed'; error: unknown }
+  | { type: 'installed' };
+
+export interface NodeReplBrowserBootstrapPorts {
+  executablePath: string;
+  proxyPath: string;
+  diagnose?(diagnostic: NodeReplBrowserBootstrapDiagnostic): void;
+}
 
 interface ConfigReadResponse {
   config?: JsonObject;
@@ -21,14 +35,18 @@ interface EffectiveConfigCache {
   byCwd: Map<string, Promise<JsonObject>>;
 }
 
-const effectiveConfigCache = new WeakMap<CodexAppServerClient, EffectiveConfigCache>();
+const effectiveConfigCache = new WeakMap<
+  NodeReplBrowserBootstrapClient,
+  EffectiveConfigCache
+>();
 
 /** Inject the Browser client's required process-facade preload into a local node_repl server. */
-export async function prepareNodeReplBrowserBootstrap(
-  client: CodexAppServerClient,
+export async function prepareNodeReplBrowserBootstrapPolicy(
+  client: NodeReplBrowserBootstrapClient,
   options: CodexThreadOptions,
   baseConfig: CodexConfigObject | null,
-  operation?: CodexGenerationOperation,
+  ports: NodeReplBrowserBootstrapPorts,
+  operation?: NodeReplBrowserBootstrapOperation,
 ): Promise<CodexThreadOptions> {
   const explicitConfig = buildThreadConfig(options, baseConfig);
   let inheritedConfig: JsonObject = {};
@@ -41,10 +59,7 @@ export async function prepareNodeReplBrowserBootstrap(
       );
     } catch (error) {
       if (operation && !operation.isCurrent()) throw error;
-      logger.warn(
-        '[node-repl-browser] config/read failed; leaving node_repl unchanged',
-        safeErrorSummary(error),
-      );
+      safelyDiagnose(ports, { type: 'config-read-failed', error });
       return options;
     }
   }
@@ -64,22 +79,27 @@ export async function prepareNodeReplBrowserBootstrap(
   const command = typeof server.command === 'string' ? server.command.trim() : '';
   if (!command) return options;
 
-  const proxyPath = join(resolveAgentDeckResourcesRoot(), 'bin', PROXY_FILENAME);
   const currentArgs = readStringArray(server.args);
-  if (command === process.execPath && currentArgs[0] === proxyPath) return options;
+  if (command === ports.executablePath && currentArgs[0] === ports.proxyPath) return options;
 
-  const wrappedServer = buildWrappedServer(server, command, currentArgs, proxyPath);
+  const wrappedServer = buildWrappedServer(
+    server,
+    command,
+    currentArgs,
+    ports.executablePath,
+    ports.proxyPath,
+  );
   const overrides = mergeJsonObjects(cloneJsonObject(options.configOverrides ?? null), {
     mcp_servers: { [NODE_REPL_SERVER_NAME]: wrappedServer },
   });
-  logger.debug('[node-repl-browser] installed Browser process bootstrap for node_repl');
+  safelyDiagnose(ports, { type: 'installed' });
   return { ...options, configOverrides: overrides as CodexConfigObject };
 }
 
 async function readEffectiveConfig(
-  client: CodexAppServerClient,
+  client: NodeReplBrowserBootstrapClient,
   cwd: string,
-  operation?: CodexGenerationOperation,
+  operation?: NodeReplBrowserBootstrapOperation,
 ): Promise<JsonObject> {
   let cache = effectiveConfigCache.get(client);
   if (!cache || cache.generation !== client.generation) {
@@ -106,6 +126,7 @@ function buildWrappedServer(
   server: JsonObject,
   command: string,
   args: string[],
+  executablePath: string,
   proxyPath: string,
 ): JsonObject {
   const cleaned = stripNulls(server) as JsonObject;
@@ -118,7 +139,7 @@ function buildWrappedServer(
 
   return {
     ...cleaned,
-    command: process.execPath,
+    command: executablePath,
     args: [proxyPath, payload],
     env: { ...originalEnv, ELECTRON_RUN_AS_NODE: '1' },
   };
@@ -178,4 +199,15 @@ function stripNulls(value: JsonValue | undefined): JsonValue | undefined {
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safelyDiagnose(
+  ports: NodeReplBrowserBootstrapPorts,
+  diagnostic: NodeReplBrowserBootstrapDiagnostic,
+): void {
+  try {
+    ports.diagnose?.(diagnostic);
+  } catch {
+    // Host diagnostics cannot alter Browser bootstrap policy.
+  }
 }

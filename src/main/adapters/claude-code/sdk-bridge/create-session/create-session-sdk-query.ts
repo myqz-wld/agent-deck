@@ -28,19 +28,6 @@
  * 但 claude 端 SDK query 段无 resume/new 分支（统一一段 try），所以 inline validate（30 LOC）
  * + 抽 sdk-query 一段已足够（user mini-spike Q2 confirm 推荐方案）。
  */
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
-import { getSdkRuntimeOptions } from '@main/adapters/claude-code/sdk-runtime';
-import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
-import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
-import {
-  getAgentDeckPluginsForSession,
-  getAgentDeckSystemPromptAppend,
-} from '@main/adapters/claude-code/sdk-injection';
-import { buildSandboxOptions } from '@main/adapters/claude-code/sandbox-config';
-import { buildMcpServersForSession } from '../mcp-server-init';
-import { buildClaudeQueryOptions } from '../query-options-builder';
-import { buildClaudeRuntimeMetadataHooks } from '../runtime-metadata-sync';
 import { RecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type {
   CreateSessionDeps,
@@ -48,13 +35,14 @@ import type {
   PreparedSessionContext,
   SdkQueryResult,
 } from './_deps';
-import log from '@main/utils/logger';
-import {
-  cleanupGatewaySandboxSettings,
-  prepareGatewaySandboxSettings,
-} from './gateway-sandbox-settings';
 
-const logger = log.scope('claude-sdk-query');
+function observeWithoutThrow(action: () => void): void {
+  try {
+    action();
+  } catch {
+    // Desktop diagnostics cannot alter provider startup or cleanup authority.
+  }
+}
 
 /**
  * createSession SDK query 段实现 — free fn，无 facade class 内部 state。
@@ -71,29 +59,30 @@ export async function runCreateSessionSdkQuery(
   deps: CreateSessionDeps,
 ): Promise<SdkQueryResult> {
   const { tempKey, releasePending, internal, userMessageIterable, canUseTool, claudeSandboxMode, claudeModel } = ctx;
+  const host = deps.createSessionSdkQueryHost;
 
   // 整段 await 链（loadSdk → query 构造 → waitForRealSessionId）任一步抛错都要
   // 释放 pending cwd 标记 + 清掉 sessions map 的 tempKey。CHANGELOG_47 修：
   // 之前 releasePending 只在成功路径调，失败时 60s ttl 内同 cwd 真实外部 hook 会话被误吞。
   let realId: string;
   try {
-    const { query } = await loadSdk();
-    const runtime = getSdkRuntimeOptions();
+    const { query } = await host.loadSdk();
+    const runtime = host.runtimeOptions();
     // plan add-claude-cli-path-override-and-bump-sdks-20260520 §设计决策 D1 + §不变量 N5
     // + Follow-up F2+F3 抽 helper(plan §D5 + §D7 deviation):resolveClaudeBinary 内含
     // user override priority chain + existsSync 护栏 + bundled fallback;让 follow-up 单测
     // 不依赖 sdk-bridge 全 mock boilerplate(详 resolve-claude-binary.ts 抽出动机)。
-    const claudeBinary = resolveClaudeBinary();
+    const claudeBinary = host.resolveBinary();
     // REVIEW_14 阶段 2 排查盲点：sandbox 是否生效在 SDK / OS 层不打 log，应用主进程
     // 看不到「sandbox 装载成功 / 失败」信号；改回顶层 sandbox 字段后此 log 帮助
     // 实证「buildSandboxOptions 真的传了对应配置进 SDK options」，下次问题排查少绕一圈。
-    const sandboxOpts = buildSandboxOptions(claudeSandboxMode, opts.cwd, opts.extraAllowWrite);
-    const preparedGatewaySettings = prepareGatewaySandboxSettings({
+    const sandboxOpts = host.buildSandboxOptions(claudeSandboxMode, opts.cwd, opts.extraAllowWrite);
+    const preparedGatewaySettings = host.prepareGatewaySandboxSettings({
       settingsPath: opts.settingsPath,
       sandboxOpts,
     });
     internal.gatewaySandboxSettingsCleanup = preparedGatewaySettings.cleanup;
-    logger.info(
+    observeWithoutThrow(() => host.observeSandboxConfiguration(
       `[sandbox] mode=${claudeSandboxMode} → ${
         preparedGatewaySettings.settingsBackedSandbox
           ? 'enabled (Gateway settings)'
@@ -105,9 +94,9 @@ export async function runCreateSessionSdkQuery(
           ? ` extraAllowWrite=[${opts.extraAllowWrite.join(', ')}]`
           : ''
       }`,
-    );
+    ));
     // Task and collaboration tools share the Agent Deck MCP server toggle.
-    const mcpServers = await buildMcpServersForSession(internal, deps.adapterId);
+    const mcpServers = await host.buildMcpServers(internal, deps.adapterId);
 
     // **REVIEW_99 R3 cancellation-epoch MED 修法 (post-guard 窗口收口)**:
     // loadSdk / buildMcpServersForSession 是 createSession 内部最后两个 pre-registration await。
@@ -137,13 +126,15 @@ export async function runCreateSessionSdkQuery(
     const effectiveResumeCliSid =
       opts.resumeMode === 'fresh-cli-reuse-app' ? undefined :
       !opts.resume ? undefined :
-      (opts.resumeCliSid ?? sessionRepo.get(opts.resume)?.cliSessionId ?? opts.resume);
+      (opts.resumeCliSid ??
+        deps.createSessionHost.readPersistedSession(opts.resume)?.cliSessionId ??
+        opts.resume);
 
     const q = query({
       prompt: userMessageIterable,
       // CHANGELOG_85 Step 3.2：query() options 整段抽到 query-options-builder.ts
       // （pure builder，所有外部依赖通过 args 显式注入，零 side effect）
-      options: buildClaudeQueryOptions({
+      options: host.buildQueryOptions({
         cwd: opts.cwd,
         permissionMode: opts.permissionMode,
         // **R6 HIGH-R6-1 修订**: SDK options.resume 字段用 effectiveResumeCliSid (cli sid 维度,
@@ -153,8 +144,8 @@ export async function runCreateSessionSdkQuery(
         resume: effectiveResumeCliSid,
         canUseTool,
         sandboxOpts: preparedGatewaySettings.sandboxOpts,
-        systemPromptAppend: getAgentDeckSystemPromptAppend(),
-        plugins: getAgentDeckPluginsForSession(opts.claudePluginDir),
+        systemPromptAppend: host.systemPromptAppend(),
+        plugins: host.plugins(opts.claudePluginDir),
         runtime:
           Object.keys(preparedGatewaySettings.childEnv).length > 0
             ? {
@@ -172,7 +163,7 @@ export async function runCreateSessionSdkQuery(
         effort: opts.claudeCodeEffortLevel,
         agentName: opts.claudeAgentName,
         agents: opts.claudeAgents,
-        hooks: buildClaudeRuntimeMetadataHooks(internal),
+        hooks: host.runtimeMetadataHooks(internal),
       }),
     });
     internal.query = q;
@@ -220,7 +211,7 @@ export async function runCreateSessionSdkQuery(
     }
 
     // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
-    sessionManager.claimAsSdk(realId);
+    deps.sessionManager.claimAsSdk(realId);
   } catch (err) {
     // 任何中间步骤抛错：回滚 sessions / 释放 pending，再 throw 给上层 IPC 显错
     // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.5 修法 (H2 + A1-HIGH-1 race 双保险 (A) abort consume)**:
@@ -240,7 +231,10 @@ export async function runCreateSessionSdkQuery(
       // R3 fix-7 (I1 reviewer-claude INFO + codex A MED-1): 加 .catch 吞错防 unhandled
       // rejection（SDK interrupt 在 catch 路径 reject 可能性）。fire-and-forget 语义保持。
       void internal.query?.interrupt?.().catch((err: unknown) => {
-        logger.warn('[sdk-bridge] interrupt during createSession throw failed:', err);
+        observeWithoutThrow(() => host.warn(
+          '[sdk-bridge] interrupt during createSession throw failed:',
+          err,
+        ));
       });
     }
     // REVIEW_60 R2 HIGH-1 修法 (reviewer-claude R2 单方 finding + lead 现场验证 + 与 codex catch 对照 parity gap):
@@ -264,8 +258,8 @@ export async function runCreateSessionSdkQuery(
     releasePending();
     // REVIEW_5 H4：构造期就 claim 了 opts.resume，失败路径必须释放，
     // 否则下次同 sessionId 的真实 hook / 终端 CLI 会话会被静默吞掉
-    if (opts.resume) sessionManager.releaseSdkClaim(opts.resume);
-    cleanupGatewaySandboxSettings(internal);
+    if (opts.resume) deps.sessionManager.releaseSdkClaim(opts.resume);
+    host.cleanupGatewaySandboxSettings(internal);
 
     // REVIEW_75 HIGH (reviewer-codex + lead 代码链实测三重确认):清掉失败路径落下的孤儿
     // tempKey DB row。
@@ -287,9 +281,12 @@ export async function runCreateSessionSdkQuery(
     // - tempKey 是 randomUUID,删一条不存在的 tempKey row 是无害 no-op(DELETE WHERE id=? 命中 0 行)。
     if (!ctx.initialSessionEmitted) {
       try {
-        sessionRepo.delete(tempKey);
+        deps.createSessionHost.deleteTransientSession(tempKey);
       } catch (delErr) {
-        logger.warn(`[sdk-bridge] 清理孤儿 tempKey row 失败: ${tempKey}`, delErr);
+        observeWithoutThrow(() => host.warn(
+          `[sdk-bridge] 清理孤儿 tempKey row 失败: ${tempKey}`,
+          delErr,
+        ));
       }
     }
     throw err;

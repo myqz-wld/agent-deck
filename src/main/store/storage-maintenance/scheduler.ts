@@ -1,6 +1,4 @@
 import type { Database } from 'better-sqlite3';
-import createStorageMaintenanceWorker from './maintenance-worker?nodeWorker';
-import { getDb } from '../db';
 import type { MaintenanceEngineOptions } from './maintenance-engine';
 import {
   STORAGE_MAINTENANCE_WORKER_KIND,
@@ -8,11 +6,12 @@ import {
   type StorageMaintenanceWorkerData,
   type StorageMaintenanceWorkerMessage,
 } from './maintenance-worker-contract';
-import { StorageMaintenanceDiagnostics } from './scheduler-diagnostics';
+import {
+  NOOP_STORAGE_MAINTENANCE_DIAGNOSTICS,
+  type StorageMaintenanceDiagnosticPort,
+} from './scheduler-diagnostics';
 import { MainWalCheckpointLease } from './main-checkpoint-lease';
-import log from '@main/utils/logger';
 
-const logger = log.scope('storage-maintenance');
 const DEFAULT_AUTO_CHECKPOINT_PAGES = 1_000;
 
 export interface SchedulerOptions extends MaintenanceEngineOptions {
@@ -37,14 +36,16 @@ export interface StorageMaintenanceSchedulerDependencies {
   getDatabase(): Database;
   createWorker(data: StorageMaintenanceWorkerData): StorageMaintenanceWorkerLike;
   now(): number;
+  diagnostics?: StorageMaintenanceDiagnosticPort;
 }
 
-const DEFAULT_DEPENDENCIES: StorageMaintenanceSchedulerDependencies = {
-  getDatabase: getDb,
-  createWorker: (workerData) => createStorageMaintenanceWorker({
-    name: 'agent-deck-storage-maintenance',
-    workerData,
-  }),
+const UNCONFIGURED_DEPENDENCIES: StorageMaintenanceSchedulerDependencies = {
+  getDatabase: () => {
+    throw new Error('Storage maintenance scheduler host is not configured');
+  },
+  createWorker: () => {
+    throw new Error('Storage maintenance scheduler host is not configured');
+  },
   now: Date.now,
 };
 
@@ -81,23 +82,21 @@ export class StorageMaintenanceScheduler {
   private maintenanceStartsAt = 0;
   private nextSliceAt = 0;
   private stopWaiter: { promise: Promise<void>; resolve: () => void } | null = null;
-  private readonly diagnostics: StorageMaintenanceDiagnostics;
+  private readonly diagnostics: StorageMaintenanceDiagnosticPort;
 
   constructor(
     private readonly options: SchedulerOptions = {},
-    private readonly dependencies: StorageMaintenanceSchedulerDependencies = DEFAULT_DEPENDENCIES,
+    private readonly dependencies: StorageMaintenanceSchedulerDependencies =
+      UNCONFIGURED_DEPENDENCIES,
   ) {
-    this.diagnostics = new StorageMaintenanceDiagnostics(
-      this.options.slowSliceMs ?? 50,
-      () => this.dependencies.now(),
-      logger,
-    );
+    this.diagnostics = dependencies.diagnostics ?? NOOP_STORAGE_MAINTENANCE_DIAGNOSTICS;
   }
 
   start(): void {
     if (!this.stopped || this.terminalDisabled) return;
+    const mainDb = this.dependencies.getDatabase();
     this.stopped = false;
-    this.mainDb = this.dependencies.getDatabase();
+    this.mainDb = mainDb;
     this.maintenanceStartsAt = this.dependencies.now() + (this.options.initialDelayMs ?? 15_000);
     this.nextSliceAt = this.maintenanceStartsAt;
     this.spawnWorker();
@@ -247,7 +246,7 @@ export class StorageMaintenanceScheduler {
       return;
     }
     this.worker.ready = true;
-    logger.info('[storage-maintenance] worker ready; WAL checkpoints isolated from Electron main');
+    this.diagnostics.workerReady();
     this.scheduleNextRequest();
   }
 
@@ -304,10 +303,7 @@ export class StorageMaintenanceScheduler {
 
   private takeRequest(requestId: number, messageType: string): boolean {
     if (!this.inFlight || this.inFlight.id !== requestId) {
-      logger.warn(
-        `[storage-maintenance] ignored stale worker response ` +
-          `(type=${messageType}, requestId=${requestId})`,
-      );
+      this.diagnostics.ignoredStaleResponse(messageType, requestId);
       return false;
     }
     const expected = this.inFlight.type === 'run-slice'
@@ -316,10 +312,7 @@ export class StorageMaintenanceScheduler {
         ? 'checkpoint-result'
         : 'closed';
     if (messageType !== expected) {
-      logger.warn(
-        `[storage-maintenance] ignored mismatched worker response ` +
-          `(expected=${expected}, actual=${messageType})`,
-      );
+      this.diagnostics.ignoredMismatchedResponse(expected, messageType);
       return false;
     }
     this.inFlight = null;
@@ -341,7 +334,7 @@ export class StorageMaintenanceScheduler {
     try {
       this.checkpointLease.release(this.mainDb);
     } catch (error) {
-      logger.warn('[storage-maintenance] failed to restore main WAL autocheckpoint', error);
+      this.diagnostics.failedToRestoreMainCheckpoint(error);
     }
   }
 
@@ -355,10 +348,7 @@ export class StorageMaintenanceScheduler {
     this.clearRequestTimerHandle();
     this.inFlight = null;
     this.releaseMainCheckpointLease();
-    logger.warn(
-      `[storage-maintenance] worker unhealthy; main checkpoint safety restored, ` +
-        `waiting for worker close: ${message}`,
-    );
+    this.diagnostics.workerUnhealthy(message);
     const closeRequestId = ++this.requestId;
     this.inFlight = { id: closeRequestId, type: 'close' };
     try {
@@ -377,11 +367,7 @@ export class StorageMaintenanceScheduler {
     this.inFlight = null;
     this.releaseMainCheckpointLease();
     if (this.stopped) {
-      logger.warn(
-        this.terminalDisabled
-          ? 'terminal-disabled storage maintenance worker stopped during shutdown'
-          : `[storage-maintenance] worker stopped after failure: ${message}`,
-      );
+      this.diagnostics.workerStopped(message, this.terminalDisabled);
       this.finishStop();
       return;
     }
@@ -404,7 +390,7 @@ export class StorageMaintenanceScheduler {
 
   private scheduleRespawn(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn(`[storage-maintenance] worker unavailable; restoring main checkpoint safety: ${message}`);
+    this.diagnostics.workerUnavailable(message);
     this.releaseMainCheckpointLease();
     if (this.stopped || this.terminalDisabled || this.respawnTimer) return;
     const retryMs = this.options.errorRetryMs ?? 30_000;
@@ -432,9 +418,7 @@ export class StorageMaintenanceScheduler {
     this.clearRespawnTimer();
     this.clearRequestTimerHandle();
     this.releaseMainCheckpointLease();
-    logger.warn(
-      'storage maintenance worker timed out; maintenance disabled until restart',
-    );
+    this.diagnostics.workerTimedOut();
     if (type === 'close') {
       this.terminalCloseRequested = true;
       return;

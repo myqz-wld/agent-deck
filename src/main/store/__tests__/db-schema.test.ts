@@ -12,22 +12,6 @@ const loggerMock = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('electron', () => ({
-  app: {
-    getPath: (name: string) => {
-      if (name === 'logs') return '/tmp';
-      if (name === 'userData') return paths.userData;
-      throw new Error(`Unexpected Electron path: ${name}`);
-    },
-    setName: vi.fn(),
-    isPackaged: false,
-    exit: vi.fn(),
-  },
-}));
-vi.mock('@main/utils/logger', () => ({
-  default: { ...loggerMock, scope: () => loggerMock },
-}));
-
 import {
   UnsupportedDatabaseVersionError,
   closeDb,
@@ -42,6 +26,10 @@ function dbPath(): string {
   return join(paths.userData, DB_NAME);
 }
 
+function initTestDb() {
+  return initDb({ databasePath: dbPath(), diagnostics: loggerMock });
+}
+
 describe.skipIf(!bindingAvailable)('current database schema', () => {
   beforeEach(() => {
     for (const method of Object.values(loggerMock)) method.mockReset();
@@ -54,7 +42,7 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
   });
 
   it('creates the complete current schema for a new database', () => {
-    const db = initDb();
+    const db = initTestDb();
     expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
     expect(
       db.prepare(`SELECT name FROM sqlite_schema WHERE name = 'event_search_fts_v1'`).get(),
@@ -66,9 +54,35 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
 
   it('initializes an existing empty database and reopens the current version', () => {
     new Database(dbPath()).close();
-    expect(initDb().pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
+    expect(initTestDb().pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
     closeDb();
-    expect(initDb().pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
+    expect(initTestDb().pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it('keeps one authoritative host path until the database is closed', () => {
+    const db = initTestDb();
+    const secondPath = join(paths.userData, 'other.db');
+
+    expect(() =>
+      initDb({ databasePath: secondPath, diagnostics: loggerMock }),
+    ).toThrow('already initialized for another host path');
+    expect(db.open).toBe(true);
+  });
+
+  it('does not let a diagnostics failure change a successful database open', () => {
+    const db = initDb({
+      databasePath: dbPath(),
+      diagnostics: {
+        info: () => {
+          throw new Error('diagnostics failed');
+        },
+        warn: () => {
+          throw new Error('diagnostics failed');
+        },
+      },
+    });
+
+    expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
   });
 
   it('rejects old and partial databases instead of mutating them', () => {
@@ -79,7 +93,7 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
     old.close();
     const before = readFileSync(dbPath());
 
-    expect(() => initDb()).toThrow(UnsupportedDatabaseVersionError);
+    expect(() => initTestDb()).toThrow(UnsupportedDatabaseVersionError);
     expect(readFileSync(dbPath())).toEqual(before);
     const verify = new Database(dbPath(), { readonly: true });
     expect(verify.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION - 1);
@@ -94,7 +108,7 @@ describe.skipIf(!bindingAvailable)('current database schema', () => {
     partial.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
     partial.close();
 
-    expect(() => initDb()).toThrow(
+    expect(() => initTestDb()).toThrow(
       new RegExp(`does not match the v${CURRENT_SCHEMA_VERSION} schema baseline`),
     );
     const verify = new Database(dbPath(), { readonly: true });

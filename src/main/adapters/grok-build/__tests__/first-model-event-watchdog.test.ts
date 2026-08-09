@@ -9,6 +9,7 @@ import {
 } from '../first-model-event-watchdog';
 import type { GrokRuntime } from '../runtime-types';
 import { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
+import type { GrokBridgeDiagnostics } from '../bridge-diagnostics-core';
 
 function runtime(): GrokRuntime {
   return {
@@ -57,7 +58,11 @@ describe('Grok first-model-event watchdog', () => {
   it('rejects a prompt that never produces model activity', async () => {
     vi.useFakeTimers();
     try {
-      const watchdog = new GrokFirstModelEventWatchdog(25);
+      const warn = vi.fn();
+      const diagnostics: GrokBridgeDiagnostics = {
+        scope: () => ({ debug: vi.fn(), info: vi.fn(), warn }),
+      };
+      const watchdog = new GrokFirstModelEventWatchdog(25, diagnostics);
       const pending = watchdog.run(
         runtime(),
         () => new Promise<never>(() => undefined),
@@ -71,6 +76,11 @@ describe('Grok first-model-event watchdog', () => {
 
       await vi.advanceTimersByTimeAsync(25);
       await assertion;
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        '[grok-turn-watchdog] first model event timeout',
+        expect.objectContaining({ event: 'grok_turn_watchdog', timeoutMs: 25 }),
+      );
     } finally {
       vi.useRealTimers();
     }

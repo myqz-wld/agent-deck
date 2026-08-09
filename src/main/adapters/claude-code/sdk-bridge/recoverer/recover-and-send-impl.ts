@@ -13,8 +13,6 @@
  * `return recoverAndSendImpl(sid, text, atts, this._buildDeps())`。
  */
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
-import { sessionManager } from '@main/session/manager';
-import { sessionRepo } from '@main/store/session-repo';
 import { AGENT_ID, MAX_MESSAGE_LENGTH, PLACEHOLDER_DEDUP_MS } from '../constants';
 // **plan restart-controller-jsonl-precheck-20260521 §Step 3f 重构**:
 // jsonl missing fallback 整段移到 jsonl-fallback.ts helper,recoverer 不再直接调
@@ -26,10 +24,9 @@ import {
 } from '../recoverer-messages';
 import { RecoveryCancelledError, isRecoveryCancelledError } from '@main/adapters/shared/recovery-cancelled';
 import type { RecoverAndSendDeps } from './_deps';
+import { warnRecoveryWithoutThrow } from './recovery-diagnostics-core';
 import { sendAfterInflightRecovery } from './recovery-waiter';
-import log from '@main/utils/logger';
 import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
-const logger = log.scope('claude-recoverer');
 
 /**
  * recoverAndSend 主入口实现 — free fn，无 facade class 内部 state。
@@ -71,7 +68,7 @@ export async function recoverAndSendImpl(
     });
   }
 
-  const rec: SessionRecord | null = sessionRepo.get(sessionId);
+  const rec: SessionRecord | null = deps.ctx.sessionReader.readPersistedSession(sessionId);
   if (!rec) {
     // 没有历史 record：彻底无法恢复，保留原 throw 信号兼容上层处理
     throw new Error(`session ${sessionId} not found`);
@@ -139,7 +136,7 @@ export async function recoverAndSendImpl(
     });
   } catch (error) {
     recoveryCaptureError = error;
-    logger.warn(`[sdk-bridge] recovery continuation capture failed for ${sessionId}`, error);
+    warnRecoveryWithoutThrow(deps.warn, `[sdk-bridge] recovery continuation capture failed for ${sessionId}`, error);
   }
 
   try {
@@ -189,14 +186,15 @@ export async function recoverAndSendImpl(
   // pre-registration await 后)比对 `getCloseEpoch !== baseline` 只对**恢复期间新发生的 close**
   // 命中。与 maxEventIdBefore 在 emit **前**捕获相反(那是要排除当前消息;这是要排除入口复活前的
   // 旧 close)— 注意区分两者时机语义。
-  const closeEpochBaseline = sessionManager.getCloseEpoch(sessionId);
+  const closeEpochBaseline = deps.ctx.sessionManager.getCloseEpoch(sessionId);
   // cancelGuard:多检查点共用的 cancel 判定 closure。`record missing`(await 期间被 delete)或
   // `epoch 变了`(await 期间用户再次 close / scheduler 衰减 / delete intent)→ true。替代旧
   // `closed && !wasClosed` lifecycle 快照(漏「恢复期间第二次 close」+ 撞 6 集成测试 mock 不 revive
   // gap)。epoch 不依赖 lifecycle 快照,mock 不调 closeImpl → epoch 不变 → 合法 resume 不误 abort。
   const cancelGuard = (): boolean => {
-    if (!sessionRepo.get(sessionId)) return true; // record await 期间被删 → abort
-    return sessionManager.getCloseEpoch(sessionId) !== closeEpochBaseline;
+    // The injected repository snapshot disappearing during an await is a terminal delete signal.
+    if (!deps.ctx.sessionReader.readPersistedSession(sessionId)) return true;
+    return deps.ctx.sessionManager.getCloseEpoch(sessionId) !== closeEpochBaseline;
   };
 
   // CHANGELOG_99 cwd 失效根治:启发式 fallback (R1 fix MED-2:**移到 unarchive 之前**,
@@ -221,7 +219,7 @@ export async function recoverAndSendImpl(
       // (与 archived 路径「cwd-miss 时保持归档」对称 — closed 也应保持 closed)。markClosed 内部
       // 走 active→closed(此刻已被复活成 active)+ 清 marker + leave team + emit session-upserted
       // 让 SessionList 自洽切回历史列表(user message bubble 已入 events 表保留,SessionDetail 仍可见)。
-      if (wasClosed) sessionManager.markClosed(sessionId);
+      if (wasClosed) deps.ctx.sessionManager.markClosed(sessionId);
       throw new Error(
         `session ${sessionId} cwd does not exist and no fallback available: ${rec.cwd}`,
       );
@@ -247,7 +245,7 @@ export async function recoverAndSendImpl(
       }),
     );
     const needSandboxWarn = rec.claudeCodeSandbox === 'workspace-write';
-    logger.warn(
+    warnRecoveryWithoutThrow(deps.warn,
       `[sdk-bridge] cwd fallback for ${sessionId}: ${rec.cwd} → ${effectiveCwd}` +
         (needSandboxWarn ? ' (workspace-write sandbox.allowWrite boundary changed)' : ''),
     );
@@ -273,10 +271,10 @@ export async function recoverAndSendImpl(
       // fallback cwd 找到)再 unarchive,避免 cwd fallback 失败 throw 但 session 已被错误 unarchive。
       // REVIEW_60 MED-codex-1 修订:从 IIFE 外移到 IIFE 内,让 single-flight 锁覆盖此 await。
       if (rec.archivedAt !== null) {
-        logger.warn(
+        warnRecoveryWithoutThrow(deps.warn,
           `[sdk-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
         );
-        await sessionManager.unarchive(sessionId);
+        await deps.ctx.sessionManager.unarchive(sessionId);
       }
 
       // 占位 message：30s fallback 期间用户至少看到「在恢复」而不是哑巴 busy。
@@ -325,6 +323,7 @@ export async function recoverAndSendImpl(
           prepareRecoveryContinuation: deps.prepareRecoveryContinuation,
           emit: deps.ctx.emit,
           latestConversationMessageTsThunk: deps.latestConversationMessageTsThunk,
+          warn: (message, error) => warnRecoveryWithoutThrow(deps.warn, message, error),
         },
         {
           sessionId,
@@ -459,7 +458,7 @@ export async function recoverAndSendImpl(
     // 但本 first-caller outer catch **静默 return sessionId**(不向 renderer 抛错 — 用户主动 close
     // 不该看到红字)。与 R2 jsonl-fallback aborted 直接 return sessionId 的 UX 语义一致。
     if (isRecoveryCancelledError(err)) {
-      logger.warn(
+      warnRecoveryWithoutThrow(deps.warn,
         `[sdk-bridge] recover aborted (session closed during recovery): ${sessionId}`,
       );
       return sessionId; // 静默结束(lifecycle 已是用户想要的 closed,无需回滚 / 不抛错给 renderer)
@@ -481,7 +480,7 @@ export async function recoverAndSendImpl(
     // 时走 markClosed 再关闭。reviewer-claude 反驳轮关键确证:上面 error message emit(source:'sdk')
     // 虽再过 ingest,但此刻 record 已是 active → ensure(manager.ts:261)走 return existing **不再
     // 复活**(仅 closed 才复活),故回滚放 error emit 之后安全(markClosed active→closed 一次到位)。
-    if (wasClosed) sessionManager.markClosed(sessionId);
+    if (wasClosed) deps.ctx.sessionManager.markClosed(sessionId);
     throw err;
   }
   } finally {
@@ -489,7 +488,7 @@ export async function recoverAndSendImpl(
       try {
         deps.cleanupRecoveryContinuation(recoveryCapture);
       } catch (cleanupError) {
-        logger.warn(
+        warnRecoveryWithoutThrow(deps.warn,
           `[sdk-bridge] recovery continuation cleanup failed for ${sessionId}`,
           cleanupError,
         );

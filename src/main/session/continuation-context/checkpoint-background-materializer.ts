@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Database } from 'better-sqlite3';
-import {
-  readLatestContinuationCheckpointAtOrBefore,
-  type ContinuationCheckpointRecord,
-} from '@main/store/continuation-checkpoint-read';
+import { readLatestContinuationCheckpointAtOrBefore } from '@main/store/continuation-checkpoint-read';
 import {
   createEventRevisionReadRepo,
   type EventRevisionCursor,
@@ -25,27 +22,20 @@ import {
 } from './checkpoint-fold-coverage-gap';
 import type { ContinuationFact } from './checkpoint-schema';
 import { CONTINUATION_EXCLUDED_EVENT_KINDS } from './event-normalizer';
+import {
+  BACKGROUND_MATERIALIZE_MAX_ROWS,
+  BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES,
+  BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES,
+  type BackgroundMaterializedMetadata,
+} from './checkpoint-background-worker-contract';
 import { utf8ByteLength } from './token-estimator';
 
-export const BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES = 32 * 1024 * 1024;
-export const BACKGROUND_MATERIALIZE_MAX_ROWS = 10_000;
-export const BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES = 1024 * 1024;
-
-export interface BackgroundMaterializedMetadata {
-  sessionId: string;
-  captureRevision: number;
-  rebuildAfterRevision: number;
-  maxEventId: number | null;
-  runtimeFingerprint: string;
-  checkpoint: ContinuationCheckpointRecord | null;
-  checkpointThroughRevision: number;
-  materializedThroughRevision: number;
-  sourceRows: number;
-  sourceBytes: number;
-  groupCount: number;
-  normalizedEventCount: number;
-  truncatedBy: 'none' | 'rows' | 'source-bytes';
-}
+export {
+  BACKGROUND_MATERIALIZE_MAX_ROWS,
+  BACKGROUND_MATERIALIZE_MAX_SOURCE_BYTES,
+  BACKGROUND_MATERIALIZE_MAX_WIRE_BYTES,
+};
+export type { BackgroundMaterializedMetadata };
 
 export interface MaterializedBackgroundCheckpointSource {
   metadata: BackgroundMaterializedMetadata;

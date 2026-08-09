@@ -1,0 +1,56 @@
+# Parameterized rootless Quadlet template. Render every @@...@@ token before installation.
+# The referenced network MUST be backed by separately verified egress enforcement; a normal
+# rootless bridge is intentionally not treated as host/LAN/metadata filtering.
+
+[Unit]
+Description=Agent Deck Server Core appliance (%i)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=@@IMAGE_DIGEST@@
+Pull=never
+ContainerName=agent-deck-full-%i
+HostName=agent-deck-%i
+Label=io.agent-deck.instance=%i
+Label=io.agent-deck.topology=full
+Label=io.agent-deck.managed-by=agent-deck-instance-manager
+UserNS=keep-id
+ReadOnly=true
+ReadOnlyTmpfs=false
+NoNewPrivileges=true
+DropCapability=all
+Network=@@VERIFIED_EGRESS_NETWORK@@
+Volume=agent-deck-%i-state:/var/lib/agent-deck:rw,nodev,nosuid
+Volume=agent-deck-%i-workspace:/workspaces:rw,nodev,nosuid
+Volume=agent-deck-%i-socket:/run/agent-deck:rw,nodev,nosuid,noexec
+Volume=agent-deck-%i-browser:/var/lib/agent-deck-browser:rw,nodev,nosuid
+Volume=agent-deck-%i-secrets:/run/secrets:ro,nodev,nosuid,noexec
+Tmpfs=/tmp:rw,nodev,nosuid,noexec,size=@@TMPFS_SIZE@@
+Environment=AGENT_DECK_INSTANCE_ID=%i
+Environment=XDG_STATE_HOME=/var/lib/agent-deck/state
+Environment=XDG_CONFIG_HOME=/var/lib/agent-deck/config
+Environment=XDG_RUNTIME_DIR=/run
+Exec=/opt/agent-deck/bin/agent-deckd serve --instance %i --config /var/lib/agent-deck/config/agent-deck/instances/%i/config.json --socket /run/agent-deck/%i/agent-deckd.sock
+Memory=@@MEMORY_LIMIT@@
+PidsLimit=@@PIDS_LIMIT@@
+PodmanArgs=--cpus=@@CPU_LIMIT@@ --storage-opt=size=@@ROOTFS_SIZE@@
+LogDriver=k8s-file
+LogOpt=max-size=@@LOG_SIZE@@
+HealthCmd=["CMD","/opt/agent-deck/bin/agent-deckd","health","--socket","/run/agent-deck/%i/agent-deckd.sock"]
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthOnFailure=kill
+Notify=healthy
+
+[Service]
+ExecStartPre=/usr/bin/test -r %h/.config/agent-deck/instances/%i/egress-policy.verified
+ExecStartPre=/usr/bin/test -r %h/.config/agent-deck/instances/%i/volume-quota.verified
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=900
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

@@ -1,18 +1,12 @@
 /** Bounded issue query list; the application-level bridge owns live event subscription. */
 
 import { useEffect, useMemo, useState, type JSX } from 'react';
-import type { IssueStatus, IssueRecord } from '@shared/types';
 import {
   useIssuesStore,
   selectFilteredIssues,
-  type IssueFilters,
 } from '../stores/issues-store';
 import { IssueDetail } from './IssueDetail';
-
-// 「活跃」tab = open + in-progress；「已解决」tab = resolved（两 tab 互斥，复用 filters.statuses 底层）
-const ACTIVE_STATUSES: IssueStatus[] = ['open', 'in-progress'];
-const RESOLVED_STATUSES: IssueStatus[] = ['resolved'];
-const KIND_OPTIONS = ['follow-up', 'app-bug'] as const;
+import { EmptyIssueDetail, IssueBoard } from './issues/IssueBoard';
 
 const KEYWORD_DEBOUNCE_MS = 300;
 
@@ -93,224 +87,25 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
   ]);
 
   return (
-    <div className="flex h-full">
-      {/* Left: list + filter */}
-      <div className="flex w-1/2 min-w-[320px] max-w-[480px] flex-col border-r border-deck-border">
-        <FilterBar
-          filters={filters}
-          keywordInput={keywordInput}
-          onKeywordChange={setKeywordInput}
-          onFiltersChange={setFilters}
+    <IssueBoard
+      filters={filters}
+      issues={filteredList}
+      keywordInput={keywordInput}
+      listError={listError}
+      loading={loading}
+      selectedIssueId={selectedIssueId}
+      onFiltersChange={setFilters}
+      onKeywordChange={setKeywordInput}
+      onSelectIssue={selectIssue}
+      detail={selectedIssueId ? (
+        // The key resets the per-issue edit baseline before another issue can receive the draft.
+        <IssueDetail
+          key={selectedIssueId}
+          issueId={selectedIssueId}
+          onClose={() => selectIssue(null)}
+          onOpenSession={onOpenSession}
         />
-        <div className="flex-1 overflow-y-auto scrollbar-deck">
-          {listError ? (
-            <div className="px-3 py-8 text-center text-xs text-status-waiting">
-              加载失败：{listError}
-            </div>
-          ) : loading && filteredList.length === 0 ? (
-            <div className="px-3 py-8 text-center text-xs text-deck-muted">加载中…</div>
-          ) : filteredList.length === 0 ? (
-            <div className="px-3 py-8 text-center text-xs text-deck-muted">
-              暂无问题。Agent 执行任务时主动上报的问题会显示在这里。
-            </div>
-          ) : (
-            <ul className="divide-y divide-deck-border">
-              {filteredList.map((i) => (
-                <IssueRow
-                  key={i.id}
-                  issue={i}
-                  selected={i.id === selectedIssueId}
-                  onClick={() => selectIssue(i.id)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-      {/* Right: detail (or empty hint) */}
-      <div className="flex-1 overflow-y-auto scrollbar-deck">
-        {selectedIssueId ? (
-          // The key resets the per-issue edit baseline before another issue can receive the draft.
-          <IssueDetail
-            key={selectedIssueId}
-            issueId={selectedIssueId}
-            onClose={() => selectIssue(null)}
-            onOpenSession={onOpenSession}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-xs text-deck-muted">
-            从左侧选择一个问题查看详情
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface FilterBarProps {
-  filters: IssueFilters;
-  keywordInput: string;
-  onKeywordChange: (v: string) => void;
-  onFiltersChange: (f: IssueFilters) => void;
-}
-
-function FilterBar({
-  filters,
-  keywordInput,
-  onKeywordChange,
-  onFiltersChange,
-}: FilterBarProps): JSX.Element {
-  // resolved tab 判定：filters.statuses 含 'resolved' = 已解决视图，否则活跃视图
-  const showingResolved = (filters.statuses ?? []).includes('resolved');
-  const toggleKind = (k: string): void => {
-    const cur = filters.kinds ?? [];
-    const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
-    onFiltersChange({ ...filters, kinds: next.length === 0 ? undefined : next });
-  };
-  return (
-    <div className="space-y-2 border-b border-deck-border px-3 py-2">
-      <input
-        type="text"
-        placeholder="搜索标题…"
-        value={keywordInput}
-        onChange={(e) => onKeywordChange(e.target.value)}
-        className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs text-deck-text outline-none focus:border-white/20"
-      />
-      <div className="flex gap-1">
-        <StatusTab
-          label="活跃"
-          active={!showingResolved}
-          onClick={() => onFiltersChange({ ...filters, statuses: ACTIVE_STATUSES })}
-        />
-        <StatusTab
-          label="已解决"
-          active={showingResolved}
-          onClick={() => onFiltersChange({ ...filters, statuses: RESOLVED_STATUSES })}
-        />
-      </div>
-      <div className="flex flex-wrap gap-1">
-        <span className="text-[10px] text-deck-muted">类型：</span>
-        {KIND_OPTIONS.map((k) => (
-          <FilterChip
-            key={k}
-            label={k}
-            active={(filters.kinds ?? []).includes(k)}
-            onClick={() => toggleKind(k)}
-          />
-        ))}
-      </div>
-      <label className="flex items-center gap-1 text-[10px] text-deck-muted">
-        <input
-          type="checkbox"
-          checked={filters.showDeleted ?? false}
-          onChange={(e) => onFiltersChange({ ...filters, showDeleted: e.target.checked })}
-        />
-        显示已删除
-      </label>
-    </div>
-  );
-}
-
-/** 活跃 / 已解决 互斥 tab（比 chip 更突出「切换视图」语义）。 */
-function StatusTab({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-2.5 py-1 text-[11px] transition-colors ${
-        active
-          ? 'bg-white/15 text-deck-text ring-1 ring-white/20'
-          : 'bg-white/[0.04] text-deck-muted hover:bg-white/10'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
-        active
-          ? 'bg-white/15 text-deck-text ring-1 ring-white/20'
-          : 'bg-white/[0.04] text-deck-muted hover:bg-white/10'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function IssueRow({
-  issue,
-  selected,
-  onClick,
-}: {
-  issue: IssueRecord;
-  selected: boolean;
-  onClick: () => void;
-}): JSX.Element {
-  const statusColor =
-    issue.status === 'open'
-      ? 'text-status-finished'
-      : issue.status === 'in-progress'
-        ? 'text-status-working'
-        : 'text-status-idle';
-  const severityColor =
-    issue.severity === 'high'
-      ? 'bg-status-waiting/25 text-status-waiting'
-      : issue.severity === 'medium'
-        ? 'bg-status-finished/25 text-status-finished'
-        : 'bg-status-idle/25 text-status-idle';
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onClick}
-        className={`w-full px-3 py-2 text-left transition ${
-          selected ? 'bg-white/10' : 'hover:bg-white/[0.04]'
-        } ${issue.deletedAt !== null ? 'opacity-50' : ''}`}
-      >
-        <div className="flex items-center gap-1.5">
-          <span className={`text-[10px] uppercase ${statusColor}`}>{issue.status}</span>
-          <span className={`rounded px-1 text-[9px] ${severityColor}`}>
-            {issue.severity.toUpperCase()}
-          </span>
-          <span className="rounded bg-white/[0.06] px-1 text-[9px] text-deck-muted">
-            {issue.kind}
-          </span>
-          {issue.deletedAt !== null && (
-            <span className="rounded bg-status-waiting/25 px-1 text-[9px] text-status-waiting">
-              已删除
-            </span>
-          )}
-        </div>
-        <div className="mt-1 truncate text-xs text-deck-text">{issue.title}</div>
-        <div className="mt-0.5 text-[10px] text-deck-muted">
-          {new Date(issue.createdAt).toLocaleString('zh-CN', { hour12: false })}
-          {issue.branchName ? ` · ${issue.branchName}` : ''}
-          {issue.cwd ? ` · ${issue.cwd.split('/').slice(-2).join('/')}` : ''}
-        </div>
-      </button>
-    </li>
+      ) : <EmptyIssueDetail />}
+    />
   );
 }

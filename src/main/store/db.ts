@@ -1,15 +1,26 @@
 import Database from 'better-sqlite3';
-import { app } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import log from '@main/utils/logger';
+import { dirname, isAbsolute, normalize } from 'node:path';
 import { CURRENT_SCHEMA_SQL, CURRENT_SCHEMA_VERSION } from './schema';
 
-const logger = log.scope('store-db');
-const DB_NAME = 'agent-deck.db';
+export const AGENT_DECK_DATABASE_FILENAME = 'agent-deck.db';
+const MAX_DATABASE_PATH_BYTES = 4_096;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+
+export interface DatabaseDiagnosticsPort {
+  info(message: string, details: Readonly<Record<string, unknown>>): void;
+  warn(message: string, details: Readonly<Record<string, unknown>>): void;
+}
+
+export interface DatabaseInitializationOptions {
+  /** Host-owned absolute path. The persistence layer never consults Electron or process cwd. */
+  readonly databasePath: string;
+  readonly diagnostics: DatabaseDiagnosticsPort;
+}
 
 let dbInstance: Database.Database | null = null;
+let dbInstancePath: string | null = null;
 // Distinguishes explicit shutdown from a missing initDb() call.
 let dbClosed = false;
 
@@ -131,20 +142,62 @@ function assertInspectionUnchanged(
   }
 }
 
-export function initDb(): Database.Database {
-  if (dbInstance) return dbInstance;
+function validatedDatabasePath(value: string): string {
+  if (
+    typeof value !== 'string' ||
+    !isAbsolute(value) ||
+    Buffer.byteLength(value) === 0 ||
+    Buffer.byteLength(value) > MAX_DATABASE_PATH_BYTES ||
+    CONTROL.test(value)
+  ) {
+    throw new Error('Database path must be a bounded absolute host path.');
+  }
+  return normalize(value);
+}
+
+function validatedDiagnostics(value: DatabaseDiagnosticsPort): DatabaseDiagnosticsPort {
+  if (
+    !value ||
+    typeof value.info !== 'function' ||
+    typeof value.warn !== 'function'
+  ) {
+    throw new Error('Database diagnostics port is invalid.');
+  }
+  return value;
+}
+
+function emitDiagnostic(
+  diagnostics: DatabaseDiagnosticsPort,
+  level: 'info' | 'warn',
+  message: string,
+  details: Readonly<Record<string, unknown>>,
+): void {
+  try {
+    diagnostics[level](message, details);
+  } catch {
+    // Diagnostics must never change persistence success, failure, or cleanup semantics.
+  }
+}
+
+export function initDb(options: DatabaseInitializationOptions): Database.Database {
+  const dbPath = validatedDatabasePath(options.databasePath);
+  const diagnostics = validatedDiagnostics(options.diagnostics);
+  if (dbInstance) {
+    if (dbInstancePath !== dbPath) {
+      throw new Error('Database is already initialized for another host path.');
+    }
+    return dbInstance;
+  }
   dbClosed = false;
 
   const startedAt = performance.now();
-  const userDataDir = app.getPath('userData');
-  const dbPath = join(userDataDir, DB_NAME);
   let opened: Database.Database | null = null;
   let published = false;
   let mode: 'fresh' | 'existing' = 'existing';
   let state = 'inspect';
 
   try {
-    mkdirSync(userDataDir, { recursive: true });
+    mkdirSync(dirname(dbPath), { recursive: true });
     const inspection = inspectDatabase(dbPath);
     mode = inspection.fresh ? 'fresh' : 'existing';
 
@@ -165,8 +218,9 @@ export function initDb(): Database.Database {
     }
 
     dbInstance = opened;
+    dbInstancePath = dbPath;
     published = true;
-    logger.info('schema initialization', {
+    emitDiagnostic(diagnostics, 'info', 'schema initialization', {
       version: CURRENT_SCHEMA_VERSION,
       mode,
       state: 'complete',
@@ -177,7 +231,7 @@ export function initDb(): Database.Database {
   } catch (error) {
     const versionError =
       error instanceof UnsupportedDatabaseVersionError ? error : null;
-    logger.warn('schema initialization', {
+    emitDiagnostic(diagnostics, 'warn', 'schema initialization', {
       version: CURRENT_SCHEMA_VERSION,
       mode,
       state,
@@ -195,17 +249,13 @@ export function initDb(): Database.Database {
       try {
         opened.close();
       } catch {
-        try {
-          logger.warn('schema connection close failed', {
-            version: CURRENT_SCHEMA_VERSION,
-            mode,
-            state: 'close',
-            outcome: 'failed',
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-        } catch {
-          // Diagnostics must not replace the primary initialization error.
-        }
+        emitDiagnostic(diagnostics, 'warn', 'schema connection close failed', {
+          version: CURRENT_SCHEMA_VERSION,
+          mode,
+          state: 'close',
+          outcome: 'failed',
+          durationMs: Math.round(performance.now() - startedAt),
+        });
       }
     }
   }
@@ -235,6 +285,7 @@ export function closeDb(): void {
       dbInstance.close();
     } finally {
       dbInstance = null;
+      dbInstancePath = null;
     }
   }
 }

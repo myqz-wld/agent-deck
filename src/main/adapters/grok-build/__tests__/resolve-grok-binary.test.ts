@@ -16,24 +16,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { brotliCompressSync } from 'node:zlib';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('electron', async () => {
-  const [{ realpathSync }, { tmpdir: getTmpdir }, { join: joinPath }] = await Promise.all([
-    import('node:fs'),
-    import('node:os'),
-    import('node:path'),
-  ]);
-  return {
-    app: {
-      getPath: () => joinPath(realpathSync(getTmpdir()), 'agent-deck-grok-test-userData'),
-    },
-  };
-});
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   materializeCompressedGrokBinary,
   resolveGrokBinary,
+  resolveGrokBinaryCacheRoot,
   type GrokBinaryMaterializationOptions,
 } from '../resolve-grok-binary';
 
@@ -57,8 +45,18 @@ describe('resolveGrokBinary', () => {
 
     expect(bundled).not.toBe('grok');
     expect(blankOverride).toBe(bundled);
-    expect(bundled).toContain(join('agent-deck-grok-test-userData', 'grok-binary-cache'));
+    expect(bundled).toContain(join('agent-deck-test', 'userData', 'grok-binary-cache'));
     await expect(access(bundled)).resolves.toBeUndefined();
+  });
+
+  it('derives the default cache from the explicit host while preserving overrides', () => {
+    const host = { userDataPath: '/var/lib/agent-deck/instance-a' };
+    expect(resolveGrokBinaryCacheRoot(host, undefined)).toBe(
+      join(host.userDataPath, 'grok-binary-cache'),
+    );
+    expect(resolveGrokBinaryCacheRoot(host, '/srv/agent-deck/grok-cache')).toBe(
+      '/srv/agent-deck/grok-cache',
+    );
   });
 
   it('retains the explicit cache-root override', async () => {

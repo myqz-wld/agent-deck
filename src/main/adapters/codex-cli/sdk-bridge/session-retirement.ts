@@ -1,18 +1,16 @@
 /** Codex source-runtime retirement after a successful MCP handoff. */
 import type { CodexAppServerClient } from '../app-server/client';
-import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { extractAttachmentPaths } from './input-pack';
 import type { InternalSession } from './types';
-import log from '@main/utils/logger';
 import { safeDiagnostic } from '@main/utils/safe-diagnostic';
-
-const logger = log.scope('codex-bridge');
+import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface CodexSessionRetirementContext {
   sessions: Map<string, InternalSession>;
   clients: Map<string, CodexAppServerClient>;
   releaseClaim: (sessionId: string) => void;
   releaseToken: (sessionId: string) => void;
+  runtimeHost: CodexBridgeRuntimeHost;
 }
 
 export interface CodexStrictRetirementIssue {
@@ -41,12 +39,13 @@ export class CodexStrictRetirementError extends Error {
  */
 export function armCodexSessionRetirement(
   internal: InternalSession,
+  runtimeHost: CodexBridgeRuntimeHost,
   deletePendingAttachments = false,
 ): void {
   if (internal.retirementFinalized) return;
   internal.retireAfterCurrentTurn = true;
   internal.deletePendingAttachmentsOnRetirement ||= deletePendingAttachments;
-  discardPendingCodexInputs(internal, deletePendingAttachments);
+  discardPendingCodexInputs(internal, deletePendingAttachments, runtimeHost);
 }
 
 export function assertCodexSessionAcceptsInput(internal: InternalSession): void {
@@ -65,6 +64,7 @@ export function finalizeCodexSessionRetirement(
   discardPendingCodexInputs(
     internal,
     internal.deletePendingAttachmentsOnRetirement === true,
+    ctx.runtimeHost,
   );
 
   const runtimeIds = new Set<string>([internal.applicationSid]);
@@ -86,18 +86,27 @@ export function finalizeCodexSessionRetirement(
       try {
         client.dispose();
       } catch (err) {
-        logger.warn(`[codex-bridge] client dispose during retirement failed: ${sessionId}`, err);
+        ctx.runtimeHost.logger('codex-bridge').warn(
+          `[codex-bridge] client dispose during retirement failed: ${sessionId}`,
+          err,
+        );
       }
     }
     try {
       ctx.releaseClaim(sessionId);
     } catch (err) {
-      logger.warn(`[codex-bridge] SDK claim release during retirement failed: ${sessionId}`, err);
+      ctx.runtimeHost.logger('codex-bridge').warn(
+        `[codex-bridge] SDK claim release during retirement failed: ${sessionId}`,
+        err,
+      );
     }
     try {
       ctx.releaseToken(sessionId);
     } catch (err) {
-      logger.warn(`[codex-bridge] MCP token release during retirement failed: ${sessionId}`, err);
+      ctx.runtimeHost.logger('codex-bridge').warn(
+        `[codex-bridge] MCP token release during retirement failed: ${sessionId}`,
+        err,
+      );
     }
   }
 }
@@ -111,6 +120,7 @@ export function finalizeCodexSessionRetirementForRollback(
   discardPendingCodexInputs(
     internal,
     internal.deletePendingAttachmentsOnRetirement === true,
+    ctx.runtimeHost,
   );
   const runtimeIds = collectRuntimeIds(ctx.sessions, internal);
   const clients = new Set<CodexAppServerClient>();
@@ -125,7 +135,7 @@ export function finalizeCodexSessionRetirementForRollback(
     error?: unknown,
   ): void => {
     issues.push({ phase, sessionId });
-    logger.warn('[codex-bridge] strict retirement step failed', safeDiagnostic({
+    ctx.runtimeHost.logger('codex-bridge').warn('[codex-bridge] strict retirement step failed', safeDiagnostic({
       phase,
       outcome: 'failed',
       sessionId,
@@ -175,6 +185,7 @@ function collectRuntimeIds(
 function discardPendingCodexInputs(
   internal: InternalSession,
   deleteAttachments: boolean,
+  runtimeHost: CodexBridgeRuntimeHost,
 ): void {
   internal.submittingUserMessage?.requestController?.abort();
   internal.submittingUserMessage = null;
@@ -188,7 +199,7 @@ function discardPendingCodexInputs(
   internal.acceptedEnqueueFingerprints?.clear();
   if (!deleteAttachments) return;
   for (const path of orphanPaths) {
-    void deleteUploadIfExists(path).catch(() => {
+    void runtimeHost.deleteUploadIfExists(path).catch(() => {
       // Best effort; the stale-upload reaper remains the final fallback.
     });
   }

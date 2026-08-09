@@ -1,4 +1,4 @@
-import type { CodexAppServerNotification } from './client';
+import type { CodexAppServerNotification } from './protocol';
 import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import {
   classifyStreamErrorEvent,
@@ -18,30 +18,23 @@ import {
   translateCodexDisplayItemCompleted,
   translateCodexDisplayItemStarted,
 } from './translate-display-items';
-import log from '@main/utils/logger';
 import { translateCodexTokenUsage } from './token-usage-translate';
 import {
   observeCodexTokenUsage,
   type CodexTokenUsageObservation,
   type CodexTokenUsageSnapshot,
 } from './token-usage-observation';
-
-const logger = log.scope('codex-app-server-translate');
 const GENERIC_SKILL_TOOL_NAMES = new Set(['skill', 'invoke', 'invoke_skill', 'skill.invoke']);
-
 type AnyRecord = Record<string, unknown>;
 type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
-
 export interface CodexAppServerTranslateState {
   reasoningSummaryByItemId: Map<string, string[]>;
   rawCollabCallsById: Map<string, Record<string, unknown>>;
   tokenUsageWatermark?: CodexTokenUsageSnapshot;
 }
-
 export function createCodexAppServerTranslateState(): CodexAppServerTranslateState {
   return { reasoningSummaryByItemId: new Map(), rawCollabCallsById: new Map() };
 }
-
 export function translateCodexAppServerNotification(
   notification: CodexAppServerNotification,
   emit: EmitFn,
@@ -51,6 +44,8 @@ export function translateCodexAppServerNotification(
     state?: CodexAppServerTranslateState;
     tokenUsageObservation?: CodexTokenUsageObservation;
     usageMessageNamespace?: string | null;
+    observeIgnoredItemType?: (itemType: string) => void;
+    observeHeuristicStreamError?: (message: string) => void;
   },
 ): void {
   switch (notification.method) {
@@ -90,7 +85,7 @@ export function translateCodexAppServerNotification(
       return;
     }
     case 'error': {
-      translateErrorNotification(notification.params, emit);
+      translateErrorNotification(notification.params, emit, opts?.observeHeuristicStreamError);
       return;
     }
     case 'item/started': {
@@ -100,20 +95,19 @@ export function translateCodexAppServerNotification(
     }
     case 'item/completed': {
       const item = getItem(notification.params);
-      if (item) translateItemCompleted(item, emit, opts?.state);
+      if (item) {
+        translateItemCompleted(item, emit, opts?.state, opts?.observeIgnoredItemType);
+      }
       return;
     }
-
     case 'item/commandExecution/outputDelta': {
       translateCommandOutputDelta(notification.params, emit);
       return;
     }
-
     case 'rawResponseItem/completed': {
       translateRawCollabResponseItem(notification.params, emit, opts?.state?.rawCollabCallsById);
       return;
     }
-
     case 'item/mcpToolCall/progress':
     case 'serverRequest/resolved':
     case 'warning':
@@ -123,7 +117,6 @@ export function translateCodexAppServerNotification(
       return;
   }
 }
-
 function translateTurnCompleted(params: unknown, emit: EmitFn): void {
   const turn = asRecord(params)?.turn;
   if (!turn || typeof turn !== 'object') {
@@ -154,12 +147,18 @@ function translateTurnCompleted(params: unknown, emit: EmitFn): void {
   }
   emit('finished', { ok: false, subtype: 'error' });
 }
-
-function translateErrorNotification(params: unknown, emit: EmitFn): void {
+function translateErrorNotification(
+  params: unknown,
+  emit: EmitFn,
+  observeHeuristicStreamError?: (message: string) => void,
+): void {
   const record = asRecord(params);
   const err = asRecord(record?.error);
   const msg = typeof err?.message === 'string' ? err.message : 'Unknown Codex app-server error';
-  if (record?.willRetry === true || classifyStreamErrorEvent(msg) === 'transient') {
+  if (
+    record?.willRetry === true ||
+    classifyStreamErrorEvent(msg, observeHeuristicStreamError) === 'transient'
+  ) {
     const progress = extractRetryProgress(msg);
     emit('message', { text: `🔄 Codex 正在重连...${progress}` });
     return;
@@ -170,10 +169,9 @@ function translateErrorNotification(params: unknown, emit: EmitFn): void {
     subtype: 'error',
     ...(err?.codexErrorInfo === 'contextWindowExceeded'
       ? { failureReason: 'context-window-exceeded' }
-      : {}),
+    : {}),
   });
 }
-
 function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
   if (translateNormalizedCollabItemStarted(item, emit)) return;
   if (translateCodexDisplayItemStarted(item, emit)) return;
@@ -201,7 +199,6 @@ function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
     });
   }
 }
-
 function translateCommandOutputDelta(params: unknown, emit: EmitFn): void {
   const record = asRecord(params);
   if (!record) return;
@@ -216,11 +213,11 @@ function translateCommandOutputDelta(params: unknown, emit: EmitFn): void {
     status: 'inProgress',
   });
 }
-
 function translateItemCompleted(
   item: AnyRecord,
   emit: EmitFn,
   state?: CodexAppServerTranslateState,
+  observeIgnoredItemType?: (itemType: string) => void,
 ): void {
   if (translateNormalizedCollabItemCompleted(item, emit)) return;
   if (translateCodexDisplayItemCompleted(item, emit)) return;
@@ -229,7 +226,6 @@ function translateItemCompleted(
       emitAssistantMessageIfPresent(item, emit);
       return;
     }
-
     case 'reasoning': {
       const summary = stringArray(item.summary);
       const deltaSummary = consumeReasoningSummaryDelta(item, state);
@@ -238,12 +234,10 @@ function translateItemCompleted(
       if (text) emit('thinking', { text });
       return;
     }
-
     case 'plan': {
       emitAssistantMessageIfPresent(item, emit);
       return;
     }
-
     case 'commandExecution': {
       emit('tool-use-end', {
         toolUseId: item.id,
@@ -341,9 +335,13 @@ function translateItemCompleted(
 
     case 'userMessage':
       return;
-
-    default:
-      logger.debug(`[codex-app-server-translate] ignored item type: ${String(item.type)}`);
+    default: {
+      try {
+        observeIgnoredItemType?.(typeof item.type === 'string' ? item.type : 'unknown');
+      } catch {
+        // Diagnostics cannot alter provider event translation.
+      }
+    }
   }
 }
 

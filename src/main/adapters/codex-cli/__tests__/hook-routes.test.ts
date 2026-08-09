@@ -2,8 +2,10 @@ import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import { CODEX_HOOK_EVENTS } from '../hook-installer';
 import { buildCodexHookRoutes } from '../hook-routes';
+import type { CodexHookRoutePorts } from '../hook-route-ports';
 import {
   HOOK_PROCESSING_FAILED_RESPONSE,
+  HookRouteDiagnostics,
   INVALID_HOOK_BODY_RESPONSE,
 } from '@main/hook-server/route-diagnostics';
 
@@ -13,9 +15,24 @@ function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof 
   return { code, send };
 }
 
+function routePorts(
+  overrides: Partial<CodexHookRoutePorts> = {},
+): CodexHookRoutePorts {
+  return {
+    filter: { shouldIgnore: vi.fn().mockResolvedValue(false) },
+    diagnostics: new HookRouteDiagnostics(),
+    openToolUseReader: { listForSession: vi.fn(() => []) },
+    observer: { reconciliationFailed: vi.fn() },
+    ...overrides,
+  };
+}
+
 describe('Codex CLI hook routes', () => {
   it('keeps every installed event routable', () => {
-    const urls = buildCodexHookRoutes(() => undefined).map((route) => route.url);
+    const urls = buildCodexHookRoutes(
+      () => undefined,
+      routePorts(),
+    ).map((route) => route.url);
     expect(urls).toEqual(
       CODEX_HOOK_EVENTS.map((event) => `/hook/codex/${event.toLowerCase()}`),
     );
@@ -24,9 +41,10 @@ describe('Codex CLI hook routes', () => {
   it('tags hook origin and forwards the external parent pid header', async () => {
     const events: AgentEvent[] = [];
     const desktopFilter = { shouldIgnore: vi.fn().mockResolvedValue(false) };
-    const route = buildCodexHookRoutes((ev) => events.push(ev), desktopFilter).find(
-      (r) => r.url === '/hook/codex/sessionstart',
-    );
+    const route = buildCodexHookRoutes(
+      (ev) => events.push(ev),
+      routePorts({ filter: desktopFilter }),
+    ).find((r) => r.url === '/hook/codex/sessionstart');
     expect(route).toBeTruthy();
 
     await (route?.handler as (req: unknown, reply: unknown) => Promise<void>)(
@@ -63,9 +81,10 @@ describe('Codex CLI hook routes', () => {
   it('acknowledges but does not emit a verified Desktop ephemeral hook', async () => {
     const events: AgentEvent[] = [];
     const desktopFilter = { shouldIgnore: vi.fn().mockResolvedValue(true) };
-    const route = buildCodexHookRoutes((ev) => events.push(ev), desktopFilter).find(
-      (r) => r.url === '/hook/codex/sessionstart',
-    );
+    const route = buildCodexHookRoutes(
+      (ev) => events.push(ev),
+      routePorts({ filter: desktopFilter }),
+    ).find((r) => r.url === '/hook/codex/sessionstart');
     const reply = replyStub();
 
     await (route?.handler as (req: unknown, reply: unknown) => Promise<void>)(
@@ -94,9 +113,10 @@ describe('Codex CLI hook routes', () => {
     const desktopFilter = {
       shouldIgnore: vi.fn().mockRejectedValue(new Error('process lookup failed')),
     };
-    const route = buildCodexHookRoutes((ev) => events.push(ev), desktopFilter).find(
-      (r) => r.url === '/hook/codex/sessionstart',
-    );
+    const route = buildCodexHookRoutes(
+      (ev) => events.push(ev),
+      routePorts({ filter: desktopFilter }),
+    ).find((r) => r.url === '/hook/codex/sessionstart');
 
     await (route?.handler as (req: unknown, reply: unknown) => Promise<void>)(
       {
@@ -132,9 +152,7 @@ describe('Codex CLI hook routes', () => {
     };
     const route = buildCodexHookRoutes(
       (event) => events.push(event),
-      desktopFilter,
-      undefined,
-      openToolUseReader,
+      routePorts({ filter: desktopFilter, openToolUseReader }),
     ).find((candidate) => candidate.url === '/hook/codex/stop');
 
     await (route?.handler as (req: unknown, reply: unknown) => Promise<void>)(
@@ -169,7 +187,10 @@ describe('Codex CLI hook routes', () => {
   it('rejects invalid Codex CLI session identity with a stable body', async () => {
     const emit = vi.fn();
     const desktopFilter = { shouldIgnore: vi.fn() };
-    const route = buildCodexHookRoutes(emit, desktopFilter)[0];
+    const route = buildCodexHookRoutes(
+      emit,
+      routePorts({ filter: desktopFilter }),
+    )[0];
     const reply = replyStub();
 
     await (route.handler as (req: unknown, reply: unknown) => Promise<void>)(
@@ -188,9 +209,12 @@ describe('Codex CLI hook routes', () => {
 
   it('returns a stable non-sensitive body when the event sink throws', async () => {
     const desktopFilter = { shouldIgnore: vi.fn().mockResolvedValue(false) };
-    const route = buildCodexHookRoutes(() => {
-      throw new Error('private Codex CLI sink detail');
-    }, desktopFilter)[0];
+    const route = buildCodexHookRoutes(
+      () => {
+        throw new Error('private Codex CLI sink detail');
+      },
+      routePorts({ filter: desktopFilter }),
+    )[0];
     const reply = replyStub();
 
     await (route.handler as (req: unknown, reply: unknown) => Promise<void>)(
@@ -207,5 +231,46 @@ describe('Codex CLI hook routes', () => {
 
     expect(reply.code).toHaveBeenCalledWith(500);
     expect(reply.send).toHaveBeenCalledWith(HOOK_PROCESSING_FAILED_RESPONSE);
+  });
+
+  it('contains reconciliation diagnostics and preserves the terminal event', async () => {
+    const events: AgentEvent[] = [];
+    const error = new Error('private repository detail');
+    const observer = {
+      reconciliationFailed: vi.fn(() => {
+        throw new Error('observer failure');
+      }),
+    };
+    const route = buildCodexHookRoutes(
+      (event) => events.push(event),
+      routePorts({
+        openToolUseReader: {
+          listForSession: vi.fn(() => {
+            throw error;
+          }),
+        },
+        observer,
+      }),
+    ).find((candidate) => candidate.url === '/hook/codex/sessionend');
+
+    await (route?.handler as (req: unknown, reply: unknown) => Promise<void>)(
+      {
+        body: {
+          session_id: 'codex-terminal',
+          cwd: '/repo',
+          hook_event_name: 'SessionEnd',
+          reason: 'complete',
+        },
+        headers: {},
+      },
+      replyStub(),
+    );
+
+    expect(observer.reconciliationFailed).toHaveBeenCalledWith({
+      sessionId: 'codex-terminal',
+      terminalHook: 'SessionEnd',
+      error,
+    });
+    expect(events.map((event) => event.kind)).toEqual(['session-end']);
   });
 });

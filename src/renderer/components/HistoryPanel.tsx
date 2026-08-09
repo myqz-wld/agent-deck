@@ -4,6 +4,7 @@ import { StatusBadge } from './StatusBadge';
 import { lifecycleLabel, agentIdLabel } from './TeamDetail/helpers';
 import { ArchiveIcon, RefreshIcon, TrashIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
+import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 
 interface Filters {
   agentId?: string;
@@ -16,6 +17,7 @@ interface Filters {
 
 interface Props {
   onSelect: (id: string) => void;
+  remoteSource?: RemoteSessionSourceView;
 }
 
 /**
@@ -25,7 +27,13 @@ interface Props {
  */
 const KEYWORD_DEBOUNCE_MS = 300;
 
-export function HistoryPanel({ onSelect }: Props): JSX.Element {
+export function HistoryPanel({ onSelect, remoteSource }: Props): JSX.Element {
+  return remoteSource
+    ? <RemoteHistoryPanel source={remoteSource} onSelect={onSelect} />
+    : <LocalHistoryPanel onSelect={onSelect} />;
+}
+
+function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
   const [filters, setFilters] = useState<Filters>({});
   /** 输入框的实时值（用户每打一个字就更新），与 filters.keyword 解耦避免每次输入都触发 reload */
   const [keywordInput, setKeywordInput] = useState('');
@@ -269,6 +277,74 @@ export function HistoryPanel({ onSelect }: Props): JSX.Element {
                 </div>
               </li>
             ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RemoteHistoryPanel({
+  source,
+  onSelect,
+}: {
+  source: RemoteSessionSourceView;
+  onSelect: (id: string) => void;
+}): JSX.Element {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 border-b border-deck-border px-3 py-2">
+        <div className="text-[11px] font-medium">远程会话摘要</div>
+        <p className="mt-0.5 text-[9px] text-deck-muted/70">
+          当前远程协议提供有界会话摘要；全文搜索、归档和删除仍仅在 Local 数据源可用。
+        </p>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
+        {source.historyLoadError && source.historySessions.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-[11px] text-status-waiting/90">
+            {source.historyLoadError}
+          </div>
+        ) : source.historyLoading && source.historySessions.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
+        ) : source.historySessions.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">没有远程会话</div>
+        ) : (
+          <ol className="flex flex-col gap-1.5">
+            {source.historySessions.map((session) => (
+              <li key={`${source.identity}:${session.id}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(session.id)}
+                  className="w-full rounded-md border border-deck-border bg-white/[0.02] px-3 py-2 text-left hover:bg-white/[0.05]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-deck-muted/50" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{session.title ?? '未命名 session'}</span>
+                    <span className="rounded bg-blue-500/15 px-1 py-0.5 text-[8px] uppercase text-blue-200">Remote</span>
+                    <span className="text-[9px] text-deck-muted">{session.adapterId}</span>
+                  </div>
+                  <div className="mt-1 flex justify-between text-[10px] text-deck-muted/70">
+                    <span>{session.status}</span>
+                    <span>{new Date(session.updatedAt).toLocaleString('zh-CN', { hour12: false })}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+            {source.hasMoreHistorySessions && (
+              <li>
+                <button
+                  type="button"
+                  disabled={source.busy}
+                  onClick={() => void source.loadMoreHistorySessions()}
+                  className="w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
+                >
+                  加载更多远程会话摘要
+                </button>
+              </li>
+            )}
+            {source.historyLoadError && (
+              <li className="text-[10px] text-status-waiting/90">{source.historyLoadError}</li>
+            )}
           </ol>
         )}
       </div>

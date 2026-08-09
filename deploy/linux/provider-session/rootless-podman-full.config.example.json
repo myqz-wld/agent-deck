@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "brokerRoot": "/var/lib/agent-deck/.local/share/containers/storage/volumes/agent-deck-instance-a-socket/_data/.provider-69856ec0faae6daf/broker",
+  "desktopSocketPath": null,
+  "desktopVm": null,
+  "engine": "rootless-podman",
+  "executable": "/usr/bin/podman",
+  "images": {
+    "claude-code-v1": null,
+    "codex-cli-v1": null,
+    "grok-build-v1": "registry.example.invalid/agent-deck/grok@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "instanceId": "instance-a",
+  "maxActive": 8,
+  "privateRoot": "/var/lib/agent-deck/.local/share/containers/storage/volumes/agent-deck-instance-a-socket/_data/.provider-69856ec0faae6daf",
+  "rootlessHome": "/var/lib/agent-deck",
+  "rootlessRuntimeDirectory": "/run/user/1001",
+  "stateRoot": "/var/lib/agent-deck/.local/share/containers/storage/volumes/agent-deck-instance-a-socket/_data/.provider-69856ec0faae6daf/state",
+  "transportRuntimeDirectory": "/var/lib/agent-deck/.local/share/containers/storage/volumes/agent-deck-instance-a-socket/_data/.provider-69856ec0faae6daf/supervisor",
+  "transportSocketPath": "/var/lib/agent-deck/.local/share/containers/storage/volumes/agent-deck-instance-a-socket/_data/.provider-69856ec0faae6daf/supervisor/s.sock",
+  "workspaceRoot": "/var/lib/agent-deck/.local/share/containers/storage/volumes/agent-deck-instance-a-workspace/_data"
+}

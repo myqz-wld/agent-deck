@@ -1,0 +1,161 @@
+import { useState, type FormEvent, type JSX } from 'react';
+
+import type {
+  RemoteHostConnectionSelectionDto,
+  RemoteHostEndpointDto,
+  RemoteHostProfileDraftDto,
+  RemoteHostProfileDto,
+} from '@shared/remote-host';
+import { CloseIcon } from '../icons';
+
+const INPUT_CLASS = 'w-full rounded border border-deck-border bg-white/[0.04] px-2.5 py-2 text-[11px] outline-none transition focus:border-white/20';
+
+interface RemoteProfileFormProps {
+  profile: RemoteHostProfileDto | null;
+  busy: boolean;
+  onSave(draft: RemoteHostProfileDraftDto): Promise<void>;
+  onClose(): void;
+}
+
+function initialDraft(profile: RemoteHostProfileDto | null): RemoteHostProfileDraftDto {
+  return { label: profile?.label ?? '', connectionSelectionId: null };
+}
+
+export function RemoteProfileForm({
+  profile,
+  busy,
+  onSave,
+  onClose,
+}: RemoteProfileFormProps): JSX.Element {
+  const [draft, setDraft] = useState(() => initialDraft(profile));
+  const [selection, setSelection] = useState<RemoteHostConnectionSelectionDto | null>(null);
+  const [connectionChosen, setConnectionChosen] = useState(
+    profile?.credentials.connectionCredentialConfigured ?? false,
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const chooseConnection = async (): Promise<void> => {
+    setError(null);
+    try {
+      const next = await window.api.chooseRemoteHostConnection();
+      if (!next) return;
+      setSelection(next);
+      setConnectionChosen(true);
+      setDraft((current) => ({
+        connectionSelectionId: next.selectionId,
+        label: current.label.trim() ? current.label : next.label,
+      }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const submit = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (!connectionChosen) {
+      setError('请先导入服务端签发的连接凭证。');
+      return;
+    }
+    setError(null);
+    try {
+      await onSave({ ...draft, label: draft.label.trim() });
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+
+  const endpoint = selection?.endpoint ?? profile?.endpoint ?? null;
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <form
+        onSubmit={(event) => void submit(event)}
+        className="max-h-[90%] w-full max-w-lg overflow-y-auto rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl scrollbar-deck"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-[13px] font-medium">{profile ? '编辑远程连接' : '添加远程连接'}</h2>
+            <p className="mt-0.5 text-[10px] text-deck-muted">导入服务端签发的单个连接凭证即可。</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭远程连接表单"
+            className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+          >
+            <CloseIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">名称</span>
+          <input
+            required
+            value={draft.label}
+            onChange={(event) => setDraft({ ...draft, label: event.target.value })}
+            className={INPUT_CLASS}
+            placeholder="例如：生产环境"
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick={() => void chooseConnection()}
+          className="mt-3 w-full rounded-lg border border-deck-border bg-white/[0.03] p-3 text-left transition hover:border-white/15 hover:bg-white/[0.07]"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-medium text-deck-text">连接凭证</div>
+              <div className="mt-0.5 text-[9px] text-deck-muted/70">
+                包含登录密钥、服务器地址和固定的主机身份
+              </div>
+            </div>
+            <span className={`shrink-0 rounded px-2 py-1 text-[10px] ${
+              connectionChosen
+                ? 'bg-status-working/15 text-status-working'
+                : 'bg-white/[0.06] text-deck-muted'
+            }`}>
+              {connectionChosen ? (selection ? '已导入' : '已配置') : '选择文件…'}
+            </span>
+          </div>
+        </button>
+
+        {endpoint && <ConnectionSummary endpoint={endpoint} />}
+
+        <p className="mt-3 text-[10px] leading-relaxed text-deck-muted">
+          Agent Deck 会把登录密钥和主机身份保存到应用私有目录，并强制校验服务器身份；页面不会接触密钥或内部连接字段。导入后可安全删除传输用的凭证副本。
+        </p>
+        {error && (
+          <div role="alert" className="mt-2 rounded bg-status-waiting/10 p-2 text-[11px] text-status-waiting">
+            {error}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-[11px] text-deck-muted hover:bg-white/5">取消</button>
+          <button type="submit" disabled={busy} className="rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50">
+            {busy ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ConnectionSummary({ endpoint }: { endpoint: RemoteHostEndpointDto }): JSX.Element {
+  return (
+    <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2 text-[10px]">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-deck-muted">连接地址</span>
+        <span className="truncate text-deck-text">{endpoint.username}@{endpoint.hostname}:{endpoint.port}</span>
+      </div>
+      {endpoint.hostKeyFingerprint && (
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <span className="shrink-0 text-deck-muted">服务器指纹</span>
+          <span className="min-w-0 truncate font-mono text-[9px] text-deck-muted/90">
+            {endpoint.hostKeyFingerprint}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}

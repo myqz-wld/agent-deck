@@ -3,15 +3,13 @@ import { useEffect, useRef, useState, type JSX, type KeyboardEvent,
 import { createPortal } from 'react-dom';
 import {
   NO_PLAN_REVIEW_DIALOGUE_FEEDBACK,
-  type AgentEvent,
   type ExitPlanModeRequest,
 } from '@shared/types';
-import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
+import type { PlanDeepReviewTransport } from '@renderer/plan-review/transport';
 import {
   EMPTY_PLAN_DEEP_REVIEW_DRAFT,
   usePlanDeepReviewStore,
 } from '@renderer/stores/plan-deep-review-store';
-import { RECENT_LIMIT, useSessionStore } from '@renderer/stores/session-store';
 import log from '@renderer/utils/logger';
 import { MemoizedMarkdownText } from '../MarkdownText';
 import { CloseIcon } from '../icons';
@@ -25,10 +23,9 @@ import {
   quotedPlanText, selectedTextWithin,
 } from './plan-quote-selection';
 import { useReviewDialogFocus } from './review-detail/use-review-dialog-focus';
+import { usePlanDeepReviewEvents } from './use-plan-deep-review-events';
 
 const logger = log.scope('renderer-plan-deep-review');
-const EMPTY_EVENTS: AgentEvent[] = [];
-
 interface Props {
   open: boolean;
   sourceAgentId: string;
@@ -39,6 +36,8 @@ interface Props {
   onClose: () => void;
   onApprove: () => Promise<boolean>;
   onRevise: (feedback?: string) => Promise<boolean>;
+  transport?: PlanDeepReviewTransport;
+  draftKey?: string;
 }
 
 export function PlanDeepReviewDialog({
@@ -51,9 +50,12 @@ export function PlanDeepReviewDialog({
   onClose,
   onApprove,
   onRevise,
+  transport,
+  draftKey,
 }: Props): JSX.Element | null {
+  const reviewKey = draftKey ?? request.requestId;
   const draft = usePlanDeepReviewStore((state) =>
-    state.drafts.get(request.requestId) ?? EMPTY_PLAN_DEEP_REVIEW_DRAFT);
+    state.drafts.get(reviewKey) ?? EMPTY_PLAN_DEEP_REVIEW_DRAFT);
   const patchDraft = usePlanDeepReviewStore((state) => state.patchDraft);
   const clearDraft = usePlanDeepReviewStore((state) => state.clearDraft);
   const {
@@ -80,10 +82,7 @@ export function PlanDeepReviewDialog({
   const busyRef = useRef(false);
   const operationRef = useRef<'question' | 'feedback' | 'decision' | null>(null);
   const patchExistingDraft = usePlanDeepReviewStore((state) => state.patchExistingDraft);
-  const setRecentEvents = useSessionStore((state) => state.setRecentEvents);
-  const childEvents = useSessionStore((state) =>
-    child ? state.recentEventsBySession.get(child.sessionId) ?? EMPTY_EVENTS : EMPTY_EVENTS,
-  );
+  const { childEvents, loadEvents } = usePlanDeepReviewEvents(open, child, transport);
   const busy = decisionBusy || localDecisionBusy || feedbackDraftBusy || questionBusy;
   const closeBlocked = decisionBusy || localDecisionBusy;
   busyRef.current = busy;
@@ -117,7 +116,7 @@ export function PlanDeepReviewDialog({
 
   const attachQuote = (text: string): void => {
     if (!text) return;
-    patchDraft(request.requestId, (current) => {
+    patchDraft(reviewKey, (current) => {
       const quotes = current.planQuotes;
       const remaining = 8_000 - quotes.reduce((total, quote) => total + quote.text.length, 0);
       const nextText = text.slice(0, Math.max(0, remaining));
@@ -175,7 +174,7 @@ export function PlanDeepReviewDialog({
       .join('\n\n');
     const submittedQuotes = planQuotes;
     let forkReady = child !== null;
-    patchDraft(request.requestId, {
+    patchDraft(reviewKey, {
       questionBusy: true,
       questionError: null,
       question: '',
@@ -184,18 +183,17 @@ export function PlanDeepReviewDialog({
     try {
       let activeChild = child;
       if (!activeChild) {
-        activeChild = await window.api.startPlanDeepReview(sourceSessionId, request.requestId);
+        activeChild = transport
+          ? await transport.start()
+          : await window.api.startPlanDeepReview(sourceSessionId, request.requestId);
         forkReady = true;
-        patchExistingDraft(request.requestId, { child: activeChild });
-        await loadStableSnapshot({
-          readVersion: () =>
-            useSessionStore.getState().eventRevisionsBySession.get(activeChild!.sessionId) ?? 0,
-          load: () => window.api.listEvents(activeChild!.sessionId, RECENT_LIMIT),
-          apply: (events) => setRecentEvents(activeChild!.sessionId, events),
-        });
+        patchExistingDraft(reviewKey, { child: activeChild });
+        await loadEvents(activeChild);
       }
-      await window.api.askPlanDeepReview(sourceSessionId, request.requestId, submittedText);
-      patchExistingDraft(request.requestId, { startError: null });
+      if (transport) await transport.ask(submittedText);
+      else await window.api.askPlanDeepReview(sourceSessionId, request.requestId, submittedText);
+      await loadEvents(activeChild);
+      patchExistingDraft(reviewKey, { startError: null });
     } catch (error) {
       logger.error('plan deep-review question failed', {
         action: 'askPlanDeepReview',
@@ -204,7 +202,7 @@ export function PlanDeepReviewDialog({
         requestId: request.requestId,
         error,
       });
-      patchExistingDraft(request.requestId, {
+      patchExistingDraft(reviewKey, {
         question: text,
         planQuotes: submittedQuotes,
         ...(!forkReady
@@ -214,7 +212,7 @@ export function PlanDeepReviewDialog({
       });
     } finally {
       finishOperation('question');
-      patchExistingDraft(request.requestId, { questionBusy: false });
+      patchExistingDraft(reviewKey, { questionBusy: false });
     }
   };
 
@@ -226,18 +224,17 @@ export function PlanDeepReviewDialog({
 
   const generateFeedbackDraft = async (): Promise<void> => {
     if (!beginOperation('feedback')) return;
-    patchDraft(request.requestId, {
+    patchDraft(reviewKey, {
       feedbackDraftBusy: true,
       feedbackDraftError: null,
       feedbackDraftGenerated: false,
     });
     try {
-      const result = await window.api.generatePlanDeepReviewFeedback(
-        sourceSessionId,
-        request.requestId,
-      );
+      const result = transport
+        ? await transport.generateFeedback()
+        : await window.api.generatePlanDeepReviewFeedback(sourceSessionId, request.requestId);
       const generated = result.feedback.trim();
-      patchExistingDraft(request.requestId, (current) => ({
+      patchExistingDraft(reviewKey, (current) => ({
         feedback: current.feedback.trim() === NO_PLAN_REVIEW_DIALOGUE_FEEDBACK
           ? generated
           : current.feedback.trim()
@@ -253,12 +250,12 @@ export function PlanDeepReviewDialog({
         requestId: request.requestId,
         error,
       });
-      patchExistingDraft(request.requestId, {
+      patchExistingDraft(reviewKey, {
         feedbackDraftError: '意见草稿生成失败，请重试或手动填写。',
       });
     } finally {
       finishOperation('feedback');
-      patchExistingDraft(request.requestId, { feedbackDraftBusy: false });
+      patchExistingDraft(reviewKey, { feedbackDraftBusy: false });
     }
   };
 
@@ -271,7 +268,7 @@ export function PlanDeepReviewDialog({
     setLocalDecisionBusy(true);
     try {
       if (await onApprove()) {
-        clearDraft(request.requestId);
+        clearDraft(reviewKey);
         onClose();
       }
     } finally {
@@ -285,7 +282,7 @@ export function PlanDeepReviewDialog({
     setLocalDecisionBusy(true);
     try {
       if (await onRevise(feedback.trim() || undefined)) {
-        clearDraft(request.requestId);
+        clearDraft(reviewKey);
         onClose();
       }
     } finally {
@@ -386,7 +383,7 @@ export function PlanDeepReviewDialog({
                     key={quote.id}
                     text={quote.text}
                     removeLabel={`移除第 ${index + 1} 条计划引用`}
-                    onRemove={() => patchDraft(request.requestId, (current) => ({
+                    onRemove={() => patchDraft(reviewKey, (current) => ({
                       planQuotes: current.planQuotes.filter((item) => item.id !== quote.id),
                     }))}
                   />
@@ -395,13 +392,13 @@ export function PlanDeepReviewDialog({
               <ExpandableReviewTextField
                 textareaRef={questionRef}
                 sessionId={sourceSessionId}
-                requestId={request.requestId}
+                requestId={reviewKey}
                 fieldId="question"
                 title="向审阅会话提问"
                 triggerLabel="放大提问输入框"
                 testId="plan-review-question"
                 value={question}
-                onChange={(value) => patchDraft(request.requestId, {
+                onChange={(value) => patchDraft(reviewKey, {
                   question: value,
                 })}
                 onKeyDown={onQuestionKeyDown}
@@ -428,7 +425,7 @@ export function PlanDeepReviewDialog({
         </div>
         <PlanReviewDecisionFooter
           sessionId={sourceSessionId}
-          requestId={request.requestId}
+          requestId={reviewKey}
           feedback={feedback}
           feedbackRef={feedbackRef}
           busy={busy}
@@ -437,7 +434,7 @@ export function PlanDeepReviewDialog({
           generated={feedbackDraftGenerated}
           error={feedbackDraftError ?? decisionError ?? null}
           onFeedbackChange={(value) => {
-            patchDraft(request.requestId, {
+            patchDraft(reviewKey, {
               feedback: value,
               feedbackDraftError: null,
             });

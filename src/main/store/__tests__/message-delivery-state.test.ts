@@ -10,8 +10,8 @@
  *
  * 不依赖 DB / fixture(coerceMessageStatus 是 pure function).
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import log from 'electron-log/main';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+import { setMessageDeliveryStateDiagnostics } from '../message-delivery-state-diagnostics-core';
 import {
   coerceMessageStatus,
   MESSAGE_DELIVERY_DURABILITY,
@@ -27,40 +27,43 @@ describe('message delivery durability contract', () => {
 });
 
 describe('coerceMessageStatus — REVIEW_56 §F14 修法 (logger.warn 回归 test)', () => {
-  const scopedLogger = log.scope('store-message-delivery');
+  const warn = vi.fn();
 
   beforeEach(() => {
-    (scopedLogger.warn as ReturnType<typeof vi.fn>).mockClear();
+    warn.mockClear();
+    setMessageDeliveryStateDiagnostics({ warn });
   });
+
+  afterEach(() => setMessageDeliveryStateDiagnostics(null));
 
   it('合法 status pending → 透传不 warn', () => {
     const result = coerceMessageStatus('pending');
     expect(result).toBe('pending');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('合法 status delivered → 透传不 warn', () => {
     const result = coerceMessageStatus('delivered');
     expect(result).toBe('delivered');
-    expect(scopedLogger.warn).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('非法 status → fallback failed + logger.warn (REVIEW_56 §F14)', () => {
     const result = coerceMessageStatus('not-a-valid-status');
     expect(result).toBe('failed');
-    expect(scopedLogger.warn).toHaveBeenCalledTimes(1);
-    expect(scopedLogger.warn).toHaveBeenCalledWith(
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[message-delivery-state]'),
     );
-    expect(scopedLogger.warn).toHaveBeenCalledWith(
+    expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('not-a-valid-status'),
     );
-    expect(scopedLogger.warn).toHaveBeenCalledWith(expect.stringContaining("'failed'"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("'failed'"));
   });
 
   it('空字符串 → fallback failed + logger.warn (脏数据边角)', () => {
     const result = coerceMessageStatus('');
     expect(result).toBe('failed');
-    expect(scopedLogger.warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

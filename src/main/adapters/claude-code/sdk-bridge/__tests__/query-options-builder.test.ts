@@ -1,4 +1,7 @@
-import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  CanUseTool,
+  McpSdkServerConfigWithInstance,
+} from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { buildClaudeQueryOptions } from '../query-options-builder';
 
@@ -106,5 +109,16 @@ describe('buildClaudeQueryOptions', () => {
 
     expect(options).not.toHaveProperty('agent');
     expect(options).not.toHaveProperty('agents');
+  });
+
+  it('injects only the desktop-owned Agent Deck MCP namespace', () => {
+    const server = { name: 'agent-deck' } as unknown as McpSdkServerConfigWithInstance;
+    const options = buildClaudeQueryOptions({
+      ...buildBaseArgs(),
+      mcpServers: { agentDeckMcpServer: server },
+    });
+
+    expect(options.mcpServers).toEqual({ 'agent-deck': server });
+    expect(options.allowedTools).toEqual(['mcp__agent-deck__*']);
   });
 });

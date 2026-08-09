@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
+import { testGrokBridgeRuntimeHost } from './bridge-runtime-fixture';
 
 const mocks = vi.hoisted(() => ({
   deleteSession: vi.fn(async () => undefined),
@@ -50,6 +51,14 @@ import { GrokBuildBridge } from '../bridge';
 
 const turn = { kind: 'trusted-continuation' } as TrustedContinuationInitialTurn;
 
+const injectedSessionManager = {
+  delete: mocks.deleteSession,
+  claimAsSdk: mocks.claimAsSdk,
+  releaseSdkClaim: mocks.releaseSdkClaim,
+  markClosed: mocks.markClosed,
+  updateCliSessionId: vi.fn(),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.startRuntime.mockResolvedValue(false);
@@ -61,7 +70,10 @@ describe('Grok strict startup cleanup', () => {
   it('deletes a newly registered row when trusted startup never yields a native session', async () => {
     const registered: string[] = [];
     const bridge = new GrokBuildBridge({
+      runtimeHost: testGrokBridgeRuntimeHost,
       emit: vi.fn(),
+      sessionManager: injectedSessionManager,
+      reportStartupCleanupFailure: vi.fn(),
       permissionTimeoutMs: 1_000,
       mcpHttpUrl: 'http://127.0.0.1:1/mcp',
       isAgentDeckMcpEnabled: () => false,
@@ -91,7 +103,10 @@ describe('Grok strict startup cleanup', () => {
     const registered: string[] = [];
     mocks.deleteSession.mockRejectedValueOnce(new Error('delete guarded'));
     const bridge = new GrokBuildBridge({
+      runtimeHost: testGrokBridgeRuntimeHost,
       emit: vi.fn(),
+      sessionManager: injectedSessionManager,
+      reportStartupCleanupFailure: vi.fn(),
       permissionTimeoutMs: 1_000,
       mcpHttpUrl: 'http://127.0.0.1:1/mcp',
       isAgentDeckMcpEnabled: () => false,

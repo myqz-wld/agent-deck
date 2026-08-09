@@ -1,23 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CodexAppServerClient } from './client';
 import log from '@main/utils/logger';
 import {
   firstModelEventTimeoutMessage,
   isCodexModelActivity,
   isCodexTrustedContinuationModelActivity,
 } from './first-model-event-watchdog';
-import type {
-  CodexAppServerNotification,
-  CodexAppServerStreamEvent,
-} from './protocol';
 import { collectCodexTurnOutput } from './turn-output';
-
-const THREAD_OPTIONS = {
-  workingDirectory: '/repo',
-  sandboxMode: 'workspace-write' as const,
-  approvalPolicy: 'never' as const,
-  skipGitRepoCheck: true,
-};
+import {
+  collectTurn,
+  completedTurn,
+  ConcurrentScriptedClient,
+  eventName,
+  notify,
+  replay,
+  ScriptedClient,
+} from './first-model-event-watchdog-fixture';
 const logger = log.scope('codex-app-server') as unknown as {
   info: ReturnType<typeof vi.fn>;
   warn: ReturnType<typeof vi.fn>;
@@ -473,177 +470,3 @@ describe('Codex first-model-event watchdog', () => {
     expect(events.map(eventName).at(-1)).toBe(`server.notification:${terminal().method}`);
   });
 });
-
-class ScriptedClient extends CodexAppServerClient {
-  private readonly listeners = new Set<(notification: CodexAppServerNotification) => void>();
-  readonly recycles: Array<{
-    expectedGeneration: number;
-    threadId: string;
-    turnId: string;
-    message: string;
-  }> = [];
-  turnStartCalls = 0;
-  pendingTurnStartRejected = false;
-  private rejectPendingTurnStart: ((err: Error) => void) | null = null;
-
-  constructor(
-    timeoutMs: number,
-    private readonly afterTurnStart?: (client: ScriptedClient) => void,
-    private readonly responseDelayMs: number | null = 0,
-    private readonly emitTurnStarted = true,
-    private readonly afterResponseResolved?: (client: ScriptedClient) => void,
-  ) {
-    super({ env: {}, config: null, firstModelEventTimeoutMs: timeoutMs });
-  }
-
-  override request<T = unknown>(method: string, _params: unknown): Promise<T> {
-    if (method === 'thread/start') {
-      return Promise.resolve({ thread: { id: 'thread-1' } } as T);
-    }
-    if (method === 'turn/start') {
-      this.turnStartCalls += 1;
-      if (this.emitTurnStarted) {
-        this.emit(notify('turn/started', {
-          threadId: 'thread-1',
-          turn: { id: 'turn-1', status: 'inProgress', items: [] },
-        }));
-      }
-      this.afterTurnStart?.(this);
-      if (this.responseDelayMs === null) {
-        return new Promise<T>((_resolve, reject) => {
-          this.rejectPendingTurnStart = reject;
-        });
-      }
-      if (this.responseDelayMs > 0) {
-        return new Promise<T>((resolve) => {
-          setTimeout(() => resolve({ turn: { id: 'turn-1' } } as T), this.responseDelayMs!);
-        });
-      }
-      if (this.afterResponseResolved) {
-        return new Promise<T>((resolve) => {
-          resolve({ turn: { id: 'turn-1' } } as T);
-          this.afterResponseResolved?.(this);
-        });
-      }
-      return Promise.resolve({ turn: { id: 'turn-1' } } as T);
-    }
-    return Promise.resolve({} as T);
-  }
-
-  override subscribe(listener: (notification: CodexAppServerNotification) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  override hasExclusiveNotificationSubscriber(): boolean {
-    return this.listeners.size === 1;
-  }
-
-  override abortTurnAndRecycleGeneration(
-    expectedGeneration: number,
-    threadId: string,
-    turnId: string,
-    err: Error,
-  ): boolean {
-    this.recycles.push({ expectedGeneration, threadId, turnId, message: err.message });
-    if (this.rejectPendingTurnStart) {
-      const reject = this.rejectPendingTurnStart;
-      this.rejectPendingTurnStart = null;
-      this.pendingTurnStartRejected = true;
-      reject(err);
-    }
-    this.emit(notify('error', {
-      threadId,
-      turnId,
-      willRetry: false,
-      error: { message: err.message },
-    }));
-    return true;
-  }
-
-  emit(notification: CodexAppServerNotification): void {
-    for (const listener of [...this.listeners]) listener(notification);
-  }
-}
-
-class ConcurrentScriptedClient extends CodexAppServerClient {
-  private readonly listeners = new Set<(notification: CodexAppServerNotification) => void>();
-  private nextThread = 1;
-  turnStartCalls = 0;
-
-  constructor(timeoutMs: number) {
-    super({ env: {}, config: null, firstModelEventTimeoutMs: timeoutMs });
-  }
-
-  override request<T = unknown>(method: string, params: unknown): Promise<T> {
-    if (method === 'thread/start') {
-      const ordinal = this.nextThread++;
-      const threadId = `thread-${ordinal}`;
-      return Promise.resolve({
-        thread: { id: threadId },
-        model: `gpt-${ordinal}`,
-        modelProvider: 'openai',
-      } as T);
-    }
-    if (method === 'turn/start') {
-      this.turnStartCalls += 1;
-      const threadId = (params as { threadId: string }).threadId;
-      const turnId = threadId.replace('thread-', 'turn-');
-      if (this.turnStartCalls === 2) {
-        setTimeout(() => this.emit(notify('turn/started', {
-          turn: { id: 'orphan-turn', status: 'inProgress', items: [] },
-        })), 0);
-      }
-      return new Promise<T>((resolve) => {
-        setTimeout(() => resolve({ turn: { id: turnId } } as T), 40);
-      });
-    }
-    return Promise.resolve({} as T);
-  }
-
-  override subscribe(listener: (notification: CodexAppServerNotification) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  override hasExclusiveNotificationSubscriber(): boolean {
-    return this.listeners.size === 1;
-  }
-
-  emit(notification: CodexAppServerNotification): void {
-    for (const listener of [...this.listeners]) listener(notification);
-  }
-}
-
-async function collectTurn(client: CodexAppServerClient): Promise<CodexAppServerStreamEvent[]> {
-  const thread = client.startThread(THREAD_OPTIONS);
-  const { events } = await thread.runStreamed([
-    { type: 'text', text: 'do work', text_elements: [] },
-  ]);
-  const collected: CodexAppServerStreamEvent[] = [];
-  for await (const event of events) collected.push(event);
-  return collected;
-}
-
-async function* replay(events: CodexAppServerStreamEvent[]) {
-  for (const event of events) yield event;
-}
-
-function completedTurn(
-  threadId = 'thread-1',
-  turnId = 'turn-1',
-): CodexAppServerNotification {
-  return notify('turn/completed', {
-    threadId,
-    turn: { id: turnId, status: 'completed', items: [] },
-  });
-}
-
-function notify(method: string, params?: unknown): CodexAppServerNotification {
-  return { method, ...(params === undefined ? {} : { params }) };
-}
-
-function eventName(event: CodexAppServerStreamEvent): string {
-  if (event.type === 'thread.started' || event.type === 'turn.accepted') return event.type;
-  return `${event.type}:${event.notification.method}`;
-}

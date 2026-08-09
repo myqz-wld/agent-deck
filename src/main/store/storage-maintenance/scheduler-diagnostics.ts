@@ -6,8 +6,36 @@ export interface StorageMaintenanceDiagnosticLogger {
   warn(message: string, ...details: unknown[]): void;
 }
 
+export interface StorageMaintenanceDiagnosticPort {
+  observeTick(tick: MaintenanceEngineTick): void;
+  observeCheckpoint(checkpoint: StorageMaintenanceCheckpointResult): void;
+  warnCheckpointBacklog(checkpoint: StorageMaintenanceCheckpointResult | null): void;
+  workerReady(): void;
+  ignoredStaleResponse(messageType: string, requestId: number): void;
+  ignoredMismatchedResponse(expected: string, actual: string): void;
+  failedToRestoreMainCheckpoint(error: unknown): void;
+  workerUnhealthy(message: string): void;
+  workerStopped(message: string, terminalDisabled: boolean): void;
+  workerUnavailable(message: string): void;
+  workerTimedOut(): void;
+}
+
+export const NOOP_STORAGE_MAINTENANCE_DIAGNOSTICS: StorageMaintenanceDiagnosticPort = {
+  observeTick: () => undefined,
+  observeCheckpoint: () => undefined,
+  warnCheckpointBacklog: () => undefined,
+  workerReady: () => undefined,
+  ignoredStaleResponse: () => undefined,
+  ignoredMismatchedResponse: () => undefined,
+  failedToRestoreMainCheckpoint: () => undefined,
+  workerUnhealthy: () => undefined,
+  workerStopped: () => undefined,
+  workerUnavailable: () => undefined,
+  workerTimedOut: () => undefined,
+};
+
 /** Bounded diagnostics for GC slices and worker-owned WAL checkpoints. */
-export class StorageMaintenanceDiagnostics {
+export class StorageMaintenanceDiagnostics implements StorageMaintenanceDiagnosticPort {
   private lastErrorLog: { signature: string; at: number } | null = null;
   private lastCheckpointWarningAt = 0;
 
@@ -63,5 +91,52 @@ export class StorageMaintenanceDiagnostics {
       walPages: checkpoint?.log ?? 0,
       checkpointedPages: checkpoint?.checkpointed ?? 0,
     });
+  }
+
+  workerReady(): void {
+    this.logger.info('[storage-maintenance] worker ready; WAL checkpoints isolated from Electron main');
+  }
+
+  ignoredStaleResponse(messageType: string, requestId: number): void {
+    this.logger.warn(
+      `[storage-maintenance] ignored stale worker response ` +
+        `(type=${messageType}, requestId=${requestId})`,
+    );
+  }
+
+  ignoredMismatchedResponse(expected: string, actual: string): void {
+    this.logger.warn(
+      `[storage-maintenance] ignored mismatched worker response ` +
+        `(expected=${expected}, actual=${actual})`,
+    );
+  }
+
+  failedToRestoreMainCheckpoint(error: unknown): void {
+    this.logger.warn('[storage-maintenance] failed to restore main WAL autocheckpoint', error);
+  }
+
+  workerUnhealthy(message: string): void {
+    this.logger.warn(
+      `[storage-maintenance] worker unhealthy; main checkpoint safety restored, ` +
+        `waiting for worker close: ${message}`,
+    );
+  }
+
+  workerStopped(message: string, terminalDisabled: boolean): void {
+    this.logger.warn(
+      terminalDisabled
+        ? 'terminal-disabled storage maintenance worker stopped during shutdown'
+        : `[storage-maintenance] worker stopped after failure: ${message}`,
+    );
+  }
+
+  workerUnavailable(message: string): void {
+    this.logger.warn(
+      `[storage-maintenance] worker unavailable; restoring main checkpoint safety: ${message}`,
+    );
+  }
+
+  workerTimedOut(): void {
+    this.logger.warn('storage maintenance worker timed out; maintenance disabled until restart');
   }
 }

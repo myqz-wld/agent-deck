@@ -28,6 +28,7 @@ import type { ThreadLoop } from '../thread-loop';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { AgentEnqueueOptions, InitialSessionRegistration } from '@main/adapters/types';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
+import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
 
 export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-access';
 
@@ -188,6 +189,7 @@ export interface CreateSessionDeps {
   readonly codexBySession: Map<string, CodexAppServerClient>;
   readonly threadLoop: ThreadLoop;
   readonly emit: CodexBridgeOptions['emit'];
+  readonly runtimeHost: CodexBridgeRuntimeHost;
   /**
    * Lazy 接 facade.ensureCodex 避免 facade ↔ create-session-impl 循环依赖。
    * 通过 arrow 闭包 facade `this` 注入。

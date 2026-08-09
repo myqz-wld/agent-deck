@@ -1,22 +1,7 @@
-import { sessionRepo } from '@main/store/session-repo';
-
-import { resolveClaudeGatewayProfile } from '../../gateway-profiles';
 import type { CreateSessionOpts } from './_deps';
+import { withResolvedClaudeGatewayCore } from '../session-defaults-core';
+import { desktopClaudeSessionDefaultsHost } from '../session-defaults-host';
 
 export function withResolvedClaudeGateway(opts: CreateSessionOpts): CreateSessionOpts {
-  const persistedGateway = opts.resume
-    ? sessionRepo.get(opts.resume)?.runtimeProvider
-    : null;
-  const profile = resolveClaudeGatewayProfile(
-    opts.gateway ?? persistedGateway ?? undefined,
-  );
-  if (!profile) return opts;
-
-  return {
-    ...opts,
-    gateway: profile.id,
-    settingsPath: profile.settingsPath,
-    profileDefaultModel: profile.defaultModel,
-    gatewayModelAliases: profile.modelAliases,
-  };
+  return withResolvedClaudeGatewayCore(opts, desktopClaudeSessionDefaultsHost);
 }

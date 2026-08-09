@@ -24,7 +24,6 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
   const [tasks, setTasks] = useState<TaskRecord[]>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TaskTab>('unfinished');
 
   useEffect(() => {
     let disposed = false;
@@ -82,6 +81,19 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
     };
   }, [sessionId]);
 
+  return <TaskRecordsView tasks={tasks} loaded={loaded} error={error} />;
+}
+
+export function TaskRecordsView({
+  tasks,
+  loaded,
+  error,
+}: {
+  tasks: readonly TaskRecord[];
+  loaded: boolean;
+  error: string | null;
+}): JSX.Element {
+  const [activeTab, setActiveTab] = useState<TaskTab>('unfinished');
   const { unfinished, completed } = useMemo(() => {
     const ordered = [...tasks].sort(compareTasks);
     return {
@@ -91,11 +103,11 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
   }, [tasks]);
   const activeTasks = activeTab === 'unfinished' ? unfinished : completed;
 
-  if (!loaded && tasks.length === 0) {
-    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
-  }
   if (error && tasks.length === 0) {
     return <div className="px-2 py-3 text-[11px] leading-snug text-status-waiting/90">{error}</div>;
+  }
+  if (!loaded && tasks.length === 0) {
+    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
   }
   if (tasks.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">本会话暂无任务</div>;
@@ -128,7 +140,7 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
       </div>
       <TaskList
         emptyLabel={activeTab === 'unfinished' ? '暂无未完成任务' : '暂无已完成任务'}
-        tasks={activeTasks}
+        tasks={[...activeTasks]}
         muted={activeTab === 'completed'}
       />
     </div>

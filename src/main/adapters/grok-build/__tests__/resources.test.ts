@@ -4,15 +4,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const paths = vi.hoisted(() => ({ appPath: '', userData: '' }));
-vi.mock('electron', () => ({
-  app: {
+vi.mock('@main/runtime-host/application-paths', () => ({
+  getApplicationHostPaths: () => ({
     isPackaged: false,
-    getAppPath: () => paths.appPath,
-    getPath: (name: string) => {
-      if (name !== 'userData') throw new Error(`unexpected path ${name}`);
-      return paths.userData;
-    },
-  },
+    appPath: paths.appPath,
+    resourcesPath: join(paths.appPath, 'packaged-resources'),
+    userDataPath: paths.userData,
+  }),
 }));
 vi.mock('@main/utils/logger', () => ({
   default: {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   HOOK_PROCESSING_FAILED_RESPONSE,
+  HookRouteDiagnostics,
   INVALID_HOOK_BODY_RESPONSE,
 } from '@main/hook-server/route-diagnostics';
 import { buildHookRoutes } from '../hook-routes';
@@ -18,7 +19,7 @@ function replyStub(): {
 describe('Claude Code hook routes', () => {
   it('rejects non-string and blank session identity with a stable body', async () => {
     const emit = vi.fn();
-    const route = buildHookRoutes(emit)[0];
+    const route = buildHookRoutes(emit, new HookRouteDiagnostics())[0];
     const reply = replyStub();
 
     await (route.handler as (request: unknown, reply: unknown) => Promise<void>)(
@@ -35,9 +36,12 @@ describe('Claude Code hook routes', () => {
   });
 
   it('returns a stable non-sensitive body when the event sink throws', async () => {
-    const route = buildHookRoutes(() => {
-      throw new Error('private sink detail');
-    }).find((candidate) => candidate.url === '/hook/sessionstart');
+    const route = buildHookRoutes(
+      () => {
+        throw new Error('private sink detail');
+      },
+      new HookRouteDiagnostics(),
+    ).find((candidate) => candidate.url === '/hook/sessionstart');
     const reply = replyStub();
 
     await (route?.handler as (request: unknown, reply: unknown) => Promise<void>)(

@@ -55,6 +55,7 @@ function harness(stop: () => Promise<void> = async () => undefined) {
     runtimes,
     permissionController,
     cancelSubmittingInterjection,
+    sessionManager,
   );
   return { target, runtimes, permissionController, coordinator };
 }

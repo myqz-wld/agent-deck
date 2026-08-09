@@ -17,6 +17,9 @@ interface Props {
   thinking: SessionThinkingChoice;
   disabled?: boolean;
   allowUnsetThinking?: boolean;
+  providerOptions?: readonly { id: string; name?: string }[];
+  providerClosed?: boolean;
+  thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
   onProviderChange?: (provider: string) => void;
   onModelChange: (model: string) => void;
   onThinkingChange: (thinking: SessionThinkingChoice) => void;
@@ -60,13 +63,16 @@ export function SessionModelFields({
   thinking,
   disabled = false,
   allowUnsetThinking = true,
+  providerOptions: providedProviderOptions,
+  providerClosed = false,
+  thinkingOptions: providedThinkingOptions,
   onProviderChange,
   onModelChange,
   onThinkingChange,
 }: Props): JSX.Element {
   const modelId = useId();
   const thinkingId = useId();
-  const [providerOptions, setProviderOptions] = useState<
+  const [discoveredProviderOptions, setDiscoveredProviderOptions] = useState<
     Array<{ id: string; name?: string }>
   >([]);
   const supportsProvider =
@@ -74,8 +80,9 @@ export function SessionModelFields({
   const providerEnabled = supportsProvider && Boolean(onProviderChange);
 
   useEffect(() => {
+    if (providedProviderOptions) return;
     if (!providerEnabled) {
-      setProviderOptions([]);
+      setDiscoveredProviderOptions([]);
       return;
     }
     let cancelled = false;
@@ -85,15 +92,26 @@ export function SessionModelFields({
         : window.api.listCodexModelProviders();
     void request
       .then((options) => {
-        if (!cancelled) setProviderOptions(options);
+        if (!cancelled) setDiscoveredProviderOptions(options);
       })
       .catch(() => {
-        if (!cancelled) setProviderOptions([]);
+        if (!cancelled) setDiscoveredProviderOptions([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [adapterId, providerEnabled]);
+  }, [adapterId, providedProviderOptions, providerEnabled]);
+
+  const providerOptions = providedProviderOptions ?? discoveredProviderOptions;
+
+  const providerSelectOptions: readonly DeckSelectOption<string>[] = [
+    { value: '', label: adapterId === 'claude-code' ? '原生 settings.json' : '原生 config.toml' },
+    ...providerOptions.map((option) => ({
+      value: option.id,
+      label: option.name ?? option.id,
+      description: option.name ? option.id : undefined,
+    })),
+  ];
 
   return (
     <div
@@ -106,23 +124,34 @@ export function SessionModelFields({
           <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
             {adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
           </label>
-          <ProviderCombobox
-            value={provider}
-            options={providerOptions}
-            disabled={disabled}
-            ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
-            placeholder={
-              adapterId === 'claude-code'
-                ? '留空使用 settings.json'
-                : '留空使用 config.toml'
-            }
-            emptyMessage={
-              adapterId === 'claude-code'
-                ? '没有发现 Gateway profile'
-                : '没有发现 Codex provider，请检查 $CODEX_HOME/config.toml'
-            }
-            onChange={onProviderChange}
-          />
+          {providerClosed ? (
+            <DeckSelect
+              value={provider}
+              options={providerSelectOptions}
+              onChange={onProviderChange}
+              disabled={disabled}
+              ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
+              buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+            />
+          ) : (
+            <ProviderCombobox
+              value={provider}
+              options={providerOptions}
+              disabled={disabled}
+              ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
+              placeholder={
+                adapterId === 'claude-code'
+                  ? '留空使用 settings.json'
+                  : '留空使用 config.toml'
+              }
+              emptyMessage={
+                adapterId === 'claude-code'
+                  ? '没有发现 Gateway profile'
+                  : '没有发现 Codex provider，请检查 $CODEX_HOME/config.toml'
+              }
+              onChange={onProviderChange}
+            />
+          )}
         </div>
       )}
       <div className="flex min-w-0 flex-col gap-1">
@@ -155,7 +184,10 @@ export function SessionModelFields({
           value={thinking}
           onChange={onThinkingChange}
           disabled={disabled}
-          options={thinkingOptionsForAdapter(adapterId, allowUnsetThinking)}
+          options={providedThinkingOptions ?? thinkingOptionsForAdapter(
+            adapterId,
+            allowUnsetThinking,
+          )}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
           menuMinWidth={190}
         />

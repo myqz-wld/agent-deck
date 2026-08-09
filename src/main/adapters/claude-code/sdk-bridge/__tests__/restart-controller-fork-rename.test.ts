@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RestartController, type RestartCtx, type RestartCreateOpts } from '../restart-controller';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
+import { desktopClaudeRestartSessionHost } from '../restart-session-host';
 import type { SdkSessionHandle } from '../types';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import type { CapturedRecoveryContinuation } from '@main/session/continuation-context/recovery';
@@ -77,6 +78,7 @@ function makeCtx(opts?: {
   const recovering = new Map<string, Promise<unknown>>();
   const ctx: RestartCtx = {
     recovering,
+    sessionHost: desktopClaudeRestartSessionHost,
     emit: (e) => emits.push(e),
     closeSession: opts?.closeSession ?? (async () => undefined),
     createSession:

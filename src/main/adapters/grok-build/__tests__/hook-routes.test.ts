@@ -1,11 +1,20 @@
 import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import { GROK_HOOK_EVENTS } from '../hook-installer';
-import { buildGrokHookRoutes } from '../hook-routes';
 import {
   HOOK_PROCESSING_FAILED_RESPONSE,
+  HookRouteDiagnostics,
   INVALID_HOOK_BODY_RESPONSE,
 } from '@main/hook-server/route-diagnostics';
+import { buildGrokHookRoutes as buildGrokHookRoutesCore } from '../hook-routes';
+
+const diagnostics = new HookRouteDiagnostics();
+
+function buildGrokHookRoutes(
+  emit: (event: AgentEvent) => void,
+): ReturnType<typeof buildGrokHookRoutesCore> {
+  return buildGrokHookRoutesCore(emit, diagnostics);
+}
 
 function replyStub(): { code: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn> } {
   const send = vi.fn();

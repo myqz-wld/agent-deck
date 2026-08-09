@@ -114,8 +114,13 @@ export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
 
 /** 默认 repo：模块加载时 getDb() 还没 init，所以不能 eager 构造；缓存到模块 closure */
 let _defaultRepo: AgentDeckTeamRepo | null = null;
+let _defaultDatabase: Database | null = null;
 function defaultRepo(): AgentDeckTeamRepo {
-  if (!_defaultRepo) _defaultRepo = createAgentDeckTeamRepo(getDb());
+  const database = getDb();
+  if (!_defaultRepo || _defaultDatabase !== database) {
+    _defaultDatabase = database;
+    _defaultRepo = createAgentDeckTeamRepo(database);
+  }
   return _defaultRepo;
 }
 

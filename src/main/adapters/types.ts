@@ -11,7 +11,12 @@
 // caller 端 import path 不动:全 byte-identical re-export 保 63 caller import 零改。
 // ────────────────────────────────────────────────────────────────────────────
 
-export type { AdapterContext, PermissionMode } from './types/adapter-context';
+export type {
+  AdapterContext,
+  AdapterHookServerPort,
+  AdapterRouteRegistryPort,
+  PermissionMode,
+} from './types/adapter-context';
 export type {
   ClaudeCodeEffortLevel,
   ClaudeCreateOpts,

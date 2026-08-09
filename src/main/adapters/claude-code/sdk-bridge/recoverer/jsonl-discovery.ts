@@ -1,8 +1,10 @@
 /** Default Claude transcript and cwd probes used by SessionRecoverer. */
-import { existsSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { encodeClaudeProjectDir } from '@main/platform';
+import {
+  defaultCwdExistsCore,
+  defaultResumeJsonlExistsCore,
+  defaultResumeJsonlMtimeMsCore,
+} from './jsonl-discovery-core';
+import { desktopClaudeJsonlDiscoveryHost } from './jsonl-discovery-host';
 
 /**
  * 预检 CLI resume 用的 jsonl 文件是否存在。
@@ -20,14 +22,7 @@ import { encodeClaudeProjectDir } from '@main/platform';
  * 让单测不依赖真 ~/.claude/projects 目录。
  */
 export function defaultResumeJsonlExists(cwd: string, sessionId: string): boolean {
-  try {
-    const encodedDir = encodeClaudeProjectDir(cwd);
-    const jsonlPath = join(homedir(), '.claude', 'projects', encodedDir, `${sessionId}.jsonl`);
-    return existsSync(jsonlPath);
-  } catch {
-    // 任意异常（cwd 解析失败 / FS 权限）→ 退化让 createSession 自己 try，最差不过原行为
-    return true;
-  }
+  return defaultResumeJsonlExistsCore(cwd, sessionId, desktopClaudeJsonlDiscoveryHost);
 }
 
 /**
@@ -37,13 +32,7 @@ export function defaultResumeJsonlExists(cwd: string, sessionId: string): boolea
  * lastEventAt，说明它可能是真实 fork 前的旧历史，不能拿它替代缺失的 cliSessionId.jsonl。
  */
 export function defaultResumeJsonlMtimeMs(cwd: string, sessionId: string): number | null {
-  try {
-    const encodedDir = encodeClaudeProjectDir(cwd);
-    const jsonlPath = join(homedir(), '.claude', 'projects', encodedDir, `${sessionId}.jsonl`);
-    return statSync(jsonlPath).mtimeMs;
-  } catch {
-    return null;
-  }
+  return defaultResumeJsonlMtimeMsCore(cwd, sessionId, desktopClaudeJsonlDiscoveryHost);
 }
 
 /**
@@ -55,9 +44,5 @@ export function defaultResumeJsonlMtimeMs(cwd: string, sessionId: string): numbe
  * (撞 SDK "Path does not exist")。这与 defaultResumeJsonlExists 同款防御策略。
  */
 export function defaultCwdExists(cwd: string): boolean {
-  try {
-    return existsSync(cwd);
-  } catch {
-    return true;
-  }
+  return defaultCwdExistsCore(cwd, desktopClaudeJsonlDiscoveryHost);
 }

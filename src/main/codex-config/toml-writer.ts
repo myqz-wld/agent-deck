@@ -5,7 +5,7 @@ import {
   isCodexThinkingLevel,
   type CodexThinkingLevel,
 } from '@shared/session-metadata';
-import { getCodexHome } from './plugin-assets';
+import { getCodexHome } from './codex-home';
 
 /** `$CODEX_HOME/config.toml` 绝对路径（不依赖 Electron app.getPath，便于单测）。 */
 export function getCodexConfigPath(): string {

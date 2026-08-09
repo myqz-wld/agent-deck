@@ -155,6 +155,49 @@ export const IpcInvoke = {
   PreloadFatalError: 'preload:fatal-error',
 } as const;
 
+/** Typed desktop-host surface; it is not part of the legacy IPC migration inventory. */
+export const RemoteHostIpcInvoke = {
+  Snapshot: 'remote-host:snapshot',
+  ProfileAdd: 'remote-host:profile-add',
+  ProfileUpdate: 'remote-host:profile-update',
+  ProfileRemove: 'remote-host:profile-remove',
+  ProfileSelect: 'remote-host:profile-select',
+  SourceModeSet: 'remote-host:source-mode-set',
+  Connect: 'remote-host:connect',
+  Disconnect: 'remote-host:disconnect',
+  ChooseConnection: 'remote-host:choose-connection',
+  SessionsList: 'remote-host:sessions-list',
+  SessionGet: 'remote-host:session-get',
+  SessionCapabilities: 'remote-host:session-capabilities',
+  WorkspaceDirectoriesList: 'remote-host:workspace-directories-list',
+  ProjectsList: 'remote-host:projects-list',
+  SessionCreate: 'remote-host:session-create',
+  HistoryList: 'remote-host:history-list',
+  EventsList: 'remote-host:events-list',
+  SummariesList: 'remote-host:summaries-list',
+  TasksList: 'remote-host:tasks-list',
+  IssuesList: 'remote-host:issues-list',
+  IssueGet: 'remote-host:issue-get',
+  IssueUpdate: 'remote-host:issue-update',
+  IssueSoftDelete: 'remote-host:issue-soft-delete',
+  IssueUndelete: 'remote-host:issue-undelete',
+  IssueResolveInNewSession: 'remote-host:issue-resolve-in-new-session',
+  FileChangesList: 'remote-host:file-changes-list',
+  FileChangeGet: 'remote-host:file-change-get',
+  FileFinalDiffGet: 'remote-host:file-final-diff-get',
+  ImageAssetLoad: 'remote-host:image-asset-load',
+  SessionSend: 'remote-host:session-send',
+  SessionInterrupt: 'remote-host:session-interrupt',
+  SessionSteer: 'remote-host:session-steer',
+  PendingList: 'remote-host:pending-list',
+  PendingRespond: 'remote-host:pending-respond',
+  PlanReviewStart: 'remote-host:plan-review-start',
+  PlanReviewAsk: 'remote-host:plan-review-ask',
+  PlanReviewFeedback: 'remote-host:plan-review-feedback',
+  RuntimeGet: 'remote-host:runtime-get',
+  RuntimeUpdate: 'remote-host:runtime-update',
+} as const;
+
 export const IpcEvent = {
   AgentEvent: 'event:agent',
   SessionUpserted: 'event:session-upserted',
@@ -176,6 +219,8 @@ export const IpcEvent = {
   TokenRateTick: 'event:token-rate-tick',
   /** Reports caller archive failures from archive and hand-off operations. */
   CallerArchiveFailed: 'event:caller-archive-failed',
+  /** Redacted invalidation signal; renderer refreshes typed business snapshots via invoke. */
+  RemoteHostChanged: 'event:remote-host-changed',
 
   // Agent Deck universal team backend events.
   /** team 增删改 / member 改：聚合数组 payload，16ms debounce + per-team 累加。 */
