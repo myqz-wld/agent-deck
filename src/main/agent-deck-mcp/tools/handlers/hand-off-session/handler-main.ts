@@ -21,6 +21,7 @@ import type { SessionAdapterId } from '@shared/types';
 import { err, ok, withMcpGuard, type HandlerContext } from '../../helpers';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
 import type { HandOffSessionHandlerDeps } from './_deps';
+import { handOffAcquisitionError } from './acquisition-response';
 import { transferHandOffResources } from './resource-transfer-coordinator';
 import {
   executionCutoverError,
@@ -151,15 +152,12 @@ export const handOffSessionHandler = withMcpGuard(
       );
     }
 
-    const cutoverLease = (
-      handlerDeps?.cutoverCoordinator ?? handOffCutoverCoordinator
-    ).tryAcquire(callerSessionId);
-    if (!cutoverLease) {
-      return err(
-        `handoff already in progress for source session: ${callerSessionId}`,
-        'Wait for the current handoff attempt to finish. No continuation generation or successor creation occurred for this request.',
-      );
+    const cutoverCoordinator = handlerDeps?.cutoverCoordinator ?? handOffCutoverCoordinator;
+    const acquisition = cutoverCoordinator.acquire(callerSessionId);
+    if (!acquisition.ok) {
+      return handOffAcquisitionError(callerSessionId, acquisition);
     }
+    const cutoverLease = acquisition.lease;
 
     try {
       let queuedMessages: ReturnType<typeof snapshotHandOffQueuedMessages>;
@@ -381,6 +379,7 @@ export const handOffSessionHandler = withMcpGuard(
           lifecycleWarnings.push('source-advanced-after-capture');
         }
         if (!execution.sourceFinalization.ok) {
+          cutoverCoordinator.revokeSource(callerSessionId);
           lifecycleWarnings.push('source-finalization-failed');
           logger.warn(
             `[mcp hand_off_session] source finalization failed after transfer caller=${callerSessionId} successor=${execution.successorSessionId}: ${execution.sourceFinalization.error}`,
@@ -435,7 +434,7 @@ export const handOffSessionHandler = withMcpGuard(
             );
             response = err(
               'handoff resource transfer failed; source session remains active',
-              `Successor ${error.successorSessionId} was created, but mandatory resource transfer failed. Orphan cleanup: ${error.successorCleanup}.`,
+              `Successor ${error.successorSessionId} was created, but mandatory resource transfer failed. Orphan cleanup: ${error.successorCleanup}. The successor may have partially executed the continuation before it was aborted; retrying can duplicate tool, command, file, or external effects.`,
               {
                 successorSessionId: error.successorSessionId,
                 successorClosed: error.successorCleanup,

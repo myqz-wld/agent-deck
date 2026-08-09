@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@main/store/session-handoff-alias-repo', () => ({
+  findSessionHandOffSuccessor: () => null,
+}));
 import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { PreparedHandOffContinuation } from '@main/session/continuation-context/handoff';
 import type { ResolvedSuccessorSpec } from '@main/session/continuation-context/types';
@@ -11,6 +15,7 @@ import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordi
 import { HandOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { observedContextCapacity } from '@main/session/continuation-context/__tests__/capacity-fixtures';
 import type { TrustedContinuationSessionCandidate } from '@main/adapters/trusted-continuation';
+import { executionCutoverError } from '../tools/handlers/hand-off-session/source-change-copy';
 
 vi.mock('@main/session/context-window/service', () => ({
   getContextWindowCapacityService: () => ({
@@ -109,6 +114,25 @@ function successfulTransfer() {
   };
 }
 
+describe('handoff cutover failure copy', () => {
+  it.each([
+    'target-acceptance-timeout',
+    'target-provider-rejected',
+    'target-retry-rejected',
+  ] as const)('discloses possible partial execution for %s', (reason) => {
+    const copy = executionCutoverError(reason, 'successor', 'ok');
+
+    expect(copy.hint).toContain('may have partially executed');
+    expect(copy.hint).toContain('retrying can duplicate');
+  });
+
+  it('keeps pre-execution context rejection copy free of duplicate-effect claims', () => {
+    const copy = executionCutoverError('target-context-rejected', 'successor', 'ok');
+
+    expect(copy.hint).not.toContain('may have partially executed');
+  });
+});
+
 function dependencies(
   overrides: Partial<HandOffSessionHandlerDeps> = {},
 ): HandOffSessionHandlerDeps {
@@ -183,6 +207,26 @@ describe('hand_off_session cutover exclusion and freshness', () => {
     }
   });
 
+  it('fails closed on a durable predecessor alias after process-local gate state is lost', async () => {
+    vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
+    const prepareContinuation = vi.fn();
+    const cutoverCoordinator = new HandOffCutoverCoordinator((sourceSessionId) =>
+      sourceSessionId === 'caller-sid' ? 'durable-successor' : null,
+    );
+
+    const result = await handOffSessionHandler(
+      { prompt: 'must not create another successor' },
+      context(),
+      dependencies({ cutoverCoordinator, prepareContinuation }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain(
+      'source session already handed off to: durable-successor',
+    );
+    expect(prepareContinuation).not.toHaveBeenCalled();
+  });
+
   it('closes the orphan when close intent arrives during successor creation', async () => {
     vi.spyOn(sessionRepo, 'get').mockReturnValue(source());
     let signalCreateStarted!: () => void;
@@ -222,7 +266,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
     ['archive', 'caller-sid'] as const,
     ['rename', 'renamed-caller-sid'] as const,
   ])('replays buffered input after a reversible %s abort', async (change, replaySessionId) => {
-    const cutoverCoordinator = new HandOffCutoverCoordinator();
+    const cutoverCoordinator = new HandOffCutoverCoordinator(() => null);
     let sourceState: 'open' | 'archived' | 'renamed' = 'open';
     vi.spyOn(sessionRepo, 'get').mockImplementation((sessionId) => {
       if (sourceState === 'renamed') {
@@ -503,6 +547,7 @@ describe('hand_off_session cutover exclusion and freshness', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('source session changed while creating');
+    expect(result.content[0]?.text).toContain('retrying can duplicate');
     expect(sourcePreconditionCheck).toHaveBeenCalledTimes(2);
     expect(closeSuccessor).toHaveBeenCalledWith('successor-sid');
     expect(transferResources).not.toHaveBeenCalled();

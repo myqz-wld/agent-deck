@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@main/store/session-handoff-alias-repo', () => ({
+  findSessionHandOffSuccessor: () => null,
+}));
 import { adapterRegistry } from '@main/adapters/registry';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
@@ -9,7 +13,10 @@ import type {
   ResolvedSuccessorSpec,
 } from '@main/session/continuation-context/types';
 import { sessionManager } from '@main/session/manager';
-import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import {
+  HandOffCutoverCoordinator,
+  handOffCutoverCoordinator,
+} from '@main/session/hand-off/cutover-coordinator';
 import { resolveHandOffTarget } from '@main/session/hand-off/target-resolver';
 import { sessionRepo } from '@main/store/session-repo';
 import {
@@ -197,6 +204,7 @@ function preparedSpoolMetadata() {
 
 function testDeps(overrides: Partial<HandOffSessionHandlerDeps> = {}): HandOffSessionHandlerDeps {
   return {
+    cutoverCoordinator: new HandOffCutoverCoordinator(() => null),
     cwdIsDirectory: () => true,
     sourceMaxEventId: () => 88,
     sourceRuntimeFingerprint: () => 'source-runtime-v1',
@@ -592,6 +600,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     );
 
     expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('retrying can duplicate');
     expect(closeSuccessor).toHaveBeenCalledWith('successor-sid');
     expect(finalizeSource).not.toHaveBeenCalled();
     expect(cleanupSpool).toHaveBeenCalledWith(PRIVATE_SPOOL_ID);

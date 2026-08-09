@@ -73,7 +73,6 @@ describe.skipIf(!bindingAvailable)('continuation SQLite TEMP source spool', () =
     const metadata = spool.capture({
       sessionId: 'source',
       rawRetentionCeilingTokens: 8_000,
-      now: 1000,
     });
 
     expect(metadata).toMatchObject({
@@ -188,6 +187,47 @@ describe.skipIf(!bindingAvailable)('continuation SQLite TEMP source spool', () =
     expect(metadata.materializedThroughRevision).toBe(0);
     expect(metadata.uncoveredRevisionRange).toEqual({ from: 0, to: 1000 });
     expect(metadata.rawScanTruncated).toBe(true);
+  });
+
+  it('does not let excluded telemetry consume the foreground spool guard', () => {
+    db.prepare(
+      `INSERT INTO events (session_id, kind, payload_json, ts)
+       VALUES ('source', 'thinking', ?, ?)`,
+    ).run(JSON.stringify({ text: 'x'.repeat(10_000) }), 1);
+    const meaningfulId = insertMessage(db, 'source', 'assistant', 'retain this decision');
+
+    const metadata = spool.capture({
+      sessionId: 'source',
+      rawRetentionCeilingTokens: 8_000,
+      includeRawTail: false,
+      maxSpoolBytes: 512,
+    });
+
+    expect(metadata).toMatchObject({
+      captureRevision: 2,
+      materializedThroughRevision: 2,
+      uncoveredRevisionRange: null,
+    });
+    expect(spool.readSourceRows(metadata.spoolId).map((row) => row.id)).toEqual([meaningfulId]);
+  });
+
+  it('does not let newer excluded telemetry consume the raw-user tail guard', () => {
+    const userId = insertMessage(db, 'source', 'user', 'retain this question');
+    db.prepare(
+      `INSERT INTO events (session_id, kind, payload_json, ts)
+       VALUES ('source', 'thinking', ?, ?)`,
+    ).run(JSON.stringify({ text: 'x'.repeat(2_000) }), 2);
+
+    const metadata = spool.capture({
+      sessionId: 'source',
+      rawRetentionCeilingTokens: 8_000,
+      maxSpoolBytes: 512,
+    });
+
+    expect(metadata.rawScanTruncated).toBe(false);
+    expect(spool.readRawInputs(metadata.spoolId)).toEqual([
+      expect.objectContaining({ eventId: userId, text: 'retain this question', origin: 'user' }),
+    ]);
   });
 
   it('advances full materialization through delete-only revisions with no surviving row', () => {

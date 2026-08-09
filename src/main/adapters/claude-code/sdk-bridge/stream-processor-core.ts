@@ -45,8 +45,15 @@ export class ClaudeStreamProcessorCore {
     sessionId: string,
     text: string,
     attachments?: UploadedAttachmentRef[],
+    handOffText = text,
   ): PendingUserMessage {
-    return makeClaudeUserMessageCore(sessionId, text, attachments, this.host.userMessages);
+    return makeClaudeUserMessageCore(
+      sessionId,
+      text,
+      attachments,
+      this.host.userMessages,
+      handOffText,
+    );
   }
 
   createUserMessageStream(

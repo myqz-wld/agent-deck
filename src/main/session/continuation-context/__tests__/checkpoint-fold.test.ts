@@ -4,7 +4,10 @@ import { bindingAvailable } from '@main/store/__tests__/_binding-probe';
 import { insertSession, makeMemoryDb } from '@main/store/__tests__/agent-deck-repos/_setup';
 import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
 import { foldContinuationCheckpoint } from '../checkpoint-fold';
-import { isCoverageGapFact } from '../checkpoint-fold-coverage-gap';
+import {
+  coverageGapRangeFromCheckpoint,
+  isCoverageGapFact,
+} from '../checkpoint-fold-coverage-gap';
 import type {
   CheckpointGeneratorRequest,
   CheckpointGeneratorResult,
@@ -91,6 +94,19 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
   });
 
   afterEach(() => db.close());
+
+  it('bounds a persistent gap at the digest marker revision, not the later capture head', () => {
+    const checkpoint = largeCheckpoint(1);
+    checkpoint.unresolvedErrors = [{
+      id: 'continuation.coverage-gap.after1.r2.0123456789abcdef',
+      status: 'blocked',
+      text: 'bounded digest',
+      priority: 100,
+      evidence: [{ eventId: 2, revision: 2 }],
+    }];
+
+    expect(coverageGapRangeFromCheckpoint(checkpoint)).toEqual({ from: 1, to: 2 });
+  });
 
   it('advances a max-size boundary revision after a near-cap prior checkpoint and never retries it', async () => {
     const firstEventId = Number(
@@ -353,5 +369,104 @@ describe.skipIf(!bindingAvailable)('continuation checkpoint fold progress', () =
     });
     expect(nextMetadata.checkpointThroughRevision).toBe(1);
     expect(spool.readSourceRows(nextMetadata.spoolId)).toHaveLength(1);
+  });
+
+  it('unions a persistent marker gap with a newly uncovered suffix', async () => {
+    const firstEventId = Number(
+      db.prepare(
+        `INSERT INTO events (session_id, kind, payload_json, ts)
+         VALUES ('source', 'message', ?, 1)`,
+      ).run(JSON.stringify({ role: 'user', text: 'seed' })).lastInsertRowid,
+    );
+    const checkpoint = largeCheckpoint(firstEventId);
+    checkpoint.completedWork = [];
+    checkpoint.currentState = [];
+    checkpoint.unresolvedErrors = [{
+      id: 'continuation.coverage-gap.after0.r1.0123456789abcdef',
+      status: 'blocked',
+      text: 'bounded digest',
+      priority: 100,
+      evidence: [{ eventId: firstEventId, revision: 1 }],
+    }];
+    const seeded = createContinuationCheckpointRepo(db).commit({
+      sessionId: 'source',
+      expectedHeadId: null,
+      expectedRebuildAfterRevision: 0,
+      sourceEventRevision: 1,
+      sourceMaxEventId: firstEventId,
+      checkpoint,
+      generatorAdapter: 'claude-code',
+      generatorModel: 'seed',
+      generatorThinking: 'low',
+      trigger: 'test-seed',
+    });
+    expect(seeded.ok).toBe(true);
+    db.prepare(
+      `INSERT INTO events (session_id, kind, payload_json, ts)
+       VALUES ('source', 'message', ?, 2)`,
+    ).run(JSON.stringify({ role: 'assistant', text: 'new uncovered suffix' }));
+    const metadata = spool.capture({
+      sessionId: 'source',
+      rawRetentionCeilingTokens: 8_000,
+    });
+    const generator = new EmptyPatchGenerator();
+
+    const fold = await foldContinuationCheckpoint({
+      db,
+      spool,
+      metadata,
+      generatorSpec: {
+        adapter: 'claude-code',
+        model: 'test-generator',
+        thinking: 'low',
+        contextCapacity: unknownContextCapacity(),
+        configFingerprint: 'test-generator-v1',
+      },
+      generator,
+      generatorFoldInputBudgetTokens: 32_000,
+      deadlineAt: 0,
+      maxFoldCalls: 4,
+      maxRepairCalls: 0,
+      now: () => 1,
+    });
+
+    expect(generator.generate).not.toHaveBeenCalled();
+    expect(fold.uncoveredRevisionRange).toEqual({ from: 0, to: 2 });
+  });
+
+  it('does not invoke a provider with a zero timeout after chunk construction', async () => {
+    db.prepare(
+      `INSERT INTO events (session_id, kind, payload_json, ts)
+       VALUES ('source', 'message', ?, 1)`,
+    ).run(JSON.stringify({ role: 'user', text: 'deadline boundary' }));
+    const metadata = spool.capture({
+      sessionId: 'source',
+      rawRetentionCeilingTokens: 8_000,
+    });
+    const generator = new EmptyPatchGenerator();
+    let nowCalls = 0;
+
+    const fold = await foldContinuationCheckpoint({
+      db,
+      spool,
+      metadata,
+      generatorSpec: {
+        adapter: 'claude-code',
+        model: 'test-generator',
+        thinking: 'low',
+        contextCapacity: unknownContextCapacity(),
+        configFingerprint: 'test-generator-v1',
+      },
+      generator,
+      generatorFoldInputBudgetTokens: 32_000,
+      deadlineAt: 100,
+      maxFoldCalls: 4,
+      maxRepairCalls: 0,
+      now: () => (nowCalls++ === 0 ? 99 : 100),
+    });
+
+    expect(generator.generate).not.toHaveBeenCalled();
+    expect(fold.failure).toEqual(expect.objectContaining({ reason: 'timeout' }));
+    expect(fold.uncoveredRevisionRange).toEqual({ from: 0, to: 1 });
   });
 });

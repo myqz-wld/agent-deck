@@ -52,17 +52,24 @@ function preparationHash(input: {
   targetFingerprint: string;
 }): string {
   return createHash('sha256')
-    .update(JSON.stringify({ version: 1, ...input }), 'utf8')
+    .update(JSON.stringify({ version: 2, ...input }), 'utf8')
     .digest('hex');
+}
+
+interface RenderAttempt {
+  rendered: RenderedContinuationContext | null;
+  byteLimitError: ContinuationBudgetError | null;
 }
 
 function tryRender(
   input: Parameters<typeof renderContinuationContext>[0],
-): RenderedContinuationContext | null {
+): RenderAttempt {
   try {
-    return renderContinuationContext(input);
+    return { rendered: renderContinuationContext(input), byteLimitError: null };
   } catch (error) {
-    if (error instanceof ContinuationBudgetError && error.code === 'prompt-byte-limit') return null;
+    if (error instanceof ContinuationBudgetError && error.code === 'prompt-byte-limit') {
+      return { rendered: null, byteLimitError: error };
+    }
     throw error;
   }
 }
@@ -78,6 +85,7 @@ export function renderPreparedContinuation(input: {
 }): PreparedContinuationContext {
   const { request, metadata, fold, budgets, capturedRaw } = input;
   const warnings = [...input.baseWarnings];
+  const uncoveredRevisionRange = fold.uncoveredRevisionRange ?? metadata.uncoveredRevisionRange;
   let projection = fold.checkpoint
     ? projectContinuationCheckpoint(fold.checkpoint, budgets.checkpointProjectionBudgetTokens)
     : null;
@@ -108,34 +116,47 @@ export function renderPreparedContinuation(input: {
   );
   let raw = rawSelection.messages;
   const renderInput = () => ({
-    purpose: request.purpose,
-    sourceSessionId: request.sourceSessionId,
-    source: {
-      eventRevision: metadata.captureRevision,
-      rebuildAfterRevision: metadata.rebuildAfterRevision,
-      maxEventId: metadata.maxEventId,
-    },
+    quality: qualityFor({
+      checkpointExists: fold.checkpoint !== null,
+      uncovered: uncoveredRevisionRange,
+      projection,
+      raw,
+    }),
     checkpoint: projection,
     rawUserInputs: raw,
     continuationInstruction: request.continuationInstruction,
   });
-  let rendered = tryRender(renderInput());
-  while (!rendered || rendered.estimatedTokens > budgets.targetPromptCapacityTokens) {
+  let attempt = tryRender(renderInput());
+  while (
+    !attempt.rendered ||
+    attempt.rendered.estimatedTokens > budgets.targetPromptCapacityTokens
+  ) {
     if (raw.length > 0) {
-      const overflow = rendered
-        ? rendered.estimatedTokens - budgets.targetPromptCapacityTokens
+      const overflow = attempt.rendered
+        ? attempt.rendered.estimatedTokens - budgets.targetPromptCapacityTokens
         : Math.max(1, Math.ceil(rawSelection.estimatedTokens / 4));
-      rawSelection = selectStoredRawUserTail(
+      const nextSelection = selectStoredRawUserTail(
         raw,
         Math.max(0, rawSelection.estimatedTokens - Math.max(1, overflow) - 8),
       );
+      if (nextSelection.estimatedTokens >= rawSelection.estimatedTokens) {
+        rawSelection = {
+          messages: [],
+          estimatedTokens: 0,
+          truncatedBoundaryMessages: 0,
+          stoppedAtEventId: raw[0]?.eventId ?? null,
+        };
+      } else {
+        rawSelection = nextSelection;
+      }
       raw = rawSelection.messages;
+      attempt = tryRender(renderInput());
       continue;
     }
     if (projection) {
       const currentTokens = estimateCheckpointProjectionTokens(projection);
-      const overflow = rendered
-        ? rendered.estimatedTokens - budgets.targetPromptCapacityTokens
+      const overflow = attempt.rendered
+        ? attempt.rendered.estimatedTokens - budgets.targetPromptCapacityTokens
         : Math.max(1, Math.ceil(currentTokens / 4));
       const reducedBudget = Math.max(0, currentTokens - Math.max(1, overflow) - 8);
       const next = fold.checkpoint
@@ -143,21 +164,21 @@ export function renderPreparedContinuation(input: {
         : null;
       if (!next || estimateCheckpointProjectionTokens(next) > reducedBudget) {
         projection = null;
-      } else if (
-        next.omittedFacts === projection.omittedFacts &&
-        reducedBudget >= currentTokens
-      ) {
+      } else if (estimateCheckpointProjectionTokens(next) >= currentTokens) {
         projection = null;
       } else {
         projection = next;
       }
+      attempt = tryRender(renderInput());
       continue;
     }
+    if (attempt.byteLimitError) throw attempt.byteLimitError;
     throw new ContinuationBudgetError(
       'Continuation wrapper and authoritative instruction cannot fit the target prompt capacity',
       'instruction-does-not-fit',
     );
   }
+  const rendered = attempt.rendered;
 
   if (raw.length < capturedRaw.length) {
     warnings.push({
@@ -171,7 +192,6 @@ export function renderPreparedContinuation(input: {
       message: 'The oldest retained boundary input was UTF-8 safely truncated.',
     });
   }
-  const uncoveredRevisionRange = fold.uncoveredRevisionRange ?? metadata.uncoveredRevisionRange;
   if (uncoveredRevisionRange) {
     warnings.push({
       code: 'coverage-gap',
@@ -192,7 +212,7 @@ export function renderPreparedContinuation(input: {
     raw,
   });
   return {
-    version: 1,
+    version: 2,
     providerPrompt: rendered.prompt,
     persistedUserText: request.continuationInstruction,
     source: {

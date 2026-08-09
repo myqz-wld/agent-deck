@@ -73,7 +73,7 @@ export class GrokMessageController {
           sourceSessionId,
           text,
           attachments,
-          options,
+          { ...options, userEventAlreadyPersisted: true },
           true,
         ),
       bypassWorktreeTransition:

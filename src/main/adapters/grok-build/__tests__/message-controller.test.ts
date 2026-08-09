@@ -64,7 +64,7 @@ describe('GrokMessageController handoff ingress', () => {
       'session',
       'hello',
       undefined,
-      undefined,
+      { userEventAlreadyPersisted: true },
       true,
     );
   });

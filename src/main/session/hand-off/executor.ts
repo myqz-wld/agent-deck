@@ -141,12 +141,14 @@ async function failAfterSuccessor<ResourceTransfer>(input: {
       // Upload reaper remains the final fallback; cleanup failure must not mask cutover failure.
     }
   }
-  throw new HandOffExecutionError(
+  const failureMessage =
     input.stage === 'cutover'
       ? 'Source changed while the handoff successor was being created; source resources remain untouched'
       : input.transferError
         ? `Mandatory handoff resource transfer threw: ${input.transferError}`
-        : 'Mandatory handoff resource transfer failed; source session remains usable',
+        : 'Mandatory handoff resource transfer failed; source session remains usable';
+  throw new HandOffExecutionError(
+    `${failureMessage}. The successor may have partially executed the continuation before it was aborted; retrying can duplicate tool, command, file, or external effects`,
     input.stage,
     input.successorSessionId,
     successorCleanup,

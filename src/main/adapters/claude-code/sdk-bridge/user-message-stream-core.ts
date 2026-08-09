@@ -19,9 +19,10 @@ export function makeClaudeUserMessageCore(
   text: string,
   attachments: UploadedAttachmentRef[] | undefined,
   host: ClaudeUserMessageStreamHost,
+  handOffText = text,
 ): PendingUserMessage {
   const handOffMessage = {
-    text,
+    text: handOffText,
     ...(attachments && attachments.length > 0
       ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
       : {}),

@@ -2,7 +2,10 @@ import type { AgentEvent, SessionAdapterId, UploadedAttachmentRef } from '@share
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import log from '@main/utils/logger';
-import { handOffCutoverCoordinator } from './cutover-coordinator';
+import {
+  handOffCutoverCoordinator,
+  isRollbackReplaySettlementTimeout,
+} from './cutover-coordinator';
 
 const logger = log.scope('handoff-input-buffer');
 
@@ -58,13 +61,15 @@ export function bufferHandOffSourceInput(input: BufferHandOffSourceInput): boole
       await input.replay(sourceSessionId);
       markReplayedSourceWorking(sourceSessionId);
     },
-    onReplayFailed: (sourceSessionId) => {
+    onReplayFailed: (sourceSessionId, error) => {
       input.emit({
         sessionId: sourceSessionId,
         agentId: input.agentId,
         kind: 'message',
         payload: {
-          text: '⚠ 会话交接失败后，暂存输入未能恢复到源会话，请重新发送。',
+          text: isRollbackReplaySettlementTimeout(error)
+            ? '⚠ 暂存输入恢复超时，原输入可能仍在恢复；请稍后检查源会话，如未恢复再重新发送。'
+            : '⚠ 会话交接失败后，暂存输入未能恢复到源会话，请重新发送。',
           error: true,
         },
         ts: Date.now(),

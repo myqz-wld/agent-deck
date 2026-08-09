@@ -5,6 +5,7 @@
 import type { SessionTeamMembership } from './agent-deck-team';
 import type { SessionThinkingLevel } from '../session-metadata';
 import type { ContextRuntimeIdentity } from './context-window';
+import type { SessionHandOffCutoverReason } from '../session-hand-off-execution';
 
 export type ActivityState = 'idle' | 'working' | 'waiting' | 'finished';
 /**
@@ -475,7 +476,7 @@ export interface SessionHandOffExecutionFailure {
   successorCleanup: 'ok' | 'failed' | 'pending';
   /** True when lower-budget candidate startup was attempted; never exposes its trusted inputs. */
   usedLowerBudgetRetry: boolean;
-  cutoverReason?: string;
+  cutoverReason?: SessionHandOffCutoverReason;
   message: string;
 }
 
