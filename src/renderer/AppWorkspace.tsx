@@ -5,6 +5,7 @@ import type { AppView } from './components/AppHeader';
 import { DataPanel } from './components/DataPanel';
 import { HistoryPanel } from './components/HistoryPanel';
 import { IssuesPanel } from './components/IssuesPanel';
+import { RemoteIssuesPanel } from './components/issues/RemoteIssuesPanel';
 import { PendingTab } from './components/PendingTab';
 import { SessionDetail } from './components/SessionDetail';
 import { SessionList } from './components/SessionList';
@@ -77,6 +78,17 @@ export function AppWorkspace({
   }
   if (!remoteMode && view === 'issues') {
     return <IssuesPanel onOpenSession={(sessionId) => { onViewChange('live'); onOpenLocalSession(sessionId); }} />;
+  }
+  if (remoteMode && view === 'issues' && remoteSource.capabilities.has('issues')) {
+    return (
+      <RemoteIssuesPanel
+        source={remoteSource}
+        onOpenSession={(sessionId) => {
+          onViewChange('live');
+          remoteSource.selectSession(sessionId);
+        }}
+      />
+    );
   }
   if (!remoteMode && view === 'data') return <DataPanel />;
   return (

@@ -10,7 +10,11 @@ import { AppHeader } from '@renderer/components/AppHeader';
 
 afterEach(cleanup);
 
-function renderHeader(sourceMode: 'local' | 'remote', total: number | null = 1) {
+function renderHeader(
+  sourceMode: 'local' | 'remote',
+  total: number | null = 1,
+  remoteIssuesAvailable = false,
+) {
   const onSourceChange = vi.fn();
   render(
     <AppHeader
@@ -42,6 +46,7 @@ function renderHeader(sourceMode: 'local' | 'remote', total: number | null = 1) 
           credentials: { connectionCredentialConfigured: true },
         },
       ]}
+      remoteIssuesAvailable={remoteIssuesAvailable}
       onViewChange={vi.fn()}
       onSourceChange={onSourceChange}
       onOpenRemoteProfiles={vi.fn()}
@@ -83,6 +88,13 @@ describe('AppHeader source selection', () => {
     expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '会话摘要' })).toBeTruthy();
+  });
+
+  it('shows the shared Issues entry when the Remote Core advertises it', () => {
+    renderHeader('remote', 1, true);
+    expect(screen.getByRole('button', { name: '问题' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '数据' })).toBeNull();
   });
 
   it('labels Remote history as bounded summaries and does not invent a total', () => {

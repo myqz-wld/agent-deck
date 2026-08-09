@@ -3,31 +3,41 @@ import {
   parseProjectListResult,
   parseProjectResolveParams,
   parseProjectResolveResult,
+  parseSessionConsoleCapabilitiesParams,
+  parseSessionConsoleCapabilitiesResult,
   parseSessionConsoleCreateParams,
   parseSessionConsoleCreateResult,
   parseSessionConsoleGetParams,
   parseSessionConsoleGetResult,
   parseSessionConsoleListParams,
   parseSessionConsoleListResult,
+  parseWorkspaceDirectoryListParams,
+  parseWorkspaceDirectoryListResult,
   isCoreMethodAllowed,
   type AccessContext,
   type CoreMethod,
   type ProjectListParams,
   type ProjectListResult,
   type ProjectResolveResult,
+  type SessionConsoleCapabilitiesParams,
+  type SessionConsoleCapabilitiesResult,
   type SessionConsoleCreateParams,
   type SessionConsoleCreateResult,
   type SessionConsoleGetResult,
   type SessionConsoleListParams,
   type SessionConsoleListResult,
+  type WorkspaceDirectoryListParams,
+  type WorkspaceDirectoryListResult,
 } from '@contracts/index';
 
 export const SESSION_CONSOLE_CORE_METHODS = Object.freeze([
   'project.list',
   'project.resolve',
+  'session.console.capabilities',
   'session.console.create',
   'session.console.get',
   'session.console.list',
+  'workspace.directory.list',
 ] as const satisfies readonly CoreMethod[]);
 
 export type SessionConsoleCoreMethod = (typeof SESSION_CONSOLE_CORE_METHODS)[number];
@@ -61,8 +71,16 @@ export interface AuthoritativeSessionConsolePort {
     params: { alias: string },
     context: SessionConsoleExecutionContext,
   ): Promise<unknown> | unknown;
+  getCapabilities(
+    params: SessionConsoleCapabilitiesParams,
+    context: SessionConsoleExecutionContext,
+  ): Promise<unknown> | unknown;
   createSession(
     params: SessionConsoleCreateParams,
+    context: SessionConsoleExecutionContext,
+  ): Promise<unknown> | unknown;
+  listWorkspaceDirectories(
+    params: WorkspaceDirectoryListParams,
     context: SessionConsoleExecutionContext,
   ): Promise<unknown> | unknown;
 }
@@ -70,9 +88,11 @@ export interface AuthoritativeSessionConsolePort {
 export type SessionConsoleDispatchResult =
   | ProjectListResult
   | ProjectResolveResult
+  | SessionConsoleCapabilitiesResult
   | SessionConsoleCreateResult
   | SessionConsoleGetResult
-  | SessionConsoleListResult;
+  | SessionConsoleListResult
+  | WorkspaceDirectoryListResult;
 
 export class SessionConsoleDispatchError extends Error {
   constructor(message: string) {
@@ -124,6 +144,7 @@ export class SessionConsoleCoreDispatcher {
         const parsed = parseSessionConsoleGetParams(params);
         return parseSessionConsoleGetResult(
           await this.authority.getSession(parsed, context),
+          parsed.sessionId,
         );
       }
       case 'project.list': {
@@ -135,6 +156,20 @@ export class SessionConsoleCoreDispatcher {
         const parsed = parseProjectResolveParams(params);
         return parseProjectResolveResult(
           await this.authority.resolveProject(parsed, context),
+        );
+      }
+      case 'session.console.capabilities': {
+        const parsed = parseSessionConsoleCapabilitiesParams(params);
+        return parseSessionConsoleCapabilitiesResult(
+          await this.authority.getCapabilities(parsed, context),
+          parsed,
+        );
+      }
+      case 'workspace.directory.list': {
+        const parsed = parseWorkspaceDirectoryListParams(params);
+        return parseWorkspaceDirectoryListResult(
+          await this.authority.listWorkspaceDirectories(parsed, context),
+          parsed.directory,
         );
       }
       case 'session.console.create': {

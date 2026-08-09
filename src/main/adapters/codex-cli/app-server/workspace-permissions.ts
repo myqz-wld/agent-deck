@@ -6,15 +6,20 @@ export const WORKSPACE_READ_ONLY_NETWORK_PROFILE =
   'agent-deck-workspace-read-only-network';
 export const WORKSPACE_WRITE_PROFILE = 'agent-deck-workspace-write';
 export const WORKSPACE_WRITE_NETWORK_PROFILE = 'agent-deck-workspace-write-network';
+export const WORKSPACE_FULL_WRITE_PROFILE = 'agent-deck-workspace-full-write';
+export const WORKSPACE_FULL_WRITE_NETWORK_PROFILE =
+  'agent-deck-workspace-full-write-network';
 
 function workspaceFilesystem(
   boundary: CodexWorkspacePermissionBoundary,
-  workspaceAccess: 'read' | 'write',
+  access: 'read-only' | 'selected-write' | 'workspace-write',
 ): JsonObject {
   const filesystem: JsonObject = {
     ':root': 'deny',
     ':minimal': 'read',
-    ':workspace_roots': { '.': workspaceAccess },
+    // runtimeWorkspaceRoots is the selected session directory for headless threads.
+    ':workspace_roots': { '.': access === 'read-only' ? 'read' : 'write' },
+    [boundary.workspaceRoot]: access === 'workspace-write' ? 'write' : 'read',
   };
   for (const root of boundary.readOnlyRoots) filesystem[root] = 'read';
   for (const root of boundary.readWriteRoots) filesystem[root] = 'write';
@@ -23,11 +28,11 @@ function workspaceFilesystem(
 
 function permissionProfile(
   boundary: CodexWorkspacePermissionBoundary,
-  workspaceAccess: 'read' | 'write',
+  access: 'read-only' | 'selected-write' | 'workspace-write',
   networkEnabled: boolean,
 ): JsonObject {
   return {
-    filesystem: workspaceFilesystem(boundary, workspaceAccess),
+    filesystem: workspaceFilesystem(boundary, access),
     network: {
       enabled: networkEnabled,
       ...(networkEnabled ? { domains: { '*': 'allow' } } : {}),
@@ -39,10 +44,12 @@ export function buildCodexWorkspacePermissionProfiles(
   boundary: CodexWorkspacePermissionBoundary,
 ): JsonObject {
   return {
-    [WORKSPACE_READ_ONLY_PROFILE]: permissionProfile(boundary, 'read', false),
-    [WORKSPACE_READ_ONLY_NETWORK_PROFILE]: permissionProfile(boundary, 'read', true),
-    [WORKSPACE_WRITE_PROFILE]: permissionProfile(boundary, 'write', false),
-    [WORKSPACE_WRITE_NETWORK_PROFILE]: permissionProfile(boundary, 'write', true),
+    [WORKSPACE_READ_ONLY_PROFILE]: permissionProfile(boundary, 'read-only', false),
+    [WORKSPACE_READ_ONLY_NETWORK_PROFILE]: permissionProfile(boundary, 'read-only', true),
+    [WORKSPACE_WRITE_PROFILE]: permissionProfile(boundary, 'selected-write', false),
+    [WORKSPACE_WRITE_NETWORK_PROFILE]: permissionProfile(boundary, 'selected-write', true),
+    [WORKSPACE_FULL_WRITE_PROFILE]: permissionProfile(boundary, 'workspace-write', false),
+    [WORKSPACE_FULL_WRITE_NETWORK_PROFILE]: permissionProfile(boundary, 'workspace-write', true),
   };
 }
 
@@ -65,12 +72,19 @@ function tomlInlineValue(value: JsonValue | undefined): string {
  */
 export function buildCodexWorkspaceAppServerArguments(
   boundary: CodexWorkspacePermissionBoundary,
+  trustedMcpServers: JsonObject = {},
 ): string[] {
   return [
     '-c',
     `default_permissions=${JSON.stringify(WORKSPACE_READ_ONLY_PROFILE)}`,
     '-c',
     `permissions=${tomlInlineValue(buildCodexWorkspacePermissionProfiles(boundary))}`,
+    '-c',
+    `mcp_servers=${tomlInlineValue(trustedMcpServers)}`,
+    '-c',
+    'features.hooks=false',
+    '-c',
+    'features.plugins=false',
     'app-server',
     '--stdio',
   ];

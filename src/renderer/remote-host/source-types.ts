@@ -1,5 +1,8 @@
 import type {
-  RemoteHostHistoryPageDto,
+  RemoteHostEventListDto,
+  RemoteHostFileChangeGetDto,
+  RemoteHostFileChangePageDto,
+  RemoteHostFileFinalDiffDto,
   RemoteHostJsonObject,
   RemoteHostJsonValue,
   RemoteHostPendingAction,
@@ -9,7 +12,27 @@ import type {
   RemoteHostRuntimeControlsDto,
   RemoteHostSessionSummaryDto,
   RemoteHostStateDto,
+  RemoteHostSummaryListDto,
+  RemoteHostTaskListDto,
 } from '@shared/remote-host';
+import type {
+  SessionConsoleAttachmentInput,
+  SessionConsoleCapabilitiesParams,
+  SessionConsoleCapabilitiesResult,
+  SessionConsoleCreateOptions,
+  WorkspaceDirectoryListResult,
+} from '@contracts/index';
+import type { ImageSource, LoadImageBlobResult } from '@shared/types';
+import type { PlanDeepReviewTransport } from '@renderer/plan-review/transport';
+
+export interface RemoteSessionCreateInput {
+  adapterId: string;
+  attachments: SessionConsoleAttachmentInput[];
+  capabilityRevision: string;
+  initialMessage: string;
+  options: SessionConsoleCreateOptions;
+  workingDirectory: string;
+}
 
 export interface RemotePendingPresentation {
   digest: string;
@@ -19,10 +42,15 @@ export interface RemotePendingPresentation {
 }
 
 export interface RemoteSessionSourceView {
+  addressableIdentityKey?: string | null;
   busy: boolean;
   capabilities: ReadonlySet<string>;
+  dataRevision: number;
   error: string | null;
-  history: RemoteHostHistoryPageDto | null;
+  eventLoadError: string | null;
+  events: RemoteHostEventListDto | null;
+  historyLoadError?: string | null;
+  historyLoading?: boolean;
   historySessions: readonly RemoteHostSessionSummaryDto[];
   hasMoreHistorySessions: boolean;
   hasMoreSessions: boolean;
@@ -32,6 +60,10 @@ export interface RemoteSessionSourceView {
   profile: RemoteHostProfileDto | null;
   recoveringWorker: boolean;
   runtime: RemoteHostRuntimeControlsDto | null;
+  summaryLoadError?: string | null;
+  summaries: RemoteHostSummaryListDto | null;
+  taskLoadError: string | null;
+  tasks: RemoteHostTaskListDto | null;
   sessionTotal: number | null;
   selectedPending: RemoteHostPendingListDto | null;
   selectedSession: RemoteHostSessionSummaryDto | null;
@@ -40,11 +72,19 @@ export interface RemoteSessionSourceView {
   state: RemoteHostStateDto | null;
   usable: boolean;
   clearError(): void;
-  createSession(
-    adapterId: string,
-    workingDirectory: string,
-    initialMessage: string,
-  ): Promise<void>;
+  createSession(input: RemoteSessionCreateInput): Promise<string>;
+  getSessionCapabilities(
+    request: SessionConsoleCapabilitiesParams,
+  ): Promise<SessionConsoleCapabilitiesResult>;
+  listWorkspaceDirectories(directory: string): Promise<WorkspaceDirectoryListResult>;
+  listFileChanges(cursor?: string): Promise<RemoteHostFileChangePageDto>;
+  getFileChange(changeId: number): Promise<RemoteHostFileChangeGetDto>;
+  getFileFinalDiff(filePath: string): Promise<RemoteHostFileFinalDiffDto>;
+  loadImageBlob(sessionId: string, source: ImageSource): Promise<LoadImageBlobResult>;
+  planReviewTransport?(
+    presentation: RemotePendingPresentation,
+    agentId: string,
+  ): PlanDeepReviewTransport | null;
   interrupt(): Promise<void>;
   loadMoreHistorySessions(): Promise<void>;
   loadMoreSessions(): Promise<void>;

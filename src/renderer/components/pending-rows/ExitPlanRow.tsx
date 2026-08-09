@@ -6,6 +6,7 @@ import type {
   SelectablePermissionMode,
 } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
+import type { PlanDeepReviewTransport } from '@renderer/plan-review/transport';
 import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
 import log from '@renderer/utils/logger';
 import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
@@ -40,6 +41,11 @@ export function ExitPlanRow({
   stillPending,
   wasCancelled,
   onResolved,
+  respondOverride,
+  responseDisabled = false,
+  deepReviewTransport,
+  deepReviewDraftKey,
+  deepReviewUnavailableReason,
 }: {
   event: AgentEvent;
   payload: ExitPlanModeRequest;
@@ -49,15 +55,22 @@ export function ExitPlanRow({
   stillPending: boolean;
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
+  respondOverride?: (response: ExitPlanModeResponse) => Promise<void>;
+  responseDisabled?: boolean;
+  deepReviewTransport?: PlanDeepReviewTransport;
+  deepReviewDraftKey?: string;
+  deepReviewUnavailableReason?: string;
 }): JSX.Element {
-  const { busy, error, run } = useRowResponseState(payload.requestId);
+  const { busy: rowBusy, error, run } = useRowResponseState(payload.requestId);
+  const busy = rowBusy || responseDisabled;
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [targetMode, setTargetMode] = useState<TargetMode>('acceptEdits');
   const [deepReviewOpen, setDeepReviewOpen] = useState(false);
+  const reviewKey = deepReviewDraftKey ?? payload.requestId;
   const clearDeepReviewDraft = usePlanDeepReviewStore((state) => state.clearDraft);
   const deepReviewDraft = usePlanDeepReviewStore((state) =>
-    state.drafts.get(payload.requestId));
+    state.drafts.get(reviewKey));
 
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const plan = payload.plan || '（计划内容为空）';
@@ -73,8 +86,8 @@ export function ExitPlanRow({
       : '深度审阅';
 
   useEffect(() => {
-    if (!stillPending) clearDeepReviewDraft(payload.requestId);
-  }, [clearDeepReviewDraft, payload.requestId, stillPending]);
+    if (!stillPending) clearDeepReviewDraft(reviewKey);
+  }, [clearDeepReviewDraft, reviewKey, stillPending]);
 
   const targetModeLabel: Record<typeof targetMode, string> = {
     default: '手动确认',
@@ -87,17 +100,23 @@ export function ExitPlanRow({
   const respond = async (response: ExitPlanModeResponse): Promise<boolean> => {
     if (!isSdk || !stillPending || busy) return false;
     const result = await run(
-      () => window.api.respondExitPlanMode(
-        agentId,
-        sessionId,
-        payload.requestId,
-        response,
-      ),
+      async () => {
+        if (respondOverride) {
+          await respondOverride(response);
+          return { resolvedSessionId: sessionId };
+        }
+        return window.api.respondExitPlanMode(
+          agentId,
+          sessionId,
+          payload.requestId,
+          response,
+        );
+      },
       '计划响应失败，请确认计划仍在等待后重试。',
     );
     if (result.ok && result.value) {
       onResolved(result.value.resolvedSessionId, payload.requestId);
-      clearDeepReviewDraft(payload.requestId);
+      clearDeepReviewDraft(reviewKey);
       return true;
     }
     if (result.error) {
@@ -207,14 +226,14 @@ export function ExitPlanRow({
             {isMcpPlanReview && (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || Boolean(deepReviewUnavailableReason)}
                 onClick={() => setDeepReviewOpen(true)}
                 title={
-                  deepReviewRunning
+                  deepReviewUnavailableReason || (deepReviewRunning
                     ? '审阅正在后台继续；点击返回查看进度'
                     : deepReviewDraft
                       ? '返回之前的深度审阅'
-                      : '打开完整计划，在隔离的审阅会话中提问'
+                      : '打开完整计划，在隔离的审阅会话中提问')
                 }
                 className="rounded border border-status-waiting/50 bg-status-waiting/10 px-2.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/20 disabled:opacity-50"
               >
@@ -286,7 +305,7 @@ export function ExitPlanRow({
         </div>
       )}
 
-      {isMcpPlanReview && deepReviewOpen && stillPending && (
+      {isMcpPlanReview && (!respondOverride || deepReviewTransport) && deepReviewOpen && stillPending && (
         <PlanDeepReviewDialog
           open
           sourceAgentId={agentId}
@@ -298,6 +317,8 @@ export function ExitPlanRow({
           onApprove={() => respond({ decision: 'approve', targetMode: 'default' })}
           onRevise={(nextFeedback) =>
             respond({ decision: 'keep-planning', feedback: nextFeedback })}
+          transport={deepReviewTransport}
+          draftKey={reviewKey}
         />
       )}
     </li>

@@ -23,9 +23,11 @@ function supportedMethods(base: DaemonCoreRuntime): readonly CoreMethod[] {
       ...base.supportedMethods,
       'project.list',
       'project.resolve',
+      'session.console.capabilities',
       'session.console.create',
       'session.console.get',
       'session.console.list',
+      'workspace.directory.list',
     ]),
   ]);
 }

@@ -114,8 +114,10 @@ function RemotePendingTab({
               <RemotePendingRequests
                 pending={pending}
                 sourceIdentity={source.identity}
+                agentId={session.adapterId}
                 busy={source.busy}
                 onRespond={source.respondPending}
+                planReviewTransport={source.planReviewTransport}
               />
             </div>
           </li>

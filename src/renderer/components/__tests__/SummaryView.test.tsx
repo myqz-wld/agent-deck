@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SessionRecord, SummaryRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { SessionCard } from '../SessionCard';
-import { SummaryView } from '../SummaryView';
+import { SummaryRecordsView, SummaryView } from '../SummaryView';
 
 vi.mock('@renderer/utils/logger', () => ({
   default: { scope: () => ({ warn: vi.fn() }) },
@@ -69,6 +69,12 @@ afterEach(() => {
 });
 
 describe('SummaryView rich periodic summaries', () => {
+  it('shows a remote load error before the loading placeholder', () => {
+    render(<SummaryRecordsView summaries={[]} loaded={false} loadError="summary unavailable" />);
+    expect(screen.getByText('summary unavailable')).toBeTruthy();
+    expect(screen.queryByText('加载中…')).toBeNull();
+  });
+
   it('preserves multiline content and labels normal versus degraded generations', async () => {
     render(<SummaryView sessionId="summary-session" />);
     const content = await screen.findByText(

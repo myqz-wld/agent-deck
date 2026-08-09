@@ -21,6 +21,8 @@ import {
   type CodexClientConstructionHost,
 } from '@main/adapters/codex-cli/sdk-bridge/client-construction';
 import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
 import {
   DEFAULT_SETTINGS,
@@ -34,6 +36,11 @@ import {
   unsupportedRecoveryHost,
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
+import {
+  assertServerCoreAdditionalWriteRoots,
+  assertServerCoreProviderSandboxScope,
+  compileServerCoreProviderSandboxPolicy,
+} from './provider-sandbox-policy';
 
 export const HEADLESS_CODEX_EXECUTABLE = '/opt/agent-deck/providers/codex/codex';
 
@@ -53,10 +60,31 @@ export function withServerCoreCodexWorkspaceBoundary(
   mode: CodexThreadMode,
   input: ServerCoreProviderHostInput,
 ): CodexThreadMode {
+  const policy = compileServerCoreProviderSandboxPolicy(input.workspaceBoundary, {
+    adapterId: 'codex-cli',
+    mode: mode.options.sandboxMode,
+  }, mode.options.workingDirectory);
+  assertServerCoreProviderSandboxScope(policy.scope);
+  assertServerCoreAdditionalWriteRoots(policy, mode.options.additionalDirectories);
+  if (mode.options.runtimeWorkspaceRoots?.some(
+    (root) => root !== policy.scope.selectedDirectory,
+  )) {
+    throw new Error('Remote provider sandbox does not accept additional runtime Workspace roots');
+  }
+  const baseOptions: CodexThreadOptions = { ...mode.options };
+  delete baseOptions.additionalDirectories;
+  delete baseOptions.runtimeWorkspaceRoots;
+  delete baseOptions.workspacePermissionBoundary;
   const options: CodexThreadOptions = Object.freeze({
-    ...mode.options,
-    runtimeWorkspaceRoots: Object.freeze([input.workspaceBoundary.workspaceRoot]),
-    workspacePermissionBoundary: frozenWorkspacePermissionBoundary(input),
+    ...baseOptions,
+    workingDirectory: policy.scope.selectedDirectory,
+    runtimeWorkspaceRoots: Object.freeze([policy.scope.selectedDirectory]),
+    workspacePermissionBoundary: Object.freeze({
+      ...frozenWorkspacePermissionBoundary(input),
+      selectedDirectory: policy.scope.selectedDirectory,
+    }),
+    assertWorkspacePermissionBoundary: () =>
+      assertServerCoreProviderSandboxScope(policy.scope),
   });
   return mode.mode === 'resume'
     ? Object.freeze({ mode: 'resume', threadId: mode.threadId, options })
@@ -83,6 +111,14 @@ function settings(input: ServerCoreProviderHostInput): AppSettings {
   };
 }
 
+function trustedAgentDeckMcpServers(config: CodexConfigObject | null | undefined): JsonObject {
+  const servers = config?.mcp_servers;
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return {};
+  const agentDeck = servers['agent-deck'];
+  if (!agentDeck || typeof agentDeck !== 'object' || Array.isArray(agentDeck)) return {};
+  return { 'agent-deck': agentDeck as unknown as JsonObject };
+}
+
 function createClient(
   options: CodexAppServerOptions,
   input: ServerCoreProviderHostInput,
@@ -107,7 +143,10 @@ function createClient(
       const executable = codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE;
       return spawn(
         executable,
-        buildCodexWorkspaceAppServerArguments(frozenWorkspacePermissionBoundary(input)),
+        buildCodexWorkspaceAppServerArguments(
+          frozenWorkspacePermissionBoundary(input),
+          trustedAgentDeckMcpServers(options.config),
+        ),
         {
           ...(cwd ? { cwd } : {}),
           env: codexProcessEnvironment(executable, env),
@@ -213,8 +252,16 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
         observeHeuristicStreamError: (message) => logger.warn(message),
         hasExactUserMessage: (sessionId, text) =>
           input.repositories.events.hasExactUserMessage(sessionId, text),
-        guardHandOffSourceIngress: () => false,
-        hasPendingWorktreeTransition: () => false,
+        guardHandOffSourceIngress: (args) => input.worktrees.guardIngress({
+          sourceSessionId: args.sourceSessionId,
+          agentId: args.agentId,
+          text: args.text,
+          attachments: args.attachments,
+          emit: args.emit,
+          bypassWorktreeTransition: args.bypassWorktreeTransition,
+        }),
+        hasPendingWorktreeTransition: (sessionId) =>
+          input.worktrees.hasPendingTransition(sessionId),
         deleteUploadIfExists: async () => undefined,
         disposeSessionBrowser: async () => undefined,
       },

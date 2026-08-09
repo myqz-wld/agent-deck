@@ -8,21 +8,28 @@ import {
   type ProjectListParams,
   type ProjectListResult,
   type ProjectResolveResult,
+  type SessionConsoleCapabilitiesParams,
+  type SessionConsoleCapabilitiesResult,
+  type SessionConsoleAttachmentInput,
   type SessionConsoleCreateParams,
   type SessionConsoleCreateResult,
   type SessionConsoleGetResult,
   type SessionConsoleListParams,
   type SessionConsoleListResult,
   type SessionConsoleSummaryDto,
+  type WorkspaceDirectoryListParams,
+  type WorkspaceDirectoryListResult,
 } from '@contracts/index';
 import type {
   AuthoritativeSessionConsolePort,
   SessionConsoleExecutionContext,
 } from '@core/session-console';
 import { DaemonRequestError } from '@hosts/daemon';
-import { buildCreateSessionOptions } from '@main/adapters/options-builder';
-import type { AgentAdapter } from '@main/adapters/types';
-import type { SessionRecord } from '@shared/types';
+import type {
+  AgentAdapter,
+  InitialSessionRegistration,
+} from '@main/adapters/types';
+import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
 import {
   publicServerCoreProject,
   resolveServerCoreProjectWorkspace,
@@ -33,6 +40,12 @@ import type {
   ServerCoreMutationClaim,
   ServerCoreMutationIdentity,
 } from './runtime-metadata-store';
+import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { buildRemoteCreateOptions } from './session-create-options';
+import { listServerCoreWorkspaceDirectories } from './workspace-directory-catalog';
+import { serverCoreWorktreeReferenceFence } from './worktree-reference-fence';
+
+export { buildRemoteCreateOptions } from './session-create-options';
 
 export interface ServerCoreSessionConsoleRepositoryPort {
   get(sessionId: string): SessionRecord | null;
@@ -49,12 +62,27 @@ export interface ServerCoreSessionConsoleRegistryPort {
 export interface ServerCoreSessionConsoleMetadataPort {
   currentRevision(): number;
   appendChange(kind: string, entityId: string | null, payload: JsonValue): number;
-  claimMutation(identity: ServerCoreMutationIdentity): ServerCoreMutationClaim;
+  claimMutation(
+    identity: ServerCoreMutationIdentity,
+    now?: number,
+    expectedRevision?: number,
+  ): ServerCoreMutationClaim;
   completeMutation(
     identity: ServerCoreMutationIdentity,
     result: JsonValue,
     revision: number,
   ): void;
+  commitSessionCreate(
+    identity: ServerCoreMutationIdentity,
+    sessionId: string,
+    payload: JsonValue,
+  ): SessionConsoleCreateResult;
+  releaseMutationClaim(identity: ServerCoreMutationIdentity): void;
+}
+
+export interface ServerCoreSessionAttachmentStorePort {
+  persist(inputs: readonly SessionConsoleAttachmentInput[]): Promise<UploadedAttachmentRef[]>;
+  remove(refs: readonly UploadedAttachmentRef[]): Promise<void>;
 }
 
 export interface ServerCoreSessionConsoleAuthorityOptions {
@@ -63,6 +91,26 @@ export interface ServerCoreSessionConsoleAuthorityOptions {
   readonly repository: ServerCoreSessionConsoleRepositoryPort;
   readonly registry: ServerCoreSessionConsoleRegistryPort;
   readonly metadata: ServerCoreSessionConsoleMetadataPort;
+  readonly createCapabilities: ServerCoreSessionCreateCapabilities;
+  readonly attachmentStore: ServerCoreSessionAttachmentStorePort;
+  rollbackCreatedSession(adapterId: string, sessionId: string): Promise<void>;
+}
+
+export interface ServerCoreSessionSpawnCreateInput {
+  readonly params: SessionConsoleCreateParams;
+  readonly initialSessionRegistration: InitialSessionRegistration;
+  readonly teamName?: string;
+}
+
+interface PreparedSessionCreate {
+  readonly adapter: AgentAdapter & Required<Pick<AgentAdapter, 'createSession'>>;
+  readonly project: ServerCoreProject | undefined;
+}
+
+class UncertainSessionCreateError extends DaemonRequestError {
+  constructor(readonly failures: readonly unknown[], message: string) {
+    super(AgentDeckClientErrorCode.ProviderLost, message, true);
+  }
 }
 
 function summary(record: SessionRecord): SessionConsoleSummaryDto {
@@ -126,6 +174,8 @@ function mutationIdentity(
   }
   const fingerprint = createHash('sha256').update(canonical({
     adapterId: params.adapterId,
+    attachments: params.attachments,
+    capabilityRevision: params.capabilityRevision,
     initialMessage: params.initialMessage,
     options: params.options,
     workingDirectory: params.workingDirectory,
@@ -227,19 +277,76 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
     };
   }
 
+  getCapabilities(
+    params: SessionConsoleCapabilitiesParams,
+    _context: SessionConsoleExecutionContext,
+  ): Promise<SessionConsoleCapabilitiesResult> {
+    return this.options.createCapabilities.describe(params);
+  }
+
+  listWorkspaceDirectories(
+    params: WorkspaceDirectoryListParams,
+    _context: SessionConsoleExecutionContext,
+  ): WorkspaceDirectoryListResult {
+    let result;
+    try {
+      result = listServerCoreWorkspaceDirectories(
+        params.directory,
+        this.options.workspaceRoot ?? '/workspaces',
+      );
+    } catch {
+      throw new DaemonRequestError(
+        AgentDeckClientErrorCode.InvalidRequest,
+        'Workspace directory is outside the authorized Workspace or unavailable',
+      );
+    }
+    return {
+      directory: result.directory,
+      directories: [...result.directories],
+      truncated: result.truncated,
+      revision: this.options.metadata.currentRevision(),
+    };
+  }
+
   async createSession(
     params: SessionConsoleCreateParams,
     context: SessionConsoleExecutionContext,
   ): Promise<SessionConsoleCreateResult> {
-    if (Object.keys(params.options).length !== 0) {
-      throw new DaemonRequestError(
-        AgentDeckClientErrorCode.InvalidRequest,
-        'Remote session options are not supported',
-      );
-    }
     if (context.signal.aborted) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
     }
+    const identity = mutationIdentity(params, context);
+    const replay = claimResult(this.options.metadata.claimMutation(
+      identity,
+      Date.now(),
+    ));
+    if (replay) return replay;
+    try {
+      const prepared = await this.prepareProviderSession(params);
+      return await this.createPreparedSession(params, prepared, {}, identity);
+    } catch (cause) {
+      if (cause instanceof UncertainSessionCreateError) throw cause;
+      try { this.options.metadata.releaseMutationClaim(identity); } catch (releaseError) {
+        throw new AggregateError([cause, releaseError], 'Session create claim release failed');
+      }
+      throw cause;
+    }
+  }
+
+  /** Trusted Core-only spawn path; public SSH callers cannot supply registration metadata. */
+  createSpawnSession(
+    input: ServerCoreSessionSpawnCreateInput,
+  ): Promise<SessionConsoleCreateResult> {
+    return this.prepareProviderSession(input.params).then((prepared) =>
+      this.createPreparedSession(input.params, prepared, {
+        initialSessionRegistration: input.initialSessionRegistration,
+        ...(input.teamName === undefined ? {} : { teamName: input.teamName }),
+      }));
+  }
+
+  private async prepareProviderSession(
+    params: SessionConsoleCreateParams,
+  ): Promise<PreparedSessionCreate> {
     const project = this.options.projects.find(
       (candidate) => candidate.projectRef === params.workingDirectory,
     );
@@ -250,14 +357,35 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
         'Adapter cannot create sessions',
       );
     }
-    const identity = mutationIdentity(params, context);
-    const replay = claimResult(this.options.metadata.claimMutation(identity));
-    if (replay) return replay;
+    const capabilities = await this.options.createCapabilities.validateCreate(
+      params.adapterId,
+      params.capabilityRevision,
+      params.workingDirectory,
+      params.options,
+    );
+    if (params.attachments.length > 0 && !capabilities.create.attachments.enabled) {
+      throw new DaemonRequestError(
+        AgentDeckClientErrorCode.CapabilityUnavailable,
+        'Adapter cannot accept Remote image attachments',
+      );
+    }
+    return { adapter: adapter as PreparedSessionCreate['adapter'], project };
+  }
+
+  private async createPreparedSession(
+    params: SessionConsoleCreateParams,
+    prepared: PreparedSessionCreate,
+    internal: {
+      readonly initialSessionRegistration?: InitialSessionRegistration;
+      readonly teamName?: string;
+    } = {},
+    identity?: ServerCoreMutationIdentity,
+  ): Promise<SessionConsoleCreateResult> {
     let cwd: string;
     try {
-      cwd = project
+      cwd = prepared.project
         ? resolveServerCoreProjectWorkspace(
-            project,
+            prepared.project,
             this.options.workspaceRoot ?? '/workspaces',
           )
         : resolveServerCoreWorkspaceDirectory(
@@ -270,18 +398,62 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
         'Working directory is outside the authorized Workspace or unavailable',
       );
     }
-    const sessionId = await adapter.createSession(buildCreateSessionOptions(params.adapterId, {
-      cwd,
-      prompt: params.initialMessage,
-      awaitCanonicalId: true,
-    }));
-    const revision = this.options.metadata.appendChange('session.created', sessionId, {
+    const referenceLease = (() => {
+      try {
+        return serverCoreWorktreeReferenceFence.acquireReference(cwd);
+      } catch {
+        throw new DaemonRequestError(
+          AgentDeckClientErrorCode.Conflict,
+          'Working directory is being retired',
+        );
+      }
+    })();
+    try {
+    const attachments = await this.options.attachmentStore.persist(params.attachments);
+    let sessionId: string;
+    try {
+      sessionId = await prepared.adapter.createSession(buildRemoteCreateOptions(
+        params,
+        cwd,
+        attachments,
+        internal,
+      ));
+    } catch (error) {
+      await this.options.attachmentStore.remove(attachments);
+      throw error;
+    }
+    const payload = {
       adapterId: params.adapterId,
       workingDirectory: params.workingDirectory,
       sessionId,
-    });
-    const result = { sessionId, revision };
-    this.options.metadata.completeMutation(identity, result, revision);
-    return result;
+    } as const;
+    try {
+      return identity
+        ? this.options.metadata.commitSessionCreate(identity, sessionId, payload)
+        : { sessionId, revision: this.options.metadata.appendChange(
+            'session.created', sessionId, payload,
+          ) };
+    } catch (cause) {
+      const [rollback, attachmentsRemoved] = await Promise.allSettled([
+        this.options.rollbackCreatedSession(params.adapterId, sessionId),
+        this.options.attachmentStore.remove(attachments),
+      ]);
+      const failures = [rollback, attachmentsRemoved]
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => result.reason);
+      if (rollback.status === 'rejected') {
+        throw new UncertainSessionCreateError(
+          [cause, ...failures],
+          'Created provider session could not be rolled back',
+        );
+      }
+      if (failures.length > 0) {
+        throw new AggregateError([cause, ...failures], 'Session create cleanup failed');
+      }
+      throw cause;
+    }
+    } finally {
+      referenceLease.release();
+    }
   }
 }

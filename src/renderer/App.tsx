@@ -20,7 +20,6 @@ import { useRemoteHostSnapshot } from './remote-host/use-remote-host-snapshot';
 import { useRemoteSessionSource } from './remote-host/use-remote-session-source';
 import { clearDetailForSourceView } from './remote-host/source-navigation';
 import { RemoteHostManagerDialog } from './components/RemoteHost/RemoteHostManagerDialog';
-import { RemoteSessionCreateDialog } from './components/RemoteHost/RemoteSessionCreateDialog';
 registerBuiltinDiffRenderers();
 const logger = log.scope('renderer-app');
 function boundedArchiveReason(reason: string): string {
@@ -35,6 +34,7 @@ export function App(): JSX.Element {
   const remoteHosts = useRemoteHostSnapshot();
   const remoteSource = useRemoteSessionSource(remoteHosts);
   const remoteMode = remoteHosts.snapshot?.sourceMode === 'remote';
+  const remoteIssuesAvailable = remoteSource.capabilities.has('issues');
   const setRemoteSourceMode = remoteHosts.setSourceMode;
   const sessions = useSessionStore((s) => s.sessions);
   const selectedId = useSessionStore((s) => s.selectedSessionId);
@@ -43,10 +43,13 @@ export function App(): JSX.Element {
 
   const [view, setView] = useState<AppView>('live');
   useEffect(() => {
-    if (remoteMode && (view === 'teams' || view === 'issues' || view === 'data')) {
+    if (
+      remoteMode &&
+      (view === 'teams' || view === 'data' || (view === 'issues' && !remoteIssuesAvailable))
+    ) {
       setView('live');
     }
-  }, [remoteMode, view]);
+  }, [remoteIssuesAvailable, remoteMode, view]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -395,6 +398,7 @@ export function App(): JSX.Element {
           sourceMode={remoteHosts.snapshot?.sourceMode ?? 'local'}
           selectedRemoteProfileId={remoteHosts.snapshot?.selectedRemoteProfileId ?? null}
           remoteProfiles={remoteHosts.snapshot?.profiles ?? []}
+          remoteIssuesAvailable={remoteIssuesAvailable}
           onViewChange={(nextView) => {
             setView(nextView);
             clearDetailForSourceView(remoteMode, nextView, () => select(null),
@@ -471,17 +475,13 @@ export function App(): JSX.Element {
         }}
       />
       <NewSessionDialog
-        open={newSessionOpen && !remoteMode}
+        open={newSessionOpen}
+        remoteSource={remoteMode ? remoteSource : null}
         onClose={() => setNewSessionOpen(false)}
         onCreated={(id) => {
           setView('live');
-          select(id);
+          if (!remoteMode) select(id);
         }}
-      />
-      <RemoteSessionCreateDialog
-        open={newSessionOpen && remoteMode}
-        source={remoteSource}
-        onClose={() => setNewSessionOpen(false)}
       />
       <RemoteHostManagerDialog
         open={remoteProfilesOpen}

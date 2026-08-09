@@ -32,6 +32,7 @@ import type {
   ServerCoreMutationClaim,
   ServerCoreMutationIdentity,
 } from './runtime-metadata-store';
+import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
 import {
   canonicalJson,
   historyCursor,
@@ -108,6 +109,7 @@ export interface ServerCoreDaemonRuntimeOptions {
   readonly registry: ServerCoreRuntimeRegistryPort;
   readonly metadata: ServerCoreRuntimeMetadataPort;
   readonly lifecycle: ServerCoreRuntimeLifecyclePort;
+  readonly presentations: Pick<ServerCoreMcpPresentationPort, 'list' | 'respond'>;
 }
 
 function clipped(value: string): string {
@@ -318,7 +320,12 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
   private pending(input: DaemonRequestInput): DaemonRequestResult {
     const { sessionId } = parseSessionTargetParams(input.params);
     const { adapter, record } = this.requireProviderSession(sessionId);
-    const requests = listServerCorePendingRequests(adapter, sessionId, record.startedAt).map(
+    const requests = listServerCorePendingRequests(
+      adapter,
+      sessionId,
+      record.startedAt,
+      this.options.presentations,
+    ).map(
       (request): JsonObject => ({
         id: request.id,
         sessionId: request.sessionId,
@@ -342,7 +349,11 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
       'pending.responded',
       params.sessionId,
       async () => {
-        const status = await respondToServerCorePending(adapter, params);
+        const status = await respondToServerCorePending(
+          adapter,
+          params,
+          this.options.presentations,
+        );
         return (revision) => ({ status, revision });
       },
     );

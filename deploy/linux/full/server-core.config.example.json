@@ -4,6 +4,9 @@
   "appVersion": "0.1.0",
   "runtimeModule": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs",
   "runtimeOptions": {
+    "providerContainer": {
+      "schemaVersion": 1
+    },
     "providerSettings": {},
     "projects": []
   },

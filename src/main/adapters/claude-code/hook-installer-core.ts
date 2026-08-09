@@ -88,7 +88,13 @@ export class HookInstallerCore {
     private token: string,
     private relayRoot: string,
     private observer: ClaudeHookInstallerObserver,
+    private homeDirectory: string = homedir(),
   ) {}
+
+  private settingsPath(scope: 'user' | 'project', cwd?: string): string {
+    if (scope === 'user') return join(this.homeDirectory, '.claude', 'settings.json');
+    return settingsPath(scope, cwd);
+  }
 
   private currentCommand(event: HookEvent, prepare: boolean): string {
     const relayConfigPath = prepare
@@ -109,7 +115,7 @@ export class HookInstallerCore {
   }
 
   install(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = settingsPath(opts.scope, opts.cwd);
+    const path = this.settingsPath(opts.scope, opts.cwd);
     updateHookConfig(
       path,
       (document) => {
@@ -153,7 +159,7 @@ export class HookInstallerCore {
   }
 
   uninstall(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = settingsPath(opts.scope, opts.cwd);
+    const path = this.settingsPath(opts.scope, opts.cwd);
     if (!existsSync(path)) {
       return {
         installed: false,
@@ -193,7 +199,7 @@ export class HookInstallerCore {
   }
 
   status(opts: { scope: 'user' | 'project'; cwd?: string }): HookInstallStatus {
-    const path = settingsPath(opts.scope, opts.cwd);
+    const path = this.settingsPath(opts.scope, opts.cwd);
     if (!existsSync(path)) {
       return {
         installed: false,

@@ -1,6 +1,12 @@
 import {
   isJsonObject,
+  MCP_PRESENTATION_MAX_FEEDBACK_LENGTH,
+  parseSessionConsoleAttachments,
+  parseSessionConsoleCapabilitiesParams,
+  parseSessionConsoleCreateOptions,
   parseSessionConsoleInitialMessage,
+  parseMcpPresentationFeedback,
+  parseWorkspaceDirectoryListParams,
   parseWorkspaceDirectoryRef,
 } from '@contracts/index';
 import {
@@ -20,8 +26,10 @@ import {
   type RemoteHostRuntimeUpdateDto,
   type RemoteHostSendDto,
   type RemoteHostSessionPageRequestDto,
+  type RemoteHostSessionCapabilitiesRequestDto,
   type RemoteHostSessionTargetDto,
   type RemoteHostSourceMode,
+  type RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
@@ -116,6 +124,18 @@ function pendingValue(
   action: RemoteHostPendingAction,
   value: unknown,
 ): RemoteHostJsonValue | undefined {
+  if (action === 'reject' && value !== undefined) {
+    try {
+      const feedback = parseMcpPresentationFeedback(parseRemoteHostJsonValue(
+        value,
+        'value',
+        (MCP_PRESENTATION_MAX_FEEDBACK_LENGTH * 4) + 64,
+      ));
+      return feedback ? { feedback } : {};
+    } catch {
+      throw new RemoteHostInputError('value', 'invalid presentation feedback');
+    }
+  }
   if (action !== 'submit') {
     if (value !== undefined) {
       throw new RemoteHostInputError('value', 'is not allowed for this pending action');
@@ -233,6 +253,45 @@ export function parseRemoteHostSessionTarget(value: unknown): RemoteHostSessionT
   };
 }
 
+export function parseRemoteHostSessionCapabilitiesRequest(
+  value: unknown,
+): RemoteHostSessionCapabilitiesRequestDto {
+  const raw = object(value, 'sessionCapabilities');
+  exactKeys(
+    raw,
+    ['adapterId', 'profileId', 'provider', 'workingDirectory'],
+    'sessionCapabilities',
+  );
+  try {
+    const parsed = parseSessionConsoleCapabilitiesParams({
+      adapterId: raw.adapterId,
+      provider: raw.provider,
+      workingDirectory: raw.workingDirectory,
+    });
+    return { profileId: parseRemoteHostProfileId(raw.profileId), ...parsed };
+  } catch {
+    throw new RemoteHostInputError('sessionCapabilities', 'invalid capability request');
+  }
+}
+
+export function parseRemoteHostWorkspaceDirectoryRequest(
+  value: unknown,
+): RemoteHostWorkspaceDirectoryRequestDto {
+  const raw = object(value, 'workspaceDirectory');
+  exactKeys(raw, ['directory', 'profileId'], 'workspaceDirectory');
+  try {
+    return {
+      profileId: parseRemoteHostProfileId(raw.profileId),
+      ...parseWorkspaceDirectoryListParams({ directory: raw.directory }),
+    };
+  } catch {
+    throw new RemoteHostInputError(
+      'workspaceDirectory',
+      'must be a relative directory inside Workspace',
+    );
+  }
+}
+
 function intentId(value: unknown): string {
   return token(value, 'intentId', 128);
 }
@@ -259,7 +318,11 @@ export function parseRemoteHostHistoryRequest(value: unknown): RemoteHostHistory
   };
 }
 
-export function parseRemoteHostJsonValue(value: unknown, field: string): RemoteHostJsonValue {
+export function parseRemoteHostJsonValue(
+  value: unknown,
+  field: string,
+  maximumBytes = REMOTE_HOST_MAX_JSON_BYTES,
+): RemoteHostJsonValue {
   let nodes = 0;
   const visit = (entry: unknown, depth: number, path: string): RemoteHostJsonValue => {
     nodes += 1;
@@ -283,14 +346,18 @@ export function parseRemoteHostJsonValue(value: unknown, field: string): RemoteH
     return result;
   };
   const cloned = visit(value, 0, field);
-  if (utf8Bytes(JSON.stringify(cloned)) > REMOTE_HOST_MAX_JSON_BYTES) {
+  if (utf8Bytes(JSON.stringify(cloned)) > maximumBytes) {
     throw new RemoteHostInputError(field, 'JSON is too large');
   }
   return cloned;
 }
 
-export function parseRemoteHostJsonObject(value: unknown, field: string): RemoteHostJsonObject {
-  const cloned = parseRemoteHostJsonValue(value, field);
+export function parseRemoteHostJsonObject(
+  value: unknown,
+  field: string,
+  maximumBytes = REMOTE_HOST_MAX_JSON_BYTES,
+): RemoteHostJsonObject {
+  const cloned = parseRemoteHostJsonValue(value, field, maximumBytes);
   if (!cloned || typeof cloned !== 'object' || Array.isArray(cloned)) {
     throw new RemoteHostInputError(field, 'must be a JSON object');
   }
@@ -301,7 +368,10 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
   const raw = object(value, 'create');
   exactKeys(
     raw,
-    ['adapterId', 'initialMessage', 'intentId', 'options', 'profileId', 'workingDirectory'],
+    [
+      'adapterId', 'attachments', 'capabilityRevision', 'initialMessage', 'intentId',
+      'options', 'profileId', 'workingDirectory',
+    ],
     'create',
   );
   let workingDirectory: string;
@@ -316,6 +386,14 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
   return {
     profileId: parseRemoteHostProfileId(raw.profileId),
     adapterId: token(raw.adapterId, 'adapterId', 128),
+    attachments: (() => {
+      try {
+        return parseSessionConsoleAttachments(raw.attachments, 'attachments');
+      } catch {
+        throw new RemoteHostInputError('attachments', 'invalid Remote image attachments');
+      }
+    })(),
+    capabilityRevision: token(raw.capabilityRevision, 'capabilityRevision', 128),
     initialMessage: (() => {
       try {
         return parseSessionConsoleInitialMessage(raw.initialMessage, 'initialMessage');
@@ -324,7 +402,13 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
       }
     })(),
     workingDirectory,
-    options: parseRemoteHostJsonObject(raw.options, 'options'),
+    options: (() => {
+      try {
+        return parseSessionConsoleCreateOptions(raw.options);
+      } catch {
+        throw new RemoteHostInputError('options', 'invalid create options');
+      }
+    })(),
     intentId: intentId(raw.intentId),
   };
 }

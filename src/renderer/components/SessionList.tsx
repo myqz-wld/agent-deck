@@ -151,6 +151,13 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
   if (source.loading && source.sessions.length === 0) {
     return <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载远程会话…</div>;
   }
+  if (source.error && source.sessions.length === 0) {
+    return (
+      <div role="alert" className="m-2 rounded bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+        {source.error}
+      </div>
+    );
+  }
   if (source.sessions.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">

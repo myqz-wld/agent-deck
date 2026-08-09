@@ -76,8 +76,13 @@ export function createAgentDeckMessageRepo(db: Database): AgentDeckMessageRepo {
 
 /** 默认 repo：模块加载时 getDb() 还没 init，不能 eager 构造；缓存到模块 closure */
 let _defaultRepo: AgentDeckMessageRepo | null = null;
+let _defaultDatabase: Database | null = null;
 function defaultRepo(): AgentDeckMessageRepo {
-  if (!_defaultRepo) _defaultRepo = createAgentDeckMessageRepo(getDb());
+  const database = getDb();
+  if (!_defaultRepo || _defaultDatabase !== database) {
+    _defaultDatabase = database;
+    _defaultRepo = createAgentDeckMessageRepo(database);
+  }
   return _defaultRepo;
 }
 

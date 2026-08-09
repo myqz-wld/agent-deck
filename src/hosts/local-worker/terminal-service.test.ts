@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { configureLocalWorker } from './terminal-configuration';
@@ -77,6 +77,7 @@ function fixture() {
   const serviceRoot = join(root, 'services');
   const workspaceRoot = join(root, 'workspace');
   const runtimeRoot = join(root, 'runtime');
+  const providerRuntimeRoot = join(root, 'provider-runtime');
   const wrapperPath = join(root, 'agent-deck-worker');
   const sandboxLauncherPath = join(root, 'agent-deck-worker-sandbox');
   mkdirSync(stateRoot, { mode: 0o700 });
@@ -106,6 +107,7 @@ function fixture() {
   chmodSync(credentialFile, 0o600);
   return {
     credentialFile,
+    providerRuntimeRoot,
     runtimeModule,
     runtimeRoot,
     serviceRoot,
@@ -152,6 +154,7 @@ describe('terminal-only Local Worker service lifecycle', () => {
       wrapperPath: paths.wrapperPath,
       uid: CURRENT_UID,
       commands,
+      providerRuntimeRoot: () => paths.providerRuntimeRoot,
       darwinSandboxLauncherPath: paths.sandboxLauncherPath,
     });
 
@@ -197,6 +200,7 @@ describe('terminal-only Local Worker service lifecycle', () => {
       wrapperPath: paths.wrapperPath,
       uid: CURRENT_UID,
       commands,
+      providerRuntimeRoot: () => paths.providerRuntimeRoot,
     });
 
     await manager.start(worker.workerConfigId);
@@ -205,9 +209,14 @@ describe('terminal-only Local Worker service lifecycle', () => {
     expect(source).toContain('Restart=on-failure');
     expect(source).toContain('NoNewPrivileges=true');
     expect(source).toContain('ExecStart="/usr/bin/bwrap"');
+    expect(source).toContain(
+      `ExecStartPre="${paths.wrapperPath}" prepare-provider-runtime --root "${paths.providerRuntimeRoot}"`,
+    );
     expect(source).toContain('"--unshare-all"');
     expect(source).toContain('"--clearenv"');
     expect(source).toContain(`ReadWritePaths="${paths.workspaceRoot}" "${worker.privateRoot}"`);
+    expect(source).toContain(paths.providerRuntimeRoot);
+    expect(source).toContain(`"${dirname(paths.providerRuntimeRoot)}"`);
     expect(commands.calls).toContainEqual({
       executable: '/usr/bin/systemctl',
       args: ['--user', 'daemon-reload'],
@@ -226,6 +235,7 @@ describe('terminal-only Local Worker service lifecycle', () => {
       wrapperPath: paths.wrapperPath,
       uid: CURRENT_UID,
       commands: new FakeServiceCommands(),
+      providerRuntimeRoot: () => paths.providerRuntimeRoot,
       darwinSandboxLauncherPath: paths.sandboxLauncherPath,
     });
 

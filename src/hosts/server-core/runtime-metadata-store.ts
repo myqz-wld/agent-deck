@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize } from 'node:path';
 
-import { isJsonValue, type JsonValue } from '@contracts/index';
+import {
+  isJsonValue,
+  type JsonValue,
+  type SessionConsoleCreateResult,
+} from '@contracts/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
 
 const SCHEMA_VERSION = 1;
@@ -337,6 +341,71 @@ export class ServerCoreRuntimeMetadataStore {
       identity.requestFingerprint,
     );
     if (changed.changes !== 1) throw new Error('Mutation claim was lost before completion');
+  }
+
+  commitSessionCreate(
+    identity: ServerCoreMutationIdentity,
+    sessionId: string,
+    payload: JsonValue,
+    now = Date.now(),
+  ): SessionConsoleCreateResult {
+    this.validateMutationIdentity(identity);
+    if (identity.method !== 'session.console.create') {
+      throw new Error('Session create mutation identity is invalid');
+    }
+    token(sessionId, 'session', 256);
+    const payloadJson = json(payload);
+    const result = this.db().transaction(() => {
+      const revision = this.currentRevision() + 1;
+      const value = { sessionId, revision };
+      this.db().prepare(
+        `UPDATE core_state SET current_revision = ? WHERE singleton = 1`,
+      ).run(revision);
+      this.db().prepare(
+        `INSERT INTO change_log(revision, kind, entity_id, payload_json, created_at)
+         VALUES (?, 'session.created', ?, ?, ?)`,
+      ).run(revision, sessionId, payloadJson, now);
+      const changed = this.db().prepare(
+        `UPDATE mutation_ledger
+            SET status = 'completed', result_json = ?, revision = ?, updated_at = ?
+          WHERE access_credential_id = ? AND access_surface = ? AND idempotency_key = ?
+            AND method = ? AND request_fingerprint = ? AND status = 'invoking'`,
+      ).run(
+        json(value), revision, now, identity.accessCredentialId, identity.accessSurface,
+        identity.idempotencyKey, identity.method, identity.requestFingerprint,
+      );
+      if (changed.changes !== 1) throw new Error('Session create mutation claim was lost');
+      this.db().prepare(`DELETE FROM change_log WHERE revision <= ?`).run(
+        Math.max(0, revision - CHANGE_RETENTION),
+      );
+      return value;
+    })();
+    const change = Object.freeze({
+      revision: result.revision,
+      kind: 'session.created',
+      entityId: sessionId,
+      payload,
+    });
+    for (const listener of [...this.listeners]) {
+      try { listener(change); } catch {}
+    }
+    return result;
+  }
+
+  releaseMutationClaim(identity: ServerCoreMutationIdentity): void {
+    this.validateMutationIdentity(identity);
+    const changed = this.db().prepare(
+      `DELETE FROM mutation_ledger
+        WHERE access_credential_id = ? AND access_surface = ? AND idempotency_key = ?
+          AND method = ? AND request_fingerprint = ? AND status = 'invoking'`,
+    ).run(
+      identity.accessCredentialId,
+      identity.accessSurface,
+      identity.idempotencyKey,
+      identity.method,
+      identity.requestFingerprint,
+    );
+    if (changed.changes !== 1) throw new Error('Mutation claim was lost before release');
   }
 
   setSubscribed(

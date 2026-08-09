@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { Readable, Writable } from 'node:stream';
+import { Readable, Writable, type Duplex } from 'node:stream';
 
 import {
   PROTOCOL_VERSION,
@@ -28,12 +28,7 @@ const STDERR_LIMIT = 64 * 1024;
 const START_TIMEOUT_MS = 15_000;
 const STOP_TIMEOUT_MS = 2_000;
 
-export interface GrokAcpProcessOptions {
-  binary: string;
-  /** Test seam for a deterministic fake ACP child. Production always uses Grok Build's fixed args. */
-  args?: string[];
-  cwd: string;
-  sandboxProfile?: string | null;
+export interface GrokAcpClientOptions {
   onSessionUpdate: (notification: SessionNotification) => void;
   onSessionUpdateError?: (
     error: unknown,
@@ -51,18 +46,78 @@ export interface GrokAcpProcessOptions {
   authenticate?: boolean;
 }
 
-export class GrokAcpProcess {
+export interface GrokAcpProcessOptions extends GrokAcpClientOptions {
+  binary: string;
+  /** Test seam for a deterministic fake ACP child. Production always uses Grok Build's fixed args. */
+  args?: string[];
+  cwd: string;
+  environment?: Readonly<Record<string, string>>;
+  sandboxProfile?: string | null;
+}
+
+export interface GrokAcpSession {
+  readonly authenticatedMethodId: string | null;
+  readonly connection: ClientConnection;
+  readonly diagnostics: string;
+  readonly initializeResponse: InitializeResponse;
+  readonly isStopping: boolean;
+  readonly pid: number | null;
+  readonly usedLoginShell: boolean;
+  onExit(listener: (code: number | null, signal: NodeJS.Signals | null) => void): void;
+  stop(): Promise<void>;
+}
+
+export interface GrokAcpChannel {
+  readonly exited: Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }>;
+  readonly stream: Duplex;
+  close(): Promise<void>;
+}
+
+export interface GrokAcpSessionFactoryInput extends GrokAcpClientOptions {
+  readonly applicationSessionId: string;
+  readonly cwd: string;
+  readonly sandboxProfile: string | null;
+}
+
+export interface GrokAcpSessionFactoryResult {
+  readonly allowAgentDeckMcp: boolean;
+  readonly allowHostPathMetadata: boolean;
+  readonly process: GrokAcpSession;
+  /** Cwd visible to the ACP agent; it may differ from Core's host-side Workspace path. */
+  readonly sessionCwd: string;
+}
+
+export type GrokAcpSessionFactory = (
+  input: GrokAcpSessionFactoryInput,
+) => Promise<GrokAcpSessionFactoryResult>;
+
+interface GrokAcpTransport {
+  readonly diagnosticStreams: readonly Readable[];
+  readonly exited: GrokAcpChannel['exited'];
+  readonly input: Writable;
+  readonly output: Readable;
+  readonly pid: number | null;
+  readonly usedLoginShell: boolean;
+  close(): Promise<void>;
+}
+
+export type NativeGrokAcpProcess = GrokAcpProcess & {
   readonly child: ChildProcessWithoutNullStreams;
+};
+
+export class GrokAcpProcess implements GrokAcpSession {
+  readonly child: ChildProcessWithoutNullStreams | null;
   readonly connection: ClientConnection;
   readonly initializeResponse: InitializeResponse;
   readonly authenticatedMethodId: string | null;
   readonly usedLoginShell: boolean;
 
   private stderr = '';
-  private stopping = false;
+  private stopPromise: Promise<void> | null = null;
 
   private constructor(
-    child: ChildProcessWithoutNullStreams,
+    child: ChildProcessWithoutNullStreams | null,
+    private readonly transport: GrokAcpTransport,
     connection: ClientConnection,
     initializeResponse: InitializeResponse,
     authenticatedMethodId: string | null,
@@ -75,7 +130,7 @@ export class GrokAcpProcess {
     this.usedLoginShell = usedLoginShell;
   }
 
-  static async start(options: GrokAcpProcessOptions): Promise<GrokAcpProcess> {
+  static async start(options: GrokAcpProcessOptions): Promise<NativeGrokAcpProcess> {
     const launched = spawnGrokChild(options);
     const { child } = launched;
 
@@ -84,6 +139,48 @@ export class GrokAcpProcess {
       child.once('error', reject);
     });
 
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      let delivered = false;
+      const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
+        if (delivered) return;
+        delivered = true;
+        resolve(Object.freeze({ code, signal }));
+      };
+      child.once('exit', finish);
+      child.once('error', () => finish(null, null));
+      if (child.exitCode !== null || child.signalCode !== null) {
+        queueMicrotask(() => finish(child.exitCode, child.signalCode));
+      }
+    });
+    const transport: GrokAcpTransport = {
+      diagnosticStreams: [child.stderr, ...(launched.startupOutput ? [launched.startupOutput] : [])],
+      exited,
+      input: child.stdin,
+      output: launched.protocolOutput,
+      pid: child.pid ?? null,
+      usedLoginShell: launched.usedLoginShell,
+      close: () => stopChild(child),
+    };
+    return await this.startTransport(transport, options, child) as NativeGrokAcpProcess;
+  }
+
+  static connect(channel: GrokAcpChannel, options: GrokAcpClientOptions): Promise<GrokAcpProcess> {
+    return this.startTransport({
+      diagnosticStreams: [],
+      exited: channel.exited,
+      input: channel.stream,
+      output: channel.stream,
+      pid: null,
+      usedLoginShell: false,
+      close: () => channel.close(),
+    }, options, null);
+  }
+
+  private static async startTransport(
+    transport: GrokAcpTransport,
+    options: GrokAcpClientOptions,
+    child: ChildProcessWithoutNullStreams | null,
+  ): Promise<GrokAcpProcess> {
     let instance: GrokAcpProcess | null = null;
     let startupStderr = '';
     const app = client({ name: 'Agent Deck' })
@@ -124,21 +221,13 @@ export class GrokAcpProcess {
       );
 
     const stream = ndJsonStream(
-      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(launched.protocolOutput) as ReadableStream<Uint8Array>,
+      Writable.toWeb(transport.input) as WritableStream<Uint8Array>,
+      Readable.toWeb(transport.output) as ReadableStream<Uint8Array>,
     );
     const connection = app.connect(stream);
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      if (instance) {
-        instance.stderr = `${instance.stderr}${chunk}`.slice(-STDERR_LIMIT);
-      } else {
-        startupStderr = `${startupStderr}${chunk}`.slice(-STDERR_LIMIT);
-      }
-    });
-    if (launched.startupOutput) {
-      launched.startupOutput.setEncoding('utf8');
-      launched.startupOutput.on('data', (chunk: string) => {
+    for (const diagnostic of transport.diagnosticStreams) {
+      diagnostic.setEncoding('utf8');
+      diagnostic.on('data', (chunk: string) => {
         if (instance) {
           instance.stderr = `${instance.stderr}${chunk}`.slice(-STDERR_LIMIT);
         } else {
@@ -167,23 +256,32 @@ export class GrokAcpProcess {
           : await authenticateGrokConnection(connection, initializeResponse);
       instance = new GrokAcpProcess(
         child,
+        transport,
         connection,
         initializeResponse,
         authenticatedMethodId,
-        launched.usedLoginShell,
+        transport.usedLoginShell,
       );
       instance.stderr = startupStderr;
       return instance;
     } catch (error) {
       connection.close(error);
-      await stopChild(child);
+      let cleanupError: unknown;
+      try { await transport.close(); } catch (cause) { cleanupError = cause; }
       const diagnostics = startupStderr.trim();
-      throw new Error(
+      const startupError = new Error(
         `${error instanceof Error ? error.message : String(error)}${
           diagnostics ? `\n${diagnostics}` : ''
         }`,
         { cause: error },
       );
+      if (cleanupError) {
+        throw new AggregateError(
+          [startupError, cleanupError],
+          'Grok Build ACP startup cleanup failed',
+        );
+      }
+      throw startupError;
     }
   }
 
@@ -192,7 +290,11 @@ export class GrokAcpProcess {
   }
 
   get isStopping(): boolean {
-    return this.stopping;
+    return this.stopPromise !== null;
+  }
+
+  get pid(): number | null {
+    return this.transport.pid;
   }
 
   onExit(listener: (code: number | null, signal: NodeJS.Signals | null) => void): void {
@@ -202,17 +304,20 @@ export class GrokAcpProcess {
       delivered = true;
       listener(code, signal);
     };
-    this.child.once('exit', deliver);
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
-      queueMicrotask(() => deliver(this.child.exitCode, this.child.signalCode));
-    }
+    void this.transport.exited.then(
+      ({ code, signal }) => deliver(code, signal),
+      () => deliver(null, null),
+    );
   }
 
-  async stop(): Promise<void> {
-    if (this.stopping) return;
-    this.stopping = true;
+  stop(): Promise<void> {
+    this.stopPromise ??= this.stopOnce();
+    return this.stopPromise;
+  }
+
+  private async stopOnce(): Promise<void> {
     this.connection.close();
-    await stopChild(this.child);
+    await this.transport.close();
   }
 }
 

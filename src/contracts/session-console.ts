@@ -1,11 +1,30 @@
-import { isJsonObject, type JsonObject } from './json';
+import { isJsonObject } from './json';
+import {
+  parseSessionConsoleCapabilityRevision,
+  parseSessionConsoleCreateOptions,
+  type SessionConsoleCreateOptions,
+} from './session-console-capabilities';
+import {
+  parseSessionConsoleAttachments,
+  type SessionConsoleAttachmentInput,
+} from './session-console-attachments';
+import {
+  SESSION_CONSOLE_MAX_ALIAS_BYTES,
+  SessionConsoleContractError,
+  parseWorkspaceDirectoryRef,
+} from './session-console-common';
+
+export {
+  SESSION_CONSOLE_MAX_ALIAS_BYTES,
+  SESSION_CONSOLE_MAX_WORKING_DIRECTORY_BYTES,
+  SessionConsoleContractError,
+  parseWorkspaceDirectoryRef,
+} from './session-console-common';
 
 export const SESSION_CONSOLE_MAX_PAGE_SIZE = 100;
 export const SESSION_CONSOLE_MAX_CURSOR_BYTES = 512;
 export const SESSION_CONSOLE_MAX_IDENTIFIER_BYTES = 256;
-export const SESSION_CONSOLE_MAX_ALIAS_BYTES = 128;
 export const SESSION_CONSOLE_MAX_TITLE_BYTES = 512;
-export const SESSION_CONSOLE_MAX_WORKING_DIRECTORY_BYTES = 1_024;
 export const SESSION_CONSOLE_MAX_INITIAL_MESSAGE_BYTES = 65_536;
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
@@ -64,21 +83,16 @@ export interface ProjectResolveResult {
 
 export interface SessionConsoleCreateParams {
   adapterId: string;
+  attachments: SessionConsoleAttachmentInput[];
+  capabilityRevision: string;
   initialMessage: string;
   workingDirectory: string;
-  options: JsonObject;
+  options: SessionConsoleCreateOptions;
 }
 
 export interface SessionConsoleCreateResult {
   sessionId: string;
   revision: number;
-}
-
-export class SessionConsoleContractError extends Error {
-  constructor(readonly field: string) {
-    super(`Invalid session-console contract field: ${field}`);
-    this.name = 'SessionConsoleContractError';
-  }
 }
 
 function fail(field: string): never {
@@ -118,23 +132,6 @@ function text(value: unknown, field: string, maximumBytes: number): string {
     typeof value !== 'string' ||
     utf8Bytes(value) > maximumBytes ||
     CONTROL.test(value)
-  ) {
-    fail(field);
-  }
-  return value;
-}
-
-/** A host-private workspace reference: `.` or one normalized relative POSIX directory. */
-export function parseWorkspaceDirectoryRef(
-  value: unknown,
-  field = 'workspaceDirectory',
-): string {
-  if (
-    typeof value !== 'string' || value.length === 0 || value.trim() !== value ||
-    utf8Bytes(value) > SESSION_CONSOLE_MAX_WORKING_DIRECTORY_BYTES ||
-    CONTROL.test(value) || value.includes('\\') || value.startsWith('/') ||
-    (value !== '.' && value.split('/').some((segment) =>
-      segment.length === 0 || segment === '.' || segment === '..'))
   ) {
     fail(field);
   }
@@ -290,11 +287,18 @@ export function parseProjectListResult(
   };
 }
 
-export function parseSessionConsoleGetResult(value: unknown): SessionConsoleGetResult {
+export function parseSessionConsoleGetResult(
+  value: unknown,
+  expectedSessionId?: string,
+): SessionConsoleGetResult {
   if (!isJsonObject(value)) fail('session.console.get.result');
   exactKeys(value, ['revision', 'session'], 'session.console.get.result');
+  const session = value.session === null ? null : parseSessionConsoleSummary(value.session);
+  if (expectedSessionId !== undefined && session?.id !== expectedSessionId && session !== null) {
+    fail('session.console.get.session.id');
+  }
   return {
-    session: value.session === null ? null : parseSessionConsoleSummary(value.session),
+    session,
     revision: revision(value.revision, 'session.console.get.revision'),
   };
 }
@@ -312,12 +316,19 @@ export function parseSessionConsoleCreateParams(value: unknown): SessionConsoleC
   if (!isJsonObject(value)) fail('session.console.create.params');
   exactKeys(
     value,
-    ['adapterId', 'initialMessage', 'options', 'workingDirectory'],
+    [
+      'adapterId', 'attachments', 'capabilityRevision', 'initialMessage',
+      'options', 'workingDirectory',
+    ],
     'session.console.create.params',
   );
-  if (!isJsonObject(value.options)) fail('session.console.create.options');
   return {
     adapterId: token(value.adapterId, 'session.console.create.adapterId', SESSION_CONSOLE_MAX_ALIAS_BYTES),
+    attachments: parseSessionConsoleAttachments(value.attachments),
+    capabilityRevision: parseSessionConsoleCapabilityRevision(
+      value.capabilityRevision,
+      'session.console.create.capabilityRevision',
+    ),
     initialMessage: parseSessionConsoleInitialMessage(
       value.initialMessage,
       'session.console.create.initialMessage',
@@ -326,7 +337,7 @@ export function parseSessionConsoleCreateParams(value: unknown): SessionConsoleC
       value.workingDirectory,
       'session.console.create.workingDirectory',
     ),
-    options: value.options,
+    options: parseSessionConsoleCreateOptions(value.options),
   };
 }
 

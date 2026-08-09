@@ -2,15 +2,14 @@ import type {
   TrustedContinuationAcceptance,
   TrustedContinuationSessionCandidate,
 } from '@main/adapters/trusted-continuation';
-import log from '@main/utils/logger';
 import type { SessionHandOffTrustedContinuationFailureReason } from '@shared/session-hand-off-execution';
 import type { TrustedContinuationInitialTurn } from '../continuation-context/initial-turn';
+import { reportHandOffWarning } from './diagnostics-core';
 
 /** Platform-monotonic runtime budget; wall-clock changes do not affect it. */
 export const HANDOFF_TRUSTED_CONTINUATION_DEADLINE_MS = 90_000;
 const LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS = 3;
 const REJECTED_CANDIDATE_CLEANUP_DEADLINE_MS = 5_000;
-const logger = log.scope('handoff-readiness');
 
 export type HandOffSuccessorCleanup = 'ok' | 'failed' | 'pending';
 
@@ -188,7 +187,7 @@ async function createBeforeDeadline(
 }
 
 function primaryStartupFailure(error: unknown): TrustedContinuationStartupFailure {
-  logger.warn(
+  reportHandOffWarning(
     '[handoff readiness] primary candidate creation rejected before a stable session id',
     error,
   );
@@ -218,7 +217,7 @@ function startupTimeoutFailure(
 }
 
 function startupRejectedAfterDeadlineFailure(error: unknown): TrustedContinuationGateFailure {
-  logger.warn(
+  reportHandOffWarning(
     '[handoff readiness] primary candidate creation rejected after the startup deadline',
     error,
   );
@@ -232,7 +231,7 @@ function startupRejectedAfterDeadlineFailure(error: unknown): TrustedContinuatio
 }
 
 function retryStartupFailure(error: unknown): TrustedContinuationGateFailure {
-  logger.warn(
+  reportHandOffWarning(
     '[handoff readiness] lower-budget candidate creation rejected before a stable session id',
     error,
   );
@@ -254,7 +253,10 @@ function scheduleLateCandidateCleanup(
   void creation.then(
     (late) => cleanupLateCandidateWithRetry(late.sessionId, rollback, close, now),
     (error) => {
-      logger.warn('[handoff readiness] candidate creation rejected after startup deadline', error);
+      reportHandOffWarning(
+        '[handoff readiness] candidate creation rejected after startup deadline',
+        error,
+      );
     },
   );
 }
@@ -273,7 +275,7 @@ async function cleanupLateCandidateWithRetry(
         now() + REJECTED_CANDIDATE_CLEANUP_DEADLINE_MS,
         now,
       );
-      logger.warn(
+      reportHandOffWarning(
         `[handoff readiness] late startup candidate cleanup session=${sessionId} ` +
         `cleanup=removed attempt=${attempt}`,
       );
@@ -289,14 +291,14 @@ async function cleanupLateCandidateWithRetry(
     now,
   );
   if (closeResult === 'ok') {
-    logger.warn(
+    reportHandOffWarning(
       `[handoff readiness] late startup candidate cleanup session=${sessionId} ` +
       `cleanup=closed-row-retained rollbackAttempts=${LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS}`,
       lastError,
     );
     return;
   }
-  logger.warn(
+  reportHandOffWarning(
     `[handoff readiness] late startup candidate cleanup session=${sessionId} cleanup=failed ` +
     `rollbackAttempts=${LATE_CANDIDATE_CLEANUP_MAX_ATTEMPTS}`,
     lastError,

@@ -1,18 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { createProviderAdapterSet } from '@main/adapters/provider-adapter-set-core';
 import {
   initializeProviderRuntimeCore,
-  type ProviderRuntimeCompositionHost,
 } from '@main/adapters/provider-runtime-core';
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
-import type { AgentAdapter } from '@main/adapters/types';
+import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
+import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
+import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import type { JsonObject, JsonValue } from '@contracts/index';
 import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
+import { syncProviderHomeAuthFiles } from '@hosts/provider-state/provider-home-projection';
 import type { ServerCoreRuntimeBootstrap, ServerCoreRuntimeFactoryInput } from './root';
 import { ServerCoreCredentialFile } from './credential-file';
 import { createServerCoreClaudeHost } from './provider-claude-host';
@@ -23,7 +25,6 @@ import {
   createServerCoreProviderRenameBus,
   sessionChange,
   type ServerCoreProviderHostInput,
-  type ServerCoreProviderWorkspaceBoundary,
 } from './provider-host-common';
 import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
 import { resolveServerCoreProviderSettings } from './provider-settings';
@@ -38,11 +39,34 @@ import {
 import { ServerCoreDaemonRuntime } from './runtime-core';
 import { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import { ServerCoreSessionConsoleAuthority } from './session-console-authority';
+import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { ServerCoreSessionAttachmentStore } from './session-attachment-store';
+import { ServerCoreSessionDetailRuntime } from './session-detail-runtime';
+import { ServerCoreIssueRuntime } from './issue-runtime';
+import { ServerCoreMcpSessionCollaboration } from './mcp-session-collaboration';
+import { ServerCoreMcpSessionSpawner } from './mcp-session-spawn';
+import { ServerCoreSpawnCollaboration } from './mcp-spawn-collaboration';
+import { ServerCoreWorktreeRuntime } from './mcp-worktree-runtime';
+import { ServerCoreDesktopBrokerRuntime } from './desktop-broker-runtime';
+import { createServerCoreProviderCompositionHost } from './runtime-provider-host';
+import { createServerCoreMcpComposition } from './runtime-mcp-host';
+import { installServerCoreProviderHooks } from './provider-hook-runtime';
+import { ServerCoreProviderEventBus } from './provider-event-bus';
+import { mapServerCoreConcurrent } from './runtime-concurrency';
+import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
+import {
+  resolveServerCoreProviderGrokContainer,
+  resolveServerCoreProviderContainerRuntimePaths,
+  resolveServerCoreProviderWorkspaceBoundary,
+  validateServerCoreProviderContainerOption,
+  type ServerCoreProviderGrokContainerPort,
+} from './runtime-provider-container';
 
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
+export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
 const MAX_PROVIDER_RETIREMENTS = 4_096;
 const PROVIDER_RETIREMENT_CONCURRENCY = 8;
-const RUNTIME_OPTION_KEYS = new Set(['projects', 'providerSettings']);
+const RUNTIME_OPTION_KEYS = new Set(['projects', 'providerContainer', 'providerSettings']);
 
 export interface ServerCoreRuntimeCompositionOverrides {
   readonly processId?: string;
@@ -50,43 +74,10 @@ export interface ServerCoreRuntimeCompositionOverrides {
   readonly diagnostics?: ServerCoreRuntimeDiagnostics;
   readonly workspaceRoot?: string;
   readonly workspaceSandbox?: WorkspaceSandboxSpec;
-}
-
-function ensureProviderPrivateDirectory(path: string): string {
-  mkdirSync(path, { recursive: true, mode: 0o700 });
-  return path;
-}
-
-function providerWorkspaceBoundary(
-  input: ServerCoreRuntimeFactoryInput,
-  workspaceRoot: string,
-  sandbox: WorkspaceSandboxSpec | undefined,
-): ServerCoreProviderWorkspaceBoundary {
-  if (sandbox) {
-    if (sandbox.workspaceRoot !== workspaceRoot) {
-      throw new Error('provider workspace root does not match the Worker sandbox');
-    }
-    return Object.freeze({
-      workspaceRoot,
-      privateRoot: sandbox.privateRoot,
-      providerHomeRoot: sandbox.environment.providerHomeRoot,
-      runtimeReadRoots: Object.freeze([...sandbox.runtimeReadRoots]),
-      providerCacheRoot: sandbox.environment.providerCacheRoot,
-      providerTempRoot: sandbox.environment.providerTempRoot,
-    });
-  }
-  return Object.freeze({
-    workspaceRoot,
-    privateRoot: input.paths.stateDirectory,
-    providerHomeRoot: process.env.HOME || homedir(),
-    runtimeReadRoots: Object.freeze(['/opt/agent-deck']),
-    providerCacheRoot: ensureProviderPrivateDirectory(
-      join(input.paths.stateDirectory, 'provider-cache'),
-    ),
-    providerTempRoot: ensureProviderPrivateDirectory(
-      join(input.paths.stateDirectory, 'provider-tmp'),
-    ),
-  });
+  /** Test/development seam. Production Full uses the fixed read-only secrets-volume path. */
+  readonly providerAuthSource?: string | null;
+  /** Trusted composition seam; capability publication remains independently fail-closed. */
+  readonly grokContainer?: ServerCoreProviderGrokContainerPort;
 }
 
 function validateRuntimeOptions(runtimeOptions: JsonObject): void {
@@ -95,6 +86,7 @@ function validateRuntimeOptions(runtimeOptions: JsonObject): void {
       throw new Error(`runtimeOptions.${key} is unsupported`);
     }
   }
+  validateServerCoreProviderContainerOption(runtimeOptions);
 }
 
 function diagnostics(): ServerCoreRuntimeDiagnostics {
@@ -120,41 +112,6 @@ function safeAppend(
   }
 }
 
-async function mapConcurrent<T>(
-  values: readonly T[],
-  concurrency: number,
-  consume: (value: T) => Promise<void>,
-): Promise<void> {
-  let index = 0;
-  const failures: unknown[] = [];
-  await Promise.all(Array.from(
-    { length: Math.min(concurrency, values.length) },
-    async () => {
-      while (index < values.length) {
-        const value = values[index++];
-        try { await consume(value!); } catch (error) { failures.push(error); }
-      }
-    },
-  ));
-  if (failures.length > 0) {
-    throw new AggregateError(failures, 'Provider session retirement failed');
-  }
-}
-
-function renameCodexLiveSession(
-  agentId: string,
-  adapter: AgentAdapter | undefined,
-  fromId: string,
-  toId: string,
-): void {
-  if (agentId !== 'codex-cli') return;
-  mcpSessionTokenMap.rename(fromId, toId);
-  const bridge = (adapter as {
-    bridge?: { renameCodexInstance?: (from: string, to: string) => void } | null;
-  } | undefined)?.bridge;
-  bridge?.renameCodexInstance?.(fromId, toId);
-}
-
 /** Concrete Electron-free runtime module factory consumed by the packaged Server Core entrypoint. */
 export function createServerCoreRuntimeWithOverrides(
   input: ServerCoreRuntimeFactoryInput,
@@ -162,27 +119,54 @@ export function createServerCoreRuntimeWithOverrides(
 ): ServerCoreRuntimeBootstrap {
   validateRuntimeOptions(input.runtimeOptions);
   const workspaceRoot = overrides.workspaceRoot ?? '/workspaces';
-  const workspaceBoundary = providerWorkspaceBoundary(
+  const workspaceBoundary = resolveServerCoreProviderWorkspaceBoundary(
     input,
     workspaceRoot,
     overrides.workspaceSandbox,
   );
+  if (!overrides.workspaceSandbox) {
+    const configuredSource = overrides.providerAuthSource === undefined
+      ? SERVER_CORE_PROVIDER_AUTH_SOURCE
+      : overrides.providerAuthSource;
+    const source = configuredSource !== null &&
+      lstatSync(configuredSource, { throwIfNoEntry: false })
+      ? configuredSource
+      : null;
+    syncProviderHomeAuthFiles(source, workspaceBoundary.providerHomeRoot);
+  }
   const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
+  const grokContainer = overrides.grokContainer ?? resolveServerCoreProviderGrokContainer(
+    input,
+    workspaceRoot,
+    runtimeDiagnostics,
+    overrides.workspaceSandbox ? { workspaceSandbox: overrides.workspaceSandbox } : {},
+  );
+  let providerRuntimePrivateRoot: string | null = null;
+  if (input.runtimeOptions.providerContainer) {
+    try {
+      providerRuntimePrivateRoot = resolveServerCoreProviderContainerRuntimePaths(
+        input,
+        overrides.workspaceSandbox,
+      ).privateRoot;
+    } catch {
+      providerRuntimePrivateRoot = null;
+    }
+  }
   const processId = overrides.processId ??
     `${input.instanceId}:${process.pid}:${randomUUID()}`;
   const metadata = new ServerCoreRuntimeMetadataStore(input.paths);
+  const reviewEvents = new ServerCoreProviderEventBus();
   const renames = createServerCoreProviderRenameBus();
   const repositories = new ServerCoreRepositoryHost({
     paths: input.paths,
     diagnostics: runtimeDiagnostics,
+    handOffLifecycle: handOffCutoverCoordinator,
     observer: {
-      eventPersisted: (event, eventId) => safeAppend(
-        metadata,
-        runtimeDiagnostics,
-        'event.persisted',
-        event.sessionId,
-        { adapterId: event.agentId, eventId, kind: event.kind, timestamp: event.ts },
-      ),
+      eventPersisted: (event, eventId) => {
+        reviewEvents.emit(event);
+        safeAppend(metadata, runtimeDiagnostics, 'event.persisted', event.sessionId,
+          { adapterId: event.agentId, eventId, kind: event.kind, timestamp: event.ts });
+      },
       sessionUpdated: (session) => safeAppend(
         metadata,
         runtimeDiagnostics,
@@ -209,21 +193,14 @@ export function createServerCoreRuntimeWithOverrides(
       },
     },
   });
-  const providerInput: ServerCoreProviderHostInput = Object.freeze({
-    instanceId: input.instanceId,
-    paths: input.paths,
-    settings: resolveServerCoreProviderSettings(input.runtimeOptions),
-    repositories,
-    metadata,
-    diagnostics: runtimeDiagnostics,
-    renames,
-    workspaceBoundary,
-  });
-  const adapterSet = createProviderAdapterSet({
-    claude: createServerCoreClaudeHost(providerInput),
-    codex: createServerCoreCodexHost(providerInput),
-    grok: createServerCoreGrokHost(providerInput),
-  });
+  const privateRoots = Object.freeze([
+    input.paths.stateDirectory,
+    workspaceBoundary.privateRoot,
+    workspaceBoundary.providerHomeRoot,
+    workspaceBoundary.providerCacheRoot,
+    workspaceBoundary.providerTempRoot,
+    ...(providerRuntimePrivateRoot ? [providerRuntimePrivateRoot] : []),
+  ]);
   const registry = new AdapterRegistryClass({
     begin: Date.now,
     observe: (phase, totalCount, failedCount) => {
@@ -236,19 +213,165 @@ export function createServerCoreRuntimeWithOverrides(
       }
     },
   });
-  const providerHost: ProviderRuntimeCompositionHost = {
+  const providerSettings = resolveServerCoreProviderSettings(input.runtimeOptions);
+  const projects = withServerCoreWorkspaceRootProject(
+    resolveServerCoreProjectCatalog(input.runtimeOptions, workspaceRoot),
+    workspaceRoot,
+  );
+  const createCapabilities = new ServerCoreSessionCreateCapabilities({
+    grokContainer: grokContainer ?? undefined,
+    metadata,
+    projects,
+    providerHomeRoot: workspaceBoundary.providerHomeRoot,
+    registry,
+    settings: providerSettings,
+    workspaceRoot,
+  });
+  const attachmentStore = new ServerCoreSessionAttachmentStore({
+    rootDirectory: join(input.paths.stateDirectory, 'session-attachments'),
+  });
+  const rollbackCreatedSession = async (adapterId: string, sessionId: string): Promise<void> => {
+    const record = repositories.sessions.get(sessionId);
+    if (record && record.agentId !== adapterId) {
+      throw new Error('Created session rollback adapter identity changed');
+    }
+    const adapter = registry.get(adapterId);
+    if (!adapter?.closeSessionForRollback) {
+      throw new Error('Adapter does not provide strict session rollback');
+    }
+    await adapter.closeSessionForRollback(sessionId);
+    repositories.sessionManager.discardAfterProviderRollback(sessionId);
+    if (repositories.sessions.get(sessionId)) {
+      throw new Error('Created session rollback durable cleanup did not complete');
+    }
+  };
+  const sessionConsoleAuthority = new ServerCoreSessionConsoleAuthority({
+    projects,
+    workspaceRoot,
+    repository: repositories.sessionConsoleRepository,
+    registry,
+    metadata,
+    createCapabilities,
+    attachmentStore,
+    rollbackCreatedSession,
+  });
+  const collaboration = new ServerCoreMcpSessionCollaboration({
+    workspaceRoot,
+    privateRoots,
+    sessions: repositories.sessions,
+    events: repositories.events,
+    teams: agentDeckTeamRepo,
+    messages: agentDeckMessageRepo,
+    successor: findSessionHandOffSuccessor,
+    closeSession: (sessionId) => repositories.sessionManager.close(sessionId),
+    adapter: (adapterId) => registry.get(adapterId),
+    appendChange: (kind, entityId, payload) => {
+      safeAppend(metadata, runtimeDiagnostics, kind, entityId, payload);
+    },
+  });
+  const spawnCollaboration = new ServerCoreSpawnCollaboration({
+    teams: agentDeckTeamRepo,
+    messages: agentDeckMessageRepo,
+    sessions: repositories.sessions,
+    transaction: <T>(operation: () => T) => repositories.transaction(operation),
+    notifyMembershipChanged: (sessionId) =>
+      repositories.sessionManager.notifyTeamMembershipChanged(sessionId),
+  });
+  const spawn = new ServerCoreMcpSessionSpawner({
+    sessions: repositories.sessions,
+    sessionManager: repositories.sessionManager,
+    registry,
+    capabilities: createCapabilities,
+    authority: sessionConsoleAuthority,
+    collaboration: spawnCollaboration,
+    metadata,
+  });
+  const worktrees = new ServerCoreWorktreeRuntime({
+    workspaceRoot,
+    privateRoots,
+    sessions: repositories.sessions,
+    registry,
+    publishSession: (sessionId) => {
+      const record = repositories.sessions.get(sessionId);
+      if (record) safeAppend(
+        metadata,
+        runtimeDiagnostics,
+        'session.updated',
+        sessionId,
+        sessionChange(record),
+      );
+    },
+    publishStatus: (sessionId, text, error, generation) => {
+      const record = repositories.sessions.get(sessionId);
+      if (!record) return;
+      repositories.sessionManager.ingest({
+        sessionId,
+        agentId: record.agentId,
+        kind: 'message',
+        payload: {
+          role: 'system',
+          text,
+          ...(error ? { error: true } : {}),
+          worktreeTransitionStatus: { generation },
+        },
+        ts: Date.now(),
+        source: 'sdk',
+      });
+    },
+    appendChange: (kind, entityId, payload) => {
+      safeAppend(metadata, runtimeDiagnostics, kind, entityId, payload);
+    },
+    warn: (message) => {
+      try { runtimeDiagnostics.warn(message); } catch {}
+    },
+  });
+  const { desktopBroker, mcpBroker, presentations } = createServerCoreMcpComposition({
+    workspaceRoot,
+    privateRoots,
+    repositories,
+    metadata,
+    collaboration,
+    spawn,
+    worktrees,
+    worktreeRuntime: worktrees,
+    registry,
+    capabilities: createCapabilities,
+    diagnostics: runtimeDiagnostics,
+    reviewEvents,
+    appendChange: (kind, entityId, payload) => {
+      safeAppend(metadata, runtimeDiagnostics, kind, entityId, payload);
+    },
+  });
+  const providerInput: ServerCoreProviderHostInput = Object.freeze({
+    instanceId: input.instanceId,
+    paths: input.paths,
+    settings: providerSettings,
+    repositories,
+    metadata,
+    diagnostics: runtimeDiagnostics,
+    renames,
+    workspaceBoundary,
+    mcpBroker,
+    worktrees,
+    ...(grokContainer
+      ? { grokProcessFactory: grokContainer.processFactory }
+      : {}),
+  });
+  const adapterSet = createProviderAdapterSet({
+    claude: createServerCoreClaudeHost(providerInput),
+    codex: createServerCoreCodexHost(providerInput),
+    grok: createServerCoreGrokHost(providerInput),
+  });
+  const providerHost = createServerCoreProviderCompositionHost({
     registry,
     adapters: adapterSet.adapters,
-    installSessionClose: (handler) => repositories.sessionManager.installSessionClose(handler),
-    installSessionRename: (handler) => repositories.sessionManager.installSessionRename(handler),
-    renameLiveSession: (agentId, adapter, fromId, toId) => {
-      renameCodexLiveSession(agentId, adapter, fromId, toId);
-      renames.emit({ from: fromId, to: toId });
-    },
-    reportAdapterInitFailure: (result) => {
-      runtimeDiagnostics.warn('Provider adapter initialization failed', { adapterId: result.id });
-    },
-  };
+    repositories,
+    desktopBroker,
+    presentations,
+    worktrees,
+    renames,
+    diagnostics: runtimeDiagnostics,
+  });
   const retireProviders = async (): Promise<void> => {
     const records = repositories.sessions.listActiveAndDormant(
       MAX_PROVIDER_RETIREMENTS + 1,
@@ -257,7 +380,7 @@ export function createServerCoreRuntimeWithOverrides(
     if (records.length > MAX_PROVIDER_RETIREMENTS) {
       throw new Error('Provider retirement exceeds its bounded session ceiling');
     }
-    await mapConcurrent(
+    await mapServerCoreConcurrent(
       records.filter((record) => record.lifecycle === 'active'),
       PROVIDER_RETIREMENT_CONCURRENCY,
       async (record) => {
@@ -267,10 +390,15 @@ export function createServerCoreRuntimeWithOverrides(
     );
   };
   const shutdownProviders = async (): Promise<void> => {
-    const failures = (await registry.shutdownAll()).filter((result) => !result.ok);
+    const failures: unknown[] = (await registry.shutdownAll())
+      .filter((result) => !result.ok)
+      .map((result) => result.err);
+    if (grokContainer) {
+      try { await grokContainer.close(); } catch (error) { failures.push(error); }
+    }
     if (failures.length > 0) {
       throw new AggregateError(
-        failures.map((result) => result.err),
+        failures,
         'Provider adapter shutdown failed',
       );
     }
@@ -278,34 +406,51 @@ export function createServerCoreRuntimeWithOverrides(
   const lifecycle = new ServerCoreProviderRuntimeLifecycle({
     repository: repositories,
     metadata,
+    mcpBroker,
+    desktopBroker,
+    presentations,
+    collaboration,
+    worktrees,
     initializeProviders: async () => {
-      await initializeProviderRuntimeCore(
+      const results = await initializeProviderRuntimeCore(
         providerHost,
         createHeadlessAdapterContext(providerInput),
       );
+      await installServerCoreProviderHooks(results, registry);
     },
     retireProviders,
     shutdownProviders,
     diagnostics: runtimeDiagnostics,
   });
-  const runtime = new ServerCoreDaemonRuntime({
+  const baseRuntime = new ServerCoreDaemonRuntime({
     instanceId: input.instanceId,
     repository: repositories.sessions,
     events: repositories.events,
     registry,
     metadata,
     lifecycle,
+    presentations,
   });
-  const sessionConsoleAuthority = new ServerCoreSessionConsoleAuthority({
-    projects: withServerCoreWorkspaceRootProject(
-      resolveServerCoreProjectCatalog(input.runtimeOptions, workspaceRoot),
-      workspaceRoot,
-    ),
+  const detailRuntime = new ServerCoreSessionDetailRuntime(baseRuntime, {
     workspaceRoot,
-    repository: repositories.sessionConsoleRepository,
-    registry,
-    metadata,
+    sessions: repositories.sessions,
+    events: repositories.events,
+    summaries: repositories.summaries,
+    tasks: repositories.tasks,
+    fileChanges: repositories.fileChanges,
+    getFinalDiff: getSessionFileFinalDiff,
+    privateRoots,
   });
+  const issueRuntime = new ServerCoreIssueRuntime(detailRuntime, {
+    workspaceRoot,
+    privateRoots,
+    issues: repositories.issues,
+    metadata,
+    sessionConsole: sessionConsoleAuthority,
+    rollbackSession: rollbackCreatedSession,
+  });
+  const reviewRuntime = new ServerCorePlanReviewRuntime(issueRuntime, presentations, metadata);
+  const runtime = new ServerCoreDesktopBrokerRuntime(reviewRuntime, desktopBroker);
   const credentialLifecycle = new ServerCoreCredentialFile({
     instanceId: input.instanceId,
     processId,

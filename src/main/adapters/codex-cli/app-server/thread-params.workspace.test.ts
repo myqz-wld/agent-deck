@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { __testables } from './client';
 
@@ -38,10 +38,12 @@ describe('Codex app-server workspace thread params', () => {
   });
 
   it('uses fixed workspace permission profiles for headless threads and turns', () => {
+    const assertBoundary = vi.fn();
     const boundary = {
       workspaceRoot: '/worker/workspace',
+      selectedDirectory: '/worker/workspace/project-a',
       readOnlyRoots: ['/opt/agent-deck'],
-      readWriteRoots: ['/worker/cache', '/worker/tmp'],
+      readWriteRoots: [],
     } as const;
     const options = {
       workingDirectory: '/worker/workspace/project-a',
@@ -49,6 +51,7 @@ describe('Codex app-server workspace thread params', () => {
       approvalPolicy: 'never' as const,
       skipGitRepoCheck: true,
       workspacePermissionBoundary: boundary,
+      assertWorkspacePermissionBoundary: assertBoundary,
       runtimeWorkspaceRoots: ['/host-must-not-win'],
       additionalDirectories: ['/host-must-not-win'],
       configOverrides: {
@@ -69,18 +72,17 @@ describe('Codex app-server workspace thread params', () => {
     });
     expect(start).toMatchObject({
       cwd: '/worker/workspace/project-a',
-      permissions: 'agent-deck-workspace-write-network',
-      runtimeWorkspaceRoots: ['/worker/workspace'],
+      permissions: 'agent-deck-workspace-full-write-network',
+      runtimeWorkspaceRoots: ['/worker/workspace/project-a'],
     });
     expect(start).not.toHaveProperty('sandbox');
     expect(start.config).not.toHaveProperty('sandbox_mode');
     expect(start.config).not.toHaveProperty('sandbox_workspace_write');
-    expect(start.config).toMatchObject({
-      features: { hooks: true, plugins: true },
-      mcp_servers: { workspace: { command: './tools/workspace-mcp' } },
-    });
+    expect(start.config).toMatchObject({ features: { hooks: false, plugins: false } });
+    expect(start.config).not.toHaveProperty('mcp_servers');
     expect(start.config).not.toHaveProperty('default_permissions');
     expect(start.config).not.toHaveProperty('permissions');
+    expect(assertBoundary).toHaveBeenCalledTimes(1);
 
     const turn = __testables.buildTurnStartParams(
       'thread-1',
@@ -90,10 +92,22 @@ describe('Codex app-server workspace thread params', () => {
       { runtimeWorkspaceRoots: ['/turn-must-not-win'] },
     );
     expect(turn).toMatchObject({
-      permissions: 'agent-deck-workspace-write-network',
-      runtimeWorkspaceRoots: ['/worker/workspace'],
+      permissions: 'agent-deck-workspace-full-write-network',
+      runtimeWorkspaceRoots: ['/worker/workspace/project-a'],
     });
     expect(turn).not.toHaveProperty('sandboxPolicy');
+    expect(assertBoundary).toHaveBeenCalledTimes(2);
+
+    const selectedWrite = __testables.buildThreadStartParams({
+      ...options,
+      sandboxMode: 'workspace-write',
+      networkAccessEnabled: false,
+    }, null);
+    expect(selectedWrite).toMatchObject({
+      permissions: 'agent-deck-workspace-write',
+      runtimeWorkspaceRoots: ['/worker/workspace/project-a'],
+    });
+    expect(assertBoundary).toHaveBeenCalledTimes(3);
   });
 
   it('keeps read-only headless sessions inside the same workspace ceiling', () => {
@@ -104,8 +118,9 @@ describe('Codex app-server workspace thread params', () => {
       skipGitRepoCheck: true,
       workspacePermissionBoundary: {
         workspaceRoot: '/worker/workspace',
+        selectedDirectory: '/worker/workspace',
         readOnlyRoots: ['/opt/agent-deck'],
-        readWriteRoots: ['/worker/cache', '/worker/tmp'],
+        readWriteRoots: [],
       },
     };
     expect(__testables.buildThreadStartParams(options, null)).toMatchObject({

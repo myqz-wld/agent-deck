@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentDeckCapability, type AgentDeckCapability as Capability, type CoreMethodMap } from '@contracts/index';
+import {
+  sessionConsoleCreateOptionsFixture,
+} from '@contracts/session-console-capabilities.fixture';
 import { ElectronHostRegistry, type ElectronHostClientBinding } from '@hosts/electron';
 import { ControlledClient, deferred, remoteHello, remoteProfile, standaloneProfile } from '@hosts/electron/__tests__/registry-fixture';
 import type { SshConnectionState } from '@clients/ssh';
@@ -201,9 +204,11 @@ describe('RemoteHostService', () => {
     const created = await service.createSession({
       profileId: remote.id,
       adapterId: 'codex-cli',
+      attachments: [],
+      capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: 'Inspect the repository',
       workingDirectory: projects.projects[0]!.projectRef,
-      options: {},
+      options: sessionConsoleCreateOptionsFixture('codex-cli'),
       intentId: 'intent-create-1',
     });
 

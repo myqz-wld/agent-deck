@@ -58,11 +58,13 @@ describe('WorkspaceSandboxSpec', () => {
     const parsed = parseWorkspaceSandboxSpec(spec());
     const broad = intersectProviderSandboxPolicy(parsed, {
       adapterId: 'codex-cli',
+      selectedDirectory: `${parsed.workspaceRoot}/project-a`,
       workspaceAccess: 'outer-full',
       networkBoundary: 'provider-controlled',
     });
     const strict = intersectProviderSandboxPolicy(parsed, {
       adapterId: 'claude-code',
+      selectedDirectory: `${parsed.workspaceRoot}/project-a`,
       workspaceAccess: 'read-only',
       networkBoundary: 'provider-controlled',
     });
@@ -71,11 +73,27 @@ describe('WorkspaceSandboxSpec', () => {
     expect(broad.readWriteRoots).not.toContain(parsed.privateRoot);
     expect(strict.readOnlyRoots).toContain(parsed.workspaceRoot);
     expect(strict.readWriteRoots).not.toContain(parsed.workspaceRoot);
+    expect(broad.readWriteRoots).not.toContain(parsed.environment.providerHomeRoot);
+    const selected = intersectProviderSandboxPolicy(parsed, {
+      adapterId: 'grok-build',
+      selectedDirectory: `${parsed.workspaceRoot}/project-a`,
+      workspaceAccess: 'workspace-write',
+      networkBoundary: 'provider-controlled',
+    });
+    expect(selected.readOnlyRoots).toContain(parsed.workspaceRoot);
+    expect(selected.readWriteRoots).toEqual([`${parsed.workspaceRoot}/project-a`]);
     expect([...broad.readOnlyRoots, ...broad.readWriteRoots].join('\n')).not.toContain('/.ssh');
     expect(() => intersectProviderSandboxPolicy(parsed, {
       adapterId: 'codex-cli',
+      selectedDirectory: `${parsed.workspaceRoot}/project-a`,
       workspaceAccess: 'outer-full',
       networkBoundary: 'unrestricted',
     } as never)).toThrow('network');
+    expect(() => intersectProviderSandboxPolicy(parsed, {
+      adapterId: 'grok-build',
+      selectedDirectory: '/Users/test/outside',
+      workspaceAccess: 'workspace-write',
+      networkBoundary: 'provider-controlled',
+    })).toThrow('escapes');
   });
 });

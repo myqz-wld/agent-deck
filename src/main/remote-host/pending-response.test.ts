@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AgentDeckCapability,
+  MCP_PLAN_PRESENTATION_SCHEMA,
   type AgentDeckCapability as Capability,
   type CoreMethodMap,
 } from '@contracts/index';
@@ -167,6 +168,26 @@ describe('RemoteHostService authoritative pending response policy', () => {
     });
   });
 
+  it('forwards revision feedback only for an authoritative MCP presentation', async () => {
+    const context = harness();
+    context.setPending(pendingResult('exit-plan', {
+      display: {
+        schema: MCP_PLAN_PRESENTATION_SCHEMA,
+        plan: '# Plan',
+      },
+    }));
+    await context.service.connect(context.remote.id);
+    await context.service.respondPending(response('reject', {
+      value: { feedback: 'Change the order' },
+    }));
+    expect(vi.mocked(context.client.request).mock.calls[1]?.[1]).toEqual({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      action: 'reject',
+      value: { feedback: 'Change the order' },
+    });
+  });
+
   it.each([
     { kind: 'permission', action: 'accept' },
     { kind: 'permission', action: 'reject' },
@@ -208,6 +229,12 @@ describe('RemoteHostService authoritative pending response policy', () => {
       display: {},
       action: 'approve',
       value: { answer: 'unexpected' },
+    },
+    {
+      kind: 'diff-review',
+      display: {},
+      action: 'reject',
+      value: { feedback: 'not an MCP presentation' },
     },
   ] as const)('rejects mismatched or forbidden values before pending.respond: %#', async (item) => {
     const context = harness();

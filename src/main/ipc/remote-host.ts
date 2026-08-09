@@ -6,17 +6,33 @@ import { getFloatingWindow } from '@main/window';
 import {
   getRemoteHostService,
   parseRemoteHostCreateSession,
+  parseRemoteHostFileChangeGetRequest,
+  parseRemoteHostFileChangePageRequest,
+  parseRemoteHostFileFinalDiffRequest,
+  parseRemoteHostEventListRequest,
   parseRemoteHostHistoryRequest,
+  parseRemoteHostImageAssetRequest,
+  parseRemoteHostIssueListRequest,
+  parseRemoteHostIssueMutationTarget,
+  parseRemoteHostIssueResolveSession,
+  parseRemoteHostIssueTarget,
+  parseRemoteHostIssueUpdate,
   parseRemoteHostMutationTarget,
   parseRemoteHostPageRequest,
   parseRemoteHostPendingResponse,
+  parseRemoteHostPlanReviewAsk,
+  parseRemoteHostPlanReviewTarget,
   parseRemoteHostProfileDraft,
   parseRemoteHostProfileId,
   parseRemoteHostSourceMode,
+  parseRemoteHostSummaryRequest,
+  parseRemoteHostTaskListRequest,
   parseRemoteHostRuntimeUpdate,
   parseRemoteHostSend,
+  parseRemoteHostSessionCapabilitiesRequest,
   parseRemoteHostSessionPageRequest,
   parseRemoteHostSessionTarget,
+  parseRemoteHostWorkspaceDirectoryRequest,
   publicRemoteHostError,
 } from '@main/remote-host';
 import { IpcEvent, RemoteHostIpcInvoke } from '@shared/ipc-channels';
@@ -86,12 +102,48 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().listSessions(parseRemoteHostSessionPageRequest(request))));
   on(RemoteHostIpcInvoke.SessionGet, (_event, request) => safely(() =>
     getRemoteHostService().getSession(parseRemoteHostSessionTarget(request))));
+  on(RemoteHostIpcInvoke.SessionCapabilities, (_event, request) => safely(() =>
+    getRemoteHostService().getSessionCapabilities(
+      parseRemoteHostSessionCapabilitiesRequest(request),
+    )));
+  on(RemoteHostIpcInvoke.WorkspaceDirectoriesList, (_event, request) => safely(() =>
+    getRemoteHostService().listWorkspaceDirectories(
+      parseRemoteHostWorkspaceDirectoryRequest(request),
+    )));
   on(RemoteHostIpcInvoke.ProjectsList, (_event, request) => safely(() =>
     getRemoteHostService().listProjects(parseRemoteHostPageRequest(request))));
   on(RemoteHostIpcInvoke.SessionCreate, (_event, request) => safely(() =>
     getRemoteHostService().createSession(parseRemoteHostCreateSession(request))));
   on(RemoteHostIpcInvoke.HistoryList, (_event, request) => safely(() =>
     getRemoteHostService().listHistory(parseRemoteHostHistoryRequest(request))));
+  on(RemoteHostIpcInvoke.EventsList, (_event, request) => safely(() =>
+    getRemoteHostService().detail.listEvents(parseRemoteHostEventListRequest(request))));
+  on(RemoteHostIpcInvoke.SummariesList, (_event, request) => safely(() =>
+    getRemoteHostService().detail.listSummaries(parseRemoteHostSummaryRequest(request))));
+  on(RemoteHostIpcInvoke.TasksList, (_event, request) => safely(() =>
+    getRemoteHostService().detail.listTasks(parseRemoteHostTaskListRequest(request))));
+  on(RemoteHostIpcInvoke.IssuesList, (_event, request) => safely(() =>
+    getRemoteHostService().issues.list(parseRemoteHostIssueListRequest(request))));
+  on(RemoteHostIpcInvoke.IssueGet, (_event, request) => safely(() =>
+    getRemoteHostService().issues.get(parseRemoteHostIssueTarget(request))));
+  on(RemoteHostIpcInvoke.IssueUpdate, (_event, request) => safely(() =>
+    getRemoteHostService().issues.update(parseRemoteHostIssueUpdate(request))));
+  on(RemoteHostIpcInvoke.IssueSoftDelete, (_event, request) => safely(() =>
+    getRemoteHostService().issues.softDelete(parseRemoteHostIssueMutationTarget(request))));
+  on(RemoteHostIpcInvoke.IssueUndelete, (_event, request) => safely(() =>
+    getRemoteHostService().issues.undelete(parseRemoteHostIssueMutationTarget(request))));
+  on(RemoteHostIpcInvoke.IssueResolveInNewSession, (_event, request) => safely(() =>
+    getRemoteHostService().issues.resolveInNewSession(
+      parseRemoteHostIssueResolveSession(request),
+    )));
+  on(RemoteHostIpcInvoke.FileChangesList, (_event, request) => safely(() =>
+    getRemoteHostService().detail.listFileChanges(parseRemoteHostFileChangePageRequest(request))));
+  on(RemoteHostIpcInvoke.FileChangeGet, (_event, request) => safely(() =>
+    getRemoteHostService().detail.getFileChange(parseRemoteHostFileChangeGetRequest(request))));
+  on(RemoteHostIpcInvoke.FileFinalDiffGet, (_event, request) => safely(() =>
+    getRemoteHostService().detail.getFileFinalDiff(parseRemoteHostFileFinalDiffRequest(request))));
+  on(RemoteHostIpcInvoke.ImageAssetLoad, (_event, request) => safely(() =>
+    getRemoteHostService().detail.loadImageAsset(parseRemoteHostImageAssetRequest(request))));
   on(RemoteHostIpcInvoke.SessionSend, (_event, request) => safely(() =>
     getRemoteHostService().send(parseRemoteHostSend(request))));
   on(RemoteHostIpcInvoke.SessionInterrupt, (_event, request) => safely(() =>
@@ -102,6 +154,12 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().listPending(parseRemoteHostSessionTarget(request))));
   on(RemoteHostIpcInvoke.PendingRespond, (_event, request) => safely(() =>
     getRemoteHostService().respondPending(parseRemoteHostPendingResponse(request))));
+  on(RemoteHostIpcInvoke.PlanReviewStart, (_event, request) => safely(() =>
+    getRemoteHostService().planReviews.start(parseRemoteHostPlanReviewTarget(request))));
+  on(RemoteHostIpcInvoke.PlanReviewAsk, (_event, request) => safely(() =>
+    getRemoteHostService().planReviews.ask(parseRemoteHostPlanReviewAsk(request))));
+  on(RemoteHostIpcInvoke.PlanReviewFeedback, (_event, request) => safely(() =>
+    getRemoteHostService().planReviews.feedback(parseRemoteHostPlanReviewTarget(request))));
   on(RemoteHostIpcInvoke.RuntimeGet, (_event, request) => safely(() =>
     getRemoteHostService().getRuntime(parseRemoteHostSessionTarget(request))));
   on(RemoteHostIpcInvoke.RuntimeUpdate, (_event, request) => safely(() =>

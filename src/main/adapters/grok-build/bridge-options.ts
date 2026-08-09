@@ -2,6 +2,7 @@ import type { AgentEvent } from '@shared/types';
 import type { SessionManagerHost } from '@main/session/manager/facade-core';
 import type { GrokSessionSetupOptions } from './session-setup';
 import type { GrokBridgeRuntimeHost } from './bridge-runtime-core';
+import type { GrokAcpSessionFactory } from './acp-process';
 
 export type GrokSessionManagerPort = Pick<
   SessionManagerHost,
@@ -20,4 +21,5 @@ export interface GrokBuildBridgeOptions extends GrokSessionSetupOptions {
   onNegotiatedImageCapability?: (supported: boolean) => void;
   permissionTimeoutMs: number;
   binaryPath?: string | null;
+  processFactory?: GrokAcpSessionFactory;
 }

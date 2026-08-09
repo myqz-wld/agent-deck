@@ -1,4 +1,4 @@
-import type { AgentDeckClient, CoreMethodMap } from '@contracts/index';
+import type { AgentDeckClient, CoreMethod, CoreMethodMap } from '@contracts/index';
 
 export interface RemoteHostScopedClient {
   client: AgentDeckClient<CoreMethodMap>;
@@ -6,6 +6,13 @@ export interface RemoteHostScopedClient {
   profileId: string;
   sourceEpoch: number;
 }
+
+export type RemoteHostScopedRequest = <T>(
+  profileId: string,
+  method: CoreMethod,
+  run: (scope: RemoteHostScopedClient) => Promise<T>,
+  additionalMethods?: readonly CoreMethod[],
+) => Promise<T>;
 
 export class RemoteHostScopeEpochs {
   private sourceEpoch = 0;
@@ -49,3 +56,4 @@ export class RemoteHostScopeEpochs {
 }
 
 export const REMOTE_HOST_INTERACTIVE_DEADLINE_MS = 45_000;
+export const REMOTE_HOST_PLAN_REVIEW_DEADLINE_MS = (5 * 60_000) + 15_000;

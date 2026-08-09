@@ -14,6 +14,7 @@ import type {
   PermissionRequest,
 } from '@shared/types';
 import type { ServerCorePendingResponseParams } from './runtime-validation';
+import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
 
 const MAX_DISPLAY_TEXT_BYTES = 4_096;
 const MAX_QUESTIONS = 32;
@@ -79,9 +80,11 @@ export function listServerCorePendingRequests(
   adapter: AgentAdapter,
   sessionId: string,
   createdAt: number,
+  presentations: Pick<ServerCoreMcpPresentationPort, 'list'>,
 ): PendingRequestDto[] {
   const pending = snapshot(adapter, sessionId);
   const requests: PendingRequestDto[] = [
+    ...presentations.list(sessionId),
     ...pending.permissions.map((request) => ({
       id: request.requestId,
       sessionId,
@@ -155,7 +158,19 @@ function askAnswer(
 export async function respondToServerCorePending(
   adapter: AgentAdapter,
   params: ServerCorePendingResponseParams,
+  presentations: Pick<ServerCoreMcpPresentationPort, 'respond'>,
 ): Promise<'denied' | 'resolved'> {
+  try {
+    const presented = presentations.respond(
+      params.sessionId,
+      params.requestId,
+      params.action,
+      params.value,
+    );
+    if (presented) return presented;
+  } catch {
+    invalid('Pending action is invalid');
+  }
   const pending = snapshot(adapter, params.sessionId);
   const permission = pending.permissions.find((item) => item.requestId === params.requestId);
   if (permission) {

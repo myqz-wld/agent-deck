@@ -6,13 +6,37 @@ import type {
   RemoteHostCreateSessionDto,
   RemoteHostConnectionSelectionDto,
   RemoteHostDataChangedDto,
+  RemoteHostFileChangeGetDto,
+  RemoteHostFileChangeGetRequestDto,
+  RemoteHostFileChangePageDto,
+  RemoteHostFileChangePageRequestDto,
+  RemoteHostFileFinalDiffDto,
+  RemoteHostFileFinalDiffRequestDto,
+  RemoteHostEventListDto,
+  RemoteHostEventListRequestDto,
   RemoteHostHistoryPageDto,
   RemoteHostHistoryRequestDto,
+  RemoteHostImageAssetRequestDto,
+  RemoteHostImageAssetResultDto,
+  RemoteHostIssueGetDto,
+  RemoteHostIssueListDto,
+  RemoteHostIssueListRequestDto,
+  RemoteHostIssueMutationResultDto,
+  RemoteHostIssueMutationTargetDto,
+  RemoteHostIssueResolveSessionDto,
+  RemoteHostIssueResolveSessionResultDto,
+  RemoteHostIssueTargetDto,
+  RemoteHostIssueUpdateDto,
   RemoteHostMutationTargetDto,
   RemoteHostPageRequestDto,
   RemoteHostPendingListDto,
   RemoteHostPendingResponseDto,
   RemoteHostPendingResponseResultDto,
+  RemoteHostPlanReviewAcceptedDto,
+  RemoteHostPlanReviewAskDto,
+  RemoteHostPlanReviewFeedbackDto,
+  RemoteHostPlanReviewSessionDto,
+  RemoteHostPlanReviewTargetDto,
   RemoteHostProfileDraftDto,
   RemoteHostProjectPageDto,
   RemoteHostRuntimeControlsDto,
@@ -22,10 +46,18 @@ import type {
   RemoteHostSendResultDto,
   RemoteHostSessionPageDto,
   RemoteHostSessionPageRequestDto,
+  RemoteHostSessionCapabilitiesDto,
+  RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
   RemoteHostSessionTargetDto,
   RemoteHostSnapshotDto,
   RemoteHostSourceMode,
+  RemoteHostSummaryListDto,
+  RemoteHostSummaryRequestDto,
+  RemoteHostTaskListDto,
+  RemoteHostTaskListRequestDto,
+  RemoteHostWorkspaceDirectoryListDto,
+  RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
 
 import { subscribe } from './_helpers';
@@ -61,6 +93,14 @@ export const remoteHostApi = {
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostSessionSummaryDto | null> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionGet, request),
+  getRemoteHostSessionCapabilities: (
+    request: RemoteHostSessionCapabilitiesRequestDto,
+  ): Promise<RemoteHostSessionCapabilitiesDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionCapabilities, request),
+  listRemoteHostWorkspaceDirectories: (
+    request: RemoteHostWorkspaceDirectoryRequestDto,
+  ): Promise<RemoteHostWorkspaceDirectoryListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.WorkspaceDirectoriesList, request),
   listRemoteHostProjects: (
     request: RemoteHostPageRequestDto,
   ): Promise<RemoteHostProjectPageDto> =>
@@ -73,6 +113,56 @@ export const remoteHostApi = {
     request: RemoteHostHistoryRequestDto,
   ): Promise<RemoteHostHistoryPageDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.HistoryList, request),
+  listRemoteHostEvents: (
+    request: RemoteHostEventListRequestDto,
+  ): Promise<RemoteHostEventListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.EventsList, request),
+  listRemoteHostSummaries: (
+    request: RemoteHostSummaryRequestDto,
+  ): Promise<RemoteHostSummaryListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SummariesList, request),
+  listRemoteHostTasks: (
+    request: RemoteHostTaskListRequestDto,
+  ): Promise<RemoteHostTaskListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.TasksList, request),
+  listRemoteHostIssues: (
+    request: RemoteHostIssueListRequestDto,
+  ): Promise<RemoteHostIssueListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.IssuesList, request),
+  getRemoteHostIssue: (request: RemoteHostIssueTargetDto): Promise<RemoteHostIssueGetDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.IssueGet, request),
+  updateRemoteHostIssue: (
+    request: RemoteHostIssueUpdateDto,
+  ): Promise<RemoteHostIssueMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.IssueUpdate, request),
+  softDeleteRemoteHostIssue: (
+    request: RemoteHostIssueMutationTargetDto,
+  ): Promise<RemoteHostIssueMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.IssueSoftDelete, request),
+  undeleteRemoteHostIssue: (
+    request: RemoteHostIssueMutationTargetDto,
+  ): Promise<RemoteHostIssueMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.IssueUndelete, request),
+  resolveRemoteHostIssueInNewSession: (
+    request: RemoteHostIssueResolveSessionDto,
+  ): Promise<RemoteHostIssueResolveSessionResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.IssueResolveInNewSession, request),
+  listRemoteHostFileChanges: (
+    request: RemoteHostFileChangePageRequestDto,
+  ): Promise<RemoteHostFileChangePageDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.FileChangesList, request),
+  getRemoteHostFileChange: (
+    request: RemoteHostFileChangeGetRequestDto,
+  ): Promise<RemoteHostFileChangeGetDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.FileChangeGet, request),
+  getRemoteHostFileFinalDiff: (
+    request: RemoteHostFileFinalDiffRequestDto,
+  ): Promise<RemoteHostFileFinalDiffDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.FileFinalDiffGet, request),
+  loadRemoteHostImageAsset: (
+    request: RemoteHostImageAssetRequestDto,
+  ): Promise<RemoteHostImageAssetResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.ImageAssetLoad, request),
   sendRemoteHostMessage: (request: RemoteHostSendDto): Promise<RemoteHostSendResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionSend, request),
   interruptRemoteHostSession: (
@@ -89,6 +179,18 @@ export const remoteHostApi = {
     request: RemoteHostPendingResponseDto,
   ): Promise<RemoteHostPendingResponseResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.PendingRespond, request),
+  startRemoteHostPlanReview: (
+    request: RemoteHostPlanReviewTargetDto,
+  ): Promise<RemoteHostPlanReviewSessionDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.PlanReviewStart, request),
+  askRemoteHostPlanReview: (
+    request: RemoteHostPlanReviewAskDto,
+  ): Promise<RemoteHostPlanReviewAcceptedDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.PlanReviewAsk, request),
+  generateRemoteHostPlanReviewFeedback: (
+    request: RemoteHostPlanReviewTargetDto,
+  ): Promise<RemoteHostPlanReviewFeedbackDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.PlanReviewFeedback, request),
   getRemoteHostRuntime: (
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostRuntimeControlsDto> =>

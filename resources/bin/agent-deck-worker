@@ -110,7 +110,7 @@ case "$requested_command" in
   configure|start|status|stop|remove)
     needs_service_roots=1
     ;;
-  serve|check-config|check-abi)
+  serve|check-config|check-abi|prepare-provider-runtime)
     needs_service_roots=0
     ;;
   *)
@@ -257,7 +257,7 @@ case "${1:-}" in
       set -- "$@" --worker "$LIFECYCLE_WORKER"
     fi
     ;;
-  serve|check-config|check-runtime|check-abi)
+  serve|check-config|check-runtime|check-abi|prepare-provider-runtime)
     ;;
   *)
     echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2

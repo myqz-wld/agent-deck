@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import {
   FeishuSessionConsoleGateway,
   InMemoryFeishuGatewayStore,
@@ -195,13 +196,17 @@ describe('authoritative project-reference isolation', () => {
         method: 'session.console.create',
         params: {
           adapterId: 'codex-cli',
+          attachments: [],
+          capabilityRevision: `sha256:${'a'.repeat(64)}`,
           initialMessage: 'Inspect the repository',
           workingDirectory: '.',
-          options: {},
+          options: sessionConsoleCreateOptionsFixture(),
         },
       }),
     );
-    expect(JSON.stringify(clients.flatMap((client) => client.calls))).not.toMatch(/cwd|workspace/);
+    expect(JSON.stringify(clients.flatMap((client) => client.calls))).not.toMatch(
+      /\"cwd\"|\/worker\/workspace|\/server\/workspace|privateRoot|workspaceRoot/,
+    );
     expect(store.exportMetadataSnapshot()).not.toMatch(/cwd|\/worker\/workspace/);
     expect(transport.messages).toHaveLength(1);
   });

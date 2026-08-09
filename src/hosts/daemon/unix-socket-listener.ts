@@ -1,6 +1,6 @@
 import { chmod, lstat, mkdir, realpath, unlink } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
-import { dirname, normalize } from 'node:path';
+import { basename, dirname, normalize } from 'node:path';
 
 import type { DaemonListener } from './types';
 
@@ -127,10 +127,11 @@ async function preparePrivateRuntimeDirectory(
 
 async function probeExistingSocket(
   socketPath: string,
+  connectPath: string,
   dependencies: UnixSocketListenerDependencies,
 ): Promise<'active' | 'stale'> {
   return await new Promise((resolve, reject) => {
-    const socket = dependencies.createConnection(socketPath);
+    const socket = dependencies.createConnection(connectPath);
     const timeout = setTimeout(() => {
       socket.destroy();
       reject(
@@ -158,11 +159,12 @@ async function probeExistingSocket(
 
 async function removeVerifiedStaleSocket(
   socketPath: string,
+  connectPath: string,
   dependencies: UnixSocketListenerDependencies,
 ): Promise<void> {
   const before = await readSocketIdentity(socketPath, dependencies);
   if (!before) return;
-  if ((await probeExistingSocket(socketPath, dependencies)) === 'active') {
+  if ((await probeExistingSocket(socketPath, connectPath, dependencies)) === 'active') {
     throw new DaemonSocketError('socket_in_use', `Unix socket is already accepting: ${socketPath}`);
   }
   const after = await readSocketIdentity(socketPath, dependencies);
@@ -221,13 +223,23 @@ export class UnixSocketDaemonListener implements DaemonListener {
     readonly socketPath: string,
     readonly runtimeDirectory: string,
     private readonly dependencies: UnixSocketListenerDependencies = DEFAULT_DEPENDENCIES,
+    private readonly socketBindPath: string = socketPath,
   ) {
+    const descriptorBind = socketBindPath !== socketPath;
     if (
       normalize(socketPath) !== socketPath ||
       normalize(runtimeDirectory) !== runtimeDirectory ||
+      normalize(socketBindPath) !== socketBindPath ||
       socketPath.includes('\u0000') ||
       runtimeDirectory.includes('\u0000') ||
-      dirname(socketPath) !== runtimeDirectory
+      socketBindPath.includes('\u0000') ||
+      dirname(socketPath) !== runtimeDirectory ||
+      (descriptorBind && (
+        Buffer.byteLength(socketBindPath) > 103 ||
+        !/^\/proc\/self\/fd\/[1-9][0-9]*\/.+/.test(socketBindPath) ||
+        basename(socketBindPath) !== basename(socketPath) ||
+        !dependencies.realpath
+      ))
     ) {
       throw new DaemonSocketError(
         'runtime_directory_unsafe',
@@ -252,7 +264,20 @@ export class UnixSocketDaemonListener implements DaemonListener {
     if (this.server) throw new Error('Unix socket listener is already started');
     this.failureValue = null;
     await preparePrivateRuntimeDirectory(this.runtimeDirectory, this.dependencies);
-    await removeVerifiedStaleSocket(this.socketPath, this.dependencies);
+    if (
+      this.socketBindPath !== this.socketPath &&
+      await this.dependencies.realpath!(dirname(this.socketBindPath)) !== this.runtimeDirectory
+    ) {
+      throw new DaemonSocketError(
+        'runtime_directory_unsafe',
+        'Unix socket descriptor path does not resolve to its exact runtime directory',
+      );
+    }
+    await removeVerifiedStaleSocket(
+      this.socketPath,
+      this.socketBindPath,
+      this.dependencies,
+    );
 
     const server = this.dependencies.createServer((socket) => {
       try {
@@ -277,7 +302,7 @@ export class UnixSocketDaemonListener implements DaemonListener {
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error): void => reject(error);
         server.once('error', onError);
-        server.listen(this.socketPath, () => {
+        server.listen(this.socketBindPath, () => {
           server.off('error', onError);
           server.on('error', onRuntimeError);
           this.runtimeErrorHandler = onRuntimeError;

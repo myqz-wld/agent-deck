@@ -5,6 +5,7 @@ import type { GrokBuildAdapterHost } from './adapter-core';
 import type { GrokAdapterHost } from './adapter-host-core';
 import { GrokBuildBridge } from './bridge';
 import type { GrokBridgeRuntimeHost } from './bridge-runtime-core';
+import type { GrokAcpSessionFactory } from './acp-process';
 import type { GrokSessionManagerPort } from './bridge-options';
 import { buildGrokHookRoutes } from './hook-routes';
 import {
@@ -45,6 +46,7 @@ export interface GrokBuildAggregateHostOptions {
   readonly hookDiagnostics: HookRouteDiagnostics;
   readonly hookInstallerObserver: GrokHookInstallerObserver;
   readonly diagnostics: GrokBuildAdapterDiagnosticsPort;
+  readonly processFactory?: GrokAcpSessionFactory;
 }
 
 /** Construct one complete Grok adapter host without desktop singleton discovery. */
@@ -54,7 +56,10 @@ export function createGrokBuildAdapterHost(
   const bridge: GrokAdapterHost<GrokBuildBridge> = Object.freeze({
     bridgeRuntimeHost: options.runtimeHost,
     sessionManager: options.sessionManager,
-    createBridge: (bridgeOptions) => new GrokBuildBridge(bridgeOptions),
+    createBridge: (bridgeOptions) => new GrokBuildBridge({
+      ...bridgeOptions,
+      processFactory: options.processFactory,
+    }),
     reportStartupCleanupFailure: (sessionId, error) =>
       options.diagnostics.reportStartupCleanupFailure(sessionId, error),
     loadBaselinePrompt: () => options.resources.loadBaselinePrompt(),
@@ -78,6 +83,7 @@ export function createGrokBuildAdapterHost(
         context.hookServer.bearerToken,
         join(context.paths.appUserData, 'hook-relay'),
         options.hookInstallerObserver,
+        context.paths.userHome,
       ),
     registerHookRoutes: (context, adapterId) => {
       for (const route of buildGrokHookRoutes(

@@ -47,6 +47,39 @@ authority unreadable closes only the matching live connections; an invalid autho
 Updates must be atomically published into the instance-namespaced secrets volume by the trusted
 operator. They are not accepted from SSH input, provider payloads, environment variables, or the
 renderer.
+
+Provider authentication uses exact projections within that same read-only secrets volume. The
+optional source root `/run/secrets/agent-deck/provider-home` may contain only
+`.claude/.credentials.json` and `.codex/auth.json`. The separate Core-only broker root
+`/run/secrets/agent-deck/provider-inference` may contain only its mode-0600 `grok-auth.json` input.
+The source roots and provider subdirectories must be service-owned mode 0700; files must be mode
+0600. At Server Core startup the Claude and Codex files are atomically refreshed into the
+instance-private provider home, and an allowlisted destination whose source was removed is deleted.
+A retired provider-home `.grok/auth.json` destination is also deleted and is never projected.
+
+Remote Grok is published as available only when the exact `providerContainer` opt-in, the external
+host-owned Provider supervisor, its digest-pinned Grok image, and the Core inference credential are
+all ready. The Provider container gets no engine socket or credential: Full maps the
+instance-namespaced socket and Workspace volumes to the independently managed supervisor, while
+Core injects the credential only into the fixed trusted upstream request. If any readiness check
+fails, only the Grok choices fail closed with a Core-owned reason; Claude and Codex remain usable.
+Settings, hooks, MCP definitions, plugins, global instructions, SSH files, and the rest of an
+operator home are never projected. Restart the instance after publishing provider-auth changes.
+Provider processes receive the exact private HOME, while model-facing sandbox roots deny that
+provider home and the whole state volume.
+
+Provision that external lifecycle with the shipped
+`deploy/linux/provider-session/agent-deck-provider-supervisor.service.in` and
+`rootless-podman-full.config.example.json`. Resolve the exact rootless socket/workspace volume data
+paths with `podman volume inspect`, render every unit/config placeholder, keep the config mode 0600
+and every Provider runtime directory mode 0700, then install the unit under the same rootless
+service account. Its `prepare-runtime` preflight recreates only the exact mode-0700 hierarchy after
+the host runtime directory is absent. The unit uses `wait-ready --config` during startup; verify it independently with
+`agent-deck-provider-supervisor health-config --config <exact-config>`. A long physical Podman
+volume path is bound through an identity-pinned directory fd to the same inode Core sees through
+the short named-volume path; no symlink or engine-socket projection is used. Static packaging only
+proves this lifecycle is declared and parseable. Rootless-Podman/Full live acceptance remains a
+real Linux host gate.
 `authorized-client-key-options.txt` is the narrow host bridge provisioning fixture. Replace every
 identity/key placeholder, choose the exact `desktop-full` or `feishu-session-console` line for that
 credential, keep the forced command exact, and run sshd under the same rootless

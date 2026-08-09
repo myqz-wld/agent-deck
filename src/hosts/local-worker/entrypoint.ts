@@ -9,6 +9,7 @@ import { runCompositionService } from '@hosts/linux-runtime/service-runner';
 import { parseExactFlags, requireAbsolutePath } from '@hosts/linux-runtime/validation';
 import { preflightNodeNativeSqlite } from '@hosts/daemon/sqlite-preflight';
 import { workspaceSandboxEnvironment } from '@hosts/workspace-sandbox';
+import { prepareProviderSessionRuntimeDirectories } from '@hosts/provider-session/runtime-directories';
 
 import { parseLocalWorkerHeadlessConfig } from './headless-config';
 import { loadTrustedLocalWorkerRuntimeModule } from './darwin-runtime-module';
@@ -75,6 +76,13 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
     preflightLocalWorkerSqlite();
     return 0;
   }
+  if (command === 'prepare-provider-runtime') {
+    const flags = parseExactFlags(argv.slice(1), ['--root']);
+    prepareProviderSessionRuntimeDirectories([
+      requireAbsolutePath(flags['--root'], 'provider-runtime-root'),
+    ]);
+    return 0;
+  }
   if (command === 'configure') {
     const platform = workerPlatform();
     const flags = parseExactFlags(argv.slice(1), [
@@ -94,8 +102,9 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
       runtimeModule: flags['--runtime-module'],
       runtimeReadRoots: runtimeReadRoots(flags['--runtime-read-roots']),
       providerSourceHome: requireAbsolutePath(process.env.HOME, 'provider-source-home'),
-      ...(process.platform === 'darwin' ? {
-        runtimeOptions: {
+      runtimeOptions: {
+        providerContainer: { schemaVersion: 1 },
+        ...(process.platform === 'darwin' ? {
           providerSettings: {
             claudeCliPath: requireAbsolutePath(
               flags['--claude-executable'],
@@ -110,8 +119,8 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
               'grok-executable',
             ),
           },
-        },
-      } : {}),
+        } : {}),
+      },
       sshBinary: flags['--ssh-binary'],
       stateRoot: flags['--state-root'],
       workspaceRoot: flags['--workspace'],

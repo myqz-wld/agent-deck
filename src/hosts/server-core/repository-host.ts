@@ -9,14 +9,22 @@ import {
   initDb,
 } from '@main/store/db';
 import { eventRepo } from '@main/store/event-repo';
+import { setAgentDeckTeamRepositoryDiagnostics } from '@main/store/agent-deck-team-repo/diagnostics-core';
+import { fileChangeReadRepo } from '@main/store/file-change-read-repo';
+import { setFileChangeReadDiagnostics } from '@main/store/file-change-read-diagnostics-core';
 import { setEventRepositoryDiagnostics } from '@main/store/event-repo-diagnostics-core';
+import { setMessageDeliveryStateDiagnostics } from '@main/store/message-delivery-state-diagnostics-core';
 import { sessionRepo } from '@main/store/session-repo';
+import { summaryRepo } from '@main/store/summary-repo';
 import { setSessionRepositoryDiagnostics } from '@main/store/session-repo/diagnostics-core';
 import {
   ServerCoreSessionManager,
+  type ServerCoreSessionManagerOptions,
   type ServerCoreSessionManagerObserver,
 } from './session-manager';
 import type { ServerCoreSessionConsoleRepositoryPort } from './session-console-authority';
+import { ServerCoreSessionTaskReadRepository } from './session-task-read-repository';
+import { ServerCoreIssueRepository } from './issue-repository';
 
 export interface ServerCoreRuntimeDiagnostics {
   info(message: string, details?: Readonly<Record<string, unknown>>): void;
@@ -31,6 +39,7 @@ export interface ServerCoreRepositoryHostOptions {
   readonly paths: DaemonInstancePaths;
   readonly diagnostics: ServerCoreRuntimeDiagnostics;
   readonly observer: ServerCoreSessionManagerObserver;
+  readonly handOffLifecycle?: ServerCoreSessionManagerOptions['handOffLifecycle'];
 }
 
 function safeDiagnostic(
@@ -53,6 +62,10 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
   readonly name = 'server-core-repositories';
   readonly sessions = sessionRepo;
   readonly events = eventRepo;
+  readonly fileChanges = fileChangeReadRepo;
+  readonly issues: ServerCoreIssueRepository;
+  readonly summaries = summaryRepo;
+  readonly tasks: ServerCoreSessionTaskReadRepository;
   readonly sessionManager: ServerCoreSessionManager;
   readonly sessionConsoleRepository: ServerCoreSessionConsoleRepositoryPort;
   readonly databasePath: string;
@@ -63,10 +76,19 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
       options.paths.stateDirectory,
       AGENT_DECK_DATABASE_FILENAME,
     );
+    this.tasks = new ServerCoreSessionTaskReadRepository(
+      getDb,
+      { warn: (message, details) => safeDiagnostic(options.diagnostics, 'warn', message, details) },
+    );
+    this.issues = new ServerCoreIssueRepository(
+      getDb,
+      { warn: (message, details) => safeDiagnostic(options.diagnostics, 'warn', message, details) },
+    );
     this.sessionManager = new ServerCoreSessionManager({
       sessions: this.sessions,
       events: this.events,
       observer: options.observer,
+      handOffLifecycle: options.handOffLifecycle,
     });
     this.sessionConsoleRepository = Object.freeze({
       get: (sessionId: string) => this.sessions.get(sessionId),
@@ -96,6 +118,16 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
       warn: (message, details, error) =>
         safeDiagnostic(this.options.diagnostics, 'warn', message, details, error),
     });
+    setFileChangeReadDiagnostics({
+      warn: (message, details) =>
+        safeDiagnostic(this.options.diagnostics, 'warn', message, details),
+    });
+    setAgentDeckTeamRepositoryDiagnostics({
+      warn: (message) => safeDiagnostic(this.options.diagnostics, 'warn', message),
+    });
+    setMessageDeliveryStateDiagnostics({
+      warn: (message) => safeDiagnostic(this.options.diagnostics, 'warn', message),
+    });
     try {
       initDb({
         databasePath: this.databasePath,
@@ -109,6 +141,9 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
       this.started = true;
     } catch (error) {
       setEventRepositoryDiagnostics(null);
+      setAgentDeckTeamRepositoryDiagnostics(null);
+      setFileChangeReadDiagnostics(null);
+      setMessageDeliveryStateDiagnostics(null);
       setSessionRepositoryDiagnostics(null);
       throw error;
     }
@@ -121,6 +156,9 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
     } finally {
       this.started = false;
       setEventRepositoryDiagnostics(null);
+      setAgentDeckTeamRepositoryDiagnostics(null);
+      setFileChangeReadDiagnostics(null);
+      setMessageDeliveryStateDiagnostics(null);
       setSessionRepositoryDiagnostics(null);
     }
   }

@@ -1,9 +1,12 @@
-const MAX_PENDING_INTENTS = 64;
+import type { RemoteSessionCreateInput } from './source-types';
+
+const MAX_PENDING_INTENTS_PER_SOURCE = 64;
 const MAX_INTENT_KEY_BYTES = 128 * 1024;
 
 export interface RemoteUserIntent {
   id: string;
   key: string;
+  sourceIdentity: string;
 }
 
 function canonical(value: unknown): string {
@@ -26,6 +29,32 @@ function defaultIntentId(): string {
   return `intent-${globalThis.crypto.randomUUID()}`;
 }
 
+async function sha256(value: string): Promise<string> {
+  if (!globalThis.crypto?.subtle) throw new Error('当前环境无法创建远程附件意图。');
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Replaces inline attachment bodies with content-bound digests before idempotency-keying. */
+export async function remoteSessionCreateIntentPayload(
+  input: RemoteSessionCreateInput,
+): Promise<unknown> {
+  return {
+    ...input,
+    attachments: await Promise.all(input.attachments.map(async (attachment) => ({
+      bytes: attachment.bytes,
+      digest: await sha256(attachment.base64),
+      kind: attachment.kind,
+      mime: attachment.mime,
+    }))),
+  };
+}
+
 export class RemoteUserIntentLedger {
   private readonly entries = new Map<string, RemoteUserIntent>();
 
@@ -38,12 +67,20 @@ export class RemoteUserIntentLedger {
     }
     const existing = this.entries.get(key);
     if (existing) return existing;
-    if (this.entries.size >= MAX_PENDING_INTENTS) {
+    const pendingForSource = [...this.entries.values()]
+      .filter((intent) => intent.sourceIdentity === sourceIdentity).length;
+    if (pendingForSource >= MAX_PENDING_INTENTS_PER_SOURCE) {
       throw new Error('待确认的远程操作过多；请先核对远程状态。');
     }
-    const intent = { id: this.createId(), key };
+    const intent = { id: this.createId(), key, sourceIdentity };
     this.entries.set(key, intent);
     return intent;
+  }
+
+  retainSources(sourceIdentities: ReadonlySet<string>): void {
+    for (const [key, intent] of this.entries) {
+      if (!sourceIdentities.has(intent.sourceIdentity)) this.entries.delete(key);
+    }
   }
 
   complete(intent: RemoteUserIntent): void {

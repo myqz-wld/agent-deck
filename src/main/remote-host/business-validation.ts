@@ -1,4 +1,10 @@
-import { isJsonObject } from '@contracts/index';
+import {
+  isJsonObject,
+  MCP_DIFF_PRESENTATION_SCHEMA,
+  MCP_PLAN_PRESENTATION_SCHEMA,
+  MCP_PRESENTATION_MAX_DISPLAY_BYTES,
+  parseMcpPresentationDisplay,
+} from '@contracts/index';
 import {
   hasMalformedRemoteHostQuestionIds,
   REMOTE_HOST_MAX_PENDING_ITEMS,
@@ -21,6 +27,7 @@ import {
 
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+const MAX_PENDING_RESULT_BYTES = 3 * 1024 * 1024;
 
 function object(value: unknown, field: string): Record<string, unknown> {
   if (!isJsonObject(value)) throw new RemoteHostInputError(field, 'invalid host result');
@@ -123,7 +130,32 @@ function parsePendingRequest(value: unknown): RemoteHostPendingRequestDto {
   if (!statuses.includes(raw.status as typeof statuses[number])) {
     throw new RemoteHostInputError('pending.request.status', 'invalid host result status');
   }
-  const display = parseRemoteHostJsonObject(raw.display, 'pending.request.display');
+  const presentation = isJsonObject(raw.display) && (
+    raw.display.schema === MCP_PLAN_PRESENTATION_SCHEMA ||
+    raw.display.schema === MCP_DIFF_PRESENTATION_SCHEMA
+  );
+  const display = parseRemoteHostJsonObject(
+    raw.display,
+    'pending.request.display',
+    presentation ? MCP_PRESENTATION_MAX_DISPLAY_BYTES : undefined,
+  );
+  if (presentation) {
+    try {
+      const parsed = parseMcpPresentationDisplay(display);
+      if (
+        !parsed ||
+        (parsed.schema === MCP_PLAN_PRESENTATION_SCHEMA && raw.kind !== 'exit-plan') ||
+        (parsed.schema === MCP_DIFF_PRESENTATION_SCHEMA && raw.kind !== 'diff-review')
+      ) {
+        throw new Error('presentation kind mismatch');
+      }
+    } catch {
+      throw new RemoteHostInputError(
+        'pending.request.display',
+        'host returned an invalid MCP presentation',
+      );
+    }
+  }
   if (raw.kind === 'ask-user-question' && hasMalformedRemoteHostQuestionIds(display)) {
     throw new RemoteHostInputError(
       'pending.request.display.questionIds',
@@ -151,6 +183,9 @@ export function parseRemoteHostPendingListResult(
     throw new RemoteHostInputError('pending.requests', 'host exceeded pending bound');
   }
   const requests = raw.requests.map(parsePendingRequest);
+  if (Buffer.byteLength(JSON.stringify(requests)) > MAX_PENDING_RESULT_BYTES) {
+    throw new RemoteHostInputError('pending.requests', 'host exceeded pending byte bound');
+  }
   if (
     new Set(requests.map((request) => request.id)).size !== requests.length ||
     requests.some((request) => request.sessionId !== sessionId)

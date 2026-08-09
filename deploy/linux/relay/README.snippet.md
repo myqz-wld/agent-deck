@@ -72,6 +72,20 @@ agent-deck-worker start
 agent-deck-worker remove
 ```
 
+Worker configuration also opts Core into the versioned Provider-container readiness gate. To make
+Remote Grok available, provision the independently managed host supervisor described in
+`deploy/linux/provider-session/README.md`: use
+`rootless-podman.config.example.json` on Linux or `colima.config.example.json` on macOS, derive the
+exact short namespace with `agent-deck-provider-supervisor runtime-paths`, install the shipped
+systemd-user unit or LaunchAgent template, and verify it with
+`agent-deck-provider-supervisor prepare-runtime` and
+`agent-deck-provider-supervisor health-config`. Startup idempotently recreates the exact mode-0700
+runtime hierarchy after Linux login/reboot or macOS temporary-directory cleanup. For Colima, render
+the canonical non-symlink result of `realpath "$(command -v docker)"`; Homebrew's bin symlink is
+rejected. The supervisor and Worker share only that private
+runtime root and the selected Workspace. Worker/Core receives no OCI engine socket, while the
+container receives no Worker private root, SSH identity, or reusable provider credential.
+
 Removing the local configuration does not revoke the Relay-side credential. Revoke or rotate that
 credential separately on the Relay host before transferring a replacement Worker credential.
 

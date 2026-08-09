@@ -45,6 +45,7 @@ export function createClaudeCodeAdapterHost(
         context.hookServer.bearerToken,
         join(context.paths.appUserData, 'hook-relay'),
         options.hookInstallerObserver,
+        context.paths.userHome,
       ),
     registerHookRoutes: (context, adapterId) => {
       for (const route of buildHookRoutes(

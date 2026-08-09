@@ -1,7 +1,6 @@
-import log from '@main/utils/logger';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
+import { reportHandOffWarning } from './diagnostics-core';
 
-const logger = log.scope('handoff-cutover');
 const HANDOFF_INGRESS_REDIRECT_TTL_MS = 5 * 60 * 1_000;
 const ROLLBACK_REPLAY_MAX_DELAY_MS = 5_000;
 const ROLLBACK_REPLAY_MAX_ATTEMPTS = 6;
@@ -151,7 +150,7 @@ export class HandOffCutoverCoordinator {
     try {
       input.onReplayFailed?.(sourceSessionId, error);
     } catch (reportError) {
-      logger.warn(
+      reportHandOffWarning(
         `[handoff cutover] failed to report abandoned replay for ${sourceSessionId}`,
         reportError,
       );
@@ -240,7 +239,7 @@ export class HandOffCutoverCoordinator {
                 }
                 failedAttempts += 1;
                 const settlementTimedOut = error instanceof RollbackReplaySettlementTimeoutError;
-                logger.warn(
+                reportHandOffWarning(
                   `[handoff cutover] buffered input replay failure ${failedAttempts} for ${current.sourceId.value}`,
                   error,
                 );

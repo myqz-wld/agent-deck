@@ -300,7 +300,11 @@ function RemoteHistoryPanel({
         </p>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
-        {source.loading && source.historySessions.length === 0 ? (
+        {source.historyLoadError && source.historySessions.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-[11px] text-status-waiting/90">
+            {source.historyLoadError}
+          </div>
+        ) : source.historyLoading && source.historySessions.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
         ) : source.historySessions.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">没有远程会话</div>
@@ -337,6 +341,9 @@ function RemoteHistoryPanel({
                   加载更多远程会话摘要
                 </button>
               </li>
+            )}
+            {source.historyLoadError && (
+              <li className="text-[10px] text-status-waiting/90">{source.historyLoadError}</li>
             )}
           </ol>
         )}

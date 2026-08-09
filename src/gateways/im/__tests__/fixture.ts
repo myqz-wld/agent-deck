@@ -15,6 +15,7 @@ import {
   type SessionListItemDto,
 } from '@contracts/index';
 import { CURRENT_PROTOCOL_VERSION } from '@protocol/version';
+import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import {
   FeishuSessionConsoleGateway,
   InMemoryFeishuGatewayStore,
@@ -168,6 +169,16 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
           ) ?? null,
           revision: this.revision,
         };
+      case 'session.console.capabilities':
+        return {
+          ...sessionConsoleCapabilitiesFixture(
+            params.adapterId as 'claude-code' | 'codex-cli' | 'grok-build',
+            params.workingDirectory as string,
+          ),
+          revision: this.revision,
+        };
+      case 'workspace.directory.list':
+        throw new Error('Workspace directory browsing is desktop-only');
       case 'session.console.create': {
         const id = `session-${this.sessions.size + 1}`;
         this.sessions.set(id, session(id, params.adapterId as string));
@@ -232,6 +243,8 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
         return { subscribed: params.subscribed, revision: ++this.revision };
       case 'system.health':
         return { ok: true, revision: this.revision };
+      default:
+        throw new Error(`Unsupported fake Core method: ${method}`);
     }
   }) as AgentDeckClient<CoreMethodMap>['request'];
 

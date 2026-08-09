@@ -4,7 +4,13 @@ import type {
   AgentEvent,
 } from '@shared/types';
 
-import { GrokAcpProcess, withTimeout } from './acp-process';
+import {
+  GrokAcpProcess,
+  withTimeout,
+  type GrokAcpClientOptions,
+  type GrokAcpSession,
+  type GrokAcpSessionFactory,
+} from './acp-process';
 import { scheduleGrokContextUsageRefresh } from './context-usage';
 import type {
   GrokExtensionNotification,
@@ -58,6 +64,8 @@ export interface GrokRuntimeStartContext {
   dispose: (runtime: GrokRuntime) => Promise<void>;
   /** Test seam; production uses the fixed bounded ACP request timeout. */
   requestTimeoutMs?: number;
+  /** Trusted host seam for a Provider-container ACP channel. Native/local paths omit it. */
+  processFactory?: GrokAcpSessionFactory;
 }
 
 export async function startGrokRuntime(
@@ -72,12 +80,7 @@ export async function startGrokRuntime(
   runtime.nativeDefaultModel = null;
   const requestedMode = runtime.sessionMode;
   let reportedMode: AdapterSessionMode | null = null;
-  const binary = await resolveGrokBinary(context.binaryPath);
-  if (!context.isCurrentRuntime(runtime) || runtime.closed) return false;
-  const process = await GrokAcpProcess.start({
-    binary,
-    cwd: runtime.cwd,
-    sandboxProfile: runtime.grokSandbox,
+  const clientOptions: GrokAcpClientOptions = {
     onSessionUpdate: (notification) => {
       if (
         context.runtimes.get(runtime.applicationSessionId) !== runtime ||
@@ -173,7 +176,32 @@ export async function startGrokRuntime(
     },
     onPermissionRequest: (request, signal) =>
       context.permissionController.handle(runtime, request, signal),
-  });
+  };
+  let sessionCwd = runtime.cwd;
+  let allowAgentDeckMcp = true;
+  let allowHostPathMetadata = true;
+  let process: GrokAcpSession;
+  if (context.processFactory) {
+    const launched = await context.processFactory({
+      ...clientOptions,
+      applicationSessionId: runtime.applicationSessionId,
+      cwd: runtime.cwd,
+      sandboxProfile: runtime.grokSandbox,
+    });
+    process = launched.process;
+    sessionCwd = launched.sessionCwd;
+    allowAgentDeckMcp = launched.allowAgentDeckMcp;
+    allowHostPathMetadata = launched.allowHostPathMetadata;
+  } else {
+    const binary = await resolveGrokBinary(context.binaryPath);
+    if (!context.isCurrentRuntime(runtime) || runtime.closed) return false;
+    process = await GrokAcpProcess.start({
+      ...clientOptions,
+      binary,
+      cwd: runtime.cwd,
+      sandboxProfile: runtime.grokSandbox,
+    });
+  }
   if (!context.isCurrentRuntime(runtime) || runtime.closed) {
     await process.stop();
     return false;
@@ -200,11 +228,13 @@ export async function startGrokRuntime(
     process.initializeResponse.agentCapabilities?.promptCapabilities?.image === true,
   );
 
-  const mcpServers = buildGrokMcpServers(
-    runtime.applicationSessionId,
-    context.sessionSetup,
-  );
-  const meta = await buildGrokSessionMeta(runtime, context.sessionSetup);
+  const mcpServers = allowAgentDeckMcp
+    ? buildGrokMcpServers(runtime.applicationSessionId, context.sessionSetup)
+    : [];
+  const builtMeta = await buildGrokSessionMeta(runtime, context.sessionSetup);
+  const meta = allowHostPathMetadata
+    ? builtMeta
+    : Object.fromEntries(Object.entries(builtMeta).filter(([key]) => key !== 'pluginDirs'));
   if (!context.isCurrentRuntime(runtime) || runtime.closed) {
     await process.stop();
     return false;
@@ -216,7 +246,7 @@ export async function startGrokRuntime(
     const response = await withTimeout(
       process.connection.agent.request(methods.agent.session.load, {
         sessionId: runtime.nativeSessionId,
-        cwd: runtime.cwd,
+        cwd: sessionCwd,
         mcpServers,
         _meta: meta,
       }),
@@ -233,7 +263,7 @@ export async function startGrokRuntime(
   } else {
     const response = await withTimeout(
       process.connection.agent.request(methods.agent.session.new, {
-        cwd: runtime.cwd,
+        cwd: sessionCwd,
         mcpServers,
         _meta: meta,
       }),

@@ -10,6 +10,26 @@ export interface ServerCoreProviderRuntimeLifecycleOptions {
     start(): void;
     close(): void;
   };
+  readonly mcpBroker: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  };
+  readonly desktopBroker: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  };
+  readonly presentations: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  };
+  readonly collaboration: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  };
+  readonly worktrees: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  };
   readonly initializeProviders: () => Promise<void>;
   readonly retireProviders: () => Promise<void>;
   readonly shutdownProviders: () => Promise<void>;
@@ -41,19 +61,49 @@ export class ServerCoreProviderRuntimeLifecycle implements ServerCoreRuntimeLife
   private async startOwned(): Promise<void> {
     let repositoryStarted = false;
     let metadataStarted = false;
+    let brokerStarted = false;
+    let desktopBrokerStarted = false;
+    let presentationsStarted = false;
+    let collaborationStarted = false;
+    let worktreesStarted = false;
     let providersOwned = false;
     try {
       await this.options.repository.start();
       repositoryStarted = true;
       this.options.metadata.start();
       metadataStarted = true;
+      await this.options.mcpBroker.start();
+      brokerStarted = true;
+      await this.options.desktopBroker.start();
+      desktopBrokerStarted = true;
+      await this.options.presentations.start();
+      presentationsStarted = true;
       providersOwned = true;
       await this.options.initializeProviders();
+      await this.options.worktrees.start();
+      worktreesStarted = true;
+      await this.options.collaboration.start();
+      collaborationStarted = true;
       this.state = 'running';
     } catch (error) {
       const rollbackFailures: unknown[] = [];
+      if (collaborationStarted) {
+        await this.capture(() => this.options.collaboration.stop(), rollbackFailures);
+      }
+      if (worktreesStarted) {
+        await this.capture(() => this.options.worktrees.stop(), rollbackFailures);
+      }
       if (providersOwned) {
         await this.capture(() => this.options.shutdownProviders(), rollbackFailures);
+      }
+      if (presentationsStarted) {
+        await this.capture(() => this.options.presentations.stop(), rollbackFailures);
+      }
+      if (desktopBrokerStarted) {
+        await this.capture(() => this.options.desktopBroker.stop(), rollbackFailures);
+      }
+      if (brokerStarted) {
+        await this.capture(() => this.options.mcpBroker.stop(), rollbackFailures);
       }
       if (metadataStarted) this.captureSync(() => this.options.metadata.close(), rollbackFailures);
       if (repositoryStarted) {
@@ -74,6 +124,11 @@ export class ServerCoreProviderRuntimeLifecycle implements ServerCoreRuntimeLife
     }
     this.state = 'closing';
     const failures: unknown[] = [];
+    await this.capture(() => this.options.mcpBroker.stop(), failures);
+    await this.capture(() => this.options.desktopBroker.stop(), failures);
+    await this.capture(() => this.options.presentations.stop(), failures);
+    await this.capture(() => this.options.collaboration.stop(), failures);
+    await this.capture(() => this.options.worktrees.stop(), failures);
     await this.capture(() => this.options.retireProviders(), failures);
     await this.capture(() => this.options.shutdownProviders(), failures);
     this.captureSync(() => this.options.metadata.close(), failures);

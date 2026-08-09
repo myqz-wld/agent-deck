@@ -32,6 +32,8 @@ export type CodexReasoningSummary = 'none' | 'auto';
  */
 export interface CodexWorkspacePermissionBoundary {
   readonly workspaceRoot: string;
+  /** Exact canonical session directory; omitted only while building process-level profiles. */
+  readonly selectedDirectory?: string;
   readonly readOnlyRoots: readonly string[];
   readonly readWriteRoots: readonly string[];
 }
@@ -99,6 +101,8 @@ export interface CodexThreadOptions {
   additionalDirectories?: string[];
   /** Headless-only hard ceiling; sandbox updates may narrow but never remove or widen it. */
   workspacePermissionBoundary?: CodexWorkspacePermissionBoundary;
+  /** Headless-only TOCTOU fence run immediately before every thread/turn request is built. */
+  assertWorkspacePermissionBoundary?: () => void;
 }
 
 export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): CodexThreadOptions {

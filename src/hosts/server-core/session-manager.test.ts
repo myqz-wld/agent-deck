@@ -97,6 +97,13 @@ function createHarness(initial: SessionRecord[] = []) {
     sessionRenamed: vi.fn(),
     warning: vi.fn(),
   };
+  const handOffLifecycle = {
+    revokeSource: vi.fn(),
+    restoreSource: vi.fn(),
+    abortSource: vi.fn(),
+    reactivateSource: vi.fn(),
+    renameSource: vi.fn(),
+  };
   const manager = new ServerCoreSessionManager({
     sessions: repository,
     events: {
@@ -107,6 +114,7 @@ function createHarness(initial: SessionRecord[] = []) {
     },
     observer,
     now: () => now,
+    handOffLifecycle,
   });
   const close = vi.fn<(agentId: string, sessionId: string) => Promise<void>>(
     () => Promise.resolve(),
@@ -116,6 +124,7 @@ function createHarness(initial: SessionRecord[] = []) {
   manager.installSessionRename(rename);
   return {
     close,
+    handOffLifecycle,
     manager,
     observer,
     persisted,
@@ -261,6 +270,30 @@ describe('ServerCoreSessionManager', () => {
     expect(harness.manager.hasSdkClaim('after')).toBe(true);
     expect(harness.rename).toHaveBeenCalledWith('claude-code', 'before', 'after');
     expect(harness.observer.sessionRenamed).toHaveBeenCalledWith('before', 'after');
+  });
+
+  it('fences handoff ownership across close, archive, rollback cleanup, and rename', async () => {
+    const harness = createHarness([
+      session('close-a'),
+      session('archive-a'),
+      session('rollback-a'),
+      session('rename-a'),
+    ]);
+
+    harness.manager.bumpCloseEpoch('close-a');
+    harness.manager.forgetCloseEpoch('close-a');
+    await harness.manager.archive('archive-a');
+    harness.manager.reactivate('archive-a');
+    harness.manager.discardAfterProviderRollback('rollback-a');
+    harness.manager.renameSdkSession('rename-a', 'rename-b');
+
+    expect(harness.handOffLifecycle.revokeSource).toHaveBeenNthCalledWith(1, 'close-a');
+    expect(harness.handOffLifecycle.restoreSource).toHaveBeenCalledWith('close-a');
+    expect(harness.handOffLifecycle.abortSource).toHaveBeenCalledWith('archive-a');
+    expect(harness.handOffLifecycle.reactivateSource).toHaveBeenCalledWith('archive-a');
+    expect(harness.handOffLifecycle.revokeSource).toHaveBeenCalledWith('rollback-a');
+    expect(harness.handOffLifecycle.restoreSource).toHaveBeenCalledWith('rollback-a');
+    expect(harness.handOffLifecycle.renameSource).toHaveBeenCalledWith('rename-a', 'rename-b');
   });
 
   it('keeps missing unarchive and closed-side-effect operations inert', async () => {

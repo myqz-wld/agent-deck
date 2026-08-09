@@ -2,7 +2,11 @@ import type { JSX } from 'react';
 import type { DiffPayload } from '@shared/types';
 import log from '@renderer/utils/logger';
 import { diffRegistry } from './registry';
-import { SessionIdProvider } from './SessionContext';
+import {
+  DiffImageBlobProvider,
+  SessionIdProvider,
+  type DiffImageBlobLoader,
+} from './SessionContext';
 import { ExpandedProvider } from './ExpandedContext';
 
 const logger = log.scope('renderer-diff-viewer');
@@ -14,11 +18,19 @@ interface Props {
    * 文本 / pdf 渲染不需要，传不传都行。
    */
   sessionId?: string;
+  imageBlobLoader?: DiffImageBlobLoader;
+  imageCacheScope?: string;
   /** 放大模式下传 true；渲染器会隐藏内部 DiffHeader 避免路径重复显示。 */
   expanded?: boolean;
 }
 
-export function DiffViewer({ payload, sessionId, expanded }: Props): JSX.Element {
+export function DiffViewer({
+  payload,
+  sessionId,
+  imageBlobLoader,
+  imageCacheScope,
+  expanded,
+}: Props): JSX.Element {
   const plugin = diffRegistry.resolve(payload);
   if (!plugin) {
     // 内部 kind 字段不暴露给用户;开发者要排查时看 console.warn
@@ -32,13 +44,23 @@ export function DiffViewer({ payload, sessionId, expanded }: Props): JSX.Element
     );
   }
   const Comp = plugin.Component;
+  const content = (
+    <ExpandedProvider value={expanded ?? false}>
+      <div className="h-full min-h-0 w-full min-w-0">
+        <Comp payload={payload} />
+      </div>
+    </ExpandedProvider>
+  );
   return (
     <SessionIdProvider value={sessionId ?? ''}>
-      <ExpandedProvider value={expanded ?? false}>
-        <div className="h-full min-h-0 w-full min-w-0">
-          <Comp payload={payload} />
-        </div>
-      </ExpandedProvider>
+      {imageBlobLoader ? (
+        <DiffImageBlobProvider value={{
+          cacheScope: imageCacheScope ?? 'custom',
+          load: imageBlobLoader,
+        }}>
+          {content}
+        </DiffImageBlobProvider>
+      ) : content}
     </SessionIdProvider>
   );
 }

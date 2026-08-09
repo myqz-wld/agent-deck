@@ -16,6 +16,16 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
 | 2026-08-08 | `CHANGELOG_436_handoff-lifecycle-context-v2.md` | Harden handoff context, ownership, and large-capture handling |
+| 2026-08-08 | `CHANGELOG_569_workspace-bounded-provider-sandboxes.md` | Compile Remote provider sandboxes under the Workspace ceiling |
+| 2026-08-07 | `CHANGELOG_577_remote-core-user-presentations.md` | Reuse Local plan and diff gates for Remote sessions |
+| 2026-08-07 | `CHANGELOG_576_remote-desktop-browser-broker.md` | Broker Remote Browser tools through the connected desktop |
+| 2026-08-07 | `CHANGELOG_575_remote-core-worktree-lifecycle.md` | Restore automatic Remote worktree cwd transitions |
+| 2026-08-07 | `CHANGELOG_574_remote-image-asset-broker.md` | Display Remote image diffs through an opaque Core asset broker |
+| 2026-08-07 | `CHANGELOG_573_remote-core-session-collaboration-mcp.md` | Add Core-owned Remote session collaboration MCP tools |
+| 2026-08-07 | `CHANGELOG_572_remote-issues-parity.md` | Reuse the shared Issues board through Remote Core |
+| 2026-08-07 | `CHANGELOG_571_remote-task-and-activity-parity.md` | Reuse shared Remote task and activity presentations |
+| 2026-08-07 | `CHANGELOG_570_remote-summary-and-text-diff-parity.md` | Add Workspace-bounded Remote summaries and text diffs |
+| 2026-08-07 | `CHANGELOG_568_remote-new-session-parity.md` | Mirror Local New Session controls through Remote Core |
 | 2026-08-06 | `CHANGELOG_565_workspace-bounded-relay-worker.md` | Bound Relay Worker clients to one Workspace |
 | 2026-08-05 | `CHANGELOG_567_single-reviewer-finding-verification.md` | Verify un-rebutted single-worker findings before use |
 | 2026-08-05 | `CHANGELOG_566_adapter-runtime-event-fidelity.md` | Refresh runtimes and restore native-agent/tool visibility |
@@ -147,6 +157,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-08-05 | `CHANGELOG_439_grok-binary-cache-host-boundary.md` | Host the Grok executable cache outside Electron |
 | 2026-08-05 | `CHANGELOG_438_application-path-host-boundary.md` | Install one immutable application host path identity |
 | 2026-08-05 | `CHANGELOG_437_authoritative-database-host-boundary.md` | Inject the Core database host and prove its Node boundary |
-| 2026-08-04 | `CHANGELOG_436_remote-core-cwd-free-console.md` | Add cwd-free session and opaque project contracts |
-| 2026-08-04 | `CHANGELOG_435_remote-core-p2-host-controls.md` | Add bounded Feishu controls and exact Linux instance lifecycle |
-| 2026-08-04 | `CHANGELOG_434_remote-core-p1-foundations.md` | Establish the three-topology remote Core P1 foundations |
