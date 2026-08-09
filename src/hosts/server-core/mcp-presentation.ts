@@ -21,7 +21,10 @@ import type {
 } from '@shared/types';
 
 import type { ServerCorePlanReview } from './mcp-plan-review';
-import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
+import type {
+  ServerCoreMcpPresentationPort,
+  ServerCoreMcpPresentationTransferLease,
+} from './mcp-presentation-port';
 
 const DEFAULT_MAX_PENDING = 64;
 const DEFAULT_MAX_PENDING_PER_SESSION = 4;
@@ -207,13 +210,45 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
     this.options.reviewer?.renameSession(fromSessionId, toSessionId);
   }
 
-  transferSession(fromSessionId: string, toSessionId: string): void {
-    if (fromSessionId === toSessionId) return;
-    if (!safeSessionId(toSessionId)) throw new Error('MCP presentation target session is invalid');
-    for (const entry of this.pending.values()) {
-      if (entry.request.sessionId === fromSessionId) this.releaseReview(entry.request.id);
+  prepareSessionTransfer(
+    fromSessionId: string,
+    toSessionId: string,
+  ): ServerCoreMcpPresentationTransferLease {
+    if (fromSessionId === toSessionId) {
+      return Object.freeze({ commit: () => undefined, rollback: () => undefined });
     }
-    this.moveSession(fromSessionId, toSessionId);
+    if (!safeSessionId(toSessionId)) throw new Error('MCP presentation target session is invalid');
+    const moved = [...this.pending.values()].filter(
+      (entry) => entry.request.sessionId === fromSessionId,
+    );
+    for (const entry of moved) {
+      entry.request = { ...entry.request, sessionId: toSessionId };
+    }
+    let active = true;
+    return Object.freeze({
+      commit: () => {
+        if (!active) return;
+        active = false;
+        for (const entry of moved) {
+          if (this.pending.get(entry.request.id) !== entry) continue;
+          try {
+            this.releaseReview(entry.request.id);
+          } catch {
+            try { this.options.warn?.('MCP plan review cleanup failed'); } catch {}
+          }
+        }
+      },
+      rollback: () => {
+        if (!active) return;
+        active = false;
+        for (const entry of moved) {
+          if (
+            this.pending.get(entry.request.id) === entry &&
+            entry.request.sessionId === toSessionId
+          ) entry.request = { ...entry.request, sessionId: fromSessionId };
+        }
+      },
+    });
   }
 
   private moveSession(fromSessionId: string, toSessionId: string): void {

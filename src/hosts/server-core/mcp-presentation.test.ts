@@ -87,6 +87,29 @@ describe('ServerCoreMcpPresentation', () => {
     await expect(second).resolves.toEqual({ decision: 'timeout' });
   });
 
+  it('stages handoff ownership before commit and restores only staged entries on rollback', async () => {
+    const { service } = harness();
+    await service.start();
+    const source = service.requestPlan('session-a', { plan: 'source' });
+    const successor = service.requestPlan('session-b', { plan: 'successor' });
+
+    const rollback = service.prepareSessionTransfer('session-a', 'session-b');
+    expect(service.list('session-a')).toEqual([]);
+    expect(service.list('session-b')).toHaveLength(2);
+    rollback.rollback();
+    expect(service.list('session-a')).toHaveLength(1);
+    expect(service.list('session-b')).toHaveLength(1);
+
+    const commit = service.prepareSessionTransfer('session-a', 'session-b');
+    commit.commit();
+    expect(service.list('session-a')).toEqual([]);
+    expect(service.list('session-b')).toHaveLength(2);
+    service.releaseSession('session-b');
+    await expect(source).resolves.toEqual({ decision: 'timeout' });
+    await expect(successor).resolves.toEqual({ decision: 'timeout' });
+    await service.stop();
+  });
+
   it('rejects invalid payload combinations before publishing a gate', async () => {
     const { changes, service } = harness();
     await service.start();
@@ -97,7 +120,8 @@ describe('ServerCoreMcpPresentation', () => {
       pr: { before: '', after: '' },
     })).toThrow(/filePath/);
     expect(changes).toEqual([]);
-    expect(() => service.transferSession('session-a', '../invalid')).toThrow('target session');
+    expect(() => service.prepareSessionTransfer('session-a', '../invalid'))
+      .toThrow('target session');
     await service.stop();
   });
 });

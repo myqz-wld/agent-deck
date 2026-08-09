@@ -7,6 +7,11 @@ import type {
 } from '@main/agent-deck-mcp/tools/schemas';
 import type { PlanDeepReviewSession } from '@shared/types';
 
+export interface ServerCoreMcpPresentationTransferLease {
+  commit(): void;
+  rollback(): void;
+}
+
 export interface ServerCoreMcpPresentationPort {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -37,5 +42,8 @@ export interface ServerCoreMcpPresentationPort {
   ): 'denied' | 'resolved' | null;
   releaseSession(sessionId: string, reason?: string): void;
   renameSession(fromSessionId: string, toSessionId: string): void;
-  transferSession(fromSessionId: string, toSessionId: string): void;
+  prepareSessionTransfer(
+    fromSessionId: string,
+    toSessionId: string,
+  ): ServerCoreMcpPresentationTransferLease;
 }

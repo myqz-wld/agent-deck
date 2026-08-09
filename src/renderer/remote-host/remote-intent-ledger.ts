@@ -1,3 +1,5 @@
+import { isDefinitiveRemoteHostRejection } from '@shared/remote-host';
+
 import type { RemoteSessionCreateInput } from './source-types';
 
 const MAX_PENDING_INTENTS_PER_SOURCE = 64;
@@ -94,8 +96,13 @@ export class RemoteUserIntentLedger {
     request: (intentId: string) => Promise<T>,
   ): Promise<T> {
     const intent = this.acquire(sourceIdentity, operation, payload);
-    const result = await request(intent.id);
-    this.complete(intent);
-    return result;
+    try {
+      const result = await request(intent.id);
+      this.complete(intent);
+      return result;
+    } catch (error) {
+      if (isDefinitiveRemoteHostRejection(error)) this.complete(intent);
+      throw error;
+    }
   }
 }

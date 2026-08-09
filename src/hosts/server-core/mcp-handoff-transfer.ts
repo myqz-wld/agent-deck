@@ -57,7 +57,13 @@ export function transferServerCoreHandOffResources(
   const db = options.database ?? getDb();
   const teams = createAgentDeckTeamRepo(db);
   const now = options.now ?? Date.now;
-  const transaction = db.transaction((): TransferResult => {
+  const presentationTransfer = options.presentations.prepareSessionTransfer(
+    sourceSessionId,
+    successorSessionId,
+  );
+  let result: TransferResult;
+  try {
+    const transaction = db.transaction((): TransferResult => {
     if (countDeliveringMessagesForSessionWithDb(db, sourceSessionId) !== 0) {
       throw new Error('Cross-session delivery crossed the handoff transaction boundary');
     }
@@ -135,11 +141,15 @@ export function transferServerCoreHandOffResources(
       teams: { status: 'ok', transferred, skipped, failed: [] },
       worktreeLease,
     };
-  });
-  const result = transaction.immediate();
+    });
+    result = transaction.immediate();
+  } catch (error) {
+    presentationTransfer.rollback();
+    throw error;
+  }
 
   safeAfterCommit(
-    () => options.presentations.transferSession(sourceSessionId, successorSessionId),
+    () => presentationTransfer.commit(),
     options.warn ? () => options.warn!('Core presentation transfer failed after durable handoff') : undefined,
   );
   safeAfterCommit(

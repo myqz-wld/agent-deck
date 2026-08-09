@@ -85,7 +85,12 @@ function harness(input: { activeWorktree?: boolean; successorCwd?: string } = {}
   });
   if (input.activeWorktree) activateWorktree(database, 'source');
   const renameSession = vi.fn();
-  const transferSession = vi.fn();
+  const commitPresentationTransfer = vi.fn();
+  const rollbackPresentationTransfer = vi.fn();
+  const prepareSessionTransfer = vi.fn(() => ({
+    commit: commitPresentationTransfer,
+    rollback: rollbackPresentationTransfer,
+  }));
   const notifyMembershipChanged = vi.fn();
   const appendChange = vi.fn();
   const warn = vi.fn();
@@ -95,7 +100,7 @@ function harness(input: { activeWorktree?: boolean; successorCwd?: string } = {}
       ? '/Workspace/.agent-deck/worktrees/task-a'
       : '/Workspace/project-a'),
     worktrees: { renameSession } as unknown as ServerCoreWorktreeRuntimePort,
-    presentations: { transferSession } as unknown as ServerCoreMcpPresentationPort,
+    presentations: { prepareSessionTransfer } as unknown as ServerCoreMcpPresentationPort,
     notifyMembershipChanged,
     appendChange,
     warn,
@@ -111,7 +116,9 @@ function harness(input: { activeWorktree?: boolean; successorCwd?: string } = {}
     result,
     team,
     teams,
-    transferSession,
+    commitPresentationTransfer,
+    prepareSessionTransfer,
+    rollbackPresentationTransfer,
     warn,
   };
 }
@@ -151,7 +158,9 @@ describe.skipIf(!bindingAvailable)('transferServerCoreHandOffResources', () => {
     ).pluck().get()).toBe('successor');
     expect(getWorktreeTransitionWithDb(state.database, 'source')).toBeNull();
     expect(getWorktreeTransitionWithDb(state.database, 'successor')?.phase).toBe('active');
-    expect(state.transferSession).toHaveBeenCalledWith('source', 'successor');
+    expect(state.prepareSessionTransfer).toHaveBeenCalledWith('source', 'successor');
+    expect(state.commitPresentationTransfer).toHaveBeenCalledOnce();
+    expect(state.rollbackPresentationTransfer).not.toHaveBeenCalled();
     expect(state.renameSession).toHaveBeenCalledWith('source', 'successor');
     expect(state.notifyMembershipChanged).toHaveBeenCalledTimes(2);
     expect(state.appendChange).toHaveBeenCalledWith(
@@ -185,7 +194,8 @@ describe.skipIf(!bindingAvailable)('transferServerCoreHandOffResources', () => {
     expect(state.database.prepare(
       `SELECT count(*) FROM session_handoff_aliases`,
     ).pluck().get()).toBe(0);
-    expect(state.transferSession).not.toHaveBeenCalled();
+    expect(state.commitPresentationTransfer).not.toHaveBeenCalled();
+    expect(state.rollbackPresentationTransfer).toHaveBeenCalledOnce();
     expect(state.renameSession).not.toHaveBeenCalled();
   });
 
@@ -203,7 +213,8 @@ describe.skipIf(!bindingAvailable)('transferServerCoreHandOffResources', () => {
     expect(state.teams.findActiveMembershipIn(state.team.id, 'successor')).toBeNull();
     expect(getWorktreeTransitionWithDb(state.database, 'source')?.phase).toBe('active');
     expect(getWorktreeTransitionWithDb(state.database, 'successor')).toBeNull();
-    expect(state.transferSession).not.toHaveBeenCalled();
+    expect(state.commitPresentationTransfer).not.toHaveBeenCalled();
+    expect(state.rollbackPresentationTransfer).toHaveBeenCalledOnce();
     expect(state.renameSession).not.toHaveBeenCalled();
   });
 });

@@ -146,7 +146,12 @@ function harness(input: HarnessOptions = {}) {
   });
   const discardAfterProviderRollback = vi.fn((id: string) => sessionRepo.delete(id));
   const notifyTeamMembershipChanged = vi.fn();
-  const transferSession = vi.fn();
+  const commitPresentationTransfer = vi.fn();
+  const rollbackPresentationTransfer = vi.fn();
+  const prepareSessionTransfer = vi.fn(() => ({
+    commit: commitPresentationTransfer,
+    rollback: rollbackPresentationTransfer,
+  }));
   const releasePresentation = vi.fn();
   const releaseBrowser = vi.fn();
   const renameSession = vi.fn();
@@ -168,7 +173,7 @@ function harness(input: HarnessOptions = {}) {
     worktrees: { renameSession } as unknown as ServerCoreWorktreeRuntimePort,
     desktopBroker: { releaseSession: releaseBrowser } as unknown as ServerCoreDesktopBrokerPort,
     presentations: {
-      transferSession,
+      prepareSessionTransfer,
       releaseSession: releasePresentation,
     } as unknown as ServerCoreMcpPresentationPort,
     metadata: { appendChange } as unknown as ServerCoreRuntimeMetadataStore,
@@ -184,13 +189,15 @@ function harness(input: HarnessOptions = {}) {
     handoff,
     markClosed,
     privateAttachmentPath,
+    prepareSessionTransfer,
+    commitPresentationTransfer,
     releaseBrowser,
     releasePresentation,
     renameSession,
     retireSessionAfterCurrentTurn,
     root,
     sourceId,
-    transferSession,
+    rollbackPresentationTransfer,
     turns,
   };
 }
@@ -269,7 +276,8 @@ describe.skipIf(!bindingAvailable)('ServerCoreMcpHandOff', () => {
       undefined,
       { bypassQueueLimit: true },
     );
-    expect(state.transferSession).toHaveBeenCalledWith(state.sourceId, result.sessionId);
+    expect(state.prepareSessionTransfer).toHaveBeenCalledWith(state.sourceId, result.sessionId);
+    expect(state.commitPresentationTransfer).toHaveBeenCalledOnce();
     expect(state.renameSession).toHaveBeenCalledWith(state.sourceId, result.sessionId);
     expect(state.releaseBrowser).toHaveBeenCalledWith(state.sourceId);
     expect(state.releasePresentation).toHaveBeenCalledWith(state.sourceId, 'Session handed off');
@@ -291,7 +299,7 @@ describe.skipIf(!bindingAvailable)('ServerCoreMcpHandOff', () => {
     expect(sessionRepo.get(`${state.sourceId}-successor-1`)).toBeNull();
     expect(sessionRepo.get(state.sourceId)?.lifecycle).toBe('active');
     expect(findSessionHandOffSuccessor(state.sourceId)).toBeNull();
-    expect(state.transferSession).not.toHaveBeenCalled();
+    expect(state.prepareSessionTransfer).not.toHaveBeenCalled();
     expect(state.retireSessionAfterCurrentTurn).not.toHaveBeenCalled();
   });
 

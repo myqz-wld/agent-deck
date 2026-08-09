@@ -1,152 +1,18 @@
-import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
-import type { AgentAdapter } from '@main/adapters/types';
-import {
-  createAgentDeckMessageRepo,
-  type AgentDeckMessageRepo,
-} from '@main/store/agent-deck-message-repo';
-import { createAgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
-import {
-  insertSession,
-  makeMemoryDb,
-} from '@main/store/__tests__/agent-deck-repos/_setup';
-import type { SessionRecord } from '@shared/types';
-
-import { ServerCoreMcpSessionSpawner } from './mcp-session-spawn';
-import { ServerCoreSpawnCollaboration } from './mcp-spawn-collaboration';
-import type { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import type {
-  ServerCoreSessionConsoleAuthority,
-  ServerCoreSessionSpawnCreateInput,
-} from './session-console-authority';
-import type { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+  CreateSessionOptions,
+  ForkSessionSource,
+} from '@main/adapters/types';
 
-const databases: Database.Database[] = [];
+import {
+  closeSpawnHarnessDatabases,
+  harness,
+  session,
+} from './mcp-session-spawn.test-fixtures';
 
-function session(
-  id: string,
-  overrides: Partial<SessionRecord> = {},
-): SessionRecord {
-  return {
-    id,
-    agentId: 'codex-cli',
-    cwd: '/workspace',
-    title: `title-${id}`,
-    source: 'sdk',
-    lifecycle: 'active',
-    activity: 'working',
-    startedAt: 1,
-    lastEventAt: 1,
-    endedAt: null,
-    archivedAt: null,
-    ...overrides,
-  };
-}
-
-function harness(input: { failAnchor?: boolean; callerDepth?: number } = {}) {
-  const database = makeMemoryDb();
-  databases.push(database);
-  insertSession(database, 'caller', 'codex-cli');
-  const records = new Map<string, SessionRecord>([
-    ['caller', session('caller', { spawnDepth: input.callerDepth ?? 0 })],
-  ]);
-  const sessions = {
-    get: (id: string) => records.get(id) ?? null,
-    listChildren: (parentId: string, lifecycle: 'active') => [...records.values()].filter(
-      (row) => row.spawnedBy === parentId && row.lifecycle === lifecycle,
-    ),
-    setSpawnLink: (id: string, parentSessionId: string, depth: number) => {
-      const row = records.get(id);
-      if (row) records.set(id, { ...row, spawnedBy: parentSessionId, spawnDepth: depth });
-    },
-    setTitle: (id: string, title: string) => {
-      const row = records.get(id);
-      if (row) records.set(id, { ...row, title });
-    },
-  };
-  const teams = createAgentDeckTeamRepo(database);
-  const messages = createAgentDeckMessageRepo(database);
-  const effectiveMessages = input.failAnchor
-    ? new Proxy(messages, {
-        get(target, key, receiver) {
-          if (key === 'markDelivered') return () => null;
-          return Reflect.get(target, key, receiver) as unknown;
-        },
-      }) as AgentDeckMessageRepo
-    : messages;
-  const notifyMembershipChanged = vi.fn();
-  const collaboration = new ServerCoreSpawnCollaboration({
-    teams,
-    messages: effectiveMessages,
-    sessions,
-    transaction: <T>(operation: () => T) => database.transaction(operation)(),
-    notifyMembershipChanged,
-    now: () => 5_000,
-  });
-  let registeredBeforeResolve = false;
-  const createSpawnSession = vi.fn(async (create: ServerCoreSessionSpawnCreateInput) => {
-    const id = 'child';
-    insertSession(database, id, create.params.adapterId);
-    records.set(id, session(id, {
-      agentId: create.params.adapterId,
-      cwd: `/workspace/${create.params.workingDirectory}`,
-      spawnedBy: create.initialSessionRegistration.spawnLink.parentSessionId,
-      spawnDepth: create.initialSessionRegistration.spawnLink.depth,
-    }));
-    create.initialSessionRegistration.onRegistered(id);
-    registeredBeforeResolve = true;
-    return { sessionId: id, revision: 2 };
-  });
-  const describe = vi.fn(async (params: { adapterId: 'claude-code' | 'codex-cli' | 'grok-build'; workingDirectory: string }) =>
-    sessionConsoleCapabilitiesFixture(params.adapterId, params.workingDirectory));
-  const validateCreate = vi.fn(async (
-    adapterId: 'claude-code' | 'codex-cli' | 'grok-build',
-    _revision: string,
-    cwd: string,
-  ) => sessionConsoleCapabilitiesFixture(adapterId, cwd));
-  const closeSessionForRollback = vi.fn(async () => undefined);
-  const adapter = { closeSessionForRollback } as unknown as AgentAdapter;
-  const discardAfterProviderRollback = vi.fn((id: string) => {
-    records.delete(id);
-    database.prepare('DELETE FROM sessions WHERE id = ?').run(id);
-  });
-  const appendChange = vi.fn(() => 3);
-  const spawner = new ServerCoreMcpSessionSpawner({
-    sessions,
-    sessionManager: {
-      recordCreatedPermissionMode: vi.fn(),
-      discardAfterProviderRollback,
-    },
-    registry: { get: () => adapter },
-    capabilities: { describe, validateCreate } as unknown as ServerCoreSessionCreateCapabilities,
-    authority: { createSpawnSession } as unknown as ServerCoreSessionConsoleAuthority,
-    collaboration,
-    metadata: { appendChange } as unknown as ServerCoreRuntimeMetadataStore,
-    now: () => 5_000,
-  });
-  return {
-    appendChange,
-    closeSessionForRollback,
-    collaboration,
-    createSpawnSession,
-    database,
-    describe,
-    discardAfterProviderRollback,
-    messages,
-    notifyMembershipChanged,
-    records,
-    registeredBeforeResolve: () => registeredBeforeResolve,
-    spawner,
-    teams,
-    validateCreate,
-  };
-}
-
-afterEach(() => {
-  for (const database of databases.splice(0)) database.close();
-});
+afterEach(closeSpawnHarnessDatabases);
 
 describe('ServerCoreMcpSessionSpawner', () => {
   it('creates a linked provider child with Core defaults, team membership, and reply anchor', async () => {
@@ -223,6 +89,225 @@ describe('ServerCoreMcpSessionSpawner', () => {
     expect(state.discardAfterProviderRollback).toHaveBeenCalledWith('child');
     expect(state.records.has('child')).toBe(false);
     expect(state.messages.listBySession('caller')).toEqual([]);
+  });
+
+  it('creates a native same-runtime fork without routing through fresh creation', async () => {
+    const state = harness();
+    const result = await state.spawner.spawn('caller', {
+      adapter: 'codex-cli',
+      contextMode: 'fork',
+      cwd: '.',
+      prompt: 'Continue from the active provider history',
+    });
+
+    expect(result).toMatchObject({
+      contextMode: 'fork',
+      forkedFromSessionId: 'caller',
+      sessionId: 'child',
+    });
+    expect(state.createSpawnSession).not.toHaveBeenCalled();
+    expect(state.validateForkSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        applicationSessionId: 'caller',
+        nativeSessionId: expect.any(String),
+      }),
+      expect.objectContaining({ agentId: 'codex-cli', cwd: process.cwd() }),
+    );
+    const target = state.createForkedSession.mock.calls[0]![1];
+    expect(target.prompt).toContain('Continue from the active provider history');
+    expect(state.records.get('child')).toMatchObject({ spawnedBy: 'caller', spawnDepth: 1 });
+  });
+
+  it('accepts a consumed temporary registration when Codex returns its canonical fork id', async () => {
+    const state = harness();
+    state.createForkedSession.mockImplementationOnce(async (
+      _source: ForkSessionSource,
+      target: CreateSessionOptions,
+    ) => {
+      const tempId = 'child-temp';
+      state.records.set(tempId, session(tempId, {
+        agentId: target.agentId,
+        cwd: target.cwd,
+        spawnedBy: target.initialSessionRegistration?.spawnLink.parentSessionId,
+        spawnDepth: target.initialSessionRegistration?.spawnLink.depth,
+      }));
+      target.initialSessionRegistration?.onRegistered(tempId);
+      state.records.delete(tempId);
+      state.insertSession('child', target.agentId);
+      state.records.set('child', session('child', {
+        agentId: target.agentId,
+        cwd: target.cwd,
+        spawnedBy: target.initialSessionRegistration?.spawnLink.parentSessionId,
+        spawnDepth: target.initialSessionRegistration?.spawnLink.depth,
+      }));
+      return { sessionId: 'child', discard: state.forkDiscard };
+    });
+
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Fork canonically',
+    })).resolves.toMatchObject({ sessionId: 'child', contextMode: 'fork' });
+    expect(state.records.has('child-temp')).toBe(false);
+    expect(state.records.get('child')).toMatchObject({ spawnedBy: 'caller', spawnDepth: 1 });
+  });
+
+  it('rejects a canonical fork while its temporary registration remains live', async () => {
+    const state = harness();
+    const discard = vi.fn(async () => { state.records.delete('child-temp'); });
+    state.createForkedSession.mockImplementationOnce(async (_source, target) => {
+      const link = target.initialSessionRegistration!.spawnLink;
+      state.records.set('child-temp', session('child-temp', {
+        cwd: target.cwd, spawnedBy: link.parentSessionId, spawnDepth: link.depth,
+      }));
+      target.initialSessionRegistration!.onRegistered('child-temp');
+      state.insertSession('child', target.agentId);
+      state.records.set('child', session('child', {
+        cwd: target.cwd, spawnedBy: link.parentSessionId, spawnDepth: link.depth,
+      }));
+      return { sessionId: 'child', discard };
+    });
+
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Reject two targets',
+    })).rejects.toThrow('different canonical spawn target');
+    expect(discard).toHaveBeenCalledOnce();
+    expect(state.records.has('child-temp')).toBe(false);
+    expect(state.records.has('child')).toBe(false);
+  });
+
+  it('rejects a fork whose provider never reports durable registration', async () => {
+    const state = harness();
+    state.createForkedSession.mockImplementationOnce(async (_source, target) => {
+      state.insertSession('child', target.agentId);
+      state.records.set('child', session('child', {
+        cwd: target.cwd, spawnedBy: 'caller', spawnDepth: 1,
+      }));
+      return { sessionId: 'child', discard: state.forkDiscard };
+    });
+
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Require registration',
+    })).rejects.toThrow('not durably registered');
+    expect(state.closeSessionForRollback).toHaveBeenCalledWith('child');
+    expect(state.records.has('child')).toBe(false);
+  });
+
+  it('discards native fork artifacts when the collaboration commit fails', async () => {
+    const state = harness({ failAnchor: true });
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Fork safely',
+    })).rejects.toThrow('reply anchor');
+    expect(state.closeSessionForRollback).toHaveBeenCalledWith('child');
+    expect(state.forkDiscard).toHaveBeenCalledOnce();
+    expect(state.records.has('child')).toBe(false);
+  });
+
+  it('still discards a native fork and durable row when strict close fails', async () => {
+    const state = harness({ failAnchor: true });
+    state.closeSessionForRollback.mockRejectedValueOnce(new Error('strict close failed'));
+
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Fork safely',
+    })).rejects.toThrow('reply anchor');
+    expect(state.forkDiscard).toHaveBeenCalledOnce();
+    expect(state.discardAfterProviderRollback).toHaveBeenCalledWith('child');
+    expect(state.records.has('child')).toBe(false);
+  });
+
+  it('retains the durable child when close and fork discard both fail', async () => {
+    const state = harness({ failAnchor: true });
+    state.closeSessionForRollback.mockRejectedValueOnce(new Error('strict close failed'));
+    state.forkDiscard.mockRejectedValueOnce(new Error('fork discard failed'));
+
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Fork safely',
+    })).rejects.toThrow('could not prove cleanup');
+    expect(state.forkDiscard).toHaveBeenCalledOnce();
+    expect(state.discardAfterProviderRollback).not.toHaveBeenCalled();
+    expect(state.records.has('child')).toBe(true);
+  });
+
+  it('rejects a fork runtime mismatch without silently creating a fresh child or team', async () => {
+    const state = harness();
+    await expect(state.spawner.spawn('caller', {
+      adapter: 'codex-cli',
+      contextMode: 'fork',
+      cwd: '.',
+      prompt: 'Do not downgrade',
+      provider: 'different-provider',
+      teamName: 'must-not-exist',
+    })).rejects.toThrow('runtime selector');
+    expect(state.createForkedSession).not.toHaveBeenCalled();
+    expect(state.createSpawnSession).not.toHaveBeenCalled();
+    expect(state.teams.getByActiveName('must-not-exist')).toBeNull();
+  });
+
+  it('revalidates caller liveness after asynchronous native-fork validation', async () => {
+    const state = harness();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    state.validateForkSession.mockImplementationOnce(async () => {
+      await gate;
+      return undefined;
+    });
+    const spawning = state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Remain caller-bound',
+    });
+    await vi.waitFor(() => expect(state.validateForkSession).toHaveBeenCalledOnce());
+    state.records.set('caller', session('caller', { lifecycle: 'closed' }));
+    release();
+
+    await expect(spawning).rejects.toThrow('no longer live');
+    expect(state.createForkedSession).not.toHaveBeenCalled();
+    expect(state.createSpawnSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects caller identity drift after asynchronous native-fork validation', async () => {
+    const state = harness();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    state.validateForkSession.mockImplementationOnce(async () => {
+      await gate;
+      return undefined;
+    });
+    const spawning = state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Remain source-bound',
+    });
+    await vi.waitFor(() => expect(state.validateForkSession).toHaveBeenCalledOnce());
+    state.records.set('caller', session('caller', { cliSessionId: 'native-replacement' }));
+    release();
+
+    await expect(spawning).rejects.toThrow('identity changed');
+    expect(state.createForkedSession).not.toHaveBeenCalled();
+    expect(state.createSpawnSession).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a fork when caller identity drifts during provider creation', async () => {
+    const state = harness();
+    let release!: () => void;
+    let registered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const childRegistered = new Promise<void>((resolve) => { registered = resolve; });
+    state.createForkedSession.mockImplementationOnce(async (_source, target) => {
+      state.insertSession('child', target.agentId);
+      state.records.set('child', session('child', {
+        cwd: target.cwd, spawnedBy: 'caller', spawnDepth: 1,
+      }));
+      target.initialSessionRegistration!.onRegistered('child');
+      registered();
+      await gate;
+      return { sessionId: 'child', discard: state.forkDiscard };
+    });
+    const spawning = state.spawner.spawn('caller', {
+      adapter: 'codex-cli', contextMode: 'fork', cwd: '.', prompt: 'Remain source-bound',
+    });
+    await childRegistered;
+    state.records.set('caller', session('caller', { cliSessionId: 'native-replacement' }));
+    release();
+
+    await expect(spawning).rejects.toThrow('identity changed');
+    expect(state.closeSessionForRollback).toHaveBeenCalledWith('child');
+    expect(state.forkDiscard).toHaveBeenCalledOnce();
+    expect(state.records.has('child')).toBe(false);
   });
 
   it('enforces the Core recursion guard without invoking a provider', async () => {

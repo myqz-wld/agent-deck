@@ -272,6 +272,10 @@ function assertOptionValue(
 export class ServerCoreSessionCreateCapabilities {
   constructor(private readonly options: ServerCoreSessionCreateCapabilityOptions) {}
 
+  resolveWorkingDirectory(reference: string): string {
+    return this.resolveWorkspace(reference);
+  }
+
   async describe(params: SessionConsoleCapabilitiesParams): Promise<SessionConsoleCapabilitiesResult> {
     const grokAvailable = await this.grokAvailable();
     const summaries = ADAPTER_IDS.map((adapterId) =>
