@@ -14,12 +14,14 @@ export function makeClaudeUserMessage(
   sessionId: string,
   text: string,
   attachments?: UploadedAttachmentRef[],
+  handOffText = text,
 ): PendingUserMessage {
   return makeClaudeUserMessageCore(
     sessionId,
     text,
     attachments,
     desktopClaudeUserMessageStreamHost,
+    handOffText,
   );
 }
 

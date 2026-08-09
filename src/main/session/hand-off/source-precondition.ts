@@ -1,4 +1,5 @@
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import type { SessionHandOffSourceCutoverReason } from '@shared/session-hand-off-execution';
 import { classifyContinuationMessage } from '../continuation-context/message-classifier';
 import {
   eventRevisionRepo,
@@ -31,19 +32,7 @@ export interface HandOffLateMessage {
   origin: 'user' | 'cross-session';
 }
 
-export type HandOffSourceCutoverRejectionReason =
-  | 'source-not-open'
-  | 'runtime-changed'
-  | 'revision-state-missing'
-  | 'revision-regressed'
-  | 'rebuild-epoch-changed'
-  | 'captured-event-mutated'
-  | 'late-attachment-invalid'
-  | 'revision-gap'
-  | 'source-kept-changing'
-  | 'late-message-delivery-failed'
-  | 'message-delivery-drain-timeout'
-  | 'check-failed';
+export type HandOffSourceCutoverRejectionReason = SessionHandOffSourceCutoverReason;
 
 export type HandOffSourceCutoverResult =
   | {

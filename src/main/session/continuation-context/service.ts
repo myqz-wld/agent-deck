@@ -5,8 +5,10 @@ import {
 } from '@main/session/context-window/service';
 import { getDb } from '@main/store/db';
 import {
+  ContinuationBudgetError,
   resolveContinuationBudgets,
   targetNeedsLowerBudgetRetry,
+  type ResolvedContinuationBudgets,
   validateRawRetentionCeiling,
 } from './budget-policy';
 import {
@@ -61,16 +63,9 @@ function validateLimits(input: PrepareContinuationContextInput): void {
 
 function fixedWrapperTokens(input: {
   request: PrepareContinuationContextInput;
-  metadata: ContinuationSpoolMetadata;
 }): number {
   const rendered = renderContinuationContext({
-    purpose: input.request.purpose,
-    sourceSessionId: input.request.sourceSessionId,
-    source: {
-      eventRevision: input.metadata.captureRevision,
-      rebuildAfterRevision: input.metadata.rebuildAfterRevision,
-      maxEventId: input.metadata.maxEventId,
-    },
+    quality: 'instruction-only',
     checkpoint: null,
     rawUserInputs: [],
     continuationInstruction: input.request.continuationInstruction,
@@ -101,22 +96,10 @@ function foldKey(
   ].join(':');
 }
 
-function initialWarnings(
-  input: PrepareContinuationContextInput,
+function sourceWarnings(
   metadata: ContinuationSpoolMetadata,
 ): ContinuationWarning[] {
   const warnings: ContinuationWarning[] = [];
-  if (input.target.contextCapacity.status !== 'observed') {
-    warnings.push({
-      code: 'target-capacity-fallback',
-      message:
-        `Target context capacity is ${input.target.contextCapacity.status} for ` +
-        `${input.target.adapter}/${input.target.model ?? 'default'}; ` +
-        (input.purpose === 'handoff'
-          ? 'using tagged 64k primary and 32k retry policies.'
-          : 'using the tagged 64k conservative recovery policy.'),
-    });
-  }
   if (metadata.uncoveredRevisionRange || metadata.rawScanTruncated) {
     warnings.push({
       code: 'spool-resource-guard',
@@ -130,6 +113,40 @@ function initialWarnings(
     });
   }
   return warnings;
+}
+
+function targetCapacityWarning(input: {
+  request: PrepareContinuationContextInput;
+  retryPrepared: boolean;
+  retryInstructionDidNotFit: boolean;
+}): ContinuationWarning | null {
+  const { request } = input;
+  if (request.target.contextCapacity.status === 'observed') return null;
+  const target = `${request.target.adapter}/${request.target.model ?? 'default'}`;
+  if (request.purpose === 'recovery') {
+    return {
+      code: 'target-capacity-fallback',
+      message:
+        `Target context capacity is ${request.target.contextCapacity.status} for ${target}; ` +
+        'using the tagged 64k conservative recovery policy.',
+    };
+  }
+  if (input.retryPrepared) {
+    return {
+      code: 'target-capacity-fallback',
+      message:
+        `Target context capacity is ${request.target.contextCapacity.status} for ${target}; ` +
+        'using tagged 64k primary and 32k retry policies.',
+    };
+  }
+  return {
+    code: 'target-capacity-fallback',
+    message:
+      `Target context capacity is ${request.target.contextCapacity.status} for ${target}; ` +
+      (input.retryInstructionDidNotFit
+        ? 'the current instruction fits the 64k primary policy but not the optional 32k retry, so preparation will continue without a lower-budget retry.'
+        : 'using the tagged 64k primary policy without a lower-budget retry.'),
+  };
 }
 
 export async function prepareContinuationCandidatesWithDependencies(
@@ -159,7 +176,7 @@ export async function prepareContinuationCandidatesWithDependencies(
   }
 
   try {
-    const wrapperTokens = fixedWrapperTokens({ request: input, metadata });
+    const wrapperTokens = fixedWrapperTokens({ request: input });
     const primaryBudgets = resolveContinuationBudgets({
       rawRetentionCeilingTokens: input.limits.rawRetentionCeilingTokens,
       targetCapacity: input.target.contextCapacity,
@@ -167,18 +184,38 @@ export async function prepareContinuationCandidatesWithDependencies(
       continuationInstruction: input.continuationInstruction,
       fixedWrapperTokens: wrapperTokens,
     });
-    const retryBudgets = input.purpose === 'handoff' &&
+    const warnings = sourceWarnings(metadata);
+    let retryBudgets: ResolvedContinuationBudgets | null = null;
+    let retryInstructionDidNotFit = false;
+    if (
+      input.purpose === 'handoff' &&
       targetNeedsLowerBudgetRetry(input.target.contextCapacity)
-      ? resolveContinuationBudgets({
+    ) {
+      try {
+        retryBudgets = resolveContinuationBudgets({
           rawRetentionCeilingTokens: input.limits.rawRetentionCeilingTokens,
           targetCapacity: input.target.contextCapacity,
           generatorCapacity: input.generator.contextCapacity,
           targetVariant: 'lower-budget-retry',
           continuationInstruction: input.continuationInstruction,
           fixedWrapperTokens: wrapperTokens,
-        })
-      : null;
-    const warnings = initialWarnings(input, metadata);
+        });
+      } catch (error) {
+        if (
+          !(error instanceof ContinuationBudgetError) ||
+          error.code !== 'instruction-does-not-fit'
+        ) {
+          throw error;
+        }
+        retryInstructionDidNotFit = true;
+      }
+    }
+    const fallbackWarning = targetCapacityWarning({
+      request: input,
+      retryPrepared: retryBudgets !== null,
+      retryInstructionDidNotFit,
+    });
+    if (fallbackWarning) warnings.unshift(fallbackWarning);
     const generator = (dependencies.generatorFactory ?? createCheckpointGeneratorRuntime)(
       input.generator,
     );

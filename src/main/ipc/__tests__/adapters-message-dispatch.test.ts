@@ -100,6 +100,48 @@ describe('dispatchAdapterMessageWithHandOffRedirect', () => {
     expect(deps.getSession).not.toHaveBeenCalled();
   });
 
+  it('keeps an old-epoch send on its observed successor while later sends use a reactivated source', async () => {
+    let redirect: string | null = 'successor';
+    let unarchiveCalls = 0;
+    const sourceSend = vi.fn(async () => undefined);
+    const successorEnqueue = vi.fn(async () => undefined);
+    const deps: AdapterMessageDispatchDependencies = {
+      successorFor: vi.fn(() => redirect),
+      unarchiveOnUserSend: vi.fn(async () => {
+        unarchiveCalls += 1;
+        if (unarchiveCalls === 1) redirect = null;
+      }),
+      getSession: vi.fn(() => successor()),
+      getAdapter: vi.fn(
+        () => ({ enqueueMessage: successorEnqueue }) as unknown as AgentAdapter,
+      ),
+    };
+
+    const firstTarget = await dispatchAdapterMessageWithHandOffRedirect(
+      {
+        sourceSessionId: 'source',
+        sourceAdapter: { sendMessage: sourceSend } as unknown as AgentAdapter,
+        text: 'old owner epoch',
+        attachments: [],
+      },
+      deps,
+    );
+    const secondTarget = await dispatchAdapterMessageWithHandOffRedirect(
+      {
+        sourceSessionId: 'source',
+        sourceAdapter: { sendMessage: sourceSend } as unknown as AgentAdapter,
+        text: 'new owner epoch',
+        attachments: [],
+      },
+      deps,
+    );
+
+    expect(firstTarget).toBe('successor');
+    expect(secondTarget).toBe('source');
+    expect(successorEnqueue).toHaveBeenCalledWith('successor', 'old owner epoch', []);
+    expect(sourceSend).toHaveBeenCalledWith('source', 'new owner epoch', [], undefined);
+  });
+
   it('uses retry-safe enqueue semantics for a keyed source turn', async () => {
     const sourceSend = vi.fn(async () => undefined);
     const sourceEnqueue = vi.fn(async () => undefined);

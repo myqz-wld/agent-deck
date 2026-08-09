@@ -441,6 +441,7 @@ describe('executePreparedHandOff', () => {
       cutoverReason: 'message-delivery-drain-timeout',
       successorSessionId: 'orphan-after-drain-timeout',
       successorCleanup: 'ok',
+      message: expect.stringContaining('retrying can duplicate'),
     });
     expect(closeSuccessor).toHaveBeenCalledWith('orphan-after-drain-timeout');
     expect(transferResources).not.toHaveBeenCalled();
@@ -469,6 +470,7 @@ describe('executePreparedHandOff', () => {
       successorCleanup: 'ok',
       resourceTransfer: { failed: true },
       transferError: null,
+      message: expect.stringContaining('retrying can duplicate'),
     } satisfies Partial<HandOffExecutionError<{ failed: boolean }>>);
     expect(closeSuccessor).toHaveBeenCalledWith('orphan');
     expect(finalizeSource).not.toHaveBeenCalled();
@@ -524,7 +526,7 @@ describe('executePreparedHandOff', () => {
   });
 
   it('commits ingress before awaiting asynchronous source finalization', async () => {
-    const coordinator = new HandOffCutoverCoordinator();
+    const coordinator = new HandOffCutoverCoordinator(() => null);
     const lease = coordinator.tryAcquire(source.id)!;
     let finishFinalization!: () => void;
     const finalization = new Promise<void>((resolve) => {

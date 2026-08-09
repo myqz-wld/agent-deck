@@ -43,6 +43,7 @@ export function captureSpoolRawTail(input: {
            FROM events
           WHERE session_id = ?
             AND change_revision <= ?
+            AND kind = 'message'
             ${cursorClause}
           ORDER BY change_revision DESC, id DESC
           LIMIT ?`,

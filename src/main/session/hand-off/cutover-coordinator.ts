@@ -5,6 +5,7 @@ const logger = log.scope('handoff-cutover');
 const HANDOFF_INGRESS_REDIRECT_TTL_MS = 5 * 60 * 1_000;
 const ROLLBACK_REPLAY_MAX_DELAY_MS = 5_000;
 const ROLLBACK_REPLAY_MAX_ATTEMPTS = 6;
+const ROLLBACK_REPLAY_SETTLEMENT_TIMEOUT_MS = 30_000;
 const MAX_BUFFERED_SOURCE_INPUTS = 100;
 const MAX_HANDOFF_ALIAS_DEPTH = 1_024;
 
@@ -13,6 +14,42 @@ function replayDelay(attempt: number): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, delay);
     timer.unref?.();
+  });
+}
+
+class RollbackReplaySettlementTimeoutError extends Error {
+  constructor(sourceSessionId: string) {
+    super(`buffered input replay did not settle within ${ROLLBACK_REPLAY_SETTLEMENT_TIMEOUT_MS}ms for ${sourceSessionId}`);
+    this.name = 'RollbackReplaySettlementTimeoutError';
+  }
+}
+
+export function isRollbackReplaySettlementTimeout(error: unknown): boolean {
+  return error instanceof RollbackReplaySettlementTimeoutError;
+}
+
+class RollbackReplayDetachedByReactivationError extends Error {
+  readonly name = 'RollbackReplayDetachedByReactivationError';
+
+  constructor(sourceSessionId: string) {
+    super(`buffered input replay was detached by source reactivation for ${sourceSessionId}`);
+  }
+}
+
+function replayWithSettlementTimeout(
+  input: BufferedHandOffSourceInput,
+  sourceSessionId: string,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new RollbackReplaySettlementTimeoutError(sourceSessionId)),
+      ROLLBACK_REPLAY_SETTLEMENT_TIMEOUT_MS,
+    );
+    timer.unref?.();
+  });
+  return Promise.race([input.replay(sourceSessionId), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
   });
 }
 
@@ -28,6 +65,15 @@ export interface HandOffCutoverLease {
   isHeld(): boolean;
   release(): void;
 }
+
+export type HandOffCutoverAcquireResult =
+  | { ok: true; lease: HandOffCutoverLease }
+  | {
+      ok: false;
+      reason: 'active' | 'sealed' | 'committed' | 'durable-lookup-failed';
+      successorSessionId?: string;
+      error?: unknown;
+    };
 
 export interface BufferedHandOffSourceInput {
   /** Persist the input as source evidence so continuation capture/cutover scanning can see it. */
@@ -46,6 +92,8 @@ interface ActiveCutover {
   discardBufferedOnRelease: boolean;
   successorSessionId: string | null;
   bufferedInputs: BufferedHandOffSourceInput[];
+  rollbackSettling: boolean;
+  detachedByReactivation: boolean;
 }
 
 /**
@@ -67,6 +115,50 @@ export class HandOffCutoverCoordinator {
 
   tryAcquire(sourceSessionId: string): HandOffCutoverLease | null {
     if (this.active.has(sourceSessionId) || this.sealedSources.has(sourceSessionId)) return null;
+    return this.createLease(sourceSessionId);
+  }
+
+  /**
+   * Production handoff acquisition. In addition to the process-local gate, this fails closed when
+   * a durable predecessor alias proves that ownership already moved in an earlier process epoch.
+   * Internal ingress tests and lifecycle probes use tryAcquire() when no durable ownership check is
+   * intended; UI and MCP entry points must use this method.
+   */
+  acquire(sourceSessionId: string): HandOffCutoverAcquireResult {
+    if (this.active.has(sourceSessionId)) return { ok: false, reason: 'active' };
+    let durableSuccessor: string | null;
+    try {
+      durableSuccessor = this.findDurableSuccessor(sourceSessionId);
+    } catch (error) {
+      return { ok: false, reason: 'durable-lookup-failed', error };
+    }
+    if (durableSuccessor) {
+      return {
+        ok: false,
+        reason: 'committed',
+        successorSessionId: durableSuccessor,
+      };
+    }
+    if (this.sealedSources.has(sourceSessionId)) return { ok: false, reason: 'sealed' };
+    return { ok: true, lease: this.createLease(sourceSessionId) };
+  }
+
+  private reportReplayFailure(
+    input: BufferedHandOffSourceInput,
+    sourceSessionId: string,
+    error: unknown,
+  ): void {
+    try {
+      input.onReplayFailed?.(sourceSessionId, error);
+    } catch (reportError) {
+      logger.warn(
+        `[handoff cutover] failed to report abandoned replay for ${sourceSessionId}`,
+        reportError,
+      );
+    }
+  }
+
+  private createLease(sourceSessionId: string): HandOffCutoverLease {
     const token = Symbol(sourceSessionId);
     const cutover: ActiveCutover = {
       token,
@@ -76,6 +168,8 @@ export class HandOffCutoverCoordinator {
       discardBufferedOnRelease: false,
       successorSessionId: null,
       bufferedInputs: [],
+      rollbackSettling: false,
+      detachedByReactivation: false,
     };
     this.active.set(sourceSessionId, cutover);
     let released = false;
@@ -126,37 +220,50 @@ export class HandOffCutoverCoordinator {
         }
         // Keep the gate active until every accepted input is restored. New ingress joins the end
         // of this same array, so it cannot overtake older buffered messages during rollback.
+        current.rollbackSettling = true;
         void (async () => {
-          let index = 0;
-          let failedAttempts = 0;
-          while (index < current.bufferedInputs.length) {
+          while (current.bufferedInputs.length > 0) {
             if (current.discardBufferedOnRelease) break;
-            const input = current.bufferedInputs[index]!;
-            try {
-              await input.replay(current.sourceId.value);
-              index += 1;
-              failedAttempts = 0;
-            } catch (error) {
-              if (current.discardBufferedOnRelease) break;
-              logger.warn(
-                `[handoff cutover] buffered input replay retry ${failedAttempts + 1} for ${current.sourceId.value}`,
-                error,
-              );
-              failedAttempts += 1;
-              if (failedAttempts >= ROLLBACK_REPLAY_MAX_ATTEMPTS) {
-                try {
-                  input.onReplayFailed?.(current.sourceId.value, error);
-                } catch (reportError) {
-                  logger.warn(
-                    `[handoff cutover] failed to report abandoned replay for ${current.sourceId.value}`,
-                    reportError,
-                  );
+            // Remove before awaiting so rename/merge can migrate only entries that have not started.
+            const input = current.bufferedInputs.shift()!;
+            let failedAttempts = 0;
+            for (;;) {
+              try {
+                await replayWithSettlementTimeout(input, current.sourceId.value);
+                break;
+              } catch (error) {
+                if (current.discardBufferedOnRelease) {
+                  if (current.detachedByReactivation) {
+                    this.reportReplayFailure(input, current.sourceId.value, error);
+                  }
+                  break;
                 }
-                index += 1;
-                failedAttempts = 0;
-                continue;
+                failedAttempts += 1;
+                const settlementTimedOut = error instanceof RollbackReplaySettlementTimeoutError;
+                logger.warn(
+                  `[handoff cutover] buffered input replay failure ${failedAttempts} for ${current.sourceId.value}`,
+                  error,
+                );
+                if (settlementTimedOut || failedAttempts >= ROLLBACK_REPLAY_MAX_ATTEMPTS) {
+                  this.reportReplayFailure(input, current.sourceId.value, error);
+                  break;
+                }
+                await replayDelay(failedAttempts);
+                if (current.discardBufferedOnRelease) {
+                  if (current.detachedByReactivation) {
+                    this.reportReplayFailure(
+                      input,
+                      current.sourceId.value,
+                      new RollbackReplayDetachedByReactivationError(current.sourceId.value),
+                    );
+                  }
+                  break;
+                }
               }
-              await replayDelay(failedAttempts);
+            }
+            if (current.discardBufferedOnRelease) {
+              current.bufferedInputs.length = 0;
+              break;
             }
           }
           if (this.active.get(current.sourceId.value)?.token === token) {
@@ -206,6 +313,10 @@ export class HandOffCutoverCoordinator {
     if (!cutover || cutover.committed) return newlySealed;
     cutover.revoked = true;
     cutover.discardBufferedOnRelease = true;
+    if (cutover.rollbackSettling) {
+      cutover.bufferedInputs.length = 0;
+      this.active.delete(sourceSessionId);
+    }
     return true;
   }
 
@@ -217,6 +328,15 @@ export class HandOffCutoverCoordinator {
   /** Explicit user reactivation starts a new owner epoch and retires the short-lived redirect. */
   reactivateSource(sourceSessionId: string): boolean {
     this.redirects.delete(sourceSessionId);
+    const cutover = this.active.get(sourceSessionId);
+    if (cutover?.rollbackSettling) {
+      cutover.detachedByReactivation = true;
+      cutover.discardBufferedOnRelease = true;
+      const detached = cutover.bufferedInputs.splice(0);
+      const error = new RollbackReplayDetachedByReactivationError(sourceSessionId);
+      for (const input of detached) this.reportReplayFailure(input, sourceSessionId, error);
+      this.active.delete(sourceSessionId);
+    }
     return this.restoreSource(sourceSessionId);
   }
 

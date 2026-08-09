@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { deleteSessionHandOffAliasesForSessionWithDb } from '../session-handoff-alias-repo';
 
 /** Delete one session without orphaning an unsettled worktree lease. */
 export function deleteSessionWithWorktreeGuard(
@@ -28,5 +29,6 @@ export function deleteSessionWithWorktreeGuard(
        WHERE session_id = ? AND phase = 'cleared'`,
     ).run(sessionId);
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId);
+    deleteSessionHandOffAliasesForSessionWithDb(db, sessionId);
   })();
 }

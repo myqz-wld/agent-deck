@@ -8,6 +8,7 @@ import {
 } from './checkpoint-schema';
 import type { CheckpointProjection } from './types';
 import { estimateContinuationJsonTokens } from './token-estimator';
+import { estimateProviderCheckpointTokens } from './provider-payload';
 import {
   assertCoverageGapFactsImmutable,
   isCoverageGapFact,
@@ -55,7 +56,7 @@ function compareFacts(left: ContinuationFact, right: ContinuationFact): number {
 }
 
 function projectionTokens(projection: CheckpointProjection): number {
-  return estimateContinuationJsonTokens(projection, { structuralOverhead: 8 });
+  return estimateProviderCheckpointTokens(projection);
 }
 
 function emptyCheckpoint(): ContinuationCheckpoint {

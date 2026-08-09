@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckpointProjection, RawContinuationUserInput } from '../types';
+import { rawUserInputForProvider } from '../provider-payload';
 import { renderContinuationContext } from '../renderer';
 
 const projection: CheckpointProjection = {
@@ -36,9 +37,7 @@ const raw: RawContinuationUserInput[] = [
 describe('continuation context renderer', () => {
   it('is byte-deterministic and places the authoritative instruction last', () => {
     const input = {
-      purpose: 'handoff' as const,
-      sourceSessionId: 'source',
-      source: { eventRevision: 10, rebuildAfterRevision: 0, maxEventId: 8 },
+      quality: 'full' as const,
       checkpoint: projection,
       rawUserInputs: raw,
       continuationInstruction: 'Perform the next approved step.',
@@ -47,36 +46,89 @@ describe('continuation context renderer', () => {
     const second = renderContinuationContext(input);
     expect(second).toEqual(first);
     expect(first.prompt).toContain('untrusted historical evidence');
-    expect(first.prompt).toContain(projection.canonicalHash);
+    expect(first.prompt).toContain('Agent Deck Continuation Context v2');
+    expect(first.prompt).not.toContain(projection.canonicalHash);
     expect(first.prompt).toContain('"omittedFacts":2');
+    expect(first.prompt).toContain('"status":"active"');
+    expect(first.prompt).not.toContain('"priority"');
+    expect(first.prompt).not.toContain('"evidence"');
     expect(first.prompt.endsWith(JSON.stringify('Perform the next approved step.'))).toBe(true);
   });
 
-  it('JSON-encodes historical bodies and attachment references without inlining data', () => {
+  it('JSON-encodes useful history without internal ids or absolute attachment paths', () => {
     const rendered = renderContinuationContext({
-      purpose: 'recovery',
-      sourceSessionId: 'source',
-      source: { eventRevision: 3, rebuildAfterRevision: 0, maxEventId: 3 },
+      quality: 'raw-only',
       checkpoint: null,
       rawUserInputs: raw,
       continuationInstruction: 'Recover safely.',
     });
-    expect(rendered.prompt).toContain('"eventId"');
+    expect(rendered.prompt).not.toContain('"eventId"');
+    expect(rendered.prompt).not.toContain('"effectiveRevision"');
+    expect(rendered.prompt).not.toContain('"ts"');
     expect(rendered.prompt).toContain('quoted delimiter:\\n===== Current continuation instruction');
-    expect(rendered.prompt).toContain('/tmp/input.png');
+    expect(rendered.prompt).toContain('"name":"input.png"');
+    expect(rendered.prompt).toContain('"mimeType":"image/png"');
+    expect(rendered.prompt).not.toContain('/tmp/input.png');
     expect(rendered.prompt).not.toContain('data:image');
   });
 
   it('never mutates or slices the supplied projection', () => {
     const before = JSON.stringify(projection);
     renderContinuationContext({
-      purpose: 'handoff',
-      sourceSessionId: 'source',
-      source: { eventRevision: 10, rebuildAfterRevision: 0, maxEventId: 8 },
+      quality: 'full',
       checkpoint: projection,
       rawUserInputs: [],
       continuationInstruction: 'Continue.',
     });
     expect(JSON.stringify(projection)).toBe(before);
+  });
+
+  it('uses separator-agnostic attachment leaf names', () => {
+    const input: RawContinuationUserInput = {
+      ...raw[0],
+      attachments: [
+        { path: 'C:\\Users\\alice\\private\\input.png', mimeType: 'image/png' },
+        { name: '/Users/alice/private/report.pdf', path: '/tmp/ignored.pdf' },
+      ],
+    };
+
+    expect(rawUserInputForProvider(input).attachments).toEqual([
+      { name: 'input.png', mimeType: 'image/png' },
+      { name: 'report.pdf' },
+    ]);
+  });
+
+  it('abstracts durable coverage markers before provider rendering', () => {
+    const markerProjection: CheckpointProjection = {
+      formatVersion: 1,
+      canonicalHash: 'b'.repeat(64),
+      sourceEventRevision: 2,
+      omittedFacts: 0,
+      facts: {
+        unresolvedErrors: [{
+          id: 'continuation.coverage-gap.after1.r2.0123456789abcdef',
+          status: 'blocked',
+          text:
+            'Full semantic coverage stops after revision 1; revision 2 uses ' +
+            `sha256:${'c'.repeat(64)}; event IDs 7-9.`,
+          rationale: 'Internal marker rationale.',
+          validation: 'Internal revision 2 validation.',
+          priority: 100,
+          evidence: [{ eventId: 7, revision: 2 }],
+        }],
+      },
+    };
+
+    const rendered = renderContinuationContext({
+      quality: 'coverage-gap',
+      checkpoint: markerProjection,
+      rawUserInputs: [],
+      continuationInstruction: 'Continue safely.',
+    });
+
+    expect(rendered.prompt).toContain('bounded integrity marker');
+    expect(rendered.prompt).not.toContain('sha256:');
+    expect(rendered.prompt).not.toContain('event IDs');
+    expect(rendered.prompt).not.toContain('revision 2');
   });
 });

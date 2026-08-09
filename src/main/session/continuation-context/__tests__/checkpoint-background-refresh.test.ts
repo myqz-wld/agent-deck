@@ -210,10 +210,10 @@ describe.skipIf(!bindingAvailable)('background checkpoint refresh', () => {
     });
   });
 
-  it('rejects a resource guard that cannot advance one complete revision', async () => {
+  it('advances an oversized first revision with a bounded coverage marker', async () => {
     insert('too-large-for-source-guard');
 
-    await expect(refreshContinuationCheckpointWithDependencies(
+    const result = await refreshContinuationCheckpointWithDependencies(
       { sessionId: 'source', trigger: 'safety', snapshot: snapshot() },
       {
         db,
@@ -221,8 +221,18 @@ describe.skipIf(!bindingAvailable)('background checkpoint refresh', () => {
         resolveGenerator: () => generatorSpec,
         generatorFactory: () => generator,
       },
-    )).rejects.toThrow(/made no revision progress/i);
+    );
+    expect(result).toMatchObject({
+      captureRevision: 1,
+      materializedThroughRevision: 1,
+      checkpointThroughRevision: 1,
+      uncoveredRevisionRange: { from: 0, to: 1 },
+    });
     expect(generator.generate).not.toHaveBeenCalled();
+    expect(createContinuationCheckpointRepo(db).latest('source')?.checkpoint.unresolvedErrors)
+      .toContainEqual(expect.objectContaining({
+        id: expect.stringContaining('continuation.coverage-gap.after0.r1.'),
+      }));
   });
 
   it('uses the unknown generator policy and persists exact evidence only for later jobs', async () => {
