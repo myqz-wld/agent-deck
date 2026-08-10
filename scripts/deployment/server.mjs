@@ -182,6 +182,10 @@ export function relayCutoverRecovery(config, state, status) {
   };
 }
 
+export function existingInstanceNeedsStart(status) {
+  return status?.systemd?.activeState !== 'active';
+}
+
 async function ensureRelayRunningForCutover(config, state) {
   if (config.topology !== 'relay') return;
   const status = await runManager(config, 'status', selector(config));
@@ -296,7 +300,10 @@ async function deploy(config) {
       generation: existing.generation,
       version: existing.currentVersion,
     }, current);
-    await runManager(config, 'start', selector(config));
+    const status = await runManager(config, 'status', selector(config));
+    if (existingInstanceNeedsStart(status)) {
+      await runManager(config, 'start', selector(config));
+    }
     return {
       release,
       image: current.image,
