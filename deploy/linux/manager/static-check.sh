@@ -136,6 +136,14 @@ bash "$repo_root/deploy/linux/full/preflight.sh" --template \
 bash "$repo_root/deploy/linux/relay/preflight.sh" --quadlet \
   "$repo_root/deploy/linux/relay/agent-deck-relay@.container" --static-only >/dev/null
 
+relay_runtime_success='relay preflight: runtime identity, health scheduler, and external egress/quota acceptance gates passed'
+grep -Fq "echo \"$relay_runtime_success\"" "$repo_root/deploy/linux/relay/preflight.sh" ||
+  fail 'Relay runtime preflight success output is missing'
+grep -Fq "'$relay_runtime_success\\n'" "$source_root/preflight.ts" ||
+  fail 'instance manager Relay runtime success contract drifted from the preflight'
+grep -Fq "'$relay_runtime_success\\n'" "$source_root/test-fixtures.ts" ||
+  fail 'instance manager Relay runtime test fixture drifted from the preflight'
+
 if find "$repo_root/src" -type f \( -name '*.ts' -o -name '*.tsx' \) \
   ! -path "$source_root/*" -print0 |
   xargs -0 grep -El "(@hosts/instance-manager|hosts/instance-manager)"; then

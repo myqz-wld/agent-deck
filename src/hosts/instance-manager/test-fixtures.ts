@@ -58,7 +58,7 @@ export class FakeCommands implements CommandPort {
     const runtime = relay && !request.args.includes('--static-only');
     let stdout = relay
       ? runtime
-        ? 'relay preflight: runtime identity and external egress/quota acceptance gates passed\n'
+        ? 'relay preflight: runtime identity, health scheduler, and external egress/quota acceptance gates passed\n'
         : 'relay preflight: static exact-template checks passed; runtime gates remain unverified\n'
       : '';
     if (this.tamperNextOutput) {
