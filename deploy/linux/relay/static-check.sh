@@ -19,6 +19,10 @@ bash "$relay_dir/preflight.sh" \
   --quadlet "$instantiated_fixture" \
   --instance static-check \
   --static-only
+bash "$relay_dir/preflight.sh" \
+  --quadlet "$relay_dir/agent-deck-relay@.container" \
+  --instance static-check \
+  --static-only
 cleanup_instantiated_fixture
 trap - EXIT
 

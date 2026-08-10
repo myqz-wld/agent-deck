@@ -37,18 +37,23 @@ if [[ -n "$instance_id" && ! "$instance_id" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9]
   exit 65
 fi
 quadlet_name="$(basename "$quadlet_path")"
+template_quadlet_name='agent-deck-relay@.container'
 if ((static_only == 1)) && [[ -z "$instance_id" ]]; then
-  expected_quadlet_name='agent-deck-relay@.container'
+  if [[ "$quadlet_name" != "$template_quadlet_name" ]]; then
+    echo "relay preflight: Quadlet filename must be $template_quadlet_name" >&2
+    exit 65
+  fi
 else
   if [[ -z "$instance_id" ]]; then
     echo "relay preflight: runtime checks require --instance" >&2
     exit 65
   fi
-  expected_quadlet_name="agent-deck-relay@${instance_id}.container"
-fi
-if [[ "$quadlet_name" != "$expected_quadlet_name" ]]; then
-  echo "relay preflight: Quadlet filename must be $expected_quadlet_name" >&2
-  exit 65
+  instance_quadlet_name="agent-deck-relay@${instance_id}.container"
+  if [[ "$quadlet_name" != "$template_quadlet_name" &&
+        "$quadlet_name" != "$instance_quadlet_name" ]]; then
+    echo "relay preflight: Quadlet filename must be $template_quadlet_name or $instance_quadlet_name" >&2
+    exit 65
+  fi
 fi
 
 if ! awk '
