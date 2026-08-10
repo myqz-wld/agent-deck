@@ -38,7 +38,7 @@ async function readEvidence(input: {
     fail('tampered', `${input.field} must have the exact trusted owner and mode 0444`);
   }
   const age = input.clock.nowMs() - artifact.identity.modifiedAtMs;
-  if (!Number.isSafeInteger(age) || age < 0 || age > input.maxAgeMs) fail('tampered', `${input.field} is stale or future-dated`);
+  if (!Number.isFinite(age) || age < 0 || age > input.maxAgeMs) fail('tampered', `${input.field} is stale or future-dated`);
   exactLines(artifact.bytes, input.expectedLines, input.field);
   return captureTrustedFile(input.fileSystem, input.path, MAX_EVIDENCE_BYTES, input.expectedUid, 0o444, input.field);
 }
@@ -132,7 +132,7 @@ export async function revalidateEvidence(
     const current = await fileSystem.lstat(snapshot.path);
     if (!current || !sameFileSnapshot(current, snapshot.identity)) fail('tampered', 'cutover evidence changed after validation');
     const age = clock.nowMs() - current.modifiedAtMs;
-    if (!Number.isSafeInteger(age) || age < 0 || age > maxAgeMs) fail('tampered', 'cutover evidence expired during validation');
+    if (!Number.isFinite(age) || age < 0 || age > maxAgeMs) fail('tampered', 'cutover evidence expired during validation');
     const bytes = await fileSystem.readFile(snapshot.path, MAX_EVIDENCE_BYTES);
     const repeated = await captureTrustedFile(fileSystem, snapshot.path, MAX_EVIDENCE_BYTES, snapshot.identity.uid, snapshot.identity.mode & 0o777, 'cutover evidence recheck');
     if (repeated.sha256 !== snapshot.sha256 || bytes.byteLength !== snapshot.identity.size) fail('tampered', 'cutover evidence content changed after validation');

@@ -93,7 +93,10 @@ function validateIdentity(value: unknown, field: string): void {
     !Number.isSafeInteger(identity.mode) || (identity.mode as number) < 0 ||
     !Number.isSafeInteger(identity.uid) || (identity.uid as number) < 0 ||
     !Number.isSafeInteger(identity.size) || (identity.size as number) < 0 ||
-    !Number.isSafeInteger(identity.modifiedAtMs) || (identity.modifiedAtMs as number) < 0
+    typeof identity.modifiedAtMs !== 'number' ||
+    !Number.isFinite(identity.modifiedAtMs) ||
+    identity.modifiedAtMs < 0 ||
+    identity.modifiedAtMs > Number.MAX_SAFE_INTEGER
   ) fail('tampered', `${field} contains an invalid filesystem identity`);
 }
 

@@ -87,6 +87,24 @@ describe('LinuxInstanceManager create and lifecycle', () => {
     ).rejects.toMatchObject({ code: 'tampered' });
   });
 
+  it('preserves fractional filesystem mtimes through create and evidence checks', async () => {
+    const harness = createHarness();
+    harness.fileSystem.modifiedAtOffsetMs = 0.25;
+    await harness.manager.create({
+      topology: 'relay',
+      instanceId: 'tenant-a',
+      version: 'v1',
+      image: DIGEST_A,
+      runtimeConfig: {},
+    });
+    seedEvidence(harness, 'relay', 'tenant-a');
+    harness.setNow(10_001);
+
+    await expect(
+      harness.manager.start({ topology: 'relay', instanceId: 'tenant-a' }),
+    ).resolves.toMatchObject({ systemd: { activeState: 'active' } });
+  });
+
   it('cleans only resources created by a failed create after identity checks', async () => {
     const harness = createHarness();
     harness.commands.failNext = true;
