@@ -9,7 +9,11 @@ import { parseEntrypointArgs, SERVER_ACTIONS } from './common.mjs';
 import { loadServerConfig, loadWorkerConfig } from './config.mjs';
 import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.mjs';
 import { buildEvidenceArchive, buildFullSecretsArchive } from './artifacts.mjs';
-import { managerFailureCode, relayCutoverRecovery } from './server.mjs';
+import {
+  existingInstanceNeedsStart,
+  managerFailureCode,
+  relayCutoverRecovery,
+} from './server.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temporaryRoots = [];
@@ -70,6 +74,11 @@ describe('deployment automation contracts', () => {
       { systemd: { activeState: 'active' } },
     )).toBeNull();
     expect(relayCutoverRecovery({ topology: 'full' }, state, inactive)).toBeNull();
+  });
+
+  it('does not start an already-active existing instance during same-release deploy', () => {
+    expect(existingInstanceNeedsStart({ systemd: { activeState: 'active' } })).toBe(false);
+    expect(existingInstanceNeedsStart({ systemd: { activeState: 'inactive' } })).toBe(true);
   });
 
   it('loads a strict Relay config with pinned SSH and image inputs', async () => {

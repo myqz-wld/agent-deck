@@ -161,3 +161,6 @@ Legacy records retain only authoritative metadata. Missing `reviewed_at` values 
 | unknown | `REVIEW_142.md` | `send_message` rejected valid target session aliases before authorization. | 1 HIGH fixed |
 | unknown | `REVIEW_143.md` | Model slug collisions and Codex/Claude runtime metadata calibration. | 3 MEDIUM + 2 LOW fixed / 2 residual LOW documented |
 | 2026-07-09 | `REVIEW_144_spawn-session-native-fork-risk.md` | Native fork boundary and rollback review | 0 CRITICAL / 4 HIGH fixed / 5 MEDIUM fixed or dispositioned / 2 LOW fixed |
+| 2026-07-10 | `REVIEW_145_claude-reasoning-usage.md` | Claude reasoning usage and option boundaries | 0 CRITICAL / 1 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed + 1 dispositioned |
+| 2026-07-10 | `REVIEW_146_desktop-ephemeral-codex-hooks.md` | Desktop ephemeral Codex hook boundary | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW dispositioned |
+| 2026-07-10 | `REVIEW_147_codex-collaboration-raw-events.md` | Codex collaboration raw-event boundary | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 upstream limitation |
