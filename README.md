@@ -51,8 +51,12 @@ Use these commands for day-to-day development and validation:
 | `pnpm build` | Build the application |
 | `pnpm verify:linux-headless` | Build and statically verify the isolated Linux headless roles |
 | `pnpm dist:mac`, `pnpm dist:win`, or `pnpm dist:linux` | Build an installer on the matching host OS |
+| `pnpm install:local:mac` | Build, verify, and install the macOS app for local use |
 
 Installer builds contain platform-specific agent runtimes, so cross-platform packaging is not supported.
+The local macOS install command replaces the app through a rollback-safe staging bundle, validates
+the installed wrapper, and removes the unpacked build copy so Spotlight indexes only the app in
+`/Applications`; the DMG remains under `build/dist`.
 
 ### Architecture boundaries
 

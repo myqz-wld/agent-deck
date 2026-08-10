@@ -11,6 +11,7 @@
     "build-info": "node scripts/write-build-info.mjs",
     "dist": "pnpm verify:bundled-runtimes && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder",
     "dist:mac": "node scripts/verify-bundled-grok.mjs --target-platform darwin && pnpm verify:macos-worker-sandbox && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder --mac && pnpm check:packaged-macos-worker-sandbox",
+    "install:local:mac": "node scripts/install-local-macos.mjs",
     "dist:win": "node scripts/verify-bundled-grok.mjs --target-platform win32 && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder --win",
     "dist:linux": "node scripts/verify-bundled-grok.mjs --target-platform linux && pnpm build:linux-headless && electron-vite build && node scripts/write-build-info.mjs && electron-builder --linux",
     "icon:gen": "node scripts/gen-icon-ico.mjs",
