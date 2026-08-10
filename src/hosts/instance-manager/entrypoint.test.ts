@@ -8,6 +8,7 @@ import {
   executeInstanceManagerCommand,
   instanceManagerEntrypointFailure,
 } from './entrypoint';
+import { LinuxHostAdapterError } from './adapters/errors';
 import { createHarness, DIGEST_A, FULL_RESOURCES } from './test-fixtures';
 import { InstanceManagerError } from './validation';
 
@@ -129,5 +130,11 @@ describe('instance manager command entrypoint', () => {
       message: '实例管理操作失败；详细输入已隐藏。',
     });
     expect(output).not.toContain('secret path');
+
+    const adapterOutput = instanceManagerEntrypointFailure(
+      new LinuxHostAdapterError('filesystem_failed', 'secret host detail'),
+    );
+    expect(JSON.parse(adapterOutput)).toMatchObject({ code: 'filesystem_failed' });
+    expect(adapterOutput).not.toContain('secret host detail');
   });
 });

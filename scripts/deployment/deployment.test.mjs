@@ -47,6 +47,8 @@ describe('deployment automation contracts', () => {
     };
     expect(managerFailureCode(missing)).toBe('not_found');
     expect(managerFailureCode(tampered)).toBe('tampered');
+    expect(managerFailureCode({ managerCode: 'filesystem_failed' })).toBe('filesystem_failed');
+    expect(managerFailureCode({ managerCode: 'unsafe\ncode' })).toBeNull();
     expect(managerFailureCode(new Error('transport failed'))).toBeNull();
   });
 

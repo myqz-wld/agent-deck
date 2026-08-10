@@ -89,13 +89,26 @@ function parseManager(stdout, command) {
   return parsed.result;
 }
 
+class ManagerCommandError extends Error {
+  constructor(command, managerCode, cause) {
+    super(`实例管理器 ${command} 失败（code=${managerCode}）。`, { cause });
+    this.name = 'ManagerCommandError';
+    this.managerCode = managerCode;
+  }
+}
+
 export function managerFailureCode(error) {
+  const direct = error && typeof error === 'object' ? error.managerCode : null;
+  if (typeof direct === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(direct)) return direct;
   const stderr = error && typeof error === 'object' && error.result?.stderr;
   if (typeof stderr !== 'string') return null;
   for (const line of stderr.trim().split('\n').reverse()) {
     try {
       const parsed = JSON.parse(line);
-      if (parsed?.schemaVersion === 1 && parsed?.ok === false && typeof parsed.code === 'string') {
+      if (
+        parsed?.schemaVersion === 1 && parsed?.ok === false &&
+        typeof parsed.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(parsed.code)
+      ) {
         return parsed.code;
       }
     } catch {
@@ -114,12 +127,19 @@ async function runManager(config, command, request) {
     await writeFile(localPath, `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 });
     await chmod(localPath, 0o600);
     await uploadFile(config.ssh, localPath, remotePath);
-    const result = await runRemoteScript(
-      config.ssh,
-      remoteScripts.manager,
-      [config.service.user, String(config.service.uid), remotePath, requestId, command],
-      { timeoutMs: 600_000, maxOutputBytes: 4 * 1024 * 1024 },
-    );
+    let result;
+    try {
+      result = await runRemoteScript(
+        config.ssh,
+        remoteScripts.manager,
+        [config.service.user, String(config.service.uid), remotePath, requestId, command],
+        { timeoutMs: 600_000, maxOutputBytes: 4 * 1024 * 1024 },
+      );
+    } catch (error) {
+      const managerCode = managerFailureCode(error);
+      if (managerCode) throw new ManagerCommandError(command, managerCode, error);
+      throw error;
+    }
     return parseManager(result.stdout, command);
   } finally {
     await rm(root, { recursive: true, force: true });

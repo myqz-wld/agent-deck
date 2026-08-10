@@ -5,6 +5,7 @@ import { readPrivateJsonFile } from '@hosts/linux-runtime/config-file';
 import { parseExactFlags } from '@hosts/linux-runtime/validation';
 
 import { createProductionLinuxInstanceManager } from './adapters/production';
+import { LinuxHostAdapterError } from './adapters/errors';
 import {
   type InstanceManagerCliCommand,
   type InstanceManagerCliRequest,
@@ -87,7 +88,9 @@ export async function runInstanceManagerEntrypoint(
 }
 
 export function instanceManagerEntrypointFailure(error: unknown): string {
-  const code = error instanceof InstanceManagerError ? error.code : 'internal_error';
+  const code = error instanceof InstanceManagerError || error instanceof LinuxHostAdapterError
+    ? error.code
+    : 'internal_error';
   return JSON.stringify({
     schemaVersion: 1,
     ok: false,
