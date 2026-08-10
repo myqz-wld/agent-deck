@@ -9,7 +9,7 @@ base_branch: feature/linux-remote-core-ssh-im
 final_commit: da3293ac2de2dce0b366d946ba5ec70097268721
 merged_main_commit: 523a5b56c61178b341b9e7650a74f9569b0246a3
 related_changelog: CHANGELOG_565
-successor_plan: .ref/plans/remote-local-capability-parity.md
+successor_plan: ref/plans/recent-3-days/PLAN_32_remote-local-capability-parity.md
 ---
 
 # Linux Remote Core / SSH / IM Continuation Plan
@@ -23,8 +23,8 @@ lifecycle, and Workspace-bound Worker foundation described here was delivered th
 `da3293ac2de2dce0b366d946ba5ec70097268721`. The branch then merged `origin/main` at
 `523a5b56c61178b341b9e7650a74f9569b0246a3` without changing those product decisions.
 
-The unfinished Local/Remote feature-parity and provider-sandbox composition work has moved to
-`.ref/plans/remote-local-capability-parity.md`. This archive does not claim real Full Podman,
+The unfinished Local/Remote feature-parity and provider-sandbox composition work moved to
+`ref/plans/recent-3-days/PLAN_32_remote-local-capability-parity.md`. This archive does not claim real Full Podman,
 systemd/sshd, target-Linux native-module, or live Feishu provider acceptance.
 
 ## Goal and invariants
