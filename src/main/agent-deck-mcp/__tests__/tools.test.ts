@@ -121,6 +121,9 @@ vi.mock('@main/session/hand-off/ownership', () => ({
 
 const closeCalls: string[] = [];
 const strictRollbackCloseCalls: string[] = [];
+const closedRuntimeCloseCalls: string[] = [];
+const runtimeCwds = new Map<string, string>();
+let retainRuntimeCwdAfterClose = false;
 let closeThrow: Error | null = null;
 const recordPermCalls: Array<{ sid: string; mode: string | undefined }> = [];
 const notifyTeamCalls: string[] = [];
@@ -302,6 +305,11 @@ vi.mock('@main/adapters/registry', () => ({
         closeSessionForRollback: async (sid: string) => {
           strictRollbackCloseCalls.push(sid);
         },
+        closeSession: async (sid: string) => {
+          closedRuntimeCloseCalls.push(sid);
+          if (!retainRuntimeCwdAfterClose) runtimeCwds.delete(sid);
+        },
+        getRuntimeCwd: (sid: string) => runtimeCwds.get(sid) ?? null,
       };
     },
   },
@@ -596,6 +604,9 @@ beforeEach(async () => {
   addMemberCalls.length = 0;
   closeCalls.length = 0;
   strictRollbackCloseCalls.length = 0;
+  closedRuntimeCloseCalls.length = 0;
+  runtimeCwds.clear();
+  retainRuntimeCwdAfterClose = false;
   closeThrow = null;
   notifyTeamCalls.length = 0;
   recordPermCalls.length = 0;
@@ -2346,17 +2357,38 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     expect(parsed.data.hint).toContain('Call list_sessions');
   });
 
-  it('idempotent on already-closed target', async () => {
+  it('retires stale adapter cwd state on an already-closed target', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
     seedSession('teammate', { lifecycle: 'closed' });
+    runtimeCwds.set('teammate', '/repo/.agent-deck/worktrees/reviewer');
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'teammate',
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.alreadyClosed).toBe(true);
-    expect(closeCalls).toEqual([]); // 已 closed 不重复调
+    expect(closeCalls).toEqual([]);
+    expect(closedRuntimeCloseCalls).toEqual(['teammate']);
+    expect(runtimeCwds.has('teammate')).toBe(false);
+  });
+
+  it('fails closed when an already-closed target retains its runtime cwd', async () => {
+    const tools = await getTools({ transport: 'http' });
+    seedSession('lead');
+    seedSession('teammate', { lifecycle: 'closed' });
+    runtimeCwds.set('teammate', '/repo/.agent-deck/worktrees/reviewer');
+    retainRuntimeCwdAfterClose = true;
+
+    const r = await tools.get('shutdown_session').handler({
+      sessionId: 'teammate',
+    }, {});
+    const parsed = parseResult(r);
+
+    expect(parsed.isError).toBe(true);
+    expect(parsed.data.error).toContain('runtime cwd');
+    expect(parsed.data.hint).toContain('重启 Agent Deck');
+    expect(runtimeCwds.has('teammate')).toBe(true);
   });
 
   it('calls sessionManager.close on active target', async () => {
@@ -2385,8 +2417,8 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
 
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toBe('adapter close failed');
-    expect(parsed.data.hint).toContain('Call get_session with this sessionId');
-    expect(parsed.data.hint).toContain('retry once');
+    expect(parsed.data.hint).toContain('get_session');
+    expect(parsed.data.hint).toContain('重试一次');
   });
 });
 
