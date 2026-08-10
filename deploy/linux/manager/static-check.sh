@@ -37,6 +37,16 @@ for required in \
   bounded-command.ts flock-lease.ts linux-filesystem.ts podman-rootless.ts production.ts systemd-user.ts; do
   [[ -f "$adapter_root/$required" ]] || fail "missing production Linux host adapter: $required"
 done
+[[ -f "$source_root/entrypoint.ts" && -f "$source_root/cli-config.ts" ]] ||
+  fail 'instance manager command entrypoint is missing'
+grep -Fq "'describe'" "$source_root/entrypoint.ts" ||
+  fail 'deployment state command is missing'
+grep -Fq 'readPrivateJsonFile' "$source_root/entrypoint.ts" ||
+  fail 'instance manager command must read bounded private JSON files'
+manager_wrapper="$repo_root/resources/bin/agent-deck-instance-manager"
+bash -n "$manager_wrapper"
+grep -Fq '/usr/bin/node /opt/agent-deck/linux-headless/instance-manager/index.mjs' "$manager_wrapper" ||
+  fail 'instance manager wrapper must use the fixed packaged Node entrypoint'
 grep -Fq 'O_NOFOLLOW' "$adapter_root/linux-filesystem.ts" ||
   fail 'production filesystem adapter must reject symlink leaf traversal'
 grep -Fq '/proc/self/fd' "$adapter_root/linux-filesystem.ts" ||

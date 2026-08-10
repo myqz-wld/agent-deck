@@ -1,5 +1,47 @@
 # Relay-only installation paths
 
+## Config-driven deployment
+
+Use `deploy/examples/relay-server.config.example.json` and
+`deploy/examples/relay-worker.config.example.json` as the exact starting shapes. Keep the live
+copies, SSH private key, Worker connection credential, and runtime config outside the repository.
+The server config requires a pinned `known_hosts` file, an immutable digest-pinned Node base image,
+the rootless service-account uid, and explicit egress/quota acceptance. The Worker example uses a
+dedicated home-directory Workspace and must not point into the Agent Deck repository.
+
+Run the non-mutating checks first, then deploy the server before configuring the Worker:
+
+```bash
+pnpm deploy:relay-server -- --config /absolute/path/relay-server.json --check
+pnpm deploy:relay-server -- --config /absolute/path/relay-server.json --dry-run
+pnpm deploy:relay-server -- --config /absolute/path/relay-server.json --deploy
+
+pnpm deploy:relay-worker -- --config /absolute/path/relay-worker.json --check
+pnpm deploy:relay-worker -- --config /absolute/path/relay-worker.json --deploy
+pnpm deploy:relay-worker -- --config /absolute/path/relay-worker.json --verify
+```
+
+The server script refuses dirty or upstream-diverged source, builds Relay from the exact current
+commit, installs root-owned host artifacts, builds the image under the rootless service account,
+and records only its immutable digest. `--upgrade` stages the next generation and performs a
+health-gated cutover; `--rollback` uses the manager's recoverable previous generation. `--verify`
+checks only the existing systemd user unit, exact container, image, and health state and therefore
+can also inspect an older unmanaged Relay without adopting it.
+
+The target host must already have the service user at `/var/lib/agent-deck`, Node.js 22 or newer at
+`/usr/bin/node`, rootless Podman at `/usr/bin/podman`, cgroup v2, a working systemd user manager,
+and non-interactive sudo for the SSH administrator. Enable linger before `--check`; the mutating
+install also enables it. The acceptance booleans are not probes: set them only after the 1 GiB
+state quota and public-only egress restrictions have independent evidence. The script then writes
+the legacy and generation-specific evidence with the exact unit digest expected by the manager.
+
+Worker `--upgrade` revalidates the installed signed runtime and kickstarts the existing
+LaunchAgent/systemd-user definition. It does not replace the Agent Deck application. Worker
+rollback requires reinstalling the older signed app and running `--upgrade`; there is no fake
+generation rollback for local Worker binaries. After the first successful configuration and secure
+deletion of the transfer copy, set `credentialFile` to `null`; `--check`, `--upgrade`, and
+`--verify` do not require the private transfer credential.
+
 The image materializes and verifies a root-owned, non-symlink `/usr/bin/node`; the image and host
 forced-command service also install the root-owned non-symlink bundle
 `/opt/agent-deck/linux-headless/relay/index.mjs` and
@@ -87,6 +129,8 @@ the canonical non-symlink result of `realpath "$(command -v docker)"`; Homebrew'
 rejected. The supervisor and Worker share only that private
 runtime root and the selected Workspace. Worker/Core receives no OCI engine socket, while the
 container receives no Worker private root, SSH identity, or reusable provider credential.
+The Relay server and Worker deployment scripts intentionally leave this optional supervisor and
+its dedicated provider credential untouched; Claude and Codex operation does not require it.
 
 Removing the local configuration does not revoke the Relay-side credential. Revoke or rotate that
 credential separately on the Relay host before transferring a replacement Worker credential.

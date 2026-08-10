@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "name": "aws-relay-on-mac",
+  "ssh": {
+    "host": "relay.example.com",
+    "port": 22,
+    "user": "ubuntu",
+    "identityFile": "/Users/yourname/.ssh/relay.pem",
+    "knownHostsFile": "/Users/yourname/.ssh/known_hosts"
+  },
+  "service": {
+    "user": "agentdeck",
+    "uid": 1001,
+    "home": "/var/lib/agent-deck"
+  },
+  "instance": {
+    "id": "aws-relay-on-mac",
+    "runtimeConfigFile": "/Users/yourname/.config/agent-deck-deploy/relay-runtime.json"
+  },
+  "image": {
+    "repository": "localhost/agent-deck-relay",
+    "runtimeImage": "docker.io/library/node@sha256:REPLACE_WITH_64_LOWERCASE_HEX_DIGEST"
+  },
+  "acceptance": {
+    "egressVerified": true,
+    "quotaVerified": true,
+    "stateQuotaBytes": 1073741824
+  }
+}

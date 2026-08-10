@@ -288,7 +288,7 @@ if (JSON.stringify(packageFixture.entries) !== JSON.stringify(builtManifest.entr
   fail('built entries differ from the package fixture');
 }
 if (
-  packageFixture.instanceManagerKind !== 'host-only-library' ||
+  packageFixture.instanceManagerKind !== 'host-only-command' ||
   packageFixture.hostRequirements?.platform !== 'linux' ||
   packageFixture.hostRequirements?.procSelfFd !== true ||
   packageFixture.hostRequirements?.podman !== 'rootless' ||
@@ -319,6 +319,9 @@ if (
   install?.serverCoreHostForcedCommand !== '/opt/agent-deck/bin/agent-deck-full-bridge' ||
   install?.relayCommand !== '/opt/agent-deck/bin/agent-deck-relay' ||
   install?.relayHealthGateCommand !== '/opt/agent-deck/bin/agent-deck-relay-health-gate' ||
+  install?.instanceManagerBundle !==
+    '/opt/agent-deck/linux-headless/instance-manager/index.mjs' ||
+  install?.instanceManagerCommand !== '/opt/agent-deck/bin/agent-deck-instance-manager' ||
   install?.localWorkerCommand !== '/opt/agent-deck/bin/agent-deck-worker' ||
   install?.localWorkerRuntimeBundle !==
     '/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs' ||
@@ -624,6 +627,7 @@ for (const wrapper of [
   'agent-deckd',
   'agent-deck-full-bridge',
   'agent-deck-relay',
+  'agent-deck-instance-manager',
   'agent-deck-worker',
   'agent-deck-provider-supervisor',
   'provider-session',

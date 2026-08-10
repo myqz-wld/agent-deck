@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "runtime": "node",
   "target": "node22",
-  "instanceManagerKind": "host-only-library",
+  "instanceManagerKind": "host-only-command",
   "entries": {
     "server-core": "server-core/index.mjs",
     "server-core-runtime": "server-core-runtime/index.mjs",
@@ -50,6 +50,8 @@
     "relayBundle": "/opt/agent-deck/linux-headless/relay/index.mjs",
     "relayCommand": "/opt/agent-deck/bin/agent-deck-relay",
     "relayHealthGateCommand": "/opt/agent-deck/bin/agent-deck-relay-health-gate",
+    "instanceManagerBundle": "/opt/agent-deck/linux-headless/instance-manager/index.mjs",
+    "instanceManagerCommand": "/opt/agent-deck/bin/agent-deck-instance-manager",
     "localWorkerBundle": "/opt/agent-deck/linux-headless/local-worker/index.mjs",
     "localWorkerRuntimeBundle": "/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs",
     "localWorkerCommand": "/opt/agent-deck/bin/agent-deck-worker",

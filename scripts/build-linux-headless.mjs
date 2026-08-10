@@ -17,7 +17,7 @@ const roles = Object.freeze({
   'provider-session-supervisor': 'src/hosts/provider-session/host-entrypoint.ts',
   'provider-session': 'src/hosts/provider-session/shim-entrypoint.ts',
   feishu: 'src/hosts/feishu/entrypoint.ts',
-  'instance-manager': 'src/hosts/instance-manager/adapters/production.ts',
+  'instance-manager': 'src/hosts/instance-manager/entrypoint.ts',
 });
 const aliases = Object.fromEntries([
   'clients', 'composition', 'contracts', 'core', 'gateways',
