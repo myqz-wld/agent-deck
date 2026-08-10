@@ -76,6 +76,17 @@ async function validateCutoverTarget(
     trustedRootUid: context.trustedRootUid,
     maxAgeMs: context.limits.maxEvidenceAgeMs,
   });
+  if (loaded.record.topology === 'full') {
+    await runCutoverTargetPreflight(context, loaded, target);
+  }
+  return snapshots;
+}
+
+async function runCutoverTargetPreflight(
+  context: InstanceManagerContext,
+  loaded: LoadedInstance,
+  target: ManagedVersion,
+): Promise<void> {
   const evidence = evidencePaths(loaded.record.topology, loaded.paths);
   await runStartPreflight({
     topology: loaded.record.topology,
@@ -85,7 +96,6 @@ async function validateCutoverTarget(
     quotaEvidencePath: evidence[1],
     context,
   });
-  return snapshots;
 }
 
 async function recoverPrevious(
@@ -200,6 +210,9 @@ async function cutover(
     );
     stopped = true;
     journal.stored = await advanceJournal(context, loaded.paths, journal.stored, { phase: 'stopped' });
+    if (loaded.record.topology === 'relay') {
+      await runCutoverTargetPreflight(context, loaded, target);
+    }
     journal.stored = await advanceJournal(context, loaded.paths, journal.stored, { phase: 'config_installing' });
     installedConfigIdentity = await atomicWrite(
       context.ports.fileSystem,
