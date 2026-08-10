@@ -171,30 +171,46 @@ The Linux role definitions and their explicit evidence limits are documented in
 
 ### Deployment automation
 
-The config-driven entrypoints under `scripts/` use the current clean, upstream-aligned Git commit
-as the release identity. Server operations require an explicitly pinned SSH identity and
-`known_hosts` file, stage only the current headless artifacts, pin every image by SHA-256, and use
-the host-only instance manager for generation-fenced create, upgrade, rollback, and health checks.
-Start from the exact examples in `deploy/examples/` and keep live configs, credentials, and private
-keys outside the repository.
+Copy only the required examples to a private directory outside the repository, set mode `0600`,
+then replace every placeholder and referenced runtime or credential path:
 
-Each entrypoint accepts exactly one action flag. `--check` is a prerequisite check, `--dry-run`
-prints a non-mutating plan, and `--verify` is read-only. Server entrypoints additionally support
-`--deploy`, `--upgrade`, and `--rollback`; the Worker supports `--deploy` and `--upgrade`. Worker
-rollback requires reinstalling the intended older signed Agent Deck app and restarting the Worker,
-so the Worker script does not pretend to provide a server-style generation rollback.
+- [`relay-server.config.example.json`](deploy/examples/relay-server.config.example.json)
+- [`relay-worker.config.example.json`](deploy/examples/relay-worker.config.example.json)
+- [`full-server.config.example.json`](deploy/examples/full-server.config.example.json)
 
-The scripts do not convert a normal rootless network or filesystem into egress/quota enforcement.
-Setting the acceptance fields to `true` is an operator attestation that those external controls
-were independently verified; the script binds that attestation to the exact instance, generation,
-image, and rendered unit digest. Full also requires a prebuilt digest-pinned appliance image and an
-already verified `agent-deck-<instance>-egress` network. Existing unmanaged instances are never
-silently adopted: `--verify` can inspect them, but lifecycle operations require an explicit
-instance-manager migration or a new managed instance.
+For a first Relay deployment, deploy the server before its local Worker:
 
-Remote Grok remains optional in both topologies. These three entrypoints do not provision the
-independently managed Provider supervisor; use the provider-session deployment contract only when
-Remote Grok is required.
+```bash
+pnpm deploy:relay-server -- --config /absolute/path/relay-server.json --check
+pnpm deploy:relay-server -- --config /absolute/path/relay-server.json --dry-run
+pnpm deploy:relay-server -- --config /absolute/path/relay-server.json --deploy
+pnpm deploy:relay-worker -- --config /absolute/path/relay-worker.json --check
+pnpm deploy:relay-worker -- --config /absolute/path/relay-worker.json --deploy
+pnpm deploy:relay-worker -- --config /absolute/path/relay-worker.json --verify
+```
+
+Full has no separate Worker:
+
+```bash
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --check
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --dry-run
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --deploy
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --verify
+```
+
+| Target | Supported actions |
+| --- | --- |
+| Relay Server | `--check`, `--dry-run`, `--deploy`, `--upgrade`, `--rollback`, `--verify` |
+| Relay Worker | `--check`, `--dry-run`, `--deploy`, `--upgrade`, `--verify` |
+| Full Server | `--check`, `--dry-run`, `--deploy`, `--upgrade`, `--rollback`, `--verify` |
+
+Server release actions require a clean, committed, pushed, upstream-aligned checkout, pinned SSH
+host keys, and digest-pinned images. Egress/quota fields attest to independently verified controls;
+the scripts do not create those controls. `--verify` may inspect an unmanaged instance but never
+adopts it. Keep the Worker Workspace outside this repository; Worker rollback requires reinstalling
+the intended signed app. Remote Grok and its Provider supervisor remain optional and separately
+managed. See the [Relay](deploy/linux/relay/README.snippet.md) and
+[Full](deploy/linux/full/README.snippet.md) deployment contracts for prerequisites and recovery.
 
 ## Documentation
 

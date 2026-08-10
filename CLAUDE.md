@@ -57,6 +57,33 @@ Before adding or changing user-facing UI or CLI copy, read `UI_COPY_LANGUAGE.md`
 
 Repeated design decisions to keep in mind before making changes:
 
+### Linux Deployment Automation
+
+When a task deploys or verifies Relay Server, Relay Worker, or Full Server, use
+`pnpm deploy:relay-server`, `pnpm deploy:relay-worker`, or `pnpm deploy:full-server`; do not replace
+these entrypoints with ad hoc SSH, Podman, or service mutations.
+
+- Start from the matching file under `deploy/examples/`. Keep live configs, SSH identities,
+  credentials, and provider auth outside the repository in mode-0600 files.
+- Before server `--check`, `--dry-run`, `--deploy`, `--upgrade`, or `--rollback`, fix any confirmed
+  source issue, run the required validation, commit the exact release, and push it to the configured
+  upstream. The server scripts reject dirty, unpushed, or upstream-diverged releases.
+- Run server lifecycle work in this order: `--check`, `--dry-run`, one exact mutation, then
+  `--verify`. Use `--rollback` only through the server instance manager's recorded generation.
+- Use `--verify` for existing unmanaged instances. Do not silently adopt them; stop and request an
+  explicit migration decision or deploy a new managed instance.
+- Deploy Relay Server before Relay Worker. Keep the Worker Workspace outside this repository and
+  set `credentialFile` to `null` after the first successful configuration and secure transfer-file
+  removal. Worker binary rollback requires reinstalling the intended signed Agent Deck app.
+- Full requires a separately built digest-pinned appliance image and independently verified egress
+  and quota controls. The acceptance booleans record operator attestations; they do not provision
+  enforcement.
+- Remote Grok Provider supervisor provisioning and its dedicated credential remain optional,
+  separately managed lifecycles in both topologies.
+
+The concise command sequence is in `README.md`; topology-specific prerequisites and recovery are in
+`deploy/linux/relay/README.snippet.md` and `deploy/linux/full/README.snippet.md`.
+
 ### Authentication And Session Boundaries
 
 - The app **does not read or write** any API key. All SDK calls use local `~/.claude/.credentials.json` (OAuth).
