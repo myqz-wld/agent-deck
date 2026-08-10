@@ -8,7 +8,7 @@ const BASH = '/usr/bin/bash';
 const RELAY_STATIC_SUCCESS =
   'relay preflight: static exact-template checks passed; runtime gates remain unverified\n';
 const RELAY_RUNTIME_SUCCESS =
-  'relay preflight: runtime identity and external egress/quota acceptance gates passed\n';
+  'relay preflight: runtime identity, health scheduler, and external egress/quota acceptance gates passed\n';
 
 async function runExact(
   commands: CommandPort,
