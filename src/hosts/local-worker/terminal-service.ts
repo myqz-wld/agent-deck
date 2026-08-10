@@ -186,7 +186,7 @@ ${darwinEnvironment(launch)}
   </dict>
   <key>WorkingDirectory</key><string>${xml(worker.config.workspaceSandbox!.workspaceRoot)}</string>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>Umask</key><integer>63</integer>
   <key>StandardOutPath</key><string>${xml(stdoutPath)}</string>

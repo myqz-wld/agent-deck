@@ -166,7 +166,8 @@ describe('terminal-only Local Worker service lifecycle', () => {
     });
     const plist = join(paths.serviceRoot, `com.agentdeck.worker.${worker.workerConfigId}.plist`);
     expect(statSync(plist).mode & 0o777).toBe(0o600);
-    expect(readFileSync(plist, 'utf8')).toContain('<key>KeepAlive</key>');
+    expect(readFileSync(plist, 'utf8')).toContain('<key>KeepAlive</key><true/>');
+    expect(readFileSync(plist, 'utf8')).not.toContain('SuccessfulExit');
     expect(readFileSync(plist, 'utf8')).toContain(paths.workspaceRoot);
     expect(readFileSync(plist, 'utf8')).toContain(`<string>${paths.sandboxLauncherPath}</string>`);
     expect(readFileSync(plist, 'utf8')).toContain(join(worker.privateRoot, 'workspace.bookmark'));
