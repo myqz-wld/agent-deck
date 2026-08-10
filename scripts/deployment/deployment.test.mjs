@@ -1,13 +1,14 @@
-import { mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseEntrypointArgs, SERVER_ACTIONS } from './common.mjs';
 import { loadServerConfig, loadWorkerConfig } from './config.mjs';
 import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.mjs';
-import { buildFullSecretsArchive } from './artifacts.mjs';
+import { buildEvidenceArchive, buildFullSecretsArchive } from './artifacts.mjs';
 import { managerFailureCode } from './server.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -222,6 +223,21 @@ describe('deployment automation contracts', () => {
     });
     try {
       expect((await stat(prepared.archive)).mode & 0o777).toBe(0o600);
+    } finally {
+      await prepared.cleanup();
+    }
+  });
+
+  it('omits host extended attributes from portable deployment archives', async () => {
+    const prepared = await buildEvidenceArchive({
+      legacyEgress: 'legacy egress\n',
+      legacyQuota: 'legacy quota\n',
+      exactEgress: 'exact egress\n',
+      exactQuota: 'exact quota\n',
+    });
+    try {
+      const tarBytes = gunzipSync(await readFile(prepared.archive));
+      expect(tarBytes.includes(Buffer.from('LIBARCHIVE.xattr'))).toBe(false);
     } finally {
       await prepared.cleanup();
     }
