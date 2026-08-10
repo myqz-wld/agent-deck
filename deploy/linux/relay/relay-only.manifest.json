@@ -83,6 +83,13 @@
     "quadletTemplateIsEnforcementProof": false,
     "probe": "pinned relay image must read config read-only and create uid-owned mode-0600 files in state and control volumes under keep-id"
   },
+  "healthSchedulerAcceptanceGate": {
+    "requiredForProductionStart": true,
+    "defaultStatus": "unverified",
+    "quadletTemplateIsEnforcementProof": false,
+    "timeoutSeconds": 20,
+    "probe": "rootless Podman must automatically advance a hardened canary from starting to healthy through the user systemd health timer"
+  },
   "evidenceStorage": {
     "pathTemplate": "/etc/agent-deck-relay/evidence/%i",
     "owner": "root",

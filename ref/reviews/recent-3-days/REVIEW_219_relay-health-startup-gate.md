@@ -34,6 +34,7 @@ scripts/check-linux-headless.mjs
 | Severity | Finding | Resolution |
 |---|---|---|
 | HIGH | Ubuntu 24.04's Podman 4.9 accepts `Notify=healthy` but generates `--sdnotify=conmon`, allowing systemd activation before the Relay control-socket healthcheck succeeds. This violates the documented startup contract and creates an unsafe reboot/startup window. | Added a bounded, fixed-command `ExecStartPost` health gate. It is redundant on Podman versions with native healthy sd-notify and supplies the missing activation fence on 4.9. |
+| HIGH | Runtime preflight checked the ordinary user manager and a one-shot Podman container but did not prove that Podman's separate user-systemd health timer could advance container health. A stale private systemd bus on the target left a canary indefinitely in `starting`. | Added a hardened 20-second health-scheduler canary to the mandatory runtime preflight. Production start now fails unless the real timer advances the canary to `healthy`. |
 | MEDIUM | Runtime preflight resolved `podman` through ambient `PATH`, while generated Quadlets and the package contract use `/usr/bin/podman`. The identity probe could therefore validate a different executable than production starts. | Preflight now verifies root ownership and mode 0755 for `/usr/bin/podman` and invokes that exact path for info, image, and container probes. |
 
 No confirmed source finding remains open.
@@ -42,8 +43,12 @@ No confirmed source finding remains open.
 
 - A real Podman 4.9.3 generated unit reproduced `--sdnotify=conmon` from `Notify=healthy`; the
   current official Podman contract documents `healthy` as a distinct sd-notify mode.
+- A target-host canary reproduced a stale private user-systemd bus as health status remaining
+  `starting`; a user-manager reexec restored the private bus without stopping the live Relay.
+- After repair, target-host Podman 4.9 canaries advanced to `healthy` automatically, passed the host
+  gate, and rejected `unhealthy` with exit status 70.
 - Relay static checks pass and reject a replaced `ExecStartPost`, changed health contract, missing
-  fixed Podman path, or weakened helper command fence.
+  fixed Podman path, weakened helper command fence, or removed scheduler canary.
 - `pnpm typecheck` passed architecture boundaries and both TypeScript projects.
 - The full Electron-ABI suite passed 860 files and 5,612 tests; 3 environment-dependent tests were
   skipped.
@@ -56,12 +61,13 @@ No confirmed source finding remains open.
   grammar.
 - Added `ExecStartPost` to the exact Quadlet and preflight contract.
 - Bound runtime probes and health polling to `/usr/bin/podman`.
+- Required a real Podman/user-systemd health transition in runtime preflight.
 - Synchronized the Relay manifest, Linux package map, deployment docs, and tamper checks.
 
 ## Residual risk
 
-- The live AWS Relay has not yet been cut over. The committed source fix must pass a real healthy
-  and unhealthy canary plus the complete runtime preflight before deployment.
+- The live AWS Relay has not yet been cut over. The committed source fix must pass the complete
+  runtime preflight immediately before deployment.
 - The helper deliberately keeps `HOME` and `XDG_RUNTIME_DIR` from the systemd user manager because
   rootless Podman storage and runtime discovery require them; loader, Node, and shell startup
   injection variables are cleared.

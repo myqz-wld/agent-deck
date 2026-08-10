@@ -28,8 +28,10 @@ the systemd unit started before the private Relay control socket passes its conf
 - Added the helper to the canonical Linux install mapping and Relay/manager installation docs.
 - Made the runtime preflight require root-owned mode-0755 regular files at both the helper path and
   `/usr/bin/podman`; all runtime probes now use that exact Podman executable.
+- Added a hardened 20-second runtime canary that requires Podman's user-systemd health timer to
+  advance a real container from `starting` to `healthy` before production start.
 - Extended the Relay manifest and tamper checks so removing, replacing, or weakening the host gate
-  fails static validation.
+  or its scheduler acceptance probe fails static validation.
 
 ## Validation
 
@@ -40,9 +42,11 @@ the systemd unit started before the private Relay control socket passes its conf
 - `bash deploy/linux/relay/static-check.sh`
 - `bash deploy/linux/manager/static-check.sh`
 - `git diff --check`
+- Target Ubuntu 24.04 / Podman 4.9 canaries: `healthy` was accepted and `unhealthy` was rejected
+  with exit status 70 after restoring the user-systemd private bus.
 
-Real rootless Podman 4.9 Quadlet acceptance on the target Ubuntu 24.04 ARM64 host remains the final
-deployment gate and will be recorded after the source fix is committed.
+Complete runtime preflight and live Quadlet acceptance on the target Ubuntu 24.04 ARM64 host remain
+the final deployment gates and will be recorded after the source fix is committed.
 
 ## Do Not Split Protection
 
