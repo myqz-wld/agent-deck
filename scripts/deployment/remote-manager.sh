@@ -14,6 +14,7 @@ service_uid=${2:-}
 request_source=${3:-}
 request_id=${4:-}
 command=${5:-}
+service_home=/var/lib/agent-deck
 [[ "$service_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'service user 无效'
 [[ "$service_uid" =~ ^[1-9][0-9]{0,9}$ ]] || fail 'service uid 无效'
 [[ "$request_source" =~ ^/tmp/agent-deck-request-[a-z0-9-]+\.json$ && -f "$request_source" && ! -L "$request_source" ]] || fail 'request source 无效'
@@ -32,7 +33,8 @@ cleanup() {
 trap cleanup EXIT
 /usr/bin/sudo -n /usr/bin/install -o "$service_user" -g "$service_group" -m 0600 -T \
   -- "$request_source" "$request_target"
-/usr/bin/sudo -n -u "$service_user" \
+/usr/bin/sudo -n -u "$service_user" /usr/bin/env -i PATH=/usr/bin:/bin \
+  /usr/bin/env --chdir="$service_home" \
   /opt/agent-deck/bin/agent-deck-instance-manager "$command" \
   --config /etc/agent-deck-manager/config.json \
   --request "$request_target"

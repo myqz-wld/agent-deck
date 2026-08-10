@@ -133,7 +133,8 @@ run_service() {
   /usr/bin/sudo -n -u "$service_user" /usr/bin/env -i \
     HOME="$service_home" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
     XDG_RUNTIME_DIR="$runtime_root" \
-    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_root/bus" "$@"
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_root/bus" \
+    /usr/bin/env --chdir="$service_home" "$@"
 }
 if [[ "$topology" == relay ]]; then
   run_service /usr/bin/podman pull --quiet "$input_image" >/dev/null
