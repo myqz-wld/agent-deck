@@ -172,6 +172,25 @@ function upgradeRequest(config, release, image, state) {
   };
 }
 
+export function relayCutoverRecovery(config, state, status) {
+  if (config.topology !== 'relay' || status?.systemd?.activeState === 'active') return null;
+  const current = state.versions.find((version) => version.version === state.currentVersion);
+  if (!current) throw new Error('当前 Relay generation 缺少可恢复的 release 记录。');
+  return {
+    plan: { generation: state.generation, version: state.currentVersion },
+    details: current,
+  };
+}
+
+async function ensureRelayRunningForCutover(config, state) {
+  if (config.topology !== 'relay') return;
+  const status = await runManager(config, 'status', selector(config));
+  const recovery = relayCutoverRecovery(config, state, status);
+  if (!recovery) return;
+  await installEvidence(config, recovery.plan, recovery.details);
+  await runManager(config, 'start', selector(config));
+}
+
 async function installEvidence(config, plan, details) {
   const evidence = buildAcceptanceEvidence({
     topology: config.topology,
@@ -309,6 +328,7 @@ async function upgrade(config) {
   if (state.currentVersion === release.version) {
     throw new Error('目标实例已经运行当前 Git release；无需 upgrade。');
   }
+  await ensureRelayRunningForCutover(config, state);
   const request = upgradeRequest(config, release, image, state);
   const plan = await runManager(config, 'plan-upgrade', request);
   const unitSha256 = sha256(await renderManagedUnit(config, image));

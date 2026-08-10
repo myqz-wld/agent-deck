@@ -9,7 +9,7 @@ import { parseEntrypointArgs, SERVER_ACTIONS } from './common.mjs';
 import { loadServerConfig, loadWorkerConfig } from './config.mjs';
 import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.mjs';
 import { buildEvidenceArchive, buildFullSecretsArchive } from './artifacts.mjs';
-import { managerFailureCode } from './server.mjs';
+import { managerFailureCode, relayCutoverRecovery } from './server.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temporaryRoots = [];
@@ -51,6 +51,25 @@ describe('deployment automation contracts', () => {
     expect(managerFailureCode({ managerCode: 'filesystem_failed' })).toBe('filesystem_failed');
     expect(managerFailureCode({ managerCode: 'unsafe\ncode' })).toBeNull();
     expect(managerFailureCode(new Error('transport failed'))).toBeNull();
+  });
+
+  it('repairs only an inactive Relay before a generation cutover', () => {
+    const state = {
+      generation: 1,
+      currentVersion: 'git-current',
+      versions: [{ version: 'git-current', image: `localhost/relay@${digest}` }],
+    };
+    const inactive = { systemd: { activeState: 'inactive' } };
+    expect(relayCutoverRecovery({ topology: 'relay' }, state, inactive)).toEqual({
+      plan: { generation: 1, version: 'git-current' },
+      details: state.versions[0],
+    });
+    expect(relayCutoverRecovery(
+      { topology: 'relay' },
+      state,
+      { systemd: { activeState: 'active' } },
+    )).toBeNull();
+    expect(relayCutoverRecovery({ topology: 'full' }, state, inactive)).toBeNull();
   });
 
   it('loads a strict Relay config with pinned SSH and image inputs', async () => {
