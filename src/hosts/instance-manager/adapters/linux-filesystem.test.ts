@@ -67,6 +67,14 @@ describe('Linux descriptor filesystem', () => {
       .rejects.toMatchObject({ code: 'filesystem_failed' });
   });
 
+  it('reports a leaf below a missing parent as absent', async () => {
+    const root = await tempRoot();
+    const fileSystem = adapter();
+
+    await expect(fileSystem.lstat(join(root, 'missing', 'record.json')))
+      .resolves.toBeNull();
+  });
+
   it('revalidates a bounded same-device tree before descriptor-relative deletion', async () => {
     const root = await tempRoot();
     const fileSystem = adapter();

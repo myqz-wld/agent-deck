@@ -70,13 +70,18 @@ function identity(stat: Stats): FileIdentity {
 }
 
 function isMissing(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && 'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT');
+  let current = error;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (!current || typeof current !== 'object') return false;
+    if ('code' in current && (current as { code?: unknown }).code === 'ENOENT') return true;
+    current = 'cause' in current ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
 }
 
 function wrap(message: string, error: unknown): LinuxHostAdapterError {
   if (error instanceof LinuxHostAdapterError) return error;
-  return new LinuxHostAdapterError('filesystem_failed', message);
+  return new LinuxHostAdapterError('filesystem_failed', message, { cause: error });
 }
 
 function compareTrees(left: ExactTreeSnapshot, right: ExactTreeSnapshot): boolean {
@@ -187,7 +192,12 @@ export class LinuxDescriptorFileSystem implements FileSystemPort {
   async lstat(path: string): Promise<FileIdentity | null> {
     const segments = assertPath(path);
     if (segments.length === 0) return identity(await nodeLstat('/'));
-    return this.withParent(path, (parent, child) => this.lstatFrom(parent, child));
+    try {
+      return await this.withParent(path, (parent, child) => this.lstatFrom(parent, child));
+    } catch (error) {
+      if (isMissing(error)) return null;
+      throw error;
+    }
   }
 
   async readFile(path: string, maxBytes: number): Promise<Uint8Array> {
