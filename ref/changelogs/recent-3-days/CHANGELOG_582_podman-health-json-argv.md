@@ -25,5 +25,9 @@ without the Dockerfile-only "CMD" marker that Podman attempted to execute inside
 - Target Podman 4.9 comparison: ["CMD","/usr/bin/true"] became unhealthy, while
   ["/usr/bin/true"] became healthy.
 - git diff --check
+- A production-shaped Relay canary reached running/healthy with health exit status 0 and a
+  mode-0600 control socket.
+- Complete target preflight, live cutover, restart, Mac Worker reconnection, and client bridge
+  admission passed.
 
-Complete target runtime preflight and live Relay Quadlet acceptance remain the deployment gates.
+Live Relay acceptance is complete; Full appliance real-host acceptance remains outside this task.

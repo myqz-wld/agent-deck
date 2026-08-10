@@ -45,13 +45,14 @@ No confirmed source finding remains open.
 - A target-host comparison reproduced unhealthy and exit status 70 with the marker, then reached
   healthy with executable-first argv.
 - Relay and Full static checks plus Linux headless package checks passed.
+- A production-shaped Relay canary reported health exit 0, and the corrected live Quadlet passed
+  cutover, restart, Mac Worker reconnection, and client bridge admission.
 
 ## Residual risk
 
-- The corrected Relay Quadlet has not yet passed the complete target preflight and live cutover.
 - Full appliance was corrected for protocol parity but has not received real-host acceptance in
   this task.
 
 ## Final verdict
 
-PASS for Relay source readiness. Full appliance real-host acceptance remains staged.
+PASS for Relay source and live acceptance. Full appliance real-host acceptance remains staged.

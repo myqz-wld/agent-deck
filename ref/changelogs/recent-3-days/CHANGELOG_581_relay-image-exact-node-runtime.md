@@ -25,6 +25,9 @@ entrypoint, and runtime preflight executes that path instead of resolving `node`
 - `pnpm check:linux-headless`
 - `pnpm verify:linux-headless`
 - `git diff --check`
+- Target ARM64 image `sha256:33138e8ab0549f1df7801a834869f148a8d5275b0c56b239ccd9bbb06a680be2`
+  exposed root-owned mode-0755 regular `/usr/bin/node`, executed the Relay wrapper, and retained the
+  verified wrapper/bundle hashes.
+- Complete runtime preflight, live cutover, health-gated restart, and Worker reconnection passed.
 
-Target-host ARM64 image build, wrapper execution, complete runtime preflight, and live Quadlet
-acceptance remain gated until this source fix is committed.
+Target-host image and live runtime acceptance are complete.
