@@ -34,6 +34,9 @@ node -e '
   const identity = manifest.runtimeIdentityAcceptanceGate;
   if (!identity.requiredForProductionStart || identity.defaultStatus !== "unverified") process.exit(1);
   if (identity.quadletTemplateIsEnforcementProof !== false) process.exit(1);
+  const scheduler = manifest.healthSchedulerAcceptanceGate;
+  if (!scheduler.requiredForProductionStart || scheduler.defaultStatus !== "unverified") process.exit(1);
+  if (scheduler.quadletTemplateIsEnforcementProof !== false || scheduler.timeoutSeconds !== 20) process.exit(1);
   const control = manifest.controlSocket;
   if (control.hostSocketTemplate !== "%t/agent-deck-relay/%i/control.sock") process.exit(1);
   if (control.containerSocketTemplate !== "/run/agent-deck-relay/%i/control.sock") process.exit(1);
@@ -119,6 +122,18 @@ grep -Fq 'podman_executable='"'"'/usr/bin/podman'"'"'' "$relay_dir/preflight.sh"
   echo 'relay static check: runtime preflight must use the packaged Podman path' >&2
   exit 1
 }
+for required in \
+  'health_probe_name="agent-deck-relay-preflight-$runtime_uid-$$"' \
+  '--network=slirp4netns:allow_host_loopback=false' \
+  '--health-cmd=/usr/bin/true' \
+  '--health-interval=1s' \
+  'timeout 20s "$health_gate" --container "$health_probe_name"' \
+  "'{{.State.Health.Status}}'"; do
+  grep -Fq -- "$required" "$relay_dir/preflight.sh" || {
+    echo "relay static check: runtime preflight lost health scheduler probe: $required" >&2
+    exit 1
+  }
+done
 if grep -Eq '(command -v|eval|/bin/sh|-c[[:space:]])' "$health_gate"; then
   echo 'relay static check: host health gate must remain fixed-command only' >&2
   exit 1

@@ -3,8 +3,8 @@
 The image and host forced-command service install `/usr/bin/node`, the root-owned non-symlink
 bundle `/opt/agent-deck/linux-headless/relay/index.mjs`, and
 `/opt/agent-deck/bin/agent-deck-relay`. Install the root-owned mode-0755 host startup gate at
-`/opt/agent-deck/bin/agent-deck-relay-health-gate`. The wrapper starts Node with a fixed minimal environment;
-SSH cannot select a different Node, bundle root, loader option, or `PATH`.
+`/opt/agent-deck/bin/agent-deck-relay-health-gate`. The wrapper starts Node with a fixed minimal
+environment; SSH cannot select a different Node, bundle root, loader option, or `PATH`.
 
 Each Local Worker installs `/opt/agent-deck/bin/agent-deck-worker`,
 `/opt/agent-deck/linux-headless/local-worker/index.mjs`, and the packaged concrete runtime
@@ -119,3 +119,5 @@ Podman versions that support healthy sd-notify; the bounded host startup gate en
 wait on older Quadlet generators. An unhealthy container is killed for bounded systemd restart,
 and the instance manager still polls
 the exact container name, image, running state, and health within its configured total deadline.
+Runtime preflight also launches a hardened canary and requires rootless Podman to advance its
+health state automatically, which rejects a stale or unavailable user-systemd health scheduler.

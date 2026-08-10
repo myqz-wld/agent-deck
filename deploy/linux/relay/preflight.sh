@@ -316,12 +316,23 @@ fi
 probe_name=".agent-deck-preflight-$instance_id-$$"
 probe_state="$state_dir/$probe_name"
 probe_control="$control_dir/$probe_name"
+health_probe_name="agent-deck-relay-preflight-$runtime_uid-$$"
 if [[ -e "$probe_state" || -L "$probe_state" || -e "$probe_control" || -L "$probe_control" ]]; then
   echo "relay preflight: uid probe path collision" >&2
   exit 72
 fi
+if "$podman_executable" container exists "$health_probe_name"; then
+  echo "relay preflight: health scheduler probe container collision" >&2
+  exit 72
+fi
 cleanup_probe() {
   rm -f -- "$probe_state" "$probe_control"
+  if "$podman_executable" container exists "$health_probe_name"; then
+    "$podman_executable" stop --time 2 "$health_probe_name" >/dev/null 2>&1 || true
+    if "$podman_executable" container exists "$health_probe_name"; then
+      "$podman_executable" container rm --force "$health_probe_name" >/dev/null 2>&1 || true
+    fi
+  fi
 }
 trap cleanup_probe EXIT
 
@@ -359,7 +370,39 @@ for probe_file in "$probe_state" "$probe_control"; do
     exit 72
   fi
 done
+
+if ! "$podman_executable" run --detach --rm \
+  --name "$health_probe_name" \
+  --network=slirp4netns:allow_host_loopback=false \
+  --read-only \
+  --userns=keep-id \
+  --user "$runtime_uid:$runtime_gid" \
+  --security-opt=no-new-privileges \
+  --cap-drop=all \
+  --pids-limit=32 \
+  --memory=128m \
+  --cpus=0.25 \
+  --health-cmd=/usr/bin/true \
+  --health-interval=1s \
+  --health-timeout=1s \
+  --health-retries=1 \
+  --health-start-period=0s \
+  --entrypoint=node \
+  "$image_ref" \
+  -e 'process.on("SIGTERM", () => process.exit(0)); setInterval(() => {}, 60_000);' \
+  >/dev/null; then
+  echo "relay preflight: Podman health scheduler probe failed to start" >&2
+  exit 72
+fi
+if ! timeout 20s "$health_gate" --container "$health_probe_name"; then
+  echo "relay preflight: Podman health scheduler did not advance the probe to healthy" >&2
+  exit 72
+fi
+if [[ "$("$podman_executable" inspect --type container --format '{{.State.Health.Status}}' "$health_probe_name")" != healthy ]]; then
+  echo "relay preflight: Podman health scheduler probe did not retain healthy state" >&2
+  exit 72
+fi
 cleanup_probe
 trap - EXIT
 
-echo "relay preflight: runtime identity and external egress/quota acceptance gates passed"
+echo "relay preflight: runtime identity, health scheduler, and external egress/quota acceptance gates passed"
