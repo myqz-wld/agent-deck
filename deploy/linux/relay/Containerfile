@@ -8,7 +8,17 @@ LABEL org.opencontainers.image.title="Agent Deck Relay" \
 WORKDIR /opt/agent-deck
 COPY build/linux-headless/relay/ /opt/agent-deck/linux-headless/relay/
 COPY resources/bin/agent-deck-relay /opt/agent-deck/bin/agent-deck-relay
-RUN chmod 0755 /opt/agent-deck/bin/agent-deck-relay \
+RUN if [ ! -e /usr/bin/node ]; then \
+      test -f /usr/local/bin/node \
+      && test ! -L /usr/local/bin/node \
+      && ln /usr/local/bin/node /usr/bin/node; \
+    fi \
+    && test -f /usr/bin/node \
+    && test ! -L /usr/bin/node \
+    && test "$(readlink -f -- /usr/bin/node)" = /usr/bin/node \
+    && test "$(stat -c '%u' -- /usr/bin/node)" = 0 \
+    && chmod 0755 /usr/bin/node \
+    && chmod 0755 /opt/agent-deck/bin/agent-deck-relay \
     && chmod -R go-w /opt/agent-deck
 
 USER 10001:10001

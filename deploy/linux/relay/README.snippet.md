@@ -1,7 +1,8 @@
 # Relay-only installation paths
 
-The image and host forced-command service install `/usr/bin/node`, the root-owned non-symlink
-bundle `/opt/agent-deck/linux-headless/relay/index.mjs`, and
+The image materializes and verifies a root-owned, non-symlink `/usr/bin/node`; the image and host
+forced-command service also install the root-owned non-symlink bundle
+`/opt/agent-deck/linux-headless/relay/index.mjs` and
 `/opt/agent-deck/bin/agent-deck-relay`. Install the root-owned mode-0755 host startup gate at
 `/opt/agent-deck/bin/agent-deck-relay-health-gate`. The wrapper starts Node with a fixed minimal
 environment; SSH cannot select a different Node, bundle root, loader option, or `PATH`.
@@ -121,3 +122,5 @@ and the instance manager still polls
 the exact container name, image, running state, and health within its configured total deadline.
 Runtime preflight also launches a hardened canary and requires rootless Podman to advance its
 health state automatically, which rejects a stale or unavailable user-systemd health scheduler.
+Both runtime probes execute the exact `/usr/bin/node` required by the Relay wrapper rather than a
+`PATH`-resolved executable.

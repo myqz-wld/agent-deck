@@ -81,7 +81,7 @@
     "requiredForProductionStart": true,
     "defaultStatus": "unverified",
     "quadletTemplateIsEnforcementProof": false,
-    "probe": "pinned relay image must read config read-only and create uid-owned mode-0600 files in state and control volumes under keep-id"
+    "probe": "pinned relay image must execute exact /usr/bin/node, read config read-only, and create uid-owned mode-0600 files in state and control volumes under keep-id"
   },
   "healthSchedulerAcceptanceGate": {
     "requiredForProductionStart": true,
