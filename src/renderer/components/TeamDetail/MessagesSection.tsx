@@ -1,6 +1,5 @@
 import type { JSX } from 'react';
-import type { AgentDeckMessage } from '@shared/types';
-import { useSessionStore } from '@renderer/stores/session-store';
+import type { TeamMessageDto, TeamSessionDto } from '@contracts/index';
 import { Section, EmptyState } from './Header';
 import { relativeTime } from './helpers';
 import { MarkdownText } from '@renderer/components/MarkdownText';
@@ -9,11 +8,11 @@ import { MessageStatusBadge } from '../MessageStatusBadge';
 
 /** Team messages keep their original inline Markdown presentation. */
 interface Props {
-  messages: AgentDeckMessage[];
+  messages: TeamMessageDto[];
+  sessions?: ReadonlyMap<string, TeamSessionDto>;
 }
 
-export function MessagesSection({ messages }: Props): JSX.Element {
-  const sessions = useSessionStore((s) => s.sessions);
+export function MessagesSection({ messages, sessions = new Map() }: Props): JSX.Element {
 
   if (messages.length === 0) {
     return (

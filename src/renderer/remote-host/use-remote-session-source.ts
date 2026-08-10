@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  REMOTE_HOST_PAGE_LIMIT,
-  remoteSessionPageRequest,
-} from '@shared/remote-host';
+import { REMOTE_HOST_PAGE_LIMIT, remoteSessionPageRequest } from '@shared/remote-host';
 import type {
   RemoteHostJsonObject,
   RemoteHostPendingListDto,
@@ -25,6 +22,7 @@ import { useRemoteTaskRecords } from './use-remote-task-records';
 import { useRemoteEventRecords } from './use-remote-event-records';
 import { RemotePlanReviewTransports } from './remote-plan-review-transports';
 import { useRemotePendingHydrator } from './use-remote-pending-hydrator';
+import { pendingPresentationBindingDigest } from './remote-pending-presentation';
 const EMPTY_PENDING = new Map<string, RemoteHostPendingListDto>();
 
 export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSessionSourceView {
@@ -460,6 +458,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         throw new Error('待处理展示已切换，请刷新后重试。');
       }
       const request = presentation.request;
+      const expectedPresentationDigest = await pendingPresentationBindingDigest(request);
       const payload = {
         profileId: activeProfileId,
         sessionId: request.sessionId,
@@ -467,6 +466,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         action,
         ...(value === undefined ? {} : { value }),
         expectedRevision: presentation.revision,
+        expectedPresentationDigest,
       };
       await intents.current.run(identityRef.current, 'pending', payload, (intentId) =>
         window.api.respondRemoteHostPending({ ...payload, intentId }));

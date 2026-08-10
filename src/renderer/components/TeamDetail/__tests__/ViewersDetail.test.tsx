@@ -6,7 +6,8 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import type { AgentDeckMessage, AgentEvent, TaskRecord } from '@shared/types';
+import type { JsonValue, SessionEventDto } from '@contracts/index';
+import type { AgentDeckMessage, TaskRecord } from '@shared/types';
 import { EventsSection } from '../EventsSection';
 import { TasksSection } from '../TasksSection';
 import { MessagesSection } from '../MessagesSection';
@@ -30,9 +31,9 @@ afterEach(() => cleanup());
 
 function event(
   id: number,
-  kind: AgentEvent['kind'],
-  payload: unknown,
-): AgentEvent & { id: number } {
+  kind: SessionEventDto['kind'],
+  payload: JsonValue,
+): SessionEventDto {
   return {
     id,
     sessionId: 'from',

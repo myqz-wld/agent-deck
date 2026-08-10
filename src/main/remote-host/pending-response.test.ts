@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AgentDeckCapability,
+  createPermissionPreviewDisplay,
   MCP_PLAN_PRESENTATION_SCHEMA,
   type AgentDeckCapability as Capability,
   type CoreMethodMap,
@@ -24,6 +25,7 @@ import type {
 import { MemoryCredentialMaterialStore, testConnectionSelections } from './test-connection-fixture';
 import type { RemoteHostProfileDocument } from './profile-document';
 import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
+import { remoteHostPendingPresentationDigest } from './pending-response-policy';
 import { RemoteHostService } from './service';
 
 type PendingListResult = CoreMethodMap['pending.list']['result'];
@@ -51,7 +53,7 @@ function pendingResult(
       status: options.status ?? 'pending',
       createdAt: 1,
       expiresAt: null,
-      display: options.display ?? {},
+      display: options.display ?? { tool: 'Bash', command: 'pwd' },
     }],
     revision: options.revision ?? 7,
   };
@@ -62,11 +64,11 @@ function harness(capabilities = Object.values(AgentDeckCapability) as Capability
   const remote = remoteProfile('remote-pending', 'server-core');
   const client = new ControlledClient({ ...remoteHello(remote), capabilities });
   let currentPending = pendingResult();
+  let currentPresentationDigest = remoteHostPendingPresentationDigest(currentPending.requests[0]!);
+  let pendingResponder = () => ({ status: 'resolved' as const, revision: currentPending.revision + 1 });
   vi.mocked(client.request).mockImplementation((async (method: keyof CoreMethodMap) => {
     if (method === 'pending.list') return structuredClone(currentPending);
-    if (method === 'pending.respond') {
-      return { status: 'resolved', revision: currentPending.revision + 1 };
-    }
+    if (method === 'pending.respond') return pendingResponder();
     throw new Error(`unexpected ${method}`);
   }) as typeof client.request);
   const registry = new ElectronHostRegistry({
@@ -92,12 +94,26 @@ function harness(capabilities = Object.values(AgentDeckCapability) as Capability
     local,
     remote,
     service,
-    setPending(value: PendingListResult): void { currentPending = value; },
+    response(
+      action: RemoteHostPendingAction,
+      options: Partial<RemoteHostPendingResponseDto> = {},
+    ): RemoteHostPendingResponseDto {
+      return response(action, currentPresentationDigest, options);
+    },
+    setPending(value: PendingListResult, bindPresentation = true): void {
+      currentPending = value;
+      const request = value.requests[0];
+      if (bindPresentation && request?.status === 'pending') {
+        currentPresentationDigest = remoteHostPendingPresentationDigest(request);
+      }
+    },
+    setPendingResponder(responder: typeof pendingResponder): void { pendingResponder = responder; },
   };
 }
 
 function response(
   action: RemoteHostPendingAction,
+  expectedPresentationDigest: string,
   options: Partial<RemoteHostPendingResponseDto> = {},
 ): RemoteHostPendingResponseDto {
   return {
@@ -106,6 +122,7 @@ function response(
     requestId: 'request-1',
     action,
     expectedRevision: 7,
+    expectedPresentationDigest,
     intentId: 'intent-pending-1',
     ...options,
   };
@@ -120,7 +137,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     const context = harness();
     await context.service.connect(context.remote.id);
 
-    await expect(context.service.respondPending(response('approve'))).resolves.toEqual({
+    await expect(context.service.respondPending(context.response('approve'))).resolves.toEqual({
       status: 'resolved',
       revision: 8,
     });
@@ -148,6 +165,13 @@ describe('RemoteHostService authoritative pending response policy', () => {
       display: {},
       value: { answer: 'fallback-answer' },
     },
+    {
+      display: { questionIds: ['question-a', 'question-b'] },
+      value: {
+        'question-a': { selected: ['production'], other: 'urgent', note: 'watch metrics' },
+        'question-b': { selected: [] },
+      },
+    },
   ])('accepts exact authoritative ask-user-question keys: %#', async ({ display, value }) => {
     const context = harness();
     context.setPending(pendingResult('ask-user-question', {
@@ -155,7 +179,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     }));
     await context.service.connect(context.remote.id);
 
-    await context.service.respondPending(response('submit', {
+    await context.service.respondPending(context.response('submit', {
       value: value as unknown as RemoteHostJsonValue,
     }));
 
@@ -177,7 +201,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
       },
     }));
     await context.service.connect(context.remote.id);
-    await context.service.respondPending(response('reject', {
+    await context.service.respondPending(context.response('reject', {
       value: { feedback: 'Change the order' },
     }));
     expect(vi.mocked(context.client.request).mock.calls[1]?.[1]).toEqual({
@@ -186,6 +210,70 @@ describe('RemoteHostService authoritative pending response policy', () => {
       action: 'reject',
       value: { feedback: 'Change the order' },
     });
+  });
+
+  it('forwards exact native exit-plan target modes and feedback', async () => {
+    const context = harness();
+    context.setPending(pendingResult('exit-plan', {
+      display: { title: 'Deploy', summary: '# Plan' },
+    }));
+    await context.service.connect(context.remote.id);
+    await context.service.respondPending(context.response('accept', {
+      value: { targetMode: 'acceptEdits' },
+    }));
+    expect(vi.mocked(context.client.request).mock.calls[1]?.[1]).toEqual({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      action: 'accept',
+      value: { targetMode: 'acceptEdits' },
+    });
+
+    const feedback = harness();
+    feedback.setPending(pendingResult('exit-plan', {
+      display: { summary: '# Plan' },
+    }));
+    await feedback.service.connect(feedback.remote.id);
+    await feedback.service.respondPending(feedback.response('reject', {
+      value: { feedback: 'Add rollback' },
+    }));
+    expect(vi.mocked(feedback.client.request).mock.calls[1]?.[1]).toEqual({
+      sessionId: 'session-1',
+      requestId: 'request-1',
+      action: 'reject',
+      value: { feedback: 'Add rollback' },
+    });
+  });
+
+  it('allows fallback exit-plan approval without native target modes', async () => {
+    const context = harness();
+    context.setPending(pendingResult('exit-plan', {
+      display: { title: 'Deploy', summary: '# Plan', hint: 'future metadata' },
+    }));
+    await context.service.connect(context.remote.id);
+
+    await context.service.respondPending(context.response('accept'));
+    expect(vi.mocked(context.client.request).mock.calls[1]?.[1]).toEqual({
+      sessionId: 'session-1', requestId: 'request-1', action: 'accept',
+    });
+  });
+
+  it('permits denial but rejects approval when the authorization preview is incomplete', async () => {
+    const display = createPermissionPreviewDisplay('Write', {
+      file_path: '/workspace/large.txt', content: 'x'.repeat(100_000),
+    });
+    expect(display.complete).toBe(false);
+    const denied = harness();
+    denied.setPending(pendingResult('permission', { display }));
+    await denied.service.connect(denied.remote.id);
+    await expect(denied.service.respondPending(denied.response('deny')))
+      .resolves.toMatchObject({ status: 'resolved' });
+
+    const approved = harness();
+    approved.setPending(pendingResult('permission', { display }));
+    await approved.service.connect(approved.remote.id);
+    await expect(approved.service.respondPending(approved.response('approve')))
+      .rejects.toMatchObject({ code: 'invalid_request' });
+    expect(methods(approved.client)).toEqual(['pending.list']);
   });
 
   it.each([
@@ -199,7 +287,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     context.setPending(pendingResult(kind));
     await context.service.connect(context.remote.id);
 
-    await expect(context.service.respondPending(response(action))).rejects.toMatchObject({
+    await expect(context.service.respondPending(context.response(action))).rejects.toMatchObject({
       code: 'invalid_request',
     });
     expect(methods(context.client)).toEqual(['pending.list']);
@@ -236,6 +324,18 @@ describe('RemoteHostService authoritative pending response policy', () => {
       action: 'reject',
       value: { feedback: 'not an MCP presentation' },
     },
+    {
+      kind: 'exit-plan',
+      display: { schema: MCP_PLAN_PRESENTATION_SCHEMA, plan: '# Plan' },
+      action: 'accept',
+      value: { targetMode: 'acceptEdits' },
+    },
+    {
+      kind: 'exit-plan',
+      display: { summary: '# Plan' },
+      action: 'accept',
+      value: { targetMode: 'unknown' },
+    },
   ] as const)('rejects mismatched or forbidden values before pending.respond: %#', async (item) => {
     const context = harness();
     context.setPending(pendingResult(item.kind, {
@@ -243,7 +343,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     }));
     await context.service.connect(context.remote.id);
 
-    const operation = context.service.respondPending(response(item.action, {
+    const operation = context.service.respondPending(context.response(item.action, {
       value: item.value as unknown as RemoteHostJsonValue,
     }));
     await expect(operation).rejects.toMatchObject({ code: 'invalid_request' });
@@ -251,31 +351,49 @@ describe('RemoteHostService authoritative pending response policy', () => {
     expect(methods(context.client)).toEqual(['pending.list']);
   });
 
-  it.each([
-    {
-      pending: pendingResult('permission', { revision: 8 }),
-      expectedRevision: 7,
-      code: 'conflict',
-    },
-    {
-      pending: pendingResult('permission', { status: 'resolved' }),
-      expectedRevision: 7,
-      code: 'already_decided',
-    },
-    {
-      pending: { requests: [], revision: 7 } as PendingListResult,
-      expectedRevision: 7,
-      code: 'not_found',
-    },
-  ])('rejects stale, non-pending, or missing authoritative state: $code', async (item) => {
+  it('accepts an unchanged presentation at a later global revision and rejects display drift', async () => {
     const context = harness();
-    context.setPending(item.pending);
+    context.setPending(pendingResult('permission', { revision: 8 }));
     await context.service.connect(context.remote.id);
 
-    await expect(context.service.respondPending(response('approve', {
-      expectedRevision: item.expectedRevision,
-    }))).rejects.toMatchObject({ code: item.code });
-    expect(methods(context.client)).toEqual(['pending.list']);
+    await expect(context.service.respondPending(context.response('approve', {
+      expectedRevision: 7,
+    }))).resolves.toMatchObject({ status: 'resolved' });
+    expect(vi.mocked(context.client.request).mock.calls[1]?.[2])
+      .toMatchObject({ expectedRevision: 8 });
+
+    const drifted = pendingResult('permission', {
+      revision: 9,
+      display: { tool: 'Bash', command: 'rm -rf workspace' },
+    });
+    context.setPending(drifted, false);
+    await expect(context.service.respondPending(context.response('approve')))
+      .rejects.toMatchObject({ code: 'conflict' });
+    expect(methods(context.client)).toEqual(['pending.list', 'pending.respond', 'pending.list']);
+  });
+
+  it('forwards the same intent to Core replay after success may have lost its response', async () => {
+    const context = harness();
+    await context.service.connect(context.remote.id);
+    const request = context.response('approve');
+    let first = true;
+    context.setPendingResponder(() => {
+      if (first) {
+        first = false;
+        context.setPending({ requests: [], revision: 8 }, false);
+        throw Object.assign(new Error('response was lost'), { code: 'deadline_exceeded' });
+      }
+      return { status: 'resolved', revision: 8 };
+    });
+
+    await expect(context.service.respondPending(request)).rejects.toThrow('response was lost');
+    await expect(context.service.respondPending(request)).resolves.toEqual({
+      status: 'resolved', revision: 8,
+    });
+    const responses = vi.mocked(context.client.request).mock.calls
+      .filter(([method]) => method === 'pending.respond');
+    expect(responses).toHaveLength(2);
+    expect(responses[1]?.[2]?.idempotencyKey).toBe(responses[0]?.[2]?.idempotencyKey);
   });
 
   it.each([
@@ -285,7 +403,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     const context = harness(capabilities);
     await context.service.connect(context.remote.id);
 
-    await expect(context.service.respondPending(response('approve'))).rejects.toMatchObject({
+    await expect(context.service.respondPending(context.response('approve'))).rejects.toMatchObject({
       code: 'capability_unavailable',
     });
     expect(context.client.request).not.toHaveBeenCalled();
@@ -297,7 +415,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     vi.mocked(context.client.request).mockImplementationOnce(() => pending.promise as never);
     await context.service.connect(context.remote.id);
 
-    const operation = context.service.respondPending(response('approve'));
+    const operation = context.service.respondPending(context.response('approve'));
     await context.service.setSourceMode('local');
     pending.resolve(pendingResult());
 
@@ -311,7 +429,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
     vi.mocked(context.client.request).mockImplementationOnce(() => pending.promise as never);
     await context.service.connect(context.remote.id);
 
-    const operation = context.service.respondPending(response('approve'));
+    const operation = context.service.respondPending(context.response('approve'));
     await context.service.connect(context.remote.id);
     pending.resolve(pendingResult());
 

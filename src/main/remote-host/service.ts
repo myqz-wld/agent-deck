@@ -57,6 +57,7 @@ import {
 import { RemoteHostDetailReader } from './service-detail-reader';
 import { RemoteHostIssueController } from './service-issues';
 import { RemoteHostPlanReviewController } from './service-plan-review';
+import { RemoteHostTeamController, RemoteHostUsageController } from './service-teams-usage';
 import {
   requestRemoteHistory,
   requestRemotePending,
@@ -80,6 +81,7 @@ export interface RemoteHostServiceOptions {
 export class RemoteHostService {
   readonly detail: RemoteHostDetailReader; readonly issues: RemoteHostIssueController;
   readonly planReviews: RemoteHostPlanReviewController;
+  readonly teams: RemoteHostTeamController; readonly usage: RemoteHostUsageController;
   private readonly profiles: RemoteHostProfileController;
   private mutationTail: Promise<void> = Promise.resolve();
   private lifecycle: 'active' | 'shutting-down' | 'stopped' = 'active';
@@ -94,19 +96,17 @@ export class RemoteHostService {
       handleEvent: () => undefined,
       stop: () => Promise.resolve(),
     };
-    this.detail = new RemoteHostDetailReader((profileId, method, run, additionalMethods) =>
-      this.requestScoped(profileId, method, run, additionalMethods));
-    this.issues = new RemoteHostIssueController(
-      (profileId, method, run, additionalMethods) =>
-        this.requestScoped(profileId, method, run, additionalMethods),
-      (operation, profileId, intentId) => this.mutationId(operation, profileId, intentId),
-    );
+    const requestScoped = this.requestScoped.bind(this);
+    const mutationId = this.mutationId.bind(this);
+    this.detail = new RemoteHostDetailReader(requestScoped);
+    this.issues = new RemoteHostIssueController(requestScoped, mutationId);
     this.planReviews = new RemoteHostPlanReviewController(
-      (profileId, method, run, additionalMethods) =>
-        this.requestScoped(profileId, method, run, additionalMethods),
+      requestScoped,
       (scope) => this.assertScope(scope),
-      (operation, profileId, intentId) => this.mutationId(operation, profileId, intentId),
+      mutationId,
     );
+    this.teams = new RemoteHostTeamController(requestScoped, mutationId);
+    this.usage = new RemoteHostUsageController(requestScoped);
     const document = options.store.load();
     this.profiles = new RemoteHostProfileController(document, {
       registry: options.registry,

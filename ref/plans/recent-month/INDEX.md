@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-03 | `PLAN_30_context-window-observation-unification.md` | completed | Unify observed context capacity across continuations | CHANGELOG_430 / REVIEW_212 |
 | 2026-07-31 | `PLAN_29_review-208-defect-remediation.md` | completed | Close all fifteen defects confirmed by REVIEW_208 | CHANGELOG_427 / REVIEW_209 |
 | 2026-07-31 | `PLAN_28_compatibility-and-defect-audit.md` | completed | Clean internal compatibility seams and audit functional defects | REVIEW_208 / PLAN_29 |
 | 2026-07-31 | `PLAN_27_runtime-integration-repair.md` | completed with documented residuals | Repair reviewed Hook, gateway, and Codex provider integrations | CHANGELOG_425 / REVIEW_206 |
@@ -38,9 +39,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 | 2026-07-14 | `PLAN_9_runtime-controls-handoff-context.md` | completed | Auto-save runtime controls and restore hand-off coverage | CHANGELOG_363 / REVIEW_158 |
 | 2026-07-12 | `PLAN_8_core-snapshot-ui-copy-review.md` | completed | Audit core snapshots and simplify user-facing copy | REVIEW_154 |
 | 2026-07-12 | `PLAN_7_storage-maintenance-worker-provider-compaction.md` | completed | Isolate live storage maintenance and restore compact generation | CHANGELOG_362 / REVIEW_153 |
-| 2026-07-11 | `PLAN_6_storage-performance-observability-svg-icons.md` | completed | Stage storage maintenance and unify renderer SVG icons | CHANGELOG_361 / REVIEW_152 |
-| 2026-07-11 | `PLAN_5_unified-continuation-context.md` | completed | Unify provider-neutral continuation context | CHANGELOG_358 / REVIEW_148 |
-| 2026-07-11 | `PLAN_4_session-pinning-reviewer-model.md` | completed | Add persistent Live pins and Codex reviewer default | CHANGELOG_359 / REVIEW_149 |
-| 2026-07-10 | `PLAN_3_codex-collaboration-raw-events.md` | completed | Restore fresh Codex collaboration events | REVIEW_147 |
-| 2026-07-09 | `PLAN_2_spawn-session-native-fork.md` | completed | Add safe provider-native parallel forks | CHANGELOG_353 / REVIEW_144 |
-| 2026-07-09 | `PLAN_1_project-engineering-foundation.md` | completed | Align Repository Engineering Foundation | CHANGELOG_349 |

@@ -7,8 +7,8 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises the cwd-free session-console breaking surface as protocol 2', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 0 });
+  it('advertises Usage capability negotiation as protocol 2.1', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 1 });
   });
   it('selects the lower additive minor version for the same major', () => {
     expect(negotiateProtocolVersion({ major: 1, minor: 2 }, { major: 1, minor: 5 })).toEqual({

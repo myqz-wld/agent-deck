@@ -19,6 +19,9 @@ import { AppWorkspace } from './AppWorkspace';
 import { useRemoteHostSnapshot } from './remote-host/use-remote-host-snapshot';
 import { useRemoteSessionSource } from './remote-host/use-remote-session-source';
 import { clearDetailForSourceView } from './remote-host/source-navigation';
+import { isAppViewAvailable } from './app-view-catalog';
+import { useRemoteUsageSource } from './remote-host/use-remote-usage-source';
+import { remoteSessionActivityCounts } from './remote-host/session-summary-presentation';
 import { RemoteHostManagerDialog } from './components/RemoteHost/RemoteHostManagerDialog';
 registerBuiltinDiffRenderers();
 const logger = log.scope('renderer-app');
@@ -34,7 +37,6 @@ export function App(): JSX.Element {
   const remoteHosts = useRemoteHostSnapshot();
   const remoteSource = useRemoteSessionSource(remoteHosts);
   const remoteMode = remoteHosts.snapshot?.sourceMode === 'remote';
-  const remoteIssuesAvailable = remoteSource.capabilities.has('issues');
   const setRemoteSourceMode = remoteHosts.setSourceMode;
   const sessions = useSessionStore((s) => s.sessions);
   const selectedId = useSessionStore((s) => s.selectedSessionId);
@@ -42,14 +44,12 @@ export function App(): JSX.Element {
   const setPendingAll = useSessionStore((s) => s.setPendingRequestsAll);
 
   const [view, setView] = useState<AppView>('live');
+  const remoteUsage = useRemoteUsageSource(remoteSource, remoteMode, view === 'data');
   useEffect(() => {
-    if (
-      remoteMode &&
-      (view === 'teams' || view === 'data' || (view === 'issues' && !remoteIssuesAvailable))
-    ) {
+    if (remoteMode && !isAppViewAvailable(view, true, remoteSource.capabilities)) {
       setView('live');
     }
-  }, [remoteIssuesAvailable, remoteMode, view]);
+  }, [remoteMode, remoteSource.capabilities, view]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -334,12 +334,9 @@ export function App(): JSX.Element {
       ),
     [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap, pendingDiffsMap],
   );
+  const remoteActivityCounts = remoteSessionActivityCounts(remoteSource.sessions);
   const stats = remoteMode
-    ? {
-        total: remoteSource.sessionTotal,
-        waiting: [...remoteSource.pendingBySession.values()].filter((row) => row.requests.length > 0).length,
-        working: remoteSource.sessions.filter((session) => session.status === 'active').length,
-      }
+    ? { total: remoteSource.sessionTotal, ...remoteActivityCounts }
     : localStats;
   const pending = remoteMode
     ? [...remoteSource.pendingBySession.values()].reduce((sum, row) => sum + row.requests.length, 0)
@@ -398,7 +395,8 @@ export function App(): JSX.Element {
           sourceMode={remoteHosts.snapshot?.sourceMode ?? 'local'}
           selectedRemoteProfileId={remoteHosts.snapshot?.selectedRemoteProfileId ?? null}
           remoteProfiles={remoteHosts.snapshot?.profiles ?? []}
-          remoteIssuesAvailable={remoteIssuesAvailable}
+          remoteCapabilities={remoteSource.capabilities}
+          remoteUsage={remoteMode ? remoteUsage : null}
           onViewChange={(nextView) => {
             setView(nextView);
             clearDetailForSourceView(remoteMode, nextView, () => select(null),
@@ -445,6 +443,7 @@ export function App(): JSX.Element {
             remoteMode={remoteMode}
             localDetail={detailSession}
             remoteSource={remoteSource}
+            remoteUsage={remoteUsage}
             onLocalClose={() => {
               if (view === 'history') setHistorySession(null);
               else select(null);

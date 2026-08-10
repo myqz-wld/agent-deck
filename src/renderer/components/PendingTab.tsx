@@ -16,6 +16,8 @@ import { CheckIcon, ChevronRightIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIco
 import log from '@renderer/utils/logger';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RemotePendingRequests } from './pending-rows/RemotePendingRequests';
+import { remoteSessionStatus } from '@renderer/remote-host/session-summary-presentation';
+import { agentIdLabel } from './TeamDetail/helpers';
 
 /**
  * Central pending surface. It reuses the same request rows as the activity
@@ -95,33 +97,55 @@ function RemotePendingTab({
     return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">此远程 Core 未提供待处理读取能力。</div>;
   }
   if (buckets.length === 0) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">没有待处理事项</div>;
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
+        <div className="text-[12px]">没有待处理事项</div>
+        <div className="text-[10px] leading-relaxed text-deck-muted/70">
+          当前没有需要你授权、回答或确认的内容。
+        </div>
+      </div>
+    );
   }
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2">
       <ol className="flex flex-col gap-3">
-        {buckets.map(({ session, pending }) => (
-          <li key={`${source.identity}:${session.id}`} className="rounded-md border border-deck-border bg-white/[0.02]">
-            <button
-              type="button"
-              onClick={() => onOpenSession(session.id)}
-              className="flex w-full items-center justify-between border-b border-deck-border/50 px-3 py-2 text-left hover:bg-white/[0.04]"
-            >
-              <span className="truncate text-[12px] font-medium">{session.title ?? '未命名 session'}</span>
-              <span className="rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting">{pending.requests.length}</span>
-            </button>
-            <div className="p-2">
-              <RemotePendingRequests
-                pending={pending}
-                sourceIdentity={source.identity}
-                agentId={session.adapterId}
-                busy={source.busy}
-                onRespond={source.respondPending}
-                planReviewTransport={source.planReviewTransport}
-              />
-            </div>
-          </li>
-        ))}
+        {buckets.map(({ session, pending }) => {
+          const status = remoteSessionStatus(session.status);
+          return (
+            <li key={`${source.identity}:${session.id}`} className="rounded-md border border-deck-border bg-white/[0.02]">
+              <button
+                type="button"
+                onClick={() => onOpenSession(session.id)}
+                className="flex w-full items-center justify-between border-b border-deck-border/50 px-3 py-2 text-left hover:bg-white/[0.04]"
+              >
+                <span className="shrink-0">
+                  <StatusBadge
+                    activity={status.activity}
+                    lifecycle={status.lifecycle}
+                    archived={false}
+                  />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+                  {session.title ?? '未命名会话'}
+                </span>
+                <span className="text-[9px] text-deck-muted/60">
+                  {agentIdLabel(session.adapterId)}
+                </span>
+                <span className="rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting">{pending.requests.length}</span>
+              </button>
+              <div className="p-2">
+                <RemotePendingRequests
+                  pending={pending}
+                  sourceIdentity={source.identity}
+                  agentId={session.adapterId}
+                  busy={source.busy}
+                  onRespond={source.respondPending}
+                  planReviewTransport={source.planReviewTransport}
+                />
+              </div>
+            </li>
+          );
+        })}
       </ol>
     </div>
   );

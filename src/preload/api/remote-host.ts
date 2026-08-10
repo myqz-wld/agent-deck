@@ -56,6 +56,19 @@ import type {
   RemoteHostSummaryRequestDto,
   RemoteHostTaskListDto,
   RemoteHostTaskListRequestDto,
+  RemoteHostTeamAddMemberDto,
+  RemoteHostTeamAddMemberResultDto,
+  RemoteHostTeamGetDto,
+  RemoteHostTeamListDto,
+  RemoteHostTeamListRequestDto,
+  RemoteHostTeamMutationResultDto,
+  RemoteHostTeamMutationTargetDto,
+  RemoteHostTeamShutdownResultDto,
+  RemoteHostTeamTargetDto,
+  RemoteHostUsageProviderDto,
+  RemoteHostUsageProviderRequestDto,
+  RemoteHostUsageTokenDto,
+  RemoteHostUsageTokenRequestDto,
   RemoteHostWorkspaceDirectoryListDto,
   RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
@@ -125,6 +138,32 @@ export const remoteHostApi = {
     request: RemoteHostTaskListRequestDto,
   ): Promise<RemoteHostTaskListDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.TasksList, request),
+  listRemoteHostTeams: (
+    request: RemoteHostTeamListRequestDto,
+  ): Promise<RemoteHostTeamListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamsList, request),
+  getRemoteHostTeam: (request: RemoteHostTeamTargetDto): Promise<RemoteHostTeamGetDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamGet, request),
+  archiveRemoteHostTeam: (
+    request: RemoteHostTeamMutationTargetDto,
+  ): Promise<RemoteHostTeamMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamArchive, request),
+  addRemoteHostTeamMember: (
+    request: RemoteHostTeamAddMemberDto,
+  ): Promise<RemoteHostTeamAddMemberResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamAddMember, request),
+  shutdownRemoteHostTeamTeammates: (
+    request: RemoteHostTeamMutationTargetDto,
+  ): Promise<RemoteHostTeamShutdownResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamShutdownTeammates, request),
+  getRemoteHostTokenUsage: (
+    request: RemoteHostUsageTokenRequestDto,
+  ): Promise<RemoteHostUsageTokenDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.UsageTokensGet, request),
+  getRemoteHostProviderUsage: (
+    request: RemoteHostUsageProviderRequestDto,
+  ): Promise<RemoteHostUsageProviderDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.UsageProvidersGet, request),
   listRemoteHostIssues: (
     request: RemoteHostIssueListRequestDto,
   ): Promise<RemoteHostIssueListDto> =>

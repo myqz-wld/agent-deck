@@ -66,11 +66,19 @@ function capabilities(
   access: AuthenticatedClientAccessContext,
   supportedMethods: ReadonlySet<CoreMethod>,
   replayAvailable: boolean,
+  protocolVersion: HostHello['protocolVersion'],
 ): readonly Capability[] {
   const result = new Set<Capability>();
   for (const method of supportedMethods) {
     if (isCoreMethodAllowed(access.surface, method)) {
-      result.add(CORE_METHOD_METADATA[method].capability);
+      const capability = CORE_METHOD_METADATA[method].capability;
+      if (
+        capability !== AgentDeckCapability.Usage ||
+        protocolVersion.major > 2 ||
+        (protocolVersion.major === 2 && protocolVersion.minor >= 1)
+      ) {
+        result.add(capability);
+      }
     }
   }
   if (replayAvailable) result.add(AgentDeckCapability.Replay);
@@ -108,6 +116,7 @@ export function createDaemonHostHello(input: CreateDaemonHostHelloInput): HostHe
       input.access,
       input.supportedMethods,
       input.replayAvailable,
+      input.protocolVersion,
     ),
     limits: {
       maxFrameBytes: input.limits.maxFrameBytes,

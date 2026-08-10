@@ -9,6 +9,7 @@ import {
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
@@ -54,6 +55,8 @@ import { installServerCoreProviderHooks } from './provider-hook-runtime';
 import { ServerCoreProviderEventBus } from './provider-event-bus';
 import { mapServerCoreConcurrent } from './runtime-concurrency';
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
+import { ServerCoreTeamRuntime } from './team-runtime';
+import { ServerCoreUsageRuntime } from './usage-runtime';
 import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
@@ -449,7 +452,25 @@ export function createServerCoreRuntimeWithOverrides(
     sessionConsole: sessionConsoleAuthority,
     rollbackSession: rollbackCreatedSession,
   });
-  const reviewRuntime = new ServerCorePlanReviewRuntime(issueRuntime, presentations, metadata);
+  const teamRuntime = new ServerCoreTeamRuntime(issueRuntime, {
+    workspaceRoot,
+    privateRoots,
+    teams: agentDeckTeamRepo,
+    messages: agentDeckMessageRepo,
+    sessions: repositories.sessions,
+    events: repositories.events,
+    tasks: repositories.tasks,
+    closeSession: (sessionId) => repositories.sessionManager.close(sessionId),
+    notifyMembershipChanged: (sessionId) =>
+      repositories.sessionManager.notifyTeamMembershipChanged(sessionId),
+    metadata,
+  });
+  const usageRuntime = new ServerCoreUsageRuntime(teamRuntime, {
+    tokenUsage: tokenUsageRepo,
+    registry,
+    currentRevision: () => metadata.currentRevision(),
+  });
+  const reviewRuntime = new ServerCorePlanReviewRuntime(usageRuntime, presentations, metadata);
   const runtime = new ServerCoreDesktopBrokerRuntime(reviewRuntime, desktopBroker);
   const credentialLifecycle = new ServerCoreCredentialFile({
     instanceId: input.instanceId,

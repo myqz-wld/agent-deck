@@ -374,3 +374,7 @@ Legacy records without a parseable `changed_at` are listed as `unknown`; their c
 | unknown | `CHANGELOG_346.md` | Refresh Claude/Codex dependencies and verify GPT-5.6 |
 | unknown | `CHANGELOG_347.md` | Preserve model slugs and synchronize session reasoning metadata |
 | unknown | `CHANGELOG_348.md` | Provider-scoped thinking for summaries and Hand-off briefs |
+| 2026-07-11 | `CHANGELOG_358_unified-continuation-context.md` | Unify provider-neutral Continuation Context across hand-off and recovery |
+| 2026-07-11 | `CHANGELOG_359_session-pinning-reviewer-model.md` | Add persistent Live pins and update the Codex reviewer model |
+| 2026-07-11 | `CHANGELOG_360_periodic-summary-evidence.md` | Make periodic summaries evidence-rich and revision-safe |
+| 2026-07-11 | `CHANGELOG_361_storage-performance-observability-svg-icons.md` | Stage storage maintenance, require MCP readiness, and unify SVG icons |

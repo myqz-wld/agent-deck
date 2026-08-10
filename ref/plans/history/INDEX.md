@@ -117,6 +117,12 @@ Legacy topic-and-date plan names and nonterminal snapshots remain stable. Missin
 | 2026-05-14 | `universal-message-watcher-split-20260514.md` | completed | 全仓库 ≤ 500 LOC 护栏达标拆分（CHANGELOG_103 follow-up 优先级 3 拆分护栏批量收口） | None |
 | 2026-05-15 | `worktree-stale-base-bug-20260515.md` | completed | worktree-stale-base-bug-20260515 — EnterWorktree CLI 工具创 worktree 用 stale base … | None |
 | unknown | `adapter-specific-permissions-view-20260618/PLAN.md` | complete | Adapter-Specific Permissions View | None |
+| 2026-07-09 | `PLAN_1_project-engineering-foundation.md` | completed | Align Repository Engineering Foundation | CHANGELOG_349 |
+| 2026-07-09 | `PLAN_2_spawn-session-native-fork.md` | completed | Add safe provider-native parallel forks | CHANGELOG_353 / REVIEW_144 |
+| 2026-07-10 | `PLAN_3_codex-collaboration-raw-events.md` | completed | Restore fresh Codex collaboration events | REVIEW_147 |
+| 2026-07-11 | `PLAN_4_session-pinning-reviewer-model.md` | completed | Add persistent Live pins and Codex reviewer default | CHANGELOG_359 / REVIEW_149 |
+| 2026-07-11 | `PLAN_5_unified-continuation-context.md` | completed | Unify provider-neutral continuation context | CHANGELOG_358 / REVIEW_148 |
+| 2026-07-11 | `PLAN_6_storage-performance-observability-svg-icons.md` | completed | Stage storage maintenance and unify renderer SVG icons | CHANGELOG_361 / REVIEW_152 |
 
 ## Legacy Support Material
 

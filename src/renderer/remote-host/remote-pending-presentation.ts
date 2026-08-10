@@ -1,40 +1,37 @@
 import type {
-  RemoteHostJsonValue,
   RemoteHostPendingAction,
   RemoteHostPendingRequestDto,
 } from '@shared/remote-host';
-import { remoteHostQuestionIds } from '@shared/remote-host';
+import {
+  remoteHostPendingActionSurface,
+  remoteHostPendingPresentationCanonical,
+} from '@shared/remote-host';
 
 import type { RemotePendingPresentation } from './source-types';
-
-function canonical(value: RemoteHostJsonValue): string {
-  if (value === null || typeof value === 'boolean' || typeof value === 'number') {
-    return JSON.stringify(value);
-  }
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  return `{${Object.entries(value)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-    .join(',')}}`;
-}
 
 export function pendingActionSurface(
   kind: RemoteHostPendingRequestDto['kind'],
 ): readonly RemoteHostPendingAction[] {
-  if (kind === 'permission') return ['approve', 'deny'];
-  if (kind === 'ask-user-question') return ['submit'];
-  return ['accept', 'reject'];
+  return remoteHostPendingActionSurface(kind);
 }
 
 export function pendingPresentationDigest(request: RemoteHostPendingRequestDto): string {
-  return canonical({
-    actions: [...pendingActionSurface(request.kind)],
-    display: request.display,
-    kind: request.kind,
-    questionIds: remoteHostQuestionIds(request.display),
-    status: request.status,
-  });
+  return remoteHostPendingPresentationCanonical(request);
+}
+
+export async function pendingPresentationBindingDigest(
+  request: RemoteHostPendingRequestDto,
+): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('当前环境无法绑定远程待处理展示。');
+  }
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(remoteHostPendingPresentationCanonical(request)),
+  );
+  return `sha256:${[...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')}`;
 }
 
 export function remotePendingPresentation(

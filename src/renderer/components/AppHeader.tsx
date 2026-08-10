@@ -11,6 +11,8 @@ import {
   SettingsIcon,
 } from './icons';
 import type { RemoteHostProfileDto, RemoteHostSourceMode } from '@shared/remote-host';
+import { appViewLabel, availableAppViews } from '../app-view-catalog';
+import type { RemoteUsageSourceView } from '../remote-host/use-remote-usage-source';
 
 export type AppView = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
 
@@ -23,7 +25,8 @@ interface AppHeaderProps {
   sourceMode: RemoteHostSourceMode;
   selectedRemoteProfileId: string | null;
   remoteProfiles: readonly RemoteHostProfileDto[];
-  remoteIssuesAvailable: boolean;
+  remoteCapabilities: ReadonlySet<string>;
+  remoteUsage: RemoteUsageSourceView | null;
   onViewChange: (view: AppView) => void;
   onSourceChange: (value: string) => void;
   onOpenRemoteProfiles: () => void;
@@ -44,7 +47,8 @@ export function AppHeader({
   sourceMode,
   selectedRemoteProfileId,
   remoteProfiles,
-  remoteIssuesAvailable,
+  remoteCapabilities,
+  remoteUsage,
   onViewChange,
   onSourceChange,
   onOpenRemoteProfiles,
@@ -67,18 +71,14 @@ export function AppHeader({
         label: `Remote · ${profile.label}`,
       })),
   ];
-  const viewOptions = [
-    { value: 'live' as const, label: '实时' },
-    { value: 'pending' as const, label: pending > 0 ? `待处理 · ${pending}` : '待处理' },
-    { value: 'history' as const, label: sourceMode === 'remote' ? '会话摘要' : '历史' },
-    ...(sourceMode === 'local' ? [
-      { value: 'teams' as const, label: '团队' },
-      { value: 'issues' as const, label: '问题' },
-      { value: 'data' as const, label: '数据' },
-    ] : remoteIssuesAvailable ? [
-      { value: 'issues' as const, label: '问题' },
-    ] : []),
-  ];
+  const remote = sourceMode === 'remote';
+  const viewEntries = availableAppViews(remote, remoteCapabilities);
+  const viewOptions = viewEntries.map((entry) => ({
+    value: entry.view,
+    label: entry.view === 'pending' && pending > 0
+      ? `待处理 · ${pending}`
+      : appViewLabel(entry),
+  }));
 
   return (
     <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
@@ -105,25 +105,23 @@ export function AppHeader({
           </button>
         )}
       </div>
-      <HeaderTokenRates />
+      <HeaderTokenRates remoteUsage={remoteUsage} />
       <div className="flex shrink-0 items-center gap-0.5 no-drag">
         <HeaderIconButton title="新建会话" onClick={onNewSession}>
           <PlusIcon className="h-3.5 w-3.5" />
         </HeaderIconButton>
         <Divider />
         <div className="hidden items-center gap-0.5 min-[900px]:flex">
-          <TabButton active={view === 'live'} onClick={() => onViewChange('live')}>实时</TabButton>
-          <TabButton
-            active={view === 'pending'}
-            onClick={() => onViewChange('pending')}
-            badge={pending > 0 ? pending : undefined}
-          >
-            待处理
-          </TabButton>
-          <TabButton active={view === 'history'} onClick={() => onViewChange('history')}>{sourceMode === 'remote' ? '会话摘要' : '历史'}</TabButton>
-          {sourceMode === 'local' && <TabButton active={view === 'teams'} onClick={() => onViewChange('teams')}>团队</TabButton>}
-          {(sourceMode === 'local' || remoteIssuesAvailable) && <TabButton active={view === 'issues'} onClick={() => onViewChange('issues')}>问题</TabButton>}
-          {sourceMode === 'local' && <TabButton active={view === 'data'} onClick={() => onViewChange('data')}>数据</TabButton>}
+          {viewEntries.map((entry) => (
+            <TabButton
+              key={entry.view}
+              active={view === entry.view}
+              onClick={() => onViewChange(entry.view)}
+              badge={entry.view === 'pending' && pending > 0 ? pending : undefined}
+            >
+              {appViewLabel(entry)}
+            </TabButton>
+          ))}
         </div>
         <DeckSelect
           value={view}

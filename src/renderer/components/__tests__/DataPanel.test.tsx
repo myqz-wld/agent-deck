@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { DataPanel } from '../DataPanel';
 import { useTokenUsageStore } from '../../stores/token-usage-store';
 import type { ProviderUsageSnapshot, TokenDailyRow } from '@shared/types';
+import type { RemoteUsageSourceView } from '../../remote-host/use-remote-usage-source';
 import { resetTokenDailyRefreshForTests } from '../../lib/token-daily-refresh';
 
 function resetTokenUsageStore(): void {
@@ -101,6 +102,39 @@ afterEach(() => {
 });
 
 describe('DataPanel quota usage', () => {
+  it('uses the shared presentation with Remote data and never falls back to Local IPC', async () => {
+    const loadDaily = vi.fn(async () => undefined);
+    const loadProviders = vi.fn(async () => undefined);
+    const remoteUsage: RemoteUsageSourceView = {
+      enabled: true,
+      identity: 'remote-a:core-a:1',
+      rates: [{ bucketKey: 'gpt-5.6-sol', outputTokens: 60 }],
+      topToday: [{ bucketKey: 'gpt-5.6-sol', outputTokens: 600 }],
+      today: tokenDailyRow().day,
+      daily: [tokenDailyRow({ bucketKey: 'gpt-5.6-sol' })],
+      dailyLoading: false,
+      dailyError: null,
+      dailyTruncated: false,
+      providerSnapshots: [claudeSnapshot()],
+      providerFetchedAt: Date.now(),
+      providerLoading: false,
+      providerError: null,
+      loadDaily,
+      loadProviders,
+    };
+
+    render(<DataPanel remoteUsage={remoteUsage} />);
+
+    await waitFor(() => expect(loadDaily).toHaveBeenCalledOnce());
+    expect(loadProviders).toHaveBeenCalledWith(false);
+    expect(window.api.tokenUsageDaily).not.toHaveBeenCalled();
+    expect(window.api.tokenUsageRates).not.toHaveBeenCalled();
+    expect(window.api.tokenUsageTopToday).not.toHaveBeenCalled();
+    expect(providerUsageSnapshot).not.toHaveBeenCalled();
+    expect(screen.getAllByText('gpt-5.6-sol')).toHaveLength(2);
+    expect(screen.getByText('Claude')).toBeTruthy();
+  });
+
   it('shows unified token totals and marks cache/reasoning as included breakdowns', async () => {
     (window.api.tokenUsageDaily as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       tokenDailyRow(),

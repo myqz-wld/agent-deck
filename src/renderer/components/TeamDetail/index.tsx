@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import type {
-  AgentDeckMessage,
-  AgentDeckTeam,
-  AgentDeckTeamMember,
-  AgentEvent,
-  TaskRecord,
-} from '@shared/types';
+import type { TeamDetailDto } from '@contracts/index';
 import log from '@renderer/utils/logger';
 import { Header } from './Header';
 import { MembersSection } from './MembersSection';
@@ -16,6 +10,7 @@ import { MessagesSection } from './MessagesSection';
 import { PendingSection } from './PendingSection';
 import { ArchiveIcon, StopIcon } from '../icons';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
+import { useTeamDataSource, type TeamDataSource } from '../team-data-source';
 
 const logger = log.scope('renderer-team-detail');
 
@@ -26,19 +21,16 @@ const logger = log.scope('renderer-team-detail');
  */
 interface Props {
   teamId: string;
+  source?: TeamDataSource;
   onBack: () => void;
   onOpenSession: (sessionId: string) => void;
 }
 
-interface FullSnapshot extends AgentDeckTeam {
-  members: AgentDeckTeamMember[];
-  recentEvents: (AgentEvent & { id: number })[];
-  tasks: TaskRecord[];
-  recentMessages: AgentDeckMessage[];
-}
-
-export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Element {
-  const [snap, setSnap] = useState<FullSnapshot | null>(null);
+export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JSX.Element {
+  const localSource = useTeamDataSource(null);
+  const activeSource = source ?? localSource;
+  const [snap, setSnap] = useState<TeamDetailDto | null>(null);
+  const [snapshotRevision, setSnapshotRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<'shutdown' | 'archive' | null>(null);
@@ -46,7 +38,10 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
   const refreshGenerationRef = useRef(0);
   const activeTeamIdRef = useRef(teamId);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const activeSourceRef = useRef(activeSource);
+  const observedSourceRef = useRef(activeSource);
   activeTeamIdRef.current = teamId;
+  activeSourceRef.current = activeSource;
 
   useEffect(() => {
     const generation = ++refreshGenerationRef.current;
@@ -67,13 +62,15 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
       }
       inFlight = true;
       try {
-        const row = await window.api.getAgentDeckTeamFull(teamId);
+        const result = await activeSourceRef.current.get(teamId);
+        const row = result.team;
         if (disposed || generation !== refreshGenerationRef.current) return;
         if (!row) {
           setSnap(null);
           setError('团队不存在或已删除');
         } else {
           setSnap(row);
+          setSnapshotRevision(result.revision);
           setError(null);
         }
         setLoading(false);
@@ -104,22 +101,23 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     };
     refreshRef.current = refresh;
     void refresh();
-    const offTeam = window.api.onAgentDeckTeamChanged((items) => {
-      if (items.some((item) => item.teamId === teamId)) void refresh();
-    });
-    const offMsg = window.api.onAgentDeckMessageChanged((items) => {
-      if (items.some((item) => item.teamId === teamId)) void refresh();
-    });
+    const off = activeSourceRef.current.subscribe(() => { void refresh(); }, teamId);
     return () => {
       disposed = true;
       pending = false;
-      offTeam();
-      offMsg();
+      off();
       if (refreshRef.current === refresh) {
         refreshRef.current = async () => {};
       }
     };
-  }, [teamId]);
+  }, [activeSource.identity, teamId]);
+
+  useEffect(() => {
+    const previous = observedSourceRef.current;
+    observedSourceRef.current = activeSource;
+    if (previous.identity !== activeSource.identity || previous === activeSource) return;
+    void refreshRef.current();
+  }, [activeSource]);
 
   const reloadAfterMemberAdded = useCallback(
     (): Promise<void> => refreshRef.current(),
@@ -149,7 +147,8 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     setActionError(null);
     setActionBusy('shutdown');
     try {
-      const result = await window.api.shutdownAllTeammates(actionTeamId);
+      const result = await activeSource.shutdownTeammates(actionTeamId, snapshotRevision);
+      await refreshRef.current();
       if (result.failed.length > 0) {
         logger.warn('team action partially failed', {
           action: 'shutdown-collaborators',
@@ -202,7 +201,8 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
     setActionError(null);
     setActionBusy('archive');
     try {
-      await window.api.archiveAgentDeckTeam(actionTeamId);
+      await activeSource.archive(actionTeamId, snapshotRevision);
+      await refreshRef.current();
     } catch (err) {
       logger.warn('team action failed', {
         action: 'archive-team',
@@ -240,6 +240,7 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
   const activeTeammateCount = snap.members.filter(
     (m) => m.role === 'teammate' && m.leftAt === null,
   ).length;
+  const sessions = new Map(snap.sessions.map((session) => [session.id, session]));
 
   return (
     <div className="flex h-full flex-col">
@@ -291,17 +292,24 @@ export function TeamDetail({ teamId, onBack, onOpenSession }: Props): JSX.Elemen
           </div>
         )}
         <MembersSection
-          teamId={teamId}
           members={snap.members}
           onOpenSession={onOpenSession}
           canAddMember={snap.archivedAt === null}
           onMemberAdded={reloadAfterMemberAdded}
+          sessions={sessions}
+          addMember={(sessionId, role) =>
+            activeSource.addMember(teamId, sessionId, role, snapshotRevision).then(() => undefined)}
         />
-        <LineageSection members={snap.members} onOpenSession={onOpenSession} />
-        <PendingSection members={snap.members} onOpenSession={onOpenSession} />
-        <EventsSection events={snap.recentEvents} />
+        <LineageSection members={snap.members} sessions={sessions} onOpenSession={onOpenSession} />
+        <PendingSection
+          members={snap.members}
+          pending={snap.pending}
+          sessions={sessions}
+          onOpenSession={onOpenSession}
+        />
+        <EventsSection events={snap.recentEvents} sessions={sessions} />
         <TasksSection tasks={snap.tasks} />
-        <MessagesSection messages={snap.recentMessages} />
+        <MessagesSection messages={snap.recentMessages} sessions={sessions} />
       </div>
     </div>
   );

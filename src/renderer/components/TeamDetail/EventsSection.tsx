@@ -1,17 +1,16 @@
 import type { JSX } from 'react';
-import type { AgentEvent } from '@shared/types';
-import { useSessionStore } from '@renderer/stores/session-store';
+import type { SessionEventDto, TeamSessionDto } from '@contracts/index';
 import { Section, EmptyState } from './Header';
 import { relativeTime, eventKindLabel } from './helpers';
 import { describeEventPayload } from './events-payload-describe';
 
 /** Read-only team timeline. */
 interface Props {
-  events: (AgentEvent & { id: number })[];
+  events: SessionEventDto[];
+  sessions?: ReadonlyMap<string, TeamSessionDto>;
 }
 
-export function EventsSection({ events }: Props): JSX.Element {
-  const sessions = useSessionStore((s) => s.sessions);
+export function EventsSection({ events, sessions = new Map() }: Props): JSX.Element {
 
   if (events.length === 0) {
     return (

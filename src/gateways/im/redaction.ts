@@ -1,6 +1,5 @@
-import type { JsonObject, JsonValue } from '@contracts/index';
+import { isSensitiveJsonKey, type JsonObject, type JsonValue } from '@contracts/index';
 
-const SECRET_KEY = /(?:api[-_]?key|authorization|cookie|credential|password|private[-_]?key|secret|token)/i;
 const SECRET_VALUE = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+[A-Za-z0-9._~+/=-]{8,}|\b(?:gh[pousr]|sk|xox[baprs])[-_][A-Za-z0-9_-]{16,})/i;
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/g;
 
@@ -66,7 +65,7 @@ export function redactJson(
       }
       entries += 1;
       const safeKey = cleanString(key, 128);
-      output[safeKey] = SECRET_KEY.test(key) ? '[REDACTED]' : visit(item, depth + 1);
+      output[safeKey] = isSensitiveJsonKey(key) ? '[REDACTED]' : visit(item, depth + 1);
     }
     return output;
   };

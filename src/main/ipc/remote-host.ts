@@ -27,6 +27,12 @@ import {
   parseRemoteHostSourceMode,
   parseRemoteHostSummaryRequest,
   parseRemoteHostTaskListRequest,
+  parseRemoteHostTeamAddMember,
+  parseRemoteHostTeamList,
+  parseRemoteHostTeamMutationTarget,
+  parseRemoteHostTeamTarget,
+  parseRemoteHostUsageProvider,
+  parseRemoteHostUsageToken,
   parseRemoteHostRuntimeUpdate,
   parseRemoteHostSend,
   parseRemoteHostSessionCapabilitiesRequest,
@@ -122,6 +128,22 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().detail.listSummaries(parseRemoteHostSummaryRequest(request))));
   on(RemoteHostIpcInvoke.TasksList, (_event, request) => safely(() =>
     getRemoteHostService().detail.listTasks(parseRemoteHostTaskListRequest(request))));
+  on(RemoteHostIpcInvoke.TeamsList, (_event, request) => safely(() =>
+    getRemoteHostService().teams.list(parseRemoteHostTeamList(request))));
+  on(RemoteHostIpcInvoke.TeamGet, (_event, request) => safely(() =>
+    getRemoteHostService().teams.get(parseRemoteHostTeamTarget(request))));
+  on(RemoteHostIpcInvoke.TeamArchive, (_event, request) => safely(() =>
+    getRemoteHostService().teams.archive(parseRemoteHostTeamMutationTarget(request))));
+  on(RemoteHostIpcInvoke.TeamAddMember, (_event, request) => safely(() =>
+    getRemoteHostService().teams.addMember(parseRemoteHostTeamAddMember(request))));
+  on(RemoteHostIpcInvoke.TeamShutdownTeammates, (_event, request) => safely(() =>
+    getRemoteHostService().teams.shutdownTeammates(
+      parseRemoteHostTeamMutationTarget(request),
+    )));
+  on(RemoteHostIpcInvoke.UsageTokensGet, (_event, request) => safely(() =>
+    getRemoteHostService().usage.tokens(parseRemoteHostUsageToken(request))));
+  on(RemoteHostIpcInvoke.UsageProvidersGet, (_event, request) => safely(() =>
+    getRemoteHostService().usage.providers(parseRemoteHostUsageProvider(request))));
   on(RemoteHostIpcInvoke.IssuesList, (_event, request) => safely(() =>
     getRemoteHostService().issues.list(parseRemoteHostIssueListRequest(request))));
   on(RemoteHostIpcInvoke.IssueGet, (_event, request) => safely(() =>

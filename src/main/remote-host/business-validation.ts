@@ -3,6 +3,8 @@ import {
   MCP_DIFF_PRESENTATION_SCHEMA,
   MCP_PLAN_PRESENTATION_SCHEMA,
   MCP_PRESENTATION_MAX_DISPLAY_BYTES,
+  PERMISSION_PREVIEW_SCHEMA,
+  parsePermissionPreviewDisplay,
   parseMcpPresentationDisplay,
 } from '@contracts/index';
 import {
@@ -153,6 +155,15 @@ function parsePendingRequest(value: unknown): RemoteHostPendingRequestDto {
       throw new RemoteHostInputError(
         'pending.request.display',
         'host returned an invalid MCP presentation',
+      );
+    }
+  }
+  if (raw.kind === 'permission' && display.schema === PERMISSION_PREVIEW_SCHEMA) {
+    try { parsePermissionPreviewDisplay(display); }
+    catch {
+      throw new RemoteHostInputError(
+        'pending.request.display',
+        'host returned an invalid permission preview',
       );
     }
   }

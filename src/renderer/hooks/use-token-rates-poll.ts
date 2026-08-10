@@ -23,6 +23,7 @@ const TOKEN_USAGE_REFETCH_DEBOUNCE_MS = 500;
 export function useTokenRatesPoll(
   includeGrokHistoryOrInterval: boolean | number = false,
   intervalMs = 2500,
+  enabled = true,
 ): void {
   const includeGrokHistory =
     typeof includeGrokHistoryOrInterval === 'boolean' ? includeGrokHistoryOrInterval : false;
@@ -35,6 +36,7 @@ export function useTokenRatesPoll(
   const applyLiveTick = useTokenUsageStore((s) => s.applyLiveTick);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let pollingStopped = false;
     let requestSeq = 0;
@@ -94,7 +96,7 @@ export function useTokenRatesPoll(
       offTick();
       offUsage();
     };
-  }, [applyLiveTick, includeGrokHistory, pollIntervalMs, setRates, setTopToday]);
+  }, [applyLiveTick, enabled, includeGrokHistory, pollIntervalMs, setRates, setTopToday]);
 }
 
 function isTokenRateRows(value: unknown): value is TokenRateRow[] {

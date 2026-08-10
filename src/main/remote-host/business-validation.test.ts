@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createPermissionPreviewDisplay,
   MCP_DIFF_PRESENTATION_SCHEMA,
   MCP_PLAN_PRESENTATION_SCHEMA,
 } from '@contracts/index';
@@ -77,5 +78,24 @@ describe('remote host pending result validation', () => {
         },
       }],
     }, 'session-1')).toThrow('invalid MCP presentation');
+  });
+
+  it('accepts only the exact bounded permission preview schema', () => {
+    const display = createPermissionPreviewDisplay('Edit', {
+      file_path: '/workspace/app.ts', old_string: 'before', new_string: 'after',
+    });
+    const permission = {
+      requests: [{
+        id: 'permission-1', sessionId: 'session-1', kind: 'permission', status: 'pending',
+        createdAt: 1, expiresAt: null, display,
+      }],
+      revision: 3,
+    };
+    expect(parseRemoteHostPendingListResult(permission, 'session-1'))
+      .toMatchObject({ requests: [{ display: { complete: true } }] });
+    expect(() => parseRemoteHostPendingListResult({
+      ...permission,
+      requests: [{ ...permission.requests[0], display: { ...display, complete: 'yes' } }],
+    }, 'session-1')).toThrow('invalid permission preview');
   });
 });

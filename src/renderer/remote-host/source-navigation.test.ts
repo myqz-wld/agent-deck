@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { clearDetailForSourceView } from './source-navigation';
 
 describe('source navigation detail ownership', () => {
-  it.each(['pending', 'history'] as const)(
+  it.each(['pending', 'history', 'teams', 'issues', 'data'] as const)(
     'clears the Remote detail before opening %s',
     (view) => {
       const clearLocal = vi.fn();
