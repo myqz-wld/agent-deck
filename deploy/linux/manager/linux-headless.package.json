@@ -49,6 +49,7 @@
     "serverCoreHostForcedCommand": "/opt/agent-deck/bin/agent-deck-full-bridge",
     "relayBundle": "/opt/agent-deck/linux-headless/relay/index.mjs",
     "relayCommand": "/opt/agent-deck/bin/agent-deck-relay",
+    "relayHealthGateCommand": "/opt/agent-deck/bin/agent-deck-relay-health-gate",
     "localWorkerBundle": "/opt/agent-deck/linux-headless/local-worker/index.mjs",
     "localWorkerRuntimeBundle": "/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs",
     "localWorkerCommand": "/opt/agent-deck/bin/agent-deck-worker",

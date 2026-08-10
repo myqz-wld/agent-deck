@@ -27,6 +27,7 @@ HealthOnFailure=kill
 Notify=healthy
 
 [Service]
+ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=120s

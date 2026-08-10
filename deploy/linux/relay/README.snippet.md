@@ -2,7 +2,8 @@
 
 The image and host forced-command service install `/usr/bin/node`, the root-owned non-symlink
 bundle `/opt/agent-deck/linux-headless/relay/index.mjs`, and
-`/opt/agent-deck/bin/agent-deck-relay`. The wrapper starts Node with a fixed minimal environment;
+`/opt/agent-deck/bin/agent-deck-relay`. Install the root-owned mode-0755 host startup gate at
+`/opt/agent-deck/bin/agent-deck-relay-health-gate`. The wrapper starts Node with a fixed minimal environment;
 SSH cannot select a different Node, bundle root, loader option, or `PATH`.
 
 Each Local Worker installs `/opt/agent-deck/bin/agent-deck-worker`,
@@ -113,6 +114,8 @@ isolated Relay/Worker pair for another tenant or workspace. The restart makes th
 config live; it does not add Relay compute or a business queue.
 
 The Quadlet overrides any inherited image healthcheck and probes only the private per-instance
-control socket through `agent-deck-relay health`. `Notify=healthy` gates systemd startup, an
-unhealthy container is killed for bounded systemd restart, and the instance manager still polls
+control socket through `agent-deck-relay health`. Native `Notify=healthy` gates systemd startup on
+Podman versions that support healthy sd-notify; the bounded host startup gate enforces the same
+wait on older Quadlet generators. An unhealthy container is killed for bounded systemd restart,
+and the instance manager still polls
 the exact container name, image, running state, and health within its configured total deadline.

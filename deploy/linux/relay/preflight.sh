@@ -51,7 +51,8 @@ if ! awk '
         key == "HealthStartPeriod" || key == "HealthOnFailure" ||
         key == "Notify"
     if (section == "Service")
-      return key == "Restart" || key == "RestartSec" || key == "TimeoutStopSec" ||
+      return key == "ExecStartPost" || key == "Restart" || key == "RestartSec" ||
+        key == "TimeoutStopSec" ||
         key == "TimeoutStartSec" || key == "MemoryMax" ||
         key == "CPUQuota" || key == "TasksMax" ||
         key == "LimitNOFILE"
@@ -119,6 +120,7 @@ required_lines=(
   'HealthStartPeriod=30s'
   'HealthOnFailure=kill'
   'Notify=healthy'
+  'ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i'
   'Restart=on-failure'
   'RestartSec=5s'
   'TimeoutStartSec=120s'
@@ -167,9 +169,20 @@ if [[ "$runtime_uid" == 0 ]]; then
   echo "relay preflight: root execution is forbidden" >&2
   exit 69
 fi
-for command_name in podman realpath stat systemctl timeout; do
+for command_name in realpath stat systemctl timeout; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "relay preflight: missing command: $command_name" >&2
+    exit 69
+  fi
+done
+health_gate='/opt/agent-deck/bin/agent-deck-relay-health-gate'
+podman_executable='/usr/bin/podman'
+for host_executable in "$health_gate" "$podman_executable"; do
+  if [[ ! -f "$host_executable" || -L "$host_executable" ||
+        "$(realpath -e -- "$host_executable")" != "$host_executable" ||
+        "$(stat -c '%u' "$host_executable")" != 0 ||
+        "$(stat -c '%a' "$host_executable")" != 755 || -w "$host_executable" ]]; then
+    echo "relay preflight: host executable must be root-owned mode 0755 at $host_executable" >&2
     exit 69
   fi
 done
@@ -177,7 +190,7 @@ if [[ ! -f /sys/fs/cgroup/cgroup.controllers ]]; then
   echo "relay preflight: cgroup v2 is required" >&2
   exit 69
 fi
-if [[ "$(podman info --format '{{.Host.Security.Rootless}}')" != true ]]; then
+if [[ "$($podman_executable info --format '{{.Host.Security.Rootless}}')" != true ]]; then
   echo "relay preflight: Podman must run rootless" >&2
   exit 69
 fi
@@ -296,7 +309,7 @@ verify_exact_evidence "state-volume quota" "$quota_verification" \
   'stateQuotaEnforced=true' \
   'stateQuotaBytes=1073741824'
 
-if ! podman image exists "$image_ref"; then
+if ! "$podman_executable" image exists "$image_ref"; then
   echo "relay preflight: pinned Relay image must exist locally for the uid/volume probe" >&2
   exit 72
 fi
@@ -312,7 +325,7 @@ cleanup_probe() {
 }
 trap cleanup_probe EXIT
 
-if ! timeout 60s podman run --rm \
+if ! timeout 60s "$podman_executable" run --rm \
   --network=none \
   --read-only \
   --userns=keep-id \
