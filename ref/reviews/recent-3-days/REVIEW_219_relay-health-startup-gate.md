@@ -54,6 +54,8 @@ No confirmed source finding remains open.
   skipped.
 - `pnpm build`, `pnpm verify:linux-headless`, the Relay static check, the instance-manager static
   check, and `git diff --check` passed.
+- Complete target preflight passed; the live Quadlet and a controlled restart both reached
+  `running/healthy`, with the Mac Worker returning to `online`.
 
 ## Fixes landed
 
@@ -66,8 +68,6 @@ No confirmed source finding remains open.
 
 ## Residual risk
 
-- The live AWS Relay has not yet been cut over. The committed source fix must pass the complete
-  runtime preflight immediately before deployment.
 - The helper deliberately keeps `HOME` and `XDG_RUNTIME_DIR` from the systemd user manager because
   rootless Podman storage and runtime discovery require them; loader, Node, and shell startup
   injection variables are cleared.
@@ -76,5 +76,4 @@ No confirmed source finding remains open.
 
 ## Final verdict
 
-PASS for source readiness. Production cutover remains gated on real Podman 4.9 canary and runtime
-preflight acceptance.
+PASS. Source and live Podman 4.9 acceptance are complete.

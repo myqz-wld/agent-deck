@@ -40,14 +40,16 @@ No confirmed source finding remains open.
   `/usr/local/bin/node` but not `/usr/bin/node`.
 - Relay static checks pass and assert both the hardened image provisioning block and two exact-path
   runtime probes.
-- Linux headless build and package validation remain required before commit; target-host build and
-  runtime acceptance remain required after commit.
+- Typecheck, the full 860-file / 5,612-test suite, production build, Linux headless build/package
+  validation, Relay/manager static checks, and `git diff --check` passed.
+- The rebuilt target ARM64 image exposed exact regular `/usr/bin/node`, passed wrapper execution and
+  production-shaped health canary, then completed live cutover and restart acceptance.
 
 ## Residual risk
 
-- The corrected image has not yet been rebuilt on the target ARM64 host.
-- The live Relay has not yet been cut over to the corrected image digest.
+- The regular-file hard link increases the layered image size relative to the original Node base;
+  this is accepted to preserve the no-symlink runtime identity contract.
 
 ## Final verdict
 
-PASS for source readiness, subject to the listed build and live acceptance gates.
+PASS. Target image and live runtime acceptance are complete.

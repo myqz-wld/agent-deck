@@ -44,9 +44,10 @@ the systemd unit started before the private Relay control socket passes its conf
 - `git diff --check`
 - Target Ubuntu 24.04 / Podman 4.9 canaries: `healthy` was accepted and `unhealthy` was rejected
   with exit status 70 after restoring the user-systemd private bus.
+- Complete target runtime preflight passed, the live Quadlet reached `running/healthy`, and a
+  controlled service restart preserved health while the Mac Worker reconnected automatically.
 
-Complete runtime preflight and live Quadlet acceptance on the target Ubuntu 24.04 ARM64 host remain
-the final deployment gates and will be recorded after the source fix is committed.
+Target Ubuntu 24.04 ARM64 deployment acceptance is complete.
 
 ## Do Not Split Protection
 
