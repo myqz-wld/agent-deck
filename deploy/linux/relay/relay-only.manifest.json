@@ -34,6 +34,8 @@
     "startPeriodSeconds": 30,
     "onFailure": "kill",
     "systemdNotify": "healthy",
+    "hostStartupGate": "/opt/agent-deck/bin/agent-deck-relay-health-gate",
+    "hostStartupGateTimeoutSeconds": 100,
     "inheritedImageHealthDisabled": true
   },
   "egressAcceptanceGate": {

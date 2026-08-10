@@ -46,6 +46,7 @@ node -e '
   if (JSON.stringify(health.command) !== JSON.stringify(["/opt/agent-deck/bin/agent-deck-relay", "health", "--socket", "/run/agent-deck-relay/%i/control.sock"])) process.exit(1);
   if (health.intervalSeconds !== 10 || health.timeoutSeconds !== 3 || health.retries !== 3 || health.startPeriodSeconds !== 30) process.exit(1);
   if (health.onFailure !== "kill" || health.systemdNotify !== "healthy" || health.inheritedImageHealthDisabled !== true) process.exit(1);
+  if (health.hostStartupGate !== "/opt/agent-deck/bin/agent-deck-relay-health-gate" || health.hostStartupGateTimeoutSeconds !== 100) process.exit(1);
   if (!manifest.excludedComponents.includes("server compute fallback")) process.exit(1);
 ' "$relay_dir/relay-only.manifest.json"
 
@@ -83,6 +84,7 @@ for replacement in \
   'HealthCmd=["CMD","/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]|HealthCmd=["CMD","/bin/true"]' \
   'HealthOnFailure=kill|HealthOnFailure=none' \
   'Notify=healthy|Notify=true' \
+  'ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i|ExecStartPost=/bin/true' \
   'Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z|Volume=/:/var/lib/agent-deck-relay/%i:Z' \
   'PodmanArgs=--pids-limit=256 --memory=512m --cpus=1.0|PodmanArgs=--privileged'; do
   fixture_number=$((fixture_number + 1))
@@ -97,6 +99,30 @@ for replacement in \
     exit 1
   fi
 done
+
+health_gate="$relay_dir/../../../resources/bin/agent-deck-relay-health-gate"
+bash -n "$health_gate"
+for required in \
+  '#!/bin/bash -p' \
+  'PATH=/usr/bin:/bin' \
+  'deadline=$((SECONDS + 100))' \
+  '/usr/bin/podman inspect --type container' \
+  "'{{.State.Health.Status}}'" \
+  'healthy) exit 0' \
+  'unhealthy) fail'; do
+  grep -Fq -- "$required" "$health_gate" || {
+    echo "relay static check: host health gate lost $required" >&2
+    exit 1
+  }
+done
+grep -Fq 'podman_executable='"'"'/usr/bin/podman'"'"'' "$relay_dir/preflight.sh" || {
+  echo 'relay static check: runtime preflight must use the packaged Podman path' >&2
+  exit 1
+}
+if grep -Eq '(command -v|eval|/bin/sh|-c[[:space:]])' "$health_gate"; then
+  echo 'relay static check: host health gate must remain fixed-command only' >&2
+  exit 1
+fi
 cleanup_fixture
 trap - EXIT
 

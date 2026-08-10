@@ -1,0 +1,32 @@
+#!/bin/bash -p
+set -euo pipefail
+unset AGENT_DECK_HEADLESS_ROOT AGENT_DECK_NODE BASH_ENV ENV \
+  LD_LIBRARY_PATH LD_PRELOAD NODE_OPTIONS
+PATH=/usr/bin:/bin
+export PATH
+
+fail() {
+  echo 'Relay 容器未能在启动期限内进入 healthy 状态。' >&2
+  exit 70
+}
+
+[[ "$#" == 2 && "$1" == '--container' ]] || fail
+container="$2"
+[[ "$container" =~ ^agent-deck-relay-[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || fail
+
+deadline=$((SECONDS + 100))
+while ((SECONDS < deadline)); do
+  health=''
+  if health="$(/usr/bin/podman inspect --type container \
+    --format '{{.State.Health.Status}}' "$container" 2>/dev/null)"; then
+    case "$health" in
+      healthy) exit 0 ;;
+      unhealthy) fail ;;
+      starting|'') ;;
+      *) fail ;;
+    esac
+  fi
+  /usr/bin/sleep 1
+done
+
+fail

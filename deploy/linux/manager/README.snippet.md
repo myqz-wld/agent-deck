@@ -9,7 +9,8 @@ single-file bundle as `root:root`, without group/world write permission or symli
 - Full host SSH bridge: `/opt/agent-deck/bin/agent-deck-full-bridge` and
   `/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs`; rootless Podman is
   `/usr/bin/podman` and the service-account home is `/var/lib/agent-deck`.
-- Relay image and host forced commands: `/opt/agent-deck/bin/agent-deck-relay` and
+- Relay image and host forced commands: `/opt/agent-deck/bin/agent-deck-relay`,
+  `/opt/agent-deck/bin/agent-deck-relay-health-gate`, and
   `/opt/agent-deck/linux-headless/relay/index.mjs`.
 - Local Worker: `/opt/agent-deck/bin/agent-deck-worker`,
   `/opt/agent-deck/linux-headless/local-worker/index.mjs`, and the concrete Core runtime at

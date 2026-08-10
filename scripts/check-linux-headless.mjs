@@ -318,6 +318,7 @@ if (
     '/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs' ||
   install?.serverCoreHostForcedCommand !== '/opt/agent-deck/bin/agent-deck-full-bridge' ||
   install?.relayCommand !== '/opt/agent-deck/bin/agent-deck-relay' ||
+  install?.relayHealthGateCommand !== '/opt/agent-deck/bin/agent-deck-relay-health-gate' ||
   install?.localWorkerCommand !== '/opt/agent-deck/bin/agent-deck-worker' ||
   install?.localWorkerRuntimeBundle !==
     '/opt/agent-deck/linux-headless/local-worker-runtime/index.mjs' ||
