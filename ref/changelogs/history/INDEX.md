@@ -17,6 +17,15 @@ Legacy records without a parseable `changed_at` are listed as `unknown`; their c
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-07-10 | `CHANGELOG_357_session-runtime-and-compact-handoff.md` | Add per-session model controls and compact cross-adapter hand-off |
+| 2026-07-10 | `CHANGELOG_356_codex-max-thinking.md` | Restore Codex MAX across settings and existing thinking inputs |
+| 2026-07-10 | `CHANGELOG_355_filter-desktop-ephemeral-codex-hooks.md` | Hide Desktop ambient Codex hooks from external sessions |
+| 2026-07-10 | `CHANGELOG_354_thinking-options-and-claude-usage.md` | Refine thinking options and collect Claude reasoning usage |
+| 2026-07-09 | `CHANGELOG_353_spawn-session-native-fork.md` | Add provider-native parallel session forks |
+| 2026-07-09 | `CHANGELOG_352_remove-fable-5-suggestion.md` | Remove redundant fable-5 suggestion |
+| 2026-07-09 | `CHANGELOG_351_mcp-prompt-contracts.md` | Make MCP contracts explicit and self-correcting |
+| 2026-07-09 | `CHANGELOG_350_codex-collaboration-observability.md` | Complete Codex collaboration activity |
+| 2026-07-09 | `CHANGELOG_349_project-engineering-foundation.md` | Align repository engineering foundation |
 | unknown | `CHANGELOG_1.md` | 项目初始化（M1-M9）+ 应用图标 |
 | unknown | `CHANGELOG_2.md` | 工具适配（AskUserQuestion + ExitPlanMode 独立 UI） |
 | unknown | `CHANGELOG_3.md` | 对话气泡 / 内部会话演进（user message + Markdown + AskRow 优化） |
