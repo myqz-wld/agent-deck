@@ -1,12 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
+import {
+  StreamableHTTPServerTransport,
+} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { isSessionAdapterId } from '@main/adapters/runtime-profiles';
 
 import type { ServerCoreMcpBrokerPort } from './mcp-broker-port';
 import { ServerCoreHookRouter } from './mcp-hook-router';
 import {
+  DEFAULT_SERVER_CORE_MCP_SERVER_MODULE,
   createServerCoreInProcessMcpServer,
   createServerCoreMcpServer,
   type ServerCoreMcpServerModule,
@@ -17,9 +21,6 @@ import type { ServerCoreRuntimeDiagnostics } from './repository-host';
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_CONNECTIONS = 64;
 const REQUEST_TIMEOUT_MS = 60_000;
-const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
-  specifier: string,
-) => Promise<T>;
 
 export interface ServerCoreStreamableHttpModule {
   StreamableHTTPServerTransport: new (options: {
@@ -240,14 +241,10 @@ export class ServerCoreMcpBroker implements ServerCoreMcpBrokerPort {
     server: ServerCoreMcpServerModule;
     http: ServerCoreStreamableHttpModule;
   }> {
-    this.sdkPromise ??= this.options.loadMcpSdk?.() ?? Promise.all([
-      dynamicImport<ServerCoreMcpServerModule>(
-        '@modelcontextprotocol/sdk/server/mcp.js',
-      ),
-      dynamicImport<ServerCoreStreamableHttpModule>(
-        '@modelcontextprotocol/sdk/server/streamableHttp.js',
-      ),
-    ]).then(([server, http]) => ({ server, http }));
+    this.sdkPromise ??= this.options.loadMcpSdk?.() ?? Promise.resolve({
+      server: DEFAULT_SERVER_CORE_MCP_SERVER_MODULE,
+      http: { StreamableHTTPServerTransport },
+    });
     return this.sdkPromise;
   }
 

@@ -10,7 +10,6 @@ import { join } from 'node:path';
 
 import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import type { SandboxMode } from '@main/adapters/claude-code/sandbox-config-core';
-import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import {
   cleanupGatewaySandboxSettingsCore,
   prepareGatewaySandboxSettingsCore,
@@ -30,6 +29,7 @@ import {
   publishProviderSession,
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
+import { loadServerCoreClaudeSdk } from './provider-claude-sdk';
 import { serverCoreClaudeWorkspacePolicy } from './provider-claude-sandbox';
 import {
   assertServerCoreAdditionalWriteRoots,
@@ -105,7 +105,7 @@ export function createServerCoreClaudeQueryHost(
   const sandboxContexts = new WeakMap<object, { cwd: string; mode: SandboxMode }>();
   return {
     loadSdk: async () => {
-      const sdk = await loadSdk();
+      const sdk = await loadServerCoreClaudeSdk();
       return { query: sdk.query };
     },
     runtimeOptions: () => ({

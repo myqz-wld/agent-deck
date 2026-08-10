@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-10 | `REVIEW_225_headless-provider-sdk-resolution.md` | Headless provider SDK resolution | 0 CRITICAL / 2 HIGH fixed |
 | 2026-08-10 | `REVIEW_224_macos-worker-clean-exit-recovery.md` | Always-on Worker clean-exit recovery | 0 CRITICAL / 1 HIGH fixed / 0 MEDIUM |
 | 2026-08-10 | `REVIEW_223_same-release-deploy-idempotency.md` | Same-release managed deploy recovery | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
 | 2026-08-10 | `REVIEW_222_linux-deployment-automation.md` | Managed deployment safety and lifecycle | 0 CRITICAL / 3 HIGH fixed / 7 MEDIUM fixed |

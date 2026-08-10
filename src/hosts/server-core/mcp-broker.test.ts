@@ -30,7 +30,7 @@ function record(
   };
 }
 
-function harness() {
+function harness(options: { useDefaultSdk?: boolean } = {}) {
   let current = record();
   const host = {
     workspaceRoot: process.cwd(),
@@ -45,9 +45,11 @@ function harness() {
   const broker = new ServerCoreMcpBroker({
     host,
     diagnostics: { info: vi.fn(), warn: vi.fn() },
-    loadMcpSdk: () => Promise.resolve({
-      server: { McpServer },
-      http: { StreamableHTTPServerTransport },
+    ...(options.useDefaultSdk ? {} : {
+      loadMcpSdk: () => Promise.resolve({
+        server: { McpServer },
+        http: { StreamableHTTPServerTransport },
+      }),
     }),
   });
   brokers.push(broker);
@@ -129,6 +131,23 @@ describe('ServerCoreMcpBroker', () => {
       const listed = await client.listTools();
       expect(listed.tools.map((tool) => tool.name)).toContain('task_list');
       expect(listed.tools.map((tool) => tool.name)).toContain('report_issue');
+    } finally {
+      await Promise.allSettled([client.close(), transport.close()]);
+    }
+  });
+
+  it('serves the statically bundled MCP SDK without the loader seam', async () => {
+    const { broker } = harness({ useDefaultSdk: true });
+    await broker.start();
+    const token = mcpSessionTokenMap.allocate('session-a');
+    const transport = new StreamableHTTPClientTransport(endpoint(broker), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+    });
+    const client = new Client({ name: 'server-core-default-sdk-test', version: '1.0.0' });
+    await client.connect(transport);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toContain('task_list');
     } finally {
       await Promise.allSettled([client.close(), transport.close()]);
     }
