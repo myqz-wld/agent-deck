@@ -259,6 +259,18 @@ export interface InstanceSummary extends InstanceSelector {
   readonly unitPath: string;
 }
 
+export interface InstanceDeploymentVersion {
+  readonly version: string;
+  readonly image: string;
+  readonly unitSha256: string;
+  readonly fullResources: FullResourceSpec | null;
+}
+
+export interface InstanceDeploymentState extends InstanceSummary {
+  readonly previousVersion: string | null;
+  readonly versions: readonly InstanceDeploymentVersion[];
+}
+
 export interface InstanceStatus extends InstanceSummary {
   readonly systemd: SystemdUnitStatus;
 }

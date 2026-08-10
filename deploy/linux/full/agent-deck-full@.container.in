@@ -1,4 +1,4 @@
-# Parameterized rootless Quadlet template. Render every @@...@@ token before installation.
+# Parameterized rootless Quadlet template. Render every declared placeholder before installation.
 # The referenced network MUST be backed by separately verified egress enforcement; a normal
 # rootless bridge is intentionally not treated as host/LAN/metadata filtering.
 

@@ -1,7 +1,47 @@
 # Full Server Core appliance baseline
 
+## Config-driven deployment
+
+Start from `deploy/examples/full-server.config.example.json` and keep the live config, SSH key,
+runtime config, credential authority, and optional provider-auth files outside the repository.
+Full has no separate Worker deployment: Server Core, repositories, providers, session state, and
+Browser data all live in the appliance.
+
+```bash
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --check
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --dry-run
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --deploy
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --upgrade
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --rollback
+pnpm deploy:full-server -- --config /absolute/path/full-server.json --verify
+```
+
+The script uses the exact clean, upstream-aligned Git commit for host artifacts, but it does not
+build the Full appliance image. `image.reference` must name a separately built image pinned by one
+SHA-256 digest and corresponding to that source release. Before `--check`, provision the
+rootless service user at `/var/lib/agent-deck`, Node.js 22 or newer, rootless Podman, cgroup v2,
+systemd-user linger, non-interactive sudo for the SSH administrator, and the independently tested
+`agent-deck-<instance>-egress` network.
+
+On first deploy, the manager creates the exact named volumes and the script initializes only the
+allowlisted secrets paths from `secrets.credentialsFile` plus the optional Claude, Codex, and Grok
+auth inputs. Secret file contents never enter argv or logs. Later image upgrades and rollbacks do
+not rewrite the secrets volume; rotate live credential authority and provider auth through the
+separate trusted-operator procedure below.
+
+`--upgrade` and `--rollback` use expected generation/version fences and require a healthy running
+instance. `--verify` is read-only and can inspect an unmanaged Full container without adopting it.
+Lifecycle actions do not silently migrate an unmanaged installation. The acceptance booleans are
+operator attestations, not enforcement: set them only after the named egress gateway and every
+state/workspace/browser quota have been independently tested. The script binds the resulting
+evidence to the exact instance, generation, image, rendered unit digest, and resource limits.
+
+Remote Grok remains optional. The Full script can seed its Core-side `grok-auth.json` input, but it
+does not provision the external Provider supervisor, its image, or its dedicated lifecycle. Use
+the provider-session contract below only when Remote Grok is required.
+
 `agent-deck-full@.container.in` is a parameterized rootless Quadlet input, not an install-ready
-unit. Render every `@@...@@` value, keep the image pinned by SHA-256 digest, and install the result
+unit. Render every declared placeholder, keep the image pinned by SHA-256 digest, and install the result
 in a rootless Quadlet search path such as `$XDG_CONFIG_HOME/containers/systemd/`.
 
 The unit deliberately has no `PublishPort`, `AddDevice`, host/root/home bind, or container-engine

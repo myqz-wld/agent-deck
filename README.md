@@ -50,6 +50,9 @@ Use these commands for day-to-day development and validation:
 | `pnpm test` | Run the test suite |
 | `pnpm build` | Build the application |
 | `pnpm verify:linux-headless` | Build and statically verify the isolated Linux headless roles |
+| `pnpm deploy:relay-server -- --config <path> <action>` | Check, deploy, upgrade, roll back, or verify a Relay server |
+| `pnpm deploy:relay-worker -- --config <path> <action>` | Check, configure, restart, or verify one isolated local Relay Worker |
+| `pnpm deploy:full-server -- --config <path> <action>` | Check, deploy, upgrade, roll back, or verify a Full server |
 | `pnpm dist:mac`, `pnpm dist:win`, or `pnpm dist:linux` | Build an installer on the matching host OS |
 | `pnpm install:local:mac` | Build, verify, and install the macOS app for local use |
 
@@ -165,6 +168,33 @@ The Linux role definitions and their explicit evidence limits are documented in
 [`deploy/linux/full/README.snippet.md`](deploy/linux/full/README.snippet.md),
 [`deploy/linux/relay/README.snippet.md`](deploy/linux/relay/README.snippet.md), and
 [`deploy/linux/feishu/README.md`](deploy/linux/feishu/README.md).
+
+### Deployment automation
+
+The config-driven entrypoints under `scripts/` use the current clean, upstream-aligned Git commit
+as the release identity. Server operations require an explicitly pinned SSH identity and
+`known_hosts` file, stage only the current headless artifacts, pin every image by SHA-256, and use
+the host-only instance manager for generation-fenced create, upgrade, rollback, and health checks.
+Start from the exact examples in `deploy/examples/` and keep live configs, credentials, and private
+keys outside the repository.
+
+Each entrypoint accepts exactly one action flag. `--check` is a prerequisite check, `--dry-run`
+prints a non-mutating plan, and `--verify` is read-only. Server entrypoints additionally support
+`--deploy`, `--upgrade`, and `--rollback`; the Worker supports `--deploy` and `--upgrade`. Worker
+rollback requires reinstalling the intended older signed Agent Deck app and restarting the Worker,
+so the Worker script does not pretend to provide a server-style generation rollback.
+
+The scripts do not convert a normal rootless network or filesystem into egress/quota enforcement.
+Setting the acceptance fields to `true` is an operator attestation that those external controls
+were independently verified; the script binds that attestation to the exact instance, generation,
+image, and rendered unit digest. Full also requires a prebuilt digest-pinned appliance image and an
+already verified `agent-deck-<instance>-egress` network. Existing unmanaged instances are never
+silently adopted: `--verify` can inspect them, but lifecycle operations require an explicit
+instance-manager migration or a new managed instance.
+
+Remote Grok remains optional in both topologies. These three entrypoints do not provision the
+independently managed Provider supervisor; use the provider-session deployment contract only when
+Remote Grok is required.
 
 ## Documentation
 

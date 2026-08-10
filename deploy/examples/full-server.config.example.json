@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "name": "aws-full-production",
+  "ssh": {
+    "host": "core.example.com",
+    "port": 22,
+    "user": "ubuntu",
+    "identityFile": "/Users/yourname/.ssh/full.pem",
+    "knownHostsFile": "/Users/yourname/.ssh/known_hosts"
+  },
+  "service": {
+    "user": "agentdeck",
+    "uid": 1001,
+    "home": "/var/lib/agent-deck"
+  },
+  "instance": {
+    "id": "aws-full-production",
+    "runtimeConfigFile": "/Users/yourname/.config/agent-deck-deploy/full-runtime.json",
+    "fullResources": {
+      "cpuCores": 4,
+      "memoryBytes": 8589934592,
+      "pids": 1024,
+      "rootfsBytes": 21474836480,
+      "tmpfsBytes": 1073741824,
+      "logBytes": 1073741824
+    }
+  },
+  "image": {
+    "reference": "registry.example.com/agent-deck-full@sha256:REPLACE_WITH_64_LOWERCASE_HEX_DIGEST"
+  },
+  "secrets": {
+    "credentialsFile": "/Users/yourname/.config/agent-deck-deploy/full-credentials.json",
+    "claudeCredentialsFile": null,
+    "codexAuthFile": null,
+    "grokAuthFile": null
+  },
+  "acceptance": {
+    "egressVerified": true,
+    "quotaVerified": true
+  }
+}

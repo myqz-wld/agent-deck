@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "name": "mac-worker-for-aws-relay",
+  "wrapper": "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck-worker",
+  "credentialFile": "/Users/yourname/.config/agent-deck-deploy/aws-relay-worker.agentdeck-connection",
+  "workspace": "/Users/yourname/AgentDeckWorkspaces"
+}

@@ -6,6 +6,7 @@ const wrappers = [
   'agent-deckd',
   'agent-deck-full-bridge',
   'agent-deck-relay',
+  'agent-deck-instance-manager',
   'agent-deck-worker',
 ] as const;
 

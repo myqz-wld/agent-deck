@@ -2,6 +2,7 @@ import { validateManagerRoots } from './artifacts';
 import type { InstanceManagerContext } from './context';
 import { createInstance } from './create';
 import { resolveInstancePaths, validateConfiguredRoots } from './paths';
+import { loadInstance } from './instance-reader';
 import { listInstances } from './list';
 import { InstanceOperationLocks } from './locks';
 import { startInstance, statusInstance, stopInstance } from './lifecycle';
@@ -19,6 +20,7 @@ import type {
   CreateInstanceRequest,
   InstanceManagerPorts,
   InstanceManagerRoots,
+  InstanceDeploymentState,
   InstanceOperationPlan,
   InstanceSelector,
   InstanceStatus,
@@ -245,6 +247,35 @@ export class LinuxInstanceManager {
   async status(selector: InstanceSelector): Promise<InstanceStatus> {
     await this.ready();
     return this.runLocked(selector, () => statusInstance(this.context, selector));
+  }
+
+  async describe(selector: InstanceSelector): Promise<InstanceDeploymentState> {
+    await this.ready();
+    return this.runLocked(selector, async () => {
+      const loaded = await loadInstance({
+        selector,
+        roots: this.context.roots,
+        ports: this.context.ports,
+        maxArtifactBytes: this.context.limits.maxArtifactBytes,
+        serviceUid: this.context.serviceUid,
+      });
+      return {
+        topology: loaded.record.topology,
+        instanceId: loaded.record.instanceId,
+        generation: loaded.record.generation,
+        currentVersion: loaded.record.currentVersion,
+        previousVersion: loaded.record.previousVersion,
+        image: loaded.current.image,
+        unitName: loaded.paths.unitName,
+        unitPath: loaded.paths.unitPath,
+        versions: loaded.record.versions.map((version) => ({
+          version: version.version,
+          image: version.image,
+          unitSha256: version.unitSha256,
+          fullResources: version.fullResources,
+        })),
+      };
+    });
   }
 
   async upgrade(request: UpgradeInstanceRequest): Promise<InstanceStatus> {
