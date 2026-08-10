@@ -28,6 +28,7 @@ export class FakeCommands implements CommandPort {
   tamperNextOutput = false;
   pauseNext: (() => void) | null = null;
   beforeRun: (() => void) | null = null;
+  beforeRuntimeRun: (() => void) | null = null;
 
   constructor(private readonly fileSystem: FakeFileSystem) {}
 
@@ -56,6 +57,10 @@ export class FakeCommands implements CommandPort {
     }
     const relay = request.args.includes('--quadlet');
     const runtime = relay && !request.args.includes('--static-only');
+    if (runtime) {
+      this.beforeRuntimeRun?.();
+      this.beforeRuntimeRun = null;
+    }
     let stdout = relay
       ? runtime
         ? 'relay preflight: runtime identity, health scheduler, and external egress/quota acceptance gates passed\n'

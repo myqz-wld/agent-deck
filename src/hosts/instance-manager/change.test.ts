@@ -23,6 +23,17 @@ async function runningFull() {
   return harness;
 }
 
+async function runningRelay() {
+  const harness = createHarness();
+  await harness.manager.create({
+    topology: 'relay', instanceId: 'tenant-a', version: 'v1',
+    image: DIGEST_A, runtimeConfig: { revision: 1 },
+  });
+  seedEvidence(harness, 'relay', 'tenant-a');
+  await harness.manager.start({ topology: 'relay', instanceId: 'tenant-a' });
+  return harness;
+}
+
 function mirroredConfig(harness: Awaited<ReturnType<typeof runningFull>>): string {
   const root = harness.podman.volumeDataPaths.get('agent-deck-tenant-a-state');
   if (!root) throw new Error('missing Full state volume path');
@@ -32,6 +43,23 @@ function mirroredConfig(harness: Awaited<ReturnType<typeof runningFull>>): strin
 }
 
 describe('LinuxInstanceManager upgrade and rollback', () => {
+  it('runs the Relay runtime preflight only after the current unit stops', async () => {
+    const harness = await runningRelay();
+    seedEvidence(harness, 'relay', 'tenant-a', {
+      generation: 2, version: 'v2', image: DIGEST_B,
+    });
+    harness.commands.beforeRuntimeRun = () => {
+      expect(harness.systemd.active.get('agent-deck-relay@tenant-a.service')).toBe('inactive');
+    };
+
+    await expect(harness.manager.upgrade({
+      topology: 'relay', instanceId: 'tenant-a',
+      expectedGeneration: 1, expectedVersion: 'v1',
+      nextVersion: 'v2', nextImage: DIGEST_B,
+      runtimeConfig: { revision: 2 },
+    })).resolves.toMatchObject({ generation: 2, currentVersion: 'v2' });
+  });
+
   it('health-gates upgrade and retains both recoverable generations', async () => {
     const harness = await runningFull();
     await expect(
