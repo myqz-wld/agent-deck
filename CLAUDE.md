@@ -151,37 +151,25 @@ After changing renderer -> wait for HMR to push automatically; no restart is nee
 
 ## Packaging And Local Install (macOS)
 
-Whenever you want to try the "installed version" or verify that the wrapper can locate the .app, run the full sequence:
+Whenever you want to try the installed version or verify that the wrapper can locate the `.app`, run:
 
 ```bash
-# 0. Kill all old instances (required before overwrite installs; if explicitly asked not to kill, only run packaging)
-pkill -f "Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null
-pkill -f "Agent Deck Helper" 2>/dev/null
-
-# 1. Build dmg + .app (about 1 minute)
-rm -rf build/dist && pnpm dist
-
-# 2. Overwrite-install to /Applications (must rm an existing .app first; cp -R does not clear leftovers)
-rm -rf "/Applications/Agent Deck.app"
-cp -R "build/dist/mac-arm64/Agent Deck.app" /Applications/
-
-# 3. Ad-hoc re-sign (see the rule checklist below)
-codesign --force --deep --sign - "/Applications/Agent Deck.app"
-
-# 4. Clear the quarantine attribute
-xattr -dr com.apple.quarantine "/Applications/Agent Deck.app"
-
-# 5. Symlink the wrapper into PATH (one-time)
-ln -sf "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" /usr/local/bin/agent-deck
+pnpm install:local:mac
 ```
+
+The command packages and checks the app before stopping existing instances. It installs through
+hidden staging and backup bundles, rolls back the previous app when installation validation fails,
+reuses an already-correct CLI symlink, and validates the installed signature and build metadata.
+After success it removes `build/dist/mac-*/Agent Deck.app` so macOS indexes only the installed app;
+the DMG and block map remain in `build/dist`.
 
 ### Packaging Configuration Rules
 
 - `mac.icon: "resources/icon.png"` must be configured explicitly; `extraResources` must copy `resources/bin` into the .app `bin`.
 - Packaging scripts must generate `build/build-info.json` before `electron-builder` and ship it as bundled `build-info.json`. The metadata must include package/app name, semantic version when available, full git commit, short commit, branch when available, dirty flag when determinable, and build timestamp.
 - Installed wrappers must expose human-readable version/status output and a machine-checkable freshness check (`agent-deck --version` and `agent-deck --check-installed`). The freshness check compares installed metadata with the current source checkout commit, may compare local `origin/main`, must not fetch remotes, and must report missing metadata separately from a commit mismatch.
-- Ad-hoc re-signing, killing old processes before overwrite installs, and unpacking SDK / codex native binaries are all required. If any item is missing, fix the configuration first; do not work around it in business logic.
-- When the user explicitly asks not to kill, do not delete or overwrite a running `/Applications/Agent Deck.app`. `rm -rf "/Applications/Agent Deck.app"` causes the current instance to lose bundle resources and execution channels. In that scenario, only package into `build/dist`, then wait for the user to quit manually before overwriting, or copy to a temporary bundle and replace through Finder / system-level tooling.
+- Ad-hoc re-signing, killing old processes before overwrite installs, and unpacking SDK / Codex native binaries are all required. If any item is missing, fix the configuration first; do not work around it in business logic.
+- When the user explicitly asks not to kill, run `pnpm dist:mac` only. Do not run `pnpm install:local:mac`, delete the installed bundle, or overwrite a running `/Applications/Agent Deck.app`; wait for the user to quit before installing.
 - Before validating the wrapper, always `unset ELECTRON_RUN_AS_NODE`; if the binary behaves like Node or parses `new` as a script, the validation environment is polluted. Do not change the wrapper / packaging config for that.
 - Before and after real vitest SQLite tests, protect the better-sqlite3 binding (evidence: CHANGELOG_42). If Electron reports `NODE_MODULE_VERSION 115 vs 130`, clear the npm prebuild cache and binding build directory, then force rebuild:
   ```bash
