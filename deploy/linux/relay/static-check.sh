@@ -127,6 +127,7 @@ for required in \
   '--network=slirp4netns:allow_host_loopback=false' \
   '--health-cmd=/usr/bin/true' \
   '--health-interval=1s' \
+  '--entrypoint=/usr/bin/node' \
   'timeout 20s "$health_gate" --container "$health_probe_name"' \
   "'{{.State.Health.Status}}'"; do
   grep -Fq -- "$required" "$relay_dir/preflight.sh" || {
@@ -271,6 +272,25 @@ grep -Fqx 'COPY build/linux-headless/relay/ /opt/agent-deck/linux-headless/relay
   echo "relay static check: image must copy only the isolated Relay headless artifact" >&2
   exit 1
 }
+for required in \
+  'test -f /usr/local/bin/node' \
+  'test ! -L /usr/local/bin/node' \
+  'ln /usr/local/bin/node /usr/bin/node' \
+  'test -f /usr/bin/node' \
+  'test ! -L /usr/bin/node' \
+  'test "$(readlink -f -- /usr/bin/node)" = /usr/bin/node' \
+  'test "$(stat -c '\''%u'\'' -- /usr/bin/node)" = 0' \
+  'chmod 0755 /usr/bin/node'; do
+  grep -Fq -- "$required" "$relay_dir/Containerfile" || {
+    echo "relay static check: image lost exact Node runtime provision: $required" >&2
+    exit 1
+  }
+done
+if [[ "$(grep -Fc -- '--entrypoint /usr/bin/node' "$relay_dir/preflight.sh")" != 1 ||
+      "$(grep -Fc -- '--entrypoint=/usr/bin/node' "$relay_dir/preflight.sh")" != 1 ]]; then
+  echo 'relay static check: runtime probes must execute exact /usr/bin/node' >&2
+  exit 1
+fi
 grep -Fqx 'ENTRYPOINT ["/opt/agent-deck/bin/agent-deck-relay"]' "$relay_dir/Containerfile" || {
   echo "relay static check: image must invoke the Node-only Relay entrypoint" >&2
   exit 1

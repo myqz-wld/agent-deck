@@ -349,7 +349,7 @@ if ! timeout 60s "$podman_executable" run --rm \
   -v "$state_dir:/probe/state:Z" \
   -v "$config_file:/probe/config.json:ro,Z" \
   -v "$control_dir:/probe/control:Z" \
-  --entrypoint node \
+  --entrypoint /usr/bin/node \
   "$image_ref" \
   -e '
     const fs = require("node:fs");
@@ -387,7 +387,7 @@ if ! "$podman_executable" run --detach --rm \
   --health-timeout=1s \
   --health-retries=1 \
   --health-start-period=0s \
-  --entrypoint=node \
+  --entrypoint=/usr/bin/node \
   "$image_ref" \
   -e 'process.on("SIGTERM", () => process.exit(0)); setInterval(() => {}, 60_000);' \
   >/dev/null; then
