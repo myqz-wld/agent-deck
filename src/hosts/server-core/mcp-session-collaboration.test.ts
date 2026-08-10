@@ -58,6 +58,10 @@ function harness() {
   const teams = createAgentDeckTeamRepo(database);
   const messages = createAgentDeckMessageRepo(database);
   const receiveTeammateMessage = vi.fn(async () => undefined);
+  const runtimeCwds = new Map<string, string>();
+  const closeAdapterSession = vi.fn(async (sessionId: string) => {
+    runtimeCwds.delete(sessionId);
+  });
   const closeSession = vi.fn(async (sessionId: string) => {
     const row = records.get(sessionId);
     if (row) records.set(sessionId, { ...row, lifecycle: 'closed', endedAt: 3 });
@@ -68,6 +72,8 @@ function harness() {
     id: 'codex-cli',
     capabilities: { canCollaborate: true },
     receiveTeammateMessage,
+    closeSession: closeAdapterSession,
+    getRuntimeCwd: (sessionId: string) => runtimeCwds.get(sessionId) ?? null,
   } as unknown as AgentAdapter;
   const collaboration = new ServerCoreMcpSessionCollaboration({
     workspaceRoot,
@@ -104,6 +110,7 @@ function harness() {
   collaborations.push(collaboration);
   return {
     changes,
+    closeAdapterSession,
     closeSession,
     collaboration,
     events,
@@ -111,6 +118,7 @@ function harness() {
     privateRoot,
     receiveTeammateMessage,
     records,
+    runtimeCwds,
     teams,
     workspaceRoot,
   };
@@ -238,5 +246,26 @@ describe('ServerCoreMcpSessionCollaboration', () => {
     expect(state.closeSession).toHaveBeenCalledWith('peer');
     await expect(state.collaboration.shutdown('caller', { sessionId: 'caller' }))
       .rejects.toThrow('caller session');
+  });
+
+  it('re-runs adapter retirement for an already-closed session without rewriting it', async () => {
+    const state = harness();
+    const closed = state.records.get('peer')!;
+    state.records.set('peer', { ...closed, lifecycle: 'closed', endedAt: 3 });
+    state.runtimeCwds.set('peer', join(state.workspaceRoot, 'project-b'));
+
+    await expect(state.collaboration.shutdown('caller', {
+      sessionId: 'peer',
+      reason: 'release stale worktree runtime',
+    })).resolves.toEqual({
+      sessionId: 'peer',
+      lifecycle: 'closed',
+      alreadyClosed: true,
+    });
+
+    expect(state.closeSession).not.toHaveBeenCalled();
+    expect(state.closeAdapterSession).toHaveBeenCalledWith('peer');
+    expect(state.runtimeCwds.has('peer')).toBe(false);
+    expect(state.records.get('peer')?.endedAt).toBe(3);
   });
 });

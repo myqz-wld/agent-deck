@@ -12,6 +12,7 @@ import type {
 import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import type { AgentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import type { SessionRecord, StoredAgentEvent } from '@shared/types';
+import { retireClosedSessionRuntime } from '@main/adapters/closed-session-runtime-retirement';
 
 import { ServerCoreMcpMessageDispatcher } from './mcp-message-dispatcher';
 import type { ServerCoreMcpSessionPort } from './mcp-session-port';
@@ -190,11 +191,16 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
     if (args.sessionId === callerSessionId) throw new Error('Cannot shut down the caller session');
     const target = this.options.sessions.get(args.sessionId);
     if (!target) throw new Error(`Session ${args.sessionId} was not found`);
-    if (target.lifecycle === 'closed') {
-      return { sessionId: target.id, lifecycle: 'closed', alreadyClosed: true };
+    const alreadyClosed = target.lifecycle === 'closed';
+    if (alreadyClosed) {
+      await retireClosedSessionRuntime(
+        this.options.adapter(target.agentId),
+        target.id,
+      );
+    } else {
+      await this.options.closeSession(target.id);
     }
-    await this.options.closeSession(target.id);
-    return { sessionId: target.id, lifecycle: 'closed', alreadyClosed: false };
+    return { sessionId: target.id, lifecycle: 'closed', alreadyClosed };
   }
 
   private listBase(args: ListSessionsArgs): SessionRecord[] {

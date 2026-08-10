@@ -18,6 +18,8 @@
 
 import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
+import { adapterRegistry } from '@main/adapters/registry';
+import { retireClosedSessionRuntime } from '@main/adapters/closed-session-runtime-retirement';
 import log from '@main/utils/logger';
 
 import {
@@ -51,18 +53,24 @@ export const shutdownSessionHandler = withMcpGuard(
         'Call list_sessions to get a live session ID, then retry.',
       );
     }
-    if (session.lifecycle === 'closed') {
-      // 已 closed，幂等返回 success（与 IPC delete 同模式：noop）
-      return ok({ sessionId: args.sessionId, lifecycle: 'closed', alreadyClosed: true } satisfies ShutdownSessionResult);
-    }
+    const alreadyClosed = session.lifecycle === 'closed';
     try {
-      await sessionManager.close(args.sessionId);
+      if (alreadyClosed) {
+        // Durable close may win before an adapter's runtime map is retired. Re-run only
+        // provider cleanup so the original endedAt and other history remain unchanged.
+        await retireClosedSessionRuntime(
+          adapterRegistry.get(session.agentId),
+          args.sessionId,
+        );
+      } else {
+        await sessionManager.close(args.sessionId);
+      }
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),
-        'Call get_session with this sessionId. If it is still active, retry once; if closing fails again, inspect Agent Deck main-process logs.',
+        '先用 get_session 检查该 session；若仍为 active，请重试一次；若已经 closed 或再次清理失败，请查看 Agent Deck 主进程日志，并在清理 worktree 前重启 Agent Deck。',
       );
     }
-    return ok({ sessionId: args.sessionId, lifecycle: 'closed', alreadyClosed: false } satisfies ShutdownSessionResult);
+    return ok({ sessionId: args.sessionId, lifecycle: 'closed', alreadyClosed } satisfies ShutdownSessionResult);
   },
 );
