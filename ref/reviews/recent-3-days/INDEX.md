@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-09 | `REVIEW_221_podman-health-json-argv.md` | Podman health command argv semantics | 0 CRITICAL / 1 HIGH fixed |
 | 2026-08-09 | `REVIEW_220_relay-image-exact-node-runtime.md` | Exact Node path in the Relay image | 0 CRITICAL / 1 HIGH fixed |
 | 2026-08-09 | `REVIEW_219_relay-health-startup-gate.md` | Relay health-gated systemd activation | 0 CRITICAL / 2 HIGH fixed / 1 MEDIUM fixed |
 | 2026-08-09 | `REVIEW_218_closed-reviewer-runtime-retirement.md` | Closed reviewer runtime retirement | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |

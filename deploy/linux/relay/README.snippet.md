@@ -115,7 +115,9 @@ isolated Relay/Worker pair for another tenant or workspace. The restart makes th
 config live; it does not add Relay compute or a business queue.
 
 The Quadlet overrides any inherited image healthcheck and probes only the private per-instance
-control socket through `agent-deck-relay health`. Native `Notify=healthy` gates systemd startup on
+control socket through `agent-deck-relay health`. Its Podman JSON argv begins with the executable
+itself; Dockerfile's `CMD` marker is not a Podman health-command argument. Native `Notify=healthy`
+gates systemd startup on
 Podman versions that support healthy sd-notify; the bounded host startup gate enforces the same
 wait on older Quadlet generators. An unhealthy container is killed for bounded systemd restart,
 and the instance manager still polls

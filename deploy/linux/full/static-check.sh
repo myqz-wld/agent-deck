@@ -18,6 +18,9 @@ bash -n "$repo_root/resources/bin/agent-deckd"
 bash -n "$repo_root/resources/bin/agent-deck-full-bridge"
 bash -n "$repo_root/resources/bin/agent-deck-provider-supervisor"
 bash "$full_dir/preflight.sh" --template "$template"
+if grep -Fq 'HealthCmd=["CMD"' "$template"; then
+  fail 'Podman health argv must begin with the executable, not a Dockerfile CMD marker'
+fi
 
 for surface in desktop-full feishu-session-console; do
   grep -Fq "command=\"/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface $surface\"" "$key_fixture" ||

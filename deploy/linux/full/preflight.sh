@@ -35,7 +35,7 @@ validate_common() {
   require_line "$unit" 'Volume=agent-deck-%i-browser:/var/lib/agent-deck-browser:rw,nodev,nosuid'
   require_line "$unit" 'Volume=agent-deck-%i-secrets:/run/secrets:ro,nodev,nosuid,noexec'
   require_line "$unit" 'Exec=/opt/agent-deck/bin/agent-deckd serve --instance %i --config /var/lib/agent-deck/config/agent-deck/instances/%i/config.json --socket /run/agent-deck/%i/agent-deckd.sock'
-  require_line "$unit" 'HealthCmd=["CMD","/opt/agent-deck/bin/agent-deckd","health","--socket","/run/agent-deck/%i/agent-deckd.sock"]'
+  require_line "$unit" 'HealthCmd=["/opt/agent-deck/bin/agent-deckd","health","--socket","/run/agent-deck/%i/agent-deckd.sock"]'
   require_line "$unit" 'ExecStartPre=/usr/bin/test -r %h/.config/agent-deck/instances/%i/egress-policy.verified'
   require_line "$unit" 'ExecStartPre=/usr/bin/test -r %h/.config/agent-deck/instances/%i/volume-quota.verified'
 

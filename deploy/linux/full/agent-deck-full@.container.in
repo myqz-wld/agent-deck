@@ -37,7 +37,7 @@ PidsLimit=@@PIDS_LIMIT@@
 PodmanArgs=--cpus=@@CPU_LIMIT@@ --storage-opt=size=@@ROOTFS_SIZE@@
 LogDriver=k8s-file
 LogOpt=max-size=@@LOG_SIZE@@
-HealthCmd=["CMD","/opt/agent-deck/bin/agent-deckd","health","--socket","/run/agent-deck/%i/agent-deckd.sock"]
+HealthCmd=["/opt/agent-deck/bin/agent-deckd","health","--socket","/run/agent-deck/%i/agent-deckd.sock"]
 HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=3
