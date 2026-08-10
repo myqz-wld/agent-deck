@@ -113,7 +113,7 @@ required_lines=(
   'Volume=%t/agent-deck-relay/%i:/run/agent-deck-relay/%i:Z'
   'Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=32m'
   'PodmanArgs=--pids-limit=256 --memory=512m --cpus=1.0'
-  'HealthCmd=["CMD","/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]'
+  'HealthCmd=["/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]'
   'HealthInterval=10s'
   'HealthTimeout=3s'
   'HealthRetries=3'

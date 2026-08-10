@@ -84,7 +84,7 @@ for replacement in \
   'ReadOnly=true|ReadOnly=false' \
   'User=%U:%G|User=0:0' \
   'UserNS=keep-id|UserNS=host' \
-  'HealthCmd=["CMD","/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]|HealthCmd=["CMD","/bin/true"]' \
+  'HealthCmd=["/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]|HealthCmd=["/bin/true"]' \
   'HealthOnFailure=kill|HealthOnFailure=none' \
   'Notify=healthy|Notify=true' \
   'ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i|ExecStartPost=/bin/true' \
