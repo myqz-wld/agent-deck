@@ -1,9 +1,10 @@
-import { useState, type JSX } from 'react';
+import type { JSX } from 'react';
 
 import {
   MCP_DIFF_PRESENTATION_SCHEMA,
   MCP_PLAN_PRESENTATION_SCHEMA,
   parseMcpPresentationDisplay,
+  parsePermissionPreviewDisplay,
 } from '@contracts/index';
 
 import type {
@@ -12,9 +13,11 @@ import type {
   RemoteHostPendingAction,
   RemoteHostPendingListDto,
 } from '@shared/remote-host';
-import { remoteHostQuestionIds } from '@shared/remote-host';
 import {
-  pendingActionSurface,
+  parseRemoteHostNativeExitPlanDisplay,
+  remoteHostQuestionIds,
+} from '@shared/remote-host';
+import {
   remotePendingPresentation,
 } from '@renderer/remote-host/remote-pending-presentation';
 import type {
@@ -23,13 +26,75 @@ import type {
 } from '@renderer/remote-host/source-types';
 import type {
   AgentEvent,
+  AskUserQuestionAnswer,
+  AskUserQuestionRequest,
   DiffReviewRequest,
   DiffReviewResponse,
   ExitPlanModeRequest,
   ExitPlanModeResponse,
+  PermissionRequest,
 } from '@shared/types';
+import { AskRow } from './AskRow';
 import { DiffReviewRow } from './DiffReviewRow';
 import { ExitPlanRow } from './ExitPlanRow';
+import { PermissionRow } from './PermissionRow';
+import { RemotePendingFallbackRow } from './RemotePendingFallbackRow';
+
+const MAX_QUESTIONS = 32;
+const MAX_OPTIONS = 32;
+const UTF8 = new TextEncoder();
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
+
+interface RemoteQuestionPresentation {
+  id: string;
+  header: string | null;
+  question: string;
+  multiSelect: boolean;
+  options: Array<{ label: string; description: string | null }>;
+}
+
+function text(value: RemoteHostJsonValue | undefined, maximumBytes = 4_096): string | null {
+  return typeof value === 'string' && value.trim() && !CONTROL.test(value) &&
+    UTF8.encode(value).byteLength <= maximumBytes
+    ? value
+    : null;
+}
+
+function remoteQuestions(
+  display: RemoteHostJsonObject,
+  questionIds: readonly string[],
+): RemoteQuestionPresentation[] {
+  if (!Array.isArray(display.questions) || display.questions.length > MAX_QUESTIONS) return [];
+  const allowedIds = new Set(questionIds);
+  const byId = new Map<string, RemoteQuestionPresentation>();
+  for (const item of display.questions) {
+    if (item === null || Array.isArray(item) || typeof item !== 'object') return [];
+    const id = text(item.id, 128);
+    const question = text(item.question, 1_024);
+    if (
+      !id || !question || !allowedIds.has(id) || byId.has(id) ||
+      !Array.isArray(item.options) || item.options.length > MAX_OPTIONS
+    ) return [];
+    const options: RemoteQuestionPresentation['options'] = [];
+    for (const option of item.options) {
+      if (option === null || Array.isArray(option) || typeof option !== 'object') return [];
+      const label = text(option.label, 256);
+      if (!label) return [];
+      options.push({ label, description: text(option.description, 512) });
+    }
+    if (new Set(options.map((option) => option.label)).size !== options.length) return [];
+    byId.set(id, {
+      id,
+      header: text(item.header, 256),
+      question,
+      multiSelect: item.multiSelect === true,
+      options,
+    });
+  }
+  return questionIds.length === byId.size
+    ? questionIds.map((id) => byId.get(id)!)
+    : [];
+}
 
 export function RemotePendingRequests({
   pending,
@@ -62,7 +127,11 @@ export function RemotePendingRequests({
           presentation, agentId, busy, onRespond, planReviewTransport,
         );
         if (mcp) return mcp;
-        return <RemotePendingRequest
+        const provider = remoteProviderPresentationRow(
+          presentation, agentId, busy, onRespond,
+        );
+        if (provider) return provider;
+        return <RemotePendingFallbackRow
           key={`${request.id}\u0000${presentation.revision}\u0000${presentation.digest}\u0000${sourceIdentity}`}
           presentation={presentation}
           busy={busy}
@@ -76,7 +145,7 @@ export function RemotePendingRequests({
 function presentationEvent(
   presentation: RemotePendingPresentation,
   agentId: string,
-  payload: ExitPlanModeRequest | DiffReviewRequest,
+  payload: AskUserQuestionRequest | DiffReviewRequest | ExitPlanModeRequest | PermissionRequest,
 ): AgentEvent {
   return {
     sessionId: presentation.request.sessionId,
@@ -184,83 +253,142 @@ function remoteMcpPresentationRow(
   return null;
 }
 
-function RemotePendingRequest({
-  presentation,
-  busy,
-  onRespond,
-}: {
-  presentation: RemotePendingPresentation;
-  busy: boolean;
-  onRespond: Parameters<typeof RemotePendingRequests>[0]['onRespond'];
-}): JSX.Element {
+function remoteProviderPresentationRow(
+  presentation: RemotePendingPresentation,
+  agentId: string,
+  busy: boolean,
+  onRespond: Parameters<typeof RemotePendingRequests>[0]['onRespond'],
+): JSX.Element | null {
   const request = presentation.request;
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
-  const questionIds = remoteHostQuestionIds(request.display);
-  const labels: Record<RemoteHostPendingAction, string> = {
-    accept: '接受', approve: '批准', deny: '拒绝', reject: '拒绝', submit: '提交',
+  const common = {
+    sessionId: request.sessionId,
+    agentId,
+    isSdk: true,
+    stillPending: request.status === 'pending',
+    wasCancelled: request.status === 'cancelled',
+    onResolved: () => undefined,
   };
-  const actions = pendingActionSurface(request.kind);
-  const pending = request.status === 'pending';
-  const answersReady = questionIds.every((id) => Boolean(answers[id]?.trim()));
-  const value = (): RemoteHostJsonObject => Object.fromEntries(
-    questionIds.map((id) => [id, answers[id]?.trim() ?? '']),
-  );
-  const respond = async (action: RemoteHostPendingAction): Promise<void> => {
-    setError(null);
-    try {
-      await onRespond(presentation, action, action === 'submit' ? value() : undefined);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  };
-  return (
-    <li
-      data-testid={`remote-pending-${request.id}`}
-      className="rounded border border-amber-400/20 bg-amber-500/5 p-2 text-[10px]"
-    >
-      <div className="flex justify-between gap-2 font-medium text-amber-100">
-        <span>{request.kind}</span><span>{request.status}</span>
-      </div>
-      <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap text-deck-muted">
-        {JSON.stringify(request.display, null, 2)}
-      </pre>
-      {request.kind === 'ask-user-question' && (
-        <div className="mt-2 space-y-1">
-          {questionIds.map((questionId) => (
-            <label key={questionId} className="block">
-              <span className="text-deck-muted">{questionId}</span>
-              <textarea
-                aria-label={`回答：${questionId}`}
-                value={answers[questionId] ?? ''}
-                onChange={(event) => setAnswers((current) => ({
-                  ...current,
-                  [questionId]: event.target.value,
-                }))}
-                disabled={busy || !pending}
-                maxLength={1_000}
-                rows={2}
-                placeholder="请输入回答"
-                className="mt-0.5 w-full resize-y rounded border border-white/10 bg-black/20 px-1.5 py-1 disabled:opacity-40"
-              />
-            </label>
-          ))}
-        </div>
+  const key = `${presentation.sourceIdentity}-${request.id}-${presentation.revision}-${presentation.digest}`;
+  if (request.kind === 'permission') {
+    let preview: ReturnType<typeof parsePermissionPreviewDisplay>;
+    try { preview = parsePermissionPreviewDisplay(request.display); }
+    catch { return null; }
+    const command = text(request.display.command);
+    const description = text(request.display.description);
+    const toolName = preview?.tool ?? text(request.display.tool, 256) ?? '远程工具';
+    const approvalDisabledReason = preview
+      ? preview.complete
+        ? null
+        : '授权输入未能完整安全展示；仅可拒绝此请求。'
+      : command
+        ? null
+        : '远程 Core 未提供完整授权上下文；仅可拒绝此请求。';
+    const payload: PermissionRequest = {
+      type: 'permission-request',
+      requestId: request.id,
+      toolName,
+      toolInput: preview?.input ?? {
+        ...(command ? { command } : {}),
+        ...(description ? { description } : {}),
+      },
+    };
+    return <PermissionRow
+      key={`permission-${key}`}
+      {...common}
+      event={presentationEvent(presentation, agentId, payload)}
+      payload={payload}
+      respondOverride={(decision) => onRespond(
+        presentation,
+        decision === 'allow' ? 'approve' : 'deny',
       )}
-      <div className="mt-2 flex justify-end gap-1">
-        {actions.map((action) => (
-          <button
-            key={action}
-            type="button"
-            disabled={busy || !pending || (action === 'submit' && !answersReady)}
-            onClick={() => void respond(action)}
-            className="rounded bg-white/8 px-2 py-1 hover:bg-white/12 disabled:opacity-30"
-          >
-            {labels[action]}
-          </button>
-        ))}
-      </div>
-      {error && <div role="alert" className="mt-2 text-[9px] text-red-200">{error}</div>}
-    </li>
-  );
+      responseDisabled={busy}
+      approvalDisabledReason={approvalDisabledReason}
+    />;
+  }
+  if (request.kind === 'exit-plan') {
+    const display = parseRemoteHostNativeExitPlanDisplay(request.display);
+    if (!display) return null;
+    const plan = text(display.summary);
+    if (!plan) return null;
+    const title = text(display.title, 512);
+    const payload: ExitPlanModeRequest = {
+      type: 'exit-plan-mode',
+      requestId: request.id,
+      plan,
+      ...(title === null ? {} : { title }),
+    };
+    const respond = async (response: ExitPlanModeResponse): Promise<void> => {
+      if (busy) throw new Error('另一项远程操作仍在进行，请稍后重试。');
+      if (response.decision === 'approve') {
+        await onRespond(presentation, 'accept', { targetMode: response.targetMode });
+        return;
+      }
+      if (response.decision === 'approve-bypass') {
+        await onRespond(presentation, 'accept', { targetMode: 'bypassPermissions' });
+        return;
+      }
+      await onRespond(
+        presentation,
+        'reject',
+        response.feedback?.trim() ? { feedback: response.feedback.trim() } : undefined,
+      );
+    };
+    return <ExitPlanRow
+      key={`provider-plan-${key}`}
+      {...common}
+      event={presentationEvent(presentation, agentId, payload)}
+      payload={payload}
+      respondOverride={respond}
+      responseDisabled={busy}
+    />;
+  }
+  if (request.kind !== 'ask-user-question') return null;
+  const questionIds = remoteHostQuestionIds(request.display);
+  const questions = remoteQuestions(request.display, questionIds);
+  if (questions.length !== questionIds.length) return null;
+  const payload: AskUserQuestionRequest = {
+    type: 'ask-user-question',
+    requestId: request.id,
+    questions: questions.map((question) => ({
+      question: question.question,
+      multiSelect: question.multiSelect,
+      options: question.options.map((option) => ({
+        label: option.label,
+        ...(option.description === null ? {} : { description: option.description }),
+      })),
+      ...(question.header === null ? {} : { header: question.header }),
+    })),
+  };
+  const respond = async (answer: AskUserQuestionAnswer): Promise<void> => {
+    if (answer.answers.length !== questionIds.length) {
+      throw new Error('远程问题展示已变化，请刷新后重试。');
+    }
+    const value: RemoteHostJsonObject = Object.fromEntries(
+      questionIds.map((id, index) => {
+        const item = answer.answers[index]!;
+        const other = item.other?.length ? item.other : undefined;
+        const note = item.note?.length ? item.note : undefined;
+        if (note === undefined && item.selected.length > 0 && other === undefined) {
+          return [id, [...item.selected]];
+        }
+        if (note === undefined && item.selected.length === 0 && other !== undefined) {
+          return [id, other];
+        }
+        return [id, {
+          selected: [...item.selected],
+          ...(other === undefined ? {} : { other }),
+          ...(note === undefined ? {} : { note }),
+        }];
+      }),
+    );
+    await onRespond(presentation, 'submit', value);
+  };
+  return <AskRow
+    key={`ask-${key}`}
+    {...common}
+    event={presentationEvent(presentation, agentId, payload)}
+    payload={payload}
+    respondOverride={respond}
+    responseDisabled={busy}
+  />;
 }

@@ -13,7 +13,7 @@ afterEach(cleanup);
 function renderHeader(
   sourceMode: 'local' | 'remote',
   total: number | null = 1,
-  remoteIssuesAvailable = false,
+  remoteCapabilities: ReadonlySet<string> = new Set(),
 ) {
   const onSourceChange = vi.fn();
   render(
@@ -46,7 +46,8 @@ function renderHeader(
           credentials: { connectionCredentialConfigured: true },
         },
       ]}
-      remoteIssuesAvailable={remoteIssuesAvailable}
+      remoteCapabilities={remoteCapabilities}
+      remoteUsage={null}
       onViewChange={vi.fn()}
       onSourceChange={onSourceChange}
       onOpenRemoteProfiles={vi.fn()}
@@ -80,26 +81,36 @@ describe('AppHeader source selection', () => {
     expect(source.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('hides unsupported local-only pages in Remote mode', () => {
+  it('hides pages that the Remote Core does not advertise', () => {
     renderHeader('remote');
     expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect(screen.queryByRole('button', { name: '问题' })).toBeNull();
     expect(screen.queryByRole('button', { name: '数据' })).toBeNull();
     expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '会话摘要' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
   });
 
   it('shows the shared Issues entry when the Remote Core advertises it', () => {
-    renderHeader('remote', 1, true);
+    renderHeader('remote', 1, new Set(['issues']));
     expect(screen.getByRole('button', { name: '问题' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect(screen.queryByRole('button', { name: '数据' })).toBeNull();
   });
 
-  it('labels Remote history as bounded summaries and does not invent a total', () => {
+  it('uses the same primary page catalog when Remote advertises Teams, Issues, and Usage', () => {
+    renderHeader('remote', 1, new Set(['teams', 'issues', 'usage']));
+    expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '团队' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '问题' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '数据' })).toBeTruthy();
+  });
+
+  it('keeps the Local history label and does not invent a Remote total', () => {
     renderHeader('remote', null);
     expect(screen.getByText('会话总数未提供')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '会话摘要' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
   });
 });

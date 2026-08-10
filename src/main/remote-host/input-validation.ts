@@ -37,6 +37,7 @@ const PENDING_ANSWER_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 const MAX_JSON_DEPTH = 16;
 const MAX_JSON_NODES = 4_096;
+const EXIT_PLAN_TARGET_MODES = new Set(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
 
 export class RemoteHostInputError extends Error {
   constructor(field: string, reason: string) {
@@ -96,6 +97,14 @@ function token(value: unknown, field: string, maxBytes = 512): string {
   return parsed;
 }
 
+function pendingPresentationDigest(value: unknown): string {
+  const parsed = token(value, 'expectedPresentationDigest', 72);
+  if (!/^sha256:[0-9a-f]{64}$/u.test(parsed)) {
+    throw new RemoteHostInputError('expectedPresentationDigest', 'invalid digest');
+  }
+  return parsed;
+}
+
 function pendingAction(value: unknown): RemoteHostPendingAction {
   const parsed = token(value, 'action', 128);
   if (!['accept', 'approve', 'deny', 'reject', 'submit'].includes(parsed)) {
@@ -108,15 +117,39 @@ function boundedPendingAnswer(value: RemoteHostJsonValue): boolean {
   if (typeof value === 'string') {
     return value.length > 0 && utf8Bytes(value) <= 4_096 && !PENDING_ANSWER_CONTROL.test(value);
   }
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.length <= 32 &&
-    value.every((item) =>
-      typeof item === 'string' &&
-      item.length > 0 &&
-      utf8Bytes(item) <= 4_096 &&
-      !PENDING_ANSWER_CONTROL.test(item))
+  if (Array.isArray(value)) {
+    return value.length > 0 && value.length <= 32 && value.every((item) =>
+      typeof item === 'string' && item.length > 0 && utf8Bytes(item) <= 4_096 &&
+      !PENDING_ANSWER_CONTROL.test(item)) && new Set(value).size === value.length;
+  }
+  if (!isJsonObject(value)) return false;
+  const keys = Object.keys(value);
+  if (
+    !Object.hasOwn(value, 'selected') ||
+    keys.some((key) => !['note', 'other', 'selected'].includes(key))
+  ) return false;
+  if (
+    !Array.isArray(value.selected) || value.selected.length > 32 ||
+    !value.selected.every((item) =>
+      typeof item === 'string' && item.length > 0 && utf8Bytes(item) <= 4_096 &&
+      !PENDING_ANSWER_CONTROL.test(item)) ||
+    new Set(value.selected).size !== value.selected.length
+  ) return false;
+  return ['other', 'note'].every((key) => {
+    const item = value[key];
+    return item === undefined || (
+      typeof item === 'string' && utf8Bytes(item) <= 4_096 &&
+      !PENDING_ANSWER_CONTROL.test(item)
+    );
+  });
+}
+
+function meaningfulPendingAnswer(value: RemoteHostJsonValue): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return isJsonObject(value) && (
+    (Array.isArray(value.selected) && value.selected.length > 0) ||
+    (typeof value.other === 'string' && value.other.trim().length > 0)
   );
 }
 
@@ -124,6 +157,18 @@ function pendingValue(
   action: RemoteHostPendingAction,
   value: unknown,
 ): RemoteHostJsonValue | undefined {
+  if (action === 'accept' && value !== undefined) {
+    const parsed = parseRemoteHostJsonObject(value, 'value', 256);
+    if (
+      Object.keys(parsed).length !== 1 ||
+      !Object.hasOwn(parsed, 'targetMode') ||
+      typeof parsed.targetMode !== 'string' ||
+      !EXIT_PLAN_TARGET_MODES.has(parsed.targetMode)
+    ) {
+      throw new RemoteHostInputError('value', 'invalid exit-plan target mode');
+    }
+    return parsed;
+  }
   if (action === 'reject' && value !== undefined) {
     try {
       const feedback = parseMcpPresentationFeedback(parseRemoteHostJsonValue(
@@ -153,7 +198,8 @@ function pendingValue(
     entries.some(([key, answer]) =>
       utf8Bytes(key) > 128 ||
       PENDING_ANSWER_CONTROL.test(key) ||
-      !boundedPendingAnswer(answer))
+      !boundedPendingAnswer(answer)) ||
+    !entries.some(([, answer]) => meaningfulPendingAnswer(answer))
   ) {
     throw new RemoteHostInputError('value', 'invalid pending answer object');
   }
@@ -436,7 +482,8 @@ export function parseRemoteHostRuntimeUpdate(value: unknown): RemoteHostRuntimeU
 
 export function parseRemoteHostPendingResponse(value: unknown): RemoteHostPendingResponseDto {
   const raw = object(value, 'pendingResponse');
-  const expected = ['action', 'expectedRevision', 'intentId', 'profileId', 'requestId', 'sessionId'];
+  const expected = ['action', 'expectedPresentationDigest', 'expectedRevision', 'intentId',
+    'profileId', 'requestId', 'sessionId'];
   if (raw.value !== undefined) expected.push('value');
   exactKeys(raw, expected, 'pendingResponse');
   const action = pendingAction(raw.action);
@@ -447,6 +494,7 @@ export function parseRemoteHostPendingResponse(value: unknown): RemoteHostPendin
     action,
     ...(parsedValue === undefined ? {} : { value: parsedValue }),
     expectedRevision: revision(raw.expectedRevision, 'expectedRevision'),
+    expectedPresentationDigest: pendingPresentationDigest(raw.expectedPresentationDigest),
     intentId: intentId(raw.intentId),
   };
 }

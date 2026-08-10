@@ -14,6 +14,7 @@ import {
   requestTokenDailyRefresh,
   retainStrongTokenDailyRefresh,
 } from '../lib/token-daily-refresh';
+import type { RemoteUsageSourceView } from '../remote-host/use-remote-usage-source';
 
 /**
  * 数据 tab：每模型每天 token 使用统计。
@@ -26,19 +27,30 @@ import {
  * **刷新**：rates/live 走 useTokenRatesPoll；daily 由 App 级协调器订阅事件并串行刷新。
  */
 
-export function DataPanel(): JSX.Element {
-  const rates = useTokenUsageStore((s) => s.rates);
-  const liveBySession = useTokenUsageStore((s) => s.liveBySession);
-  const daily = useTokenUsageStore((s) => s.daily);
-  const usageSnapshots = useTokenUsageStore((s) => s.providerUsageSnapshots);
-  const usageFetchedAt = useTokenUsageStore((s) => s.providerUsageFetchedAt);
-  const usageLoading = useTokenUsageStore((s) => s.providerUsageLoading);
-  const usageError = useTokenUsageStore((s) => s.providerUsageError);
+export function DataPanel({
+  remoteUsage = null,
+}: {
+  remoteUsage?: RemoteUsageSourceView | null;
+}): JSX.Element {
+  const localRates = useTokenUsageStore((s) => s.rates);
+  const localLiveBySession = useTokenUsageStore((s) => s.liveBySession);
+  const localDaily = useTokenUsageStore((s) => s.daily);
+  const localUsageSnapshots = useTokenUsageStore((s) => s.providerUsageSnapshots);
+  const localUsageFetchedAt = useTokenUsageStore((s) => s.providerUsageFetchedAt);
+  const localUsageLoading = useTokenUsageStore((s) => s.providerUsageLoading);
+  const localUsageError = useTokenUsageStore((s) => s.providerUsageError);
   const beginProviderUsageRequest = useTokenUsageStore((s) => s.beginProviderUsageRequest);
   const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
   const setProviderUsageError = useTokenUsageStore((s) => s.setProviderUsageError);
   const mountedRef = useRef(true);
-  useTokenRatesPoll(true);
+  useTokenRatesPoll(true, 2500, remoteUsage === null);
+  const rates = remoteUsage?.rates ?? localRates;
+  const liveBySession = remoteUsage ? {} : localLiveBySession;
+  const daily = remoteUsage?.daily ?? localDaily;
+  const usageSnapshots = remoteUsage?.providerSnapshots ?? localUsageSnapshots;
+  const usageFetchedAt = remoteUsage?.providerFetchedAt ?? localUsageFetchedAt;
+  const usageLoading = remoteUsage?.providerLoading ?? localUsageLoading;
+  const usageError = remoteUsage?.providerError ?? localUsageError;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -48,13 +60,31 @@ export function DataPanel(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    if (remoteUsage) return;
     const releaseStrongRefresh = retainStrongTokenDailyRefresh();
     requestTokenDailyRefresh(true);
     return releaseStrongRefresh;
-  }, []);
+  }, [remoteUsage]);
+
+  useEffect(() => {
+    if (!remoteUsage) return;
+    let cancelled = false;
+    // DataPanel is a child of the Remote source hook. Defer the first reads until the current
+    // passive-effect batch finishes so a profile-identity reset cannot invalidate them.
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      void remoteUsage.loadDaily();
+      void remoteUsage.loadProviders(false);
+    });
+    return () => { cancelled = true; };
+  }, [remoteUsage?.identity]);
 
   const fetchUsage = useCallback(
     async (opts: { showLoading: boolean; force?: boolean }): Promise<void> => {
+      if (remoteUsage) {
+        await remoteUsage.loadProviders(opts.force === true);
+        return;
+      }
       const requestId = beginProviderUsageRequest(opts.showLoading);
       try {
         const result = opts.force
@@ -67,14 +97,15 @@ export function DataPanel(): JSX.Element {
         }
       }
     },
-    [beginProviderUsageRequest, setProviderUsageError, setProviderUsageSuccess],
+    [beginProviderUsageRequest, remoteUsage, setProviderUsageError, setProviderUsageSuccess],
   );
 
   useEffect(() => {
+    if (remoteUsage) return;
     const cacheFresh =
       usageFetchedAt !== null && Date.now() - usageFetchedAt < PROVIDER_USAGE_RENDERER_STALE_MS;
     if (!cacheFresh) void fetchUsage({ showLoading: usageSnapshots.length === 0 });
-  }, [fetchUsage, usageFetchedAt, usageSnapshots.length]);
+  }, [fetchUsage, remoteUsage, usageFetchedAt, usageSnapshots.length]);
 
   // 实时区：全 bucket token/s，生成中 fresh live 估算优先，降序
   const liveRates = useMemo(() => {
@@ -94,13 +125,17 @@ export function DataPanel(): JSX.Element {
   const totalTps = liveRates.reduce((sum, r) => sum + r.tps, 0);
 
   // 今日汇总（daily 里 day === 本地今天的行）+ 全量汇总
-  const todayStr = useMemo(() => {
+  const localToday = useMemo(() => {
     const d = new Date();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return `${d.getFullYear()}-${mm}-${dd}`;
   }, []);
-  const todayTotals = useMemo(() => sumRows(daily.filter((r) => r.day === todayStr)), [daily, todayStr]);
+  const today = remoteUsage ? remoteUsage.today : localToday;
+  const todayTotals = useMemo(
+    () => sumRows(today === null ? [] : daily.filter((row) => row.day === today)),
+    [daily, today],
+  );
 
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2 text-[11px]">
@@ -183,7 +218,7 @@ export function DataPanel(): JSX.Element {
       <section className="mb-3">
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">今日 Token</span>
-          <span className="text-[10px] tabular-nums text-deck-muted/70">{todayStr}</span>
+          <span className="text-[10px] tabular-nums text-deck-muted/70">{today ?? '读取中'}</span>
           <span className="ml-auto text-[10px] text-deck-muted/60">总量 / 分项</span>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -269,7 +304,17 @@ export function DataPanel(): JSX.Element {
             </table>
           </div>
         ) : (
-          <div className="text-[10px] text-deck-muted/60">暂无使用记录</div>
+          <div className="text-[10px] text-deck-muted/60">
+            {remoteUsage?.dailyLoading ? '正在读取使用记录' : '暂无使用记录'}
+          </div>
+        )}
+        {remoteUsage?.dailyError && (
+          <div className="mt-1 text-[10px] text-status-error">{remoteUsage.dailyError}</div>
+        )}
+        {remoteUsage?.dailyTruncated && (
+          <div className="mt-1 text-[10px] text-deck-muted/60">
+            远程历史记录已达到单次读取上限，仅显示最近的有界结果。
+          </div>
         )}
       </section>
     </div>

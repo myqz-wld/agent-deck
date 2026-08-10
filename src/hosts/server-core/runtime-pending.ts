@@ -1,6 +1,8 @@
 import {
   AgentDeckClientErrorCode,
+  createPermissionPreviewDisplay,
   isJsonObject,
+  parseMcpPresentationFeedback,
   type JsonObject,
   type JsonValue,
   type PendingRequestDto,
@@ -11,6 +13,7 @@ import type {
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
   ExitPlanModeRequest,
+  ExitPlanModeResponse,
   PermissionRequest,
 } from '@shared/types';
 import type { ServerCorePendingResponseParams } from './runtime-validation';
@@ -31,7 +34,10 @@ function clip(value: string, maximum = MAX_DISPLAY_TEXT_BYTES): string {
   if (CONTROL.test(value)) return '[content omitted]';
   const encoded = Buffer.from(value);
   if (encoded.byteLength <= maximum) return value;
-  return `${encoded.subarray(0, maximum).toString('utf8')}…`;
+  const marker = '…';
+  let cut = Math.max(0, maximum - Buffer.byteLength(marker));
+  while (cut > 0 && (encoded[cut] & 0xc0) === 0x80) cut -= 1;
+  return `${encoded.subarray(0, cut).toString('utf8')}${marker}`;
 }
 
 function snapshot(adapter: AgentAdapter, sessionId: string): PendingSnapshot {
@@ -43,12 +49,7 @@ function snapshot(adapter: AgentAdapter, sessionId: string): PendingSnapshot {
 }
 
 function permissionDisplay(request: PermissionRequest): JsonObject {
-  const display: JsonObject = { tool: clip(request.toolName, 256) };
-  const command = request.toolInput.command;
-  if (typeof command === 'string') display.command = clip(command);
-  const description = request.toolInput.description;
-  if (typeof description === 'string') display.description = clip(description);
-  return display;
+  return createPermissionPreviewDisplay(request.toolName, request.toolInput);
 }
 
 function askDisplay(request: AskUserQuestionRequest): JsonObject {
@@ -123,6 +124,41 @@ function requireNoValue(params: ServerCorePendingResponseParams): void {
   if (params.value !== undefined) invalid('Pending response value is invalid');
 }
 
+function answerText(value: unknown, allowEmpty = false): string {
+  if (
+    typeof value !== 'string' || (!allowEmpty && value.length === 0) ||
+    Buffer.byteLength(value, 'utf8') > MAX_DISPLAY_TEXT_BYTES || CONTROL.test(value)
+  ) invalid('Question answers are invalid');
+  return value;
+}
+
+function selectedAnswers(
+  question: AskUserQuestionRequest['questions'][number],
+  value: unknown,
+): string[] {
+  if (
+    !Array.isArray(value) || value.length > MAX_OPTIONS ||
+    (!question.multiSelect && value.length > 1)
+  ) invalid('Question answers are invalid');
+  const allowed = new Map(
+    question.options.slice(0, MAX_OPTIONS).map((option) => [
+      clip(option.label, 256),
+      option.label,
+    ]),
+  );
+  if (allowed.size !== question.options.slice(0, MAX_OPTIONS).length) {
+    invalid('Question answers are invalid');
+  }
+  const selected = value.map((item) => {
+    const label = answerText(item);
+    const original = allowed.get(label);
+    if (original === undefined) invalid('Question answers are invalid');
+    return original;
+  });
+  if (new Set(selected).size !== selected.length) invalid('Question answers are invalid');
+  return selected;
+}
+
 function askAnswer(
   request: AskUserQuestionRequest,
   value: JsonValue | undefined,
@@ -135,23 +171,77 @@ function askAnswer(
     actual.length !== expected.length ||
     actual.some((key, index) => key !== expected[index])
   ) invalid('Question answers are invalid');
+  let hasMeaningfulAnswer = false;
+  const answers = request.questions.slice(0, MAX_QUESTIONS).map((question, index) => {
+    const answer = value[`q${index + 1}`];
+    if (typeof answer === 'string') {
+      const other = answerText(answer);
+      hasMeaningfulAnswer = true;
+      return { question: question.question, selected: [], other };
+    }
+    if (Array.isArray(answer)) {
+      const selected = selectedAnswers(question, answer);
+      if (selected.length === 0) invalid('Question answers are invalid');
+      hasMeaningfulAnswer = true;
+      return { question: question.question, selected };
+    }
+    if (!isJsonObject(answer)) invalid('Question answers are invalid');
+    const keys = Object.keys(answer).sort();
+    const expectedKeys = [
+      'selected',
+      ...(Object.hasOwn(answer, 'other') ? ['other'] : []),
+      ...(Object.hasOwn(answer, 'note') ? ['note'] : []),
+    ].sort();
+    if (
+      keys.length !== expectedKeys.length ||
+      keys.some((key, keyIndex) => key !== expectedKeys[keyIndex])
+    ) invalid('Question answers are invalid');
+    const selected = selectedAnswers(question, answer.selected);
+    const other = Object.hasOwn(answer, 'other')
+      ? answerText(answer.other, true)
+      : undefined;
+    const note = Object.hasOwn(answer, 'note')
+      ? answerText(answer.note, true)
+      : undefined;
+    if (selected.length > 0 || Boolean(other?.trim())) hasMeaningfulAnswer = true;
+    return {
+      question: question.question,
+      selected,
+      ...(other === undefined ? {} : { other }),
+      ...(note === undefined ? {} : { note }),
+    };
+  });
+  if (!hasMeaningfulAnswer) invalid('Question answers are invalid');
+  return { answers };
+}
+
+const EXIT_PLAN_TARGET_MODES = new Set([
+  'default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions',
+]);
+
+function exitPlanAnswer(params: ServerCorePendingResponseParams): ExitPlanModeResponse {
+  if (params.action === 'reject') {
+    let feedback: string | undefined;
+    try { feedback = parseMcpPresentationFeedback(params.value); }
+    catch { return invalid('Pending response value is invalid'); }
+    return {
+      decision: 'keep-planning',
+      ...(feedback === undefined ? {} : { feedback }),
+    };
+  }
+  if (params.action !== 'accept') invalid('Pending action is invalid');
+  if (params.value === undefined) return { decision: 'approve', targetMode: 'default' };
+  if (!isJsonObject(params.value)) invalid('Pending response value is invalid');
+  const keys = Object.keys(params.value);
+  const targetMode = params.value.targetMode;
+  if (
+    keys.length !== 1 || keys[0] !== 'targetMode' ||
+    typeof targetMode !== 'string' || !EXIT_PLAN_TARGET_MODES.has(targetMode)
+  ) invalid('Pending response value is invalid');
+  if (targetMode === 'bypassPermissions') return { decision: 'approve-bypass' };
   return {
-    answers: request.questions.slice(0, MAX_QUESTIONS).map((question, index) => {
-      const answer = value[`q${index + 1}`];
-      if (typeof answer === 'string' && answer.length > 0 && !CONTROL.test(answer)) {
-        return { question: question.question, selected: [], other: clip(answer) };
-      }
-      if (
-        Array.isArray(answer) && answer.length > 0 && answer.length <= MAX_OPTIONS &&
-        answer.every((item) => typeof item === 'string' && item.length > 0 && !CONTROL.test(item))
-      ) {
-        return {
-          question: question.question,
-          selected: answer.map((item) => clip(String(item), 512)),
-        };
-      }
-      return invalid('Question answers are invalid');
-    }),
+    decision: 'approve',
+    targetMode: targetMode as 'default' | 'acceptEdits' | 'plan' | 'auto',
   };
 }
 
@@ -178,6 +268,12 @@ export async function respondToServerCorePending(
     if (!adapter.respondPermission || !['approve', 'deny'].includes(params.action)) {
       invalid('Pending action is invalid');
     }
+    if (
+      params.action === 'approve' &&
+      !createPermissionPreviewDisplay(permission.toolName, permission.toolInput).complete
+    ) {
+      invalid('Permission preview is incomplete');
+    }
     await adapter.respondPermission(params.sessionId, params.requestId, {
       decision: params.action === 'approve' ? 'allow' : 'deny',
     });
@@ -199,16 +295,13 @@ export async function respondToServerCorePending(
 
   const exitPlan = pending.exitPlanModes.find((item) => item.requestId === params.requestId);
   if (exitPlan) {
-    requireNoValue(params);
     if (!adapter.respondExitPlanMode || !['accept', 'reject'].includes(params.action)) {
       invalid('Pending action is invalid');
     }
     await adapter.respondExitPlanMode(
       params.sessionId,
       params.requestId,
-      params.action === 'accept'
-        ? { decision: 'approve', targetMode: 'default' }
-        : { decision: 'keep-planning' },
+      exitPlanAnswer(params),
     );
     return params.action === 'accept' ? 'resolved' : 'denied';
   }

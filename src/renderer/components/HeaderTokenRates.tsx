@@ -5,6 +5,7 @@ import { useContainerWidth } from '../hooks/use-container-width';
 import { buildFreshLiveByBucket, rankLiveAwareBuckets } from '../lib/live-rate';
 import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import type { TokenRateRow } from '@shared/types';
+import type { RemoteUsageSourceView } from '../remote-host/use-remote-usage-source';
 
 /**
  * Header 中部「Top3 模型输出 token/s」（plan model-token-stats-and-dashboard-20260602 §Phase 3 R3）。
@@ -34,14 +35,21 @@ function fmtRate(tps: number): string {
   return tps < 10 ? tps.toFixed(1) : Math.round(tps).toString();
 }
 
-export function HeaderTokenRates(): JSX.Element | null {
+export function HeaderTokenRates({
+  remoteUsage = null,
+}: {
+  remoteUsage?: RemoteUsageSourceView | null;
+}): JSX.Element | null {
   const containerRef = useRef<HTMLDivElement>(null);
   const width = useContainerWidth(containerRef);
   // header 区域常驻拉取（数据页打开时 header 在 detail 下不渲染，但 live 视图常显 → poll 跟随挂载）
-  useTokenRatesPoll();
-  const topToday = useTokenUsageStore((s) => s.topToday);
-  const rates = useTokenUsageStore((s) => s.rates);
-  const liveBySession = useTokenUsageStore((s) => s.liveBySession);
+  useTokenRatesPoll(false, 2500, remoteUsage === null);
+  const localTopToday = useTokenUsageStore((s) => s.topToday);
+  const localRates = useTokenUsageStore((s) => s.rates);
+  const localLiveBySession = useTokenUsageStore((s) => s.liveBySession);
+  const topToday = remoteUsage?.topToday ?? localTopToday;
+  const rates = remoteUsage?.rates ?? localRates;
+  const liveBySession = remoteUsage ? {} : localLiveBySession;
 
   // 容器太窄 → 整区隐藏（width===null 视为未知，先按可显示渲染，避免首帧误隐藏闪烁）。
   // 注意：ref 必须始终挂在一个真实 DOM 节点上才能被 ResizeObserver 观测；这里用一个 0 宽

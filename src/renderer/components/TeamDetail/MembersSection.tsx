@@ -1,7 +1,10 @@
 import { useMemo, useState, type JSX } from 'react';
-import type { AgentDeckTeamMember, AgentDeckTeamMemberRole, SessionRecord } from '@shared/types';
+import type {
+  TeamMemberDto,
+  TeamMemberRoleDto,
+  TeamSessionDto,
+} from '@contracts/index';
 import { DeckSelect } from '@renderer/components/DeckSelect';
-import { useSessionStore } from '@renderer/stores/session-store';
 import { Section, EmptyState } from './Header';
 import { lifecycleLabel, agentIdLabel } from './helpers';
 import { selectJoinableTeamSessions } from './member-candidates';
@@ -20,28 +23,29 @@ import { CrownIcon, PlusIcon, UsersIcon } from '../icons';
  * 直接渲染 props 不再做 fs / IPC 调用）。
  */
 interface Props {
-  teamId: string;
-  members: AgentDeckTeamMember[];
+  members: TeamMemberDto[];
+  sessions: ReadonlyMap<string, TeamSessionDto>;
   onOpenSession: (sessionId: string) => void;
   canAddMember: boolean;
   onMemberAdded: () => Promise<void>;
+  addMember: (sessionId: string, role: TeamMemberRoleDto) => Promise<void>;
 }
 
-const ROLE_OPTIONS: { value: AgentDeckTeamMemberRole; label: string }[] = [
+const ROLE_OPTIONS: { value: TeamMemberRoleDto; label: string }[] = [
   { value: 'teammate', label: '协作者' },
   { value: 'lead', label: '负责人' },
 ];
 
 export function MembersSection({
-  teamId,
   members,
+  sessions,
   onOpenSession,
   canAddMember,
   onMemberAdded,
+  addMember,
 }: Props): JSX.Element {
-  const sessions = useSessionStore((s) => s.sessions);
   const [addSessionId, setAddSessionId] = useState('');
-  const [addRole, setAddRole] = useState<AgentDeckTeamMemberRole>('teammate');
+  const [addRole, setAddRole] = useState<TeamMemberRoleDto>('teammate');
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -58,11 +62,7 @@ export function MembersSection({
     setAddBusy(true);
     setAddError(null);
     try {
-      await window.api.addAgentDeckTeamMember({
-        teamId,
-        sessionId: selectedSession.id,
-        role: addRole,
-      });
+      await addMember(selectedSession.id, addRole);
       setAddSessionId('');
       try {
         await onMemberAdded();
@@ -142,7 +142,7 @@ export function MembersSection({
                 {isLeft && <span className="ml-1 text-deck-muted/60">已退出</span>}
               </span>
               <span className="ml-2 shrink-0 text-deck-muted/60">
-                {agentIdLabel(sess?.agentId)} · {lifecycleLabel(sess?.lifecycle)}
+                {agentIdLabel(sess?.adapterId)} · {lifecycleLabel(sess?.lifecycle)}
               </span>
             </li>
           );
@@ -162,13 +162,13 @@ function AddMemberForm({
   onRoleChange,
   onSubmit,
 }: {
-  joinableSessions: SessionRecord[];
+  joinableSessions: TeamSessionDto[];
   selectedSessionId: string;
-  role: AgentDeckTeamMemberRole;
+  role: TeamMemberRoleDto;
   busy: boolean;
   error: string | null;
   onSessionChange: (value: string) => void;
-  onRoleChange: (value: AgentDeckTeamMemberRole) => void;
+  onRoleChange: (value: TeamMemberRoleDto) => void;
   onSubmit: () => void;
 }): JSX.Element {
   const disabled = busy || !selectedSessionId || joinableSessions.length === 0;
@@ -222,9 +222,9 @@ function AddMemberForm({
   );
 }
 
-function sessionOptionLabel(session: SessionRecord): string {
+function sessionOptionLabel(session: TeamSessionDto): string {
   const title = session.title.trim() || session.id.slice(0, 8);
-  return `${title} · ${agentIdLabel(session.agentId)} · ${lifecycleLabel(session.lifecycle)}`;
+  return `${title} · ${agentIdLabel(session.adapterId)} · ${lifecycleLabel(session.lifecycle)}`;
 }
 
 function RoleBadge({ role }: { role: 'lead' | 'teammate' }): JSX.Element {

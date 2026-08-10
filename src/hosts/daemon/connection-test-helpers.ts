@@ -70,12 +70,16 @@ export async function waitFor(predicate: () => boolean, label: string): Promise<
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-export function hello(clientId: string, requestedTopology = 'server-core'): JsonObject {
+export function hello(
+  clientId: string,
+  requestedTopology = 'server-core',
+  protocolVersion: ClientHello['protocolVersion'] = CURRENT_PROTOCOL_VERSION,
+): JsonObject {
   return {
     type: 'hello',
     requestId: `hello-${clientId}`,
     hello: {
-      protocolVersion: CURRENT_PROTOCOL_VERSION,
+      protocolVersion: { major: protocolVersion.major, minor: protocolVersion.minor },
       appVersion: 'desktop-test',
       clientId,
       requestedTopology,

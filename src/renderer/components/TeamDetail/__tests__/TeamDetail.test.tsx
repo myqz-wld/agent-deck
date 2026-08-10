@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { TeamDetailDto } from '@contracts/index';
 import type { AgentDeckTeam, AgentDeckTeamMember } from '@shared/types';
+import type { TeamDataSource } from '../../team-data-source';
 import { TeamDetail } from '../index';
 
 vi.mock('../Header', () => ({
@@ -87,6 +89,52 @@ function teammate(teamId: string): AgentDeckTeamMember {
 }
 
 describe('TeamDetail refresh sequencing', () => {
+  it('refreshes a same-identity Remote source without replacing the visible page', async () => {
+    const next = deferred<{ team: TeamDetailDto; revision: number }>();
+    const row = {
+      ...snapshot('A', 'remote event'),
+      sessions: [],
+      pending: [],
+    } as unknown as TeamDetailDto;
+    const get = vi.fn()
+      .mockResolvedValueOnce({ team: row, revision: 1 })
+      .mockReturnValueOnce(next.promise);
+    const source = (revision: number): TeamDataSource => ({
+      identity: 'remote-a:core-a:1',
+      revision,
+      list: vi.fn(),
+      get,
+      archive: vi.fn(),
+      addMember: vi.fn(),
+      shutdownTeammates: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    });
+    const view = render(
+      <TeamDetail
+        teamId="A"
+        source={source(1)}
+        onBack={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+    await screen.findByText('Team A');
+
+    view.rerender(
+      <TeamDetail
+        teamId="A"
+        source={source(2)}
+        onBack={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Team A')).toBeTruthy();
+    expect(screen.queryByText('加载中…')).toBeNull();
+
+    next.resolve({ team: row, revision: 2 });
+    await waitFor(() => expect(screen.getByText('remote event')).toBeTruthy());
+  });
+
   it('uses a fixed retryable snapshot error without backend details', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,

@@ -4,7 +4,7 @@ import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-c
 import {
   parseRemoteHostCreateSession,
   parseRemoteHostHistoryRequest,
-  parseRemoteHostPendingResponse,
+  parseRemoteHostPendingResponse as parseRemoteHostPendingResponseInput,
   parseRemoteHostProfileDraft,
   parseRemoteHostRuntimeUpdate,
   parseRemoteHostSessionCapabilitiesRequest,
@@ -19,6 +19,15 @@ import {
   parseRemoteHostSummaryRequest,
   parseRemoteHostTaskListRequest,
 } from './input-validation-session-detail';
+
+const EXPECTED_PRESENTATION_DIGEST = `sha256:${'a'.repeat(64)}`;
+
+function parseRemoteHostPendingResponse(value: unknown) {
+  return parseRemoteHostPendingResponseInput({
+    ...(value as Record<string, unknown>),
+    expectedPresentationDigest: EXPECTED_PRESENTATION_DIGEST,
+  });
+}
 
 function draft() {
   return {
@@ -148,6 +157,15 @@ describe('remote-host IPC input validation', () => {
       patch: polluted,
       expectedRevision: 4,
     })).toThrow('invalid key');
+    expect(() => parseRemoteHostPendingResponseInput({
+      profileId: 'remote-a', sessionId: 'session-a', requestId: 'request-a',
+      intentId: 'intent-pending-a', action: 'approve', expectedRevision: 3,
+    })).toThrow('unexpected fields');
+    expect(() => parseRemoteHostPendingResponseInput({
+      profileId: 'remote-a', sessionId: 'session-a', requestId: 'request-a',
+      intentId: 'intent-pending-a', action: 'approve', expectedRevision: 3,
+      expectedPresentationDigest: 'sha256:not-a-digest',
+    })).toThrow('invalid digest');
     expect(() => parseRemoteHostPendingResponse({
       profileId: 'remote-a',
       sessionId: 'session-a',
@@ -173,10 +191,45 @@ describe('remote-host IPC input validation', () => {
       sessionId: 'session-a',
       requestId: 'request-a',
       intentId: 'intent-pending-a',
+      action: 'submit',
+      value: {
+        first: { selected: ['yes'], other: 'details', note: 'context' },
+        second: { selected: [] },
+      },
+      expectedRevision: 3,
+    })).toMatchObject({
+      value: {
+        first: { selected: ['yes'], other: 'details', note: 'context' },
+        second: { selected: [] },
+      },
+    });
+    expect(parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
       action: 'reject',
       value: { feedback: '  revise this  ' },
       expectedRevision: 3,
     })).toMatchObject({ action: 'reject', value: { feedback: 'revise this' } });
+    expect(parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'accept',
+      value: { targetMode: 'acceptEdits' },
+      expectedRevision: 3,
+    })).toMatchObject({ action: 'accept', value: { targetMode: 'acceptEdits' } });
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'accept',
+      value: { targetMode: 'acceptEdits', ignored: true },
+      expectedRevision: 3,
+    })).toThrow('invalid exit-plan target mode');
     expect(() => parseRemoteHostPendingResponse({
       profileId: 'remote-a',
       sessionId: 'session-a',
@@ -201,6 +254,24 @@ describe('remote-host IPC input validation', () => {
       intentId: 'intent-pending-a',
       action: 'submit',
       value: {},
+      expectedRevision: 3,
+    })).toThrow('invalid pending answer object');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'submit',
+      value: { first: { selected: [], ignored: 'silent data loss' } },
+      expectedRevision: 3,
+    })).toThrow('invalid pending answer object');
+    expect(() => parseRemoteHostPendingResponse({
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      requestId: 'request-a',
+      intentId: 'intent-pending-a',
+      action: 'submit',
+      value: { first: { selected: ['yes', 'yes'] } },
       expectedRevision: 3,
     })).toThrow('invalid pending answer object');
     expect(() => parseRemoteHostPendingResponse({

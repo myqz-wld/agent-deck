@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentDeckCapability, type AgentDeckCapability as Capability, type CoreMethodMap } from '@contracts/index';
-import {
-  sessionConsoleCreateOptionsFixture,
-} from '@contracts/session-console-capabilities.fixture';
+import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import { ElectronHostRegistry, type ElectronHostClientBinding } from '@hosts/electron';
 import { ControlledClient, deferred, remoteHello, remoteProfile, standaloneProfile } from '@hosts/electron/__tests__/registry-fixture';
 import type { SshConnectionState } from '@clients/ssh';
@@ -11,6 +9,7 @@ import type { SshConnectionState } from '@clients/ssh';
 import type { RemoteHostProfileDocument } from './profile-document';
 import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
 import { RemoteHostService } from './service';
+import { remoteHostPendingPresentationDigest } from './pending-response-policy';
 import {
   MemoryCredentialMaterialStore,
   testConnectionCredential,
@@ -243,7 +242,7 @@ describe('RemoteHostService', () => {
         case 'session.steer':
           return { accepted: true, revision: 8 };
         case 'pending.list':
-          return { requests: [{ id: 'r1', sessionId: 's1', kind: 'permission', status: 'pending', createdAt: 3, expiresAt: null, display: { tool: 'read' } }], revision: 9 };
+          return { requests: [{ id: 'r1', sessionId: 's1', kind: 'permission', status: 'pending', createdAt: 3, expiresAt: null, display: { tool: 'Bash', command: 'pwd' } }], revision: 9 };
         case 'pending.respond':
           return { status: 'resolved', revision: 10 };
         case 'session.runtime.get':
@@ -264,7 +263,13 @@ describe('RemoteHostService', () => {
     expect((await service.interrupt(mutationTarget)).accepted).toBe(true);
     expect((await service.steer({ ...mutationTarget, text: 'adjust' })).accepted).toBe(true);
     const pending = await service.listPending(target);
-    expect((await service.respondPending({ ...mutationTarget, requestId: 'r1', action: 'approve', expectedRevision: pending.revision })).status).toBe('resolved');
+    expect((await service.respondPending({
+      ...mutationTarget,
+      requestId: 'r1',
+      action: 'approve',
+      expectedRevision: pending.revision,
+      expectedPresentationDigest: remoteHostPendingPresentationDigest(pending.requests[0]!),
+    })).status).toBe('resolved');
     const runtime = await service.getRuntime(target);
     expect((await service.updateRuntime({ ...mutationTarget, patch: { model: 'gpt-5.1' }, expectedRevision: runtime.revision })).effect).toBe('hot-applied');
 

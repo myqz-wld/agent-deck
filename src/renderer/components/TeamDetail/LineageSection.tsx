@@ -1,6 +1,5 @@
 import type { JSX } from 'react';
-import type { AgentDeckTeamMember } from '@shared/types';
-import { useSessionStore } from '@renderer/stores/session-store';
+import type { TeamMemberDto, TeamSessionDto } from '@contracts/index';
 import { Section, EmptyState } from './Header';
 import { roleLabel, agentIdLabel } from './helpers';
 
@@ -21,17 +20,17 @@ import { roleLabel, agentIdLabel } from './helpers';
  * 多 lead / 多 root 场景：每个独立 root 各自一棵树，平铺多棵。
  */
 interface Props {
-  members: AgentDeckTeamMember[];
+  members: TeamMemberDto[];
+  sessions: ReadonlyMap<string, TeamSessionDto>;
   onOpenSession: (sessionId: string) => void;
 }
 
 interface TreeNode {
-  member: AgentDeckTeamMember;
+  member: TeamMemberDto;
   children: TreeNode[];
 }
 
-export function LineageSection({ members, onOpenSession }: Props): JSX.Element {
-  const sessions = useSessionStore((s) => s.sessions);
+export function LineageSection({ members, sessions, onOpenSession }: Props): JSX.Element {
   const activeMembers = members.filter((m) => m.leftAt === null);
 
   if (activeMembers.length === 0) {
@@ -44,8 +43,8 @@ export function LineageSection({ members, onOpenSession }: Props): JSX.Element {
 
   // 构建树
   const memberSidSet = new Set(activeMembers.map((m) => m.sessionId));
-  const childrenByOwner = new Map<string, AgentDeckTeamMember[]>();
-  const roots: AgentDeckTeamMember[] = [];
+  const childrenByOwner = new Map<string, TeamMemberDto[]>();
+  const roots: TeamMemberDto[] = [];
   for (const m of activeMembers) {
     const sess = sessions.get(m.sessionId);
     const ownerSid = sess?.spawnedBy ?? null;
@@ -57,7 +56,7 @@ export function LineageSection({ members, onOpenSession }: Props): JSX.Element {
       roots.push(m);
     }
   }
-  const buildNode = (m: AgentDeckTeamMember): TreeNode => ({
+  const buildNode = (m: TeamMemberDto): TreeNode => ({
     member: m,
     children: (childrenByOwner.get(m.sessionId) ?? []).map(buildNode),
   });
@@ -71,6 +70,7 @@ export function LineageSection({ members, onOpenSession }: Props): JSX.Element {
             key={node.member.sessionId}
             node={node}
             depth={0}
+            sessions={sessions}
             onOpenSession={onOpenSession}
           />
         ))}
@@ -83,12 +83,13 @@ function TreeNodeRow({
   node,
   depth,
   onOpenSession,
+  sessions,
 }: {
   node: TreeNode;
   depth: number;
   onOpenSession: (sessionId: string) => void;
+  sessions: ReadonlyMap<string, TeamSessionDto>;
 }): JSX.Element {
-  const sessions = useSessionStore((s) => s.sessions);
   const m = node.member;
   const sess = sessions.get(m.sessionId);
   const label = m.displayName ?? sess?.title ?? m.sessionId.slice(0, 8);
@@ -111,7 +112,7 @@ function TreeNodeRow({
           )}
         </span>
         <span className="ml-2 shrink-0 text-[9px] text-deck-muted/60">
-          {agentIdLabel(sess?.agentId)}
+          {agentIdLabel(sess?.adapterId)}
         </span>
       </li>
       {node.children.map((child) => (
@@ -119,6 +120,7 @@ function TreeNodeRow({
           key={child.member.sessionId}
           node={child}
           depth={depth + 1}
+          sessions={sessions}
           onOpenSession={onOpenSession}
         />
       ))}

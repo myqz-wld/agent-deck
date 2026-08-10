@@ -29,6 +29,11 @@ import {
   closedSessionOptions,
   remoteSandboxOptions,
 } from './new-session/remote-sandbox-options';
+import {
+  localSessionOptionKeys,
+  remoteSessionOptionKeys,
+  sessionOptionLabel,
+} from './new-session/session-option-catalog';
 import { useRemoteSessionCreation } from './new-session/useRemoteSessionCreation';
 
 interface AdapterInfo {
@@ -341,26 +346,27 @@ export function remoteControls(
 ): NewSessionSelectControl[] {
   if (!descriptor) return [];
   const result: NewSessionSelectControl[] = [];
-  const add = (key: SessionConsoleCreateOptionKey, label: string): void => {
+  const add = (key: SessionConsoleCreateOptionKey): void => {
     const schema = descriptor.create.options[key];
     const value = values[key];
     if (!schema.enabled || value === null || !schema.allowedValues) return;
-    result.push({ label, value, options: closedSessionOptions(schema.allowedValues),
+    result.push({ label: sessionOptionLabel(key), value, options: closedSessionOptions(schema.allowedValues),
       onChange: (next) => setOption(key, next) });
   };
-  add('permissionMode', '权限模式');
-  add('sessionMode', '工作模式');
-  add('approvalPolicy', '审批策略');
-  const sandboxKey = descriptor.create.sandbox.optionKey;
-  const sandboxValue = values[sandboxKey];
-  if (sandboxValue !== null) {
-    result.push({
-      label: sandboxKey === 'claudeCodeSandbox'
-        ? '系统沙盒' : sandboxKey === 'grokSandbox' ? 'Grok Build 沙盒（请求档位）' : '沙盒',
-      value: sandboxValue,
-      options: remoteSandboxOptions(descriptor.create.sandbox.choices, sandboxKey),
-      onChange: (next) => setOption(sandboxKey, next),
-    });
+  for (const key of remoteSessionOptionKeys(descriptor)) {
+    if (key !== descriptor.create.sandbox.optionKey) {
+      add(key);
+      continue;
+    }
+    const value = values[key];
+    if (value !== null) {
+      result.push({
+        label: sessionOptionLabel(key),
+        value,
+        options: remoteSandboxOptions(descriptor.create.sandbox.choices, key),
+        onChange: (next) => setOption(key, next),
+      });
+    }
   }
   return result;
 }
@@ -371,30 +377,36 @@ function localControls(
   options: ReturnType<typeof useSessionCreationOptions>,
 ): NewSessionSelectControl[] {
   const result: NewSessionSelectControl[] = [];
-  if (adapter?.capabilities.canSetPermissionMode) {
-    result.push({ label: '权限模式', value: options.permissionMode,
-      options: PERMISSION_OPTIONS, onChange: (value) => options.setPermissionMode(
-        value as Parameters<typeof options.setPermissionMode>[0]) });
-  }
-  if (adapter?.capabilities.canSetSessionMode && adapter.sessionModes.length > 0) {
-    result.push({ label: '工作模式', value: options.sessionMode,
-      options: adapterSessionModeOptions(adapter.sessionModes), onChange: (value) =>
-        options.setSessionMode(value as Parameters<typeof options.setSessionMode>[0]) });
-  }
-  if (adapterId === 'codex-cli') {
-    result.push({ label: '审批策略', value: options.approvalPolicy,
-      options: CODEX_APPROVAL_POLICY_OPTIONS, onChange: (value) =>
-        options.setApprovalPolicy(value as Parameters<typeof options.setApprovalPolicy>[0]) });
-    result.push({ label: '沙盒', value: options.codexSandbox,
-      options: CODEX_SANDBOX_OPTIONS, onChange: (value) =>
-        options.setCodexSandbox(value as Parameters<typeof options.setCodexSandbox>[0]) });
-  } else if (adapterId === 'claude-code') {
-    result.push({ label: '系统沙盒', value: options.claudeCodeSandbox,
-      options: CLAUDE_SANDBOX_OPTIONS, onChange: (value) =>
-        options.setClaudeCodeSandbox(value as Parameters<typeof options.setClaudeCodeSandbox>[0]) });
-  } else if (adapterId === 'grok-build') {
-    result.push({ label: 'Grok Build 沙盒（请求档位）', value: options.grokSandbox,
-      options: [], customGrok: true, onChange: options.setGrokSandbox });
+  const keys = localSessionOptionKeys(adapterId, {
+    canSetPermissionMode: adapter?.capabilities?.canSetPermissionMode === true,
+    canSetSessionMode: adapter?.capabilities?.canSetSessionMode === true,
+    hasSessionModes: (adapter?.sessionModes?.length ?? 0) > 0,
+  });
+  for (const key of keys) {
+    if (key === 'permissionMode') {
+      result.push({ label: sessionOptionLabel(key), value: options.permissionMode,
+        options: PERMISSION_OPTIONS, onChange: (value) => options.setPermissionMode(
+          value as Parameters<typeof options.setPermissionMode>[0]) });
+    } else if (key === 'sessionMode') {
+      result.push({ label: sessionOptionLabel(key), value: options.sessionMode,
+        options: adapterSessionModeOptions(adapter?.sessionModes ?? []), onChange: (value) =>
+          options.setSessionMode(value as Parameters<typeof options.setSessionMode>[0]) });
+    } else if (key === 'approvalPolicy') {
+      result.push({ label: sessionOptionLabel(key), value: options.approvalPolicy,
+        options: CODEX_APPROVAL_POLICY_OPTIONS, onChange: (value) =>
+          options.setApprovalPolicy(value as Parameters<typeof options.setApprovalPolicy>[0]) });
+    } else if (key === 'codexSandbox') {
+      result.push({ label: sessionOptionLabel(key), value: options.codexSandbox,
+        options: CODEX_SANDBOX_OPTIONS, onChange: (value) =>
+          options.setCodexSandbox(value as Parameters<typeof options.setCodexSandbox>[0]) });
+    } else if (key === 'claudeCodeSandbox') {
+      result.push({ label: sessionOptionLabel(key), value: options.claudeCodeSandbox,
+        options: CLAUDE_SANDBOX_OPTIONS, onChange: (value) =>
+          options.setClaudeCodeSandbox(value as Parameters<typeof options.setClaudeCodeSandbox>[0]) });
+    } else if (key === 'grokSandbox') {
+      result.push({ label: sessionOptionLabel(key), value: options.grokSandbox,
+        options: [], customGrok: true, onChange: options.setGrokSandbox });
+    }
   }
   return result;
 }

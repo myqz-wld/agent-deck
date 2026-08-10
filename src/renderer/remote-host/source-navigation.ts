@@ -7,7 +7,7 @@ export function clearDetailForSourceView(
   clearRemote: () => void,
 ): void {
   if (remoteMode) {
-    if (nextView === 'pending' || nextView === 'history') clearRemote();
+    if (nextView !== 'live') clearRemote();
     return;
   }
   if (nextView === 'pending' || nextView === 'teams' ||

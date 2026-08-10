@@ -17,6 +17,7 @@ export const AgentDeckCapability = {
   PlanReview: 'plan-review',
   SubscriptionsWrite: 'subscriptions.write',
   Teams: 'teams',
+  Usage: 'usage',
   Tasks: 'tasks',
   Issues: 'issues',
   Files: 'files',

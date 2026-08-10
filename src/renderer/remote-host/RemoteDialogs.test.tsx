@@ -249,8 +249,8 @@ describe('remote source surfaces', () => {
       remoteSource={{ ...source(), historySessions: [row] }}
       onSelect={vi.fn()}
     />);
-    expect(screen.getByText('远程会话摘要')).toBeTruthy();
-    expect(screen.getByText(/当前远程协议提供有界会话摘要/)).toBeTruthy();
+    expect(screen.getByPlaceholderText('搜索已载入的标题、运行时或状态…')).toBeTruthy();
+    expect(screen.getByText(/搜索当前已载入的有界摘要/)).toBeTruthy();
     expect(screen.getByText('Summary row')).toBeTruthy();
   });
 

@@ -50,6 +50,24 @@ import type {
   DesktopBrokerRespondParams,
   DesktopBrokerRespondResult,
 } from './desktop-broker';
+import type {
+  TeamAddMemberParams,
+  TeamAddMemberResult,
+  TeamArchiveParams,
+  TeamGetParams,
+  TeamGetResult,
+  TeamListParams,
+  TeamListResult,
+  TeamMutationResult,
+  TeamShutdownParams,
+  TeamShutdownResult,
+} from './teams';
+import type {
+  UsageProviderParams,
+  UsageProviderResult,
+  UsageTokenParams,
+  UsageTokenResult,
+} from './usage';
 
 export interface SessionListItemDto {
   id: string;
@@ -171,6 +189,13 @@ export type CoreMethodMap = {
     params: SessionTaskListParams;
     result: SessionTaskListResult;
   };
+  'teams.list': { params: TeamListParams; result: TeamListResult };
+  'teams.get': { params: TeamGetParams; result: TeamGetResult };
+  'teams.archive': { params: TeamArchiveParams; result: TeamMutationResult };
+  'teams.add-member': { params: TeamAddMemberParams; result: TeamAddMemberResult };
+  'teams.shutdown-teammates': { params: TeamShutdownParams; result: TeamShutdownResult };
+  'usage.tokens.get': { params: UsageTokenParams; result: UsageTokenResult };
+  'usage.providers.get': { params: UsageProviderParams; result: UsageProviderResult };
   'issues.list': {
     params: IssueListParams;
     result: IssueListResult;
@@ -307,6 +332,13 @@ export const CORE_METHOD_METADATA = {
   ),
   'session.assets.image-chunk.read': readMethod(AgentDeckCapability.Assets, 'none'),
   'session.tasks.list': readMethod(AgentDeckCapability.Tasks, 'none'),
+  'teams.list': readMethod(AgentDeckCapability.Teams, 'none'),
+  'teams.get': readMethod(AgentDeckCapability.Teams, 'none'),
+  'teams.archive': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
+  'teams.add-member': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
+  'teams.shutdown-teammates': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
+  'usage.tokens.get': readMethod(AgentDeckCapability.Usage, 'none'),
+  'usage.providers.get': readMethod(AgentDeckCapability.Usage, 'none'),
   'issues.list': readMethod(AgentDeckCapability.Issues, 'none'),
   'issues.get': readMethod(AgentDeckCapability.Issues, 'none'),
   'issues.update': mutationMethod(AgentDeckCapability.Issues, 'required', 'none'),

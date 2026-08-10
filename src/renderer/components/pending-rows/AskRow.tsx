@@ -1,6 +1,7 @@
 import { useMemo, useState, type JSX } from 'react';
 import type {
   AgentEvent,
+  AskUserQuestionAnswer,
   AskUserQuestionItem,
   AskUserQuestionRequest,
 } from '@shared/types';
@@ -25,6 +26,8 @@ export function AskRow({
   stillPending,
   wasCancelled,
   onResolved,
+  respondOverride,
+  responseDisabled = false,
 }: {
   event: AgentEvent;
   payload: AskUserQuestionRequest;
@@ -34,9 +37,12 @@ export function AskRow({
   stillPending: boolean;
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
+  respondOverride?: (answer: AskUserQuestionAnswer) => Promise<void>;
+  responseDisabled?: boolean;
 }): JSX.Element {
   const [selections, setSelections] = useState<Record<string, AskDraft>>({});
-  const { busy, error, run } = useRowResponseState(payload.requestId);
+  const { busy: rowBusy, error, run } = useRowResponseState(payload.requestId);
+  const busy = rowBusy || responseDisabled;
   const draftKeys = useMemo(() => askDraftKeys(payload), [payload]);
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const totalQuestions = payload.questions.length;
@@ -92,13 +98,20 @@ export function AskRow({
         note: cur.note,
       };
     });
+    const answer = { answers };
     const result = await run(
-      () => window.api.respondAskUserQuestion(
-        agentId,
-        sessionId,
-        payload.requestId,
-        { answers },
-      ),
+      async () => {
+        if (respondOverride) {
+          await respondOverride(answer);
+          return;
+        }
+        await window.api.respondAskUserQuestion(
+          agentId,
+          sessionId,
+          payload.requestId,
+          answer,
+        );
+      },
       '回答提交失败，请确认问题仍在等待后重试。',
     );
     if (result.ok) {

@@ -15,6 +15,10 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-03 | `REVIEW_213_closed-session-worktree-cleanup.md` | Closed-session worktree ownership | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-03 | `REVIEW_212_context-window-observation-unification.md` | Deep review of observed continuation capacity | 0 CRITICAL / 0 HIGH / all material findings fixed |
+| 2026-08-03 | `REVIEW_211_provider-token-accounting-and-rate-repair.md` | Provider token totals and tok/s | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
+| 2026-08-03 | `REVIEW_210_worktree-inflight-message-continuity.md` | Worktree in-flight message continuity | 0 CRITICAL / 3 HIGH fixed / 1 MEDIUM fixed |
 | 2026-07-31 | `REVIEW_209_review-208-defect-remediation.md` | Final integration of all REVIEW_208 findings | 0 CRITICAL / 4 HIGH fixed / 10 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-31 | `REVIEW_208_compatibility-and-defect-audit.md` | Compatibility cleanup and functional defect audit | 4 HIGH / 10 MEDIUM / 1 LOW; closed by REVIEW_209 |
 | 2026-07-31 | `REVIEW_207_exit-worktree-output-schema-compatibility.md` | MCP Zod output validation | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
@@ -72,8 +76,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-07-12 | `REVIEW_155_handoff-cutover-continuity.md` | Message-safe session handoff cutover | 0 CRITICAL / 7 HIGH fixed / 6 MEDIUM fixed / 2 LOW fixed |
 | 2026-07-12 | `REVIEW_154_core-snapshot-ui-copy.md` | Core snapshot integrity and concise UI copy | 0 CRITICAL / 1 HIGH fixed / 4 MEDIUM fixed / 3 LOW fixed |
 | 2026-07-12 | `REVIEW_153_storage-maintenance-worker-provider-compaction.md` | Dedicated storage worker and provider compact runtime | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed |
-| 2026-07-11 | `REVIEW_152_storage-performance-observability-svg-icons.md` | Storage migration, MCP readiness, and SVG icons | 0 CRITICAL / 5 HIGH fixed / 6 MEDIUM fixed / 2 LOW residuals |
-| 2026-07-11 | `REVIEW_151_send-message-performance-and-logging.md` | Send latency, storage, and runtime logging | 0 CRITICAL / 1 HIGH tracked / 2 MEDIUM fixed + 1 tracked / 2 LOW dispositioned |
-| 2026-07-11 | `REVIEW_150_core-session-integrity.md` | Handoff and spawn session integrity | 1 HIGH fixed / 4 MEDIUM fixed / 1 LOW fixed / 2 dispositioned |
-| 2026-07-11 | `REVIEW_149_session-pinning-reviewer-model.md` | Persistent session pinning and Codex reviewer runtime | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
-| 2026-07-11 | `REVIEW_148_unified-continuation-context.md` | Unified Continuation Context implementation | 0 CRITICAL / 4 HIGH fixed / 4 MEDIUM fixed |

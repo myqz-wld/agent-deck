@@ -289,7 +289,9 @@ describe('ServerCoreDaemonRuntime', () => {
           permissions: [],
           askQuestions: [{
             type: 'ask-user-question', requestId: 'ask-a',
-            questions: [{ question: 'Environment?', options: [{ label: 'prod' }] }],
+            questions: [{
+              question: 'Environment?', multiSelect: true, options: [{ label: 'prod' }],
+            }],
           }],
           exitPlanModes: [],
         }),
@@ -302,11 +304,67 @@ describe('ServerCoreDaemonRuntime', () => {
       requests: [{ id: 'ask-a', kind: 'ask-user-question', display: { questionIds: ['q1'] } }],
       revision: 0,
     });
+    await expect(runtime.execute(input('pending.respond', {
+      sessionId: 'session-a', requestId: 'ask-a', action: 'submit',
+      value: { q1: { selected: ['prod', 'prod'] } },
+    }, { idempotencyKey: 'ask-invalid-duplicate', expectedRevision: 0 })))
+      .rejects.toMatchObject({ code: 'invalid_request' });
+    expect(respondAskUserQuestion).not.toHaveBeenCalled();
     await runtime.execute(input('pending.respond', {
-      sessionId: 'session-a', requestId: 'ask-a', action: 'submit', value: { q1: 'production' },
+      sessionId: 'session-a', requestId: 'ask-a', action: 'submit',
+      value: { q1: { selected: ['prod'], other: 'production', note: 'release window' } },
     }, { idempotencyKey: 'ask-intent', expectedRevision: 0 }));
     expect(respondAskUserQuestion).toHaveBeenCalledWith('session-a', 'ask-a', {
-      answers: [{ question: 'Environment?', selected: [], other: 'production' }],
+      answers: [{
+        question: 'Environment?',
+        selected: ['prod'],
+        other: 'production',
+        note: 'release window',
+      }],
+    });
+  });
+
+  it('preserves native exit-plan target modes and revision feedback', async () => {
+    const respondExitPlanMode = vi.fn(async () => undefined);
+    const setup = () => harness({
+      adapter: {
+        listPending: () => ({
+          permissions: [], askQuestions: [],
+          exitPlanModes: [{
+            type: 'exit-plan-mode', requestId: 'plan-a', plan: '# Deploy',
+          }],
+        }),
+        respondExitPlanMode,
+      },
+    });
+    const approve = setup();
+    await approve.runtime.start();
+    await approve.runtime.execute(input('pending.respond', {
+      sessionId: 'session-a', requestId: 'plan-a', action: 'accept',
+      value: { targetMode: 'acceptEdits' },
+    }, { idempotencyKey: 'plan-approve', expectedRevision: 0 }));
+    expect(respondExitPlanMode).toHaveBeenLastCalledWith('session-a', 'plan-a', {
+      decision: 'approve', targetMode: 'acceptEdits',
+    });
+
+    const reject = setup();
+    await reject.runtime.start();
+    await reject.runtime.execute(input('pending.respond', {
+      sessionId: 'session-a', requestId: 'plan-a', action: 'reject',
+      value: { feedback: 'Add rollback' },
+    }, { idempotencyKey: 'plan-reject', expectedRevision: 0 }));
+    expect(respondExitPlanMode).toHaveBeenLastCalledWith('session-a', 'plan-a', {
+      decision: 'keep-planning', feedback: 'Add rollback',
+    });
+
+    const bypass = setup();
+    await bypass.runtime.start();
+    await bypass.runtime.execute(input('pending.respond', {
+      sessionId: 'session-a', requestId: 'plan-a', action: 'accept',
+      value: { targetMode: 'bypassPermissions' },
+    }, { idempotencyKey: 'plan-bypass', expectedRevision: 0 }));
+    expect(respondExitPlanMode).toHaveBeenLastCalledWith('session-a', 'plan-a', {
+      decision: 'approve-bypass',
     });
   });
 

@@ -162,6 +162,9 @@ export function PermissionRow({
   wasCancelled,
   onResolved,
   externalError,
+  respondOverride,
+  responseDisabled = false,
+  approvalDisabledReason = null,
 }: {
   event: AgentEvent;
   payload: PermissionRequest;
@@ -172,8 +175,12 @@ export function PermissionRow({
   wasCancelled: boolean;
   onResolved: (sessionId: string, requestId: string) => void;
   externalError?: string | null;
+  respondOverride?: (decision: 'allow' | 'deny') => Promise<void>;
+  responseDisabled?: boolean;
+  approvalDisabledReason?: string | null;
 }): JSX.Element {
-  const { busy, error, run } = useRowResponseState(payload.requestId);
+  const { busy: rowBusy, error, run } = useRowResponseState(payload.requestId);
+  const busy = rowBusy || responseDisabled;
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const normalizedInput = useMemo(
     () => normalizeToolInput(payload.toolInput),
@@ -184,14 +191,23 @@ export function PermissionRow({
     [normalizedInput, payload.toolName],
   );
   const respond = async (decision: 'allow' | 'deny', alwaysAllow = false): Promise<void> => {
-    if (!isSdk || !stillPending) return;
+    if (
+      !isSdk || !stillPending || busy ||
+      (decision === 'allow' && approvalDisabledReason !== null)
+    ) return;
     const result = await run(
-      () => window.api.respondPermission(agentId, sessionId, payload.requestId, {
-        decision,
-        message: decision === 'deny' ? '用户拒绝' : undefined,
-        updatedInput: decision === 'allow' ? payload.toolInput : undefined,
-        updatedPermissions: alwaysAllow ? payload.suggestions : undefined,
-      }),
+      async () => {
+        if (respondOverride) {
+          await respondOverride(decision);
+          return;
+        }
+        await window.api.respondPermission(agentId, sessionId, payload.requestId, {
+          decision,
+          message: decision === 'deny' ? '用户拒绝' : undefined,
+          updatedInput: decision === 'allow' ? payload.toolInput : undefined,
+          updatedPermissions: alwaysAllow ? payload.suggestions : undefined,
+        });
+      },
       '授权响应失败，请确认请求仍在等待后重试。',
     );
     if (result.ok) {
@@ -234,7 +250,7 @@ export function PermissionRow({
           <div className="ml-auto flex flex-wrap gap-1">
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || approvalDisabledReason !== null}
               onClick={() => void respond('allow')}
               className="rounded bg-status-working/30 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
             >
@@ -243,7 +259,7 @@ export function PermissionRow({
             {payload.suggestions ? (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || approvalDisabledReason !== null}
                 onClick={() => void respond('allow', true)}
                 className="rounded bg-status-working/15 px-2 py-0.5 text-[10px] text-status-working hover:bg-status-working/25 disabled:opacity-50"
               >
@@ -270,6 +286,11 @@ export function PermissionRow({
           {formatStructuredInput(normalizedInput)}
         </pre>
       )}
+      {approvalDisabledReason ? (
+        <div className="mt-1 rounded border border-status-waiting/30 bg-status-waiting/10 px-1.5 py-1 text-[10px] text-status-waiting">
+          {approvalDisabledReason}
+        </div>
+      ) : null}
       <RowResponseError>{externalError ?? error}</RowResponseError>
       {!isSdk && (
         <div className="mt-1 text-[10px] text-deck-muted">这是终端启动的只读会话，请回到原终端窗口授权</div>

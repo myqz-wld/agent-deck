@@ -313,6 +313,7 @@ describe('useRemoteSessionSource source fencing', () => {
       await hook.result.current.respondPending(presentation, 'approve');
     });
     expect(window.api.respondRemoteHostPending).toHaveBeenCalledWith(expect.objectContaining({
+      expectedPresentationDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
       expectedRevision: 10,
       requestId: 'same-request',
     }));

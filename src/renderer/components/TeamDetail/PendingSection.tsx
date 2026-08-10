@@ -1,22 +1,18 @@
 import type { JSX } from 'react';
-import { useMemo } from 'react';
-import type { AgentDeckTeamMember } from '@shared/types';
-import { useSessionStore } from '@renderer/stores/session-store';
-import { selectPendingBuckets } from '@renderer/lib/session-selectors';
+import type {
+  TeamMemberDto,
+  TeamPendingCountsDto,
+  TeamSessionDto,
+} from '@contracts/index';
 import { Section, EmptyState } from './Header';
 import { ShieldIcon } from '../icons';
 
 /**
  * plan team-cohesion-fix-20260513 Phase C：team 内 pending 聚合 section（与 PendingTab 同源）。
  *
- * 数据**不**走 IPC（避免与 PendingTab 数据源不一致 + 重复 SQL），复用 PendingTab 同款
- * `selectPendingBuckets`（session-selectors）算出 buckets 后按 team 成员 sessionIds 过滤。
- *
- * REVIEW_107 MED：必须复用 `selectPendingBuckets` 而非自行按 raw pending Map 聚合——后者
- * 只看 member `leftAt === null`，漏掉 PendingTab 走的 `archivedAt !== null` + lifecycle
- * ∉ {active,dormant} 过滤（pending Map 仅 removeSession 清，session archive/非活跃但仍是
- * active member 时残留 pending）。口径漂移会让 TeamDetail 显示 PendingTab 已隐藏的、用户
- * 点进去也无法处理的会话。复用 selector = 两个视图 0 漂移 + 继承其 waiting/lastEventAt 排序。
+ * Local 由共享 adapter 从 PendingTab 同款 selector 产生计数；Remote 由 Core 对每个 active
+ * member 读取 `pending.list` 后投影。组件只保留 active member、非零计数，并按 session 最近
+ * 活动排序，因此两个来源共享同一展示语义且不会读取另一来源的 store。
  *
  * 展示：每个有 pending 的成员一行，标 总数 + 三类数量分布；点击跳转 SessionDetail（也可
  * 跳 PendingTab，但跳 SessionDetail 更直接给用户上下文）。无 pending 时显空 state（隐藏
@@ -26,35 +22,32 @@ import { ShieldIcon } from '../icons';
  * 看哪些成员有 pending。两边互补。
  */
 interface Props {
-  members: AgentDeckTeamMember[];
+  members: TeamMemberDto[];
+  pending: TeamPendingCountsDto[];
+  sessions: ReadonlyMap<string, TeamSessionDto>;
   onOpenSession: (sessionId: string) => void;
 }
 
-export function PendingSection({ members, onOpenSession }: Props): JSX.Element {
-  const sessions = useSessionStore((s) => s.sessions);
-  const pendingPerms = useSessionStore((s) => s.pendingPermissionsBySession);
-  const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
-  const pendingExits = useSessionStore((s) => s.pendingExitPlanModesBySession);
-  const pendingDiffs = useSessionStore((s) => s.pendingDiffReviewsBySession);
-
-  // 复用 PendingTab 同款 selector（含 archivedAt + lifecycle 过滤 + waiting/lastEventAt 排序），
-  // 再按 team active 成员 sessionIds 过滤。memberSidSet 依赖 members → useMemo 锁住重算时机。
-  const rows = useMemo(() => {
-    const memberSidSet = new Set(
-      members.filter((m) => m.leftAt === null).map((m) => m.sessionId),
-    );
-    return selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs)
-      .filter((b) => memberSidSet.has(b.session.id))
-      .map((b) => ({
-        sid: b.session.id,
-        label: b.session.title ?? b.session.id.slice(0, 8),
-        perms: b.permissions.length,
-        asks: b.askQuestions.length,
-        exits: b.exitPlanModes.length,
-        diffs: b.diffReviews.length,
-        total: b.total,
-      }));
-  }, [members, sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs]);
+export function PendingSection({ members, pending, sessions, onOpenSession }: Props): JSX.Element {
+  const active = new Set(
+    members.filter((member) => member.leftAt === null).map((member) => member.sessionId),
+  );
+  const rows = pending
+    .filter((counts) => active.has(counts.sessionId) && counts.total > 0)
+    .map((counts) => ({
+      sid: counts.sessionId,
+      label: sessions.get(counts.sessionId)?.title || counts.sessionId.slice(0, 8),
+      perms: counts.permissions,
+      asks: counts.questions,
+      exits: counts.plans,
+      diffs: counts.diffs,
+      total: counts.total,
+    }))
+    .sort((left, right) => {
+      const recency = (sessions.get(right.sid)?.lastEventAt ?? 0) -
+        (sessions.get(left.sid)?.lastEventAt ?? 0);
+      return recency || left.sid.localeCompare(right.sid);
+    });
 
   const totalPending = rows.reduce((sum, r) => sum + r.total, 0);
 

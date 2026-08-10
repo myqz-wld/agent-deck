@@ -7,6 +7,8 @@ import { computeChildrenByOwner, isPureSpawnChain } from './session-list-tree';
 import { SessionCard } from './SessionCard';
 import { useSessionGitBranches } from '@renderer/hooks/use-session-git-branches';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { groupRemoteSessionSummaries } from '@renderer/remote-host/session-summary-presentation';
+import { RemoteSessionSummaryCard } from './RemoteSessionSummaryCard';
 
 /**
  * 会话树先按 spawn link 收编，再用 universal team backend 为未收编协作者寻找同团队的首个
@@ -166,29 +168,35 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
       </div>
     );
   }
+  const grouped = groupRemoteSessionSummaries(source.sessions);
+  const sections = [
+    { key: 'active', label: '活跃', rows: grouped.active },
+    { key: 'dormant', label: '休眠', rows: grouped.dormant },
+    { key: 'closed', label: '已关闭', rows: grouped.closed },
+  ] as const;
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="mb-1 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-        {source.profile?.label} · {source.sessionTotal === null ? `已载入 ${source.sessions.length}` : `${source.sessions.length}/${source.sessionTotal}`}
+    <div className="flex flex-col gap-3">
+      <div className="px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
+        {source.profile?.label} · {source.sessionTotal === null
+          ? `已载入 ${source.sessions.length}`
+          : `${source.sessions.length}/${source.sessionTotal}`}
       </div>
-      {source.sessions.map((session) => (
-        <button
-          key={`${source.identity}:${session.id}`}
-          type="button"
-          onClick={() => source.selectSession(session.id)}
-          className={`rounded-lg border px-3 py-2 text-left transition ${source.selectedSessionId === session.id ? 'border-white/30 bg-white/10' : 'border-deck-border bg-white/[0.02] hover:bg-white/[0.06]'}`}
-        >
-          <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${session.status === 'active' ? 'bg-status-working' : 'bg-deck-muted/50'}`} />
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{session.title ?? '未命名 session'}</span>
-            <span className="rounded bg-blue-500/15 px-1 py-0.5 text-[8px] uppercase text-blue-200">Remote</span>
-            <span className="text-[9px] text-deck-muted">{session.adapterId}</span>
+      {sections.map((section) => section.rows.length > 0 && (
+        <section key={section.key}>
+          <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
+            {section.label} · {section.rows.length}
           </div>
-          <div className="mt-1 flex justify-between gap-2 text-[10px] text-deck-muted/70">
-            <span>{session.status}</span>
-            <span>{new Date(session.updatedAt).toLocaleString('zh-CN', { hour12: false })}</span>
+          <div className="flex flex-col gap-1.5">
+            {section.rows.map((session) => (
+              <RemoteSessionSummaryCard
+                key={`${source.identity}:${session.id}`}
+                session={session}
+                selected={source.selectedSessionId === session.id}
+                onSelect={() => source.selectSession(session.id)}
+              />
+            ))}
           </div>
-        </button>
+        </section>
       ))}
       {source.hasMoreSessions && (
         <button
@@ -197,7 +205,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
           onClick={() => void source.loadMoreSessions()}
           className="rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
         >
-          加载更多远程会话
+          加载更多会话
         </button>
       )}
       {source.error && <div role="alert" className="rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200">{source.error}</div>}
