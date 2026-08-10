@@ -32,8 +32,22 @@ if [[ -z "$quadlet_path" || ! -f "$quadlet_path" || -L "$quadlet_path" ]]; then
   echo "relay preflight: --quadlet must name a regular non-symlink file" >&2
   exit 65
 fi
-if [[ "$(basename "$quadlet_path")" != *@.container ]]; then
-  echo "relay preflight: Quadlet must be an instantiated @.container template" >&2
+if [[ -n "$instance_id" && ! "$instance_id" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+  echo "relay preflight: --instance must be a 1-63 byte lowercase Linux label" >&2
+  exit 65
+fi
+quadlet_name="$(basename "$quadlet_path")"
+if ((static_only == 1)) && [[ -z "$instance_id" ]]; then
+  expected_quadlet_name='agent-deck-relay@.container'
+else
+  if [[ -z "$instance_id" ]]; then
+    echo "relay preflight: runtime checks require --instance" >&2
+    exit 65
+  fi
+  expected_quadlet_name="agent-deck-relay@${instance_id}.container"
+fi
+if [[ "$quadlet_name" != "$expected_quadlet_name" ]]; then
+  echo "relay preflight: Quadlet filename must be $expected_quadlet_name" >&2
   exit 65
 fi
 
@@ -159,10 +173,6 @@ if ((static_only == 1)); then
   exit 0
 fi
 
-if [[ ! "$instance_id" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
-  echo "relay preflight: --instance must be a 1-63 byte lowercase Linux label" >&2
-  exit 69
-fi
 runtime_uid="$(id -u)"
 runtime_gid="$(id -g)"
 if [[ "$runtime_uid" == 0 ]]; then
