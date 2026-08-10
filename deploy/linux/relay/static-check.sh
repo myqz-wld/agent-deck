@@ -9,6 +9,19 @@ bash "$relay_dir/preflight.sh" \
   --quadlet "$relay_dir/agent-deck-relay@.container" \
   --static-only
 
+instantiated_fixture="$(mktemp -d)/agent-deck-relay@static-check.container"
+cleanup_instantiated_fixture() {
+  rm -rf -- "$(dirname "$instantiated_fixture")"
+}
+trap cleanup_instantiated_fixture EXIT
+cp "$relay_dir/agent-deck-relay@.container" "$instantiated_fixture"
+bash "$relay_dir/preflight.sh" \
+  --quadlet "$instantiated_fixture" \
+  --instance static-check \
+  --static-only
+cleanup_instantiated_fixture
+trap - EXIT
+
 node -e '
   const fs = require("node:fs");
   const path = process.argv[1];
