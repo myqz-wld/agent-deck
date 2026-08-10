@@ -1,5 +1,5 @@
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { SessionAdapterId } from '@shared/types';
 
 import { registerServerCoreIssueTools } from './mcp-issue-tools';
@@ -12,22 +12,12 @@ import { registerServerCoreBrowserTools } from './mcp-browser-tools';
 import { registerServerCorePresentationTools } from './mcp-presentation-tools';
 import { registerServerCoreHandOffTool } from './mcp-handoff-tools';
 
-const dynamicImport = new Function('s', 'return import(s)') as <T = unknown>(
-  specifier: string,
-) => Promise<T>;
-
 export interface ServerCoreMcpServerModule {
   McpServer: new (info: { name: string; version: string }) => McpServer;
 }
 
-let modulePromise: Promise<ServerCoreMcpServerModule> | null = null;
-
-function loadMcpServerModule(): Promise<ServerCoreMcpServerModule> {
-  modulePromise ??= dynamicImport<ServerCoreMcpServerModule>(
-    '@modelcontextprotocol/sdk/server/mcp.js',
-  );
-  return modulePromise;
-}
+export const DEFAULT_SERVER_CORE_MCP_SERVER_MODULE: ServerCoreMcpServerModule =
+  Object.freeze({ McpServer });
 
 export async function createServerCoreMcpServer(
   host: ServerCoreMcpToolHost,
@@ -35,8 +25,9 @@ export async function createServerCoreMcpServer(
   adapterId: SessionAdapterId,
   mcpServerModule?: ServerCoreMcpServerModule,
 ): Promise<McpServer> {
-  const { McpServer } = mcpServerModule ?? await loadMcpServerModule();
-  const server = new McpServer({ name: 'agent-deck', version: '0.1.0' });
+  const { McpServer: McpServerConstructor } =
+    mcpServerModule ?? DEFAULT_SERVER_CORE_MCP_SERVER_MODULE;
+  const server = new McpServerConstructor({ name: 'agent-deck', version: '0.1.0' });
   const context = Object.freeze({ host, callerSessionId, adapterId });
   registerServerCoreSessionTools(server, context);
   registerServerCoreSpawnTool(server, context);

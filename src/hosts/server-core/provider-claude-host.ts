@@ -21,7 +21,6 @@ import {
   getClaudeConfigRoot,
 } from '@main/adapters/claude-code/fork-session-core';
 import { createClaudeSessionManagerPort } from '@main/adapters/claude-code/session-manager-core';
-import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { rememberIgnoredClaudeUserMessageIdCore } from '@main/adapters/claude-code/sdk-bridge/user-message-acceptance-core';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
@@ -40,6 +39,7 @@ import {
   unsupportedRecoveryHost,
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
+import { loadServerCoreClaudeSdk } from './provider-claude-sdk';
 
 function gatewayHost(): ClaudeGatewayProfileHost {
   return {
@@ -132,7 +132,7 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
       },
       usageSnapshotHost: {
         loadSdk: async () => {
-          const sdk = await loadSdk();
+          const sdk = await loadServerCoreClaudeSdk();
           return { query: sdk.query };
         },
         getRuntimeOptions: () => ({
@@ -206,7 +206,7 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
       readPermissionTimeoutMs: () => input.settings.permissionTimeoutMs,
     },
     fork: {
-      loadSdk: async () => loadSdk(),
+      loadSdk: async () => loadServerCoreClaudeSdk(),
       readConfigRoot: () => configRoot,
       childSessionStore: {
         get: (sessionId) => input.repositories.sessions.get(sessionId),
