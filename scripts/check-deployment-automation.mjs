@@ -75,6 +75,12 @@ for (const path of remoteScripts) {
   if (!source.includes('set -euo pipefail') || !source.includes('/usr/bin/sudo -n')) {
     fail(`${path} 缺少 fail-closed 或免交互 sudo 边界`);
   }
+  if (
+    source.includes('/usr/bin/sudo -n -u "$service_user"') &&
+    !source.includes('/usr/bin/env --chdir="$service_home"')
+  ) {
+    fail(`${path} 未将 service user 命令锚定到 service home`);
+  }
 }
 
 for (const path of examples) {

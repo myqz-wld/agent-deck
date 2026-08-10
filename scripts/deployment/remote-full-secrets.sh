@@ -45,7 +45,8 @@ run_service() {
   /usr/bin/sudo -n -u "$service_user" /usr/bin/env -i \
     HOME="$service_home" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
     XDG_RUNTIME_DIR="$runtime_root" \
-    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_root/bus" "$@"
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_root/bus" \
+    /usr/bin/env --chdir="$service_home" "$@"
 }
 volume="agent-deck-${instance_id}-secrets"
 [[ "$(run_service /usr/bin/podman volume inspect --format '{{index .Labels "io.agent-deck.instance"}}' -- "$volume")" == "$instance_id" ]] || fail 'secrets volume instance label 不匹配'
