@@ -135,6 +135,11 @@ grep -Fq 'podman_executable='"'"'/usr/bin/podman'"'"'' "$relay_dir/preflight.sh"
   echo 'relay static check: runtime preflight must use the packaged Podman path' >&2
   exit 1
 }
+grep -Fq 'verify_root_dir "evidence config root" "$evidence_config_root" "$evidence_config_root" 555' \
+  "$relay_dir/preflight.sh" || {
+  echo 'relay static check: evidence config root trust mode drifted from remote install' >&2
+  exit 1
+}
 for required in \
   'health_probe_name="agent-deck-relay-preflight-$runtime_uid-$$"' \
   '--network=slirp4netns:allow_host_loopback=false' \

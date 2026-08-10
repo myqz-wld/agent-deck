@@ -270,7 +270,7 @@ verify_root_dir() {
 evidence_config_root="/etc/agent-deck-relay"
 evidence_base="$evidence_config_root/evidence"
 evidence_dir="$evidence_base/$instance_id"
-verify_root_dir "evidence config root" "$evidence_config_root" "$evidence_config_root" 755
+verify_root_dir "evidence config root" "$evidence_config_root" "$evidence_config_root" 555
 verify_root_dir "evidence base" "$evidence_base" "$evidence_base" 555
 verify_root_dir "instance evidence directory" "$evidence_dir" "$evidence_dir" 555
 
