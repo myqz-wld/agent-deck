@@ -21,6 +21,7 @@ function ordered(left: string, right: string): number {
 export class FakeFileSystem implements FileSystemPort {
   private readonly nodes = new Map<string, FakeNode>();
   private nextInode = 1;
+  modifiedAtOffsetMs = 0;
   failNextReplacePath: string | null = null;
   failRemoveFileAtPath: string | null = null;
   afterRemoveFile: ((path: string) => void) | null = null;
@@ -32,8 +33,12 @@ export class FakeFileSystem implements FileSystemPort {
     this.seedDirectory('/', 0o755, 0);
   }
 
+  private modifiedAtMs(): number {
+    return this.nowMs() + this.modifiedAtOffsetMs;
+  }
+
   private identity(kind: FileIdentity['kind'], mode: number, uid: number, size = 0): FileIdentity {
-    return { device: 1, inode: this.nextInode++, kind, mode, uid, size, modifiedAtMs: this.nowMs() };
+    return { device: 1, inode: this.nextInode++, kind, mode, uid, size, modifiedAtMs: this.modifiedAtMs() };
   }
 
   seedDirectory(path: string, mode = 0o700, uid = 1001): FileIdentity {
@@ -58,7 +63,7 @@ export class FakeFileSystem implements FileSystemPort {
   seedFile(path: string, text: string, options: { mode?: number; uid?: number; modifiedAtMs?: number } = {}): FileIdentity {
     this.seedDirectoryChain(posix.dirname(path), 0o700, options.uid ?? 1001);
     const data = new TextEncoder().encode(text);
-    const identity = { ...this.identity('file', options.mode ?? 0o600, options.uid ?? 1001, data.byteLength), modifiedAtMs: options.modifiedAtMs ?? this.nowMs() };
+    const identity = { ...this.identity('file', options.mode ?? 0o600, options.uid ?? 1001, data.byteLength), modifiedAtMs: options.modifiedAtMs ?? this.modifiedAtMs() };
     this.nodes.set(path, { identity, data });
     return identity;
   }
@@ -89,7 +94,7 @@ export class FakeFileSystem implements FileSystemPort {
     if (!node || node.identity.kind !== 'file') throw new Error(`missing file ${path}`);
     const data = new TextEncoder().encode(text);
     node.data = data;
-    node.identity = { ...node.identity, size: data.byteLength, modifiedAtMs: this.nowMs() };
+    node.identity = { ...node.identity, size: data.byteLength, modifiedAtMs: this.modifiedAtMs() };
   }
 
   mutateIdentity(path: string, patch: Partial<FileIdentity>): void {
