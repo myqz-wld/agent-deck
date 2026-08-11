@@ -34,6 +34,7 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const autoConnectAttempt = useRef<string | null>(null);
 
   const apply = useCallback((next: RemoteHostSnapshotDto): void => {
     setSnapshot((current) => !current || next.revision >= current.revision ? next : current);
@@ -110,6 +111,41 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
       off();
     };
   }, [refresh]);
+
+  const selectedRemoteProfileId = snapshot?.sourceMode === 'remote'
+    ? snapshot.selectedRemoteProfileId
+    : null;
+  const selectedRemoteStatus = selectedRemoteProfileId
+    ? snapshot?.states.find((state) => state.profileId === selectedRemoteProfileId)?.status ?? null
+    : null;
+  const activeRemoteProfileId = useRef(selectedRemoteProfileId);
+  activeRemoteProfileId.current = selectedRemoteProfileId;
+  useEffect(() => {
+    if (!selectedRemoteProfileId) {
+      autoConnectAttempt.current = null;
+      return;
+    }
+    if (
+      selectedRemoteStatus === 'connected' ||
+      selectedRemoteStatus === 'connecting' ||
+      selectedRemoteStatus === 'reconnecting'
+    ) {
+      autoConnectAttempt.current = selectedRemoteProfileId;
+      return;
+    }
+    if (
+      selectedRemoteStatus !== 'offline' ||
+      autoConnectAttempt.current === selectedRemoteProfileId
+    ) return;
+
+    autoConnectAttempt.current = selectedRemoteProfileId;
+    setError(null);
+    void window.api.connectRemoteHost(selectedRemoteProfileId).then(apply).catch((reason: unknown) => {
+      if (activeRemoteProfileId.current === selectedRemoteProfileId) {
+        setError(errorMessage(reason));
+      }
+    });
+  }, [apply, selectedRemoteProfileId, selectedRemoteStatus]);
 
   const mutate = useCallback(async (
     operation: () => Promise<RemoteHostSnapshotDto>,
