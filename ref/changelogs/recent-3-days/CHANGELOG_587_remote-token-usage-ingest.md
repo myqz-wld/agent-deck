@@ -33,8 +33,11 @@ usage instead of remaining empty after successful Relay sessions.
 - `pnpm build:linux-headless` and `pnpm check:linux-headless`
 - `pnpm check:deployment`
 - `pnpm verify:macos-worker-sandbox`
+- `pnpm dist:mac` and the packaged macOS Worker sandbox check for commit `e1dabf382f88`.
 - Production pre-fix evidence showed 9 `token-usage` events, 0 `token_usage` rows, and empty Remote
   `rates`, `topToday`, and `daily` after two successful model sessions.
+- Official Relay/Worker deployment and live Claude/Codex acceptance produced non-empty rolling and
+  daily Remote usage, while new telemetry entered only `token_usage` and not session history.
 - Package, deployment, and post-deployment acceptance results are recorded in
   `REVIEW_228_remote-token-usage-ingest.md`.
 
