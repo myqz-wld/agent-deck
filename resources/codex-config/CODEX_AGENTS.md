@@ -28,7 +28,7 @@ accepts `permissionMode`, `claudeCodeSandbox`, and `extraAllowWrite`; Codex acce
 win; omitted runtime values inherit only from a persisted same-adapter source, while cross-adapter
 targets use target defaults. A `reviewer-*` name grants no hidden runtime access.
 
-Codex targets default to `on-request` approval when no explicit or inherited value exists.
+Codex targets default to `never` approval when no explicit or inherited value exists.
 `codexSandbox` controls native `sandboxMode`; Agent Deck surfaces native approval requests and uses
 Codex's exact decision vocabulary. MCP cannot directly override arbitrary readable directories or
 network access. `AGENT_DECK_MCP_TOKEN` identifies the in-app caller; external global tokens are

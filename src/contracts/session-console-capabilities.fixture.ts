@@ -49,7 +49,7 @@ export function sessionConsoleCreateOptionsFixture(
       }
     : adapterId === 'codex-cli'
       ? {
-          approvalPolicy: 'on-request',
+          approvalPolicy: 'never',
           claudeCodeSandbox: null,
           codexSandbox: 'workspace-write',
           grokSandbox: null,

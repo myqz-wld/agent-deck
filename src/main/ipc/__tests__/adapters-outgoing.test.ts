@@ -284,14 +284,14 @@ describe('adapter outgoing queue IPC', () => {
     })).toThrow('approvalPolicy');
   });
 
-  it('defaults approvalPolicy to on-request when a non-UI caller supplies no override', async () => {
+  it('defaults approvalPolicy to never when a non-UI caller supplies no override', async () => {
     await expect(handler(IpcInvoke.AdapterCreateSession)(
       {},
       'codex-cli',
       { cwd: '/repo' },
     )).resolves.toBe('codex-created');
     expect(mocks.createSession).toHaveBeenCalledWith(
-      expect.objectContaining({ approvalPolicy: 'on-request' }),
+      expect.objectContaining({ approvalPolicy: 'never' }),
     );
   });
 

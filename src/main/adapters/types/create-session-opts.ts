@@ -198,7 +198,7 @@ export interface CodexCreateOpts {
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订) + §D7：
    * codex app-server `approvalPolicy` 透传。当前 provider 支持 `untrusted`、`on-request`
    * 和 `never`。caller 显式值和同 adapter 继承值优先；否则 Codex target 默认
-   * `on-request`。Reviewer Agent 名称不会隐式改变该策略。
+   * `never`。Reviewer Agent 名称不会隐式改变该策略。
    *
    * app-server 在每次 turn/start 读取该值，因此会话页可持久化并热更新下一轮策略。
    */

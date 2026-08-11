@@ -222,7 +222,7 @@ describe('resolveSessionCreationDefaults', () => {
     });
   });
 
-  it('defaults Codex approvals to on-request when no valid policy is configured', async () => {
+  it('defaults Codex approvals to never when no valid policy is configured', async () => {
     const root = tempRoot();
 
     await expect(resolveSessionCreationDefaults(
@@ -234,7 +234,7 @@ describe('resolveSessionCreationDefaults', () => {
         readCodexConfig: async () => ({}),
       },
     )).resolves.toMatchObject({
-      approvalPolicy: 'on-request',
+      approvalPolicy: 'never',
     });
   });
 
@@ -267,7 +267,7 @@ describe('resolveSessionCreationDefaults', () => {
     await vi.advanceTimersByTimeAsync(CODEX_CREATION_DEFAULTS_TIMEOUT_MS);
     await expect(first).resolves.toMatchObject({
       model: '',
-      approvalPolicy: 'on-request',
+      approvalPolicy: 'never',
     });
     expect(firstSignal?.aborted).toBe(true);
     expect(diagnostics).toContainEqual({

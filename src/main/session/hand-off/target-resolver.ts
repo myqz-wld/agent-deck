@@ -211,7 +211,7 @@ function resolveHandOffTargetInternal(
     request.adapter === 'codex-cli'
       ? request.approvalPolicy ??
         (sameAdapter ? source.codexApprovalPolicy ?? undefined : undefined) ??
-        'on-request'
+        'never'
       : null;
   const createOptions = buildCreateSessionOptions(request.adapter, {
     cwd: request.cwd,

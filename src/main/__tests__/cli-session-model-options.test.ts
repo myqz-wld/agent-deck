@@ -51,7 +51,7 @@ describe('agent-deck new model options', () => {
     ])).toMatchObject({
       kind: 'new-session',
       agent: 'codex-cli',
-      approvalPolicy: 'on-request',
+      approvalPolicy: 'never',
     });
     expect(parseCliInvocation([
       '/Applications/Agent Deck',

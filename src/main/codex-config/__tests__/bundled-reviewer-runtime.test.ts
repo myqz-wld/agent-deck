@@ -196,7 +196,7 @@ describe('bundled reviewer runtime contract', () => {
 
     expect(codexReviewerBody).toContain('Use `shell` to validate issues');
     expect(codexReviewerBody).toContain('independent Codex CLI app-server session');
-    expect(codexReviewerBody).toContain('approvalPolicy: on-request');
+    expect(codexReviewerBody).toContain('approvalPolicy: never');
     expect(codexReviewerBody).toContain('configured Codex sandbox default');
     expect(codexReviewerBody).toContain('/reviewer-codex/');
 

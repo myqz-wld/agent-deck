@@ -15,6 +15,8 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-08 | `CHANGELOG_569_workspace-bounded-provider-sandboxes.md` | Compile Remote provider sandboxes under the Workspace ceiling |
+| 2026-08-08 | `CHANGELOG_436_handoff-lifecycle-context-v2.md` | Harden handoff context, ownership, and large-capture handling |
 | 2026-08-07 | `CHANGELOG_577_remote-core-user-presentations.md` | Reuse Local plan and diff gates for Remote sessions |
 | 2026-08-07 | `CHANGELOG_576_remote-desktop-browser-broker.md` | Broker Remote Browser tools through the connected desktop |
 | 2026-08-07 | `CHANGELOG_575_remote-core-worktree-lifecycle.md` | Restore automatic Remote worktree cwd transitions |

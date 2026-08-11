@@ -103,7 +103,7 @@ export interface CreateSessionOpts {
    * plan codex-handoff-team-alignment-20260518 §P3 Step 3.5 + §不变量 6 (v4 修订):
    * codex SDK startThread/resumeThread `approvalPolicy` 透传。
    *
-   * Ordinary targets resolve to `on-request` before this boundary. An explicit caller value or
+   * Ordinary targets resolve to `never` before this boundary. An explicit caller value or
    * persisted same-adapter value may replace it; reviewer names do not affect the result.
    * Agent Deck handles provider-initiated approval requests for interactive policies.
    */

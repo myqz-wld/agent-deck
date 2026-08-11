@@ -33,7 +33,7 @@ export function SessionSandboxControls({
   const changeCodexApproval = async (
     next: CodexApprovalPolicyChoice,
   ): Promise<void> => {
-    const current = session.codexApprovalPolicy ?? 'on-request';
+    const current = session.codexApprovalPolicy ?? 'never';
     if (next === current || busy) return;
     await run(() =>
       window.api.setCodexApprovalPolicy(session.agentId, session.id, next),
@@ -111,7 +111,7 @@ export function SessionSandboxControls({
             label="审批"
             value={
               (session.codexApprovalPolicy ??
-                'on-request') as CodexApprovalPolicyChoice
+                'never') as CodexApprovalPolicyChoice
             }
             options={CODEX_APPROVAL_POLICY_OPTIONS}
             disabled={busy}

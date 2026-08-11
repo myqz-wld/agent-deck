@@ -859,7 +859,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(description).toContain('Explicit runtime values and resolved bundled-Agent runtime values win');
     expect(description).toContain('persisted same-adapter caller');
     expect(description).toContain('cross-adapter targets use their own defaults');
-    expect(description).toContain('no explicit or inherited approval uses on-request');
+    expect(description).toContain('no explicit or inherited approval uses never');
     expect(description).toContain('approvalPolicy is a public Codex-only override');
     expect(description).toContain('agentName never injects runtime access');
     expect(description).toContain('grokSandbox belongs only to grok-build');
@@ -1035,7 +1035,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       prompt: 'cross adapter Codex task',
     }, {});
     expect(parseResult(r).isError).toBeFalsy();
-    expect(createSessionCalls[0].approvalPolicy).toBe('on-request');
+    expect(createSessionCalls[0].approvalPolicy).toBe('never');
     expect(createSessionCalls[0].networkAccessEnabled).toBeUndefined();
     expect(createSessionCalls[0].additionalDirectories).toBeUndefined();
   });

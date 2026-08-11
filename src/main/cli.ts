@@ -231,7 +231,7 @@ export function parseCliInvocation(argv: readonly string[]): CliInvocation {
       approvalPolicy = approvalRaw as CodexApprovalPolicy;
     }
     if (agent === 'codex-cli' && approvalPolicy === undefined) {
-      approvalPolicy = 'on-request';
+      approvalPolicy = 'never';
     }
 
     // Parse global enums first; adapter ownership is checked below.
