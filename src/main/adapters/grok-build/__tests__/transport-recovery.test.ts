@@ -61,7 +61,7 @@ describe('Grok transport recovery', () => {
       start,
       persist,
       dispose: vi.fn(async () => undefined),
-      emitErrorMessage: vi.fn(),
+      emitTerminalError: vi.fn(),
     });
 
     expect(stop).toHaveBeenCalledOnce();
@@ -72,13 +72,13 @@ describe('Grok transport recovery', () => {
     expect(runtime.queue.map((message) => message.text)).toEqual(['keep queued']);
   });
 
-  it('releases an unstartable runtime and leaves a visible recovery error', async () => {
+  it('releases an unstartable runtime and emits a terminal recovery error', async () => {
     const oldProcess = {
       stop: vi.fn(async () => undefined),
       child: { pid: 10 },
     } as unknown as GrokAcpProcess;
     const runtime = makeRuntime(oldProcess);
-    const emitErrorMessage = vi.fn();
+    const emitTerminalError = vi.fn();
     const dispose = vi.fn(async (candidate: GrokRuntime) => {
       candidate.closed = true;
     });
@@ -90,10 +90,10 @@ describe('Grok transport recovery', () => {
       }),
       persist: vi.fn(),
       dispose,
-      emitErrorMessage,
+      emitTerminalError,
     });
 
-    expect(emitErrorMessage).toHaveBeenCalledWith(
+    expect(emitTerminalError).toHaveBeenCalledWith(
       'app-session',
       expect.stringContaining('ACP 连接重建失败：load failed'),
     );

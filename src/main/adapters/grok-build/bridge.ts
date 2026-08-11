@@ -76,12 +76,9 @@ export class GrokBuildBridge {
         persist: (candidate) =>
           persistGrokRuntimeMetadata(candidate, options.runtimeHost),
         dispose: (candidate) => this.disposeRuntime(candidate),
-        emitErrorMessage: (sessionId, text) =>
-          this.emit(sessionId, 'message', {
-            text: `⚠ ${text}`,
-            role: 'assistant',
-            error: true,
-          }),
+        // Recovery runs after the recovered turn's terminal event. Emit a second terminal error so
+        // the explanatory assistant message cannot move the session back to `working`.
+        emitTerminalError: (sessionId, text) => this.emitError(sessionId, text),
       }),
     });
     this.lifecycle = new GrokRuntimeLifecycleCoordinator(
