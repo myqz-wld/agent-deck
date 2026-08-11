@@ -38,13 +38,28 @@ Remote contracts and explicit capability limits.
 - Focused Electron suites: 25 files / 137 tests passed, including native SQLite composition.
 - Final `pnpm test` — 890 files / 5,754 tests passed; 2 files / 3 tests skipped.
 - `pnpm typecheck` passed architecture and Node/Web TypeScript checks.
-- `pnpm build`
-- `pnpm verify:linux-headless`
-- `pnpm verify:macos-worker-sandbox`
+- `pnpm build`, `pnpm verify:linux-headless`, and `pnpm verify:macos-worker-sandbox` passed.
 - `git diff --check` passed; all modified production TypeScript files remain below 500 lines.
 - Paired Claude/Codex deep review converged after bounded asset-scan, picker-policy, and
   source-identity follow-ups; all findings are recorded in
   `REVIEW_229_remote-worker-ui-authority.md`.
+- Clean commit `d88c99febdef8bb5cb49f85260550624174f7f8b` was pushed to `origin/main`.
+- The official Relay deployment upgraded `aws-relay-on-mac` to `git-d88c99febdef` with digest
+  `localhost/agent-deck-relay@sha256:35417e052f00c9442c9a81069e7327548402bf277a0a169607d65b27f550af5b`;
+  independent verification reported healthy.
+- The exact-commit macOS package was installed and the official Worker deployment upgraded
+  `worker-df9dfaddfd410be3979119c7`; the isolated Workspace remained
+  `/Users/wanglidong/AgentDeckWorkspaces` and both service verifications passed.
+- An isolated protocol 2.2 Client observed 23 capabilities and completed 16 concurrent authority
+  reads without an in-flight incompatibility failure. Session total, Teams, Issues, Usage, Worker
+  configuration, all three Hook statuses, packaged assets/content, conventions, projects,
+  directories, and Claude/Codex create descriptors all came from the authoritative Worker Core.
+- Real Relay sessions completed with exact markers: Claude
+  `deepseek / deepseek-v4-flash[1m] / max` returned `CLAUDE_DEEPSEEK_REMOTE_AUTHORITY_OK` in session
+  `06fbd0b3-d48d-4b85-bc6d-2106952ecd5d`; Codex `gpt-5.6-sol / low` returned
+  `CODEX_GPT_5_6_SOL_REMOTE_AUTHORITY_OK` in session
+  `019ff003-a2bb-7641-ae61-b7e24207da3b`. Both reached `active-finished`, the Remote active total
+  became 10, and Usage returned live `deepseek-v4-flash` and `gpt-5.6-sol` token buckets.
 
 ## Compatibility and recovery
 

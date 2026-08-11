@@ -154,6 +154,36 @@ reported no new CRITICAL, HIGH, MEDIUM, or LOW finding.
   and macOS Worker sandbox verification passed during the source review cycle.
 - Every modified production TypeScript/TSX file remains below 500 lines.
 
+## Deployment and live acceptance
+
+- Source commit `d88c99febdef8bb5cb49f85260550624174f7f8b` was clean, pushed, and aligned
+  with `origin/main` before deployment.
+- The official Relay lifecycle upgraded `aws-relay-on-mac` to release `git-d88c99febdef` and
+  digest
+  `localhost/agent-deck-relay@sha256:35417e052f00c9442c9a81069e7327548402bf277a0a169607d65b27f550af5b`;
+  the upgrade and an independent verification both reported healthy.
+- The exact-commit macOS package was installed before the official Worker lifecycle upgraded and
+  verified `worker-df9dfaddfd410be3979119c7`. The desktop process was not signalled, injected, or
+  controlled by the acceptance run.
+- An isolated production `SshAgentDeckClient` negotiated protocol 2.2 with authoritative Core
+  generation 1 and received all 23 expected capabilities, including Teams, Issues, Usage,
+  `node.configuration`, and `node.assets`.
+- Sixteen concurrent authority reads completed through the negotiated eight-request Host limit,
+  directly exercising the bounded client queue that fixes the reported incompatibility. The probe
+  read session totals, Teams, Issues, token usage, provider quota status, Worker defaults, all three
+  Worker Hook statuses, the asset list and content, all three application conventions, projects,
+  directories, and full Claude/Codex session-create descriptors without Local fallback.
+- Worker-owned asset acceptance returned 12 packaged assets, four for each adapter, plus bounded
+  content and conventions. Worker-owned Hook status reported user-scope installations for Claude,
+  Codex, and Grok.
+- Claude session `06fbd0b3-d48d-4b85-bc6d-2106952ecd5d` used
+  `deepseek / deepseek-v4-flash[1m] / max` and returned the exact marker
+  `CLAUDE_DEEPSEEK_REMOTE_AUTHORITY_OK`.
+- Codex session `019ff003-a2bb-7641-ae61-b7e24207da3b` used `gpt-5.6-sol / low` and returned the
+  exact marker `CODEX_GPT_5_6_SOL_REMOTE_AUTHORITY_OK`.
+- Both sessions reached `active-finished`; the authoritative active session total became 10 and
+  Usage exposed post-run `deepseek-v4-flash` and `gpt-5.6-sol` token buckets.
+
 ## Explicit residual limitations
 
 - Remote context-window usage snapshots and handoff are not present in the current protocol; the UI
@@ -164,12 +194,11 @@ reported no new CRITICAL, HIGH, MEDIUM, or LOW finding.
   `session.steer` contract; the composer rejects attached images explicitly.
 - Asset discovery may be stale for at most five seconds and becomes conservative-truncated when a
   traversal budget is exhausted. Content reads still revalidate the current canonical file.
-- Live Relay/Worker upgrade and real Claude/Codex acceptance remain release gates after the source
-  commit is pushed.
 
 ## Verdict
 
-PASS for source release. Remote pages, settings, Hooks, assets, composer, attachment policy, and
-usage surfaces are Core/Worker-authoritative and fail closed. Deploy only from a clean commit aligned
-with `origin/main`, then run real Remote capability, asset/configuration, Claude, and Codex acceptance
-without manipulating the existing desktop process.
+PASS and live release acceptance complete. Remote pages, settings, Hooks, assets, composer,
+attachment policy, and usage surfaces are Core/Worker-authoritative and fail closed. The clean
+source release, managed Relay and Worker deployment, 16-request queue acceptance, full authority
+surface probe, and real Claude/Codex model sessions all passed without manipulating the desktop
+process.
