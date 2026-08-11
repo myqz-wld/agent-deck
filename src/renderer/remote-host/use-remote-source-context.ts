@@ -39,7 +39,7 @@ export function useRemoteSourceContext(hosts: RemoteHostSnapshotState): RemoteSo
     : 0;
   const usable = Boolean(
     activeProfileId && profile?.scope === 'remote' &&
-    (state?.status === 'connected' || state?.status === 'reconnecting' || recoveringWorker),
+    state?.status === 'connected',
   );
   const capabilityKey = (state?.capabilities ?? []).join('\u0000');
   // HostHello capabilities are unique; the joined key ignores snapshot clones.

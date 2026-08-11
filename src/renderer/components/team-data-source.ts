@@ -97,12 +97,15 @@ function remoteSource(
   return {
     identity,
     revision,
-    list: () => window.api.listRemoteHostTeams({
+    list: async () => window.api.listRemoteHostTeams({
       profileId: requireProfile(),
       includeArchived: false,
       limit: 200,
     }),
-    get: (teamId) => window.api.getRemoteHostTeam({ profileId: requireProfile(), teamId }),
+    get: async (teamId) => window.api.getRemoteHostTeam({
+      profileId: requireProfile(),
+      teamId,
+    }),
     archive: (teamId, expectedRevision) => mutate(
       'team-archive',
       { teamId, expectedRevision },

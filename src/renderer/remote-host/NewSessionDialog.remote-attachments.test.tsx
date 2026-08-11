@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
@@ -113,6 +113,12 @@ function source(
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe('Remote New Session attachments', () => {
   it('passes the retained image through the exact Remote create contract', async () => {
     const current = source();
@@ -166,5 +172,44 @@ describe('Remote New Session attachments', () => {
       expect.objectContaining({ label: '工作目录可写', disabled: true, title: reason }),
       expect.objectContaining({ label: '⚠️ Workspace 内完全开放', disabled: true, title: reason }),
     ]);
+  });
+
+  it('does not restore stale create capabilities after a same-identity disconnect', async () => {
+    const current = source();
+    const pending = deferred<Awaited<ReturnType<typeof current.getSessionCapabilities>>>();
+    vi.mocked(current.getSessionCapabilities).mockImplementation(() => pending.promise);
+    window.api = {} as typeof window.api;
+    const view = render(
+      <NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalledOnce());
+
+    const disconnected = { ...current, usable: false };
+    view.rerender(
+      <NewSessionDialog open remoteSource={disconnected} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
+    expect(await screen.findByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
+
+    const descriptor = sessionConsoleCapabilitiesFixture('codex-cli', '.');
+    await act(async () => {
+      pending.resolve({
+        ...descriptor,
+        create: {
+          ...descriptor.create,
+          attachments: {
+            disabledReason: null,
+            enabled: true,
+            maxBytesEach: 2 * 1024 * 1024,
+            maxBytesTotal: 2 * 1024 * 1024,
+            maxCount: 4,
+            mimeTypes: ['image/png'],
+          },
+        },
+      });
+      await pending.promise;
+    });
+
+    expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
+    expect(screen.queryByText('Codex CLI')).toBeNull();
   });
 });

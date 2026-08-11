@@ -99,11 +99,12 @@ export function RemoteIssuesPanel({
   }, [source.identity]);
 
   useEffect(() => {
+    const titleKeyword = keywordInput.trim() || undefined;
+    if (filtersRef.current.titleKeyword === titleKeyword) return;
     const timer = setTimeout(() => {
-      setFilters((current) => ({
-        ...current,
-        titleKeyword: keywordInput.trim() || undefined,
-      }));
+      setFilters((current) => current.titleKeyword === titleKeyword
+        ? current
+        : { ...current, titleKeyword });
     }, KEYWORD_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [keywordInput]);

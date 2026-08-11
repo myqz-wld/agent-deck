@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
@@ -86,6 +86,12 @@ function source(): RemoteSessionSourceView {
     steer: vi.fn(),
     updateRuntime: vi.fn(),
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 function hosts(
@@ -220,6 +226,49 @@ describe('remote source surfaces', () => {
     expect(chooseDirectory).not.toHaveBeenCalled();
   });
 
+  it('retires an open Workspace browser when the same Remote identity disconnects', async () => {
+    const current = source();
+    const pending = deferred<{
+      directory: string;
+      directories: { directory: string; name: string }[];
+      truncated: boolean;
+      revision: number;
+    }>();
+    vi.mocked(current.listWorkspaceDirectories).mockImplementation(() => pending.promise);
+    window.api = {} as typeof window.api;
+    const view = render(
+      <NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
+    fireEvent.click(await screen.findByText('选择…'));
+    await waitFor(() => expect(current.listWorkspaceDirectories).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <NewSessionDialog
+        open
+        remoteSource={{ ...current, usable: false }}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(
+      '当前 Remote Worker 尚未连接，无法读取 Workspace 目录。',
+    )).toBeTruthy();
+
+    await act(async () => {
+      pending.resolve({
+        directory: '.',
+        directories: [{ directory: 'stale-repo', name: 'stale-repo' }],
+        truncated: false,
+        revision: 1,
+      });
+      await pending.promise;
+    });
+    expect(screen.queryByRole('button', { name: 'stale-repo' })).toBeNull();
+    expect((screen.getByRole('button', { name: '选择此目录' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+  });
+
   it('consumes rejected profile-focus promises instead of creating an unhandled rejection', async () => {
     const selectProfile = vi.fn(() => Promise.reject(new Error('selection failed')));
     render(<RemoteHostManagerDialog open hosts={hosts(selectProfile)} onClose={vi.fn()} />);
@@ -256,7 +305,7 @@ describe('remote source surfaces', () => {
     expect(screen.getByText('Summary row')).toBeTruthy();
   });
 
-  it('shows only loaded count when the remote total is unavailable', () => {
+  it('shows a partial Remote error without a source-specific load-count banner', () => {
     const row = {
       id: 'session-a', adapterId: 'codex-cli', title: 'Live row', status: 'active',
       createdAt: 1, updatedAt: 2,
@@ -264,12 +313,13 @@ describe('remote source surfaces', () => {
     const view = render(<SessionList
       remoteSource={{ ...source(), error: '远程 session 不存在或已删除。', sessions: [row], sessionTotal: null }}
     />);
-    expect(screen.getByText(/已载入 1/)).toBeTruthy();
+    expect(screen.getByText('Live row')).toBeTruthy();
+    expect(screen.queryByText(/已载入/)).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('不存在或已删除');
     view.rerender(<SessionList
       remoteSource={{ ...source(), sessions: [row], sessionTotal: 9 }}
     />);
-    expect(screen.getByText(/1\/9/)).toBeTruthy();
+    expect(screen.queryByText(/1\/9/)).toBeNull();
   });
 
   it('shows an initial Live read failure instead of an authoritative empty state', () => {

@@ -30,26 +30,25 @@ export function TeamHub({
 
   useEffect(() => {
     let aborted = false;
-    const fetch = (): void => {
+    const fetch = async (): Promise<void> => {
       setListError(null);
-      void source.list()
-        .then((result) => {
-          if (!aborted) {
-            setTeams(result.teams);
-            setLoading(false);
-          }
-        })
-        .catch((err: unknown) => {
-          logger.warn('[team-hub] list failed:', err);
-          if (!aborted) {
-            setListError('读取团队列表失败，请稍后重试。');
-            setLoading(false);
-          }
-        });
+      try {
+        const result = await source.list();
+        if (!aborted) {
+          setTeams(result.teams);
+          setLoading(false);
+        }
+      } catch (err: unknown) {
+        logger.warn('[team-hub] list failed:', err);
+        if (!aborted) {
+          setListError('读取团队列表失败，请稍后重试。');
+          setLoading(false);
+        }
+      }
     };
-    fetch();
+    void fetch();
     const off = source.subscribe(() => {
-      fetch();
+      void fetch();
     });
     return () => {
       aborted = true;

@@ -3,9 +3,60 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
+import type {
+  RemoteHostConnectionStatus,
+  RemoteHostSessionPageDto,
+} from '@shared/remote-host';
 import { remotePendingPresentation } from './remote-pending-presentation';
 import { useRemoteSessionSource } from './use-remote-session-source';
 import { deferred, hosts, session } from './use-remote-session-source-test-fixture';
+
+function withRemoteState(
+  status: RemoteHostConnectionStatus,
+  options: { capabilities?: string[]; recovery?: 'worker-offline' | null } = {},
+): RemoteHostSnapshotState {
+  const current = hosts('remote-a', 1);
+  return {
+    ...current,
+    snapshot: {
+      ...current.snapshot!,
+      states: current.snapshot!.states.map((state) => state.profileId === 'remote-a'
+        ? {
+            ...state,
+            status,
+            recovery: options.recovery ?? null,
+            ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+          }
+        : state),
+    },
+  };
+}
+
+function withWorkerGeneration(generation: number): RemoteHostSnapshotState {
+  const current = hosts('remote-a', generation);
+  return {
+    ...current,
+    snapshot: {
+      ...current.snapshot!,
+      states: current.snapshot!.states.map((state) => state.profileId === 'remote-a'
+        ? {
+            ...state,
+            authoritativeCoreId: 'core-stable',
+            workerGeneration: generation,
+          }
+        : state),
+    },
+  };
+}
+
+function sessionPage(title: string, revision: number): RemoteHostSessionPageDto {
+  return {
+    sessions: [session('same-session', title)],
+    nextCursor: null,
+    total: 1,
+    revision,
+  };
+}
 
 describe('useRemoteSessionSource source fencing', () => {
   const oldDetail = deferred<ReturnType<typeof session>>();
@@ -142,6 +193,70 @@ describe('useRemoteSessionSource source fencing', () => {
     expect(hook.result.current.selectedSession?.title).toBe('remote-b detail');
   });
 
+  it.each([
+    ['connecting', null],
+    ['reconnecting', null],
+    ['offline', null],
+    ['offline', 'worker-offline'],
+    ['incompatible', null],
+  ] as const)('admits no session reads while the Remote source is %s/%s', async (
+    status,
+    recovery,
+  ) => {
+    const hook = renderHook(() => useRemoteSessionSource(withRemoteState(status, { recovery })));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(hook.result.current.usable).toBe(false);
+    expect(hook.result.current.sessions).toEqual([]);
+    expect(hook.result.current.historySessions).toEqual([]);
+    expect(hook.result.current.sessionTotal).toBeNull();
+    expect(window.api.listRemoteHostSessions).not.toHaveBeenCalled();
+  });
+
+  it('clears visible data immediately and rejects a stale action after reconnect starts', async () => {
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: hosts('remote-a', 1) } },
+    );
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    const staleCapabilitiesRead = hook.result.current.getSessionCapabilities;
+    const listCalls = vi.mocked(window.api.listRemoteHostSessions).mock.calls.length;
+
+    hook.rerender({ value: withRemoteState('reconnecting') });
+    expect(hook.result.current.usable).toBe(false);
+    expect(hook.result.current.sessions).toEqual([]);
+    expect(hook.result.current.historySessions).toEqual([]);
+    expect(hook.result.current.sessionTotal).toBeNull();
+    await expect(staleCapabilitiesRead({
+      adapterId: 'codex-cli',
+      provider: '',
+      workingDirectory: '.',
+    })).rejects.toThrow('尚未连接');
+    expect(window.api.getRemoteHostSessionCapabilities).not.toHaveBeenCalled();
+    expect(window.api.listRemoteHostSessions).toHaveBeenCalledTimes(listCalls);
+  });
+
+  it('does not request a list surface whose capability is absent', async () => {
+    const noBase = renderHook(() => useRemoteSessionSource(withRemoteState('connected', {
+      capabilities: [],
+    })));
+    await act(async () => { await Promise.resolve(); });
+    expect(noBase.result.current.usable).toBe(true);
+    expect(window.api.listRemoteHostSessions).not.toHaveBeenCalled();
+    noBase.unmount();
+
+    vi.mocked(window.api.listRemoteHostSessions).mockClear();
+    const liveOnly = renderHook(() => useRemoteSessionSource(withRemoteState('connected', {
+      capabilities: ['session-console.read'],
+    })));
+    await waitFor(() => expect(liveOnly.result.current.sessions).toHaveLength(1));
+    expect(window.api.listRemoteHostSessions).toHaveBeenCalledOnce();
+    expect(window.api.listRemoteHostSessions).toHaveBeenCalledWith(expect.objectContaining({
+      includeArchived: false,
+    }));
+    expect(liveOnly.result.current.historySessions).toEqual([]);
+  });
+
   it('rejects a Workspace directory result after the source identity changes', async () => {
     const listing = deferred<{
       directory: string;
@@ -225,6 +340,65 @@ describe('useRemoteSessionSource source fencing', () => {
     await waitFor(() => expect(liveCalls).toBe(2));
     await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('refreshed'));
     expect(liveCalls).toBe(2);
+  });
+
+  it('starts a fresh list after same-identity reconnect and drops the old in-flight page', async () => {
+    const oldPage = deferred<RemoteHostSessionPageDto>();
+    let liveCalls = 0;
+    vi.mocked(window.api.listRemoteHostSessions).mockImplementation((request) => {
+      if (request.includeArchived) {
+        return Promise.resolve({ sessions: [], nextCursor: null, total: 0, revision: 1 });
+      }
+      liveCalls += 1;
+      return liveCalls === 1
+        ? oldPage.promise
+        : Promise.resolve(sessionPage('fresh reconnect', 2));
+    });
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: hosts('remote-a', 1) } },
+    );
+    await waitFor(() => expect(liveCalls).toBe(1));
+
+    hook.rerender({ value: withRemoteState('reconnecting') });
+    expect(hook.result.current.sessions).toEqual([]);
+    hook.rerender({ value: hosts('remote-a', 1) });
+    await waitFor(() => expect(liveCalls).toBe(2));
+    await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('fresh reconnect'));
+
+    oldPage.resolve(sessionPage('stale pre-reconnect', 1));
+    await act(async () => { await oldPage.promise; });
+    expect(hook.result.current.sessions[0]?.title).toBe('fresh reconnect');
+  });
+
+  it('keeps only the newest page across rapid Worker generation changes', async () => {
+    const first = deferred<RemoteHostSessionPageDto>();
+    const second = deferred<RemoteHostSessionPageDto>();
+    const third = deferred<RemoteHostSessionPageDto>();
+    const pages = [first, second, third];
+    let liveCalls = 0;
+    vi.mocked(window.api.listRemoteHostSessions).mockImplementation((request) => {
+      if (request.includeArchived) {
+        return Promise.resolve({ sessions: [], nextCursor: null, total: 0, revision: 1 });
+      }
+      return pages[liveCalls++]!.promise;
+    });
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: withWorkerGeneration(1) } },
+    );
+    await waitFor(() => expect(liveCalls).toBe(1));
+    hook.rerender({ value: withWorkerGeneration(2) });
+    await waitFor(() => expect(liveCalls).toBe(2));
+    hook.rerender({ value: withWorkerGeneration(3) });
+    await waitFor(() => expect(liveCalls).toBe(3));
+
+    third.resolve(sessionPage('generation 3', 3));
+    await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('generation 3'));
+    second.resolve(sessionPage('stale generation 2', 2));
+    first.resolve(sessionPage('stale generation 1', 1));
+    await act(async () => { await Promise.all([first.promise, second.promise]); });
+    expect(hook.result.current.sessions[0]?.title).toBe('generation 3');
   });
 
   it('clears an old detail immediately and ignores its late same-source refresh', async () => {

@@ -33,9 +33,18 @@ export function RemoteWorkspaceDirectoryDialog({
   const [page, setPage] = useState<WorkspaceDirectoryListResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canRead = source.usable && source.capabilities.has('session-console.read');
 
   useEffect(() => {
     let stale = false;
+    if (!canRead) {
+      setLoading(false);
+      setPage(null);
+      setError(source.usable
+        ? '当前 Remote Core 未提供 Workspace 目录读取能力。'
+        : '当前 Remote Worker 尚未连接，无法读取 Workspace 目录。');
+      return () => { stale = true; };
+    }
     setLoading(true);
     setError(null);
     setPage(null);
@@ -49,7 +58,7 @@ export function RemoteWorkspaceDirectoryDialog({
     return () => { stale = true; };
     // Source actions are fenced by source.identity; object identity changes with unrelated data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [directory, source.identity]);
+  }, [canRead, directory, source.identity]);
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm">
@@ -120,7 +129,7 @@ export function RemoteWorkspaceDirectoryDialog({
             </button>
             <button
               type="button"
-              disabled={!page || loading}
+              disabled={!canRead || !page || loading}
               onClick={() => page && onSelect(page.directory)}
               className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
             >

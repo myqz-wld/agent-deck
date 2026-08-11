@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
@@ -10,6 +10,7 @@ import type { RemoteSessionSourceView } from './source-types';
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   Reflect.deleteProperty(window, 'api');
   vi.clearAllMocks();
 });
@@ -107,6 +108,25 @@ function source(
 }
 
 describe('RemoteIssuesPanel', () => {
+  it('performs one initial list request for a stable identity and empty keyword', async () => {
+    vi.useFakeTimers();
+    const listRemoteHostIssues = vi.fn(async () => ({
+      issues: [], revision: 1, truncated: false,
+    }));
+    window.api = { listRemoteHostIssues } as unknown as typeof window.api;
+    const current = source();
+    const view = render(<RemoteIssuesPanel source={current} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(listRemoteHostIssues).toHaveBeenCalledOnce();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(listRemoteHostIssues).toHaveBeenCalledOnce();
+
+    view.rerender(<RemoteIssuesPanel source={{ ...current }} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(listRemoteHostIssues).toHaveBeenCalledOnce();
+  });
+
   it('reuses the Local board/detail while routing a stable retry intent only to Remote', async () => {
     const initial = issue('issue-a', 'Remote issue');
     const updated = issue('issue-a', 'Updated issue', 3);
@@ -211,7 +231,7 @@ describe('RemoteIssuesPanel', () => {
     });
     let listCalls = 0;
     const api = {
-      listRemoteHostIssues: vi.fn(async () => ++listCalls <= 2
+      listRemoteHostIssues: vi.fn(async () => ++listCalls === 1
         ? { issues: [initial], revision: 7, truncated: false }
         : { issues: [newer], revision: 9, truncated: false }),
       getRemoteHostIssue: vi.fn(async () => ({ issue: initial, revision: 7 })),
@@ -251,6 +271,14 @@ describe('RemoteIssuesPanel', () => {
     window.api = { listRemoteHostIssues } as unknown as typeof window.api;
     render(<RemoteIssuesPanel source={source('remote-a', new Set())} />);
     expect(screen.getByText(/不会回退读取 Local 数据/u)).toBeTruthy();
+    expect(listRemoteHostIssues).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke any Issue API while the Remote source is unusable', () => {
+    const listRemoteHostIssues = vi.fn();
+    window.api = { listRemoteHostIssues } as unknown as typeof window.api;
+    const current = { ...source(), usable: false } as RemoteSessionSourceView;
+    render(<RemoteIssuesPanel source={current} />);
     expect(listRemoteHostIssues).not.toHaveBeenCalled();
   });
 

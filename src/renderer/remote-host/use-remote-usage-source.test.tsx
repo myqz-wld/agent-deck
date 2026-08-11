@@ -9,12 +9,14 @@ function source(
   profileId: string,
   revision: number,
   usable = true,
+  status: 'connected' | 'reconnecting' | 'offline' = usable ? 'connected' : 'offline',
 ): RemoteSessionSourceView {
   return {
     identity: `${profileId}:core:1`,
     dataRevision: revision,
     capabilities: new Set(['usage']),
     profile: { id: profileId },
+    state: { status },
     usable,
   } as unknown as RemoteSessionSourceView;
 }
@@ -43,7 +45,10 @@ beforeEach(() => {
   } as unknown as typeof window.api;
 });
 
-afterEach(() => Reflect.deleteProperty(window, 'api'));
+afterEach(() => {
+  vi.useRealTimers();
+  Reflect.deleteProperty(window, 'api');
+});
 
 describe('useRemoteUsageSource', () => {
   it('loads rates, daily rows, and provider windows only from the selected Remote profile', async () => {
@@ -118,5 +123,59 @@ describe('useRemoteUsageSource', () => {
     await act(async () => { await Promise.resolve(); });
     expect(hook.result.current.enabled).toBe(false);
     expect(hook.result.current.rates).toEqual([]);
+  });
+
+  it('does not use stale usage capability while the source is reconnecting', async () => {
+    const hook = renderHook(() => useRemoteUsageSource(
+      source('remote-a', 1, true, 'reconnecting'),
+      true,
+    ));
+    await act(async () => { await Promise.resolve(); });
+    expect(hook.result.current.enabled).toBe(false);
+    expect(window.api.getRemoteHostTokenUsage).not.toHaveBeenCalled();
+    expect(window.api.getRemoteHostProviderUsage).not.toHaveBeenCalled();
+  });
+
+  it('clears usage immediately and rejects stale loaders after same-identity disconnect', async () => {
+    const hook = renderHook(
+      ({ current }) => useRemoteUsageSource(current, true),
+      { initialProps: { current: source('remote-a', 1) } },
+    );
+    await waitFor(() => expect(hook.result.current.rates[0]?.bucketKey).toBe('remote-a'));
+    const staleLoadDaily = hook.result.current.loadDaily;
+    const staleLoadProviders = hook.result.current.loadProviders;
+    const tokenCalls = vi.mocked(window.api.getRemoteHostTokenUsage).mock.calls.length;
+    const providerCalls = vi.mocked(window.api.getRemoteHostProviderUsage).mock.calls.length;
+
+    hook.rerender({ current: source('remote-a', 1, false, 'reconnecting') });
+    expect(hook.result.current.rates).toEqual([]);
+    expect(hook.result.current.topToday).toEqual([]);
+    expect(hook.result.current.today).toBeNull();
+    expect(hook.result.current.providerSnapshots).toEqual([]);
+
+    await act(async () => {
+      await staleLoadDaily();
+      await staleLoadProviders(true);
+    });
+    expect(window.api.getRemoteHostTokenUsage).toHaveBeenCalledTimes(tokenCalls);
+    expect(window.api.getRemoteHostProviderUsage).toHaveBeenCalledTimes(providerCalls);
+  });
+
+  it('polls once per documented interval and stops immediately on disconnect', async () => {
+    vi.useFakeTimers();
+    const hook = renderHook(
+      ({ current }) => useRemoteUsageSource(current, true),
+      { initialProps: { current: source('remote-a', 1) } },
+    );
+    await act(async () => { await Promise.resolve(); });
+    expect(window.api.getRemoteHostTokenUsage).toHaveBeenCalledOnce();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(7_500); });
+    expect(window.api.getRemoteHostTokenUsage).toHaveBeenCalledTimes(4);
+
+    hook.rerender({ current: source('remote-a', 1, false, 'reconnecting') });
+    const stoppedAt = vi.mocked(window.api.getRemoteHostTokenUsage).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(window.api.getRemoteHostTokenUsage).toHaveBeenCalledTimes(stoppedAt);
   });
 });

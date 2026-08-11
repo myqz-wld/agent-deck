@@ -135,6 +135,48 @@ describe('DataPanel quota usage', () => {
     expect(screen.getByText('Claude')).toBeTruthy();
   });
 
+  it('does not start Remote reads when the supplied usage source is disabled', async () => {
+    const loadDaily = vi.fn(async () => undefined);
+    const loadProviders = vi.fn(async () => undefined);
+    const remoteUsage = {
+      enabled: false,
+      identity: 'remote-a:core-a:1',
+      rates: [], topToday: [], today: null, daily: [], dailyLoading: false,
+      dailyError: null, dailyTruncated: false, providerSnapshots: [],
+      providerFetchedAt: null, providerLoading: false, providerError: null,
+      loadDaily, loadProviders,
+    } satisfies RemoteUsageSourceView;
+
+    render(<DataPanel remoteUsage={remoteUsage} />);
+    await Promise.resolve();
+
+    expect(loadDaily).not.toHaveBeenCalled();
+    expect(loadProviders).not.toHaveBeenCalled();
+    expect(window.api.tokenUsageDaily).not.toHaveBeenCalled();
+    expect(providerUsageSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('does not duplicate initial Remote reads on an equivalent source rerender', async () => {
+    const loadDaily = vi.fn(async () => undefined);
+    const loadProviders = vi.fn(async () => undefined);
+    const remoteUsage = {
+      enabled: true,
+      identity: 'remote-a:core-a:1',
+      rates: [], topToday: [], today: null, daily: [], dailyLoading: false,
+      dailyError: null, dailyTruncated: false, providerSnapshots: [],
+      providerFetchedAt: null, providerLoading: false, providerError: null,
+      loadDaily, loadProviders,
+    } satisfies RemoteUsageSourceView;
+    const view = render(<DataPanel remoteUsage={remoteUsage} />);
+    await waitFor(() => expect(loadDaily).toHaveBeenCalledOnce());
+    expect(loadProviders).toHaveBeenCalledOnce();
+
+    view.rerender(<DataPanel remoteUsage={{ ...remoteUsage }} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(loadDaily).toHaveBeenCalledOnce();
+    expect(loadProviders).toHaveBeenCalledOnce();
+  });
+
   it('shows unified token totals and marks cache/reasoning as included breakdowns', async () => {
     (window.api.tokenUsageDaily as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       tokenDailyRow(),

@@ -1,0 +1,83 @@
+// @vitest-environment happy-dom
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+
+import type { RemoteHostConnectionStatus } from '@shared/remote-host';
+import type { RemoteSessionSourceView } from './source-types';
+import {
+  RemotePageUnavailable,
+  remotePageAvailability,
+} from './RemotePageAvailability';
+
+function source(
+  status: RemoteHostConnectionStatus | null,
+  usable: boolean,
+  capabilities: string[] = ['teams'],
+): RemoteSessionSourceView {
+  return {
+    capabilities: new Set(capabilities),
+    profile: { id: 'remote-a', label: 'Remote A', scope: 'remote' },
+    state: status ? {
+      profileId: 'remote-a',
+      status,
+      recovery: null,
+      authoritativeCoreId: 'core-a',
+      workerGeneration: 1,
+      capabilities,
+      eventRevision: 1,
+      error: status === 'incompatible'
+        ? { code: 'protocol_violation', message: '收到冲突的终态响应。' }
+        : null,
+    } : null,
+    usable,
+  } as unknown as RemoteSessionSourceView;
+}
+
+describe('Remote page availability', () => {
+  it('admits only a connected, usable source with the requested capability', () => {
+    expect(remotePageAvailability(source('connected', true), 'teams').kind).toBe('available');
+    expect(remotePageAvailability(source('connected', false), 'teams').kind).toBe('offline');
+    expect(remotePageAvailability(source('connected', true, []), 'teams').kind)
+      .toBe('unsupported');
+  });
+
+  it.each([
+    ['connecting', '正在连接 Remote Core'],
+    ['reconnecting', '正在重新连接 Remote Core'],
+  ] as const)('keeps stale capabilities inactive while %s', (status, title) => {
+    const availability = remotePageAvailability(source(status, true), 'teams');
+    expect(availability).toMatchObject({ kind: 'connecting', title });
+  });
+
+  it.each([
+    ['offline', false, 'Remote Core 当前不可用'],
+    ['incompatible', false, 'Remote 协议不兼容'],
+  ] as const)('classifies %s as a stable unavailable page', (status, usable, title) => {
+    expect(remotePageAvailability(source(status, usable), 'teams')).toMatchObject({
+      kind: 'offline',
+      title,
+    });
+  });
+
+  it('renders bounded source-specific copy without implying a Local fallback', () => {
+    const availability = remotePageAvailability(source('incompatible', false), 'issues');
+    render(<RemotePageUnavailable availability={availability} />);
+    expect(screen.getByText('Remote 协议不兼容')).toBeTruthy();
+    expect(screen.getByText(/不会回退读取 Local 数据/u)).toBeTruthy();
+    expect(screen.getByText('收到冲突的终态响应。')).toBeTruthy();
+  });
+
+  it.each([
+    ['live', ['session-console.read']],
+    ['history', ['session-console.read', 'sessions.history']],
+    ['pending', ['session-console.read', 'pending.read']],
+    ['teams', ['teams']],
+    ['issues', ['issues']],
+    ['data', ['usage']],
+  ] as const)('requires the complete %s surface capability set', (surface, capabilities) => {
+    expect(remotePageAvailability(source('connected', true, [...capabilities]), surface).kind)
+      .toBe('available');
+    expect(remotePageAvailability(source('connected', true, capabilities.slice(1)), surface).kind)
+      .toBe('unsupported');
+  });
+});

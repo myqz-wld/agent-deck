@@ -58,6 +58,18 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const [detailRefreshTick, setDetailRefreshTick] = useState(0);
   const navigation = useRef(new Map<string, string | null>());
   const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const usableRef = useRef(usable);
+  usableRef.current = usable;
+  const capabilitiesRef = useRef(capabilities);
+  capabilitiesRef.current = capabilities;
+  const connectionAdmission = useRef({ generation: 0, usable });
+  if (connectionAdmission.current.usable !== usable) {
+    connectionAdmission.current = {
+      generation: connectionAdmission.current.generation + 1,
+      usable,
+    };
+  }
   const {
     busy, error, reset: resetBusiness, run: runBusiness, runTerminal: runTerminalBusiness, setError,
   } = useRemoteBusinessRunner(identityRef, setLocalRevision);
@@ -81,6 +93,9 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const hydratePending = useRemotePendingHydrator({
     identityRef, listSequence, setPendingBySession, setError,
   });
+  const canReadSessions = usable && capabilities.has('session-console.read');
+  const canReadHistory = canReadSessions && capabilities.has('sessions.history');
+  const canReadPending = canReadSessions && capabilities.has('pending.read');
 
   useEffect(() => {
     if (addressableIdentityKey === null) return;
@@ -89,7 +104,6 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     planReviews.retainSources(addressable);
   }, [addressableIdentityKey, planReviews]);
   useEffect(() => {
-    identityRef.current = identity;
     runtimeRef.current = null;
     listSequence.current += 1;
     detailSequence.current += 1;
@@ -114,20 +128,38 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   }, [identity, resetBusiness]);
 
   useEffect(() => {
-    if (!usable || !activeProfileId) {
+    if (!activeProfileId || !canReadSessions) {
       listSequence.current += 1;
+      paginationSequence.current += 1;
       setLoading(false);
+      setHistoryLoading(false);
+      setHistoryLoadError(null);
+      setSessions([]);
+      setHistorySessions([]);
+      setSessionTotal(null);
+      setSessionNextCursor(null);
+      setHistorySessionNextCursor(null);
+      setPendingBySession(EMPTY_PENDING);
+      setPaginationBusy(false);
       return;
     }
-    if (listLoads.current.has(identity)) {
-      listRefreshPending.current.add(identity);
+    const loadKey = `${identity}\u0000${connectionAdmission.current.generation}` +
+      `\u0000${canReadHistory ? 'history' : 'live'}` +
+      `\u0000${canReadPending ? 'pending' : 'plain'}`;
+    if (listLoads.current.has(loadKey)) {
+      listRefreshPending.current.add(loadKey);
       return;
     }
     const sequence = ++listSequence.current;
-    listLoads.current.add(identity);
+    listLoads.current.add(loadKey);
     setLoading(true);
-    setHistoryLoading(true);
+    setHistoryLoading(canReadHistory);
     setHistoryLoadError(null);
+    if (!canReadHistory) {
+      setHistorySessions([]);
+      setHistorySessionNextCursor(null);
+    }
+    if (!canReadPending) setPendingBySession(EMPTY_PENDING);
     const load = async (): Promise<void> => {
       const current = (): boolean =>
         sequence === listSequence.current && identityRef.current === identity;
@@ -140,38 +172,43 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
           return new Map([...value].filter(([sessionId]) => activeIds.has(sessionId)));
         });
         setError(null);
-        if (capabilities.has('pending.read')) {
+        if (canReadPending) {
           hydratePending(activeProfileId, identity, sequence, page.sessions);
         }
       }).catch((reason: unknown) => {
         if (current()) setError(reason instanceof Error ? reason.message : String(reason));
       }).finally(() => { if (current()) setLoading(false); });
-      const history = window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
-        REMOTE_HOST_PAGE_LIMIT, { includeArchived: true })).then((page) => {
-        if (!current()) return;
-        setHistorySessions(page.sessions); setHistorySessionNextCursor(page.nextCursor);
-        setHistoryLoadError(null);
-      }).catch((reason: unknown) => {
-        if (current()) setHistoryLoadError(reason instanceof Error ? reason.message : String(reason));
-      }).finally(() => { if (current()) setHistoryLoading(false); });
+      const history = canReadHistory
+        ? window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
+            REMOTE_HOST_PAGE_LIMIT, { includeArchived: true })).then((page) => {
+            if (!current()) return;
+            setHistorySessions(page.sessions); setHistorySessionNextCursor(page.nextCursor);
+            setHistoryLoadError(null);
+          }).catch((reason: unknown) => {
+            if (current()) {
+              setHistoryLoadError(reason instanceof Error ? reason.message : String(reason));
+            }
+          }).finally(() => { if (current()) setHistoryLoading(false); })
+        : Promise.resolve();
       await Promise.allSettled([live, history]);
     };
     void load().finally(() => {
-      listLoads.current.delete(identity);
+      listLoads.current.delete(loadKey);
       if (
-        listRefreshPending.current.delete(identity) &&
+        listRefreshPending.current.delete(loadKey) &&
         identityRef.current === identity
       ) setListRefreshTick((current) => current + 1);
     });
   }, [
     activeProfileId,
-    capabilities,
+    canReadHistory,
+    canReadPending,
+    canReadSessions,
     dataRevision,
     identity,
     hydratePending,
     listRefreshTick,
     localRevision,
-    usable,
   ]);
 
   useEffect(() => {
@@ -337,8 +374,11 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     if (!activeProfileId || !selectedSessionId) throw new Error('请先选择远程 session。');
     return { profileId: activeProfileId, sessionId: selectedSessionId };
   };
+  const actionIdentity = identity;
   const requireCapability = (capability: string): void => {
-    if (!capabilities.has(capability)) throw new Error('远程 Core 不支持此操作。');
+    if (identityRef.current !== actionIdentity) throw new Error('数据源已切换，请重试。');
+    if (!usableRef.current) throw new Error('远程数据源尚未连接。');
+    if (!capabilitiesRef.current.has(capability)) throw new Error('远程 Core 不支持此操作。');
   };
   const detailReaders = createRemoteDetailReaders({
     currentIdentity: () => identityRef.current,
@@ -360,35 +400,37 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
 
   return {
     addressableIdentityKey,
-    busy: busy || paginationBusy,
+    busy: usable && (busy || paginationBusy),
     capabilities,
     dataRevision,
     error: error ?? hosts.error,
-    eventLoadError: selectedSession?.id === selectedSessionId ? eventRecords.error : null,
-    events: selectedSession?.id === selectedSessionId ? eventRecords.value : null,
-    historySessions,
-    historyLoading,
-    historyLoadError,
-    hasMoreHistorySessions: historySessionNextCursor !== null,
-    hasMoreSessions: sessionNextCursor !== null,
+    eventLoadError: usable && selectedSession?.id === selectedSessionId
+      ? eventRecords.error : null,
+    events: usable && selectedSession?.id === selectedSessionId ? eventRecords.value : null,
+    historySessions: usable ? historySessions : [],
+    historyLoading: usable && historyLoading,
+    historyLoadError: usable ? historyLoadError : null,
+    hasMoreHistorySessions: usable && historySessionNextCursor !== null,
+    hasMoreSessions: usable && sessionNextCursor !== null,
     identity,
-    loading,
-    pendingBySession,
+    loading: usable && loading,
+    pendingBySession: usable ? pendingBySession : EMPTY_PENDING,
     profile,
     recoveringWorker,
-    runtime,
-    context,
-    inputCapabilities,
-    summaryLoadError,
-    summaries,
-    taskLoadError: selectedSession?.id === selectedSessionId ? taskRecords.error : null,
-    tasks: selectedSession?.id === selectedSessionId ? taskRecords.value : null,
-    selectedPending: selectedSession?.id === selectedSessionId && selectedSessionId
+    runtime: usable ? runtime : null,
+    context: usable ? context : null,
+    inputCapabilities: usable ? inputCapabilities : null,
+    summaryLoadError: usable ? summaryLoadError : null,
+    summaries: usable ? summaries : null,
+    taskLoadError: usable && selectedSession?.id === selectedSessionId
+      ? taskRecords.error : null,
+    tasks: usable && selectedSession?.id === selectedSessionId ? taskRecords.value : null,
+    selectedPending: usable && selectedSession?.id === selectedSessionId && selectedSessionId
       ? pendingBySession.get(selectedSessionId) ?? null : null,
-    selectedSession,
+    selectedSession: usable ? selectedSession : null,
     selectedSessionId,
-    sessions,
-    sessionTotal,
+    sessions: usable ? sessions : [],
+    sessionTotal: usable ? sessionTotal : null,
     state,
     usable,
     clearError: () => { setError(null); hosts.clearError(); },
@@ -396,10 +438,14 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     ...detailReaders,
     planReviewTransport: (presentation, agentId) => planReviews.get({
       activeProfileId, capabilities, dataRevision, identity,
-      currentIdentity: () => identityRef.current,
+      currentIdentity: () => identityRef.current, usable,
     }, presentation, agentId),
     loadMoreHistorySessions: async () => {
-      if (!activeProfileId || !historySessionNextCursor) return;
+      if (
+        !usableRef.current || !capabilitiesRef.current.has('sessions.history') ||
+        !capabilitiesRef.current.has('session-console.read') ||
+        !activeProfileId || !historySessionNextCursor
+      ) return;
       await runPagination<RemoteHostSessionPageDto>(
         () => window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
           REMOTE_HOST_PAGE_LIMIT, { cursor: historySessionNextCursor, includeArchived: true })),
@@ -410,7 +456,10 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       );
     },
     loadMoreSessions: async () => {
-      if (!activeProfileId || !sessionNextCursor) return;
+      if (
+        !usableRef.current || !capabilitiesRef.current.has('session-console.read') ||
+        !activeProfileId || !sessionNextCursor
+      ) return;
       await runPagination(
         () => window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
           REMOTE_HOST_PAGE_LIMIT, { cursor: sessionNextCursor, includeArchived: false })),
@@ -418,7 +467,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
           setSessions((current) => appendUnique(current, page.sessions, (item) => item.id));
           setSessionTotal(page.total);
           setSessionNextCursor(page.nextCursor);
-          if (capabilities.has('pending.read')) {
+          if (capabilitiesRef.current.has('pending.read')) {
             hydratePending(activeProfileId, identityRef.current, listSequence.current, page.sessions);
           }
         },

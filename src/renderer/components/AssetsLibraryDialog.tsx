@@ -107,10 +107,12 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const fetchSeqRef = useRef(0);
   const viewerSeqRef = useRef(0);
   const remoteIdentityRef = useRef(remoteIdentity);
+  const remoteUsableRef = useRef(remoteUsable);
   const updateSeqRef = useRef(0);
   const claudeMdDirtyRef = useRef(false);
   const closeInFlightRef = useRef(false);
   remoteIdentityRef.current = remoteIdentity;
+  remoteUsableRef.current = remoteUsable;
 
   const onClaudeMdDirtyChange = useCallback((d: boolean) => {
     claudeMdDirtyRef.current = d;
@@ -120,7 +122,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     ++viewerSeqRef.current;
     setViewer(null);
     setBundledAgentEditor(null);
-  }, [remoteIdentity]);
+  }, [remoteIdentity, remoteUsable]);
 
   useEffect(() => {
     if (!open) {
@@ -132,6 +134,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
       return;
     }
     const seq = ++fetchSeqRef.current;
+    const fetchIdentity = remoteIdentity;
     setUpdateError(null);
     setLoadError(null);
     setBundled(null);
@@ -155,7 +158,10 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
       }
       void window.api.listRemoteHostNodeAssets({ profileId: remoteProfileId })
         .then((result) => {
-          if (seq !== fetchSeqRef.current) return;
+          if (
+            seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
+            !remoteUsableRef.current
+          ) return;
           const next = snapshots(result.assets);
           setBundled(next.bundled);
           setUser(next.user);
@@ -164,7 +170,10 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           setAssetsTruncated(result.assetsTruncated);
         })
         .catch(() => {
-          if (seq !== fetchSeqRef.current) return;
+          if (
+            seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
+            !remoteUsableRef.current
+          ) return;
           setLoadError('Worker 资产读取失败，请确认远端连接后重试。');
         });
       return;
@@ -255,10 +264,16 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         qualifiedName: asset.qualifiedName,
         location: asset.absPath,
       }).then((result) => {
-        if (seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity) return;
+        if (
+          seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity ||
+          !remoteUsableRef.current
+        ) return;
         setViewer({ asset, content: result.content, error: null });
       }).catch(() => {
-        if (seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity) return;
+        if (
+          seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity ||
+          !remoteUsableRef.current
+        ) return;
         setViewer({ asset, content: null, error: 'Worker 资产内容读取失败，请重试。' });
       });
       return;

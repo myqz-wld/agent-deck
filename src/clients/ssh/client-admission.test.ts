@@ -18,6 +18,91 @@ import {
 } from './__tests__/fake-process';
 
 describe('SshAgentDeckClient terminal admission and bounds', () => {
+  it('writes a request admitted by the connected observer only once', async () => {
+    const harness = new FakeSpawnHarness();
+    const client = makeClient(harness, 'connected-observer');
+    let outcome: Promise<JsonValue> | null = null;
+    const subscription = client.onConnectionState((state) => {
+      if (state.status === 'connected' && outcome === null) {
+        outcome = client.request('system.health', {}, { requestId: 'first-after-connected' });
+      }
+    });
+    const connected = client.connect(makeClientHello('desktop-connected-observer'));
+    const process = harness.latest;
+    process.emitMessage({
+      type: 'hello-result',
+      requestId: helloRequestId(process),
+      hello: makeHostHello('desktop-connected-observer'),
+    } as unknown as JsonValue);
+    await connected;
+
+    const requests = process.takeWrittenMessages().filter((message) =>
+      hasMessageType(message, 'request') && message.requestId === 'first-after-connected',
+    );
+    try {
+      expect(requests).toHaveLength(1);
+    } finally {
+      process.emitMessage({
+        type: 'result',
+        requestId: 'first-after-connected',
+        result: { ok: true },
+        revision: 0,
+      });
+      await outcome;
+      subscription.close();
+      await client.close();
+    }
+  });
+
+  it('writes a request admitted by a reconnect observer only once', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = new FakeSpawnHarness();
+      const client = makeClient(harness, 'reconnected-observer', 'server-core', {
+        reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
+      });
+      const firstProcess = await completeConnect(
+        client,
+        harness,
+        'desktop-reconnected-observer',
+      );
+      firstProcess.takeWrittenMessages();
+      let outcome: Promise<JsonValue> | null = null;
+      const subscription = client.onConnectionState((state) => {
+        if (state.status === 'connected' && harness.calls.length === 2 && outcome === null) {
+          outcome = client.request('system.health', {}, { requestId: 'first-after-reconnect' });
+        }
+      });
+
+      firstProcess.exit(255);
+      await vi.advanceTimersByTimeAsync(10);
+      const secondProcess = harness.latest;
+      secondProcess.emitMessage({
+        type: 'hello-result',
+        requestId: helloRequestId(secondProcess),
+        hello: makeHostHello('desktop-reconnected-observer'),
+      } as unknown as JsonValue);
+      const requests = secondProcess.takeWrittenMessages().filter((message) =>
+        hasMessageType(message, 'request') && message.requestId === 'first-after-reconnect',
+      );
+      try {
+        expect(requests).toHaveLength(1);
+      } finally {
+        secondProcess.emitMessage({
+          type: 'result',
+          requestId: 'first-after-reconnect',
+          result: { ok: true },
+          revision: 0,
+        });
+        await outcome;
+        subscription.close();
+        await client.close();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('admits during active reconnect but rejects promptly after retry exhaustion', async () => {
     vi.useFakeTimers();
     try {

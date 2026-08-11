@@ -9,6 +9,7 @@ import { useSessionGitBranches } from '@renderer/hooks/use-session-git-branches'
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { groupRemoteSessionSummaries } from '@renderer/remote-host/session-summary-presentation';
 import { RemoteSessionSummaryCard } from './RemoteSessionSummaryCard';
+import { SessionListSection, SessionListState } from './SessionListPrimitives';
 
 /**
  * 会话树先按 spawn link 收编，再用 universal team backend 为未收编协作者寻找同团队的首个
@@ -96,9 +97,10 @@ function LocalSessionList(): JSX.Element {
 
   if (grouped.active.length === 0 && grouped.dormant.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-10 text-center text-deck-muted">
-        <div className="text-[12px]">还没有会话</div>
-        <div className="text-[10px] leading-relaxed">
+      <SessionListState
+        kind="empty"
+        title="还没有会话"
+        detail={<>
           点击右上角的 + 即可创建 Claude Code、Codex CLI 或 Grok Build 会话。
           <br />
           <details className="mt-1 inline-block text-left">
@@ -107,32 +109,22 @@ function LocalSessionList(): JSX.Element {
               在设置中安装 Hook 后，终端里的 <code className="rounded bg-white/5 px-1">claude</code>、<code className="rounded bg-white/5 px-1">codex</code> 或 <code className="rounded bg-white/5 px-1">grok</code> 会话也会显示在这里。
             </div>
           </details>
-        </div>
-      </div>
+        </>}
+      />
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
       {grouped.active.length > 0 && (
-        <section>
-          <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-            活跃 · {grouped.active.length}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {renderTreeGroup(grouped.active, selected, select, branchesBySession)}
-          </div>
-        </section>
+        <SessionListSection kind="active" label="活跃" count={grouped.active.length}>
+          {renderTreeGroup(grouped.active, selected, select, branchesBySession)}
+        </SessionListSection>
       )}
       {grouped.dormant.length > 0 && (
-        <section>
-          <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-            休眠 · {grouped.dormant.length}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {renderTreeGroup(grouped.dormant, selected, select, branchesBySession)}
-          </div>
-        </section>
+        <SessionListSection kind="dormant" label="休眠" count={grouped.dormant.length}>
+          {renderTreeGroup(grouped.dormant, selected, select, branchesBySession)}
+        </SessionListSection>
       )}
     </div>
   );
@@ -144,59 +136,52 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
       ? '正在建立受限 SSH 连接…'
       : '远程数据源尚未连接';
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
-        <div className="text-[12px]">{title}</div>
-        <div className="text-[10px]">请在数据源设置中连接远程服务；切换数据源不会停止远程 session。</div>
-      </div>
-    );
-  }
-  if (source.loading && source.sessions.length === 0) {
-    return <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载远程会话…</div>;
-  }
-  if (source.error && source.sessions.length === 0) {
-    return (
-      <div role="alert" className="m-2 rounded bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
-        {source.error}
-      </div>
-    );
-  }
-  if (source.sessions.length === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
-        <div className="text-[12px]">还没有远程会话</div>
-        <div className="text-[10px]">点击右上角的 +，从远程 Core 提供的项目中创建 session。</div>
-      </div>
+      <SessionListState
+        kind="offline"
+        title={title}
+        detail="请在数据源设置中连接远程服务；切换数据源不会停止远程 session。"
+      />
     );
   }
   const grouped = groupRemoteSessionSummaries(source.sessions);
+  const visibleSessionCount = grouped.active.length + grouped.dormant.length;
+  if (source.loading && visibleSessionCount === 0) {
+    return <SessionListState kind="loading" title="加载远程会话…" />;
+  }
+  if (source.error && visibleSessionCount === 0) {
+    return <SessionListState kind="error" title={source.error} />;
+  }
+  if (visibleSessionCount === 0) {
+    return (
+      <SessionListState
+        kind="empty"
+        title="还没有远程会话"
+        detail="点击右上角的 +，从远程 Core 提供的项目中创建 session。"
+      />
+    );
+  }
   const sections = [
     { key: 'active', label: '活跃', rows: grouped.active },
     { key: 'dormant', label: '休眠', rows: grouped.dormant },
-    { key: 'closed', label: '已关闭', rows: grouped.closed },
   ] as const;
   return (
     <div className="flex flex-col gap-3">
-      <div className="px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-        {source.profile?.label} · {source.sessionTotal === null
-          ? `已载入 ${source.sessions.length}`
-          : `${source.sessions.length}/${source.sessionTotal}`}
-      </div>
       {sections.map((section) => section.rows.length > 0 && (
-        <section key={section.key}>
-          <div className="mb-1.5 px-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-            {section.label} · {section.rows.length}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {section.rows.map((session) => (
-              <RemoteSessionSummaryCard
-                key={`${source.identity}:${session.id}`}
-                session={session}
-                selected={source.selectedSessionId === session.id}
-                onSelect={() => source.selectSession(session.id)}
-              />
-            ))}
-          </div>
-        </section>
+        <SessionListSection
+          key={section.key}
+          kind={section.key}
+          label={section.label}
+          count={section.rows.length}
+        >
+          {section.rows.map((session) => (
+            <RemoteSessionSummaryCard
+              key={`${source.identity}:${session.id}`}
+              session={session}
+              selected={source.selectedSessionId === session.id}
+              onSelect={() => source.selectSession(session.id)}
+            />
+          ))}
+        </SessionListSection>
       ))}
       {source.hasMoreSessions && (
         <button

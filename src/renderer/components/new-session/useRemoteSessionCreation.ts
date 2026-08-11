@@ -65,6 +65,9 @@ export function useRemoteSessionCreation({
   const provider = options.provider ?? '';
   const canRead = source?.usable === true &&
     source.capabilities.has('session-console.read');
+  const requestAuthority = `${sourceIdentity}\u0000${canRead ? 'ready' : 'unavailable'}`;
+  const requestAuthorityRef = useRef(requestAuthority);
+  requestAuthorityRef.current = requestAuthority;
 
   useEffect(() => {
     generation.current += 1;
@@ -79,6 +82,7 @@ export function useRemoteSessionCreation({
 
   useEffect(() => {
     const current = ++generation.current;
+    const authority = requestAuthority;
     if (!active || !source || !canRead) {
       setDescriptor(null);
       setLoading(false);
@@ -95,7 +99,7 @@ export function useRemoteSessionCreation({
         provider,
         workingDirectory: workingDirectory.trim() || '.',
       }).then((result) => {
-        if (generation.current !== current) return;
+        if (generation.current !== current || requestAuthorityRef.current !== authority) return;
         requestedAdapterId.current = result.selectedAdapterId;
         setAdapterIdState(result.selectedAdapterId);
         setAdapters(result.adapters);
@@ -103,7 +107,7 @@ export function useRemoteSessionCreation({
         setDescriptor(result);
         setLoading(false);
       }).catch((reason: unknown) => {
-        if (generation.current !== current) return;
+        if (generation.current !== current || requestAuthorityRef.current !== authority) return;
         setDescriptor(null);
         setLoading(false);
         setError(reason instanceof Error ? reason.message : String(reason));
@@ -117,8 +121,8 @@ export function useRemoteSessionCreation({
 
   return {
     adapterId,
-    adapters,
-    descriptor,
+    adapters: canRead ? adapters : [],
+    descriptor: canRead ? descriptor : null,
     error,
     loading,
     options,
