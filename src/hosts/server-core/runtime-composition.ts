@@ -13,7 +13,7 @@ import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
-import type { JsonObject, JsonValue } from '@contracts/index';
+import type { JsonObject } from '@contracts/index';
 import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
 import { syncProviderHomeAuthFiles } from '@hosts/provider-state/provider-home-projection';
 import type { ServerCoreRuntimeBootstrap, ServerCoreRuntimeFactoryInput } from './root';
@@ -53,6 +53,10 @@ import { createServerCoreProviderCompositionHost } from './runtime-provider-host
 import { createServerCoreMcpComposition } from './runtime-mcp-host';
 import { installServerCoreProviderHooks } from './provider-hook-runtime';
 import { ServerCoreProviderEventBus } from './provider-event-bus';
+import {
+  appendServerCoreChangeSafely,
+  createServerCoreSessionManagerObserver,
+} from './session-manager-observer';
 import { mapServerCoreConcurrent } from './runtime-concurrency';
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
 import { ServerCoreTeamRuntime } from './team-runtime';
@@ -99,20 +103,6 @@ function diagnostics(): ServerCoreRuntimeDiagnostics {
       process.stderr.write('Server Core runtime warning; details hidden.\n');
     },
   });
-}
-
-function safeAppend(
-  metadata: ServerCoreRuntimeMetadataStore,
-  runtimeDiagnostics: ServerCoreRuntimeDiagnostics,
-  kind: string,
-  entityId: string | null,
-  payload: JsonValue,
-): void {
-  try {
-    metadata.appendChange(kind, entityId, payload);
-  } catch {
-    try { runtimeDiagnostics.warn('Core change publication failed'); } catch {}
-  }
 }
 
 /** Concrete Electron-free runtime module factory consumed by the packaged Server Core entrypoint. */
@@ -164,37 +154,12 @@ export function createServerCoreRuntimeWithOverrides(
     paths: input.paths,
     diagnostics: runtimeDiagnostics,
     handOffLifecycle: handOffCutoverCoordinator,
-    observer: {
-      eventPersisted: (event, eventId) => {
-        reviewEvents.emit(event);
-        safeAppend(metadata, runtimeDiagnostics, 'event.persisted', event.sessionId,
-          { adapterId: event.agentId, eventId, kind: event.kind, timestamp: event.ts });
-      },
-      sessionUpdated: (session) => safeAppend(
-        metadata,
-        runtimeDiagnostics,
-        'session.updated',
-        session.id,
-        sessionChange(session),
-      ),
-      sessionRemoved: (sessionId) => safeAppend(
-        metadata,
-        runtimeDiagnostics,
-        'session.removed',
-        sessionId,
-        null,
-      ),
-      sessionRenamed: (fromId, toId) => safeAppend(
-        metadata,
-        runtimeDiagnostics,
-        'session.renamed',
-        toId,
-        { fromId, toId },
-      ),
-      warning: () => {
-        try { runtimeDiagnostics.warn('Server Core session lifecycle warning'); } catch {}
-      },
-    },
+    observer: createServerCoreSessionManagerObserver({
+      diagnostics: runtimeDiagnostics,
+      metadata,
+      reviewEvents,
+      tokenUsage: tokenUsageRepo,
+    }),
   });
   const privateRoots = Object.freeze([
     input.paths.stateDirectory,
@@ -269,7 +234,7 @@ export function createServerCoreRuntimeWithOverrides(
     closeSession: (sessionId) => repositories.sessionManager.close(sessionId),
     adapter: (adapterId) => registry.get(adapterId),
     appendChange: (kind, entityId, payload) => {
-      safeAppend(metadata, runtimeDiagnostics, kind, entityId, payload);
+      appendServerCoreChangeSafely(metadata, runtimeDiagnostics, kind, entityId, payload);
     },
   });
   const spawnCollaboration = new ServerCoreSpawnCollaboration({
@@ -296,7 +261,7 @@ export function createServerCoreRuntimeWithOverrides(
     registry,
     publishSession: (sessionId) => {
       const record = repositories.sessions.get(sessionId);
-      if (record) safeAppend(
+      if (record) appendServerCoreChangeSafely(
         metadata,
         runtimeDiagnostics,
         'session.updated',
@@ -322,7 +287,7 @@ export function createServerCoreRuntimeWithOverrides(
       });
     },
     appendChange: (kind, entityId, payload) => {
-      safeAppend(metadata, runtimeDiagnostics, kind, entityId, payload);
+      appendServerCoreChangeSafely(metadata, runtimeDiagnostics, kind, entityId, payload);
     },
     warn: (message) => {
       try { runtimeDiagnostics.warn(message); } catch {}
@@ -342,7 +307,7 @@ export function createServerCoreRuntimeWithOverrides(
     diagnostics: runtimeDiagnostics,
     reviewEvents,
     appendChange: (kind, entityId, payload) => {
-      safeAppend(metadata, runtimeDiagnostics, kind, entityId, payload);
+      appendServerCoreChangeSafely(metadata, runtimeDiagnostics, kind, entityId, payload);
     },
   });
   const providerInput: ServerCoreProviderHostInput = Object.freeze({

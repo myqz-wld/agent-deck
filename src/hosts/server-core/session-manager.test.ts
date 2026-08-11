@@ -92,6 +92,7 @@ function createHarness(initial: SessionRecord[] = []) {
   };
   const observer = {
     eventPersisted: vi.fn(),
+    tokenUsageObserved: vi.fn(),
     sessionUpdated: vi.fn(),
     sessionRemoved: vi.fn(),
     sessionRenamed: vi.fn(),
@@ -135,6 +136,26 @@ function createHarness(initial: SessionRecord[] = []) {
 }
 
 describe('ServerCoreSessionManager', () => {
+  it('routes token usage to telemetry persistence without polluting session history', () => {
+    const harness = createHarness([session('usage-session')]);
+    const usage = event('usage-session', 'token-usage', {
+      payload: {
+        messageId: 'usage-message',
+        model: 'gpt-5.6-sol',
+        inputTokens: 120,
+        outputTokens: 8,
+      },
+    });
+
+    harness.manager.ingest(usage);
+
+    expect(harness.observer.tokenUsageObserved).toHaveBeenCalledOnce();
+    expect(harness.observer.tokenUsageObserved).toHaveBeenCalledWith(usage);
+    expect(harness.persisted).toEqual([]);
+    expect(harness.observer.eventPersisted).not.toHaveBeenCalled();
+    expect(harness.records.get('usage-session')).toEqual(session('usage-session'));
+  });
+
   it('persists trusted first-registration metadata and keeps buffered handoff input idle', () => {
     const harness = createHarness();
     harness.manager.ingest(event('child', 'session-start', {

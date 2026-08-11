@@ -2,13 +2,12 @@ import type {
   AgentEvent,
   LifecycleState,
   SessionRecord,
-  TokenUsagePayload,
 } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeRepo } from '@main/store/file-change-repo';
-import { tokenUsageRepo } from '@main/store/token-usage-repo';
+import { insertTokenUsageEvent, tokenUsageRepo } from '@main/store/token-usage-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
 import { buildFileChangeSnapshots } from './file-change-snapshots';
 import type { UpsertOptions } from './manager/_deps';
@@ -276,28 +275,7 @@ export function persistFileChange(event: AgentEvent): void {
  */
 export function persistTokenUsage(event: AgentEvent): void {
   try {
-    const p = event.payload as TokenUsagePayload | null | undefined;
-    if (!p) return;
-    tokenUsageRepo.insert({
-      sessionId: event.sessionId,
-      agentId: event.agentId,
-      messageId: p.messageId ?? null,
-      model: p.model ?? null,
-      totalTokens: p.totalTokens ?? null,
-      inputTokens: p.inputTokens ?? null,
-      outputTokens: p.outputTokens ?? null,
-      reasoningTokens: p.reasoningTokens ?? null,
-      cacheReadTokens: p.cacheReadTokens ?? null,
-      cacheCreationTokens: p.cacheCreationTokens ?? null,
-      ...(p.metricScope !== undefined ? { metricScope: p.metricScope } : {}),
-      ...(p.grokUsageWatermark !== undefined
-        ? { grokUsageWatermark: p.grokUsageWatermark }
-        : {}),
-      ...(p.replacesMessageId != null
-        ? { replacesMessageId: p.replacesMessageId }
-        : {}),
-      ts: event.ts,
-    });
+    insertTokenUsageEvent(tokenUsageRepo, event);
   } catch (err) {
     logger.warn(`[session-ingest] persistTokenUsage failed (sid=${event.sessionId})`, err);
   }

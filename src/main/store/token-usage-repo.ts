@@ -1,6 +1,7 @@
 /** Token usage persistence, reconciliation, and aggregation. */
 import type { Database } from 'better-sqlite3';
 import {
+  type AgentEvent,
   TOKEN_USAGE_ALL_METRICS,
   TOKEN_USAGE_METRIC,
   type TokenUsagePayload,
@@ -26,6 +27,34 @@ export interface TokenUsageRepo {
   ratesSince(sinceMs: number): TokenRateRow[];
   dailyByModel(fromMs?: number, toMs?: number): TokenDailyRow[];
   deleteOlderThan(thresholdMs: number): number;
+}
+
+/** Shared AgentEvent projection used by both Desktop and headless Server Core ingestion. */
+export function insertTokenUsageEvent(repo: TokenUsageRepo, event: AgentEvent): boolean {
+  if (event.kind !== 'token-usage') return false;
+  const payload = event.payload as TokenUsagePayload | null | undefined;
+  if (!payload) return false;
+  repo.insert({
+    sessionId: event.sessionId,
+    agentId: event.agentId,
+    messageId: payload.messageId ?? null,
+    model: payload.model ?? null,
+    totalTokens: payload.totalTokens ?? null,
+    inputTokens: payload.inputTokens ?? null,
+    outputTokens: payload.outputTokens ?? null,
+    reasoningTokens: payload.reasoningTokens ?? null,
+    cacheReadTokens: payload.cacheReadTokens ?? null,
+    cacheCreationTokens: payload.cacheCreationTokens ?? null,
+    ...(payload.metricScope !== undefined ? { metricScope: payload.metricScope } : {}),
+    ...(payload.grokUsageWatermark !== undefined
+      ? { grokUsageWatermark: payload.grokUsageWatermark }
+      : {}),
+    ...(payload.replacesMessageId != null
+      ? { replacesMessageId: payload.replacesMessageId }
+      : {}),
+    ts: event.ts,
+  });
+  return true;
 }
 
 export function createTokenUsageRepo(db: Database): TokenUsageRepo {

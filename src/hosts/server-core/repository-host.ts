@@ -16,6 +16,7 @@ import { setEventRepositoryDiagnostics } from '@main/store/event-repo-diagnostic
 import { setMessageDeliveryStateDiagnostics } from '@main/store/message-delivery-state-diagnostics-core';
 import { sessionRepo } from '@main/store/session-repo';
 import { summaryRepo } from '@main/store/summary-repo';
+import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { setSessionRepositoryDiagnostics } from '@main/store/session-repo/diagnostics-core';
 import {
   ServerCoreSessionManager,
@@ -25,6 +26,7 @@ import {
 import type { ServerCoreSessionConsoleRepositoryPort } from './session-console-authority';
 import { ServerCoreSessionTaskReadRepository } from './session-task-read-repository';
 import { ServerCoreIssueRepository } from './issue-repository';
+import { backfillServerCoreTokenUsageEvents } from './token-usage-backfill';
 
 export interface ServerCoreRuntimeDiagnostics {
   info(message: string, details?: Readonly<Record<string, unknown>>): void;
@@ -138,6 +140,29 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
             safeDiagnostic(this.options.diagnostics, 'warn', message, details),
         },
       });
+      try {
+        const backfill = backfillServerCoreTokenUsageEvents(getDb(), tokenUsageRepo);
+        if (backfill.persisted > 0) {
+          safeDiagnostic(this.options.diagnostics, 'info', 'Server Core token usage recovered', {
+            persisted: backfill.persisted,
+            scanned: backfill.scanned,
+          });
+        }
+        if (backfill.failed > 0 || backfill.skippedUnkeyed > 0) {
+          safeDiagnostic(this.options.diagnostics, 'warn', 'Server Core token usage recovery partial', {
+            failed: backfill.failed,
+            skippedUnkeyed: backfill.skippedUnkeyed,
+          });
+        }
+      } catch (error) {
+        safeDiagnostic(
+          this.options.diagnostics,
+          'warn',
+          'Server Core token usage recovery failed',
+          undefined,
+          error,
+        );
+      }
       this.started = true;
     } catch (error) {
       setEventRepositoryDiagnostics(null);
