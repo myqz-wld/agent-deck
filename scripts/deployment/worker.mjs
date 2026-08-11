@@ -1,6 +1,11 @@
 import { chmod, lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { runCommand } from './process.mjs';
+import {
+  checkWorkerProviderSupervisor,
+  deployWorkerProviderSupervisor,
+  verifyWorkerProviderSupervisor,
+} from './worker-supervisor.mjs';
 
 async function workspaceStatus(config) {
   let stats;
@@ -33,7 +38,22 @@ async function status(config, requireRunning) {
   const result = await worker(config, ['status']);
   const running = result.stdout.includes('Worker 状态：运行中');
   if (requireRunning && !running) throw new Error('Worker 尚未处于运行状态。');
-  return { running, output: result.stdout.trim() };
+  const workerConfigId = result.stdout.match(/（(worker-[a-f0-9]{24})）/u)?.[1] ?? null;
+  return { running, workerConfigId, output: result.stdout.trim() };
+}
+
+function supervisor(config) {
+  return config.providerSupervisor === null ? null : {
+    ...config.providerSupervisor,
+    workerWrapper: config.wrapper,
+  };
+}
+
+function assertSupervisorWorker(config, workerStatus) {
+  if (config.providerSupervisor !== null &&
+      workerStatus.workerConfigId !== config.providerSupervisor.workerConfigId) {
+    throw new Error('Worker 当前配置标识与 Provider supervisor 配置不匹配。');
+  }
 }
 
 export async function runWorkerDeployment(config, action) {
@@ -48,23 +68,38 @@ export async function runWorkerDeployment(config, action) {
         '验证签名 Worker runtime 与 Node SQLite ABI',
         '确保隔离 Workspace 不位于 Agent Deck 仓库中',
         '从 Worker connection credential 配置或重启 LaunchAgent/systemd-user service',
+        ...(config.providerSupervisor === null ? [] : [
+          '验证 Grok 凭证、Provider supervisor 配置与 Worker identity',
+          '原子投射凭证、安装 LaunchAgent、等待就绪并受控重启 Worker',
+        ]),
         '验证 Worker 后台服务为 running',
       ],
-      providerSupervisor: 'optional-not-managed',
+      providerSupervisor: config.providerSupervisor === null
+        ? 'not-configured'
+        : 'managed-through-launchd',
     };
   }
   if (action === 'check') {
     await checkAbi(config);
+    const providerSupervisor = await checkWorkerProviderSupervisor(supervisor(config));
     return {
       action,
       name: config.name,
       workspace: await workspaceStatus(config),
       service: 'not-mutated',
       status: 'ok',
+      providerSupervisor,
     };
   }
   if (action === 'verify') {
-    return { action, name: config.name, service: await status(config, true) };
+    const service = await status(config, true);
+    assertSupervisorWorker(config, service);
+    return {
+      action,
+      name: config.name,
+      service,
+      providerSupervisor: await verifyWorkerProviderSupervisor(supervisor(config)),
+    };
   }
   if (action === 'deploy') {
     if (config.credentialFile === null) {
@@ -77,29 +112,47 @@ export async function runWorkerDeployment(config, action) {
     }
     await workspaceStatus(config);
     await checkAbi(config);
+    await checkWorkerProviderSupervisor(supervisor(config));
     await worker(config, [
       'configure',
       '--credential', config.credentialFile,
       '--workspace', config.workspace,
+    ], { timeoutMs: 300_000 });
+    const configured = await status(config, true);
+    assertSupervisorWorker(config, configured);
+    const providerSupervisor = await deployWorkerProviderSupervisor(supervisor(config));
+    if (config.providerSupervisor !== null) {
+      await worker(config, ['start', '--worker', config.providerSupervisor.workerConfigId], {
+        timeoutMs: 300_000,
+      });
+    }
+    return {
+      action,
+      name: config.name,
+      workspace: config.workspace,
+      service: await status(config, true),
+      providerSupervisor,
+    };
+  }
+  if (action === 'upgrade') {
+    await workspaceStatus(config);
+    await checkAbi(config);
+    await checkWorkerProviderSupervisor(supervisor(config));
+    const before = await status(config, false);
+    assertSupervisorWorker(config, before);
+    const providerSupervisor = await deployWorkerProviderSupervisor(supervisor(config));
+    await worker(config, [
+      'start',
+      ...(config.providerSupervisor === null
+        ? []
+        : ['--worker', config.providerSupervisor.workerConfigId]),
     ], { timeoutMs: 300_000 });
     return {
       action,
       name: config.name,
       workspace: config.workspace,
       service: await status(config, true),
-      providerSupervisor: 'optional-not-managed',
-    };
-  }
-  if (action === 'upgrade') {
-    await workspaceStatus(config);
-    await checkAbi(config);
-    await worker(config, ['start'], { timeoutMs: 300_000 });
-    return {
-      action,
-      name: config.name,
-      workspace: config.workspace,
-      service: await status(config, true),
-      providerSupervisor: 'optional-not-managed',
+      providerSupervisor,
     };
   }
   throw new Error(`不支持的 Worker 部署操作：${action}`);

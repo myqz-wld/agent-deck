@@ -136,7 +136,9 @@ export function resolveServerCoreProviderGrokContainer(
       createProductionServerCoreProviderGrokContainer)({
       brokerRoot: paths.brokerRoot,
       credentialRoot: dependencies.credentialRoot ??
-        SERVER_CORE_PROVIDER_INFERENCE_CREDENTIAL_ROOT,
+        (dependencies.workspaceSandbox
+          ? join(dependencies.workspaceSandbox.privateRoot, 'provider-inference')
+          : SERVER_CORE_PROVIDER_INFERENCE_CREDENTIAL_ROOT),
       instanceId: input.instanceId,
       supervisorSocketPath: paths.supervisorSocketPath,
       workspaceRoot,

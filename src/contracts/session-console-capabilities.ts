@@ -331,6 +331,13 @@ function parseAttachments(value: unknown): SessionConsoleAttachmentPolicyDescrip
   return { disabledReason, enabled: value.enabled, maxBytesEach, maxBytesTotal, maxCount, mimeTypes };
 }
 
+/** Reuses the negotiated attachment-policy schema for session-scoped input capabilities. */
+export function parseSessionConsoleAttachmentPolicyDescriptor(
+  value: unknown,
+): SessionConsoleAttachmentPolicyDescriptor {
+  return parseAttachments(value);
+}
+
 function parseSandbox(value: unknown): SessionConsoleSandboxDescriptor {
   const field = 'session.console.capabilities.create.sandbox';
   if (!isJsonObject(value)) fail(field);

@@ -13,7 +13,6 @@ import {
 import type { SessionManagerHost } from '@main/session/manager/facade-core';
 import type { UpsertOptions } from '@main/session/manager/_deps';
 import type { ClosedSideEffectOptions } from '@main/session/manager/lifecycle-core';
-
 const RECENTLY_DELETED_TTL_MS = 60_000;
 
 export interface ServerCoreSessionRepositoryPort {
@@ -52,6 +51,8 @@ export interface ServerCoreEventRepositoryPort {
 export interface ServerCoreSessionManagerObserver {
   eventPersisted(event: AgentEvent, eventId: number): void;
   tokenUsageObserved(event: AgentEvent): void;
+  contextUsageObserved(event: AgentEvent): void;
+  contextCompactionObserved(event: AgentEvent): void;
   sessionUpdated(session: SessionRecord): void;
   sessionRemoved(sessionId: string): void;
   sessionRenamed(fromId: string, toId: string): void;
@@ -247,7 +248,10 @@ export class ServerCoreSessionManager implements SessionManagerHost {
       this.options.observer.tokenUsageObserved(event);
       return;
     }
-
+    if (event.kind === 'context-usage') {
+      this.options.observer.contextUsageObserved(event);
+      return;
+    }
     const record = this.ensure(event.sessionId, {
       agentId: event.agentId,
       cwd: extractCwd(event),
@@ -257,6 +261,9 @@ export class ServerCoreSessionManager implements SessionManagerHost {
     });
     const eventId = this.options.events.insert(event);
     this.advance(record, event);
+    if (event.kind === 'context-compaction-start') {
+      this.options.observer.contextCompactionObserved(event);
+    }
     this.options.observer.eventPersisted(event, eventId);
   }
 

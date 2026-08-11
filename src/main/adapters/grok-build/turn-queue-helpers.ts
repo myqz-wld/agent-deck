@@ -30,9 +30,16 @@ export function toPendingAgentMessage(
 
 export function supportsImages(runtime: GrokRuntime): boolean {
   if (!runtime.ready) return true;
-  return (
-    runtime.process?.initializeResponse.agentCapabilities?.promptCapabilities?.image === true
-  );
+  return negotiatedGrokSessionImageCapability(runtime) === true;
+}
+
+/** Exact live ACP negotiation used for Remote publication; null means no runtime exists. */
+export function negotiatedGrokSessionImageCapability(
+  runtime: GrokRuntime | null | undefined,
+): boolean | null {
+  if (!runtime) return null;
+  if (!runtime.ready) return false;
+  return runtime.process?.initializeResponse.agentCapabilities?.promptCapabilities?.image === true;
 }
 
 export function isInterjectionUnsupported(error: unknown): boolean {

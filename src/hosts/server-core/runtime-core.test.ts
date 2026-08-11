@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SessionConsoleAttachmentInput } from '@contracts/index';
+import { AgentDeckClientErrorCode, type SessionConsoleAttachmentInput } from '@contracts/index';
+import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import type { DaemonEventSubscriptionInput } from '@hosts/daemon';
 import type {
   PermissionMode,
@@ -12,6 +13,7 @@ import {
   runtimeCoreInput as input,
   runtimeCoreRecord as record,
 } from './runtime-core.test-fixture';
+import { ServerCoreHandOffPreviewConflictError } from './mcp-handoff-errors';
 
 describe('ServerCoreDaemonRuntime', () => {
   it('starts once, exposes only cwd-free base methods, and stops once', async () => {
@@ -120,6 +122,120 @@ describe('ServerCoreDaemonRuntime', () => {
       sessionId: 'session-a', text: 'inspect', attachments: [attachment],
     }, { idempotencyKey: 'attachment-failure' }))).rejects.toThrow('provider rejected');
     expect(remove).toHaveBeenCalledWith([stored]);
+  });
+
+  it('publishes runtime-bound context/input capabilities and steers active images', async () => {
+    const attachment: SessionConsoleAttachmentInput = {
+      kind: 'image', mime: 'image/png', bytes: 1, base64: 'YQ==',
+    };
+    const stored: UploadedAttachmentRef = {
+      kind: 'uploaded', mime: 'image/png', bytes: 1, path: '/private/steer.png',
+    };
+    const steerTurn = vi.fn(async () => undefined);
+    const { runtime } = harness({
+      session: record({
+        contextUsage: {
+          usedTokens: 321,
+          windowTokens: 1_000_000,
+          updatedAt: 45,
+          runtimeIdentity: {
+            version: 1,
+            runtimeKey: 'claude-code:deepseek:model',
+            adapter: 'claude-code',
+            runtimeProvider: 'deepseek',
+            model: 'deepseek-v4-flash[1m]',
+            capacityConfigFingerprint: 'capacity-a',
+          },
+        },
+      }),
+      adapter: {
+        capabilities: { canAcceptAttachments: true } as never,
+        steerTurn,
+      },
+      attachmentStore: {
+        persist: vi.fn(async () => [stored]),
+        remove: vi.fn(async () => undefined),
+      },
+    });
+    await runtime.start();
+    await expect(runtime.execute(input('session.context.get', { sessionId: 'session-a' })))
+      .resolves.toMatchObject({
+        result: { contextUsage: { usedTokens: 321, windowTokens: 1_000_000 }, revision: 0 },
+      });
+    await expect(runtime.execute(input(
+      'session.input.capabilities',
+      { sessionId: 'session-a' },
+    ))).resolves.toMatchObject({
+      result: {
+        adapterId: 'claude-code',
+        activeTurn: { mode: 'queue', attachments: { enabled: true } },
+      },
+    });
+    await runtime.execute(input('session.steer', {
+      sessionId: 'session-a', text: 'inspect', attachments: [attachment],
+    }, { idempotencyKey: 'steer-image' }));
+    expect(steerTurn).toHaveBeenCalledWith('session-a', 'inspect', [stored]);
+  });
+
+  it('publishes and enforces the selected session runtime attachment negotiation', async () => {
+    const attachment: SessionConsoleAttachmentInput = {
+      kind: 'image', mime: 'image/png', bytes: 1, base64: 'YQ==',
+    };
+    const persist = vi.fn();
+    const sendMessage = vi.fn();
+    const steerTurn = vi.fn();
+    const { runtime } = harness({
+      session: record({ agentId: 'grok-build' }),
+      adapter: {
+        capabilities: { canAcceptAttachments: true } as never,
+        canAcceptSessionAttachments: vi.fn(() => false),
+        sendMessage,
+        steerTurn,
+      },
+      attachmentStore: { persist, remove: vi.fn() },
+    });
+    await runtime.start();
+
+    await expect(runtime.execute(input(
+      'session.input.capabilities', { sessionId: 'session-a' },
+    ))).resolves.toMatchObject({
+      result: { activeTurn: { mode: 'interject', attachments: { enabled: false } } },
+    });
+    await expect(runtime.execute(input('session.send', {
+      sessionId: 'session-a', text: 'inspect', attachments: [attachment],
+    }, { idempotencyKey: 'session-image-send' }))).rejects.toMatchObject({
+      code: AgentDeckClientErrorCode.CapabilityUnavailable,
+    });
+    await expect(runtime.execute(input('session.steer', {
+      sessionId: 'session-a', text: 'inspect', attachments: [attachment],
+    }, { idempotencyKey: 'session-image-steer' }))).rejects.toMatchObject({
+      code: AgentDeckClientErrorCode.CapabilityUnavailable,
+    });
+    expect(persist).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(steerTurn).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a stale handoff preview as a retryable conflict', async () => {
+    const preview = vi.fn(async () => {
+      throw new ServerCoreHandOffPreviewConflictError('target capabilities changed');
+    });
+    const { runtime } = harness({
+      handoff: { preview, handOff: vi.fn() },
+    });
+    await runtime.start();
+
+    await expect(runtime.execute(input('session.handoff.preview', {
+      sessionId: 'session-a',
+      continuationInstruction: 'Continue from the current checkpoint.',
+      target: {
+        adapterId: 'claude-code',
+        workingDirectory: null,
+        capabilityRevision: null,
+        options: sessionConsoleCreateOptionsFixture('claude-code'),
+      },
+    }))).rejects.toMatchObject({ code: 'conflict' });
+    expect(preview).toHaveBeenCalledOnce();
   });
 
   it('replays a completed revision-bound mutation after unrelated changes', async () => {

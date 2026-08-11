@@ -20,10 +20,12 @@ export function RemoteSessionComposer({
   source,
   adapterId,
   sessionId,
+  onHandOff = () => undefined,
 }: {
   source: RemoteSessionSourceView;
   adapterId: string;
   sessionId: string;
+  onHandOff?: () => void;
 }): JSX.Element {
   const identity = `${source.identity}:${sessionId}`;
   const [text, setText] = useState('');
@@ -33,19 +35,31 @@ export function RemoteSessionComposer({
     SessionConsoleAttachmentPolicyDescriptor | null
   >(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const turnBusy = source.selectedSession?.status.endsWith('-working') === true;
+  const activeInput = source.inputCapabilities?.adapterId === adapterId
+    ? source.inputCapabilities.activeTurn
+    : null;
+  const legacySteer = !source.capabilities.has('sessions.input.read') &&
+    (adapterId === 'codex-cli' || adapterId === 'grok-build');
+  const canSteerTurn = activeInput?.mode === 'steer' || activeInput?.mode === 'interject' ||
+    legacySteer;
+  const steerMode = turnBusy && canSteerTurn;
+  const queueMode = turnBusy && activeInput?.mode === 'queue';
+  const effectiveAttachmentPolicy = turnBusy
+    ? activeInput?.attachments ?? null
+    : attachmentPolicy;
   const attachmentLimits = useMemo(() => ({
-    maxBytesEach: attachmentPolicy?.maxBytesEach ?? SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_BYTES,
-    maxBytesTotal: attachmentPolicy?.maxBytesTotal ??
+    maxBytesEach: effectiveAttachmentPolicy?.maxBytesEach ??
+      SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_BYTES,
+    maxBytesTotal: effectiveAttachmentPolicy?.maxBytesTotal ??
       SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_TOTAL_BYTES,
-    maxCount: attachmentPolicy?.maxCount ?? SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_COUNT,
-    mimeTypes: attachmentPolicy?.mimeTypes ?? SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES,
-  }), [attachmentPolicy]);
+    maxCount: effectiveAttachmentPolicy?.maxCount ?? SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_COUNT,
+    mimeTypes: effectiveAttachmentPolicy?.mimeTypes ??
+      SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES,
+  }), [effectiveAttachmentPolicy]);
   const imgs = useImageAttachments(`remote:${identity}`, attachmentLimits);
   const canWrite = source.usable && source.capabilities.has('sessions.write');
   const canWriteRuntime = source.usable && source.capabilities.has('sessions.runtime.write');
-  const turnBusy = source.selectedSession?.status.endsWith('-working') === true;
-  const canSteerTurn = adapterId === 'codex-cli' || adapterId === 'grok-build';
-  const steerMode = turnBusy && canSteerTurn;
   const steerLabel = adapterId === 'codex-cli' ? '修正' : '插入';
 
   useEffect(() => {
@@ -76,19 +90,15 @@ export function RemoteSessionComposer({
   const send = async (): Promise<boolean> => {
     const message = text.trim();
     if (source.busy || (!message && imgs.attachments.length === 0)) return false;
-    if (steerMode && imgs.attachments.length > 0) {
-      setError('Remote 当前轮次的修正/插入只支持文字；请移除图片或等待本轮结束。');
-      return false;
-    }
     try {
+      const snapshot = imgs.snapshotForSend();
+      const attachments = parseSessionConsoleAttachments(snapshot.inputs, 'attachments');
       if (steerMode) {
-        await source.steer(message);
+        await source.steer(message, attachments);
       } else {
-        const snapshot = imgs.snapshotForSend();
-        const attachments = parseSessionConsoleAttachments(snapshot.inputs, 'attachments');
         await source.send(message, attachments);
-        imgs.clear();
       }
+      imgs.clear();
       setText('');
       setError(null);
       return true;
@@ -106,7 +116,7 @@ export function RemoteSessionComposer({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
-  const canUseAttachments = attachmentPolicy?.enabled === true && !steerMode;
+  const canUseAttachments = effectiveAttachmentPolicy?.enabled === true;
   const canSubmit = canWrite && !source.busy &&
     (text.trim().length > 0 || (canUseAttachments && imgs.attachments.length > 0));
   const agentName = adapterId === 'codex-cli'
@@ -143,6 +153,8 @@ export function RemoteSessionComposer({
         placeholder={canWrite
           ? steerMode
             ? `${steerLabel}当前 Remote ${agentName} 轮次…  (Enter 发送 / Shift+Enter 换行)`
+            : queueMode
+              ? `排队发送给当前 Remote ${agentName} 轮次…  (Enter 发送 / Shift+Enter 换行${canUseAttachments ? ' / 可粘贴或拖放图片' : ''})`
             : `给 Remote ${agentName} 发消息…  (Enter 发送 / Shift+Enter 换行${canUseAttachments ? ' / 可粘贴或拖放图片' : ''})`
           : '此 Remote 数据源未提供 session 写入能力'}
       />
@@ -162,7 +174,7 @@ export function RemoteSessionComposer({
           <PendingImageAttachments attachments={imgs.attachments} getPreviewDataUrl={imgs.getPreviewDataUrl} onRemove={imgs.remove} />
         )}
         <div className="flex-1" />
-        <button type="button" disabled className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted opacity-40" title="Remote 接力尚未加入当前协议；不会调用本机接力作为替代">
+        <button type="button" onClick={onHandOff} disabled={!source.usable || !source.capabilities.has('sessions.handoff') || source.busy} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={source.capabilities.has('sessions.handoff') ? '在当前 Remote Worker 上创建原子续接会话' : '此 Remote Core 未提供接力能力'}>
           <HandOffIcon className="mr-1 inline h-3 w-3" />接力
         </button>
         <button type="button" onClick={() => void interrupt()} disabled={!canWrite || !turnBusy || interrupting} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={!turnBusy ? '当前没有运行中的 Remote 任务' : '中断当前 Remote 任务'}>

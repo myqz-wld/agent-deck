@@ -13,6 +13,8 @@ import type {
   RemoteHostSessionSummaryDto,
   RemoteHostStateDto,
   RemoteHostSummaryListDto,
+  RemoteHostSessionContextDto,
+  RemoteHostSessionInputCapabilitiesDto,
   RemoteHostTaskListDto,
 } from '@shared/remote-host';
 import type {
@@ -20,6 +22,9 @@ import type {
   SessionConsoleCapabilitiesParams,
   SessionConsoleCapabilitiesResult,
   SessionConsoleCreateOptions,
+  SessionHandOffCommitResult,
+  SessionHandOffPreviewParams,
+  SessionHandOffPreviewResult,
   WorkspaceDirectoryListResult,
 } from '@contracts/index';
 import type { ImageSource, LoadImageBlobResult } from '@shared/types';
@@ -60,6 +65,8 @@ export interface RemoteSessionSourceView {
   profile: RemoteHostProfileDto | null;
   recoveringWorker: boolean;
   runtime: RemoteHostRuntimeControlsDto | null;
+  context?: RemoteHostSessionContextDto | null;
+  inputCapabilities?: RemoteHostSessionInputCapabilitiesDto | null;
   summaryLoadError?: string | null;
   summaries: RemoteHostSummaryListDto | null;
   taskLoadError: string | null;
@@ -86,6 +93,14 @@ export interface RemoteSessionSourceView {
     agentId: string,
   ): PlanDeepReviewTransport | null;
   interrupt(): Promise<void>;
+  previewHandOff(
+    input: Omit<SessionHandOffPreviewParams, 'sessionId'>,
+  ): Promise<SessionHandOffPreviewResult>;
+  commitHandOff(
+    input: Omit<SessionHandOffPreviewParams, 'sessionId'> & {
+      expectedBindingDigest: string;
+    },
+  ): Promise<SessionHandOffCommitResult>;
   loadMoreHistorySessions(): Promise<void>;
   loadMoreSessions(): Promise<void>;
   refresh(): void;
@@ -96,6 +111,6 @@ export interface RemoteSessionSourceView {
   ): Promise<void>;
   selectSession(sessionId: string | null): void;
   send(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
-  steer(text: string): Promise<void>;
+  steer(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
   updateRuntime(patch: RemoteHostJsonObject): Promise<void>;
 }

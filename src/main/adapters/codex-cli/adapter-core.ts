@@ -293,9 +293,13 @@ export class CodexCliAdapter implements AgentAdapter {
     return this.bridge?.removePendingOutgoingMessage(sessionId, messageId) ?? null;
   }
 
-  async steerTurn(sessionId: string, text: string): Promise<void> {
+  async steerTurn(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
-    await this.bridge.steerTurn(sessionId, text);
+    await this.bridge.steerTurn(sessionId, text, attachments);
   }
 
   async respondPermission(

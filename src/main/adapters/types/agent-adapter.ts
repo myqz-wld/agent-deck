@@ -142,6 +142,8 @@ export interface AgentAdapter {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): Promise<void>;
+  /** Session-runtime attachment negotiation; null means no live runtime overrides the adapter. */
+  canAcceptSessionAttachments?(sessionId: string): boolean | null;
   /**
    * Queue a user message for the next provider turn even when the current turn supports steering.
    * Handoff uses this to preserve the ordering between the prepared continuation turn and any
@@ -163,7 +165,11 @@ export interface AgentAdapter {
     messageId: string,
   ): PendingAgentMessage | null | Promise<PendingAgentMessage | null>;
   /** Mid-turn steering：只修改当前正在跑的 turn，不进入下一轮 pending message queue。 */
-  steerTurn?(sessionId: string, text: string): Promise<void>;
+  steerTurn?(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void>;
   respondPermission?(
     sessionId: string,
     requestId: string,

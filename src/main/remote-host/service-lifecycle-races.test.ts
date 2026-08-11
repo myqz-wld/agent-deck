@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from '@contracts/index';
+import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import { ElectronHostRegistry } from '@hosts/electron';
 import {
   ControlledClient,
@@ -129,5 +130,34 @@ describe('RemoteHostService lifecycle admission', () => {
     });
     expect(context.registry.selectedProfileId).toBe(context.local.id);
     expect(context.backend.value.sourceMode).toBe('local');
+  });
+
+  it('preserves a terminal handoff result without selecting it after a source switch', async () => {
+    const context = harness();
+    await context.service.connect(context.firstProfile.id);
+    const gate = deferred<unknown>();
+    const client = context.clients.get(context.firstProfile.id)!;
+    vi.mocked(client.request).mockReturnValue(gate.promise as never);
+    const committing = context.service.handoff.commit({
+      profileId: context.firstProfile.id,
+      sessionId: 'source-session',
+      continuationInstruction: 'Continue.',
+      target: {
+        adapterId: 'codex-cli', workingDirectory: null, capabilityRevision: null,
+        options: sessionConsoleCreateOptionsFixture(),
+      },
+      expectedBindingDigest: `sha256:${'a'.repeat(64)}`,
+      intentId: 'terminal-intent',
+    });
+    await Promise.resolve();
+    await context.service.setSourceMode('local');
+    gate.resolve({
+      successorSessionId: 'successor-session', cutoverEventRevision: 7,
+      lateMessagesDelivered: 0, usedLowerBudgetRetry: false,
+      sourceFinalizationWarning: null, revision: 8,
+    });
+
+    await expect(committing).resolves.toMatchObject({ successorSessionId: 'successor-session' });
+    expect(context.registry.navigation(context.firstProfile.id).selectedSessionId).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { isAbsolute, relative } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 
 import {
   absolutePath,
@@ -190,8 +190,31 @@ export async function loadServerConfig(path, topology, repoRoot) {
 export async function loadWorkerConfig(path, repoRoot) {
   const loaded = await readTrustedJson(path, 'Worker 部署配置');
   const config = object(loaded.value, 'Worker 部署配置');
-  exactKeys(config, ['schemaVersion', 'name', 'wrapper', 'credentialFile', 'workspace'], 'Worker 部署配置');
+  exactKeys(config, [
+    'schemaVersion', 'name', 'wrapper', 'credentialFile', 'workspace',
+    ...(Object.hasOwn(config, 'providerSupervisor') ? ['providerSupervisor'] : []),
+  ], 'Worker 部署配置');
   if (config.schemaVersion !== 1) fail('Worker 部署配置 schemaVersion 不受支持。');
+  let providerSupervisor = null;
+  if (Object.hasOwn(config, 'providerSupervisor') && config.providerSupervisor !== null) {
+    const supervisor = object(config.providerSupervisor, 'providerSupervisor');
+    exactKeys(supervisor, [
+      'command', 'configFile', 'grokCredentialFile', 'workerConfigId',
+    ], 'providerSupervisor');
+    providerSupervisor = {
+      command: absolutePath(supervisor.command, 'providerSupervisor.command'),
+      configFile: absolutePath(supervisor.configFile, 'providerSupervisor.configFile'),
+      grokCredentialFile: absolutePath(
+        supervisor.grokCredentialFile,
+        'providerSupervisor.grokCredentialFile',
+      ),
+      workerConfigId: token(
+        supervisor.workerConfigId,
+        'providerSupervisor.workerConfigId',
+        /^worker-[a-f0-9]{24}$/,
+      ),
+    };
+  }
   const parsed = {
     schemaVersion: 1,
     name: token(config.name, 'name'),
@@ -200,6 +223,7 @@ export async function loadWorkerConfig(path, repoRoot) {
       ? null
       : absolutePath(config.credentialFile, 'credentialFile'),
     workspace: absolutePath(config.workspace, 'workspace'),
+    providerSupervisor,
     repoRoot,
     configPath: loaded.path,
   };
@@ -208,7 +232,63 @@ export async function loadWorkerConfig(path, repoRoot) {
     ...(parsed.credentialFile === null
       ? []
       : [requireTrustedFile(parsed.credentialFile, 'credentialFile', { private: true })]),
+    ...(parsed.providerSupervisor === null ? [] : [
+      requireExecutable(parsed.providerSupervisor.command, 'providerSupervisor.command'),
+      requireTrustedFile(
+        parsed.providerSupervisor.configFile,
+        'providerSupervisor.configFile',
+        { private: true },
+      ),
+      requireTrustedFile(
+        parsed.providerSupervisor.grokCredentialFile,
+        'providerSupervisor.grokCredentialFile',
+        { private: true },
+      ),
+    ]),
   ]);
+  if (parsed.providerSupervisor !== null) {
+    if (
+      dirname(parsed.providerSupervisor.command) !== dirname(parsed.wrapper) ||
+      basename(parsed.providerSupervisor.command) !== 'agent-deck-provider-supervisor'
+    ) {
+      fail('Provider supervisor 必须与 Worker wrapper 来自同一个应用 bin 目录。');
+    }
+    const templateFile = resolve(
+      dirname(parsed.providerSupervisor.command),
+      '../provider-session/com.agentdeck.provider-supervisor.plist.in',
+    );
+    await requireTrustedFile(templateFile, 'providerSupervisor LaunchAgent template');
+    const supervisorConfig = object(
+      (await readTrustedJson(
+        parsed.providerSupervisor.configFile,
+        'providerSupervisor.configFile',
+        { maxBytes: 64 * 1024 },
+      )).value,
+      'providerSupervisor.configFile',
+    );
+    if (supervisorConfig.schemaVersion !== 1 ||
+        supervisorConfig.workspaceRoot !== parsed.workspace) {
+      fail('Provider supervisor 配置必须使用 schemaVersion 1 和同一个 Worker workspace。');
+    }
+    parsed.providerSupervisor = Object.freeze({
+      ...parsed.providerSupervisor,
+      templateFile,
+      hostConfig: Object.freeze({
+        instanceId: token(supervisorConfig.instanceId, 'providerSupervisor.instanceId'),
+        privateRoot: absolutePath(supervisorConfig.privateRoot, 'providerSupervisor.privateRoot'),
+        stateRoot: absolutePath(supervisorConfig.stateRoot, 'providerSupervisor.stateRoot'),
+        brokerRoot: absolutePath(supervisorConfig.brokerRoot, 'providerSupervisor.brokerRoot'),
+        transportRuntimeDirectory: absolutePath(
+          supervisorConfig.transportRuntimeDirectory,
+          'providerSupervisor.transportRuntimeDirectory',
+        ),
+        transportSocketPath: absolutePath(
+          supervisorConfig.transportSocketPath,
+          'providerSupervisor.transportSocketPath',
+        ),
+      }),
+    });
+  }
   const workspaceRelative = relative(repoRoot, parsed.workspace);
   if (workspaceRelative === '' || (!workspaceRelative.startsWith('..') && !isAbsolute(workspaceRelative))) {
     fail('Worker workspace 不能指向 Agent Deck 仓库或其子目录。');

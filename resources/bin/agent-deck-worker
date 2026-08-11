@@ -105,9 +105,38 @@ prepare_lifecycle_args() {
   LIFECYCLE_WORKER="$worker"
 }
 
+prepare_provider_credential_args() {
+  local credential='' worker=''
+  shift
+  while (( $# > 0 )); do
+    case "$1" in
+      --credential)
+        (( $# >= 2 )) || fail
+        credential=$2
+        shift 2
+        ;;
+      --worker)
+        (( $# >= 2 )) || fail
+        worker=$2
+        shift 2
+        ;;
+      *)
+        echo '用法: agent-deck-worker install-provider-credential --credential <Grok凭证> [--worker <配置标识>]' >&2
+        exit 2
+        ;;
+    esac
+  done
+  [[ -n "$credential" ]] || {
+    echo '用法: agent-deck-worker install-provider-credential --credential <Grok凭证> [--worker <配置标识>]' >&2
+    exit 2
+  }
+  PROVIDER_CREDENTIAL="$(canonical_file "$credential")"
+  PROVIDER_WORKER="$worker"
+}
+
 requested_command="${1:-}"
 case "$requested_command" in
-  configure|start|status|stop|remove)
+  configure|start|status|stop|remove|install-provider-credential)
     needs_service_roots=1
     ;;
   serve|check-config|check-abi|prepare-provider-runtime)
@@ -257,11 +286,31 @@ case "${1:-}" in
       set -- "$@" --worker "$LIFECYCLE_WORKER"
     fi
     ;;
+  install-provider-credential)
+    prepare_provider_credential_args "$@"
+    set -- install-provider-credential \
+      --credential "$PROVIDER_CREDENTIAL" \
+      --service-root "$service_root" \
+      --state-root "$state_root" \
+      --wrapper "$wrapper" \
+      "${DARWIN_SERVICE_ARGS[@]}"
+    if [[ -n "$PROVIDER_WORKER" ]]; then
+      set -- "$@" --worker "$PROVIDER_WORKER"
+    fi
+    ;;
+  check-provider-credential)
+    (( $# == 3 )) && [[ "$2" == --credential ]] || {
+      echo '用法: agent-deck-worker check-provider-credential --credential <Grok凭证>' >&2
+      exit 2
+    }
+    set -- check-provider-credential --credential "$(canonical_file "$3")"
+    ;;
   serve|check-config|check-runtime|check-abi|prepare-provider-runtime)
     ;;
   *)
     echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
     echo '      agent-deck-worker {start|status|stop|remove} [--worker <配置标识>]' >&2
+    echo '      agent-deck-worker install-provider-credential --credential <Grok凭证> [--worker <配置标识>]' >&2
     exit 2
     ;;
 esac

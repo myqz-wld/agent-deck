@@ -20,6 +20,7 @@ import type {
   ServerCoreMutationClaim,
   ServerCoreMutationIdentity,
 } from './runtime-metadata-store';
+import type { ServerCoreMcpHandOffPort } from './mcp-handoff-port';
 
 export const runtimeCoreAccess: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
@@ -139,6 +140,7 @@ export function runtimeCoreHarness(options: {
     persist(inputs: readonly SessionConsoleAttachmentInput[]): Promise<UploadedAttachmentRef[]>;
     remove(refs: readonly UploadedAttachmentRef[]): Promise<void>;
   };
+  handoff?: ServerCoreMcpHandOffPort;
 } = {}) {
   const sessions = new Map<string, SessionRecord>();
   const session = options.session ?? runtimeCoreRecord();
@@ -169,6 +171,7 @@ export function runtimeCoreHarness(options: {
     lifecycle: { start, stop },
     presentations: options.presentations ?? { list: () => [], respond: () => null },
     ...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),
+    ...(options.handoff ? { handoff: options.handoff } : {}),
   });
   return { adapter, metadata, runtime, sendMessage, sessions, start, stop };
 }

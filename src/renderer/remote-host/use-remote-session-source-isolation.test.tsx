@@ -24,6 +24,22 @@ beforeEach(() => {
     getRemoteHostRuntime: vi.fn(async () => ({
       adapterId: 'codex-cli', values: {}, revision: 1,
     })),
+    getRemoteHostSessionContext: vi.fn(async () => ({ contextUsage: null, revision: 1 })),
+    getRemoteHostSessionInputCapabilities: vi.fn(async () => ({
+      adapterId: 'codex-cli',
+      activeTurn: {
+        mode: 'steer',
+        attachments: {
+          disabledReason: null,
+          enabled: true,
+          maxBytesEach: 2_097_152,
+          maxBytesTotal: 2_097_152,
+          maxCount: 4,
+          mimeTypes: ['image/png'],
+        },
+      },
+      revision: 1,
+    })),
     listRemoteHostSummaries: vi.fn(async () => ({ summaries: [], revision: 1 })),
     listRemoteHostEvents: vi.fn(async () => ({ events: [], revision: 1, truncated: false })),
     sendRemoteHostMessage: vi.fn(async () => ({
@@ -113,5 +129,85 @@ describe('useRemoteSessionSource isolated reads and intent identity', () => {
       patch: { codexSandbox: 'read-only' },
     }));
     expect(hook.result.current.selectedSessionId).toBe('successor-session');
+  });
+
+  it('identity-fences context and active-input snapshots across Remote Cores', async () => {
+    const oldContext = deferred<{ contextUsage: null; revision: number }>();
+    const oldInput = deferred<Awaited<ReturnType<
+      typeof window.api.getRemoteHostSessionInputCapabilities
+    >>>();
+    vi.mocked(window.api.getRemoteHostSessionContext).mockImplementation((request) =>
+      request.profileId === 'remote-a'
+        ? oldContext.promise
+        : Promise.resolve({
+            contextUsage: {
+              usedTokens: 22,
+              windowTokens: 100,
+              updatedAt: 9,
+              runtimeIdentity: null,
+            },
+            revision: 3,
+          }));
+    vi.mocked(window.api.getRemoteHostSessionInputCapabilities).mockImplementation((request) =>
+      request.profileId === 'remote-a'
+        ? oldInput.promise
+        : Promise.resolve({
+            adapterId: 'codex-cli',
+            activeTurn: {
+              mode: 'steer',
+              attachments: {
+                disabledReason: 'new Core policy',
+                enabled: false,
+                maxBytesEach: 2_097_152,
+                maxBytesTotal: 2_097_152,
+                maxCount: 4,
+                mimeTypes: ['image/png'],
+              },
+            },
+            revision: 3,
+          }));
+    const remoteA = hosts('remote-a', 1);
+    remoteA.snapshot!.states[0]!.capabilities.push(
+      'sessions.context.read',
+      'sessions.input.read',
+    );
+    const hook = renderHook(
+      ({ value }) => useRemoteSessionSource(value),
+      { initialProps: { value: remoteA } },
+    );
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    act(() => hook.result.current.selectSession('same-session'));
+    await waitFor(() => expect(window.api.getRemoteHostSessionContext).toHaveBeenCalled());
+
+    const remoteB = hosts('remote-b', 2);
+    remoteB.snapshot!.states[1]!.capabilities.push(
+      'sessions.context.read',
+      'sessions.input.read',
+    );
+    hook.rerender({ value: remoteB });
+    await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('remote-b list'));
+    act(() => hook.result.current.selectSession('same-session'));
+    await waitFor(() => expect(hook.result.current.context?.contextUsage?.usedTokens).toBe(22));
+    expect(hook.result.current.inputCapabilities?.activeTurn.attachments.enabled).toBe(false);
+
+    oldContext.resolve({ contextUsage: null, revision: 2 });
+    oldInput.resolve({
+      adapterId: 'codex-cli',
+      activeTurn: {
+        mode: 'steer',
+        attachments: {
+          disabledReason: null,
+          enabled: true,
+          maxBytesEach: 2_097_152,
+          maxBytesTotal: 2_097_152,
+          maxCount: 4,
+          mimeTypes: ['image/png'],
+        },
+      },
+      revision: 2,
+    });
+    await act(async () => { await Promise.all([oldContext.promise, oldInput.promise]); });
+    expect(hook.result.current.context?.contextUsage?.usedTokens).toBe(22);
+    expect(hook.result.current.inputCapabilities?.activeTurn.attachments.enabled).toBe(false);
   });
 });

@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { REMOTE_HOST_PAGE_LIMIT, remoteSessionPageRequest } from '@shared/remote-host';
 import type {
-  RemoteHostJsonObject,
   RemoteHostPendingListDto,
   RemoteHostRuntimeControlsDto,
   RemoteHostSessionPageDto,
   RemoteHostSessionSummaryDto,
   RemoteHostSummaryListDto,
+  RemoteHostSessionContextDto,
+  RemoteHostSessionInputCapabilitiesDto,
 } from '@shared/remote-host';
 import type { RemoteSessionSourceView } from './source-types';
 import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
 import {
   RemoteUserIntentLedger,
-  remoteSessionCreateIntentPayload,
-  remoteAttachmentIntentPayload,
 } from './remote-intent-ledger';
 import { appendUnique, remoteSourceIdentity } from './remote-source-utils';
 import { useRemoteSourceContext } from './use-remote-source-context';
@@ -24,7 +23,7 @@ import { useRemoteEventRecords } from './use-remote-event-records';
 import { RemotePlanReviewTransports } from './remote-plan-review-transports';
 import { useRemotePendingHydrator } from './use-remote-pending-hydrator';
 import { useRemoteBusinessRunner } from './use-remote-business-runner';
-import { pendingPresentationBindingDigest } from './remote-pending-presentation';
+import { createRemoteSessionActions } from './remote-session-actions';
 const EMPTY_PENDING = new Map<string, RemoteHostPendingListDto>();
 
 export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSessionSourceView {
@@ -47,6 +46,9 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const [selectedSession, setSelectedSession] = useState<RemoteHostSessionSummaryDto | null>(null);
   const [pendingBySession, setPendingBySession] = useState<ReadonlyMap<string, RemoteHostPendingListDto>>(EMPTY_PENDING);
   const [runtime, setRuntime] = useState<RemoteHostRuntimeControlsDto | null>(null);
+  const [context, setContext] = useState<RemoteHostSessionContextDto | null>(null);
+  const [inputCapabilities, setInputCapabilities] =
+    useState<RemoteHostSessionInputCapabilitiesDto | null>(null);
   const [summaries, setSummaries] = useState<RemoteHostSummaryListDto | null>(null);
   const [summaryLoadError, setSummaryLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -56,8 +58,9 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const [detailRefreshTick, setDetailRefreshTick] = useState(0);
   const navigation = useRef(new Map<string, string | null>());
   const identityRef = useRef(identity);
-  const { busy, error, reset: resetBusiness, run: runBusiness, setError } =
-    useRemoteBusinessRunner(identityRef, setLocalRevision);
+  const {
+    busy, error, reset: resetBusiness, run: runBusiness, runTerminal: runTerminalBusiness, setError,
+  } = useRemoteBusinessRunner(identityRef, setLocalRevision);
   const runtimeRef = useRef<RemoteHostRuntimeControlsDto | null>(null);
   const listSequence = useRef(0);
   const detailSequence = useRef(0);
@@ -103,6 +106,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     setSelectedSession(null);
     setPendingBySession(EMPTY_PENDING);
     setRuntime(null);
+    setContext(null);
+    setInputCapabilities(null);
     setSummaries(null);
     setSummaryLoadError(null);
     setPaginationBusy(false);
@@ -174,6 +179,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       detailSequence.current += 1;
       setSelectedSession(null);
       setRuntime(null);
+      setContext(null);
+      setInputCapabilities(null);
       runtimeRef.current = null;
       setSummaries(null);
       setSummaryLoadError(null);
@@ -196,6 +203,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         setSelection({ identity, sessionId: null });
         setSelectedSession(null);
         setRuntime(null);
+        setContext(null);
+        setInputCapabilities(null);
         runtimeRef.current = null;
         setSummaries(null);
         setSummaryLoadError(null);
@@ -207,7 +216,13 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       }
       if (nextSession.id !== selectedSessionId) throw new Error('远程 session 身份不匹配。');
       setSelectedSession(nextSession);
-      const { pending: pendingResult, runtime: runtimeResult, summary: summaryResult } =
+      const {
+        pending: pendingResult,
+        runtime: runtimeResult,
+        summary: summaryResult,
+        context: contextResult,
+        input: inputResult,
+      } =
         await requests.optional;
       if (sequence !== detailSequence.current || identityRef.current !== identity) return;
       const optionalErrors: string[] = [];
@@ -229,6 +244,18 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
           ? summaryResult.reason.message : String(summaryResult.reason);
         setSummaryLoadError(message);
         optionalErrors.push(message);
+      }
+      if (contextResult.status === 'fulfilled') setContext(contextResult.value);
+      else {
+        setContext(null);
+        optionalErrors.push(contextResult.reason instanceof Error
+          ? contextResult.reason.message : String(contextResult.reason));
+      }
+      if (inputResult.status === 'fulfilled') setInputCapabilities(inputResult.value);
+      else {
+        setInputCapabilities(null);
+        optionalErrors.push(inputResult.reason instanceof Error
+          ? inputResult.reason.message : String(inputResult.reason));
       }
       if (pendingResult.status === 'fulfilled' && pendingResult.value) {
         const nextPending = pendingResult.value;
@@ -268,6 +295,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     setSelection({ identity: currentIdentity, sessionId });
     setSelectedSession(null);
     setRuntime(null);
+    setContext(null);
+    setInputCapabilities(null);
     runtimeRef.current = null;
     setSummaries(null);
     setSummaryLoadError(null);
@@ -316,6 +345,18 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     requireCapability,
     target,
   });
+  const sessionActions = createRemoteSessionActions({
+    activeProfileId,
+    identityRef,
+    intents: intents.current,
+    requireCapability,
+    runBusiness,
+    runTerminalBusiness,
+    runtimeRef,
+    selectSession,
+    setRuntime,
+    target,
+  });
 
   return {
     addressableIdentityKey,
@@ -336,6 +377,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     profile,
     recoveringWorker,
     runtime,
+    context,
+    inputCapabilities,
     summaryLoadError,
     summaries,
     taskLoadError: selectedSession?.id === selectedSessionId ? taskRecords.error : null,
@@ -349,63 +392,12 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     state,
     usable,
     clearError: () => { setError(null); hosts.clearError(); },
-    createSession: async (input) => {
-      const created = await runBusiness(async () => {
-        requireCapability('session-console.create');
-        if (!activeProfileId) throw new Error('请选择远程配置。');
-        const intentPayload = await remoteSessionCreateIntentPayload(input);
-        return intents.current.run(
-          identityRef.current,
-          'create',
-          intentPayload,
-          (intentId) =>
-          window.api.createRemoteHostSession({
-            profileId: activeProfileId,
-            ...input,
-            intentId,
-          }),
-        );
-      });
-      selectSession(created.sessionId);
-      return created.sessionId;
-    },
-    getSessionCapabilities: async (request) => {
-      requireCapability('session-console.read');
-      if (!activeProfileId) throw new Error('请选择远程配置。');
-      const expectedIdentity = identityRef.current;
-      const result = await window.api.getRemoteHostSessionCapabilities({
-        profileId: activeProfileId,
-        ...request,
-      });
-      if (identityRef.current !== expectedIdentity) {
-        throw new Error('数据源已切换，请重试。');
-      }
-      return result;
-    },
-    listWorkspaceDirectories: async (directory) => {
-      requireCapability('session-console.read');
-      if (!activeProfileId) throw new Error('请选择远程配置。');
-      const expectedIdentity = identityRef.current;
-      const result = await window.api.listRemoteHostWorkspaceDirectories({
-        profileId: activeProfileId,
-        directory,
-      });
-      if (identityRef.current !== expectedIdentity) {
-        throw new Error('数据源已切换，请重试。');
-      }
-      return result;
-    },
+    ...sessionActions,
     ...detailReaders,
     planReviewTransport: (presentation, agentId) => planReviews.get({
       activeProfileId, capabilities, dataRevision, identity,
       currentIdentity: () => identityRef.current,
     }, presentation, agentId),
-    interrupt: () => runBusiness(async () => {
-      requireCapability('sessions.write');
-      const request = target();
-      await intents.current.run(identityRef.current, 'interrupt', request, (intentId) =>
-        window.api.interruptRemoteHostSession({ ...request, intentId }));
-    }),
     loadMoreHistorySessions: async () => {
       if (!activeProfileId || !historySessionNextCursor) return;
       await runPagination<RemoteHostSessionPageDto>(
@@ -433,64 +425,6 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       );
     },
     refresh: () => setLocalRevision((current) => current + 1),
-    respondPending: (presentation, action, value) => runBusiness(async () => {
-      requireCapability('pending.respond');
-      if (!activeProfileId || presentation.sourceIdentity !== identityRef.current) {
-        throw new Error('待处理展示已切换，请刷新后重试。');
-      }
-      const request = presentation.request;
-      const expectedPresentationDigest = await pendingPresentationBindingDigest(request);
-      const payload = {
-        profileId: activeProfileId,
-        sessionId: request.sessionId,
-        requestId: request.id,
-        action,
-        ...(value === undefined ? {} : { value }),
-        expectedRevision: presentation.revision,
-        expectedPresentationDigest,
-      };
-      await intents.current.run(identityRef.current, 'pending', payload, (intentId) =>
-        window.api.respondRemoteHostPending({ ...payload, intentId }));
-    }),
     selectSession,
-    send: (text, attachments = []) => runBusiness(async () => {
-      requireCapability('sessions.write');
-      const request = {
-        ...target(),
-        text,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      };
-      const intentPayload = await remoteAttachmentIntentPayload(text, attachments);
-      await intents.current.run(identityRef.current, 'send', {
-        target: target(),
-        message: intentPayload,
-      }, (intentId) => window.api.sendRemoteHostMessage({ ...request, intentId }));
-    }),
-    steer: (text) => runBusiness(async () => {
-      requireCapability('sessions.write');
-      const request = { ...target(), text };
-      await intents.current.run(identityRef.current, 'steer', request, (intentId) =>
-        window.api.steerRemoteHostSession({ ...request, intentId }));
-    }),
-    updateRuntime: async (patch: RemoteHostJsonObject) => {
-      const result = await runBusiness(async () => {
-        requireCapability('sessions.runtime.write');
-        const controls = runtimeRef.current;
-        if (!controls) throw new Error('运行时控制已变化，请刷新后重试。');
-        const request = {
-          ...target(),
-          patch,
-          expectedRevision: controls.revision,
-        };
-        return intents.current.run(identityRef.current, 'runtime', request, (intentId) =>
-          window.api.updateRemoteHostRuntime({ ...request, intentId }));
-      });
-      if (result.replacementSessionId) {
-        selectSession(result.replacementSessionId);
-        return;
-      }
-      runtimeRef.current = result.controls;
-      setRuntime(result.controls);
-    },
   };
 }

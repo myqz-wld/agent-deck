@@ -67,8 +67,23 @@ const configSource = readFileSync(resolve(deploymentRoot, 'config.mjs'), 'utf8')
 if (
   !configSource.includes('egressVerified') ||
   !configSource.includes('quotaVerified') ||
-  !configSource.includes('workspace 不能指向 Agent Deck 仓库')
+  !configSource.includes('workspace 不能指向 Agent Deck 仓库') ||
+  !configSource.includes('providerSupervisor.grokCredentialFile') ||
+  !configSource.includes('Provider supervisor 必须与 Worker wrapper 来自同一个应用 bin 目录')
 ) fail('部署配置的验收或 Workspace 边界不完整');
+
+const workerSource = readFileSync(resolve(deploymentRoot, 'worker.mjs'), 'utf8');
+const supervisorSource = readFileSync(resolve(deploymentRoot, 'worker-supervisor.mjs'), 'utf8');
+for (const required of [
+  'checkWorkerProviderSupervisor',
+  'deployWorkerProviderSupervisor',
+  'verifyWorkerProviderSupervisor',
+  'install-provider-credential',
+]) {
+  if (!workerSource.includes(required) && !supervisorSource.includes(required)) {
+    fail(`Worker Provider supervisor 部署链丢失 ${required}`);
+  }
+}
 
 for (const path of remoteScripts) {
   const source = readFileSync(resolve(repoRoot, path), 'utf8');

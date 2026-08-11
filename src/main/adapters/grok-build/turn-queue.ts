@@ -97,11 +97,11 @@ export class GrokTurnQueue {
     this.enqueuePrepared(runtime, prepared);
   }
 
-  async steer(runtime: GrokRuntime, text: string): Promise<void> {
+  async steer(runtime: GrokRuntime, text: string, attachments?: UploadedAttachmentRef[]): Promise<void> {
     if (!runtime.running || !runtime.ready || runtime.closed) {
       throw new Error('Grok Build 当前没有可插入内容的活动轮次。');
     }
-    const prepared = this.prepareMessage(runtime, text, undefined);
+    const prepared = this.prepareMessage(runtime, text, attachments);
     if (!prepared) return;
     if (runtime.submittingMessage) {
       throw new Error('当前 Grok Build 消息仍在提交，请稍后再试。');

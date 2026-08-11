@@ -7,8 +7,6 @@ export type SessionDetailTabId =
   | 'diff'
   | 'summary'
   | 'messages'
-  | 'pending'
-  | 'runtime'
   | 'permissions';
 
 export interface SessionDetailTabModel {
@@ -107,8 +105,4 @@ export function SessionCapabilityPlaceholder({ reason }: { reason: string }): JS
       {reason}
     </div>
   );
-}
-
-export function SessionPendingPanel({ children }: { children: ReactNode }): JSX.Element {
-  return <div className="mx-auto max-w-3xl">{children}</div>;
 }

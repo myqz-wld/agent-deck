@@ -14,6 +14,20 @@ export type RemoteHostScopedRequest = <T>(
   additionalMethods?: readonly CoreMethod[],
 ) => Promise<T>;
 
+export interface RemoteHostTerminalScopedResult<T> {
+  result: T;
+  scopeCurrent: boolean;
+}
+
+/** Terminal mutations keep a successful Core result even when desktop source identity moved. */
+export type RemoteHostTerminalScopedRequest = <T>(
+  profileId: string,
+  method: CoreMethod,
+  run: (scope: RemoteHostScopedClient) => Promise<T>,
+  onCurrent?: (result: T) => void,
+  additionalMethods?: readonly CoreMethod[],
+) => Promise<RemoteHostTerminalScopedResult<T>>;
+
 export class RemoteHostScopeEpochs {
   private sourceEpoch = 0;
   private readonly profileEpochs = new Map<string, number>();
@@ -57,3 +71,4 @@ export class RemoteHostScopeEpochs {
 
 export const REMOTE_HOST_INTERACTIVE_DEADLINE_MS = 45_000;
 export const REMOTE_HOST_PLAN_REVIEW_DEADLINE_MS = (5 * 60_000) + 15_000;
+export const REMOTE_HOST_HANDOFF_DEADLINE_MS = (5 * 60_000) + 15_000;

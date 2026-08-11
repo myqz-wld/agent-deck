@@ -49,7 +49,11 @@ export class RemoteHostSessionMutationController {
     return this.request(request.profileId, 'session.steer', async (scope) =>
       parseRemoteHostAcceptedResult(await scope.client.request(
         'session.steer',
-        { sessionId: request.sessionId, text: request.text },
+        {
+          sessionId: request.sessionId,
+          text: request.text,
+          ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
+        },
         this.options('steer', request),
       )));
   }

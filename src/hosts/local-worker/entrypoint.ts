@@ -19,6 +19,7 @@ import {
   createDarwinWorkspaceBookmarkPort,
 } from './terminal-configuration';
 import { LocalWorkerTerminalServiceManager } from './terminal-service';
+import { readLocalWorkerGrokCredential } from './provider-credential';
 
 function runtimeReadRoots(value: string): string[] {
   const parsed = JSON.parse(value) as unknown;
@@ -46,6 +47,16 @@ function preflightLocalWorkerSqlite(): void {
 function terminalServiceFlags(argv: readonly string[]): Record<string, string> {
   const required = [
     '--service-root', '--state-root', '--wrapper',
+    ...(process.platform === 'darwin' ? ['--sandbox-launcher'] : []),
+  ];
+  return parseExactFlags(argv, argv.includes('--worker')
+    ? [...required, '--worker']
+    : required);
+}
+
+function providerCredentialFlags(argv: readonly string[]): Record<string, string> {
+  const required = [
+    '--credential', '--service-root', '--state-root', '--wrapper',
     ...(process.platform === 'darwin' ? ['--sandbox-launcher'] : []),
   ];
   return parseExactFlags(argv, argv.includes('--worker')
@@ -81,6 +92,13 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
     prepareProviderSessionRuntimeDirectories([
       requireAbsolutePath(flags['--root'], 'provider-runtime-root'),
     ]);
+    return 0;
+  }
+  if (command === 'check-provider-credential') {
+    const flags = parseExactFlags(argv.slice(1), ['--credential']);
+    await readLocalWorkerGrokCredential(
+      requireAbsolutePath(flags['--credential'], 'credential'),
+    );
     return 0;
   }
   if (command === 'configure') {
@@ -138,6 +156,15 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
       return 1;
     }
     process.stdout.write(`Worker 已配置并启动：${installed.workerConfigId}\n`);
+    return 0;
+  }
+  if (command === 'install-provider-credential') {
+    const flags = providerCredentialFlags(argv.slice(1));
+    const status = await terminalServiceManager(flags).installProviderCredential(
+      requireAbsolutePath(flags['--credential'], 'credential'),
+      flags['--worker'],
+    );
+    process.stdout.write(`Worker Provider 凭证已安装：${status.workerConfigId}\n`);
     return 0;
   }
   if (['start', 'status', 'stop', 'remove'].includes(command)) {
@@ -203,7 +230,9 @@ if (invokedAsEntrypoint) {
         ? 'Local Worker 的 Node SQLite ABI 预检失败。\n'
         : entrypointArgv[0] === 'configure'
           ? 'Worker 配置失败；详细输入已隐藏。\n'
-          : ['start', 'status', 'stop', 'remove'].includes(entrypointArgv[0] ?? '')
+          : ['start', 'status', 'stop', 'remove', 'install-provider-credential'].includes(
+            entrypointArgv[0] ?? '',
+          )
             ? 'Worker 服务管理失败；详细输入已隐藏。\n'
           : 'Local Worker 启动失败；详细输入已隐藏。\n');
       process.exitCode = 1;

@@ -65,14 +65,6 @@ function token(value: unknown, maximumBytes = MAX_IDENTIFIER_BYTES): string {
   return value;
 }
 
-function text(value: unknown): string {
-  if (
-    typeof value !== 'string' || value.length === 0 ||
-    Buffer.byteLength(value) > MAX_TEXT_BYTES || CONTROL.test(value)
-  ) invalid();
-  return value;
-}
-
 function boundedJson(value: unknown): JsonValue {
   if (!isJsonValue(value) || Buffer.byteLength(JSON.stringify(value)) > MAX_JSON_BYTES) invalid();
   return value;
@@ -123,8 +115,7 @@ export function parseSendParams(params: JsonObject): ServerCoreSendParams {
 }
 
 export function parseSteerParams(params: JsonObject): ServerCoreSendParams {
-  exactKeys(params, ['sessionId', 'text']);
-  return { sessionId: token(params.sessionId), text: text(params.text), attachments: [] };
+  return parseSendParams(params);
 }
 
 export function parsePendingResponseParams(

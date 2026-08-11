@@ -3,5 +3,11 @@
   "name": "mac-worker-for-aws-relay",
   "wrapper": "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck-worker",
   "credentialFile": "/Users/yourname/.config/agent-deck-deploy/aws-relay-worker.agentdeck-connection",
-  "workspace": "/Users/yourname/AgentDeckWorkspaces"
+  "workspace": "/Users/yourname/AgentDeckWorkspaces",
+  "providerSupervisor": {
+    "command": "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck-provider-supervisor",
+    "configFile": "/Users/yourname/.config/agent-deck-deploy/aws-relay-provider-supervisor.json",
+    "grokCredentialFile": "/Users/yourname/.config/agent-deck-deploy/grok-auth.json",
+    "workerConfigId": "worker-000000000000000000000000"
+  }
 }

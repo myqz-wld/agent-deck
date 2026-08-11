@@ -176,7 +176,10 @@ function harness(input: HarnessOptions = {}) {
       prepareSessionTransfer,
       releaseSession: releasePresentation,
     } as unknown as ServerCoreMcpPresentationPort,
-    metadata: { appendChange } as unknown as ServerCoreRuntimeMetadataStore,
+    metadata: {
+      appendChange,
+      currentRevision: () => revision,
+    } as unknown as ServerCoreRuntimeMetadataStore,
     warn: vi.fn(),
   });
   return {
@@ -242,10 +245,18 @@ afterEach(() => {
 describe.skipIf(!bindingAvailable)('ServerCoreMcpHandOff', () => {
   it('uses the bounded lower candidate, moves ownership, and never exposes private paths', async () => {
     const state = harness({ acceptance: ['context-window-exceeded', 'accepted'] });
-    const result = await state.handoff.handOff(state.sourceId, {
+    const preview = await state.handoff.preview(state.sourceId, {
       prompt: 'Continue from the authoritative checkpoint',
     });
+    const result = await state.handoff.handOff(state.sourceId, {
+      prompt: 'Continue from the authoritative checkpoint',
+    }, preview.bindingDigest);
 
+    expect(preview.target).toMatchObject({
+      adapterId: 'codex-cli', workingDirectory: 'project-a',
+    });
+    expect(preview.bindingDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(preview.preview).not.toContain(state.privateAttachmentPath);
     expect(state.turns).toHaveLength(2);
     expect(state.turns[0]?.providerPrompt).not.toContain(state.privateAttachmentPath);
     expect(state.turns[1]?.providerPrompt).not.toContain(state.privateAttachmentPath);
@@ -284,6 +295,18 @@ describe.skipIf(!bindingAvailable)('ServerCoreMcpHandOff', () => {
     expect(state.retireSessionAfterCurrentTurn).toHaveBeenCalledWith(state.sourceId);
     expect(JSON.stringify(result)).not.toContain(state.privateAttachmentPath);
     expect(JSON.stringify(result)).not.toContain(state.root);
+  });
+
+  it('rejects a commit whose preview binding does not match the source and target', async () => {
+    const state = harness();
+    const preview = await state.handoff.preview(state.sourceId, {
+      prompt: 'Continue after preview',
+    });
+    await expect(state.handoff.handOff(state.sourceId, {
+      prompt: 'Different instruction after preview',
+    }, preview.bindingDigest)).rejects.toThrow('preview no longer matches');
+    expect(state.createTargets).toEqual([]);
+    expect(sessionRepo.get(state.sourceId)?.lifecycle).toBe('active');
   });
 
   it('strictly removes the successor and preserves the source when runtime state drifts', async () => {

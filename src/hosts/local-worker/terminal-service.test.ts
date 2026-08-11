@@ -227,6 +227,40 @@ describe('terminal-only Local Worker service lifecycle', () => {
     await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
   });
 
+  it('projects one validated Grok credential into the selected Worker private root', async () => {
+    const paths = fixture();
+    const worker = await installed(paths, 'darwin');
+    const credentialFile = join(dirname(paths.stateRoot), 'grok-auth.json');
+    writeFileSync(credentialFile, `${JSON.stringify({
+      'xai::cached': {
+        auth_mode: 'oauth',
+        key: 'fixture-provider-token',
+        expires_at: '2999-01-01T00:00:00.000Z',
+      },
+    })}\n`, { mode: 0o600 });
+    chmodSync(credentialFile, 0o600);
+    const manager = new LocalWorkerTerminalServiceManager({
+      platform: 'darwin',
+      serviceRoot: paths.serviceRoot,
+      stateRoot: paths.stateRoot,
+      wrapperPath: paths.wrapperPath,
+      uid: CURRENT_UID,
+      commands: new FakeServiceCommands(),
+      providerRuntimeRoot: () => paths.providerRuntimeRoot,
+      darwinSandboxLauncherPath: paths.sandboxLauncherPath,
+    });
+
+    await expect(manager.installProviderCredential(
+      credentialFile,
+      worker.workerConfigId,
+    )).resolves.toEqual({ state: 'stopped', workerConfigId: worker.workerConfigId });
+
+    const target = join(worker.privateRoot, 'provider-inference', 'grok-auth.json');
+    expect(statSync(dirname(target)).mode & 0o777).toBe(0o700);
+    expect(statSync(target).mode & 0o777).toBe(0o600);
+    expect(readFileSync(target, 'utf8')).not.toContain('unexpected');
+  });
+
   it('reports an unconfigured state without inventing a Worker', async () => {
     const paths = fixture();
     const manager = new LocalWorkerTerminalServiceManager({

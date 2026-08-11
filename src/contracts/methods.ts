@@ -81,6 +81,17 @@ import type {
   NodeAssetConventionResult,
   NodeAssetListResult,
 } from './node-assets';
+import type { SessionContextGetParams, SessionContextGetResult } from './session-context';
+import type {
+  SessionInputCapabilitiesParams,
+  SessionInputCapabilitiesResult,
+} from './session-input';
+import type {
+  SessionHandOffCommitParams,
+  SessionHandOffCommitResult,
+  SessionHandOffPreviewParams,
+  SessionHandOffPreviewResult,
+} from './session-handoff';
 
 export interface SessionListItemDto {
   id: string;
@@ -255,7 +266,7 @@ export type CoreMethodMap = {
     result: { accepted: boolean; revision: number };
   };
   'session.steer': {
-    params: { sessionId: string; text: string };
+    params: { sessionId: string; text: string; attachments?: SessionConsoleAttachmentInput[] };
     result: { accepted: boolean; revision: number };
   };
   'pending.list': {
@@ -289,6 +300,22 @@ export type CoreMethodMap = {
       effect: 'hot-applied' | 'handoff-required' | 'restart-required';
       replacementSessionId: string | null;
     };
+  };
+  'session.context.get': {
+    params: SessionContextGetParams;
+    result: SessionContextGetResult;
+  };
+  'session.input.capabilities': {
+    params: SessionInputCapabilitiesParams;
+    result: SessionInputCapabilitiesResult;
+  };
+  'session.handoff.preview': {
+    params: SessionHandOffPreviewParams;
+    result: SessionHandOffPreviewResult;
+  };
+  'session.handoff.commit': {
+    params: SessionHandOffCommitParams;
+    result: SessionHandOffCommitResult;
   };
   'subscription.set': {
     params: { sessionId: string; subscribed: boolean };
@@ -403,6 +430,10 @@ export const CORE_METHOD_METADATA = {
     AgentDeckCapability.SessionRuntimeWrite,
     'required',
   ),
+  'session.context.get': readMethod(AgentDeckCapability.SessionContextRead, 'none'),
+  'session.input.capabilities': readMethod(AgentDeckCapability.SessionInputRead, 'none'),
+  'session.handoff.preview': readMethod(AgentDeckCapability.SessionHandOff, 'none'),
+  'session.handoff.commit': mutationMethod(AgentDeckCapability.SessionHandOff, 'none', 'none'),
   'subscription.set': mutationMethod(AgentDeckCapability.SubscriptionsWrite),
 } as const satisfies Record<keyof CoreMethodMap, CoreMethodMetadata>;
 

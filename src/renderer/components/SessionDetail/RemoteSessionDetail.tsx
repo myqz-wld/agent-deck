@@ -2,19 +2,21 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RuntimeMetadataChips } from '../SessionMetadataChips';
-import { SessionContextUnavailableChip } from '../SessionContextUsageChip';
+import {
+  SessionContextUnavailableChip,
+  SessionContextUsageChip,
+} from '../SessionContextUsageChip';
 import { ActivityRecordsView } from '../activity-feed';
 import { SummaryRecordsView } from '../SummaryView';
-import { RemotePendingRequests } from '../pending-rows/RemotePendingRequests';
 import { RemoteDiffPanel } from './RemoteDiffPanel';
 import { TaskRecordsView } from './TasksPanel';
 import {
   SessionDetailShell,
-  SessionPendingPanel,
   type SessionDetailTabId,
   type SessionDetailTabModel,
 } from './SessionDetailShell';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
+import { RemoteHandOffDialog } from './RemoteHandOffDialog';
 
 const UNSUPPORTED = {
   messages: '当前远程 Session Console 协议未提供跨会话消息。',
@@ -26,6 +28,11 @@ const LOADING_TABS: readonly SessionDetailTabModel[] = [{
   content: <div className="py-10 text-center text-[10px] text-deck-muted">正在读取远程 session…</div>,
 }];
 
+interface HandOffNotice {
+  sessionId: string;
+  text: string;
+}
+
 export function RemoteSessionDetail({
   source,
   onClose,
@@ -34,17 +41,20 @@ export function RemoteSessionDetail({
   onClose: () => void;
 }): JSX.Element {
   const [tab, setTab] = useState<SessionDetailTabId>('activity');
+  const [handOffOpen, setHandOffOpen] = useState(false);
+  const [handOffNotice, setHandOffNotice] = useState<HandOffNotice | null>(null);
   const session = source.selectedSession?.id === source.selectedSessionId
     ? source.selectedSession
     : null;
 
   useEffect(() => {
     setTab('activity');
+    setHandOffOpen(false);
   }, [session?.id, source.identity]);
 
+  useEffect(() => setHandOffNotice(null), [source.identity]);
+
   const canReadEvents = source.capabilities.has('events.replay');
-  const canReadPending = source.capabilities.has('pending.read');
-  const canReadRuntime = source.capabilities.has('sessions.runtime.read');
   const canReadSummaries = source.capabilities.has('sessions.summaries.read');
   const canReadFileChanges = source.capabilities.has('sessions.file-changes.read');
   const canReadTasks = source.capabilities.has('tasks');
@@ -106,34 +116,9 @@ export function RemoteSessionDetail({
         : '此远程 Core 未提供会话总结读取能力。',
     },
     { id: 'messages', label: '跨会话', content: null, unavailableReason: UNSUPPORTED.messages },
-    {
-      id: 'pending',
-      label: '待处理',
-      unavailableReason: canReadPending ? undefined : '此远程 Core 未提供待处理请求读取能力。',
-      content: (
-        <SessionPendingPanel>
-          <RemotePendingRequests
-            pending={source.selectedPending ?? { requests: [], revision: 0 }}
-            sourceIdentity={source.identity}
-            agentId={session?.adapterId ?? 'remote'}
-            busy={source.busy}
-            onRespond={source.respondPending}
-            planReviewTransport={source.planReviewTransport}
-          />
-        </SessionPendingPanel>
-      ),
-    },
-    {
-      id: 'runtime',
-      label: '运行时',
-      content: null,
-      unavailableReason: canReadRuntime
-        ? '远端运行时控制已与 Local 一样放在发送框上方，并直接写入当前 Worker 会话。'
-        : '此远程 Core 未提供运行时读取能力。',
-    },
     { id: 'permissions', label: '权限', content: null, unavailableReason: UNSUPPORTED.permissions },
   ], [
-    canReadEvents, canReadFileChanges, canReadPending, canReadRuntime,
+    canReadEvents, canReadFileChanges,
     canReadSummaries, canReadTasks, session?.id, source,
   ]);
 
@@ -150,8 +135,11 @@ export function RemoteSessionDetail({
         </div>
       )
     : undefined;
-  const alert = source.error
-    ? <div role="alert" className="border-t border-red-400/15 bg-red-500/10 px-3 py-1.5 text-[10px] text-red-200">{source.error}</div>
+  const alertText = handOffNotice?.sessionId === session.id
+    ? handOffNotice.text
+    : source.error;
+  const alert = alertText
+    ? <div role="alert" className="border-t border-red-400/15 bg-red-500/10 px-3 py-1.5 text-[10px] text-red-200">{alertText}</div>
     : undefined;
   return (
     <SessionDetailShell
@@ -169,8 +157,23 @@ export function RemoteSessionDetail({
           source={source}
           adapterId={session.adapterId}
           sessionId={session.id}
+          onHandOff={() => { setHandOffNotice(null); setHandOffOpen(true); }}
         />
       )}
+      overlay={handOffOpen ? (
+        <RemoteHandOffDialog
+          source={source}
+          sessionId={session.id}
+          onClose={() => setHandOffOpen(false)}
+          onCommitted={(result) => {
+            setHandOffOpen(false);
+            setHandOffNotice(result.sourceFinalizationWarning
+              ? { sessionId: result.successorSessionId, text: result.sourceFinalizationWarning }
+              : null);
+            source.selectSession(result.successorSessionId);
+          }}
+        />
+      ) : undefined}
       onClose={onClose}
     />
   );
@@ -183,7 +186,16 @@ function RemoteSessionMetadata({ source }: { source: RemoteSessionSourceView }):
   return (
     <>
       <RuntimeMetadataChips model={model} thinking={thinking} compact />
-      <SessionContextUnavailableChip reason="当前 Remote Session Console 尚未暴露可归属到运行时身份的上下文窗口快照；不会显示本机会话的用量。" />
+      {source.capabilities.has('sessions.context.read') && source.selectedSession
+        ? (
+            <SessionContextUsageChip session={{
+              agentId: source.selectedSession.adapterId,
+              contextUsage: source.context?.contextUsage ?? null,
+            }} />
+          )
+        : (
+            <SessionContextUnavailableChip reason="此 Remote Core 未提供可归属到 Worker runtime identity 的上下文窗口快照；不会回退显示本机会话数据。" />
+          )}
     </>
   );
 }

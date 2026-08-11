@@ -228,7 +228,8 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   const isSdk = session.source === 'sdk';
   const turnBusy = session.activity === 'working';
   const canSteerTurn = session.agentId === 'codex-cli' || session.agentId === 'grok-build';
-  const canSteerTurnAttachments = session.agentId === 'grok-build';
+  const canSteerTurnAttachments =
+    session.agentId === 'codex-cli' || session.agentId === 'grok-build';
   const canPin =
     session.archivedAt === null &&
     (session.lifecycle === 'active' || session.lifecycle === 'dormant');
@@ -274,8 +275,6 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     },
     { id: 'summary', label: '总结', content: <SummaryView sessionId={session.id} /> },
     { id: 'messages', label: '跨会话', content: <MessagesPanel sessionId={session.id} /> },
-    { id: 'pending', label: '待处理', content: null, unavailableReason: '本地待处理请求统一显示在顶部“待处理”页面。' },
-    { id: 'runtime', label: '运行时', content: null, unavailableReason: '本地运行时配置继续由现有会话控制面管理。' },
     {
       id: 'permissions',
       label: '权限',

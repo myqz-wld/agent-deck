@@ -1,4 +1,5 @@
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import type { SessionHandOffPreviewResult } from '@contracts/index';
 import type { HandOffSessionResult } from '@main/agent-deck-mcp/tools/schemas';
 import type { AgentAdapter, CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
@@ -18,10 +19,15 @@ import {
   prepareServerCoreHandOffContinuation,
   type PreparedServerCoreHandOffContinuation,
 } from './mcp-handoff-continuation';
+import { ServerCoreHandOffPreviewConflictError } from './mcp-handoff-errors';
 import type {
   ServerCoreHandOffSessionArgs,
   ServerCoreMcpHandOffPort,
 } from './mcp-handoff-port';
+import {
+  serverCoreHandOffBindingDigest,
+  serverCoreHandOffPreviewResult,
+} from './mcp-handoff-preview';
 import { resolveServerCoreHandOffTarget } from './mcp-handoff-target';
 import { transferServerCoreHandOffResources } from './mcp-handoff-transfer';
 import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
@@ -83,9 +89,50 @@ function safeWarn(warn: ((message: string) => void) | undefined, message: string
 export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
   constructor(private readonly options: ServerCoreMcpHandOffOptions) {}
 
+  async preview(
+    callerSessionId: string,
+    args: ServerCoreHandOffSessionArgs,
+  ): Promise<SessionHandOffPreviewResult> {
+    const source = liveSource(this.options.sessions, callerSessionId);
+    const provisional = await resolveServerCoreHandOffTarget({
+      args,
+      source,
+      workspaceRoot: this.options.workspaceRoot,
+      capabilities: this.options.capabilities,
+      sourceMaxEventId: null,
+    });
+    this.assertWorktreeTarget(source, provisional.cwd);
+    const cwdLease = serverCoreWorktreeReferenceFence.acquireReference(provisional.cwd);
+    let prepared: PreparedServerCoreHandOffContinuation | null = null;
+    try {
+      prepared = prepareServerCoreHandOffContinuation({
+        sourceSessionId: source.id,
+        instruction: args.prompt,
+        target: provisional.spec,
+        workspaceRoot: this.options.workspaceRoot,
+      });
+      const current = checkHandOffSourcePrecondition({
+        sourceSessionId: source.id,
+        expected: prepared.sourcePrecondition,
+      });
+      if (!current.ok) throw new ServerCoreHandOffPreviewConflictError();
+      return serverCoreHandOffPreviewResult({
+        sourceSessionId: source.id,
+        args,
+        target: provisional,
+        prepared,
+        revision: this.options.metadata.currentRevision(),
+      });
+    } finally {
+      try { prepared?.cleanup(); } catch {}
+      cwdLease.release();
+    }
+  }
+
   async handOff(
     callerSessionId: string,
     args: ServerCoreHandOffSessionArgs,
+    expectedPreviewDigest?: string,
   ): Promise<HandOffSessionResult> {
     const source = liveSource(this.options.sessions, callerSessionId);
     const lease = handOffCutoverCoordinator.tryAcquire(source.id);
@@ -101,15 +148,7 @@ export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
         capabilities: this.options.capabilities,
         sourceMaxEventId: null,
       });
-      const transition = worktreeTransitionRepo.get(source.id);
-      if (transition && transition.phase !== 'cleared') {
-        if (transition.phase !== 'active') {
-          throw new Error('Worktree transition must settle before handoff');
-        }
-        if (provisional.cwd !== transition.worktreePath) {
-          throw new Error('Handoff cwd must match the active worktree lease');
-        }
-      }
+      this.assertWorktreeTarget(source, provisional.cwd);
       cwdLease = serverCoreWorktreeReferenceFence.acquireReference(provisional.cwd);
       prepared = prepareServerCoreHandOffContinuation({
         sourceSessionId: source.id,
@@ -117,6 +156,15 @@ export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
         target: provisional.spec,
         workspaceRoot: this.options.workspaceRoot,
       });
+      if (
+        expectedPreviewDigest &&
+        serverCoreHandOffBindingDigest({
+          sourceSessionId: source.id,
+          args,
+          target: provisional,
+          prepared,
+        }) !== expectedPreviewDigest
+      ) throw new ServerCoreHandOffPreviewConflictError();
       if (provisional.createOptions.handOff) {
         provisional.createOptions.handOff.sourceMaxEventId =
           prepared.sourcePrecondition.maxEventId;
@@ -188,6 +236,17 @@ export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
       try { prepared?.cleanup(); } catch {}
       cwdLease?.release();
       lease.release();
+    }
+  }
+
+  private assertWorktreeTarget(source: SessionRecord, cwd: string): void {
+    const transition = worktreeTransitionRepo.get(source.id);
+    if (!transition || transition.phase === 'cleared') return;
+    if (transition.phase !== 'active') {
+      throw new Error('Worktree transition must settle before handoff');
+    }
+    if (cwd !== transition.worktreePath) {
+      throw new Error('Handoff cwd must match the active worktree lease');
     }
   }
 

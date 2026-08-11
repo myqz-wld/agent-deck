@@ -215,6 +215,7 @@ for required in \
   'agent-deck-worker stop' \
   'agent-deck-worker start' \
   'agent-deck-worker remove' \
+  'agent-deck-worker install-provider-credential' \
   'agent-deck-provider-supervisor' \
   'runtime-paths' \
   'health-config' \
@@ -236,6 +237,8 @@ for required in \
   'agent-deck-worker-bookmark' \
   'Agent Deck Worker Node' \
   'prepare-provider-runtime' \
+  'check-provider-credential' \
+  'install-provider-credential' \
   'prepare_sandboxed_node_environment'; do
   grep -Fq -- "$required" "$relay_dir/../../../resources/bin/agent-deck-worker" || {
     echo "relay static check: Worker outer sandbox wrapper lost $required" >&2

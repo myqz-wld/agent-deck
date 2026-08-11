@@ -5,6 +5,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
 
+const ACTIVE_IMAGE_POLICY = {
+  disabledReason: null,
+  enabled: true,
+  maxBytesEach: 2 * 1024 * 1024,
+  maxBytesTotal: 2 * 1024 * 1024,
+  maxCount: 4,
+  mimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+};
+
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, 'api');
@@ -97,14 +106,113 @@ describe('RemoteSessionComposer parity and authority', () => {
     expect(listLocalCodexProviders).not.toHaveBeenCalled();
   });
 
-  it('keeps active-turn Codex steering text-only and on the selected Remote source', async () => {
+  it('routes active-turn Codex text and images through Remote steer', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { confirmDialog: vi.fn() },
+    });
+    const remote = source({
+      capabilities: new Set([
+        'sessions.write',
+        'sessions.runtime.write',
+        'session-console.read',
+        'sessions.input.read',
+      ]),
+      selectedSession: {
+        id: 'session-a', adapterId: 'codex-cli', title: 'Remote Codex',
+        status: 'active-working', createdAt: 1, updatedAt: 2,
+      },
+      runtime: {
+        adapterId: 'codex-cli',
+        values: {
+          provider: '', model: 'gpt-5.6-sol', thinking: 'low',
+          approvalPolicy: 'on-request', codexSandbox: 'workspace-write',
+        },
+        revision: 5,
+      },
+      inputCapabilities: {
+        adapterId: 'codex-cli',
+        activeTurn: { mode: 'steer', attachments: ACTIVE_IMAGE_POLICY },
+        revision: 6,
+      },
+    });
+    const { container } = render(<RemoteSessionComposer
+      source={remote}
+      adapterId="codex-cli"
+      sessionId="session-a"
+    />);
+
+    expect(await screen.findByPlaceholderText(/修正当前 Remote Codex CLI 轮次/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '上传图片' })).toBeTruthy();
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).toBeTruthy();
+    fireEvent.change(fileInput!, {
+      target: { files: [new File([new Uint8Array([97])], 'steer.gif', { type: 'image/gif' })] },
+    });
+    await screen.findByAltText('steer.gif');
+    fireEvent.change(screen.getByPlaceholderText(/修正当前 Remote Codex CLI 轮次/), {
+      target: { value: 'focus on the failing test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '修正' }));
+    await waitFor(() => expect(remote.steer).toHaveBeenCalledWith(
+      'focus on the failing test',
+      [{ kind: 'image', base64: 'YQ==', mime: 'image/gif', bytes: 1 }],
+    ));
+    expect(remote.send).not.toHaveBeenCalled();
+  });
+
+  it('queues active-turn Claude images through Remote send instead of steer', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { confirmDialog: vi.fn() },
+    });
+    const remote = source({
+      capabilities: new Set([
+        'sessions.write',
+        'sessions.runtime.write',
+        'session-console.read',
+        'sessions.input.read',
+      ]),
+      selectedSession: {
+        id: 'session-a', adapterId: 'claude-code', title: 'Remote Claude',
+        status: 'active-working', createdAt: 1, updatedAt: 2,
+      },
+      inputCapabilities: {
+        adapterId: 'claude-code',
+        activeTurn: { mode: 'queue', attachments: ACTIVE_IMAGE_POLICY },
+        revision: 6,
+      },
+    });
+    const { container } = render(<RemoteSessionComposer
+      source={remote}
+      adapterId="claude-code"
+      sessionId="session-a"
+    />);
+
+    const input = await screen.findByPlaceholderText(/排队发送给当前 Remote Claude Code 轮次/);
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(fileInput!, {
+      target: { files: [new File([new Uint8Array([98])], 'queued.gif', { type: 'image/gif' })] },
+    });
+    await screen.findByAltText('queued.gif');
+    fireEvent.change(input, { target: { value: 'consider this image next' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(remote.send).toHaveBeenCalledWith(
+      'consider this image next',
+      [{ kind: 'image', base64: 'Yg==', mime: 'image/gif', bytes: 1 }],
+    ));
+    expect(remote.steer).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy active-turn steering text-only without the negotiated input capability', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: { confirmDialog: vi.fn() },
     });
     const remote = source({
       selectedSession: {
-        id: 'session-a', adapterId: 'codex-cli', title: 'Remote Codex',
+        id: 'session-a', adapterId: 'codex-cli', title: 'Legacy Remote Codex',
         status: 'active-working', createdAt: 1, updatedAt: 2,
       },
       runtime: {
@@ -122,14 +230,11 @@ describe('RemoteSessionComposer parity and authority', () => {
       sessionId="session-a"
     />);
 
-    expect(await screen.findByPlaceholderText(/修正当前 Remote Codex CLI 轮次/)).toBeTruthy();
+    const input = await screen.findByPlaceholderText(/修正当前 Remote Codex CLI 轮次/);
     expect(screen.queryByRole('button', { name: '上传图片' })).toBeNull();
-    fireEvent.change(screen.getByPlaceholderText(/修正当前 Remote Codex CLI 轮次/), {
-      target: { value: 'focus on the failing test' },
-    });
+    fireEvent.change(input, { target: { value: 'text only' } });
     fireEvent.click(screen.getByRole('button', { name: '修正' }));
-    await waitFor(() => expect(remote.steer).toHaveBeenCalledWith('focus on the failing test'));
-    expect(remote.send).not.toHaveBeenCalled();
+    await waitFor(() => expect(remote.steer).toHaveBeenCalledWith('text only', []));
   });
 
   it('filters the file picker with the Worker-negotiated attachment MIME policy', async () => {

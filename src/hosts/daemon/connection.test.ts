@@ -4,7 +4,6 @@ import {
   type AuthenticatedClientAccessContext,
 } from '@contracts/index';
 import { describe, expect, it, vi } from 'vitest';
-
 import {
   createHost,
   createRuntime,
@@ -22,11 +21,11 @@ describe('daemon framed connection', () => {
     const runtime = createRuntime({
       supportedMethods: [
         'teams.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.list',
+        'session.context.get', 'session.input.capabilities', 'session.handoff.preview',
       ],
     });
     const host = createHost(runtime);
     await host.start();
-
     const legacy = new TestDuplex();
     host.accept({ stream: legacy, createAccessContext: sshAccess });
     legacy.feed(hello('desktop-v2-0', 'server-core', { major: 2, minor: 0 }));
@@ -37,7 +36,6 @@ describe('daemon framed connection', () => {
         capabilities: ['teams'],
       },
     });
-
     const current = new TestDuplex();
     host.accept({ stream: current, createAccessContext: sshAccess });
     current.feed(hello('desktop-v2-1', 'server-core', { major: 2, minor: 1 }));
@@ -48,7 +46,6 @@ describe('daemon framed connection', () => {
         capabilities: ['teams', 'usage'],
       },
     });
-
     const latest = new TestDuplex();
     host.accept({ stream: latest, createAccessContext: sshAccess });
     latest.feed(hello('desktop-v2-2', 'server-core', { major: 2, minor: 2 }));
@@ -57,6 +54,19 @@ describe('daemon framed connection', () => {
       hello: {
         protocolVersion: { major: 2, minor: 2 },
         capabilities: ['teams', 'usage', 'node.configuration', 'node.assets'],
+      },
+    });
+    const newest = new TestDuplex();
+    host.accept({ stream: newest, createAccessContext: sshAccess });
+    newest.feed(hello('desktop-v2-3', 'server-core', { major: 2, minor: 3 }));
+    await waitFor(() => Boolean(findMessage(newest, 'hello-result')), 'newest hello-result');
+    expect(findMessage(newest, 'hello-result')).toMatchObject({
+      hello: {
+        protocolVersion: { major: 2, minor: 3 },
+        capabilities: [
+          'teams', 'usage', 'node.configuration', 'node.assets',
+          'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
+        ],
       },
     });
     await host.stop();
@@ -83,7 +93,6 @@ describe('daemon framed connection', () => {
           transportPrivateSecret: 'must-not-cross-the-wire',
         }) as unknown as AuthenticatedClientAccessContext,
     });
-
     stream.feed(hello('desktop-1'));
     await waitFor(() => Boolean(findMessage(stream, 'hello-result')), 'hello-result');
     const helloResult = findMessage(stream, 'hello-result') as unknown as {
@@ -98,7 +107,6 @@ describe('daemon framed connection', () => {
       },
     });
     expect(helloResult.hello.access).not.toHaveProperty('transportPrivateSecret');
-
     stream.feed({ type: 'ping', nonce: 'ping-1' });
     stream.feed({
       ...request('list-1', 'session.list'),
@@ -166,7 +174,6 @@ describe('daemon framed connection', () => {
     });
     await host.stop();
   });
-
   it('rejects incompatible topology and malformed frames without stopping Core', async () => {
     const stop = vi.fn(async () => undefined);
     const runtime = createRuntime({ stop });

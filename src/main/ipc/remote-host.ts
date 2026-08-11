@@ -44,6 +44,8 @@ import {
   parseRemoteHostSessionCapabilitiesRequest,
   parseRemoteHostSessionPageRequest,
   parseRemoteHostSessionTarget,
+  parseRemoteHostHandOffPreview,
+  parseRemoteHostHandOffCommit,
   parseRemoteHostWorkspaceDirectoryRequest,
   publicRemoteHostError,
 } from '@main/remote-host';
@@ -200,6 +202,16 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().interrupt(parseRemoteHostMutationTarget(request))));
   on(RemoteHostIpcInvoke.SessionSteer, (_event, request) => safely(() =>
     getRemoteHostService().steer(parseRemoteHostSend(request))));
+  on(RemoteHostIpcInvoke.SessionContextGet, (_event, request) => safely(() =>
+    getRemoteHostService().getSessionContext(parseRemoteHostSessionTarget(request))));
+  on(RemoteHostIpcInvoke.SessionInputCapabilities, (_event, request) => safely(() =>
+    getRemoteHostService().getSessionInputCapabilities(
+      parseRemoteHostSessionTarget(request),
+    )));
+  on(RemoteHostIpcInvoke.SessionHandOffPreview, (_event, request) => safely(() =>
+    getRemoteHostService().handoff.preview(parseRemoteHostHandOffPreview(request))));
+  on(RemoteHostIpcInvoke.SessionHandOffCommit, (_event, request) => safely(() =>
+    getRemoteHostService().handoff.commit(parseRemoteHostHandOffCommit(request))));
   on(RemoteHostIpcInvoke.PendingList, (_event, request) => safely(() =>
     getRemoteHostService().listPending(parseRemoteHostSessionTarget(request))));
   on(RemoteHostIpcInvoke.PendingRespond, (_event, request) => safely(() =>

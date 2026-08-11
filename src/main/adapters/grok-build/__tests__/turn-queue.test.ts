@@ -12,7 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GrokAcpProcess } from '../acp-process';
 import { GROK_SESSION_INFO_METHOD } from '../context-usage';
 import { GrokTurnQueue } from '../turn-queue';
-import { requireNativeSession } from '../turn-queue-helpers';
+import {
+  negotiatedGrokSessionImageCapability,
+  requireNativeSession,
+} from '../turn-queue-helpers';
 import type { GrokRuntime } from '../runtime-types';
 import { createGrokTranslationState, translateGrokUpdate } from '../translate';
 
@@ -82,6 +85,20 @@ function makeQueue(firstModelEventTimeoutMs?: number) {
 }
 
 describe('GrokTurnQueue active-turn delivery', () => {
+  it('keeps image negotiation bound to each live ACP runtime', () => {
+    const disabled = makeRuntime(vi.fn());
+    disabled.process!.initializeResponse.agentCapabilities = {
+      promptCapabilities: { image: false },
+    };
+    const enabled = makeRuntime(vi.fn());
+
+    expect(negotiatedGrokSessionImageCapability(disabled)).toBe(false);
+    expect(negotiatedGrokSessionImageCapability(enabled)).toBe(true);
+    expect(negotiatedGrokSessionImageCapability(undefined)).toBeNull();
+    enabled.ready = false;
+    expect(negotiatedGrokSessionImageCapability(enabled)).toBe(false);
+  });
+
   it('sends providerText privately while persisting the public handoff text', async () => {
     const request = vi.fn(async (method: string) => {
       if (method === methods.agent.session.prompt) {
@@ -245,7 +262,7 @@ describe('GrokTurnQueue active-turn delivery', () => {
     }));
   });
 
-  it('passes image content through x.ai/interject', async () => {
+  it('passes active-turn steer images through x.ai/interject', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'agent-deck-grok-'));
     const imagePath = join(directory, 'input.png');
     await writeFile(imagePath, Buffer.from([0, 1, 2, 3]));
@@ -255,7 +272,7 @@ describe('GrokTurnQueue active-turn delivery', () => {
       runtime.running = true;
       const { queue } = makeQueue();
 
-      await queue.send(runtime, 'look at this', [
+      await queue.steer(runtime, 'look at this', [
         { kind: 'uploaded', path: imagePath, mime: 'image/png', bytes: 4 },
       ]);
 
