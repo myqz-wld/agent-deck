@@ -51,6 +51,7 @@ export interface ServerCoreEventRepositoryPort {
 
 export interface ServerCoreSessionManagerObserver {
   eventPersisted(event: AgentEvent, eventId: number): void;
+  tokenUsageObserved(event: AgentEvent): void;
   sessionUpdated(session: SessionRecord): void;
   sessionRemoved(sessionId: string): void;
   sessionRenamed(fromId: string, toId: string): void;
@@ -241,6 +242,10 @@ export class ServerCoreSessionManager implements SessionManagerHost {
         return;
       }
       if (event.hookOrigin === 'sdk') return;
+    }
+    if (event.kind === 'token-usage') {
+      this.options.observer.tokenUsageObserved(event);
+      return;
     }
 
     const record = this.ensure(event.sessionId, {
