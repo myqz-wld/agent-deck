@@ -66,7 +66,7 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
   private readonly controlRequests = new Map<string, 'cancel' | 'subscribe'>();
   private streamCursor = 0;
   private cursorInitialized = false;
-  private pendingConnectCursor: number | null = null;
+  private pendingConnectCursor: number | 'host' | null = null;
   private nextSubscriptionId = 0;
 
   constructor(
@@ -75,7 +75,7 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
   ) {
     this.now = options.now ?? Date.now;
     this.connection = new SshProtocolConnection(profile, options, {
-      getEventCursor: () => this.pendingConnectCursor ?? this.streamCursor,
+      getEventCursor: () => typeof this.pendingConnectCursor === 'number' ? this.pendingConnectCursor : this.streamCursor,
       onReady: (hello) => this.handleReady(hello),
       onMessage: (message) => this.handleHostMessage(message),
       onTerminal: (error) => this.rejectAllPending(error),
@@ -99,7 +99,7 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
   }
 
   connect(hello: ClientHello): Promise<HostHello> {
-    const cursor = hello.lastEventRevision ?? 0;
+    const cursor = hello.lastEventRevision ?? 'host';
     const establishedCursor = this.cursorInitialized
       ? this.streamCursor
       : this.pendingConnectCursor;
@@ -114,8 +114,9 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
     if (!this.cursorInitialized) this.pendingConnectCursor = cursor;
     return this.connection.connect(hello).then(
       (hostHello) => {
+        const baseline = cursor === 'host' ? hostHello.eventRevision : cursor;
         if (!this.cursorInitialized) {
-          this.streamCursor = cursor;
+          this.streamCursor = baseline;
           this.cursorInitialized = true;
         }
         if (this.pendingConnectCursor === cursor) this.pendingConnectCursor = null;

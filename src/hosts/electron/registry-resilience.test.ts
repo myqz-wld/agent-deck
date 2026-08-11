@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { HostHello, JsonValue } from '@contracts/index';
-import { SshAgentDeckClient } from '@clients/ssh';
+import { SshAgentDeckClient, type SshConnectionState } from '@clients/ssh';
 import {
   FakeSpawnHarness,
   helloRequestId,
@@ -265,6 +265,57 @@ describe('ElectronHostRegistry resilience boundaries', () => {
     });
     await recovered;
     expect(registry.state(profile.id).status).toBe('connected');
+    await registry.stopAll();
+  });
+
+  it('baselines fresh connections and rebuilds the binding after a replay gap', async () => {
+    const profile = remoteProfile('relay-replay-reset', 'relay');
+    const first = new ControlledClient({ ...remoteHello(profile), eventRevision: 514 });
+    const second = new ControlledClient({ ...remoteHello(profile), eventRevision: 700 });
+    const transportListeners: Array<(state: SshConnectionState) => void> = [];
+    const clients = [first, second];
+    const registry = new ElectronHostRegistry({
+      appVersion: 'desktop-test',
+      createClient: () => {
+        const client = clients.shift() as ControlledClient;
+        return client === first ? {
+          client,
+          observeTransport: (listener) => {
+            transportListeners.push(listener);
+            return { close: () => undefined };
+          },
+        } : { client };
+      },
+    });
+    registry.register(profile);
+    await registry.connect(profile.id);
+    expect(first.connectHellos[0]).not.toHaveProperty('lastEventRevision');
+    expect(registry.state(profile.id).eventRevision).toBe(514);
+
+    const replayGapState: SshConnectionState = {
+      profileId: profile.id,
+      topology: 'relay',
+      status: 'offline',
+      attempt: 1,
+      hello: first.hello,
+      reason: 'Event replay is unavailable',
+      errorCode: 'replay_gap',
+    };
+    const transportListener = transportListeners[0];
+    if (!transportListener) throw new Error('Missing transport observer');
+    transportListener(replayGapState);
+    expect(registry.getClient(profile.id)).toBeNull();
+    expect(registry.state(profile.id)).toMatchObject({
+      status: 'offline', eventRevision: 0, authoritativeCoreId: null,
+      error: { code: 'replay_gap' },
+    });
+
+    await registry.connect(profile.id);
+    expect(first.closeSpy).toHaveBeenCalledOnce();
+    expect(second.connectHellos[0]).not.toHaveProperty('lastEventRevision');
+    expect(registry.state(profile.id)).toMatchObject({
+      status: 'connected', eventRevision: 700,
+    });
     await registry.stopAll();
   });
 });

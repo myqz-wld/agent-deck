@@ -61,6 +61,6 @@ node -e '
   const packageJson = require(process.argv[1]);
   if (packageJson.dependencies?.["@larksuiteoapi/node-sdk"] !== "1.70.0") process.exit(1);
   if (packageJson.scripts?.["verify:linux-headless"] !==
-    "pnpm build:linux-headless && pnpm check:linux-headless") process.exit(1);
+    "pnpm build:linux-headless && pnpm check:linux-headless && pnpm check:deployment") process.exit(1);
 ' "$repo_root/package.json" || fail 'SDK pin or Linux root script drifted'
 printf '%s\n' 'feishu-static-check: passed'

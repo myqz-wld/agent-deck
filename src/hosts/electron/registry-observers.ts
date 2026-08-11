@@ -45,7 +45,10 @@ export function handleRegistryTransportState(
         ? { code: state.errorCode, message: state.reason }
         : null,
   });
-  if (status === 'incompatible' && entry.binding === binding) {
+  if (
+    (status === 'incompatible' || state.errorCode === 'replay_gap') &&
+    entry.binding === binding
+  ) {
     actions.retireIncompatible(entry, binding);
   }
 }
