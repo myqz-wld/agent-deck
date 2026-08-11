@@ -57,7 +57,9 @@ repository limit.
 
 ## Notes
 
-- This batch changes the desktop SSH client and renderer only. Relay and Worker artifacts are
-  unchanged, so live server deployment is not required for this correction.
+- This batch changes the shared SSH client used by desktop Remote and the optional Feishu gateway,
+  plus renderer presentation. Relay and Worker entrypoint graphs do not import that client and their
+  artifacts are unchanged, so live Relay/Worker deployment is not required. No Feishu service is
+  deployed yet; its future T10 build will inherit the same ordering correction.
 - macOS packaging, user installation, and installed-runtime acceptance remain T9 work. The durable
   implementation plan will be archived only after those live gates and the Feishu handoff finish.
