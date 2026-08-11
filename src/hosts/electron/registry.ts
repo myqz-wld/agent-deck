@@ -327,11 +327,12 @@ export class ElectronHostRegistry {
       appVersion: this.options.appVersion,
       clientId: entry.profile.clientId,
       requestedTopology: entry.profile.topology,
-      lastEventRevision: entry.state.eventRevision,
+      ...(entry.identity ? { lastEventRevision: entry.state.eventRevision } : {}),
     } as const;
   }
 
   private applyHello(entry: RegistryEntry, hello: HostHello): void {
+    const eventRevision = entry.identity ? entry.state.eventRevision : hello.eventRevision;
     validateElectronHostHello(entry.profile, hello, entry.identity?.instanceId ?? null);
     entry.identity = identityFromHostHello(entry.profile.id, hello);
     this.updateState(entry, {
@@ -339,6 +340,7 @@ export class ElectronHostRegistry {
       authoritativeCoreId: hello.authoritativeCore.id,
       workerGeneration: hello.authoritativeCore.generation,
       capabilities: [...hello.capabilities],
+      eventRevision,
     });
   }
 
@@ -380,11 +382,12 @@ export class ElectronHostRegistry {
     }
   }
 
-  private retireIncompatible(
-    entry: RegistryEntry,
-    binding: ElectronHostClientBinding,
-  ): void {
+  private retireIncompatible(entry: RegistryEntry, binding: ElectronHostClientBinding): void {
     if (entry.binding !== binding) return;
+    if (entry.state.error?.code === 'replay_gap') {
+      entry.identity = null;
+      this.updateState(entry, { authoritativeCoreId: null, workerGeneration: null, capabilities: [], eventRevision: 0 });
+    }
     const epoch = ++entry.epoch;
     this.retireBinding(entry, binding, epoch);
   }

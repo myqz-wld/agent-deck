@@ -154,4 +154,25 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     );
     await client.close();
   });
+
+  it('uses the HostHello revision as the baseline when the first cursor is omitted', async () => {
+    const harness = new FakeSpawnHarness();
+    const client = makeClient(harness, 'host-baseline');
+    const hello = makeClientHello('desktop-host-baseline');
+    delete hello.lastEventRevision;
+    const connected = client.connect(hello);
+    const process = harness.latest;
+    process.emitMessage({
+      type: 'hello-result',
+      requestId: helloRequestId(process),
+      hello: makeHostHello('desktop-host-baseline', 'server-core', { eventRevision: 514 }),
+    } as unknown as JsonValue);
+    await connected;
+    expect(client.lastEventRevision).toBe(514);
+    client.subscribe(514, () => undefined);
+    expect(process.takeWrittenMessages()).toContainEqual(
+      expect.objectContaining({ type: 'subscribe', afterRevision: 514 }),
+    );
+    await client.close();
+  });
 });
