@@ -110,9 +110,10 @@ src/renderer/remote-host/use-remote-usage-source.ts
 - Source, component, full-suite, build, and platform gates cannot prove the currently installed
   desktop is running this new commit. T9 therefore retains a user-install boundary followed by
   non-invasive live connection, sequential-request, page-authority, and real-provider acceptance.
-- The correction is desktop-only. Deploying Relay or Worker would add operational risk without
-  changing the exercised artifact and is intentionally omitted unless later evidence proves a
-  server artifact changed.
+- Relay and Worker entrypoint graphs do not import the changed SSH client, so deploying either would
+  add operational risk without changing its artifact. The optional Feishu gateway does share that
+  client, but no Feishu service is deployed yet; its package and external configuration remain T10
+  work and will inherit this correction when built.
 
 ## Follow-ups
 
