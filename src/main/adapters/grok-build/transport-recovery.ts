@@ -11,7 +11,7 @@ export interface GrokTransportRecoveryContext {
   start: (runtime: GrokRuntime) => Promise<boolean>;
   persist: (runtime: GrokRuntime) => void;
   dispose: (runtime: GrokRuntime) => Promise<void>;
-  emitErrorMessage: (sessionId: string, text: string) => void;
+  emitTerminalError: (sessionId: string, text: string) => void;
 }
 
 /**
@@ -51,7 +51,7 @@ export async function recycleGrokTransport(
       error: errorText(error),
     });
     if (context.isCurrent(runtime) && !runtime.closed) {
-      context.emitErrorMessage(
+      context.emitTerminalError(
         runtime.applicationSessionId,
         `Grok 回复已从原生记录恢复，但 ACP 连接重建失败：${errorText(error)}。` +
           '请重新发送下一条消息以恢复 session。',
