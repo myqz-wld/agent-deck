@@ -33,11 +33,12 @@ describe('Remote session summary presentation', () => {
       row('waiting', 'active-waiting'),
       row('sleeping', 'dormant-idle'),
       row('closed', 'closed-finished'),
+      row('closed-working', 'closed-working'),
     ];
     const grouped = groupRemoteSessionSummaries(sessions);
     expect(grouped.active.map((session) => session.id)).toEqual(['working', 'waiting']);
     expect(grouped.dormant.map((session) => session.id)).toEqual(['sleeping']);
-    expect(grouped.closed.map((session) => session.id)).toEqual(['closed']);
+    expect(grouped.closed.map((session) => session.id)).toEqual(['closed', 'closed-working']);
     expect(remoteSessionActivityCounts(sessions)).toEqual({ waiting: 1, working: 1 });
   });
 });

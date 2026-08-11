@@ -1,0 +1,268 @@
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { RemoteHostSessionSummaryDto } from '@shared/remote-host';
+import type { SessionRecord } from '@shared/types';
+import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { useSessionStore } from '@renderer/stores/session-store';
+import { AppHeader } from '../AppHeader';
+import { SessionList } from '../SessionList';
+
+function localSession(
+  id: string,
+  lifecycle: SessionRecord['lifecycle'],
+): SessionRecord {
+  return {
+    id,
+    agentId: 'codex-cli',
+    cwd: '/repo/shared',
+    title: `${lifecycle} Local`,
+    source: 'sdk',
+    lifecycle,
+    activity: lifecycle === 'active' ? 'working' : 'idle',
+    startedAt: 1,
+    lastEventAt: 2,
+    endedAt: null,
+    archivedAt: null,
+    pinnedAt: null,
+  } as SessionRecord;
+}
+
+function remoteSession(
+  id: string,
+  status: string,
+): RemoteHostSessionSummaryDto {
+  return {
+    id,
+    adapterId: 'codex-cli',
+    title: `${id} Remote`,
+    status,
+    createdAt: 1,
+    updatedAt: 2,
+  };
+}
+
+function remoteSource(
+  sessions: readonly RemoteHostSessionSummaryDto[],
+  overrides: Partial<RemoteSessionSourceView> = {},
+): RemoteSessionSourceView {
+  return {
+    busy: false,
+    capabilities: new Set(['session-console.read']),
+    dataRevision: 1,
+    error: null,
+    eventLoadError: null,
+    events: null,
+    historySessions: [],
+    hasMoreHistorySessions: false,
+    hasMoreSessions: false,
+    identity: 'remote-a:core-a:1',
+    loading: false,
+    pendingBySession: new Map(),
+    profile: {
+      id: 'remote-a',
+      label: 'Production Core',
+      scope: 'remote',
+      endpoint: null,
+      credentials: { connectionCredentialConfigured: true },
+    },
+    recoveringWorker: false,
+    runtime: null,
+    summaries: null,
+    taskLoadError: null,
+    tasks: null,
+    sessionTotal: sessions.length,
+    selectedPending: null,
+    selectedSession: null,
+    selectedSessionId: null,
+    sessions,
+    state: {
+      profileId: 'remote-a',
+      status: 'connected',
+      recovery: null,
+      authoritativeCoreId: 'core-a',
+      workerGeneration: 1,
+      capabilities: ['session-console.read'],
+      eventRevision: 1,
+      error: null,
+    },
+    usable: true,
+    clearError: vi.fn(),
+    loadMoreHistorySessions: vi.fn(async () => undefined),
+    loadMoreSessions: vi.fn(async () => undefined),
+    refresh: vi.fn(),
+    selectSession: vi.fn(),
+    ...overrides,
+  } as unknown as RemoteSessionSourceView;
+}
+
+let getSessionGitBranch: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  getSessionGitBranch = vi.fn(async () => 'feature/parity');
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: {
+      getSessionGitBranch,
+      setSessionPinned: vi.fn(async () => undefined),
+    },
+  });
+  useSessionStore.setState({
+    sessions: new Map(),
+    selectedSessionId: null,
+    recentEventsBySession: new Map(),
+    latestSummaryBySession: new Map(),
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, 'api');
+  vi.clearAllMocks();
+});
+
+describe('Local and Remote session-list parity', () => {
+  it('uses the same card, header, and lifecycle-section structure for equivalent rows', () => {
+    const localActive = localSession('local-active', 'active');
+    const localDormant = localSession('local-dormant', 'dormant');
+    useSessionStore.setState({
+      sessions: new Map([
+        [localActive.id, localActive],
+        [localDormant.id, localDormant],
+      ]),
+      selectedSessionId: localActive.id,
+    });
+    const localView = render(<SessionList />);
+    const localCard = document.querySelector('[data-session-id="local-active"]')!;
+    const localHeader = localCard.querySelector('[data-session-card-header]')!;
+    const localActiveSection = document.querySelector('[data-session-section="active"]')!;
+    expect(screen.getByText('活跃 · 1')).toBeTruthy();
+    expect(screen.getByText('休眠 · 1')).toBeTruthy();
+
+    localView.unmount();
+    getSessionGitBranch.mockClear();
+    const source = remoteSource([
+      remoteSession('remote-active', 'active-working'),
+      remoteSession('remote-dormant', 'dormant-idle'),
+    ], { selectedSessionId: 'remote-active' });
+    render(<SessionList remoteSource={source} />);
+    const remoteCard = document.querySelector('[data-session-id="remote-active"]')!;
+    const remoteHeader = remoteCard.querySelector('[data-session-card-header]')!;
+    const remoteActiveSection = document.querySelector('[data-session-section="active"]')!;
+
+    expect(remoteCard.className).toBe(localCard.className);
+    expect(remoteCard.className).toContain('border-white/30 bg-white/10');
+    expect(remoteHeader.className).toBe(localHeader.className);
+    expect(remoteActiveSection.className).toBe(localActiveSection.className);
+    expect(screen.getByText('活跃 · 1')).toBeTruthy();
+    expect(screen.getByText('休眠 · 1')).toBeTruthy();
+    expect(remoteCard.querySelector('[title="正在执行"]')).toBeTruthy();
+    expect(screen.queryByText('active Local')).toBeNull();
+    expect(getSessionGitBranch).not.toHaveBeenCalled();
+  });
+
+  it('omits the Remote-only Closed section and decorative profile/count banner', () => {
+    const source = remoteSource([
+      remoteSession('Active', 'active-idle'),
+      remoteSession('Closed', 'closed-finished'),
+    ], { hasMoreSessions: true, sessionTotal: 9 });
+    render(<SessionList remoteSource={source} />);
+
+    expect(screen.getByText('Active Remote')).toBeTruthy();
+    expect(screen.queryByText('Closed Remote')).toBeNull();
+    expect(screen.queryByText(/已关闭/)).toBeNull();
+    expect(screen.queryByText(/Production Core/)).toBeNull();
+    expect(screen.queryByText(/已载入|1\/9/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '打开会话 Active Remote' }));
+    expect(source.selectSession).toHaveBeenCalledWith('Active');
+    fireEvent.click(screen.getByRole('button', { name: '加载更多会话' }));
+    expect(source.loadMoreSessions).toHaveBeenCalledOnce();
+
+    cleanup();
+    const busySource = remoteSource([
+      remoteSession('Active', 'active-idle'),
+    ], { busy: true, hasMoreSessions: true, sessionTotal: 9 });
+    render(<SessionList remoteSource={busySource} />);
+    expect((screen.getByRole('button', { name: '加载更多会话' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+  });
+
+  it('uses one shared layout grammar for empty, loading, and failed states', () => {
+    const localView = render(<SessionList />);
+    const localEmpty = document.querySelector('[data-session-list-state="empty"]')!;
+    expect(localEmpty.className).toContain('items-center justify-center');
+    localView.unmount();
+
+    const remoteView = render(<SessionList remoteSource={remoteSource([])} />);
+    const remoteEmpty = document.querySelector('[data-session-list-state="empty"]')!;
+    expect(remoteEmpty.className).toBe(localEmpty.className);
+
+    remoteView.rerender(<SessionList remoteSource={remoteSource([], { loading: true })} />);
+    expect(document.querySelector('[data-session-list-state="loading"]')?.className)
+      .toContain('items-center justify-center');
+
+    remoteView.rerender(<SessionList remoteSource={remoteSource([], {
+      error: '远程 Live 列表读取失败。',
+    })} />);
+    const failed = document.querySelector('[data-session-list-state="error"]')!;
+    expect(failed.getAttribute('role')).toBe('alert');
+    expect(failed.className).toContain('items-center justify-center');
+  });
+
+  it('keeps authoritative Remote totals in the existing app header', () => {
+    render(<AppHeader
+      view="live"
+      stats={{ total: 9, waiting: 1, working: 1 }}
+      pending={0}
+      pinned={false}
+      compact={false}
+      sourceMode="remote"
+      selectedRemoteProfileId="remote-a"
+      remoteProfiles={[]}
+      remoteCapabilities={new Set(['session-console.read'])}
+      remoteUsage={{
+        enabled: true,
+        identity: 'remote-a:core-a:1',
+        rates: [],
+        topToday: [],
+        today: null,
+        daily: [],
+        dailyLoading: false,
+        dailyError: null,
+        dailyTruncated: false,
+        providerSnapshots: [],
+        providerFetchedAt: null,
+        providerLoading: false,
+        providerError: null,
+        loadDaily: vi.fn(async () => undefined),
+        loadProviders: vi.fn(async () => undefined),
+      }}
+      onViewChange={vi.fn()}
+      onSourceChange={vi.fn()}
+      onOpenRemoteProfiles={vi.fn()}
+      onOpenPending={vi.fn()}
+      onNewSession={vi.fn()}
+      onTogglePin={vi.fn()}
+      onToggleCompact={vi.fn()}
+      onOpenLibrary={vi.fn()}
+      onOpenSettings={vi.fn()}
+    />);
+
+    expect(screen.getByText('9 会话')).toBeTruthy();
+    expect(screen.queryByText(/已载入/)).toBeNull();
+  });
+
+  it('keeps the bounded 512-row Remote list interactive', () => {
+    const rows = Array.from({ length: 512 }, (_, index) =>
+      remoteSession(`remote-${index}`, 'active-idle'));
+    const source = remoteSource(rows);
+    render(<SessionList remoteSource={source} />);
+
+    expect(document.querySelectorAll('[data-session-id]')).toHaveLength(512);
+    fireEvent.click(screen.getByRole('button', {
+      name: '打开会话 remote-511 Remote',
+    }));
+    expect(source.selectSession).toHaveBeenCalledWith('remote-511');
+  });
+});

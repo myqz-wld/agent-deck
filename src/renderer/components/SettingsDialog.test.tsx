@@ -153,6 +153,120 @@ describe('SettingsDialog adapter views', () => {
     expect(remoteHookStatus).toHaveBeenCalledTimes(3);
   });
 
+  it('ignores a same-identity Worker response that lands after disconnect', async () => {
+    let resolveConfiguration!: (value: {
+      providerDefaults: {
+        claudeCodeSandbox: string;
+        codexSandbox: string;
+        enableAgentDeckMcp: boolean;
+        grokSandbox: string;
+        permissionTimeoutMs: number;
+        summaryModel: string;
+        summaryThinking: string;
+        summaryTimeoutMs: number;
+      };
+      revision: number;
+    }) => void;
+    const remoteConfiguration = vi.fn(() => new Promise((resolve) => {
+      resolveConfiguration = resolve;
+    }));
+    const remoteHookStatus = vi.fn().mockResolvedValue({
+      adapterId: 'claude-code', revision: 8, status: HOOK_STATUS,
+    });
+    const localHookStatus = vi.fn();
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+        hookStatus: localHookStatus,
+        getRemoteHostNodeConfiguration: remoteConfiguration,
+        getRemoteHostNodeHookStatus: remoteHookStatus,
+      },
+    });
+    const base = {
+      identity: 'remote-a:core-a:1', label: 'aws-relay-on-mac', profileId: 'remote-a',
+      supportsNodeConfiguration: true,
+    } as const;
+    const view = render(
+      <SettingsDialog open onClose={vi.fn()} remote={{ ...base, usable: true }} />,
+    );
+    await vi.waitFor(() => expect(remoteConfiguration).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <SettingsDialog open onClose={vi.fn()} remote={{ ...base, usable: false }} />,
+    );
+    expect(await screen.findByText(
+      '当前 Remote Worker 尚未连接；不会读取或修改本机 Hook 作为替代。',
+    )).toBeTruthy();
+
+    resolveConfiguration({
+      providerDefaults: {
+        claudeCodeSandbox: 'strict',
+        codexSandbox: 'read-only',
+        enableAgentDeckMcp: true,
+        grokSandbox: 'off',
+        permissionTimeoutMs: 30_000,
+        summaryModel: 'stale-worker-model',
+        summaryThinking: 'low',
+        summaryTimeoutMs: 60_000,
+      },
+      revision: 99,
+    });
+    await Promise.resolve();
+    expect(screen.queryByText('stale-worker-model')).toBeNull();
+    expect(screen.queryByText('99')).toBeNull();
+    expect(localHookStatus).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a stale Hook mutation failure after the Worker disconnects', async () => {
+    let rejectInstall!: (reason: Error) => void;
+    const installRemote = vi.fn(() => new Promise<never>((_resolve, reject) => {
+      rejectInstall = reject;
+    }));
+    const remoteHookStatus = vi.fn().mockResolvedValue({
+      adapterId: 'claude-code', revision: 8, status: HOOK_STATUS,
+    });
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+        getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue({
+          providerDefaults: {
+            claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
+            enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
+            summaryModel: '', summaryThinking: '', summaryTimeoutMs: 60_000,
+          },
+          revision: 8,
+        }),
+        getRemoteHostNodeHookStatus: remoteHookStatus,
+        installRemoteHostNodeHook: installRemote,
+      },
+    });
+    const base = {
+      identity: 'remote-a:core-a:1', label: 'aws-relay-on-mac', profileId: 'remote-a',
+      supportsNodeConfiguration: true,
+    } as const;
+    const view = render(
+      <SettingsDialog open onClose={vi.fn()} remote={{ ...base, usable: true }} />,
+    );
+    fireEvent.click(await screen.findByRole('tab', { name: 'Claude Code' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Claude Code 终端 Hook' }));
+    fireEvent.click(await screen.findByRole('button', { name: '在 Worker 上安装 Hook' }));
+    await vi.waitFor(() => expect(installRemote).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <SettingsDialog open onClose={vi.fn()} remote={{ ...base, usable: false }} />,
+    );
+    rejectInstall(new Error(RAW_BACKEND_ERROR));
+    await Promise.resolve();
+
+    expect(screen.getByText(
+      '当前 Remote Worker 尚未连接；不会读取或修改本机 Hook 作为替代。',
+    )).toBeTruthy();
+    expect(screen.queryByText('Claude Code 终端 Hook 安装失败，请重试。')).toBeNull();
+    expectRawBackendDetailsHidden();
+  });
+
   it('includes Grok Build authentication and external terminal Hook controls', async () => {
     const hookStatus = vi.fn().mockResolvedValue({
       installed: false,

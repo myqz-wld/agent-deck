@@ -1,16 +1,15 @@
 import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import { isImageTool } from '@shared/mcp-tools';
-import { StatusBadge } from './StatusBadge';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { toolIcon } from './activity-feed/tool-icons';
 import { describeAgentToolInput, resolveToolNameAlias } from './activity-feed/describe';
-import { agentIdLabel } from './TeamDetail/helpers';
 import { SessionMetadataChips } from './SessionMetadataChips';
 import { SessionContextUsageChip } from './SessionContextUsageChip';
 import { SessionPinButton } from './SessionPinButton';
 import { ArchiveIcon, CrownIcon, RefreshIcon, ShieldIcon, TrashIcon, UsersIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
+import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';
 
 interface Props {
   session: SessionRecord;
@@ -103,24 +102,20 @@ export function SessionCard({
         : '';
 
   return (
-    <div
-      onClick={onSelect}
+    <SessionCardFrame
+      sessionId={session.id}
+      selected={selected}
+      onSelect={onSelect}
       onContextMenu={onContextMenu}
-      className={`group relative cursor-pointer rounded-lg border px-3 py-2 transition ${
-        selected
-          ? 'border-white/30 bg-white/10'
-          : teamRole === 'lead'
-            ? 'border-blue-400/40 bg-white/[0.02] hover:bg-white/[0.06]'
-            : 'border-deck-border bg-white/[0.02] hover:bg-white/[0.06]'
-      }`}
+      emphasis={teamRole === 'lead' ? 'lead' : 'default'}
     >
-      <div className="flex items-center gap-2">
-        <StatusBadge
-          activity={session.activity}
-          lifecycle={session.lifecycle}
-          archived={session.archivedAt !== null}
-        />
-        <div className="flex-1 truncate text-[12px] font-medium">{session.title}</div>
+      <SessionCardHeader
+        activity={session.activity}
+        lifecycle={session.lifecycle}
+        archived={session.archivedAt !== null}
+        title={session.title}
+        adapterId={session.agentId}
+      >
         <SessionPinButton session={session} />
         <span
           className={`rounded px-1 py-0.5 text-[8px] font-medium uppercase tracking-wider ${
@@ -157,8 +152,7 @@ export function SessionCard({
             <UsersIcon className="mr-0.5 inline h-3 w-3" />协作者
           </span>
         )}
-        <span className="text-[9px] text-deck-muted/60">{agentIdLabel(session.agentId)}</span>
-      </div>
+      </SessionCardHeader>
       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
         <SessionMetadataChips session={session} branch={branch} compact />
         <SessionContextUsageChip session={session} />
@@ -233,7 +227,7 @@ export function SessionCard({
           </div>
         </>
       )}
-    </div>
+    </SessionCardFrame>
   );
 }
 

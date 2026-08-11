@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RemoteSessionSourceView } from './remote-host/source-types';
 import type { RemoteUsageSourceView } from './remote-host/use-remote-usage-source';
 import type { AppView } from './components/AppHeader';
+import type { RemoteHostConnectionStatus } from '@shared/remote-host';
 
 vi.mock('./components/TeamHub', () => ({
   TeamHub: ({ remoteSource }: { remoteSource: RemoteSessionSourceView | null }) => (
@@ -49,11 +50,22 @@ import { AppWorkspace } from './AppWorkspace';
 
 afterEach(cleanup);
 
-function source(capabilities: string[], selectedSessionId: string | null = null): RemoteSessionSourceView {
+function source(
+  capabilities: string[],
+  selectedSessionId: string | null = null,
+  status: RemoteHostConnectionStatus = 'connected',
+  usable = status === 'connected',
+): RemoteSessionSourceView {
   return {
     capabilities: new Set(capabilities),
+    profile: { id: 'remote-a', label: 'Remote A', scope: 'remote' },
+    state: {
+      profileId: 'remote-a', status, recovery: null, authoritativeCoreId: 'core-a',
+      workerGeneration: 1, capabilities, eventRevision: 1, error: null,
+    },
     selectedSessionId,
     selectSession: vi.fn(),
+    usable,
   } as unknown as RemoteSessionSourceView;
 }
 
@@ -67,13 +79,15 @@ function workspace(
   remoteMode: boolean,
   capabilities: string[],
   selectedSessionId: string | null = null,
+  status: RemoteHostConnectionStatus = 'connected',
+  usable = status === 'connected',
 ) {
   return render(
     <AppWorkspace
       view={view}
       remoteMode={remoteMode}
       localDetail={null}
-      remoteSource={source(capabilities, selectedSessionId)}
+      remoteSource={source(capabilities, selectedSessionId, status, usable)}
       remoteUsage={usage}
       onLocalClose={vi.fn()}
       onLocalHistorySelect={vi.fn()}
@@ -85,19 +99,23 @@ function workspace(
 
 describe('AppWorkspace Local and Remote page parity', () => {
   it.each([
-    ['live', 'live'],
-    ['pending', 'pending'],
-    ['history', 'history'],
-  ] as const)('routes %s through the selected source without Local fallback', (view, testId) => {
+    ['live', 'live', ['session-console.read']],
+    ['pending', 'pending', ['session-console.read', 'pending.read']],
+    ['history', 'history', ['session-console.read', 'sessions.history']],
+  ] as const)('routes %s through the selected source without Local fallback', (
+    view,
+    testId,
+    capabilities,
+  ) => {
     workspace(view, false, []);
     expect(screen.getByTestId(testId).textContent).toBe(`local ${testId}`);
     cleanup();
-    workspace(view, true, []);
+    workspace(view, true, [...capabilities]);
     expect(screen.getByTestId(testId).textContent).toBe(`remote ${testId}`);
   });
 
   it('routes Remote session detail through the Remote source', () => {
-    workspace('live', true, [], 'remote-session');
+    workspace('live', true, ['session-console.read'], 'remote-session');
     expect(screen.getByTestId('detail').textContent).toBe('remote detail');
   });
 
@@ -128,6 +146,43 @@ describe('AppWorkspace Local and Remote page parity', () => {
   it('fails closed when the Remote Core omits the page capability', () => {
     workspace('teams', true, []);
     expect(screen.queryByTestId('teams')).toBeNull();
-    expect(screen.getByText(/远程协议当前未提供对应能力/)).toBeTruthy();
+    expect(screen.getByText(/当前 Remote Core 未提供团队能力/)).toBeTruthy();
+  });
+
+  it.each([
+    ['live', 'session-console.read', 'reconnecting', true],
+    ['pending', 'pending.read', 'offline', false],
+    ['history', 'sessions.history', 'incompatible', false],
+    ['teams', 'teams', 'reconnecting', true],
+    ['issues', 'issues', 'offline', false],
+    ['data', 'usage', 'incompatible', false],
+  ] as const)('does not mount %s while the Remote source is %s', (
+    view,
+    capability,
+    status,
+    usable,
+  ) => {
+    const capabilities = view === 'pending'
+      ? ['session-console.read', capability]
+      : view === 'history'
+        ? ['session-console.read', capability]
+        : [capability];
+    workspace(view, true, capabilities, null, status, usable);
+    expect(screen.queryByTestId(view)).toBeNull();
+    expect(screen.getByTestId('remote-page-unavailable')).toBeTruthy();
+    expect(screen.getByText(/不会回退读取 Local 数据/u)).toBeTruthy();
+  });
+
+  it('does not mount a selected Remote detail while its connection is reconnecting', () => {
+    workspace(
+      'live',
+      true,
+      ['session-console.read'],
+      'remote-session',
+      'reconnecting',
+      true,
+    );
+    expect(screen.queryByTestId('detail')).toBeNull();
+    expect(screen.getByTestId('remote-page-unavailable')).toBeTruthy();
   });
 });

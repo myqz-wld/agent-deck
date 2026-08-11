@@ -67,7 +67,7 @@ export function DataPanel({
   }, [remoteUsage]);
 
   useEffect(() => {
-    if (!remoteUsage) return;
+    if (!remoteUsage?.enabled) return;
     let cancelled = false;
     // DataPanel is a child of the Remote source hook. Defer the first reads until the current
     // passive-effect batch finishes so a profile-identity reset cannot invalidate them.
@@ -77,7 +77,7 @@ export function DataPanel({
       void remoteUsage.loadProviders(false);
     });
     return () => { cancelled = true; };
-  }, [remoteUsage?.identity]);
+  }, [remoteUsage?.enabled, remoteUsage?.identity]);
 
   const fetchUsage = useCallback(
     async (opts: { showLoading: boolean; force?: boolean }): Promise<void> => {

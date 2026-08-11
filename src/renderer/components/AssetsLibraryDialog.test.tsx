@@ -163,4 +163,37 @@ describe('AssetsLibraryDialog source authority', () => {
     await Promise.resolve();
     expect(screen.queryByText('# stale Worker content')).toBeNull();
   });
+
+  it('clears Remote assets and ignores stale content when the same Worker disconnects', async () => {
+    const { local, remote } = installApi();
+    let resolveContent!: (value: { content: string; revision: number }) => void;
+    remote.getRemoteHostNodeAssetContent.mockImplementation(() => new Promise((resolve) => {
+      resolveContent = resolve;
+    }));
+    const remoteProps = {
+      identity: 'remote-a:core-a:1',
+      label: 'aws-relay-on-mac',
+      profileId: 'remote-a',
+      supportsNodeAssets: true,
+    } as const;
+    const { rerender } = render(
+      <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: true }} />,
+    );
+
+    await screen.findByText('agent-deck:claude-code:deep-review');
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
+    expect(screen.getByRole('button', { name: '关闭' })).toBeTruthy();
+
+    rerender(
+      <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: false }} />,
+    );
+    expect(await screen.findByText('当前 Remote Worker 尚未连接，资产数据不可用。')).toBeTruthy();
+    expect(screen.queryByText('agent-deck:claude-code:deep-review')).toBeNull();
+    expect(screen.queryByRole('button', { name: '关闭' })).toBeNull();
+
+    resolveContent({ content: '# stale Worker content', revision: 7 });
+    await Promise.resolve();
+    expect(screen.queryByText('# stale Worker content')).toBeNull();
+    for (const call of Object.values(local)) expect(call).not.toHaveBeenCalled();
+  });
 });

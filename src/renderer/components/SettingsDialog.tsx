@@ -75,12 +75,23 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
   const openSeqRef = useRef(0);
   /** Ignore stale update responses when multiple controls change in quick succession. */
   const updateSeqRef = useRef(0);
+  const remoteAuthorityKey = remote
+    ? `${remote.identity}\u0000${remote.profileId ?? ''}\u0000${remote.usable ? 'ready' : 'offline'}` +
+      `\u0000${remote.supportsNodeConfiguration ? 'supported' : 'unsupported'}`
+    : 'local';
+  const remoteAuthorityRef = useRef(remoteAuthorityKey);
+  remoteAuthorityRef.current = remoteAuthorityKey;
 
   useEffect(() => {
     if (!open) return;
     const seq = ++openSeqRef.current;
+    updateSeqRef.current += 1;
+    const authority = remoteAuthorityKey;
+    const current = (): boolean =>
+      seq === openSeqRef.current && remoteAuthorityRef.current === authority;
     setLoadError(null);
     setActionError(null);
+    setBusy(false);
     setActiveTab('general');
     setClaudeHookStatus(null);
     setCodexHookStatus(null);
@@ -89,11 +100,11 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     void window.api
       .getSettings()
       .then((s) => {
-        if (seq !== openSeqRef.current) return;
+        if (!current()) return;
         setSettings(s);
       })
       .catch(() => {
-        if (seq !== openSeqRef.current) return;
+        if (!current()) return;
         setLoadError(remote
           ? '本机桌面外观与提醒设置读取失败，请重试。'
           : '设置读取失败，请重试。');
@@ -101,11 +112,11 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
         setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
       });
     const appendLoadError = (message: string): void => {
-      if (seq !== openSeqRef.current) return;
+      if (!current()) return;
       setLoadError((prev) => (prev ? `${prev}\n${message}` : message));
     };
     const setStatus = (adapterId: HookAdapterId, status: HookInstallStatus): void => {
-      if (seq !== openSeqRef.current) return;
+      if (!current()) return;
       if (adapterId === 'claude-code') setClaudeHookStatus(status);
       else if (adapterId === 'codex-cli') setCodexHookStatus(status);
       else setGrokHookStatus(status);
@@ -114,7 +125,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
       if (remote.usable && remote.supportsNodeConfiguration && remote.profileId) {
         void window.api.getRemoteHostNodeConfiguration({ profileId: remote.profileId })
           .then((value) => {
-            if (seq === openSeqRef.current) setNodeConfiguration(value);
+            if (current()) setNodeConfiguration(value);
           })
           .catch(() => appendLoadError('远端执行节点配置读取失败，请重连后重试。'));
         for (const adapterId of Object.keys(HOOK_FAILURE_COPY) as HookAdapterId[]) {
@@ -144,17 +155,18 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 
   const update = async (patch: Partial<AppSettings>): Promise<void> => {
     const seq = ++updateSeqRef.current;
+    const authority = remoteAuthorityKey;
     setBusy(true);
     setActionError(null);
     try {
       const next = await window.api.setSettings(patch);
-      if (seq !== updateSeqRef.current) return;
+      if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setSettings(next);
     } catch {
-      if (seq !== updateSeqRef.current) return;
+      if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setActionError('保存设置失败，请重试。');
     } finally {
-      if (seq === updateSeqRef.current) setBusy(false);
+      if (seq === updateSeqRef.current && remoteAuthorityRef.current === authority) setBusy(false);
     }
   };
 
@@ -164,31 +176,39 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     else setGrokHookStatus(status);
   };
   const installHook = async (adapterId: HookAdapterId): Promise<void> => {
+    const seq = ++updateSeqRef.current;
+    const authority = remoteAuthorityKey;
     setBusy(true);
     setActionError(null);
     try {
       const r = remote
         ? await installRemoteHook(remote, adapterId)
         : (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus;
+      if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setHookStatus(adapterId, r);
     } catch {
+      if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setActionError(HOOK_FAILURE_COPY[adapterId].install);
     } finally {
-      setBusy(false);
+      if (seq === updateSeqRef.current && remoteAuthorityRef.current === authority) setBusy(false);
     }
   };
   const uninstallHook = async (adapterId: HookAdapterId): Promise<void> => {
+    const seq = ++updateSeqRef.current;
+    const authority = remoteAuthorityKey;
     setBusy(true);
     setActionError(null);
     try {
       const r = remote
         ? await uninstallRemoteHook(remote, adapterId)
         : (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus;
+      if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setHookStatus(adapterId, r);
     } catch {
+      if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setActionError(HOOK_FAILURE_COPY[adapterId].uninstall);
     } finally {
-      setBusy(false);
+      if (seq === updateSeqRef.current && remoteAuthorityRef.current === authority) setBusy(false);
     }
   };
 

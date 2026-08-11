@@ -55,7 +55,8 @@ export function remoteSessionActivityCounts(
   let waiting = 0;
   let working = 0;
   for (const session of sessions) {
-    const { activity } = remoteSessionStatus(session.status);
+    const { activity, lifecycle } = remoteSessionStatus(session.status);
+    if (lifecycle === 'closed') continue;
     if (activity === 'waiting') waiting += 1;
     if (activity === 'working') working += 1;
   }

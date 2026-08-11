@@ -40,16 +40,40 @@ export function HeaderTokenRates({
 }: {
   remoteUsage?: RemoteUsageSourceView | null;
 }): JSX.Element | null {
+  return remoteUsage
+    ? <RemoteHeaderTokenRates usage={remoteUsage} />
+    : <LocalHeaderTokenRates />;
+}
+
+function LocalHeaderTokenRates(): JSX.Element {
+  useTokenRatesPoll(false, 2500, true);
+  const topToday = useTokenUsageStore((state) => state.topToday);
+  const rates = useTokenUsageStore((state) => state.rates);
+  const liveBySession = useTokenUsageStore((state) => state.liveBySession);
+  return <HeaderTokenRatesView topToday={topToday} rates={rates} liveBySession={liveBySession} />;
+}
+
+function RemoteHeaderTokenRates({ usage }: { usage: RemoteUsageSourceView }): JSX.Element {
+  return (
+    <HeaderTokenRatesView
+      topToday={usage.topToday}
+      rates={usage.rates}
+      liveBySession={{}}
+    />
+  );
+}
+
+function HeaderTokenRatesView({
+  topToday,
+  rates,
+  liveBySession,
+}: {
+  topToday: TokenRateRow[];
+  rates: TokenRateRow[];
+  liveBySession: Parameters<typeof buildFreshLiveByBucket>[0];
+}): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const width = useContainerWidth(containerRef);
-  // header 区域常驻拉取（数据页打开时 header 在 detail 下不渲染，但 live 视图常显 → poll 跟随挂载）
-  useTokenRatesPoll(false, 2500, remoteUsage === null);
-  const localTopToday = useTokenUsageStore((s) => s.topToday);
-  const localRates = useTokenUsageStore((s) => s.rates);
-  const localLiveBySession = useTokenUsageStore((s) => s.liveBySession);
-  const topToday = remoteUsage?.topToday ?? localTopToday;
-  const rates = remoteUsage?.rates ?? localRates;
-  const liveBySession = remoteUsage ? {} : localLiveBySession;
 
   // 容器太窄 → 整区隐藏（width===null 视为未知，先按可显示渲染，避免首帧误隐藏闪烁）。
   // 注意：ref 必须始终挂在一个真实 DOM 节点上才能被 ResizeObserver 观测；这里用一个 0 宽

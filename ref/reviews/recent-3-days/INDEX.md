@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-11 | `REVIEW_232_remote-transport-ui-convergence.md` | Remote transport and UI convergence | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 3 LOW fixed |
 | 2026-08-11 | `REVIEW_231_remote-replay-bootstrap.md` | Remote replay bootstrap and Feishu gate | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
 | 2026-08-11 | `REVIEW_230_remote-session-continuity.md` | Remote continuity and active input | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 2 LOW fixed / 1 INFO resolved |
 | 2026-08-11 | `REVIEW_229_remote-worker-ui-authority.md` | Remote UI and Worker authority | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed / 3 INFO fixed |

@@ -333,9 +333,9 @@ export class SshProtocolConnection {
     this.hostHelloValue = freezeHostHello(hello);
     this.hasConnected = true;
     this.reconnectAttempt = 0;
-    this.setState('connected', null, null);
     if (this.closed || this.context !== context) return;
     try {
+      // Reconcile retained/sent request bookkeeping before observers can admit work as connected.
       this.hooks.onReady(cloneHostHello(this.hostHelloValue), reconnected);
     } catch (error) {
       if (isRetryableSshWriteFailure(error)) {
@@ -345,6 +345,9 @@ export class SshProtocolConnection {
       this.failTerminal(context, error instanceof Error ? error : new Error(String(error)), 'offline');
       return;
     }
+    if (this.closed || this.context !== context) return;
+    this.setState('connected', null, null);
+    if (this.closed || this.context !== context) return;
     this.heartbeat.start();
     const deferred = this.connectDeferred;
     this.connectDeferred = null;

@@ -28,6 +28,7 @@ function context(identity = presentation.sourceIdentity) {
       capabilities: new Set(['plan-review', 'pending.read', 'events.replay']),
       dataRevision: 2,
       identity,
+      usable: true,
       currentIdentity: () => current,
     },
     switchIdentity: (next: string) => { current = next; },
@@ -92,6 +93,10 @@ describe('RemotePlanReviewTransports', () => {
     expect(registry.get({
       ...source.value,
       capabilities: new Set(['plan-review', 'pending.read']),
+    }, presentation, 'codex-cli')).toBeNull();
+    expect(registry.get({
+      ...source.value,
+      usable: false,
     }, presentation, 'codex-cli')).toBeNull();
   });
 

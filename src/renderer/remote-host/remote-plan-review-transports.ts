@@ -13,6 +13,7 @@ interface Context {
   capabilities: ReadonlySet<string>;
   dataRevision: number;
   identity: string;
+  usable: boolean;
   currentIdentity(): string;
 }
 
@@ -28,7 +29,8 @@ const MAX_TRANSPORTS = 128;
 function target(entry: Entry): Omit<RemoteHostPlanReviewTargetDto, 'intentId'> {
   const { context, presentation } = entry;
   if (
-    !context.activeProfileId || context.currentIdentity() !== context.identity ||
+    !context.usable || !context.activeProfileId ||
+    context.currentIdentity() !== context.identity ||
     presentation.sourceIdentity !== context.identity
   ) throw new Error('计划审阅的数据源已切换，请刷新后重试。');
   if (
@@ -63,7 +65,8 @@ export class RemotePlanReviewTransports {
     agentId: string,
   ): PlanDeepReviewTransport | null {
     if (
-      agentId === 'grok-build' || !context.capabilities.has('plan-review') ||
+      !context.usable || agentId === 'grok-build' ||
+      !context.capabilities.has('plan-review') ||
       !context.capabilities.has('pending.read') || !context.capabilities.has('events.replay')
     ) return null;
     const key = `${presentation.sourceIdentity}\u0000${presentation.request.sessionId}` +

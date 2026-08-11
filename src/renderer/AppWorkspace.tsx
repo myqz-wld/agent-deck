@@ -10,6 +10,11 @@ import { PendingTab } from './components/PendingTab';
 import { SessionDetail } from './components/SessionDetail';
 import { SessionList } from './components/SessionList';
 import { TeamHub } from './components/TeamHub';
+import {
+  RemotePageUnavailable,
+  remotePageAvailability,
+  type RemotePageSurface,
+} from './remote-host/RemotePageAvailability';
 import type { RemoteSessionSourceView } from './remote-host/source-types';
 import type { RemoteUsageSourceView } from './remote-host/use-remote-usage-source';
 
@@ -34,6 +39,13 @@ export function AppWorkspace({
   onOpenLocalSession: (id: string) => void;
   onViewChange: (view: AppView) => void;
 }): JSX.Element {
+  const guardedSurface: RemotePageSurface = view;
+  const availability = remoteMode
+    ? remotePageAvailability(remoteSource, guardedSurface)
+    : null;
+  if (availability && availability.kind !== 'available') {
+    return <RemotePageUnavailable availability={availability} />;
+  }
   const detailVisible = view === 'live' || view === 'history';
   if (detailVisible && remoteMode && remoteSource.selectedSessionId) {
     return (
@@ -76,7 +88,7 @@ export function AppWorkspace({
       />
     );
   }
-  if (view === 'teams' && (!remoteMode || remoteSource.capabilities.has('teams'))) {
+  if (view === 'teams') {
     return (
       <TeamHub
         key={remoteMode ? remoteSource.identity : 'local'}
@@ -92,7 +104,7 @@ export function AppWorkspace({
   if (!remoteMode && view === 'issues') {
     return <IssuesPanel onOpenSession={(sessionId) => { onViewChange('live'); onOpenLocalSession(sessionId); }} />;
   }
-  if (remoteMode && view === 'issues' && remoteSource.capabilities.has('issues')) {
+  if (remoteMode && view === 'issues') {
     return (
       <RemoteIssuesPanel
         source={remoteSource}
@@ -103,7 +115,7 @@ export function AppWorkspace({
       />
     );
   }
-  if (view === 'data' && (!remoteMode || remoteSource.capabilities.has('usage'))) {
+  if (view === 'data') {
     return <DataPanel remoteUsage={remoteMode ? remoteUsage : null} />;
   }
   return (

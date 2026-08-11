@@ -36,10 +36,13 @@ export function useRemoteUsageSource(
   // Capabilities describe the last negotiated Core. They intentionally survive transient state
   // changes, so polling must also require a usable binding or a retired connection will be hit
   // every 2.5 seconds forever.
-  const enabled = remoteMode && source.usable && source.capabilities.has('usage');
+  const enabled = remoteMode && source.usable && source.state?.status === 'connected' &&
+    source.capabilities.has('usage');
   const profileId = source.profile?.id ?? null;
   const identityRef = useRef(source.identity);
   identityRef.current = source.identity;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const [rates, setRates] = useState<TokenRateRow[]>([]);
   const [topToday, setTopToday] = useState<TokenRateRow[]>([]);
   const [today, setToday] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export function useRemoteUsageSource(
   }, [enabled, source.identity]);
 
   const loadTokens = useCallback(async (includeDaily: boolean): Promise<void> => {
-    if (!enabled || !profileId) return;
+    if (!enabledRef.current || identityRef.current !== source.identity || !profileId) return;
     const identity = source.identity;
     const sequence = includeDaily ? dailySeq : rateSeq;
     const seq = ++sequence.current;
@@ -116,7 +119,7 @@ export function useRemoteUsageSource(
   }, [enabled, profileId, source.identity]);
 
   const loadProviders = useCallback(async (force = false): Promise<void> => {
-    if (!enabled || !profileId) return;
+    if (!enabledRef.current || identityRef.current !== source.identity || !profileId) return;
     const identity = source.identity;
     const seq = ++providerSeq.current;
     setProviderLoading(true);
@@ -156,17 +159,17 @@ export function useRemoteUsageSource(
   return useMemo(() => ({
     enabled,
     identity: source.identity,
-    rates,
-    topToday,
-    today,
-    daily,
-    dailyLoading,
-    dailyError,
-    dailyTruncated,
-    providerSnapshots,
-    providerFetchedAt,
-    providerLoading,
-    providerError,
+    rates: enabled ? rates : [],
+    topToday: enabled ? topToday : [],
+    today: enabled ? today : null,
+    daily: enabled ? daily : [],
+    dailyLoading: enabled && dailyLoading,
+    dailyError: enabled ? dailyError : null,
+    dailyTruncated: enabled && dailyTruncated,
+    providerSnapshots: enabled ? providerSnapshots : [],
+    providerFetchedAt: enabled ? providerFetchedAt : null,
+    providerLoading: enabled && providerLoading,
+    providerError: enabled ? providerError : null,
     loadDaily: () => loadTokens(true),
     loadProviders,
   }), [
