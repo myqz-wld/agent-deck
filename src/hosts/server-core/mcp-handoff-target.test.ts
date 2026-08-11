@@ -137,6 +137,19 @@ describe('resolveServerCoreHandOffTarget', () => {
       capabilities: api.port,
       sourceMaxEventId: null,
     })).rejects.toThrow(/approvalPolicy/);
+
+    await expect(resolveServerCoreHandOffTarget({
+      args: {
+        prompt: 'Stale explicit target',
+        adapter: 'codex-cli',
+        cwd: '.',
+        capabilityRevision: `sha256:${'b'.repeat(64)}`,
+      },
+      source: source(paths.project),
+      workspaceRoot: paths.root,
+      capabilities: api.port,
+      sourceMaxEventId: null,
+    })).rejects.toThrow(/capabilities changed/);
   });
 
   it('fails closed when the caller or requested cwd escapes Workspace', async () => {

@@ -24,21 +24,18 @@ import type {
   RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
   RemoteHostSessionTargetDto,
+  RemoteHostSessionContextDto,
+  RemoteHostSessionInputCapabilitiesDto,
   RemoteHostSnapshotDto,
   RemoteHostSourceMode,
   RemoteHostWorkspaceDirectoryListDto,
   RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
 import { isRecoverableRelayWorkerOffline } from '@shared/remote-host';
-import {
-  parseRemoteHostPendingListResult,
-  parseRemoteHostPendingResponseResult,
-} from './business-validation';
 import type { RemoteHostConnectionSelections } from './connection-selections';
 import type { RemoteHostCredentialMaterialStore } from './credential-material-store';
 import { RemoteHostPublicError } from './errors';
 import { publishRemoteHostChanged } from './event-bridge';
-import { authorizeRemoteHostPendingResponse } from './pending-response-policy';
 import { remoteHostMutationId } from './mutation-identity';
 import { RemoteHostProfileController } from './profile-controller';
 import type { RemoteHostProfileStore } from './profile-store';
@@ -58,15 +55,10 @@ import { RemoteHostTeamController, RemoteHostUsageController } from './service-t
 import { RemoteHostNodeConfigurationController } from './service-node-configuration';
 import { RemoteHostNodeAssetController } from './service-node-assets';
 import { RemoteHostSessionMutationController } from './service-session-mutations';
-import {
-  requestRemoteHistory,
-  requestRemotePending,
-} from './service-session-detail';
-import {
-  REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-  RemoteHostScopeEpochs,
-  type RemoteHostScopedClient,
-} from './service-scope';
+import { RemoteHostSessionHandOffController } from './service-session-handoff';
+import { RemoteHostSessionStateController } from './service-session-state';
+import { requestRemoteHistory } from './service-session-detail';
+import { RemoteHostScopeEpochs, type RemoteHostScopedClient } from './service-scope';
 import type { RemoteHostDesktopBrokerPort } from './desktop-browser-broker';
 import log from '@main/utils/logger';
 
@@ -86,6 +78,8 @@ export class RemoteHostService {
   readonly teams: RemoteHostTeamController; readonly usage: RemoteHostUsageController;
   readonly nodeConfiguration: RemoteHostNodeConfigurationController;
   readonly nodeAssets: RemoteHostNodeAssetController;
+  readonly handoff: RemoteHostSessionHandOffController;
+  private readonly sessionState: RemoteHostSessionStateController;
   private readonly sessionMutations: RemoteHostSessionMutationController;
   private readonly profiles: RemoteHostProfileController;
   private mutationTail: Promise<void> = Promise.resolve();
@@ -115,6 +109,20 @@ export class RemoteHostService {
     this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped, mutationId);
     this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
     this.sessionMutations = new RemoteHostSessionMutationController(requestScoped, mutationId);
+    this.sessionState = new RemoteHostSessionStateController(
+      requestScoped,
+      (scope) => this.assertScope(scope),
+      mutationId,
+    );
+    this.handoff = new RemoteHostSessionHandOffController(
+      requestScoped,
+      this.requestTerminalScoped.bind(this),
+      mutationId,
+      (profileId, sessionId) => options.registry.updateNavigation(
+        profileId,
+        { selectedSessionId: sessionId },
+      ),
+    );
     const document = options.store.load();
     this.profiles = new RemoteHostProfileController(document, {
       registry: options.registry,
@@ -321,38 +329,26 @@ export class RemoteHostService {
     return this.sessionMutations.steer(request);
   }
 
+  async getSessionContext(
+    request: RemoteHostSessionTargetDto,
+  ): Promise<RemoteHostSessionContextDto> {
+    return this.sessionState.context(request);
+  }
+
+  async getSessionInputCapabilities(
+    request: RemoteHostSessionTargetDto,
+  ): Promise<RemoteHostSessionInputCapabilitiesDto> {
+    return this.sessionState.inputCapabilities(request);
+  }
+
   async listPending(request: RemoteHostSessionTargetDto): Promise<RemoteHostPendingListDto> {
-    return this.requestScoped(request.profileId, 'pending.list', (scope) =>
-      requestRemotePending(scope, request));
+    return this.sessionState.pending(request);
   }
 
   async respondPending(
     request: RemoteHostPendingResponseDto,
   ): Promise<RemoteHostPendingResponseResultDto> {
-    return this.requestScoped(request.profileId, 'pending.respond', async (scope) => {
-      const pendingValue = await scope.client.request('pending.list', {
-        sessionId: request.sessionId,
-      }, { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS });
-      this.assertScope(scope);
-      const pending = parseRemoteHostPendingListResult(pendingValue, request.sessionId);
-      const expectedRevision = authorizeRemoteHostPendingResponse(pending, request);
-      this.assertScope(scope);
-      const value = await scope.client.request(
-        'pending.respond',
-        {
-          sessionId: request.sessionId,
-          requestId: request.requestId,
-          action: request.action,
-          ...(request.value === undefined ? {} : { value: request.value }),
-        },
-        {
-          deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-          idempotencyKey: this.mutationId('pending', request.profileId, request.intentId),
-          expectedRevision,
-        },
-      );
-      return parseRemoteHostPendingResponseResult(value);
-    }, ['pending.list']);
+    return this.sessionState.respond(request);
   }
 
   async getRuntime(request: RemoteHostSessionTargetDto): Promise<RemoteHostRuntimeControlsDto> {
@@ -406,14 +402,17 @@ export class RemoteHostService {
 
   private assertScope(scope: RemoteHostScopedClient): void {
     this.assertActive();
-    if (
-      !this.scopes.isCurrent(scope) ||
-      this.profiles.sourceMode !== 'remote' ||
-      this.profiles.selectedRemoteProfileId !== scope.profileId ||
-      this.options.registry.getClient(scope.profileId) !== scope.client
-    ) {
+    if (!this.isScopeCurrent(scope)) {
       throw new RemoteHostPublicError('stale_scope', '当前主机或连接已切换，请重试。');
     }
+  }
+
+  private isScopeCurrent(scope: RemoteHostScopedClient): boolean {
+    return this.lifecycle === 'active' &&
+      this.scopes.isCurrent(scope) &&
+      this.profiles.sourceMode === 'remote' &&
+      this.profiles.selectedRemoteProfileId === scope.profileId &&
+      this.options.registry.getClient(scope.profileId) === scope.client;
   }
 
   private async requestScoped<T>(
@@ -427,6 +426,25 @@ export class RemoteHostService {
       const result = await run(scope);
       this.assertScope(scope);
       return result;
+    } catch (error) {
+      this.assertScope(scope);
+      throw error;
+    }
+  }
+
+  private async requestTerminalScoped<T>(
+    profileId: string,
+    method: CoreMethod,
+    run: (scope: RemoteHostScopedClient) => Promise<T>,
+    onCurrent?: (result: T) => void,
+    additionalMethods: readonly CoreMethod[] = [],
+  ): Promise<{ result: T; scopeCurrent: boolean }> {
+    const scope = this.beginScope(profileId, method, additionalMethods);
+    try {
+      const result = await run(scope);
+      const scopeCurrent = this.isScopeCurrent(scope);
+      if (scopeCurrent) onCurrent?.(result);
+      return { result, scopeCurrent };
     } catch (error) {
       this.assertScope(scope);
       throw error;

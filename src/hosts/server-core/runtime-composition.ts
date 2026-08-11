@@ -302,7 +302,7 @@ export function createServerCoreRuntimeWithOverrides(
       try { runtimeDiagnostics.warn(message); } catch {}
     },
   });
-  const { desktopBroker, mcpBroker, presentations } = createServerCoreMcpComposition({
+  const { desktopBroker, handoff, mcpBroker, presentations } = createServerCoreMcpComposition({
     workspaceRoot,
     privateRoots,
     repositories,
@@ -414,6 +414,7 @@ export function createServerCoreRuntimeWithOverrides(
     metadata,
     lifecycle,
     presentations,
+    handoff,
     attachmentStore,
   });
   const detailRuntime = new ServerCoreSessionDetailRuntime(baseRuntime, {

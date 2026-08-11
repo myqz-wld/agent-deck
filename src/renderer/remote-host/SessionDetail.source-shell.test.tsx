@@ -27,6 +27,7 @@ function remoteSource(): RemoteSessionSourceView {
       'pending.respond',
       'sessions.runtime.read',
       'sessions.runtime.write',
+      'sessions.context.read',
     ]),
     dataRevision: 0,
     error: null,
@@ -62,6 +63,22 @@ function remoteSource(): RemoteSessionSourceView {
       credentials: { connectionCredentialConfigured: true },
     },
     recoveringWorker: false,
+    context: {
+      contextUsage: {
+        usedTokens: 34_000,
+        windowTokens: 100_000,
+        updatedAt: 2,
+        runtimeIdentity: {
+          version: 1,
+          runtimeKey: 'codex:openai:remote-model:default',
+          adapter: 'codex-cli',
+          runtimeProvider: 'openai',
+          model: 'remote-model',
+          capacityConfigFingerprint: 'default',
+        },
+      },
+      revision: 3,
+    },
     runtime: { adapterId: 'codex-cli', values: { model: 'remote-model' }, revision: 3 },
     summaries: null,
     taskLoadError: null,
@@ -91,6 +108,8 @@ function remoteSource(): RemoteSessionSourceView {
     getFileFinalDiff: vi.fn(),
     loadImageBlob: vi.fn(async () => ({ ok: false as const, reason: 'unsupported_source' as const })),
     interrupt: vi.fn(),
+    previewHandOff: vi.fn(),
+    commitHandOff: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),
@@ -111,13 +130,15 @@ describe('SessionDetail source shell', () => {
     expect(document.querySelectorAll('[data-session-detail-shell]')).toHaveLength(1);
     expect(screen.getByText('Remote session')).toBeTruthy();
     expect(screen.getByText('remote-only activity')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '待处理' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '运行时' })).toBeNull();
+    expect(screen.getByDisplayValue('remote-model')).toBeTruthy();
+    expect(screen.getByLabelText('上下文窗口用量').textContent)
+      .toContain('34K / 100K');
 
     fireEvent.click(screen.getByRole('button', { name: '改动' }));
     expect(screen.getByText(/不会回退读取本地工作区/)).toBeTruthy();
     expect(localFileChanges).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: '运行时' }));
-    expect(screen.getByText(/remote-model/)).toBeTruthy();
   });
 
   it('hides the old detail and every action while a new session identity is loading', () => {

@@ -50,6 +50,12 @@ import type {
   RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
   RemoteHostSessionTargetDto,
+  RemoteHostSessionContextDto,
+  RemoteHostSessionInputCapabilitiesDto,
+  RemoteHostHandOffPreviewRequestDto,
+  RemoteHostHandOffPreviewDto,
+  RemoteHostHandOffCommitRequestDto,
+  RemoteHostHandOffCommitDto,
   RemoteHostSnapshotDto,
   RemoteHostSourceMode,
   RemoteHostSummaryListDto,
@@ -249,6 +255,22 @@ export const remoteHostApi = {
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionInterrupt, request),
   steerRemoteHostSession: (request: RemoteHostSendDto): Promise<RemoteHostAcceptedResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionSteer, request),
+  getRemoteHostSessionContext: (
+    request: RemoteHostSessionTargetDto,
+  ): Promise<RemoteHostSessionContextDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionContextGet, request),
+  getRemoteHostSessionInputCapabilities: (
+    request: RemoteHostSessionTargetDto,
+  ): Promise<RemoteHostSessionInputCapabilitiesDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionInputCapabilities, request),
+  previewRemoteHostSessionHandOff: (
+    request: RemoteHostHandOffPreviewRequestDto,
+  ): Promise<RemoteHostHandOffPreviewDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionHandOffPreview, request),
+  commitRemoteHostSessionHandOff: (
+    request: RemoteHostHandOffCommitRequestDto,
+  ): Promise<RemoteHostHandOffCommitDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionHandOffCommit, request),
   listRemoteHostPending: (
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostPendingListDto> =>

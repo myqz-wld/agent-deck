@@ -77,6 +77,10 @@ function capabilities(
         : capability === AgentDeckCapability.NodeConfiguration ||
             capability === AgentDeckCapability.NodeAssets
           ? 2
+          : capability === AgentDeckCapability.SessionContextRead ||
+              capability === AgentDeckCapability.SessionInputRead ||
+              capability === AgentDeckCapability.SessionHandOff
+            ? 3
           : 0;
       if (
         protocolVersion.major > 2 ||

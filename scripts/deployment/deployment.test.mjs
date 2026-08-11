@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,7 @@ import {
   managerFailureCode,
   relayCutoverRecovery,
 } from './server.mjs';
+import { runWorkerDeployment } from './worker.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temporaryRoots = [];
@@ -284,5 +285,73 @@ describe('deployment automation contracts', () => {
       workspace: join(repoRoot, 'worker-workspace'),
     }), { mode: 0o600 });
     await expect(loadWorkerConfig(configFile, repoRoot)).rejects.toThrow(/不能指向 Agent Deck 仓库/);
+  });
+
+  it('loads one Worker Provider supervisor from the same packaged application', async () => {
+    const root = await temporaryRoot();
+    const bin = join(root, 'bin');
+    const providerSession = join(root, 'provider-session');
+    const workspace = join(root, 'workspace');
+    const wrapper = join(bin, 'agent-deck-worker');
+    const command = join(bin, 'agent-deck-provider-supervisor');
+    const templateFile = join(
+      providerSession,
+      'com.agentdeck.provider-supervisor.plist.in',
+    );
+    const supervisorConfigFile = join(root, 'provider-supervisor.json');
+    const grokCredentialFile = join(root, 'grok-auth.json');
+    const configFile = join(root, 'worker.json');
+    const workerConfigId = `worker-${'a'.repeat(24)}`;
+    await Promise.all([
+      mkdir(bin, { recursive: true }),
+      mkdir(providerSession, { recursive: true }),
+      mkdir(workspace, { recursive: true }),
+    ]);
+    await writeFile(wrapper, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    await writeFile(command, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    await writeFile(templateFile, '<plist>@@INSTANCE_ID@@</plist>\n', { mode: 0o644 });
+    await writeFile(grokCredentialFile, '{"fixture":true}\n', { mode: 0o600 });
+    await writeFile(supervisorConfigFile, JSON.stringify({
+      schemaVersion: 1,
+      instanceId: 'aws-relay-on-mac',
+      workspaceRoot: workspace,
+      privateRoot: join(root, 'private'),
+      stateRoot: join(root, 'state'),
+      brokerRoot: join(root, 'broker'),
+      transportRuntimeDirectory: join(root, 'transport'),
+      transportSocketPath: join(root, 'transport', 'supervisor.sock'),
+    }), { mode: 0o600 });
+    await writeFile(configFile, JSON.stringify({
+      schemaVersion: 1,
+      name: 'worker-with-grok-supervisor',
+      wrapper,
+      credentialFile: null,
+      workspace,
+      providerSupervisor: {
+        command,
+        configFile: supervisorConfigFile,
+        grokCredentialFile,
+        workerConfigId,
+      },
+    }), { mode: 0o600 });
+
+    const loaded = await loadWorkerConfig(configFile, repoRoot);
+    expect(loaded).toMatchObject({
+      providerSupervisor: {
+        command,
+        configFile: supervisorConfigFile,
+        grokCredentialFile,
+        templateFile,
+        workerConfigId,
+        hostConfig: {
+          instanceId: 'aws-relay-on-mac',
+          transportSocketPath: join(root, 'transport', 'supervisor.sock'),
+        },
+      },
+    });
+    await expect(runWorkerDeployment(loaded, 'dry-run')).resolves.toMatchObject({
+      mutatesLocalState: false,
+      providerSupervisor: 'managed-through-launchd',
+    });
   });
 });

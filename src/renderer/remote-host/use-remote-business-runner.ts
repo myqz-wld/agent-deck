@@ -22,7 +22,10 @@ export function useRemoteBusinessRunner(
     setError(null);
   }, []);
 
-  const run = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
+  const runWithPolicy = useCallback(async <T,>(
+    operation: () => Promise<T>,
+    preserveTerminalResult: boolean,
+  ): Promise<T> => {
     const expectedIdentity = identityRef.current;
     const token = Symbol('remote-business');
     tokens.current.add(token);
@@ -30,8 +33,10 @@ export function useRemoteBusinessRunner(
     setError(null);
     try {
       const result = await operation();
-      if (identityRef.current !== expectedIdentity) throw new Error('数据源已切换，请重试。');
-      setRevision((current) => current + 1);
+      if (identityRef.current !== expectedIdentity && !preserveTerminalResult) {
+        throw new Error('数据源已切换，请重试。');
+      }
+      if (identityRef.current === expectedIdentity) setRevision((current) => current + 1);
       return result;
     } catch (reason) {
       if (identityRef.current === expectedIdentity) {
@@ -45,5 +50,10 @@ export function useRemoteBusinessRunner(
     }
   }, [identityRef, setRevision]);
 
-  return { busy, error, reset, run, setError } as const;
+  const run = useCallback(<T,>(operation: () => Promise<T>) =>
+    runWithPolicy(operation, false), [runWithPolicy]);
+  const runTerminal = useCallback(<T,>(operation: () => Promise<T>) =>
+    runWithPolicy(operation, true), [runWithPolicy]);
+
+  return { busy, error, reset, run, runTerminal, setError } as const;
 }

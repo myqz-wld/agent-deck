@@ -23,6 +23,7 @@ import { parseLocalWorkerHeadlessConfig, type LocalWorkerHeadlessConfig } from '
 import { DARWIN_WORKSPACE_BOOKMARK_FILE } from './terminal-configuration';
 import { prepareProviderSessionRuntimeDirectories } from '@hosts/provider-session/runtime-directories';
 import { providerSessionWorkerRuntimeRoot } from '@hosts/provider-session/runtime-paths';
+import { installLocalWorkerGrokCredential } from './provider-credential';
 
 const WORKER_CONFIG_ID = /^worker-[a-f0-9]{24}$/;
 const COMMAND_TIMEOUT_MS = 20_000;
@@ -397,6 +398,15 @@ export class LocalWorkerTerminalServiceManager {
       state: running ? 'running' : 'stopped',
       workerConfigId: worker.workerConfigId,
     });
+  }
+
+  async installProviderCredential(
+    credentialFile: string,
+    workerConfigId?: string,
+  ): Promise<LocalWorkerServiceStatus> {
+    const worker = await this.required(workerConfigId);
+    await installLocalWorkerGrokCredential(worker.privateRoot, credentialFile);
+    return Object.freeze({ state: 'stopped', workerConfigId: worker.workerConfigId });
   }
 
   async stop(workerConfigId?: string): Promise<LocalWorkerServiceStatus> {

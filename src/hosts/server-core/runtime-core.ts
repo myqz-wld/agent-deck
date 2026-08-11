@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
-
 import {
   AgentDeckClientErrorCode,
-  isJsonValue,
   type AgentDeckEventEnvelope,
   type CoreMethod,
   type JsonObject,
@@ -33,7 +31,11 @@ import type {
   ServerCoreMutationIdentity,
 } from './runtime-metadata-store';
 import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
+import type { ServerCoreMcpHandOffPort } from './mcp-handoff-port';
 import { serverCoreHistoryEntry } from './runtime-history';
+import { ServerCoreSessionExtras } from './runtime-session-extras';
+import { serverCoreMutationReplay } from './runtime-mutation';
+import { canAcceptServerCoreSessionAttachments } from './session-attachment-capability';
 import {
   canonicalJson,
   historyCursor,
@@ -46,7 +48,6 @@ import {
   parseSteerParams,
   parseSubscriptionParams,
 } from './runtime-validation';
-
 export const SERVER_CORE_BASE_METHODS = Object.freeze([
   'pending.list',
   'pending.respond',
@@ -54,12 +55,15 @@ export const SERVER_CORE_BASE_METHODS = Object.freeze([
   'session.interrupt',
   'session.runtime.get',
   'session.runtime.update',
+  'session.context.get',
+  'session.input.capabilities',
+  'session.handoff.preview',
+  'session.handoff.commit',
   'session.send',
   'session.steer',
   'subscription.set',
   'system.health',
 ] as const satisfies readonly CoreMethod[]);
-
 export interface ServerCoreRuntimeRepositoryPort {
   get(sessionId: string): SessionRecord | null;
 }
@@ -109,38 +113,33 @@ export interface ServerCoreDaemonRuntimeOptions {
   readonly metadata: ServerCoreRuntimeMetadataPort;
   readonly lifecycle: ServerCoreRuntimeLifecyclePort;
   readonly presentations: Pick<ServerCoreMcpPresentationPort, 'list' | 'respond'>;
+  readonly handoff?: ServerCoreMcpHandOffPort;
   readonly attachmentStore?: {
     persist(inputs: readonly SessionConsoleAttachmentInput[]): Promise<UploadedAttachmentRef[]>;
     remove(refs: readonly UploadedAttachmentRef[]): Promise<void>;
   };
 }
 
-function mutationError(claim: ServerCoreMutationClaim): DaemonRequestResult | null {
-  if (claim.state === 'claimed') return null;
-  if (claim.state === 'conflict') {
-    throw new DaemonRequestError(
-      AgentDeckClientErrorCode.Conflict,
-      'Mutation revision or idempotency does not match',
-    );
-  }
-  if (claim.state === 'uncertain') {
-    throw new DaemonRequestError(
-      AgentDeckClientErrorCode.ProviderLost,
-      'The earlier mutation outcome is uncertain',
-    );
-  }
-  if (!isJsonValue(claim.result)) throw new Error('Stored mutation result is invalid');
-  return { result: claim.result, revision: claim.revision };
-}
-
 /** Authoritative non-cwd Core methods with durable revision, replay, and mutation fencing. */
 export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
   readonly supportedMethods = SERVER_CORE_BASE_METHODS;
+  private readonly sessionExtras: ServerCoreSessionExtras;
   private state: 'idle' | 'running' | 'stopped' = 'idle';
   private startPromise: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
 
-  constructor(private readonly options: ServerCoreDaemonRuntimeOptions) {}
+  constructor(private readonly options: ServerCoreDaemonRuntimeOptions) {
+    this.sessionExtras = new ServerCoreSessionExtras(
+      options,
+      (input, kind, entityId, invoke) => this.mutate(
+        input,
+        this.fingerprint(input.method, input.params),
+        kind,
+        entityId,
+        invoke,
+      ),
+    );
+  }
 
   start(): Promise<void> {
     if (this.startPromise) return this.startPromise;
@@ -172,6 +171,8 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
     if (input.signal.aborted) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
     }
+    const extra = this.sessionExtras.execute(input);
+    if (extra) return extra;
     switch (input.method) {
       case 'system.health': {
         parseEmptyParams(input.params);
@@ -250,7 +251,7 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
     const params = parseSendParams(input.params);
     const { adapter } = this.requireProviderSession(params.sessionId);
     if (!adapter.sendMessage) this.unavailable();
-    if (params.attachments.length > 0 && !adapter.capabilities.canAcceptAttachments) {
+    if (params.attachments.length > 0 && !canAcceptServerCoreSessionAttachments(adapter, params.sessionId)) {
       this.unavailable();
     }
     if (params.attachments.length > 0 && !this.options.attachmentStore) this.unavailable();
@@ -298,13 +299,29 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
     const params = parseSteerParams(input.params);
     const { adapter } = this.requireProviderSession(params.sessionId);
     if (!adapter.steerTurn) this.unavailable();
+    if (params.attachments.length > 0 && !canAcceptServerCoreSessionAttachments(adapter, params.sessionId)) {
+      this.unavailable();
+    }
+    if (params.attachments.length > 0 && !this.options.attachmentStore) this.unavailable();
     return this.mutate(
       input,
       this.fingerprint(input.method, input.params),
       'session.steered',
       params.sessionId,
       async () => {
-        await adapter.steerTurn!(params.sessionId, params.text);
+        const attachments = params.attachments.length > 0
+          ? await this.options.attachmentStore!.persist(params.attachments)
+          : [];
+        try {
+          await adapter.steerTurn!(
+            params.sessionId,
+            params.text,
+            attachments.length > 0 ? attachments : undefined,
+          );
+        } catch (error) {
+          await this.options.attachmentStore?.remove(attachments);
+          throw error;
+        }
         return (revision) => ({ accepted: true, revision });
       },
     );
@@ -414,7 +431,7 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
       method: input.method,
       requestFingerprint: fingerprint,
     };
-    const replay = mutationError(this.options.metadata.claimMutation(
+    const replay = serverCoreMutationReplay(this.options.metadata.claimMutation(
       identity,
       Date.now(),
       input.expectedRevision ?? undefined,
@@ -473,7 +490,6 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
   private assertRunning(): void {
     if (this.state !== 'running') throw new Error('Server Core runtime is not running');
   }
-
   private unavailable(): never {
     throw new DaemonRequestError(
       AgentDeckClientErrorCode.CapabilityUnavailable,

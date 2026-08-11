@@ -16,6 +16,7 @@ import type { ResolvedSuccessorSpec } from '@main/session/continuation-context/t
 import type { SessionAdapterId, SessionRecord } from '@shared/types';
 
 import type { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { ServerCoreHandOffPreviewConflictError } from './mcp-handoff-errors';
 import {
   buildRemoteCreateOptions,
 } from './session-console-authority';
@@ -181,6 +182,12 @@ export async function resolveServerCoreHandOffTarget(input: {
     provider: selector ?? '',
     workingDirectory: cwdRef,
   });
+  if (
+    input.args.capabilityRevision !== undefined &&
+    input.args.capabilityRevision !== descriptor.capabilityRevision
+  ) throw new ServerCoreHandOffPreviewConflictError(
+    'Handoff target capabilities changed; refresh and retry',
+  );
   const options = resolveServerCoreCreateOptions(descriptor, combined);
   await input.capabilities.validateCreate(
     adapterId,

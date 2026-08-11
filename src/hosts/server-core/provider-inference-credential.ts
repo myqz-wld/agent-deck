@@ -85,7 +85,9 @@ function accessToken(document: unknown, nowMs: number): string | null {
   const entries = Object.entries(root);
   if (entries.length !== 1 || entries[0]?.[0] !== GROK_CREDENTIAL_NAMESPACE) return null;
   const entry = object(entries[0][1]);
-  if (!entry || entry.auth_mode !== GROK_AUTH_MODE || typeof entry.key !== 'string' ||
+  if (!entry || Object.keys(entry).some((key) =>
+    key !== 'auth_mode' && key !== 'key' && key !== 'expires_at') ||
+      entry.auth_mode !== GROK_AUTH_MODE || typeof entry.key !== 'string' ||
       entry.key.trim() !== entry.key || entry.key.length === 0 ||
       Buffer.byteLength(entry.key) > MAX_TOKEN_BYTES || !TOKEN.test(entry.key)) return null;
   if (entry.expires_at !== undefined && entry.expires_at !== null) {
@@ -94,6 +96,14 @@ function accessToken(document: unknown, nowMs: number): string | null {
     if (!Number.isFinite(expiresAt) || expiresAt <= nowMs) return null;
   }
   return entry.key;
+}
+
+/** Validates the exact host-only Grok credential schema without exposing its token. */
+export function isValidServerCoreGrokCredentialDocument(
+  document: unknown,
+  nowMs = Date.now(),
+): boolean {
+  return accessToken(document, nowMs) !== null;
 }
 
 function exactGrokTarget(target: ServerCoreProviderInferenceUpstreamTarget): boolean {

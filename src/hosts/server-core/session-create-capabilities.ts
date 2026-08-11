@@ -330,7 +330,7 @@ export class ServerCoreSessionCreateCapabilities {
       this.defaultsHost(providerHome, gatewaysDir, codexConfigPath),
     );
     const summary = summaries.find((item) => item.adapterId === requested)!;
-    const attachmentEnabled = requested !== 'grok-build' &&
+    const attachmentEnabled =
       this.options.registry.get(requested)?.capabilities.canAcceptAttachments === true;
     const create: SessionConsoleAdapterCreateDescriptor = Object.freeze({
       ...summary,

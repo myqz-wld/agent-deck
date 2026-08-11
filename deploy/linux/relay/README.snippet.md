@@ -117,20 +117,24 @@ agent-deck-worker remove
 ```
 
 Worker configuration also opts Core into the versioned Provider-container readiness gate. To make
-Remote Grok available, provision the independently managed host supervisor described in
-`deploy/linux/provider-session/README.md`: use
-`rootless-podman.config.example.json` on Linux or `colima.config.example.json` on macOS, derive the
-exact short namespace with `agent-deck-provider-supervisor runtime-paths`, install the shipped
-systemd-user unit or LaunchAgent template, and verify it with
-`agent-deck-provider-supervisor prepare-runtime` and
+Remote Grok available, first prepare the host configuration described in
+`deploy/linux/provider-session/README.md` with `rootless-podman.config.example.json` on Linux or
+`colima.config.example.json` on macOS. On macOS, fill the optional `providerSupervisor` block from
+`deploy/examples/relay-worker.config.example.json`, including the exact Worker config id and a
+mode-0600 Grok credential. `deploy:relay-worker --check` validates the credential, runtime paths,
+and packaged supervisor; the underlying explicit diagnostic is
+`agent-deck-provider-supervisor runtime-paths`. `--deploy` or `--upgrade` atomically projects the credential into the
+Worker-private root, installs the shipped LaunchAgent, waits for readiness, and restarts that exact
+Worker through `agent-deck-worker install-provider-credential` and
+`agent-deck-provider-supervisor prepare-runtime`; `--verify` checks both services with
 `agent-deck-provider-supervisor health-config`. Startup idempotently recreates the exact mode-0700
-runtime hierarchy after Linux login/reboot or macOS temporary-directory cleanup. For Colima, render
-the canonical non-symlink result of `realpath "$(command -v docker)"`; Homebrew's bin symlink is
-rejected. The supervisor and Worker share only that private
-runtime root and the selected Workspace. Worker/Core receives no OCI engine socket, while the
-container receives no Worker private root, SSH identity, or reusable provider credential.
-The Relay server and Worker deployment scripts intentionally leave this optional supervisor and
-its dedicated provider credential untouched; Claude and Codex operation does not require it.
+runtime hierarchy after macOS temporary-directory cleanup. For Colima, render the canonical
+non-symlink result of `realpath "$(command -v docker)"`; Homebrew's bin symlink is rejected. The
+supervisor and Worker share only that private runtime root and the selected Workspace. Worker/Core
+receives no OCI engine socket, while the container receives no Worker private root, SSH identity,
+or reusable provider credential. Linux keeps the documented systemd-user supervisor lifecycle;
+the Worker deployment block currently rejects non-macOS hosts. Omitting the block keeps Remote Grok
+fail-closed without affecting Claude or Codex.
 
 Removing the local configuration does not revoke the Relay-side credential. Revoke or rotate that
 credential separately on the Relay host before transferring a replacement Worker credential.

@@ -42,11 +42,12 @@ function context(
 }
 
 describe('sendClaudeMessage handoff diversion', () => {
-  it('lists and atomically removes a deferred user message before SDK consumption', async () => {
+  it('queues an image message while Claude is streaming and keeps it cancellable', async () => {
     const sessionId = 'claude-visible-pending';
     const session = sessionWithPending();
     session.applicationSid = sessionId;
     session.cliSessionId = sessionId;
+    session.userTurnInFlight = true;
     const sessions = new Map([[sessionId, session]]);
     const ctx = context(sessions);
     const attachment = {

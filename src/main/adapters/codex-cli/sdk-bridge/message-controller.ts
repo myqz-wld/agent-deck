@@ -181,7 +181,6 @@ export class MessageController {
     if (
       !forceQueue &&
       session.cwdTransitionGeneration == null &&
-      !attachments?.length &&
       session.currentTurn &&
       session.currentTurnId &&
       !session.submittingUserMessage
@@ -193,6 +192,7 @@ export class MessageController {
         session,
         sessionId,
         text,
+        attachments,
         session.currentTurnId,
         enqueueOptions?.turnCorrelationId,
         true,
@@ -276,7 +276,11 @@ export class MessageController {
     }
   }
 
-  async steerTurn(sessionId: string, text: string): Promise<void> {
+  async steerTurn(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     const length = text.length;
     if (length > MAX_MESSAGE_LENGTH) {
       throw new Error(
@@ -288,15 +292,16 @@ export class MessageController {
         sourceSessionId: sessionId,
         agentId: AGENT_ID,
         text,
+        attachments,
         emit: this.ctx.emit,
         replay: (sourceSessionId) =>
-          this.enqueuePersistedMessage(sourceSessionId, text),
+          this.enqueuePersistedMessage(sourceSessionId, text, attachments),
       })
     ) {
       return;
     }
     if (this.ctx.runtimeHost.hasPendingWorktreeTransition(sessionId)) {
-      await this.dispatchMessage(sessionId, text, undefined, true, true);
+      await this.dispatchMessage(sessionId, text, attachments, true, true);
       return;
     }
     const session = this.ctx.sessions.get(sessionId);
@@ -306,7 +311,13 @@ export class MessageController {
     if (!session.currentTurn || !session.currentTurnId) {
       throw new Error('Codex 当前没有可 steer 的 active turn。');
     }
-    await this.steerActiveTurn(session, sessionId, text, session.currentTurnId);
+    await this.steerActiveTurn(
+      session,
+      sessionId,
+      text,
+      attachments,
+      session.currentTurnId,
+    );
   }
 
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
@@ -411,6 +422,7 @@ export class MessageController {
     session: InternalSession,
     sessionId: string,
     text: string,
+    attachments: UploadedAttachmentRef[] | undefined,
     expectedTurnId: string,
     turnCorrelationId?: string,
     background = false,
@@ -419,7 +431,13 @@ export class MessageController {
       throw new Error('Codex 当前已有一条消息正在提交，请稍后再试。');
     }
     const submission = {
-      event: { text, ...(turnCorrelationId ? { turnCorrelationId } : {}) },
+      event: {
+        text,
+        ...(attachments?.length
+          ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+          : {}),
+        ...(turnCorrelationId ? { turnCorrelationId } : {}),
+      },
       cancelled: false,
       kind: 'steer' as const,
       requestController: new AbortController(),
@@ -427,7 +445,7 @@ export class MessageController {
     session.submittingUserMessage = submission;
     try {
       await session.thread.steer(
-        toCodexAppServerInput(packCodexInput(text)),
+        toCodexAppServerInput(packCodexInput(text, attachments)),
         expectedTurnId,
         submission.requestController.signal,
       );

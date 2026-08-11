@@ -15,7 +15,11 @@ interface GrokMessageControllerContext {
     options?: AgentEnqueueOptions,
     forceQueue?: boolean,
   ) => Promise<void>;
-  steer: (sessionId: string, text: string) => Promise<void>;
+  steer: (
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ) => Promise<void>;
 }
 
 /** Applies the shared cutover gate before any Grok runtime lookup or provider mutation. */
@@ -48,13 +52,17 @@ export class GrokMessageController {
     await this.context.dispatch(sessionId, text, attachments, options, true);
   }
 
-  async steerTurn(sessionId: string, text: string): Promise<void> {
-    if (this.guard(sessionId, text, undefined, undefined)) return;
+  async steerTurn(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
+    if (this.guard(sessionId, text, attachments, undefined)) return;
     if (this.context.runtimeHost.hasPendingWorktreeTransition(sessionId)) {
-      await this.context.dispatch(sessionId, text, undefined, undefined, true);
+      await this.context.dispatch(sessionId, text, attachments, undefined, true);
       return;
     }
-    await this.context.steer(sessionId, text);
+    await this.context.steer(sessionId, text, attachments);
   }
 
   private guard(

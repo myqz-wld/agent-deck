@@ -24,7 +24,10 @@ import {
 } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import { GrokTurnQueue } from './turn-queue';
-import { requireNativeSession } from './turn-queue-helpers';
+import {
+  negotiatedGrokSessionImageCapability,
+  requireNativeSession,
+} from './turn-queue-helpers';
 import type { GrokEnqueueOptions } from './turn-queue-types';
 import { recycleGrokTransport } from './transport-recovery';
 import {
@@ -98,9 +101,9 @@ export class GrokBuildBridge {
           enqueueOptions,
           forceQueue,
         ),
-      steer: async (sessionId, text) => {
+      steer: async (sessionId, text, attachments) => {
         const runtime = this.requireRuntime(sessionId);
-        await this.turnQueue.steer(runtime, text);
+        await this.turnQueue.steer(runtime, text, attachments);
       },
     });
     this.runtimeMutationController = new GrokRuntimeMutationController({
@@ -260,7 +263,6 @@ export class GrokBuildBridge {
       enqueueOptions,
     );
   }
-
   async enqueueMessage(
     sessionId: string,
     text: string,
@@ -274,24 +276,22 @@ export class GrokBuildBridge {
       options,
     );
   }
-
-  async steerTurn(sessionId: string, text: string): Promise<void> {
-    await this.messageController.steerTurn(sessionId, text);
+  async steerTurn(sessionId: string, text: string, attachments?: UploadedAttachmentRef[]): Promise<void> {
+    await this.messageController.steerTurn(sessionId, text, attachments);
   }
-
   async interrupt(sessionId: string): Promise<void> { await this.lifecycle.interrupt(sessionId); }
   armCwdTransition(transition: AgentCwdTransition): void { this.cwdTransitionController.arm(transition); }
-
   async switchCwdForTransition(transition: AgentCwdTransition): Promise<AgentCwdTransitionSwitchResult> {
     await this.cwdTransitionController.switchCwd(transition);
     return { continuationAccepted: false };
   }
-
   async enqueueCwdTransitionContinuation(transition: AgentCwdTransition, text: string): Promise<void> { this.cwdTransitionController.enqueueContinuation(transition, text); }
-
   releaseCwdTransition(sessionId: string, generation: number): void { this.cwdTransitionController.release(sessionId, generation); }
-
   getRuntimeCwd(sessionId: string): string | null { return this.cwdTransitionController.runtimeCwd(sessionId); }
+
+  canAcceptSessionAttachments(sessionId: string): boolean | null {
+    return negotiatedGrokSessionImageCapability(this.runtimes.get(sessionId));
+  }
 
   async closeSession(sessionId: string): Promise<void> {
     await this.lifecycle.closeOrdinary(sessionId);

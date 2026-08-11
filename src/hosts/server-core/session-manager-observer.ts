@@ -3,6 +3,11 @@ import {
   insertTokenUsageEvent,
   type TokenUsageRepo,
 } from '@main/store/token-usage-repo';
+import {
+  persistContextUsage,
+  resetContextUsageForCompaction,
+} from '@main/session/context-window/ingest';
+import { sessionRepo } from '@main/store/session-repo';
 import { sessionChange } from './provider-host-common';
 import type { ServerCoreProviderEventBus } from './provider-event-bus';
 import type { ServerCoreRuntimeDiagnostics } from './repository-host';
@@ -56,6 +61,31 @@ export function createServerCoreSessionManagerObserver(input: {
         });
       } catch (error) {
         try { input.diagnostics.warn('Server Core token usage persistence failed', {}, error); }
+        catch {}
+      }
+    },
+    contextUsageObserved: (event) => {
+      try {
+        persistContextUsage(event);
+        const session = sessionRepo.get(event.sessionId);
+        if (session) append('session.context.changed', event.sessionId, {
+          adapterId: event.agentId,
+          timestamp: event.ts,
+        });
+      } catch (error) {
+        try { input.diagnostics.warn('Server Core context usage persistence failed', {}, error); }
+        catch {}
+      }
+    },
+    contextCompactionObserved: (event) => {
+      try {
+        resetContextUsageForCompaction(event);
+        append('session.context.changed', event.sessionId, {
+          adapterId: event.agentId,
+          timestamp: event.ts,
+        });
+      } catch (error) {
+        try { input.diagnostics.warn('Server Core context compaction persistence failed', {}, error); }
         catch {}
       }
     },

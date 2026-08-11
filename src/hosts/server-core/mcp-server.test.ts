@@ -135,6 +135,23 @@ function harness() {
       worktreeLease: { status: 'skipped' as const, worktreePath: null },
     },
   }));
+  const preview = vi.fn(async () => ({
+    bindingDigest: `sha256:${'a'.repeat(64)}`,
+    preview: 'continuation preview', previewTruncated: false, quality: 'raw-only' as const,
+    source: { eventRevision: 2, rebuildAfterRevision: 0 },
+    checkpoint: { id: null, throughRevision: 0, formatVersion: 1, refreshed: false },
+    metrics: { estimatedPromptTokens: 100, checkpointTokens: 0, rawTailTokens: 50,
+      includedUserMessages: 1, truncatedBoundaryMessages: 0,
+      rawRetentionCeilingTokens: 64_000, elapsedMs: 1 },
+    warnings: [], revision: 2,
+    target: {
+      adapterId: 'codex-cli' as const, workingDirectory: 'project-a',
+      capabilityRevision: 'revision-a',
+      options: { approvalPolicy: null, claudeCodeSandbox: null, codexSandbox: null,
+        grokSandbox: null, model: null, permissionMode: null, provider: 'openai',
+        sessionMode: null, thinking: null },
+    },
+  }));
   const tasks = new ServerCoreSessionTaskReadRepository(() => database, { warn: vi.fn() });
   const issues = new ServerCoreIssueRepository(() => database, { warn: vi.fn() });
   const host: ServerCoreMcpToolHost = {
@@ -198,7 +215,7 @@ function harness() {
       }),
     },
     spawn: { spawn },
-    handoff: { handOff },
+    handoff: { handOff, preview },
     worktree: {
       enter: vi.fn(async (_callerId, args) => ({
         transitionId: 'caller-a:1',

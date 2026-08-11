@@ -93,6 +93,8 @@ function createHarness(initial: SessionRecord[] = []) {
   const observer = {
     eventPersisted: vi.fn(),
     tokenUsageObserved: vi.fn(),
+    contextUsageObserved: vi.fn(),
+    contextCompactionObserved: vi.fn(),
     sessionUpdated: vi.fn(),
     sessionRemoved: vi.fn(),
     sessionRenamed: vi.fn(),
@@ -154,6 +156,29 @@ describe('ServerCoreSessionManager', () => {
     expect(harness.persisted).toEqual([]);
     expect(harness.observer.eventPersisted).not.toHaveBeenCalled();
     expect(harness.records.get('usage-session')).toEqual(session('usage-session'));
+  });
+
+  it('routes context snapshots off-timeline and observes compaction resets', () => {
+    const harness = createHarness([session('context-session')]);
+    const usage = event('context-session', 'context-usage', {
+      payload: { usedTokens: 320, windowTokens: 1_000_000 },
+    });
+    const compaction = event('context-session', 'context-compaction-start', {
+      payload: { reason: 'provider-compaction' },
+      ts: 21,
+    });
+
+    harness.manager.ingest(usage);
+
+    expect(harness.observer.contextUsageObserved).toHaveBeenCalledWith(usage);
+    expect(harness.persisted).toEqual([]);
+    expect(harness.observer.eventPersisted).not.toHaveBeenCalled();
+
+    harness.manager.ingest(compaction);
+
+    expect(harness.observer.contextCompactionObserved).toHaveBeenCalledWith(compaction);
+    expect(harness.persisted).toEqual([compaction]);
+    expect(harness.observer.eventPersisted).toHaveBeenCalledWith(compaction, 1);
   });
 
   it('persists trusted first-registration metadata and keeps buffered handoff input idle', () => {

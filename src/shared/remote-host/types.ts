@@ -33,6 +33,11 @@ import type {
   NodeAssetKind,
   NodeAssetListResult,
   NodeAssetSource,
+  SessionContextGetResult,
+  SessionInputCapabilitiesResult,
+  SessionHandOffCommitResult,
+  SessionHandOffPreviewResult,
+  SessionHandOffTargetInputDto,
 } from '@contracts/index';
 import type { LoadImageBlobResult } from '@shared/types';
 
@@ -193,6 +198,22 @@ export interface RemoteHostSessionTargetDto {
   profileId: string;
   sessionId: string;
 }
+
+export type RemoteHostSessionContextDto = SessionContextGetResult;
+export type RemoteHostSessionInputCapabilitiesDto = SessionInputCapabilitiesResult;
+
+export interface RemoteHostHandOffPreviewRequestDto extends RemoteHostSessionTargetDto {
+  continuationInstruction: string;
+  target: SessionHandOffTargetInputDto;
+}
+
+export interface RemoteHostHandOffCommitRequestDto
+  extends RemoteHostHandOffPreviewRequestDto, RemoteHostMutationIntentDto {
+  expectedBindingDigest: string;
+}
+
+export type RemoteHostHandOffPreviewDto = SessionHandOffPreviewResult;
+export type RemoteHostHandOffCommitDto = SessionHandOffCommitResult;
 
 export interface RemoteHostMutationTargetDto
   extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {}

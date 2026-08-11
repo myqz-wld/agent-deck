@@ -204,6 +204,10 @@ export class GrokBuildAdapter implements AgentAdapter {
     await this.bridge.sendMessage(sessionId, text, attachments, options);
   }
 
+  canAcceptSessionAttachments(sessionId: string): boolean | null {
+    return this.bridge?.canAcceptSessionAttachments(sessionId) ?? null;
+  }
+
   async enqueueMessage(
     sessionId: string,
     text: string,
@@ -214,9 +218,13 @@ export class GrokBuildAdapter implements AgentAdapter {
     await this.bridge.enqueueMessage(sessionId, text, attachments, options);
   }
 
-  async steerTurn(sessionId: string, text: string): Promise<void> {
+  async steerTurn(
+    sessionId: string,
+    text: string,
+    attachments?: UploadedAttachmentRef[],
+  ): Promise<void> {
     if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
-    await this.bridge.steerTurn(sessionId, text);
+    await this.bridge.steerTurn(sessionId, text, attachments);
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string) {

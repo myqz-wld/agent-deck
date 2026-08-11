@@ -1,9 +1,11 @@
 import type { HandOffSessionResult } from '@main/agent-deck-mcp/tools/schemas';
 import type { SessionAdapterId } from '@shared/types';
+import type { SessionHandOffPreviewResult } from '@contracts/index';
 
 export interface ServerCoreHandOffSessionArgs {
   readonly prompt: string;
   readonly cwd?: string;
+  readonly capabilityRevision?: string;
   readonly adapter?: SessionAdapterId;
   readonly gateway?: string;
   readonly provider?: string;
@@ -18,8 +20,13 @@ export interface ServerCoreHandOffSessionArgs {
 }
 
 export interface ServerCoreMcpHandOffPort {
+  preview(
+    callerSessionId: string,
+    args: ServerCoreHandOffSessionArgs,
+  ): Promise<SessionHandOffPreviewResult>;
   handOff(
     callerSessionId: string,
     args: ServerCoreHandOffSessionArgs,
+    expectedPreviewDigest?: string,
   ): Promise<HandOffSessionResult>;
 }

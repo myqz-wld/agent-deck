@@ -429,7 +429,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     });
   });
 
-  it('active turn + attachments：bridge.sendMessage 保持普通队列，避免 turn/steer 丢附件', async () => {
+  it('active turn + attachments：bridge.sendMessage 通过 turn/steer 发送图片', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sid = 'codex-active-attach';
@@ -448,11 +448,18 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
 
     await bridge.sendMessage(sid, wireBody, attachments);
 
-    expect(steer).not.toHaveBeenCalled();
-    expect(internal.pendingMessages).toHaveLength(1);
-    const items = internal.pendingMessages[0] as Array<{ type: string; text?: string; path?: string }>;
-    expect(items[0]).toMatchObject({ type: 'local_image', path: '/tmp/active.png' });
-    expect(items[1]).toMatchObject({ type: 'text', text: wireBody });
+    expect(internal.pendingMessages).toHaveLength(0);
+    expect(steer).toHaveBeenCalledWith([
+      { type: 'localImage', path: '/tmp/active.png' },
+      { type: 'text', text: wireBody, text_elements: [] },
+    ], 'turn-active-1', expect.any(AbortSignal));
+    expect(emits).toContainEqual(expect.objectContaining({
+      sessionId: sid,
+      kind: 'message',
+      payload: expect.objectContaining({
+        role: 'user', text: wireBody, steer: true, attachments,
+      }),
+    }));
   });
 
   it('active turn + attachments：bridge.enqueueMessage 仍按附件输入形态入队', async () => {

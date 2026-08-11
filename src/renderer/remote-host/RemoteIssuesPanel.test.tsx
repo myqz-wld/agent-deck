@@ -93,6 +93,8 @@ function source(
     getFileFinalDiff: vi.fn(),
     loadImageBlob: vi.fn(async () => ({ ok: false as const, reason: 'unsupported_source' as const })),
     interrupt: vi.fn(),
+    previewHandOff: vi.fn(),
+    commitHandOff: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),

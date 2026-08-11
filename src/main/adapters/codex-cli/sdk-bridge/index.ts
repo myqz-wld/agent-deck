@@ -339,8 +339,8 @@ export class CodexSdkBridge {
     await this.messageController.enqueueMessage(sessionId, text, attachments, options);
   }
 
-  async steerTurn(sessionId: string, text: string): Promise<void> {
-    await this.messageController.steerTurn(sessionId, text);
+  async steerTurn(sessionId: string, text: string, attachments?: UploadedAttachmentRef[]): Promise<void> {
+    await this.messageController.steerTurn(sessionId, text, attachments);
   }
 
   async interrupt(sessionId: string): Promise<void> {
