@@ -63,8 +63,23 @@ src/main/store/token-usage-repo.ts
 - `pnpm typecheck` passed architecture and Node/Web TypeScript checks.
 - Production build, Linux headless build/check, deployment automation check, and macOS Worker
   sandbox verification passed.
+- `pnpm dist:mac` produced a clean `e1dabf382f88` package and the packaged Worker sandbox check
+  passed. The user installed and reopened that exact build without process manipulation.
+- Official Relay `--check`, `--dry-run`, `--upgrade`, and independent `--verify` passed. The healthy
+  release is `git-e1dabf382f88` at image digest
+  `sha256:a47919cd545b5013240c22eea0bdc4cab8c68c2c3be00167582963090ca69179`.
+- Official Worker `--check`, `--dry-run`, `--upgrade`, and independent `--verify` passed for
+  `worker-df9dfaddfd410be3979119c7` using the isolated `~/AgentDeckWorkspaces` root.
+- Startup recovery populated 9 keyed legacy rows while retaining all 9 legacy events. Live
+  acceptance then raised `token_usage` to 13; the two new provider sessions contributed 4 ledger
+  rows and 0 new `token-usage` history events.
+- A fresh Relay client negotiated protocol 2.1 and 21 capabilities, loaded Teams and Issues, read
+  an authoritative active-session total of 8, returned 2 daily usage rows, and observed a non-empty
+  rolling `gpt-5.6-sol` token rate after a live follow-up.
+- Claude `deepseek` / `deepseek-v4-flash[1m]` / `max` returned
+  `CLAUDE_DEEPSEEK_E1_TOKEN_USAGE_OK`; Codex `gpt-5.6-sol` / `low` returned
+  `CODEX_GPT_5_6_SOL_E1_TOKEN_USAGE_OK` and the rolling-rate follow-up marker.
 - `git diff --check` passed and all modified production files remain below 500 lines.
-- Package and production post-deployment acceptance results will be added before final handoff.
 
 ## Residual risk
 
@@ -75,5 +90,5 @@ src/main/store/token-usage-repo.ts
 
 ## Verdict
 
-PASS for implementation validation. Final release acceptance remains contingent on full validation,
-official Worker deployment, and non-empty production Remote usage reads after real model sessions.
+PASS. Full validation, exact-commit packaging, official Relay/Worker deployment, keyed recovery,
+Remote workspace reads, and real Claude/Codex token-usage acceptance all completed successfully.
