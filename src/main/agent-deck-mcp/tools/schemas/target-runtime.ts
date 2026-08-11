@@ -60,7 +60,7 @@ const approvalPolicy = z
   .enum(CODEX_APPROVAL_POLICIES)
   .optional()
   .describe(
-    'Optional non-null Codex CLI app-server approval policy: untrusted, on-request, or never. Explicit public value wins, followed by any trusted main-only override, persisted same-adapter source, then on-request. This field does not set Codex network access or arbitrary additional readable directories; those can only come from trusted internal state, same-adapter inheritance, or selected Codex Agent configuration. Other adapters and null reject.',
+    'Optional non-null Codex CLI app-server approval policy: untrusted, on-request, or never. Explicit public value wins, followed by any trusted main-only override, persisted same-adapter source, then never. This field does not set Codex network access or arbitrary additional readable directories; those can only come from trusted internal state, same-adapter inheritance, or selected Codex Agent configuration. Other adapters and null reject.',
   );
 
 const sessionMode = z

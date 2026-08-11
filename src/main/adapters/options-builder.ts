@@ -116,7 +116,7 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
     out.codexConfigOverrides = raw.codexConfigOverrides;
   }
   if (raw.codexSandbox !== undefined) out.codexSandbox = raw.codexSandbox;
-  out.approvalPolicy = raw.approvalPolicy ?? 'on-request';
+  out.approvalPolicy = raw.approvalPolicy ?? 'never';
   if (raw.extraAllowWrite !== undefined) out.extraAllowWrite = raw.extraAllowWrite;
   // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2:透传 handOff metadata
   // 给 codex-cli adapter,bridge createSession → thread-loop / resume emit first user message

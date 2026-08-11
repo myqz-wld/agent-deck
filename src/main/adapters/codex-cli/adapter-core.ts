@@ -64,7 +64,7 @@ export interface CodexCliAdapterHost {
  * - ❌ 通用 setPermissionMode
  * - ✅ Codex approvalPolicy 可持久化热切，下一次 turn/start 生效
  *
- * 新建会话的 approval policy 默认 `on-request`；caller 显式值和同 adapter 继承值优先。
+ * 新建会话的 approval policy 默认 `never`；caller 显式值和同 adapter 继承值优先。
  * reviewer 名称不隐式改变权限、审批或沙盒。sandboxMode 默认 'workspace-write' 但
  * **可被 settings.codexSandbox 覆盖**
  * （CHANGELOG_54 B-4：补齐 REVIEW_14「双 backend 沙盒对称」目标，让用户能在 read-only /

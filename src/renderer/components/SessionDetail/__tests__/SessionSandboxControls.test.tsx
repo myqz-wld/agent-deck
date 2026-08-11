@@ -65,19 +65,20 @@ describe('Codex live approval control', () => {
       />,
     );
 
+    expect(screen.getByLabelText('审批').textContent).toContain('从不询问');
     fireEvent.click(screen.getByLabelText('审批'));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       '非可信命令前询问',
       '按需询问',
       '从不询问',
     ]);
-    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
 
     await waitFor(() => {
       expect(setCodexApprovalPolicy).toHaveBeenCalledWith(
         'codex-cli',
         'codex-session',
-        'never',
+        'on-request',
       );
     });
 
@@ -86,7 +87,7 @@ describe('Codex live approval control', () => {
         session={session({
           id: 'codex-session',
           agentId: 'codex-cli',
-          codexApprovalPolicy: 'never',
+          codexApprovalPolicy: 'on-request',
           codexSandbox: 'workspace-write',
         })}
         turnBusy

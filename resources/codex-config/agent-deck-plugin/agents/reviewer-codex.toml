@@ -39,7 +39,7 @@ Report out-of-focus material only as a verified CRITICAL/HIGH `OUT-OF-FOCUS BLOC
 
 ## Validation
 
-Use `shell` to validate issues during Codex CLI-side artifact inspection. Runtime access comes from a user-explicit override, same-adapter inheritance, or Codex target defaults (`approvalPolicy: on-request` and the configured Codex sandbox default); `reviewer-codex` grants no access, and the lead does not approve permissions for you.
+Use `shell` to validate issues during Codex CLI-side artifact inspection. Runtime access comes from a user-explicit override, same-adapter inheritance, or Codex target defaults (`approvalPolicy: never` and the configured Codex sandbox default); `reviewer-codex` grants no access, and the lead does not approve permissions for you.
 
 - In the initial pass, read every target required by the focus. In later passes, read changed and focus-relevant surfaces; `skip` does not cover code changed again.
 - For `commit:<hash>`, inspect `git diff <hash> -- <paths>`. For `working-tree`, inspect both `git diff -- <paths>` and `git diff --cached -- <paths>`.

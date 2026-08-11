@@ -39,6 +39,17 @@ afterEach(() => {
 });
 
 describe('useSessionCreationOptions request fencing', () => {
+  it('uses never as the Codex approval fallback without changing its sandbox fallback', () => {
+    const hook = renderHook(() => useSessionCreationOptions({
+      adapterId: 'codex-cli',
+      cwd: '/repo',
+      active: false,
+    }));
+
+    expect(hook.result.current.approvalPolicy).toBe('never');
+    expect(hook.result.current.codexSandbox).toBe('workspace-write');
+  });
+
   it('never applies stale adapter, cwd, or provider completions and catches rejection', async () => {
     vi.useFakeTimers();
     const requests = [

@@ -36,7 +36,10 @@ Use a lead session as the control point for the project:
 4. Review proposed plans or diffs and approve them or request revisions.
 5. Continue in the current session, hand work to another agent, or finish the task.
 
-Each session keeps its agent's own runtime, permission, approval, and sandbox settings. Agent Deck coordinates the work without widening access.
+Each session keeps its agent's own runtime, permission, approval, and sandbox settings. Agent Deck
+coordinates the work without widening access. Codex targets fall back to `never` approval only when
+no explicit, resolved, or same-adapter inherited policy exists; remembered selections and the
+configured Codex sandbox default remain unchanged.
 
 ## Development
 

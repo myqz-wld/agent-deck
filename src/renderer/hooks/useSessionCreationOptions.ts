@@ -49,7 +49,7 @@ const SAFE_FALLBACK: SessionCreationDefaults = {
   thinking: 'high',
   permissionMode: 'bypassPermissions',
   sessionMode: 'default',
-  approvalPolicy: 'on-request',
+  approvalPolicy: 'never',
   codexSandbox: 'workspace-write',
   claudeCodeSandbox: 'workspace-write',
   grokSandbox: 'workspace',

@@ -1,6 +1,6 @@
 /**
  * Codex option narrowing must be independent of `agentName`. The public builder provides the
- * ordinary `on-request` target default, preserves explicit approval/sandbox values, and never
+ * ordinary `never` target default, preserves explicit approval/sandbox values, and never
  * injects reviewer network or path access. Same-adapter inheritance is resolved by spawn/handoff
  * before this boundary.
  */
@@ -19,7 +19,7 @@ describe('options-builder Codex runtime defaults', () => {
 
     expect(opts.agentId).toBe('codex-cli');
     expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBe('on-request');
+    expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
     expect('agentName' in opts).toBe(false);
@@ -39,14 +39,14 @@ describe('options-builder Codex runtime defaults', () => {
     expect(opts.additionalDirectories).toBeUndefined();
   });
 
-  it('defaults ordinary Codex targets to on-request without hidden access', () => {
+  it('defaults ordinary Codex targets to never without hidden access', () => {
     const opts = buildCreateSessionOptions('codex-cli', {
       cwd: '/repo',
       prompt: 'lead chat',
     });
 
     expect(opts.codexSandbox).toBeUndefined();
-    expect(opts.approvalPolicy).toBe('on-request');
+    expect(opts.approvalPolicy).toBe('never');
     expect(opts.networkAccessEnabled).toBeUndefined();
     expect(opts.additionalDirectories).toBeUndefined();
 
@@ -56,7 +56,7 @@ describe('options-builder Codex runtime defaults', () => {
       codexSandbox: 'read-only',
     });
     expect(optsWithCallerSandbox.codexSandbox).toBe('read-only');
-    expect(optsWithCallerSandbox.approvalPolicy).toBe('on-request');
+    expect(optsWithCallerSandbox.approvalPolicy).toBe('never');
     expect(optsWithCallerSandbox.networkAccessEnabled).toBeUndefined();
     expect(optsWithCallerSandbox.additionalDirectories).toBeUndefined();
   });

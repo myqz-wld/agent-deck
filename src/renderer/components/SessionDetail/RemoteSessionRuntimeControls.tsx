@@ -254,7 +254,7 @@ export function RemoteSessionRuntimeControls({
         <>
           <SelectRow
             label="审批"
-            value={(stringValue(values, 'approvalPolicy') || 'on-request') as CodexApprovalPolicyChoice}
+            value={(stringValue(values, 'approvalPolicy') || 'never') as CodexApprovalPolicyChoice}
             options={CODEX_APPROVAL_POLICY_OPTIONS}
             disabled={disabled}
             onChange={(next) => void apply({ approvalPolicy: next })}
