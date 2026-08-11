@@ -72,10 +72,15 @@ function capabilities(
   for (const method of supportedMethods) {
     if (isCoreMethodAllowed(access.surface, method)) {
       const capability = CORE_METHOD_METADATA[method].capability;
+      const minimumMinor = capability === AgentDeckCapability.Usage
+        ? 1
+        : capability === AgentDeckCapability.NodeConfiguration ||
+            capability === AgentDeckCapability.NodeAssets
+          ? 2
+          : 0;
       if (
-        capability !== AgentDeckCapability.Usage ||
         protocolVersion.major > 2 ||
-        (protocolVersion.major === 2 && protocolVersion.minor >= 1)
+        (protocolVersion.major === 2 && protocolVersion.minor >= minimumMinor)
       ) {
         result.add(capability);
       }

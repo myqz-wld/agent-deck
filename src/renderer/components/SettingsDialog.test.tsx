@@ -33,6 +33,126 @@ afterEach(() => {
 });
 
 describe('SettingsDialog adapter views', () => {
+  it('binds Remote settings and Hook actions to the selected Worker only', async () => {
+    const localHookStatus = vi.fn();
+    const remoteHookStatus = vi.fn().mockResolvedValue({
+      adapterId: 'claude-code',
+      revision: 4,
+      status: HOOK_STATUS,
+    });
+    const installRemote = vi.fn().mockResolvedValue({
+      adapterId: 'claude-code',
+      revision: 5,
+      status: { ...HOOK_STATUS, installed: true, installedHooks: ['SessionStart'] },
+    });
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+        hookStatus: localHookStatus,
+        getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue({
+          providerDefaults: {
+            claudeCodeSandbox: 'strict',
+            codexSandbox: 'read-only',
+            enableAgentDeckMcp: true,
+            grokSandbox: 'off',
+            permissionTimeoutMs: 30_000,
+            summaryModel: 'summary-model',
+            summaryThinking: 'low',
+            summaryTimeoutMs: 60_000,
+          },
+          revision: 4,
+        }),
+        getRemoteHostNodeHookStatus: remoteHookStatus,
+        installRemoteHostNodeHook: installRemote,
+      },
+    });
+
+    render(<SettingsDialog open onClose={vi.fn()} remote={{
+      identity: 'remote-a:core-a:1',
+      label: 'aws-relay-on-mac',
+      profileId: 'remote-a',
+      supportsNodeConfiguration: true,
+      usable: true,
+    }} />);
+
+    expect(await screen.findByText('设置 · aws-relay-on-mac')).toBeTruthy();
+    expect(await screen.findByText('Claude Code 沙盒默认值')).toBeTruthy();
+    expect(screen.getByText('strict')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Claude Code' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code 终端 Hook' }));
+    expect(screen.getByText(/作用目标：当前 Remote Worker/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '在 Worker 上安装 Hook' }));
+    await vi.waitFor(() => expect(installRemote).toHaveBeenCalledWith(expect.objectContaining({
+      profileId: 'remote-a',
+      adapterId: 'claude-code',
+    })));
+    expect(localHookStatus).not.toHaveBeenCalled();
+    expect(remoteHookStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it('never falls back to Local settings when the Remote Core lacks node configuration', async () => {
+    const localHookStatus = vi.fn();
+    const remoteHookStatus = vi.fn();
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+        hookStatus: localHookStatus,
+        getRemoteHostNodeHookStatus: remoteHookStatus,
+      },
+    });
+    render(<SettingsDialog open onClose={vi.fn()} remote={{
+      identity: 'remote-a:legacy-core',
+      label: 'legacy-worker',
+      profileId: 'remote-a',
+      supportsNodeConfiguration: false,
+      usable: true,
+    }} />);
+    expect(await screen.findByText(
+      '当前 Remote Core 版本未提供节点配置能力；请先升级远端部署。',
+    )).toBeTruthy();
+    expect(localHookStatus).not.toHaveBeenCalled();
+    expect(remoteHookStatus).not.toHaveBeenCalled();
+  });
+
+  it('loads Worker configuration after reconnecting without requiring the dialog to close', async () => {
+    const remoteConfiguration = vi.fn().mockResolvedValue({
+      providerDefaults: {
+        claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
+        enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
+        summaryModel: '', summaryThinking: '', summaryTimeoutMs: 60_000,
+      },
+      revision: 8,
+    });
+    const remoteHookStatus = vi.fn().mockResolvedValue({
+      adapterId: 'claude-code', revision: 8, status: HOOK_STATUS,
+    });
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+        getRemoteHostNodeConfiguration: remoteConfiguration,
+        getRemoteHostNodeHookStatus: remoteHookStatus,
+      },
+    });
+    const base = {
+      identity: 'remote-a:core-a:1', label: 'aws-relay-on-mac', profileId: 'remote-a',
+      supportsNodeConfiguration: true,
+    } as const;
+    const view = render(<SettingsDialog open onClose={vi.fn()} remote={{
+      ...base, usable: false,
+    }} />);
+    expect(await screen.findByText(/Remote Worker 尚未连接/)).toBeTruthy();
+    expect(remoteConfiguration).not.toHaveBeenCalled();
+
+    view.rerender(<SettingsDialog open onClose={vi.fn()} remote={{ ...base, usable: true }} />);
+    expect(await screen.findByText('配置 revision')).toBeTruthy();
+    expect(await screen.findByText('8')).toBeTruthy();
+    expect(remoteConfiguration).toHaveBeenCalledWith({ profileId: 'remote-a' });
+    expect(remoteHookStatus).toHaveBeenCalledTimes(3);
+  });
+
   it('includes Grok Build authentication and external terminal Hook controls', async () => {
     const hookStatus = vi.fn().mockResolvedValue({
       installed: false,

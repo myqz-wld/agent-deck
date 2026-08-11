@@ -18,6 +18,8 @@ export const AgentDeckCapability = {
   SubscriptionsWrite: 'subscriptions.write',
   Teams: 'teams',
   Usage: 'usage',
+  NodeConfiguration: 'node.configuration',
+  NodeAssets: 'node.assets',
   Tasks: 'tasks',
   Issues: 'issues',
   Files: 'files',

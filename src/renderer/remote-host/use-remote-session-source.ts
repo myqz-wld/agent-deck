@@ -13,6 +13,7 @@ import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
 import {
   RemoteUserIntentLedger,
   remoteSessionCreateIntentPayload,
+  remoteAttachmentIntentPayload,
 } from './remote-intent-ledger';
 import { appendUnique, remoteSourceIdentity } from './remote-source-utils';
 import { useRemoteSourceContext } from './use-remote-source-context';
@@ -22,6 +23,7 @@ import { useRemoteTaskRecords } from './use-remote-task-records';
 import { useRemoteEventRecords } from './use-remote-event-records';
 import { RemotePlanReviewTransports } from './remote-plan-review-transports';
 import { useRemotePendingHydrator } from './use-remote-pending-hydrator';
+import { useRemoteBusinessRunner } from './use-remote-business-runner';
 import { pendingPresentationBindingDigest } from './remote-pending-presentation';
 const EMPTY_PENDING = new Map<string, RemoteHostPendingListDto>();
 
@@ -48,17 +50,17 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const [summaries, setSummaries] = useState<RemoteHostSummaryListDto | null>(null);
   const [summaryLoadError, setSummaryLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [paginationBusy, setPaginationBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [localRevision, setLocalRevision] = useState(0);
   const [listRefreshTick, setListRefreshTick] = useState(0);
   const [detailRefreshTick, setDetailRefreshTick] = useState(0);
   const navigation = useRef(new Map<string, string | null>());
   const identityRef = useRef(identity);
+  const { busy, error, reset: resetBusiness, run: runBusiness, setError } =
+    useRemoteBusinessRunner(identityRef, setLocalRevision);
+  const runtimeRef = useRef<RemoteHostRuntimeControlsDto | null>(null);
   const listSequence = useRef(0);
   const detailSequence = useRef(0);
-  const businessSequence = useRef(0);
   const paginationSequence = useRef(0);
   const listLoads = useRef(new Set<string>());
   const listRefreshPending = useRef(new Set<string>());
@@ -85,9 +87,10 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   }, [addressableIdentityKey, planReviews]);
   useEffect(() => {
     identityRef.current = identity;
+    runtimeRef.current = null;
     listSequence.current += 1;
     detailSequence.current += 1;
-    businessSequence.current += 1;
+    resetBusiness();
     paginationSequence.current += 1;
     setSelection({ identity, sessionId: navigation.current.get(identity) ?? null });
     setSessions([]);
@@ -102,10 +105,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     setRuntime(null);
     setSummaries(null);
     setSummaryLoadError(null);
-    setBusy(false);
     setPaginationBusy(false);
-    setError(null);
-  }, [identity]);
+  }, [identity, resetBusiness]);
 
   useEffect(() => {
     if (!usable || !activeProfileId) {
@@ -173,6 +174,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       detailSequence.current += 1;
       setSelectedSession(null);
       setRuntime(null);
+      runtimeRef.current = null;
       setSummaries(null);
       setSummaryLoadError(null);
       return;
@@ -194,6 +196,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         setSelection({ identity, sessionId: null });
         setSelectedSession(null);
         setRuntime(null);
+        runtimeRef.current = null;
         setSummaries(null);
         setSummaryLoadError(null);
         setPendingBySession((current) => {
@@ -208,9 +211,16 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         await requests.optional;
       if (sequence !== detailSequence.current || identityRef.current !== identity) return;
       const optionalErrors: string[] = [];
-      if (runtimeResult.status === 'fulfilled') setRuntime(runtimeResult.value);
-      else optionalErrors.push(runtimeResult.reason instanceof Error
-        ? runtimeResult.reason.message : String(runtimeResult.reason));
+      if (runtimeResult.status === 'fulfilled') {
+        runtimeRef.current = runtimeResult.value;
+        setRuntime(runtimeResult.value);
+      }
+      else {
+        runtimeRef.current = null;
+        setRuntime(null);
+        optionalErrors.push(runtimeResult.reason instanceof Error
+          ? runtimeResult.reason.message : String(runtimeResult.reason));
+      }
       if (summaryResult.status === 'fulfilled') {
         setSummaries(summaryResult.value);
         setSummaryLoadError(null);
@@ -254,43 +264,14 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const selectSession = useCallback((sessionId: string | null): void => {
     const currentIdentity = identityRef.current;
     detailSequence.current += 1;
-    businessSequence.current += 1;
     navigation.current.set(currentIdentity, sessionId);
     setSelection({ identity: currentIdentity, sessionId });
     setSelectedSession(null);
     setRuntime(null);
+    runtimeRef.current = null;
     setSummaries(null);
     setSummaryLoadError(null);
     setError(null);
-  }, []);
-
-  const runBusiness = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
-    const expectedIdentity = identityRef.current;
-    const sequence = ++businessSequence.current;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await operation();
-      if (
-        identityRef.current !== expectedIdentity ||
-        sequence !== businessSequence.current
-      ) throw new Error('数据源已切换，请重试。');
-      setLocalRevision((current) => current + 1);
-      return result;
-    } catch (reason) {
-      if (
-        identityRef.current === expectedIdentity &&
-        sequence === businessSequence.current
-      ) {
-        setError(reason instanceof Error ? reason.message : String(reason));
-      }
-      throw reason;
-    } finally {
-      if (
-        identityRef.current === expectedIdentity &&
-        sequence === businessSequence.current
-      ) setBusy(false);
-    }
   }, []);
 
   const runPagination = useCallback(async <T,>(
@@ -472,11 +453,18 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         window.api.respondRemoteHostPending({ ...payload, intentId }));
     }),
     selectSession,
-    send: (text) => runBusiness(async () => {
+    send: (text, attachments = []) => runBusiness(async () => {
       requireCapability('sessions.write');
-      const request = { ...target(), text };
-      await intents.current.run(identityRef.current, 'send', request, (intentId) =>
-        window.api.sendRemoteHostMessage({ ...request, intentId }));
+      const request = {
+        ...target(),
+        text,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
+      const intentPayload = await remoteAttachmentIntentPayload(text, attachments);
+      await intents.current.run(identityRef.current, 'send', {
+        target: target(),
+        message: intentPayload,
+      }, (intentId) => window.api.sendRemoteHostMessage({ ...request, intentId }));
     }),
     steer: (text) => runBusiness(async () => {
       requireCapability('sessions.write');
@@ -484,16 +472,25 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       await intents.current.run(identityRef.current, 'steer', request, (intentId) =>
         window.api.steerRemoteHostSession({ ...request, intentId }));
     }),
-    updateRuntime: (patch: RemoteHostJsonObject) => runBusiness(async () => {
-      requireCapability('sessions.runtime.write');
-      if (!runtime) throw new Error('运行时控制已变化，请刷新后重试。');
-      const request = {
-        ...target(),
-        patch,
-        expectedRevision: runtime.revision,
-      };
-      await intents.current.run(identityRef.current, 'runtime', request, (intentId) =>
-        window.api.updateRemoteHostRuntime({ ...request, intentId }));
-    }),
+    updateRuntime: async (patch: RemoteHostJsonObject) => {
+      const result = await runBusiness(async () => {
+        requireCapability('sessions.runtime.write');
+        const controls = runtimeRef.current;
+        if (!controls) throw new Error('运行时控制已变化，请刷新后重试。');
+        const request = {
+          ...target(),
+          patch,
+          expectedRevision: controls.revision,
+        };
+        return intents.current.run(identityRef.current, 'runtime', request, (intentId) =>
+          window.api.updateRemoteHostRuntime({ ...request, intentId }));
+      });
+      if (result.replacementSessionId) {
+        selectSession(result.replacementSessionId);
+        return;
+      }
+      runtimeRef.current = result.controls;
+      setRuntime(result.controls);
+    },
   };
 }

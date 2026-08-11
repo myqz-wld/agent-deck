@@ -61,6 +61,8 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
     (event: AgentDeckEventEnvelope) => void
   >();
   private readonly pending = new Map<string, PendingRequest>();
+  /** Requests written on the active Core connection; the remaining pending entries are queued. */
+  private readonly sentRequestIds = new Set<string>();
   private readonly controlRequests = new Map<string, 'cancel' | 'subscribe'>();
   private streamCursor = 0;
   private cursorInitialized = false;
@@ -208,9 +210,9 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
         ),
       );
     }
-    if (this.pending.size >= this.effectiveInFlightLimit()) {
+    if (this.pending.size >= this.connection.resolved.bounds.maxQueuedRequests) {
       return Promise.reject(
-        new SshTransportError('in_flight_limit', 'SSH in-flight request limit reached', true),
+        new SshTransportError('in_flight_limit', 'SSH request queue limit reached', true),
       );
     }
     if (options?.signal?.aborted) {
@@ -237,25 +239,17 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
     installPendingCancellation(pending, options, this.now, (reason) => {
       this.cancelPending(requestId, reason);
     });
-    if (this.connection.ready) this.sendPending(pending);
+    if (this.connection.ready) this.dispatchPending();
     return promise;
   }
 
   private handleReady(hello: HostHello): void {
     this.controlRequests.clear();
-    const limit = this.effectiveInFlightLimit(hello);
-    let index = 0;
-    for (const [requestId, pending] of this.pending) {
-      index += 1;
-      if (index <= limit) continue;
-      this.pending.delete(requestId);
-      this.cleanupPending(pending);
-      pending.reject(
-        new SshTransportError('in_flight_limit', 'Host negotiated a lower in-flight limit', true),
-      );
-    }
+    // A new SSH/Core connection has no live requests even when logical requests are retained for
+    // retry. Re-admit them against the newly negotiated limit instead of rejecting the tail.
+    this.sentRequestIds.clear();
     if (this.subscriptions.size > 0) this.sendSubscribe();
-    for (const pending of this.pending.values()) this.sendPending(pending);
+    this.dispatchPending(hello);
   }
 
   private handleHostMessage(message: HostProtocolMessage): void {
@@ -299,13 +293,25 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
       );
       return;
     }
+    if (!this.sentRequestIds.has(message.requestId)) {
+      this.connection.failProtocol(
+        new SshTransportError(
+          'protocol_violation',
+          `Host sent response for queued request ${message.requestId}`,
+        ),
+        'incompatible',
+      );
+      return;
+    }
 
     this.pending.delete(message.requestId);
+    this.sentRequestIds.delete(message.requestId);
     this.cleanupPending(pending);
     this.responseLedger.remember(message.requestId, 'settled');
     if (message.type === 'result') {
       this.connection.markResponsive();
       pending.resolve(message.result);
+      this.dispatchPending();
       return;
     }
     const error = this.remoteError(message);
@@ -315,7 +321,9 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
     pending.reject(error);
     if (error.code === AgentDeckClientErrorCode.Revoked) {
       this.connection.failProtocol(error, 'incompatible');
+      return;
     }
+    this.dispatchPending();
   }
 
   private handleEvent(message: ProtocolEventMessage): void {
@@ -350,9 +358,10 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
     const pending = this.pending.get(requestId);
     if (!pending) return false;
     this.pending.delete(requestId);
+    const wasSent = this.sentRequestIds.delete(requestId);
     this.cleanupPending(pending);
     this.responseLedger.remember(requestId, reason);
-    if (this.connection.ready) {
+    if (wasSent && this.connection.ready) {
       const controlId = this.connection.createId('cancel');
       this.trackControl(controlId, 'cancel');
       try {
@@ -376,17 +385,30 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
           )
         : new SshTransportError('cancelled', 'Request was cancelled'),
     );
+    this.dispatchPending();
     return true;
   }
 
   private sendPending(pending: PendingRequest): void {
-    if (!this.pending.has(pending.message.requestId)) return;
+    const requestId = pending.message.requestId;
+    if (!this.pending.has(requestId) || this.sentRequestIds.has(requestId)) return;
+    this.sentRequestIds.add(requestId);
     try {
       this.connection.send(pending.message);
     } catch (error) {
-      this.pending.delete(pending.message.requestId);
+      this.pending.delete(requestId);
+      this.sentRequestIds.delete(requestId);
       this.cleanupPending(pending);
       pending.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private dispatchPending(hello = this.connection.hostHello): void {
+    if (!this.connection.ready) return;
+    const limit = this.effectiveInFlightLimit(hello);
+    for (const pending of this.pending.values()) {
+      if (this.sentRequestIds.size >= limit) return;
+      this.sendPending(pending);
     }
   }
 
@@ -458,6 +480,7 @@ export class SshAgentDeckClient implements AgentDeckClient<CoreMethodMap> {
 
   private rejectAllPending(error: Error): void {
     this.controlRequests.clear();
+    this.sentRequestIds.clear();
     for (const pending of this.pending.values()) {
       this.cleanupPending(pending);
       pending.reject(error);

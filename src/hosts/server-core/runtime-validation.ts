@@ -2,6 +2,8 @@ import {
   AgentDeckClientErrorCode,
   isJsonObject,
   isJsonValue,
+  parseSessionConsoleAttachments,
+  type SessionConsoleAttachmentInput,
   type JsonObject,
   type JsonValue,
 } from '@contracts/index';
@@ -25,6 +27,7 @@ export interface ServerCoreHistoryParams {
 export interface ServerCoreSendParams {
   readonly sessionId: string;
   readonly text: string;
+  readonly attachments: SessionConsoleAttachmentInput[];
 }
 
 export interface ServerCorePendingResponseParams {
@@ -109,15 +112,19 @@ export function historyCursor(offset: number): string {
 
 export function parseSendParams(params: JsonObject): ServerCoreSendParams {
   exactKeys(params, ['sessionId', 'text'], ['attachments']);
-  if (params.attachments !== undefined) {
-    if (!Array.isArray(params.attachments) || params.attachments.length !== 0) invalid();
-  }
-  return { sessionId: token(params.sessionId), text: text(params.text) };
+  let attachments: SessionConsoleAttachmentInput[];
+  try { attachments = parseSessionConsoleAttachments(params.attachments ?? []); }
+  catch { return invalid(); }
+  if (
+    typeof params.text !== 'string' || Buffer.byteLength(params.text) > MAX_TEXT_BYTES ||
+    CONTROL.test(params.text) || (params.text.trim().length === 0 && attachments.length === 0)
+  ) invalid();
+  return { sessionId: token(params.sessionId), text: params.text, attachments };
 }
 
 export function parseSteerParams(params: JsonObject): ServerCoreSendParams {
   exactKeys(params, ['sessionId', 'text']);
-  return { sessionId: token(params.sessionId), text: text(params.text) };
+  return { sessionId: token(params.sessionId), text: text(params.text), attachments: [] };
 }
 
 export function parsePendingResponseParams(

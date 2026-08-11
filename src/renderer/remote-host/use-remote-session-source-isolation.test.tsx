@@ -29,6 +29,11 @@ beforeEach(() => {
     sendRemoteHostMessage: vi.fn(async () => ({
       messageId: 'message-a', sequence: 1, revision: 2,
     })),
+    updateRemoteHostRuntime: vi.fn(async () => ({
+      controls: { adapterId: 'codex-cli', values: { model: 'next' }, revision: 2 },
+      effect: 'hot-applied',
+      replacementSessionId: null,
+    })),
   } as unknown as typeof window.api;
 });
 
@@ -86,5 +91,27 @@ describe('useRemoteSessionSource isolated reads and intent identity', () => {
     act(() => history.reject(new Error('history unavailable')));
     await waitFor(() => expect(hook.result.current.historyLoadError).toBe('history unavailable'));
     expect(hook.result.current.sessions).toHaveLength(1);
+  });
+
+  it('uses the latest runtime revision and follows a Worker-controlled replacement session', async () => {
+    vi.mocked(window.api.updateRemoteHostRuntime).mockResolvedValueOnce({
+      controls: { adapterId: 'codex-cli', values: { model: 'replacement' }, revision: 2 },
+      effect: 'restart-required',
+      replacementSessionId: 'successor-session',
+    });
+    const hook = renderHook(() => useRemoteSessionSource(hosts('remote-a', 1)));
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    act(() => hook.result.current.selectSession('same-session'));
+    await waitFor(() => expect(hook.result.current.runtime?.revision).toBe(1));
+
+    await act(async () => { await hook.result.current.updateRuntime({ codexSandbox: 'read-only' }); });
+
+    expect(window.api.updateRemoteHostRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      profileId: 'remote-a',
+      sessionId: 'same-session',
+      expectedRevision: 1,
+      patch: { codexSandbox: 'read-only' },
+    }));
+    expect(hook.result.current.selectedSessionId).toBe('successor-session');
   });
 });

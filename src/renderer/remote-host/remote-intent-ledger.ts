@@ -1,6 +1,7 @@
 import { isDefinitiveRemoteHostRejection } from '@shared/remote-host';
 
 import type { RemoteSessionCreateInput } from './source-types';
+import type { SessionConsoleAttachmentInput } from '@contracts/index';
 
 const MAX_PENDING_INTENTS_PER_SOURCE = 64;
 const MAX_INTENT_KEY_BYTES = 128 * 1024;
@@ -49,6 +50,21 @@ export async function remoteSessionCreateIntentPayload(
   return {
     ...input,
     attachments: await Promise.all(input.attachments.map(async (attachment) => ({
+      bytes: attachment.bytes,
+      digest: await sha256(attachment.base64),
+      kind: attachment.kind,
+      mime: attachment.mime,
+    }))),
+  };
+}
+
+export async function remoteAttachmentIntentPayload(
+  text: string,
+  attachments: readonly SessionConsoleAttachmentInput[],
+): Promise<unknown> {
+  return {
+    text,
+    attachments: await Promise.all(attachments.map(async (attachment) => ({
       bytes: attachment.bytes,
       digest: await sha256(attachment.base64),
       kind: attachment.kind,

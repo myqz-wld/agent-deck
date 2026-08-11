@@ -23,7 +23,7 @@ export function ContentViewerModal({
   onClose,
 }: {
   state: ContentViewerState;
-  onReveal: () => void;
+  onReveal?: (() => void) | null;
   onClose: () => void;
 }): JSX.Element {
   const { asset } = state;
@@ -39,14 +39,20 @@ export function ContentViewerModal({
             </code>
           </div>
           <div className="flex shrink-0 gap-1">
-            <button
-              type="button"
-              onClick={onReveal}
-              title="在 Finder / 资源管理器中显示"
-              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
-            >
-              <FolderOpenIcon className="mr-1 inline h-3 w-3" />显示文件
-            </button>
+            {onReveal ? (
+              <button
+                type="button"
+                onClick={onReveal}
+                title="在 Finder / 资源管理器中显示"
+                className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
+              >
+                <FolderOpenIcon className="mr-1 inline h-3 w-3" />显示文件
+              </button>
+            ) : (
+              <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-deck-muted/60">
+                Worker 文件 · 只读
+              </span>
+            )}
             <button
               type="button"
               onClick={onClose}

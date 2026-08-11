@@ -77,19 +77,24 @@ export function Toggle({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }): JSX.Element {
   return (
-    <label className="flex cursor-pointer items-center justify-between text-[11px]">
+    <label className={`flex items-center justify-between text-[11px] ${
+      disabled ? 'cursor-not-allowed text-deck-muted/60' : 'cursor-pointer'
+    }`}>
       <span>{label}</span>
       <input
         type="checkbox"
         checked={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-3.5 w-3.5 cursor-pointer"
+        className={`h-3.5 w-3.5 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
       />
     </label>
   );

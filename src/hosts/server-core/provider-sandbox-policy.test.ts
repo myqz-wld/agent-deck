@@ -286,4 +286,27 @@ describe('Server Core provider Workspace policies', () => {
       replacementSessionId: 'replacement-session',
     });
   });
+
+  it('restarts only the selected Claude Code session when its sandbox changes', async () => {
+    const requested: Array<{ sessionId: string; sandbox: string; prompt: string }> = [];
+    const result = await applyServerCoreRuntimePatch({
+      restartWithClaudeCodeSandbox: async (sessionId, sandbox, prompt) => {
+        requested.push({ sessionId, sandbox, prompt });
+        return 'replacement-claude-session';
+      },
+    } as never, {
+      id: 'claude-session-a',
+      agentId: 'claude-code',
+    } as never, { claudeCodeSandbox: 'strict' });
+
+    expect(requested).toEqual([expect.objectContaining({
+      sessionId: 'claude-session-a',
+      sandbox: 'strict',
+    })]);
+    expect(requested[0]?.prompt.length).toBeGreaterThan(0);
+    expect(result).toEqual({
+      effect: 'restart-required',
+      replacementSessionId: 'replacement-claude-session',
+    });
+  });
 });

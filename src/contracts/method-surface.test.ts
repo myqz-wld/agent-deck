@@ -35,6 +35,12 @@ describe('fixed Core transport surfaces', () => {
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.events.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'teams.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'usage.tokens.get')).toBe(false);
+    expect(isCoreMethodAllowed(
+      AccessSurface.FeishuSessionConsole,
+      'node.configuration.get',
+    )).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'node.hook.install')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'node.assets.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'issues.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.list')).toBe(true);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.get')).toBe(true);

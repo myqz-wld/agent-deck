@@ -17,12 +17,14 @@ import {
 } from './image-attachments/processing';
 import type {
   AttachmentSendSnapshot,
+  ImageAttachmentLimits,
   UploadedAttachmentEntry,
   UseImageAttachmentsResult,
 } from './image-attachments/types';
 
 export type {
   AttachmentSendSnapshot,
+  ImageAttachmentLimits,
   UploadedAttachmentEntry,
   UseImageAttachmentsResult,
 } from './image-attachments/types';
@@ -44,7 +46,17 @@ function currentComposer(sessionId: string) {
   return composerSessionFor(state.composerBySession, state.composerAliases, sessionId);
 }
 
-export function useImageAttachments(sessionId?: string): UseImageAttachmentsResult {
+const DEFAULT_LIMITS: ImageAttachmentLimits = Object.freeze({
+  maxBytesEach: 20 * 1024 * 1024,
+  maxBytesTotal: MAX_TOTAL_ATTACHMENT_BYTES,
+  maxCount: 20,
+  mimeTypes: Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+});
+
+export function useImageAttachments(
+  sessionId?: string,
+  limits: ImageAttachmentLimits = DEFAULT_LIMITS,
+): UseImageAttachmentsResult {
   const ephemeralKeyRef = useRef<string | null>(null);
   if (!sessionId && !ephemeralKeyRef.current) {
     ephemeralSessionSequence += 1;
@@ -81,21 +93,21 @@ export function useImageAttachments(sessionId?: string): UseImageAttachmentsResu
         errors.push(`${file.name || '(未命名)'}：${validationError}`);
         continue;
       }
+      if (!limits.mimeTypes.includes(file.type)) {
+        errors.push(`${file.name || '(未命名)'}：当前会话不支持 ${file.type || '此图片格式'}`);
+        continue;
+      }
       try {
-        const processed = await processImageFile(file);
+        const processed = await processImageFile(file, limits.maxBytesEach);
         const active = currentComposer(logicalSessionId);
         if (active === EMPTY_COMPOSER_SESSION || active.attachmentGeneration !== generation) {
           processed.disposePreview?.();
           continue;
         }
-        const currentBytes = active.attachments.reduce(
-          (total, attachment) => total + attachment.bytes,
-          0,
-        );
-        if (currentBytes + processed.bytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+        if (processed.bytes > limits.maxBytesEach) {
           processed.disposePreview?.();
           errors.push(
-            `${file.name}：总附件超过 ${MAX_TOTAL_ATTACHMENT_BYTES / 1024 / 1024}MB 上限`,
+            `${file.name}：单图超过 ${limits.maxBytesEach / 1024 / 1024}MB 上限`,
           );
           continue;
         }
@@ -120,8 +132,21 @@ export function useImageAttachments(sessionId?: string): UseImageAttachmentsResu
           continue;
         }
         let committed = false;
+        let rejection: string | null = null;
         updateComposer(logicalSessionId, (current) => {
           if (current.attachmentGeneration !== generation) return current;
+          if (current.attachments.length >= limits.maxCount) {
+            rejection = `图片数量超过 ${limits.maxCount} 张上限`;
+            return current;
+          }
+          const currentBytes = current.attachments.reduce(
+            (total, attachment) => total + attachment.bytes,
+            0,
+          );
+          if (currentBytes + processed.bytes > limits.maxBytesTotal) {
+            rejection = `总附件超过 ${limits.maxBytesTotal / 1024 / 1024}MB 上限`;
+            return current;
+          }
           committed = true;
           return {
             ...current,
@@ -130,6 +155,7 @@ export function useImageAttachments(sessionId?: string): UseImageAttachmentsResu
         });
         if (!committed) {
           releaseAttachmentPayloads(logicalSessionId, [id]);
+          if (rejection) errors.push(`${file.name}：${rejection}`);
           continue;
         }
         added = true;
@@ -149,7 +175,16 @@ export function useImageAttachments(sessionId?: string): UseImageAttachmentsResu
             : current.attachmentError,
       };
     });
-  }, [ensureComposerSession, ephemeral, logicalSessionId, updateComposer]);
+  }, [
+    ensureComposerSession,
+    ephemeral,
+    limits.maxBytesEach,
+    limits.maxBytesTotal,
+    limits.maxCount,
+    limits.mimeTypes,
+    logicalSessionId,
+    updateComposer,
+  ]);
 
   const remove = useCallback((id: string): void => {
     updateComposer(logicalSessionId, (current) => ({

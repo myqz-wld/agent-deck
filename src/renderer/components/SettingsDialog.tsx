@@ -17,10 +17,19 @@ import { GrokAuthenticationSection } from './settings/sections/GrokAuthenticatio
 import { LogsSection } from './settings/sections/LogsSection';
 import { AdapterConfigHelp } from './settings/AdapterConfigHelp';
 import { ResetSettingsButton } from './settings/ResetSettingsButton';
+import { RemoteNodeConfigurationSection } from './settings/sections/RemoteNodeConfigurationSection';
+import type { NodeConfigurationGetResult } from '@contracts/index';
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  remote?: {
+    identity: string;
+    label: string;
+    profileId: string | null;
+    supportsNodeConfiguration: boolean;
+    usable: boolean;
+  } | null;
 }
 
 const HOOK_FAILURE_COPY = {
@@ -47,11 +56,13 @@ type HookAdapterId = keyof typeof HOOK_FAILURE_COPY;
  * Owns settings and Hook status loading, update IPC calls, and section layout.
  * Asset editing remains isolated in AssetsLibraryDialog.
  */
-export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
+export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Element | null {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [claudeHookStatus, setClaudeHookStatus] = useState<HookInstallStatus | null>(null);
   const [codexHookStatus, setCodexHookStatus] = useState<HookInstallStatus | null>(null);
   const [grokHookStatus, setGrokHookStatus] = useState<HookInstallStatus | null>(null);
+  const [nodeConfiguration, setNodeConfiguration] =
+    useState<NodeConfigurationGetResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** Reopen on the general tab so every settings visit starts from the overview. */
@@ -71,6 +82,10 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     setLoadError(null);
     setActionError(null);
     setActiveTab('general');
+    setClaudeHookStatus(null);
+    setCodexHookStatus(null);
+    setGrokHookStatus(null);
+    setNodeConfiguration(null);
     void window.api
       .getSettings()
       .then((s) => {
@@ -79,53 +94,51 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
       })
       .catch(() => {
         if (seq !== openSeqRef.current) return;
-        setLoadError('设置读取失败，请重试。');
+        setLoadError(remote
+          ? '本机桌面外观与提醒设置读取失败，请重试。'
+          : '设置读取失败，请重试。');
         // A read failure still leaves the complete default form available for recovery.
         setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
       });
-    void window.api
-      .hookStatus('user', undefined, 'claude-code')
-      .then((s) => {
-        if (seq !== openSeqRef.current) return;
-        setClaudeHookStatus(s as HookInstallStatus);
-      })
-      .catch(() => {
-        if (seq !== openSeqRef.current) return;
-        setLoadError(
-          (prev) =>
-            (prev ? prev + '\n' : '') +
-            HOOK_FAILURE_COPY['claude-code'].status,
-        );
-      });
-    void window.api
-      .hookStatus('user', undefined, 'codex-cli')
-      .then((s) => {
-        if (seq !== openSeqRef.current) return;
-        setCodexHookStatus(s as HookInstallStatus);
-      })
-      .catch(() => {
-        if (seq !== openSeqRef.current) return;
-        setLoadError(
-          (prev) =>
-            (prev ? prev + '\n' : '') +
-            HOOK_FAILURE_COPY['codex-cli'].status,
-        );
-      });
-    void window.api
-      .hookStatus('user', undefined, 'grok-build')
-      .then((s) => {
-        if (seq !== openSeqRef.current) return;
-        setGrokHookStatus(s as HookInstallStatus);
-      })
-      .catch(() => {
-        if (seq !== openSeqRef.current) return;
-        setLoadError(
-          (prev) =>
-            (prev ? prev + '\n' : '') +
-            HOOK_FAILURE_COPY['grok-build'].status,
-        );
-      });
-  }, [open]);
+    const appendLoadError = (message: string): void => {
+      if (seq !== openSeqRef.current) return;
+      setLoadError((prev) => (prev ? `${prev}\n${message}` : message));
+    };
+    const setStatus = (adapterId: HookAdapterId, status: HookInstallStatus): void => {
+      if (seq !== openSeqRef.current) return;
+      if (adapterId === 'claude-code') setClaudeHookStatus(status);
+      else if (adapterId === 'codex-cli') setCodexHookStatus(status);
+      else setGrokHookStatus(status);
+    };
+    if (remote) {
+      if (remote.usable && remote.supportsNodeConfiguration && remote.profileId) {
+        void window.api.getRemoteHostNodeConfiguration({ profileId: remote.profileId })
+          .then((value) => {
+            if (seq === openSeqRef.current) setNodeConfiguration(value);
+          })
+          .catch(() => appendLoadError('远端执行节点配置读取失败，请重连后重试。'));
+        for (const adapterId of Object.keys(HOOK_FAILURE_COPY) as HookAdapterId[]) {
+          void window.api.getRemoteHostNodeHookStatus({
+            profileId: remote.profileId,
+            adapterId,
+          }).then((value) => setStatus(adapterId, value.status))
+            .catch(() => appendLoadError(HOOK_FAILURE_COPY[adapterId].status));
+        }
+      }
+    } else {
+      for (const adapterId of Object.keys(HOOK_FAILURE_COPY) as HookAdapterId[]) {
+        void window.api.hookStatus('user', undefined, adapterId)
+          .then((value) => setStatus(adapterId, value as HookInstallStatus))
+          .catch(() => appendLoadError(HOOK_FAILURE_COPY[adapterId].status));
+      }
+    }
+  }, [
+    open,
+    remote?.identity,
+    remote?.profileId,
+    remote?.supportsNodeConfiguration,
+    remote?.usable,
+  ]);
 
   if (!open) return null;
 
@@ -154,7 +167,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     setBusy(true);
     setActionError(null);
     try {
-      const r = (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus;
+      const r = remote
+        ? await installRemoteHook(remote, adapterId)
+        : (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus;
       setHookStatus(adapterId, r);
     } catch {
       setActionError(HOOK_FAILURE_COPY[adapterId].install);
@@ -166,7 +181,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     setBusy(true);
     setActionError(null);
     try {
-      const r = (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus;
+      const r = remote
+        ? await uninstallRemoteHook(remote, adapterId)
+        : (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus;
       setHookStatus(adapterId, r);
     } catch {
       setActionError(HOOK_FAILURE_COPY[adapterId].uninstall);
@@ -179,7 +196,9 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="no-drag w-[380px] max-h-[85%] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
         <header className="mb-3 flex items-center justify-between">
-          <h2 className="text-[13px] font-medium">设置</h2>
+          <h2 className="text-[13px] font-medium">
+            设置{remote ? ` · ${remote.label}` : ''}
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -238,30 +257,47 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
 
             {activeTab === 'general' && (
               <>
-                <SectionGroup title="会话">
-                  <LifecycleSection settings={settings} update={update} />
-                  <ContinuationContextSection settings={settings} update={update} />
-                  <SummarySection settings={settings} update={update} />
-                </SectionGroup>
+                {remote ? (
+                  <>
+                    <RemoteNodeConfigurationSection
+                      configuration={nodeConfiguration}
+                      unavailableReason={remoteUnavailableReason(remote)}
+                    />
+                    <SectionGroup title="本机桌面（不影响 Worker）">
+                      <NotifySection settings={settings} update={update} />
+                      <WindowSection settings={settings} update={update} />
+                      <KeyboardShortcutsSection />
+                      <LogsSection settings={settings} update={update} />
+                    </SectionGroup>
+                  </>
+                ) : (
+                  <>
+                    <SectionGroup title="会话">
+                      <LifecycleSection settings={settings} update={update} />
+                      <ContinuationContextSection settings={settings} update={update} />
+                      <SummarySection settings={settings} update={update} />
+                    </SectionGroup>
 
-                <SectionGroup title="提醒与外观">
-                  <NotifySection settings={settings} update={update} />
-                  <WindowSection settings={settings} update={update} />
-                  <KeyboardShortcutsSection />
-                </SectionGroup>
+                    <SectionGroup title="提醒与外观">
+                      <NotifySection settings={settings} update={update} />
+                      <WindowSection settings={settings} update={update} />
+                      <KeyboardShortcutsSection />
+                    </SectionGroup>
 
-                <SectionGroup title="集成与运行环境">
-                  <HookServerSection settings={settings} update={update} />
-                  <ExternalToolsSection settings={settings} update={update} />
-                  <ExperimentalSection settings={settings} update={update} />
-                  <LogsSection settings={settings} update={update} />
-                </SectionGroup>
+                    <SectionGroup title="集成与运行环境">
+                      <HookServerSection settings={settings} update={update} />
+                      <ExternalToolsSection settings={settings} update={update} />
+                      <ExperimentalSection settings={settings} update={update} />
+                      <LogsSection settings={settings} update={update} />
+                    </SectionGroup>
 
-                <SectionGroup title="跨工具协作（MCP）">
-                  <AgentDeckMcpSection settings={settings} update={update} />
-                </SectionGroup>
+                    <SectionGroup title="跨工具协作（MCP）">
+                      <AgentDeckMcpSection settings={settings} update={update} />
+                    </SectionGroup>
 
-                <ResetSettingsButton busy={busy} update={update} />
+                    <ResetSettingsButton busy={busy} update={update} />
+                  </>
+                )}
               </>
             )}
 
@@ -270,13 +306,15 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                 <HookSection
                   title="Claude Code 终端 Hook"
                   storageKey="hook-claude"
-                  installLabel="安装到 ~/.claude/settings.json"
+                  installLabel={remote ? '在 Worker 上安装 Hook' : '安装到 ~/.claude/settings.json'}
                   hookStatus={claudeHookStatus}
                   busy={busy}
                   installHook={() => installHook('claude-code')}
                   uninstallHook={() => uninstallHook('claude-code')}
+                  targetDescription={remote ? '作用目标：当前 Remote Worker 的 Claude Code Provider Home。' : undefined}
+                  unavailableReason={remote ? remoteUnavailableReason(remote) : null}
                 />
-                <AdapterConfigHelp adapter="claude" />
+                {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="claude" />}
               </SectionGroup>
             )}
 
@@ -285,13 +323,15 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                 <HookSection
                   title="Codex CLI 终端 Hook"
                   storageKey="hook-codex"
-                  installLabel="安装到 ~/.codex/hooks.json"
+                  installLabel={remote ? '在 Worker 上安装 Hook' : '安装到 ~/.codex/hooks.json'}
                   hookStatus={codexHookStatus}
                   busy={busy}
                   installHook={() => installHook('codex-cli')}
                   uninstallHook={() => uninstallHook('codex-cli')}
+                  targetDescription={remote ? '作用目标：当前 Remote Worker 的 Codex CLI Provider Home。' : undefined}
+                  unavailableReason={remote ? remoteUnavailableReason(remote) : null}
                 />
-                <AdapterConfigHelp adapter="codex" />
+                {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="codex" />}
               </SectionGroup>
             )}
 
@@ -300,19 +340,66 @@ export function SettingsDialog({ open, onClose }: Props): JSX.Element | null {
                 <HookSection
                   title="Grok Build 终端 Hook"
                   storageKey="hook-grok"
-                  installLabel="安装到 ~/.grok/hooks/agent-deck.json"
+                  installLabel={remote ? '在 Worker 上安装 Hook' : '安装到 ~/.grok/hooks/agent-deck.json'}
                   hookStatus={grokHookStatus}
                   busy={busy}
                   installHook={() => installHook('grok-build')}
                   uninstallHook={() => uninstallHook('grok-build')}
+                  targetDescription={remote ? '作用目标：当前 Remote Worker 的 Grok Build Provider Home。' : undefined}
+                  unavailableReason={remote ? remoteUnavailableReason(remote) : null}
                 />
-                <GrokAuthenticationSection />
-                <AdapterConfigHelp adapter="grok" />
+                {!remote && <GrokAuthenticationSection />}
+                {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="grok" />}
               </SectionGroup>
             )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+function remoteUnavailableReason(remote: NonNullable<Props['remote']>): string | null {
+  if (!remote.usable) return '当前 Remote Worker 尚未连接；不会读取或修改本机 Hook 作为替代。';
+  if (!remote.supportsNodeConfiguration) {
+    return '当前 Remote Core 版本未提供节点配置能力；请先升级远端部署。';
+  }
+  if (!remote.profileId) return '当前没有可寻址的 Remote profile。';
+  return null;
+}
+
+async function installRemoteHook(
+  remote: NonNullable<Props['remote']>,
+  adapterId: HookAdapterId,
+): Promise<HookInstallStatus> {
+  const reason = remoteUnavailableReason(remote);
+  if (reason || !remote.profileId) throw new Error(reason ?? 'Remote profile unavailable');
+  const result = await window.api.installRemoteHostNodeHook({
+    profileId: remote.profileId,
+    adapterId,
+    intentId: crypto.randomUUID(),
+  });
+  return result.status;
+}
+
+async function uninstallRemoteHook(
+  remote: NonNullable<Props['remote']>,
+  adapterId: HookAdapterId,
+): Promise<HookInstallStatus> {
+  const reason = remoteUnavailableReason(remote);
+  if (reason || !remote.profileId) throw new Error(reason ?? 'Remote profile unavailable');
+  const result = await window.api.uninstallRemoteHostNodeHook({
+    profileId: remote.profileId,
+    adapterId,
+    intentId: crypto.randomUUID(),
+  });
+  return result.status;
+}
+
+function RemoteAdapterNote(): JSX.Element {
+  return (
+    <p className="text-[10px] leading-relaxed text-deck-muted/75">
+      Provider 默认参数显示在“通用”页，数据来自 Worker。二进制路径、认证和托管策略由远端部署管理；本页不会读取或修改本机 Provider 配置。
+    </p>
   );
 }

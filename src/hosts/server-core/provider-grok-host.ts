@@ -52,9 +52,9 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
     settings: {
       readBinaryPath: () => input.settings.grokCliPath ?? HEADLESS_GROK_EXECUTABLE,
       readDefaultSandbox: () => input.grokProcessFactory ? 'workspace' : 'strict',
-      readInjectAgents: () => false,
-      readInjectAgentPrompt: () => false,
-      readInjectSkills: () => false,
+      readInjectAgents: () => input.settings.injectAgentDeckGrokAgents,
+      readInjectAgentPrompt: () => input.settings.injectAgentDeckGrokAgentsMd,
+      readInjectSkills: () => input.settings.injectAgentDeckGrokSkills,
       readMcpEnabled: () => input.mcpBroker.isRunning,
       readMcpHttpEnabled: () => input.mcpBroker.isRunning,
       readPermissionTimeoutMs: () => input.settings.permissionTimeoutMs,
@@ -63,8 +63,8 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
       readSummaryTimeoutMs: () => input.settings.summaryTimeoutMs,
     },
     resources: {
-      loadBaselinePrompt: async () => null,
-      preparePluginProfile: async () => null,
+      loadBaselinePrompt: () => input.assets.grokBaselinePrompt(),
+      preparePluginProfile: (options) => input.assets.grokPluginProfile(options),
     },
     hookDiagnostics: new HookRouteDiagnostics(),
     hookInstallerObserver: { statusReadFailed: () => undefined },

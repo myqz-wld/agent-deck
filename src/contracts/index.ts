@@ -7,6 +7,8 @@ export * from './mcp-presentation';
 export * from './json';
 export * from './method-surface';
 export * from './methods';
+export * from './node-configuration';
+export * from './node-assets';
 export * from './permission-preview';
 export * from './provider-session-container';
 export * from './session-console';
