@@ -132,6 +132,10 @@ describe('concrete Server Core runtime composition', () => {
       'teams.get',
       'usage.tokens.get',
       'usage.providers.get',
+      'node.configuration.get',
+      'node.hook.status',
+      'node.hook.install',
+      'node.hook.uninstall',
     ]));
     await bootstrap.runtime.start();
     expect(await bootstrap.runtime.currentRevision(access)).toBe(0);

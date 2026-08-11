@@ -18,9 +18,11 @@ import {
 import { DaemonRequestError, type DaemonCoreRuntime } from './types';
 
 describe('daemon framed connection', () => {
-  it('gates additive Usage advertisement on the negotiated protocol minor', async () => {
+  it('gates additive capabilities on the negotiated protocol minor', async () => {
     const runtime = createRuntime({
-      supportedMethods: ['teams.list', 'usage.tokens.get'],
+      supportedMethods: [
+        'teams.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.list',
+      ],
     });
     const host = createHost(runtime);
     await host.start();
@@ -38,12 +40,23 @@ describe('daemon framed connection', () => {
 
     const current = new TestDuplex();
     host.accept({ stream: current, createAccessContext: sshAccess });
-    current.feed(hello('desktop-v2-1'));
+    current.feed(hello('desktop-v2-1', 'server-core', { major: 2, minor: 1 }));
     await waitFor(() => Boolean(findMessage(current, 'hello-result')), 'current hello-result');
     expect(findMessage(current, 'hello-result')).toMatchObject({
       hello: {
         protocolVersion: { major: 2, minor: 1 },
         capabilities: ['teams', 'usage'],
+      },
+    });
+
+    const latest = new TestDuplex();
+    host.accept({ stream: latest, createAccessContext: sshAccess });
+    latest.feed(hello('desktop-v2-2', 'server-core', { major: 2, minor: 2 }));
+    await waitFor(() => Boolean(findMessage(latest, 'hello-result')), 'latest hello-result');
+    expect(findMessage(latest, 'hello-result')).toMatchObject({
+      hello: {
+        protocolVersion: { major: 2, minor: 2 },
+        capabilities: ['teams', 'usage', 'node.configuration', 'node.assets'],
       },
     });
     await host.stop();

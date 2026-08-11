@@ -69,6 +69,17 @@ import type {
   RemoteHostUsageProviderRequestDto,
   RemoteHostUsageTokenDto,
   RemoteHostUsageTokenRequestDto,
+  RemoteHostNodeConfigurationDto,
+  RemoteHostNodeConfigurationRequestDto,
+  RemoteHostNodeHookMutationDto,
+  RemoteHostNodeHookRequestDto,
+  RemoteHostNodeHookStatusDto,
+  RemoteHostNodeAssetListDto,
+  RemoteHostNodeAssetListRequestDto,
+  RemoteHostNodeAssetContentDto,
+  RemoteHostNodeAssetContentRequestDto,
+  RemoteHostNodeAssetConventionDto,
+  RemoteHostNodeAssetConventionRequestDto,
   RemoteHostWorkspaceDirectoryListDto,
   RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
@@ -164,6 +175,34 @@ export const remoteHostApi = {
     request: RemoteHostUsageProviderRequestDto,
   ): Promise<RemoteHostUsageProviderDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.UsageProvidersGet, request),
+  getRemoteHostNodeConfiguration: (
+    request: RemoteHostNodeConfigurationRequestDto,
+  ): Promise<RemoteHostNodeConfigurationDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeConfigurationGet, request),
+  getRemoteHostNodeHookStatus: (
+    request: RemoteHostNodeHookRequestDto,
+  ): Promise<RemoteHostNodeHookStatusDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeHookStatus, request),
+  installRemoteHostNodeHook: (
+    request: RemoteHostNodeHookMutationDto,
+  ): Promise<RemoteHostNodeHookStatusDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeHookInstall, request),
+  uninstallRemoteHostNodeHook: (
+    request: RemoteHostNodeHookMutationDto,
+  ): Promise<RemoteHostNodeHookStatusDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeHookUninstall, request),
+  listRemoteHostNodeAssets: (
+    request: RemoteHostNodeAssetListRequestDto,
+  ): Promise<RemoteHostNodeAssetListDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeAssetsList, request),
+  getRemoteHostNodeAssetContent: (
+    request: RemoteHostNodeAssetContentRequestDto,
+  ): Promise<RemoteHostNodeAssetContentDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeAssetContentGet, request),
+  getRemoteHostNodeAssetConvention: (
+    request: RemoteHostNodeAssetConventionRequestDto,
+  ): Promise<RemoteHostNodeAssetConventionDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeAssetConventionGet, request),
   listRemoteHostIssues: (
     request: RemoteHostIssueListRequestDto,
   ): Promise<RemoteHostIssueListDto> =>

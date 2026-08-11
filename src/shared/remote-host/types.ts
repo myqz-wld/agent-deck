@@ -24,6 +24,15 @@ import type {
   UsageProviderResult,
   UsageTokenResult,
   WorkspaceDirectoryListResult,
+  NodeConfigurationGetResult,
+  NodeConfigurationAdapterId,
+  NodeHookStatusResult,
+  NodeAssetAdapterId,
+  NodeAssetContentResult,
+  NodeAssetConventionResult,
+  NodeAssetKind,
+  NodeAssetListResult,
+  NodeAssetSource,
 } from '@contracts/index';
 import type { LoadImageBlobResult } from '@shared/types';
 
@@ -44,6 +53,24 @@ export type RemoteHostJsonValue =
   | RemoteHostJsonValue[]
   | { [key: string]: RemoteHostJsonValue };
 export type RemoteHostJsonObject = { [key: string]: RemoteHostJsonValue };
+
+export interface RemoteHostNodeAssetListRequestDto { profileId: string }
+export interface RemoteHostNodeAssetContentRequestDto {
+  profileId: string;
+  adapterId: NodeAssetAdapterId;
+  kind: NodeAssetKind;
+  source: NodeAssetSource;
+  name: string;
+  qualifiedName: string;
+  location: string;
+}
+export interface RemoteHostNodeAssetConventionRequestDto {
+  profileId: string;
+  adapterId: NodeAssetAdapterId;
+}
+export type RemoteHostNodeAssetListDto = NodeAssetListResult;
+export type RemoteHostNodeAssetContentDto = NodeAssetContentResult;
+export type RemoteHostNodeAssetConventionDto = NodeAssetConventionResult;
 
 export interface RemoteHostEndpointDto {
   hostname: string;
@@ -173,6 +200,7 @@ export interface RemoteHostMutationTargetDto
 export interface RemoteHostSendDto
   extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {
   text: string;
+  attachments?: SessionConsoleAttachmentInput[];
 }
 
 export interface RemoteHostSendResultDto {
@@ -261,6 +289,20 @@ export interface RemoteHostUsageProviderRequestDto {
 
 export type RemoteHostUsageTokenDto = UsageTokenResult;
 export type RemoteHostUsageProviderDto = UsageProviderResult;
+
+export interface RemoteHostNodeConfigurationRequestDto {
+  profileId: string;
+}
+
+export interface RemoteHostNodeHookRequestDto extends RemoteHostNodeConfigurationRequestDto {
+  adapterId: NodeConfigurationAdapterId;
+}
+
+export interface RemoteHostNodeHookMutationDto
+  extends RemoteHostNodeHookRequestDto, RemoteHostMutationIntentDto {}
+
+export type RemoteHostNodeConfigurationDto = NodeConfigurationGetResult;
+export type RemoteHostNodeHookStatusDto = NodeHookStatusResult;
 
 export interface RemoteHostIssueListRequestDto {
   profileId: string;

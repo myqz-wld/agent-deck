@@ -1,189 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { SessionConsoleAttachmentInput } from '@contracts/index';
+import type { DaemonEventSubscriptionInput } from '@hosts/daemon';
 import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
-  JsonValue,
-} from '@contracts/index';
-import type {
-  DaemonRequestInput,
-  DaemonEventSubscriptionInput,
-} from '@hosts/daemon';
-import type { AgentAdapter } from '@main/adapters/types';
-import type { PermissionMode, SessionRecord, StoredAgentEvent } from '@shared/types';
+  PermissionMode,
+  StoredAgentEvent,
+  UploadedAttachmentRef,
+} from '@shared/types';
 import {
-  ServerCoreDaemonRuntime,
-  type ServerCoreRuntimeMetadataPort,
-} from './runtime-core';
-import type {
-  ServerCoreChangeRecord,
-  ServerCoreMutationClaim,
-  ServerCoreMutationIdentity,
-} from './runtime-metadata-store';
-
-const access: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client',
-  topology: 'server-core',
-  instanceId: 'instance-a',
-  clientId: 'client-a',
-  transport: 'ssh',
-  accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent',
-  surface: 'desktop-full',
-};
-
-function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
-  return {
-    id: 'session-a',
-    agentId: 'claude-code',
-    cwd: '/workspaces/private',
-    title: 'Private session',
-    source: 'sdk',
-    lifecycle: 'active',
-    activity: 'idle',
-    startedAt: 10,
-    lastEventAt: 20,
-    endedAt: null,
-    archivedAt: null,
-    ...overrides,
-  };
-}
-
-class FakeMetadata implements ServerCoreRuntimeMetadataPort {
-  revision = 0;
-  firstRetained = 1;
-  readonly changes: ServerCoreChangeRecord[] = [];
-  readonly listeners = new Set<(change: ServerCoreChangeRecord) => void>();
-  readonly ledger = new Map<string, {
-    identity: ServerCoreMutationIdentity;
-    result?: JsonValue;
-    revision?: number;
-  }>();
-  readonly subscriptions = new Map<string, boolean>();
-
-  currentRevision(): number { return this.revision; }
-
-  appendChange(kind: string, entityId: string | null, payload: JsonValue): number {
-    const change = { revision: ++this.revision, kind, entityId, payload };
-    this.changes.push(change);
-    for (const listener of [...this.listeners]) listener(change);
-    return change.revision;
-  }
-
-  replay(afterRevision: number): ServerCoreChangeRecord[] {
-    if (afterRevision < this.firstRetained - 1) throw new Error('gap');
-    return this.changes.filter((change) => change.revision > afterRevision);
-  }
-
-  subscribe(listener: (change: ServerCoreChangeRecord) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  claimMutation(
-    identity: ServerCoreMutationIdentity,
-    _now?: number,
-    expectedRevision?: number,
-  ): ServerCoreMutationClaim {
-    const key = `${identity.accessCredentialId}\u0000${identity.accessSurface}\u0000${identity.idempotencyKey}`;
-    const current = this.ledger.get(key);
-    if (current) {
-      if (
-        current.identity.method !== identity.method ||
-        current.identity.requestFingerprint !== identity.requestFingerprint
-      ) return { state: 'conflict' };
-      if (current.result === undefined || current.revision === undefined) {
-        return { state: 'uncertain' };
-      }
-      return { state: 'completed', result: current.result, revision: current.revision };
-    }
-    if (expectedRevision !== undefined && expectedRevision !== this.revision) {
-      return { state: 'conflict' };
-    }
-    this.ledger.set(key, { identity });
-    return { state: 'claimed' };
-  }
-
-  completeMutation(
-    identity: ServerCoreMutationIdentity,
-    result: JsonValue,
-    revision: number,
-  ): void {
-    const key = `${identity.accessCredentialId}\u0000${identity.accessSurface}\u0000${identity.idempotencyKey}`;
-    const row = this.ledger.get(key);
-    if (!row) throw new Error('claim missing');
-    row.result = result;
-    row.revision = revision;
-  }
-
-  setSubscribed(
-    credential: string,
-    surface: 'desktop-full' | 'feishu-session-console',
-    sessionId: string,
-    subscribed: boolean,
-  ): void {
-    this.subscriptions.set(`${credential}:${surface}:${sessionId}`, subscribed);
-  }
-}
-
-function harness(options: {
-  adapter?: Partial<AgentAdapter>;
-  session?: SessionRecord;
-  events?: StoredAgentEvent[];
-  presentations?: {
-    list(sessionId: string): import('@contracts/index').PendingRequestDto[];
-    respond(sessionId: string, requestId: string, action: string, value?: JsonValue):
-      'denied' | 'resolved' | null;
-  };
-} = {}) {
-  const sessions = new Map<string, SessionRecord>();
-  const session = options.session ?? record();
-  sessions.set(session.id, session);
-  const sendMessage = vi.fn(async () => undefined);
-  const adapter = {
-    id: session.agentId,
-    displayName: session.agentId,
-    capabilities: {},
-    init: vi.fn(async () => undefined),
-    shutdown: vi.fn(async () => undefined),
-    sendMessage,
-    ...options.adapter,
-  } as unknown as AgentAdapter;
-  const metadata = new FakeMetadata();
-  const events = options.events ?? [];
-  const start = vi.fn(async () => undefined);
-  const stop = vi.fn(async () => undefined);
-  const runtime = new ServerCoreDaemonRuntime({
-    instanceId: 'instance-a',
-    repository: { get: (id) => sessions.get(id) ?? null },
-    events: {
-      listValidForSession: (_id, limit, offset) => events.slice(offset, offset + limit),
-      countForSession: () => events.length,
-    },
-    registry: { get: (id) => id === adapter.id ? adapter : undefined },
-    metadata,
-    lifecycle: { start, stop },
-    presentations: options.presentations ?? { list: () => [], respond: () => null },
-  });
-  return { adapter, metadata, runtime, sendMessage, sessions, start, stop };
-}
-
-function input(
-  method: CoreMethod,
-  params: JsonObject,
-  options: { idempotencyKey?: string | null; expectedRevision?: number | null } = {},
-): DaemonRequestInput {
-  return {
-    access,
-    requestId: `request-${method}`,
-    method,
-    params,
-    idempotencyKey: options.idempotencyKey ?? null,
-    expectedRevision: options.expectedRevision ?? null,
-    deadlineAt: null,
-    signal: new AbortController().signal,
-  };
-}
+  runtimeCoreAccess as access,
+  runtimeCoreHarness as harness,
+  runtimeCoreInput as input,
+  runtimeCoreRecord as record,
+} from './runtime-core.test-fixture';
 
 describe('ServerCoreDaemonRuntime', () => {
   it('starts once, exposes only cwd-free base methods, and stops once', async () => {
@@ -242,6 +70,56 @@ describe('ServerCoreDaemonRuntime', () => {
     await expect(runtime.execute(input('session.send', {
       sessionId: 'session-a', text: 'different',
     }, { idempotencyKey: 'intent-a' }))).rejects.toMatchObject({ code: 'conflict' });
+  });
+
+  it('persists Remote image attachments once and forwards only Worker-owned references', async () => {
+    const attachment: SessionConsoleAttachmentInput = {
+      kind: 'image', mime: 'image/png', bytes: 1, base64: 'YQ==',
+    };
+    const stored: UploadedAttachmentRef = {
+      kind: 'uploaded', mime: 'image/png', bytes: 1, path: '/private/image.png',
+    };
+    const persist = vi.fn(async () => [stored]);
+    const remove = vi.fn(async () => undefined);
+    const { runtime, sendMessage } = harness({
+      adapter: { capabilities: { canAcceptAttachments: true } as never },
+      attachmentStore: { persist, remove },
+    });
+    await runtime.start();
+    const request = input('session.send', {
+      sessionId: 'session-a', text: '', attachments: [attachment],
+    }, { idempotencyKey: 'attachment-intent' });
+    const first = await runtime.execute(request);
+    await expect(runtime.execute(request)).resolves.toEqual(first);
+    expect(persist).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledWith([attachment]);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'session-a', '', [stored], { idempotencyKey: 'attachment-intent' },
+    );
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('removes persisted Remote attachments when provider acceptance fails', async () => {
+    const attachment: SessionConsoleAttachmentInput = {
+      kind: 'image', mime: 'image/png', bytes: 1, base64: 'YQ==',
+    };
+    const stored: UploadedAttachmentRef = {
+      kind: 'uploaded', mime: 'image/png', bytes: 1, path: '/private/image.png',
+    };
+    const remove = vi.fn(async () => undefined);
+    const { runtime } = harness({
+      adapter: {
+        capabilities: { canAcceptAttachments: true } as never,
+        sendMessage: vi.fn(async () => { throw new Error('provider rejected'); }),
+      },
+      attachmentStore: { persist: vi.fn(async () => [stored]), remove },
+    });
+    await runtime.start();
+    await expect(runtime.execute(input('session.send', {
+      sessionId: 'session-a', text: 'inspect', attachments: [attachment],
+    }, { idempotencyKey: 'attachment-failure' }))).rejects.toThrow('provider rejected');
+    expect(remove).toHaveBeenCalledWith([stored]);
   });
 
   it('replays a completed revision-bound mutation after unrelated changes', async () => {

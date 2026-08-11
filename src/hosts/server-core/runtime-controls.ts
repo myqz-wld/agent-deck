@@ -12,6 +12,7 @@ import {
   type SessionRecord,
 } from '@shared/types';
 import { serverCoreGrokSandbox } from './provider-grok-sandbox';
+import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const MODEL_FIELDS = new Set(['model', 'provider', 'thinking']);
@@ -127,6 +128,21 @@ export async function applyServerCoreRuntimePatch(
       value as 'workspace-write' | 'read-only' | 'danger-full-access',
     );
     return { effect: 'hot-applied', replacementSessionId: null };
+  }
+
+  if (keys[0] === 'claudeCodeSandbox') {
+    const value = oneField(patch, 'claudeCodeSandbox');
+    if (
+      record.agentId !== 'claude-code' || typeof value !== 'string' ||
+      !['off', 'workspace-write', 'strict'].includes(value)
+    ) invalid();
+    if (!adapter.restartWithClaudeCodeSandbox) unavailable();
+    const replacementSessionId = await adapter.restartWithClaudeCodeSandbox(
+      record.id,
+      value as 'off' | 'workspace-write' | 'strict',
+      SDK_RESTART_RESUME_PROMPT,
+    );
+    return { effect: 'restart-required', replacementSessionId };
   }
 
   if (keys[0] === 'approvalPolicy') {

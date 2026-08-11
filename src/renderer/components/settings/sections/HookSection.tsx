@@ -10,6 +10,8 @@ interface Props {
   busy: boolean;
   installHook: () => Promise<void>;
   uninstallHook: () => Promise<void>;
+  targetDescription?: string;
+  unavailableReason?: string | null;
 }
 
 export function HookSection({
@@ -20,11 +22,22 @@ export function HookSection({
   busy,
   installHook,
   uninstallHook,
+  targetDescription,
+  unavailableReason,
 }: Props): JSX.Element {
   const partial = !!hookStatus && !hookStatus.installed && hookStatus.installedHooks.length > 0;
   return (
     <Section title={title} storageKey={storageKey} defaultOpen={false}>
-      {hookStatus ? (
+      {targetDescription && (
+        <div className="mb-1 text-[10px] leading-relaxed text-deck-muted/75">
+          {targetDescription}
+        </div>
+      )}
+      {unavailableReason ? (
+        <div role="status" className="text-[11px] leading-relaxed text-deck-muted">
+          {unavailableReason}
+        </div>
+      ) : hookStatus ? (
         <div className="text-[11px] leading-relaxed">
           <div className="text-deck-muted">
             状态：{hookStatus.installed ? '已安装' : partial ? '安装不完整' : '未安装'}

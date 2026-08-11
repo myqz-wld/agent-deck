@@ -46,6 +46,7 @@ export interface SshReconnectPolicy {
 export interface SshTransportBounds {
   maxFrameBytes: number;
   maxInFlightRequests: number;
+  maxQueuedRequests: number;
   maxQueuedWriteBytes: number;
   maxQueuedWriteFrames: number;
   maxRememberedResponses: number;

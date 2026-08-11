@@ -161,8 +161,10 @@ export function createServerCoreClaudeQueryHost(
         settingSources: policy.settingSources,
       };
     },
-    systemPromptAppend: () => '',
-    plugins: () => [],
+    systemPromptAppend: () => input.settings.injectAgentDeckClaudeMd
+      ? input.assets.applicationInstructions('claude-code')
+      : '',
+    plugins: () => input.assets.claudePlugins(),
     runtimeMetadataHooks: (internal) => runtimeHooks(internal, metadata),
     cleanupGatewaySandboxSettings: cleanupGatewaySandboxSettingsCore,
     observeSandboxConfiguration: (message) => logger.info(message),

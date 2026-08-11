@@ -95,7 +95,7 @@ export interface RemoteSessionSourceView {
     value?: RemoteHostJsonValue,
   ): Promise<void>;
   selectSession(sessionId: string | null): void;
-  send(text: string): Promise<void>;
+  send(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
   steer(text: string): Promise<void>;
   updateRuntime(patch: RemoteHostJsonObject): Promise<void>;
 }

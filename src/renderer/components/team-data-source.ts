@@ -53,6 +53,7 @@ export function useTeamDataSource(remote: RemoteSessionSourceView | null): TeamD
       remote.identity,
       remote.dataRevision,
       remote.profile?.id ?? null,
+      remote.usable,
       intents.current,
     );
     const pending = new Map(selectPendingBuckets(
@@ -72,7 +73,7 @@ export function useTeamDataSource(remote: RemoteSessionSourceView | null): TeamD
     return localSource(localSessions!, pending);
   }, [
     localDiffs, localPermissions, localPlans, localQuestions, localSessions,
-    remote?.dataRevision, remote?.identity, remote?.profile?.id,
+    remote?.dataRevision, remote?.identity, remote?.profile?.id, remote?.usable,
   ]);
 }
 
@@ -80,10 +81,11 @@ function remoteSource(
   identity: string,
   revision: number,
   profileId: string | null,
+  usable: boolean,
   intents: RemoteUserIntentLedger,
 ): TeamDataSource {
   const requireProfile = (): string => {
-    if (!profileId) throw new Error('远程团队数据源尚未连接。');
+    if (!profileId || !usable) throw new Error('远程团队数据源尚未连接。');
     return profileId;
   };
   const mutate = <T>(

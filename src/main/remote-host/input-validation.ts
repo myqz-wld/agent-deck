@@ -91,6 +91,11 @@ function multilineText(value: unknown, field: string): string {
   return value;
 }
 
+function contractValue<T>(read: () => T, field: string, reason: string): T {
+  try { return read(); }
+  catch { throw new RemoteHostInputError(field, reason); }
+}
+
 function token(value: unknown, field: string, maxBytes = 512): string {
   const parsed = text(value, field, maxBytes);
   if (!SAFE_TOKEN.test(parsed)) throw new RemoteHostInputError(field, 'invalid token');
@@ -412,59 +417,50 @@ export function parseRemoteHostJsonObject(
 
 export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSessionDto {
   const raw = object(value, 'create');
-  exactKeys(
-    raw,
-    [
-      'adapterId', 'attachments', 'capabilityRevision', 'initialMessage', 'intentId',
-      'options', 'profileId', 'workingDirectory',
-    ],
-    'create',
-  );
+  exactKeys(raw, [
+    'adapterId', 'attachments', 'capabilityRevision', 'initialMessage', 'intentId',
+    'options', 'profileId', 'workingDirectory',
+  ], 'create');
   let workingDirectory: string;
   try {
     workingDirectory = parseWorkspaceDirectoryRef(raw.workingDirectory, 'workingDirectory');
   } catch {
-    throw new RemoteHostInputError(
-      'workingDirectory',
-      'must be a relative directory inside Workspace',
-    );
+    throw new RemoteHostInputError('workingDirectory', 'must be a relative directory inside Workspace');
   }
   return {
     profileId: parseRemoteHostProfileId(raw.profileId),
     adapterId: token(raw.adapterId, 'adapterId', 128),
-    attachments: (() => {
-      try {
-        return parseSessionConsoleAttachments(raw.attachments, 'attachments');
-      } catch {
-        throw new RemoteHostInputError('attachments', 'invalid Remote image attachments');
-      }
-    })(),
+    attachments: contractValue(
+      () => parseSessionConsoleAttachments(raw.attachments, 'attachments'),
+      'attachments', 'invalid Remote image attachments'),
     capabilityRevision: token(raw.capabilityRevision, 'capabilityRevision', 128),
-    initialMessage: (() => {
-      try {
-        return parseSessionConsoleInitialMessage(raw.initialMessage, 'initialMessage');
-      } catch {
-        throw new RemoteHostInputError('initialMessage', 'invalid or too long');
-      }
-    })(),
+    initialMessage: contractValue(
+      () => parseSessionConsoleInitialMessage(raw.initialMessage, 'initialMessage'),
+      'initialMessage', 'invalid or too long'),
     workingDirectory,
-    options: (() => {
-      try {
-        return parseSessionConsoleCreateOptions(raw.options);
-      } catch {
-        throw new RemoteHostInputError('options', 'invalid create options');
-      }
-    })(),
+    options: contractValue(
+      () => parseSessionConsoleCreateOptions(raw.options),
+      'options', 'invalid create options'),
     intentId: intentId(raw.intentId),
   };
 }
 
 export function parseRemoteHostSend(value: unknown): RemoteHostSendDto {
   const raw = object(value, 'send');
-  exactKeys(raw, ['intentId', 'profileId', 'sessionId', 'text'], 'send');
+  const expected = ['intentId', 'profileId', 'sessionId', 'text'];
+  if (raw.attachments !== undefined) expected.push('attachments');
+  exactKeys(raw, expected, 'send');
+  let attachments;
+  try { attachments = parseSessionConsoleAttachments(raw.attachments ?? [], 'attachments'); }
+  catch { throw new RemoteHostInputError('attachments', 'invalid Remote image attachments'); }
+  if (
+    typeof raw.text !== 'string' ||
+    (raw.text.trim().length === 0 && attachments.length === 0)
+  ) throw new RemoteHostInputError('text', 'message or attachment is required');
   return {
     ...parseRemoteHostSessionTarget({ profileId: raw.profileId, sessionId: raw.sessionId }),
-    text: multilineText(raw.text, 'text'),
+    text: raw.text.length === 0 ? '' : multilineText(raw.text, 'text'),
+    ...(raw.attachments === undefined ? {} : { attachments }),
     intentId: intentId(raw.intentId),
   };
 }
@@ -482,8 +478,10 @@ export function parseRemoteHostRuntimeUpdate(value: unknown): RemoteHostRuntimeU
 
 export function parseRemoteHostPendingResponse(value: unknown): RemoteHostPendingResponseDto {
   const raw = object(value, 'pendingResponse');
-  const expected = ['action', 'expectedPresentationDigest', 'expectedRevision', 'intentId',
-    'profileId', 'requestId', 'sessionId'];
+  const expected = [
+    'action', 'expectedPresentationDigest', 'expectedRevision', 'intentId',
+    'profileId', 'requestId', 'sessionId',
+  ];
   if (raw.value !== undefined) expected.push('value');
   exactKeys(raw, expected, 'pendingResponse');
   const action = pendingAction(raw.action);

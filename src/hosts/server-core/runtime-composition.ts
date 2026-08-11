@@ -61,6 +61,9 @@ import { mapServerCoreConcurrent } from './runtime-concurrency';
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
 import { ServerCoreTeamRuntime } from './team-runtime';
 import { ServerCoreUsageRuntime } from './usage-runtime';
+import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
+import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
+import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
 import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
@@ -182,6 +185,12 @@ export function createServerCoreRuntimeWithOverrides(
     },
   });
   const providerSettings = resolveServerCoreProviderSettings(input.runtimeOptions);
+  const nodeAssets = ServerCoreNodeAssetCatalog.create({
+    providerHomeRoot: workspaceBoundary.providerHomeRoot,
+    runtimeReadRoots: workspaceBoundary.runtimeReadRoots,
+    stateDirectory: input.paths.stateDirectory,
+    settings: providerSettings,
+  });
   const projects = withServerCoreWorkspaceRootProject(
     resolveServerCoreProjectCatalog(input.runtimeOptions, workspaceRoot),
     workspaceRoot,
@@ -321,6 +330,13 @@ export function createServerCoreRuntimeWithOverrides(
     workspaceBoundary,
     mcpBroker,
     worktrees,
+    assets: nodeAssets ?? Object.freeze({
+      applicationInstructions: () => '',
+      claudePlugins: () => [],
+      codexSkillExtraRoots: () => [],
+      grokBaselinePrompt: async () => null,
+      grokPluginProfile: async () => null,
+    }),
     ...(grokContainer
       ? { grokProcessFactory: grokContainer.processFactory }
       : {}),
@@ -398,6 +414,7 @@ export function createServerCoreRuntimeWithOverrides(
     metadata,
     lifecycle,
     presentations,
+    attachmentStore,
   });
   const detailRuntime = new ServerCoreSessionDetailRuntime(baseRuntime, {
     workspaceRoot,
@@ -435,7 +452,23 @@ export function createServerCoreRuntimeWithOverrides(
     registry,
     currentRevision: () => metadata.currentRevision(),
   });
-  const reviewRuntime = new ServerCorePlanReviewRuntime(usageRuntime, presentations, metadata);
+  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(usageRuntime, {
+    settings: providerSettings,
+    registry,
+    metadata,
+  });
+  const nodeAssetRuntime = nodeAssets
+    ? new ServerCoreNodeAssetRuntime(
+      configurationRuntime,
+      nodeAssets,
+      () => metadata.currentRevision(),
+    )
+    : configurationRuntime;
+  const reviewRuntime = new ServerCorePlanReviewRuntime(
+    nodeAssetRuntime,
+    presentations,
+    metadata,
+  );
   const runtime = new ServerCoreDesktopBrokerRuntime(reviewRuntime, desktopBroker);
   const credentialLifecycle = new ServerCoreCredentialFile({
     instanceId: input.instanceId,

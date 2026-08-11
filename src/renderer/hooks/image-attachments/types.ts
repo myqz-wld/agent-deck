@@ -15,6 +15,13 @@ export interface AttachmentSendSnapshot {
   inputs: UploadedAttachmentInput[];
 }
 
+export interface ImageAttachmentLimits {
+  maxBytesEach: number;
+  maxBytesTotal: number;
+  maxCount: number;
+  mimeTypes: readonly string[];
+}
+
 export interface UseImageAttachmentsResult {
   attachments: UploadedAttachmentEntry[];
   error: string | null;

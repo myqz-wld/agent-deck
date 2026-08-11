@@ -33,7 +33,10 @@ export function useRemoteUsageSource(
   remoteMode: boolean,
   dailyActive = false,
 ): RemoteUsageSourceView {
-  const enabled = remoteMode && source.capabilities.has('usage');
+  // Capabilities describe the last negotiated Core. They intentionally survive transient state
+  // changes, so polling must also require a usable binding or a retired connection will be hit
+  // every 2.5 seconds forever.
+  const enabled = remoteMode && source.usable && source.capabilities.has('usage');
   const profileId = source.profile?.id ?? null;
   const identityRef = useRef(source.identity);
   identityRef.current = source.identity;

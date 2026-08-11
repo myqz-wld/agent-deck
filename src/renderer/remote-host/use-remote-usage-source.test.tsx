@@ -5,12 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RemoteSessionSourceView } from './source-types';
 import { useRemoteUsageSource } from './use-remote-usage-source';
 
-function source(profileId: string, revision: number): RemoteSessionSourceView {
+function source(
+  profileId: string,
+  revision: number,
+  usable = true,
+): RemoteSessionSourceView {
   return {
     identity: `${profileId}:core:1`,
     dataRevision: revision,
     capabilities: new Set(['usage']),
     profile: { id: profileId },
+    usable,
   } as unknown as RemoteSessionSourceView;
 }
 
@@ -101,5 +106,17 @@ describe('useRemoteUsageSource', () => {
     expect(hook.result.current.enabled).toBe(false);
     expect(window.api.getRemoteHostTokenUsage).not.toHaveBeenCalled();
     expect(window.api.getRemoteHostProviderUsage).not.toHaveBeenCalled();
+  });
+
+  it('stops polling when the selected Remote binding is unusable', async () => {
+    const hook = renderHook(
+      ({ current }) => useRemoteUsageSource(current, true),
+      { initialProps: { current: source('remote-a', 1) } },
+    );
+    await waitFor(() => expect(window.api.getRemoteHostTokenUsage).toHaveBeenCalledTimes(1));
+    hook.rerender({ current: source('remote-a', 1, false) });
+    await act(async () => { await Promise.resolve(); });
+    expect(hook.result.current.enabled).toBe(false);
+    expect(hook.result.current.rates).toEqual([]);
   });
 });

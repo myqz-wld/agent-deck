@@ -44,6 +44,7 @@ import type {
   SessionConsoleListParams,
   SessionConsoleListResult,
 } from './session-console';
+import type { SessionConsoleAttachmentInput } from './session-console-attachments';
 import type {
   DesktopBrokerNextParams,
   DesktopBrokerNextResult,
@@ -68,6 +69,18 @@ import type {
   UsageTokenParams,
   UsageTokenResult,
 } from './usage';
+import type {
+  NodeConfigurationGetResult,
+  NodeHookParams,
+  NodeHookStatusResult,
+} from './node-configuration';
+import type {
+  NodeAssetContentParams,
+  NodeAssetContentResult,
+  NodeAssetConventionParams,
+  NodeAssetConventionResult,
+  NodeAssetListResult,
+} from './node-assets';
 
 export interface SessionListItemDto {
   id: string;
@@ -196,6 +209,19 @@ export type CoreMethodMap = {
   'teams.shutdown-teammates': { params: TeamShutdownParams; result: TeamShutdownResult };
   'usage.tokens.get': { params: UsageTokenParams; result: UsageTokenResult };
   'usage.providers.get': { params: UsageProviderParams; result: UsageProviderResult };
+  'node.configuration.get': {
+    params: Record<string, never>;
+    result: NodeConfigurationGetResult;
+  };
+  'node.hook.status': { params: NodeHookParams; result: NodeHookStatusResult };
+  'node.hook.install': { params: NodeHookParams; result: NodeHookStatusResult };
+  'node.hook.uninstall': { params: NodeHookParams; result: NodeHookStatusResult };
+  'node.assets.list': { params: Record<string, never>; result: NodeAssetListResult };
+  'node.assets.content': { params: NodeAssetContentParams; result: NodeAssetContentResult };
+  'node.assets.convention': {
+    params: NodeAssetConventionParams;
+    result: NodeAssetConventionResult;
+  };
   'issues.list': {
     params: IssueListParams;
     result: IssueListResult;
@@ -221,7 +247,7 @@ export type CoreMethodMap = {
     result: IssueResolveInNewSessionResult;
   };
   'session.send': {
-    params: { sessionId: string; text: string; attachments?: JsonObject[] };
+    params: { sessionId: string; text: string; attachments?: SessionConsoleAttachmentInput[] };
     result: { messageId: string; sequence: number; revision: number };
   };
   'session.interrupt': {
@@ -339,6 +365,21 @@ export const CORE_METHOD_METADATA = {
   'teams.shutdown-teammates': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
   'usage.tokens.get': readMethod(AgentDeckCapability.Usage, 'none'),
   'usage.providers.get': readMethod(AgentDeckCapability.Usage, 'none'),
+  'node.configuration.get': readMethod(AgentDeckCapability.NodeConfiguration, 'none'),
+  'node.hook.status': readMethod(AgentDeckCapability.NodeConfiguration, 'none'),
+  'node.hook.install': mutationMethod(
+    AgentDeckCapability.NodeConfiguration,
+    'none',
+    'none',
+  ),
+  'node.hook.uninstall': mutationMethod(
+    AgentDeckCapability.NodeConfiguration,
+    'none',
+    'none',
+  ),
+  'node.assets.list': readMethod(AgentDeckCapability.NodeAssets, 'none'),
+  'node.assets.content': readMethod(AgentDeckCapability.NodeAssets, 'none'),
+  'node.assets.convention': readMethod(AgentDeckCapability.NodeAssets, 'none'),
   'issues.list': readMethod(AgentDeckCapability.Issues, 'none'),
   'issues.get': readMethod(AgentDeckCapability.Issues, 'none'),
   'issues.update': mutationMethod(AgentDeckCapability.Issues, 'required', 'none'),

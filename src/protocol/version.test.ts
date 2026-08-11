@@ -7,8 +7,8 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises Usage capability negotiation as protocol 2.1', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 1 });
+  it('advertises Worker configuration and assets negotiation as protocol 2.2', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 2 });
   });
   it('selects the lower additive minor version for the same major', () => {
     expect(negotiateProtocolVersion({ major: 1, minor: 2 }, { major: 1, minor: 5 })).toEqual({

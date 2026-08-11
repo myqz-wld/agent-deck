@@ -21,6 +21,7 @@ import { useRemoteSessionSource } from './remote-host/use-remote-session-source'
 import { clearDetailForSourceView } from './remote-host/source-navigation';
 import { isAppViewAvailable } from './app-view-catalog';
 import { useRemoteUsageSource } from './remote-host/use-remote-usage-source';
+import { remoteAssetsDialogContext, remoteConfigurationDialogContext } from './remote-host/remote-node-dialog-context';
 import { remoteSessionActivityCounts } from './remote-host/session-summary-presentation';
 import { RemoteHostManagerDialog } from './components/RemoteHost/RemoteHostManagerDialog';
 registerBuiltinDiffRenderers();
@@ -456,6 +457,7 @@ export function App(): JSX.Element {
       </div>
       <SettingsDialog
         open={settingsOpen}
+        remote={remoteConfigurationDialogContext(remoteMode, remoteSource)}
         onClose={() => {
           setSettingsOpen(false);
           // 用户可能在 dialog 里改了 windowTransparent；main 已经实时切 vibrancy，
@@ -489,6 +491,7 @@ export function App(): JSX.Element {
       />
       <AssetsLibraryDialog
         open={assetsLibraryOpen}
+        remote={remoteAssetsDialogContext(remoteMode, remoteSource)}
         onClose={() => setAssetsLibraryOpen(false)}
       />
     </FloatingFrame>

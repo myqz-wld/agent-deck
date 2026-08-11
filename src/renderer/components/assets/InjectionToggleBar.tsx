@@ -48,10 +48,12 @@ export function InjectionToggleBar({
   tab,
   settings,
   update,
+  readOnlyReason,
 }: {
   tab: InjectionTab;
   settings: AppSettings | null;
   update: (patch: Partial<AppSettings>) => Promise<void>;
+  readOnlyReason?: string | null;
 }): JSX.Element {
   if (!settings) {
     return (
@@ -73,21 +75,29 @@ export function InjectionToggleBar({
         <Toggle
           label="注入到 Claude Code 会话"
           value={settings[config.claudeKey]}
+          disabled={Boolean(readOnlyReason)}
           onChange={(value) => void update({ [config.claudeKey]: value })}
         />
         <Toggle
           label="注入到 Codex CLI 会话"
           value={settings[config.codexKey]}
+          disabled={Boolean(readOnlyReason)}
           onChange={(value) => void update({ [config.codexKey]: value })}
         />
         <Toggle
           label="注入到 Grok Build 会话"
           value={settings[config.grokKey]}
+          disabled={Boolean(readOnlyReason)}
           onChange={(value) => void update({ [config.grokKey]: value })}
         />
         <div className="text-[10px] leading-snug text-deck-muted/60">
           {description}
         </div>
+        {readOnlyReason && (
+          <div className="rounded border border-deck-border/70 bg-black/10 px-2 py-1 text-[10px] leading-snug text-deck-muted/75">
+            {readOnlyReason}
+          </div>
+        )}
       </div>
     </div>
   );

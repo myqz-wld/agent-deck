@@ -31,11 +31,8 @@ import type {
 } from '@shared/remote-host';
 import { isRecoverableRelayWorkerOffline } from '@shared/remote-host';
 import {
-  parseRemoteHostAcceptedResult,
   parseRemoteHostPendingListResult,
   parseRemoteHostPendingResponseResult,
-  parseRemoteHostRuntimeUpdateResult,
-  parseRemoteHostSendResult,
 } from './business-validation';
 import type { RemoteHostConnectionSelections } from './connection-selections';
 import type { RemoteHostCredentialMaterialStore } from './credential-material-store';
@@ -58,10 +55,12 @@ import { RemoteHostDetailReader } from './service-detail-reader';
 import { RemoteHostIssueController } from './service-issues';
 import { RemoteHostPlanReviewController } from './service-plan-review';
 import { RemoteHostTeamController, RemoteHostUsageController } from './service-teams-usage';
+import { RemoteHostNodeConfigurationController } from './service-node-configuration';
+import { RemoteHostNodeAssetController } from './service-node-assets';
+import { RemoteHostSessionMutationController } from './service-session-mutations';
 import {
   requestRemoteHistory,
   requestRemotePending,
-  requestRemoteRuntime,
 } from './service-session-detail';
 import {
   REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
@@ -69,6 +68,9 @@ import {
   type RemoteHostScopedClient,
 } from './service-scope';
 import type { RemoteHostDesktopBrokerPort } from './desktop-browser-broker';
+import log from '@main/utils/logger';
+
+const logger = log.scope('remote-host-transport');
 
 export interface RemoteHostServiceOptions {
   registry: ElectronHostRegistry;
@@ -82,6 +84,9 @@ export class RemoteHostService {
   readonly detail: RemoteHostDetailReader; readonly issues: RemoteHostIssueController;
   readonly planReviews: RemoteHostPlanReviewController;
   readonly teams: RemoteHostTeamController; readonly usage: RemoteHostUsageController;
+  readonly nodeConfiguration: RemoteHostNodeConfigurationController;
+  readonly nodeAssets: RemoteHostNodeAssetController;
+  private readonly sessionMutations: RemoteHostSessionMutationController;
   private readonly profiles: RemoteHostProfileController;
   private mutationTail: Promise<void> = Promise.resolve();
   private lifecycle: 'active' | 'shutting-down' | 'stopped' = 'active';
@@ -107,6 +112,9 @@ export class RemoteHostService {
     );
     this.teams = new RemoteHostTeamController(requestScoped, mutationId);
     this.usage = new RemoteHostUsageController(requestScoped);
+    this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped, mutationId);
+    this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
+    this.sessionMutations = new RemoteHostSessionMutationController(requestScoped, mutationId);
     const document = options.store.load();
     this.profiles = new RemoteHostProfileController(document, {
       registry: options.registry,
@@ -119,6 +127,16 @@ export class RemoteHostService {
     });
     options.registry.onState((state) => {
       this.desktopBroker.handleState(state);
+      if (state.error) {
+        logger.warn('Remote transport state changed with an internal reason', {
+          profileId: state.profileId,
+          status: state.status,
+          code: state.error.code,
+          reason: state.error.message,
+          authoritativeCoreId: state.authoritativeCoreId,
+          workerGeneration: state.workerGeneration,
+        });
+      }
       const identity = `${state.authoritativeCoreId ?? ''}:${state.workerGeneration ?? ''}`;
       const previousIdentity = this.hostIdentityByProfile.get(state.profileId);
       this.hostIdentityByProfile.set(state.profileId, identity);
@@ -292,45 +310,15 @@ export class RemoteHostService {
   }
 
   async send(request: RemoteHostSendDto): Promise<RemoteHostSendResultDto> {
-    return this.requestScoped(request.profileId, 'session.send', async (scope) => {
-      const value = await scope.client.request(
-        'session.send',
-        { sessionId: request.sessionId, text: request.text },
-        {
-          deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-          idempotencyKey: this.mutationId('send', request.profileId, request.intentId),
-        },
-      );
-      return parseRemoteHostSendResult(value);
-    });
+    return this.sessionMutations.send(request);
   }
 
   async interrupt(request: RemoteHostMutationTargetDto): Promise<RemoteHostAcceptedResultDto> {
-    return this.requestScoped(request.profileId, 'session.interrupt', async (scope) => {
-      const value = await scope.client.request(
-        'session.interrupt',
-        { sessionId: request.sessionId },
-        {
-          deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-          idempotencyKey: this.mutationId('interrupt', request.profileId, request.intentId),
-        },
-      );
-      return parseRemoteHostAcceptedResult(value);
-    });
+    return this.sessionMutations.interrupt(request);
   }
 
   async steer(request: RemoteHostSendDto): Promise<RemoteHostAcceptedResultDto> {
-    return this.requestScoped(request.profileId, 'session.steer', async (scope) => {
-      const value = await scope.client.request(
-        'session.steer',
-        { sessionId: request.sessionId, text: request.text },
-        {
-          deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-          idempotencyKey: this.mutationId('steer', request.profileId, request.intentId),
-        },
-      );
-      return parseRemoteHostAcceptedResult(value);
-    });
+    return this.sessionMutations.steer(request);
   }
 
   async listPending(request: RemoteHostSessionTargetDto): Promise<RemoteHostPendingListDto> {
@@ -368,25 +356,13 @@ export class RemoteHostService {
   }
 
   async getRuntime(request: RemoteHostSessionTargetDto): Promise<RemoteHostRuntimeControlsDto> {
-    return this.requestScoped(request.profileId, 'session.runtime.get', (scope) =>
-      requestRemoteRuntime(scope, request));
+    return this.sessionMutations.runtime(request);
   }
 
   async updateRuntime(
     request: RemoteHostRuntimeUpdateDto,
   ): Promise<RemoteHostRuntimeUpdateResultDto> {
-    return this.requestScoped(request.profileId, 'session.runtime.update', async (scope) => {
-      const value = await scope.client.request(
-        'session.runtime.update',
-        { sessionId: request.sessionId, patch: request.patch },
-        {
-          deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-          idempotencyKey: this.mutationId('runtime', request.profileId, request.intentId),
-          expectedRevision: request.expectedRevision,
-        },
-      );
-      return parseRemoteHostRuntimeUpdateResult(value);
-    });
+    return this.sessionMutations.updateRuntime(request);
   }
 
   private snapshot(): RemoteHostSnapshotDto {

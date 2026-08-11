@@ -7,6 +7,7 @@ import {
   parseRemoteHostPendingResponse as parseRemoteHostPendingResponseInput,
   parseRemoteHostProfileDraft,
   parseRemoteHostRuntimeUpdate,
+  parseRemoteHostSend,
   parseRemoteHostSessionCapabilitiesRequest,
   parseRemoteHostSessionPageRequest,
   parseRemoteHostWorkspaceDirectoryRequest,
@@ -139,6 +140,23 @@ describe('remote-host IPC input validation', () => {
       ...valid,
       options: { ...valid.options, cwd: '/escape' },
     })).toThrow('invalid create options');
+  });
+
+  it('accepts bounded Remote message images and rejects empty or path-shaped payloads', () => {
+    const valid = {
+      profileId: 'remote-a',
+      sessionId: 'session-a',
+      text: '',
+      attachments: [{ kind: 'image', mime: 'image/png', bytes: 1, base64: 'YQ==' }],
+      intentId: 'intent-send-a',
+    };
+    expect(parseRemoteHostSend(valid)).toEqual(valid);
+    expect(() => parseRemoteHostSend({ ...valid, attachments: [] }))
+      .toThrow('message or attachment is required');
+    expect(() => parseRemoteHostSend({
+      ...valid,
+      attachments: [{ ...valid.attachments[0], path: '/tmp/local.png' }],
+    })).toThrow('invalid Remote image attachments');
   });
 
   it('bounds JSON runtime and pending values and rejects prototype-bearing keys', () => {

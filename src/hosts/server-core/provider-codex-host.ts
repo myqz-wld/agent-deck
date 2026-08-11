@@ -168,7 +168,7 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
     createClient: (options) => createClient(options, input),
     readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
     readSettings: () => appSettings,
-    readSkillExtraRoots: () => [],
+    readSkillExtraRoots: () => input.assets.codexSkillExtraRoots(),
     snapshotProcessEnv: () => providerProcessEnvironment(input),
   };
 
@@ -198,7 +198,9 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
           publishUpdated: (sessionId) => publishProviderSession(input, sessionId),
         },
         configuration: {
-          readApplicationInstructions: () => undefined,
+          readApplicationInstructions: () => input.settings.injectAgentDeckCodexAgentsMd
+            ? input.assets.applicationInstructions('codex-cli') || undefined
+            : undefined,
           readConfiguredModel: () => null,
           readConfiguredReasoningEffort: () => null,
           readDefaultSandbox: () => input.settings.codexSandbox,

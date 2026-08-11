@@ -18,6 +18,18 @@ export function SessionContextUsageChip({ session }: Props): JSX.Element {
   );
 }
 
+export function SessionContextUnavailableChip({ reason }: { reason: string }): JSX.Element {
+  return (
+    <span
+      aria-label="上下文窗口用量"
+      className="whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-deck-muted/65"
+      title={reason}
+    >
+      上下文 暂无远端快照
+    </span>
+  );
+}
+
 function contextUsageDisplay(
   session: Pick<SessionRecord, 'agentId' | 'contextUsage'>,
 ): {

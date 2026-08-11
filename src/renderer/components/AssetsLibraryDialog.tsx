@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import type { NodeAssetDto } from '@contracts/index';
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -10,6 +11,7 @@ import { AdapterSubTab, type AssetAdapter } from './assets/AdapterSubTab';
 import { AssetsTab } from './assets/AssetsTab';
 import { BundledAgentRuntimeEditor } from './assets/BundledAgentRuntimeEditor';
 import { ApplicationConventionTab } from './assets/ApplicationConventionTab';
+import { RemoteApplicationConventionTab } from './assets/RemoteApplicationConventionTab';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
 import { CloseIcon, LibraryIcon } from './icons';
@@ -35,15 +37,60 @@ import { errorMessage } from '@renderer/lib/error-message';
 interface Props {
   open: boolean;
   onClose: () => void;
+  remote?: {
+    identity: string;
+    label: string;
+    profileId: string | null;
+    supportsNodeAssets: boolean;
+    usable: boolean;
+  } | null;
 }
 
 type TabKey = 'skills' | 'agents' | 'claude-md';
 
-export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | null {
+function toAssetMeta(asset: NodeAssetDto): AssetMeta {
+  return {
+    kind: asset.kind,
+    source: asset.source,
+    adapter: asset.adapterId,
+    name: asset.name,
+    qualifiedName: asset.qualifiedName,
+    description: asset.description,
+    absPath: asset.location,
+    ...(asset.tools === null ? {} : { tools: asset.tools }),
+    ...(asset.model === null ? {} : { model: asset.model }),
+    ...(asset.thinking === null ? {} : { thinking: asset.thinking }),
+    ...(asset.provider === null ? {} : { provider: asset.provider }),
+    ...(asset.origin === null ? {} : { origin: asset.origin }),
+    ...(asset.pluginName === null ? {} : { pluginName: asset.pluginName }),
+    ...(asset.runtimeName === null ? {} : { runtimeName: asset.runtimeName }),
+  };
+}
+
+function snapshots(assets: NodeAssetDto[]): {
+  bundled: BundledAssetsSnapshot;
+  user: UserAssetsSnapshot;
+} {
+  const mapped = assets.map(toAssetMeta);
+  return {
+    bundled: {
+      agents: mapped.filter((asset) => asset.source === 'bundled' && asset.kind === 'agent'),
+      skills: mapped.filter((asset) => asset.source === 'bundled' && asset.kind === 'skill'),
+    },
+    user: {
+      agents: mapped.filter((asset) => asset.source === 'user' && asset.kind === 'agent'),
+      skills: mapped.filter((asset) => asset.source === 'user' && asset.kind === 'skill'),
+    },
+  };
+}
+
+export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JSX.Element | null {
   const [tab, setTab] = useState<TabKey>('skills');
   const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
   const [user, setUser] = useState<UserAssetsSnapshot | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [readOnlyReason, setReadOnlyReason] = useState<string | null>(null);
+  const [assetsTruncated, setAssetsTruncated] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewer, setViewer] = useState<ContentViewerState | null>(null);
@@ -52,15 +99,28 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   const [skillsAdapter, setSkillsAdapter] = useState<AssetAdapter>('claude-code');
   const [agentsAdapter, setAgentsAdapter] = useState<AssetAdapter>('claude-code');
 
+  const remoteIdentity = remote?.identity ?? null;
+  const remoteLabel = remote?.label ?? null;
+  const remoteProfileId = remote?.profileId ?? null;
+  const remoteSupportsNodeAssets = remote?.supportsNodeAssets ?? false;
+  const remoteUsable = remote?.usable ?? false;
   const fetchSeqRef = useRef(0);
   const viewerSeqRef = useRef(0);
+  const remoteIdentityRef = useRef(remoteIdentity);
   const updateSeqRef = useRef(0);
   const claudeMdDirtyRef = useRef(false);
   const closeInFlightRef = useRef(false);
+  remoteIdentityRef.current = remoteIdentity;
 
   const onClaudeMdDirtyChange = useCallback((d: boolean) => {
     claudeMdDirtyRef.current = d;
   }, []);
+
+  useEffect(() => {
+    ++viewerSeqRef.current;
+    setViewer(null);
+    setBundledAgentEditor(null);
+  }, [remoteIdentity]);
 
   useEffect(() => {
     if (!open) {
@@ -73,6 +133,42 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
     }
     const seq = ++fetchSeqRef.current;
     setUpdateError(null);
+    setLoadError(null);
+    setBundled(null);
+    setUser(null);
+    setSettings(null);
+    setReadOnlyReason(null);
+    setAssetsTruncated(false);
+    if (remoteIdentity !== null) {
+      claudeMdDirtyRef.current = false;
+      if (!remoteUsable) {
+        setLoadError('当前 Remote Worker 尚未连接，资产数据不可用。');
+        return;
+      }
+      if (!remoteSupportsNodeAssets) {
+        setLoadError('当前 Remote Core 版本未提供 Worker 资产能力；请先升级远端部署。');
+        return;
+      }
+      if (remoteProfileId === null) {
+        setLoadError('当前 Remote 数据源缺少连接配置，无法读取 Worker 资产。');
+        return;
+      }
+      void window.api.listRemoteHostNodeAssets({ profileId: remoteProfileId })
+        .then((result) => {
+          if (seq !== fetchSeqRef.current) return;
+          const next = snapshots(result.assets);
+          setBundled(next.bundled);
+          setUser(next.user);
+          setSettings({ ...DEFAULT_SETTINGS, ...result.injection });
+          setReadOnlyReason(result.readOnlyReason);
+          setAssetsTruncated(result.assetsTruncated);
+        })
+        .catch(() => {
+          if (seq !== fetchSeqRef.current) return;
+          setLoadError('Worker 资产读取失败，请确认远端连接后重试。');
+        });
+      return;
+    }
     void Promise.allSettled([
       window.api.listBundledAssets(),
       window.api.listUserAssets(),
@@ -92,9 +188,16 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       }
       setLoadError(errs.length > 0 ? errs.join('\n') : null);
     });
-  }, [open]);
+  }, [
+    open,
+    remoteIdentity,
+    remoteProfileId,
+    remoteSupportsNodeAssets,
+    remoteUsable,
+  ]);
 
   const refreshBundled = (): void => {
+    if (remoteIdentity !== null) return;
     const seq = ++fetchSeqRef.current;
     void window.api
       .listBundledAssets()
@@ -109,6 +212,10 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
   };
 
   const updateSettings = async (patch: Partial<AppSettings>): Promise<void> => {
+    if (remoteIdentity !== null) {
+      setUpdateError('Remote 注入开关由 Worker 启动配置决定，当前协议只读。');
+      return;
+    }
     const seq = ++updateSeqRef.current;
     setUpdateError(null);
     try {
@@ -132,7 +239,30 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
    */
   const openViewer = (asset: AssetMeta): void => {
     const seq = ++viewerSeqRef.current;
+    const viewerIdentity = remoteIdentity;
     setViewer({ asset, content: null, error: null });
+    if (remoteIdentity !== null) {
+      if (!remoteUsable || !remoteSupportsNodeAssets || remoteProfileId === null) {
+        setViewer({ asset, content: null, error: '当前 Remote Worker 资产不可用。' });
+        return;
+      }
+      void window.api.getRemoteHostNodeAssetContent({
+        profileId: remoteProfileId,
+        adapterId: asset.adapter,
+        kind: asset.kind,
+        source: asset.source,
+        name: asset.name,
+        qualifiedName: asset.qualifiedName,
+        location: asset.absPath,
+      }).then((result) => {
+        if (seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity) return;
+        setViewer({ asset, content: result.content, error: null });
+      }).catch(() => {
+        if (seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity) return;
+        setViewer({ asset, content: null, error: 'Worker 资产内容读取失败，请重试。' });
+      });
+      return;
+    }
     void window.api
       .getAssetContent(asset.kind, asset.name, asset.source, asset.adapter, asset.absPath)
       .then((r) => {
@@ -191,7 +321,11 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
             <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
               <LibraryIcon className="h-4 w-4" />资产库
             </h2>
-            <span className="text-[10px] text-deck-muted/70">(Skills / Agents / 应用约定)</span>
+            <span className="text-[10px] text-deck-muted/70">
+              {remoteIdentity === null
+                ? '(Local · Skills / Agents / 应用约定)'
+                : `(Remote · ${remoteLabel ?? 'Worker'})`}
+            </span>
           </div>
           <button
             type="button"
@@ -221,10 +355,21 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
           </div>
         )}
 
+        {assetsTruncated && (
+          <div className="mb-3 rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting">
+            Worker 资产数量超过远端列表上限；当前仅显示前 512 项。
+          </div>
+        )}
+
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto scrollbar-deck pr-1">
           {tab === 'skills' && (
             <>
-              <InjectionToggleBar tab="skills" settings={settings} update={updateSettings} />
+              <InjectionToggleBar
+                tab="skills"
+                settings={settings}
+                update={updateSettings}
+                readOnlyReason={readOnlyReason}
+              />
               <div className="mb-2">
                 <AdapterSubTab current={skillsAdapter} onSelect={setSkillsAdapter} showGrok />
               </div>
@@ -233,13 +378,19 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 adapter={skillsAdapter}
                 bundled={bundled?.skills ?? []}
                 user={user?.skills ?? []}
+                userHomeLabel={remoteIdentity === null ? '~' : 'Worker Provider Home'}
                 onView={openViewer}
               />
             </>
           )}
           {tab === 'agents' && (
             <>
-              <InjectionToggleBar tab="agents" settings={settings} update={updateSettings} />
+              <InjectionToggleBar
+                tab="agents"
+                settings={settings}
+                update={updateSettings}
+                readOnlyReason={readOnlyReason}
+              />
               <div className="mb-2">
                 <AdapterSubTab current={agentsAdapter} onSelect={setAgentsAdapter} showGrok />
               </div>
@@ -248,15 +399,30 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
                 adapter={agentsAdapter}
                 bundled={bundled?.agents ?? []}
                 user={user?.agents ?? []}
+                userHomeLabel={remoteIdentity === null ? '~' : 'Worker Provider Home'}
                 onView={openViewer}
-                onConfigureBundledAgent={setBundledAgentEditor}
+                onConfigureBundledAgent={remoteIdentity === null ? setBundledAgentEditor : undefined}
               />
             </>
           )}
           {tab === 'claude-md' && (
             <>
-              <InjectionToggleBar tab="claude-md" settings={settings} update={updateSettings} />
-              <ApplicationConventionTab onDirtyChange={onClaudeMdDirtyChange} />
+              <InjectionToggleBar
+                tab="claude-md"
+                settings={settings}
+                update={updateSettings}
+                readOnlyReason={readOnlyReason}
+              />
+              {remoteIdentity !== null && remoteProfileId !== null && remoteUsable &&
+              remoteSupportsNodeAssets ? (
+                <RemoteApplicationConventionTab
+                  identity={remoteIdentity}
+                  label={remoteLabel ?? 'Remote Worker'}
+                  profileId={remoteProfileId}
+                />
+              ) : remoteIdentity === null ? (
+                <ApplicationConventionTab onDirtyChange={onClaudeMdDirtyChange} />
+              ) : null}
             </>
           )}
         </div>
@@ -265,7 +431,7 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
       {viewer && (
         <ContentViewerModal
           state={viewer}
-          onReveal={() => {
+          onReveal={remoteIdentity === null ? () => {
             void window.api
               .revealAssetInFolder(
                 viewer.asset.kind,
@@ -277,11 +443,11 @@ export function AssetsLibraryDialog({ open, onClose }: Props): JSX.Element | nul
               .catch((err: unknown) => {
                 setUpdateError(`无法在文件夹中显示：${errorMessage(err)}`);
               });
-          }}
+          } : null}
           onClose={closeViewer}
         />
       )}
-      {bundledAgentEditor && (
+      {remoteIdentity === null && bundledAgentEditor && (
         <BundledAgentRuntimeEditor
           asset={bundledAgentEditor}
           onClose={() => setBundledAgentEditor(null)}

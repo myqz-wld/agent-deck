@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-11 | `CHANGELOG_588_remote-worker-ui-authority.md` | Align Remote UI with Core and Worker authority |
 | 2026-08-10 | `CHANGELOG_587_remote-token-usage-ingest.md` | Persist Remote token telemetry and recover keyed history |
 | 2026-08-10 | `CHANGELOG_586_remote-source-auto-connect.md` | Restore the persisted active Remote connection |
 | 2026-08-10 | `CHANGELOG_585_remote-full-page-parity.md` | Align Remote with the Local capability-backed workspace |

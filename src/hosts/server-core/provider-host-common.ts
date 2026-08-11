@@ -14,6 +14,15 @@ import type { ServerCoreRuntimeDiagnostics } from './repository-host';
 import type { ServerCoreMcpBrokerPort } from './mcp-broker-port';
 import type { ServerCoreWorktreeRuntimePort } from './mcp-worktree-port';
 import type { GrokAcpSessionFactory } from '@main/adapters/grok-build/acp-process';
+import type { GrokPluginProfileOptions } from '@main/adapters/grok-build/resource-store';
+
+export interface ServerCoreProviderAssetPort {
+  applicationInstructions(adapterId: 'claude-code' | 'codex-cli' | 'grok-build'): string;
+  claudePlugins(): Array<{ type: 'local'; path: string }>;
+  codexSkillExtraRoots(): string[];
+  grokBaselinePrompt(): Promise<string | null>;
+  grokPluginProfile(options: GrokPluginProfileOptions): Promise<string | null>;
+}
 
 export interface ServerCoreProviderHostInput {
   readonly instanceId: string;
@@ -26,6 +35,7 @@ export interface ServerCoreProviderHostInput {
   readonly workspaceBoundary: ServerCoreProviderWorkspaceBoundary;
   readonly mcpBroker: ServerCoreMcpBrokerPort;
   readonly worktrees: ServerCoreWorktreeRuntimePort;
+  readonly assets: ServerCoreProviderAssetPort;
   /** Present only after the Provider supervisor and broker production composition is verified. */
   readonly grokProcessFactory?: GrokAcpSessionFactory;
 }

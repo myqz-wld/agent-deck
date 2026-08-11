@@ -8,6 +8,7 @@ interface Props {
   adapter: AssetAdapter;
   bundled: AssetMeta[];
   user: AssetMeta[];
+  userHomeLabel?: string;
   onView: (asset: AssetMeta) => void;
   onConfigureBundledAgent?: (asset: AssetMeta) => void;
 }
@@ -18,6 +19,7 @@ export function AssetsTab({
   adapter,
   bundled,
   user,
+  userHomeLabel = '~',
   onView,
   onConfigureBundledAgent,
 }: Props): JSX.Element {
@@ -26,15 +28,15 @@ export function AssetsTab({
   const userPathHint =
     adapter === 'claude-code'
       ? kind === 'agent'
-        ? '~/.claude/agents/'
-        : '~/.claude/skills/'
+        ? `${userHomeLabel}/.claude/agents/`
+        : `${userHomeLabel}/.claude/skills/`
       : adapter === 'codex-cli' && kind === 'agent'
-        ? '~/.codex/agents/'
+        ? `${userHomeLabel}/.codex/agents/`
       : adapter === 'codex-cli'
-        ? '~/.codex/skills/'
+        ? `${userHomeLabel}/.codex/skills/`
         : kind === 'agent'
-          ? '~/.grok/agents/'
-          : '~/.grok/skills/';
+          ? `${userHomeLabel}/.grok/agents/`
+          : `${userHomeLabel}/.grok/skills/`;
 
   return (
     <div className="flex flex-col gap-3">

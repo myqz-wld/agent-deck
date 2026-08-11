@@ -151,17 +151,38 @@ describe('SshAgentDeckClient protocol transport', () => {
     await client.close();
   });
 
-  it('bounds both in-flight requests and the backpressured write queue', async () => {
+  it('queues above the negotiated in-flight limit and bounds both request and write queues', async () => {
     const inFlightHarness = new FakeSpawnHarness();
     const inFlightClient = makeClient(inFlightHarness, 'in-flight', 'server-core', {
-      bounds: { maxInFlightRequests: 1 },
+      bounds: { maxInFlightRequests: 1, maxQueuedRequests: 2 },
     });
-    await completeConnect(inFlightClient, inFlightHarness, 'desktop-in-flight');
+    const inFlightProcess = await completeConnect(
+      inFlightClient,
+      inFlightHarness,
+      'desktop-in-flight',
+    );
+    inFlightProcess.takeWrittenMessages();
     const first = inFlightClient.request('system.health', {}, { requestId: 'one' });
-    void first.catch(() => undefined);
+    const second = inFlightClient.request('session.list', {}, { requestId: 'two' });
+    const firstOutcome = first.catch((error: unknown) => error);
+    const secondOutcome = second.catch((error: unknown) => error);
+    expect(inFlightProcess.takeWrittenMessages()).toEqual([
+      expect.objectContaining({ type: 'request', requestId: 'one' }),
+    ]);
     await expect(
-      inFlightClient.request('session.list', {}, { requestId: 'two' }),
+      inFlightClient.request('session.get', { sessionId: 's' }, { requestId: 'three' }),
     ).rejects.toMatchObject({ code: 'in_flight_limit' });
+    inFlightProcess.emitMessage({
+      type: 'result', requestId: 'one', result: { ok: true, revision: 1 }, revision: 1,
+    });
+    await expect(firstOutcome).resolves.toEqual({ ok: true, revision: 1 });
+    expect(inFlightProcess.takeWrittenMessages()).toEqual([
+      expect.objectContaining({ type: 'request', requestId: 'two' }),
+    ]);
+    inFlightProcess.emitMessage({
+      type: 'result', requestId: 'two', result: { sessions: [], revision: 1 }, revision: 1,
+    });
+    await expect(secondOutcome).resolves.toEqual({ sessions: [], revision: 1 });
     await inFlightClient.close();
 
     const queueHarness = new FakeSpawnHarness();
@@ -246,6 +267,69 @@ describe('SshAgentDeckClient protocol transport', () => {
         revision: 2,
       });
       expect(client.connectionState.status).toBe('connected');
+      await client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-admits retained requests when a reconnect negotiates a lower concurrency limit', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = new FakeSpawnHarness();
+      const client = makeClient(harness, 'lower-limit', 'server-core', {
+        bounds: { maxInFlightRequests: 3, maxQueuedRequests: 8 },
+        reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
+      });
+      const firstProcess = await completeConnect(client, harness, 'desktop-lower-limit');
+      firstProcess.takeWrittenMessages();
+      const results = [
+        client.request('system.health', {}, { requestId: 'retained-one' }),
+        client.request('session.list', {}, { requestId: 'retained-two' }),
+        client.request('session.get', { sessionId: 's' }, { requestId: 'retained-three' }),
+      ];
+      firstProcess.takeWrittenMessages();
+      firstProcess.exit(255);
+      await vi.advanceTimersByTimeAsync(10);
+      const secondProcess = harness.latest;
+      const helloMessage = secondProcess.takeWrittenMessages()
+        .find((message) => hasMessageType(message, 'hello'));
+      if (!isJsonObject(helloMessage) || typeof helloMessage.requestId !== 'string') {
+        throw new Error('Missing reconnect hello');
+      }
+      secondProcess.emitMessage({
+        type: 'hello-result',
+        requestId: helloMessage.requestId,
+        hello: makeHostHello('desktop-lower-limit', 'server-core', {
+          limits: {
+            maxFrameBytes: 1024 * 1024,
+            maxBlobBytes: 4 * 1024 * 1024,
+            maxConcurrentRequests: 1,
+            maxQueuedEvents: 128,
+          },
+        }),
+      } as unknown as JsonValue);
+      expect(secondProcess.takeWrittenMessages()).toEqual([
+        expect.objectContaining({ type: 'request', requestId: 'retained-one' }),
+      ]);
+      secondProcess.emitMessage({
+        type: 'result', requestId: 'retained-one', result: { ok: true }, revision: 1,
+      });
+      expect(secondProcess.takeWrittenMessages()).toEqual([
+        expect.objectContaining({ type: 'request', requestId: 'retained-two' }),
+      ]);
+      secondProcess.emitMessage({
+        type: 'result', requestId: 'retained-two', result: { sessions: [] }, revision: 1,
+      });
+      expect(secondProcess.takeWrittenMessages()).toEqual([
+        expect.objectContaining({ type: 'request', requestId: 'retained-three' }),
+      ]);
+      secondProcess.emitMessage({
+        type: 'result', requestId: 'retained-three', result: null, revision: 1,
+      });
+      await expect(Promise.all(results)).resolves.toEqual([
+        { ok: true }, { sessions: [] }, null,
+      ]);
       await client.close();
     } finally {
       vi.useRealTimers();

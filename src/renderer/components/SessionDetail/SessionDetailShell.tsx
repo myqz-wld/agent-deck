@@ -1,6 +1,4 @@
-import { useEffect, useState, type FormEvent, type JSX, type ReactNode } from 'react';
-
-import type { RemoteHostJsonObject } from '@shared/remote-host';
+import { type JSX, type ReactNode } from 'react';
 import { ArrowLeftIcon } from '../icons';
 
 export type SessionDetailTabId =
@@ -113,88 +111,4 @@ export function SessionCapabilityPlaceholder({ reason }: { reason: string }): JS
 
 export function SessionPendingPanel({ children }: { children: ReactNode }): JSX.Element {
   return <div className="mx-auto max-w-3xl">{children}</div>;
-}
-
-export function SessionRuntimePanel({
-  identity,
-  values,
-  busy,
-  canWrite,
-  onApply,
-  onError,
-}: {
-  identity: string;
-  values: RemoteHostJsonObject | null;
-  busy: boolean;
-  canWrite: boolean;
-  onApply: (patch: RemoteHostJsonObject) => Promise<void>;
-  onError: (reason: unknown) => void;
-}): JSX.Element {
-  const [patch, setPatch] = useState('{}');
-  useEffect(() => setPatch('{}'), [identity]);
-  const apply = async (): Promise<void> => {
-    try {
-      const value = JSON.parse(patch) as unknown;
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        throw new Error('运行时 patch 必须是 JSON 对象。');
-      }
-      await onApply(value as RemoteHostJsonObject);
-      setPatch('{}');
-    } catch (reason) {
-      onError(reason);
-    }
-  };
-  return (
-    <div className="mx-auto max-w-2xl">
-      <pre className="max-h-64 overflow-auto rounded bg-black/20 p-2 text-[10px] text-deck-muted">{JSON.stringify(values ?? {}, null, 2)}</pre>
-      <textarea aria-label="运行时 patch JSON" value={patch} onChange={(event) => setPatch(event.target.value)} rows={5} disabled={!canWrite} className="mt-2 w-full resize-y rounded border border-white/10 bg-black/20 p-2 font-mono text-[10px] disabled:opacity-40" />
-      <button type="button" disabled={busy || !canWrite || !values} onClick={() => void apply()} className="mt-1 rounded bg-white/8 px-3 py-1 text-[10px] disabled:opacity-40">应用 patch</button>
-    </div>
-  );
-}
-
-export function SessionTextComposer({
-  identity,
-  busy,
-  canWrite,
-  onSend,
-  onSteer,
-  onInterrupt,
-  onError,
-}: {
-  identity: string;
-  busy: boolean;
-  canWrite: boolean;
-  onSend: (text: string) => Promise<void>;
-  onSteer: (text: string) => Promise<void>;
-  onInterrupt: () => Promise<void>;
-  onError: (reason: unknown) => void;
-}): JSX.Element {
-  const [text, setText] = useState('');
-  useEffect(() => setText(''), [identity]);
-  const perform = async (operation: () => Promise<void>, clear: boolean): Promise<void> => {
-    try {
-      await operation();
-      if (clear) setText('');
-    } catch (reason) {
-      onError(reason);
-    }
-  };
-  const submit = (event: FormEvent): void => {
-    event.preventDefault();
-    const message = text.trim();
-    if (message) void perform(() => onSend(message), true);
-  };
-  return (
-    <form onSubmit={submit} className="shrink-0 border-t border-deck-border p-2">
-      <textarea value={text} onChange={(event) => setText(event.target.value)} rows={3} disabled={!canWrite} placeholder={canWrite ? '发送到当前 session…' : '此数据源未提供 session 写入能力'} className="w-full resize-none rounded border border-white/10 bg-black/20 p-2 text-[11px] disabled:opacity-40" />
-      <div className="mt-1 flex justify-between gap-1">
-        <button type="button" disabled={busy || !canWrite || !text.trim()} onClick={() => void perform(() => onSteer(text.trim()), true)} className="rounded px-2 py-1 text-[9px] text-deck-muted hover:bg-white/8 disabled:opacity-30">作为 steer 发送</button>
-        <div className="flex gap-1">
-          <button type="button" disabled={busy || !canWrite} onClick={() => void perform(onInterrupt, false)} className="rounded px-2 py-1 text-[9px] text-amber-200 disabled:opacity-30">中断 turn</button>
-          <button type="submit" disabled={busy || !canWrite || !text.trim()} className="rounded bg-blue-500 px-3 py-1 text-[10px] text-white disabled:opacity-40">发送</button>
-        </div>
-      </div>
-    </form>
-  );
 }

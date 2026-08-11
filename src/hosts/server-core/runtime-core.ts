@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentDeckClientErrorCode,
-  isJsonObject,
   isJsonValue,
   type AgentDeckEventEnvelope,
   type CoreMethod,
@@ -18,7 +17,8 @@ import {
   type DaemonRequestResult,
 } from '@hosts/daemon';
 import type { AgentAdapter } from '@main/adapters/types';
-import type { StoredAgentEvent, SessionRecord } from '@shared/types';
+import type { StoredAgentEvent, SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import type { SessionConsoleAttachmentInput } from '@contracts/index';
 import {
   applyServerCoreRuntimePatch,
   serverCoreRuntimeValues,
@@ -33,6 +33,7 @@ import type {
   ServerCoreMutationIdentity,
 } from './runtime-metadata-store';
 import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
+import { serverCoreHistoryEntry } from './runtime-history';
 import {
   canonicalJson,
   historyCursor,
@@ -45,8 +46,6 @@ import {
   parseSteerParams,
   parseSubscriptionParams,
 } from './runtime-validation';
-
-const HISTORY_CONTENT_BYTES = 8 * 1024;
 
 export const SERVER_CORE_BASE_METHODS = Object.freeze([
   'pending.list',
@@ -110,30 +109,9 @@ export interface ServerCoreDaemonRuntimeOptions {
   readonly metadata: ServerCoreRuntimeMetadataPort;
   readonly lifecycle: ServerCoreRuntimeLifecyclePort;
   readonly presentations: Pick<ServerCoreMcpPresentationPort, 'list' | 'respond'>;
-}
-
-function clipped(value: string): string {
-  const bytes = Buffer.from(value);
-  if (bytes.byteLength <= HISTORY_CONTENT_BYTES) return value;
-  return `${bytes.subarray(0, HISTORY_CONTENT_BYTES).toString('utf8')}…`;
-}
-
-function historyEntry(event: StoredAgentEvent): JsonObject {
-  const payload = isJsonObject(event.payload) ? event.payload : null;
-  const role = payload && ['assistant', 'system', 'user'].includes(String(payload.role))
-    ? String(payload.role)
-    : 'system';
-  let content: JsonValue;
-  if (payload && typeof payload.text === 'string') content = clipped(payload.text);
-  else if (isJsonValue(event.payload)) content = clipped(canonicalJson(event.payload));
-  else content = '[event unavailable]';
-  return {
-    id: `event-${event.id}`,
-    sessionId: event.sessionId,
-    sequence: event.id,
-    role,
-    content,
-    createdAt: event.ts,
+  readonly attachmentStore?: {
+    persist(inputs: readonly SessionConsoleAttachmentInput[]): Promise<UploadedAttachmentRef[]>;
+    remove(refs: readonly UploadedAttachmentRef[]): Promise<void>;
   };
 }
 
@@ -260,7 +238,7 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
     const revision = this.options.metadata.currentRevision();
     return {
       result: {
-        entries: events.map(historyEntry),
+        entries: events.map(serverCoreHistoryEntry),
         nextCursor: nextOffset < total ? historyCursor(nextOffset) : null,
         revision,
       },
@@ -272,11 +250,26 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
     const params = parseSendParams(input.params);
     const { adapter } = this.requireProviderSession(params.sessionId);
     if (!adapter.sendMessage) this.unavailable();
+    if (params.attachments.length > 0 && !adapter.capabilities.canAcceptAttachments) {
+      this.unavailable();
+    }
+    if (params.attachments.length > 0 && !this.options.attachmentStore) this.unavailable();
     const fingerprint = this.fingerprint(input.method, input.params);
     return this.mutate(input, fingerprint, 'session.message.accepted', params.sessionId, async () => {
-      await adapter.sendMessage!(params.sessionId, params.text, undefined, {
-        idempotencyKey: input.idempotencyKey!,
-      });
+      const attachments = params.attachments.length > 0
+        ? await this.options.attachmentStore!.persist(params.attachments)
+        : [];
+      try {
+        await adapter.sendMessage!(
+          params.sessionId,
+          params.text,
+          attachments.length > 0 ? attachments : undefined,
+          { idempotencyKey: input.idempotencyKey! },
+        );
+      } catch (error) {
+        await this.options.attachmentStore?.remove(attachments);
+        throw error;
+      }
       return (revision) => ({
         messageId: `remote-message-${fingerprint.slice(0, 32)}`,
         sequence: revision,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   RemoteUserIntentLedger,
+  remoteAttachmentIntentPayload,
   remoteSessionCreateIntentPayload,
 } from './remote-intent-ledger';
 
@@ -131,5 +132,18 @@ describe('RemoteUserIntentLedger', () => {
     const ledger = new RemoteUserIntentLedger(() => 'intent-large');
     expect(ledger.acquire('remote-a:core-a:1', 'create', first).key)
       .not.toBe(ledger.acquire('remote-a:core-a:1', 'create', second).key);
+  });
+
+  it('content-binds continued-session attachments without retaining their base64 body', async () => {
+    const first = await remoteAttachmentIntentPayload('inspect', [{
+      kind: 'image', mime: 'image/png', bytes: 3, base64: 'YWJj',
+    }]);
+    const second = await remoteAttachmentIntentPayload('inspect', [{
+      kind: 'image', mime: 'image/png', bytes: 3, base64: 'eHl6',
+    }]);
+    expect(JSON.stringify(first)).not.toContain('YWJj');
+    const ledger = new RemoteUserIntentLedger(() => 'intent-attachment');
+    expect(ledger.acquire('remote-a:core-a:1', 'send', first).key)
+      .not.toBe(ledger.acquire('remote-a:core-a:1', 'send', second).key);
   });
 });

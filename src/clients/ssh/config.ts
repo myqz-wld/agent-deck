@@ -17,6 +17,7 @@ export const DEFAULT_SSH_RECONNECT_POLICY: SshReconnectPolicy = Object.freeze({
 export const DEFAULT_SSH_TRANSPORT_BOUNDS: SshTransportBounds = Object.freeze({
   maxFrameBytes: 4 * 1024 * 1024,
   maxInFlightRequests: 32,
+  maxQueuedRequests: 128,
   maxQueuedWriteBytes: 8 * 1024 * 1024,
   maxQueuedWriteFrames: 128,
   maxRememberedResponses: 1_024,

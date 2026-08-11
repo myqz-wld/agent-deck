@@ -100,9 +100,10 @@ async function compress(
   file: File,
   mime: string,
   dataUrl: string,
+  maxBase64Characters = MAX_BASE64_BYTES_FOR_API,
 ): Promise<{ base64: string; mime: string; bytes: number; compressed: boolean }> {
   const original = stripDataUrlPrefix(dataUrl);
-  if (original.length <= MAX_BASE64_BYTES_FOR_API) {
+  if (original.length <= maxBase64Characters) {
     return { base64: original, mime, bytes: file.size, compressed: false };
   }
   if (mime === 'image/gif') {
@@ -118,12 +119,13 @@ async function compress(
   const image = await loadImage(dataUrl);
   for (const attempt of COMPRESS_ATTEMPTS) {
     const output = encodeJpeg(image, attempt.scale, attempt.quality);
-    if (output && output.base64.length <= MAX_BASE64_BYTES_FOR_API) {
+    if (output && output.base64.length <= maxBase64Characters) {
       return { ...output, mime: 'image/jpeg', compressed: true };
     }
   }
+  const limitMiB = (Math.floor(maxBase64Characters * 3 / 4) / 1024 / 1024).toFixed(1);
   throw new Error(
-    `图片 ${(file.size / 1024 / 1024).toFixed(1)}MB 即使最低质量 + 50% 缩放仍超过 API 5MB 上限。请手动裁剪或更换图片`,
+    `图片 ${(file.size / 1024 / 1024).toFixed(1)}MB 即使最低质量 + 50% 缩放仍超过 ${limitMiB}MB 上限。请手动裁剪或更换图片`,
   );
 }
 
@@ -181,19 +183,25 @@ export function validateImageFile(file: File): string | null {
   return null;
 }
 
-export async function processImageFile(file: File): Promise<ProcessedImage> {
+export async function processImageFile(
+  file: File,
+  maxOutputBytes?: number,
+): Promise<ProcessedImage> {
   const dataUrl = await readFileAsDataUrl(file);
+  const maxBase64Characters = maxOutputBytes === undefined
+    ? MAX_BASE64_BYTES_FOR_API
+    : Math.min(MAX_BASE64_BYTES_FOR_API, 4 * Math.ceil(maxOutputBytes / 3));
   if (
     file.type === 'image/webp'
-    && stripDataUrlPrefix(dataUrl).length > MAX_BASE64_BYTES_FOR_API
+    && stripDataUrlPrefix(dataUrl).length > maxBase64Characters
     && await detectAnimatedWebp(file)
   ) {
     throw new Error(
-      `webp 动图 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 API 5MB base64 上限，无法自动压缩（压会丢动）。请手动转静图或缩小尺寸`,
+      `webp 动图 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过附件上限，无法自动压缩（压会丢动）。请手动转静图或缩小尺寸`,
     );
   }
   const [compressedResult, thumbnailResult] = await Promise.allSettled([
-    compress(file, file.type, dataUrl),
+    compress(file, file.type, dataUrl, maxBase64Characters),
     makeThumbnail(file, file.type, dataUrl),
   ]);
   if (compressedResult.status === 'rejected') {
