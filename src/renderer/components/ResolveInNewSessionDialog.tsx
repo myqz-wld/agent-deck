@@ -24,6 +24,7 @@ const INCOMPLETE_ROLLBACK_CODE = 'ISSUE_RESOLUTION_ROLLBACK_INCOMPLETE';
 /** Local coordinator with the same presentation and attachment behavior as Remote resolution. */
 export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props): JSX.Element {
   const [adapters, setAdapters] = useState<LocalSessionAdapterInfo[]>([]);
+  const [adaptersSettled, setAdaptersSettled] = useState(false);
   const [adapterId, setAdapterId] = useState<string>(() => getLastAdapter());
   const [workingDirectory, setWorkingDirectory] = useState(issue.cwd ?? '');
   const [prompt, setPrompt] = useState(() => buildIssueResolutionPrompt(issue));
@@ -55,6 +56,8 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       });
     }).catch(() => {
       if (!cancelled) setError('无法读取运行时列表，请稍后重试。');
+    }).finally(() => {
+      if (!cancelled) setAdaptersSettled(true);
     });
     return () => {
       cancelled = true;
@@ -147,6 +150,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
 
   return (
     <NewSessionForm
+      key={`issue-resolution:${authoringId}:${issue.id}`}
       acceptsAttachments={acceptsAttachments}
       adapterId={adapterId}
       adapters={adapters.map((adapter) => ({ value: adapter.id, label: adapter.displayName }))}
@@ -163,6 +167,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       directoryPlaceholder="留空则沿用问题目录或主目录"
       error={error}
       images={images}
+      initializing={!adaptersSettled || options.defaultsLoading}
       loading={false}
       modelLoading={options.defaultsLoading}
       model={{

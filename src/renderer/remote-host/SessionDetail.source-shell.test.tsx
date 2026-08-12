@@ -4,10 +4,14 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SessionDetail } from '@renderer/components/SessionDetail';
 import { registerBuiltinDiffRenderers } from '@renderer/components/diff/install';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { legacyRemoteSessionPresentation } from './session-summary-presentation';
 import type { RemoteSessionSourceView } from './source-types';
 
-afterEach(cleanup);
+afterEach(() => {
+  vi.useRealTimers();
+  cleanup();
+});
 beforeAll(registerBuiltinDiffRenderers);
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -340,12 +344,51 @@ describe('SessionDetail source shell', () => {
       sessionId: 'same-session',
       adapterId: 'codex-cli',
     }));
-    expect(screen.getByText('Codex CLI 当前生效权限')).toBeTruthy();
+    expect(await screen.findByText('Codex CLI 当前生效权限')).toBeTruthy();
     expect(screen.getByText('工作区可写')).toBeTruthy();
     expect(screen.getByText('由提供方默认值决定')).toBeTruthy();
     expect(scanLocalPermissions).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('auth.json');
     expect(document.body.textContent).not.toContain('/Users/');
+  });
+
+  it('keeps the current Remote tab during the grace period, then shows permission loading', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<Awaited<ReturnType<
+      typeof window.api.getRemoteHostSessionPermissions
+    >>>();
+    const getRemotePermissions = vi.fn(() => pending.promise);
+    window.api = {
+      getRemoteHostSessionPermissions: getRemotePermissions,
+    } as unknown as typeof window.api;
+    const source = remoteSource();
+    source.capabilities = new Set([...source.capabilities, 'sessions.permissions.read']);
+    render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    await act(async () => Promise.resolve());
+    expect(getRemotePermissions).toHaveBeenCalledOnce();
+
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.getByText('remote-only activity')).toBeTruthy();
+    expect(screen.queryByText('正在读取 Worker 生效权限…')).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('正在读取 Worker 生效权限…')).toBeTruthy();
+    expect(screen.queryByText('remote-only activity')).toBeNull();
+
+    await act(async () => pending.resolve({
+      sessionId: 'same-session',
+      adapterId: 'codex-cli',
+      effective: {
+        adapterId: 'codex-cli', approvalPolicy: 'on-request',
+        approvalPolicySource: 'session', sandbox: 'workspace-write', sandboxSource: 'session',
+      },
+      workspace: { read: 'allowed', write: 'allowed', network: 'provider-default' },
+      rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
+      revision: 12,
+    }));
+    expect(screen.getByText('Codex CLI 当前生效权限')).toBeTruthy();
   });
 
   it('loads bounded Remote cross-session messages lazily through the shared presentation', async () => {

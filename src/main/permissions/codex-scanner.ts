@@ -7,7 +7,6 @@
  * `$CODEX_HOME/config.toml` 中与 Codex 运行相关的只读配置。
  */
 
-import { promises as fs } from 'node:fs';
 import type {
   AppSettings,
   CodexApprovalPolicy,
@@ -17,9 +16,12 @@ import type {
 import { settingsStore } from '@main/store/settings-store';
 import {
   getCodexConfigPath,
-  readTopLevelModelFromCodexConfig,
+  readTopLevelModelFromCodexConfigText,
 } from '@main/codex-config/toml-writer';
 import { permissionTimeoutMsToCodexToolTimeoutSec } from '@main/codex-config/agent-deck-mcp-injector';
+import { readBoundedConfigText } from '@main/adapters/session-creation-config-reader';
+
+const MAX_CODEX_PERMISSION_CONFIG_BYTES = 256 * 1024;
 
 type CodexScanSettings = Pick<
   AppSettings,
@@ -48,19 +50,21 @@ async function readRawConfig(configPath: string): Promise<{
   raw: string | null;
   readError: string | null;
 }> {
-  try {
-    return {
-      exists: true,
-      raw: await fs.readFile(configPath, 'utf-8'),
-      readError: null,
-    };
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') {
-      return { exists: false, raw: null, readError: null };
-    }
-    return { exists: false, raw: null, readError: (err as Error).message };
+  const result = await readBoundedConfigText(configPath, {
+    resolutionSource: 'codex-config',
+    maxBytes: MAX_CODEX_PERMISSION_CONFIG_BYTES,
+  });
+  if (result.ok) return { exists: true, raw: result.text, readError: null };
+  if (result.failureCategory === 'not-found') {
+    return { exists: false, raw: null, readError: null };
   }
+  return {
+    exists: result.failureCategory === 'oversize',
+    raw: null,
+    readError: result.failureCategory === 'oversize'
+      ? '配置文件超过安全读取上限'
+      : '配置文件读取失败',
+  };
 }
 
 export async function scanCodexSettings(
@@ -74,10 +78,10 @@ export async function scanCodexSettings(
   const sandboxMode = hasSessionSandbox ? sessionSandbox : settings.codexSandbox;
   const agentDeckMcpEnabled = settings.enableAgentDeckMcp && settings.mcpHttpEnabled;
 
-  const [configRaw, topLevelModel] = await Promise.all([
-    readRawConfig(configPath),
-    Promise.resolve(readTopLevelModelFromCodexConfig(configPath)),
-  ]);
+  const configRaw = await readRawConfig(configPath);
+  const topLevelModel = configRaw.raw === null
+    ? null
+    : readTopLevelModelFromCodexConfigText(configRaw.raw);
 
   return {
     adapter: 'codex-cli',
