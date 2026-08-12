@@ -60,6 +60,7 @@ export function useRemoteSessionCreation({
   const [error, setError] = useState<string | null>(null);
   const [adapterRequestRevision, setAdapterRequestRevision] = useState(0);
   const generation = useRef(0);
+  const hasResolvedRequest = useRef(false);
   const requestedAdapterId = useRef<string | null>(null);
   const sourceIdentity = source?.identity ?? 'no-remote-source';
   const provider = options.provider ?? '';
@@ -71,6 +72,7 @@ export function useRemoteSessionCreation({
 
   useEffect(() => {
     generation.current += 1;
+    hasResolvedRequest.current = false;
     requestedAdapterId.current = null;
     setAdapterIdState('');
     setAdapters([]);
@@ -84,6 +86,7 @@ export function useRemoteSessionCreation({
     const current = ++generation.current;
     const authority = requestAuthority;
     if (!active || !source || !canRead) {
+      if (!active) hasResolvedRequest.current = false;
       setDescriptor(null);
       setLoading(false);
       if (active && source && !canRead) setError('当前远程 Core 未提供会话创建配置。');
@@ -105,14 +108,16 @@ export function useRemoteSessionCreation({
         setAdapters(result.adapters);
         setOptions(descriptorDefaults(result));
         setDescriptor(result);
+        hasResolvedRequest.current = true;
         setLoading(false);
       }).catch((reason: unknown) => {
         if (generation.current !== current || requestAuthorityRef.current !== authority) return;
         setDescriptor(null);
+        hasResolvedRequest.current = true;
         setLoading(false);
         setError(reason instanceof Error ? reason.message : String(reason));
       });
-    }, 120);
+    }, hasResolvedRequest.current ? 120 : 0);
     return () => window.clearTimeout(timer);
     // source methods are view-model actions qualified by sourceIdentity; depending on the whole
     // render object would restart this request after every unrelated remote state update.

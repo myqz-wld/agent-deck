@@ -9,7 +9,7 @@ import { CodexPermissionsPanel } from './permissions/CodexPermissionsPanel';
 import { GrokPermissionsPanel } from './permissions/GrokPermissionsPanel';
 import { LayerPanel, MergedPanel } from './permissions/ClaudePermissionsPanels';
 
-interface Props {
+export interface PermissionsViewProps {
   cwd: string;
   sessionId: string;
   agentId: string;
@@ -20,66 +20,156 @@ type PermissionsData =
   | { adapter: 'claude'; value: PermissionScanResult }
   | { adapter: 'codex'; value: CodexPermissionScanResult };
 
+interface PermissionsLoadState {
+  key: string;
+  data: PermissionsData | null;
+  loading: boolean;
+  error: string | null;
+  initialized: boolean;
+}
+
+export interface PermissionsViewState {
+  data: PermissionsData | null;
+  loading: boolean;
+  error: string | null;
+  initialized: boolean;
+  refresh(): void;
+}
+
+function emptyState(key: string, isGrok: boolean): PermissionsLoadState {
+  return {
+    key,
+    data: null,
+    loading: !isGrok,
+    error: null,
+    initialized: isGrok,
+  };
+}
+
 /** Read-only effective permission viewer for Claude settings layers and Codex config. */
 export function PermissionsView({
   cwd,
   sessionId,
   agentId,
   sessionMode = null,
-}: Props): JSX.Element {
+}: PermissionsViewProps): JSX.Element {
+  const state = usePermissionsViewState({ cwd, sessionId, agentId, sessionMode });
+  return (
+    <PermissionsViewContent
+      cwd={cwd}
+      agentId={agentId}
+      sessionMode={sessionMode}
+      state={state}
+    />
+  );
+}
+
+/** Start the bounded settings scan independently from the Permissions tab presentation. */
+export function usePermissionsViewState({
+  cwd,
+  sessionId,
+  agentId,
+}: PermissionsViewProps): PermissionsViewState {
   const isCodex = agentId === 'codex-cli';
   const isGrok = agentId === 'grok-build';
-  const [data, setData] = useState<PermissionsData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const key = `${agentId}\u0000${sessionId}\u0000${cwd}`;
+  const [loadState, setLoadState] = useState<PermissionsLoadState>(
+    () => emptyState(key, isGrok),
+  );
   const requestGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
     const generation = ++requestGeneration.current;
-    setLoading(true);
-    setErr(null);
+    if (isGrok) {
+      setLoadState({ ...emptyState(key, true), initialized: true });
+      return;
+    }
+    setLoadState((current) => ({
+      ...(current.key === key ? current : emptyState(key, false)),
+      loading: true,
+      error: null,
+    }));
     try {
-      if (isGrok) {
-        if (generation === requestGeneration.current) setData(null);
-      } else if (isCodex) {
+      if (isCodex) {
         const result = await window.api.scanCodexSettings(sessionId);
         if (generation === requestGeneration.current) {
-          setData({ adapter: 'codex', value: result });
+          setLoadState({
+            key,
+            data: { adapter: 'codex', value: result },
+            loading: false,
+            error: null,
+            initialized: true,
+          });
         }
       } else {
         const result = await window.api.scanCwdSettings(cwd);
         if (generation === requestGeneration.current) {
-          setData({ adapter: 'claude', value: result });
+          setLoadState({
+            key,
+            data: { adapter: 'claude', value: result },
+            loading: false,
+            error: null,
+            initialized: true,
+          });
         }
       }
     } catch (error) {
       if (generation === requestGeneration.current) {
-        setErr(error instanceof Error ? error.message : String(error));
+        setLoadState((current) => ({
+          ...(current.key === key ? current : emptyState(key, false)),
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+          initialized: true,
+        }));
       }
-    } finally {
-      if (generation === requestGeneration.current) setLoading(false);
     }
-  }, [agentId, cwd, isCodex, isGrok, sessionId]);
+  }, [cwd, isCodex, isGrok, key, sessionId]);
 
   useEffect(() => {
-    setData(null);
     void refresh();
     return () => {
       requestGeneration.current += 1;
     };
   }, [refresh]);
 
+  const current = loadState.key === key ? loadState : emptyState(key, isGrok);
+  return {
+    data: current.data,
+    loading: current.loading,
+    error: current.error,
+    initialized: current.initialized,
+    refresh: () => void refresh(),
+  };
+}
+
+export function PermissionsViewContent({
+  cwd,
+  agentId,
+  sessionMode = null,
+  state,
+}: Pick<PermissionsViewProps, 'cwd' | 'agentId' | 'sessionMode'> & {
+  state: PermissionsViewState;
+}): JSX.Element {
+  const isGrok = agentId === 'grok-build';
   if (isGrok) return <GrokPermissionsPanel sessionMode={sessionMode} />;
-  if (loading && !data) return <div className="text-[11px] text-deck-muted">扫描中…</div>;
-  if (err) {
-    return <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">扫描失败：{err}</div>;
+  if (!state.initialized || (state.loading && !state.data)) {
+    return <div className="text-[11px] text-deck-muted">扫描中…</div>;
   }
-  if (!data) return <div className="text-[11px] text-deck-muted">无数据</div>;
-  if (data.adapter === 'codex') {
-    return <CodexPermissionsPanel data={data.value} loading={loading} onRefresh={() => void refresh()} />;
+  if (state.error) {
+    return <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">扫描失败：{state.error}</div>;
+  }
+  if (!state.data) return <div className="text-[11px] text-deck-muted">无数据</div>;
+  if (state.data.adapter === 'codex') {
+    return (
+      <CodexPermissionsPanel
+        data={state.data.value}
+        loading={state.loading}
+        onRefresh={state.refresh}
+      />
+    );
   }
 
-  const scan = data.value;
+  const scan = state.data.value;
   const projectIsUser = scan.project.path === scan.user.path;
   const localIsUserLocal = scan.local.path === scan.userLocal.path;
   return (
@@ -88,11 +178,12 @@ export function PermissionsView({
         <div className="truncate">当前目录：<span className="font-mono text-deck-text/80">{scan.cwdResolved}</span></div>
         <button
           type="button"
-          onClick={() => void refresh()}
-          disabled={loading}
+          onClick={state.refresh}
+          disabled={state.loading}
           className="inline-flex shrink-0 items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-deck-text hover:bg-white/15 disabled:opacity-50"
         >
-          {!loading && <RefreshIcon className="h-3 w-3" />}{loading ? '刷新中…' : '刷新'}
+          {!state.loading && <RefreshIcon className="h-3 w-3" />}
+          {state.loading ? '刷新中…' : '刷新'}
         </button>
       </div>
       <MergedPanel merged={scan.merged} />

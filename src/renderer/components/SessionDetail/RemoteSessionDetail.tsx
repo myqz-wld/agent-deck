@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 import { useRemoteSessionTabData } from '@renderer/remote-host/use-remote-session-tab-data';
 import { RuntimeMetadataChips } from '../SessionMetadataChips';
 import {
@@ -35,6 +36,7 @@ export function RemoteSessionDetail({
   onClose: () => void;
 }): JSX.Element {
   const [tab, setTab] = useState<SessionDetailTabId>('activity');
+  const [pendingTab, setPendingTab] = useState<SessionDetailTabId | null>(null);
   const [handOffOpen, setHandOffOpen] = useState(false);
   const [handOffNotice, setHandOffNotice] = useState<HandOffNotice | null>(null);
   const session = source.selectedSession?.id === source.selectedSessionId
@@ -44,9 +46,10 @@ export function RemoteSessionDetail({
     ? [...(source.sessions ?? []), ...(source.historySessions ?? [])]
         .find((item) => item.id === session.id) ?? null
     : null;
-  const tabData = useRemoteSessionTabData(source, tab);
+  const tabData = useRemoteSessionTabData(source, pendingTab ?? tab);
 
   useEffect(() => {
+    setPendingTab(null);
     setTab('activity');
     setHandOffOpen(false);
   }, [session?.id, source.identity]);
@@ -59,6 +62,29 @@ export function RemoteSessionDetail({
   const canReadTasks = source.capabilities.has('tasks');
   const canReadMessages = source.capabilities.has('sessions.messages.read');
   const canReadPermissions = source.capabilities.has('sessions.permissions.read');
+  const permissionsReady = tabData.permissions.value !== null || tabData.permissions.error !== null;
+  const showPendingPermissions = useDelayedAsyncFallback(
+    pendingTab === 'permissions' && !permissionsReady,
+    `${source.identity}:${session?.id ?? 'none'}:permissions`,
+  );
+
+  useEffect(() => {
+    if (pendingTab !== 'permissions') return;
+    if (!permissionsReady && !showPendingPermissions) return;
+    setPendingTab(null);
+    setTab('permissions');
+  }, [pendingTab, permissionsReady, showPendingPermissions]);
+
+  const changeTab = (next: SessionDetailTabId): void => {
+    if (
+      next === 'permissions' && canReadPermissions && source.usable && !permissionsReady
+    ) {
+      setPendingTab(next);
+      return;
+    }
+    setPendingTab(null);
+    setTab(next);
+  };
   const tabs = useMemo<readonly SessionDetailTabModel[]>(() => [
     {
       id: 'activity',
@@ -181,7 +207,7 @@ export function RemoteSessionDetail({
       banner={banner}
       tabs={tabs}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={changeTab}
       alert={alert}
       composer={(
         <RemoteSessionComposer

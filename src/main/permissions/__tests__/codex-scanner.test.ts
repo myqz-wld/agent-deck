@@ -106,4 +106,19 @@ describe('scanCodexSettings', () => {
     expect(result.config.path).toBe(join(root, 'config.toml'));
     expect(result.config.topLevelModel).toBe('gpt-custom-home');
   });
+
+  it('bounds the raw config snapshot instead of sending an oversized file to the renderer', async () => {
+    const configPath = makeTmpConfigPath();
+    writeFileSync(configPath, `model = "gpt-5.5"\n# ${'x'.repeat(256 * 1024)}`, 'utf8');
+
+    const result = await scanCodexSettings({
+      configPath,
+      appSettings: baseSettings,
+    });
+
+    expect(result.config.exists).toBe(true);
+    expect(result.config.raw).toBeNull();
+    expect(result.config.topLevelModel).toBeNull();
+    expect(result.config.readError).toBe('配置文件超过安全读取上限');
+  });
 });

@@ -35,6 +35,11 @@ export function readTopLevelModelFromCodexConfig(
   return readTopLevelQuotedStringFromCodexConfig('model', configPath);
 }
 
+/** Parse the top-level model from an already-authorized config snapshot. */
+export function readTopLevelModelFromCodexConfigText(content: string): string | null {
+  return readTopLevelQuotedStringFromCodexConfigText('model', content);
+}
+
 /** Read the native top-level Codex provider selection. */
 export function readTopLevelModelProviderFromCodexConfig(
   configPath: string = getCodexConfigPath(),
@@ -75,6 +80,13 @@ function readTopLevelQuotedStringFromCodexConfig(
   } catch {
     return null;
   }
+  return readTopLevelQuotedStringFromCodexConfigText(key, content);
+}
+
+function readTopLevelQuotedStringFromCodexConfigText(
+  key: string,
+  content: string,
+): string | null {
   const escapedKey = escapeRegex(key);
   const assignmentRe = new RegExp(
     `^${escapedKey}[ \\t]*=[ \\t]*("(?:[^"\\\\]|\\\\.)*"|'[^']*')`,

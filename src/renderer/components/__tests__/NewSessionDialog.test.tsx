@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { NewSessionDialog } from '../NewSessionDialog';
 
 let chooseDirectory: ReturnType<typeof vi.fn>;
@@ -69,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   Reflect.deleteProperty(window, 'api');
   vi.unstubAllGlobals();
@@ -97,13 +99,15 @@ describe('NewSessionDialog directory picker', () => {
       const cwdInput = screen.getByPlaceholderText('留空则使用主目录（~）') as HTMLInputElement;
       expect(cwdInput.value).toBe('/tmp/agent-deck');
     });
+    expect(screen.queryByText('留空时使用当前用户主目录。')).toBeNull();
     const readyButton = screen.getByText('选择…') as HTMLButtonElement;
     expect(readyButton.disabled).toBe(false);
   });
 });
 
 describe('NewSessionDialog model options', () => {
-  it('waits for parsed defaults instead of briefly showing a fallback model', async () => {
+  it('hides fast initialization and shows an explicit loading shell after the grace period', async () => {
+    vi.useFakeTimers();
     const pending = deferred<ReturnType<typeof sessionCreationDefaults> & { model: string }>();
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -114,16 +118,25 @@ describe('NewSessionDialog model options', () => {
     });
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
-    await screen.findByText('Claude');
-    expect(screen.getByText('正在读取模型配置…')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(window.api.listAdapters).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: '新建会话' })).toBeNull();
+    expect(screen.queryByText('模型配置')).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByRole('dialog', { name: '新建会话' })).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole('dialog', { name: '新建会话' })).toBeTruthy();
+    expect(screen.getByText('正在读取会话配置…')).toBeTruthy();
     expect(screen.queryByText('模型配置')).toBeNull();
 
     await act(async () => {
       pending.resolve({ ...sessionCreationDefaults(), model: 'claude-config-model' });
     });
 
-    expect(await screen.findByText(/模型：claude-config-model/)).toBeTruthy();
-    expect(screen.queryByText('正在读取模型配置…')).toBeNull();
+    expect(screen.getByText(/模型：claude-config-model/)).toBeTruthy();
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
     const localTarget = screen.getByText('创建目标：Local · 本机');
     expect(localTarget.className).toContain('bg-black/20');
     expect(localTarget.className).not.toContain('status-working');

@@ -78,6 +78,7 @@ export function useSessionCreationOptions({
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [resolvedRequestKey, setResolvedRequestKey] = useState<string | null>(null);
   const defaultsRequestGeneration = useRef(0);
+  const hasResolvedDefaults = useRef(false);
   const requestKey = `${adapterId}\u0000${cwd.trim()}\u0000${selectionRevision}`;
 
   useEffect(() => {
@@ -91,10 +92,12 @@ export function useSessionCreationOptions({
   useEffect(() => {
     const generation = ++defaultsRequestGeneration.current;
     if (!active) {
+      hasResolvedDefaults.current = false;
       setResolvedRequestKey(null);
       return;
     }
     if (typeof window.api.getAdapterSessionCreationDefaults !== 'function') {
+      hasResolvedDefaults.current = true;
       setResolvedRequestKey(requestKey);
       return;
     }
@@ -108,16 +111,18 @@ export function useSessionCreationOptions({
         .then((resolved) => {
           if (defaultsRequestGeneration.current === generation) {
             applyState(mergeRemembered(adapterId, resolved));
+            hasResolvedDefaults.current = true;
             setResolvedRequestKey(requestKey);
           }
         })
         .catch(() => {
           // Defaults are convenience UI metadata. Session creation still validates natively.
           if (defaultsRequestGeneration.current === generation) {
+            hasResolvedDefaults.current = true;
             setResolvedRequestKey(requestKey);
           }
         });
-    }, 120);
+    }, hasResolvedDefaults.current ? 120 : 0);
 
     return () => {
       if (defaultsRequestGeneration.current === generation) {

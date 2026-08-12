@@ -7,7 +7,10 @@ import type {
 } from '@shared/types';
 import { ActivityFeed } from '../activity-feed';
 import { SummaryView } from '../SummaryView';
-import { PermissionsView } from '../PermissionsView';
+import {
+  PermissionsViewContent,
+  usePermissionsViewState,
+} from '../PermissionsView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
 import { SessionMetadataChips } from '../SessionMetadataChips';
@@ -26,6 +29,7 @@ import { decodeBlob, groupFileChanges } from './helpers';
 import { useFileChanges } from './use-file-changes';
 import { useFileChangeSelection } from './use-file-change-selection';
 import { useFileChangePayload } from './use-file-change-payload';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 import { useSessionGitBranch } from '@renderer/hooks/use-session-git-branches';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RemoteSessionDetail } from './RemoteSessionDetail';
@@ -57,10 +61,21 @@ export function SessionDetail(props: LocalProps | RemoteProps): JSX.Element {
 
 function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   const [tab, setTab] = useState<SessionDetailTabId>('activity');
+  const [pendingTab, setPendingTab] = useState<SessionDetailTabId | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
   const gitBranch = useSessionGitBranch(session);
+  const permissions = usePermissionsViewState({
+    cwd: session.cwd,
+    sessionId: session.id,
+    agentId: session.agentId,
+    sessionMode: session.sessionMode,
+  });
+  const showPendingPermissions = useDelayedAsyncFallback(
+    pendingTab === 'permissions' && !permissions.initialized,
+    `${session.id}:permissions`,
+  );
   const fileChanges = useFileChanges({
     sessionId: session.id,
     enabled: tab === 'diff',
@@ -136,6 +151,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   }, [recent]);
 
   useEffect(() => {
+    setPendingTab(null);
     setTab('activity');
     setDiffMode('single');
     setFinalDiff(null);
@@ -145,6 +161,13 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     for (const tm of toastTimersRef.current.values()) clearTimeout(tm);
     toastTimersRef.current.clear();
   }, [session.id]);
+
+  useEffect(() => {
+    if (pendingTab !== 'permissions') return;
+    if (!permissions.initialized && !showPendingPermissions) return;
+    setPendingTab(null);
+    setTab('permissions');
+  }, [pendingTab, permissions.initialized, showPendingPermissions]);
 
   useEffect(() => {
     setDiffMode('single');
@@ -233,6 +256,14 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   const canPin =
     session.archivedAt === null &&
     (session.lifecycle === 'active' || session.lifecycle === 'dormant');
+  const changeTab = (next: SessionDetailTabId): void => {
+    if (next === 'permissions' && !permissions.initialized) {
+      setPendingTab(next);
+      return;
+    }
+    setPendingTab(null);
+    setTab(next);
+  };
   const selectFileGroup = (group: NonNullable<typeof selectedGroup>): void => {
     selection.selectFile(group.filePath, group.items[group.items.length - 1].id);
     setFinalDiff(null);
@@ -278,7 +309,14 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     {
       id: 'permissions',
       label: '权限',
-      content: <PermissionsView cwd={session.cwd} sessionId={session.id} agentId={session.agentId} sessionMode={session.sessionMode} />,
+      content: (
+        <PermissionsViewContent
+          cwd={session.cwd}
+          agentId={session.agentId}
+          sessionMode={session.sessionMode}
+          state={permissions}
+        />
+      ),
     },
   ];
   const notice = cancelToasts.length > 0
@@ -305,7 +343,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
       notice={notice}
       tabs={tabs}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={changeTab}
       composer={isSdk
         ? <ComposerSdk session={session} onHandOff={() => setHandOffOpen(true)} turnBusy={turnBusy} canSteerTurn={canSteerTurn} canSteerTurnAttachments={canSteerTurnAttachments} />
         : <CliFooter agentId={session.agentId} />}

@@ -1,9 +1,10 @@
-import { useRef, type JSX, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 
 import type { DeckSelectOption } from '@renderer/components/DeckSelect';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclosure';
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 import type { UseImageAttachmentsResult } from '@renderer/hooks/useImageAttachments';
 import { CloseIcon, FolderOpenIcon, SendIcon } from '../icons';
 import { GrokSandboxPicker } from '../GrokSandboxPicker';
@@ -46,10 +47,12 @@ interface Props {
   busy: boolean;
   canCreate: boolean;
   controls: readonly NewSessionSelectControl[];
-  directoryHelp: ReactNode;
+  directoryHelp?: ReactNode;
   directoryPlaceholder: string;
   error: string | null;
   images: UseImageAttachmentsResult;
+  /** Mark the first projection as incomplete until authoritative runtime defaults settle. */
+  initializing?: boolean;
   loading: boolean;
   modelLoading?: boolean;
   notice?: ReactNode;
@@ -72,12 +75,51 @@ interface Props {
 const SELECT_CLASS =
   'w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20';
 
-export function NewSessionForm(props: Props): JSX.Element {
+export function NewSessionForm(props: Props): JSX.Element | null {
+  const [initiallyReady, setInitiallyReady] = useState(props.initializing !== true);
+  const contentReady = initiallyReady || props.initializing !== true;
+  const showLoading = useDelayedAsyncFallback(!contentReady, props.authoringId);
+  const visible = contentReady || showLoading;
   const disabled = props.busy || props.loading;
   const defaultsDisabled = disabled || props.modelLoading === true;
   const titleId = `${props.authoringId.replace(/[^A-Za-z0-9_-]/g, '-')}-title`;
   const dialogRef = useRef<HTMLDivElement>(null);
-  useModalFocus({ blocked: props.busy, dialogRef, onClose: props.onClose });
+  useModalFocus({ blocked: props.busy, dialogRef, onClose: props.onClose, open: visible });
+  useEffect(() => {
+    if (props.initializing !== true) setInitiallyReady(true);
+  }, [props.initializing]);
+
+  if (!visible) return null;
+  if (!contentReady) {
+    return (
+      <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="no-drag flex min-h-52 w-[min(28rem,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        >
+          <header className="mb-3 flex items-center justify-between">
+            <h2 id={titleId} className="text-[13px] font-medium">{props.title ?? '新建会话'}</h2>
+            <button
+              type="button"
+              onClick={props.onClose}
+              aria-label="关闭新建会话"
+              className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
+            >
+              <CloseIcon className="h-3.5 w-3.5" />
+            </button>
+          </header>
+          <div className="flex flex-1 items-center justify-center text-[11px] text-deck-muted">
+            正在读取会话配置…
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div
@@ -173,9 +215,11 @@ export function NewSessionForm(props: Props): JSX.Element {
                   </button>
                 )}
               </div>
-              <div className="text-[10px] leading-relaxed text-deck-muted/70">
-                {props.directoryHelp}
-              </div>
+              {props.directoryHelp && (
+                <div className="text-[10px] leading-relaxed text-deck-muted/70">
+                  {props.directoryHelp}
+                </div>
+              )}
             </Field>
 
             <FirstMessageAuthoring

@@ -40,6 +40,7 @@ export function NewSessionDialog({
 }: Props): JSX.Element | null {
   const remoteMode = remoteSource !== null;
   const [localAdapters, setLocalAdapters] = useState<LocalSessionAdapterInfo[]>([]);
+  const [localAdaptersSettledEpoch, setLocalAdaptersSettledEpoch] = useState(-1);
   const [localAdapterId, setLocalAdapterId] = useState<string>(() => getLastAdapter());
   const [workingDirectory, setWorkingDirectory] = useState(remoteMode ? '.' : '');
   const [prompt, setPrompt] = useState('');
@@ -103,6 +104,7 @@ export function NewSessionDialog({
   useEffect(() => {
     if (!open || remoteMode) return;
     let cancelled = false;
+    const epoch = dialogEpochRef.current;
     setError(null);
     void window.api.listAdapters().then((rows) => {
       if (cancelled) return;
@@ -119,6 +121,8 @@ export function NewSessionDialog({
       }
     }).catch((reason: unknown) => {
       if (!cancelled) setError(`运行时读取失败：${errorMessage(reason)}`);
+    }).finally(() => {
+      if (!cancelled) setLocalAdaptersSettledEpoch(epoch);
     });
     return () => { cancelled = true; };
   }, [open, remoteMode]);
@@ -150,6 +154,14 @@ export function NewSessionDialog({
     ? descriptor?.create.attachments.enabled === true
     : selectedLocalAdapter?.capabilities.canAcceptAttachments === true;
   const combinedError = error ?? remote.error ?? remoteSource?.error ?? null;
+  const initializing = remoteMode
+    ? Boolean(
+        remoteSource?.usable &&
+        remoteSource.capabilities.has('session-console.read') &&
+        descriptor === null &&
+        remote.error === null,
+      )
+    : localAdaptersSettledEpoch !== dialogEpochRef.current || localOptions.defaultsLoading;
 
   const browse = async (): Promise<void> => {
     if (remoteMode || busy || pickingDirectoryRef.current) return;
@@ -244,74 +256,76 @@ export function NewSessionDialog({
   return (
     <>
       <NewSessionForm
-      acceptsAttachments={acceptsAttachments}
-      adapterId={adapterId}
-      adapters={adapters}
-      attachmentReason={descriptor?.create.attachments.disabledReason ?? null}
-      authoringId={`new-session:${authoringInstanceId}:${remoteSource?.identity ?? 'local'}`}
-      busy={busy}
-      canCreate={Boolean(
-        adapterId && (prompt.trim() || images.attachments.length > 0) &&
-        (remoteMode
-          ? remoteSource?.usable && descriptor?.create.enabled && !remote.loading
-          : selectedLocalAdapter),
-      )}
-      controls={controls}
-      directoryHelp={remoteMode
-        ? <>目录始终相对于 Remote Workspace；`.` 表示根目录，绝对路径和 `..` 会被拒绝。</>
-        : <>留空时使用当前用户主目录。</>}
-      directoryPlaceholder={remoteMode ? '. 或 repo/subdir' : '留空则使用主目录（~）'}
-      error={combinedError}
-      images={images}
-      loading={remote.loading}
-      modelLoading={remoteMode ? remote.loading : localOptions.defaultsLoading}
-      model={{
-        adapterId,
-        provider,
-        model,
-        thinking,
-        providerClosed: remoteMode,
-        providerOptions: remoteMode
-          ? descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? []
-          : undefined,
-        thinkingOptions: remoteMode
-          ? descriptor?.create.options.thinking.allowedValues?.map((value) => ({
-              value: value as SessionThinkingChoice,
-              label: value.toUpperCase(),
-            })) ?? []
-          : undefined,
-        disabledReasons: remoteMode ? {
-          provider: descriptor?.create.options.provider.enabled
-            ? null : descriptor?.create.options.provider.disabledReason,
-          model: descriptor?.create.options.model.enabled
-            ? null : descriptor?.create.options.model.disabledReason,
-          thinking: descriptor?.create.options.thinking.enabled
-            ? null : descriptor?.create.options.thinking.disabledReason,
-        } : undefined,
-        onProviderChange: (value) => remoteMode
-          ? remote.setOption('provider', value) : localOptions.setProvider(value),
-        onModelChange: (value) => remoteMode
-          ? remote.setOption('model', value) : localOptions.setModel(value),
-        onThinkingChange: (value) => remoteMode
-          ? remote.setOption('thinking', value) : localOptions.setThinking(value),
-      }}
-      pickingDirectory={pickingDirectory}
-      prompt={prompt}
-      sourceLabel={remoteMode
-        ? `Remote · ${remoteSource?.profile?.label ?? 'Worker'} · Workspace`
-        : 'Local · 本机'}
-      workingDirectory={workingDirectory}
-      onAdapterChange={(value) => {
-        if (remoteMode) remote.setAdapterId(value);
-        else { setLocalAdapterId(value); setLastAdapter(value); }
-      }}
-      onBrowseDirectory={remoteMode
-        ? () => setRemoteDirectoryOpen(true)
-        : () => void browse()}
-      onClose={close}
-      onCreate={() => void submit()}
-      onPromptChange={setPrompt}
-      onWorkingDirectoryChange={setWorkingDirectory}
+        key={`new-session:${authoringInstanceId}:${sourceIdentity}`}
+        acceptsAttachments={acceptsAttachments}
+        adapterId={adapterId}
+        adapters={adapters}
+        attachmentReason={descriptor?.create.attachments.disabledReason ?? null}
+        authoringId={`new-session:${authoringInstanceId}:${remoteSource?.identity ?? 'local'}`}
+        busy={busy}
+        canCreate={Boolean(
+          adapterId && (prompt.trim() || images.attachments.length > 0) &&
+          (remoteMode
+            ? remoteSource?.usable && descriptor?.create.enabled && !remote.loading
+            : selectedLocalAdapter),
+        )}
+        controls={controls}
+        directoryHelp={remoteMode
+          ? <>目录始终相对于 Remote Workspace；`.` 表示根目录，绝对路径和 `..` 会被拒绝。</>
+          : null}
+        directoryPlaceholder={remoteMode ? '. 或 repo/subdir' : '留空则使用主目录（~）'}
+        error={combinedError}
+        images={images}
+        initializing={initializing}
+        loading={remote.loading}
+        modelLoading={remoteMode ? remote.loading : localOptions.defaultsLoading}
+        model={{
+          adapterId,
+          provider,
+          model,
+          thinking,
+          providerClosed: remoteMode,
+          providerOptions: remoteMode
+            ? descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? []
+            : undefined,
+          thinkingOptions: remoteMode
+            ? descriptor?.create.options.thinking.allowedValues?.map((value) => ({
+                value: value as SessionThinkingChoice,
+                label: value.toUpperCase(),
+              })) ?? []
+            : undefined,
+          disabledReasons: remoteMode ? {
+            provider: descriptor?.create.options.provider.enabled
+              ? null : descriptor?.create.options.provider.disabledReason,
+            model: descriptor?.create.options.model.enabled
+              ? null : descriptor?.create.options.model.disabledReason,
+            thinking: descriptor?.create.options.thinking.enabled
+              ? null : descriptor?.create.options.thinking.disabledReason,
+          } : undefined,
+          onProviderChange: (value) => remoteMode
+            ? remote.setOption('provider', value) : localOptions.setProvider(value),
+          onModelChange: (value) => remoteMode
+            ? remote.setOption('model', value) : localOptions.setModel(value),
+          onThinkingChange: (value) => remoteMode
+            ? remote.setOption('thinking', value) : localOptions.setThinking(value),
+        }}
+        pickingDirectory={pickingDirectory}
+        prompt={prompt}
+        sourceLabel={remoteMode
+          ? `Remote · ${remoteSource?.profile?.label ?? 'Worker'} · Workspace`
+          : 'Local · 本机'}
+        workingDirectory={workingDirectory}
+        onAdapterChange={(value) => {
+          if (remoteMode) remote.setAdapterId(value);
+          else { setLocalAdapterId(value); setLastAdapter(value); }
+        }}
+        onBrowseDirectory={remoteMode
+          ? () => setRemoteDirectoryOpen(true)
+          : () => void browse()}
+        onClose={close}
+        onCreate={() => void submit()}
+        onPromptChange={setPrompt}
+        onWorkingDirectoryChange={setWorkingDirectory}
       />
       {remoteDirectoryOpen && remoteSource && (
         <RemoteWorkspaceDirectoryDialog

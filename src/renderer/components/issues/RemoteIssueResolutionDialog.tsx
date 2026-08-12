@@ -98,6 +98,7 @@ export function RemoteIssueResolutionDialog({
   return (
     <>
       <NewSessionForm
+        key={`issue-resolution:${authoringId}:${source.identity}:${issue.id}`}
         acceptsAttachments={acceptsAttachments}
         adapterId={remote.adapterId}
         adapters={remote.adapters.map((adapter) => ({
@@ -122,6 +123,12 @@ export function RemoteIssueResolutionDialog({
         directoryPlaceholder=". 或 repo/subdir"
         error={error ?? remote.error ?? source.error}
         images={images}
+        initializing={Boolean(
+          source.usable &&
+          source.capabilities.has('session-console.read') &&
+          descriptor === null &&
+          remote.error === null,
+        )}
         loading={remote.loading}
         modelLoading={remote.loading}
         model={{
