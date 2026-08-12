@@ -19,7 +19,10 @@ describe('ResetSettingsButton', () => {
     const update = vi.fn().mockResolvedValue(undefined);
     render(<ResetSettingsButton busy={false} update={update} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '重置到默认配置' }));
+    const resetButton = screen.getByRole('button', { name: '重置到默认配置' });
+    expect(resetButton.className).toContain('bg-black/20');
+    expect(resetButton.className).not.toContain('status-waiting');
+    fireEvent.click(resetButton);
 
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     expect(confirmDialog).toHaveBeenCalledWith(

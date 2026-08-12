@@ -103,6 +103,32 @@ describe('NewSessionDialog directory picker', () => {
 });
 
 describe('NewSessionDialog model options', () => {
+  it('waits for parsed defaults instead of briefly showing a fallback model', async () => {
+    const pending = deferred<ReturnType<typeof sessionCreationDefaults> & { model: string }>();
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        ...window.api,
+        getAdapterSessionCreationDefaults: vi.fn().mockReturnValue(pending.promise),
+      },
+    });
+    render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await screen.findByText('Claude');
+    expect(screen.getByText('正在读取模型配置…')).toBeTruthy();
+    expect(screen.queryByText('模型配置')).toBeNull();
+
+    await act(async () => {
+      pending.resolve({ ...sessionCreationDefaults(), model: 'claude-config-model' });
+    });
+
+    expect(await screen.findByText(/模型：claude-config-model/)).toBeTruthy();
+    expect(screen.queryByText('正在读取模型配置…')).toBeNull();
+    const localTarget = screen.getByText('创建目标：Local · 本机');
+    expect(localTarget.className).toContain('bg-black/20');
+    expect(localTarget.className).not.toContain('status-working');
+  });
+
   it('显示配置文件的具体模型与思考值，清空模型后仍交给配置文件决定', async () => {
     const defaultsReader = vi.fn().mockResolvedValue({
       ...sessionCreationDefaults(),
@@ -201,6 +227,7 @@ describe('NewSessionDialog model options', () => {
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     const workMode = await screen.findByLabelText('工作模式');
+    await screen.findByText('模型配置');
     expect(workMode.textContent).toContain('可执行');
     expect(workMode.textContent).not.toContain('默认');
     fireEvent.click(workMode);
@@ -367,6 +394,7 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     createAdapterSession.mockReturnValueOnce(pending.promise);
     render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
     await screen.findByText('Claude');
+    await screen.findByText('模型配置');
     fireEvent.change(screen.getByLabelText('第一条消息'), {
       target: { value: '只创建一次' },
     });
@@ -391,6 +419,7 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     createAdapterSession.mockReturnValueOnce(pending.promise);
     render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
     await screen.findByText('Claude');
+    await screen.findByText('模型配置');
     const firstMessageLabel = screen.getByText('第一条消息（文字或图片至少一项）');
     expect(firstMessageLabel.parentElement?.parentElement?.className).toContain('gap-1.5');
     const addImageButton = screen.getByRole('button', { name: '添加图片' });
@@ -435,6 +464,7 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
       <NewSessionDialog open onClose={onClose} onCreated={onCreated} />,
     );
     await screen.findByText('Claude');
+    await screen.findByText('模型配置');
     fireEvent.change(screen.getByLabelText('第一条消息'), {
       target: { value: '旧草稿' },
     });

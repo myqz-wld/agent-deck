@@ -50,6 +50,10 @@ describe('SettingsDialog adapter views', () => {
 
     render(<SettingsDialog open onClose={vi.fn()} />);
     const grokTab = await screen.findByRole('tab', { name: 'Grok Build' });
+    for (const tab of screen.getAllByRole('tab')) {
+      expect(tab.className).toContain('whitespace-nowrap');
+      expect(tab.className).toContain('min-w-0');
+    }
     fireEvent.click(grokTab);
 
     expect(screen.getByText('Grok Build 配置')).toBeTruthy();

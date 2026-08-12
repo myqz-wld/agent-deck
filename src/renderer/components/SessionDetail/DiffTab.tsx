@@ -121,7 +121,7 @@ export function DiffTab({
     <div className="flex h-full flex-col gap-2">
       {changes === null ? (
         diffError ? (
-          <div className="flex items-center gap-2 text-[11px] text-status-waiting">
+          <div className="flex items-center gap-2 px-2 py-3 text-[11px] text-status-waiting">
             <span>加载改动失败：{diffError}</span>
             <button
               type="button"
@@ -132,10 +132,10 @@ export function DiffTab({
             </button>
           </div>
         ) : (
-          <div className="text-[11px] text-deck-muted">加载中…</div>
+          <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>
         )
       ) : changes.length === 0 ? (
-        <div className="flex items-center gap-2 text-[11px] text-deck-muted">
+        <div className="flex items-center gap-2 px-2 py-3 text-[11px] text-deck-muted">
           <span>本会话暂无文件改动</span>
           {hasMore && (
             <button

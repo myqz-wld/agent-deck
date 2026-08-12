@@ -123,6 +123,7 @@ export function RemoteIssueResolutionDialog({
         error={error ?? remote.error ?? source.error}
         images={images}
         loading={remote.loading}
+        modelLoading={remote.loading}
         model={{
           adapterId: remote.adapterId,
           provider: options.provider ?? '',

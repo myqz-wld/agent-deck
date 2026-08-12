@@ -164,6 +164,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       error={error}
       images={images}
       loading={false}
+      modelLoading={options.defaultsLoading}
       model={{
         adapterId,
         provider: options.provider,
